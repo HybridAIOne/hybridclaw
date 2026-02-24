@@ -21,11 +21,14 @@ cp .env.example .env
 # Build the container image
 cd container && npm run build && docker build -t hybridclaw-agent . && cd ..
 
+# Link the CLI globally
+npm link
+
 # Run Discord bot
-npm run dev
+hybridclaw serve
 
 # Or run the terminal UI (no Discord needed)
-npm run tui
+hybridclaw tui
 ```
 
 ## Configuration
