@@ -3,11 +3,14 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Personal AI assistant bot for Discord, powered by HybridAI",
+  "bin": {
+    "hybridclaw": "dist/cli.js"
+  },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/index.ts",
-    "tui": "tsx src/tui.ts",
-    "start": "node dist/index.js"
+    "dev": "tsx src/cli.ts serve",
+    "tui": "tsx src/cli.ts tui",
+    "start": "node dist/cli.js serve"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
