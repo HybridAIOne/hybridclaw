@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+container/node_modules/
+
+# Build output
+dist/
+container/dist/
+
+# Runtime data
+data/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# SQLite
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
