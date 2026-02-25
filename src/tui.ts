@@ -41,15 +41,9 @@ const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
 const TEAL = '\x1b[38;2;92;224;216m';    // #5ce0d8 — logo bright teal
 const NAVY = '\x1b[38;2;30;58;95m';      // #1e3a5f — logo dark navy
-const BLUE = '\x1b[38;2;74;108;247m';    // #4a6cf7 — HybridAI primary blue
 const GOLD = '\x1b[38;2;255;215;0m';     // #FFD700 — accent gold
 const GREEN = '\x1b[38;2;16;185;129m';   // #10b981 — emerald
 const RED = '\x1b[38;2;239;68;68m';      // red for errors
-const ORANGE = '\x1b[38;2;255;165;0m';   // #FFA500 — warm accent
-const CYAN = '\x1b[36m';
-const YELLOW = '\x1b[33m';
-const MAGENTA = '\x1b[35m';
-
 const SESSION_ID = 'tui:local';
 const CHANNEL_ID = 'tui';
 const AGENT_ID = HYBRIDAI_CHATBOT_ID || 'default';
@@ -64,8 +58,16 @@ async function fetchBots(): Promise<HybridAIBot[]> {
     headers: { Authorization: `Bearer ${HYBRIDAI_API_KEY}` },
   });
   if (!res.ok) throw new Error(`Failed to fetch bots: ${res.status}`);
-  const data = await res.json() as { data?: HybridAIBot[]; bots?: HybridAIBot[] } | HybridAIBot[];
-  return Array.isArray(data) ? data : (data.data || data.bots || []);
+  const data = await res.json() as
+    | { data?: Record<string, unknown>[]; bots?: Record<string, unknown>[]; items?: Record<string, unknown>[] }
+    | Record<string, unknown>[];
+  const raw = Array.isArray(data) ? data : (data.data || data.bots || data.items || []);
+  // Normalize fields — API may return bot_name/chatbot_id instead of name/id
+  return raw.map((item) => ({
+    id: String(item.id ?? item._id ?? item.chatbot_id ?? item.bot_id ?? ''),
+    name: String(item.bot_name ?? item.name ?? 'Unnamed'),
+    description: item.description != null ? String(item.description) : undefined,
+  }));
 }
 
 function printBanner(): void {

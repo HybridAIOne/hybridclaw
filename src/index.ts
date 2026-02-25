@@ -174,7 +174,6 @@ async function handleCommand(
         '`!claw clear` — Clear conversation history (keeps workspace)',
         '`!claw status` — Show bot status',
         '`!claw sessions` — List active sessions',
-        '`!claw logs [n]` — Show recent request logs',
         '`!claw audit [n]` — Show recent audit entries',
         '`!claw schedule add "<cron>" <prompt>` — Add scheduled task',
         '`!claw schedule list` — List scheduled tasks',

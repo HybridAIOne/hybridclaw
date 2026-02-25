@@ -76,6 +76,5 @@ export const HEARTBEAT_CHANNEL = process.env.HEARTBEAT_CHANNEL || '';
 
 // Ops
 export const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9090', 10);
-export const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 export const DB_PATH = process.env.DB_PATH || 'data/hybridclaw.db';
 export const DATA_DIR = path.dirname(DB_PATH);

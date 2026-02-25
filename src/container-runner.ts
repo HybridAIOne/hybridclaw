@@ -217,18 +217,6 @@ export async function runContainer(
 }
 
 /**
- * Stop a specific container.
- */
-export function stopContainer(sessionId: string): void {
-  const entry = pool.get(sessionId);
-  if (!entry) return;
-
-  logger.info({ sessionId, containerName: entry.containerName }, 'Stopping container');
-  exec(`docker stop ${entry.containerName}`, { timeout: 10000 });
-  pool.delete(sessionId);
-}
-
-/**
  * Stop all containers (for graceful shutdown).
  */
 export function stopAllContainers(): void {

@@ -16,43 +16,10 @@ export interface ToolCall {
   };
 }
 
-export interface ChatCompletionResponse {
-  id: string;
-  choices: Array<{
-    message: {
-      role: string;
-      content: string | null;
-      tool_calls?: ToolCall[];
-    };
-    finish_reason: string;
-  }>;
-  model: string;
-  usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  };
-}
-
 export interface HybridAIBot {
   id: string;
   name: string;
   description?: string;
-}
-
-// --- Tool definitions ---
-
-export interface ToolDefinition {
-  type: 'function';
-  function: {
-    name: string;
-    description: string;
-    parameters: {
-      type: 'object';
-      properties: Record<string, { type: string; description: string }>;
-      required: string[];
-    };
-  };
 }
 
 // --- Container IPC types ---

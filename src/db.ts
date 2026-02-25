@@ -53,8 +53,6 @@ function createSchema(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id);
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
-
-    -- request_log removed: replaced by data/last_prompt.jsonl debug dump
   `);
 }
 

@@ -3,7 +3,7 @@ import path from 'path';
 
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from './config.js';
 import { logger } from './logger.js';
-import type { ChatMessage, ContainerInput, ContainerOutput } from './types.js';
+import type { ContainerInput, ContainerOutput } from './types.js';
 
 /**
  * Get session directory, creating it if needed.
@@ -57,15 +57,6 @@ export function writeInput(sessionId: string, input: ContainerInput, opts?: { om
   fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2));
   logger.debug({ sessionId, path: inputPath }, 'Wrote IPC input');
   return inputPath;
-}
-
-/**
- * Write conversation history for the container.
- */
-export function writeHistory(sessionId: string, messages: ChatMessage[]): void {
-  const dir = ipcDir(sessionId);
-  const historyPath = path.join(dir, 'history.json');
-  fs.writeFileSync(historyPath, JSON.stringify(messages, null, 2));
 }
 
 /**

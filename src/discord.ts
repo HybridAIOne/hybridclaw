@@ -145,10 +145,6 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
   return client;
 }
 
-export function getClient(): Client {
-  return client;
-}
-
 /**
  * Send a message to a channel by ID (used by scheduler).
  */
