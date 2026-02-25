@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import type { ToolDefinition } from './types.js';
+import { webFetch } from './web-fetch.js';
 
 const MAX_OUTPUT_LINES = 6;
 const MAX_LINE_LENGTH = 200;
@@ -23,7 +24,7 @@ function safeJoin(userPath: string): string {
   return path.resolve('/workspace', userPath.replace(/^\/+/, ''));
 }
 
-export function executeTool(name: string, argsJson: string): string {
+export async function executeTool(name: string, argsJson: string): Promise<string> {
   try {
     const args = JSON.parse(argsJson);
 
@@ -111,6 +112,17 @@ export function executeTool(name: string, argsJson: string): string {
           const execErr = err as { stderr?: string; message?: string };
           return `Error: ${execErr.stderr || execErr.message || 'Command failed'}`;
         }
+      }
+
+      case 'web_fetch': {
+        const result = await webFetch({
+          url: args.url,
+          extractMode: args.extractMode,
+          maxChars: args.maxChars,
+        });
+        const header = result.title ? `# ${result.title}\n\n` : '';
+        const meta = `[${result.extractor}] ${result.finalUrl} (${result.status}, ${result.tookMs}ms)`;
+        return `${meta}\n\n${header}${result.text}`;
       }
 
       default:
@@ -222,6 +234,29 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           command: { type: 'string', description: 'Shell command to execute' },
         },
         required: ['command'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'web_fetch',
+      description:
+        'Fetch a URL and extract its readable content as markdown or plain text. Works with HTML pages, JSON APIs, and markdown URLs. Use for reading web pages, documentation, API responses, etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'HTTP or HTTPS URL to fetch' },
+          extractMode: {
+            type: 'string',
+            description: 'Extraction mode: "markdown" (default) or "text"',
+          },
+          maxChars: {
+            type: 'number',
+            description: 'Maximum characters to return (default 50000, max 50000)',
+          },
+        },
+        required: ['url'],
       },
     },
   },

@@ -21,7 +21,7 @@ cd container && npm install && cd ..
 cp .env.example .env
 
 # Build the container image
-cd container && npm run build && docker build -t hybridclaw-agent . && cd ..
+npm run build:container
 
 # Link the CLI globally
 npm link
@@ -65,6 +65,7 @@ The agent has access to these sandboxed tools inside the container:
 - `read` / `write` / `edit` / `delete` — file operations
 - `glob` / `grep` — file search
 - `bash` — shell command execution
+- `web_fetch` — fetch a URL and extract readable content (HTML → markdown/text)
 
 ## Commands
 

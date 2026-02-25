@@ -12,7 +12,7 @@ Personal AI assistant bot for Discord, powered by HybridAI's bot platform.
 
 - `npm run dev` — start host process
 - `npm run tui` — start terminal UI client
-- `cd container && npm run build && docker build -t hybridclaw-agent .` — build container
+- `npm run build:container` — build container (compile TS + Docker image)
 
 ## API
 

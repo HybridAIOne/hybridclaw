@@ -89,7 +89,7 @@ async function processRequest(
       toolsUsed.push(toolName);
       console.error(`[tool] ${toolName}: ${call.function.arguments.slice(0, 100)}`);
       const toolStart = Date.now();
-      const result = executeTool(toolName, call.function.arguments);
+      const result = await executeTool(toolName, call.function.arguments);
       const toolDuration = Date.now() - toolStart;
       console.error(`[tool] ${toolName} result (${toolDuration}ms): ${result.slice(0, 100)}`);
       toolExecutions.push({

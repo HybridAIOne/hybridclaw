@@ -10,7 +10,8 @@
     "build": "tsc",
     "dev": "tsx src/cli.ts serve",
     "tui": "tsx src/cli.ts tui",
-    "start": "node dist/cli.js serve"
+    "start": "node dist/cli.js serve",
+    "build:container": "cd container && npm run build && docker build -t hybridclaw-agent ."
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
