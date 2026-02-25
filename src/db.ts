@@ -75,10 +75,21 @@ function createSchema(database: Database.Database): void {
 
 function migrateSchema(database: Database.Database): void {
   // Add model column to sessions if it doesn't exist
-  const columns = database.pragma('table_info(sessions)') as Array<{ name: string }>;
-  if (!columns.some((c) => c.name === 'model')) {
+  const sessionCols = database.pragma('table_info(sessions)') as Array<{ name: string }>;
+  if (!sessionCols.some((c) => c.name === 'model')) {
     database.exec('ALTER TABLE sessions ADD COLUMN model TEXT');
     logger.info('Migrated sessions table: added model column');
+  }
+
+  // Add run_at and every_ms columns to tasks if they don't exist
+  const taskCols = database.pragma('table_info(tasks)') as Array<{ name: string }>;
+  if (!taskCols.some((c) => c.name === 'run_at')) {
+    database.exec('ALTER TABLE tasks ADD COLUMN run_at TEXT');
+    logger.info('Migrated tasks table: added run_at column');
+  }
+  if (!taskCols.some((c) => c.name === 'every_ms')) {
+    database.exec('ALTER TABLE tasks ADD COLUMN every_ms INTEGER');
+    logger.info('Migrated tasks table: added every_ms column');
   }
 }
 
@@ -175,10 +186,12 @@ export function createTask(
   channelId: string,
   cronExpr: string,
   prompt: string,
+  runAt?: string,
+  everyMs?: number,
 ): number {
   const result = db.prepare(
-    'INSERT INTO tasks (session_id, channel_id, cron_expr, prompt) VALUES (?, ?, ?, ?)',
-  ).run(sessionId, channelId, cronExpr, prompt);
+    'INSERT INTO tasks (session_id, channel_id, cron_expr, prompt, run_at, every_ms) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(sessionId, channelId, cronExpr, prompt, runAt || null, everyMs || null);
   return result.lastInsertRowid as number;
 }
 

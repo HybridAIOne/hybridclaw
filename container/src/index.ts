@@ -1,7 +1,7 @@
 import { callHybridAI } from './hybridai-client.js';
 import { waitForInput, writeOutput } from './ipc.js';
-import { executeTool, TOOL_DEFINITIONS } from './tools.js';
-import type { ChatMessage, ContainerInput, ContainerOutput, ToolExecution } from './types.js';
+import { executeTool, getPendingSideEffects, resetSideEffects, setScheduledTasks, TOOL_DEFINITIONS } from './tools.js';
+import type { ChatMessage, ContainerInput, ContainerOutput, ToolDefinition, ToolExecution } from './types.js';
 
 const MAX_ITERATIONS = 12;
 const IDLE_TIMEOUT_MS = parseInt(process.env.CONTAINER_IDLE_TIMEOUT || '300000', 10); // 5 min
@@ -47,6 +47,7 @@ async function processRequest(
   model: string,
   chatbotId: string,
   enableRag: boolean,
+  tools: ToolDefinition[],
 ): Promise<ContainerOutput> {
   const history: ChatMessage[] = [...messages];
   const toolsUsed: string[] = [];
@@ -58,7 +59,7 @@ async function processRequest(
 
     let response;
     try {
-      response = await callHybridAI(baseUrl, apiKey, model, chatbotId, enableRag, history, TOOL_DEFINITIONS);
+      response = await callHybridAI(baseUrl, apiKey, model, chatbotId, enableRag, history, tools);
     } catch (err) {
       return { status: 'error', result: null, toolsUsed, toolExecutions, error: `API error: ${err instanceof Error ? err.message : String(err)}` };
     }
@@ -114,6 +115,11 @@ async function processRequest(
 /**
  * Main loop: read first request from stdin (with secrets), then poll IPC for follow-ups.
  */
+function resolveTools(input: ContainerInput): ToolDefinition[] {
+  if (!input.allowedTools) return TOOL_DEFINITIONS;
+  return TOOL_DEFINITIONS.filter((t) => input.allowedTools!.includes(t.function.name));
+}
+
 async function main(): Promise<void> {
   console.error(`[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms`);
 
@@ -124,6 +130,9 @@ async function main(): Promise<void> {
 
   console.error(`[hybridclaw-agent] processing first request (${firstInput.messages.length} messages)`);
 
+  resetSideEffects();
+  setScheduledTasks(firstInput.scheduledTasks);
+
   const firstOutput = await processRequest(
     firstInput.messages,
     storedApiKey,
@@ -131,8 +140,10 @@ async function main(): Promise<void> {
     firstInput.model,
     firstInput.chatbotId,
     firstInput.enableRag,
+    resolveTools(firstInput),
   );
 
+  firstOutput.sideEffects = getPendingSideEffects();
   writeOutput(firstOutput);
   console.error(`[hybridclaw-agent] first request complete: ${firstOutput.status}`);
 
@@ -150,6 +161,9 @@ async function main(): Promise<void> {
 
     console.error(`[hybridclaw-agent] processing request (${input.messages.length} messages)`);
 
+    resetSideEffects();
+    setScheduledTasks(input.scheduledTasks);
+
     const output = await processRequest(
       input.messages,
       apiKey,
@@ -157,8 +171,10 @@ async function main(): Promise<void> {
       input.model,
       input.chatbotId,
       input.enableRag,
+      resolveTools(input),
     );
 
+    output.sideEffects = getPendingSideEffects();
     writeOutput(output);
     console.error(`[hybridclaw-agent] request complete: ${output.status}`);
   }

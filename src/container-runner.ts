@@ -18,7 +18,7 @@ import {
 import { cleanupIpc, ensureAgentDirs, ensureSessionDirs, getSessionPaths, readOutput, writeInput } from './ipc.js';
 import { logger } from './logger.js';
 import { validateAdditionalMounts } from './mount-security.js';
-import type { AdditionalMount, ChatMessage, ContainerInput, ContainerOutput } from './types.js';
+import type { AdditionalMount, ChatMessage, ContainerInput, ContainerOutput, ScheduledTask } from './types.js';
 
 const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
 
@@ -138,6 +138,9 @@ export async function runContainer(
   enableRag: boolean,
   model: string = HYBRIDAI_MODEL,
   agentId: string = chatbotId,
+  channelId: string = '',
+  scheduledTasks?: ScheduledTask[],
+  allowedTools?: string[],
 ): Promise<ContainerOutput> {
   // Enforce concurrent container limit
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
@@ -177,6 +180,18 @@ export async function runContainer(
     apiKey: HYBRIDAI_API_KEY,
     baseUrl: HYBRIDAI_BASE_URL.replace(/\/\/(localhost|127\.0\.0\.1)([:\/])/, '//host.docker.internal$2'),
     model,
+    channelId,
+    scheduledTasks: scheduledTasks?.map((t) => ({
+      id: t.id,
+      cronExpr: t.cron_expr,
+      runAt: t.run_at,
+      everyMs: t.every_ms,
+      prompt: t.prompt,
+      enabled: t.enabled,
+      lastRun: t.last_run,
+      createdAt: t.created_at,
+    })),
+    allowedTools,
   };
 
   if (isNewContainer) {

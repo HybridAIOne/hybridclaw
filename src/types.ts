@@ -65,6 +65,9 @@ export interface ContainerInput {
   apiKey: string;
   baseUrl: string;
   model: string;
+  channelId: string;
+  scheduledTasks?: { id: number; cronExpr: string; runAt: string | null; everyMs: number | null; prompt: string; enabled: number; lastRun: string | null; createdAt: string }[];
+  allowedTools?: string[];
 }
 
 export interface ToolExecution {
@@ -80,7 +83,12 @@ export interface ContainerOutput {
   toolsUsed: string[];
   toolExecutions?: ToolExecution[];
   error?: string;
+  sideEffects?: { schedules?: ScheduleSideEffect[] };
 }
+
+export type ScheduleSideEffect =
+  | { action: 'add'; cronExpr?: string; runAt?: string; everyMs?: number; prompt: string }
+  | { action: 'remove'; taskId: number };
 
 // --- Database types ---
 
@@ -111,6 +119,8 @@ export interface ScheduledTask {
   session_id: string;
   channel_id: string;
   cron_expr: string;
+  run_at: string | null;
+  every_ms: number | null;
   prompt: string;
   enabled: number;
   last_run: string | null;

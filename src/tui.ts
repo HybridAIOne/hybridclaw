@@ -18,14 +18,17 @@ import {
   clearSessionHistory,
   getConversationHistory,
   getOrCreateSession,
+  getTasksForSession,
   initDatabase,
   logRequest,
   storeMessage,
 } from './db.js';
+import { processSideEffects } from './side-effects.js';
 import { logger } from './logger.js';
 import type { ChatMessage, HybridAIBot } from './types.js';
 import { buildSkillsPrompt, loadSkills } from './skills.js';
 import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
+import { startScheduler, stopScheduler } from './scheduler.js';
 import {
   buildContextPrompt,
   ensureBootstrapFiles,
@@ -283,11 +286,13 @@ async function processMessage(content: string): Promise<void> {
   const startTime = Date.now();
 
   try {
-    const output = await runAgent(SESSION_ID, messages, chatbotId, enableRag, HYBRIDAI_MODEL, AGENT_ID);
+    const scheduledTasks = getTasksForSession(SESSION_ID);
+    const output = await runAgent(SESSION_ID, messages, chatbotId, enableRag, HYBRIDAI_MODEL, AGENT_ID, CHANNEL_ID, scheduledTasks);
     const duration = Date.now() - startTime;
     s.stop();
 
     logRequest(SESSION_ID, HYBRIDAI_MODEL, chatbotId, messages, output, duration);
+    processSideEffects(output, SESSION_ID, CHANNEL_ID);
 
     if (output.status === 'error') {
       printError(output.error || 'Unknown error');
@@ -305,6 +310,31 @@ async function processMessage(content: string): Promise<void> {
   } catch (err) {
     s.stop();
     printError(err instanceof Error ? err.message : String(err));
+  }
+}
+
+let scheduledTaskCallback: ((text: string) => void) | null = null;
+
+// OpenClaw style: isolated session, tools disabled, direct output
+async function runScheduledTask(origSessionId: string, channelId: string, prompt: string, taskId: number): Promise<void> {
+  const botId = chatbotId;
+  if (!botId) return;
+
+  // Isolated run — fresh session, no history, only cron tool available
+  const cronSessionId = `cron:${taskId}`;
+  const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
+
+  try {
+    const output = await runAgent(cronSessionId, messages, botId, false, HYBRIDAI_MODEL, AGENT_ID, channelId, undefined, ['cron']);
+    if (output.status === 'success' && output.result) {
+      if (scheduledTaskCallback) {
+        scheduledTaskCallback(output.result);
+      } else {
+        printResponse(output.result);
+      }
+    }
+  } catch (err) {
+    printError(`Scheduled task failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -342,11 +372,16 @@ async function main(): Promise<void> {
     await processMessage('Wake up, my friend!');
   }
 
-  // Start heartbeat after bootstrap is done
+  // Start heartbeat and scheduler after bootstrap is done
   startHeartbeat(AGENT_ID, HEARTBEAT_INTERVAL, (text) => {
     printResponse(text);
     rl.prompt();
   });
+  scheduledTaskCallback = (text) => {
+    printResponse(text);
+    rl.prompt();
+  };
+  startScheduler(runScheduledTask);
 
   rl.prompt();
 
@@ -369,6 +404,7 @@ async function main(): Promise<void> {
 
   rl.on('close', () => {
     stopHeartbeat();
+    stopScheduler();
     console.log(`\n${DIM}  Goodbye!${RESET}\n`);
     process.exit(0);
   });

@@ -28,6 +28,7 @@ import {
   updateSessionModel,
   updateSessionRag,
 } from './db.js';
+import { processSideEffects } from './side-effects.js';
 import {
   buildResponseText,
   formatError,
@@ -127,10 +128,12 @@ async function handleMessage(
   }
 
   try {
-    const output = await runAgent(sessionId, messages, chatbotId, enableRag, model, agentId);
+    const scheduledTasks = getTasksForSession(sessionId);
+    const output = await runAgent(sessionId, messages, chatbotId, enableRag, model, agentId, channelId, scheduledTasks);
     const duration = Date.now() - startTime;
 
     logRequest(sessionId, model, chatbotId, messages, output, duration);
+    processSideEffects(output, sessionId, channelId);
 
     if (output.status === 'error') {
       await reply(formatError('Agent Error', output.error || 'Unknown error'));
@@ -398,25 +401,27 @@ function formatUptime(seconds: number): string {
   return parts.join(' ');
 }
 
-// --- Scheduled task runner ---
-async function runScheduledTask(sessionId: string, channelId: string, prompt: string): Promise<void> {
-  const session = getOrCreateSession(sessionId, null, channelId);
+// --- Scheduled task runner (OpenClaw style: isolated session, tools disabled, direct post) ---
+async function runScheduledTask(origSessionId: string, channelId: string, prompt: string, taskId: number): Promise<void> {
+  // Config from original session
+  const session = getOrCreateSession(origSessionId, null, channelId);
   const chatbotId = session.chatbot_id || HYBRIDAI_CHATBOT_ID;
-  const enableRag = session.enable_rag === 1;
   const model = session.model || HYBRIDAI_MODEL;
   const agentId = chatbotId || 'default';
 
   if (!chatbotId) return;
 
+  // Isolated run — fresh session, no history, only cron tool available
+  const cronSessionId = `cron:${taskId}`;
   const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
 
   try {
-    const output = await runAgent(sessionId, messages, chatbotId, enableRag, model, agentId);
+    const output = await runAgent(cronSessionId, messages, chatbotId, false, model, agentId, channelId, undefined, ['cron']);
     if (output.status === 'success' && output.result) {
-      await sendToChannel(channelId, buildResponseText(output.result, output.toolsUsed));
+      await sendToChannel(channelId, output.result);
     }
   } catch (err) {
-    logger.error({ sessionId, channelId, err }, 'Scheduled task failed');
+    logger.error({ taskId, channelId, err }, 'Scheduled task failed');
   }
 }
 

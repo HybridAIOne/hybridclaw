@@ -2,10 +2,11 @@
  * Heartbeat — periodic poll so the agent can proactively check tasks,
  * maintain memory, and reach out when needed.
  */
-import { HEARTBEAT_ENABLED, HEARTBEAT_INTERVAL, HYBRIDAI_CHATBOT_ID, HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL } from './config.js';
+import { HEARTBEAT_CHANNEL, HEARTBEAT_ENABLED, HEARTBEAT_INTERVAL, HYBRIDAI_CHATBOT_ID, HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL } from './config.js';
 import { runAgent } from './agent.js';
-import { getConversationHistory, getOrCreateSession, logRequest, storeMessage } from './db.js';
+import { getConversationHistory, getOrCreateSession, getTasksForSession, logRequest, storeMessage } from './db.js';
 import { logger } from './logger.js';
+import { processSideEffects } from './side-effects.js';
 import { buildSkillsPrompt, loadSkills } from './skills.js';
 import { buildContextPrompt, loadBootstrapFiles } from './workspace.js';
 import type { ChatMessage } from './types.js';
@@ -67,11 +68,14 @@ export function startHeartbeat(
       messages.push({ role: 'user', content: HEARTBEAT_PROMPT });
 
       const chatbotId = HYBRIDAI_CHATBOT_ID || agentId;
+      const heartbeatChannelId = HEARTBEAT_CHANNEL || 'heartbeat';
+      const scheduledTasks = getTasksForSession(sessionId);
       const startTime = Date.now();
-      const output = await runAgent(sessionId, messages, chatbotId, HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL, agentId);
+      const output = await runAgent(sessionId, messages, chatbotId, HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL, agentId, heartbeatChannelId, scheduledTasks);
       const duration = Date.now() - startTime;
 
       logRequest(sessionId, HYBRIDAI_MODEL, chatbotId, messages, output, duration);
+      processSideEffects(output, sessionId, heartbeatChannelId);
 
       if (output.status === 'error') {
         logger.warn({ error: output.error }, 'Heartbeat agent error');
