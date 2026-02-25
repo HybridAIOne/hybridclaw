@@ -116,8 +116,12 @@ async function processRequest(
  * Main loop: read first request from stdin (with secrets), then poll IPC for follow-ups.
  */
 function resolveTools(input: ContainerInput): ToolDefinition[] {
-  if (!input.allowedTools) return TOOL_DEFINITIONS;
-  return TOOL_DEFINITIONS.filter((t) => input.allowedTools!.includes(t.function.name));
+  const tools = input.allowedTools
+    ? TOOL_DEFINITIONS.filter((t) => input.allowedTools!.includes(t.function.name))
+    : [...TOOL_DEFINITIONS];
+  // Sort alphabetically for deterministic system-prompt ordering (KV cache stability)
+  tools.sort((a, b) => a.function.name.localeCompare(b.function.name));
+  return tools;
 }
 
 async function main(): Promise<void> {

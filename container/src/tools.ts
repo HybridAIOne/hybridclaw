@@ -5,6 +5,38 @@ import path from 'path';
 import type { ScheduleSideEffect, ToolDefinition } from './types.js';
 import { webFetch } from './web-fetch.js';
 
+// --- Exec safety deny-list (defense-in-depth, adapted from PicoClaw) ---
+
+const DENY_PATTERNS: RegExp[] = [
+  /\brm\s+-[rf]{1,2}\b/,           // rm -r, rm -f, rm -rf
+  /\b(mkfs|format)\b\s/,            // disk formatting
+  /\bdd\s+if=/,                      // raw disk I/O
+  /:\(\)\s*\{.*\};\s*:/,            // fork bomb :(){ :|:& };:
+  /\|\s*(sh|bash|zsh)\b/,           // pipe to shell
+  /;\s*rm\s+-[rf]/,                  // chained rm after semicolon
+  /&&\s*rm\s+-[rf]/,                 // chained rm after &&
+  /\|\|\s*rm\s+-[rf]/,              // chained rm after ||
+  /\bcurl\b.*\|\s*(sh|bash)/,       // curl | sh
+  /\bwget\b.*\|\s*(sh|bash)/,       // wget | sh
+  /\beval\b/,                        // eval execution
+  /\bsource\s+.*\.sh\b/,            // source shell scripts
+  /\bpkill\b/,                       // process killing
+  /\bkillall\b/,                     // process killing
+  /\bkill\s+-9\b/,                   // force kill
+  /\b(shutdown|reboot|poweroff)\b/,  // system power control
+  />\s*\/dev\/sd[a-z]\b/,           // write to block devices
+];
+
+function guardCommand(command: string): string | null {
+  const lower = command.toLowerCase();
+  for (const pattern of DENY_PATTERNS) {
+    if (pattern.test(lower)) {
+      return 'Command blocked by safety guard (dangerous pattern detected)';
+    }
+  }
+  return null;
+}
+
 // --- Side-effect accumulator for host-processed actions ---
 
 type ScheduledTaskInfo = { id: number; cronExpr: string; runAt: string | null; everyMs: number | null; prompt: string; enabled: number; lastRun: string | null; createdAt: string };
@@ -116,6 +148,8 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
       }
 
       case 'bash': {
+        const blocked = guardCommand(args.command);
+        if (blocked) return blocked;
         try {
           // Strip secrets from subprocess environment (belt-and-suspenders)
           const cleanEnv = { ...process.env };

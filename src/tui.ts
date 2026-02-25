@@ -20,7 +20,6 @@ import {
   getOrCreateSession,
   getTasksForSession,
   initDatabase,
-  logRequest,
   storeMessage,
 } from './db.js';
 import { processSideEffects } from './side-effects.js';
@@ -283,15 +282,12 @@ async function processMessage(content: string): Promise<void> {
   }
 
   const s = spinner();
-  const startTime = Date.now();
 
   try {
     const scheduledTasks = getTasksForSession(SESSION_ID);
     const output = await runAgent(SESSION_ID, messages, chatbotId, enableRag, HYBRIDAI_MODEL, AGENT_ID, CHANNEL_ID, scheduledTasks);
-    const duration = Date.now() - startTime;
     s.stop();
 
-    logRequest(SESSION_ID, HYBRIDAI_MODEL, chatbotId, messages, output, duration);
     processSideEffects(output, SESSION_ID, CHANNEL_ID);
 
     if (output.status === 'error') {
@@ -374,6 +370,7 @@ async function main(): Promise<void> {
 
   // Start heartbeat and scheduler after bootstrap is done
   startHeartbeat(AGENT_ID, HEARTBEAT_INTERVAL, (text) => {
+    if (/^\s*HEARTBEAT_?OK\s*$/i.test(text)) return; // suppress leaks
     printResponse(text);
     rl.prompt();
   });

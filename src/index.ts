@@ -17,11 +17,9 @@ import {
   getConversationHistory,
   getOrCreateSession,
   getRecentAudit,
-  getRequestLogs,
   getTasksForSession,
   initDatabase,
   logAudit,
-  logRequest,
   storeMessage,
   toggleTask,
   updateSessionChatbot,
@@ -130,9 +128,6 @@ async function handleMessage(
   try {
     const scheduledTasks = getTasksForSession(sessionId);
     const output = await runAgent(sessionId, messages, chatbotId, enableRag, model, agentId, channelId, scheduledTasks);
-    const duration = Date.now() - startTime;
-
-    logRequest(sessionId, model, chatbotId, messages, output, duration);
     processSideEffects(output, sessionId, channelId);
 
     if (output.status === 'error') {
@@ -301,25 +296,6 @@ async function handleCommand(
         `\`${s.id}\` — ${s.message_count} msgs, last active ${s.last_active}`
       ).join('\n');
       await reply(formatInfo('Sessions', list));
-      break;
-    }
-
-    case 'logs': {
-      const limit = parseInt(args[1] || '5', 10);
-      const session = getOrCreateSession(sessionId, guildId, channelId);
-      const logs = getRequestLogs(session.id, Math.min(limit, 20));
-      if (logs.length === 0) {
-        await reply('No request logs yet.');
-        break;
-      }
-      const list = logs.map((l) => {
-        const tools = l.tool_executions_json ? JSON.parse(l.tool_executions_json).length : 0;
-        const prompt = l.messages_json
-          ? JSON.parse(l.messages_json).filter((m: { role: string }) => m.role === 'user').pop()?.content?.slice(0, 50) || '…'
-          : '…';
-        return `\`${l.created_at}\` **${l.status}** ${l.model} | ${tools} tools | ${l.duration_ms ?? '?'}ms\n> ${prompt}`;
-      }).join('\n');
-      await reply(formatInfo('Recent Requests', list));
       break;
     }
 

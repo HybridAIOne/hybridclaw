@@ -4,7 +4,7 @@ import path from 'path';
 
 import { DB_PATH } from './config.js';
 import { logger } from './logger.js';
-import type { AuditEntry, ChatMessage, ContainerOutput, RequestLog, ScheduledTask, Session, StoredMessage } from './types.js';
+import type { AuditEntry, ScheduledTask, Session, StoredMessage } from './types.js';
 
 let db: Database.Database;
 
@@ -54,22 +54,7 @@ function createSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id);
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
 
-    CREATE TABLE IF NOT EXISTS request_log (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id TEXT NOT NULL,
-      model TEXT NOT NULL,
-      chatbot_id TEXT,
-      messages_json TEXT NOT NULL,
-      status TEXT NOT NULL,
-      response TEXT,
-      error TEXT,
-      tool_executions_json TEXT,
-      tools_used TEXT,
-      duration_ms INTEGER,
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_request_log_session ON request_log(session_id);
-    CREATE INDEX IF NOT EXISTS idx_request_log_created ON request_log(created_at);
+    -- request_log removed: replaced by data/last_prompt.jsonl debug dump
   `);
 }
 
@@ -236,35 +221,3 @@ export function getRecentAudit(limit = 20): AuditEntry[] {
     .all(limit) as AuditEntry[];
 }
 
-// --- Request Log ---
-
-export function logRequest(
-  sessionId: string,
-  model: string,
-  chatbotId: string,
-  messages: ChatMessage[],
-  output: ContainerOutput,
-  durationMs: number,
-): void {
-  db.prepare(
-    `INSERT INTO request_log (session_id, model, chatbot_id, messages_json, status, response, error, tool_executions_json, tools_used, duration_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    sessionId,
-    model,
-    chatbotId,
-    JSON.stringify(messages),
-    output.status,
-    output.result || null,
-    output.error || null,
-    output.toolExecutions && output.toolExecutions.length > 0 ? JSON.stringify(output.toolExecutions) : null,
-    output.toolsUsed.length > 0 ? output.toolsUsed.join(', ') : null,
-    durationMs,
-  );
-}
-
-export function getRequestLogs(sessionId: string, limit = 10): RequestLog[] {
-  return db
-    .prepare('SELECT * FROM request_log WHERE session_id = ? ORDER BY id DESC LIMIT ?')
-    .all(sessionId, limit) as RequestLog[];
-}

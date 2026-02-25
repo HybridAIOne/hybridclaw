@@ -4,7 +4,7 @@
  */
 import { HEARTBEAT_CHANNEL, HEARTBEAT_ENABLED, HEARTBEAT_INTERVAL, HYBRIDAI_CHATBOT_ID, HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL } from './config.js';
 import { runAgent } from './agent.js';
-import { getConversationHistory, getOrCreateSession, getTasksForSession, logRequest, storeMessage } from './db.js';
+import { getConversationHistory, getOrCreateSession, getTasksForSession, storeMessage } from './db.js';
 import { logger } from './logger.js';
 import { processSideEffects } from './side-effects.js';
 import { buildSkillsPrompt, loadSkills } from './skills.js';
@@ -20,7 +20,8 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
 function isHeartbeatOk(text: string): boolean {
-  return text.trim().replace(/[^a-z_]/gi, '').toUpperCase() === 'HEARTBEATOK';
+  const normalized = text.trim().replace(/[^a-z_]/gi, '').toUpperCase();
+  return normalized === 'HEARTBEATOK' || normalized.startsWith('HEARTBEATOK');
 }
 
 export function startHeartbeat(
@@ -70,11 +71,7 @@ export function startHeartbeat(
       const chatbotId = HYBRIDAI_CHATBOT_ID || agentId;
       const heartbeatChannelId = HEARTBEAT_CHANNEL || 'heartbeat';
       const scheduledTasks = getTasksForSession(sessionId);
-      const startTime = Date.now();
       const output = await runAgent(sessionId, messages, chatbotId, HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL, agentId, heartbeatChannelId, scheduledTasks);
-      const duration = Date.now() - startTime;
-
-      logRequest(sessionId, HYBRIDAI_MODEL, chatbotId, messages, output, duration);
       processSideEffects(output, sessionId, heartbeatChannelId);
 
       if (output.status === 'error') {

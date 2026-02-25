@@ -136,21 +136,6 @@ export interface AuditEntry {
   created_at: string;
 }
 
-export interface RequestLog {
-  id: number;
-  session_id: string;
-  model: string;
-  chatbot_id: string | null;
-  messages_json: string;
-  status: string;
-  response: string | null;
-  error: string | null;
-  tool_executions_json: string | null;
-  tools_used: string | null;
-  duration_ms: number | null;
-  created_at: string;
-}
-
 // --- Mount security types ---
 
 export interface AdditionalMount {
