@@ -4,6 +4,8 @@
 
 Personal AI assistant bot for Discord, powered by [HybridAI](https://hybridai.one).
 
+Release notes: [CHANGELOG.md](./CHANGELOG.md) (latest tag: [`v0.1.1`](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.1))
+
 ## Architecture
 
 - **Host process** (Node.js) — Discord client, SQLite persistence, scheduler, IPC, heartbeat
