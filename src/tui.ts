@@ -51,6 +51,7 @@ const AGENT_ID = HYBRIDAI_CHATBOT_ID || 'default';
 let chatbotId = HYBRIDAI_CHATBOT_ID;
 let enableRag = HYBRIDAI_ENABLE_RAG;
 let botName = chatbotId || 'HybridClaw';
+let activeRunAbortController: AbortController | null = null;
 
 async function fetchBots(): Promise<HybridAIBot[]> {
   const url = `${HYBRIDAI_BASE_URL}/api/v1/bot-management/bots`;
@@ -125,7 +126,9 @@ function printHelp(): void {
   console.log(`  ${TEAL}/info${RESET}        Show current settings`);
   console.log(`  ${TEAL}/clear${RESET}       Clear conversation history`);
   console.log(`  ${TEAL}/skill <name>${RESET} Run an installed skill`);
+  console.log(`  ${TEAL}/stop${RESET}        Interrupt current activity`);
   console.log(`  ${TEAL}/exit${RESET}        Quit`);
+  console.log(`  ${TEAL}ESC${RESET}          Interrupt current activity`);
   console.log();
 }
 
@@ -274,6 +277,16 @@ async function handleSlashCommand(input: string, rl: readline.Interface): Promis
       printInfo('Conversation cleared.');
       return true;
 
+    case 'stop':
+    case 'abort':
+      if (activeRunAbortController && !activeRunAbortController.signal.aborted) {
+        activeRunAbortController.abort();
+        printInfo('Stopping current activity...');
+      } else {
+        printInfo('No active activity to stop.');
+      }
+      return true;
+
     default:
       return false;
   }
@@ -310,6 +323,8 @@ async function processMessage(content: string): Promise<void> {
   }
 
   const s = spinner();
+  const abortController = new AbortController();
+  activeRunAbortController = abortController;
   let lastProgressTool: string | null = null;
   const onToolProgress = (event: ToolProgressEvent): void => {
     if (event.phase !== 'start') return;
@@ -322,13 +337,26 @@ async function processMessage(content: string): Promise<void> {
 
   try {
     const scheduledTasks = getTasksForSession(SESSION_ID);
-    const output = await runAgent(SESSION_ID, messages, chatbotId, enableRag, HYBRIDAI_MODEL, AGENT_ID, CHANNEL_ID, scheduledTasks, undefined, onToolProgress);
+    const output = await runAgent(
+      SESSION_ID,
+      messages,
+      chatbotId,
+      enableRag,
+      HYBRIDAI_MODEL,
+      AGENT_ID,
+      CHANNEL_ID,
+      scheduledTasks,
+      undefined,
+      onToolProgress,
+      abortController.signal,
+    );
     s.stop();
     s.clearTools();
 
     processSideEffects(output, SESSION_ID, CHANNEL_ID);
 
     if (output.status === 'error') {
+      if ((output.error || '').includes('Interrupted by user')) return;
       printError(output.error || 'Unknown error');
       return;
     }
@@ -344,7 +372,12 @@ async function processMessage(content: string): Promise<void> {
   } catch (err) {
     s.stop();
     s.clearTools();
+    if (abortController.signal.aborted) return;
     printError(err instanceof Error ? err.message : String(err));
+  } finally {
+    if (activeRunAbortController === abortController) {
+      activeRunAbortController = null;
+    }
   }
 }
 
@@ -400,6 +433,15 @@ async function main(): Promise<void> {
     historySize: 100,
   });
 
+  readline.emitKeypressEvents(process.stdin, rl);
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
+
+  process.stdin.on('keypress', (_str, key) => {
+    if (key?.name !== 'escape') return;
+    if (!activeRunAbortController || activeRunAbortController.signal.aborted) return;
+    activeRunAbortController.abort();
+  });
+
   // First-run: send initial message so the agent self-bootstraps via BOOTSTRAP.md
   if (isBootstrapping(AGENT_ID)) {
     console.log(`  ${DIM}First run detected — hatching via BOOTSTRAP.md...${RESET}`);
@@ -441,6 +483,7 @@ async function main(): Promise<void> {
   });
 
   rl.on('close', () => {
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
     stopHeartbeat();
     stopScheduler();
     console.log(`\n${DIM}  Goodbye!${RESET}\n`);

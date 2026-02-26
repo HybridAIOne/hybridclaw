@@ -28,7 +28,8 @@ export async function runAgent(
   scheduledTasks?: ScheduledTask[],
   allowedTools?: string[],
   onToolProgress?: (event: ToolProgressEvent) => void,
+  abortSignal?: AbortSignal,
 ): Promise<ContainerOutput> {
   dumpPrompt(sessionId, messages, model, chatbotId);
-  return runContainer(sessionId, messages, chatbotId, enableRag, model, agentId, channelId, scheduledTasks, allowedTools, onToolProgress);
+  return runContainer(sessionId, messages, chatbotId, enableRag, model, agentId, channelId, scheduledTasks, allowedTools, onToolProgress, abortSignal);
 }

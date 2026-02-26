@@ -62,17 +62,53 @@ export function writeInput(sessionId: string, input: ContainerInput, opts?: { om
 /**
  * Read output from the container agent. Polls until file appears or timeout.
  */
+function interruptedOutput(): ContainerOutput {
+  return {
+    status: 'error',
+    result: null,
+    toolsUsed: [],
+    error: 'Interrupted by user.',
+  };
+}
+
+async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<boolean> {
+  if (!signal) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    return false;
+  }
+  if (signal.aborted) return true;
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(false);
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      resolve(true);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 export async function readOutput(
   sessionId: string,
   timeoutMs: number,
+  opts?: { signal?: AbortSignal },
 ): Promise<ContainerOutput> {
   const dir = ipcDir(sessionId);
   const outputPath = path.join(dir, 'output.json');
+  const signal = opts?.signal;
 
   const start = Date.now();
   const pollInterval = 250;
 
+  if (signal?.aborted) return interruptedOutput();
+
   while (Date.now() - start < timeoutMs) {
+    if (signal?.aborted) return interruptedOutput();
+
     if (fs.existsSync(outputPath)) {
       const stat = fs.statSync(outputPath);
       if (stat.size > CONTAINER_MAX_OUTPUT_SIZE) {
@@ -92,7 +128,8 @@ export async function readOutput(
         logger.debug({ sessionId, err }, 'Output file not ready, retrying');
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+    const aborted = await sleepWithAbort(pollInterval, signal);
+    if (aborted) return interruptedOutput();
   }
 
   return {

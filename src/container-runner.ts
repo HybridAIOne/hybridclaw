@@ -2,7 +2,7 @@
  * Container Runner — manages a pool of persistent containers.
  * Containers stay alive between requests and exit after an idle timeout.
  */
-import { ChildProcess, exec, spawn } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 
 import {
   ADDITIONAL_MOUNTS,
@@ -72,6 +72,13 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
 
 export function getActiveContainerCount(): number {
   return pool.size;
+}
+
+function stopContainer(containerName: string): void {
+  const proc = spawn('docker', ['stop', containerName], { stdio: 'ignore' });
+  proc.on('error', (err) => {
+    logger.debug({ containerName, err }, 'Failed to stop container');
+  });
 }
 
 /**
@@ -193,6 +200,7 @@ export async function runContainer(
   scheduledTasks?: ScheduledTask[],
   allowedTools?: string[],
   onToolProgress?: (event: ToolProgressEvent) => void,
+  abortSignal?: AbortSignal,
 ): Promise<ContainerOutput> {
   // Enforce concurrent container limit
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
@@ -247,6 +255,15 @@ export async function runContainer(
   };
 
   entry.onToolProgress = onToolProgress;
+  const onAbort = () => {
+    logger.info({ sessionId, containerName: entry.containerName }, 'Interrupt requested, stopping container');
+    stopContainer(entry.containerName);
+  };
+  if (abortSignal) {
+    abortSignal.addEventListener('abort', onAbort, { once: true });
+    if (abortSignal.aborted) onAbort();
+  }
+
   try {
     if (isNewContainer) {
       // First request: send full input (including apiKey) via stdin — no file on disk.
@@ -259,7 +276,7 @@ export async function runContainer(
     }
 
     // Wait for the container to produce output
-    const output = await readOutput(sessionId, CONTAINER_TIMEOUT);
+    const output = await readOutput(sessionId, CONTAINER_TIMEOUT, { signal: abortSignal });
     const duration = Date.now() - startTime;
 
     logger.info(
@@ -269,6 +286,7 @@ export async function runContainer(
 
     return output;
   } finally {
+    abortSignal?.removeEventListener('abort', onAbort);
     if (entry.onToolProgress === onToolProgress) {
       entry.onToolProgress = undefined;
     }
@@ -281,7 +299,7 @@ export async function runContainer(
 export function stopAllContainers(): void {
   for (const [sessionId, entry] of pool) {
     logger.info({ sessionId, containerName: entry.containerName }, 'Stopping container (shutdown)');
-    exec(`docker stop ${entry.containerName}`, { timeout: 10000 });
+    stopContainer(entry.containerName);
   }
   pool.clear();
 }
