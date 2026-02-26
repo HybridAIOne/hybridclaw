@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HybridClaw — Your Personal AI Agent for Discord</title>
+  <style>
+    :root {
+      --bg: #0a1221;
+      --bg-card: #0f1a2e;
+      --bg-card-hover: #162240;
+      --border: #1e3050;
+      --text: #f8fafc;
+      --text-dim: #94a3b8;
+      --text-faint: #64748b;
+      --accent-1: #4a6cf7; /* HybridAI blue */
+      --accent-2: #3b5bdb; /* deep blue */
+      --accent-gold: #FFD700;
+      --accent-gradient: linear-gradient(135deg, #4a6cf7, #7c3aed);
+      --accent-glow: rgba(74, 108, 247, 0.15);
+      --code-bg: #060e1a;
+      --success: #10b981;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    a { color: var(--accent-1); text-decoration: none; transition: color 0.2s; }
+    a:hover { color: var(--accent-2); }
+
+    /* NAV */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(10, 18, 33, 0.88);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+    }
+    .nav-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+    }
+    .nav-logo {
+      font-weight: 700;
+      font-size: 1.2rem;
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.02em;
+    }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+    .nav-links a { color: var(--text-dim); font-size: 0.9rem; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-gh {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.4rem 0.9rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.85rem;
+      color: var(--text-dim) !important;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .nav-gh:hover { border-color: var(--accent-1); color: var(--text) !important; }
+
+    /* HERO */
+    .hero {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 10rem 2rem 6rem;
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-block;
+      padding: 0.35rem 1rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-bottom: 2rem;
+      background: var(--bg-card);
+    }
+    .hero-badge span {
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-weight: 600;
+    }
+    .hero h1 {
+      font-size: clamp(2.5rem, 6vw, 4rem);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin-bottom: 1.5rem;
+    }
+    .hero h1 .gradient {
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p {
+      font-size: 1.2rem;
+      color: var(--text-dim);
+      max-width: 600px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.7;
+    }
+    .hero-cta {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      transition: all 0.2s;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-primary {
+      background: var(--accent-gradient);
+      color: #fff;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); color: #fff; }
+    .btn-secondary {
+      background: var(--bg-card);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--accent-1); transform: translateY(-1px); }
+
+    /* SECTIONS */
+    section {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 5rem 2rem;
+    }
+    .section-label {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+    }
+    .section-title {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+    .section-desc {
+      color: var(--text-dim);
+      max-width: 600px;
+      margin-bottom: 3rem;
+      font-size: 1.05rem;
+    }
+    .section-center { text-align: center; }
+    .section-center .section-desc { margin-left: auto; margin-right: auto; }
+
+    /* FEATURE GRID */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.25rem;
+    }
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.75rem;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .feature-card:hover {
+      border-color: rgba(74, 108, 247, 0.3);
+      background: var(--bg-card-hover);
+    }
+    .feature-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: var(--accent-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+      font-size: 1.2rem;
+    }
+    .feature-card h3 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+    .feature-card p {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    /* ARCHITECTURE */
+    .arch-flow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      flex-wrap: wrap;
+      margin: 3rem 0 2rem;
+    }
+    .arch-node {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem 2rem;
+      text-align: center;
+      min-width: 180px;
+      transition: border-color 0.2s;
+    }
+    .arch-node:hover { border-color: var(--accent-1); }
+    .arch-node-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-faint);
+      margin-bottom: 0.4rem;
+    }
+    .arch-node-title {
+      font-weight: 700;
+      font-size: 1.05rem;
+    }
+    .arch-node-desc {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-top: 0.3rem;
+    }
+    .arch-arrow {
+      font-size: 1.5rem;
+      color: var(--text-faint);
+      padding: 0 0.75rem;
+    }
+    .arch-detail {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.25rem;
+      margin-top: 2.5rem;
+    }
+    .arch-detail-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+    .arch-detail-card h4 {
+      font-size: 0.95rem;
+      margin-bottom: 0.5rem;
+      color: var(--accent-1);
+    }
+    .arch-detail-card p {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    /* TOOLS */
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 0.75rem;
+    }
+    .tool-pill {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      text-align: center;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .tool-pill:hover {
+      border-color: rgba(74, 108, 247, 0.25);
+      background: var(--bg-card-hover);
+    }
+    .tool-pill-icon { font-size: 1.3rem; margin-bottom: 0.4rem; }
+    .tool-pill-name { font-weight: 600; font-size: 0.9rem; }
+    .tool-pill-desc { font-size: 0.75rem; color: var(--text-faint); margin-top: 0.2rem; }
+
+    /* STATS BAR */
+    .stats {
+      display: flex;
+      justify-content: center;
+      gap: 3rem;
+      flex-wrap: wrap;
+      padding: 3rem 2rem;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      margin: 2rem auto;
+      max-width: 1100px;
+    }
+    .stat { text-align: center; }
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 800;
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .stat-label { font-size: 0.8rem; color: var(--text-faint); margin-top: 0.25rem; }
+
+    /* QUICKSTART */
+    .quickstart-box {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      max-width: 650px;
+      margin: 0 auto;
+    }
+    .quickstart-box pre {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.9rem;
+      line-height: 1.8;
+      overflow-x: auto;
+    }
+    .quickstart-box .comment { color: var(--text-faint); }
+    .quickstart-box .cmd { color: var(--accent-1); }
+    .quickstart-box .flag { color: var(--accent-2); }
+
+    /* COMPARISON TABLE */
+    .comparison {
+      max-width: 700px;
+      margin: 0 auto 3rem;
+    }
+    .comparison table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .comparison th, .comparison td {
+      padding: 0.75rem 1.25rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .comparison th {
+      color: var(--text-faint);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .comparison td:first-child { color: var(--text-dim); }
+    .comparison td:nth-child(2) {
+      font-weight: 600;
+      color: var(--accent-1);
+    }
+
+    /* FAQ */
+    .faq-list { max-width: 700px; margin: 0 auto; }
+    .faq-item {
+      border-bottom: 1px solid var(--border);
+      padding: 1.5rem 0;
+    }
+    .faq-item:last-child { border-bottom: none; }
+    .faq-q {
+      font-weight: 600;
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+      cursor: default;
+    }
+    .faq-a {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      line-height: 1.7;
+    }
+
+    /* FOOTER */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 3rem 2rem;
+      text-align: center;
+    }
+    .footer-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      margin-bottom: 1.5rem;
+    }
+    .footer-links a { color: var(--text-dim); font-size: 0.9rem; }
+    .footer-copy { color: var(--text-faint); font-size: 0.8rem; }
+
+    /* HYBRIDAI SHOWCASE */
+    .hybridai-hero {
+      background: linear-gradient(135deg, rgba(74, 108, 247, 0.08), rgba(124, 58, 237, 0.06));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 3rem;
+      max-width: 900px;
+      margin: 0 auto 3rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .hybridai-hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--accent-gradient);
+    }
+    .hybridai-hero h3 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      letter-spacing: -0.01em;
+    }
+    .hybridai-hero h3 .gradient {
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hybridai-hero > p {
+      color: var(--text-dim);
+      font-size: 1.05rem;
+      line-height: 1.7;
+      margin-bottom: 2rem;
+      max-width: 700px;
+    }
+    .hybridai-features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+    }
+    .hybridai-feat {
+      background: rgba(11, 14, 20, 0.6);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      transition: border-color 0.2s;
+    }
+    .hybridai-feat:hover { border-color: rgba(74, 108, 247, 0.25); }
+    .hybridai-feat-icon { font-size: 1.3rem; margin-bottom: 0.5rem; }
+    .hybridai-feat h4 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+      color: var(--text);
+    }
+    .hybridai-feat p {
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+    .hybridai-bot-example {
+      margin-top: 2rem;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      max-width: 500px;
+    }
+    .hybridai-bot-example pre {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: var(--text-dim);
+    }
+    .hybridai-bot-example .cmd { color: var(--accent-1); }
+    .hybridai-bot-example .val { color: var(--accent-2); }
+    .hybridai-bot-example .out { color: var(--success); }
+
+    /* Divider glow */
+    .glow-divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-1), #7c3aed, transparent);
+      opacity: 0.3;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 768px) {
+      .hero { padding: 8rem 1.5rem 4rem; }
+      section { padding: 3rem 1.5rem; }
+      .arch-flow { flex-direction: column; }
+      .arch-arrow { transform: rotate(90deg); padding: 0.5rem 0; }
+      .stats { gap: 2rem; }
+      .nav-links { gap: 1rem; }
+      .features-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      .nav-links a:not(.nav-gh) { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-inner">
+    <div class="nav-logo">HybridClaw</div>
+    <div class="nav-links">
+      <a href="#hybridai">HybridAI</a>
+      <a href="#features">Features</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#tools">Tools</a>
+      <a href="#quickstart">Get Started</a>
+      <a href="https://github.com/bkoehler/hybridclaw" class="nav-gh">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero-badge">Powered by <span>HybridAI</span></div>
+  <h1>Your AI agent that<br><span class="gradient">lives in Discord</span></h1>
+  <p>Connect to the HybridAI platform, pick your bot, and get a personal AI assistant that runs tools in sandboxed containers, accesses your knowledge base with RAG, and proactively checks in on your world.</p>
+  <div class="hero-cta">
+    <a href="#quickstart" class="btn btn-primary">Get Started</a>
+    <a href="#features" class="btn btn-secondary">See Features</a>
+  </div>
+</header>
+
+<div class="glow-divider"></div>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stat">
+    <div class="stat-value">9</div>
+    <div class="stat-label">Agent Tools</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">3</div>
+    <div class="stat-label">Scheduling Modes</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">12</div>
+    <div class="stat-label">Max Tool Iterations</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">28+</div>
+    <div class="stat-label">Security Patterns</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">2</div>
+    <div class="stat-label">Interfaces</div>
+  </div>
+</div>
+
+<!-- HYBRIDAI PLATFORM -->
+<section id="hybridai">
+  <div class="section-center">
+    <div class="section-label">Platform</div>
+    <h2 class="section-title">Powered by the HybridAI platform</h2>
+    <p class="section-desc">HybridClaw connects to HybridAI's bot platform, giving you access to managed chatbots, advanced RAG retrieval, document knowledge bases, and multi-model selection &mdash; all through a simple API.</p>
+  </div>
+
+  <div class="hybridai-hero">
+    <h3>Select your bot. <span class="gradient">Unlock its knowledge.</span></h3>
+    <p>Each HybridAI bot is a knowledge container with its own document corpus, personality, and retrieval capabilities. Switch bots per channel &mdash; use your Hermes3000 bot for deep research, a support bot for your team, or a custom bot trained on your own documents.</p>
+
+    <div class="hybridai-features">
+      <div class="hybridai-feat">
+        <div class="hybridai-feat-icon">&#x1f4c1;</div>
+        <h4>Document RAG</h4>
+        <p>Toggle retrieval-augmented generation per channel. Your bot searches its knowledge base and grounds answers in your uploaded documents.</p>
+      </div>
+      <div class="hybridai-feat">
+        <div class="hybridai-feat-icon">&#x1f500;</div>
+        <h4>Bot Switching</h4>
+        <p>List all your HybridAI bots and assign different ones to different channels. Each bot brings its own knowledge, personality, and context.</p>
+      </div>
+      <div class="hybridai-feat">
+        <div class="hybridai-feat-icon">&#x2699;&#xfe0f;</div>
+        <h4>Multi-Model</h4>
+        <p>Choose the right model for the job. Switch between available models per channel &mdash; from fast nano models to full-power flagship models.</p>
+      </div>
+      <div class="hybridai-feat">
+        <div class="hybridai-feat-icon">&#x1f9e9;</div>
+        <h4>OpenAI-Compatible API</h4>
+        <p>HybridAI exposes a standard chat completions endpoint with tool calling support, so HybridClaw slots in naturally with no custom SDK required.</p>
+      </div>
+    </div>
+
+    <div class="hybridai-bot-example">
+      <pre><span class="cmd">!claw bot list</span>
+  <span class="out">1. Hermes3000</span>  &mdash; Deep research &amp; analysis
+  <span class="out">2. SupportBot</span>  &mdash; Team knowledge base
+  <span class="out">3. PersonalAI</span>  &mdash; Custom assistant
+
+<span class="cmd">!claw bot set</span> <span class="val">Hermes3000</span>
+  <span class="out">&#x2713; Bot set to Hermes3000</span>
+
+<span class="cmd">!claw rag on</span>
+  <span class="out">&#x2713; RAG enabled &mdash; documents active</span></pre>
+    </div>
+  </div>
+</section>
+
+<div class="glow-divider"></div>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="section-center">
+    <div class="section-label">Capabilities</div>
+    <h2 class="section-title">Everything you need in a personal agent</h2>
+    <p class="section-desc">HybridClaw combines a Discord bot, a terminal UI, sandboxed tool execution, proactive scheduling, and persistent memory into a single platform.</p>
+  </div>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f512;</div>
+      <h3>Sandboxed Execution</h3>
+      <p>Every tool runs inside an ephemeral Docker container with read-only filesystems, memory limits, and a 28+ pattern exec deny-list. Your host is never at risk.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f4ac;</div>
+      <h3>Discord &amp; Terminal</h3>
+      <p>Talk to your agent on Discord with @mentions or a custom prefix, or use the built-in TUI for local conversations. Both share the same engine.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f9e0;</div>
+      <h3>Persistent Memory</h3>
+      <p>Workspace files like SOUL.md, MEMORY.md, and IDENTITY.md give your agent personality, context, and continuity across every conversation.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x23f0;</div>
+      <h3>Smart Scheduling</h3>
+      <p>Schedule tasks with cron expressions, one-shot ISO timestamps, or simple intervals. Tasks persist in SQLite and auto-clean after execution.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f493;</div>
+      <h3>Proactive Heartbeat</h3>
+      <p>Your agent periodically wakes up, checks its HEARTBEAT.md for tasks, and reaches out when something matters. Silent when nothing's happening.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f916;</div>
+      <h3>Multi-Bot &amp; Multi-Model</h3>
+      <p>Connect to the HybridAI platform and swap between chatbots like Hermes3000 per channel. Toggle RAG for document retrieval. Each channel gets its own bot, model, and knowledge config.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f310;</div>
+      <h3>Web Fetching</h3>
+      <p>The agent can fetch URLs and extract readable content as markdown, with a built-in 15-minute cache. Works with HTML pages and JSON APIs.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f4da;</div>
+      <h3>Skills System</h3>
+      <p>Define reusable skills in SKILL.md files with frontmatter metadata. User-invocable via /skill-name syntax. Workspace skills override project defaults.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f4ca;</div>
+      <h3>Diagnostics &amp; Health</h3>
+      <p>HTTP health endpoint, structured Pino logging, audit trails, prompt dumps, and a status command showing uptime, sessions, and container metrics.</p>
+    </div>
+  </div>
+</section>
+
+<div class="glow-divider"></div>
+
+<!-- ARCHITECTURE -->
+<section id="architecture">
+  <div class="section-center">
+    <div class="section-label">Architecture</div>
+    <h2 class="section-title">Two processes, one agent</h2>
+    <p class="section-desc">A Node.js host manages Discord, SQLite, and scheduling. An ephemeral Docker container executes tools. They talk over file-based IPC.</p>
+  </div>
+
+  <div class="arch-flow">
+    <div class="arch-node">
+      <div class="arch-node-label">Input</div>
+      <div class="arch-node-title">Discord / TUI</div>
+      <div class="arch-node-desc">Message arrives</div>
+    </div>
+    <div class="arch-arrow">&rarr;</div>
+    <div class="arch-node">
+      <div class="arch-node-label">Host</div>
+      <div class="arch-node-title">Node.js</div>
+      <div class="arch-node-desc">SQLite &middot; Sessions &middot; IPC</div>
+    </div>
+    <div class="arch-arrow">&rarr;</div>
+    <div class="arch-node">
+      <div class="arch-node-label">Container</div>
+      <div class="arch-node-title">Docker</div>
+      <div class="arch-node-desc">Tools &middot; HybridAI API</div>
+    </div>
+    <div class="arch-arrow">&rarr;</div>
+    <div class="arch-node">
+      <div class="arch-node-label">Output</div>
+      <div class="arch-node-title">Response</div>
+      <div class="arch-node-desc">Sent back to user</div>
+    </div>
+  </div>
+
+  <div class="arch-detail">
+    <div class="arch-detail-card">
+      <h4>Container Pooling</h4>
+      <p>Containers persist between requests for faster response times and auto-cleanup after a 5-minute idle timeout. Up to 5 concurrent containers.</p>
+    </div>
+    <div class="arch-detail-card">
+      <h4>File-Based IPC</h4>
+      <p>Each session gets isolated input.json and output.json files. No sockets, no shared memory &mdash; simple, debuggable, and secure.</p>
+    </div>
+    <div class="arch-detail-card">
+      <h4>Resource Limits</h4>
+      <p>Containers run read-only with tmpfs scratch space, 512MB memory cap, configurable CPU limits, and strict output size limits.</p>
+    </div>
+  </div>
+</section>
+
+<div class="glow-divider"></div>
+
+<!-- TOOLS -->
+<section id="tools">
+  <div class="section-center">
+    <div class="section-label">Toolbox</div>
+    <h2 class="section-title">9 tools, all sandboxed</h2>
+    <p class="section-desc">The agent iterates up to 12 times per request, chaining tools together to accomplish complex tasks autonomously.</p>
+  </div>
+  <div class="tools-grid">
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f4c4;</div>
+      <div class="tool-pill-name">read</div>
+      <div class="tool-pill-desc">Read file contents</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x270f;&#xfe0f;</div>
+      <div class="tool-pill-name">write</div>
+      <div class="tool-pill-desc">Create or overwrite files</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f527;</div>
+      <div class="tool-pill-name">edit</div>
+      <div class="tool-pill-desc">Surgical string replace</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f5d1;&#xfe0f;</div>
+      <div class="tool-pill-name">delete</div>
+      <div class="tool-pill-desc">Remove files safely</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f50d;</div>
+      <div class="tool-pill-name">glob</div>
+      <div class="tool-pill-desc">Pattern-match file paths</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f50e;</div>
+      <div class="tool-pill-name">grep</div>
+      <div class="tool-pill-desc">Regex search file contents</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f4bb;</div>
+      <div class="tool-pill-name">bash</div>
+      <div class="tool-pill-desc">Shell commands (guarded)</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f310;</div>
+      <div class="tool-pill-name">web_fetch</div>
+      <div class="tool-pill-desc">Fetch &amp; extract URLs</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f551;</div>
+      <div class="tool-pill-name">cron</div>
+      <div class="tool-pill-desc">Schedule recurring tasks</div>
+    </div>
+  </div>
+</section>
+
+<div class="glow-divider"></div>
+
+<!-- WORKSPACE -->
+<section>
+  <div class="section-center">
+    <div class="section-label">Personality</div>
+    <h2 class="section-title">A workspace that shapes your agent</h2>
+    <p class="section-desc">Bootstrap files give your agent identity, memory, and purpose. Each bot gets its own persistent workspace.</p>
+  </div>
+  <div class="comparison">
+    <table>
+      <thead>
+        <tr><th>File</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>SOUL.md</td><td>Personality and behavior</td></tr>
+        <tr><td>IDENTITY.md</td><td>Name, avatar, style</td></tr>
+        <tr><td>USER.md</td><td>Info about the user</td></tr>
+        <tr><td>MEMORY.md</td><td>Persistent memory across sessions</td></tr>
+        <tr><td>TOOLS.md</td><td>Tool usage notes and tips</td></tr>
+        <tr><td>HEARTBEAT.md</td><td>Tasks to check during heartbeat</td></tr>
+        <tr><td>BOOT.md</td><td>Startup instructions</td></tr>
+        <tr><td>AGENTS.md</td><td>Conventions and guidelines</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="glow-divider"></div>
+
+<!-- QUICKSTART -->
+<section id="quickstart">
+  <div class="section-center">
+    <div class="section-label">Get Started</div>
+    <h2 class="section-title">Up and running in minutes</h2>
+    <p class="section-desc">Clone, configure, build, and launch.</p>
+  </div>
+  <div class="quickstart-box">
+    <pre><span class="comment"># Clone the repo</span>
+<span class="cmd">git clone</span> https://github.com/bkoehler/hybridclaw.git
+<span class="cmd">cd</span> hybridclaw
+
+<span class="comment"># Install dependencies</span>
+<span class="cmd">npm install</span>
+
+<span class="comment"># Configure environment</span>
+<span class="cmd">cp</span> .env.example .env
+<span class="comment"># Edit .env with your Discord token and HybridAI API key</span>
+
+<span class="comment"># Build the container</span>
+<span class="cmd">npm run</span> <span class="flag">build:container</span>
+
+<span class="comment"># Start the Discord bot</span>
+<span class="cmd">npm run</span> <span class="flag">dev</span>
+
+<span class="comment"># Or use the terminal UI</span>
+<span class="cmd">npm run</span> <span class="flag">tui</span></pre>
+  </div>
+</section>
+
+<div class="glow-divider"></div>
+
+<!-- COMMANDS -->
+<section>
+  <div class="section-center">
+    <div class="section-label">Commands</div>
+    <h2 class="section-title">Full command reference</h2>
+    <p class="section-desc">Manage bots, models, sessions, schedules, and diagnostics &mdash; all from Discord or the TUI.</p>
+  </div>
+  <div class="features-grid">
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Bot Management</h3>
+      <p><code>bot list</code> &middot; <code>bot set</code> &middot; <code>bot info</code><br>List available HybridAI bots, assign one to a channel, or view the current config.</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Model Control</h3>
+      <p><code>model list</code> &middot; <code>model set</code> &middot; <code>model info</code><br>Switch models per channel. Toggle RAG on or off with <code>rag on/off</code>.</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Scheduling</h3>
+      <p><code>schedule add</code> &middot; <code>schedule list</code> &middot; <code>schedule remove</code> &middot; <code>schedule toggle</code><br>Cron, one-shot, or interval tasks.</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Session &amp; Diagnostics</h3>
+      <p><code>clear</code> &middot; <code>status</code> &middot; <code>sessions</code> &middot; <code>audit</code><br>Clear history, view uptime, list sessions, check audit logs.</p>
+    </div>
+  </div>
+</section>
+
+<div class="glow-divider"></div>
+
+<!-- FAQ -->
+<section id="faq">
+  <div class="section-center">
+    <div class="section-label">FAQ</div>
+    <h2 class="section-title">Common questions</h2>
+  </div>
+  <div class="faq-list">
+    <div class="faq-item">
+      <div class="faq-q">Is it safe to let the agent run shell commands?</div>
+      <div class="faq-a">Yes. All tools execute inside ephemeral Docker containers with read-only filesystems, memory caps, and a deny-list of 28+ dangerous command patterns. The host machine is never exposed.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Can I use it without Discord?</div>
+      <div class="faq-a">Absolutely. Run <code>npm run tui</code> to interact with your agent directly in the terminal. The TUI shares the same engine and capabilities.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">What is the heartbeat system?</div>
+      <div class="faq-a">A configurable periodic poll (default every 30 minutes) where the agent wakes up, checks its HEARTBEAT.md file for tasks, and proactively reaches out if something needs attention. Silent acknowledgments are discarded to avoid noise.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Can different Discord channels use different bots?</div>
+      <div class="faq-a">Yes. Each channel can be independently configured with its own HybridAI chatbot, model, and RAG setting using the <code>bot set</code> and <code>model set</code> commands.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">How does scheduling work?</div>
+      <div class="faq-a">Three modes: cron expressions for recurring tasks, ISO-8601 timestamps for one-shot execution, and simple intervals (minimum 10 seconds). All tasks persist in SQLite and one-shot tasks auto-delete after running.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">What is HybridAI?</div>
+      <div class="faq-a">HybridAI is the bot platform that powers HybridClaw. It provides managed chatbots with document knowledge bases, retrieval-augmented generation (RAG), and multi-model support through an OpenAI-compatible API. You create and configure bots on the HybridAI platform, then connect them to HybridClaw.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">What AI models does it support?</div>
+      <div class="faq-a">HybridClaw works with any model available through the HybridAI API. You can list available models with <code>model list</code> and switch per channel at any time.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Does the agent remember things between conversations?</div>
+      <div class="faq-a">Yes. Workspace files like MEMORY.md and SOUL.md persist across sessions and are injected into the system prompt on every request, giving the agent continuous context.</div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-inner">
+    <div class="footer-links">
+      <a href="https://github.com/bkoehler/hybridclaw">GitHub</a>
+      <a href="#features">Features</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#quickstart">Get Started</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <div class="footer-copy">Built with <a href="https://hybridai.one/" style="color: var(--accent-1);">HybridAI</a> &middot; MIT License</div>
+  </div>
+</footer>
+
+</body>
+</html>
