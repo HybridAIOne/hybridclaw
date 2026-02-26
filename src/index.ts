@@ -39,9 +39,9 @@ import { getUptime, startHealthServer } from './health.js';
 import { getActiveContainerCount } from './container-runner.js';
 import { logger } from './logger.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
-import type { ChatMessage, HybridAIBot } from './types.js';
+import type { ChatMessage, HybridAIBot, ToolProgressEvent } from './types.js';
 import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
-import { buildSkillsPrompt, loadSkills } from './skills.js';
+import { buildSkillsPrompt, expandSkillInvocation, loadSkills } from './skills.js';
 import { buildContextPrompt, ensureBootstrapFiles, loadBootstrapFiles } from './workspace.js';
 
 // --- Bot listing cache ---
@@ -115,19 +115,40 @@ async function handleMessage(
   }
 
   const history = getConversationHistory(sessionId, 40);
-  messages.push(...history.reverse().map((msg) => ({
+  const historyMessages = history.reverse().map((msg) => ({
     role: msg.role as 'user' | 'assistant' | 'system',
     content: msg.content,
-  })));
+  }));
+  if (historyMessages.length > 0) {
+    const last = historyMessages[historyMessages.length - 1];
+    if (last.role === 'user') {
+      last.content = expandSkillInvocation(last.content, skills);
+    }
+  }
+  messages.push(...historyMessages);
 
   if (!chatbotId) {
     await reply(formatError('No Chatbot', 'No chatbot configured. Use `!claw bot set <id>` or set `HYBRIDAI_CHATBOT_ID` env var.'));
     return;
   }
 
+  let lastProgressTool: string | null = null;
+  const onToolProgress = (event: ToolProgressEvent): void => {
+    if (event.phase !== 'start') return;
+    if (event.toolName === lastProgressTool) return;
+    lastProgressTool = event.toolName;
+
+    const previewRaw = event.preview?.replace(/\s+/g, ' ').trim();
+    const preview = previewRaw ? previewRaw.replace(/`/g, "'").slice(0, 80) : '';
+    const suffix = preview ? ` ${preview}` : '';
+    void sendToChannel(channelId, `🦞 running \`${event.toolName}\`${suffix}`).catch((err) => {
+      logger.debug({ sessionId, channelId, err }, 'Failed to send tool progress');
+    });
+  };
+
   try {
     const scheduledTasks = getTasksForSession(sessionId);
-    const output = await runAgent(sessionId, messages, chatbotId, enableRag, model, agentId, channelId, scheduledTasks);
+    const output = await runAgent(sessionId, messages, chatbotId, enableRag, model, agentId, channelId, scheduledTasks, undefined, onToolProgress);
     processSideEffects(output, sessionId, channelId);
 
     if (output.status === 'error') {

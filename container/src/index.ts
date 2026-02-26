@@ -3,7 +3,7 @@ import { waitForInput, writeOutput } from './ipc.js';
 import { executeTool, getPendingSideEffects, resetSideEffects, setScheduledTasks, TOOL_DEFINITIONS } from './tools.js';
 import type { ChatMessage, ContainerInput, ContainerOutput, ToolDefinition, ToolExecution } from './types.js';
 
-const MAX_ITERATIONS = 12;
+const MAX_ITERATIONS = 20;
 const IDLE_TIMEOUT_MS = parseInt(process.env.CONTAINER_IDLE_TIMEOUT || '300000', 10); // 5 min
 
 /** API key received once via stdin, held in memory for the container lifetime. */

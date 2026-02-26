@@ -6,7 +6,7 @@ import path from 'path';
 
 import { DATA_DIR } from './config.js';
 import { runContainer } from './container-runner.js';
-import type { ChatMessage, ContainerOutput, ScheduledTask } from './types.js';
+import type { ChatMessage, ContainerOutput, ScheduledTask, ToolProgressEvent } from './types.js';
 
 /** Write full prompt context to data/last_prompt.jsonl for debugging (Pi-Mono style). */
 function dumpPrompt(sessionId: string, messages: ChatMessage[], model: string, chatbotId: string): void {
@@ -27,7 +27,8 @@ export async function runAgent(
   channelId: string,
   scheduledTasks?: ScheduledTask[],
   allowedTools?: string[],
+  onToolProgress?: (event: ToolProgressEvent) => void,
 ): Promise<ContainerOutput> {
   dumpPrompt(sessionId, messages, model, chatbotId);
-  return runContainer(sessionId, messages, chatbotId, enableRag, model, agentId, channelId, scheduledTasks, allowedTools);
+  return runContainer(sessionId, messages, chatbotId, enableRag, model, agentId, channelId, scheduledTasks, allowedTools, onToolProgress);
 }

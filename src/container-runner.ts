@@ -18,7 +18,7 @@ import {
 import { cleanupIpc, ensureAgentDirs, ensureSessionDirs, getSessionPaths, readOutput, writeInput } from './ipc.js';
 import { logger } from './logger.js';
 import { validateAdditionalMounts } from './mount-security.js';
-import type { AdditionalMount, ChatMessage, ContainerInput, ContainerOutput, ScheduledTask } from './types.js';
+import type { AdditionalMount, ChatMessage, ContainerInput, ContainerOutput, ScheduledTask, ToolProgressEvent } from './types.js';
 
 const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
 
@@ -27,9 +27,48 @@ interface PoolEntry {
   containerName: string;
   sessionId: string;
   startedAt: number;
+  stderrBuffer: string;
+  onToolProgress?: (event: ToolProgressEvent) => void;
 }
 
 const pool = new Map<string, PoolEntry>();
+const TOOL_RESULT_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
+const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
+
+function emitToolProgress(entry: PoolEntry, line: string): void {
+  const callback = entry.onToolProgress;
+  if (!callback) return;
+
+  const resultMatch = line.match(TOOL_RESULT_RE);
+  if (resultMatch) {
+    try {
+      callback({
+        sessionId: entry.sessionId,
+        toolName: resultMatch[1],
+        phase: 'finish',
+        durationMs: parseInt(resultMatch[2], 10),
+        preview: resultMatch[3],
+      });
+    } catch (err) {
+      logger.debug({ sessionId: entry.sessionId, err }, 'Tool progress callback failed');
+    }
+    return;
+  }
+
+  const startMatch = line.match(TOOL_START_RE);
+  if (startMatch) {
+    try {
+      callback({
+        sessionId: entry.sessionId,
+        toolName: startMatch[1],
+        phase: 'start',
+        preview: startMatch[2],
+      });
+    } catch (err) {
+      logger.debug({ sessionId: entry.sessionId, err }, 'Tool progress callback failed');
+    }
+  }
+}
 
 export function getActiveContainerCount(): number {
   return pool.size;
@@ -100,14 +139,33 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
+  const entry: PoolEntry = {
+    process: proc,
+    containerName,
+    sessionId,
+    startedAt: Date.now(),
+    stderrBuffer: '',
+  };
+
   proc.stderr.on('data', (data) => {
-    const lines = data.toString().trim().split('\n');
-    for (const line of lines) {
-      if (line) logger.debug({ container: containerName }, line);
+    entry.stderrBuffer += data.toString('utf-8');
+    const lines = entry.stderrBuffer.split('\n');
+    entry.stderrBuffer = lines.pop() || '';
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      logger.debug({ container: containerName }, line);
+      emitToolProgress(entry, line);
     }
   });
 
   proc.on('close', (code) => {
+    const tail = entry.stderrBuffer.trim();
+    if (tail) {
+      logger.debug({ container: containerName }, tail);
+      emitToolProgress(entry, tail);
+      entry.stderrBuffer = '';
+    }
     pool.delete(sessionId);
     logger.info({ sessionId, containerName, code }, 'Container exited');
   });
@@ -116,13 +174,6 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     pool.delete(sessionId);
     logger.error({ sessionId, containerName, error: err }, 'Container error');
   });
-
-  const entry: PoolEntry = {
-    process: proc,
-    containerName,
-    sessionId,
-    startedAt: Date.now(),
-  };
 
   pool.set(sessionId, entry);
   return entry;
@@ -141,6 +192,7 @@ export async function runContainer(
   channelId: string = '',
   scheduledTasks?: ScheduledTask[],
   allowedTools?: string[],
+  onToolProgress?: (event: ToolProgressEvent) => void,
 ): Promise<ContainerOutput> {
   // Enforce concurrent container limit
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
@@ -194,26 +246,33 @@ export async function runContainer(
     allowedTools,
   };
 
-  if (isNewContainer) {
-    // First request: send full input (including apiKey) via stdin — no file on disk.
-    // Write JSON on a single line followed by newline as delimiter.
-    // Do NOT end stdin — closing stdin can cause docker -i to terminate the container.
-    entry.process.stdin?.write(JSON.stringify(input) + '\n');
-  } else {
-    // Follow-up requests: write to IPC file, omitting apiKey
-    writeInput(sessionId, input, { omitApiKey: true });
+  entry.onToolProgress = onToolProgress;
+  try {
+    if (isNewContainer) {
+      // First request: send full input (including apiKey) via stdin — no file on disk.
+      // Write JSON on a single line followed by newline as delimiter.
+      // Do NOT end stdin — closing stdin can cause docker -i to terminate the container.
+      entry.process.stdin?.write(JSON.stringify(input) + '\n');
+    } else {
+      // Follow-up requests: write to IPC file, omitting apiKey
+      writeInput(sessionId, input, { omitApiKey: true });
+    }
+
+    // Wait for the container to produce output
+    const output = await readOutput(sessionId, CONTAINER_TIMEOUT);
+    const duration = Date.now() - startTime;
+
+    logger.info(
+      { sessionId, containerName: entry.containerName, duration, status: output.status, toolsUsed: output.toolsUsed },
+      'Request completed',
+    );
+
+    return output;
+  } finally {
+    if (entry.onToolProgress === onToolProgress) {
+      entry.onToolProgress = undefined;
+    }
   }
-
-  // Wait for the container to produce output
-  const output = await readOutput(sessionId, CONTAINER_TIMEOUT);
-  const duration = Date.now() - startTime;
-
-  logger.info(
-    { sessionId, containerName: entry.containerName, duration, status: output.status, toolsUsed: output.toolsUsed },
-    'Request completed',
-  );
-
-  return output;
 }
 
 /**

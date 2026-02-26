@@ -24,8 +24,8 @@ import {
 } from './db.js';
 import { processSideEffects } from './side-effects.js';
 import { logger } from './logger.js';
-import type { ChatMessage, HybridAIBot } from './types.js';
-import { buildSkillsPrompt, loadSkills } from './skills.js';
+import type { ChatMessage, HybridAIBot, ToolProgressEvent } from './types.js';
+import { buildSkillsPrompt, expandSkillInvocation, loadSkills } from './skills.js';
 import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import {
@@ -124,6 +124,7 @@ function printHelp(): void {
   console.log(`  ${TEAL}/rag${RESET}         Toggle RAG on/off`);
   console.log(`  ${TEAL}/info${RESET}        Show current settings`);
   console.log(`  ${TEAL}/clear${RESET}       Clear conversation history`);
+  console.log(`  ${TEAL}/skill <name>${RESET} Run an installed skill`);
   console.log(`  ${TEAL}/exit${RESET}        Quit`);
   console.log();
 }
@@ -151,18 +152,43 @@ function printInfo(text: string): void {
   console.log(`\n${GOLD}  ${text}${RESET}\n`);
 }
 
-function spinner(): { stop: () => void } {
+function spinner(): { stop: () => void; addTool: (toolName: string, preview?: string) => void; clearTools: () => void } {
   const dots = ['   ', '.  ', '.. ', '...'];
   let i = 0;
-  const interval = setInterval(() => {
+  let transientToolLines = 0;
+  const clearLine = () => process.stdout.write('\r\x1b[2K');
+  const render = () => {
+    clearLine();
     process.stdout.write(`\r  ${TEAL}thinking${dots[i % dots.length]}${RESET}   `);
     i++;
+  };
+
+  const interval = setInterval(() => {
+    render();
   }, 400);
+  render();
 
   return {
     stop: () => {
       clearInterval(interval);
-      process.stdout.write('\r                         \r');
+      clearLine();
+    },
+    addTool: (toolName: string, preview?: string) => {
+      clearLine();
+      const previewText = preview ? ` ${DIM}${preview}${RESET}` : '';
+      process.stdout.write(`  \u{1F99E} ${TEAL}${toolName}${RESET}${previewText}\n`);
+      transientToolLines++;
+      render();
+    },
+    clearTools: () => {
+      if (transientToolLines <= 0) return;
+      process.stdout.write(`\x1b[${transientToolLines}A`);
+      for (let idx = 0; idx < transientToolLines; idx++) {
+        clearLine();
+        process.stdout.write('\x1b[M');
+      }
+      clearLine();
+      transientToolLines = 0;
     },
   };
 }
@@ -249,8 +275,7 @@ async function handleSlashCommand(input: string, rl: readline.Interface): Promis
       return true;
 
     default:
-      printInfo(`Unknown command: /${cmd}. Type /help for available commands.`);
-      return true;
+      return false;
   }
 }
 
@@ -276,7 +301,8 @@ async function processMessage(content: string): Promise<void> {
     role: msg.role as 'user' | 'assistant' | 'system',
     content: msg.content,
   })));
-  messages.push({ role: 'user', content });
+  const expandedContent = expandSkillInvocation(content, skills);
+  messages.push({ role: 'user', content: expandedContent });
 
   if (!chatbotId) {
     printError('No chatbot configured. Use /bot <id> or set HYBRIDAI_CHATBOT_ID env var.');
@@ -284,11 +310,21 @@ async function processMessage(content: string): Promise<void> {
   }
 
   const s = spinner();
+  let lastProgressTool: string | null = null;
+  const onToolProgress = (event: ToolProgressEvent): void => {
+    if (event.phase !== 'start') return;
+    if (event.toolName === lastProgressTool) return;
+    lastProgressTool = event.toolName;
+
+    const previewRaw = event.preview?.replace(/\s+/g, ' ').trim();
+    s.addTool(event.toolName, previewRaw ? previewRaw.slice(0, 80) : undefined);
+  };
 
   try {
     const scheduledTasks = getTasksForSession(SESSION_ID);
-    const output = await runAgent(SESSION_ID, messages, chatbotId, enableRag, HYBRIDAI_MODEL, AGENT_ID, CHANNEL_ID, scheduledTasks);
+    const output = await runAgent(SESSION_ID, messages, chatbotId, enableRag, HYBRIDAI_MODEL, AGENT_ID, CHANNEL_ID, scheduledTasks, undefined, onToolProgress);
     s.stop();
+    s.clearTools();
 
     processSideEffects(output, SESSION_ID, CHANNEL_ID);
 
@@ -307,6 +343,7 @@ async function processMessage(content: string): Promise<void> {
     printResponse(result);
   } catch (err) {
     s.stop();
+    s.clearTools();
     printError(err instanceof Error ? err.message : String(err));
   }
 }
@@ -392,9 +429,11 @@ async function main(): Promise<void> {
     }
 
     if (input.startsWith('/')) {
-      await handleSlashCommand(input, rl);
-      rl.prompt();
-      return;
+      const handled = await handleSlashCommand(input, rl);
+      if (handled) {
+        rl.prompt();
+        return;
+      }
     }
 
     await processMessage(input);

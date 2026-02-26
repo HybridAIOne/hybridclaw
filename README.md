@@ -58,6 +58,59 @@ Each agent gets a persistent workspace with markdown files that shape its person
 
 Templates in `templates/` are copied to new agent workspaces on first run.
 
+## Skills
+
+HybridClaw supports CLAUDE/OpenClaw-style skills (`<skill-name>/SKILL.md`).
+
+### Where to put skills
+
+You can place skills in:
+
+- `./skills/<skill-name>/SKILL.md` (project-level)
+- `<agent workspace>/skills/<skill-name>/SKILL.md` (agent-specific)
+- `$CODEX_HOME/skills/<skill-name>/SKILL.md`, `~/.codex/skills/<skill-name>/SKILL.md`, or `~/.claude/skills/<skill-name>/SKILL.md` (managed/shared)
+
+Load precedence is:
+
+- managed/shared < project < agent workspace
+
+### Required format
+
+Each skill must be a folder with a `SKILL.md` file and frontmatter:
+
+```markdown
+---
+name: repo-orientation
+description: Quickly map an unfamiliar repository and identify where a requested feature should be implemented.
+user-invocable: true
+disable-model-invocation: false
+---
+
+# Repo Orientation
+...instructions...
+```
+
+Supported frontmatter keys:
+
+- `name` (required)
+- `description` (required)
+- `user-invocable` (optional, default `true`)
+- `disable-model-invocation` (optional, default `false`)
+
+### Using skills
+
+Skills are listed to the model as metadata (`name`, `description`, `location`), and the model reads `SKILL.md` on demand with the `read` tool.
+
+Explicit invocation is supported via:
+
+- `/skill <name> [input]`
+- `/skill:<name> [input]`
+- `/<name> [input]` (when `user-invocable: true`)
+
+Example skill in this repo:
+
+- `skills/repo-orientation/SKILL.md`
+
 ## Agent tools
 
 The agent has access to these sandboxed tools inside the container:

@@ -59,6 +59,8 @@ export function setScheduledTasks(tasks: ScheduledTaskInfo[] | undefined): void 
 
 const MAX_OUTPUT_LINES = 6;
 const MAX_LINE_LENGTH = 200;
+const READ_MAX_LINES = 2000;
+const READ_MAX_BYTES = 50 * 1024;
 
 function abbreviate(text: string): string {
   const lines = text.split('\n');
@@ -71,9 +73,81 @@ function abbreviate(text: string): string {
   return truncated.join('\n');
 }
 
+type ReadTruncationResult = {
+  content: string;
+  truncated: boolean;
+  truncatedBy: 'lines' | 'bytes' | null;
+  outputLines: number;
+  firstLineExceedsLimit: boolean;
+};
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function truncateReadContent(content: string, maxLines = READ_MAX_LINES, maxBytes = READ_MAX_BYTES): ReadTruncationResult {
+  const lines = content.split('\n');
+  const totalBytes = Buffer.byteLength(content, 'utf-8');
+  if (lines.length <= maxLines && totalBytes <= maxBytes) {
+    return {
+      content,
+      truncated: false,
+      truncatedBy: null,
+      outputLines: lines.length,
+      firstLineExceedsLimit: false,
+    };
+  }
+
+  const firstLine = lines[0] ?? '';
+  if (Buffer.byteLength(firstLine, 'utf-8') > maxBytes) {
+    return {
+      content: '',
+      truncated: true,
+      truncatedBy: 'bytes',
+      outputLines: 0,
+      firstLineExceedsLimit: true,
+    };
+  }
+
+  const out: string[] = [];
+  let bytes = 0;
+  let truncatedBy: 'lines' | 'bytes' = 'lines';
+  for (let i = 0; i < lines.length && i < maxLines; i++) {
+    const line = lines[i];
+    const lineBytes = Buffer.byteLength(line, 'utf-8') + (i > 0 ? 1 : 0);
+    if (bytes + lineBytes > maxBytes) {
+      truncatedBy = 'bytes';
+      break;
+    }
+    out.push(line);
+    bytes += lineBytes;
+  }
+
+  if (out.length >= maxLines && bytes <= maxBytes) truncatedBy = 'lines';
+  return {
+    content: out.join('\n'),
+    truncated: true,
+    truncatedBy,
+    outputLines: out.length,
+    firstLineExceedsLimit: false,
+  };
+}
+
+const WORKSPACE_ROOT = '/workspace';
+
 function safeJoin(userPath: string): string {
-  // Strip leading slashes so path.resolve doesn't ignore the base
-  return path.resolve('/workspace', userPath.replace(/^\/+/, ''));
+  const input = String(userPath || '').trim();
+  const root = path.resolve(WORKSPACE_ROOT);
+  const resolved = path.isAbsolute(input)
+    ? path.resolve(input)
+    : path.resolve(root, input);
+
+  if (resolved === root || resolved.startsWith(root + path.sep)) {
+    return resolved;
+  }
+  throw new Error(`Path escapes workspace: ${userPath}`);
 }
 
 export async function executeTool(name: string, argsJson: string): Promise<string> {
@@ -82,10 +156,60 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
 
     switch (name) {
       case 'read': {
+        if (typeof args.path !== 'string' || args.path.trim() === '') {
+          return 'Error: path is required';
+        }
         const filePath = safeJoin(args.path);
         if (!fs.existsSync(filePath)) return `Error: File not found: ${args.path}`;
         const content = fs.readFileSync(filePath, 'utf-8');
-        return abbreviate(content);
+        const lines = content.split('\n');
+        const totalFileLines = lines.length;
+
+        const rawOffset = typeof args.offset === 'number' && Number.isFinite(args.offset) ? args.offset : 1;
+        const startLine = Math.max(1, Math.floor(rawOffset));
+        if (startLine > totalFileLines) {
+          return `Error: Offset ${startLine} is beyond end of file (${totalFileLines} lines total)`;
+        }
+
+        const rawLimit =
+          typeof args.limit === 'number' && Number.isFinite(args.limit) && args.limit > 0
+            ? Math.floor(args.limit)
+            : undefined;
+
+        let selected = lines.slice(startLine - 1);
+        let userLimitedLines: number | undefined;
+        if (rawLimit !== undefined) {
+          selected = selected.slice(0, rawLimit);
+          userLimitedLines = selected.length;
+        }
+
+        const selectedContent = selected.join('\n');
+        const truncation = truncateReadContent(selectedContent);
+        if (truncation.firstLineExceedsLimit) {
+          const firstSelectedLine = selected[0] ?? '';
+          const firstLineSize = formatBytes(Buffer.byteLength(firstSelectedLine, 'utf-8'));
+          return `[Line ${startLine} is ${firstLineSize}, exceeds ${formatBytes(READ_MAX_BYTES)} limit. Use bash: sed -n '${startLine}p' ${args.path} | head -c ${READ_MAX_BYTES}]`;
+        }
+
+        if (truncation.truncated) {
+          const endLine = startLine + truncation.outputLines - 1;
+          const nextOffset = endLine + 1;
+          if (truncation.truncatedBy === 'lines') {
+            return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines}. Use offset=${nextOffset} to continue]`;
+          }
+          return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines} (${formatBytes(READ_MAX_BYTES)} limit). Use offset=${nextOffset} to continue]`;
+        }
+
+        if (userLimitedLines !== undefined) {
+          const linesFromStart = startLine - 1 + userLimitedLines;
+          if (linesFromStart < totalFileLines) {
+            const remaining = totalFileLines - linesFromStart;
+            const nextOffset = startLine + userLimitedLines;
+            return `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue]`;
+          }
+        }
+
+        return truncation.content;
       }
 
       case 'write': {
@@ -248,11 +372,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'read',
-      description: 'Read a file and return its contents',
+      description:
+        'Read a file and return its contents. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files.',
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Path to the file to read' },
+          offset: { type: 'number', description: 'Line number to start reading from (1-indexed, default: 1)' },
+          limit: { type: 'number', description: 'Maximum number of lines to read before truncation logic (optional)' },
         },
         required: ['path'],
       },

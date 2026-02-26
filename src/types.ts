@@ -44,6 +44,14 @@ export interface ToolExecution {
   durationMs: number;
 }
 
+export interface ToolProgressEvent {
+  sessionId: string;
+  toolName: string;
+  phase: 'start' | 'finish';
+  preview?: string;
+  durationMs?: number;
+}
+
 export interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
