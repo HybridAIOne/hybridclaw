@@ -16,4 +16,4 @@ When the user says "bump release":
 5. Commit with a release chore message (for example `chore: release vX.Y.Z`).
 6. Create annotated git tag `vX.Y.Z`.
 7. Push commit and tag.
-8. If the user expects a GitHub Release entry, create/publish a release object for the tag (tags alone do not update the Releases list).
+8. Always create/publish a GitHub Release entry for the tag (tags alone do not update the Releases list).
