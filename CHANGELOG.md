@@ -15,6 +15,7 @@
 - **Prompt context assembly**: Discord, TUI, and heartbeat sessions now inject persisted `session_summary` context into the system prompt alongside bootstrap files and skills
 - **Compaction execution model**: Discord and TUI now run compaction in the background after sending the assistant reply, preserving responsive UX
 - **Configuration surface**: Added new `.env` knobs for compaction and pre-compaction flush thresholds/limits (`SESSION_COMPACTION_*`, `PRE_COMPACTION_MEMORY_FLUSH_*`)
+- **Container runtime toolchain**: Agent container image now includes `python3`, `pip`, and `uv` in addition to existing `git`, `node`, and `npm` tooling
 
 ## [0.1.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.1)
 

@@ -1,8 +1,10 @@
 FROM node:20-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ripgrep git curl \
+    ripgrep git curl python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --no-cache-dir --break-system-packages uv
 
 WORKDIR /app
 
