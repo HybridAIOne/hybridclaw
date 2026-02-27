@@ -8,8 +8,8 @@ Release notes: [CHANGELOG.md](./CHANGELOG.md) (latest tag: [`v0.1.3`](https://gi
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence, scheduler, heartbeat, web/API
-- **Adapters** — Discord bot and TUI as thin clients over HTTP (`/api/chat`, `/api/command`)
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence, scheduler, heartbeat, web/API, and optional Discord integration
+- **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`)
 - **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor
 - Communication via file-based IPC (input.json / output.json)
 
@@ -26,17 +26,20 @@ cp .env.example .env
 # Build the container image
 npm run build:container
 
+# Optional: run strict lint checks (unused code/params/locals)
+npm run lint
+cd container && npm run lint && cd ..
+
 # Link the CLI globally
 npm link
 
 # Start the gateway core runtime first
 hybridclaw gateway
 
+# If DISCORD_TOKEN is set, gateway auto-connects to Discord.
+
 # Start terminal adapter (optional, in a second terminal)
 hybridclaw tui
-
-# Start Discord adapter (optional; only needed for Discord integration)
-hybridclaw serve
 
 # Web chat UI (built into gateway)
 # open http://127.0.0.1:9090/chat
@@ -45,23 +48,27 @@ hybridclaw serve
 Runtime model:
 
 - `hybridclaw gateway` is the core process and should run first.
-- `hybridclaw tui` and `hybridclaw serve` are thin clients that connect to the gateway.
+- If `DISCORD_TOKEN` is set, Discord runs inside gateway automatically.
+- `hybridclaw tui` is a thin client that connects to the gateway.
 - If you only use web chat, gateway alone is enough.
 
 ## Configuration
 
 See `.env.example` for all options. Required:
 
-- `DISCORD_TOKEN` — Discord bot token
 - `HYBRIDAI_API_KEY` — HybridAI API key
 - `HYBRIDAI_CHATBOT_ID` — Default chatbot ID (overridable per channel)
+
+Optional:
+
+- `DISCORD_TOKEN` — Enables Discord integration inside `gateway`
 
 Optional for HTTP API hardening:
 
 - `WEB_API_TOKEN` — If set, `/api/*` requires `Authorization: Bearer <token>`
 - `HEALTH_HOST` — Bind host for health/web/API server (defaults to `127.0.0.1`)
-- `GATEWAY_BASE_URL` — Adapter target URL for `serve`/`tui` (defaults to `http://127.0.0.1:9090`)
-- `GATEWAY_API_TOKEN` — Optional token used by adapters for gateway API auth
+- `GATEWAY_BASE_URL` — Client target URL for `tui`/external gateway clients (defaults to `http://127.0.0.1:9090`)
+- `GATEWAY_API_TOKEN` — Optional token used by clients for gateway API auth
 
 ## Agent workspace
 
@@ -152,6 +159,11 @@ HybridClaw also supports automatic session compaction with pre-compaction memory
 
 ## Commands
 
+CLI runtime commands:
+
+- `hybridclaw gateway` — Start core runtime (web/API/scheduler/heartbeat and optional Discord)
+- `hybridclaw tui` — Start terminal client connected to gateway
+
 In Discord, use `!claw help` to see all commands. Key ones:
 
 - `!claw <message>` — Talk to the agent
@@ -165,9 +177,10 @@ In Discord, use `!claw help` to see all commands. Key ones:
 
 ```
 src/gateway.ts          Core runtime entrypoint (DB, scheduler, heartbeat, HTTP API)
-src/index.ts            Discord adapter (thin client to gateway)
 src/tui.ts              Terminal adapter (thin client to gateway)
+src/discord.ts          Discord integration and message transport
 src/gateway-service.ts  Core shared agent/session logic used by gateway API
+src/gateway-client.ts   HTTP client used by thin clients (e.g. TUI)
 container/src/          Agent code (tools, HybridAI client, IPC)
 templates/              Workspace bootstrap files
 data/                   Runtime data (gitignored): SQLite DB, sessions, agent workspaces

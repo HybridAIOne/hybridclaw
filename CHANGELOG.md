@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Shared gateway protocol types**: Added `src/gateway-types.ts` to centralize gateway request/response types and command rendering helpers used by service/client layers.
+- **Lint scripts**: Added `lint` scripts in both root and `container/` packages using strict TypeScript checks (`--noUnusedLocals --noUnusedParameters`).
+
+### Changed
+
+- **Gateway-only Discord runtime**: `gateway` now starts Discord integration automatically when `DISCORD_TOKEN` is set.
+- **CLI simplification**: Removed standalone `serve` command; Discord is managed by `gateway`.
+- **Gateway API contract simplification**: Removed compatibility aliases/fallbacks for command and chat payloads; APIs now use the current request schema only.
+
+### Removed
+
+- **Legacy workspace migration shim**: Removed old session-workspace migration path handling from IPC bootstrap code.
+- **Unused health helper**: Removed unused `getUptime()` export from `src/health.ts`.
+
 ## [0.1.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.3)
 
 ### Added

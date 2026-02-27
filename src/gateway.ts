@@ -1,11 +1,112 @@
-import { HEARTBEAT_INTERVAL, HYBRIDAI_CHATBOT_ID } from './config.js';
+import { DISCORD_TOKEN, HEARTBEAT_CHANNEL, HEARTBEAT_INTERVAL, HYBRIDAI_CHATBOT_ID } from './config.js';
 import { stopAllContainers } from './container-runner.js';
 import { initDatabase } from './db.js';
-import { runGatewayScheduledTask } from './gateway-service.js';
+import {
+  getGatewayStatus,
+  handleGatewayCommand,
+  handleGatewayMessage,
+  renderGatewayCommand,
+  runGatewayScheduledTask,
+} from './gateway-service.js';
 import { startHealthServer } from './health.js';
 import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
 import { logger } from './logger.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
+import {
+  buildResponseText,
+  formatError,
+  formatInfo,
+  initDiscord,
+  sendToChannel,
+  type ReplyFn,
+} from './discord.js';
+
+function isDiscordChannelId(channelId: string): boolean {
+  return /^\d{16,22}$/.test(channelId);
+}
+
+async function deliverProactiveMessage(channelId: string, text: string, source: string): Promise<void> {
+  if (!DISCORD_TOKEN || !isDiscordChannelId(channelId)) {
+    logger.info({ source, channelId, text }, 'Proactive message (no Discord delivery)');
+    return;
+  }
+
+  try {
+    await sendToChannel(channelId, text);
+  } catch (error) {
+    logger.warn({ source, channelId, error }, 'Failed to send proactive message to Discord channel');
+    logger.info({ source, channelId, text }, 'Proactive message fallback');
+  }
+}
+
+async function startDiscordIntegration(): Promise<void> {
+  if (!DISCORD_TOKEN) {
+    logger.info('DISCORD_TOKEN not set; Discord integration disabled');
+    return;
+  }
+
+  initDiscord(
+    async (
+      sessionId: string,
+      guildId: string | null,
+      channelId: string,
+      userId: string,
+      username: string,
+      content: string,
+      reply: ReplyFn,
+    ) => {
+      try {
+        const result = await handleGatewayMessage({
+          sessionId,
+          guildId,
+          channelId,
+          userId,
+          username,
+          content,
+        });
+        if (result.status === 'error') {
+          await reply(formatError('Agent Error', result.error || 'Unknown error'));
+          return;
+        }
+        await reply(buildResponseText(result.result || 'No response from agent.', result.toolsUsed));
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        logger.error({ error, sessionId, channelId }, 'Discord message handling failed');
+        await reply(formatError('Gateway Error', text));
+      }
+    },
+    async (
+      sessionId: string,
+      guildId: string | null,
+      channelId: string,
+      args: string[],
+      reply: ReplyFn,
+    ) => {
+      try {
+        const result = await handleGatewayCommand({
+          sessionId,
+          guildId,
+          channelId,
+          args,
+        });
+        if (result.kind === 'error') {
+          await reply(formatError(result.title || 'Error', result.text));
+          return;
+        }
+        if (result.kind === 'info') {
+          await reply(formatInfo(result.title || 'Info', result.text));
+          return;
+        }
+        await reply(renderGatewayCommand(result));
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        logger.error({ error, sessionId, channelId, args }, 'Discord command handling failed');
+        await reply(formatError('Gateway Error', text));
+      }
+    },
+  );
+  logger.info('Discord integration started inside gateway');
+}
 
 function setupShutdown(): void {
   const shutdown = () => {
@@ -31,6 +132,7 @@ async function runScheduledTask(
     prompt,
     taskId,
     async (result) => {
+      await deliverProactiveMessage(channelId, result, `schedule:${taskId}`);
       logger.info({ taskId, channelId, result }, 'Scheduled task completed');
     },
     (error) => {
@@ -44,14 +146,17 @@ async function main(): Promise<void> {
   initDatabase();
   startHealthServer();
   setupShutdown();
+  await startDiscordIntegration();
 
   const agentId = HYBRIDAI_CHATBOT_ID || 'default';
   startHeartbeat(agentId, HEARTBEAT_INTERVAL, (text) => {
+    const channelId = HEARTBEAT_CHANNEL || 'heartbeat';
+    void deliverProactiveMessage(channelId, text, 'heartbeat');
     logger.info({ text }, 'Heartbeat message');
   });
   startScheduler(runScheduledTask);
 
-  logger.info('HybridClaw gateway started');
+  logger.info({ ...getGatewayStatus(), discord: !!DISCORD_TOKEN }, 'HybridClaw gateway started');
 }
 
 main().catch((err) => {

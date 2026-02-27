@@ -1,39 +1,15 @@
 import { GATEWAY_API_TOKEN, GATEWAY_BASE_URL } from './config.js';
-
-export interface GatewayCommandResult {
-  kind: 'plain' | 'info' | 'error';
-  title?: string;
-  text: string;
-}
-
-export interface GatewayChatResult {
-  status: 'success' | 'error';
-  result: string | null;
-  toolsUsed: string[];
-  error?: string;
-}
-
-export interface GatewayChatRequest {
-  sessionId: string;
-  guildId: string | null;
-  channelId: string;
-  userId: string;
-  username: string | null;
-  content: string;
-  chatbotId?: string | null;
-  model?: string | null;
-  enableRag?: boolean;
-}
-
-export interface GatewayStatus {
-  status: 'ok';
-  uptime: number;
-  sessions: number;
-  activeContainers: number;
-  defaultModel: string;
-  ragDefault: boolean;
-  timestamp: string;
-}
+import {
+  renderGatewayCommand,
+  type GatewayChatRequestBody,
+  type GatewayChatResult,
+  type GatewayCommandRequest,
+  type GatewayCommandResult,
+  type GatewayStatus,
+} from './gateway-types.js';
+export { renderGatewayCommand };
+export type { GatewayChatResult, GatewayCommandResult, GatewayStatus };
+export type GatewayChatRequest = GatewayChatRequestBody;
 
 function gatewayUrl(pathname: string): string {
   const base = GATEWAY_BASE_URL.replace(/\/+$/, '');
@@ -63,17 +39,7 @@ async function requestJson<T>(pathname: string, init: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export function renderGatewayCommand(result: GatewayCommandResult): string {
-  if (!result.title) return result.text;
-  return `${result.title}\n${result.text}`;
-}
-
-export async function gatewayCommand(params: {
-  sessionId: string;
-  guildId: string | null;
-  channelId: string;
-  args: string[];
-}): Promise<GatewayCommandResult> {
+export async function gatewayCommand(params: GatewayCommandRequest): Promise<GatewayCommandResult> {
   return requestJson<GatewayCommandResult>('/api/command', {
     method: 'POST',
     headers: {

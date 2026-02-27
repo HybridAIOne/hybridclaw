@@ -35,14 +35,10 @@ export function ensureSessionDirs(sessionId: string): void {
 }
 
 /**
- * Ensure agent workspace directory exists, migrating from legacy session workspace if needed.
+ * Ensure agent workspace directory exists.
  */
 export function ensureAgentDirs(agentId: string): void {
-  const wsDir = agentWorkspaceDir(agentId);
-  if (!fs.existsSync(wsDir)) {
-    fs.mkdirSync(wsDir, { recursive: true });
-    migrateWorkspace(agentId, wsDir);
-  }
+  fs.mkdirSync(agentWorkspaceDir(agentId), { recursive: true });
 }
 
 /**
@@ -164,40 +160,4 @@ export function getSessionPaths(sessionId: string, agentId: string): {
     ipcPath: path.resolve(ipcDir(sessionId)),
     workspacePath: path.resolve(agentWorkspaceDir(agentId)),
   };
-}
-
-/**
- * One-time migration: copy workspace files from legacy session dir to agent dir.
- */
-function migrateWorkspace(agentId: string, targetDir: string): void {
-  // Check common legacy session workspace locations
-  const candidates = [
-    path.join(DATA_DIR, 'sessions', 'tui_local', 'workspace'),
-    path.join(DATA_DIR, 'sessions', 'tui:local', 'workspace'),
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      try {
-        const files = fs.readdirSync(candidate);
-        if (files.length === 0) continue;
-        for (const file of files) {
-          const src = path.join(candidate, file);
-          const dest = path.join(targetDir, file);
-          if (!fs.existsSync(dest)) {
-            const stat = fs.statSync(src);
-            if (stat.isFile()) {
-              fs.copyFileSync(src, dest);
-            } else if (stat.isDirectory()) {
-              fs.cpSync(src, dest, { recursive: true });
-            }
-          }
-        }
-        logger.info({ agentId, from: candidate }, 'Migrated workspace from legacy session dir');
-        return;
-      } catch (err) {
-        logger.warn({ agentId, from: candidate, err }, 'Failed to migrate workspace');
-      }
-    }
-  }
 }

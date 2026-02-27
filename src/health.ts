@@ -86,11 +86,7 @@ function serveStatic(pathname: string, res: ServerResponse): boolean {
 }
 
 async function handleApiChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const body = await readJsonBody(req) as Partial<GatewayChatRequest> & {
-    chatbotId?: string | null;
-    enableRag?: boolean;
-    model?: string | null;
-  };
+  const body = await readJsonBody(req) as Partial<GatewayChatRequest>;
 
   const content = body.content?.trim();
   if (!content) {
@@ -105,21 +101,19 @@ async function handleApiChat(req: IncomingMessage, res: ServerResponse): Promise
     userId: body.userId || 'web-user',
     username: body.username ?? 'web',
     content,
-    chatbotIdOverride: body.chatbotId ?? body.chatbotIdOverride,
-    enableRagOverride: body.enableRag ?? body.enableRagOverride,
-    modelOverride: body.model ?? body.modelOverride,
+    chatbotId: body.chatbotId,
+    enableRag: body.enableRag,
+    model: body.model,
   };
   const result = await handleGatewayMessage(chatRequest);
   sendJson(res, result.status === 'success' ? 200 : 500, result);
 }
 
 async function handleApiCommand(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const body = await readJsonBody(req) as Partial<GatewayCommandRequest> & { command?: string };
-  const args = Array.isArray(body.args)
-    ? body.args.map((value) => String(value))
-    : (body.command || '').trim().split(/\s+/).filter(Boolean);
+  const body = await readJsonBody(req) as Partial<GatewayCommandRequest>;
+  const args = Array.isArray(body.args) ? body.args.map((value) => String(value)) : [];
   if (args.length === 0) {
-    sendJson(res, 400, { error: 'Missing command. Provide `args` or `command`.' });
+    sendJson(res, 400, { error: 'Missing command. Provide non-empty `args` array.' });
     return;
   }
 
@@ -192,8 +186,4 @@ export function startHealthServer(): void {
   server.listen(HEALTH_PORT, HEALTH_HOST, () => {
     logger.info({ host: HEALTH_HOST, port: HEALTH_PORT }, 'Gateway HTTP server started');
   });
-}
-
-export function getUptime(): number {
-  return Math.floor(process.uptime());
 }

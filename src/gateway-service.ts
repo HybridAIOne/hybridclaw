@@ -32,6 +32,14 @@ import { maybeCompactSession } from './session-maintenance.js';
 import { appendSessionTranscript } from './session-transcripts.js';
 import { processSideEffects } from './side-effects.js';
 import { expandSkillInvocation } from './skills.js';
+import {
+  renderGatewayCommand,
+  type GatewayChatRequestBody,
+  type GatewayChatResult,
+  type GatewayCommandRequest,
+  type GatewayCommandResult,
+  type GatewayStatus,
+} from './gateway-types.js';
 import type { ScheduledTask, StoredMessage, ToolProgressEvent } from './types.js';
 import { ensureBootstrapFiles } from './workspace.js';
 import { buildConversationContext } from './conversation.js';
@@ -41,48 +49,21 @@ const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
 
 export interface GatewayChatRequest {
-  sessionId: string;
-  guildId: string | null;
-  channelId: string;
-  userId: string;
-  username: string | null;
-  content: string;
-  chatbotIdOverride?: string | null;
-  modelOverride?: string | null;
-  enableRagOverride?: boolean;
+  sessionId: GatewayChatRequestBody['sessionId'];
+  guildId: GatewayChatRequestBody['guildId'];
+  channelId: GatewayChatRequestBody['channelId'];
+  userId: GatewayChatRequestBody['userId'];
+  username: GatewayChatRequestBody['username'];
+  content: GatewayChatRequestBody['content'];
+  chatbotId?: GatewayChatRequestBody['chatbotId'];
+  model?: GatewayChatRequestBody['model'];
+  enableRag?: GatewayChatRequestBody['enableRag'];
   onToolProgress?: (event: ToolProgressEvent) => void;
   abortSignal?: AbortSignal;
 }
 
-export interface GatewayChatResult {
-  status: 'success' | 'error';
-  result: string | null;
-  toolsUsed: string[];
-  error?: string;
-}
-
-export interface GatewayCommandRequest {
-  sessionId: string;
-  guildId: string | null;
-  channelId: string;
-  args: string[];
-}
-
-export interface GatewayCommandResult {
-  kind: 'plain' | 'info' | 'error';
-  title?: string;
-  text: string;
-}
-
-export interface GatewayStatus {
-  status: 'ok';
-  uptime: number;
-  sessions: number;
-  activeContainers: number;
-  defaultModel: string;
-  ragDefault: boolean;
-  timestamp: string;
-}
+export type { GatewayChatResult, GatewayCommandRequest, GatewayCommandResult, GatewayStatus };
+export { renderGatewayCommand };
 
 function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
@@ -115,11 +96,6 @@ function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
 }
 
-export function renderGatewayCommand(result: GatewayCommandResult): string {
-  if (!result.title) return result.text;
-  return `${result.title}\n${result.text}`;
-}
-
 export function getGatewayStatus(): GatewayStatus {
   return {
     status: 'ok',
@@ -139,9 +115,9 @@ export function getGatewayHistory(sessionId: string, limit = MAX_HISTORY_MESSAGE
 export async function handleGatewayMessage(req: GatewayChatRequest): Promise<GatewayChatResult> {
   const startedAt = Date.now();
   const session = getOrCreateSession(req.sessionId, req.guildId, req.channelId);
-  const chatbotId = req.chatbotIdOverride ?? session.chatbot_id ?? HYBRIDAI_CHATBOT_ID;
-  const enableRag = req.enableRagOverride ?? session.enable_rag === 1;
-  const model = req.modelOverride ?? session.model ?? HYBRIDAI_MODEL;
+  const chatbotId = req.chatbotId ?? session.chatbot_id ?? HYBRIDAI_CHATBOT_ID;
+  const enableRag = req.enableRag ?? session.enable_rag === 1;
+  const model = req.model ?? session.model ?? HYBRIDAI_MODEL;
 
   if (!chatbotId) {
     return {
