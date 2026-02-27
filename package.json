@@ -1,6 +1,6 @@
 {
   "name": "hybridclaw",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "description": "Personal AI assistant bot for Discord, powered by HybridAI",
   "bin": {
@@ -8,9 +8,12 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/cli.ts serve",
+    "dev": "tsx src/cli.ts gateway",
+    "serve": "tsx src/cli.ts serve",
+    "gateway": "tsx src/cli.ts gateway",
     "tui": "tsx src/cli.ts tui",
-    "start": "node dist/cli.js serve",
+    "start": "node dist/cli.js gateway",
+    "start:serve": "node dist/cli.js serve",
     "build:container": "cd container && npm run build && docker build -t hybridclaw-agent ."
   },
   "dependencies": {

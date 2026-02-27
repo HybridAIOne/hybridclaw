@@ -4,11 +4,12 @@
 
 Personal AI assistant bot for Discord, powered by [HybridAI](https://hybridai.one).
 
-Release notes: [CHANGELOG.md](./CHANGELOG.md) (latest tag: [`v0.1.2`](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.2))
+Release notes: [CHANGELOG.md](./CHANGELOG.md) (latest tag: [`v0.1.3`](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.3))
 
 ## Architecture
 
-- **Host process** (Node.js) — Discord client, SQLite persistence, scheduler, IPC, heartbeat
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence, scheduler, heartbeat, web/API
+- **Adapters** — Discord bot and TUI as thin clients over HTTP (`/api/chat`, `/api/command`)
 - **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor
 - Communication via file-based IPC (input.json / output.json)
 
@@ -28,12 +29,24 @@ npm run build:container
 # Link the CLI globally
 npm link
 
-# Run Discord bot
+# Start the gateway core runtime first
+hybridclaw gateway
+
+# Start terminal adapter (optional, in a second terminal)
+hybridclaw tui
+
+# Start Discord adapter (optional; only needed for Discord integration)
 hybridclaw serve
 
-# Or run the terminal UI (no Discord needed)
-hybridclaw tui
+# Web chat UI (built into gateway)
+# open http://127.0.0.1:9090/chat
 ```
+
+Runtime model:
+
+- `hybridclaw gateway` is the core process and should run first.
+- `hybridclaw tui` and `hybridclaw serve` are thin clients that connect to the gateway.
+- If you only use web chat, gateway alone is enough.
 
 ## Configuration
 
@@ -42,6 +55,13 @@ See `.env.example` for all options. Required:
 - `DISCORD_TOKEN` — Discord bot token
 - `HYBRIDAI_API_KEY` — HybridAI API key
 - `HYBRIDAI_CHATBOT_ID` — Default chatbot ID (overridable per channel)
+
+Optional for HTTP API hardening:
+
+- `WEB_API_TOKEN` — If set, `/api/*` requires `Authorization: Bearer <token>`
+- `HEALTH_HOST` — Bind host for health/web/API server (defaults to `127.0.0.1`)
+- `GATEWAY_BASE_URL` — Adapter target URL for `serve`/`tui` (defaults to `http://127.0.0.1:9090`)
+- `GATEWAY_API_TOKEN` — Optional token used by adapters for gateway API auth
 
 ## Agent workspace
 
@@ -144,8 +164,11 @@ In Discord, use `!claw help` to see all commands. Key ones:
 ## Project structure
 
 ```
-src/              Host process (Discord, DB, IPC, container runner, scheduler)
-container/src/    Agent code (tools, HybridAI client, IPC)
-templates/        Workspace bootstrap files
-data/             Runtime data (gitignored): SQLite DB, sessions, agent workspaces
+src/gateway.ts          Core runtime entrypoint (DB, scheduler, heartbeat, HTTP API)
+src/index.ts            Discord adapter (thin client to gateway)
+src/tui.ts              Terminal adapter (thin client to gateway)
+src/gateway-service.ts  Core shared agent/session logic used by gateway API
+container/src/          Agent code (tools, HybridAI client, IPC)
+templates/              Workspace bootstrap files
+data/                   Runtime data (gitignored): SQLite DB, sessions, agent workspaces
 ```

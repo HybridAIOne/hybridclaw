@@ -1,66 +1,35 @@
 /**
- * HybridClaw TUI — Terminal UI to talk to the bot directly.
- * Bypasses Discord, calls containers directly with IPC.
+ * HybridClaw TUI — thin client for the gateway API.
  * Usage: npm run tui
  */
 import readline from 'readline';
 
+import { GATEWAY_BASE_URL, HYBRIDAI_BASE_URL, HYBRIDAI_CHATBOT_ID, HYBRIDAI_MODEL } from './config.js';
 import {
-  HEARTBEAT_INTERVAL,
-  HYBRIDAI_BASE_URL,
-  HYBRIDAI_CHATBOT_ID,
-  HYBRIDAI_ENABLE_RAG,
-  HYBRIDAI_MODEL,
-} from './config.js';
-import { runAgent } from './agent.js';
-import {
-  clearSessionHistory,
-  getConversationHistory,
-  getOrCreateSession,
-  getTasksForSession,
-  initDatabase,
-  storeMessage,
-} from './db.js';
-import { processSideEffects } from './side-effects.js';
+  gatewayChat,
+  gatewayCommand,
+  gatewayStatus,
+  renderGatewayCommand,
+  type GatewayCommandResult,
+} from './gateway-client.js';
 import { logger } from './logger.js';
-import type { ToolProgressEvent } from './types.js';
-import { expandSkillInvocation } from './skills.js';
-import { maybeCompactSession } from './session-maintenance.js';
-import { appendSessionTranscript } from './session-transcripts.js';
-import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
-import { startScheduler, stopScheduler } from './scheduler.js';
-import {
-  ensureBootstrapFiles,
-  isBootstrapping,
-} from './workspace.js';
-import { fetchHybridAIBots } from './hybridai-bots.js';
-import { buildConversationContext } from './conversation.js';
-import { runIsolatedScheduledTask } from './scheduled-task-runner.js';
 
-// --- Colors (HybridAI brand: teal + navy from yin-yang logo) ---
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
-const TEAL = '\x1b[38;2;92;224;216m';    // #5ce0d8 — logo bright teal
-const NAVY = '\x1b[38;2;30;58;95m';      // #1e3a5f — logo dark navy
-const GOLD = '\x1b[38;2;255;215;0m';     // #FFD700 — accent gold
-const GREEN = '\x1b[38;2;16;185;129m';   // #10b981 — emerald
-const RED = '\x1b[38;2;239;68;68m';      // red for errors
+const TEAL = '\x1b[38;2;92;224;216m';
+const NAVY = '\x1b[38;2;30;58;95m';
+const GOLD = '\x1b[38;2;255;215;0m';
+const GREEN = '\x1b[38;2;16;185;129m';
+const RED = '\x1b[38;2;239;68;68m';
+
 const SESSION_ID = 'tui:local';
 const CHANNEL_ID = 'tui';
-const AGENT_ID = HYBRIDAI_CHATBOT_ID || 'default';
 const TUI_MULTILINE_PASTE_DEBOUNCE_MS = Math.max(
   20,
   parseInt(process.env.TUI_MULTILINE_PASTE_DEBOUNCE_MS || '90', 10) || 90,
 );
-const TOOL_PREVIEW_MAX_CHARS = Math.max(
-  80,
-  parseInt(process.env.TUI_TOOL_PREVIEW_MAX_CHARS || '160', 10) || 160,
-);
 
-let chatbotId = HYBRIDAI_CHATBOT_ID;
-let enableRag = HYBRIDAI_ENABLE_RAG;
-let botName = chatbotId || 'HybridClaw';
 let activeRunAbortController: AbortController | null = null;
 
 function printBanner(): void {
@@ -100,40 +69,33 @@ function printBanner(): void {
   console.log();
   for (const line of logo) console.log(line);
   console.log();
-  console.log(`  \u{1F99E} ${BOLD}${TEAL}H y b r i d ${GOLD}C l a w${RESET} ${DIM}v0.1.2${RESET}`);
+  console.log(`  \u{1F99E} ${BOLD}${TEAL}H y b r i d ${GOLD}C l a w${RESET} ${DIM}v0.1.3${RESET}`);
   console.log(`${DIM}     Powered by HybridAI${RESET}`);
   console.log();
-  console.log(`${DIM}  Model: ${TEAL}${HYBRIDAI_MODEL}${RESET}${DIM} | Bot: ${GOLD}${botName}${RESET}`);
-  console.log(`${DIM}  RAG: ${enableRag ? `${GREEN}on` : `${RED}off`}${RESET}${DIM} | Type ${TEAL}/help${RESET}${DIM} for commands${RESET}`);
+  console.log(`  ${DIM}Model: ${TEAL}${HYBRIDAI_MODEL}${RESET}${DIM} | Bot: ${GOLD}${HYBRIDAI_CHATBOT_ID || 'unset'}${RESET}`);
+  console.log(`  ${DIM}Gateway: ${TEAL}${GATEWAY_BASE_URL}${RESET}`);
+  console.log(`  ${DIM}HybridAI: ${TEAL}${HYBRIDAI_BASE_URL}${RESET}`);
   console.log();
 }
 
 function printHelp(): void {
   console.log();
   console.log(`  ${BOLD}${GOLD}Commands${RESET}`);
-  console.log(`  ${TEAL}/help${RESET}        Show this help`);
-  console.log(`  ${TEAL}/bots${RESET}        List available bots`);
-  console.log(`  ${TEAL}/bot <id>${RESET}    Switch to a different bot`);
-  console.log(`  ${TEAL}/rag${RESET}         Toggle RAG on/off`);
-  console.log(`  ${TEAL}/info${RESET}        Show current settings`);
-  console.log(`  ${TEAL}/clear${RESET}       Clear conversation history`);
-  console.log(`  ${TEAL}/skill <name>${RESET} Run an installed skill`);
-  console.log(`  ${TEAL}/stop${RESET}        Interrupt current activity`);
-  console.log(`  ${TEAL}/exit${RESET}        Quit`);
-  console.log(`  ${TEAL}ESC${RESET}          Interrupt current activity`);
+  console.log(`  ${TEAL}/help${RESET}             Show this help`);
+  console.log(`  ${TEAL}/bots${RESET}             List available bots`);
+  console.log(`  ${TEAL}/bot <id|name>${RESET}    Switch bot for this session`);
+  console.log(`  ${TEAL}/rag [on|off]${RESET}     Toggle or set RAG`);
+  console.log(`  ${TEAL}/info${RESET}             Show current settings`);
+  console.log(`  ${TEAL}/clear${RESET}            Clear session history`);
+  console.log(`  ${TEAL}/stop${RESET}             Interrupt current request`);
+  console.log(`  ${TEAL}/exit${RESET}             Quit`);
+  console.log(`  ${TEAL}ESC${RESET}               Interrupt current request`);
   console.log();
-}
-
-function printToolUsage(tools: string[]): void {
-  if (tools.length > 0) {
-    console.log(`${DIM}  \u{1F99E} tools: ${TEAL}${tools.join(', ')}${RESET}`);
-  }
 }
 
 function printResponse(text: string): void {
   console.log();
-  const lines = text.split('\n');
-  for (const line of lines) {
+  for (const line of text.split('\n')) {
     console.log(`  ${line}`);
   }
   console.log();
@@ -147,244 +109,135 @@ function printInfo(text: string): void {
   console.log(`\n${GOLD}  ${text}${RESET}\n`);
 }
 
-function spinner(): { stop: () => void; addTool: (toolName: string, preview?: string) => void; clearTools: () => void } {
+function printToolUsage(tools: string[]): void {
+  if (tools.length === 0) return;
+  console.log(`${DIM}  tools: ${GREEN}${tools.join(', ')}${RESET}`);
+}
+
+function printGatewayCommandResult(result: GatewayCommandResult): void {
+  if (result.kind === 'error') {
+    const prefix = result.title ? `${result.title}: ` : '';
+    printError(`${prefix}${result.text}`);
+    return;
+  }
+  printInfo(renderGatewayCommand(result));
+}
+
+function spinner(): { stop: () => void } {
   const dots = ['   ', '.  ', '.. ', '...'];
   let i = 0;
-  let transientToolLines = 0;
   const clearLine = () => process.stdout.write('\r\x1b[2K');
   const render = () => {
     clearLine();
-    process.stdout.write(`\r  ${TEAL}thinking${dots[i % dots.length]}${RESET}   `);
+    process.stdout.write(`\r  ${TEAL}thinking${dots[i % dots.length]}${RESET}`);
     i++;
   };
-
-  const interval = setInterval(() => {
-    render();
-  }, 400);
+  const interval = setInterval(render, 350);
   render();
-
   return {
     stop: () => {
       clearInterval(interval);
       clearLine();
     },
-    addTool: (toolName: string, preview?: string) => {
-      clearLine();
-      const previewText = preview ? ` ${DIM}${preview}${RESET}` : '';
-      process.stdout.write(`  \u{1F99E} ${TEAL}${toolName}${RESET}${previewText}\n`);
-      transientToolLines++;
-      render();
-    },
-    clearTools: () => {
-      if (transientToolLines <= 0) return;
-      process.stdout.write(`\x1b[${transientToolLines}A`);
-      for (let idx = 0; idx < transientToolLines; idx++) {
-        clearLine();
-        process.stdout.write('\x1b[M');
-      }
-      clearLine();
-      transientToolLines = 0;
-    },
   };
 }
 
+async function runGatewayCommand(args: string[]): Promise<void> {
+  try {
+    const result = await gatewayCommand({
+      sessionId: SESSION_ID,
+      guildId: null,
+      channelId: CHANNEL_ID,
+      args,
+    });
+    printGatewayCommandResult(result);
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err));
+  }
+}
+
 async function handleSlashCommand(input: string, rl: readline.Interface): Promise<boolean> {
-  const parts = input.slice(1).split(/\s+/);
-  const cmd = parts[0].toLowerCase();
+  const parts = input.slice(1).trim().split(/\s+/).filter(Boolean);
+  const cmd = (parts[0] || '').toLowerCase();
 
   switch (cmd) {
     case 'help':
       printHelp();
       return true;
-
     case 'exit':
     case 'quit':
     case 'q':
-      console.log(`\n  \u{1F99E} ${GOLD}Snip snip! Goodbye!${RESET}\n`);
+      console.log(`\n  ${GOLD}Goodbye!${RESET}\n`);
       rl.close();
       process.exit(0);
-
-    case 'bots': {
-      try {
-        const bots = await fetchHybridAIBots({ cacheTtlMs: 60_000 });
-        if (bots.length === 0) {
-          printInfo('No bots available.');
-          return true;
-        }
-        console.log();
-        for (const b of bots) {
-          const current = b.id === chatbotId ? ` ${GREEN}(current)${RESET}` : '';
-          console.log(`  ${BOLD}${b.name}${RESET} (${DIM}${b.id}${RESET})${current}`);
-          if (b.description) console.log(`    ${DIM}${b.description}${RESET}`);
-        }
-        console.log();
-      } catch (err) {
-        printError(`Failed to fetch bots: ${err instanceof Error ? err.message : String(err)}`);
+    case 'bots':
+      await runGatewayCommand(['bot', 'list']);
+      return true;
+    case 'bot':
+      if (parts.length > 1) {
+        await runGatewayCommand(['bot', 'set', ...parts.slice(1)]);
+      } else {
+        await runGatewayCommand(['bot', 'info']);
       }
       return true;
-    }
-
-    case 'bot': {
-      if (!parts[1]) {
-        printInfo(`Current bot: ${botName} (${chatbotId})`);
-        return true;
-      }
-      chatbotId = parts[1];
-      // Try to resolve name
-      try {
-        const bots = await fetchHybridAIBots({ cacheTtlMs: 60_000 });
-        // Allow matching by name or ID
-        const match = bots.find((b) =>
-          b.id === chatbotId || b.name.toLowerCase() === parts.slice(1).join(' ').toLowerCase()
-        );
-        if (match) {
-          chatbotId = match.id;
-          botName = match.name;
-        } else {
-          botName = chatbotId;
-        }
-      } catch {
-        botName = chatbotId;
-      }
-      printInfo(`Switched to bot: ${botName} (${chatbotId})`);
-      return true;
-    }
-
     case 'rag':
-      enableRag = !enableRag;
-      printInfo(`RAG ${enableRag ? 'enabled' : 'disabled'}`);
+      if (parts.length > 1 && (parts[1] === 'on' || parts[1] === 'off')) {
+        await runGatewayCommand(['rag', parts[1]]);
+      } else {
+        await runGatewayCommand(['rag']);
+      }
       return true;
-
     case 'info':
-      console.log();
-      console.log(`  ${BOLD}Model:${RESET}  ${HYBRIDAI_MODEL}`);
-      console.log(`  ${BOLD}Bot:${RESET}    ${botName} (${chatbotId})`);
-      console.log(`  ${BOLD}RAG:${RESET}    ${enableRag ? 'on' : 'off'}`);
-      console.log(`  ${BOLD}Base:${RESET}   ${HYBRIDAI_BASE_URL}`);
-      console.log();
+      await runGatewayCommand(['bot', 'info']);
+      await runGatewayCommand(['model', 'info']);
+      await runGatewayCommand(['status']);
       return true;
-
     case 'clear':
-      clearSessionHistory(SESSION_ID);
-      printInfo('Conversation cleared.');
+      await runGatewayCommand(['clear']);
       return true;
-
     case 'stop':
     case 'abort':
       if (activeRunAbortController && !activeRunAbortController.signal.aborted) {
         activeRunAbortController.abort();
-        printInfo('Stopping current activity...');
+        printInfo('Stopping current request...');
       } else {
-        printInfo('No active activity to stop.');
+        printInfo('No active request.');
       }
       return true;
-
     default:
       return false;
   }
 }
 
 async function processMessage(content: string): Promise<void> {
-  const session = getOrCreateSession(SESSION_ID, null, CHANNEL_ID);
-
-  // Build conversation history (before storing new message so it's not duplicated)
-  const history = getConversationHistory(SESSION_ID, 40);
-  const { messages, skills } = buildConversationContext({
-    agentId: AGENT_ID,
-    sessionSummary: session.session_summary,
-    history,
-  });
-
-  // Add conversation history + current message
-  const expandedContent = expandSkillInvocation(content, skills);
-  messages.push({ role: 'user', content: expandedContent });
-
-  if (!chatbotId) {
-    printError('No chatbot configured. Use /bot <id> or set HYBRIDAI_CHATBOT_ID env var.');
-    return;
-  }
-
   const s = spinner();
   const abortController = new AbortController();
   activeRunAbortController = abortController;
-  let lastProgressTool: string | null = null;
-  const onToolProgress = (event: ToolProgressEvent): void => {
-    if (event.phase !== 'start') return;
-    if (event.toolName === lastProgressTool) return;
-    lastProgressTool = event.toolName;
-
-    const previewRaw = event.preview?.replace(/\s+/g, ' ').trim();
-    const preview =
-      previewRaw && previewRaw.length > TOOL_PREVIEW_MAX_CHARS
-        ? `${previewRaw.slice(0, TOOL_PREVIEW_MAX_CHARS - 1)}…`
-        : previewRaw;
-    s.addTool(event.toolName, preview || undefined);
-  };
 
   try {
-    const scheduledTasks = getTasksForSession(SESSION_ID);
-    const output = await runAgent(
-      SESSION_ID,
-      messages,
-      chatbotId,
-      enableRag,
-      HYBRIDAI_MODEL,
-      AGENT_ID,
-      CHANNEL_ID,
-      scheduledTasks,
-      undefined,
-      onToolProgress,
+    const result = await gatewayChat(
+      {
+        sessionId: SESSION_ID,
+        guildId: null,
+        channelId: CHANNEL_ID,
+        userId: 'tui-user',
+        username: 'user',
+        content,
+      },
       abortController.signal,
     );
     s.stop();
-    s.clearTools();
 
-    processSideEffects(output, SESSION_ID, CHANNEL_ID);
-
-    if (output.status === 'error') {
-      if ((output.error || '').includes('Interrupted by user')) return;
-      printError(output.error || 'Unknown error');
+    if (result.status === 'error') {
+      if ((result.error || '').includes('aborted') || (result.error || '').includes('Interrupted')) return;
+      printError(result.error || 'Unknown error');
       return;
     }
 
-    const result = output.result || 'No response.';
-
-    // Only persist messages after successful response
-    storeMessage(SESSION_ID, 'tui-user', 'user', 'user', content);
-    storeMessage(SESSION_ID, 'assistant', null, 'assistant', result);
-    appendSessionTranscript(AGENT_ID, {
-      sessionId: SESSION_ID,
-      channelId: CHANNEL_ID,
-      role: 'user',
-      userId: 'tui-user',
-      username: 'user',
-      content,
-    });
-    appendSessionTranscript(AGENT_ID, {
-      sessionId: SESSION_ID,
-      channelId: CHANNEL_ID,
-      role: 'assistant',
-      userId: 'assistant',
-      username: null,
-      content: result,
-    });
-
-    printToolUsage(output.toolsUsed);
-    printResponse(result);
-
-    void maybeCompactSession({
-      sessionId: SESSION_ID,
-      agentId: AGENT_ID,
-      chatbotId,
-      enableRag,
-      model: HYBRIDAI_MODEL,
-      channelId: CHANNEL_ID,
-    }).catch((err) => {
-      logger.warn({ sessionId: SESSION_ID, err }, 'Background session compaction failed');
-    });
+    printToolUsage(result.toolsUsed);
+    printResponse(result.result || 'No response.');
   } catch (err) {
     s.stop();
-    s.clearTools();
     if (abortController.signal.aborted) return;
     printError(err instanceof Error ? err.message : String(err));
   } finally {
@@ -394,51 +247,9 @@ async function processMessage(content: string): Promise<void> {
   }
 }
 
-let scheduledTaskCallback: ((text: string) => void) | null = null;
-
-// OpenClaw style: isolated session, tools disabled, direct output
-async function runScheduledTask(_origSessionId: string, channelId: string, prompt: string, taskId: number): Promise<void> {
-  const botId = chatbotId;
-  if (!botId) return;
-
-  await runIsolatedScheduledTask({
-    taskId,
-    prompt,
-    channelId,
-    chatbotId: botId,
-    model: HYBRIDAI_MODEL,
-    agentId: AGENT_ID,
-    onResult: (result) => {
-      if (scheduledTaskCallback) {
-        scheduledTaskCallback(result);
-      } else {
-        printResponse(result);
-      }
-    },
-    onError: (err) => {
-      printError(`Scheduled task failed: ${err instanceof Error ? err.message : String(err)}`);
-    },
-  });
-}
-
 async function main(): Promise<void> {
-  // Suppress pino output for TUI
   logger.level = 'warn';
-
-  initDatabase();
-
-  // Ensure workspace bootstrap files exist
-  ensureBootstrapFiles(AGENT_ID);
-
-  // Resolve bot name on startup
-  if (chatbotId) {
-    try {
-      const bots = await fetchHybridAIBots({ cacheTtlMs: 60_000 });
-      const bot = bots.find((b) => b.id === chatbotId);
-      if (bot) botName = bot.name;
-    } catch { /* use ID */ }
-  }
-
+  await gatewayStatus();
   printBanner();
 
   const rl = readline.createInterface({
@@ -450,34 +261,13 @@ async function main(): Promise<void> {
 
   readline.emitKeypressEvents(process.stdin, rl);
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
-
   process.stdin.on('keypress', (_str, key) => {
     if (key?.name !== 'escape') return;
     if (!activeRunAbortController || activeRunAbortController.signal.aborted) return;
     activeRunAbortController.abort();
   });
 
-  // First-run: send initial message so the agent self-bootstraps via BOOTSTRAP.md
-  if (isBootstrapping(AGENT_ID)) {
-    console.log(`  ${DIM}First run detected — hatching via BOOTSTRAP.md...${RESET}`);
-    console.log();
-    await processMessage('Wake up, my friend!');
-  }
-
-  // Start heartbeat and scheduler after bootstrap is done
-  startHeartbeat(AGENT_ID, HEARTBEAT_INTERVAL, (text) => {
-    if (/^\s*HEARTBEAT_?OK\s*$/i.test(text)) return; // suppress leaks
-    printResponse(text);
-    rl.prompt();
-  });
-  scheduledTaskCallback = (text) => {
-    printResponse(text);
-    rl.prompt();
-  };
-  startScheduler(runScheduledTask);
-
   rl.prompt();
-
   let pendingInputLines: string[] = [];
   let pendingInputTimer: ReturnType<typeof setTimeout> | null = null;
   let inputRunQueue = Promise.resolve();
@@ -490,8 +280,6 @@ async function main(): Promise<void> {
           rl.prompt();
           return;
         }
-
-        // Slash commands remain single-line only; multiline content is always treated as message input.
         if (!input.includes('\n') && trimmed.startsWith('/')) {
           const handled = await handleSlashCommand(trimmed, rl);
           if (handled) {
@@ -499,7 +287,6 @@ async function main(): Promise<void> {
             return;
           }
         }
-
         await processMessage(input);
         rl.prompt();
       })
@@ -515,7 +302,6 @@ async function main(): Promise<void> {
       pendingInputTimer = null;
     }
     if (pendingInputLines.length === 0) return;
-
     const combined = pendingInputLines.join('\n');
     pendingInputLines = [];
     enqueueInput(combined);
@@ -523,17 +309,13 @@ async function main(): Promise<void> {
 
   rl.on('line', (line) => {
     pendingInputLines.push(line);
-    if (pendingInputTimer) {
-      clearTimeout(pendingInputTimer);
-    }
+    if (pendingInputTimer) clearTimeout(pendingInputTimer);
     pendingInputTimer = setTimeout(flushPendingInput, TUI_MULTILINE_PASTE_DEBOUNCE_MS);
   });
 
   rl.on('close', () => {
     if (pendingInputTimer) clearTimeout(pendingInputTimer);
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
-    stopHeartbeat();
-    stopScheduler();
     console.log(`\n${DIM}  Goodbye!${RESET}\n`);
     process.exit(0);
   });

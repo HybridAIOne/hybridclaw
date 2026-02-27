@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.1.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.3)
+
+### Added
+
+- **Gateway-first runtime**: Added dedicated gateway entrypoint (`src/gateway.ts`) and shared gateway service layer (`src/gateway-service.ts`) to centralize chat handling, commands, persistence, scheduler, and heartbeat.
+- **Gateway client module**: Added reusable HTTP client (`src/gateway-client.ts`) for thin adapters to call gateway APIs.
+- **Web chat interface**: Added `/chat` UI (`site/chat.html`) with session history, new conversation flow, empty-state CTA, and in-chat thinking indicator.
+- **Gateway HTTP API surface**: Added `/api/status`, `/api/history`, `/api/chat`, and `/api/command` endpoints with optional bearer auth and localhost-only fallback.
+
+### Changed
+
+- **Adapters simplified**: Discord (`serve`) and TUI now operate as thin gateway clients instead of hosting core runtime logic locally.
+- **CLI and scripts**: Updated command descriptions and npm scripts so `gateway` is the primary runtime (`dev`/`start` now launch gateway).
+- **Gateway HTTP server role**: `src/health.ts` now serves health, API routes, and static web assets.
+- **Configuration and docs**: Added gateway-related env vars (`HEALTH_HOST`, `WEB_API_TOKEN`, `GATEWAY_BASE_URL`, `GATEWAY_API_TOKEN`) and updated `.env.example`/`README.md`.
+
+### Fixed
+
+- **TUI startup branding**: Restored the ASCII art startup logo in the TUI banner.
+
 ## [0.1.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.2)
 
 ### Added

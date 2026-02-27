@@ -76,7 +76,7 @@ function parseCommand(content: string): { isCommand: boolean; command: string; a
   }
 
   const parts = text.split(/\s+/);
-  const subcommands = ['bot', 'rag', 'model', 'status', 'sessions', 'audit', 'schedule', 'help'];
+  const subcommands = ['bot', 'rag', 'model', 'status', 'sessions', 'audit', 'schedule', 'clear', 'help'];
 
   if (parts.length > 0 && subcommands.includes(parts[0].toLowerCase())) {
     return { isCommand: true, command: parts[0].toLowerCase(), args: parts.slice(1) };

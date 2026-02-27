@@ -75,7 +75,11 @@ export const HEARTBEAT_INTERVAL = parseInt(process.env.HEARTBEAT_INTERVAL || '18
 export const HEARTBEAT_CHANNEL = process.env.HEARTBEAT_CHANNEL || '';
 
 // Ops
+export const HEALTH_HOST = process.env.HEALTH_HOST || '127.0.0.1';
 export const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9090', 10);
+export const WEB_API_TOKEN = process.env.WEB_API_TOKEN || '';
+export const GATEWAY_BASE_URL = process.env.GATEWAY_BASE_URL || `http://127.0.0.1:${HEALTH_PORT}`;
+export const GATEWAY_API_TOKEN = process.env.GATEWAY_API_TOKEN || WEB_API_TOKEN;
 export const DB_PATH = process.env.DB_PATH || 'data/hybridclaw.db';
 export const DATA_DIR = path.dirname(DB_PATH);
 

@@ -6,6 +6,9 @@ switch (command) {
   case 'serve':
     await import('./index.js');
     break;
+  case 'gateway':
+    await import('./gateway.js');
+    break;
   case 'tui':
     await import('./tui.js');
     break;
@@ -13,7 +16,8 @@ switch (command) {
     console.log(`Usage: hybridclaw <command>
 
 Commands:
-  serve   Start the Discord bot
-  tui     Start the terminal UI`);
+  gateway Start core runtime (web/API/scheduler/heartbeat)
+  serve   Start Discord adapter (requires running gateway)
+  tui     Start terminal adapter (requires running gateway)`);
     process.exit(command ? 1 : 0);
 }
