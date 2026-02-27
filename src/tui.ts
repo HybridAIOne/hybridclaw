@@ -110,7 +110,7 @@ function printBanner(): void {
   console.log();
   for (const line of logo) console.log(line);
   console.log();
-  console.log(`  \u{1F99E} ${BOLD}${TEAL}H y b r i d ${GOLD}C l a w${RESET} ${DIM}v0.1.0${RESET}`);
+  console.log(`  \u{1F99E} ${BOLD}${TEAL}H y b r i d ${GOLD}C l a w${RESET} ${DIM}v0.1.2${RESET}`);
   console.log(`${DIM}     Powered by HybridAI${RESET}`);
   console.log();
   console.log(`${DIM}  Model: ${TEAL}${HYBRIDAI_MODEL}${RESET}${DIM} | Bot: ${GOLD}${botName}${RESET}`);

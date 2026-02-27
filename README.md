@@ -4,7 +4,7 @@
 
 Personal AI assistant bot for Discord, powered by [HybridAI](https://hybridai.one).
 
-Release notes: [CHANGELOG.md](./CHANGELOG.md) (latest tag: [`v0.1.1`](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.1))
+Release notes: [CHANGELOG.md](./CHANGELOG.md) (latest tag: [`v0.1.2`](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.2))
 
 ## Architecture
 
@@ -63,7 +63,7 @@ Historical turn logs are mirrored into `<workspace>/.session-transcripts/*.jsonl
 
 ## Skills
 
-HybridClaw supports CLAUDE/OpenClaw-style skills (`<skill-name>/SKILL.md`).
+HybridClaw supports `SKILL.md`-based skills (`<skill-name>/SKILL.md`).
 
 ### Where to put skills
 
