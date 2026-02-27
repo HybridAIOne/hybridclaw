@@ -7,7 +7,6 @@ import readline from 'readline';
 
 import {
   HEARTBEAT_INTERVAL,
-  HYBRIDAI_API_KEY,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
@@ -24,18 +23,19 @@ import {
 } from './db.js';
 import { processSideEffects } from './side-effects.js';
 import { logger } from './logger.js';
-import type { ChatMessage, HybridAIBot, ToolProgressEvent } from './types.js';
-import { buildSkillsPrompt, expandSkillInvocation, loadSkills } from './skills.js';
-import { buildSessionSummaryPrompt, maybeCompactSession } from './session-maintenance.js';
+import type { ToolProgressEvent } from './types.js';
+import { expandSkillInvocation } from './skills.js';
+import { maybeCompactSession } from './session-maintenance.js';
 import { appendSessionTranscript } from './session-transcripts.js';
 import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import {
-  buildContextPrompt,
   ensureBootstrapFiles,
   isBootstrapping,
-  loadBootstrapFiles,
 } from './workspace.js';
+import { fetchHybridAIBots } from './hybridai-bots.js';
+import { buildConversationContext } from './conversation.js';
+import { runIsolatedScheduledTask } from './scheduled-task-runner.js';
 
 // --- Colors (HybridAI brand: teal + navy from yin-yang logo) ---
 const RESET = '\x1b[0m';
@@ -62,24 +62,6 @@ let chatbotId = HYBRIDAI_CHATBOT_ID;
 let enableRag = HYBRIDAI_ENABLE_RAG;
 let botName = chatbotId || 'HybridClaw';
 let activeRunAbortController: AbortController | null = null;
-
-async function fetchBots(): Promise<HybridAIBot[]> {
-  const url = `${HYBRIDAI_BASE_URL}/api/v1/bot-management/bots`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${HYBRIDAI_API_KEY}` },
-  });
-  if (!res.ok) throw new Error(`Failed to fetch bots: ${res.status}`);
-  const data = await res.json() as
-    | { data?: Record<string, unknown>[]; bots?: Record<string, unknown>[]; items?: Record<string, unknown>[] }
-    | Record<string, unknown>[];
-  const raw = Array.isArray(data) ? data : (data.data || data.bots || data.items || []);
-  // Normalize fields — API may return bot_name/chatbot_id instead of name/id
-  return raw.map((item) => ({
-    id: String(item.id ?? item._id ?? item.chatbot_id ?? item.bot_id ?? ''),
-    name: String(item.bot_name ?? item.name ?? 'Unnamed'),
-    description: item.description != null ? String(item.description) : undefined,
-  }));
-}
 
 function printBanner(): void {
   const T = TEAL;
@@ -224,7 +206,7 @@ async function handleSlashCommand(input: string, rl: readline.Interface): Promis
 
     case 'bots': {
       try {
-        const bots = await fetchBots();
+        const bots = await fetchHybridAIBots({ cacheTtlMs: 60_000 });
         if (bots.length === 0) {
           printInfo('No bots available.');
           return true;
@@ -250,7 +232,7 @@ async function handleSlashCommand(input: string, rl: readline.Interface): Promis
       chatbotId = parts[1];
       // Try to resolve name
       try {
-        const bots = await fetchBots();
+        const bots = await fetchHybridAIBots({ cacheTtlMs: 60_000 });
         // Allow matching by name or ID
         const match = bots.find((b) =>
           b.id === chatbotId || b.name.toLowerCase() === parts.slice(1).join(' ').toLowerCase()
@@ -307,24 +289,13 @@ async function processMessage(content: string): Promise<void> {
 
   // Build conversation history (before storing new message so it's not duplicated)
   const history = getConversationHistory(SESSION_ID, 40);
-  const messages: ChatMessage[] = [];
-
-  // Inject workspace context files + skills as system message
-  const contextFiles = loadBootstrapFiles(AGENT_ID);
-  const contextPrompt = buildContextPrompt(contextFiles);
-  const skills = loadSkills(AGENT_ID);
-  const skillsPrompt = buildSkillsPrompt(skills);
-  const summaryPrompt = buildSessionSummaryPrompt(session.session_summary);
-  const systemParts = [contextPrompt, summaryPrompt, skillsPrompt].filter(Boolean);
-  if (systemParts.length > 0) {
-    messages.push({ role: 'system', content: systemParts.join('\n\n') });
-  }
+  const { messages, skills } = buildConversationContext({
+    agentId: AGENT_ID,
+    sessionSummary: session.session_summary,
+    history,
+  });
 
   // Add conversation history + current message
-  messages.push(...history.reverse().map((msg) => ({
-    role: msg.role as 'user' | 'assistant' | 'system',
-    content: msg.content,
-  })));
   const expandedContent = expandSkillInvocation(content, skills);
   messages.push({ role: 'user', content: expandedContent });
 
@@ -426,26 +397,28 @@ async function processMessage(content: string): Promise<void> {
 let scheduledTaskCallback: ((text: string) => void) | null = null;
 
 // OpenClaw style: isolated session, tools disabled, direct output
-async function runScheduledTask(origSessionId: string, channelId: string, prompt: string, taskId: number): Promise<void> {
+async function runScheduledTask(_origSessionId: string, channelId: string, prompt: string, taskId: number): Promise<void> {
   const botId = chatbotId;
   if (!botId) return;
 
-  // Isolated run — fresh session, no history, only cron tool available
-  const cronSessionId = `cron:${taskId}`;
-  const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
-
-  try {
-    const output = await runAgent(cronSessionId, messages, botId, false, HYBRIDAI_MODEL, AGENT_ID, channelId, undefined, ['cron']);
-    if (output.status === 'success' && output.result) {
+  await runIsolatedScheduledTask({
+    taskId,
+    prompt,
+    channelId,
+    chatbotId: botId,
+    model: HYBRIDAI_MODEL,
+    agentId: AGENT_ID,
+    onResult: (result) => {
       if (scheduledTaskCallback) {
-        scheduledTaskCallback(output.result);
+        scheduledTaskCallback(result);
       } else {
-        printResponse(output.result);
+        printResponse(result);
       }
-    }
-  } catch (err) {
-    printError(`Scheduled task failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
+    },
+    onError: (err) => {
+      printError(`Scheduled task failed: ${err instanceof Error ? err.message : String(err)}`);
+    },
+  });
 }
 
 async function main(): Promise<void> {
@@ -460,7 +433,7 @@ async function main(): Promise<void> {
   // Resolve bot name on startup
   if (chatbotId) {
     try {
-      const bots = await fetchBots();
+      const bots = await fetchHybridAIBots({ cacheTtlMs: 60_000 });
       const bot = bots.find((b) => b.id === chatbotId);
       if (bot) botName = bot.name;
     } catch { /* use ID */ }

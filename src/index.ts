@@ -1,8 +1,6 @@
 import {
   HEARTBEAT_CHANNEL,
   HEARTBEAT_INTERVAL,
-  HYBRIDAI_API_KEY,
-  HYBRIDAI_BASE_URL,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
@@ -39,46 +37,16 @@ import { getUptime, startHealthServer } from './health.js';
 import { getActiveContainerCount } from './container-runner.js';
 import { logger } from './logger.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
-import type { ChatMessage, HybridAIBot, ToolProgressEvent } from './types.js';
+import type { ToolProgressEvent } from './types.js';
 import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
-import { buildSessionSummaryPrompt, maybeCompactSession } from './session-maintenance.js';
+import { maybeCompactSession } from './session-maintenance.js';
 import { appendSessionTranscript } from './session-transcripts.js';
-import { buildSkillsPrompt, expandSkillInvocation, loadSkills } from './skills.js';
-import { buildContextPrompt, ensureBootstrapFiles, loadBootstrapFiles } from './workspace.js';
+import { ensureBootstrapFiles } from './workspace.js';
+import { fetchHybridAIBots } from './hybridai-bots.js';
+import { buildConversationContext } from './conversation.js';
+import { runIsolatedScheduledTask } from './scheduled-task-runner.js';
 
-// --- Bot listing cache ---
-let botCache: HybridAIBot[] | null = null;
-let botCacheTime = 0;
 const BOT_CACHE_TTL = 300_000; // 5 minutes
-
-async function fetchBots(): Promise<HybridAIBot[]> {
-  if (botCache && Date.now() - botCacheTime < BOT_CACHE_TTL) {
-    return botCache;
-  }
-
-  const url = `${HYBRIDAI_BASE_URL}/api/v1/bot-management/bots`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${HYBRIDAI_API_KEY}` },
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to fetch bots: ${res.status} ${res.statusText}`);
-  }
-
-  const data = await res.json() as
-    | { data?: Record<string, unknown>[]; bots?: Record<string, unknown>[]; items?: Record<string, unknown>[] }
-    | Record<string, unknown>[];
-  const raw = Array.isArray(data) ? data : (data.data || data.bots || data.items || []);
-
-  // Normalize fields — the API may return bot_name/chatbot_id instead of name/id
-  botCache = raw.map((item) => ({
-    id: String(item.id ?? item._id ?? item.chatbot_id ?? item.bot_id ?? ''),
-    name: String(item.bot_name ?? item.name ?? 'Unnamed'),
-    description: item.description != null ? String(item.description) : undefined,
-  }));
-  botCacheTime = Date.now();
-  return botCache;
-}
 
 // --- Message handler ---
 async function handleMessage(
@@ -111,31 +79,13 @@ async function handleMessage(
   // Ensure workspace bootstrap files
   ensureBootstrapFiles(agentId);
 
-  // Build conversation with context files injected as system message
-  const messages: ChatMessage[] = [];
-
-  const contextFiles = loadBootstrapFiles(agentId);
-  const contextPrompt = buildContextPrompt(contextFiles);
-  const skills = loadSkills(agentId);
-  const skillsPrompt = buildSkillsPrompt(skills);
-  const summaryPrompt = buildSessionSummaryPrompt(session.session_summary);
-  const systemParts = [contextPrompt, summaryPrompt, skillsPrompt].filter(Boolean);
-  if (systemParts.length > 0) {
-    messages.push({ role: 'system', content: systemParts.join('\n\n') });
-  }
-
   const history = getConversationHistory(sessionId, 40);
-  const historyMessages = history.reverse().map((msg) => ({
-    role: msg.role as 'user' | 'assistant' | 'system',
-    content: msg.content,
-  }));
-  if (historyMessages.length > 0) {
-    const last = historyMessages[historyMessages.length - 1];
-    if (last.role === 'user') {
-      last.content = expandSkillInvocation(last.content, skills);
-    }
-  }
-  messages.push(...historyMessages);
+  const { messages } = buildConversationContext({
+    agentId,
+    sessionSummary: session.session_summary,
+    history,
+    expandLatestHistoryUser: true,
+  });
 
   if (!chatbotId) {
     await reply(formatError('No Chatbot', 'No chatbot configured. Use `!claw bot set <id>` or set `HYBRIDAI_CHATBOT_ID` env var.'));
@@ -239,7 +189,7 @@ async function handleCommand(
 
       if (sub === 'list') {
         try {
-          const bots = await fetchBots();
+          const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
           if (bots.length === 0) {
             await reply('No bots available.');
             return;
@@ -260,7 +210,7 @@ async function handleCommand(
         const botId = session.chatbot_id || HYBRIDAI_CHATBOT_ID || 'Not set';
         let botName = botId;
         try {
-          const bots = await fetchBots();
+          const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
           const bot = bots.find((b) => b.id === botId);
           if (bot) botName = `${bot.name} (\`${bot.id}\`)`;
         } catch { /* use ID */ }
@@ -436,18 +386,20 @@ async function runScheduledTask(origSessionId: string, channelId: string, prompt
 
   if (!chatbotId) return;
 
-  // Isolated run — fresh session, no history, only cron tool available
-  const cronSessionId = `cron:${taskId}`;
-  const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
-
-  try {
-    const output = await runAgent(cronSessionId, messages, chatbotId, false, model, agentId, channelId, undefined, ['cron']);
-    if (output.status === 'success' && output.result) {
-      await sendToChannel(channelId, output.result);
-    }
-  } catch (err) {
-    logger.error({ taskId, channelId, err }, 'Scheduled task failed');
-  }
+  await runIsolatedScheduledTask({
+    taskId,
+    prompt,
+    channelId,
+    chatbotId,
+    model,
+    agentId,
+    onResult: async (result) => {
+      await sendToChannel(channelId, result);
+    },
+    onError: (err) => {
+      logger.error({ taskId, channelId, err }, 'Scheduled task failed');
+    },
+  });
 }
 
 // --- Import for schedule validation ---

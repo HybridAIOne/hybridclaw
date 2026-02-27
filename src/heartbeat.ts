@@ -2,16 +2,14 @@
  * Heartbeat — periodic poll so the agent can proactively check tasks,
  * maintain memory, and reach out when needed.
  */
-import { HEARTBEAT_CHANNEL, HEARTBEAT_ENABLED, HEARTBEAT_INTERVAL, HYBRIDAI_CHATBOT_ID, HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL } from './config.js';
+import { HEARTBEAT_CHANNEL, HEARTBEAT_ENABLED, HYBRIDAI_CHATBOT_ID, HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL } from './config.js';
 import { runAgent } from './agent.js';
 import { getConversationHistory, getOrCreateSession, getTasksForSession, storeMessage } from './db.js';
 import { logger } from './logger.js';
 import { processSideEffects } from './side-effects.js';
-import { buildSessionSummaryPrompt, maybeCompactSession } from './session-maintenance.js';
+import { maybeCompactSession } from './session-maintenance.js';
 import { appendSessionTranscript } from './session-transcripts.js';
-import { buildSkillsPrompt, loadSkills } from './skills.js';
-import { buildContextPrompt, loadBootstrapFiles } from './workspace.js';
-import type { ChatMessage } from './types.js';
+import { buildConversationContext } from './conversation.js';
 
 const HEARTBEAT_PROMPT =
   '[Heartbeat poll] Check HEARTBEAT.md for periodic tasks. If nothing needs attention, reply HEARTBEAT_OK.';
@@ -51,24 +49,12 @@ export function startHeartbeat(
     try {
       const session = getOrCreateSession(sessionId, null, channelId);
 
-      // Build messages: system context + short history + heartbeat prompt
-      const messages: ChatMessage[] = [];
-
-      const contextFiles = loadBootstrapFiles(agentId);
-      const contextPrompt = buildContextPrompt(contextFiles);
-      const skills = loadSkills(agentId);
-      const skillsPrompt = buildSkillsPrompt(skills);
-      const summaryPrompt = buildSessionSummaryPrompt(session.session_summary);
-      const systemParts = [contextPrompt, summaryPrompt, skillsPrompt].filter(Boolean);
-      if (systemParts.length > 0) {
-        messages.push({ role: 'system', content: systemParts.join('\n\n') });
-      }
-
       const history = getConversationHistory(sessionId, MAX_HEARTBEAT_HISTORY);
-      messages.push(...history.reverse().map((msg) => ({
-        role: msg.role as 'user' | 'assistant' | 'system',
-        content: msg.content,
-      })));
+      const { messages } = buildConversationContext({
+        agentId,
+        sessionSummary: session.session_summary,
+        history,
+      });
       messages.push({ role: 'user', content: HEARTBEAT_PROMPT });
 
       const chatbotId = HYBRIDAI_CHATBOT_ID || agentId;
