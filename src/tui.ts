@@ -49,6 +49,14 @@ const RED = '\x1b[38;2;239;68;68m';      // red for errors
 const SESSION_ID = 'tui:local';
 const CHANNEL_ID = 'tui';
 const AGENT_ID = HYBRIDAI_CHATBOT_ID || 'default';
+const TUI_MULTILINE_PASTE_DEBOUNCE_MS = Math.max(
+  20,
+  parseInt(process.env.TUI_MULTILINE_PASTE_DEBOUNCE_MS || '90', 10) || 90,
+);
+const TOOL_PREVIEW_MAX_CHARS = Math.max(
+  80,
+  parseInt(process.env.TUI_TOOL_PREVIEW_MAX_CHARS || '160', 10) || 160,
+);
 
 let chatbotId = HYBRIDAI_CHATBOT_ID;
 let enableRag = HYBRIDAI_ENABLE_RAG;
@@ -335,7 +343,11 @@ async function processMessage(content: string): Promise<void> {
     lastProgressTool = event.toolName;
 
     const previewRaw = event.preview?.replace(/\s+/g, ' ').trim();
-    s.addTool(event.toolName, previewRaw ? previewRaw.slice(0, 80) : undefined);
+    const preview =
+      previewRaw && previewRaw.length > TOOL_PREVIEW_MAX_CHARS
+        ? `${previewRaw.slice(0, TOOL_PREVIEW_MAX_CHARS - 1)}…`
+        : previewRaw;
+    s.addTool(event.toolName, preview || undefined);
   };
 
   try {
@@ -493,26 +505,59 @@ async function main(): Promise<void> {
 
   rl.prompt();
 
-  rl.on('line', async (line) => {
-    const input = line.trim();
-    if (!input) {
-      rl.prompt();
-      return;
-    }
+  let pendingInputLines: string[] = [];
+  let pendingInputTimer: ReturnType<typeof setTimeout> | null = null;
+  let inputRunQueue = Promise.resolve();
 
-    if (input.startsWith('/')) {
-      const handled = await handleSlashCommand(input, rl);
-      if (handled) {
+  const enqueueInput = (input: string): void => {
+    inputRunQueue = inputRunQueue
+      .then(async () => {
+        const trimmed = input.trim();
+        if (!trimmed) {
+          rl.prompt();
+          return;
+        }
+
+        // Slash commands remain single-line only; multiline content is always treated as message input.
+        if (!input.includes('\n') && trimmed.startsWith('/')) {
+          const handled = await handleSlashCommand(trimmed, rl);
+          if (handled) {
+            rl.prompt();
+            return;
+          }
+        }
+
+        await processMessage(input);
         rl.prompt();
-        return;
-      }
-    }
+      })
+      .catch((err) => {
+        printError(err instanceof Error ? err.message : String(err));
+        rl.prompt();
+      });
+  };
 
-    await processMessage(input);
-    rl.prompt();
+  const flushPendingInput = (): void => {
+    if (pendingInputTimer) {
+      clearTimeout(pendingInputTimer);
+      pendingInputTimer = null;
+    }
+    if (pendingInputLines.length === 0) return;
+
+    const combined = pendingInputLines.join('\n');
+    pendingInputLines = [];
+    enqueueInput(combined);
+  };
+
+  rl.on('line', (line) => {
+    pendingInputLines.push(line);
+    if (pendingInputTimer) {
+      clearTimeout(pendingInputTimer);
+    }
+    pendingInputTimer = setTimeout(flushPendingInput, TUI_MULTILINE_PASTE_DEBOUNCE_MS);
   });
 
   rl.on('close', () => {
+    if (pendingInputTimer) clearTimeout(pendingInputTimer);
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
     stopHeartbeat();
     stopScheduler();

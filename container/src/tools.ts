@@ -9,7 +9,8 @@ import { webFetch } from './web-fetch.js';
 
 const DENY_PATTERNS: RegExp[] = [
   /\brm\s+-[rf]{1,2}\b/,           // rm -r, rm -f, rm -rf
-  /\b(mkfs|format)\b\s/,            // disk formatting
+  /(^|[;&|]\s*)mkfs(?:\.[a-z0-9_+-]+)?\b/, // mkfs command at segment start
+  /(^|[;&|]\s*)format(?:\.com|\.exe)?\b/,  // format command at segment start (Windows)
   /\bdd\s+if=/,                      // raw disk I/O
   /:\(\)\s*\{.*\};\s*:/,            // fork bomb :(){ :|:& };:
   /\|\s*(sh|bash|zsh)\b/,           // pipe to shell
@@ -62,18 +63,20 @@ export function setSessionContext(sessionId: string): void {
   currentSessionId = String(sessionId || '');
 }
 
-const MAX_OUTPUT_LINES = 6;
-const MAX_LINE_LENGTH = 200;
+const PREVIEW_MAX_OUTPUT_LINES = 6;
+const PREVIEW_MAX_LINE_LENGTH = 200;
+const BASH_MAX_OUTPUT_LINES = 400;
+const BASH_MAX_OUTPUT_BYTES = 128 * 1024;
 const READ_MAX_LINES = 2000;
 const READ_MAX_BYTES = 50 * 1024;
 
-function abbreviate(text: string): string {
+function abbreviatePreview(text: string): string {
   const lines = text.split('\n');
-  const truncated = lines.slice(0, MAX_OUTPUT_LINES).map((line) =>
-    line.length > MAX_LINE_LENGTH ? line.slice(0, MAX_LINE_LENGTH) + '...' : line
+  const truncated = lines.slice(0, PREVIEW_MAX_OUTPUT_LINES).map((line) =>
+    line.length > PREVIEW_MAX_LINE_LENGTH ? line.slice(0, PREVIEW_MAX_LINE_LENGTH) + '...' : line
   );
-  if (lines.length > MAX_OUTPUT_LINES) {
-    truncated.push(`... (${lines.length - MAX_OUTPUT_LINES} more lines)`);
+  if (lines.length > PREVIEW_MAX_OUTPUT_LINES) {
+    truncated.push(`... (${lines.length - PREVIEW_MAX_OUTPUT_LINES} more lines)`);
   }
   return truncated.join('\n');
 }
@@ -138,6 +141,23 @@ function truncateReadContent(content: string, maxLines = READ_MAX_LINES, maxByte
     outputLines: out.length,
     firstLineExceedsLimit: false,
   };
+}
+
+function formatBashOutput(content: string): string {
+  const raw = content || '(no output)';
+  const totalLines = raw.split('\n').length;
+  const truncation = truncateReadContent(raw, BASH_MAX_OUTPUT_LINES, BASH_MAX_OUTPUT_BYTES);
+  if (!truncation.truncated) return raw;
+
+  if (truncation.firstLineExceedsLimit) {
+    return `[Command output truncated: first line exceeds ${formatBytes(BASH_MAX_OUTPUT_BYTES)}. Consider narrowing command output.]`;
+  }
+
+  const shownLines = truncation.outputLines;
+  if (truncation.truncatedBy === 'bytes') {
+    return `${truncation.content}\n\n[Output truncated at ${formatBytes(BASH_MAX_OUTPUT_BYTES)} after ${shownLines}/${totalLines} lines]`;
+  }
+  return `${truncation.content}\n\n[Output truncated after ${shownLines}/${totalLines} lines]`;
 }
 
 const WORKSPACE_ROOT = '/workspace';
@@ -502,7 +522,7 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
           if (!result.trim()) return 'No files found.';
           // Convert absolute paths to relative
           const files = result.trim().split('\n').map((f) => f.replace('/workspace/', ''));
-          return abbreviate(files.join('\n'));
+          return abbreviatePreview(files.join('\n'));
         } catch {
           return 'No files found.';
         }
@@ -515,7 +535,7 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
           const result = execSync(cmd, { timeout: 10000, encoding: 'utf-8' });
           if (!result.trim()) return 'No matches found.';
           // Convert absolute paths to relative
-          return abbreviate(result.replace(/\/workspace\//g, ''));
+          return abbreviatePreview(result.replace(/\/workspace\//g, ''));
         } catch {
           return 'No matches found.';
         }
@@ -535,7 +555,7 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
             maxBuffer: 1024 * 1024,
             env: cleanEnv,
           });
-          return abbreviate(result || '(no output)');
+          return formatBashOutput(result || '(no output)');
         } catch (err: unknown) {
           const execErr = err as { stderr?: string; message?: string };
           return `Error: ${execErr.stderr || execErr.message || 'Command failed'}`;

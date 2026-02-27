@@ -185,15 +185,42 @@ function stableSkillDirName(name: string): string {
   return `${base}-${hash}`;
 }
 
-function syncSkillIntoWorkspace(skill: SkillCandidate, workspaceDir: string): string {
-  const syncRoot = path.join(workspaceDir, SYNCED_SKILLS_DIR);
-  fs.mkdirSync(syncRoot, { recursive: true });
+function resolveSyncedSkillTarget(
+  skill: SkillCandidate,
+  workspaceDir: string,
+): { rootDir: string; targetDir: string; targetSkillFile: string } {
+  // Keep project skills under /workspace/skills so script paths like
+  // "skills/<skill>/scripts/..." remain valid inside the agent container.
+  if (skill.source === 'project') {
+    const projectRoot = path.resolve(PROJECT_SKILLS_DIR);
+    const skillBaseDir = path.resolve(skill.baseDir);
+    if (pathWithin(projectRoot, skillBaseDir)) {
+      const rel = path.relative(projectRoot, skillBaseDir);
+      const rootDir = path.join(workspaceDir, 'skills');
+      const targetDir = path.join(rootDir, rel);
+      return {
+        rootDir,
+        targetDir,
+        targetSkillFile: path.join(targetDir, 'SKILL.md'),
+      };
+    }
+  }
 
+  const rootDir = path.join(workspaceDir, SYNCED_SKILLS_DIR);
   const dirName = stableSkillDirName(skill.name);
-  const targetDir = path.join(syncRoot, dirName);
-  const targetSkillFile = path.join(targetDir, 'SKILL.md');
+  const targetDir = path.join(rootDir, dirName);
+  return {
+    rootDir,
+    targetDir,
+    targetSkillFile: path.join(targetDir, 'SKILL.md'),
+  };
+}
 
-  if (!pathWithin(syncRoot, targetDir)) {
+function syncSkillIntoWorkspace(skill: SkillCandidate, workspaceDir: string): string {
+  const { rootDir, targetDir, targetSkillFile } = resolveSyncedSkillTarget(skill, workspaceDir);
+  fs.mkdirSync(rootDir, { recursive: true });
+
+  if (!pathWithin(rootDir, targetDir)) {
     throw new Error(`Unsafe synced skill path: ${targetDir}`);
   }
 
