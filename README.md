@@ -23,13 +23,6 @@ cd container && npm install && cd ..
 # Copy and fill in your credentials
 cp .env.example .env
 
-# Build the container image
-npm run build:container
-
-# Optional: run strict lint checks (unused code/params/locals)
-npm run lint
-cd container && npm run lint && cd ..
-
 # Link the CLI globally
 npm link
 
