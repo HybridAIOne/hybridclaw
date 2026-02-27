@@ -59,6 +59,7 @@ Each agent gets a persistent workspace with markdown files that shape its person
 | `BOOT.md` | Startup instructions |
 
 Templates in `templates/` are copied to new agent workspaces on first run.
+Historical turn logs are mirrored into `<workspace>/.session-transcripts/*.jsonl` for `session_search`.
 
 ## Skills
 
@@ -120,7 +121,14 @@ The agent has access to these sandboxed tools inside the container:
 - `read` / `write` / `edit` / `delete` — file operations
 - `glob` / `grep` — file search
 - `bash` — shell command execution
+- `memory` — durable memory files (`MEMORY.md`, `USER.md`, `memory/YYYY-MM-DD.md`)
+- `session_search` — search/summarize historical sessions from transcript archives
 - `web_fetch` — fetch a URL and extract readable content (HTML → markdown/text)
+
+HybridClaw also supports automatic session compaction with pre-compaction memory flush:
+
+- when a session gets long, old turns are summarized into `session_summary`
+- before compaction, the agent gets a `memory`-only flush turn to persist durable notes
 
 ## Commands
 

@@ -75,6 +75,10 @@ export interface Session {
   model: string | null;
   enable_rag: number;
   message_count: number;
+  session_summary: string | null;
+  summary_updated_at: string | null;
+  compaction_count: number;
+  memory_flush_at: string | null;
   created_at: string;
   last_active: string;
 }

@@ -26,6 +26,8 @@ import { processSideEffects } from './side-effects.js';
 import { logger } from './logger.js';
 import type { ChatMessage, HybridAIBot, ToolProgressEvent } from './types.js';
 import { buildSkillsPrompt, expandSkillInvocation, loadSkills } from './skills.js';
+import { buildSessionSummaryPrompt, maybeCompactSession } from './session-maintenance.js';
+import { appendSessionTranscript } from './session-transcripts.js';
 import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import {
@@ -304,7 +306,8 @@ async function processMessage(content: string): Promise<void> {
   const contextPrompt = buildContextPrompt(contextFiles);
   const skills = loadSkills(AGENT_ID);
   const skillsPrompt = buildSkillsPrompt(skills);
-  const systemParts = [contextPrompt, skillsPrompt].filter(Boolean);
+  const summaryPrompt = buildSessionSummaryPrompt(session.session_summary);
+  const systemParts = [contextPrompt, summaryPrompt, skillsPrompt].filter(Boolean);
   if (systemParts.length > 0) {
     messages.push({ role: 'system', content: systemParts.join('\n\n') });
   }
@@ -366,9 +369,36 @@ async function processMessage(content: string): Promise<void> {
     // Only persist messages after successful response
     storeMessage(SESSION_ID, 'tui-user', 'user', 'user', content);
     storeMessage(SESSION_ID, 'assistant', null, 'assistant', result);
+    appendSessionTranscript(AGENT_ID, {
+      sessionId: SESSION_ID,
+      channelId: CHANNEL_ID,
+      role: 'user',
+      userId: 'tui-user',
+      username: 'user',
+      content,
+    });
+    appendSessionTranscript(AGENT_ID, {
+      sessionId: SESSION_ID,
+      channelId: CHANNEL_ID,
+      role: 'assistant',
+      userId: 'assistant',
+      username: null,
+      content: result,
+    });
 
     printToolUsage(output.toolsUsed);
     printResponse(result);
+
+    void maybeCompactSession({
+      sessionId: SESSION_ID,
+      agentId: AGENT_ID,
+      chatbotId,
+      enableRag,
+      model: HYBRIDAI_MODEL,
+      channelId: CHANNEL_ID,
+    }).catch((err) => {
+      logger.warn({ sessionId: SESSION_ID, err }, 'Background session compaction failed');
+    });
   } catch (err) {
     s.stop();
     s.clearTools();

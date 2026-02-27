@@ -1,6 +1,6 @@
 import { callHybridAI } from './hybridai-client.js';
 import { waitForInput, writeOutput } from './ipc.js';
-import { executeTool, getPendingSideEffects, resetSideEffects, setScheduledTasks, TOOL_DEFINITIONS } from './tools.js';
+import { executeTool, getPendingSideEffects, resetSideEffects, setScheduledTasks, setSessionContext, TOOL_DEFINITIONS } from './tools.js';
 import type { ChatMessage, ContainerInput, ContainerOutput, ToolDefinition, ToolExecution } from './types.js';
 
 const MAX_ITERATIONS = 20;
@@ -136,6 +136,7 @@ async function main(): Promise<void> {
 
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
+  setSessionContext(firstInput.sessionId);
 
   const firstOutput = await processRequest(
     firstInput.messages,
@@ -167,6 +168,7 @@ async function main(): Promise<void> {
 
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
+    setSessionContext(input.sessionId);
 
     const output = await processRequest(
       input.messages,

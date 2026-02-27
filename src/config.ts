@@ -78,3 +78,28 @@ export const HEARTBEAT_CHANNEL = process.env.HEARTBEAT_CHANNEL || '';
 export const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9090', 10);
 export const DB_PATH = process.env.DB_PATH || 'data/hybridclaw.db';
 export const DATA_DIR = path.dirname(DB_PATH);
+
+// Session compaction / memory flush
+export const SESSION_COMPACTION_ENABLED = process.env.SESSION_COMPACTION_ENABLED !== 'false';
+export const SESSION_COMPACTION_THRESHOLD = Math.max(
+  20,
+  parseInt(process.env.SESSION_COMPACTION_THRESHOLD || '120', 10) || 120,
+);
+export const SESSION_COMPACTION_KEEP_RECENT = Math.max(
+  10,
+  parseInt(process.env.SESSION_COMPACTION_KEEP_RECENT || '40', 10) || 40,
+);
+export const SESSION_COMPACTION_SUMMARY_MAX_CHARS = Math.max(
+  1_000,
+  parseInt(process.env.SESSION_COMPACTION_SUMMARY_MAX_CHARS || '8000', 10) || 8000,
+);
+export const PRE_COMPACTION_MEMORY_FLUSH_ENABLED =
+  process.env.PRE_COMPACTION_MEMORY_FLUSH_ENABLED !== 'false';
+export const PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES = Math.max(
+  8,
+  parseInt(process.env.PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES || '80', 10) || 80,
+);
+export const PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS = Math.max(
+  4_000,
+  parseInt(process.env.PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS || '24000', 10) || 24000,
+);

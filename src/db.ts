@@ -15,8 +15,13 @@ function createSchema(database: Database.Database): void {
       guild_id TEXT,
       channel_id TEXT NOT NULL,
       chatbot_id TEXT,
+      model TEXT,
       enable_rag INTEGER DEFAULT 1,
       message_count INTEGER DEFAULT 0,
+      session_summary TEXT,
+      summary_updated_at TEXT,
+      compaction_count INTEGER DEFAULT 0,
+      memory_flush_at TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       last_active TEXT DEFAULT (datetime('now'))
     );
@@ -57,12 +62,24 @@ function createSchema(database: Database.Database): void {
 }
 
 function migrateSchema(database: Database.Database): void {
-  // Add model column to sessions if it doesn't exist
+  const addColumnIfMissing = (table: string, column: string, ddl: string): void => {
+    const cols = database.pragma(`table_info(${table})`) as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === column)) {
+      database.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+      logger.info({ table, column }, 'Migrated table: added column');
+    }
+  };
+
+  // Add session columns if they don't exist
   const sessionCols = database.pragma('table_info(sessions)') as Array<{ name: string }>;
   if (!sessionCols.some((c) => c.name === 'model')) {
     database.exec('ALTER TABLE sessions ADD COLUMN model TEXT');
     logger.info('Migrated sessions table: added model column');
   }
+  addColumnIfMissing('sessions', 'session_summary', 'session_summary TEXT');
+  addColumnIfMissing('sessions', 'summary_updated_at', 'summary_updated_at TEXT');
+  addColumnIfMissing('sessions', 'compaction_count', 'compaction_count INTEGER DEFAULT 0');
+  addColumnIfMissing('sessions', 'memory_flush_at', 'memory_flush_at TEXT');
 
   // Add run_at and every_ms columns to tasks if they don't exist
   const taskCols = database.pragma('table_info(tasks)') as Array<{ name: string }>;
@@ -93,9 +110,7 @@ export function getOrCreateSession(
   guildId: string | null,
   channelId: string,
 ): Session {
-  const existing = db
-    .prepare('SELECT * FROM sessions WHERE id = ?')
-    .get(sessionId) as Session | undefined;
+  const existing = getSessionById(sessionId);
 
   if (existing) {
     db.prepare('UPDATE sessions SET last_active = datetime(\'now\') WHERE id = ?').run(sessionId);
@@ -106,7 +121,13 @@ export function getOrCreateSession(
     'INSERT INTO sessions (id, guild_id, channel_id) VALUES (?, ?, ?)',
   ).run(sessionId, guildId, channelId);
 
-  return db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as Session;
+  return getSessionById(sessionId) as Session;
+}
+
+export function getSessionById(sessionId: string): Session | undefined {
+  return db
+    .prepare('SELECT * FROM sessions WHERE id = ?')
+    .get(sessionId) as Session | undefined;
 }
 
 export function updateSessionChatbot(sessionId: string, chatbotId: string | null): void {
@@ -132,7 +153,9 @@ export function getSessionCount(): number {
 
 export function clearSessionHistory(sessionId: string): number {
   const result = db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId);
-  db.prepare('UPDATE sessions SET message_count = 0 WHERE id = ?').run(sessionId);
+  db.prepare(
+    'UPDATE sessions SET message_count = 0, session_summary = NULL, summary_updated_at = NULL, compaction_count = 0, memory_flush_at = NULL WHERE id = ?',
+  ).run(sessionId);
   return result.changes;
 }
 
@@ -160,6 +183,53 @@ export function getConversationHistory(sessionId: string, limit = 50): StoredMes
       'SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
     )
     .all(sessionId, limit) as StoredMessage[];
+}
+
+export interface CompactionCandidate {
+  cutoffId: number;
+  olderMessages: StoredMessage[];
+}
+
+export function getCompactionCandidateMessages(
+  sessionId: string,
+  keepRecent: number,
+): CompactionCandidate | null {
+  const keep = Math.max(1, Math.floor(keepRecent));
+  const cutoffRow = db
+    .prepare('SELECT id FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?')
+    .get(sessionId, keep - 1) as { id: number } | undefined;
+  if (!cutoffRow) return null;
+
+  const older = db
+    .prepare('SELECT * FROM messages WHERE session_id = ? AND id < ? ORDER BY id ASC')
+    .all(sessionId, cutoffRow.id) as StoredMessage[];
+  if (older.length === 0) return null;
+
+  return {
+    cutoffId: cutoffRow.id,
+    olderMessages: older,
+  };
+}
+
+export function deleteMessagesBeforeId(sessionId: string, cutoffId: number): number {
+  const result = db
+    .prepare('DELETE FROM messages WHERE session_id = ? AND id < ?')
+    .run(sessionId, cutoffId);
+  db.prepare(
+    'UPDATE sessions SET message_count = (SELECT COUNT(*) FROM messages WHERE session_id = ?), last_active = datetime(\'now\') WHERE id = ?',
+  ).run(sessionId, sessionId);
+  return result.changes;
+}
+
+export function updateSessionSummary(sessionId: string, summary: string): void {
+  const normalized = summary.trim();
+  db.prepare(
+    'UPDATE sessions SET session_summary = ?, summary_updated_at = datetime(\'now\'), compaction_count = compaction_count + 1 WHERE id = ?',
+  ).run(normalized || null, sessionId);
+}
+
+export function markSessionMemoryFlush(sessionId: string): void {
+  db.prepare('UPDATE sessions SET memory_flush_at = datetime(\'now\') WHERE id = ?').run(sessionId);
 }
 
 // --- Tasks ---
@@ -218,4 +288,3 @@ export function getRecentAudit(limit = 20): AuditEntry[] {
     .prepare('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ?')
     .all(limit) as AuditEntry[];
 }
-

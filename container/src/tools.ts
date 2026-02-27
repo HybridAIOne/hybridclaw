@@ -43,6 +43,7 @@ type ScheduledTaskInfo = { id: number; cronExpr: string; runAt: string | null; e
 
 let pendingSchedules: ScheduleSideEffect[] = [];
 let injectedTasks: ScheduledTaskInfo[] = [];
+let currentSessionId = '';
 
 export function resetSideEffects(): void {
   pendingSchedules = [];
@@ -55,6 +56,10 @@ export function getPendingSideEffects(): { schedules?: ScheduleSideEffect[] } | 
 
 export function setScheduledTasks(tasks: ScheduledTaskInfo[] | undefined): void {
   injectedTasks = tasks || [];
+}
+
+export function setSessionContext(sessionId: string): void {
+  currentSessionId = String(sessionId || '');
 }
 
 const MAX_OUTPUT_LINES = 6;
@@ -148,6 +153,251 @@ function safeJoin(userPath: string): string {
     return resolved;
   }
   throw new Error(`Path escapes workspace: ${userPath}`);
+}
+
+const MEMORY_ROOT_FILES = new Set(['MEMORY.md', 'USER.md']);
+const DAILY_MEMORY_FILE_RE = /^memory\/\d{4}-\d{2}-\d{2}\.md$/;
+const ROOT_MEMORY_CHAR_LIMITS: Record<string, number> = {
+  'MEMORY.md': 12_000,
+  'USER.md': 8_000,
+};
+const DAILY_MEMORY_CHAR_LIMIT = 24_000;
+
+function normalizeDateStamp(input: string): string | null {
+  const trimmed = input.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
+}
+
+function currentDateStamp(): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const year = parts.find((p) => p.type === 'year')?.value;
+  const month = parts.find((p) => p.type === 'month')?.value;
+  const day = parts.find((p) => p.type === 'day')?.value;
+  if (year && month && day) return `${year}-${month}-${day}`;
+  return new Date().toISOString().slice(0, 10);
+}
+
+function normalizeMemoryFilePath(rawPath: unknown): string | null {
+  if (typeof rawPath !== 'string' || rawPath.trim() === '') return null;
+  const normalized = rawPath
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\/workspace\//, '')
+    .replace(/^\.?\//, '');
+  if (MEMORY_ROOT_FILES.has(normalized)) return normalized;
+  if (DAILY_MEMORY_FILE_RE.test(normalized)) return normalized;
+  return null;
+}
+
+function resolveMemoryFilePath(args: Record<string, unknown>): string | null {
+  const direct =
+    normalizeMemoryFilePath(args.file_path) ||
+    normalizeMemoryFilePath(args.path);
+  if (direct) return direct;
+
+  const target = typeof args.target === 'string' ? args.target.trim().toLowerCase() : '';
+  if (target === 'memory') return 'MEMORY.md';
+  if (target === 'user') return 'USER.md';
+  if (target === 'daily') {
+    const date = typeof args.date === 'string' ? normalizeDateStamp(args.date) : null;
+    return `memory/${date || currentDateStamp()}.md`;
+  }
+
+  return 'MEMORY.md';
+}
+
+function listMemoryFiles(): string[] {
+  const files: string[] = [];
+  for (const rootFile of MEMORY_ROOT_FILES) {
+    const abs = safeJoin(rootFile);
+    if (fs.existsSync(abs)) files.push(rootFile);
+  }
+
+  const dailyDir = safeJoin('memory');
+  if (fs.existsSync(dailyDir)) {
+    for (const entry of fs.readdirSync(dailyDir)) {
+      if (!/^\d{4}-\d{2}-\d{2}\.md$/.test(entry)) continue;
+      files.push(`memory/${entry}`);
+    }
+  }
+
+  files.sort((a, b) => a.localeCompare(b));
+  return files;
+}
+
+function memoryCharLimit(relativePath: string): number {
+  return ROOT_MEMORY_CHAR_LIMITS[relativePath] || DAILY_MEMORY_CHAR_LIMIT;
+}
+
+interface TranscriptRow {
+  sessionId: string;
+  channelId?: string;
+  role: string;
+  userId?: string;
+  username?: string | null;
+  content: string;
+  createdAt?: string;
+}
+
+type SessionSearchCandidate = {
+  sessionId: string;
+  filePath: string;
+  rows: TranscriptRow[];
+  matchIndexes: number[];
+  score: number;
+  mtimeMs: number;
+};
+
+const SESSION_TRANSCRIPTS_DIR = '.session-transcripts';
+const SESSION_SEARCH_MAX_FILES = 300;
+const SESSION_SEARCH_MAX_RESULTS = 5;
+const SESSION_SEARCH_MAX_ROWS_PER_SESSION = 2_000;
+const SESSION_SEARCH_SNIPPET_CONTEXT = 1;
+const SESSION_SEARCH_MAX_SNIPPETS = 8;
+
+function parseRoleFilter(value: unknown): Set<string> | null {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  const roles = value
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+  return roles.length > 0 ? new Set(roles) : null;
+}
+
+function truncateInline(text: string, max = 240): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  if (oneLine.length <= max) return oneLine;
+  return `${oneLine.slice(0, max)}...`;
+}
+
+function collectTranscriptRows(filePath: string): TranscriptRow[] {
+  let raw = '';
+  try {
+    raw = fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return [];
+  }
+
+  const parsed: TranscriptRow[] = [];
+  const lines = raw.split('\n').filter(Boolean);
+  const start = Math.max(0, lines.length - SESSION_SEARCH_MAX_ROWS_PER_SESSION);
+  for (let i = start; i < lines.length; i++) {
+    try {
+      const row = JSON.parse(lines[i]) as Partial<TranscriptRow>;
+      if (
+        typeof row.sessionId !== 'string' ||
+        typeof row.role !== 'string' ||
+        typeof row.content !== 'string'
+      ) {
+        continue;
+      }
+      parsed.push({
+        sessionId: row.sessionId,
+        channelId: typeof row.channelId === 'string' ? row.channelId : undefined,
+        role: row.role,
+        userId: typeof row.userId === 'string' ? row.userId : undefined,
+        username: row.username == null ? null : String(row.username),
+        content: row.content,
+        createdAt: typeof row.createdAt === 'string' ? row.createdAt : undefined,
+      });
+    } catch {
+      // Skip malformed row
+    }
+  }
+  return parsed;
+}
+
+function scoreTranscript(rows: TranscriptRow[], query: string, roleFilter: Set<string> | null): number {
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 1);
+  if (terms.length === 0) terms.push(query.toLowerCase());
+
+  let score = 0;
+  for (const row of rows) {
+    const role = row.role.toLowerCase();
+    if (roleFilter && !roleFilter.has(role)) continue;
+    const haystack = row.content.toLowerCase();
+    if (haystack.includes(query.toLowerCase())) score += 6;
+    for (const term of terms) {
+      if (haystack.includes(term)) score += 2;
+    }
+  }
+  return score;
+}
+
+function findMatchIndexes(rows: TranscriptRow[], query: string, roleFilter: Set<string> | null): number[] {
+  const lower = query.toLowerCase();
+  const terms = lower
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 1);
+  if (terms.length === 0) terms.push(lower);
+
+  const indexes: number[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const role = rows[i].role.toLowerCase();
+    if (roleFilter && !roleFilter.has(role)) continue;
+    const content = rows[i].content.toLowerCase();
+    if (content.includes(lower) || terms.some((term) => content.includes(term))) {
+      indexes.push(i);
+    }
+  }
+  return indexes;
+}
+
+function summarizeSessionCandidate(candidate: SessionSearchCandidate, query: string): Record<string, unknown> {
+  const rows = candidate.rows;
+  const snippets: string[] = [];
+  const seenIndexes = new Set<number>();
+
+  for (const idx of candidate.matchIndexes) {
+    const from = Math.max(0, idx - SESSION_SEARCH_SNIPPET_CONTEXT);
+    const to = Math.min(rows.length - 1, idx + SESSION_SEARCH_SNIPPET_CONTEXT);
+    for (let i = from; i <= to; i++) {
+      if (seenIndexes.has(i)) continue;
+      seenIndexes.add(i);
+      const line = `[${rows[i].role.toUpperCase()}] ${truncateInline(rows[i].content)}`;
+      snippets.push(line);
+      if (snippets.length >= SESSION_SEARCH_MAX_SNIPPETS) break;
+    }
+    if (snippets.length >= SESSION_SEARCH_MAX_SNIPPETS) break;
+  }
+
+  const userMatches: string[] = [];
+  const assistantMatches: string[] = [];
+  for (const idx of candidate.matchIndexes) {
+    const row = rows[idx];
+    const role = row.role.toLowerCase();
+    if (role === 'user' && userMatches.length < 2) {
+      userMatches.push(truncateInline(row.content));
+    } else if (role === 'assistant' && assistantMatches.length < 2) {
+      assistantMatches.push(truncateInline(row.content));
+    }
+  }
+
+  const firstTs = rows.find((row) => typeof row.createdAt === 'string')?.createdAt || null;
+  const lastTs = [...rows].reverse().find((row) => typeof row.createdAt === 'string')?.createdAt || null;
+  const summaryParts = [
+    `Matched ${candidate.matchIndexes.length} turn(s) for "${query}".`,
+    userMatches.length > 0 ? `User focus: ${userMatches.join(' | ')}` : '',
+    assistantMatches.length > 0 ? `Assistant outcomes: ${assistantMatches.join(' | ')}` : '',
+  ].filter(Boolean);
+
+  return {
+    session_id: candidate.sessionId,
+    match_count: candidate.matchIndexes.length,
+    first_message_at: firstTs,
+    last_message_at: lastTs,
+    summary: summaryParts.join(' '),
+    snippets,
+  };
 }
 
 export async function executeTool(name: string, argsJson: string): Promise<string> {
@@ -290,6 +540,180 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
           const execErr = err as { stderr?: string; message?: string };
           return `Error: ${execErr.stderr || execErr.message || 'Command failed'}`;
         }
+      }
+
+      case 'memory': {
+        const action = typeof args.action === 'string' ? args.action.trim().toLowerCase() : 'read';
+        const relativePath = resolveMemoryFilePath(args);
+        if (!relativePath) {
+          return 'Error: memory file_path must be MEMORY.md, USER.md, or memory/YYYY-MM-DD.md';
+        }
+
+        const filePath = safeJoin(relativePath);
+        if (action === 'list') {
+          const files = listMemoryFiles();
+          if (files.length === 0) {
+            return 'No memory files found yet. Use action="append" with MEMORY.md or memory/YYYY-MM-DD.md.';
+          }
+          return files.join('\n');
+        }
+
+        if (action === 'search') {
+          const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
+          if (!query) return 'Error: query is required for memory search';
+          const files = listMemoryFiles();
+          const matches: string[] = [];
+          for (const rel of files) {
+            const abs = safeJoin(rel);
+            let lines: string[] = [];
+            try {
+              lines = fs.readFileSync(abs, 'utf-8').split('\n');
+            } catch {
+              continue;
+            }
+            for (let i = 0; i < lines.length; i++) {
+              if (!lines[i].toLowerCase().includes(query)) continue;
+              const trimmed = lines[i].trim();
+              matches.push(`${rel}:${i + 1}: ${trimmed}`);
+              if (matches.length >= 40) break;
+            }
+            if (matches.length >= 40) break;
+          }
+          return matches.length > 0 ? matches.join('\n') : `No memory matches for "${query}".`;
+        }
+
+        if (action === 'read') {
+          if (!fs.existsSync(filePath)) {
+            return `${relativePath}\n\n(empty)`;
+          }
+          const content = fs.readFileSync(filePath, 'utf-8');
+          return `${relativePath}\n\n${content || '(empty)'}`;
+        }
+
+        if (action === 'append') {
+          const content = typeof args.content === 'string' ? args.content.trim() : '';
+          if (!content) return 'Error: content is required for memory append';
+
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          const existing = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
+          let next = existing.replace(/\s+$/, '');
+          if (next.length > 0) next += '\n\n';
+          next += `${content}\n`;
+          const limit = memoryCharLimit(relativePath);
+          if (next.length > limit) {
+            return `Error: ${relativePath} would exceed ${limit} chars. Shorten content or remove older entries first.`;
+          }
+          fs.writeFileSync(filePath, next, 'utf-8');
+          return `Appended ${content.length} chars to ${relativePath}`;
+        }
+
+        if (action === 'write') {
+          const content = typeof args.content === 'string' ? args.content : '';
+          const limit = memoryCharLimit(relativePath);
+          if (content.length > limit) {
+            return `Error: ${relativePath} exceeds ${limit} char limit.`;
+          }
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(filePath, content, 'utf-8');
+          return `Wrote ${content.length} chars to ${relativePath}`;
+        }
+
+        if (action === 'replace') {
+          const oldText = typeof args.old_text === 'string' ? args.old_text : '';
+          const newText = typeof args.new_text === 'string' ? args.new_text : '';
+          if (!oldText) return 'Error: old_text is required for memory replace';
+          if (!fs.existsSync(filePath)) return `Error: File not found: ${relativePath}`;
+          const content = fs.readFileSync(filePath, 'utf-8');
+          if (!content.includes(oldText)) return `Error: old_text not found in ${relativePath}`;
+          const next = content.replace(oldText, newText);
+          const limit = memoryCharLimit(relativePath);
+          if (next.length > limit) {
+            return `Error: replacement would exceed ${limit} chars for ${relativePath}.`;
+          }
+          fs.writeFileSync(filePath, next, 'utf-8');
+          return `Updated ${relativePath}`;
+        }
+
+        if (action === 'remove') {
+          const oldText = typeof args.old_text === 'string' ? args.old_text : '';
+          if (!oldText) return 'Error: old_text is required for memory remove';
+          if (!fs.existsSync(filePath)) return `Error: File not found: ${relativePath}`;
+          const content = fs.readFileSync(filePath, 'utf-8');
+          if (!content.includes(oldText)) return `Error: old_text not found in ${relativePath}`;
+          fs.writeFileSync(filePath, content.replace(oldText, ''), 'utf-8');
+          return `Removed matching text from ${relativePath}`;
+        }
+
+        return `Error: unknown memory action "${action}". Use read, append, write, replace, remove, list, or search.`;
+      }
+
+      case 'session_search': {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        if (!query) return 'Error: query is required for session_search';
+
+        const requestedLimit =
+          typeof args.limit === 'number' && Number.isFinite(args.limit)
+            ? Math.floor(args.limit)
+            : 3;
+        const limit = Math.max(1, Math.min(requestedLimit, SESSION_SEARCH_MAX_RESULTS));
+        const includeCurrent = args.include_current === true;
+        const roleFilter = parseRoleFilter(args.role_filter);
+
+        const transcriptDir = safeJoin(SESSION_TRANSCRIPTS_DIR);
+        if (!fs.existsSync(transcriptDir)) {
+          return JSON.stringify({
+            success: true,
+            query,
+            count: 0,
+            results: [],
+            message: 'No historical transcripts found yet.',
+          }, null, 2);
+        }
+
+        const files = fs
+          .readdirSync(transcriptDir)
+          .filter((name) => name.endsWith('.jsonl'))
+          .slice(0, SESSION_SEARCH_MAX_FILES);
+
+        const candidates: SessionSearchCandidate[] = [];
+        for (const filename of files) {
+          const filePath = path.join(transcriptDir, filename);
+          const rows = collectTranscriptRows(filePath);
+          if (rows.length === 0) continue;
+
+          const sessionId = rows[0].sessionId || filename.replace(/\.jsonl$/, '');
+          if (!includeCurrent && currentSessionId && sessionId === currentSessionId) continue;
+
+          const matchIndexes = findMatchIndexes(rows, query, roleFilter);
+          if (matchIndexes.length === 0) continue;
+
+          const stat = fs.statSync(filePath);
+          const score = scoreTranscript(rows, query, roleFilter);
+          candidates.push({
+            sessionId,
+            filePath,
+            rows,
+            matchIndexes,
+            score,
+            mtimeMs: stat.mtimeMs,
+          });
+        }
+
+        candidates.sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          return b.mtimeMs - a.mtimeMs;
+        });
+
+        const top = candidates.slice(0, limit);
+        const results = top.map((candidate) => summarizeSessionCandidate(candidate, query));
+
+        return JSON.stringify({
+          success: true,
+          query,
+          count: results.length,
+          sessions_searched: candidates.length,
+          results,
+        }, null, 2);
       }
 
       case 'web_fetch': {
@@ -471,6 +895,46 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           command: { type: 'string', description: 'Shell command to execute' },
         },
         required: ['command'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'memory',
+      description:
+        'Manage durable agent memory files. Supports MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Actions: read, append, write, replace, remove, list, search. Memory files are char-bounded to prevent unbounded growth.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', description: 'Action: "read", "append", "write", "replace", "remove", "list", or "search"' },
+          file_path: { type: 'string', description: 'Target file path. Allowed: MEMORY.md, USER.md, memory/YYYY-MM-DD.md' },
+          target: { type: 'string', description: 'Optional shorthand target: "memory", "user", or "daily"' },
+          date: { type: 'string', description: 'Date for target="daily" in YYYY-MM-DD format (defaults to today)' },
+          content: { type: 'string', description: 'Text payload for append/write' },
+          old_text: { type: 'string', description: 'Existing substring for replace/remove' },
+          new_text: { type: 'string', description: 'Replacement text for replace' },
+          query: { type: 'string', description: 'Case-insensitive query string for search' },
+        },
+        required: ['action'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'session_search',
+      description:
+        'Search and summarize historical session transcripts. Returns top matching sessions with concise summaries and key snippets.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query over prior session transcripts' },
+          limit: { type: 'number', description: 'Maximum number of sessions to summarize (default 3, max 5)' },
+          role_filter: { type: 'string', description: 'Optional comma-separated roles to match (e.g. "user,assistant")' },
+          include_current: { type: 'boolean', description: 'Include the current session in results (default false)' },
+        },
+        required: ['query'],
       },
     },
   },

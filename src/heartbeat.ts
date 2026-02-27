@@ -7,6 +7,8 @@ import { runAgent } from './agent.js';
 import { getConversationHistory, getOrCreateSession, getTasksForSession, storeMessage } from './db.js';
 import { logger } from './logger.js';
 import { processSideEffects } from './side-effects.js';
+import { buildSessionSummaryPrompt, maybeCompactSession } from './session-maintenance.js';
+import { appendSessionTranscript } from './session-transcripts.js';
 import { buildSkillsPrompt, loadSkills } from './skills.js';
 import { buildContextPrompt, loadBootstrapFiles } from './workspace.js';
 import type { ChatMessage } from './types.js';
@@ -47,7 +49,7 @@ export function startHeartbeat(
     const channelId = 'heartbeat';
 
     try {
-      getOrCreateSession(sessionId, null, channelId);
+      const session = getOrCreateSession(sessionId, null, channelId);
 
       // Build messages: system context + short history + heartbeat prompt
       const messages: ChatMessage[] = [];
@@ -56,7 +58,8 @@ export function startHeartbeat(
       const contextPrompt = buildContextPrompt(contextFiles);
       const skills = loadSkills(agentId);
       const skillsPrompt = buildSkillsPrompt(skills);
-      const systemParts = [contextPrompt, skillsPrompt].filter(Boolean);
+      const summaryPrompt = buildSessionSummaryPrompt(session.session_summary);
+      const systemParts = [contextPrompt, summaryPrompt, skillsPrompt].filter(Boolean);
       if (systemParts.length > 0) {
         messages.push({ role: 'system', content: systemParts.join('\n\n') });
       }
@@ -89,6 +92,30 @@ export function startHeartbeat(
       // Real content — persist and deliver
       storeMessage(sessionId, 'heartbeat', 'heartbeat', 'user', HEARTBEAT_PROMPT);
       storeMessage(sessionId, 'assistant', null, 'assistant', result);
+      appendSessionTranscript(agentId, {
+        sessionId,
+        channelId: heartbeatChannelId,
+        role: 'user',
+        userId: 'heartbeat',
+        username: 'heartbeat',
+        content: HEARTBEAT_PROMPT,
+      });
+      appendSessionTranscript(agentId, {
+        sessionId,
+        channelId: heartbeatChannelId,
+        role: 'assistant',
+        userId: 'assistant',
+        username: null,
+        content: result,
+      });
+      await maybeCompactSession({
+        sessionId,
+        agentId,
+        chatbotId,
+        enableRag: HYBRIDAI_ENABLE_RAG,
+        model: HYBRIDAI_MODEL,
+        channelId: heartbeatChannelId,
+      });
       logger.info({ length: result.length }, 'Heartbeat: agent has something to say');
       onMessage(result);
     } catch (err) {

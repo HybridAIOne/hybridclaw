@@ -41,6 +41,8 @@ import { logger } from './logger.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import type { ChatMessage, HybridAIBot, ToolProgressEvent } from './types.js';
 import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
+import { buildSessionSummaryPrompt, maybeCompactSession } from './session-maintenance.js';
+import { appendSessionTranscript } from './session-transcripts.js';
 import { buildSkillsPrompt, expandSkillInvocation, loadSkills } from './skills.js';
 import { buildContextPrompt, ensureBootstrapFiles, loadBootstrapFiles } from './workspace.js';
 
@@ -90,14 +92,21 @@ async function handleMessage(
 ): Promise<void> {
   const startTime = Date.now();
   const session = getOrCreateSession(sessionId, guildId, channelId);
-
-  // Store user message
-  storeMessage(sessionId, userId, username, 'user', content);
-
   const chatbotId = session.chatbot_id || HYBRIDAI_CHATBOT_ID;
   const enableRag = session.enable_rag === 1;
   const model = session.model || HYBRIDAI_MODEL;
   const agentId = chatbotId || 'default';
+
+  // Store user message
+  storeMessage(sessionId, userId, username, 'user', content);
+  appendSessionTranscript(agentId, {
+    sessionId,
+    channelId,
+    role: 'user',
+    userId,
+    username,
+    content,
+  });
 
   // Ensure workspace bootstrap files
   ensureBootstrapFiles(agentId);
@@ -109,7 +118,8 @@ async function handleMessage(
   const contextPrompt = buildContextPrompt(contextFiles);
   const skills = loadSkills(agentId);
   const skillsPrompt = buildSkillsPrompt(skills);
-  const systemParts = [contextPrompt, skillsPrompt].filter(Boolean);
+  const summaryPrompt = buildSessionSummaryPrompt(session.session_summary);
+  const systemParts = [contextPrompt, summaryPrompt, skillsPrompt].filter(Boolean);
   if (systemParts.length > 0) {
     messages.push({ role: 'system', content: systemParts.join('\n\n') });
   }
@@ -160,8 +170,27 @@ async function handleMessage(
 
     // Store assistant response
     storeMessage(sessionId, 'assistant', null, 'assistant', result);
+    appendSessionTranscript(agentId, {
+      sessionId,
+      channelId,
+      role: 'assistant',
+      userId: 'assistant',
+      username: null,
+      content: result,
+    });
 
     await reply(buildResponseText(result, output.toolsUsed));
+
+    void maybeCompactSession({
+      sessionId,
+      agentId,
+      chatbotId,
+      enableRag,
+      model,
+      channelId,
+    }).catch((err) => {
+      logger.warn({ sessionId, err }, 'Background session compaction failed');
+    });
   } catch (err) {
     const duration = Date.now() - startTime;
     const errorMsg = err instanceof Error ? err.message : String(err);
