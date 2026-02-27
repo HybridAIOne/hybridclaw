@@ -99,7 +99,7 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
     partials: [Partials.Channel],
   });
 
-  client.on('ready', () => {
+  client.on('clientReady', () => {
     logger.info({ user: client.user?.tag }, 'Discord bot connected');
   });
 
