@@ -6,6 +6,22 @@
 
 ### Changed
 
+### Fixed
+
+## [0.1.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.7)
+
+### Added
+
+- **Live TUI tool progress streaming**: `hybridclaw tui` now displays tool execution starts as they happen via gateway streaming events.
+
+### Changed
+
+- **Tool output UX**: Tool lines now use a consistent jellyfish prefix and indentation, and interim tool lines are replaced with a final compact `tools` list after completion.
+
+### Fixed
+
+- **Tool usage visibility**: Tool calls are now shown during execution instead of only briefly at the end, so the operator sees `tool` usage flow in real time.
+
 ## [0.1.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.6)
 
 ### Added

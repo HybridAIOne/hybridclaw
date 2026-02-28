@@ -8,8 +8,29 @@ export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
+  toolExecutions?: Array<{
+    name: string;
+    arguments: string;
+    result: string;
+    durationMs: number;
+  }>;
   error?: string;
 }
+
+export interface GatewayChatToolProgressEvent {
+  type: 'tool';
+  phase: 'start' | 'finish';
+  toolName: string;
+  preview?: string;
+  durationMs?: number;
+}
+
+export interface GatewayChatStreamResultEvent {
+  type: 'result';
+  result: GatewayChatResult;
+}
+
+export type GatewayChatStreamEvent = GatewayChatToolProgressEvent | GatewayChatStreamResultEvent;
 
 export interface GatewayChatRequestBody {
   sessionId: string;
@@ -21,6 +42,7 @@ export interface GatewayChatRequestBody {
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
+  stream?: boolean;
 }
 
 export interface GatewayCommandRequest {

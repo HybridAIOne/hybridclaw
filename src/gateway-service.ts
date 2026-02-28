@@ -59,6 +59,7 @@ export interface GatewayChatRequest {
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];
   enableRag?: GatewayChatRequestBody['enableRag'];
+  stream?: boolean;
   onToolProgress?: (event: ToolProgressEvent) => void;
   abortSignal?: AbortSignal;
 }
@@ -166,6 +167,7 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
         status: 'error',
         result: null,
         toolsUsed: output.toolsUsed || [],
+        toolExecutions: output.toolExecutions,
         error: output.error || 'Unknown agent error.',
       };
     }
@@ -205,6 +207,7 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
       status: 'success',
       result: resultText,
       toolsUsed: output.toolsUsed || [],
+      toolExecutions: output.toolExecutions,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -214,6 +217,7 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
       status: 'error',
       result: null,
       toolsUsed: [],
+      toolExecutions: undefined,
       error: errorMsg,
     };
   }

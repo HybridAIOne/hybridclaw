@@ -11,6 +11,7 @@ import {
   type GatewayCommandRequest,
   type GatewayChatRequest,
 } from './gateway-service.js';
+import { type ToolProgressEvent } from './types.js';
 import { logger } from './logger.js';
 
 const SITE_DIR = path.resolve(process.cwd(), 'docs');
@@ -104,9 +105,73 @@ async function handleApiChat(req: IncomingMessage, res: ServerResponse): Promise
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
     model: body.model,
+    stream: body.stream,
   };
+
+  if (body.stream) {
+    await handleApiChatStream(req, res, chatRequest);
+    return;
+  }
+
   const result = await handleGatewayMessage(chatRequest);
   sendJson(res, result.status === 'success' ? 200 : 500, result);
+}
+
+async function handleApiChatStream(
+  req: IncomingMessage,
+  res: ServerResponse,
+  chatRequest: GatewayChatRequest,
+): Promise<void> {
+  const sendEvent = (payload: object): void => {
+    if (res.writableEnded) return;
+    res.write(`${JSON.stringify(payload)}\n`);
+  };
+
+  res.writeHead(200, {
+    'Content-Type': 'application/x-ndjson; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+
+  const onToolProgress = (event: ToolProgressEvent): void => {
+    sendEvent({
+      type: 'tool',
+      toolName: event.toolName,
+      phase: event.phase,
+      preview: event.preview,
+      durationMs: event.durationMs,
+    });
+  };
+
+  try {
+    const result = await handleGatewayMessage({
+      ...chatRequest,
+      onToolProgress,
+    });
+    sendEvent({ type: 'result', result });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    sendEvent({
+      type: 'result',
+      result: {
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: errorMessage,
+      },
+    });
+    logger.error({ error, reqUrl: '/api/chat' }, 'Gateway streaming chat failed');
+  } finally {
+    if (!res.writableEnded) {
+      res.end();
+    }
+  }
+
+  req.on('close', () => {
+    if (!res.writableEnded) {
+      res.end();
+    }
+  });
 }
 
 async function handleApiCommand(req: IncomingMessage, res: ServerResponse): Promise<void> {

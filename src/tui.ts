@@ -6,10 +6,12 @@ import readline from 'readline';
 
 import { APP_VERSION, GATEWAY_BASE_URL, HYBRIDAI_BASE_URL, HYBRIDAI_CHATBOT_ID, HYBRIDAI_MODEL } from './config.js';
 import {
-  gatewayChat,
+  gatewayChatStream,
   gatewayCommand,
+  gatewayChat,
   gatewayStatus,
   renderGatewayCommand,
+  type GatewayChatResult,
   type GatewayCommandResult,
 } from './gateway-client.js';
 import { logger } from './logger.js';
@@ -22,6 +24,7 @@ const NAVY = '\x1b[38;2;30;58;95m';
 const GOLD = '\x1b[38;2;255;215;0m';
 const GREEN = '\x1b[38;2;16;185;129m';
 const RED = '\x1b[38;2;239;68;68m';
+const JELLYFISH = '🪼';
 
 const SESSION_ID = 'tui:local';
 const CHANNEL_ID = 'tui';
@@ -29,6 +32,7 @@ const TUI_MULTILINE_PASTE_DEBOUNCE_MS = Math.max(
   20,
   parseInt(process.env.TUI_MULTILINE_PASTE_DEBOUNCE_MS || '90', 10) || 90,
 );
+const TOOL_PREVIEW_MAX_CHARS = 140;
 
 let activeRunAbortController: AbortController | null = null;
 
@@ -102,16 +106,16 @@ function printResponse(text: string): void {
 }
 
 function printError(text: string): void {
-  console.log(`\n${RED}  Error: ${text}${RESET}\n`);
+  console.log(`\n  ${RED}Error: ${text}${RESET}\n`);
 }
 
 function printInfo(text: string): void {
-  console.log(`\n${GOLD}  ${text}${RESET}\n`);
+  console.log(`\n  ${GOLD}${text}${RESET}\n`);
 }
 
 function printToolUsage(tools: string[]): void {
   if (tools.length === 0) return;
-  console.log(`${DIM}  tools: ${GREEN}${tools.join(', ')}${RESET}`);
+  console.log(`  ${DIM}${JELLYFISH} tools: ${GREEN}${tools.join(', ')}${RESET}`);
 }
 
 function printGatewayCommandResult(result: GatewayCommandResult): void {
@@ -123,13 +127,18 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
   printInfo(renderGatewayCommand(result));
 }
 
-function spinner(): { stop: () => void } {
+function spinner(): {
+  stop: () => void;
+  addTool: (toolName: string, preview?: string) => void;
+  clearTools: () => void;
+} {
   const dots = ['   ', '.  ', '.. ', '...'];
   let i = 0;
+  let transientToolLines = 0;
   const clearLine = () => process.stdout.write('\r\x1b[2K');
   const render = () => {
     clearLine();
-    process.stdout.write(`\r  ${TEAL}thinking${dots[i % dots.length]}${RESET}`);
+      process.stdout.write(`\r${TEAL}thinking${dots[i % dots.length]}${RESET}`);
     i++;
   };
   const interval = setInterval(render, 350);
@@ -138,6 +147,23 @@ function spinner(): { stop: () => void } {
     stop: () => {
       clearInterval(interval);
       clearLine();
+    },
+    addTool: (toolName: string, preview?: string) => {
+      clearLine();
+      const previewText = preview ? ` ${DIM}${preview}${RESET}` : '';
+      process.stdout.write(`  ${JELLYFISH} ${TEAL}${toolName}${RESET}${previewText}\n`);
+      transientToolLines++;
+      render();
+    },
+    clearTools: () => {
+      if (transientToolLines <= 0) return;
+      process.stdout.write(`\x1b[${transientToolLines}A`);
+      for (let i = 0; i < transientToolLines; i++) {
+        clearLine();
+        process.stdout.write('\x1b[M');
+      }
+      clearLine();
+      transientToolLines = 0;
     },
   };
 }
@@ -215,32 +241,83 @@ async function processMessage(content: string): Promise<void> {
   activeRunAbortController = abortController;
 
   try {
-    const result = await gatewayChat(
-      {
-        sessionId: SESSION_ID,
-        guildId: null,
-        channelId: CHANNEL_ID,
-        userId: 'tui-user',
-        username: 'user',
-        content,
-      },
-      abortController.signal,
-    );
+    const request: {
+      sessionId: string;
+      guildId: null;
+      channelId: string;
+      userId: string;
+      username: string;
+      content: string;
+    } = {
+      sessionId: SESSION_ID,
+      guildId: null,
+      channelId: CHANNEL_ID,
+      userId: 'tui-user',
+      username: 'user',
+      content,
+    };
+    const toolNames = new Set<string>();
+    let result: GatewayChatResult;
+
+    try {
+      result = await gatewayChatStream(
+        {
+          ...request,
+          stream: true,
+        },
+        (event) => {
+          if (event.type !== 'tool' || event.phase !== 'start' || !event.toolName) return;
+          const preview = (event.preview || '').replace(/\s+/g, ' ').trim();
+          const previewText = preview.length > TOOL_PREVIEW_MAX_CHARS
+            ? `${preview.slice(0, TOOL_PREVIEW_MAX_CHARS - 1)}…`
+            : preview;
+          toolNames.add(event.toolName);
+          s.addTool(event.toolName, previewText || undefined);
+        },
+        abortController.signal,
+      );
+    } catch (streamErr) {
+      if (abortController.signal.aborted) {
+        throw streamErr;
+      }
+      result = await gatewayChat(request, abortController.signal);
+    }
+
+    for (const execution of result.toolExecutions || []) {
+      if (execution.name) {
+        toolNames.add(execution.name);
+      }
+    }
+    if (toolNames.size === 0) {
+      for (const toolName of result.toolsUsed || []) {
+        if (toolName) {
+          toolNames.add(toolName);
+        }
+      }
+    }
+
     s.stop();
+    if (toolNames.size > 0) {
+      s.clearTools();
+      printToolUsage(Array.from(toolNames));
+    }
+
+    if ((result.error || '').includes('aborted') || (result.error || '').includes('Interrupted')) {
+      return;
+    }
 
     if (result.status === 'error') {
-      if ((result.error || '').includes('aborted') || (result.error || '').includes('Interrupted')) return;
       printError(result.error || 'Unknown error');
       return;
     }
 
-    printToolUsage(result.toolsUsed);
     printResponse(result.result || 'No response.');
   } catch (err) {
     s.stop();
     if (abortController.signal.aborted) return;
     printError(err instanceof Error ? err.message : String(err));
   } finally {
+    s.clearTools();
     if (activeRunAbortController === abortController) {
       activeRunAbortController = null;
     }
