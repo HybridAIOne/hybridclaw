@@ -1,10 +1,8 @@
 # HybridClaw
 
-<img width="656" height="621" alt="image" src="docs/hero.png" />
+<img width="540" height="511" alt="image" src="docs/hero.png" />
 
 Personal AI assistant bot for Discord, powered by [HybridAI](https://hybridai.one).
-
-Release notes: [CHANGELOG.md](./CHANGELOG.md) (latest tag: [`v0.1.5`](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.5))
 
 ## Install from npm
 
