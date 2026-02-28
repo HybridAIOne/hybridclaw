@@ -13,9 +13,16 @@ import {
 loadEnvFile();
 ensureRuntimeConfigFile();
 
+export class MissingRequiredEnvVarError extends Error {
+  constructor(public readonly envVar: string) {
+    super(`Missing required env var: ${envVar}`);
+    this.name = 'MissingRequiredEnvVarError';
+  }
+}
+
 function required(name: string): string {
   const val = process.env[name];
-  if (!val) throw new Error(`Missing required env var: ${name}`);
+  if (!val) throw new MissingRequiredEnvVarError(name);
   return val;
 }
 
