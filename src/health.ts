@@ -13,7 +13,7 @@ import {
 } from './gateway-service.js';
 import { logger } from './logger.js';
 
-const SITE_DIR = path.resolve(process.cwd(), 'site');
+const SITE_DIR = path.resolve(process.cwd(), 'docs');
 const MAX_REQUEST_BYTES = 1_000_000; // 1MB
 
 const MIME_TYPES: Record<string, string> = {
