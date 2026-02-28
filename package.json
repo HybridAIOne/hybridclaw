@@ -1,8 +1,11 @@
 {
-  "name": "hybridclaw",
+  "name": "@hybridaione/hybridclaw",
   "version": "0.1.5",
   "type": "module",
   "description": "Personal AI assistant bot for Discord, powered by HybridAI",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "hybridclaw": "dist/cli.js"
   },

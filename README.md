@@ -6,6 +6,13 @@ Personal AI assistant bot for Discord, powered by [HybridAI](https://hybridai.on
 
 Release notes: [CHANGELOG.md](./CHANGELOG.md) (latest tag: [`v0.1.5`](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.5))
 
+## Install from npm
+
+```bash
+npm install -g @hybridaione/hybridclaw
+hybridclaw onboarding
+```
+
 ## HybridAI Advantage
 
 - Security-focused foundation
@@ -62,6 +69,12 @@ Runtime model:
 - If `DISCORD_TOKEN` is set, Discord runs inside gateway automatically.
 - `hybridclaw tui` is a thin client that connects to the gateway.
 - If you only use web chat, gateway alone is enough.
+
+Maintainers can publish the package to npm using:
+
+```bash
+npm publish --access public
+```
 
 Best-in-class harness upgrades now in runtime:
 
