@@ -69,18 +69,6 @@ Best-in-class harness upgrades now in runtime:
 - typed `config.json` runtime settings with defaults, validation, and hot reload
 - formal prompt hook orchestration (`bootstrap`, `memory`, `safety`)
 
-## Best-In-Class Comparison
-
-High-level positioning (non-technical) against OpenClaw, NanoClaw, and PicoClaw:
-
-| What teams care about | HybridClaw | OpenClaw | NanoClaw | PicoClaw |
-|---|---|---|---|---|
-| Onboarding | Explicit trust-model acceptance before runtime starts | Good defaults | Fast setup focus | Minimal setup focus |
-| Runtime control | Typed `config.json` + hot reload | Varies by setup | Usually lighter controls | Usually restart-oriented |
-| Cross-channel experience | One gateway brain for Discord, web, and TUI | Usually single primary interface | Lightweight multi-interface | Primarily lean interface |
-| Memory continuity | Durable memory + pre-compaction memory flush | Strong context workflows | Practical lightweight memory | Minimal long-history handling |
-| Enterprise readiness | Trust policy + audit/status + scheduling + health surface | Strong base, often extended per deployment | Lean base, selective add-ons | Minimal core footprint |
-
 ## Configuration
 
 HybridClaw now uses typed runtime config in `config.json` (auto-created on first run).
