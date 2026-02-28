@@ -1,6 +1,6 @@
 # HybridClaw
 
-<img width="656" height="621" alt="image" src="https://github.com/user-attachments/assets/59507ace-bd27-40ff-a8e8-0fd6b9af2aa1" />
+<img width="656" height="621" alt="image" src="docs/hero.png" />
 
 Personal AI assistant bot for Discord, powered by [HybridAI](https://hybridai.one).
 
