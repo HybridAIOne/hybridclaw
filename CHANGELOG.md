@@ -8,6 +8,16 @@
 
 ### Fixed
 
+## [0.1.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.10)
+
+### Added
+
+### Changed
+
+### Fixed
+
+- **Postinstall hang during npm install**: Removed the root `postinstall` hook that could cause installs to stall.
+
 ## [0.1.9](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.9)
 
 ### Added
