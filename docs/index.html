@@ -146,6 +146,56 @@
       margin: 0 auto 2.5rem;
       line-height: 1.7;
     }
+    .hero-install {
+      max-width: 640px;
+      margin: 0 auto 1.6rem;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.9rem 1rem 1rem;
+      text-align: left;
+    }
+    .hero-install-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.8rem;
+      margin-bottom: 0.65rem;
+    }
+    .hero-install-label {
+      font-size: 0.8rem;
+      color: var(--text-faint);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .hero-copy-btn {
+      background: var(--bg-card);
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.3rem 0.65rem;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .hero-copy-btn:hover {
+      border-color: var(--accent-1);
+      color: var(--text);
+    }
+    .hero-install code {
+      display: block;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.98rem;
+      color: var(--accent-1);
+      margin-bottom: 0.6rem;
+    }
+    .hero-install-note {
+      font-size: 0.82rem;
+      color: var(--text-faint);
+      line-height: 1.45;
+    }
     .hero-cta {
       display: flex;
       gap: 1rem;
@@ -615,8 +665,16 @@
 <header class="hero">
   <img src="hero.png" alt="HybridClaw" class="hero-img">
   <div class="hero-badge">Powered by <span>HybridAI</span></div>
-  <h1>Your secure AI coworker<br><span class="gradient">that feels alive</span></h1>
-  <p>Give your enterprise team a digital coworker that protects trust by default, acts with power when needed, remembers context, and proactively keeps work moving.</p>
+  <h1>One assistant brain<br><span class="gradient">across every team channel</span></h1>
+  <p>HybridClaw gives Discord, web, and terminal users the same memory, the same guardrails, and the same reliable execution flow.</p>
+  <div class="hero-install">
+    <div class="hero-install-head">
+      <div class="hero-install-label">Install (Linux/macOS)</div>
+      <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
+    </div>
+    <code>npm install -g hybridclaw</code>
+    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). HybridAI API key setup can be completed during onboarding.</div>
+  </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
     <a href="#comparison" class="btn btn-secondary">See Comparison</a>
@@ -703,75 +761,40 @@
 <!-- FEATURES -->
 <section id="features">
   <div class="section-center">
-    <div class="section-label">Capabilities</div>
-    <h2 class="section-title">Everything you need in a digital coworker</h2>
-    <p class="section-desc">HybridClaw is built for enterprise reality: security-first, operationally reliable, and powerful enough for serious workflows.</p>
+    <div class="section-label">What it does</div>
+    <h2 class="section-title">High-impact work, handled end-to-end</h2>
+    <p class="section-desc">Core actions are grouped into six outcomes so teams can scan value quickly without feature overload.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
-      <h3>Trust-Model Onboarding</h3>
-      <p>Teams start with explicit trust acceptance, so security expectations are clear before the assistant goes live.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f4c2;</div>
-      <h3>Simple Runtime Control</h3>
-      <p>Adjust behavior from one clean config surface instead of juggling many scattered settings.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f504;</div>
-      <h3>Live Updates</h3>
-      <p>Most setting changes apply instantly, so teams can adapt without stopping the assistant.</p>
+      <div class="feature-icon">&#x1f4da;</div>
+      <h3>Answer with context</h3>
+      <p>Use workspace memory and knowledge grounding to produce responses your team can act on immediately.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f512;</div>
-      <h3>Protected Actions</h3>
-      <p>Actions run behind strong guardrails to keep your environment safe while still getting real work done.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f4ac;</div>
-      <h3>One Assistant, Multiple Channels</h3>
-      <p>Use Discord, web, or terminal with a consistent experience and shared context across channels.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f9e0;</div>
-      <h3>Learns Over Time</h3>
-      <p>HybridClaw keeps durable context so it gets more helpful the longer your team works with it.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x2697;&#xfe0f;</div>
-      <h3>Consistent Quality</h3>
-      <p>A structured prompt framework keeps tone, memory, and safety behavior consistent across conversations.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x23f0;</div>
-      <h3>Smart Scheduling</h3>
-      <p>Set recurring and one-time tasks so your assistant follows through without reminders.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f493;</div>
-      <h3>Proactive Heartbeat</h3>
-      <p>Your assistant checks in proactively when there is something meaningful to share, and stays quiet when there isn’t.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f916;</div>
-      <h3>Multi-Bot &amp; Multi-Model</h3>
-      <p>Choose different assistants and model styles per channel so each team gets the best fit for its work.</p>
+      <h3>Execute safely</h3>
+      <p>Run useful actions behind trust acceptance and guardrails so automation stays controlled in production.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f504;</div>
-      <h3>Stays Fast as Chats Grow</h3>
-      <p>Long conversations stay responsive while important context is preserved behind the scenes.</p>
+      <h3>Stay consistent across channels</h3>
+      <p>Share one assistant behavior across Discord, web, and terminal without managing separate bot personalities.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4da;</div>
-      <h3>Compatible Skills</h3>
-      <p>SKILL.md format compatible with CLAUDE.md and OpenClaw skills. Drop in community skills or write your own with frontmatter metadata. User-invocable via /skill-name syntax.</p>
+      <div class="feature-icon">&#x1f9e0;</div>
+      <h3>Remember what matters</h3>
+      <p>Persist and compact long-running conversations so quality stays high even as sessions grow.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x23f0;</div>
+      <h3>Follow through automatically</h3>
+      <p>Schedule recurring or one-shot tasks so your assistant continues work without manual reminders.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4ca;</div>
-      <h3>Operational Visibility</h3>
-      <p>Built-in status and observability help teams run HybridClaw confidently in day-to-day operations.</p>
+      <h3>Operate with visibility</h3>
+      <p>Track status, sessions, and audit history from one runtime surface that is built for day-to-day operations.</p>
     </div>
   </div>
 </section>
@@ -901,29 +924,29 @@
     <p class="section-desc">HybridClaw keeps one shared assistant brain across channels while running actions with safety guardrails.</p>
   </div>
 
-  <div class="arch-flow">
-    <div class="arch-node">
-      <div class="arch-node-label">Where people work</div>
-      <div class="arch-node-title">Discord / Web / Terminal</div>
-      <div class="arch-node-desc">One shared user experience</div>
+  <div class="arch-flow" style="flex-wrap: nowrap; gap: 10px; overflow: hidden; justify-content: center;">
+    <div class="arch-node" style="min-width: 180px; max-width: 180px; height: 190px; padding: 16px 14px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
+      <div class="arch-node-label" style="font-size: 12px; letter-spacing: 0.08em;">Where people work</div>
+      <div class="arch-node-title" style="font-size: 18px; line-height: 1.2;">Discord / Web / Terminal</div>
+      <div class="arch-node-desc" style="font-size: 14px; line-height: 1.35;">One shared user experience</div>
     </div>
-    <div class="arch-arrow">&rarr;</div>
-    <div class="arch-node">
-      <div class="arch-node-label">HybridClaw Core</div>
-      <div class="arch-node-title">Shared Assistant Brain</div>
-      <div class="arch-node-desc">Context, memory, and orchestration</div>
+    <div class="arch-arrow" style="font-size: 34px; line-height: 1; flex: 0 0 auto;">&rarr;</div>
+    <div class="arch-node" style="min-width: 180px; max-width: 180px; height: 190px; padding: 16px 14px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
+      <div class="arch-node-label" style="font-size: 12px; letter-spacing: 0.08em;">HybridClaw Core</div>
+      <div class="arch-node-title" style="font-size: 18px; line-height: 1.2;">Shared Assistant Brain</div>
+      <div class="arch-node-desc" style="font-size: 14px; line-height: 1.35;">Context, memory, and orchestration</div>
     </div>
-    <div class="arch-arrow">&rarr;</div>
-    <div class="arch-node">
-      <div class="arch-node-label">Action Layer</div>
-      <div class="arch-node-title">Safe Execution</div>
-      <div class="arch-node-desc">Useful actions with guardrails</div>
+    <div class="arch-arrow" style="font-size: 34px; line-height: 1; flex: 0 0 auto;">&rarr;</div>
+    <div class="arch-node" style="min-width: 180px; max-width: 180px; height: 190px; padding: 16px 14px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
+      <div class="arch-node-label" style="font-size: 12px; letter-spacing: 0.08em;">Action Layer</div>
+      <div class="arch-node-title" style="font-size: 18px; line-height: 1.2;">Safe Execution</div>
+      <div class="arch-node-desc" style="font-size: 14px; line-height: 1.35;">Useful actions with guardrails</div>
     </div>
-    <div class="arch-arrow">&rarr;</div>
-    <div class="arch-node">
-      <div class="arch-node-label">Result</div>
-      <div class="arch-node-title">Back to your team</div>
-      <div class="arch-node-desc">Fast, consistent responses</div>
+    <div class="arch-arrow" style="font-size: 34px; line-height: 1; flex: 0 0 auto;">&rarr;</div>
+    <div class="arch-node" style="min-width: 180px; max-width: 180px; height: 190px; padding: 16px 14px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
+      <div class="arch-node-label" style="font-size: 12px; letter-spacing: 0.08em;">Result</div>
+      <div class="arch-node-title" style="font-size: 18px; line-height: 1.2;">Back to your team</div>
+      <div class="arch-node-desc" style="font-size: 14px; line-height: 1.35;">Fast, consistent responses</div>
     </div>
   </div>
 
@@ -1086,56 +1109,33 @@
 <section id="quickstart">
   <div class="section-center">
     <div class="section-label">Get Started</div>
-    <h2 class="section-title">Up and running in minutes</h2>
-    <p class="section-desc">Clone, configure, build, and launch.</p>
-  </div>
-  <div class="quickstart-box">
-    <pre><span class="comment"># Clone and install</span>
-<span class="cmd">git clone</span> https://github.com/HybridAIOne/hybridclaw.git
-<span class="cmd">cd</span> hybridclaw
-<span class="cmd">npm install</span>
-<span class="cmd">cd</span> container && <span class="cmd">npm install</span> && <span class="cmd">cd</span> ..
-<span class="cmd">npm link</span>
-
-<span class="comment"># Run onboarding (accept SECURITY.md trust model, create config.json, set API key)</span>
-<span class="cmd">hybridclaw</span> <span class="flag">onboarding</span>
-
-<span class="comment"># Start the gateway (core runtime)</span>
-<span class="cmd">hybridclaw</span> <span class="flag">gateway</span>
-
-<span class="comment"># Terminal client (optional, in another terminal)</span>
-<span class="cmd">hybridclaw</span> <span class="flag">tui</span>
-
-<span class="comment"># Open the technical docs section for architecture details</span></pre>
-  </div>
-</section>
-
-<div class="glow-divider"></div>
-
-<!-- COMMANDS -->
-<section>
-  <div class="section-center">
-    <div class="section-label">Commands</div>
-    <h2 class="section-title">Full command reference</h2>
-    <p class="section-desc">Manage bots, models, sessions, schedules, and diagnostics &mdash; all from Discord or the TUI.</p>
+    <h2 class="section-title">Get started in 60 seconds</h2>
+    <p class="section-desc">Install, initialize trust, start the runtime, then connect your preferred interface.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <h3 style="color: var(--accent-1);">Bot Management</h3>
-      <p><code>bot list</code> &middot; <code>bot set</code> &middot; <code>bot info</code><br>List available HybridAI bots, assign one to a channel, or view the current config.</p>
+      <h3 style="color: var(--accent-1);">1. Install CLI</h3>
+      <p><code>npm install -g hybridclaw</code></p>
     </div>
     <div class="feature-card">
-      <h3 style="color: var(--accent-1);">Model Control</h3>
-      <p><code>model list</code> &middot; <code>model set</code> &middot; <code>model info</code><br>Switch models per channel. Toggle RAG on or off with <code>rag on/off</code>.</p>
+      <h3 style="color: var(--accent-1);">2. Initialize workspace</h3>
+      <p><code>hybridclaw onboarding</code> to accept trust model and generate <code>config.json</code>.</p>
     </div>
     <div class="feature-card">
-      <h3 style="color: var(--accent-1);">Scheduling</h3>
-      <p><code>schedule add</code> &middot; <code>schedule list</code> &middot; <code>schedule remove</code> &middot; <code>schedule toggle</code><br>Cron, one-shot, or interval tasks.</p>
+      <h3 style="color: var(--accent-1);">3. Start runtime</h3>
+      <p><code>hybridclaw gateway</code> to launch the core service with your configured bot/model.</p>
     </div>
     <div class="feature-card">
-      <h3 style="color: var(--accent-1);">Session &amp; Diagnostics</h3>
-      <p><code>clear</code> &middot; <code>status</code> &middot; <code>sessions</code> &middot; <code>audit</code><br>Clear history, view uptime, list sessions, check audit logs.</p>
+      <h3 style="color: var(--accent-1);">4. Connect interface</h3>
+      <p>Use Discord or run <code>hybridclaw tui</code> for a terminal-native chat experience.</p>
     </div>
+  </div>
+  <div class="quickstart-box">
+    <pre><span class="comment"># 60-second flow</span>
+<span class="cmd">npm install -g hybridclaw</span>
+<span class="cmd">hybridclaw</span> <span class="flag">onboarding</span>
+<span class="cmd">hybridclaw</span> <span class="flag">gateway</span>
+<span class="cmd">hybridclaw</span> <span class="flag">tui</span></pre>
   </div>
 </section>
 
