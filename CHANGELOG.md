@@ -8,6 +8,21 @@
 
 ### Fixed
 
+## [0.1.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.8)
+
+### Added
+
+- **Live tool streaming in TUI**: Tool usage lines now stream with explicit tool names and emoji prefixes as they start, keeping operators informed during execution.
+
+### Changed
+
+- **TUI tool output formatting**: Tool usage output was restored with intentional indentation and compact summary replacement behavior.
+
+### Fixed
+
+- **Tool visibility regression**: Tool call logs are no longer swallowed into final output and are now shown at execution time.
+- **Gateway startup messaging**: `hybridclaw tui` no longer prints verbose gateway logs during startup and now uses concise gateway presence/startup status messages.
+
 ## [0.1.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.7)
 
 ### Added
