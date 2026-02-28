@@ -1,6 +1,7 @@
 import { CronExpressionParser } from 'cron-parser';
 
 import {
+  APP_VERSION,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
@@ -99,6 +100,7 @@ function plainCommand(text: string): GatewayCommandResult {
 export function getGatewayStatus(): GatewayStatus {
   return {
     status: 'ok',
+    version: APP_VERSION,
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
     activeContainers: getActiveContainerCount(),

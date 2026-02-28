@@ -4,24 +4,27 @@ Personal AI assistant bot for Discord, powered by HybridAI's bot platform.
 
 ## Architecture
 
-- **Host process** (Node.js): Discord client, SQLite, scheduler, IPC
+- **Gateway service** (Node.js): shared chat/command runtime, SQLite, scheduler, heartbeat, web/API, optional Discord integration
+- **TUI client**: thin gateway client over HTTP (`/api/chat`, `/api/command`)
 - **Container** (Docker, ephemeral): HybridAI API client, tool executor
-- Communication via file-based IPC (input.json/output.json)
+- Communication between host/container via file-based IPC (`input.json`/`output.json`)
 
 ## Key commands
 
-- `npm run dev` — start host process
-- `npm run tui` — start terminal UI client
+- `npm run dev` — start gateway runtime
+- `npm run tui` — start terminal UI client (connects to gateway)
+- `hybridclaw onboarding` — run HybridAI account/API key onboarding flow
 - `npm run build:container` — build container (compile TS + Docker image)
 
 ## API
 
 - HybridAI: `POST {HYBRIDAI_BASE_URL}/v1/chat/completions` with `chatbot_id`, `enable_rag`
 - Bot list: `GET {HYBRIDAI_BASE_URL}/api/v1/bot-management/bots`
+- Onboarding/browser auth pages (fixed under `HYBRIDAI_BASE_URL`): `/register`, `/verify_code`, `/admin_api_keys`
 
 ## Structure
 
-- `src/` — host process (Discord, DB, IPC, container runner, scheduler, heartbeat, health)
+- `src/` — gateway runtime, adapters, DB, IPC, scheduler, heartbeat, health/web API
 - `container/src/` — agent code (tools, HybridAI client, IPC)
 - `data/` — runtime (gitignored): SQLite DB, session workspaces, IPC files
 

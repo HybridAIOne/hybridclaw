@@ -4,7 +4,7 @@
 
 Personal AI assistant bot for Discord, powered by [HybridAI](https://hybridai.one).
 
-Release notes: [CHANGELOG.md](./CHANGELOG.md) (latest tag: [`v0.1.3`](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.3))
+Release notes: [CHANGELOG.md](./CHANGELOG.md) (latest tag: [`v0.1.4`](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.4))
 
 ## Architecture
 
@@ -20,11 +20,19 @@ Release notes: [CHANGELOG.md](./CHANGELOG.md) (latest tag: [`v0.1.3`](https://gi
 npm install
 cd container && npm install && cd ..
 
-# Copy and fill in your credentials
-cp .env.example .env
-
 # Link the CLI globally
 npm link
+
+# Run onboarding (also auto-runs on first `gateway`/`tui` start if API key is missing)
+# On first run, it creates `.env` from `.env.example` automatically if needed.
+hybridclaw onboarding
+
+# Onboarding flow:
+# 1) choose whether to create a new account
+# 2) open /register in browser (optional) and confirm in terminal
+# 3) open /login?next=/admin_api_keys in browser and get an API key
+# 4) paste API key (or URL containing it) back into the CLI
+# 5) choose the default bot and save credentials to `.env`
 
 # Start the gateway core runtime first
 hybridclaw gateway
@@ -49,12 +57,14 @@ Runtime model:
 
 See `.env.example` for all options. Required:
 
-- `HYBRIDAI_API_KEY` — HybridAI API key
+- `HYBRIDAI_API_KEY` — HybridAI API key (auto-collected by onboarding if missing)
 - `HYBRIDAI_CHATBOT_ID` — Default chatbot ID (overridable per channel)
 
 Optional:
 
 - `DISCORD_TOKEN` — Enables Discord integration inside `gateway`
+- `HYBRIDAI_BASE_URL` — Base URL used by runtime and onboarding (default: `https://hybridai.one`; set to `http://localhost:5000` for local testing)
+- Onboarding uses fixed paths under `HYBRIDAI_BASE_URL`: signup route `/register`, email verification page `/verify_code`, and API key page `/admin_api_keys`
 
 Optional for HTTP API hardening:
 
@@ -156,6 +166,7 @@ CLI runtime commands:
 
 - `hybridclaw gateway` — Start core runtime (web/API/scheduler/heartbeat and optional Discord)
 - `hybridclaw tui` — Start terminal client connected to gateway
+- `hybridclaw onboarding` — Run HybridAI account/API key onboarding
 
 In Discord, use `!claw help` to see all commands. Key ones:
 

@@ -1,31 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-
-function loadEnvFile(): void {
-  const envPath = path.join(process.cwd(), '.env');
-  if (!fs.existsSync(envPath)) return;
-  const content = fs.readFileSync(envPath, 'utf-8');
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eqIdx = trimmed.indexOf('=');
-    if (eqIdx === -1) continue;
-    const key = trimmed.slice(0, eqIdx).trim();
-    let val = trimmed.slice(eqIdx + 1).trim();
-    // Strip inline comments (# ...) unless the value is quoted
-    if (!val.startsWith('"') && !val.startsWith("'")) {
-      const hashIdx = val.indexOf('#');
-      if (hashIdx !== -1) val = val.slice(0, hashIdx).trim();
-    } else {
-      // Remove surrounding quotes
-      val = val.slice(1, -1);
-    }
-    if (!process.env[key]) {
-      process.env[key] = val;
-    }
-  }
-}
+import { loadEnvFile } from './env.js';
 
 loadEnvFile();
 
@@ -34,6 +10,26 @@ function required(name: string): string {
   if (!val) throw new Error(`Missing required env var: ${name}`);
   return val;
 }
+
+function resolveAppVersion(): string {
+  const envVersion = process.env.npm_package_version;
+  if (envVersion) return envVersion;
+
+  const packagePath = path.join(process.cwd(), 'package.json');
+  try {
+    const raw = fs.readFileSync(packagePath, 'utf-8');
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    if (typeof parsed.version === 'string' && parsed.version.trim()) {
+      return parsed.version.trim();
+    }
+  } catch {
+    // fall through
+  }
+
+  return '0.0.0';
+}
+
+export const APP_VERSION = resolveAppVersion();
 
 // Discord (optional for TUI mode)
 export const DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';

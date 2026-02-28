@@ -32,6 +32,7 @@ export interface GatewayCommandRequest {
 
 export interface GatewayStatus {
   status: 'ok';
+  version: string;
   uptime: number;
   sessions: number;
   activeContainers: number;

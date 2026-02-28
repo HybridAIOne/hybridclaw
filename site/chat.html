@@ -24,7 +24,7 @@
     html, body {
       margin: 0;
       height: 100%;
-      font-family: "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+      font-family: system-ui, ui-sans-serif, -apple-system, BlinkMacSystemFont, Inter, NotoSansHans, sans-serif;
       background: var(--page-bg);
       color: var(--text);
     }
@@ -44,6 +44,19 @@
       flex-direction: column;
       gap: 10px;
       border-right: 1px solid #e3e8f0;
+    }
+
+    .sidebar-spacer {
+      flex: 1 1 auto;
+      min-height: 10px;
+    }
+
+    .app-version {
+      font-size: 12px;
+      line-height: 1.2;
+      color: #8b98ab;
+      padding: 2px 2px 0;
+      user-select: none;
     }
 
     .sidebar-top {
@@ -174,6 +187,110 @@
       white-space: pre-wrap;
       line-height: 1.45;
       box-shadow: 0 2px 8px rgba(50, 80, 140, 0.06);
+    }
+
+    .msg.markdown p {
+      margin: 0;
+    }
+
+    .msg.markdown p + p {
+      margin-top: 10px;
+    }
+
+    .msg.markdown h1,
+    .msg.markdown h2,
+    .msg.markdown h3 {
+      margin: 0 0 8px;
+      color: #172034;
+      line-height: 1.2;
+    }
+
+    .msg.markdown h1 { font-size: 21px; }
+    .msg.markdown h2 { font-size: 19px; }
+    .msg.markdown h3 { font-size: 17px; }
+
+    .msg.markdown ul,
+    .msg.markdown ol {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .msg.markdown ul + p,
+    .msg.markdown ol + p,
+    .msg.markdown p + ul,
+    .msg.markdown p + ol {
+      margin-top: 10px;
+    }
+
+    .msg.markdown blockquote {
+      margin: 0;
+      padding: 0 0 0 10px;
+      border-left: 3px solid #d8dfeb;
+      color: #4e6285;
+    }
+
+    .msg.markdown hr {
+      border: none;
+      border-top: 1px solid #d8dfeb;
+      margin: 8px 0;
+    }
+
+    .msg.markdown code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.92em;
+      background: #f2f5fa;
+      color: #203a63;
+      padding: 1px 5px;
+      border-radius: 6px;
+    }
+
+    .msg.markdown pre {
+      margin: 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #dde5f2;
+      background: #f7f9fd;
+      overflow-x: auto;
+    }
+
+    .msg.markdown pre code {
+      background: transparent;
+      padding: 0;
+      border-radius: 0;
+      color: #1f304d;
+      display: block;
+      line-height: 1.4;
+    }
+
+    .msg-block {
+      max-width: 860px;
+      width: fit-content;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .msg-actions {
+      display: flex;
+      justify-content: flex-start;
+    }
+
+    .copy-btn {
+      border: none;
+      background: transparent;
+      color: #8b98ab;
+      font-size: 14px;
+      line-height: 1;
+      padding: 2px 4px;
+      cursor: pointer;
+    }
+
+    .copy-btn:hover {
+      color: #4b5563;
+    }
+
+    .copy-btn.copied {
+      color: #3657e9;
     }
 
     .msg.user {
@@ -365,6 +482,8 @@
         <span class="new-chat-icon">+</span>
         <span class="new-chat-label">New Conversation</span>
       </button>
+      <div class="sidebar-spacer"></div>
+      <div id="appVersion" class="app-version">HybridClaw v...</div>
     </aside>
 
     <main class="chat">
@@ -391,12 +510,21 @@
     const layoutEl = document.querySelector('.layout');
     const chatEl = document.querySelector('.chat');
     const greetingEl = document.querySelector('.empty-greeting');
+    const appVersionEl = document.getElementById('appVersion');
     const messageEl = document.getElementById('message');
     const messagesEl = document.getElementById('messages');
     const errorEl = document.getElementById('error');
     const urlParams = new URLSearchParams(window.location.search);
     const queryToken = urlParams.get('token') || '';
     let activeSessionId = localStorage.getItem('hybridclaw_session') || 'web:default';
+    let activeSessionNumber = parseInt(localStorage.getItem('hybridclaw_session_number') || '1', 10);
+    if (Number.isNaN(activeSessionNumber) || activeSessionNumber < 1) {
+      activeSessionNumber = 1;
+    }
+    let lastSessionNumber = parseInt(localStorage.getItem('hybridclaw_last_session_number') || String(activeSessionNumber), 10);
+    if (Number.isNaN(lastSessionNumber) || lastSessionNumber < activeSessionNumber) {
+      lastSessionNumber = activeSessionNumber;
+    }
     const apiToken = queryToken || localStorage.getItem('hybridclaw_token') || '';
     const introLines = [
       'Ready to claw through your to-do list? 🦞',
@@ -420,9 +548,15 @@
 
     function savePrefs() {
       localStorage.setItem('hybridclaw_session', activeSessionId);
+      localStorage.setItem('hybridclaw_session_number', String(activeSessionNumber));
+      localStorage.setItem('hybridclaw_last_session_number', String(lastSessionNumber));
       if (apiToken) {
         localStorage.setItem('hybridclaw_token', apiToken);
       }
+    }
+
+    function updateWindowTitle() {
+      document.title = `HybridClaw - (${activeSessionNumber})`;
     }
 
     function apiHeaders() {
@@ -437,6 +571,196 @@
       errorEl.textContent = text || '';
     }
 
+    function escapeHtml(raw) {
+      return String(raw)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function sanitizeUrl(rawUrl) {
+      const url = String(rawUrl || '').trim();
+      if (!url) return '';
+      const lowered = url.toLowerCase();
+      if (lowered.startsWith('http://') || lowered.startsWith('https://') || lowered.startsWith('mailto:')) {
+        return url;
+      }
+      return '';
+    }
+
+    function renderInlineMarkdown(raw) {
+      let text = String(raw || '');
+      const inlineCode = [];
+      const links = [];
+
+      text = text.replace(/`([^`\n]+)`/g, (_match, code) => {
+        const idx = inlineCode.push(`<code>${escapeHtml(code)}</code>`) - 1;
+        return `@@IC${idx}@@`;
+      });
+
+      text = text.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label, href) => {
+        const safeHref = sanitizeUrl(href);
+        const safeLabel = escapeHtml(label);
+        const html = safeHref
+          ? `<a href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${safeLabel}</a>`
+          : safeLabel;
+        const idx = links.push(html) - 1;
+        return `@@LK${idx}@@`;
+      });
+
+      text = escapeHtml(text);
+      text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      text = text.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+      text = text.replace(/_([^_]+)_/g, '<em>$1</em>');
+
+      text = text.replace(/@@LK(\d+)@@/g, (_match, index) => links[Number(index)] || '');
+      text = text.replace(/@@IC(\d+)@@/g, (_match, index) => inlineCode[Number(index)] || '');
+      return text;
+    }
+
+    function renderMarkdown(raw) {
+      let text = String(raw || '').replace(/\r\n/g, '\n');
+      const codeBlocks = [];
+
+      text = text.replace(/```([^\n`]*)\n([\s\S]*?)```/g, (_match, _lang, code) => {
+        const idx = codeBlocks.push(`<pre><code>${escapeHtml(code.replace(/\n$/, ''))}</code></pre>`) - 1;
+        return `@@CB${idx}@@`;
+      });
+
+      const lines = text.split('\n');
+      const out = [];
+      let paragraphLines = [];
+      let openList = '';
+
+      const closeList = () => {
+        if (openList) {
+          out.push(openList === 'ul' ? '</ul>' : '</ol>');
+          openList = '';
+        }
+      };
+
+      const flushParagraph = () => {
+        if (paragraphLines.length === 0) return;
+        const html = paragraphLines.map((line) => renderInlineMarkdown(line)).join('<br>');
+        out.push(`<p>${html}</p>`);
+        paragraphLines = [];
+      };
+
+      for (const line of lines) {
+        const codeMatch = line.match(/^@@CB(\d+)@@$/);
+        if (codeMatch) {
+          flushParagraph();
+          closeList();
+          out.push(codeBlocks[Number(codeMatch[1])] || '');
+          continue;
+        }
+
+        if (!line.trim()) {
+          flushParagraph();
+          closeList();
+          continue;
+        }
+
+        const heading = line.match(/^(#{1,3})\s+(.*)$/);
+        if (heading) {
+          flushParagraph();
+          closeList();
+          const level = heading[1].length;
+          out.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+          continue;
+        }
+
+        const quote = line.match(/^>\s?(.*)$/);
+        if (quote) {
+          flushParagraph();
+          closeList();
+          out.push(`<blockquote>${renderInlineMarkdown(quote[1])}</blockquote>`);
+          continue;
+        }
+
+        const hline = line.match(/^\s*((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})\s*$/);
+        if (hline) {
+          flushParagraph();
+          closeList();
+          out.push('<hr>');
+          continue;
+        }
+
+        const unordered = line.match(/^\s*[-*+]\s+(.*)$/);
+        if (unordered) {
+          flushParagraph();
+          if (openList !== 'ul') {
+            closeList();
+            out.push('<ul>');
+            openList = 'ul';
+          }
+          out.push(`<li>${renderInlineMarkdown(unordered[1])}</li>`);
+          continue;
+        }
+
+        const ordered = line.match(/^\s*\d+\.\s+(.*)$/);
+        if (ordered) {
+          flushParagraph();
+          if (openList !== 'ol') {
+            closeList();
+            out.push('<ol>');
+            openList = 'ol';
+          }
+          out.push(`<li>${renderInlineMarkdown(ordered[1])}</li>`);
+          continue;
+        }
+
+        closeList();
+        paragraphLines.push(line);
+      }
+
+      flushParagraph();
+      closeList();
+      return out.join('');
+    }
+
+    function copyTextFallback(text) {
+      const helper = document.createElement('textarea');
+      helper.value = text;
+      helper.setAttribute('readonly', '');
+      helper.style.position = 'absolute';
+      helper.style.left = '-9999px';
+      document.body.appendChild(helper);
+      helper.select();
+      document.execCommand('copy');
+      document.body.removeChild(helper);
+    }
+
+    async function copyMessage(content, button) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(content);
+        } else {
+          copyTextFallback(content);
+        }
+        button.textContent = '✓';
+        button.classList.add('copied');
+        window.setTimeout(() => {
+          button.textContent = '⧉';
+          button.classList.remove('copied');
+        }, 900);
+      } catch {
+        copyTextFallback(content);
+      }
+    }
+
+    function setAppVersion(version) {
+      if (!appVersionEl) return;
+      if (!version) {
+        appVersionEl.textContent = 'HybridClaw v...';
+        return;
+      }
+      appVersionEl.textContent = `HybridClaw v.${String(version).replace(/^v/i, '')}`;
+    }
+
     function updateEmptyState() {
       const hasMessages = messagesEl.children.length > 0;
       chatEl.classList.toggle('is-empty', !hasMessages);
@@ -445,8 +769,34 @@
     function addMessage(role, content) {
       const item = document.createElement('div');
       item.className = `msg ${role}`;
-      item.textContent = content || '';
-      messagesEl.appendChild(item);
+      if (role === 'assistant') {
+        item.classList.add('markdown');
+        item.innerHTML = renderMarkdown(content || '');
+      } else {
+        item.textContent = content || '';
+      }
+      if (role === 'assistant') {
+        const block = document.createElement('div');
+        block.className = 'msg-block';
+        block.appendChild(item);
+
+        const actions = document.createElement('div');
+        actions.className = 'msg-actions';
+        const copy = document.createElement('button');
+        copy.type = 'button';
+        copy.className = 'copy-btn';
+        copy.setAttribute('aria-label', 'Copy response');
+        copy.title = 'Copy response';
+        copy.textContent = '⧉';
+        copy.addEventListener('click', () => {
+          void copyMessage(content || '', copy);
+        });
+        actions.appendChild(copy);
+        block.appendChild(actions);
+        messagesEl.appendChild(block);
+      } else {
+        messagesEl.appendChild(item);
+      }
       updateEmptyState();
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
@@ -494,6 +844,18 @@
       }
     }
 
+    async function loadStatus() {
+      try {
+        const payload = await requestJson('/api/status', {
+          method: 'GET',
+          headers: apiHeaders(),
+        });
+        setAppVersion(payload.version || '');
+      } catch {
+        setAppVersion('');
+      }
+    }
+
     async function sendMessage() {
       const content = messageEl.value.trim();
       if (!content) return;
@@ -530,10 +892,13 @@
     }
 
     function newChat() {
+      lastSessionNumber += 1;
+      activeSessionNumber = lastSessionNumber;
       activeSessionId = `web:${Date.now()}`;
       messageEl.value = '';
       messagesEl.innerHTML = '';
       updateEmptyState();
+      updateWindowTitle();
       savePrefs();
       setError('');
       messageEl.focus();
@@ -555,6 +920,9 @@
     introIndex = Math.floor(Math.random() * introLines.length);
     renderIntro();
     updateEmptyState();
+    updateWindowTitle();
+    savePrefs();
+    void loadStatus();
     void loadHistory();
   </script>
 </body>

@@ -4,7 +4,7 @@
  */
 import readline from 'readline';
 
-import { GATEWAY_BASE_URL, HYBRIDAI_BASE_URL, HYBRIDAI_CHATBOT_ID, HYBRIDAI_MODEL } from './config.js';
+import { APP_VERSION, GATEWAY_BASE_URL, HYBRIDAI_BASE_URL, HYBRIDAI_CHATBOT_ID, HYBRIDAI_MODEL } from './config.js';
 import {
   gatewayChat,
   gatewayCommand,
@@ -69,7 +69,7 @@ function printBanner(): void {
   console.log();
   for (const line of logo) console.log(line);
   console.log();
-  console.log(`  \u{1F99E} ${BOLD}${TEAL}H y b r i d ${GOLD}C l a w${RESET} ${DIM}v0.1.3${RESET}`);
+  console.log(`  \u{1F99E} ${BOLD}${TEAL}H y b r i d ${GOLD}C l a w${RESET} ${DIM}v${APP_VERSION}${RESET}`);
   console.log(`${DIM}     Powered by HybridAI${RESET}`);
   console.log();
   console.log(`  ${DIM}Model: ${TEAL}${HYBRIDAI_MODEL}${RESET}${DIM} | Bot: ${GOLD}${HYBRIDAI_CHATBOT_ID || 'unset'}${RESET}`);
