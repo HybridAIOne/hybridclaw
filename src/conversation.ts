@@ -1,7 +1,6 @@
-import { buildSessionSummaryPrompt } from './session-maintenance.js';
-import { buildSkillsPrompt, expandSkillInvocation, loadSkills, type Skill } from './skills.js';
+import { expandSkillInvocation, loadSkills, type Skill } from './skills.js';
 import type { ChatMessage } from './types.js';
-import { buildContextPrompt, loadBootstrapFiles } from './workspace.js';
+import { buildSystemPromptFromHooks } from './prompt-hooks.js';
 
 interface HistoryMessage {
   role: string;
@@ -21,16 +20,16 @@ export function buildConversationContext(params: {
 }): ConversationContext {
   const { agentId, sessionSummary, history, expandLatestHistoryUser = false } = params;
   const skills = loadSkills(agentId);
-
-  const contextFiles = loadBootstrapFiles(agentId);
-  const contextPrompt = buildContextPrompt(contextFiles);
-  const skillsPrompt = buildSkillsPrompt(skills);
-  const summaryPrompt = buildSessionSummaryPrompt(sessionSummary);
-  const systemParts = [contextPrompt, summaryPrompt, skillsPrompt].filter(Boolean);
+  const systemPrompt = buildSystemPromptFromHooks({
+    agentId,
+    sessionSummary,
+    skills,
+    purpose: 'conversation',
+  });
 
   const messages: ChatMessage[] = [];
-  if (systemParts.length > 0) {
-    messages.push({ role: 'system', content: systemParts.join('\n\n') });
+  if (systemPrompt) {
+    messages.push({ role: 'system', content: systemPrompt });
   }
 
   const historyMessages = [...history].reverse().map((msg): ChatMessage => ({

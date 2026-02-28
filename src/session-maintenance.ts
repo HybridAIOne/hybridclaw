@@ -15,10 +15,10 @@ import {
   updateSessionSummary,
 } from './db.js';
 import { logger } from './logger.js';
-import { buildSkillsPrompt, loadSkills } from './skills.js';
+import { loadSkills } from './skills.js';
 import type { ChatMessage, StoredMessage } from './types.js';
-import { buildContextPrompt, loadBootstrapFiles } from './workspace.js';
 import { runAgent } from './agent.js';
+import { buildSystemPromptFromHooks } from './prompt-hooks.js';
 
 const COMPACTION_SOURCE_MAX_MESSAGES = 240;
 const COMPACTION_SOURCE_MAX_CHARS = 80_000;
@@ -73,22 +73,13 @@ function formatMessagesForPrompt(
 }
 
 function buildSystemPrompt(agentId: string, sessionSummary?: string | null, extra?: string): string {
-  const contextFiles = loadBootstrapFiles(agentId);
-  const contextPrompt = buildContextPrompt(contextFiles);
-  const skillsPrompt = buildSkillsPrompt(loadSkills(agentId));
-  const summaryPrompt = buildSessionSummaryPrompt(sessionSummary);
-  return [contextPrompt, summaryPrompt, skillsPrompt, extra].filter(Boolean).join('\n\n');
-}
-
-export function buildSessionSummaryPrompt(summary: string | null | undefined): string {
-  const trimmed = summary?.trim() || '';
-  if (!trimmed) return '';
-  return [
-    '## Session Summary',
-    'Compressed context from earlier turns. Treat this as durable prior context.',
-    '',
-    trimmed,
-  ].join('\n');
+  return buildSystemPromptFromHooks({
+    agentId,
+    sessionSummary,
+    skills: loadSkills(agentId),
+    purpose: 'memory-flush',
+    extraSafetyText: extra,
+  });
 }
 
 async function runPreCompactionMemoryFlush(params: {

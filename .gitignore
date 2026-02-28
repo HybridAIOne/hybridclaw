@@ -13,6 +13,8 @@ data/
 .env
 .env.local
 .env.*.local
+config.json
+config.local.json
 
 # Backups
 *.bak

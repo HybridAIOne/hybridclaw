@@ -1,4 +1,10 @@
-import { DISCORD_TOKEN, HEARTBEAT_CHANNEL, HEARTBEAT_INTERVAL, HYBRIDAI_CHATBOT_ID } from './config.js';
+import {
+  DISCORD_TOKEN,
+  HEARTBEAT_CHANNEL,
+  HEARTBEAT_INTERVAL,
+  HYBRIDAI_CHATBOT_ID,
+  onConfigChange,
+} from './config.js';
 import { stopAllContainers } from './container-runner.js';
 import { initDatabase } from './db.js';
 import {
@@ -20,6 +26,8 @@ import {
   sendToChannel,
   type ReplyFn,
 } from './discord.js';
+
+let detachConfigListener: (() => void) | null = null;
 
 function isDiscordChannelId(channelId: string): boolean {
   return /^\d{16,22}$/.test(channelId);
@@ -111,6 +119,10 @@ async function startDiscordIntegration(): Promise<void> {
 function setupShutdown(): void {
   const shutdown = () => {
     logger.info('Shutting down gateway...');
+    if (detachConfigListener) {
+      detachConfigListener();
+      detachConfigListener = null;
+    }
     stopHeartbeat();
     stopAllContainers();
     stopScheduler();
@@ -141,6 +153,16 @@ async function runScheduledTask(
   );
 }
 
+function startOrRestartHeartbeat(): void {
+  stopHeartbeat();
+  const agentId = HYBRIDAI_CHATBOT_ID || 'default';
+  startHeartbeat(agentId, HEARTBEAT_INTERVAL, (text) => {
+    const channelId = HEARTBEAT_CHANNEL || 'heartbeat';
+    void deliverProactiveMessage(channelId, text, 'heartbeat');
+    logger.info({ text }, 'Heartbeat message');
+  });
+}
+
 async function main(): Promise<void> {
   logger.info('Starting HybridClaw gateway');
   initDatabase();
@@ -148,11 +170,23 @@ async function main(): Promise<void> {
   setupShutdown();
   await startDiscordIntegration();
 
-  const agentId = HYBRIDAI_CHATBOT_ID || 'default';
-  startHeartbeat(agentId, HEARTBEAT_INTERVAL, (text) => {
-    const channelId = HEARTBEAT_CHANNEL || 'heartbeat';
-    void deliverProactiveMessage(channelId, text, 'heartbeat');
-    logger.info({ text }, 'Heartbeat message');
+  startOrRestartHeartbeat();
+  detachConfigListener = onConfigChange((next, prev) => {
+    const shouldRestart =
+      next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId
+      || next.heartbeat.intervalMs !== prev.heartbeat.intervalMs
+      || next.heartbeat.enabled !== prev.heartbeat.enabled;
+    if (!shouldRestart) return;
+
+    logger.info(
+      {
+        heartbeatEnabled: next.heartbeat.enabled,
+        heartbeatIntervalMs: next.heartbeat.intervalMs,
+        heartbeatAgentId: next.hybridai.defaultChatbotId || 'default',
+      },
+      'Config changed, restarting heartbeat',
+    );
+    startOrRestartHeartbeat();
   });
   startScheduler(runScheduledTask);
 

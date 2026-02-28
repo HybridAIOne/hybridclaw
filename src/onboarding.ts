@@ -4,6 +4,14 @@ import readline from 'readline/promises';
 import { spawn } from 'child_process';
 
 import { loadEnvFile } from './env.js';
+import {
+  acceptSecurityTrustModel,
+  ensureRuntimeConfigFile,
+  getRuntimeConfig,
+  isSecurityTrustAccepted,
+  runtimeConfigPath,
+  SECURITY_POLICY_VERSION,
+} from './runtime-config.js';
 
 interface HybridAIBot {
   id: string;
@@ -47,6 +55,8 @@ const DEFAULT_LOGIN_PATH = '/login?next=/admin_api_keys';
 const DEFAULT_VERIFY_PATH = '/verify_code';
 const BOT_LIST_PATH = '/api/v1/bot-management/bots';
 const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
+const SECURITY_ACK_TOKEN = 'ACCEPT';
+const SECURITY_DOC_PATH = path.join(process.cwd(), 'SECURITY.md');
 
 function ensureEnvFileFromExample(): boolean {
   const envPath = path.join(process.cwd(), '.env');
@@ -231,6 +241,14 @@ function saveEnvCredentials(apiKey: string, chatbotId: string | null): void {
   fs.writeFileSync(envPath, updated, 'utf-8');
 }
 
+function formatAcceptanceMeta(): string {
+  const config = getRuntimeConfig();
+  if (!isSecurityTrustAccepted(config)) return 'not accepted';
+  const by = config.security.trustModelAcceptedBy || 'unspecified';
+  const at = config.security.trustModelAcceptedAt;
+  return `${at} (${config.security.trustModelVersion}; by ${by})`;
+}
+
 function printHeadline(text: string): void {
   console.log(`\n${ICON_TITLE} ${BOLD}${TEAL}${text}${RESET}\n`);
 }
@@ -339,14 +357,70 @@ async function chooseDefaultBot(
   return selection;
 }
 
+async function ensureSecurityTrustAcceptance(
+  rl: readline.Interface,
+  commandLabel: string,
+  force: boolean,
+): Promise<boolean> {
+  const existingConfig = getRuntimeConfig();
+  if (isSecurityTrustAccepted(existingConfig) && !force) return false;
+
+  printHeadline('Security trust model acceptance');
+  printInfo(`${commandLabel} requires explicit trust model acceptance before runtime starts.`);
+  printMeta('Policy version', SECURITY_POLICY_VERSION);
+  printMeta('Current acceptance', formatAcceptanceMeta());
+  printLink(`Policy document: ${SECURITY_DOC_PATH}`);
+  printInfo('Review SECURITY.md before continuing.');
+  printInfo('Acceptance confirms you understand container/tool risks, data handling, and operator responsibilities.');
+  console.log();
+
+  const ready = await promptYesNo(rl, 'Have you reviewed SECURITY.md and the trust model?', true, ICON_AUTH);
+  if (!ready) {
+    throw new Error('Security trust model acceptance is required. Review SECURITY.md and rerun onboarding.');
+  }
+
+  while (true) {
+    const token = await promptRequired(
+      rl,
+      `Type ${SECURITY_ACK_TOKEN} to accept SECURITY.md v${SECURITY_POLICY_VERSION}: `,
+      ICON_AUTH,
+    );
+    if (token.trim().toUpperCase() === SECURITY_ACK_TOKEN) break;
+    printWarn(`Token mismatch. Type exactly ${SECURITY_ACK_TOKEN} to proceed.`);
+  }
+
+  const acceptedBy = await promptOptional(
+    rl,
+    'Accepted by (name/email, optional): ',
+    ICON_PERSON,
+  );
+
+  acceptSecurityTrustModel({
+    acceptedBy: acceptedBy || null,
+    policyVersion: SECURITY_POLICY_VERSION,
+  });
+  printSuccess(`Saved trust-model acceptance to ${runtimeConfigPath()}.`);
+  console.log();
+  return true;
+}
+
 export async function ensureHybridAICredentials(options: OnboardingOptions = {}): Promise<void> {
   loadEnvFile();
+  const bootstrappedConfig = ensureRuntimeConfigFile();
 
   const existingKey = (process.env.HYBRIDAI_API_KEY || '').trim();
   const force = options.force === true;
-  if (existingKey && !force) return;
+  const securityAccepted = isSecurityTrustAccepted(getRuntimeConfig());
+  const needsSecurityAcceptance = !securityAccepted || force;
+  const needsApiCredentials = !existingKey || force;
+  if (!needsSecurityAcceptance && !needsApiCredentials) return;
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    if (!securityAccepted) {
+      throw new Error(
+        'Security trust model is not accepted. Run `hybridclaw onboarding` in an interactive terminal to accept SECURITY.md.',
+      );
+    }
     throw new Error(
       'HYBRIDAI_API_KEY is missing. Run `hybridclaw onboarding` in an interactive terminal or set the key in .env.',
     );
@@ -355,7 +429,7 @@ export async function ensureHybridAICredentials(options: OnboardingOptions = {})
   const bootstrappedEnv = ensureEnvFileFromExample();
   if (bootstrappedEnv) loadEnvFile();
 
-  const baseUrl = normalizeBaseUrl(process.env.HYBRIDAI_BASE_URL || DEFAULT_BASE_URL);
+  const baseUrl = normalizeBaseUrl(getRuntimeConfig().hybridai.baseUrl || process.env.HYBRIDAI_BASE_URL || DEFAULT_BASE_URL);
   const registerPageUrl = resolveUrl(baseUrl, DEFAULT_REGISTER_PATH);
   const loginUrl = resolveUrl(baseUrl, DEFAULT_LOGIN_PATH);
   const commandLabel = options.commandName || 'hybridclaw';
@@ -367,6 +441,16 @@ export async function ensureHybridAICredentials(options: OnboardingOptions = {})
     if (bootstrappedEnv) {
       printSetup('Created `.env` from `.env.example` for first-run setup.');
     }
+    if (bootstrappedConfig) {
+      printSetup('Created `config.json` with validated defaults.');
+    }
+    await ensureSecurityTrustAcceptance(rl, commandLabel, force);
+
+    if (existingKey && !force) {
+      printSuccess('Security trust model already accepted and API key is present. No credential changes needed.');
+      return;
+    }
+
     printMeta('HYBRIDAI_BASE_URL', baseUrl);
     if (!existingKey) {
       printInfo(`No HYBRIDAI_API_KEY found. ${commandLabel} needs HybridAI credentials before it can start.`);

@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "security": {
+    "trustModelAccepted": false,
+    "trustModelAcceptedAt": "",
+    "trustModelVersion": "",
+    "trustModelAcceptedBy": ""
+  },
+  "discord": {
+    "prefix": "!claw"
+  },
+  "hybridai": {
+    "baseUrl": "https://hybridai.one",
+    "defaultModel": "gpt-5-nano",
+    "defaultChatbotId": "",
+    "enableRag": true,
+    "models": [
+      "gpt-5-nano",
+      "gpt-5-mini",
+      "gpt-5"
+    ]
+  },
+  "container": {
+    "image": "hybridclaw-agent",
+    "memory": "512m",
+    "cpus": "1",
+    "timeoutMs": 60000,
+    "additionalMounts": "",
+    "maxOutputBytes": 10485760,
+    "maxConcurrent": 5
+  },
+  "heartbeat": {
+    "enabled": true,
+    "intervalMs": 1800000,
+    "channel": ""
+  },
+  "ops": {
+    "healthHost": "127.0.0.1",
+    "healthPort": 9090,
+    "webApiToken": "",
+    "gatewayBaseUrl": "http://127.0.0.1:9090",
+    "gatewayApiToken": "",
+    "dbPath": "data/hybridclaw.db",
+    "logLevel": "info"
+  },
+  "sessionCompaction": {
+    "enabled": true,
+    "threshold": 120,
+    "keepRecent": 40,
+    "summaryMaxChars": 8000,
+    "preCompactionMemoryFlush": {
+      "enabled": true,
+      "maxMessages": 80,
+      "maxChars": 24000
+    }
+  },
+  "promptHooks": {
+    "bootstrapEnabled": true,
+    "memoryEnabled": true,
+    "safetyEnabled": true
+  }
+}

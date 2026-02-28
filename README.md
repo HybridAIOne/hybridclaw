@@ -4,7 +4,16 @@
 
 Personal AI assistant bot for Discord, powered by [HybridAI](https://hybridai.one).
 
-Release notes: [CHANGELOG.md](./CHANGELOG.md) (latest tag: [`v0.1.4`](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.4))
+Release notes: [CHANGELOG.md](./CHANGELOG.md) (latest tag: [`v0.1.5`](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.5))
+
+## HybridAI Advantage
+
+- Security-focused foundation
+- Enterprise-ready stack
+- EU-stack compatibility
+- GDPR-aligned posture
+- RAG-powered retrieval
+- Document-grounded responses
 
 ## Architecture
 
@@ -28,11 +37,12 @@ npm link
 hybridclaw onboarding
 
 # Onboarding flow:
-# 1) choose whether to create a new account
-# 2) open /register in browser (optional) and confirm in terminal
-# 3) open /login?next=/admin_api_keys in browser and get an API key
-# 4) paste API key (or URL containing it) back into the CLI
-# 5) choose the default bot and save credentials to `.env`
+# 1) explicitly accept SECURITY.md trust model (required)
+# 2) choose whether to create a new account
+# 3) open /register in browser (optional) and confirm in terminal
+# 4) open /login?next=/admin_api_keys in browser and get an API key
+# 5) paste API key (or URL containing it) back into the CLI
+# 6) choose the default bot and save credentials to `.env`
 
 # Start the gateway core runtime first
 hybridclaw gateway
@@ -53,25 +63,41 @@ Runtime model:
 - `hybridclaw tui` is a thin client that connects to the gateway.
 - If you only use web chat, gateway alone is enough.
 
+Best-in-class harness upgrades now in runtime:
+
+- explicit trust-model acceptance during onboarding (recorded in `config.json`)
+- typed `config.json` runtime settings with defaults, validation, and hot reload
+- formal prompt hook orchestration (`bootstrap`, `memory`, `safety`)
+
+## Best-In-Class Comparison
+
+High-level positioning (non-technical) against OpenClaw, NanoClaw, and PicoClaw:
+
+| What teams care about | HybridClaw | OpenClaw | NanoClaw | PicoClaw |
+|---|---|---|---|---|
+| Onboarding | Explicit trust-model acceptance before runtime starts | Good defaults | Fast setup focus | Minimal setup focus |
+| Runtime control | Typed `config.json` + hot reload | Varies by setup | Usually lighter controls | Usually restart-oriented |
+| Cross-channel experience | One gateway brain for Discord, web, and TUI | Usually single primary interface | Lightweight multi-interface | Primarily lean interface |
+| Memory continuity | Durable memory + pre-compaction memory flush | Strong context workflows | Practical lightweight memory | Minimal long-history handling |
+| Enterprise readiness | Trust policy + audit/status + scheduling + health surface | Strong base, often extended per deployment | Lean base, selective add-ons | Minimal core footprint |
+
 ## Configuration
 
-See `.env.example` for all options. Required:
+HybridClaw now uses typed runtime config in `config.json` (auto-created on first run).
 
-- `HYBRIDAI_API_KEY` — HybridAI API key (auto-collected by onboarding if missing)
-- `HYBRIDAI_CHATBOT_ID` — Default chatbot ID (overridable per channel)
+- Start from `config.example.json` (reference)
+- Runtime watches `config.json` and hot-reloads most settings (model defaults, heartbeat, prompt hooks, limits, etc.)
+- Some settings still require restart to fully apply (for example HTTP bind host/port)
 
-Optional:
+Secrets remain in `.env`:
 
-- `DISCORD_TOKEN` — Enables Discord integration inside `gateway`
-- `HYBRIDAI_BASE_URL` — Base URL used by runtime and onboarding (default: `https://hybridai.one`; set to `http://localhost:5000` for local testing)
-- Onboarding uses fixed paths under `HYBRIDAI_BASE_URL`: signup route `/register`, email verification page `/verify_code`, and API key page `/admin_api_keys`
+- `HYBRIDAI_API_KEY` (required)
+- `DISCORD_TOKEN` (optional)
+- `WEB_API_TOKEN` and `GATEWAY_API_TOKEN` (optional API auth hardening)
 
-Optional for HTTP API hardening:
+Trust-model acceptance is stored in `config.json` under `security.*` and is required before runtime starts.
 
-- `WEB_API_TOKEN` — If set, `/api/*` requires `Authorization: Bearer <token>`
-- `HEALTH_HOST` — Bind host for health/web/API server (defaults to `127.0.0.1`)
-- `GATEWAY_BASE_URL` — Client target URL for `tui`/external gateway clients (defaults to `http://127.0.0.1:9090`)
-- `GATEWAY_API_TOKEN` — Optional token used by clients for gateway API auth
+See [SECURITY.md](./SECURITY.md) for policy and acceptance details.
 
 ## Agent workspace
 
@@ -159,6 +185,14 @@ HybridClaw also supports automatic session compaction with pre-compaction memory
 
 - when a session gets long, old turns are summarized into `session_summary`
 - before compaction, the agent gets a `memory`-only flush turn to persist durable notes
+
+System prompt assembly is handled by a formal hook pipeline:
+
+- `bootstrap` hook (workspace bootstrap + skills metadata)
+- `memory` hook (session summary)
+- `safety` hook (runtime guardrails / trust-model constraints)
+
+Hook toggles live in `config.json` under `promptHooks`.
 
 ## Commands
 

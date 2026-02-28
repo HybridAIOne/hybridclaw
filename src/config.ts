@@ -1,9 +1,17 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+
 import { loadEnvFile } from './env.js';
+import {
+  ensureRuntimeConfigFile,
+  getRuntimeConfig,
+  onRuntimeConfigChange,
+  type RuntimeConfig,
+} from './runtime-config.js';
 
 loadEnvFile();
+ensureRuntimeConfigFile();
 
 function required(name: string): string {
   const val = process.env[name];
@@ -31,75 +39,99 @@ function resolveAppVersion(): string {
 
 export const APP_VERSION = resolveAppVersion();
 
-// Discord (optional for TUI mode)
+// Secrets stay in env/.env
 export const DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';
-export const DISCORD_PREFIX = process.env.DISCORD_PREFIX || '!claw';
-
-// HybridAI
 export const HYBRIDAI_API_KEY = required('HYBRIDAI_API_KEY');
-export const HYBRIDAI_BASE_URL = process.env.HYBRIDAI_BASE_URL || 'https://hybridai.one';
-export const HYBRIDAI_MODEL = process.env.HYBRIDAI_MODEL || 'gpt-5-nano';
-export const HYBRIDAI_CHATBOT_ID = process.env.HYBRIDAI_CHATBOT_ID || '';
-export const HYBRIDAI_ENABLE_RAG = process.env.HYBRIDAI_ENABLE_RAG !== 'false';
-export const HYBRIDAI_MODELS: string[] = process.env.HYBRIDAI_MODELS
-  ? process.env.HYBRIDAI_MODELS.split(',').map((m) => m.trim()).filter(Boolean)
-  : ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
 
-// Container
-export const CONTAINER_IMAGE = process.env.CONTAINER_IMAGE || 'hybridclaw-agent';
-export const CONTAINER_MEMORY = process.env.CONTAINER_MEMORY || '512m';
-export const CONTAINER_CPUS = process.env.CONTAINER_CPUS || '1';
-export const CONTAINER_TIMEOUT = parseInt(process.env.CONTAINER_TIMEOUT || '60000', 10);
+// Runtime settings hot-reload from config.json
+export let DISCORD_PREFIX = '!claw';
 
-// Mounts
+export let HYBRIDAI_BASE_URL = 'https://hybridai.one';
+export let HYBRIDAI_MODEL = 'gpt-5-nano';
+export let HYBRIDAI_CHATBOT_ID = '';
+export let HYBRIDAI_ENABLE_RAG = true;
+export let HYBRIDAI_MODELS: string[] = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
+
+export let CONTAINER_IMAGE = 'hybridclaw-agent';
+export let CONTAINER_MEMORY = '512m';
+export let CONTAINER_CPUS = '1';
+export let CONTAINER_TIMEOUT = 60_000;
+
 export const MOUNT_ALLOWLIST_PATH = path.join(
   os.homedir(), '.config', 'hybridclaw', 'mount-allowlist.json',
 );
-export const ADDITIONAL_MOUNTS = process.env.ADDITIONAL_MOUNTS || '';
+export let ADDITIONAL_MOUNTS = '';
 
-// Security / limits
-export const CONTAINER_MAX_OUTPUT_SIZE = parseInt(
-  process.env.CONTAINER_MAX_OUTPUT_SIZE || '10485760', 10,
-); // 10 MB
-export const MAX_CONCURRENT_CONTAINERS = Math.max(1,
-  parseInt(process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5,
-);
+export let CONTAINER_MAX_OUTPUT_SIZE = 10_485_760;
+export let MAX_CONCURRENT_CONTAINERS = 5;
 
-// Heartbeat
-export const HEARTBEAT_ENABLED = process.env.HEARTBEAT_ENABLED !== 'false';
-export const HEARTBEAT_INTERVAL = parseInt(process.env.HEARTBEAT_INTERVAL || '1800000', 10);
-export const HEARTBEAT_CHANNEL = process.env.HEARTBEAT_CHANNEL || '';
+export let HEARTBEAT_ENABLED = true;
+export let HEARTBEAT_INTERVAL = 1_800_000;
+export let HEARTBEAT_CHANNEL = '';
 
-// Ops
-export const HEALTH_HOST = process.env.HEALTH_HOST || '127.0.0.1';
-export const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9090', 10);
-export const WEB_API_TOKEN = process.env.WEB_API_TOKEN || '';
-export const GATEWAY_BASE_URL = process.env.GATEWAY_BASE_URL || `http://127.0.0.1:${HEALTH_PORT}`;
-export const GATEWAY_API_TOKEN = process.env.GATEWAY_API_TOKEN || WEB_API_TOKEN;
-export const DB_PATH = process.env.DB_PATH || 'data/hybridclaw.db';
-export const DATA_DIR = path.dirname(DB_PATH);
+export let HEALTH_HOST = '127.0.0.1';
+export let HEALTH_PORT = 9090;
+export let WEB_API_TOKEN = '';
+export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
+export let GATEWAY_API_TOKEN = '';
+export let DB_PATH = 'data/hybridclaw.db';
+export let DATA_DIR = path.dirname(DB_PATH);
 
-// Session compaction / memory flush
-export const SESSION_COMPACTION_ENABLED = process.env.SESSION_COMPACTION_ENABLED !== 'false';
-export const SESSION_COMPACTION_THRESHOLD = Math.max(
-  20,
-  parseInt(process.env.SESSION_COMPACTION_THRESHOLD || '120', 10) || 120,
-);
-export const SESSION_COMPACTION_KEEP_RECENT = Math.max(
-  10,
-  parseInt(process.env.SESSION_COMPACTION_KEEP_RECENT || '40', 10) || 40,
-);
-export const SESSION_COMPACTION_SUMMARY_MAX_CHARS = Math.max(
-  1_000,
-  parseInt(process.env.SESSION_COMPACTION_SUMMARY_MAX_CHARS || '8000', 10) || 8000,
-);
-export const PRE_COMPACTION_MEMORY_FLUSH_ENABLED =
-  process.env.PRE_COMPACTION_MEMORY_FLUSH_ENABLED !== 'false';
-export const PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES = Math.max(
-  8,
-  parseInt(process.env.PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES || '80', 10) || 80,
-);
-export const PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS = Math.max(
-  4_000,
-  parseInt(process.env.PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS || '24000', 10) || 24000,
-);
+export let SESSION_COMPACTION_ENABLED = true;
+export let SESSION_COMPACTION_THRESHOLD = 120;
+export let SESSION_COMPACTION_KEEP_RECENT = 40;
+export let SESSION_COMPACTION_SUMMARY_MAX_CHARS = 8_000;
+export let PRE_COMPACTION_MEMORY_FLUSH_ENABLED = true;
+export let PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES = 80;
+export let PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS = 24_000;
+
+function applyRuntimeConfig(config: RuntimeConfig): void {
+  DISCORD_PREFIX = config.discord.prefix;
+
+  HYBRIDAI_BASE_URL = config.hybridai.baseUrl;
+  HYBRIDAI_MODEL = config.hybridai.defaultModel;
+  HYBRIDAI_CHATBOT_ID = config.hybridai.defaultChatbotId;
+  HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
+  HYBRIDAI_MODELS = [...config.hybridai.models];
+
+  CONTAINER_IMAGE = config.container.image;
+  CONTAINER_MEMORY = config.container.memory;
+  CONTAINER_CPUS = config.container.cpus;
+  CONTAINER_TIMEOUT = config.container.timeoutMs;
+  ADDITIONAL_MOUNTS = config.container.additionalMounts;
+  CONTAINER_MAX_OUTPUT_SIZE = config.container.maxOutputBytes;
+  MAX_CONCURRENT_CONTAINERS = Math.max(1, config.container.maxConcurrent);
+
+  HEARTBEAT_ENABLED = config.heartbeat.enabled;
+  HEARTBEAT_INTERVAL = config.heartbeat.intervalMs;
+  HEARTBEAT_CHANNEL = config.heartbeat.channel;
+
+  HEALTH_HOST = config.ops.healthHost;
+  HEALTH_PORT = config.ops.healthPort;
+  WEB_API_TOKEN = process.env.WEB_API_TOKEN || config.ops.webApiToken;
+  GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
+  GATEWAY_API_TOKEN = process.env.GATEWAY_API_TOKEN || config.ops.gatewayApiToken || WEB_API_TOKEN;
+  DB_PATH = config.ops.dbPath;
+  DATA_DIR = path.dirname(DB_PATH);
+
+  SESSION_COMPACTION_ENABLED = config.sessionCompaction.enabled;
+  SESSION_COMPACTION_THRESHOLD = Math.max(20, config.sessionCompaction.threshold);
+  SESSION_COMPACTION_KEEP_RECENT = Math.max(
+    1,
+    Math.min(config.sessionCompaction.keepRecent, SESSION_COMPACTION_THRESHOLD - 1),
+  );
+  SESSION_COMPACTION_SUMMARY_MAX_CHARS = Math.max(1_000, config.sessionCompaction.summaryMaxChars);
+  PRE_COMPACTION_MEMORY_FLUSH_ENABLED = config.sessionCompaction.preCompactionMemoryFlush.enabled;
+  PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES = Math.max(8, config.sessionCompaction.preCompactionMemoryFlush.maxMessages);
+  PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS = Math.max(4_000, config.sessionCompaction.preCompactionMemoryFlush.maxChars);
+}
+
+applyRuntimeConfig(getRuntimeConfig());
+onRuntimeConfigChange((next) => {
+  applyRuntimeConfig(next);
+});
+
+export { onRuntimeConfigChange as onConfigChange };
+export function getConfigSnapshot(): RuntimeConfig {
+  return getRuntimeConfig();
+}

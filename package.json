@@ -1,6 +1,6 @@
 {
   "name": "hybridclaw",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Personal AI assistant bot for Discord, powered by HybridAI",
   "bin": {

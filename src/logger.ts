@@ -1,8 +1,19 @@
 import pino from 'pino';
 
+import { getRuntimeConfig, onRuntimeConfigChange } from './runtime-config.js';
+
+const initialLevel = getRuntimeConfig().ops.logLevel;
+
 export const logger = pino({
-  level: process.env.LOG_LEVEL || 'info',
+  level: initialLevel,
   transport: { target: 'pino-pretty', options: { colorize: true } },
+});
+
+onRuntimeConfigChange((next, prev) => {
+  if (next.ops.logLevel !== prev.ops.logLevel) {
+    logger.level = next.ops.logLevel;
+    logger.info({ level: next.ops.logLevel }, 'Logger level updated from config.json');
+  }
 });
 
 process.on('uncaughtException', (err) => {

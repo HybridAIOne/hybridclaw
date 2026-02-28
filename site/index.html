@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HybridClaw — Your Personal AI Agent for Discord</title>
+  <title>HybridClaw — Enterprise AI Digital Coworker</title>
   <style>
     :root {
       --bg: #0a1221;
@@ -15,8 +15,11 @@
       --text-faint: #64748b;
       --accent-1: #4a6cf7; /* HybridAI blue */
       --accent-2: #3b5bdb; /* deep blue */
+      --accent-teal: #5ce0d8;
+      --accent-teal-2: #31c9bf;
       --accent-gold: #FFD700;
       --accent-gradient: linear-gradient(135deg, #4a6cf7, #7c3aed);
+      --accent-gradient-teal: linear-gradient(135deg, var(--accent-teal), var(--accent-teal-2));
       --accent-glow: rgba(74, 108, 247, 0.15);
       --code-bg: #060e1a;
       --success: #10b981;
@@ -56,13 +59,24 @@
       height: 60px;
     }
     .nav-logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
       font-weight: 700;
       font-size: 1.2rem;
+      letter-spacing: -0.02em;
+    }
+    .nav-logo-img {
+      width: 26px;
+      height: 26px;
+      object-fit: contain;
+      filter: drop-shadow(0 0 10px rgba(74, 108, 247, 0.25));
+    }
+    .nav-logo-text {
       background: var(--accent-gradient);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
-      letter-spacing: -0.02em;
     }
     .nav-links { display: flex; gap: 1.5rem; align-items: center; }
     .nav-links a { color: var(--text-dim); font-size: 0.9rem; }
@@ -87,6 +101,14 @@
       padding: 10rem 2rem 6rem;
       text-align: center;
     }
+    .hero-img {
+      display: block;
+      width: 220px;
+      height: auto;
+      margin: 0 auto 2rem;
+      filter: drop-shadow(0 0 40px rgba(74, 108, 247, 0.2));
+    }
+
     .hero-badge {
       display: inline-block;
       padding: 0.35rem 1rem;
@@ -354,18 +376,20 @@
 
     /* COMPARISON TABLE */
     .comparison {
-      max-width: 700px;
+      max-width: 1100px;
       margin: 0 auto 3rem;
     }
     .comparison table {
       width: 100%;
       border-collapse: collapse;
+      table-layout: fixed;
     }
     .comparison th, .comparison td {
       padding: 0.75rem 1.25rem;
       text-align: left;
       border-bottom: 1px solid var(--border);
       font-size: 0.9rem;
+      vertical-align: top;
     }
     .comparison th {
       color: var(--text-faint);
@@ -374,10 +398,27 @@
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
+    .comparison th:nth-child(2) {
+      color: var(--accent-teal);
+      background: rgba(92, 224, 216, 0.14);
+      border-left: 1px solid rgba(92, 224, 216, 0.36);
+      border-right: 1px solid rgba(92, 224, 216, 0.36);
+    }
     .comparison td:first-child { color: var(--text-dim); }
     .comparison td:nth-child(2) {
       font-weight: 600;
-      color: var(--accent-1);
+      color: var(--accent-teal);
+      background: rgba(92, 224, 216, 0.1);
+      border-left: 1px solid rgba(92, 224, 216, 0.26);
+      border-right: 1px solid rgba(92, 224, 216, 0.26);
+    }
+    .compare-text {
+      display: block;
+      color: var(--text-dim);
+      font-size: 0.82rem;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     /* FAQ */
@@ -419,9 +460,18 @@
     .footer-copy { color: var(--text-faint); font-size: 0.8rem; }
 
     /* HYBRIDAI SHOWCASE */
+    #hybridai .section-label {
+      background: var(--accent-gradient-teal);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    #hybridai .section-title {
+      color: #c4f8f3;
+    }
     .hybridai-hero {
-      background: linear-gradient(135deg, rgba(74, 108, 247, 0.08), rgba(124, 58, 237, 0.06));
-      border: 1px solid var(--border);
+      background: linear-gradient(135deg, rgba(92, 224, 216, 0.12), rgba(49, 201, 191, 0.08));
+      border: 1px solid rgba(92, 224, 216, 0.26);
       border-radius: 16px;
       padding: 3rem;
       max-width: 900px;
@@ -436,7 +486,7 @@
       left: 0;
       right: 0;
       height: 2px;
-      background: var(--accent-gradient);
+      background: var(--accent-gradient-teal);
     }
     .hybridai-hero h3 {
       font-size: 1.5rem;
@@ -445,7 +495,7 @@
       letter-spacing: -0.01em;
     }
     .hybridai-hero h3 .gradient {
-      background: var(--accent-gradient);
+      background: var(--accent-gradient-teal);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -469,13 +519,17 @@
       padding: 1.25rem;
       transition: border-color 0.2s;
     }
-    .hybridai-feat:hover { border-color: rgba(74, 108, 247, 0.25); }
-    .hybridai-feat-icon { font-size: 1.3rem; margin-bottom: 0.5rem; }
+    .hybridai-feat:hover { border-color: rgba(92, 224, 216, 0.38); }
+    .hybridai-feat-icon {
+      font-size: 1.3rem;
+      margin-bottom: 0.5rem;
+      color: var(--accent-teal);
+    }
     .hybridai-feat h4 {
       font-size: 0.95rem;
       font-weight: 600;
       margin-bottom: 0.35rem;
-      color: var(--text);
+      color: #c4f8f3;
     }
     .hybridai-feat p {
       font-size: 0.82rem;
@@ -518,6 +572,13 @@
       .stats { gap: 2rem; }
       .nav-links { gap: 1rem; }
       .features-grid { grid-template-columns: 1fr; }
+      .comparison th, .comparison td {
+        padding: 0.5rem 0.4rem;
+        font-size: 0.72rem;
+      }
+      .compare-text {
+        font-size: 0.68rem;
+      }
     }
     @media (max-width: 480px) {
       .nav-links a:not(.nav-gh) { display: none; }
@@ -529,14 +590,19 @@
 <!-- NAV -->
 <nav>
   <div class="nav-inner">
-    <div class="nav-logo">HybridClaw</div>
+    <div class="nav-logo">
+      <img src="hai_logo_free.png" alt="HybridAI logo" class="nav-logo-img">
+      <span class="nav-logo-text">HybridClaw</span>
+    </div>
     <div class="nav-links">
       <a href="#hybridai">HybridAI</a>
       <a href="#features">Features</a>
+      <a href="#comparison">Comparison</a>
       <a href="#architecture">Architecture</a>
+      <a href="#technical">Technical</a>
       <a href="#tools">Tools</a>
-      <a href="/chat">Web Chat</a>
       <a href="#quickstart">Get Started</a>
+      <a href="#faq">FAQ</a>
       <a href="https://github.com/HybridAIOne/hybridclaw" class="nav-gh">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
         GitHub
@@ -547,12 +613,13 @@
 
 <!-- HERO -->
 <header class="hero">
+  <img src="hero.png" alt="HybridClaw" class="hero-img">
   <div class="hero-badge">Powered by <span>HybridAI</span></div>
-  <h1>Your AI agent that<br><span class="gradient">lives in Discord</span></h1>
-  <p>Connect to the HybridAI platform, pick your bot, and get a personal AI assistant that learns continuously, runs tools in sandboxed containers, accesses your knowledge base with RAG, and proactively checks in on your world.</p>
+  <h1>Your secure AI coworker<br><span class="gradient">that feels alive</span></h1>
+  <p>Give your enterprise team a digital coworker that protects trust by default, acts with power when needed, remembers context, and proactively keeps work moving.</p>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
-    <a href="/chat" class="btn btn-secondary">Open Web Chat</a>
+    <a href="#comparison" class="btn btn-secondary">See Comparison</a>
     <a href="#features" class="btn btn-secondary">See Features</a>
   </div>
 </header>
@@ -562,74 +629,72 @@
 <!-- STATS -->
 <div class="stats">
   <div class="stat">
-    <div class="stat-value">11</div>
-    <div class="stat-label">Agent Tools</div>
+    <div class="stat-value">Trust-First</div>
+    <div class="stat-label">Onboarding</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">24/7</div>
+    <div class="stat-label">Proactive Assistant</div>
   </div>
   <div class="stat">
     <div class="stat-value">3</div>
-    <div class="stat-label">Scheduling Modes</div>
+    <div class="stat-label">Ways to Chat</div>
   </div>
   <div class="stat">
-    <div class="stat-value">20</div>
-    <div class="stat-label">Max Tool Iterations</div>
+    <div class="stat-value">Memory-First</div>
+    <div class="stat-label">Conversations</div>
   </div>
   <div class="stat">
-    <div class="stat-value">28+</div>
-    <div class="stat-label">Security Patterns</div>
-  </div>
-  <div class="stat">
-    <div class="stat-value">3</div>
-    <div class="stat-label">Interfaces</div>
+    <div class="stat-value">Enterprise-Ready</div>
+    <div class="stat-label">Security + Control</div>
   </div>
 </div>
 
 <!-- HYBRIDAI PLATFORM -->
 <section id="hybridai">
   <div class="section-center">
-    <div class="section-label">Platform</div>
-    <h2 class="section-title">Powered by the HybridAI platform</h2>
-    <p class="section-desc">HybridClaw connects to HybridAI's bot platform, giving you access to managed chatbots, advanced RAG retrieval, document knowledge bases, and multi-model selection &mdash; all through a simple API.</p>
+    <div class="section-label">HybridAI Advantage</div>
+    <h2 class="section-title">Enterprise platform advantage built in</h2>
+    <p class="section-desc">HybridAI gives HybridClaw a strong enterprise foundation: security, compliance alignment, and document-grounded intelligence.</p>
   </div>
 
   <div class="hybridai-hero">
     <h3>Select your bot. <span class="gradient">Unlock its knowledge.</span></h3>
-    <p>Each HybridAI bot is a knowledge container with its own document corpus, personality, and retrieval capabilities. Switch bots per channel &mdash; use your Hermes3000 bot for deep research, a support bot for your team, or a custom bot trained on your own documents.</p>
+    <p>Each bot can have its own focus, tone, and knowledge. Use one for deep research, one for support, and one for day-to-day team productivity.</p>
 
     <div class="hybridai-features">
       <div class="hybridai-feat">
-        <div class="hybridai-feat-icon">&#x1f4c1;</div>
-        <h4>Document RAG</h4>
-        <p>Toggle retrieval-augmented generation per channel. Your bot searches its knowledge base and grounds answers in your uploaded documents.</p>
+        <div class="hybridai-feat-icon">&#x1f512;</div>
+        <h4>Security</h4>
+        <p>Built for teams that need trustworthy controls and secure operations by default.</p>
       </div>
       <div class="hybridai-feat">
-        <div class="hybridai-feat-icon">&#x1f500;</div>
-        <h4>Bot Switching</h4>
-        <p>List all your HybridAI bots and assign different ones to different channels. Each bot brings its own knowledge, personality, and context.</p>
+        <div class="hybridai-feat-icon">&#x1f3e2;</div>
+        <h4>Enterprise-Ready Stack</h4>
+        <p>Designed for real business workflows, team governance, and operational reliability.</p>
       </div>
       <div class="hybridai-feat">
-        <div class="hybridai-feat-icon">&#x2699;&#xfe0f;</div>
-        <h4>Multi-Model</h4>
-        <p>Choose the right model for the job. Switch between available models per channel &mdash; from fast nano models to full-power flagship models.</p>
+        <div class="hybridai-feat-icon">&#x1f1ea;&#x1f1fa;</div>
+        <h4>EU Stack</h4>
+        <p>Strong fit for organizations prioritizing EU-centric infrastructure and data posture.</p>
       </div>
       <div class="hybridai-feat">
-        <div class="hybridai-feat-icon">&#x1f9e9;</div>
-        <h4>OpenAI-Compatible API</h4>
-        <p>HybridAI exposes a standard chat completions endpoint with tool calling support, so HybridClaw slots in naturally with no custom SDK required.</p>
+        <div class="hybridai-feat-icon">&#x1f6e1;&#xfe0f;</div>
+        <h4>GDPR Alignment</h4>
+        <p>Supports privacy-conscious deployment strategies and compliance-driven teams.</p>
+      </div>
+      <div class="hybridai-feat">
+        <div class="hybridai-feat-icon">&#x1f50d;</div>
+        <h4>RAG Retrieval</h4>
+        <p>Ground answers in your organization’s knowledge for higher relevance and confidence.</p>
+      </div>
+      <div class="hybridai-feat">
+        <div class="hybridai-feat-icon">&#x1f4c4;</div>
+        <h4>Document Intelligence</h4>
+        <p>Turn internal documents into practical, searchable context your digital coworker can use.</p>
       </div>
     </div>
 
-    <div class="hybridai-bot-example">
-      <pre><span class="cmd">!claw bot list</span>
-  <span class="out">1. Hermes3000</span>  &mdash; Deep research &amp; analysis
-  <span class="out">2. SupportBot</span>  &mdash; Team knowledge base
-  <span class="out">3. PersonalAI</span>  &mdash; Custom assistant
-
-<span class="cmd">!claw bot set</span> <span class="val">Hermes3000</span>
-  <span class="out">&#x2713; Bot set to Hermes3000</span>
-
-<span class="cmd">!claw rag on</span>
-  <span class="out">&#x2713; RAG enabled &mdash; documents active</span></pre>
-    </div>
   </div>
 </section>
 
@@ -639,44 +704,64 @@
 <section id="features">
   <div class="section-center">
     <div class="section-label">Capabilities</div>
-    <h2 class="section-title">Everything you need in a personal agent</h2>
-    <p class="section-desc">HybridClaw combines a Discord bot, a terminal UI, sandboxed tool execution, proactive scheduling, and persistent memory into a single platform.</p>
+    <h2 class="section-title">Everything you need in a digital coworker</h2>
+    <p class="section-desc">HybridClaw is built for enterprise reality: security-first, operationally reliable, and powerful enough for serious workflows.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
+      <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
+      <h3>Trust-Model Onboarding</h3>
+      <p>Teams start with explicit trust acceptance, so security expectations are clear before the assistant goes live.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f4c2;</div>
+      <h3>Simple Runtime Control</h3>
+      <p>Adjust behavior from one clean config surface instead of juggling many scattered settings.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f504;</div>
+      <h3>Live Updates</h3>
+      <p>Most setting changes apply instantly, so teams can adapt without stopping the assistant.</p>
+    </div>
+    <div class="feature-card">
       <div class="feature-icon">&#x1f512;</div>
-      <h3>Sandboxed Execution</h3>
-      <p>Every tool runs inside an ephemeral Docker container with read-only filesystems, memory limits, and a 28+ pattern exec deny-list. Your host is never at risk.</p>
+      <h3>Protected Actions</h3>
+      <p>Actions run behind strong guardrails to keep your environment safe while still getting real work done.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4ac;</div>
-      <h3>Discord, Terminal &amp; Web</h3>
-      <p>Talk to your agent on Discord with @mentions or a custom prefix, use the built-in TUI for local conversations, or open the web chat UI. All three share the same gateway engine.</p>
+      <h3>One Assistant, Multiple Channels</h3>
+      <p>Use Discord, web, or terminal with a consistent experience and shared context across channels.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f9e0;</div>
-      <h3>Continual Learning</h3>
-      <p>Daily memory files capture context in the moment. Before session compaction, the agent flushes durable insights into MEMORY.md &mdash; building a curated knowledge base that grows smarter over time.</p>
+      <h3>Learns Over Time</h3>
+      <p>HybridClaw keeps durable context so it gets more helpful the longer your team works with it.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x2697;&#xfe0f;</div>
+      <h3>Consistent Quality</h3>
+      <p>A structured prompt framework keeps tone, memory, and safety behavior consistent across conversations.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x23f0;</div>
       <h3>Smart Scheduling</h3>
-      <p>Schedule tasks with cron expressions, one-shot ISO timestamps, or simple intervals. Tasks persist in SQLite and auto-clean after execution.</p>
+      <p>Set recurring and one-time tasks so your assistant follows through without reminders.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f493;</div>
       <h3>Proactive Heartbeat</h3>
-      <p>Your agent periodically wakes up, checks its HEARTBEAT.md for tasks, and reaches out when something matters. Silent when nothing's happening.</p>
+      <p>Your assistant checks in proactively when there is something meaningful to share, and stays quiet when there isn’t.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f916;</div>
       <h3>Multi-Bot &amp; Multi-Model</h3>
-      <p>Connect to the HybridAI platform and swap between chatbots like Hermes3000 per channel. Toggle RAG for document retrieval. Each channel gets its own bot, model, and knowledge config.</p>
+      <p>Choose different assistants and model styles per channel so each team gets the best fit for its work.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f504;</div>
-      <h3>Session Compaction</h3>
-      <p>When conversations get long, older turns are summarized and compressed. A pre-compaction flush gives the agent a dedicated turn to persist durable notes before context is pruned &mdash; nothing important is lost.</p>
+      <h3>Stays Fast as Chats Grow</h3>
+      <p>Long conversations stay responsive while important context is preserved behind the scenes.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4da;</div>
@@ -685,9 +770,124 @@
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4ca;</div>
-      <h3>Diagnostics &amp; Health</h3>
-      <p>HTTP health endpoint, structured Pino logging, audit trails, prompt dumps, and a status command showing uptime, sessions, and container metrics.</p>
+      <h3>Operational Visibility</h3>
+      <p>Built-in status and observability help teams run HybridClaw confidently in day-to-day operations.</p>
     </div>
+  </div>
+</section>
+
+<div class="glow-divider"></div>
+
+<!-- COMPARISON -->
+<section id="comparison">
+  <div class="section-center">
+    <div class="section-label">Comparison</div>
+    <h2 class="section-title">Comparison &amp; USPs</h2>
+  </div>
+  <div class="comparison">
+    <table>
+      <thead>
+        <tr>
+          <th>Area</th>
+          <th>HybridClaw</th>
+          <th>OpenClaw</th>
+          <th>NanoClaw</th>
+          <th>PicoClaw</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Onboarding</td>
+          <td>
+            <span class="compare-text">Explicit trust acceptance</span>
+          </td>
+          <td>
+            <span class="compare-text">Strong default flow</span>
+          </td>
+          <td>
+            <span class="compare-text">Quick startup flow</span>
+          </td>
+          <td>
+            <span class="compare-text">Minimal setup path</span>
+          </td>
+        </tr>
+        <tr>
+          <td>Security &amp; Trust</td>
+          <td>
+            <span class="compare-text">Trust-first policy posture</span>
+          </td>
+          <td>
+            <span class="compare-text">Solid baseline controls</span>
+          </td>
+          <td>
+            <span class="compare-text">Lean safeguards</span>
+          </td>
+          <td>
+            <span class="compare-text">Minimal guardrails</span>
+          </td>
+        </tr>
+        <tr>
+          <td>Runtime Control</td>
+          <td>
+            <span class="compare-text">Live config updates</span>
+          </td>
+          <td>
+            <span class="compare-text">Setup-dependent tuning</span>
+          </td>
+          <td>
+            <span class="compare-text">Simple control surface</span>
+          </td>
+          <td>
+            <span class="compare-text">Minimal controls</span>
+          </td>
+        </tr>
+        <tr>
+          <td>Digital Coworker Feel</td>
+          <td>
+            <span class="compare-text">Memory + proactive follow-up</span>
+          </td>
+          <td>
+            <span class="compare-text">Strong continuity model</span>
+          </td>
+          <td>
+            <span class="compare-text">Lightweight continuity</span>
+          </td>
+          <td>
+            <span class="compare-text">Short-turn focus</span>
+          </td>
+        </tr>
+        <tr>
+          <td>Enterprise Readiness</td>
+          <td>
+            <span class="compare-text">Audit, status, scheduling built in</span>
+          </td>
+          <td>
+            <span class="compare-text">Strong base, extended per team</span>
+          </td>
+          <td>
+            <span class="compare-text">Lean core + add-ons</span>
+          </td>
+          <td>
+            <span class="compare-text">Minimal footprint strategy</span>
+          </td>
+        </tr>
+        <tr>
+          <td>Cross-Channel Consistency</td>
+          <td>
+            <span class="compare-text">One assistant brain across channels</span>
+          </td>
+          <td>
+            <span class="compare-text">Often one primary channel</span>
+          </td>
+          <td>
+            <span class="compare-text">Light multi-channel support</span>
+          </td>
+          <td>
+            <span class="compare-text">Mostly single-channel simplicity</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </section>
 
@@ -697,48 +897,89 @@
 <section id="architecture">
   <div class="section-center">
     <div class="section-label">Architecture</div>
-    <h2 class="section-title">Gateway + container</h2>
-    <p class="section-desc">A Node.js gateway manages Discord, web chat, SQLite, and scheduling. An ephemeral Docker container executes tools. They talk over file-based IPC.</p>
+    <h2 class="section-title">Built for reliability at scale</h2>
+    <p class="section-desc">HybridClaw keeps one shared assistant brain across channels while running actions with safety guardrails.</p>
   </div>
 
   <div class="arch-flow">
     <div class="arch-node">
-      <div class="arch-node-label">Input</div>
-      <div class="arch-node-title">Discord / TUI / Web</div>
-      <div class="arch-node-desc">Message arrives</div>
+      <div class="arch-node-label">Where people work</div>
+      <div class="arch-node-title">Discord / Web / Terminal</div>
+      <div class="arch-node-desc">One shared user experience</div>
     </div>
     <div class="arch-arrow">&rarr;</div>
     <div class="arch-node">
-      <div class="arch-node-label">Gateway</div>
-      <div class="arch-node-title">Node.js</div>
-      <div class="arch-node-desc">SQLite &middot; Sessions &middot; API &middot; IPC</div>
+      <div class="arch-node-label">HybridClaw Core</div>
+      <div class="arch-node-title">Shared Assistant Brain</div>
+      <div class="arch-node-desc">Context, memory, and orchestration</div>
     </div>
     <div class="arch-arrow">&rarr;</div>
     <div class="arch-node">
-      <div class="arch-node-label">Container</div>
-      <div class="arch-node-title">Docker</div>
-      <div class="arch-node-desc">Tools &middot; HybridAI API</div>
+      <div class="arch-node-label">Action Layer</div>
+      <div class="arch-node-title">Safe Execution</div>
+      <div class="arch-node-desc">Useful actions with guardrails</div>
     </div>
     <div class="arch-arrow">&rarr;</div>
     <div class="arch-node">
-      <div class="arch-node-label">Output</div>
-      <div class="arch-node-title">Response</div>
-      <div class="arch-node-desc">Sent back to user</div>
+      <div class="arch-node-label">Result</div>
+      <div class="arch-node-title">Back to your team</div>
+      <div class="arch-node-desc">Fast, consistent responses</div>
     </div>
   </div>
 
   <div class="arch-detail">
     <div class="arch-detail-card">
-      <h4>Container Pooling</h4>
-      <p>Containers persist between requests for faster response times and auto-cleanup after a 5-minute idle timeout. Up to 5 concurrent containers.</p>
+      <h4>Fast by Design</h4>
+      <p>HybridClaw is optimized for quick responses, even when your team uses it all day.</p>
     </div>
     <div class="arch-detail-card">
-      <h4>File-Based IPC</h4>
-      <p>Each session gets isolated input.json and output.json files. No sockets, no shared memory &mdash; simple, debuggable, and secure.</p>
+      <h4>Reliable Operations</h4>
+      <p>Clear runtime surfaces make it easier to monitor, maintain, and trust in production.</p>
     </div>
     <div class="arch-detail-card">
-      <h4>Resource Limits</h4>
-      <p>Containers run read-only with tmpfs scratch space, 512MB memory cap, configurable CPU limits, and strict output size limits.</p>
+      <h4>Safety by Default</h4>
+      <p>Guardrails are built in so teams can unlock automation without sacrificing control.</p>
+    </div>
+    <div class="arch-detail-card">
+      <h4>Consistent Assistant Quality</h4>
+      <p>Structured prompting keeps behavior stable, reliable, and aligned with your standards.</p>
+    </div>
+  </div>
+</section>
+
+<div class="glow-divider"></div>
+
+<!-- TECHNICAL DETAILS -->
+<section id="technical">
+  <div class="section-center">
+    <div class="section-label">Technical Details</div>
+    <h2 class="section-title">Engineering view</h2>
+    <p class="section-desc">For technical teams who want to understand how HybridClaw is built and operated.</p>
+  </div>
+  <div class="features-grid">
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Core Runtime</h3>
+      <p>Node.js gateway with persistent session state, scheduling, and HTTP endpoints for status, chat, and commands.</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Safety Model</h3>
+      <p>Trust-model acceptance is required during onboarding, and execution uses strong runtime guardrails by default.</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Prompt Orchestration</h3>
+      <p>Structured hook pipeline: <code>bootstrap</code>, <code>memory</code>, and <code>safety</code>, with runtime toggles.</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Configuration</h3>
+      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Secrets remain in <code>.env</code>.</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Memory Continuity</h3>
+      <p>Persistent workspace memory plus long-session compaction keeps conversations responsive without losing important context.</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Interfaces &amp; Integrations</h3>
+      <p>Shared assistant behavior across Discord, web, and terminal, powered by HybridAI bots and model selection.</p>
     </div>
   </div>
 </section>
@@ -749,8 +990,8 @@
 <section id="tools">
   <div class="section-center">
     <div class="section-label">Toolbox</div>
-    <h2 class="section-title">11 tools, all sandboxed</h2>
-    <p class="section-desc">The agent iterates up to 20 times per request, chaining tools together to accomplish complex tasks autonomously.</p>
+    <h2 class="section-title">11 built-in capabilities</h2>
+    <p class="section-desc">From reading content to taking action, HybridClaw can complete real workflows end-to-end.</p>
   </div>
   <div class="tools-grid">
     <div class="tool-pill">
@@ -856,7 +1097,7 @@
 <span class="cmd">cd</span> container && <span class="cmd">npm install</span> && <span class="cmd">cd</span> ..
 <span class="cmd">npm link</span>
 
-<span class="comment"># Run onboarding (creates .env, sets up API key)</span>
+<span class="comment"># Run onboarding (accept SECURITY.md trust model, create config.json, set API key)</span>
 <span class="cmd">hybridclaw</span> <span class="flag">onboarding</span>
 
 <span class="comment"># Start the gateway (core runtime)</span>
@@ -865,7 +1106,7 @@
 <span class="comment"># Terminal client (optional, in another terminal)</span>
 <span class="cmd">hybridclaw</span> <span class="flag">tui</span>
 
-<span class="comment"># Web chat is built into gateway at /chat</span></pre>
+<span class="comment"># Open the technical docs section for architecture details</span></pre>
   </div>
 </section>
 
@@ -908,12 +1149,20 @@
   </div>
   <div class="faq-list">
     <div class="faq-item">
+      <div class="faq-q">Why does onboarding ask me to accept SECURITY.md?</div>
+      <div class="faq-a">HybridClaw enforces explicit trust-model acceptance before runtime starts. Acceptance is recorded in <code>config.json</code> with policy version and timestamp so operators can prove security acknowledgement.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Do I still configure everything through .env?</div>
+      <div class="faq-a">No. Runtime behavior now lives in typed <code>config.json</code> (with defaults, validation, and hot reload). Keep <code>.env</code> for secrets like API tokens and credentials.</div>
+    </div>
+    <div class="faq-item">
       <div class="faq-q">Is it safe to let the agent run shell commands?</div>
       <div class="faq-a">Yes. All tools execute inside ephemeral Docker containers with read-only filesystems, memory caps, and a deny-list of 28+ dangerous command patterns. The host machine is never exposed.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use it without Discord?</div>
-      <div class="faq-a">Absolutely. Run <code>hybridclaw tui</code> for the terminal UI or open the built-in web chat at <code>/chat</code>. All interfaces share the same gateway engine and capabilities.</div>
+      <div class="faq-a">Absolutely. Run <code>hybridclaw tui</code> for the terminal UI. The same assistant behavior and context model is shared across supported interfaces.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">What is the heartbeat system?</div>

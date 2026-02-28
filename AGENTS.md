@@ -20,5 +20,5 @@ When the user says "bump release":
 
 ## Related Repositories
 
-- **Examples repos**: Look for sibling example projects under `../examples` (or any `examples/` folders in neighboring repos) when you need reference implementations.
+- **Reference approach**: Learn patterns from strong external and internal implementations, then adapt them to HybridClaw’s architecture and standards. Avoid copy-paste integration.
 - **Platform repo**: The main platform codebase is expected at `../src/chat`; in this local workspace it is available at `../chat`.
