@@ -8,6 +8,17 @@
 
 ### Fixed
 
+## [0.1.9](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.9)
+
+### Added
+
+### Changed
+
+- **Scoped npm install docs**: Updated docs install snippets and copy button text to use `npm install -g @hybridaione/hybridclaw`.
+- **Postinstall setup flow**: Root `postinstall` now installs container dependencies and conditionally builds when source files are present.
+
+### Fixed
+
 ## [0.1.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.8)
 
 ### Added
