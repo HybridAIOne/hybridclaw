@@ -48,7 +48,11 @@ export const APP_VERSION = resolveAppVersion();
 
 // Secrets stay in env/.env
 export const DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';
-export const HYBRIDAI_API_KEY = required('HYBRIDAI_API_KEY');
+// Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
+export const HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY || '';
+export function getHybridAIApiKey(): string {
+  return required('HYBRIDAI_API_KEY');
+}
 
 // Runtime settings hot-reload from config.json
 export let DISCORD_PREFIX = '!claw';

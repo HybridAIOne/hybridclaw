@@ -8,6 +8,16 @@
 
 ### Fixed
 
+## [0.1.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.11)
+
+### Added
+
+### Changed
+
+### Fixed
+
+- **Missing API key startup crash**: Import-time `HYBRIDAI_API_KEY` validation was moved to runtime access so `hybridclaw tui` now prints onboarding guidance instead of a stack trace when credentials are missing.
+
 ## [0.1.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.10)
 
 ### Added

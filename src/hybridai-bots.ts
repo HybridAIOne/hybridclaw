@@ -1,4 +1,4 @@
-import { HYBRIDAI_API_KEY, HYBRIDAI_BASE_URL } from './config.js';
+import { HYBRIDAI_BASE_URL, getHybridAIApiKey } from './config.js';
 import type { HybridAIBot } from './types.js';
 
 interface BotCacheEntry {
@@ -31,7 +31,7 @@ export async function fetchHybridAIBots(options?: { cacheTtlMs?: number }): Prom
 
   const url = `${HYBRIDAI_BASE_URL}/api/v1/bot-management/bots`;
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${HYBRIDAI_API_KEY}` },
+    headers: { Authorization: `Bearer ${getHybridAIApiKey()}` },
   });
 
   if (!res.ok) {

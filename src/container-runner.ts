@@ -10,10 +10,10 @@ import {
   CONTAINER_IMAGE,
   CONTAINER_MEMORY,
   CONTAINER_TIMEOUT,
-  HYBRIDAI_API_KEY,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
+  getHybridAIApiKey,
 } from './config.js';
 import { cleanupIpc, ensureAgentDirs, ensureSessionDirs, getSessionPaths, readOutput, writeInput } from './ipc.js';
 import { logger } from './logger.js';
@@ -237,7 +237,7 @@ export async function runContainer(
     messages,
     chatbotId,
     enableRag,
-    apiKey: HYBRIDAI_API_KEY,
+    apiKey: getHybridAIApiKey(),
     baseUrl: HYBRIDAI_BASE_URL.replace(/\/\/(localhost|127\.0\.0\.1)([:\/])/, '//host.docker.internal$2'),
     model,
     channelId,
