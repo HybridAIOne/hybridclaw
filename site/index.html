@@ -549,7 +549,7 @@
 <header class="hero">
   <div class="hero-badge">Powered by <span>HybridAI</span></div>
   <h1>Your AI agent that<br><span class="gradient">lives in Discord</span></h1>
-  <p>Connect to the HybridAI platform, pick your bot, and get a personal AI assistant that runs tools in sandboxed containers, accesses your knowledge base with RAG, and proactively checks in on your world.</p>
+  <p>Connect to the HybridAI platform, pick your bot, and get a personal AI assistant that learns continuously, runs tools in sandboxed containers, accesses your knowledge base with RAG, and proactively checks in on your world.</p>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
     <a href="/chat" class="btn btn-secondary">Open Web Chat</a>
@@ -562,7 +562,7 @@
 <!-- STATS -->
 <div class="stats">
   <div class="stat">
-    <div class="stat-value">10</div>
+    <div class="stat-value">11</div>
     <div class="stat-label">Agent Tools</div>
   </div>
   <div class="stat">
@@ -655,8 +655,8 @@
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f9e0;</div>
-      <h3>Persistent Memory</h3>
-      <p>Workspace files like SOUL.md, MEMORY.md, and IDENTITY.md give your agent personality, context, and continuity across every conversation.</p>
+      <h3>Continual Learning</h3>
+      <p>Daily memory files capture context in the moment. Before session compaction, the agent flushes durable insights into MEMORY.md &mdash; building a curated knowledge base that grows smarter over time.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x23f0;</div>
@@ -674,14 +674,14 @@
       <p>Connect to the HybridAI platform and swap between chatbots like Hermes3000 per channel. Toggle RAG for document retrieval. Each channel gets its own bot, model, and knowledge config.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f310;</div>
-      <h3>Web Fetching</h3>
-      <p>The agent can fetch URLs and extract readable content as markdown, with a built-in 15-minute cache. Works with HTML pages and JSON APIs.</p>
+      <div class="feature-icon">&#x1f504;</div>
+      <h3>Session Compaction</h3>
+      <p>When conversations get long, older turns are summarized and compressed. A pre-compaction flush gives the agent a dedicated turn to persist durable notes before context is pruned &mdash; nothing important is lost.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4da;</div>
-      <h3>Skills System</h3>
-      <p>Define reusable skills in SKILL.md files with frontmatter metadata. User-invocable via /skill-name syntax. Workspace skills override project defaults.</p>
+      <h3>Compatible Skills</h3>
+      <p>SKILL.md format compatible with CLAUDE.md and OpenClaw skills. Drop in community skills or write your own with frontmatter metadata. User-invocable via /skill-name syntax.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4ca;</div>
@@ -749,7 +749,7 @@
 <section id="tools">
   <div class="section-center">
     <div class="section-label">Toolbox</div>
-    <h2 class="section-title">10 tools, all sandboxed</h2>
+    <h2 class="section-title">11 tools, all sandboxed</h2>
     <p class="section-desc">The agent iterates up to 20 times per request, chaining tools together to accomplish complex tasks autonomously.</p>
   </div>
   <div class="tools-grid">
@@ -802,6 +802,11 @@
       <div class="tool-pill-icon">&#x1f310;</div>
       <div class="tool-pill-name">web_fetch</div>
       <div class="tool-pill-desc">Fetch &amp; extract URLs</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f551;</div>
+      <div class="tool-pill-name">cron</div>
+      <div class="tool-pill-desc">Schedule recurring tasks</div>
     </div>
   </div>
 </section>
@@ -932,7 +937,11 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Does the agent remember things between conversations?</div>
-      <div class="faq-a">Yes. Workspace files like MEMORY.md and SOUL.md persist across sessions and are injected into the system prompt on every request, giving the agent continuous context.</div>
+      <div class="faq-a">Yes. The agent writes daily memory files (<code>memory/YYYY-MM-DD.md</code>) and curates long-term insights into <code>MEMORY.md</code>. Before session compaction, a dedicated flush turn ensures durable notes are persisted. These files plus <code>SOUL.md</code> are injected into every request, giving the agent continuous, growing context.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Can I use skills from CLAUDE.md or OpenClaw?</div>
+      <div class="faq-a">Yes. HybridClaw uses the same SKILL.md format with YAML frontmatter, so skills written for CLAUDE.md or OpenClaw work out of the box. Drop them into <code>skills/</code> or your agent workspace and they're available immediately.</div>
     </div>
   </div>
 </section>
