@@ -4,8 +4,15 @@
 
 ### Added
 
+### Changed
+
+## [0.1.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.6)
+
+### Added
+
 - **Container image bootstrap in CLI**: `hybridclaw gateway` and `hybridclaw tui` now verify the `hybridclaw-agent` container image at startup and attempt `npm run build:container` automatically when missing.
 - **User-friendly env var failures**: Startup now detects missing required environment variables and prints actionable hints instead of raw stack traces.
+- **Simplified install flow**: Root `npm install` now drives container dependency setup through a dedicated setup script, so users no longer need a separate container install step in the quickstart.
 
 ### Changed
 

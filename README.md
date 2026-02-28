@@ -30,16 +30,8 @@ hybridclaw onboarding
 ## Quick start
 
 ```bash
-# Install dependencies
+# Install dependencies (this also installs container deps via postinstall)
 npm install
-cd container && npm install && cd ..
-
-# Link the CLI globally
-npm link
-
-# Build the container image (required for full tool/workspace operation)
-# If missing, this step is also auto-attempted on first `gateway`/`tui` startup.
-npm run build:container
 
 # Run onboarding (also auto-runs on first `gateway`/`tui` start if API key is missing)
 # On first run, it creates `.env` from `.env.example` automatically if needed.
@@ -70,7 +62,7 @@ Runtime model:
 - `hybridclaw gateway` is the core process and should run first.
 - If `DISCORD_TOKEN` is set, Discord runs inside gateway automatically.
 - `hybridclaw tui` is a thin client that connects to the gateway.
-- `npm run build:container` is required for full tool/workspace operation for all client types.
+- `hybridclaw gateway` and `hybridclaw tui` validate the container image at startup and build it automatically if missing.
 
 Maintainers can publish the package to npm using:
 

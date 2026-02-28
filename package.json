@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
   "description": "Personal AI assistant bot for Discord, powered by HybridAI",
   "publishConfig": {
@@ -12,6 +12,8 @@
   "scripts": {
     "build": "tsc",
     "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
+    "setup": "npm --prefix container install",
+    "postinstall": "npm run setup",
     "dev": "tsx src/cli.ts gateway",
     "gateway": "tsx src/cli.ts gateway",
     "tui": "tsx src/cli.ts tui",
