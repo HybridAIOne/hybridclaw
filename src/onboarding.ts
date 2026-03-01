@@ -32,11 +32,59 @@ interface OnboardingOptions {
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
-const DIM = '\x1b[2m';
-const TEAL = '\x1b[38;2;92;224;216m';
-const GOLD = '\x1b[38;2;255;215;0m';
-const GREEN = '\x1b[38;2;16;185;129m';
-const RED = '\x1b[38;2;239;68;68m';
+
+type TerminalTheme = 'dark' | 'light';
+
+interface ThemePalette {
+  muted: string;
+  teal: string;
+  gold: string;
+  green: string;
+  red: string;
+}
+
+const DARK_PALETTE: ThemePalette = {
+  muted: '\x1b[38;2;170;184;204m',
+  teal: '\x1b[38;2;92;224;216m',
+  gold: '\x1b[38;2;255;215;0m',
+  green: '\x1b[38;2;16;185;129m',
+  red: '\x1b[38;2;239;68;68m',
+};
+
+const LIGHT_PALETTE: ThemePalette = {
+  muted: '\x1b[38;2;88;99;116m',
+  teal: '\x1b[38;2;0;122;128m',
+  gold: '\x1b[38;2;138;97;0m',
+  green: '\x1b[38;2;0;130;92m',
+  red: '\x1b[38;2;185;28;28m',
+};
+
+function inferThemeFromColorFgBg(): TerminalTheme | null {
+  const raw = process.env.COLORFGBG;
+  if (!raw) return null;
+
+  const parts = raw.split(/[;:]/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  const bg = Number.parseInt(parts[parts.length - 1], 10);
+  if (Number.isNaN(bg)) return null;
+
+  if (bg === 7 || bg === 11 || bg === 14 || bg === 15) return 'light';
+  return 'dark';
+}
+
+function resolveOnboardingTheme(): TerminalTheme {
+  const override = (process.env.HYBRIDCLAW_THEME || process.env.HYBRIDCLAW_TUI_THEME || process.env.TUI_THEME || '').trim().toLowerCase();
+  if (override === 'light' || override === 'dark') return override;
+  return inferThemeFromColorFgBg() || 'dark';
+}
+
+const PALETTE = resolveOnboardingTheme() === 'light' ? LIGHT_PALETTE : DARK_PALETTE;
+const MUTED = PALETTE.muted;
+const TEAL = PALETTE.teal;
+const GOLD = PALETTE.gold;
+const GREEN = PALETTE.green;
+const RED = PALETTE.red;
 const ICON_TITLE = '🪼';
 const ICON_GENERAL = '🦞';
 const ICON_PROMPT = '🦞';
@@ -274,7 +322,7 @@ function printWarn(text: string): void {
 }
 
 function printMeta(label: string, value: string): void {
-  console.log(`${DIM}${label}:${RESET} ${TEAL}${value}${RESET}`);
+  console.log(`${MUTED}${label}:${RESET} ${TEAL}${value}${RESET}`);
 }
 
 function styledPromptWithIcon(question: string, icon: string): string {
@@ -332,10 +380,10 @@ async function chooseDefaultBot(
   console.log(`${TEAL}${ICON_TITLE}${RESET} Available bots:`);
   for (let i = 0; i < Math.min(10, bots.length); i++) {
     const bot = bots[i];
-    console.log(`${TEAL}${i + 1}.${RESET} ${bot.name} ${DIM}(${bot.id})${RESET}`);
+    console.log(`${TEAL}${i + 1}.${RESET} ${bot.name} ${MUTED}(${bot.id})${RESET}`);
   }
   if (bots.length > 10) {
-    console.log(`${DIM}...and ${bots.length - 10} more${RESET}`);
+    console.log(`${MUTED}...and ${bots.length - 10} more${RESET}`);
   }
 
   const selection = await promptOptional(

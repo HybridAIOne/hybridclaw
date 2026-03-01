@@ -18,13 +18,64 @@ import { logger } from './logger.js';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
-const DIM = '\x1b[2m';
-const TEAL = '\x1b[38;2;92;224;216m';
-const NAVY = '\x1b[38;2;30;58;95m';
-const GOLD = '\x1b[38;2;255;215;0m';
-const GREEN = '\x1b[38;2;16;185;129m';
-const RED = '\x1b[38;2;239;68;68m';
 const JELLYFISH = '🪼';
+
+type TuiTheme = 'dark' | 'light';
+
+interface TuiPalette {
+  muted: string;
+  teal: string;
+  navy: string;
+  gold: string;
+  green: string;
+  red: string;
+}
+
+const DARK_PALETTE: TuiPalette = {
+  muted: '\x1b[38;2;170;184;204m',
+  teal: '\x1b[38;2;92;224;216m',
+  navy: '\x1b[38;2;30;58;95m',
+  gold: '\x1b[38;2;255;215;0m',
+  green: '\x1b[38;2;16;185;129m',
+  red: '\x1b[38;2;239;68;68m',
+};
+
+const LIGHT_PALETTE: TuiPalette = {
+  muted: '\x1b[38;2;88;99;116m',
+  teal: '\x1b[38;2;0;122;128m',
+  navy: '\x1b[38;2;30;58;95m',
+  gold: '\x1b[38;2;138;97;0m',
+  green: '\x1b[38;2;0;130;92m',
+  red: '\x1b[38;2;185;28;28m',
+};
+
+function inferThemeFromColorFgBg(): TuiTheme | null {
+  const raw = process.env.COLORFGBG;
+  if (!raw) return null;
+
+  const parts = raw.split(/[;:]/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  const bg = Number.parseInt(parts[parts.length - 1], 10);
+  if (Number.isNaN(bg)) return null;
+
+  if (bg === 7 || bg === 11 || bg === 14 || bg === 15) return 'light';
+  return 'dark';
+}
+
+function resolveTuiTheme(): TuiTheme {
+  const override = (process.env.HYBRIDCLAW_THEME || process.env.HYBRIDCLAW_TUI_THEME || process.env.TUI_THEME || '').trim().toLowerCase();
+  if (override === 'light' || override === 'dark') return override;
+  return inferThemeFromColorFgBg() || 'dark';
+}
+
+const PALETTE = resolveTuiTheme() === 'light' ? LIGHT_PALETTE : DARK_PALETTE;
+const MUTED = PALETTE.muted;
+const TEAL = PALETTE.teal;
+const NAVY = PALETTE.navy;
+const GOLD = PALETTE.gold;
+const GREEN = PALETTE.green;
+const RED = PALETTE.red;
 
 const SESSION_ID = 'tui:local';
 const CHANNEL_ID = 'tui';
@@ -73,12 +124,12 @@ function printBanner(): void {
   console.log();
   for (const line of logo) console.log(line);
   console.log();
-  console.log(`  \u{1F99E} ${BOLD}${TEAL}H y b r i d ${GOLD}C l a w${RESET} ${DIM}v${APP_VERSION}${RESET}`);
-  console.log(`${DIM}     Powered by HybridAI${RESET}`);
+  console.log(`  \u{1F99E} ${BOLD}${TEAL}H y b r i d ${GOLD}C l a w${RESET} ${MUTED}v${APP_VERSION}${RESET}`);
+  console.log(`${MUTED}     Powered by HybridAI${RESET}`);
   console.log();
-  console.log(`  ${DIM}Model: ${TEAL}${HYBRIDAI_MODEL}${RESET}${DIM} | Bot: ${GOLD}${HYBRIDAI_CHATBOT_ID || 'unset'}${RESET}`);
-  console.log(`  ${DIM}Gateway: ${TEAL}${GATEWAY_BASE_URL}${RESET}`);
-  console.log(`  ${DIM}HybridAI: ${TEAL}${HYBRIDAI_BASE_URL}${RESET}`);
+  console.log(`  ${MUTED}Model:${RESET} ${TEAL}${HYBRIDAI_MODEL}${RESET}${MUTED} | Bot:${RESET} ${GOLD}${HYBRIDAI_CHATBOT_ID || 'unset'}${RESET}`);
+  console.log(`  ${MUTED}Gateway:${RESET} ${TEAL}${GATEWAY_BASE_URL}${RESET}`);
+  console.log(`  ${MUTED}HybridAI:${RESET} ${TEAL}${HYBRIDAI_BASE_URL}${RESET}`);
   console.log();
 }
 
@@ -115,7 +166,7 @@ function printInfo(text: string): void {
 
 function printToolUsage(tools: string[]): void {
   if (tools.length === 0) return;
-  console.log(`  ${DIM}${JELLYFISH} tools: ${GREEN}${tools.join(', ')}${RESET}`);
+  console.log(`  ${MUTED}${JELLYFISH} tools:${RESET} ${GREEN}${tools.join(', ')}${RESET}`);
 }
 
 function printGatewayCommandResult(result: GatewayCommandResult): void {
@@ -150,7 +201,7 @@ function spinner(): {
     },
     addTool: (toolName: string, preview?: string) => {
       clearLine();
-      const previewText = preview ? ` ${DIM}${preview}${RESET}` : '';
+      const previewText = preview ? ` ${MUTED}${preview}${RESET}` : '';
       process.stdout.write(`  ${JELLYFISH} ${TEAL}${toolName}${RESET}${previewText}\n`);
       transientToolLines++;
       render();
@@ -393,7 +444,7 @@ async function main(): Promise<void> {
   rl.on('close', () => {
     if (pendingInputTimer) clearTimeout(pendingInputTimer);
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
-    console.log(`\n${DIM}  Goodbye!${RESET}\n`);
+    console.log(`\n${MUTED}  Goodbye!${RESET}\n`);
     process.exit(0);
   });
 }
