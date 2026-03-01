@@ -376,7 +376,7 @@ async function chooseDefaultBot(
     return manual || fallbackBotId;
   }
 
-  const defaultBot = bots[0];
+  const defaultBotId = fallbackBotId || bots[0].id;
   console.log(`${TEAL}${ICON_TITLE}${RESET} Available bots:`);
   for (let i = 0; i < Math.min(10, bots.length); i++) {
     const bot = bots[i];
@@ -388,11 +388,11 @@ async function chooseDefaultBot(
 
   const selection = await promptOptional(
     rl,
-    `Select default bot by number or id (Enter for ${defaultBot.id}): `,
+    `Select default bot by number or id (Enter for ${defaultBotId}): `,
     ICON_KEYBOARD,
   );
 
-  if (!selection) return defaultBot.id;
+  if (!selection) return defaultBotId;
 
   const asNumber = Number.parseInt(selection, 10);
   if (!Number.isNaN(asNumber) && asNumber >= 1 && asNumber <= bots.length) {
