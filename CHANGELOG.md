@@ -8,6 +8,16 @@
 
 ### Fixed
 
+## [0.1.14](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.14)
+
+### Added
+
+### Changed
+
+### Fixed
+
+- **Website build timeout regression**: Increased default container request timeout from `60s` to `300s` and upgraded `bash` tool execution timeouts (configurable per call) so longer build/test commands return actionable errors instead of premature timeout failures.
+
 ## [0.1.13](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.13)
 
 ### Added

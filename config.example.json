@@ -24,7 +24,7 @@
     "image": "hybridclaw-agent",
     "memory": "512m",
     "cpus": "1",
-    "timeoutMs": 60000,
+    "timeoutMs": 300000,
     "additionalMounts": "",
     "maxOutputBytes": 10485760,
     "maxConcurrent": 5

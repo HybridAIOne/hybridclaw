@@ -106,7 +106,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     image: 'hybridclaw-agent',
     memory: '512m',
     cpus: '1',
-    timeoutMs: 60_000,
+    timeoutMs: 300_000,
     additionalMounts: '',
     maxOutputBytes: 10_485_760,
     maxConcurrent: 5,

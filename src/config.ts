@@ -66,7 +66,7 @@ export let HYBRIDAI_MODELS: string[] = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
 export let CONTAINER_IMAGE = 'hybridclaw-agent';
 export let CONTAINER_MEMORY = '512m';
 export let CONTAINER_CPUS = '1';
-export let CONTAINER_TIMEOUT = 60_000;
+export let CONTAINER_TIMEOUT = 300_000;
 
 export const MOUNT_ALLOWLIST_PATH = path.join(
   os.homedir(), '.config', 'hybridclaw', 'mount-allowlist.json',

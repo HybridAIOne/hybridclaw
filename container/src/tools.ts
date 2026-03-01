@@ -67,6 +67,10 @@ const PREVIEW_MAX_OUTPUT_LINES = 6;
 const PREVIEW_MAX_LINE_LENGTH = 200;
 const BASH_MAX_OUTPUT_LINES = 400;
 const BASH_MAX_OUTPUT_BYTES = 128 * 1024;
+const BASH_EXEC_DEFAULT_TIMEOUT_MS = 4 * 60 * 1000;
+const BASH_EXEC_MIN_TIMEOUT_MS = 1_000;
+const BASH_EXEC_MAX_TIMEOUT_MS = 15 * 60 * 1000;
+const BASH_EXEC_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 const READ_MAX_LINES = 2000;
 const READ_MAX_BYTES = 50 * 1024;
 
@@ -158,6 +162,32 @@ function formatBashOutput(content: string): string {
     return `${truncation.content}\n\n[Output truncated at ${formatBytes(BASH_MAX_OUTPUT_BYTES)} after ${shownLines}/${totalLines} lines]`;
   }
   return `${truncation.content}\n\n[Output truncated after ${shownLines}/${totalLines} lines]`;
+}
+
+function normalizeTimeoutNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function clampTimeoutMs(rawMs: number): number {
+  const rounded = Math.floor(rawMs);
+  if (rounded < BASH_EXEC_MIN_TIMEOUT_MS) return BASH_EXEC_MIN_TIMEOUT_MS;
+  if (rounded > BASH_EXEC_MAX_TIMEOUT_MS) return BASH_EXEC_MAX_TIMEOUT_MS;
+  return rounded;
+}
+
+function resolveBashTimeoutMs(args: Record<string, unknown>): number {
+  const timeoutMs = normalizeTimeoutNumber(args.timeoutMs);
+  if (timeoutMs != null) return clampTimeoutMs(timeoutMs);
+
+  const timeoutSeconds = normalizeTimeoutNumber(args.timeoutSeconds);
+  if (timeoutSeconds != null) return clampTimeoutMs(timeoutSeconds * 1000);
+
+  return BASH_EXEC_DEFAULT_TIMEOUT_MS;
 }
 
 const WORKSPACE_ROOT = '/workspace';
@@ -544,21 +574,51 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
       case 'bash': {
         const blocked = guardCommand(args.command);
         if (blocked) return blocked;
+        const timeoutMs = resolveBashTimeoutMs(args);
         try {
           // Strip secrets from subprocess environment (belt-and-suspenders)
           const cleanEnv = { ...process.env };
           delete cleanEnv.HYBRIDAI_API_KEY;
           const result = execSync(args.command, {
-            timeout: 30000,
+            timeout: timeoutMs,
             encoding: 'utf-8',
             cwd: '/workspace',
-            maxBuffer: 1024 * 1024,
+            maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
             env: cleanEnv,
           });
           return formatBashOutput(result || '(no output)');
         } catch (err: unknown) {
-          const execErr = err as { stderr?: string; message?: string };
-          return `Error: ${execErr.stderr || execErr.message || 'Command failed'}`;
+          const execErr = err as {
+            code?: string | number;
+            signal?: string;
+            stdout?: string | Buffer;
+            stderr?: string | Buffer;
+            message?: string;
+          };
+
+          const stdout = typeof execErr.stdout === 'string'
+            ? execErr.stdout
+            : Buffer.isBuffer(execErr.stdout)
+              ? execErr.stdout.toString('utf-8')
+              : '';
+          const stderr = typeof execErr.stderr === 'string'
+            ? execErr.stderr
+            : Buffer.isBuffer(execErr.stderr)
+              ? execErr.stderr.toString('utf-8')
+              : '';
+          const combinedOutput = [stdout, stderr].filter(Boolean).join('\n').trim();
+
+          const errorMessage = execErr.message || 'Command failed';
+          const timeoutLikely =
+            execErr.code === 'ETIMEDOUT'
+            || /ETIMEDOUT|timed out/i.test(errorMessage)
+            || (execErr.signal === 'SIGTERM' && /spawnSync/i.test(errorMessage));
+          const summary = timeoutLikely
+            ? `Command timed out after ${timeoutMs}ms`
+            : errorMessage;
+
+          if (!combinedOutput) return `Error: ${summary}`;
+          return `Error: ${summary}\n\n${formatBashOutput(combinedOutput)}`;
         }
       }
 
@@ -913,6 +973,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         type: 'object',
         properties: {
           command: { type: 'string', description: 'Shell command to execute' },
+          timeoutMs: { type: 'number', description: 'Optional command timeout in milliseconds (default 240000, max 900000)' },
+          timeoutSeconds: { type: 'number', description: 'Optional command timeout in seconds (used when timeoutMs is omitted)' },
         },
         required: ['command'],
       },
