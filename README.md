@@ -67,19 +67,7 @@ Runtime model:
 - Default rebuild policy is `if-stale`: when tracked container sources changed since last build, the image is rebuilt automatically.
 - Policy override (optional): env `HYBRIDCLAW_CONTAINER_REBUILD=if-stale|always|never`.
 
-Maintainers can publish the package to npm using:
-
-```bash
-npm publish --access public
-```
-
-If npm 2FA is enabled on your account, use:
-
-```bash
-npm publish --access public --otp=<6-digit-code>
-```
-
-Best-in-class harness upgrades now in runtime:
+Best-in-class runtime capabilities:
 
 - explicit trust-model acceptance during onboarding (recorded in `config.json`)
 - typed `config.json` runtime settings with defaults, validation, and hot reload
@@ -88,12 +76,12 @@ Best-in-class harness upgrades now in runtime:
 
 ## Configuration
 
-HybridClaw now uses typed runtime config in `config.json` (auto-created on first run).
+HybridClaw uses typed runtime config in `config.json` (auto-created on first run).
 
 - Start from `config.example.json` (reference)
 - Runtime watches `config.json` and hot-reloads most settings (model defaults, heartbeat, prompt hooks, limits, etc.)
 - `proactive.*` controls autonomous behavior (`activeHours`, `delegation`, `autoRetry`)
-- Some settings still require restart to fully apply (for example HTTP bind host/port)
+- Some settings require restart to fully apply (for example HTTP bind host/port)
 - Default bot is configured via `hybridai.defaultChatbotId` in `config.json` (legacy `HYBRIDAI_CHATBOT_ID` values are auto-migrated on startup)
 
 Secrets remain in `.env`:
