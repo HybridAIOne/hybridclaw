@@ -177,7 +177,7 @@ function createResponseParser(onEvent: (event: GatewayChatStreamEvent) => void):
     ) {
       return {
         type: 'result',
-        result: parsed as GatewayChatResult,
+        result: parsed as unknown as GatewayChatResult,
       };
     }
 
