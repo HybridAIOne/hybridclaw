@@ -693,7 +693,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). HybridAI API key setup can be completed during onboarding.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). Browser automation tooling is preinstalled in the container image. HybridAI API key setup can be completed during onboarding.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -1033,7 +1033,7 @@
 <section id="tools">
   <div class="section-center">
     <div class="section-label">Toolbox</div>
-    <h2 class="section-title">11 built-in capabilities</h2>
+    <h2 class="section-title">12 built-in capabilities</h2>
     <p class="section-desc">From reading content to taking action, HybridClaw can complete real workflows end-to-end.</p>
   </div>
   <div class="tools-grid">
@@ -1086,6 +1086,11 @@
       <div class="tool-pill-icon">&#x1f310;</div>
       <div class="tool-pill-name">web_fetch</div>
       <div class="tool-pill-desc">Fetch &amp; extract URLs</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f5a5;&#xfe0f;</div>
+      <div class="tool-pill-name">browser_*</div>
+      <div class="tool-pill-desc">Navigate, snapshot, click, type, screenshot, PDF</div>
     </div>
     <div class="tool-pill">
       <div class="tool-pill-icon">&#x1f551;</div>

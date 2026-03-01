@@ -115,6 +115,7 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     '-e', `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
     '-e', `HYBRIDAI_MODEL=${HYBRIDAI_MODEL}`,
     '-e', `CONTAINER_IDLE_TIMEOUT=${IDLE_TIMEOUT_MS}`,
+    '-e', 'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
   ];
 
   // Run as host user so bind-mount file ownership matches
@@ -122,7 +123,7 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
   const hostGid = process.getgid?.();
   if (hostUid != null && hostUid !== 0 && hostUid !== 1000) {
     args.push('--user', `${hostUid}:${hostGid}`);
-    args.push('-e', 'HOME=/home/node');
+    args.push('-e', 'HOME=/workspace/.hybridclaw-runtime/home');
   }
 
   // Validate and append additional mounts

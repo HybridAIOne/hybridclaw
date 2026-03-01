@@ -10,11 +10,14 @@ WORKDIR /app
 
 COPY package.json tsconfig.json ./
 RUN npm install
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN npx playwright install --with-deps chromium
+RUN npx playwright install --with-deps --only-shell chromium
 
 COPY src/ src/
 RUN npx tsc
 
-RUN chown -R node:node /app
+RUN chown -R node:node /app /ms-playwright
 
 USER node
 

@@ -2,6 +2,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+import { BROWSER_TOOL_DEFINITIONS, executeBrowserTool } from './browser-tools.js';
 import type { ScheduleSideEffect, ToolDefinition } from './types.js';
 import { webFetch } from './web-fetch.js';
 
@@ -807,6 +808,19 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         return `${meta}\n\n${header}${result.text}`;
       }
 
+      case 'browser_navigate':
+      case 'browser_snapshot':
+      case 'browser_click':
+      case 'browser_type':
+      case 'browser_press':
+      case 'browser_scroll':
+      case 'browser_back':
+      case 'browser_screenshot':
+      case 'browser_pdf':
+      case 'browser_close': {
+        return await executeBrowserTool(name, args, currentSessionId || 'default');
+      }
+
       case 'cron': {
         const action = args.action;
 
@@ -1046,6 +1060,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  ...BROWSER_TOOL_DEFINITIONS,
   {
     type: 'function',
     function: {

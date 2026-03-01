@@ -1,6 +1,6 @@
 {
   "name": "hybridclaw-agent",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "type": "module",
   "scripts": {
     "build": "tsc",
@@ -8,7 +8,9 @@
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
-    "linkedom": "^0.18.12"
+    "agent-browser": "^0.15.1",
+    "linkedom": "^0.18.12",
+    "playwright": "^1.58.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

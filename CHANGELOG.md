@@ -8,6 +8,23 @@
 
 ### Fixed
 
+## [0.1.16](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.16)
+
+### Added
+
+- **Built-in browser toolset**: Added `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_back`, `browser_screenshot`, `browser_pdf`, and `browser_close` in the container runtime.
+- **Browser runtime module**: Added a dedicated browser tooling layer with per-session socket isolation and normalized JSON responses for tool calls.
+
+### Changed
+
+- **Preinstalled browser stack in container image**: Container build now includes `agent-browser`, `playwright`, and preinstalled Chromium/headless-shell binaries for immediate browser tool availability.
+- **Browser runtime hardening**: Browser subprocesses now use workspace-backed runtime/cache paths and explicit Playwright browser path wiring to avoid permission/cache issues across UID modes.
+- **Docs updates**: Updated README and website docs tool catalog to include browser automation capabilities and preinstall behavior.
+
+### Fixed
+
+- **Browser tool startup failures**: Resolved `npm ENOENT/EACCES` and Playwright executable-missing errors observed during runtime tool execution in persistent containers.
+
 ## [0.1.15](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.15)
 
 ### Added

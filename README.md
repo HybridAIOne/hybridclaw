@@ -24,7 +24,7 @@ hybridclaw onboarding
 
 - **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence, scheduler, heartbeat, web/API, and optional Discord integration
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`)
-- **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor
+- **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, and preinstalled browser automation runtime
 - Communication via file-based IPC (input.json / output.json)
 
 ## Quick start
@@ -182,6 +182,14 @@ The agent has access to these sandboxed tools inside the container:
 - `memory` — durable memory files (`MEMORY.md`, `USER.md`, `memory/YYYY-MM-DD.md`)
 - `session_search` — search/summarize historical sessions from transcript archives
 - `web_fetch` — fetch a URL and extract readable content (HTML → markdown/text)
+- `browser_*` (optional) — interactive browser automation (`navigate`, `snapshot`, `click`, `type`, `press`, `scroll`, `back`, `screenshot`, `pdf`, `close`)
+
+Browser tooling notes:
+
+- The shipped container image preinstalls `agent-browser` and Chromium (Playwright).
+- You can override the binary via `AGENT_BROWSER_BIN` if needed.
+- Navigation to private/loopback hosts is blocked by default (set `BROWSER_ALLOW_PRIVATE_NETWORK=true` to override).
+- Screenshot/PDF outputs are constrained to `/workspace/.browser-artifacts`.
 
 HybridClaw also supports automatic session compaction with pre-compaction memory flush:
 
