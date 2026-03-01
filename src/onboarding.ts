@@ -11,6 +11,7 @@ import {
   isSecurityTrustAccepted,
   runtimeConfigPath,
   SECURITY_POLICY_VERSION,
+  updateRuntimeConfig,
 } from './runtime-config.js';
 
 interface HybridAIBot {
@@ -277,16 +278,25 @@ function upsertEnvLine(content: string, key: string, value: string): string {
   return `${content}${prefix}${normalizedLine}\n`;
 }
 
-function saveEnvCredentials(apiKey: string, chatbotId: string | null): void {
+function removeEnvLine(content: string, key: string): string {
+  const lineRe = new RegExp(`^\\s*${escapeRegex(key)}\\s*=.*\\n?`, 'gm');
+  return content.replace(lineRe, '');
+}
+
+function saveEnvCredentials(apiKey: string): void {
   const envPath = path.join(process.cwd(), '.env');
   const existing = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
 
   let updated = upsertEnvLine(existing, 'HYBRIDAI_API_KEY', apiKey);
-  if (chatbotId) {
-    updated = upsertEnvLine(updated, 'HYBRIDAI_CHATBOT_ID', chatbotId);
-  }
+  updated = removeEnvLine(updated, 'HYBRIDAI_CHATBOT_ID');
 
   fs.writeFileSync(envPath, updated, 'utf-8');
+}
+
+function saveDefaultChatbotId(chatbotId: string): void {
+  updateRuntimeConfig((draft) => {
+    draft.hybridai.defaultChatbotId = chatbotId.trim();
+  });
 }
 
 function formatAcceptanceMeta(): string {
@@ -592,23 +602,25 @@ export async function ensureHybridAICredentials(options: OnboardingOptions = {})
       apiKey = '';
     }
 
-    const fallbackChatbotId = (process.env.HYBRIDAI_CHATBOT_ID || '').trim();
+    const fallbackChatbotId = getRuntimeConfig().hybridai.defaultChatbotId.trim()
+      || (process.env.HYBRIDAI_CHATBOT_ID || '').trim();
     const chosenChatbotId = await chooseDefaultBot(
       rl,
       validation.ok ? validation.bots : [],
       fallbackChatbotId,
     );
 
-    saveEnvCredentials(apiKey, chosenChatbotId || null);
+    saveEnvCredentials(apiKey);
+    saveDefaultChatbotId(chosenChatbotId || '');
     process.env.HYBRIDAI_API_KEY = apiKey;
-    if (chosenChatbotId) process.env.HYBRIDAI_CHATBOT_ID = chosenChatbotId;
 
     console.log();
     printSuccess(`Saved credentials to ${path.join(process.cwd(), '.env')}.`);
+    printSuccess(`Saved runtime settings to ${runtimeConfigPath()}.`);
     if (chosenChatbotId) {
       printSuccess(`Default bot set to: ${chosenChatbotId}`);
     } else {
-      printInfo('No default bot selected. You can set HYBRIDAI_CHATBOT_ID later.');
+      printInfo('No default bot selected. You can set hybridai.defaultChatbotId in config.json later.');
     }
     console.log();
   } finally {

@@ -43,7 +43,7 @@ hybridclaw onboarding
 # 3) open /register in browser (optional) and confirm in terminal
 # 4) open /login?next=/admin_api_keys in browser and get an API key
 # 5) paste API key (or URL containing it) back into the CLI
-# 6) choose the default bot and save credentials to `.env`
+# 6) choose the default bot (saved to config.json) and save secrets to `.env`
 
 # Start the gateway core runtime first
 hybridclaw gateway
@@ -70,6 +70,12 @@ Maintainers can publish the package to npm using:
 npm publish --access public
 ```
 
+If npm 2FA is enabled on your account, use:
+
+```bash
+npm publish --access public --otp=<6-digit-code>
+```
+
 Best-in-class harness upgrades now in runtime:
 
 - explicit trust-model acceptance during onboarding (recorded in `config.json`)
@@ -83,6 +89,7 @@ HybridClaw now uses typed runtime config in `config.json` (auto-created on first
 - Start from `config.example.json` (reference)
 - Runtime watches `config.json` and hot-reloads most settings (model defaults, heartbeat, prompt hooks, limits, etc.)
 - Some settings still require restart to fully apply (for example HTTP bind host/port)
+- Default bot is configured via `hybridai.defaultChatbotId` in `config.json` (legacy `HYBRIDAI_CHATBOT_ID` values are auto-migrated on startup)
 
 Secrets remain in `.env`:
 

@@ -8,6 +8,35 @@
 
 ### Fixed
 
+## [0.1.13](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.13)
+
+### Added
+
+### Changed
+
+- **Release/version sync**: Bumped package and container versions to `0.1.13` after `0.1.12` npm publication.
+- **Docs alignment**: Kept README/changelog aligned with the `config.json` runtime + `.env` secrets model.
+
+### Fixed
+
+## [0.1.12](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.12)
+
+### Added
+
+- **Website social metadata**: Added Open Graph and Twitter card metadata for `docs/index.html` so link previews render consistently.
+- **Local favicon assets**: Added HybridAI favicon files under `docs/static/` and wired website favicon + Apple touch icon tags.
+
+### Changed
+
+- **Onboarding config persistence**: Default bot selection now persists to `config.json` (`hybridai.defaultChatbotId`) while `.env` is now treated as secrets-only.
+- **Legacy bot-id migration**: Runtime now auto-migrates `HYBRIDAI_CHATBOT_ID` from `.env` into `config.json` when present and no configured default exists.
+- **Onboarding/TUI color themes**: Added adaptive light/dark terminal palettes with readable high-contrast output on light backgrounds.
+
+### Fixed
+
+- **Default bot retention in onboarding**: Pressing Enter on bot selection now keeps the existing configured bot instead of silently switching to the first API bot.
+- **Gateway bot guidance text**: Missing-bot errors now point to `hybridai.defaultChatbotId` in `config.json` instead of legacy env instructions.
+
 ## [0.1.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.11)
 
 ### Added

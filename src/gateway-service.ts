@@ -127,7 +127,7 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
       status: 'error',
       result: null,
       toolsUsed: [],
-      error: 'No chatbot configured. Set `HYBRIDAI_CHATBOT_ID` or select a bot for this session.',
+      error: 'No chatbot configured. Set `hybridai.defaultChatbotId` in config.json or select a bot for this session.',
     };
   }
 

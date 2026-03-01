@@ -266,7 +266,6 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
 
   if (env.HYBRIDAI_BASE_URL != null) hybridai.baseUrl = env.HYBRIDAI_BASE_URL;
   if (env.HYBRIDAI_MODEL != null) hybridai.defaultModel = env.HYBRIDAI_MODEL;
-  if (env.HYBRIDAI_CHATBOT_ID != null) hybridai.defaultChatbotId = env.HYBRIDAI_CHATBOT_ID;
   if (env.HYBRIDAI_ENABLE_RAG != null) hybridai.enableRag = env.HYBRIDAI_ENABLE_RAG;
   if (env.HYBRIDAI_MODELS != null) hybridai.models = env.HYBRIDAI_MODELS;
 
@@ -521,8 +520,37 @@ function ensureInitialConfigFile(): void {
   writeConfigFile(seeded);
 }
 
+function migrateLegacyDefaultChatbotId(): void {
+  const legacyChatbotId = normalizeString(process.env.HYBRIDAI_CHATBOT_ID, '', { allowEmpty: true });
+  if (!legacyChatbotId) return;
+
+  let diskPatch: DeepPartial<RuntimeConfig>;
+  try {
+    diskPatch = loadConfigPatchFromDisk();
+  } catch (err) {
+    console.warn(`[runtime-config] legacy chatbot migration skipped: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+
+  const rawHybridAi = isRecord(diskPatch.hybridai) ? diskPatch.hybridai : {};
+  const existing = normalizeString(rawHybridAi.defaultChatbotId, '', { allowEmpty: true });
+  if (existing) return;
+
+  const migratedPatch = combinePatches(diskPatch, {
+    hybridai: { defaultChatbotId: legacyChatbotId },
+  });
+
+  try {
+    const migrated = normalizeRuntimeConfig(migratedPatch);
+    writeConfigFile(migrated);
+  } catch (err) {
+    console.warn(`[runtime-config] legacy chatbot migration failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 function initializeRuntimeConfig(): void {
   ensureInitialConfigFile();
+  migrateLegacyDefaultChatbotId();
   reloadFromDisk('startup');
   startWatcher();
 }
