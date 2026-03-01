@@ -3,10 +3,17 @@ import {
   HEARTBEAT_CHANNEL,
   HEARTBEAT_INTERVAL,
   HYBRIDAI_CHATBOT_ID,
+  PROACTIVE_QUEUE_OUTSIDE_HOURS,
   onConfigChange,
 } from './config.js';
 import { stopAllContainers } from './container-runner.js';
-import { initDatabase } from './db.js';
+import {
+  deleteQueuedProactiveMessage,
+  enqueueProactiveMessage,
+  getQueuedProactiveMessageCount,
+  initDatabase,
+  listQueuedProactiveMessages,
+} from './db.js';
 import {
   getGatewayStatus,
   handleGatewayCommand,
@@ -26,14 +33,35 @@ import {
   sendToChannel,
   type ReplyFn,
 } from './discord.js';
+import { isWithinActiveHours, proactiveWindowLabel } from './proactive-policy.js';
 
 let detachConfigListener: (() => void) | null = null;
+let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
+
+const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
 
 function isDiscordChannelId(channelId: string): boolean {
   return /^\d{16,22}$/.test(channelId);
 }
 
 async function deliverProactiveMessage(channelId: string, text: string, source: string): Promise<void> {
+  if (!isWithinActiveHours()) {
+    if (PROACTIVE_QUEUE_OUTSIDE_HOURS) {
+      const { queued, dropped } = enqueueProactiveMessage(channelId, text, source, MAX_QUEUED_PROACTIVE_MESSAGES);
+      logger.info(
+        { source, channelId, queued, dropped, activeHours: proactiveWindowLabel() },
+        'Proactive message queued (outside active hours)',
+      );
+      return;
+    }
+    logger.info({ source, channelId, activeHours: proactiveWindowLabel() }, 'Proactive message suppressed (outside active hours)');
+    return;
+  }
+
+  await sendProactiveMessageNow(channelId, text, source);
+}
+
+async function sendProactiveMessageNow(channelId: string, text: string, source: string): Promise<void> {
   if (!DISCORD_TOKEN || !isDiscordChannelId(channelId)) {
     logger.info({ source, channelId, text }, 'Proactive message (no Discord delivery)');
     return;
@@ -44,6 +72,22 @@ async function deliverProactiveMessage(channelId: string, text: string, source: 
   } catch (error) {
     logger.warn({ source, channelId, error }, 'Failed to send proactive message to Discord channel');
     logger.info({ source, channelId, text }, 'Proactive message fallback');
+  }
+}
+
+async function flushQueuedProactiveMessages(): Promise<void> {
+  if (!isWithinActiveHours()) return;
+  const pending = listQueuedProactiveMessages(MAX_QUEUED_PROACTIVE_MESSAGES);
+  if (pending.length === 0) return;
+  logger.info(
+    { flushing: pending.length, queued: getQueuedProactiveMessageCount() },
+    'Flushing queued proactive messages',
+  );
+
+  for (const item of pending) {
+    if (!isWithinActiveHours()) break;
+    await sendProactiveMessageNow(item.channel_id, item.text, `${item.source}:queued`);
+    deleteQueuedProactiveMessage(item.id);
   }
 }
 
@@ -71,6 +115,9 @@ async function startDiscordIntegration(): Promise<void> {
           userId,
           username,
           content,
+          onProactiveMessage: async (messageText) => {
+            await deliverProactiveMessage(channelId, messageText, 'delegate');
+          },
         });
         if (result.status === 'error') {
           await reply(formatError('Agent Error', result.error || 'Unknown error'));
@@ -126,6 +173,10 @@ function setupShutdown(): void {
     stopHeartbeat();
     stopAllContainers();
     stopScheduler();
+    if (proactiveFlushTimer) {
+      clearInterval(proactiveFlushTimer);
+      proactiveFlushTimer = null;
+    }
     process.exit(0);
   };
   process.on('SIGINT', shutdown);
@@ -189,6 +240,14 @@ async function main(): Promise<void> {
     startOrRestartHeartbeat();
   });
   startScheduler(runScheduledTask);
+  proactiveFlushTimer = setInterval(() => {
+    void flushQueuedProactiveMessages().catch((err) => {
+      logger.warn({ err }, 'Failed to flush queued proactive messages');
+    });
+  }, 60_000);
+  void flushQueuedProactiveMessages().catch((err) => {
+    logger.warn({ err }, 'Initial proactive queue flush failed');
+  });
 
   logger.info({ ...getGatewayStatus(), discord: !!DISCORD_TOKEN }, 'HybridClaw gateway started');
 }

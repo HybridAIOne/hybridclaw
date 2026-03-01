@@ -10,11 +10,35 @@ import { processSideEffects } from './side-effects.js';
 import { maybeCompactSession } from './session-maintenance.js';
 import { appendSessionTranscript } from './session-transcripts.js';
 import { buildConversationContext } from './conversation.js';
+import { isWithinActiveHours, proactiveWindowLabel } from './proactive-policy.js';
 
 const HEARTBEAT_PROMPT =
   '[Heartbeat poll] Check HEARTBEAT.md for periodic tasks. If nothing needs attention, reply HEARTBEAT_OK.';
 
 const MAX_HEARTBEAT_HISTORY = 5;
+const HEARTBEAT_ALLOWED_TOOLS = [
+  'read',
+  'write',
+  'edit',
+  'delete',
+  'glob',
+  'grep',
+  'bash',
+  'memory',
+  'session_search',
+  'web_fetch',
+  'cron',
+  'browser_navigate',
+  'browser_snapshot',
+  'browser_click',
+  'browser_type',
+  'browser_press',
+  'browser_scroll',
+  'browser_back',
+  'browser_screenshot',
+  'browser_pdf',
+  'browser_close',
+];
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -41,6 +65,10 @@ export function startHeartbeat(
       logger.debug('Heartbeat skipped — previous still running');
       return;
     }
+    if (!isWithinActiveHours()) {
+      logger.debug({ activeHours: proactiveWindowLabel() }, 'Heartbeat skipped — outside active hours window');
+      return;
+    }
     running = true;
 
     const sessionId = `heartbeat:${agentId}`;
@@ -60,7 +88,17 @@ export function startHeartbeat(
       const chatbotId = HYBRIDAI_CHATBOT_ID || agentId;
       const heartbeatChannelId = HEARTBEAT_CHANNEL || 'heartbeat';
       const scheduledTasks = getTasksForSession(sessionId);
-      const output = await runAgent(sessionId, messages, chatbotId, HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL, agentId, heartbeatChannelId, scheduledTasks);
+      const output = await runAgent(
+        sessionId,
+        messages,
+        chatbotId,
+        HYBRIDAI_ENABLE_RAG,
+        HYBRIDAI_MODEL,
+        agentId,
+        heartbeatChannelId,
+        scheduledTasks,
+        HEARTBEAT_ALLOWED_TOOLS,
+      );
       processSideEffects(output, sessionId, heartbeatChannelId);
 
       if (output.status === 'error') {

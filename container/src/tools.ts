@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { BROWSER_TOOL_DEFINITIONS, executeBrowserTool } from './browser-tools.js';
-import type { ScheduleSideEffect, ToolDefinition } from './types.js';
+import type { DelegationSideEffect, DelegationTaskSpec, ScheduleSideEffect, ToolDefinition } from './types.js';
 import { webFetch } from './web-fetch.js';
 
 // --- Exec safety deny-list (defense-in-depth, adapted from PicoClaw) ---
@@ -44,16 +44,26 @@ function guardCommand(command: string): string | null {
 type ScheduledTaskInfo = { id: number; cronExpr: string; runAt: string | null; everyMs: number | null; prompt: string; enabled: number; lastRun: string | null; createdAt: string };
 
 let pendingSchedules: ScheduleSideEffect[] = [];
+let pendingDelegations: DelegationSideEffect[] = [];
 let injectedTasks: ScheduledTaskInfo[] = [];
 let currentSessionId = '';
+const MAX_PENDING_DELEGATIONS = 3;
+const MAX_DELEGATION_BATCH_ITEMS = 6;
 
 export function resetSideEffects(): void {
   pendingSchedules = [];
+  pendingDelegations = [];
 }
 
-export function getPendingSideEffects(): { schedules?: ScheduleSideEffect[] } | undefined {
-  if (pendingSchedules.length === 0) return undefined;
-  return { schedules: pendingSchedules };
+export function getPendingSideEffects(): {
+  schedules?: ScheduleSideEffect[];
+  delegations?: DelegationSideEffect[];
+} | undefined {
+  if (pendingSchedules.length === 0 && pendingDelegations.length === 0) return undefined;
+  return {
+    schedules: pendingSchedules.length > 0 ? pendingSchedules : undefined,
+    delegations: pendingDelegations.length > 0 ? pendingDelegations : undefined,
+  };
 }
 
 export function setScheduledTasks(tasks: ScheduledTaskInfo[] | undefined): void {
@@ -62,6 +72,61 @@ export function setScheduledTasks(tasks: ScheduledTaskInfo[] | undefined): void 
 
 export function setSessionContext(sessionId: string): void {
   currentSessionId = String(sessionId || '');
+}
+
+function normalizeDelegationTask(raw: unknown, fallbackModel?: string): DelegationTaskSpec | null {
+  if (typeof raw === 'string') {
+    const prompt = raw.trim();
+    if (!prompt) return null;
+    return fallbackModel ? { prompt, model: fallbackModel } : { prompt };
+  }
+
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const task = raw as Record<string, unknown>;
+  const prompt = typeof task.prompt === 'string' ? task.prompt.trim() : '';
+  if (!prompt) return null;
+
+  const label = typeof task.label === 'string' ? task.label.trim() : '';
+  const model = typeof task.model === 'string' ? task.model.trim() : (fallbackModel || '');
+  const normalized: DelegationTaskSpec = { prompt };
+  if (label) normalized.label = label;
+  if (model) normalized.model = model;
+  return normalized;
+}
+
+function normalizeDelegationTaskList(params: {
+  raw: unknown;
+  fallbackModel?: string;
+  fieldName: 'tasks' | 'chain';
+}): { tasks: DelegationTaskSpec[]; error?: string } {
+  const { raw, fallbackModel, fieldName } = params;
+  if (raw == null) return { tasks: [] };
+  if (!Array.isArray(raw)) {
+    return { tasks: [], error: `Error: "${fieldName}" must be an array of task objects.` };
+  }
+  if (raw.length === 0) {
+    return { tasks: [], error: `Error: "${fieldName}" must contain at least one task.` };
+  }
+  if (raw.length > MAX_DELEGATION_BATCH_ITEMS) {
+    return {
+      tasks: [],
+      error: `Error: "${fieldName}" exceeds max items (${MAX_DELEGATION_BATCH_ITEMS}).`,
+    };
+  }
+
+  const tasks: DelegationTaskSpec[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const normalized = normalizeDelegationTask(raw[i], fallbackModel);
+    if (!normalized) {
+      return {
+        tasks: [],
+        error: `Error: "${fieldName}[${i}]" must include a non-empty "prompt".`,
+      };
+    }
+    tasks.push(normalized);
+  }
+
+  return { tasks };
 }
 
 const PREVIEW_MAX_OUTPUT_LINES = 6;
@@ -877,6 +942,93 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         return `Error: unknown cron action "${action}". Use "list", "add", or "remove".`;
       }
 
+      case 'delegate': {
+        if (pendingDelegations.length >= MAX_PENDING_DELEGATIONS) {
+          return `Error: delegation limit reached for this turn (${MAX_PENDING_DELEGATIONS}).`;
+        }
+
+        const modeRaw = typeof args.mode === 'string' ? args.mode.trim().toLowerCase() : '';
+        if (modeRaw && modeRaw !== 'single' && modeRaw !== 'parallel' && modeRaw !== 'chain') {
+          return 'Error: mode must be one of "single", "parallel", or "chain".';
+        }
+
+        const label = typeof args.label === 'string' ? args.label.trim() : '';
+        const model = typeof args.model === 'string' ? args.model.trim() : '';
+        const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : '';
+        const tasksResult = normalizeDelegationTaskList({
+          raw: args.tasks,
+          fallbackModel: model || undefined,
+          fieldName: 'tasks',
+        });
+        if (tasksResult.error) return tasksResult.error;
+        const chainResult = normalizeDelegationTaskList({
+          raw: args.chain,
+          fallbackModel: model || undefined,
+          fieldName: 'chain',
+        });
+        if (chainResult.error) return chainResult.error;
+
+        const hasPrompt = prompt.length > 0;
+        const hasTasks = tasksResult.tasks.length > 0;
+        const hasChain = chainResult.tasks.length > 0;
+
+        let mode: 'single' | 'parallel' | 'chain';
+        if (modeRaw) {
+          mode = modeRaw;
+        } else if (hasChain) {
+          mode = 'chain';
+        } else if (hasTasks) {
+          mode = 'parallel';
+        } else {
+          mode = 'single';
+        }
+
+        if ((hasTasks ? 1 : 0) + (hasChain ? 1 : 0) + (hasPrompt ? 1 : 0) > 1 && !modeRaw) {
+          return 'Error: provide one delegation mode payload: "prompt", "tasks", or "chain".';
+        }
+
+        let effect: DelegationSideEffect;
+        let summary: string;
+
+        if (mode === 'single') {
+          if (!hasPrompt) return 'Error: prompt is required for mode="single".';
+          effect = {
+            action: 'delegate',
+            mode,
+            prompt,
+            label: label || undefined,
+            model: model || undefined,
+          };
+          summary = label ? `${label}: ${prompt}` : prompt;
+        } else if (mode === 'parallel') {
+          if (!hasTasks) return 'Error: tasks are required for mode="parallel".';
+          if (hasPrompt || hasChain) return 'Error: mode="parallel" accepts only "tasks" plus optional label/model.';
+          effect = {
+            action: 'delegate',
+            mode,
+            label: label || undefined,
+            model: model || undefined,
+            tasks: tasksResult.tasks,
+          };
+          summary = `${tasksResult.tasks.length} parallel task(s)`;
+        } else {
+          if (!hasChain) return 'Error: chain is required for mode="chain".';
+          if (hasPrompt || hasTasks) return 'Error: mode="chain" accepts only "chain" plus optional label/model.';
+          effect = {
+            action: 'delegate',
+            mode,
+            label: label || undefined,
+            model: model || undefined,
+            chain: chainResult.tasks,
+          };
+          summary = `${chainResult.tasks.length}-step chain`;
+        }
+
+        pendingDelegations.push(effect);
+        const labelPrefix = label ? `${label}: ` : '';
+        return `Delegation accepted (${mode}, auto-announces on completion, do not poll): ${labelPrefix}${summary}`;
+      }
+
       default:
         return `Unknown tool: ${name}`;
     }
@@ -1002,7 +1154,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'memory',
       description:
-        'Manage durable agent memory files. Supports MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Actions: read, append, write, replace, remove, list, search. Memory files are char-bounded to prevent unbounded growth.',
+        'Manage durable agent memory files. Supports MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Actions: read, append, write, replace, remove, list, search. Memory files are char-bounded to prevent unbounded growth. Use this proactively for durable facts/preferences; do not wait to be explicitly asked to remember important context.',
       parameters: {
         type: 'object',
         properties: {
@@ -1024,7 +1176,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'session_search',
       description:
-        'Search and summarize historical session transcripts. Returns top matching sessions with concise summaries and key snippets.',
+        'Search and summarize historical session transcripts. Returns top matching sessions with concise summaries and key snippets. Use proactively when prior context might be relevant.',
       parameters: {
         type: 'object',
         properties: {
@@ -1061,6 +1213,58 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   ...BROWSER_TOOL_DEFINITIONS,
+  {
+    type: 'function',
+    function: {
+      name: 'delegate',
+      description:
+        'Delegate narrow, self-contained subtasks to background subagents. Use for reasoning-heavy/context-heavy work or independent parallel branches; avoid for trivial single tool calls. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). Completion is push-delivered automatically; do not poll/sleep.',
+      parameters: {
+        type: 'object',
+        properties: {
+          mode: {
+            type: 'string',
+            description: 'Optional explicit mode: "single", "parallel", or "chain". Inferred automatically when omitted.',
+            enum: ['single', 'parallel', 'chain'],
+          },
+          prompt: { type: 'string', description: 'Single-mode task instructions. Must be self-contained and specific.' },
+          label: { type: 'string', description: 'Optional short label for completion messages' },
+          model: { type: 'string', description: 'Optional model override for delegated run(s)' },
+          tasks: {
+            type: 'array',
+            description: 'Parallel-mode independent tasks (1-6 items). Each task must be self-contained.',
+            minItems: 1,
+            maxItems: 6,
+            items: {
+              type: 'object',
+              properties: {
+                prompt: { type: 'string', description: 'Task instructions with explicit goal/scope/constraints.' },
+                label: { type: 'string', description: 'Optional task label' },
+                model: { type: 'string', description: 'Optional per-task model override' },
+              },
+              required: ['prompt'],
+            },
+          },
+          chain: {
+            type: 'array',
+            description: 'Chain-mode dependent steps (1-6 items). Use `{previous}` to inject prior step output.',
+            minItems: 1,
+            maxItems: 6,
+            items: {
+              type: 'object',
+              properties: {
+                prompt: { type: 'string', description: 'Step instructions (supports `{previous}`) with expected output.' },
+                label: { type: 'string', description: 'Optional step label' },
+                model: { type: 'string', description: 'Optional per-step model override' },
+              },
+              required: ['prompt'],
+            },
+          },
+        },
+        required: [],
+      },
+    },
+  },
   {
     type: 'function',
     function: {

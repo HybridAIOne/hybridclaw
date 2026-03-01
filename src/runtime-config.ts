@@ -6,7 +6,7 @@ import { loadEnvFile } from './env.js';
 loadEnvFile();
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 1;
+export const CONFIG_VERSION = 2;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 
 const KNOWN_LOG_LEVELS = new Set(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']);
@@ -79,6 +79,28 @@ export interface RuntimeConfig {
     bootstrapEnabled: boolean;
     memoryEnabled: boolean;
     safetyEnabled: boolean;
+    proactivityEnabled: boolean;
+  };
+  proactive: {
+    activeHours: {
+      enabled: boolean;
+      timezone: string;
+      startHour: number;
+      endHour: number;
+      queueOutsideHours: boolean;
+    };
+    delegation: {
+      enabled: boolean;
+      maxConcurrent: number;
+      maxDepth: number;
+      maxPerTurn: number;
+    };
+    autoRetry: {
+      enabled: boolean;
+      maxAttempts: number;
+      baseDelayMs: number;
+      maxDelayMs: number;
+    };
   };
 }
 
@@ -140,6 +162,28 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     bootstrapEnabled: true,
     memoryEnabled: true,
     safetyEnabled: true,
+    proactivityEnabled: true,
+  },
+  proactive: {
+    activeHours: {
+      enabled: false,
+      timezone: '',
+      startHour: 8,
+      endHour: 22,
+      queueOutsideHours: true,
+    },
+    delegation: {
+      enabled: true,
+      maxConcurrent: 3,
+      maxDepth: 2,
+      maxPerTurn: 3,
+    },
+    autoRetry: {
+      enabled: true,
+      maxAttempts: 3,
+      baseDelayMs: 2_000,
+      maxDelayMs: 8_000,
+    },
   },
 };
 
@@ -149,6 +193,11 @@ let currentConfig: RuntimeConfig = cloneConfig(DEFAULT_RUNTIME_CONFIG);
 let configWatcher: fs.FSWatcher | null = null;
 let reloadTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<RuntimeConfigChangeListener>();
+const WATCHER_RETRY_BASE_DELAY_MS = 1_000;
+const WATCHER_RETRY_MAX_DELAY_MS = 60_000;
+const WATCHER_RETRY_MAX_ATTEMPTS = 10;
+let watcherRetryAttempt = 0;
+let watcherRestartTimer: ReturnType<typeof setTimeout> | null = null;
 
 function cloneConfig<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -252,6 +301,11 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
       preCompactionMemoryFlush: {},
     },
     promptHooks: {},
+    proactive: {
+      activeHours: {},
+      delegation: {},
+      autoRetry: {},
+    },
   };
 
   const discord = patch.discord as Record<string, unknown>;
@@ -261,6 +315,10 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
   const ops = patch.ops as Record<string, unknown>;
   const sessionCompaction = patch.sessionCompaction as Record<string, unknown>;
   const preCompactionMemoryFlush = sessionCompaction.preCompactionMemoryFlush as Record<string, unknown>;
+  const proactive = patch.proactive as Record<string, unknown>;
+  const proactiveActiveHours = proactive.activeHours as Record<string, unknown>;
+  const proactiveDelegation = proactive.delegation as Record<string, unknown>;
+  const proactiveAutoRetry = proactive.autoRetry as Record<string, unknown>;
 
   if (env.DISCORD_PREFIX != null) discord.prefix = env.DISCORD_PREFIX;
 
@@ -301,6 +359,46 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
     preCompactionMemoryFlush.maxChars = env.PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS;
   }
 
+  if (env.PROACTIVE_ACTIVE_HOURS_ENABLED != null) {
+    proactiveActiveHours.enabled = env.PROACTIVE_ACTIVE_HOURS_ENABLED;
+  }
+  if (env.PROACTIVE_ACTIVE_HOURS_TIMEZONE != null) {
+    proactiveActiveHours.timezone = env.PROACTIVE_ACTIVE_HOURS_TIMEZONE;
+  }
+  if (env.PROACTIVE_ACTIVE_HOURS_START != null) {
+    proactiveActiveHours.startHour = env.PROACTIVE_ACTIVE_HOURS_START;
+  }
+  if (env.PROACTIVE_ACTIVE_HOURS_END != null) {
+    proactiveActiveHours.endHour = env.PROACTIVE_ACTIVE_HOURS_END;
+  }
+  if (env.PROACTIVE_QUEUE_OUTSIDE_HOURS != null) {
+    proactiveActiveHours.queueOutsideHours = env.PROACTIVE_QUEUE_OUTSIDE_HOURS;
+  }
+  if (env.PROACTIVE_DELEGATION_ENABLED != null) {
+    proactiveDelegation.enabled = env.PROACTIVE_DELEGATION_ENABLED;
+  }
+  if (env.PROACTIVE_DELEGATION_MAX_CONCURRENT != null) {
+    proactiveDelegation.maxConcurrent = env.PROACTIVE_DELEGATION_MAX_CONCURRENT;
+  }
+  if (env.PROACTIVE_DELEGATION_MAX_DEPTH != null) {
+    proactiveDelegation.maxDepth = env.PROACTIVE_DELEGATION_MAX_DEPTH;
+  }
+  if (env.PROACTIVE_DELEGATION_MAX_PER_TURN != null) {
+    proactiveDelegation.maxPerTurn = env.PROACTIVE_DELEGATION_MAX_PER_TURN;
+  }
+  if (env.PROACTIVE_AUTO_RETRY_ENABLED != null) {
+    proactiveAutoRetry.enabled = env.PROACTIVE_AUTO_RETRY_ENABLED;
+  }
+  if (env.PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS != null) {
+    proactiveAutoRetry.maxAttempts = env.PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS;
+  }
+  if (env.PROACTIVE_AUTO_RETRY_BASE_DELAY_MS != null) {
+    proactiveAutoRetry.baseDelayMs = env.PROACTIVE_AUTO_RETRY_BASE_DELAY_MS;
+  }
+  if (env.PROACTIVE_AUTO_RETRY_MAX_DELAY_MS != null) {
+    proactiveAutoRetry.maxDelayMs = env.PROACTIVE_AUTO_RETRY_MAX_DELAY_MS;
+  }
+
   return patch as DeepPartial<RuntimeConfig>;
 }
 
@@ -318,6 +416,10 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
     ? rawSessionCompaction.preCompactionMemoryFlush
     : {};
   const rawPromptHooks = isRecord(raw.promptHooks) ? raw.promptHooks : {};
+  const rawProactive = isRecord(raw.proactive) ? raw.proactive : {};
+  const rawActiveHours = isRecord(rawProactive.activeHours) ? rawProactive.activeHours : {};
+  const rawDelegation = isRecord(rawProactive.delegation) ? rawProactive.delegation : {};
+  const rawAutoRetry = isRecord(rawProactive.autoRetry) ? rawProactive.autoRetry : {};
 
   const defaultOps = DEFAULT_RUNTIME_CONFIG.ops;
   const healthPort = normalizeInteger(rawOps.healthPort, defaultOps.healthPort, { min: 1, max: 65_535 });
@@ -405,6 +507,28 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
       bootstrapEnabled: normalizeBoolean(rawPromptHooks.bootstrapEnabled, DEFAULT_RUNTIME_CONFIG.promptHooks.bootstrapEnabled),
       memoryEnabled: normalizeBoolean(rawPromptHooks.memoryEnabled, DEFAULT_RUNTIME_CONFIG.promptHooks.memoryEnabled),
       safetyEnabled: normalizeBoolean(rawPromptHooks.safetyEnabled, DEFAULT_RUNTIME_CONFIG.promptHooks.safetyEnabled),
+      proactivityEnabled: normalizeBoolean(rawPromptHooks.proactivityEnabled, DEFAULT_RUNTIME_CONFIG.promptHooks.proactivityEnabled),
+    },
+    proactive: {
+      activeHours: {
+        enabled: normalizeBoolean(rawActiveHours.enabled, DEFAULT_RUNTIME_CONFIG.proactive.activeHours.enabled),
+        timezone: normalizeString(rawActiveHours.timezone, DEFAULT_RUNTIME_CONFIG.proactive.activeHours.timezone, { allowEmpty: true }),
+        startHour: normalizeInteger(rawActiveHours.startHour, DEFAULT_RUNTIME_CONFIG.proactive.activeHours.startHour, { min: 0, max: 23 }),
+        endHour: normalizeInteger(rawActiveHours.endHour, DEFAULT_RUNTIME_CONFIG.proactive.activeHours.endHour, { min: 0, max: 23 }),
+        queueOutsideHours: normalizeBoolean(rawActiveHours.queueOutsideHours, DEFAULT_RUNTIME_CONFIG.proactive.activeHours.queueOutsideHours),
+      },
+      delegation: {
+        enabled: normalizeBoolean(rawDelegation.enabled, DEFAULT_RUNTIME_CONFIG.proactive.delegation.enabled),
+        maxConcurrent: normalizeInteger(rawDelegation.maxConcurrent, DEFAULT_RUNTIME_CONFIG.proactive.delegation.maxConcurrent, { min: 1, max: 8 }),
+        maxDepth: normalizeInteger(rawDelegation.maxDepth, DEFAULT_RUNTIME_CONFIG.proactive.delegation.maxDepth, { min: 1, max: 4 }),
+        maxPerTurn: normalizeInteger(rawDelegation.maxPerTurn, DEFAULT_RUNTIME_CONFIG.proactive.delegation.maxPerTurn, { min: 1, max: 8 }),
+      },
+      autoRetry: {
+        enabled: normalizeBoolean(rawAutoRetry.enabled, DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.enabled),
+        maxAttempts: normalizeInteger(rawAutoRetry.maxAttempts, DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.maxAttempts, { min: 1, max: 8 }),
+        baseDelayMs: normalizeInteger(rawAutoRetry.baseDelayMs, DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.baseDelayMs, { min: 100, max: 120_000 }),
+        maxDelayMs: normalizeInteger(rawAutoRetry.maxDelayMs, DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.maxDelayMs, { min: 100, max: 600_000 }),
+      },
     },
   };
 }
@@ -490,6 +614,27 @@ function scheduleReload(trigger: string): void {
   }, 120);
 }
 
+function scheduleWatcherRestart(reason: string): void {
+  if (watcherRestartTimer) return;
+  if (watcherRetryAttempt >= WATCHER_RETRY_MAX_ATTEMPTS) {
+    console.warn(`[runtime-config] watcher disabled after ${WATCHER_RETRY_MAX_ATTEMPTS} retries (${reason})`);
+    return;
+  }
+
+  watcherRetryAttempt += 1;
+  const delay = Math.min(
+    WATCHER_RETRY_BASE_DELAY_MS * (2 ** (watcherRetryAttempt - 1)),
+    WATCHER_RETRY_MAX_DELAY_MS,
+  );
+  console.warn(
+    `[runtime-config] watcher restart in ${delay}ms (attempt ${watcherRetryAttempt}/${WATCHER_RETRY_MAX_ATTEMPTS})`,
+  );
+  watcherRestartTimer = setTimeout(() => {
+    watcherRestartTimer = null;
+    startWatcher();
+  }, delay);
+}
+
 function startWatcher(): void {
   if (configWatcher) return;
 
@@ -502,15 +647,23 @@ function startWatcher(): void {
       if (filename.toString() !== path.basename(CONFIG_PATH)) return;
       scheduleReload(`watch:${filename.toString()}`);
     });
+    watcherRetryAttempt = 0;
+    if (watcherRestartTimer) {
+      clearTimeout(watcherRestartTimer);
+      watcherRestartTimer = null;
+    }
 
     configWatcher.on('error', (err) => {
-      console.warn(`[runtime-config] watcher error: ${err instanceof Error ? err.message : String(err)}`);
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[runtime-config] watcher error: ${reason}`);
       configWatcher?.close();
       configWatcher = null;
-      setTimeout(startWatcher, 1_000);
+      scheduleWatcherRestart(`watcher error: ${reason}`);
     });
   } catch (err) {
-    console.warn(`[runtime-config] watcher setup failed: ${err instanceof Error ? err.message : String(err)}`);
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(`[runtime-config] watcher setup failed: ${reason}`);
+    scheduleWatcherRestart(`watcher setup failed: ${reason}`);
   }
 }
 
@@ -548,9 +701,49 @@ function migrateLegacyDefaultChatbotId(): void {
   }
 }
 
+function migrateConfigSchemaOnStartup(): void {
+  if (!fs.existsSync(CONFIG_PATH)) return;
+
+  let raw: string;
+  let parsed: unknown;
+  try {
+    raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
+    parsed = JSON.parse(raw) as unknown;
+  } catch (err) {
+    console.warn(`[runtime-config] schema migration skipped (invalid JSON): ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+
+  if (!isRecord(parsed)) {
+    console.warn('[runtime-config] schema migration skipped: config.json is not an object');
+    return;
+  }
+
+  const previousVersion = typeof parsed.version === 'number' ? parsed.version : null;
+  let migrated: RuntimeConfig;
+  try {
+    migrated = normalizeRuntimeConfig(parseConfigPatch(parsed));
+  } catch (err) {
+    console.warn(`[runtime-config] schema migration skipped: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+
+  // Canonical semantic comparison (ignoring formatting/whitespace)
+  if (JSON.stringify(parsed) === JSON.stringify(migrated)) return;
+
+  try {
+    writeConfigFile(migrated);
+    const from = previousVersion == null ? 'unknown' : String(previousVersion);
+    console.info(`[runtime-config] migrated config schema from v${from} to v${CONFIG_VERSION}`);
+  } catch (err) {
+    console.warn(`[runtime-config] schema migration failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 function initializeRuntimeConfig(): void {
   ensureInitialConfigFile();
   migrateLegacyDefaultChatbotId();
+  migrateConfigSchemaOnStartup();
   reloadFromDisk('startup');
   startWatcher();
 }

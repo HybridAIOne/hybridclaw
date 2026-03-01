@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -57,6 +57,28 @@
   "promptHooks": {
     "bootstrapEnabled": true,
     "memoryEnabled": true,
-    "safetyEnabled": true
+    "safetyEnabled": true,
+    "proactivityEnabled": true
+  },
+  "proactive": {
+    "activeHours": {
+      "enabled": false,
+      "timezone": "",
+      "startHour": 8,
+      "endHour": 22,
+      "queueOutsideHours": true
+    },
+    "delegation": {
+      "enabled": true,
+      "maxConcurrent": 3,
+      "maxDepth": 2,
+      "maxPerTurn": 3
+    },
+    "autoRetry": {
+      "enabled": true,
+      "maxAttempts": 3,
+      "baseDelayMs": 2000,
+      "maxDelayMs": 8000
+    }
   }
 }

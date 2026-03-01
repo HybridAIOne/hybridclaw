@@ -32,12 +32,25 @@ export interface ToolDefinition {
   function: {
     name: string;
     description: string;
-    parameters: {
-      type: 'object';
-      properties: Record<string, { type: string; description: string }>;
-      required: string[];
-    };
+    parameters: ToolSchema;
   };
+}
+
+export interface ToolSchema {
+  type: 'object';
+  properties: Record<string, ToolSchemaProperty>;
+  required: string[];
+}
+
+export interface ToolSchemaProperty {
+  type: string | string[];
+  description?: string;
+  items?: ToolSchemaProperty;
+  properties?: Record<string, ToolSchemaProperty>;
+  required?: string[];
+  enum?: string[];
+  minItems?: number;
+  maxItems?: number;
 }
 
 export interface ContainerInput {
@@ -66,9 +79,28 @@ export interface ContainerOutput {
   toolsUsed: string[];
   toolExecutions?: ToolExecution[];
   error?: string;
-  sideEffects?: { schedules?: ScheduleSideEffect[] };
+  sideEffects?: {
+    schedules?: ScheduleSideEffect[];
+    delegations?: DelegationSideEffect[];
+  };
 }
 
 export type ScheduleSideEffect =
   | { action: 'add'; cronExpr?: string; runAt?: string; everyMs?: number; prompt: string }
   | { action: 'remove'; taskId: number };
+
+export interface DelegationTaskSpec {
+  prompt: string;
+  label?: string;
+  model?: string;
+}
+
+export interface DelegationSideEffect {
+  action: 'delegate';
+  mode?: 'single' | 'parallel' | 'chain';
+  prompt?: string;
+  label?: string;
+  model?: string;
+  tasks?: DelegationTaskSpec[];
+  chain?: DelegationTaskSpec[];
+}

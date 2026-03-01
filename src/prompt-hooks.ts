@@ -3,6 +3,7 @@ import { buildSkillsPrompt, type Skill } from './skills.js';
 import { buildContextPrompt, loadBootstrapFiles } from './workspace.js';
 
 export type PromptHookName = 'bootstrap' | 'memory' | 'safety';
+export type ExtendedPromptHookName = PromptHookName | 'proactivity';
 
 export interface PromptHookContext {
   agentId: string;
@@ -13,12 +14,12 @@ export interface PromptHookContext {
 }
 
 export interface PromptHookOutput {
-  name: PromptHookName;
+  name: ExtendedPromptHookName;
   content: string;
 }
 
 interface PromptHook {
-  name: PromptHookName;
+  name: ExtendedPromptHookName;
   isEnabled: (config: ReturnType<typeof getRuntimeConfig>) => boolean;
   run: (context: PromptHookContext) => string;
 }
@@ -82,6 +83,93 @@ function buildSafetyHook(context: PromptHookContext): string {
   return lines.join('\n');
 }
 
+function buildProactivityHook(context: PromptHookContext): string {
+  const runtime = getRuntimeConfig();
+  const activeHours = runtime.proactive.activeHours;
+  const delegation = runtime.proactive.delegation;
+
+  const lines = [
+    '## Proactive Behavior',
+    'Act proactively when it improves outcomes, but stay aligned with user intent and safety constraints.',
+    'Capture durable memory proactively using the `memory` tool when you learn stable preferences, constraints, recurring workflows, or decisions.',
+    'When relevant historical context is likely missing, proactively run `session_search` before asking the user to repeat information.',
+    '',
+    '## Subagent Delegation Playbook',
+    'Use `delegate` to offload narrow, self-contained subtasks to subagents.',
+    '',
+    '### When to use `delegate`',
+    '- Reasoning-heavy subtasks (debugging, code review, research synthesis).',
+    '- Context-heavy exploration that would flood the main context with intermediate output.',
+    '- Multiple independent workstreams that can run in parallel.',
+    '- Multi-stage pipelines where later steps depend on prior outputs.',
+    '',
+    '### When NOT to use `delegate`',
+    '- A single direct tool call is sufficient.',
+    '- A tiny mechanical change is faster to do directly.',
+    '- The task requires direct user interaction or clarification.',
+    '- Subtasks are tightly coupled and decomposition overhead outweighs benefit.',
+    '',
+    '### Never do these',
+    '- Do NOT forward the user prompt verbatim to `delegate`.',
+    '- Do NOT spawn a subagent for every todo item by default.',
+    '- Do NOT duplicate work already assigned to active delegations.',
+    '- Do NOT poll, sleep, or repeatedly check for delegated completion.',
+    '',
+    '### Delegation mode selection',
+    '- `single`: one focused subtask.',
+    '- `parallel`: independent subtasks (1-6) that do not depend on each other.',
+    '- `chain`: dependent stages where later prompts use `{previous}`.',
+    '',
+    '### Context checklist for delegated prompts',
+    '- Explicit goal and success criteria.',
+    '- Relevant file paths / modules / search scope.',
+    '- Exact errors, symptoms, or constraints.',
+    '- Expected outcome type: research-only vs implementation.',
+    '- Any required output format (bullets, patch plan, file list, etc.).',
+    '',
+    '### Decomposition heuristic',
+    '- If task is broad or ambiguous: run a scout-style `single` delegation first to map code/context.',
+    '- If design choices are non-trivial: run a planner-style stage next (often via `chain`).',
+    '- Split independent implementation/analysis branches with `parallel`.',
+    '- Use `chain` when each step depends on prior findings.',
+    '- Keep delegated tasks narrow enough to complete autonomously.',
+    '',
+    '### Post-spawn behavior',
+    '- Delegation completion is push-based and may auto-announce.',
+    '- Continue useful work; do not busy-wait.',
+    '- When sharing delegated outcomes, synthesize concise user-facing takeaways instead of dumping raw transcripts.',
+    '',
+    '<example>',
+    'Context: user reports a bug that likely spans many files.',
+    'Good: delegate a focused scout task that finds root cause and affected files.',
+    'Why: isolate context-heavy investigation and return only actionable diagnosis.',
+    '</example>',
+    '',
+    '<example>',
+    'Context: user asks for a one-line rename in one known file.',
+    'Good: edit directly without delegation.',
+    'Why: subagent overhead adds no value.',
+    '</example>',
+    '',
+    `Delegation limits: maxConcurrent=${delegation.maxConcurrent}, maxDepth=${delegation.maxDepth}, maxPerTurn=${delegation.maxPerTurn}.`,
+  ];
+
+  if (activeHours.enabled) {
+    const timezone = activeHours.timezone || 'local runtime timezone';
+    lines.push(
+      `Active-hours guard: avoid non-urgent proactive messaging outside ${String(activeHours.startHour).padStart(2, '0')}:00-${String(activeHours.endHour).padStart(2, '0')}:00 (${timezone}).`,
+    );
+  } else {
+    lines.push('Active-hours guard: disabled.');
+  }
+
+  if (context.purpose === 'memory-flush') {
+    lines.push('This is a memory-flush pass. Prioritize preserving durable context over immediate user-facing output.');
+  }
+
+  return lines.join('\n');
+}
+
 const PROMPT_HOOKS: PromptHook[] = [
   {
     name: 'bootstrap',
@@ -97,6 +185,11 @@ const PROMPT_HOOKS: PromptHook[] = [
     name: 'safety',
     isEnabled: (config) => config.promptHooks.safetyEnabled,
     run: buildSafetyHook,
+  },
+  {
+    name: 'proactivity',
+    isEnabled: (config) => config.promptHooks.proactivityEnabled,
+    run: buildProactivityHook,
   },
 ];
 

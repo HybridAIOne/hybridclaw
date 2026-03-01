@@ -96,6 +96,22 @@ export let PRE_COMPACTION_MEMORY_FLUSH_ENABLED = true;
 export let PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES = 80;
 export let PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS = 24_000;
 
+export let PROACTIVE_ACTIVE_HOURS_ENABLED = false;
+export let PROACTIVE_ACTIVE_HOURS_TIMEZONE = '';
+export let PROACTIVE_ACTIVE_HOURS_START = 8;
+export let PROACTIVE_ACTIVE_HOURS_END = 22;
+export let PROACTIVE_QUEUE_OUTSIDE_HOURS = true;
+
+export let PROACTIVE_DELEGATION_ENABLED = true;
+export let PROACTIVE_DELEGATION_MAX_CONCURRENT = 3;
+export let PROACTIVE_DELEGATION_MAX_DEPTH = 2;
+export let PROACTIVE_DELEGATION_MAX_PER_TURN = 3;
+
+export let PROACTIVE_AUTO_RETRY_ENABLED = true;
+export let PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS = 3;
+export let PROACTIVE_AUTO_RETRY_BASE_DELAY_MS = 2_000;
+export let PROACTIVE_AUTO_RETRY_MAX_DELAY_MS = 8_000;
+
 function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_PREFIX = config.discord.prefix;
 
@@ -135,6 +151,25 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   PRE_COMPACTION_MEMORY_FLUSH_ENABLED = config.sessionCompaction.preCompactionMemoryFlush.enabled;
   PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES = Math.max(8, config.sessionCompaction.preCompactionMemoryFlush.maxMessages);
   PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS = Math.max(4_000, config.sessionCompaction.preCompactionMemoryFlush.maxChars);
+
+  PROACTIVE_ACTIVE_HOURS_ENABLED = config.proactive.activeHours.enabled;
+  PROACTIVE_ACTIVE_HOURS_TIMEZONE = config.proactive.activeHours.timezone;
+  PROACTIVE_ACTIVE_HOURS_START = Math.max(0, Math.min(23, config.proactive.activeHours.startHour));
+  PROACTIVE_ACTIVE_HOURS_END = Math.max(0, Math.min(23, config.proactive.activeHours.endHour));
+  PROACTIVE_QUEUE_OUTSIDE_HOURS = config.proactive.activeHours.queueOutsideHours;
+
+  PROACTIVE_DELEGATION_ENABLED = config.proactive.delegation.enabled;
+  PROACTIVE_DELEGATION_MAX_CONCURRENT = Math.max(1, config.proactive.delegation.maxConcurrent);
+  PROACTIVE_DELEGATION_MAX_DEPTH = Math.max(1, config.proactive.delegation.maxDepth);
+  PROACTIVE_DELEGATION_MAX_PER_TURN = Math.max(1, config.proactive.delegation.maxPerTurn);
+
+  PROACTIVE_AUTO_RETRY_ENABLED = config.proactive.autoRetry.enabled;
+  PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS = Math.max(1, config.proactive.autoRetry.maxAttempts);
+  PROACTIVE_AUTO_RETRY_BASE_DELAY_MS = Math.max(100, config.proactive.autoRetry.baseDelayMs);
+  PROACTIVE_AUTO_RETRY_MAX_DELAY_MS = Math.max(
+    PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
+    config.proactive.autoRetry.maxDelayMs,
+  );
 }
 
 applyRuntimeConfig(getRuntimeConfig());

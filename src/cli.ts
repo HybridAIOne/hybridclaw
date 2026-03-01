@@ -6,7 +6,11 @@ import { logger } from './logger.js';
 
 async function ensureRuntimeContainer(commandName: string, required = true): Promise<void> {
   const { ensureContainerImageReady } = await import('./container-setup.js');
-  await ensureContainerImageReady({ commandName, required, cwd: process.cwd() });
+  await ensureContainerImageReady({
+    commandName,
+    required,
+    cwd: process.cwd(),
+  });
 }
 
 function sleep(ms: number): Promise<void> {

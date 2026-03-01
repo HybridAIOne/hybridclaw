@@ -11,6 +11,7 @@ import {
   type GatewayCommandRequest,
   type GatewayChatRequest,
 } from './gateway-service.js';
+import { type GatewayChatRequestBody } from './gateway-types.js';
 import { type ToolProgressEvent } from './types.js';
 import { logger } from './logger.js';
 
@@ -25,6 +26,8 @@ const MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
 };
+
+type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 
 function isLoopbackAddress(address: string | undefined): boolean {
   if (!address) return false;
@@ -87,7 +90,8 @@ function serveStatic(pathname: string, res: ServerResponse): boolean {
 }
 
 async function handleApiChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const body = await readJsonBody(req) as Partial<GatewayChatRequest>;
+  const body = await readJsonBody(req) as Partial<ApiChatRequestBody>;
+  const wantsStream = body.stream === true;
 
   const content = body.content?.trim();
   if (!content) {
@@ -105,10 +109,9 @@ async function handleApiChat(req: IncomingMessage, res: ServerResponse): Promise
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
     model: body.model,
-    stream: body.stream,
   };
 
-  if (body.stream) {
+  if (wantsStream) {
     await handleApiChatStream(req, res, chatRequest);
     return;
   }

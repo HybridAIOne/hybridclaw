@@ -58,6 +58,15 @@ function createSchema(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id);
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+
+    CREATE TABLE IF NOT EXISTS proactive_message_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      source TEXT NOT NULL,
+      queued_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_proactive_queue_id ON proactive_message_queue(id);
   `);
 }
 
@@ -287,4 +296,65 @@ export function getRecentAudit(limit = 20): AuditEntry[] {
   return db
     .prepare('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ?')
     .all(limit) as AuditEntry[];
+}
+
+// --- Proactive Message Queue ---
+
+export interface QueuedProactiveMessage {
+  id: number;
+  channel_id: string;
+  text: string;
+  source: string;
+  queued_at: string;
+}
+
+export function enqueueProactiveMessage(
+  channelId: string,
+  text: string,
+  source: string,
+  maxQueueSize: number,
+): { queued: number; dropped: number } {
+  const boundedMax = Math.max(1, Math.floor(maxQueueSize));
+  db.prepare(
+    'INSERT INTO proactive_message_queue (channel_id, text, source, queued_at) VALUES (?, ?, ?, datetime(\'now\'))',
+  ).run(channelId, text, source);
+
+  const countRow = db
+    .prepare('SELECT COUNT(*) as count FROM proactive_message_queue')
+    .get() as { count: number };
+  const overLimit = Math.max(0, countRow.count - boundedMax);
+  if (overLimit > 0) {
+    db.prepare(`
+      DELETE FROM proactive_message_queue
+      WHERE id IN (
+        SELECT id
+        FROM proactive_message_queue
+        ORDER BY id ASC
+        LIMIT ?
+      )
+    `).run(overLimit);
+  }
+
+  return {
+    queued: countRow.count - overLimit,
+    dropped: overLimit,
+  };
+}
+
+export function listQueuedProactiveMessages(limit = 100): QueuedProactiveMessage[] {
+  const boundedLimit = Math.max(1, Math.floor(limit));
+  return db
+    .prepare('SELECT * FROM proactive_message_queue ORDER BY id ASC LIMIT ?')
+    .all(boundedLimit) as QueuedProactiveMessage[];
+}
+
+export function deleteQueuedProactiveMessage(id: number): void {
+  db.prepare('DELETE FROM proactive_message_queue WHERE id = ?').run(id);
+}
+
+export function getQueuedProactiveMessageCount(): number {
+  const row = db
+    .prepare('SELECT COUNT(*) as count FROM proactive_message_queue')
+    .get() as { count: number };
+  return row.count;
 }

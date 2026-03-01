@@ -13,6 +13,10 @@ import {
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
+  PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
+  PROACTIVE_AUTO_RETRY_ENABLED,
+  PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
+  PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   getHybridAIApiKey,
 } from './config.js';
 import { cleanupIpc, ensureAgentDirs, ensureSessionDirs, getSessionPaths, readOutput, writeInput } from './ipc.js';
@@ -115,6 +119,10 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     '-e', `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
     '-e', `HYBRIDAI_MODEL=${HYBRIDAI_MODEL}`,
     '-e', `CONTAINER_IDLE_TIMEOUT=${IDLE_TIMEOUT_MS}`,
+    '-e', `HYBRIDCLAW_RETRY_ENABLED=${PROACTIVE_AUTO_RETRY_ENABLED ? 'true' : 'false'}`,
+    '-e', `HYBRIDCLAW_RETRY_MAX_ATTEMPTS=${PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS}`,
+    '-e', `HYBRIDCLAW_RETRY_BASE_DELAY_MS=${PROACTIVE_AUTO_RETRY_BASE_DELAY_MS}`,
+    '-e', `HYBRIDCLAW_RETRY_MAX_DELAY_MS=${PROACTIVE_AUTO_RETRY_MAX_DELAY_MS}`,
     '-e', 'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
   ];
 

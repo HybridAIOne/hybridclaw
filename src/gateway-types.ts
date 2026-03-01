@@ -42,7 +42,6 @@ export interface GatewayChatRequestBody {
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
-  stream?: boolean;
 }
 
 export interface GatewayCommandRequest {

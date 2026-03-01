@@ -62,7 +62,10 @@ Runtime model:
 - `hybridclaw gateway` is the core process and should run first.
 - If `DISCORD_TOKEN` is set, Discord runs inside gateway automatically.
 - `hybridclaw tui` is a thin client that connects to the gateway.
-- `hybridclaw gateway` and `hybridclaw tui` validate the container image at startup and build it automatically if missing.
+- `hybridclaw gateway` and `hybridclaw tui` validate the container image at startup.
+- If the image is missing, it is built automatically.
+- Default rebuild policy is `if-stale`: when tracked container sources changed since last build, the image is rebuilt automatically.
+- Policy override (optional): env `HYBRIDCLAW_CONTAINER_REBUILD=if-stale|always|never`.
 
 Maintainers can publish the package to npm using:
 
@@ -81,6 +84,7 @@ Best-in-class harness upgrades now in runtime:
 - explicit trust-model acceptance during onboarding (recorded in `config.json`)
 - typed `config.json` runtime settings with defaults, validation, and hot reload
 - formal prompt hook orchestration (`bootstrap`, `memory`, `safety`)
+- proactive runtime layer with active-hours gating, push delegation (`single`/`parallel`/`chain`), depth-aware tool policy, and retry controls
 
 ## Configuration
 
@@ -88,6 +92,7 @@ HybridClaw now uses typed runtime config in `config.json` (auto-created on first
 
 - Start from `config.example.json` (reference)
 - Runtime watches `config.json` and hot-reloads most settings (model defaults, heartbeat, prompt hooks, limits, etc.)
+- `proactive.*` controls autonomous behavior (`activeHours`, `delegation`, `autoRetry`)
 - Some settings still require restart to fully apply (for example HTTP bind host/port)
 - Default bot is configured via `hybridai.defaultChatbotId` in `config.json` (legacy `HYBRIDAI_CHATBOT_ID` values are auto-migrated on startup)
 
@@ -181,8 +186,15 @@ The agent has access to these sandboxed tools inside the container:
 - `bash` — shell command execution
 - `memory` — durable memory files (`MEMORY.md`, `USER.md`, `memory/YYYY-MM-DD.md`)
 - `session_search` — search/summarize historical sessions from transcript archives
+- `delegate` — push-based background subagent tasks (`single`, `parallel`, `chain`) with auto-announced completion (no polling)
 - `web_fetch` — fetch a URL and extract readable content (HTML → markdown/text)
 - `browser_*` (optional) — interactive browser automation (`navigate`, `snapshot`, `click`, `type`, `press`, `scroll`, `back`, `screenshot`, `pdf`, `close`)
+
+`delegate` mode examples:
+
+- single: `{ "prompt": "Audit auth middleware and list risks", "label": "auth-audit" }`
+- parallel: `{ "mode": "parallel", "label": "module-audit", "tasks": [{ "prompt": "Scan api/" }, { "prompt": "Scan ui/" }] }`
+- chain: `{ "mode": "chain", "label": "implement-flow", "chain": [{ "prompt": "Scout the payment module" }, { "prompt": "Plan changes from: {previous}" }, { "prompt": "Implement based on: {previous}" }] }`
 
 Browser tooling notes:
 
@@ -201,6 +213,7 @@ System prompt assembly is handled by a formal hook pipeline:
 - `bootstrap` hook (workspace bootstrap + skills metadata)
 - `memory` hook (session summary)
 - `safety` hook (runtime guardrails / trust-model constraints)
+- `proactivity` hook (memory capture, session recall, delegation behavior)
 
 Hook toggles live in `config.json` under `promptHooks`.
 

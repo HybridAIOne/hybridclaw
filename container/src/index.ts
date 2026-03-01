@@ -1,10 +1,15 @@
-import { callHybridAI } from './hybridai-client.js';
+import { emitRuntimeEvent, runAfterToolHooks, runBeforeToolHooks } from './extensions.js';
+import { callHybridAI, HybridAIRequestError } from './hybridai-client.js';
 import { waitForInput, writeOutput } from './ipc.js';
 import { executeTool, getPendingSideEffects, resetSideEffects, setScheduledTasks, setSessionContext, TOOL_DEFINITIONS } from './tools.js';
 import type { ChatMessage, ContainerInput, ContainerOutput, ToolDefinition, ToolExecution } from './types.js';
 
 const MAX_ITERATIONS = 20;
 const IDLE_TIMEOUT_MS = parseInt(process.env.CONTAINER_IDLE_TIMEOUT || '300000', 10); // 5 min
+const RETRY_ENABLED = process.env.HYBRIDCLAW_RETRY_ENABLED !== 'false';
+const RETRY_MAX_ATTEMPTS = Math.max(1, parseInt(process.env.HYBRIDCLAW_RETRY_MAX_ATTEMPTS || '3', 10));
+const RETRY_BASE_DELAY_MS = Math.max(100, parseInt(process.env.HYBRIDCLAW_RETRY_BASE_DELAY_MS || '2000', 10));
+const RETRY_MAX_DELAY_MS = Math.max(RETRY_BASE_DELAY_MS, parseInt(process.env.HYBRIDCLAW_RETRY_MAX_DELAY_MS || '8000', 10));
 
 /** API key received once via stdin, held in memory for the container lifetime. */
 let storedApiKey = '';
@@ -37,6 +42,53 @@ function readStdinLine(): Promise<string> {
   });
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableError(err: unknown): boolean {
+  if (err instanceof HybridAIRequestError) {
+    return err.status === 429 || (err.status >= 500 && err.status <= 504);
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return /fetch failed|network|socket|timeout|timed out|ECONNRESET|ECONNREFUSED|EAI_AGAIN/i.test(message);
+}
+
+async function callHybridAIWithRetry(params: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  chatbotId: string;
+  enableRag: boolean;
+  history: ChatMessage[];
+  tools: ToolDefinition[];
+}): Promise<Awaited<ReturnType<typeof callHybridAI>>> {
+  const { baseUrl, apiKey, model, chatbotId, enableRag, history, tools } = params;
+  let attempt = 0;
+  let delayMs = RETRY_BASE_DELAY_MS;
+
+  while (true) {
+    attempt += 1;
+    await emitRuntimeEvent({ event: 'before_model_call', attempt });
+    try {
+      const response = await callHybridAI(baseUrl, apiKey, model, chatbotId, enableRag, history, tools);
+      await emitRuntimeEvent({ event: 'after_model_call', attempt, toolCallCount: response.choices[0]?.message?.tool_calls?.length || 0 });
+      return response;
+    } catch (err) {
+      const retryable = RETRY_ENABLED && isRetryableError(err) && attempt < RETRY_MAX_ATTEMPTS;
+      await emitRuntimeEvent({
+        event: retryable ? 'model_retry' : 'model_error',
+        attempt,
+        retryable,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      if (!retryable) throw err;
+      await sleep(delayMs);
+      delayMs = Math.min(delayMs * 2, RETRY_MAX_DELAY_MS);
+    }
+  }
+}
+
 /**
  * Process a single request: call API, run tool loop, write output.
  */
@@ -49,6 +101,7 @@ async function processRequest(
   enableRag: boolean,
   tools: ToolDefinition[],
 ): Promise<ContainerOutput> {
+  await emitRuntimeEvent({ event: 'before_agent_start', messageCount: messages.length });
   const history: ChatMessage[] = [...messages];
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
@@ -59,14 +112,38 @@ async function processRequest(
 
     let response;
     try {
-      response = await callHybridAI(baseUrl, apiKey, model, chatbotId, enableRag, history, tools);
+      response = await callHybridAIWithRetry({
+        baseUrl,
+        apiKey,
+        model,
+        chatbotId,
+        enableRag,
+        history,
+        tools,
+      });
     } catch (err) {
-      return { status: 'error', result: null, toolsUsed, toolExecutions, error: `API error: ${err instanceof Error ? err.message : String(err)}` };
+      const failed: ContainerOutput = {
+        status: 'error',
+        result: null,
+        toolsUsed,
+        toolExecutions,
+        error: `API error: ${err instanceof Error ? err.message : String(err)}`,
+      };
+      await emitRuntimeEvent({ event: 'turn_end', status: failed.status, toolsUsed });
+      return failed;
     }
 
     const choice = response.choices[0];
     if (!choice) {
-      return { status: 'error', result: null, toolsUsed, toolExecutions, error: 'No response from API' };
+      const failed: ContainerOutput = {
+        status: 'error',
+        result: null,
+        toolsUsed,
+        toolExecutions,
+        error: 'No response from API',
+      };
+      await emitRuntimeEvent({ event: 'turn_end', status: failed.status, toolsUsed });
+      return failed;
     }
 
     const assistantMessage: ChatMessage = {
@@ -82,7 +159,14 @@ async function processRequest(
 
     const toolCalls = choice.message.tool_calls || [];
     if (toolCalls.length === 0) {
-      return { status: 'success', result: choice.message.content, toolsUsed: [...new Set(toolsUsed)], toolExecutions };
+      const completed: ContainerOutput = {
+        status: 'success',
+        result: choice.message.content,
+        toolsUsed: [...new Set(toolsUsed)],
+        toolExecutions,
+      };
+      await emitRuntimeEvent({ event: 'turn_end', status: completed.status, toolsUsed: completed.toolsUsed });
+      return completed;
     }
 
     for (const call of toolCalls) {
@@ -90,8 +174,12 @@ async function processRequest(
       toolsUsed.push(toolName);
       console.error(`[tool] ${toolName}: ${call.function.arguments.slice(0, 100)}`);
       const toolStart = Date.now();
-      const result = await executeTool(toolName, call.function.arguments);
+      const blockedReason = await runBeforeToolHooks(toolName, call.function.arguments);
+      const result = blockedReason
+        ? `Tool blocked by security hook: ${blockedReason}`
+        : await executeTool(toolName, call.function.arguments);
       const toolDuration = Date.now() - toolStart;
+      await runAfterToolHooks(toolName, call.function.arguments, result);
       console.error(`[tool] ${toolName} result (${toolDuration}ms): ${result.slice(0, 100)}`);
       toolExecutions.push({
         name: toolName,
@@ -103,13 +191,28 @@ async function processRequest(
 
       // Bail on fatal filesystem/system errors — retrying won't help
       if (/EROFS|EPERM|EACCES|read-only file system/i.test(result)) {
-        return { status: 'error', result: null, toolsUsed, toolExecutions, error: result };
+        const failed: ContainerOutput = {
+          status: 'error',
+          result: null,
+          toolsUsed,
+          toolExecutions,
+          error: result,
+        };
+        await emitRuntimeEvent({ event: 'turn_end', status: failed.status, toolsUsed });
+        return failed;
       }
     }
   }
 
   const lastAssistant = history.filter((m) => m.role === 'assistant').pop();
-  return { status: 'success', result: lastAssistant?.content || 'Max tool iterations reached.', toolsUsed: [...new Set(toolsUsed)], toolExecutions };
+  const completed: ContainerOutput = {
+    status: 'success',
+    result: lastAssistant?.content || 'Max tool iterations reached.',
+    toolsUsed: [...new Set(toolsUsed)],
+    toolExecutions,
+  };
+  await emitRuntimeEvent({ event: 'turn_end', status: completed.status, toolsUsed: completed.toolsUsed });
+  return completed;
 }
 
 /**
