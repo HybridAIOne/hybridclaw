@@ -893,7 +893,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'write',
-      description: 'Write contents to a file, overwriting if it exists',
+      description:
+        'Write contents to a file on disk, overwriting if it exists. Use this for creating new code/program files instead of shell heredocs or code-only replies.',
       parameters: {
         type: 'object',
         properties: {
@@ -908,7 +909,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'edit',
-      description: 'Replace text in a file using old/new strings',
+      description:
+        'Replace text in a file using old/new strings. Use this for file edits instead of shell-based editing (sed/awk/perl in bash).',
       parameters: {
         type: 'object',
         properties: {
@@ -968,7 +970,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'bash',
-      description: 'Run a shell command and return stdout/stderr',
+      description:
+        'Run a shell command and return stdout/stderr. Do not use for file creation or file editing; use write/edit tools for file authoring.',
       parameters: {
         type: 'object',
         properties: {

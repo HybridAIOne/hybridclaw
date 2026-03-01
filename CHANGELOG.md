@@ -8,6 +8,16 @@
 
 ### Fixed
 
+## [0.1.15](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.15)
+
+### Added
+
+### Changed
+
+### Fixed
+
+- **Program creation workflow enforcement**: Implementation requests now enforce file-first behavior (write/edit on disk before response), disallow shell-based file authoring shortcuts (`heredoc`, `echo` redirects, `sed`, `awk`), and require explicit run/offer-run behavior after file changes.
+
 ## [0.1.14](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.14)
 
 ### Added
