@@ -794,7 +794,7 @@
     <div class="feature-card">
       <div class="feature-icon">&#x1f512;</div>
       <h3>Execute safely</h3>
-      <p>Run useful actions behind trust acceptance and guardrails so automation stays controlled in production.</p>
+      <p>Run useful actions behind trust acceptance, runtime guardrails, and instruction approval checks so automation stays controlled.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f504;</div>
@@ -814,7 +814,7 @@
     <div class="feature-card">
       <div class="feature-icon">&#x1f4ca;</div>
       <h3>Operate with visibility</h3>
-      <p>Track status, sessions, and audit history from one runtime surface that is built for day-to-day operations.</p>
+      <p>Track status, sessions, tamper-evident audit history, and approval decisions from one runtime surface.</p>
     </div>
   </div>
 </section>
@@ -902,7 +902,7 @@
         <tr>
           <td>Enterprise Readiness</td>
           <td>
-            <span class="compare-text">Audit, status, scheduling built in</span>
+            <span class="compare-text">Hash-chained audit plus local instruction approval controls</span>
           </td>
           <td>
             <span class="compare-text">Strong base, extended per team</span>
@@ -1005,8 +1005,12 @@
       <p>Node.js gateway with persistent session state, scheduling, and HTTP endpoints for status, chat, and commands.</p>
     </div>
     <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Audit Trail</h3>
+      <p>Append-only wire logs are SHA-256 hash-chained for tamper-evident immutability, with searchable events, verification, and approval history.</p>
+    </div>
+    <div class="feature-card">
       <h3 style="color: var(--accent-1);">Safety Model</h3>
-      <p>Trust-model acceptance is required during onboarding, and execution uses strong runtime guardrails by default.</p>
+      <p>Trust-model acceptance is required during onboarding, execution uses runtime guardrails by default, and TUI blocks on unapproved instruction changes.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Prompt Orchestration</h3>
@@ -1152,7 +1156,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">4. Connect interface</h3>
-      <p>Use Discord or run <code>hybridclaw tui</code> for a terminal-native chat experience.</p>
+      <p>Use Discord or run <code>hybridclaw tui</code> for a terminal-native chat experience. If core instructions changed, TUI asks you to approve first.</p>
     </div>
   </div>
   <div class="quickstart-box">
@@ -1174,8 +1178,8 @@
   </div>
   <div class="faq-list">
     <div class="faq-item">
-      <div class="faq-q">Why does onboarding ask me to accept SECURITY.md?</div>
-      <div class="faq-a">HybridClaw enforces explicit trust-model acceptance before runtime starts. Acceptance is recorded in <code>config.json</code> with policy version and timestamp so operators can prove security acknowledgement.</div>
+      <div class="faq-q">Why does onboarding ask me to accept TRUST_MODEL.md?</div>
+      <div class="faq-a">HybridClaw enforces explicit trust-model acceptance before runtime starts. Acceptance is recorded in <code>config.json</code> with policy version and timestamp so operators can prove security acknowledgement. Technical runtime controls are documented separately in <code>SECURITY.md</code>.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Do I still configure everything through .env?</div>
@@ -1184,6 +1188,14 @@
     <div class="faq-item">
       <div class="faq-q">Is it safe to let the agent run shell commands?</div>
       <div class="faq-a">Yes. All tools execute inside ephemeral Docker containers with read-only filesystems, memory caps, and a deny-list of 28+ dangerous command patterns. The host machine is never exposed.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Is the audit trail immutable?</div>
+      <div class="faq-a">Audit logs are append-only and hash-chained per session, so modifications are tamper-evident. Use <code>hybridclaw audit verify &lt;sessionId&gt;</code> to validate integrity, and <code>hybridclaw audit approvals --denied</code> to review denied actions.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">What happens if instruction files are changed?</div>
+      <div class="faq-a">HybridClaw checks core instruction files before TUI startup. If they changed, you must approve them first. Use <code>hybridclaw audit instructions</code> to review status and <code>hybridclaw audit instructions --approve</code> to approve updates. Approval decisions are audit logged.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use it without Discord?</div>

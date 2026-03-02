@@ -11,6 +11,7 @@ import { maybeCompactSession } from './session-maintenance.js';
 import { appendSessionTranscript } from './session-transcripts.js';
 import { buildConversationContext } from './conversation.js';
 import { isWithinActiveHours, proactiveWindowLabel } from './proactive-policy.js';
+import { emitToolExecutionAuditEvents, makeAuditRunId, recordAuditEvent } from './audit-events.js';
 
 const HEARTBEAT_PROMPT =
   '[Heartbeat poll] Check HEARTBEAT.md for periodic tasks. If nothing needs attention, reply HEARTBEAT_OK.';
@@ -73,9 +74,13 @@ export function startHeartbeat(
 
     const sessionId = `heartbeat:${agentId}`;
     const channelId = 'heartbeat';
+    const runId = makeAuditRunId('heartbeat');
+    const startedAt = Date.now();
+    let turnIndex = 1;
 
     try {
       const session = getOrCreateSession(sessionId, null, channelId);
+      turnIndex = session.message_count + 1;
 
       const history = getConversationHistory(sessionId, MAX_HEARTBEAT_HISTORY);
       const { messages } = buildConversationContext({
@@ -87,6 +92,29 @@ export function startHeartbeat(
 
       const chatbotId = HYBRIDAI_CHATBOT_ID || agentId;
       const heartbeatChannelId = HEARTBEAT_CHANNEL || 'heartbeat';
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'session.start',
+          userId: 'heartbeat',
+          channel: heartbeatChannelId,
+          cwd: process.cwd(),
+          model: HYBRIDAI_MODEL,
+          source: 'heartbeat',
+        },
+      });
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'turn.start',
+          turnIndex,
+          userInput: HEARTBEAT_PROMPT,
+          source: 'heartbeat',
+        },
+      });
+
       const scheduledTasks = getTasksForSession(sessionId);
       const output = await runAgent(
         sessionId,
@@ -99,10 +127,59 @@ export function startHeartbeat(
         scheduledTasks,
         HEARTBEAT_ALLOWED_TOOLS,
       );
+      emitToolExecutionAuditEvents({
+        sessionId,
+        runId,
+        toolExecutions: output.toolExecutions || [],
+      });
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'model.usage',
+          provider: 'hybridai',
+          model: HYBRIDAI_MODEL,
+          durationMs: Date.now() - startedAt,
+          toolCallCount: (output.toolExecutions || []).length,
+        },
+      });
       processSideEffects(output, sessionId, heartbeatChannelId);
 
       if (output.status === 'error') {
         logger.warn({ error: output.error }, 'Heartbeat agent error');
+        recordAuditEvent({
+          sessionId,
+          runId,
+          event: {
+            type: 'error',
+            errorType: 'heartbeat',
+            message: output.error || 'Heartbeat run failed',
+            recoverable: true,
+          },
+        });
+        recordAuditEvent({
+          sessionId,
+          runId,
+          event: {
+            type: 'turn.end',
+            turnIndex,
+            finishReason: 'error',
+          },
+        });
+        recordAuditEvent({
+          sessionId,
+          runId,
+          event: {
+            type: 'session.end',
+            reason: 'error',
+            stats: {
+              userMessages: 1,
+              assistantMessages: 0,
+              toolCalls: (output.toolExecutions || []).length,
+              durationMs: Date.now() - startedAt,
+            },
+          },
+        });
         return;
       }
 
@@ -110,6 +187,29 @@ export function startHeartbeat(
 
       if (isHeartbeatOk(result)) {
         logger.debug('Heartbeat: HEARTBEAT_OK — nothing to do');
+        recordAuditEvent({
+          sessionId,
+          runId,
+          event: {
+            type: 'turn.end',
+            turnIndex,
+            finishReason: 'heartbeat_ok',
+          },
+        });
+        recordAuditEvent({
+          sessionId,
+          runId,
+          event: {
+            type: 'session.end',
+            reason: 'normal',
+            stats: {
+              userMessages: 1,
+              assistantMessages: 1,
+              toolCalls: (output.toolExecutions || []).length,
+              durationMs: Date.now() - startedAt,
+            },
+          },
+        });
         return;
       }
 
@@ -141,9 +241,65 @@ export function startHeartbeat(
         channelId: heartbeatChannelId,
       });
       logger.info({ length: result.length }, 'Heartbeat: agent has something to say');
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'turn.end',
+          turnIndex,
+          finishReason: 'completed',
+        },
+      });
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'session.end',
+          reason: 'normal',
+          stats: {
+            userMessages: 1,
+            assistantMessages: 1,
+            toolCalls: (output.toolExecutions || []).length,
+            durationMs: Date.now() - startedAt,
+          },
+        },
+      });
       onMessage(result);
     } catch (err) {
       logger.error({ err }, 'Heartbeat failed');
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'error',
+          errorType: 'heartbeat',
+          message: err instanceof Error ? err.message : String(err),
+          recoverable: true,
+        },
+      });
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'turn.end',
+          turnIndex,
+          finishReason: 'error',
+        },
+      });
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'session.end',
+          reason: 'error',
+          stats: {
+            userMessages: 1,
+            assistantMessages: 0,
+            toolCalls: 0,
+            durationMs: Date.now() - startedAt,
+          },
+        },
+      });
     } finally {
       running = false;
     }

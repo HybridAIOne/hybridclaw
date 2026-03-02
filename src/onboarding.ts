@@ -105,7 +105,7 @@ const DEFAULT_VERIFY_PATH = '/verify_code';
 const BOT_LIST_PATH = '/api/v1/bot-management/bots';
 const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
 const SECURITY_ACK_TOKEN = 'ACCEPT';
-const SECURITY_DOC_PATH = path.join(process.cwd(), 'SECURITY.md');
+const TRUST_MODEL_DOC_PATH = path.join(process.cwd(), 'TRUST_MODEL.md');
 
 function ensureEnvFileFromExample(): boolean {
   const envPath = path.join(process.cwd(), '.env');
@@ -427,20 +427,20 @@ async function ensureSecurityTrustAcceptance(
   printInfo(`${commandLabel} requires explicit trust model acceptance before runtime starts.`);
   printMeta('Policy version', SECURITY_POLICY_VERSION);
   printMeta('Current acceptance', formatAcceptanceMeta());
-  printLink(`Policy document: ${SECURITY_DOC_PATH}`);
-  printInfo('Review SECURITY.md before continuing.');
+  printLink(`Policy document: ${TRUST_MODEL_DOC_PATH}`);
+  printInfo('Review TRUST_MODEL.md before continuing.');
   printInfo('Acceptance confirms you understand container/tool risks, data handling, and operator responsibilities.');
   console.log();
 
-  const ready = await promptYesNo(rl, 'Have you reviewed SECURITY.md and the trust model?', true, ICON_AUTH);
+  const ready = await promptYesNo(rl, 'Have you reviewed TRUST_MODEL.md and the trust model?', true, ICON_AUTH);
   if (!ready) {
-    throw new Error('Security trust model acceptance is required. Review SECURITY.md and rerun onboarding.');
+    throw new Error('Security trust model acceptance is required. Review TRUST_MODEL.md and rerun onboarding.');
   }
 
   while (true) {
     const token = await promptRequired(
       rl,
-      `Type ${SECURITY_ACK_TOKEN} to accept SECURITY.md v${SECURITY_POLICY_VERSION}: `,
+      `Type ${SECURITY_ACK_TOKEN} to accept TRUST_MODEL.md v${SECURITY_POLICY_VERSION}: `,
       ICON_AUTH,
     );
     if (token.trim().toUpperCase() === SECURITY_ACK_TOKEN) break;
@@ -476,7 +476,7 @@ export async function ensureHybridAICredentials(options: OnboardingOptions = {})
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     if (!securityAccepted) {
       throw new Error(
-        'Security trust model is not accepted. Run `hybridclaw onboarding` in an interactive terminal to accept SECURITY.md.',
+        'Security trust model is not accepted. Run `hybridclaw onboarding` in an interactive terminal to accept TRUST_MODEL.md.',
       );
     }
     throw new Error(

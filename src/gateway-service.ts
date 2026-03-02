@@ -22,7 +22,6 @@ import {
   getAllSessions,
   getConversationHistory,
   getOrCreateSession,
-  getRecentAudit,
   getSessionCount,
   getTasksForSession,
   logAudit,
@@ -32,6 +31,7 @@ import {
   updateSessionModel,
   updateSessionRag,
 } from './db.js';
+import { emitToolExecutionAuditEvents, makeAuditRunId, recordAuditEvent } from './audit-events.js';
 import { fetchHybridAIBots } from './hybridai-bots.js';
 import { logger } from './logger.js';
 import { rearmScheduler } from './scheduler.js';
@@ -691,17 +691,76 @@ function enqueueDelegationFromSideEffect(params: {
 
 export async function handleGatewayMessage(req: GatewayChatRequest): Promise<GatewayChatResult> {
   const startedAt = Date.now();
+  const runId = makeAuditRunId('turn');
   const session = getOrCreateSession(req.sessionId, req.guildId, req.channelId);
   const chatbotId = req.chatbotId ?? session.chatbot_id ?? HYBRIDAI_CHATBOT_ID;
   const enableRag = req.enableRag ?? session.enable_rag === 1;
   const model = req.model ?? session.model ?? HYBRIDAI_MODEL;
+  const turnIndex = session.message_count + 1;
+
+  recordAuditEvent({
+    sessionId: req.sessionId,
+    runId,
+    event: {
+      type: 'session.start',
+      userId: req.userId,
+      channel: req.channelId,
+      cwd: process.cwd(),
+      model,
+      source: 'gateway.chat',
+    },
+  });
+  recordAuditEvent({
+    sessionId: req.sessionId,
+    runId,
+    event: {
+      type: 'turn.start',
+      turnIndex,
+      userInput: req.content,
+      username: req.username,
+    },
+  });
 
   if (!chatbotId) {
+    const error = 'No chatbot configured. Set `hybridai.defaultChatbotId` in config.json or select a bot for this session.';
+    recordAuditEvent({
+      sessionId: req.sessionId,
+      runId,
+      event: {
+        type: 'error',
+        errorType: 'configuration',
+        message: error,
+        recoverable: true,
+      },
+    });
+    recordAuditEvent({
+      sessionId: req.sessionId,
+      runId,
+      event: {
+        type: 'turn.end',
+        turnIndex,
+        finishReason: 'error',
+      },
+    });
+    recordAuditEvent({
+      sessionId: req.sessionId,
+      runId,
+      event: {
+        type: 'session.end',
+        reason: 'error',
+        stats: {
+          userMessages: 0,
+          assistantMessages: 0,
+          toolCalls: 0,
+          durationMs: Date.now() - startedAt,
+        },
+      },
+    });
     return {
       status: 'error',
       result: null,
       toolsUsed: [],
-      error: 'No chatbot configured. Set `hybridai.defaultChatbotId` in config.json or select a bot for this session.',
+      error,
     };
   }
 
@@ -734,6 +793,24 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
       req.onToolProgress,
       req.abortSignal,
     );
+    const toolExecutions = output.toolExecutions || [];
+    emitToolExecutionAuditEvents({
+      sessionId: req.sessionId,
+      runId,
+      toolExecutions,
+    });
+    recordAuditEvent({
+      sessionId: req.sessionId,
+      runId,
+      event: {
+        type: 'model.usage',
+        provider: 'hybridai',
+        model,
+        durationMs: Date.now() - startedAt,
+        toolCallCount: toolExecutions.length,
+      },
+    });
+
     const parentDepth = extractDelegationDepth(req.sessionId);
     let acceptedDelegations = 0;
     processSideEffects(output, req.sessionId, req.channelId, {
@@ -784,12 +861,46 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
     });
 
     if (output.status === 'error') {
+      const errorMessage = output.error || 'Unknown agent error.';
+      recordAuditEvent({
+        sessionId: req.sessionId,
+        runId,
+        event: {
+          type: 'error',
+          errorType: 'agent',
+          message: errorMessage,
+          recoverable: true,
+        },
+      });
+      recordAuditEvent({
+        sessionId: req.sessionId,
+        runId,
+        event: {
+          type: 'turn.end',
+          turnIndex,
+          finishReason: 'error',
+        },
+      });
+      recordAuditEvent({
+        sessionId: req.sessionId,
+        runId,
+        event: {
+          type: 'session.end',
+          reason: 'error',
+          stats: {
+            userMessages: 0,
+            assistantMessages: 0,
+            toolCalls: toolExecutions.length,
+            durationMs: Date.now() - startedAt,
+          },
+        },
+      });
       return {
         status: 'error',
         result: null,
         toolsUsed: output.toolsUsed || [],
-        toolExecutions: output.toolExecutions,
-        error: output.error || 'Unknown agent error.',
+        toolExecutions,
+        error: errorMessage,
       };
     }
 
@@ -824,16 +935,73 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
       logger.warn({ sessionId: req.sessionId, err }, 'Background session compaction failed');
     });
 
+    recordAuditEvent({
+      sessionId: req.sessionId,
+      runId,
+      event: {
+        type: 'turn.end',
+        turnIndex,
+        finishReason: 'completed',
+      },
+    });
+    recordAuditEvent({
+      sessionId: req.sessionId,
+      runId,
+      event: {
+        type: 'session.end',
+        reason: 'normal',
+        stats: {
+          userMessages: 1,
+          assistantMessages: 1,
+          toolCalls: toolExecutions.length,
+          durationMs: Date.now() - startedAt,
+        },
+      },
+    });
+
     return {
       status: 'success',
       result: resultText,
       toolsUsed: output.toolsUsed || [],
-      toolExecutions: output.toolExecutions,
+      toolExecutions,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     logAudit('error', req.sessionId, { error: errorMsg }, Date.now() - startedAt);
     logger.error({ sessionId: req.sessionId, err }, 'Gateway message handling failed');
+    recordAuditEvent({
+      sessionId: req.sessionId,
+      runId,
+      event: {
+        type: 'error',
+        errorType: 'gateway',
+        message: errorMsg,
+        recoverable: true,
+      },
+    });
+    recordAuditEvent({
+      sessionId: req.sessionId,
+      runId,
+      event: {
+        type: 'turn.end',
+        turnIndex,
+        finishReason: 'error',
+      },
+    });
+    recordAuditEvent({
+      sessionId: req.sessionId,
+      runId,
+      event: {
+        type: 'session.end',
+        reason: 'error',
+        stats: {
+          userMessages: 0,
+          assistantMessages: 0,
+          toolCalls: 0,
+          durationMs: Date.now() - startedAt,
+        },
+      },
+    });
     return {
       status: 'error',
       result: null,
@@ -887,7 +1055,6 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
         '`clear` — Clear session history',
         '`status` — Show runtime status',
         '`sessions` — List active sessions',
-        '`audit [n]` — Show recent audit entries',
         '`schedule add "<cron>" <prompt>` — Add scheduled task',
         '`schedule list` — List scheduled tasks',
         '`schedule remove <id>` — Remove a task',
@@ -1014,17 +1181,6 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
         `${s.id} — ${s.message_count} msgs, last active ${s.last_active}`
       ).join('\n');
       return infoCommand('Sessions', list);
-    }
-
-    case 'audit': {
-      const parsedLimit = parseIntOrNull(req.args[1]);
-      const limit = Math.min(parsedLimit ?? 10, 25);
-      const entries = getRecentAudit(limit);
-      if (entries.length === 0) return plainCommand('No audit entries.');
-      const list = entries.map((entry) =>
-        `${entry.created_at} ${entry.event}${entry.duration_ms ? ` (${entry.duration_ms}ms)` : ''}`
-      ).join('\n');
-      return infoCommand('Recent Audit', list);
     }
 
     case 'schedule': {

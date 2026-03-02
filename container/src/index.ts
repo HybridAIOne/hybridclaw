@@ -54,6 +54,11 @@ function isRetryableError(err: unknown): boolean {
   return /fetch failed|network|socket|timeout|timed out|ECONNRESET|ECONNREFUSED|EAI_AGAIN/i.test(message);
 }
 
+function inferToolError(result: string, blockedReason: string | null): boolean {
+  if (blockedReason) return true;
+  return /\b(error|failed|denied|forbidden|timed out|timeout|exception|invalid)\b/i.test(result);
+}
+
 async function callHybridAIWithRetry(params: {
   baseUrl: string;
   apiKey: string;
@@ -179,6 +184,7 @@ async function processRequest(
         ? `Tool blocked by security hook: ${blockedReason}`
         : await executeTool(toolName, call.function.arguments);
       const toolDuration = Date.now() - toolStart;
+      const isError = inferToolError(result, blockedReason);
       await runAfterToolHooks(toolName, call.function.arguments, result);
       console.error(`[tool] ${toolName} result (${toolDuration}ms): ${result.slice(0, 100)}`);
       toolExecutions.push({
@@ -186,6 +192,9 @@ async function processRequest(
         arguments: call.function.arguments,
         result,
         durationMs: toolDuration,
+        isError,
+        blocked: Boolean(blockedReason),
+        blockedReason: blockedReason || undefined,
       });
       history.push({ role: 'tool', content: result, tool_call_id: call.id });
 

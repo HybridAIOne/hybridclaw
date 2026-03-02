@@ -71,6 +71,9 @@ export interface ToolExecution {
   arguments: string;
   result: string;
   durationMs: number;
+  isError?: boolean;
+  blocked?: boolean;
+  blockedReason?: string;
 }
 
 export interface ContainerOutput {

@@ -38,15 +38,18 @@ npm install
 hybridclaw onboarding
 
 # Onboarding flow:
-# 1) explicitly accept SECURITY.md trust model (required)
+# 1) explicitly accept TRUST_MODEL.md (required)
 # 2) choose whether to create a new account
 # 3) open /register in browser (optional) and confirm in terminal
 # 4) open /login?next=/admin_api_keys in browser and get an API key
 # 5) paste API key (or URL containing it) back into the CLI
 # 6) choose the default bot (saved to config.json) and save secrets to `.env`
 
-# Start the gateway core runtime first
+# Start gateway backend (default)
 hybridclaw gateway
+
+# Or run gateway in foreground in this terminal
+hybridclaw gateway start --foreground
 
 # If DISCORD_TOKEN is set, gateway auto-connects to Discord.
 
@@ -67,12 +70,14 @@ Runtime model:
 - Default rebuild policy is `if-stale`: when tracked container sources changed since last build, the image is rebuilt automatically.
 - Policy override (optional): env `HYBRIDCLAW_CONTAINER_REBUILD=if-stale|always|never`.
 
-Best-in-class runtime capabilities:
+HybridClaw best-in-class capabilities:
 
 - explicit trust-model acceptance during onboarding (recorded in `config.json`)
 - typed `config.json` runtime settings with defaults, validation, and hot reload
 - formal prompt hook orchestration (`bootstrap`, `memory`, `safety`)
 - proactive runtime layer with active-hours gating, push delegation (`single`/`parallel`/`chain`), depth-aware tool policy, and retry controls
+- structured audit trail: append-only hash-chained wire logs (`data/audit/<session>/wire.jsonl`) with tamper-evident immutability, normalized SQLite audit tables, and verification/search CLI commands
+- instruction-integrity approval flow: core instruction docs (`AGENTS.md`, `SECURITY.md`, `TRUST_MODEL.md`) are hash-verified against a local approved baseline before TUI start
 
 ## Configuration
 
@@ -92,7 +97,33 @@ Secrets remain in `.env`:
 
 Trust-model acceptance is stored in `config.json` under `security.*` and is required before runtime starts.
 
-See [SECURITY.md](./SECURITY.md) for policy and acceptance details.
+See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
+
+## Audit Trail
+
+HybridClaw records a forensic audit trail by default:
+
+- append-only per-session wire logs in `data/audit/<session>/wire.jsonl`
+- SHA-256 hash chaining (`_prevHash` -> `_hash`) for tamper-evident immutability
+- normalized query tables in SQLite (`audit_events`, `approvals`)
+- policy denials captured as approval/authorization events (for example blocked commands)
+
+Useful commands:
+
+- `hybridclaw audit recent 50`
+- `hybridclaw audit search "tool.call" 50`
+- `hybridclaw audit approvals 50 --denied`
+- `hybridclaw audit verify <sessionId>`
+- `hybridclaw audit instructions`
+- `hybridclaw audit instructions --approve`
+
+Instruction approval notes:
+
+- local baseline file: `data/audit/instruction-hashes.json`
+- `hybridclaw audit instructions` fails when instruction files differ from the approved baseline
+- `hybridclaw audit instructions --approve` updates the local approved baseline
+- `hybridclaw tui` performs this check before startup and prompts for approval when files changed
+- instruction approval actions are audit logged (`approval.request` / `approval.response`, action `instruction:approve`)
 
 ## Agent workspace
 
@@ -209,9 +240,13 @@ Hook toggles live in `config.json` under `promptHooks`.
 
 CLI runtime commands:
 
-- `hybridclaw gateway` — Start core runtime (web/API/scheduler/heartbeat and optional Discord)
+- `hybridclaw gateway start [--foreground]` — Start gateway (backend by default; foreground with flag)
+- `hybridclaw gateway stop` — Stop managed gateway backend process
+- `hybridclaw gateway status` — Show lifecycle/API status
+- `hybridclaw gateway <command...>` — Send a command to a running gateway (for example `sessions`, `bot info`)
 - `hybridclaw tui` — Start terminal client connected to gateway
 - `hybridclaw onboarding` — Run HybridAI account/API key onboarding
+- `hybridclaw audit ...` — Verify and inspect structured audit trail (`recent`, `search`, `approvals`, `verify`, `instructions`)
 
 In Discord, use `!claw help` to see all commands. Key ones:
 
@@ -220,6 +255,10 @@ In Discord, use `!claw help` to see all commands. Key ones:
 - `!claw model set <name>` — Set model for this channel
 - `!claw rag on/off` — Toggle RAG
 - `!claw clear` — Clear conversation history
+- `!claw audit recent [n]` — Show recent structured audit events
+- `!claw audit verify [sessionId]` — Verify audit hash chain integrity
+- `!claw audit search <query>` — Search structured audit history
+- `!claw audit approvals [n] [--denied]` — Show policy approval decisions
 - `!claw schedule add "<cron>" <prompt>` — Add scheduled task
 
 ## Project structure

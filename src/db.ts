@@ -4,7 +4,15 @@ import path from 'path';
 
 import { DB_PATH } from './config.js';
 import { logger } from './logger.js';
-import type { AuditEntry, ScheduledTask, Session, StoredMessage } from './types.js';
+import type { AuditEventPayload, WireRecord } from './audit-trail.js';
+import type {
+  ApprovalAuditEntry,
+  AuditEntry,
+  ScheduledTask,
+  Session,
+  StoredMessage,
+  StructuredAuditEntry,
+} from './types.js';
 
 let db: Database.Database;
 
@@ -59,6 +67,38 @@ function createSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id);
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
 
+    CREATE TABLE IF NOT EXISTS audit_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      parent_run_id TEXT,
+      payload TEXT NOT NULL,
+      wire_hash TEXT NOT NULL,
+      wire_prev_hash TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(session_id, seq)
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_events_type_timestamp ON audit_events(event_type, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_session_seq ON audit_events(session_id, seq);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_run_seq ON audit_events(run_id, seq);
+
+    CREATE TABLE IF NOT EXISTS approvals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      tool_call_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      description TEXT,
+      approved INTEGER NOT NULL,
+      approved_by TEXT,
+      method TEXT NOT NULL,
+      policy_name TEXT,
+      timestamp TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_approvals_session_timestamp ON approvals(session_id, timestamp);
+
     CREATE TABLE IF NOT EXISTS proactive_message_queue (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       channel_id TEXT NOT NULL,
@@ -70,12 +110,17 @@ function createSchema(database: Database.Database): void {
   `);
 }
 
-function migrateSchema(database: Database.Database): void {
+interface InitDatabaseOptions {
+  quiet?: boolean;
+}
+
+function migrateSchema(database: Database.Database, opts?: InitDatabaseOptions): void {
+  const quiet = opts?.quiet === true;
   const addColumnIfMissing = (table: string, column: string, ddl: string): void => {
     const cols = database.pragma(`table_info(${table})`) as Array<{ name: string }>;
     if (!cols.some((c) => c.name === column)) {
       database.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
-      logger.info({ table, column }, 'Migrated table: added column');
+      if (!quiet) logger.info({ table, column }, 'Migrated table: added column');
     }
   };
 
@@ -83,7 +128,7 @@ function migrateSchema(database: Database.Database): void {
   const sessionCols = database.pragma('table_info(sessions)') as Array<{ name: string }>;
   if (!sessionCols.some((c) => c.name === 'model')) {
     database.exec('ALTER TABLE sessions ADD COLUMN model TEXT');
-    logger.info('Migrated sessions table: added model column');
+    if (!quiet) logger.info('Migrated sessions table: added model column');
   }
   addColumnIfMissing('sessions', 'session_summary', 'session_summary TEXT');
   addColumnIfMissing('sessions', 'summary_updated_at', 'summary_updated_at TEXT');
@@ -94,22 +139,23 @@ function migrateSchema(database: Database.Database): void {
   const taskCols = database.pragma('table_info(tasks)') as Array<{ name: string }>;
   if (!taskCols.some((c) => c.name === 'run_at')) {
     database.exec('ALTER TABLE tasks ADD COLUMN run_at TEXT');
-    logger.info('Migrated tasks table: added run_at column');
+    if (!quiet) logger.info('Migrated tasks table: added run_at column');
   }
   if (!taskCols.some((c) => c.name === 'every_ms')) {
     database.exec('ALTER TABLE tasks ADD COLUMN every_ms INTEGER');
-    logger.info('Migrated tasks table: added every_ms column');
+    if (!quiet) logger.info('Migrated tasks table: added every_ms column');
   }
 }
 
-export function initDatabase(): void {
+export function initDatabase(opts?: InitDatabaseOptions): void {
+  const quiet = opts?.quiet === true;
   const dbPath = path.resolve(DB_PATH);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   createSchema(db);
-  migrateSchema(db);
-  logger.info({ path: dbPath }, 'Database initialized');
+  migrateSchema(db, opts);
+  if (!quiet) logger.info({ path: dbPath }, 'Database initialized');
 }
 
 // --- Sessions ---
@@ -296,6 +342,113 @@ export function getRecentAudit(limit = 20): AuditEntry[] {
   return db
     .prepare('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ?')
     .all(limit) as AuditEntry[];
+}
+
+function toPayloadObject(payload: AuditEventPayload): Record<string, unknown> {
+  return payload as unknown as Record<string, unknown>;
+}
+
+function readPayloadStringValue(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  return typeof value === 'string' ? value : null;
+}
+
+function readPayloadBooleanValue(payload: Record<string, unknown>, key: string): boolean | null {
+  const value = payload[key];
+  return typeof value === 'boolean' ? value : null;
+}
+
+export function logStructuredAuditEvent(record: WireRecord): void {
+  const eventType = record.event.type || 'unknown';
+  const payloadText = JSON.stringify(record.event);
+
+  db.prepare(
+    `INSERT OR IGNORE INTO audit_events (
+      session_id, seq, event_type, timestamp, run_id, parent_run_id, payload, wire_hash, wire_prev_hash
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    record.sessionId,
+    record.seq,
+    eventType,
+    record.timestamp,
+    record.runId,
+    record.parentRunId || null,
+    payloadText,
+    record._hash,
+    record._prevHash,
+  );
+
+  if (eventType !== 'approval.response') return;
+
+  const payload = toPayloadObject(record.event);
+  const toolCallId = readPayloadStringValue(payload, 'toolCallId') || `seq:${record.seq}`;
+  const action = readPayloadStringValue(payload, 'action') || 'unknown';
+  const description = readPayloadStringValue(payload, 'description');
+  const approved = readPayloadBooleanValue(payload, 'approved') ? 1 : 0;
+  const approvedBy = readPayloadStringValue(payload, 'approvedBy');
+  const method = readPayloadStringValue(payload, 'method') || 'policy';
+  const policyName = readPayloadStringValue(payload, 'policyName');
+
+  db.prepare(
+    `INSERT INTO approvals (
+      session_id, tool_call_id, action, description, approved, approved_by, method, policy_name, timestamp
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    record.sessionId,
+    toolCallId,
+    action,
+    description,
+    approved,
+    approvedBy,
+    method,
+    policyName,
+    record.timestamp,
+  );
+}
+
+export function getRecentStructuredAudit(limit = 20): StructuredAuditEntry[] {
+  const bounded = Math.max(1, Math.min(limit, 200));
+  return db
+    .prepare('SELECT * FROM audit_events ORDER BY id DESC LIMIT ?')
+    .all(bounded) as StructuredAuditEntry[];
+}
+
+export function getRecentStructuredAuditForSession(sessionId: string, limit = 20): StructuredAuditEntry[] {
+  const bounded = Math.max(1, Math.min(limit, 200));
+  return db
+    .prepare('SELECT * FROM audit_events WHERE session_id = ? ORDER BY seq DESC LIMIT ?')
+    .all(sessionId, bounded) as StructuredAuditEntry[];
+}
+
+export function searchStructuredAudit(query: string, limit = 20): StructuredAuditEntry[] {
+  const normalized = query.trim();
+  if (!normalized) return [];
+  const bounded = Math.max(1, Math.min(limit, 200));
+  const like = `%${normalized}%`;
+  return db
+    .prepare(`
+      SELECT *
+      FROM audit_events
+      WHERE event_type LIKE ?
+        OR payload LIKE ?
+        OR session_id LIKE ?
+        OR run_id LIKE ?
+      ORDER BY id DESC
+      LIMIT ?
+    `)
+    .all(like, like, like, like, bounded) as StructuredAuditEntry[];
+}
+
+export function getRecentApprovals(limit = 20, deniedOnly = false): ApprovalAuditEntry[] {
+  const bounded = Math.max(1, Math.min(limit, 200));
+  if (deniedOnly) {
+    return db
+      .prepare('SELECT * FROM approvals WHERE approved = 0 ORDER BY id DESC LIMIT ?')
+      .all(bounded) as ApprovalAuditEntry[];
+  }
+  return db
+    .prepare('SELECT * FROM approvals ORDER BY id DESC LIMIT ?')
+    .all(bounded) as ApprovalAuditEntry[];
 }
 
 // --- Proactive Message Queue ---
