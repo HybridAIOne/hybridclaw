@@ -9,12 +9,16 @@ import {
 import { logger } from './logger.js';
 import type { ChatMessage, ContainerOutput, ScheduledTask, ToolProgressEvent } from './types.js';
 import { DockerBackend } from './backends/docker.js';
+import { SandboxServiceBackend } from './backends/sandbox-service.js';
 import type { ContainerBackend } from './backends/types.js';
 
 function createBackend(): ContainerBackend {
   const backendName = (process.env.HYBRIDCLAW_BACKEND || 'docker').toLowerCase();
   if (backendName === 'docker') {
     return new DockerBackend();
+  }
+  if (backendName === 'sandbox-service') {
+    return new SandboxServiceBackend();
   }
   logger.warn({ backend: backendName }, 'Unknown HYBRIDCLAW_BACKEND, falling back to docker');
   return new DockerBackend();
