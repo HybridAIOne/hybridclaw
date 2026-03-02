@@ -92,7 +92,7 @@ const BASE_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR
 export let DB_PATH = path.join(BASE_DATA_DIR, 'hybridclaw.db');
 export let DATA_DIR = BASE_DATA_DIR;
 
-export const IPC_MODE: 'file' | 'stdio' = (process.env.HYBRIDCLAW_IPC === 'stdio') ? 'stdio' : 'file';
+export const IPC_MODE: 'file' | 'stdio' = (process.env.HYBRIDCLAW_IPC === 'file') ? 'file' : 'stdio';
 
 export let SESSION_COMPACTION_ENABLED = true;
 export let SESSION_COMPACTION_THRESHOLD = 120;
