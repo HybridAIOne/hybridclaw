@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import readline from 'readline';
 
 import type { ContainerInput, ContainerOutput } from './types.js';
 
@@ -34,4 +35,18 @@ export async function waitForInput(idleTimeoutMs: number): Promise<ContainerInpu
 
 export function writeOutput(output: ContainerOutput): void {
   fs.writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2));
+}
+
+/**
+ * Async generator that reads NDJSON lines from stdin continuously.
+ * Used in stdio IPC mode (HYBRIDCLAW_IPC=stdio).
+ */
+export async function* readStdinRequests(): AsyncGenerator<ContainerInput> {
+  const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+  for await (const line of rl) {
+    const trimmed = line.trim();
+    if (trimmed) {
+      yield JSON.parse(trimmed) as ContainerInput;
+    }
+  }
 }

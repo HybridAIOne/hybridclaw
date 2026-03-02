@@ -1,6 +1,6 @@
 import { emitRuntimeEvent, runAfterToolHooks, runBeforeToolHooks } from './extensions.js';
 import { callHybridAI, HybridAIRequestError } from './hybridai-client.js';
-import { waitForInput, writeOutput } from './ipc.js';
+import { readStdinRequests, waitForInput, writeOutput } from './ipc.js';
 import { executeTool, getPendingSideEffects, resetSideEffects, setScheduledTasks, setSessionContext, TOOL_DEFINITIONS } from './tools.js';
 import type { ChatMessage, ContainerInput, ContainerOutput, ToolDefinition, ToolExecution } from './types.js';
 
@@ -227,65 +227,68 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
   return tools;
 }
 
-async function main(): Promise<void> {
-  console.error(`[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms`);
+const USE_STDIO_IPC = process.env.HYBRIDCLAW_IPC === 'stdio';
 
-  // First request arrives via stdin (contains apiKey — never written to disk)
+async function processAndRespond(input: ContainerInput, emitFn: (output: ContainerOutput) => void): Promise<void> {
+  const apiKey = input.apiKey || storedApiKey;
+
+  resetSideEffects();
+  setScheduledTasks(input.scheduledTasks);
+  setSessionContext(input.sessionId);
+
+  const output = await processRequest(
+    input.messages,
+    apiKey,
+    input.baseUrl,
+    input.model,
+    input.chatbotId,
+    input.enableRag,
+    resolveTools(input),
+  );
+
+  output.sideEffects = getPendingSideEffects();
+  emitFn(output);
+  console.error(`[hybridclaw-agent] request complete: ${output.status}`);
+}
+
+async function main(): Promise<void> {
+  console.error(`[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms, ipc=${USE_STDIO_IPC ? 'stdio' : 'file'}`);
+
+  // First request always arrives via stdin (contains apiKey — never written to disk)
   const stdinData = await readStdinLine();
   const firstInput: ContainerInput = JSON.parse(stdinData);
   storedApiKey = firstInput.apiKey;
 
   console.error(`[hybridclaw-agent] processing first request (${firstInput.messages.length} messages)`);
 
-  resetSideEffects();
-  setScheduledTasks(firstInput.scheduledTasks);
-  setSessionContext(firstInput.sessionId);
-
-  const firstOutput = await processRequest(
-    firstInput.messages,
-    storedApiKey,
-    firstInput.baseUrl,
-    firstInput.model,
-    firstInput.chatbotId,
-    firstInput.enableRag,
-    resolveTools(firstInput),
-  );
-
-  firstOutput.sideEffects = getPendingSideEffects();
-  writeOutput(firstOutput);
-  console.error(`[hybridclaw-agent] first request complete: ${firstOutput.status}`);
-
-  // Subsequent requests come via IPC file polling
-  while (true) {
-    const input = await waitForInput(IDLE_TIMEOUT_MS);
-
-    if (!input) {
-      console.error('[hybridclaw-agent] idle timeout, exiting');
-      process.exit(0);
-    }
-
-    // Use stored apiKey — IPC file no longer contains it
-    const apiKey = input.apiKey || storedApiKey;
-
-    console.error(`[hybridclaw-agent] processing request (${input.messages.length} messages)`);
-
-    resetSideEffects();
-    setScheduledTasks(input.scheduledTasks);
-    setSessionContext(input.sessionId);
-
-    const output = await processRequest(
-      input.messages,
-      apiKey,
-      input.baseUrl,
-      input.model,
-      input.chatbotId,
-      input.enableRag,
-      resolveTools(input),
-    );
-
-    output.sideEffects = getPendingSideEffects();
+  await processAndRespond(firstInput, (output) => {
     writeOutput(output);
-    console.error(`[hybridclaw-agent] request complete: ${output.status}`);
+  });
+
+  if (USE_STDIO_IPC) {
+    // Stdio mode: read subsequent requests as NDJSON from stdin
+    for await (const input of readStdinRequests()) {
+      console.error(`[hybridclaw-agent] processing stdin request (${input.messages.length} messages)`);
+      await processAndRespond(input, (output) => {
+        writeOutput(output);
+      });
+    }
+    console.error('[hybridclaw-agent] stdin closed, exiting');
+  } else {
+    // File IPC mode: poll for input.json
+    while (true) {
+      const input = await waitForInput(IDLE_TIMEOUT_MS);
+
+      if (!input) {
+        console.error('[hybridclaw-agent] idle timeout, exiting');
+        process.exit(0);
+      }
+
+      console.error(`[hybridclaw-agent] processing request (${input.messages.length} messages)`);
+      await processAndRespond(input, (output) => {
+        writeOutput(output);
+      });
+    }
   }
 }
 
