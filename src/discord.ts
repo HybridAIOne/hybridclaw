@@ -9,7 +9,6 @@ import { DISCORD_PREFIX, DISCORD_TOKEN } from './config.js';
 import { logger } from './logger.js';
 
 export type ReplyFn = (content: string) => Promise<void>;
-export type EditFn = (content: string) => Promise<void>;
 
 export type MessageHandler = (
   sessionId: string,
@@ -19,7 +18,6 @@ export type MessageHandler = (
   username: string,
   content: string,
   reply: ReplyFn,
-  sendWorking: () => Promise<EditFn | null>,
 ) => Promise<void>;
 
 export type CommandHandler = (
@@ -136,18 +134,7 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
         return;
       }
       if ('sendTyping' in msg.channel) await msg.channel.sendTyping();
-
-      // sendWorking: sends a "working..." placeholder message and returns an edit function
-      const sendWorking = async (): Promise<EditFn | null> => {
-        try {
-          const workingMsg = await msg.reply('_Working..._');
-          return async (text: string) => { await workingMsg.edit(text); };
-        } catch {
-          return null;
-        }
-      };
-
-      await messageHandler(sessionId, guildId, channelId, msg.author.id, msg.author.username, content, reply, sendWorking);
+      await messageHandler(sessionId, guildId, channelId, msg.author.id, msg.author.username, content, reply);
     }
   });
 
