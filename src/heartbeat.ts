@@ -38,6 +38,10 @@ const HEARTBEAT_ALLOWED_TOOLS = [
   'browser_back',
   'browser_screenshot',
   'browser_pdf',
+  'browser_vision',
+  'browser_get_images',
+  'browser_console',
+  'browser_network',
   'browser_close',
 ];
 

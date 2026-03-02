@@ -48,7 +48,14 @@ import {
   type GatewayCommandResult,
   type GatewayStatus,
 } from './gateway-types.js';
-import type { DelegationSideEffect, DelegationTaskSpec, ScheduledTask, StoredMessage, ToolProgressEvent } from './types.js';
+import type {
+  ArtifactMetadata,
+  DelegationSideEffect,
+  DelegationTaskSpec,
+  ScheduledTask,
+  StoredMessage,
+  ToolProgressEvent,
+} from './types.js';
 import { ensureBootstrapFiles } from './workspace.js';
 import { buildConversationContext } from './conversation.js';
 import { runIsolatedScheduledTask } from './scheduled-task-runner.js';
@@ -75,6 +82,10 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'browser_back',
   'browser_screenshot',
   'browser_pdf',
+  'browser_vision',
+  'browser_get_images',
+  'browser_console',
+  'browser_network',
   'browser_close',
 ];
 const ORCHESTRATOR_SUBAGENT_ALLOWED_TOOLS = [...BASE_SUBAGENT_ALLOWED_TOOLS, 'delegate'];
@@ -126,6 +137,7 @@ interface DelegationRunResult {
   toolsUsed: string[];
   result?: string;
   error?: string;
+  artifacts?: ArtifactMetadata[];
 }
 
 interface DelegationCompletionEntry {
@@ -155,8 +167,13 @@ export interface GatewayChatRequest {
   model?: GatewayChatRequestBody['model'];
   enableRag?: GatewayChatRequestBody['enableRag'];
   onToolProgress?: (event: ToolProgressEvent) => void;
-  onProactiveMessage?: (text: string) => void | Promise<void>;
+  onProactiveMessage?: (message: ProactiveMessagePayload) => void | Promise<void>;
   abortSignal?: AbortSignal;
+}
+
+export interface ProactiveMessagePayload {
+  text: string;
+  artifacts?: ArtifactMetadata[];
 }
 
 export type { GatewayChatResult, GatewayCommandRequest, GatewayCommandResult, GatewayStatus };
@@ -408,6 +425,7 @@ async function runDelegationTaskWithRetry(input: DelegationTaskRunInput): Promis
   let lastDuration = 0;
   let lastSessionId = nextDelegationSessionId(parentSessionId, childDepth);
   let lastToolsUsed: string[] = [];
+  let lastArtifacts: ArtifactMetadata[] | undefined;
 
   while (attempt < maxAttempts) {
     attempt += 1;
@@ -432,6 +450,7 @@ async function runDelegationTaskWithRetry(input: DelegationTaskRunInput): Promis
       const durationMs = Date.now() - startedAt;
       lastDuration = durationMs;
       lastToolsUsed = output.toolsUsed || [];
+      lastArtifacts = output.artifacts;
 
       if (output.status === 'success' && output.result?.trim()) {
         return {
@@ -442,6 +461,7 @@ async function runDelegationTaskWithRetry(input: DelegationTaskRunInput): Promis
           attempts: attempt,
           toolsUsed: output.toolsUsed || [],
           result: output.result.trim(),
+          artifacts: output.artifacts,
         };
       }
 
@@ -484,6 +504,7 @@ async function runDelegationTaskWithRetry(input: DelegationTaskRunInput): Promis
     attempts: attempt,
     toolsUsed: lastToolsUsed,
     error: lastError,
+    artifacts: lastArtifacts,
   };
 }
 
@@ -492,7 +513,7 @@ function formatDelegationCompletion(params: {
   label?: string;
   entries: DelegationCompletionEntry[];
   totalDurationMs: number;
-}): { forUser: string; forLLM: string } {
+}): { forUser: string; forLLM: string; artifacts?: ArtifactMetadata[] } {
   const { mode, label, entries, totalDurationMs } = params;
   const completedCount = entries.filter((entry) => entry.run.status === 'completed').length;
   const failedCount = entries.length - completedCount;
@@ -536,9 +557,22 @@ function formatDelegationCompletion(params: {
     llmLines.push('');
   }
 
+  const artifacts: ArtifactMetadata[] = [];
+  const seenArtifactKeys = new Set<string>();
+  for (const entry of entries) {
+    for (const artifact of entry.run.artifacts || []) {
+      if (!artifact?.path) continue;
+      const key = `${artifact.path}|${artifact.filename}|${artifact.mimeType}`;
+      if (seenArtifactKeys.has(key)) continue;
+      seenArtifactKeys.add(key);
+      artifacts.push(artifact);
+    }
+  }
+
   return {
     forUser: abbreviateForUser(userLines.join('\n')),
     forLLM: llmLines.join('\n').trimEnd(),
+    ...(artifacts.length > 0 ? { artifacts } : {}),
   };
 }
 
@@ -548,7 +582,8 @@ async function publishDelegationCompletion(params: {
   agentId: string;
   forLLM: string;
   forUser: string;
-  onProactiveMessage?: (text: string) => void | Promise<void>;
+  artifacts?: ArtifactMetadata[];
+  onProactiveMessage?: (message: ProactiveMessagePayload) => void | Promise<void>;
 }): Promise<void> {
   const {
     parentSessionId,
@@ -556,6 +591,7 @@ async function publishDelegationCompletion(params: {
     agentId,
     forLLM,
     forUser,
+    artifacts,
     onProactiveMessage,
   } = params;
 
@@ -570,10 +606,13 @@ async function publishDelegationCompletion(params: {
   });
 
   if (onProactiveMessage) {
-    await onProactiveMessage(forUser);
+    await onProactiveMessage({ text: forUser, artifacts });
     return;
   }
-  logger.info({ parentSessionId, message: forUser }, 'Delegation completion (no proactive channel callback)');
+  logger.info(
+    { parentSessionId, message: forUser, artifactCount: artifacts?.length || 0 },
+    'Delegation completion (no proactive channel callback)',
+  );
 }
 
 function enqueueDelegationFromSideEffect(params: {
@@ -583,7 +622,7 @@ function enqueueDelegationFromSideEffect(params: {
   chatbotId: string;
   enableRag: boolean;
   agentId: string;
-  onProactiveMessage?: (text: string) => void | Promise<void>;
+  onProactiveMessage?: (message: ProactiveMessagePayload) => void | Promise<void>;
   parentDepth: number;
 }): void {
   const {
@@ -686,6 +725,7 @@ function enqueueDelegationFromSideEffect(params: {
         agentId,
         forLLM: completion.forLLM,
         forUser: completion.forUser,
+        artifacts: completion.artifacts,
         onProactiveMessage,
       });
     },
@@ -902,6 +942,7 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
         status: 'error',
         result: null,
         toolsUsed: output.toolsUsed || [],
+        artifacts: output.artifacts,
         toolExecutions,
         error: errorMessage,
       };
@@ -966,6 +1007,7 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
       status: 'success',
       result: resultText,
       toolsUsed: output.toolsUsed || [],
+      artifacts: output.artifacts,
       toolExecutions,
     };
   } catch (err) {
@@ -1020,7 +1062,7 @@ export async function runGatewayScheduledTask(
   channelId: string,
   prompt: string,
   taskId: number,
-  onResult: (result: string) => Promise<void>,
+  onResult: (result: ProactiveMessagePayload) => Promise<void>,
   onError: (error: unknown) => void,
 ): Promise<void> {
   const session = getOrCreateSession(origSessionId, null, channelId);

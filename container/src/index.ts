@@ -1,8 +1,10 @@
+import path from 'path';
+
 import { emitRuntimeEvent, runAfterToolHooks, runBeforeToolHooks } from './extensions.js';
 import { callHybridAI, HybridAIRequestError } from './hybridai-client.js';
 import { waitForInput, writeOutput } from './ipc.js';
-import { executeTool, getPendingSideEffects, resetSideEffects, setScheduledTasks, setSessionContext, TOOL_DEFINITIONS } from './tools.js';
-import type { ChatMessage, ContainerInput, ContainerOutput, ToolDefinition, ToolExecution } from './types.js';
+import { executeTool, getPendingSideEffects, resetSideEffects, setModelContext, setScheduledTasks, setSessionContext, TOOL_DEFINITIONS } from './tools.js';
+import type { ArtifactMetadata, ChatMessage, ContainerInput, ContainerOutput, ToolDefinition, ToolExecution } from './types.js';
 
 const MAX_ITERATIONS = 20;
 const IDLE_TIMEOUT_MS = parseInt(process.env.CONTAINER_IDLE_TIMEOUT || '300000', 10); // 5 min
@@ -10,6 +12,16 @@ const RETRY_ENABLED = process.env.HYBRIDCLAW_RETRY_ENABLED !== 'false';
 const RETRY_MAX_ATTEMPTS = Math.max(1, parseInt(process.env.HYBRIDCLAW_RETRY_MAX_ATTEMPTS || '3', 10));
 const RETRY_BASE_DELAY_MS = Math.max(100, parseInt(process.env.HYBRIDCLAW_RETRY_BASE_DELAY_MS || '2000', 10));
 const RETRY_MAX_DELAY_MS = Math.max(RETRY_BASE_DELAY_MS, parseInt(process.env.HYBRIDCLAW_RETRY_MAX_DELAY_MS || '8000', 10));
+const WORKSPACE_ROOT = '/workspace';
+const ARTIFACT_MIME_TYPES: Record<string, string> = {
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+};
 
 /** API key received once via stdin, held in memory for the container lifetime. */
 let storedApiKey = '';
@@ -57,6 +69,71 @@ function isRetryableError(err: unknown): boolean {
 function inferToolError(result: string, blockedReason: string | null): boolean {
   if (blockedReason) return true;
   return /\b(error|failed|denied|forbidden|timed out|timeout|exception|invalid)\b/i.test(result);
+}
+
+function inferMimeType(filePath: string): string {
+  const ext = path.posix.extname(filePath).toLowerCase();
+  return ARTIFACT_MIME_TYPES[ext] || 'application/octet-stream';
+}
+
+function normalizeArtifactPath(rawPath: unknown): string | null {
+  const value = String(rawPath || '').trim();
+  if (!value) return null;
+  const normalized = value.replace(/\\/g, '/');
+  if (path.posix.isAbsolute(normalized)) {
+    const cleanAbs = path.posix.normalize(normalized);
+    if (cleanAbs === WORKSPACE_ROOT || cleanAbs.startsWith(`${WORKSPACE_ROOT}/`)) {
+      return cleanAbs;
+    }
+    return null;
+  }
+
+  const clean = path.posix.normalize(normalized);
+  if (clean === '..' || clean.startsWith('../')) return null;
+  return path.posix.join(WORKSPACE_ROOT, clean);
+}
+
+function extractToolArtifacts(toolName: string, result: string): ArtifactMetadata[] {
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const value = JSON.parse(result) as unknown;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      parsed = value as Record<string, unknown>;
+    }
+  } catch {
+    return [];
+  }
+
+  if (!parsed || parsed.success !== true) return [];
+  const artifacts: ArtifactMetadata[] = [];
+
+  const addArtifact = (rawPath: unknown, rawFilename?: unknown, rawMimeType?: unknown): void => {
+    const normalizedPath = normalizeArtifactPath(rawPath);
+    if (!normalizedPath) return;
+    const filename =
+      typeof rawFilename === 'string' && rawFilename.trim()
+        ? rawFilename.trim()
+        : path.posix.basename(normalizedPath);
+    const mimeType =
+      typeof rawMimeType === 'string' && rawMimeType.trim()
+        ? rawMimeType.trim()
+        : inferMimeType(filename || normalizedPath);
+    artifacts.push({ path: normalizedPath, filename, mimeType });
+  };
+
+  if (Array.isArray(parsed.artifacts)) {
+    for (const item of parsed.artifacts) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const entry = item as Record<string, unknown>;
+      addArtifact(entry.path, entry.filename, entry.mimeType);
+    }
+    if (artifacts.length > 0) return artifacts;
+  }
+
+  if (toolName === 'browser_screenshot' || toolName === 'browser_pdf') {
+    addArtifact(parsed.path);
+  }
+  return artifacts;
 }
 
 async function callHybridAIWithRetry(params: {
@@ -110,6 +187,8 @@ async function processRequest(
   const history: ChatMessage[] = [...messages];
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
+  const artifacts: ArtifactMetadata[] = [];
+  const artifactPaths = new Set<string>();
   let iterations = 0;
 
   while (iterations < MAX_ITERATIONS) {
@@ -131,6 +210,7 @@ async function processRequest(
         status: 'error',
         result: null,
         toolsUsed,
+        ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
         error: `API error: ${err instanceof Error ? err.message : String(err)}`,
       };
@@ -144,6 +224,7 @@ async function processRequest(
         status: 'error',
         result: null,
         toolsUsed,
+        ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
         error: 'No response from API',
       };
@@ -168,6 +249,7 @@ async function processRequest(
         status: 'success',
         result: choice.message.content,
         toolsUsed: [...new Set(toolsUsed)],
+        ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
       };
       await emitRuntimeEvent({ event: 'turn_end', status: completed.status, toolsUsed: completed.toolsUsed });
@@ -196,6 +278,11 @@ async function processRequest(
         blocked: Boolean(blockedReason),
         blockedReason: blockedReason || undefined,
       });
+      for (const artifact of extractToolArtifacts(toolName, result)) {
+        if (artifactPaths.has(artifact.path)) continue;
+        artifactPaths.add(artifact.path);
+        artifacts.push(artifact);
+      }
       history.push({ role: 'tool', content: result, tool_call_id: call.id });
 
       // Bail on fatal filesystem/system errors — retrying won't help
@@ -204,6 +291,7 @@ async function processRequest(
           status: 'error',
           result: null,
           toolsUsed,
+          ...(artifacts.length > 0 ? { artifacts } : {}),
           toolExecutions,
           error: result,
         };
@@ -218,6 +306,7 @@ async function processRequest(
     status: 'success',
     result: lastAssistant?.content || 'Max tool iterations reached.',
     toolsUsed: [...new Set(toolsUsed)],
+    ...(artifacts.length > 0 ? { artifacts } : {}),
     toolExecutions,
   };
   await emitRuntimeEvent({ event: 'turn_end', status: completed.status, toolsUsed: completed.toolsUsed });
@@ -249,6 +338,7 @@ async function main(): Promise<void> {
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
   setSessionContext(firstInput.sessionId);
+  setModelContext(firstInput.baseUrl, storedApiKey, firstInput.model, firstInput.chatbotId);
 
   const firstOutput = await processRequest(
     firstInput.messages,
@@ -281,6 +371,7 @@ async function main(): Promise<void> {
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
     setSessionContext(input.sessionId);
+    setModelContext(input.baseUrl, apiKey, input.model, input.chatbotId);
 
     const output = await processRequest(
       input.messages,

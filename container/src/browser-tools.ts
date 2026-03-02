@@ -22,6 +22,69 @@ const BROWSER_XDG_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'cache');
 const BROWSER_PLAYWRIGHT_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'ms-playwright');
 const BROWSER_PROFILE_ROOT = path.join(BROWSER_RUNTIME_ROOT, 'browser-profiles');
 const ENV_FALSEY = new Set(['0', 'false', 'no', 'off']);
+const BOT_DETECTION_PATTERNS = [
+  'access denied',
+  'blocked',
+  'bot detected',
+  'captcha',
+  'cloudflare',
+  'checking your browser',
+  'just a moment',
+  'verification required',
+];
+
+const EXTRACT_IMAGES_SCRIPT = `(() => {
+  const images = Array.from(document.images || []);
+  return images
+    .map((img) => ({
+      src: String(img.currentSrc || img.src || ''),
+      alt: String(img.alt || ''),
+      width: Number(img.naturalWidth || img.width || 0),
+      height: Number(img.naturalHeight || img.height || 0),
+    }))
+    .filter((img) => img.src && !img.src.startsWith('data:'));
+})()`;
+
+const EXTRACT_IFRAMES_SCRIPT = `(() => {
+  const frames = Array.from(document.querySelectorAll('iframe, frame'));
+  return frames.map((frame, index) => ({
+    index,
+    id: frame.id || null,
+    name: frame.getAttribute('name') || null,
+    title: frame.getAttribute('title') || null,
+    src: frame.getAttribute('src') || '',
+  }));
+})()`;
+
+const NETWORK_TIMINGS_SCRIPT = `(() => {
+  const entries = performance.getEntriesByType('resource');
+  return entries
+    .map((entry) => ({
+      url: String(entry.name || ''),
+      type: String(entry.initiatorType || 'other'),
+      duration: Math.round(Number(entry.duration || 0) * 100) / 100,
+      transfer_size: typeof entry.transferSize === 'number' ? entry.transferSize : null,
+      start_time: Math.round(Number(entry.startTime || 0) * 100) / 100,
+    }))
+    .filter((entry) => entry.url);
+})()`;
+
+const CLEAR_NETWORK_TIMINGS_SCRIPT = `(() => {
+  performance.clearResourceTimings();
+  return true;
+})()`;
+
+type SnapshotMode = 'default' | 'interactive' | 'full';
+type FrameTarget = {
+  raw: string;
+  isMain: boolean;
+};
+type BrowserModelContext = {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  chatbotId: string;
+};
 
 type BrowserRunner = {
   cmd: string;
@@ -39,6 +102,26 @@ type BrowserSession = {
 
 const activeSessions = new Map<string, BrowserSession>();
 let cachedRunner: BrowserRunner | null | undefined;
+let currentBrowserModelContext: BrowserModelContext = {
+  baseUrl: '',
+  apiKey: '',
+  model: '',
+  chatbotId: '',
+};
+
+export function setBrowserModelContext(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  chatbotId: string,
+): void {
+  currentBrowserModelContext = {
+    baseUrl: String(baseUrl || '').trim().replace(/\/+$/, ''),
+    apiKey: String(apiKey || '').trim(),
+    model: String(model || '').trim(),
+    chatbotId: String(chatbotId || '').trim(),
+  };
+}
 
 function normalizeSessionKey(sessionId: string): string {
   const normalized = String(sessionId || 'default')
@@ -326,6 +409,247 @@ function resolveOutputPath(rawPath: unknown, extension: 'png' | 'pdf'): string {
   return resolved;
 }
 
+function createTempScreenshotPath(prefix: string): string {
+  fs.mkdirSync(BROWSER_ARTIFACT_ROOT, { recursive: true });
+  const nonce = Math.random().toString(36).slice(2, 10);
+  return path.join(BROWSER_ARTIFACT_ROOT, `${prefix}-${Date.now()}-${nonce}.png`);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function normalizeSnapshotMode(rawMode: unknown): SnapshotMode {
+  if (rawMode == null || String(rawMode).trim() === '') return 'default';
+  const mode = String(rawMode).trim().toLowerCase();
+  if (mode === 'default' || mode === 'interactive' || mode === 'full') return mode;
+  throw new Error('mode must be one of "default", "interactive", or "full"');
+}
+
+function parseOptionalFrame(raw: unknown): FrameTarget | null {
+  if (raw == null) return null;
+  const frame = String(raw).trim();
+  if (!frame) throw new Error('frame must be a non-empty string when provided');
+  return {
+    raw: frame,
+    isMain: frame.toLowerCase() === 'main',
+  };
+}
+
+async function applyFrameTarget(sessionId: string, target: FrameTarget | null): Promise<void> {
+  if (!target) return;
+  const commandArgs = target.isMain ? ['main'] : [target.raw];
+  const frameResult = await runAgentBrowser(sessionId, 'frame', commandArgs);
+  if (!frameResult.success) {
+    throw new Error(frameResult.error || `failed to switch to frame "${target.raw}"`);
+  }
+}
+
+async function runBrowserEval(
+  sessionId: string,
+  script: string,
+  timeoutMs = 30_000,
+): Promise<{ success: boolean; result?: unknown; error?: string }> {
+  const response = await runAgentBrowser(sessionId, 'eval', [script], { timeoutMs });
+  if (!response.success) {
+    return { success: false, error: response.error || 'browser eval failed' };
+  }
+  const data = asRecord(response.data);
+  return { success: true, result: data ? data.result : undefined };
+}
+
+function normalizeFrameMetadata(raw: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(raw)) return [];
+  const frames: Record<string, unknown>[] = [];
+  for (const item of raw) {
+    const entry = asRecord(item);
+    if (!entry) continue;
+    const index = typeof entry.index === 'number' && Number.isFinite(entry.index) ? entry.index : null;
+    const id = typeof entry.id === 'string' ? entry.id : null;
+    const name = typeof entry.name === 'string' ? entry.name : null;
+    const title = typeof entry.title === 'string' ? entry.title : null;
+    const src = typeof entry.src === 'string' ? entry.src : '';
+    if (!id && !name && !title && !src) continue;
+    frames.push({ index, id, name, title, src });
+  }
+  return frames;
+}
+
+function normalizeImageList(raw: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(raw)) return [];
+  const images: Record<string, unknown>[] = [];
+  for (const item of raw) {
+    const entry = asRecord(item);
+    if (!entry) continue;
+    const src = typeof entry.src === 'string' ? entry.src : '';
+    if (!src || src.startsWith('data:')) continue;
+    const alt = typeof entry.alt === 'string' ? entry.alt : '';
+    const width = typeof entry.width === 'number' && Number.isFinite(entry.width) ? entry.width : null;
+    const height = typeof entry.height === 'number' && Number.isFinite(entry.height) ? entry.height : null;
+    images.push({ src, alt, width, height });
+  }
+  return images;
+}
+
+function normalizeTrackedRequests(raw: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(raw)) return [];
+  const requests: Record<string, unknown>[] = [];
+  for (const item of raw) {
+    const entry = asRecord(item);
+    if (!entry) continue;
+    const url = typeof entry.url === 'string' ? entry.url : '';
+    if (!url) continue;
+    const method = typeof entry.method === 'string' ? entry.method : null;
+    const type = typeof entry.resourceType === 'string' ? entry.resourceType : null;
+    const timestamp = typeof entry.timestamp === 'number' && Number.isFinite(entry.timestamp) ? entry.timestamp : null;
+    requests.push({
+      url,
+      method,
+      type,
+      status: null,
+      duration: null,
+      timestamp,
+      source: 'agent-browser',
+    });
+  }
+  return requests;
+}
+
+function normalizePerformanceRequests(raw: unknown, filter?: string): Record<string, unknown>[] {
+  if (!Array.isArray(raw)) return [];
+  const loweredFilter = (filter || '').toLowerCase();
+  const requests: Record<string, unknown>[] = [];
+  for (const item of raw) {
+    const entry = asRecord(item);
+    if (!entry) continue;
+    const url = typeof entry.url === 'string' ? entry.url : '';
+    if (!url) continue;
+    if (loweredFilter && !url.toLowerCase().includes(loweredFilter)) continue;
+    const type = typeof entry.type === 'string' ? entry.type : null;
+    const duration = typeof entry.duration === 'number' && Number.isFinite(entry.duration) ? entry.duration : null;
+    const transferSize =
+      typeof entry.transfer_size === 'number' && Number.isFinite(entry.transfer_size) ? entry.transfer_size : null;
+    const startTime = typeof entry.start_time === 'number' && Number.isFinite(entry.start_time) ? entry.start_time : null;
+    requests.push({
+      url,
+      method: 'GET',
+      type,
+      status: null,
+      duration,
+      transfer_size: transferSize,
+      start_time: startTime,
+      source: 'performance',
+    });
+  }
+  return requests;
+}
+
+function buildBotDetectionWarning(titleValue: unknown): Record<string, unknown> | null {
+  const title = String(titleValue || '').trim();
+  if (!title) return null;
+  const lower = title.toLowerCase();
+  const matched = BOT_DETECTION_PATTERNS.find((pattern) => lower.includes(pattern));
+  if (!matched) return null;
+  const hintOverride = String(process.env.BROWSER_STEALTH_HINT || '').trim();
+  const hint =
+    hintOverride ||
+    'Possible anti-bot page detected. Retry with a persisted profile, slower interaction pacing, and manual verification if prompted.';
+  return {
+    detected: true,
+    title,
+    matched_pattern: matched,
+    hint,
+  };
+}
+
+function extractVisionTextContent(content: unknown): string {
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+  const chunks: string[] = [];
+  for (const part of content) {
+    if (typeof part === 'string') {
+      if (part.trim()) chunks.push(part.trim());
+      continue;
+    }
+    const obj = asRecord(part);
+    if (!obj) continue;
+    const text = typeof obj.text === 'string' ? obj.text : '';
+    if (text.trim()) chunks.push(text.trim());
+  }
+  return chunks.join('\n').trim();
+}
+
+async function callVisionModel(question: string, imageBase64: string): Promise<{ model: string; analysis: string }> {
+  const apiKey = currentBrowserModelContext.apiKey;
+  const baseUrl = currentBrowserModelContext.baseUrl;
+  const model = currentBrowserModelContext.model;
+  const chatbotId = currentBrowserModelContext.chatbotId;
+  if (!apiKey) {
+    throw new Error('browser_vision is not configured: missing active request API key context.');
+  }
+  if (!baseUrl) {
+    throw new Error('browser_vision is not configured: missing active request base URL context.');
+  }
+  if (!model) {
+    throw new Error('browser_vision is not configured: missing active request model context.');
+  }
+  if (!chatbotId) {
+    throw new Error('browser_vision is not configured: missing active request chatbot_id context.');
+  }
+  const endpoint = `${baseUrl}/v1/chat/completions`;
+  const payload = {
+    model,
+    chatbot_id: chatbotId,
+    enable_rag: false,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: question },
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${imageBase64}` } },
+        ],
+      },
+    ],
+  };
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const bodyText = await response.text();
+  if (!response.ok) {
+    const details = bodyText.length > 600 ? `${bodyText.slice(0, 600)}...` : bodyText;
+    throw new Error(`vision API request failed (${response.status}): ${details}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bodyText);
+  } catch {
+    throw new Error('vision API returned a non-JSON response');
+  }
+
+  const record = asRecord(parsed);
+  const choices = record?.choices;
+  if (!Array.isArray(choices) || choices.length === 0) {
+    throw new Error('vision API response did not include choices');
+  }
+  const choice = asRecord(choices[0]);
+  const message = asRecord(choice?.message);
+  const analysis = extractVisionTextContent(message?.content);
+  if (!analysis) {
+    throw new Error('vision API returned an empty analysis');
+  }
+
+  return { model, analysis };
+}
+
 async function runAgentBrowser(
   sessionId: string,
   command: string,
@@ -428,52 +752,82 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
         const result = await runAgentBrowser(effectiveSessionId, 'open', [parsed.toString()], { timeoutMs: 60_000 });
         if (!result.success) return failure(result.error || 'navigation failed');
         const data = (result.data || {}) as Record<string, unknown>;
+        const title = String(data.title || '');
+        const botWarning = buildBotDetectionWarning(title);
+        // Best-effort priming so browser_network has request listeners active quickly.
+        await runAgentBrowser(effectiveSessionId, 'network', ['requests']).catch(() => undefined);
         return success({
           url: data.url || parsed.toString(),
-          title: data.title || '',
+          title,
           session_id: effectiveSessionId,
+          ...(botWarning ? { bot_detection_warning: botWarning } : {}),
         });
       }
 
       case 'browser_snapshot': {
+        const mode = normalizeSnapshotMode(args.mode);
         const full = args.full === true;
-        const commandArgs = full ? [] : ['-i', '-c'];
+        let commandArgs: string[];
+        if (mode === 'interactive') commandArgs = ['-i'];
+        else if (mode === 'full') commandArgs = [];
+        else commandArgs = full ? [] : ['-i', '-c'];
+
         const result = await runAgentBrowser(effectiveSessionId, 'snapshot', commandArgs, { timeoutMs: 45_000 });
         if (!result.success) return failure(result.error || 'snapshot failed');
         const data = (result.data || {}) as Record<string, unknown>;
         const rawSnapshot = String(data.snapshot || '');
         const truncated = truncateSnapshot(rawSnapshot);
+        const frameEval = await runBrowserEval(effectiveSessionId, EXTRACT_IFRAMES_SCRIPT, 15_000);
+        const frames = frameEval.success ? normalizeFrameMetadata(frameEval.result) : [];
         return success({
           snapshot: truncated.text,
           truncated: truncated.truncated,
           element_count:
             data.refs && typeof data.refs === 'object' ? Object.keys(data.refs as Record<string, unknown>).length : 0,
-          url: data.url || '',
+          url: data.url || data.origin || '',
+          mode,
+          ...(frames.length > 0 ? { frames, frame_count: frames.length } : {}),
         });
       }
 
       case 'browser_click': {
         const ref = ensureRef(args.ref);
+        const frame = parseOptionalFrame(args.frame);
+        await applyFrameTarget(effectiveSessionId, frame);
         const result = await runAgentBrowser(effectiveSessionId, 'click', [ref]);
         if (!result.success) return failure(result.error || `failed to click ${ref}`);
-        return success({ clicked: ref });
+        return success({
+          clicked: ref,
+          ...(frame ? { frame: frame.raw } : {}),
+        });
       }
 
       case 'browser_type': {
         const ref = ensureRef(args.ref);
         const text = String(args.text || '');
         if (!text) return failure('text is required');
+        const frame = parseOptionalFrame(args.frame);
+        await applyFrameTarget(effectiveSessionId, frame);
         const result = await runAgentBrowser(effectiveSessionId, 'fill', [ref, text]);
         if (!result.success) return failure(result.error || `failed to fill ${ref}`);
-        return success({ element: ref, typed_chars: text.length });
+        return success({
+          element: ref,
+          typed_chars: text.length,
+          ...(frame ? { frame: frame.raw } : {}),
+        });
       }
 
       case 'browser_press': {
         const key = String(args.key || '').trim();
         if (!key) return failure('key is required');
+        const frame = parseOptionalFrame(args.frame);
+        await applyFrameTarget(effectiveSessionId, frame);
         const result = await runAgentBrowser(effectiveSessionId, 'press', [key]);
         if (!result.success) return failure(result.error || `failed to press ${key}`);
-        return success({ key });
+        return success({
+          key,
+          ...(frame ? { frame: frame.raw } : {}),
+        });
       }
 
       case 'browser_scroll': {
@@ -512,6 +866,112 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
         const result = await runAgentBrowser(effectiveSessionId, 'pdf', [outPath], { timeoutMs: 60_000 });
         if (!result.success) return failure(result.error || 'failed to generate pdf');
         return success({ path: path.relative(WORKSPACE_ROOT, outPath) });
+      }
+
+      case 'browser_vision': {
+        const question = String(args.question || '').trim();
+        if (!question) return failure('question is required');
+
+        const tempPath = createTempScreenshotPath('browser-vision');
+        try {
+          const screenshotResult = await runAgentBrowser(effectiveSessionId, 'screenshot', [tempPath], {
+            timeoutMs: 60_000,
+          });
+          if (!screenshotResult.success) {
+            return failure(screenshotResult.error || 'failed to capture screenshot for vision analysis');
+          }
+
+          const imageBuffer = await fs.promises.readFile(tempPath);
+          const base64 = imageBuffer.toString('base64');
+          const vision = await callVisionModel(question, base64);
+          return success({
+            model: vision.model,
+            analysis: vision.analysis,
+          });
+        } finally {
+          await fs.promises.unlink(tempPath).catch(() => undefined);
+        }
+      }
+
+      case 'browser_get_images': {
+        const evalResult = await runBrowserEval(effectiveSessionId, EXTRACT_IMAGES_SCRIPT, 20_000);
+        if (!evalResult.success) return failure(evalResult.error || 'failed to extract images');
+        const images = normalizeImageList(evalResult.result);
+        return success({ count: images.length, images });
+      }
+
+      case 'browser_console': {
+        const clear = args.clear === true;
+        const commandArgs = clear ? ['--clear'] : [];
+        const result = await runAgentBrowser(effectiveSessionId, 'console', commandArgs, { timeoutMs: 20_000 });
+        if (!result.success) return failure(result.error || 'failed to read console logs');
+        const data = asRecord(result.data) || {};
+        if (clear) {
+          return success({ cleared: true, count: 0, messages: [] });
+        }
+        const rawMessages = Array.isArray(data.messages) ? data.messages : [];
+        const messages = rawMessages
+          .map((item) => {
+            const entry = asRecord(item);
+            if (!entry) return null;
+            const text = typeof entry.text === 'string' ? entry.text : '';
+            const level = typeof entry.type === 'string' ? entry.type : 'log';
+            const timestamp =
+              typeof entry.timestamp === 'number' && Number.isFinite(entry.timestamp) ? entry.timestamp : null;
+            if (!text) return null;
+            return { level, text, timestamp };
+          })
+          .filter((item): item is { level: string; text: string; timestamp: number | null } => item !== null);
+        return success({
+          messages,
+          count: messages.length,
+          url: data.origin || '',
+        });
+      }
+
+      case 'browser_network': {
+        const clear = args.clear === true;
+        const filter = String(args.filter || '').trim();
+        if (clear) {
+          const clearRequestsResult = await runAgentBrowser(effectiveSessionId, 'network', ['requests', '--clear'], {
+            timeoutMs: 20_000,
+          });
+          if (!clearRequestsResult.success) {
+            return failure(clearRequestsResult.error || 'failed to clear network request history');
+          }
+          await runBrowserEval(effectiveSessionId, CLEAR_NETWORK_TIMINGS_SCRIPT, 10_000).catch(() => undefined);
+          return success({ cleared: true, count: 0, requests: [] });
+        }
+
+        const networkArgs = ['requests'];
+        if (filter) networkArgs.push('--filter', filter);
+        const trackedResult = await runAgentBrowser(effectiveSessionId, 'network', networkArgs, { timeoutMs: 20_000 });
+        const trackedData = asRecord(trackedResult.data);
+        const trackedRequests = trackedResult.success ? normalizeTrackedRequests(trackedData?.requests) : [];
+
+        const timingsEval = await runBrowserEval(effectiveSessionId, NETWORK_TIMINGS_SCRIPT, 20_000);
+        const perfRequests = timingsEval.success ? normalizePerformanceRequests(timingsEval.result, filter) : [];
+
+        if (!trackedResult.success && !timingsEval.success) {
+          return failure(trackedResult.error || timingsEval.error || 'failed to read network requests');
+        }
+
+        const dedupe = new Set<string>();
+        const requests = [...trackedRequests, ...perfRequests].filter((entry) => {
+          const url = typeof entry.url === 'string' ? entry.url : '';
+          const method = typeof entry.method === 'string' ? entry.method : '';
+          const type = typeof entry.type === 'string' ? entry.type : '';
+          const key = `${method}|${type}|${url}`;
+          if (!url || dedupe.has(key)) return false;
+          dedupe.add(key);
+          return true;
+        });
+
+        return success({
+          count: requests.length,
+          requests,
+          ...(filter ? { filter } : {}),
+        });
       }
 
       case 'browser_close': {
@@ -560,6 +1020,12 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
         type: 'object',
         properties: {
           full: { type: 'boolean', description: 'If true, request fuller snapshot output (default: false).' },
+          mode: {
+            type: 'string',
+            enum: ['default', 'interactive', 'full'],
+            description:
+              'Snapshot mode. "default" keeps legacy behavior, "interactive" returns interactive refs only, "full" requests full tree.',
+          },
         },
         required: [],
       },
@@ -574,6 +1040,10 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
         type: 'object',
         properties: {
           ref: { type: 'string', description: 'Element reference from browser_snapshot.' },
+          frame: {
+            type: 'string',
+            description: 'Optional frame selector. Use "main" to target the main document again.',
+          },
         },
         required: ['ref'],
       },
@@ -589,6 +1059,10 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           ref: { type: 'string', description: 'Element reference from browser_snapshot.' },
           text: { type: 'string', description: 'Text to type.' },
+          frame: {
+            type: 'string',
+            description: 'Optional frame selector. Use "main" to target the main document again.',
+          },
         },
         required: ['ref', 'text'],
       },
@@ -603,6 +1077,10 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
         type: 'object',
         properties: {
           key: { type: 'string', description: 'Keyboard key name.' },
+          frame: {
+            type: 'string',
+            description: 'Optional frame selector. Use "main" to target the main document again.',
+          },
         },
         required: ['key'],
       },
@@ -661,6 +1139,63 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Optional relative output path under .browser-artifacts.' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_vision',
+      description:
+        'Capture a screenshot and analyze it with a vision model using the provided question.',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: 'Question to ask about the current page screenshot.' },
+        },
+        required: ['question'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_get_images',
+      description: 'Extract image URLs and alt text from the current page.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_console',
+      description: 'Return console messages captured from the current page; optionally clear them.',
+      parameters: {
+        type: 'object',
+        properties: {
+          clear: { type: 'boolean', description: 'When true, clear stored console messages before returning.' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_network',
+      description:
+        'Return recorded network requests and resource timings from the current page; optionally clear them.',
+      parameters: {
+        type: 'object',
+        properties: {
+          filter: { type: 'string', description: 'Optional URL substring filter.' },
+          clear: { type: 'boolean', description: 'When true, clear recorded network request history first.' },
         },
         required: [],
       },

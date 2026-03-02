@@ -3,6 +3,7 @@
  * Containers stay alive between requests and exit after an idle timeout.
  */
 import { ChildProcess, spawn } from 'child_process';
+import path from 'path';
 
 import {
   ADDITIONAL_MOUNTS,
@@ -22,7 +23,7 @@ import {
 import { cleanupIpc, ensureAgentDirs, ensureSessionDirs, getSessionPaths, readOutput, writeInput } from './ipc.js';
 import { logger } from './logger.js';
 import { validateAdditionalMounts } from './mount-security.js';
-import type { AdditionalMount, ChatMessage, ContainerInput, ContainerOutput, ScheduledTask, ToolProgressEvent } from './types.js';
+import type { AdditionalMount, ArtifactMetadata, ChatMessage, ContainerInput, ContainerOutput, ScheduledTask, ToolProgressEvent } from './types.js';
 
 const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
 
@@ -38,6 +39,7 @@ interface PoolEntry {
 const pool = new Map<string, PoolEntry>();
 const TOOL_RESULT_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
+const CONTAINER_WORKSPACE_ROOT = '/workspace';
 
 function emitToolProgress(entry: PoolEntry, line: string): void {
   const callback = entry.onToolProgress;
@@ -83,6 +85,52 @@ function stopContainer(containerName: string): void {
   proc.on('error', (err) => {
     logger.debug({ containerName, err }, 'Failed to stop container');
   });
+}
+
+function resolveArtifactHostPath(rawPath: string, workspacePath: string): string | null {
+  const input = String(rawPath || '').trim();
+  if (!input) return null;
+  const normalized = input.replace(/\\/g, '/');
+  const workspaceRoot = path.resolve(workspacePath);
+
+  if (path.posix.isAbsolute(normalized)) {
+    const cleanAbs = path.posix.normalize(normalized);
+    if (cleanAbs !== CONTAINER_WORKSPACE_ROOT && !cleanAbs.startsWith(`${CONTAINER_WORKSPACE_ROOT}/`)) {
+      return null;
+    }
+    const rel = cleanAbs.slice(CONTAINER_WORKSPACE_ROOT.length).replace(/^\/+/, '');
+    const resolved = path.resolve(workspaceRoot, rel);
+    if (resolved === workspaceRoot || resolved.startsWith(`${workspaceRoot}${path.sep}`)) {
+      return resolved;
+    }
+    return null;
+  }
+
+  const cleanRel = path.posix.normalize(normalized);
+  if (cleanRel === '..' || cleanRel.startsWith('../')) return null;
+  const resolved = path.resolve(workspaceRoot, cleanRel);
+  if (resolved === workspaceRoot || resolved.startsWith(`${workspaceRoot}${path.sep}`)) {
+    return resolved;
+  }
+  return null;
+}
+
+function remapOutputArtifacts(output: ContainerOutput, workspacePath: string): void {
+  if (!Array.isArray(output.artifacts) || output.artifacts.length === 0) return;
+  const mapped: ArtifactMetadata[] = [];
+  for (const artifact of output.artifacts) {
+    const raw = artifact as Partial<ArtifactMetadata>;
+    const hostPath = resolveArtifactHostPath(String(raw.path || ''), workspacePath);
+    if (!hostPath) continue;
+    const filename = String(raw.filename || '').trim() || path.basename(hostPath);
+    const mimeType = String(raw.mimeType || '').trim() || 'application/octet-stream';
+    mapped.push({ path: hostPath, filename, mimeType });
+  }
+  if (mapped.length === 0) {
+    delete output.artifacts;
+    return;
+  }
+  output.artifacts = mapped;
 }
 
 /**
@@ -211,6 +259,7 @@ export async function runContainer(
   onToolProgress?: (event: ToolProgressEvent) => void,
   abortSignal?: AbortSignal,
 ): Promise<ContainerOutput> {
+  const { workspacePath } = getSessionPaths(sessionId, agentId);
   // Enforce concurrent container limit
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
     return {
@@ -286,6 +335,7 @@ export async function runContainer(
 
     // Wait for the container to produce output
     const output = await readOutput(sessionId, CONTAINER_TIMEOUT, { signal: abortSignal });
+    remapOutputArtifacts(output, workspacePath);
     const duration = Date.now() - startTime;
 
     logger.info(

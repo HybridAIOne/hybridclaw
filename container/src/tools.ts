@@ -2,7 +2,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import { BROWSER_TOOL_DEFINITIONS, executeBrowserTool } from './browser-tools.js';
+import { BROWSER_TOOL_DEFINITIONS, executeBrowserTool, setBrowserModelContext } from './browser-tools.js';
 import type { DelegationSideEffect, DelegationTaskSpec, ScheduleSideEffect, ToolDefinition } from './types.js';
 import { webFetch } from './web-fetch.js';
 
@@ -72,6 +72,15 @@ export function setScheduledTasks(tasks: ScheduledTaskInfo[] | undefined): void 
 
 export function setSessionContext(sessionId: string): void {
   currentSessionId = String(sessionId || '');
+}
+
+export function setModelContext(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  chatbotId: string,
+): void {
+  setBrowserModelContext(baseUrl, apiKey, model, chatbotId);
 }
 
 function normalizeDelegationTask(raw: unknown, fallbackModel?: string): DelegationTaskSpec | null {
@@ -882,6 +891,10 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
       case 'browser_back':
       case 'browser_screenshot':
       case 'browser_pdf':
+      case 'browser_vision':
+      case 'browser_get_images':
+      case 'browser_console':
+      case 'browser_network':
       case 'browser_close': {
         return await executeBrowserTool(name, args, currentSessionId || 'default');
       }

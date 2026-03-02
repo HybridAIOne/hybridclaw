@@ -8,6 +8,11 @@ export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
+  artifacts?: Array<{
+    path: string;
+    filename: string;
+    mimeType: string;
+  }>;
   toolExecutions?: Array<{
     name: string;
     arguments: string;

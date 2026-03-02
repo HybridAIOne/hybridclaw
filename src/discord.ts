@@ -1,4 +1,5 @@
 import {
+  AttachmentBuilder,
   Client,
   GatewayIntentBits,
   type Message as DiscordMessage,
@@ -8,7 +9,7 @@ import {
 import { DISCORD_PREFIX, DISCORD_TOKEN } from './config.js';
 import { logger } from './logger.js';
 
-export type ReplyFn = (content: string) => Promise<void>;
+export type ReplyFn = (content: string, files?: AttachmentBuilder[]) => Promise<void>;
 
 export type MessageHandler = (
   sessionId: string,
@@ -111,8 +112,8 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
     const guildId = msg.guild?.id || null;
     const channelId = msg.channelId;
 
-    const reply: ReplyFn = async (text) => {
-      await msg.reply(text);
+    const reply: ReplyFn = async (text, files) => {
+      await msg.reply({ content: text, files: files ?? [] });
     };
 
     // Clean content (remove mention/prefix)
@@ -148,9 +149,11 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
 /**
  * Send a message to a channel by ID (used by scheduler).
  */
-export async function sendToChannel(channelId: string, text: string): Promise<void> {
+export async function sendToChannel(channelId: string, text: string, files?: AttachmentBuilder[]): Promise<void> {
   const channel = await client.channels.fetch(channelId);
   if (channel && 'send' in channel) {
-    await (channel as unknown as { send: (text: string) => Promise<void> }).send(text);
+    await (channel as unknown as {
+      send: (payload: { content: string; files?: AttachmentBuilder[] }) => Promise<void>;
+    }).send({ content: text, ...(files && files.length > 0 ? { files } : {}) });
   }
 }

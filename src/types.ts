@@ -55,10 +55,17 @@ export interface ToolProgressEvent {
   durationMs?: number;
 }
 
+export interface ArtifactMetadata {
+  path: string;
+  filename: string;
+  mimeType: string;
+}
+
 export interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
+  artifacts?: ArtifactMetadata[];
   toolExecutions?: ToolExecution[];
   error?: string;
   sideEffects?: {

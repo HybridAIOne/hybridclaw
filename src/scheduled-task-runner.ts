@@ -9,7 +9,10 @@ export async function runIsolatedScheduledTask(params: {
   chatbotId: string;
   model: string;
   agentId: string;
-  onResult: (result: string) => void | Promise<void>;
+  onResult: (result: {
+    text: string;
+    artifacts?: Array<{ path: string; filename: string; mimeType: string }>;
+  }) => void | Promise<void>;
   onError: (error: unknown) => void;
 }): Promise<void> {
   const { taskId, prompt, channelId, chatbotId, model, agentId, onResult, onError } = params;
@@ -63,7 +66,10 @@ export async function runIsolatedScheduledTask(params: {
     });
 
     if (output.status === 'success' && output.result) {
-      await onResult(output.result);
+      await onResult({
+        text: output.result,
+        artifacts: output.artifacts,
+      });
       recordAuditEvent({
         sessionId: cronSessionId,
         runId,

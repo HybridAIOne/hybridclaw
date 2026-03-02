@@ -1,3 +1,7 @@
+import fs from 'fs';
+
+import { AttachmentBuilder } from 'discord.js';
+
 import {
   DISCORD_TOKEN,
   HEARTBEAT_CHANNEL,
@@ -35,6 +39,7 @@ import {
   type ReplyFn,
 } from './discord.js';
 import { isWithinActiveHours, proactiveWindowLabel } from './proactive-policy.js';
+import type { ArtifactMetadata } from './types.js';
 
 let detachConfigListener: (() => void) | null = null;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
@@ -45,33 +50,73 @@ function isDiscordChannelId(channelId: string): boolean {
   return /^\d{16,22}$/.test(channelId);
 }
 
-async function deliverProactiveMessage(channelId: string, text: string, source: string): Promise<void> {
+function buildArtifactAttachments(
+  artifacts?: ArtifactMetadata[],
+): AttachmentBuilder[] {
+  if (!artifacts || artifacts.length === 0) return [];
+  const attachments: AttachmentBuilder[] = [];
+  for (const artifact of artifacts) {
+    try {
+      const content = fs.readFileSync(artifact.path);
+      attachments.push(new AttachmentBuilder(content, { name: artifact.filename }));
+    } catch (error) {
+      logger.warn({ artifactPath: artifact.path, error }, 'Failed to read artifact for Discord attachment');
+    }
+  }
+  return attachments;
+}
+
+async function deliverProactiveMessage(
+  channelId: string,
+  text: string,
+  source: string,
+  artifacts?: ArtifactMetadata[],
+): Promise<void> {
   if (!isWithinActiveHours()) {
     if (PROACTIVE_QUEUE_OUTSIDE_HOURS) {
       const { queued, dropped } = enqueueProactiveMessage(channelId, text, source, MAX_QUEUED_PROACTIVE_MESSAGES);
       logger.info(
-        { source, channelId, queued, dropped, activeHours: proactiveWindowLabel() },
+        {
+          source,
+          channelId,
+          queued,
+          dropped,
+          artifactCount: artifacts?.length || 0,
+          activeHours: proactiveWindowLabel(),
+        },
         'Proactive message queued (outside active hours)',
       );
+      if (artifacts && artifacts.length > 0) {
+        logger.warn(
+          { source, channelId, artifactCount: artifacts.length },
+          'Queued proactive message does not persist attachments; only text was queued',
+        );
+      }
       return;
     }
     logger.info({ source, channelId, activeHours: proactiveWindowLabel() }, 'Proactive message suppressed (outside active hours)');
     return;
   }
 
-  await sendProactiveMessageNow(channelId, text, source);
+  await sendProactiveMessageNow(channelId, text, source, artifacts);
 }
 
-async function sendProactiveMessageNow(channelId: string, text: string, source: string): Promise<void> {
+async function sendProactiveMessageNow(
+  channelId: string,
+  text: string,
+  source: string,
+  artifacts?: ArtifactMetadata[],
+): Promise<void> {
+  const attachments = buildArtifactAttachments(artifacts);
   if (!DISCORD_TOKEN || !isDiscordChannelId(channelId)) {
-    logger.info({ source, channelId, text }, 'Proactive message (no Discord delivery)');
+    logger.info({ source, channelId, text, artifactCount: attachments.length }, 'Proactive message (no Discord delivery)');
     return;
   }
 
   try {
-    await sendToChannel(channelId, text);
+    await sendToChannel(channelId, text, attachments);
   } catch (error) {
-    logger.warn({ source, channelId, error }, 'Failed to send proactive message to Discord channel');
+    logger.warn({ source, channelId, error, artifactCount: attachments.length }, 'Failed to send proactive message to Discord channel');
     logger.info({ source, channelId, text }, 'Proactive message fallback');
   }
 }
@@ -116,15 +161,16 @@ async function startDiscordIntegration(): Promise<void> {
           userId,
           username,
           content,
-          onProactiveMessage: async (messageText) => {
-            await deliverProactiveMessage(channelId, messageText, 'delegate');
+          onProactiveMessage: async (message) => {
+            await deliverProactiveMessage(channelId, message.text, 'delegate', message.artifacts);
           },
         });
         if (result.status === 'error') {
           await reply(formatError('Agent Error', result.error || 'Unknown error'));
           return;
         }
-        await reply(buildResponseText(result.result || 'No response from agent.', result.toolsUsed));
+        const attachments = buildArtifactAttachments(result.artifacts);
+        await reply(buildResponseText(result.result || 'No response from agent.', result.toolsUsed), attachments);
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
         logger.error({ error, sessionId, channelId }, 'Discord message handling failed');
@@ -197,8 +243,11 @@ async function runScheduledTask(
     prompt,
     taskId,
     async (result) => {
-      await deliverProactiveMessage(channelId, result, `schedule:${taskId}`);
-      logger.info({ taskId, channelId, result }, 'Scheduled task completed');
+      await deliverProactiveMessage(channelId, result.text, `schedule:${taskId}`, result.artifacts);
+      logger.info(
+        { taskId, channelId, result: result.text, artifactCount: result.artifacts?.length || 0 },
+        'Scheduled task completed',
+      );
     },
     (error) => {
       logger.error({ taskId, channelId, error }, 'Scheduled task failed');
