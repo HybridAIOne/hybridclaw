@@ -2,10 +2,7 @@
  * Container Runner — thin shim that delegates to the active ContainerBackend.
  * Backend is selected via HYBRIDCLAW_BACKEND env var (default: 'docker').
  */
-import {
-  HYBRIDAI_MODEL,
-  MAX_CONCURRENT_CONTAINERS,
-} from './config.js';
+import { HYBRIDAI_MODEL } from './config.js';
 import { logger } from './logger.js';
 import type { ChatMessage, ContainerOutput, ScheduledTask, ToolProgressEvent } from './types.js';
 import { DockerBackend } from './backends/docker.js';

@@ -6,8 +6,6 @@
  *   HYBRIDCLAW_SANDBOX_URL   — base URL of the sandbox-service (e.g. http://localhost:8080)
  *   HYBRIDCLAW_SANDBOX_TOKEN — Bearer token for authentication (optional)
  */
-import readline from 'readline';
-
 import { logger } from '../logger.js';
 import type { ChatMessage, ContainerInput, ContainerOutput, ScheduledTask, ToolProgressEvent } from '../types.js';
 import {
