@@ -85,8 +85,12 @@ export let HEALTH_PORT = 9090;
 export let WEB_API_TOKEN = '';
 export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
 export let GATEWAY_API_TOKEN = '';
-export let DB_PATH = 'data/hybridclaw.db';
-export let DATA_DIR = path.dirname(DB_PATH);
+
+const BASE_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR
+  ? path.resolve(process.env.HYBRIDCLAW_DATA_DIR)
+  : path.join(process.cwd(), 'data');
+export let DB_PATH = path.join(BASE_DATA_DIR, 'hybridclaw.db');
+export let DATA_DIR = BASE_DATA_DIR;
 
 export let SESSION_COMPACTION_ENABLED = true;
 export let SESSION_COMPACTION_THRESHOLD = 120;
