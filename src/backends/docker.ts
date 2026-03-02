@@ -8,6 +8,7 @@ import {
   CONTAINER_TIMEOUT,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
+  IPC_MODE,
   MAX_CONCURRENT_CONTAINERS,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
   PROACTIVE_AUTO_RETRY_ENABLED,
@@ -16,7 +17,7 @@ import {
   getHybridAIApiKey,
 } from '../config.js';
 import { trackContainerInstance, untrackContainerInstance } from '../db.js';
-import { cleanupIpc, ensureAgentDirs, ensureSessionDirs, getSessionPaths, readOutput, writeInput } from '../ipc.js';
+import { cleanupIpc, ensureAgentDirs, ensureSessionDirs, getSessionPaths, readOutput, readStdioOutput, writeInput } from '../ipc.js';
 import { logger } from '../logger.js';
 import { validateAdditionalMounts } from '../mount-security.js';
 import type { AdditionalMount, ChatMessage, ContainerInput, ContainerOutput, ScheduledTask, ToolProgressEvent } from '../types.js';
@@ -111,6 +112,8 @@ export class DockerBackend implements ContainerBackend {
     const { ipcPath, workspacePath } = getSessionPaths(sessionId, agentId);
     const containerName = `hybridclaw-${sessionId.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
 
+    const useStdio = IPC_MODE === 'stdio';
+
     const args = [
       'run',
       '--rm',
@@ -121,7 +124,7 @@ export class DockerBackend implements ContainerBackend {
       '--read-only',
       '--tmpfs', '/tmp',
       '-v', `${workspacePath}:/workspace:rw`,
-      '-v', `${ipcPath}:/ipc:rw`,
+      ...(useStdio ? [] : ['-v', `${ipcPath}:/ipc:rw`]),
       '-e', `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
       '-e', `HYBRIDAI_MODEL=${HYBRIDAI_MODEL}`,
       '-e', `CONTAINER_IDLE_TIMEOUT=${300_000}`,
@@ -130,6 +133,7 @@ export class DockerBackend implements ContainerBackend {
       '-e', `HYBRIDCLAW_RETRY_BASE_DELAY_MS=${PROACTIVE_AUTO_RETRY_BASE_DELAY_MS}`,
       '-e', `HYBRIDCLAW_RETRY_MAX_DELAY_MS=${PROACTIVE_AUTO_RETRY_MAX_DELAY_MS}`,
       '-e', 'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
+      ...(useStdio ? ['-e', 'HYBRIDCLAW_IPC=stdio'] : []),
     ];
 
     const hostUid = process.getuid?.();
@@ -280,22 +284,39 @@ export class DockerBackend implements ContainerBackend {
       if (abortSignal.aborted) onAbort();
     }
 
+    const useStdio = IPC_MODE === 'stdio';
+
     try {
-      if (isNewContainer) {
+      if (useStdio) {
+        // Stdio mode: all requests go as NDJSON lines to stdin; result comes from stdout
         entry.process.stdin?.write(JSON.stringify(input) + '\n');
+        const output = await readStdioOutput(entry.process, CONTAINER_TIMEOUT, {
+          signal: abortSignal,
+          onToolProgress,
+          sessionId,
+        });
+        const duration = Date.now() - startTime;
+        logger.info(
+          { sessionId, containerName: entry.containerName, duration, status: output.status, toolsUsed: output.toolsUsed },
+          'Request completed (stdio)',
+        );
+        return output;
       } else {
-        writeInput(sessionId, input, { omitApiKey: true });
+        // File IPC mode: first request via stdin, subsequent via input.json
+        if (isNewContainer) {
+          entry.process.stdin?.write(JSON.stringify(input) + '\n');
+        } else {
+          writeInput(sessionId, input, { omitApiKey: true });
+        }
+
+        const output = await readOutput(sessionId, CONTAINER_TIMEOUT, { signal: abortSignal });
+        const duration = Date.now() - startTime;
+        logger.info(
+          { sessionId, containerName: entry.containerName, duration, status: output.status, toolsUsed: output.toolsUsed },
+          'Request completed',
+        );
+        return output;
       }
-
-      const output = await readOutput(sessionId, CONTAINER_TIMEOUT, { signal: abortSignal });
-      const duration = Date.now() - startTime;
-
-      logger.info(
-        { sessionId, containerName: entry.containerName, duration, status: output.status, toolsUsed: output.toolsUsed },
-        'Request completed',
-      );
-
-      return output;
     } finally {
       abortSignal?.removeEventListener('abort', onAbort);
       if (entry.onToolProgress === onToolProgress) {
