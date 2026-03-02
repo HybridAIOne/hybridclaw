@@ -334,12 +334,17 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
   if (env.HYBRIDAI_MODELS != null) hybridai.models = env.HYBRIDAI_MODELS;
 
   if (env.CONTAINER_IMAGE != null) container.image = env.CONTAINER_IMAGE;
+  if (env.HYBRIDCLAW_CONTAINER_IMAGE != null) container.image = env.HYBRIDCLAW_CONTAINER_IMAGE;
   if (env.CONTAINER_MEMORY != null) container.memory = env.CONTAINER_MEMORY;
+  if (env.HYBRIDCLAW_CONTAINER_MEMORY != null) container.memory = env.HYBRIDCLAW_CONTAINER_MEMORY;
   if (env.CONTAINER_CPUS != null) container.cpus = env.CONTAINER_CPUS;
+  if (env.HYBRIDCLAW_CONTAINER_CPUS != null) container.cpus = env.HYBRIDCLAW_CONTAINER_CPUS;
   if (env.CONTAINER_TIMEOUT != null) container.timeoutMs = env.CONTAINER_TIMEOUT;
+  if (env.HYBRIDCLAW_CONTAINER_TIMEOUT_MS != null) container.timeoutMs = env.HYBRIDCLAW_CONTAINER_TIMEOUT_MS;
   if (env.ADDITIONAL_MOUNTS != null) container.additionalMounts = env.ADDITIONAL_MOUNTS;
   if (env.CONTAINER_MAX_OUTPUT_SIZE != null) container.maxOutputBytes = env.CONTAINER_MAX_OUTPUT_SIZE;
   if (env.MAX_CONCURRENT_CONTAINERS != null) container.maxConcurrent = env.MAX_CONCURRENT_CONTAINERS;
+  if (env.HYBRIDCLAW_CONTAINER_MAX != null) container.maxConcurrent = env.HYBRIDCLAW_CONTAINER_MAX;
 
   if (env.HEARTBEAT_ENABLED != null) heartbeat.enabled = env.HEARTBEAT_ENABLED;
   if (env.HEARTBEAT_INTERVAL != null) heartbeat.intervalMs = env.HEARTBEAT_INTERVAL;
@@ -347,9 +352,11 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
 
   if (env.HEALTH_HOST != null) ops.healthHost = env.HEALTH_HOST;
   if (env.HEALTH_PORT != null) ops.healthPort = env.HEALTH_PORT;
+  if (env.HYBRIDCLAW_HEALTH_PORT != null) ops.healthPort = env.HYBRIDCLAW_HEALTH_PORT;
   if (env.GATEWAY_BASE_URL != null) ops.gatewayBaseUrl = env.GATEWAY_BASE_URL;
   if (env.DB_PATH != null) ops.dbPath = env.DB_PATH;
   if (env.LOG_LEVEL != null) ops.logLevel = env.LOG_LEVEL;
+  if (env.HYBRIDCLAW_LOG_LEVEL != null) ops.logLevel = env.HYBRIDCLAW_LOG_LEVEL;
 
   if (env.SESSION_COMPACTION_ENABLED != null) sessionCompaction.enabled = env.SESSION_COMPACTION_ENABLED;
   if (env.SESSION_COMPACTION_THRESHOLD != null) sessionCompaction.threshold = env.SESSION_COMPACTION_THRESHOLD;
