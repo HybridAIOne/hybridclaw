@@ -107,6 +107,9 @@ export function initDatabase(): void {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = NORMAL');   // safe with WAL, faster than FULL
+  db.pragma('cache_size = -64000');    // 64 MB page cache
+  db.pragma('temp_store = MEMORY');    // temp tables in memory
   createSchema(db);
   migrateSchema(db);
   logger.info({ path: dbPath }, 'Database initialized');
