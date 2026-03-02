@@ -1,6 +1,6 @@
 import { emitRuntimeEvent, runAfterToolHooks, runBeforeToolHooks } from './extensions.js';
 import { callHybridAI, HybridAIRequestError } from './hybridai-client.js';
-import { readStdinRequests, waitForInput, writeOutput } from './ipc.js';
+import { emitStdioEvent, readStdinRequests, waitForInput, writeOutput } from './ipc.js';
 import { executeTool, getPendingSideEffects, resetSideEffects, setScheduledTasks, setSessionContext, TOOL_DEFINITIONS } from './tools.js';
 import type { ChatMessage, ContainerInput, ContainerOutput, ToolDefinition, ToolExecution } from './types.js';
 
@@ -173,6 +173,9 @@ async function processRequest(
       const toolName = call.function.name;
       toolsUsed.push(toolName);
       console.error(`[tool] ${toolName}: ${call.function.arguments.slice(0, 100)}`);
+      if (USE_STDIO_IPC) {
+        emitStdioEvent({ type: 'tool_start', name: toolName, args: call.function.arguments.slice(0, 100) });
+      }
       const toolStart = Date.now();
       const blockedReason = await runBeforeToolHooks(toolName, call.function.arguments);
       const result = blockedReason
@@ -181,6 +184,9 @@ async function processRequest(
       const toolDuration = Date.now() - toolStart;
       await runAfterToolHooks(toolName, call.function.arguments, result);
       console.error(`[tool] ${toolName} result (${toolDuration}ms): ${result.slice(0, 100)}`);
+      if (USE_STDIO_IPC) {
+        emitStdioEvent({ type: 'tool_finish', name: toolName, durationMs: toolDuration, preview: result.slice(0, 100) });
+      }
       toolExecutions.push({
         name: toolName,
         arguments: call.function.arguments,
@@ -229,6 +235,14 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
 
 const USE_STDIO_IPC = process.env.HYBRIDCLAW_IPC === 'stdio';
 
+function defaultEmitOutput(output: ContainerOutput): void {
+  if (USE_STDIO_IPC) {
+    emitStdioEvent({ type: 'result', status: output.status, result: output.result, toolsUsed: output.toolsUsed, error: output.error });
+  } else {
+    writeOutput(output);
+  }
+}
+
 async function processAndRespond(input: ContainerInput, emitFn: (output: ContainerOutput) => void): Promise<void> {
   const apiKey = input.apiKey || storedApiKey;
 
@@ -261,17 +275,13 @@ async function main(): Promise<void> {
 
   console.error(`[hybridclaw-agent] processing first request (${firstInput.messages.length} messages)`);
 
-  await processAndRespond(firstInput, (output) => {
-    writeOutput(output);
-  });
+  await processAndRespond(firstInput, defaultEmitOutput);
 
   if (USE_STDIO_IPC) {
     // Stdio mode: read subsequent requests as NDJSON from stdin
     for await (const input of readStdinRequests()) {
       console.error(`[hybridclaw-agent] processing stdin request (${input.messages.length} messages)`);
-      await processAndRespond(input, (output) => {
-        writeOutput(output);
-      });
+      await processAndRespond(input, defaultEmitOutput);
     }
     console.error('[hybridclaw-agent] stdin closed, exiting');
   } else {
@@ -285,20 +295,23 @@ async function main(): Promise<void> {
       }
 
       console.error(`[hybridclaw-agent] processing request (${input.messages.length} messages)`);
-      await processAndRespond(input, (output) => {
-        writeOutput(output);
-      });
+      await processAndRespond(input, defaultEmitOutput);
     }
   }
 }
 
 main().catch((err) => {
   console.error('Container agent fatal error:', err);
-  writeOutput({
-    status: 'error',
+  const fatalOutput = {
+    status: 'error' as const,
     result: null,
     toolsUsed: [],
     error: `Unhandled error: ${err instanceof Error ? err.message : String(err)}`,
-  });
+  };
+  if (USE_STDIO_IPC) {
+    emitStdioEvent({ type: 'result', ...fatalOutput });
+  } else {
+    writeOutput(fatalOutput);
+  }
   process.exit(1);
 });

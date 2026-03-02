@@ -38,6 +38,14 @@ export function writeOutput(output: ContainerOutput): void {
 }
 
 /**
+ * Emit a typed NDJSON event to stdout.
+ * Used in stdio IPC mode (HYBRIDCLAW_IPC=stdio).
+ */
+export function emitStdioEvent(event: Record<string, unknown>): void {
+  process.stdout.write(JSON.stringify(event) + '\n');
+}
+
+/**
  * Async generator that reads NDJSON lines from stdin continuously.
  * Used in stdio IPC mode (HYBRIDCLAW_IPC=stdio).
  */
