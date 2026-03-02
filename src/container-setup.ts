@@ -220,6 +220,16 @@ export async function ensureContainerImageReady(options: EnsureContainerImageOpt
     'Run `npm run build:container` in the project root to build it.',
   ].join(' ');
 
+  // In non-interactive mode (CI/production), never attempt a runtime build.
+  if (!process.stdin.isTTY) {
+    if (!exists) {
+      throw new Error(
+        `Container image '${imageName}' not found. Build it with: npm run build:container`,
+      );
+    }
+    return; // skip stale-check in non-interactive mode
+  }
+
   if (!exists) {
     await buildAndValidateImage({
       commandName,
