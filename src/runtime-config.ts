@@ -144,7 +144,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     webApiToken: '',
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     gatewayApiToken: '',
-    dbPath: 'data/hybridclaw.db',
+    dbPath: path.join(DEFAULT_DATA_DIR, 'hybridclaw.db'),
     logLevel: 'info',
   },
   sessionCompaction: {
@@ -187,7 +187,13 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
 };
 
-const CONFIG_PATH = path.join(process.cwd(), CONFIG_FILE_NAME);
+const CONFIG_PATH = process.env.HYBRIDCLAW_CONFIG_PATH
+  ? path.resolve(process.env.HYBRIDCLAW_CONFIG_PATH)
+  : path.join(process.cwd(), CONFIG_FILE_NAME);
+
+const DEFAULT_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR
+  ? path.resolve(process.env.HYBRIDCLAW_DATA_DIR)
+  : path.join(process.cwd(), 'data');
 
 let currentConfig: RuntimeConfig = cloneConfig(DEFAULT_RUNTIME_CONFIG);
 let configWatcher: fs.FSWatcher | null = null;
