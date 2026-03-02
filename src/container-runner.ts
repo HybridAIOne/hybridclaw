@@ -19,6 +19,7 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   getHybridAIApiKey,
 } from './config.js';
+import { trackContainerInstance, untrackContainerInstance } from './db.js';
 import { cleanupIpc, ensureAgentDirs, ensureSessionDirs, getSessionPaths, readOutput, writeInput } from './ipc.js';
 import { logger } from './logger.js';
 import { validateAdditionalMounts } from './mount-security.js';
@@ -183,6 +184,7 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
       entry.stderrBuffer = '';
     }
     pool.delete(sessionId);
+    untrackContainerInstance(sessionId);
     logger.info({ sessionId, containerName, code }, 'Container exited');
   });
 
@@ -192,6 +194,7 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
   });
 
   pool.set(sessionId, entry);
+  trackContainerInstance(sessionId, containerName);
   return entry;
 }
 
