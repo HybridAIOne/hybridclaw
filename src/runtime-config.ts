@@ -139,7 +139,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     channel: '',
   },
   ops: {
-    healthHost: '127.0.0.1',
+    healthHost: '0.0.0.0',
     healthPort: 9090,
     webApiToken: '',
     gatewayBaseUrl: 'http://127.0.0.1:9090',

@@ -80,7 +80,7 @@ export let HEARTBEAT_ENABLED = true;
 export let HEARTBEAT_INTERVAL = 1_800_000;
 export let HEARTBEAT_CHANNEL = '';
 
-export let HEALTH_HOST = '127.0.0.1';
+export let HEALTH_HOST = '0.0.0.0';
 export let HEALTH_PORT = 9090;
 export let WEB_API_TOKEN = '';
 export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
