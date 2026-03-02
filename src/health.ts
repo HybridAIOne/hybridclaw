@@ -203,6 +203,19 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
   sendJson(res, 200, { sessionId, history });
 }
 
+let inflightRequests = 0;
+let acceptingRequests = true;
+let httpServer: http.Server | null = null;
+
+export function stopAcceptingRequests(): void {
+  acceptingRequests = false;
+  httpServer?.close();
+}
+
+export function getInflightCount(): number {
+  return inflightRequests;
+}
+
 export function startHealthServer(): void {
   const server = http.createServer((req, res) => {
     const method = req.method || 'GET';
@@ -231,7 +244,16 @@ export function startHealthServer(): void {
             return;
           }
           if (pathname === '/api/chat' && method === 'POST') {
-            await handleApiChat(req, res);
+            if (!acceptingRequests) {
+              sendJson(res, 503, { error: 'Server is shutting down.' });
+              return;
+            }
+            inflightRequests++;
+            try {
+              await handleApiChat(req, res);
+            } finally {
+              inflightRequests--;
+            }
             return;
           }
           if (pathname === '/api/command' && method === 'POST') {
@@ -254,4 +276,5 @@ export function startHealthServer(): void {
   server.listen(HEALTH_PORT, HEALTH_HOST, () => {
     logger.info({ host: HEALTH_HOST, port: HEALTH_PORT }, 'Gateway HTTP server started');
   });
+  httpServer = server;
 }

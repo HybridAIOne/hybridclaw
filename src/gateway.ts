@@ -7,6 +7,7 @@ import {
   onConfigChange,
 } from './config.js';
 import { stopAllContainers } from './container-runner.js';
+import { closeDatabase } from './db.js';
 import {
   deleteQueuedProactiveMessage,
   enqueueProactiveMessage,
@@ -21,7 +22,7 @@ import {
   renderGatewayCommand,
   runGatewayScheduledTask,
 } from './gateway-service.js';
-import { startHealthServer } from './health.js';
+import { getInflightCount, startHealthServer, stopAcceptingRequests } from './health.js';
 import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
 import { logger } from './logger.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
@@ -163,24 +164,47 @@ async function startDiscordIntegration(): Promise<void> {
   logger.info('Discord integration started inside gateway');
 }
 
+const DRAIN_TIMEOUT_MS = 10_000;
+
+async function gracefulShutdown(signal: string): Promise<void> {
+  logger.info({ signal }, 'Shutdown signal received');
+
+  if (detachConfigListener) {
+    detachConfigListener();
+    detachConfigListener = null;
+  }
+  if (proactiveFlushTimer) {
+    clearInterval(proactiveFlushTimer);
+    proactiveFlushTimer = null;
+  }
+
+  stopAcceptingRequests();
+  stopHeartbeat();
+  stopScheduler();
+
+  // Drain in-flight requests
+  const deadline = Date.now() + DRAIN_TIMEOUT_MS;
+  while (getInflightCount() > 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (getInflightCount() > 0) {
+    logger.warn({ inflight: getInflightCount() }, 'Drain timeout reached, forcing shutdown');
+  }
+
+  stopAllContainers();
+  closeDatabase();
+  process.exit(0);
+}
+
 function setupShutdown(): void {
-  const shutdown = () => {
-    logger.info('Shutting down gateway...');
-    if (detachConfigListener) {
-      detachConfigListener();
-      detachConfigListener = null;
-    }
-    stopHeartbeat();
-    stopAllContainers();
-    stopScheduler();
-    if (proactiveFlushTimer) {
-      clearInterval(proactiveFlushTimer);
-      proactiveFlushTimer = null;
-    }
-    process.exit(0);
+  const handler = (signal: string) => {
+    void gracefulShutdown(signal).catch((err) => {
+      logger.error({ err }, 'Shutdown error');
+      process.exit(1);
+    });
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => handler('SIGINT'));
+  process.on('SIGTERM', () => handler('SIGTERM'));
 }
 
 async function runScheduledTask(
