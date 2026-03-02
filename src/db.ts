@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
+import { spawn } from 'child_process';
 
 import { DB_PATH } from './config.js';
 import { logger } from './logger.js';
@@ -67,6 +68,12 @@ function createSchema(database: Database.Database): void {
       queued_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_proactive_queue_id ON proactive_message_queue(id);
+
+    CREATE TABLE IF NOT EXISTS container_instances (
+      session_id     TEXT PRIMARY KEY,
+      container_name TEXT NOT NULL,
+      started_at     TEXT NOT NULL
+    );
   `);
 }
 
@@ -112,6 +119,7 @@ export function initDatabase(): void {
   db.pragma('temp_store = MEMORY');    // temp tables in memory
   createSchema(db);
   migrateSchema(db);
+  cleanupOrphanedContainers();
   logger.info({ path: dbPath }, 'Database initialized');
 }
 
@@ -360,4 +368,33 @@ export function getQueuedProactiveMessageCount(): number {
     .prepare('SELECT COUNT(*) as count FROM proactive_message_queue')
     .get() as { count: number };
   return row.count;
+}
+
+// --- Container Instances ---
+
+export function trackContainerInstance(sessionId: string, containerName: string): void {
+  db.prepare(
+    'INSERT OR REPLACE INTO container_instances (session_id, container_name, started_at) VALUES (?, ?, datetime(\'now\'))',
+  ).run(sessionId, containerName);
+}
+
+export function untrackContainerInstance(sessionId: string): void {
+  db.prepare('DELETE FROM container_instances WHERE session_id = ?').run(sessionId);
+}
+
+function cleanupOrphanedContainers(): void {
+  const rows = db
+    .prepare('SELECT container_name FROM container_instances')
+    .all() as Array<{ container_name: string }>;
+
+  if (rows.length === 0) return;
+
+  logger.info({ count: rows.length }, 'Stopping orphaned containers from previous run');
+  for (const row of rows) {
+    const proc = spawn('docker', ['stop', row.container_name], { stdio: 'ignore' });
+    proc.on('error', () => {
+      // Best-effort; container may already be gone
+    });
+  }
+  db.prepare('DELETE FROM container_instances').run();
 }
