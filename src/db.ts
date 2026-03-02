@@ -109,6 +109,12 @@ function migrateSchema(database: Database.Database): void {
   }
 }
 
+export function closeDatabase(): void {
+  if (db) {
+    db.close();
+  }
+}
+
 export function initDatabase(): void {
   const dbPath = path.resolve(DB_PATH);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
