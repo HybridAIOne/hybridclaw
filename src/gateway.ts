@@ -32,8 +32,10 @@ import {
   formatInfo,
   initDiscord,
   sendToChannel,
+  type EditFn,
   type ReplyFn,
 } from './discord.js';
+import type { ToolProgressEvent } from './types.js';
 import { isWithinActiveHours, proactiveWindowLabel } from './proactive-policy.js';
 
 let detachConfigListener: (() => void) | null = null;
@@ -107,7 +109,26 @@ async function startDiscordIntegration(): Promise<void> {
       username: string,
       content: string,
       reply: ReplyFn,
+      sendWorking: () => Promise<EditFn | null>,
     ) => {
+      let editWorking: EditFn | null = null;
+      const activeTools: string[] = [];
+
+      // Send "working..." placeholder immediately so user sees feedback
+      editWorking = await sendWorking();
+
+      const onToolProgress = editWorking
+        ? (event: ToolProgressEvent): void => {
+            if (event.phase === 'start') {
+              activeTools.push(event.toolName);
+              const toolsText = activeTools.join(', ');
+              editWorking!(`_Working... (${toolsText})_`).catch(() => {
+                editWorking = null;
+              });
+            }
+          }
+        : undefined;
+
       try {
         const result = await handleGatewayMessage({
           sessionId,
@@ -116,19 +137,30 @@ async function startDiscordIntegration(): Promise<void> {
           userId,
           username,
           content,
+          onToolProgress,
           onProactiveMessage: async (messageText) => {
             await deliverProactiveMessage(channelId, messageText, 'delegate');
           },
         });
-        if (result.status === 'error') {
-          await reply(formatError('Agent Error', result.error || 'Unknown error'));
-          return;
+        const responseText = result.status === 'error'
+          ? formatError('Agent Error', result.error || 'Unknown error')
+          : buildResponseText(result.result || 'No response from agent.', result.toolsUsed);
+
+        if (editWorking) {
+          // Edit the working message with the final response
+          await editWorking(responseText);
+        } else {
+          await reply(responseText);
         }
-        await reply(buildResponseText(result.result || 'No response from agent.', result.toolsUsed));
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
         logger.error({ error, sessionId, channelId }, 'Discord message handling failed');
-        await reply(formatError('Gateway Error', text));
+        const errorText = formatError('Gateway Error', text);
+        if (editWorking) {
+          await editWorking(errorText);
+        } else {
+          await reply(errorText);
+        }
       }
     },
     async (
