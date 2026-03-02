@@ -2,7 +2,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import readline from 'readline/promises';
 
 import { ensureHybridAICredentials } from './onboarding.js';
@@ -193,6 +193,7 @@ function printGatewayUsage(): void {
 Commands:
   hybridclaw gateway
   hybridclaw gateway start [--foreground]
+  hybridclaw gateway restart [--foreground]
   hybridclaw gateway stop
   hybridclaw gateway status
   hybridclaw gateway sessions
@@ -333,6 +334,83 @@ async function waitForGatewayReachable(timeoutMs: number): Promise<boolean> {
   return false;
 }
 
+async function waitForGatewayUnreachable(timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!(await isGatewayReachable())) return true;
+    await sleep(250);
+  }
+  return false;
+}
+
+async function requestUnmanagedGatewayShutdown(): Promise<void> {
+  const { gatewayShutdown } = await import('./gateway-client.js');
+  await gatewayShutdown();
+}
+
+function parseGatewayBaseUrl(): URL | null {
+  try {
+    return new URL(GATEWAY_BASE_URL);
+  } catch {
+    return null;
+  }
+}
+
+function isLocalGatewayHost(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === '127.0.0.1' || normalized === 'localhost' || normalized === '::1';
+}
+
+function resolveGatewayListenPort(url: URL): number {
+  if (url.port) {
+    const parsed = Number.parseInt(url.port, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return url.protocol === 'https:' ? 443 : 80;
+}
+
+function findGatewayPidByPort(): number | null {
+  const parsed = parseGatewayBaseUrl();
+  if (!parsed || !isLocalGatewayHost(parsed.hostname)) return null;
+  const port = resolveGatewayListenPort(parsed);
+
+  const result = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], {
+    encoding: 'utf-8',
+  });
+  if (result.error) return null;
+  const output = (result.stdout || '').trim();
+  if (!output) return null;
+
+  const firstPid = output
+    .split('\n')
+    .map((line) => Number.parseInt(line.trim(), 10))
+    .find((pid) => Number.isFinite(pid) && pid > 0);
+  return firstPid && Number.isFinite(firstPid) ? firstPid : null;
+}
+
+function adoptGatewayPid(pid: number, source: string): boolean {
+  if (!isPidRunning(pid)) return false;
+  writeGatewayPid({
+    pid,
+    startedAt: new Date().toISOString(),
+    cwd: process.cwd(),
+    command: [`(adopted-from-${source})`],
+  });
+  return true;
+}
+
+async function adoptReachableGatewayIfPossible(): Promise<boolean> {
+  const { gatewayStatus } = await import('./gateway-client.js');
+  const status = await gatewayStatus();
+  const pid = typeof status.pid === 'number' && Number.isFinite(status.pid)
+    ? Math.floor(status.pid)
+    : 0;
+  if (pid > 0 && adoptGatewayPid(pid, 'api-status')) return true;
+  const fallbackPid = findGatewayPidByPort();
+  if (fallbackPid && adoptGatewayPid(fallbackPid, 'lsof-port-probe')) return true;
+  return false;
+}
+
 async function runGatewayForeground(commandName: string): Promise<void> {
   await ensureHybridAICredentials({ commandName });
   await ensureRuntimeContainer(commandName);
@@ -345,7 +423,18 @@ async function startGatewayBackend(commandName: string, waitForHealthy = false):
     if (existing && isPidRunning(existing.pid)) {
       console.log(`Gateway already running in backend mode (pid ${existing.pid}).`);
     } else {
-      console.log(`Gateway already reachable at ${GATEWAY_BASE_URL} (unmanaged by CLI PID file).`);
+      let adopted = false;
+      try {
+        adopted = await adoptReachableGatewayIfPossible();
+      } catch {
+        adopted = false;
+      }
+      if (adopted) {
+        const adoptedState = readGatewayPid();
+        console.log(`Gateway already reachable at ${GATEWAY_BASE_URL}; adopted pid ${adoptedState?.pid || '(unknown)'}.`);
+      } else {
+        console.log(`Gateway already reachable at ${GATEWAY_BASE_URL} (unmanaged by CLI PID file).`);
+      }
     }
     return;
   }
@@ -409,24 +498,12 @@ async function startGatewayBackend(commandName: string, waitForHealthy = false):
   console.log(`Logs: ${GATEWAY_LOG_PATH}`);
 }
 
-async function stopGatewayBackend(): Promise<void> {
-  const state = readGatewayPid();
-  if (!state) {
-    if (await isGatewayReachable()) {
-      console.log('Gateway is reachable but no managed PID file was found.');
-      console.log('Stop it from its owning process or use your system process manager.');
-      return;
-    }
-    console.log('Gateway is not running (no PID file).');
-    return;
-  }
+function isShutdownEndpointMissing(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /not found/i.test(message) || /404/.test(message);
+}
 
-  if (!isPidRunning(state.pid)) {
-    removeGatewayPidFile();
-    console.log(`Removed stale gateway PID file (pid ${state.pid} not running).`);
-    return;
-  }
-
+async function stopManagedGatewayByPid(state: GatewayPidState): Promise<void> {
   try {
     process.kill(state.pid, 'SIGTERM');
   } catch (err) {
@@ -453,6 +530,67 @@ async function stopGatewayBackend(): Promise<void> {
   await sleep(200);
   removeGatewayPidFile();
   console.log(`Gateway stop timed out; sent SIGKILL to pid ${state.pid}.`);
+}
+
+async function stopUnmanagedGatewayGracefully(mode: 'stop' | 'restart'): Promise<void> {
+  const suffix = mode === 'restart' ? ' before restart' : '';
+  console.log('Gateway is reachable but unmanaged by CLI PID file.');
+  console.log(`Requesting graceful shutdown over API${suffix}...`);
+
+  try {
+    await requestUnmanagedGatewayShutdown();
+    const stopped = await waitForGatewayUnreachable(10_000);
+    if (!stopped) {
+      throw new Error(
+        `Gateway remained reachable at ${GATEWAY_BASE_URL} after shutdown request.`
+        + ' Stop it from its owning process or use your system process manager.',
+      );
+    }
+    console.log('Unmanaged gateway stopped via API request.');
+    return;
+  } catch (err) {
+    if (!isShutdownEndpointMissing(err)) throw err;
+  }
+
+  const discoveredPid = findGatewayPidByPort();
+  if (discoveredPid && discoveredPid !== process.pid && adoptGatewayPid(discoveredPid, 'lsof-port-probe')) {
+    const adoptedState = readGatewayPid();
+    if (adoptedState && isPidRunning(adoptedState.pid)) {
+      console.log(`Shutdown API unavailable; stopping gateway pid ${adoptedState.pid} via local signal.`);
+      await stopManagedGatewayByPid(adoptedState);
+      return;
+    }
+  }
+
+  throw new Error(
+    `Gateway shutdown endpoint is unavailable at ${GATEWAY_BASE_URL} and PID ownership could not be recovered.`
+    + ' Stop the process manually once, then retry.',
+  );
+}
+
+async function stopGatewayBackend(): Promise<void> {
+  const state = readGatewayPid();
+  if (!state) {
+    if (await isGatewayReachable()) {
+      await stopUnmanagedGatewayGracefully('stop');
+      return;
+    }
+    console.log('Gateway is not running (no PID file).');
+    return;
+  }
+
+  if (!isPidRunning(state.pid)) {
+    removeGatewayPidFile();
+    if (await isGatewayReachable()) {
+      console.log(`Removed stale gateway PID file (pid ${state.pid} not running).`);
+      await stopUnmanagedGatewayGracefully('stop');
+      return;
+    }
+    console.log(`Removed stale gateway PID file (pid ${state.pid} not running).`);
+    return;
+  }
+
+  await stopManagedGatewayByPid(state);
 }
 
 async function printGatewayLifecycleStatus(): Promise<void> {
@@ -520,6 +658,18 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       return;
     }
     await startGatewayBackend('hybridclaw gateway start');
+    return;
+  }
+
+  if (sub === 'restart') {
+    const flags = parseGatewayFlags(normalized.slice(1));
+    await stopGatewayBackend();
+
+    if (flags.foreground) {
+      await runGatewayForeground('hybridclaw gateway restart --foreground');
+      return;
+    }
+    await startGatewayBackend('hybridclaw gateway restart');
     return;
   }
 

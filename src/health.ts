@@ -203,6 +203,16 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
   sendJson(res, 200, { sessionId, history });
 }
 
+function handleApiShutdown(res: ServerResponse): void {
+  sendJson(res, 200, {
+    status: 'ok',
+    message: 'Gateway shutdown requested.',
+  });
+  setTimeout(() => {
+    process.kill(process.pid, 'SIGTERM');
+  }, 50);
+}
+
 export function startHealthServer(): void {
   const server = http.createServer((req, res) => {
     const method = req.method || 'GET';
@@ -228,6 +238,10 @@ export function startHealthServer(): void {
           }
           if (pathname === '/api/history' && method === 'GET') {
             handleApiHistory(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/shutdown' && method === 'POST') {
+            handleApiShutdown(res);
             return;
           }
           if (pathname === '/api/chat' && method === 'POST') {

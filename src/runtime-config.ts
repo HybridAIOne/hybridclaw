@@ -64,6 +64,18 @@ export interface RuntimeConfig {
     dbPath: string;
     logLevel: LogLevel;
   };
+  observability: {
+    enabled: boolean;
+    baseUrl: string;
+    ingestPath: string;
+    statusPath: string;
+    botId: string;
+    agentId: string;
+    label: string;
+    environment: string;
+    flushIntervalMs: number;
+    batchMaxEvents: number;
+  };
   sessionCompaction: {
     enabled: boolean;
     threshold: number;
@@ -146,6 +158,18 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     gatewayApiToken: '',
     dbPath: 'data/hybridclaw.db',
     logLevel: 'info',
+  },
+  observability: {
+    enabled: true,
+    baseUrl: 'https://hybridai.one',
+    ingestPath: '/api/v1/agent-observability/events:batch',
+    statusPath: '/api/v1/agent-observability/status',
+    botId: '',
+    agentId: 'agent_main',
+    label: '',
+    environment: 'prod',
+    flushIntervalMs: 10_000,
+    batchMaxEvents: 500,
   },
   sessionCompaction: {
     enabled: true,
@@ -281,6 +305,15 @@ function normalizeBaseUrl(value: unknown, fallback: string): string {
   return candidate.replace(/\/+$/, '') || fallback;
 }
 
+function normalizeApiPath(value: unknown, fallback: string): string {
+  const normalized = normalizeString(value, fallback, { allowEmpty: false, trim: true });
+  if (/^https?:\/\//i.test(normalized)) {
+    return normalized.replace(/\/+$/, '');
+  }
+  const prefixed = normalized.startsWith('/') ? normalized : `/${normalized}`;
+  return prefixed.replace(/\/{2,}/g, '/');
+}
+
 function parseConfigPatch(payload: unknown): DeepPartial<RuntimeConfig> {
   if (!isRecord(payload)) {
     throw new Error('config.json must contain a top-level object');
@@ -297,6 +330,7 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
     container: {},
     heartbeat: {},
     ops: {},
+    observability: {},
     sessionCompaction: {
       preCompactionMemoryFlush: {},
     },
@@ -313,6 +347,7 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
   const container = patch.container as Record<string, unknown>;
   const heartbeat = patch.heartbeat as Record<string, unknown>;
   const ops = patch.ops as Record<string, unknown>;
+  const observability = patch.observability as Record<string, unknown>;
   const sessionCompaction = patch.sessionCompaction as Record<string, unknown>;
   const preCompactionMemoryFlush = sessionCompaction.preCompactionMemoryFlush as Record<string, unknown>;
   const proactive = patch.proactive as Record<string, unknown>;
@@ -344,6 +379,17 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
   if (env.GATEWAY_BASE_URL != null) ops.gatewayBaseUrl = env.GATEWAY_BASE_URL;
   if (env.DB_PATH != null) ops.dbPath = env.DB_PATH;
   if (env.LOG_LEVEL != null) ops.logLevel = env.LOG_LEVEL;
+
+  if (env.OBSERVABILITY_ENABLED != null) observability.enabled = env.OBSERVABILITY_ENABLED;
+  if (env.OBSERVABILITY_BASE_URL != null) observability.baseUrl = env.OBSERVABILITY_BASE_URL;
+  if (env.OBSERVABILITY_INGEST_PATH != null) observability.ingestPath = env.OBSERVABILITY_INGEST_PATH;
+  if (env.OBSERVABILITY_STATUS_PATH != null) observability.statusPath = env.OBSERVABILITY_STATUS_PATH;
+  if (env.OBSERVABILITY_BOT_ID != null) observability.botId = env.OBSERVABILITY_BOT_ID;
+  if (env.OBSERVABILITY_AGENT_ID != null) observability.agentId = env.OBSERVABILITY_AGENT_ID;
+  if (env.OBSERVABILITY_LABEL != null) observability.label = env.OBSERVABILITY_LABEL;
+  if (env.OBSERVABILITY_ENVIRONMENT != null) observability.environment = env.OBSERVABILITY_ENVIRONMENT;
+  if (env.OBSERVABILITY_FLUSH_INTERVAL_MS != null) observability.flushIntervalMs = env.OBSERVABILITY_FLUSH_INTERVAL_MS;
+  if (env.OBSERVABILITY_BATCH_MAX_EVENTS != null) observability.batchMaxEvents = env.OBSERVABILITY_BATCH_MAX_EVENTS;
 
   if (env.SESSION_COMPACTION_ENABLED != null) sessionCompaction.enabled = env.SESSION_COMPACTION_ENABLED;
   if (env.SESSION_COMPACTION_THRESHOLD != null) sessionCompaction.threshold = env.SESSION_COMPACTION_THRESHOLD;
@@ -411,6 +457,7 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
   const rawContainer = isRecord(raw.container) ? raw.container : {};
   const rawHeartbeat = isRecord(raw.heartbeat) ? raw.heartbeat : {};
   const rawOps = isRecord(raw.ops) ? raw.ops : {};
+  const rawObservability = isRecord(raw.observability) ? raw.observability : {};
   const rawSessionCompaction = isRecord(raw.sessionCompaction) ? raw.sessionCompaction : {};
   const rawPreFlush = isRecord(rawSessionCompaction.preCompactionMemoryFlush)
     ? rawSessionCompaction.preCompactionMemoryFlush
@@ -424,6 +471,12 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
   const defaultOps = DEFAULT_RUNTIME_CONFIG.ops;
   const healthPort = normalizeInteger(rawOps.healthPort, defaultOps.healthPort, { min: 1, max: 65_535 });
   const webApiToken = normalizeString(rawOps.webApiToken, defaultOps.webApiToken, { allowEmpty: true });
+  const hybridBaseUrl = normalizeBaseUrl(rawHybridAi.baseUrl, DEFAULT_RUNTIME_CONFIG.hybridai.baseUrl);
+  const hybridDefaultChatbotId = normalizeString(
+    rawHybridAi.defaultChatbotId,
+    DEFAULT_RUNTIME_CONFIG.hybridai.defaultChatbotId,
+    { allowEmpty: true },
+  );
 
   const threshold = normalizeInteger(
     rawSessionCompaction.threshold,
@@ -451,9 +504,9 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
       prefix: normalizeString(rawDiscord.prefix, DEFAULT_RUNTIME_CONFIG.discord.prefix, { allowEmpty: false }),
     },
     hybridai: {
-      baseUrl: normalizeBaseUrl(rawHybridAi.baseUrl, DEFAULT_RUNTIME_CONFIG.hybridai.baseUrl),
+      baseUrl: hybridBaseUrl,
       defaultModel: normalizeString(rawHybridAi.defaultModel, DEFAULT_RUNTIME_CONFIG.hybridai.defaultModel, { allowEmpty: false }),
-      defaultChatbotId: normalizeString(rawHybridAi.defaultChatbotId, DEFAULT_RUNTIME_CONFIG.hybridai.defaultChatbotId, { allowEmpty: true }),
+      defaultChatbotId: hybridDefaultChatbotId,
       enableRag: normalizeBoolean(rawHybridAi.enableRag, DEFAULT_RUNTIME_CONFIG.hybridai.enableRag),
       models: modelList,
     },
@@ -479,6 +532,18 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
       gatewayApiToken: normalizeString(rawOps.gatewayApiToken, webApiToken, { allowEmpty: true }),
       dbPath: normalizeString(rawOps.dbPath, defaultOps.dbPath, { allowEmpty: false }),
       logLevel: normalizeLogLevel(rawOps.logLevel, defaultOps.logLevel),
+    },
+    observability: {
+      enabled: normalizeBoolean(rawObservability.enabled, DEFAULT_RUNTIME_CONFIG.observability.enabled),
+      baseUrl: normalizeBaseUrl(rawObservability.baseUrl, hybridBaseUrl),
+      ingestPath: normalizeApiPath(rawObservability.ingestPath, DEFAULT_RUNTIME_CONFIG.observability.ingestPath),
+      statusPath: normalizeApiPath(rawObservability.statusPath, DEFAULT_RUNTIME_CONFIG.observability.statusPath),
+      botId: normalizeString(rawObservability.botId, hybridDefaultChatbotId, { allowEmpty: true }),
+      agentId: normalizeString(rawObservability.agentId, DEFAULT_RUNTIME_CONFIG.observability.agentId, { allowEmpty: false }),
+      label: normalizeString(rawObservability.label, DEFAULT_RUNTIME_CONFIG.observability.label, { allowEmpty: true }),
+      environment: normalizeString(rawObservability.environment, DEFAULT_RUNTIME_CONFIG.observability.environment, { allowEmpty: false }),
+      flushIntervalMs: normalizeInteger(rawObservability.flushIntervalMs, DEFAULT_RUNTIME_CONFIG.observability.flushIntervalMs, { min: 1_000, max: 3_600_000 }),
+      batchMaxEvents: normalizeInteger(rawObservability.batchMaxEvents, DEFAULT_RUNTIME_CONFIG.observability.batchMaxEvents, { min: 1, max: 1_000 }),
     },
     sessionCompaction: {
       enabled: normalizeBoolean(rawSessionCompaction.enabled, DEFAULT_RUNTIME_CONFIG.sessionCompaction.enabled),

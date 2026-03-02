@@ -201,3 +201,10 @@ export async function gatewayStatus(): Promise<GatewayStatus> {
 export async function gatewayHealth(): Promise<GatewayStatus> {
   return requestJson<GatewayStatus>('/health', { method: 'GET' });
 }
+
+export async function gatewayShutdown(): Promise<{ status: string; message?: string }> {
+  return requestJson<{ status: string; message?: string }>('/api/admin/shutdown', {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+}

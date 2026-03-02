@@ -88,6 +88,17 @@ export let GATEWAY_API_TOKEN = '';
 export let DB_PATH = 'data/hybridclaw.db';
 export let DATA_DIR = path.dirname(DB_PATH);
 
+export let OBSERVABILITY_ENABLED = true;
+export let OBSERVABILITY_BASE_URL = 'https://hybridai.one';
+export let OBSERVABILITY_INGEST_PATH = '/api/v1/agent-observability/events:batch';
+export let OBSERVABILITY_STATUS_PATH = '/api/v1/agent-observability/status';
+export let OBSERVABILITY_BOT_ID = '';
+export let OBSERVABILITY_AGENT_ID = 'agent_main';
+export let OBSERVABILITY_LABEL = '';
+export let OBSERVABILITY_ENVIRONMENT = 'prod';
+export let OBSERVABILITY_FLUSH_INTERVAL_MS = 10_000;
+export let OBSERVABILITY_BATCH_MAX_EVENTS = 500;
+
 export let SESSION_COMPACTION_ENABLED = true;
 export let SESSION_COMPACTION_THRESHOLD = 120;
 export let SESSION_COMPACTION_KEEP_RECENT = 40;
@@ -140,6 +151,17 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   GATEWAY_API_TOKEN = process.env.GATEWAY_API_TOKEN || config.ops.gatewayApiToken || WEB_API_TOKEN;
   DB_PATH = config.ops.dbPath;
   DATA_DIR = path.dirname(DB_PATH);
+
+  OBSERVABILITY_ENABLED = config.observability.enabled;
+  OBSERVABILITY_BASE_URL = config.observability.baseUrl;
+  OBSERVABILITY_INGEST_PATH = config.observability.ingestPath;
+  OBSERVABILITY_STATUS_PATH = config.observability.statusPath;
+  OBSERVABILITY_BOT_ID = config.observability.botId;
+  OBSERVABILITY_AGENT_ID = config.observability.agentId;
+  OBSERVABILITY_LABEL = config.observability.label;
+  OBSERVABILITY_ENVIRONMENT = config.observability.environment;
+  OBSERVABILITY_FLUSH_INTERVAL_MS = Math.max(1_000, config.observability.flushIntervalMs);
+  OBSERVABILITY_BATCH_MAX_EVENTS = Math.max(1, Math.min(1_000, config.observability.batchMaxEvents));
 
   SESSION_COMPACTION_ENABLED = config.sessionCompaction.enabled;
   SESSION_COMPACTION_THRESHOLD = Math.max(20, config.sessionCompaction.threshold);

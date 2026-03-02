@@ -85,6 +85,18 @@ function createSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_audit_events_session_seq ON audit_events(session_id, seq);
     CREATE INDEX IF NOT EXISTS idx_audit_events_run_seq ON audit_events(run_id, seq);
 
+    CREATE TABLE IF NOT EXISTS observability_offsets (
+      stream_key TEXT PRIMARY KEY,
+      last_event_id INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS observability_ingest_tokens (
+      token_key TEXT PRIMARY KEY,
+      token TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS approvals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
@@ -420,6 +432,14 @@ export function getRecentStructuredAuditForSession(sessionId: string, limit = 20
     .all(sessionId, bounded) as StructuredAuditEntry[];
 }
 
+export function getStructuredAuditAfterId(afterId: number, limit = 200): StructuredAuditEntry[] {
+  const boundedAfterId = Math.max(0, Math.floor(afterId));
+  const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 5_000));
+  return db
+    .prepare('SELECT * FROM audit_events WHERE id > ? ORDER BY id ASC LIMIT ?')
+    .all(boundedAfterId, boundedLimit) as StructuredAuditEntry[];
+}
+
 export function searchStructuredAudit(query: string, limit = 20): StructuredAuditEntry[] {
   const normalized = query.trim();
   if (!normalized) return [];
@@ -449,6 +469,58 @@ export function getRecentApprovals(limit = 20, deniedOnly = false): ApprovalAudi
   return db
     .prepare('SELECT * FROM approvals ORDER BY id DESC LIMIT ?')
     .all(bounded) as ApprovalAuditEntry[];
+}
+
+export function getObservabilityOffset(streamKey: string): number {
+  const normalized = streamKey.trim();
+  if (!normalized) return 0;
+  const row = db
+    .prepare('SELECT last_event_id FROM observability_offsets WHERE stream_key = ?')
+    .get(normalized) as { last_event_id: number } | undefined;
+  return row ? Math.max(0, Math.floor(row.last_event_id)) : 0;
+}
+
+export function setObservabilityOffset(streamKey: string, lastEventId: number): void {
+  const normalized = streamKey.trim();
+  if (!normalized) return;
+  const boundedLastEventId = Math.max(0, Math.floor(lastEventId));
+  db.prepare(`
+    INSERT INTO observability_offsets (stream_key, last_event_id, updated_at)
+    VALUES (?, ?, datetime('now'))
+    ON CONFLICT(stream_key) DO UPDATE SET
+      last_event_id = excluded.last_event_id,
+      updated_at = excluded.updated_at
+  `).run(normalized, boundedLastEventId);
+}
+
+export function getObservabilityIngestToken(tokenKey: string): string | null {
+  const normalized = tokenKey.trim();
+  if (!normalized) return null;
+  const row = db
+    .prepare('SELECT token FROM observability_ingest_tokens WHERE token_key = ?')
+    .get(normalized) as { token: string } | undefined;
+  if (!row || typeof row.token !== 'string') return null;
+  const token = row.token.trim();
+  return token || null;
+}
+
+export function setObservabilityIngestToken(tokenKey: string, token: string): void {
+  const normalizedKey = tokenKey.trim();
+  const normalizedToken = token.trim();
+  if (!normalizedKey || !normalizedToken) return;
+  db.prepare(`
+    INSERT INTO observability_ingest_tokens (token_key, token, updated_at)
+    VALUES (?, ?, datetime('now'))
+    ON CONFLICT(token_key) DO UPDATE SET
+      token = excluded.token,
+      updated_at = excluded.updated_at
+  `).run(normalizedKey, normalizedToken);
+}
+
+export function deleteObservabilityIngestToken(tokenKey: string): void {
+  const normalized = tokenKey.trim();
+  if (!normalized) return;
+  db.prepare('DELETE FROM observability_ingest_tokens WHERE token_key = ?').run(normalized);
 }
 
 // --- Proactive Message Queue ---

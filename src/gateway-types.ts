@@ -53,6 +53,7 @@ export interface GatewayCommandRequest {
 
 export interface GatewayStatus {
   status: 'ok';
+  pid?: number;
   version: string;
   uptime: number;
   sessions: number;
@@ -60,6 +61,17 @@ export interface GatewayStatus {
   defaultModel: string;
   ragDefault: boolean;
   timestamp: string;
+  observability?: {
+    enabled: boolean;
+    running: boolean;
+    paused: boolean;
+    reason: string | null;
+    streamKey: string | null;
+    lastCursor: number;
+    lastSuccessAt: string | null;
+    lastFailureAt: string | null;
+    lastError: string | null;
+  };
 }
 
 export function renderGatewayCommand(result: GatewayCommandResult): string {

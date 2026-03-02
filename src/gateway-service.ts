@@ -34,6 +34,7 @@ import {
 import { emitToolExecutionAuditEvents, makeAuditRunId, recordAuditEvent } from './audit-events.js';
 import { fetchHybridAIBots } from './hybridai-bots.js';
 import { logger } from './logger.js';
+import { getObservabilityIngestState } from './observability-ingest.js';
 import { rearmScheduler } from './scheduler.js';
 import { maybeCompactSession } from './session-maintenance.js';
 import { appendSessionTranscript } from './session-transcripts.js';
@@ -195,6 +196,7 @@ function plainCommand(text: string): GatewayCommandResult {
 export function getGatewayStatus(): GatewayStatus {
   return {
     status: 'ok',
+    pid: process.pid,
     version: APP_VERSION,
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
@@ -202,6 +204,7 @@ export function getGatewayStatus(): GatewayStatus {
     defaultModel: HYBRIDAI_MODEL,
     ragDefault: HYBRIDAI_ENABLE_RAG,
     timestamp: new Date().toISOString(),
+    observability: getObservabilityIngestState(),
   };
 }
 

@@ -77,6 +77,8 @@ HybridClaw best-in-class capabilities:
 - formal prompt hook orchestration (`bootstrap`, `memory`, `safety`)
 - proactive runtime layer with active-hours gating, push delegation (`single`/`parallel`/`chain`), depth-aware tool policy, and retry controls
 - structured audit trail: append-only hash-chained wire logs (`data/audit/<session>/wire.jsonl`) with tamper-evident immutability, normalized SQLite audit tables, and verification/search CLI commands
+- observability export: incremental `events:batch` forwarding with durable cursor tracking and bot-scoped ingest token lifecycle via `ingest-token:ensure`
+- gateway lifecycle controls: managed + unmanaged restart/stop flows with graceful shutdown fallback paths
 - instruction-integrity approval flow: core instruction docs (`AGENTS.md`, `SECURITY.md`, `TRUST_MODEL.md`) are hash-verified against a local approved baseline before TUI start
 
 ## Configuration
@@ -86,6 +88,7 @@ HybridClaw uses typed runtime config in `config.json` (auto-created on first run
 - Start from `config.example.json` (reference)
 - Runtime watches `config.json` and hot-reloads most settings (model defaults, heartbeat, prompt hooks, limits, etc.)
 - `proactive.*` controls autonomous behavior (`activeHours`, `delegation`, `autoRetry`)
+- `observability.*` controls push ingest into HybridAI (`events:batch` endpoint, batching, identity metadata)
 - Some settings require restart to fully apply (for example HTTP bind host/port)
 - Default bot is configured via `hybridai.defaultChatbotId` in `config.json` (legacy `HYBRIDAI_CHATBOT_ID` values are auto-migrated on startup)
 
@@ -94,6 +97,7 @@ Secrets remain in `.env`:
 - `HYBRIDAI_API_KEY` (required)
 - `DISCORD_TOKEN` (optional)
 - `WEB_API_TOKEN` and `GATEWAY_API_TOKEN` (optional API auth hardening)
+- observability ingest token is auto-managed via `POST /api/v1/agent-observability/ingest-token:ensure` and cached locally
 
 Trust-model acceptance is stored in `config.json` under `security.*` and is required before runtime starts.
 
@@ -124,6 +128,29 @@ Instruction approval notes:
 - `hybridclaw audit instructions --approve` updates the local approved baseline
 - `hybridclaw tui` performs this check before startup and prompts for approval when files changed
 - instruction approval actions are audit logged (`approval.request` / `approval.response`, action `instruction:approve`)
+
+## Observability Push
+
+HybridClaw can forward structured audit records to HybridAI's ingest API:
+
+- endpoint: `POST /api/v1/agent-observability/events:batch`
+- source: local `audit_events` table (ordered by `id`)
+- transport: bearer ingest token auto-fetched via `POST /api/v1/agent-observability/ingest-token:ensure` using `HYBRIDAI_API_KEY`
+- delivery: incremental batches with persisted cursor (`observability_offsets` table), max 1000 events and max 2,000,000-byte payload per request
+- token handling: token cache is stored locally in SQLite (`observability_ingest_tokens`) and automatically refreshed on ingest auth failures
+
+Config keys (in `config.json`):
+
+- `observability.enabled` (`true` by default)
+- `observability.baseUrl` (for example `https://hybridai.one`)
+- `observability.ingestPath` (`/api/v1/agent-observability/events:batch`)
+- `observability.botId` (defaults to `hybridai.defaultChatbotId` when empty)
+- `observability.agentId`, `observability.label`, `observability.environment`
+- `observability.flushIntervalMs`, `observability.batchMaxEvents`
+
+Runtime diagnostics:
+
+- local status endpoint `GET /api/status` includes an `observability` block (enabled/running/paused, cursor, last success/failure timestamps)
 
 ## Agent workspace
 
@@ -241,6 +268,7 @@ Hook toggles live in `config.json` under `promptHooks`.
 CLI runtime commands:
 
 - `hybridclaw gateway start [--foreground]` — Start gateway (backend by default; foreground with flag)
+- `hybridclaw gateway restart [--foreground]` — Restart managed gateway backend process
 - `hybridclaw gateway stop` — Stop managed gateway backend process
 - `hybridclaw gateway status` — Show lifecycle/API status
 - `hybridclaw gateway <command...>` — Send a command to a running gateway (for example `sessions`, `bot info`)

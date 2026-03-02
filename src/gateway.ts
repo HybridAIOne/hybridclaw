@@ -24,6 +24,7 @@ import {
 import { startHealthServer } from './health.js';
 import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
 import { logger } from './logger.js';
+import { startObservabilityIngest, stopObservabilityIngest } from './observability-ingest.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import {
   buildResponseText,
@@ -171,6 +172,7 @@ function setupShutdown(): void {
       detachConfigListener = null;
     }
     stopHeartbeat();
+    stopObservabilityIngest();
     stopAllContainers();
     stopScheduler();
     if (proactiveFlushTimer) {
@@ -222,22 +224,38 @@ async function main(): Promise<void> {
   await startDiscordIntegration();
 
   startOrRestartHeartbeat();
+  startObservabilityIngest();
   detachConfigListener = onConfigChange((next, prev) => {
     const shouldRestart =
       next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId
       || next.heartbeat.intervalMs !== prev.heartbeat.intervalMs
       || next.heartbeat.enabled !== prev.heartbeat.enabled;
-    if (!shouldRestart) return;
+    if (shouldRestart) {
+      logger.info(
+        {
+          heartbeatEnabled: next.heartbeat.enabled,
+          heartbeatIntervalMs: next.heartbeat.intervalMs,
+          heartbeatAgentId: next.hybridai.defaultChatbotId || 'default',
+        },
+        'Config changed, restarting heartbeat',
+      );
+      startOrRestartHeartbeat();
+    }
+
+    const shouldRestartObservability =
+      JSON.stringify(next.observability) !== JSON.stringify(prev.observability)
+      || next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId;
+    if (!shouldRestartObservability) return;
 
     logger.info(
       {
-        heartbeatEnabled: next.heartbeat.enabled,
-        heartbeatIntervalMs: next.heartbeat.intervalMs,
-        heartbeatAgentId: next.hybridai.defaultChatbotId || 'default',
+        enabled: next.observability.enabled,
+        botId: next.observability.botId || next.hybridai.defaultChatbotId || '',
+        agentId: next.observability.agentId,
       },
-      'Config changed, restarting heartbeat',
+      'Config changed, restarting observability ingest',
     );
-    startOrRestartHeartbeat();
+    startObservabilityIngest();
   });
   startScheduler(runScheduledTask);
   proactiveFlushTimer = setInterval(() => {

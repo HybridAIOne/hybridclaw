@@ -43,6 +43,18 @@
     "dbPath": "data/hybridclaw.db",
     "logLevel": "info"
   },
+  "observability": {
+    "enabled": true,
+    "baseUrl": "https://hybridai.one",
+    "ingestPath": "/api/v1/agent-observability/events:batch",
+    "statusPath": "/api/v1/agent-observability/status",
+    "botId": "",
+    "agentId": "agent_main",
+    "label": "",
+    "environment": "prod",
+    "flushIntervalMs": 10000,
+    "batchMaxEvents": 500
+  },
   "sessionCompaction": {
     "enabled": true,
     "threshold": 120,
