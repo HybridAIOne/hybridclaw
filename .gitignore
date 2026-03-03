@@ -8,6 +8,7 @@ container/dist/
 
 # Runtime data
 data/
+.hybridclaw/
 
 # Environment / secrets
 .env

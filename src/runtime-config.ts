@@ -812,7 +812,11 @@ function migrateConfigSchemaOnStartup(): void {
   try {
     writeConfigFile(migrated);
     const from = previousVersion == null ? 'unknown' : String(previousVersion);
-    console.info(`[runtime-config] migrated config schema from v${from} to v${CONFIG_VERSION}`);
+    if (previousVersion !== CONFIG_VERSION) {
+      console.info(`[runtime-config] migrated config schema from v${from} to v${CONFIG_VERSION}`);
+    } else {
+      console.info(`[runtime-config] normalized config schema v${CONFIG_VERSION} (filled defaults/canonicalized values)`);
+    }
   } catch (err) {
     console.warn(`[runtime-config] schema migration failed: ${err instanceof Error ? err.message : String(err)}`);
   }
