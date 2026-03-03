@@ -879,7 +879,14 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         });
         const header = result.title ? `# ${result.title}\n\n` : '';
         const meta = `[${result.extractor}] ${result.finalUrl} (${result.status}, ${result.tookMs}ms)`;
-        return `${meta}\n\n${header}${result.text}`;
+        const lines = [meta];
+        if (result.escalationHint) {
+          lines.push(`Escalation hint: ${result.escalationHint} (retry with browser_navigate for this URL).`);
+        }
+        if (result.warning) {
+          lines.push(`Warning: ${result.warning}`);
+        }
+        return `${lines.join('\n')}\n\n${header}${result.text}`;
       }
 
       case 'browser_navigate':
@@ -1207,7 +1214,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'web_fetch',
       description:
-        'Fetch a URL and extract its readable content as markdown or plain text. Works with HTML pages, JSON APIs, and markdown URLs. Use for reading web pages, documentation, API responses, etc.',
+        'Fetch a URL via plain HTTP GET and extract readable content (HTML to markdown/text). No JavaScript execution, no clicks, no form interaction. Use for static read-only retrieval: articles, docs, wikis, READMEs, API JSON/text endpoints, and direct files/PDFs. Avoid for SPAs (React/Vue/Angular/Next client routes), auth/login-gated pages, dashboards/web apps, bot/challenge flows, or content loaded after render via XHR/fetch. Cost: typically ~10-100x cheaper/faster than browser tools. Default to web_fetch for read-only retrieval, then escalate to browser_navigate when output is empty/boilerplate, JavaScript-required, SPA shell-only, or bot-blocked.',
       parameters: {
         type: 'object',
         properties: {

@@ -87,6 +87,7 @@ HybridClaw uses typed runtime config in `config.json` (auto-created on first run
 
 - Start from `config.example.json` (reference)
 - Runtime watches `config.json` and hot-reloads most settings (model defaults, heartbeat, prompt hooks, limits, etc.)
+- `skills.extraDirs` adds additional enterprise/shared skill roots (lowest precedence tier)
 - `proactive.*` controls autonomous behavior (`activeHours`, `delegation`, `autoRetry`)
 - `observability.*` controls push ingest into HybridAI (`events:batch` endpoint, batching, identity metadata)
 - Some settings require restart to fully apply (for example HTTP bind host/port)
@@ -178,13 +179,25 @@ HybridClaw supports `SKILL.md`-based skills (`<skill-name>/SKILL.md`).
 
 You can place skills in:
 
-- `./skills/<skill-name>/SKILL.md` (project-level)
-- `<agent workspace>/skills/<skill-name>/SKILL.md` (agent-specific)
-- `$CODEX_HOME/skills/<skill-name>/SKILL.md`, `~/.codex/skills/<skill-name>/SKILL.md`, or `~/.claude/skills/<skill-name>/SKILL.md` (managed/shared)
+- any directory listed in `config.skills.extraDirs[]` (enterprise/shared)
+- bundled package skills (`<hybridclaw install>/skills/<skill-name>/SKILL.md`)
+- `$CODEX_HOME/skills/<skill-name>/SKILL.md` or `~/.codex/skills/<skill-name>/SKILL.md`
+- `~/.claude/skills/<skill-name>/SKILL.md`
+- `~/.agents/skills/<skill-name>/SKILL.md`
+- `./.agents/skills/<skill-name>/SKILL.md` (project)
+- `./skills/<skill-name>/SKILL.md` (workspace)
 
 Load precedence is:
 
-- managed/shared < project < agent workspace
+- `extra < bundled < codex < claude < agents-personal < agents-project < workspace`
+- skills are merged by `name`; higher-precedence sources override lower-precedence ones
+
+Security scanning is trust-aware:
+
+- `bundled` sources are treated as `builtin` and not scanned
+- `workspace` sources (`./skills/`, `./.agents/skills/`) are scanned; `caution` is allowed, `dangerous` is blocked
+- `personal` sources (`~/.codex/skills/`, `~/.claude/skills/`, `~/.agents/skills/`) are scanned and blocked on `caution`/`dangerous`
+- scanner includes Hermes-derived regex checks, structural limits (50 files, 1MB total, 256KB/file, binary/symlink checks), invisible-unicode detection, and mtime+content-hash cache reuse
 
 ### Required format
 
@@ -196,6 +209,14 @@ name: repo-orientation
 description: Quickly map an unfamiliar repository and identify where a requested feature should be implemented.
 user-invocable: true
 disable-model-invocation: false
+always: false
+requires:
+  bins: [docker, git]
+  env: [GITHUB_TOKEN]
+metadata:
+  hybridclaw:
+    tags: [devops, docker]
+    related_skills: [kubernetes]
 ---
 
 # Repo Orientation
@@ -208,16 +229,25 @@ Supported frontmatter keys:
 - `description` (required)
 - `user-invocable` (optional, default `true`)
 - `disable-model-invocation` (optional, default `false`)
+- `always` (optional, default `false`; embeds full skill body in the system prompt up to `maxAlwaysChars=10000`, then demotes to summary)
+- `requires.bins` / `requires.env` (optional; skill is excluded unless requirements are met)
+- `metadata.hybridclaw.tags` / `metadata.hybridclaw.related_skills` (optional metadata namespace)
 
 ### Using skills
 
-Skills are listed to the model as metadata (`name`, `description`, `location`), and the model reads `SKILL.md` on demand with the `read` tool.
+Skills are listed to the model as metadata (`name`, `description`, `location`), and the model reads `SKILL.md` on demand with the `read` tool. Skills with `always: true` are embedded directly in the system prompt.
+
+Prompt embedding modes:
+
+- `Always`: `always: true` embeds full body in `<skill_always ...>` (budgeted by `maxAlwaysChars=10000`)
+- `Summary`: default mode, emits only XML metadata under `<available_skills>`
+- `Hidden`: `disable-model-invocation: true` excludes the skill from model prompt metadata (still invocable by slash command when `user-invocable: true`)
 
 Explicit invocation is supported via:
 
 - `/skill <name> [input]`
 - `/skill:<name> [input]`
-- `/<name> [input]` (when `user-invocable: true`)
+- `/<name> [input]` (when `user-invocable: true`; command names are sanitized to lowercase `a-z0-9-`, max 32 chars, with `-2`/`-3` dedup and built-in command-name blocking)
 
 Example skill in this repo:
 
@@ -233,8 +263,8 @@ The agent has access to these sandboxed tools inside the container:
 - `memory` — durable memory files (`MEMORY.md`, `USER.md`, `memory/YYYY-MM-DD.md`)
 - `session_search` — search/summarize historical sessions from transcript archives
 - `delegate` — push-based background subagent tasks (`single`, `parallel`, `chain`) with auto-announced completion (no polling)
-- `web_fetch` — fetch a URL and extract readable content (HTML → markdown/text)
-- `browser_*` (optional) — interactive browser automation (`navigate`, `snapshot`, `click`, `type`, `press`, `scroll`, `back`, `screenshot`, `pdf`, `close`)
+- `web_fetch` — plain HTTP fetch + extraction for static/read-only content (docs, articles, READMEs, JSON/text APIs, direct files)
+- `browser_*` (optional) — full browser automation for JS-rendered or interactive pages (`navigate`, `snapshot`, `click`, `type`, `press`, `scroll`, `back`, `screenshot`, `pdf`, `close`)
 
 `delegate` mode examples:
 
@@ -243,6 +273,12 @@ The agent has access to these sandboxed tools inside the container:
 - chain: `{ "mode": "chain", "label": "implement-flow", "chain": [{ "prompt": "Scout the payment module" }, { "prompt": "Plan changes from: {previous}" }, { "prompt": "Implement based on: {previous}" }] }`
 
 Browser tooling notes:
+
+- Routing default: prefer `web_fetch` first for read-only retrieval.
+- Use browser tools for SPAs/web apps/auth flows/interaction tasks, or when `web_fetch` returns escalation hints (`javascript_required`, `spa_shell_only`, `empty_extraction`, `boilerplate_only`, `bot_blocked`).
+- Cost profile: browser calls are typically ~10-100x slower/more expensive than `web_fetch`.
+- Browser read flow: after `browser_navigate`, use `browser_snapshot` with `mode="full"` to extract content, then `browser_scroll` + `browser_snapshot` for additional lazy-loaded sections.
+- `browser_pdf` is for export artifacts, not text extraction.
 
 - The shipped container image preinstalls `agent-browser` and Chromium (Playwright).
 - You can override the binary via `AGENT_BROWSER_BIN` if needed.

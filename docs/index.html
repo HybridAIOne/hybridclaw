@@ -1097,12 +1097,12 @@
     <div class="tool-pill">
       <div class="tool-pill-icon">&#x1f310;</div>
       <div class="tool-pill-name">web_fetch</div>
-      <div class="tool-pill-desc">Fetch &amp; extract URLs</div>
+      <div class="tool-pill-desc">Static/read-only URL fetch &amp; extraction</div>
     </div>
     <div class="tool-pill">
       <div class="tool-pill-icon">&#x1f5a5;&#xfe0f;</div>
       <div class="tool-pill-name">browser_*</div>
-      <div class="tool-pill-desc">Navigate, snapshot, click, type, auth-flow testing, screenshot, PDF</div>
+      <div class="tool-pill-desc">JS-rendered + interactive automation (auth, click, type, screenshot, PDF)</div>
     </div>
     <div class="tool-pill">
       <div class="tool-pill-icon">&#x1f551;</div>
@@ -1243,7 +1243,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use skills from CLAUDE.md or OpenClaw?</div>
-      <div class="faq-a">Yes. HybridClaw uses the same SKILL.md format with YAML frontmatter, so skills written for CLAUDE.md or OpenClaw work out of the box. Drop them into <code>skills/</code> or your agent workspace and they're available immediately.</div>
+      <div class="faq-a">Yes. HybridClaw supports OpenClaw/CLAUDE-compatible <code>SKILL.md</code> frontmatter, including <code>always</code>, <code>requires</code>, and metadata fields. Skills can be loaded from workspace, project <code>.agents/skills</code>, personal (<code>~/.codex</code>/<code>~/.claude</code>/<code>~/.agents</code>), bundled, or enterprise extra directories; higher-priority tiers override lower ones. Trust-aware scanning blocks risky personal/community skills while allowing vetted bundled skills.</div>
     </div>
   </div>
 </section>

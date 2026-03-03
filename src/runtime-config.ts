@@ -31,6 +31,9 @@ export interface RuntimeSecurityConfig {
 export interface RuntimeConfig {
   version: number;
   security: RuntimeSecurityConfig;
+  skills: {
+    extraDirs: string[];
+  };
   discord: {
     prefix: string;
   };
@@ -125,6 +128,9 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     trustModelAcceptedAt: '',
     trustModelVersion: '',
     trustModelAcceptedBy: '',
+  },
+  skills: {
+    extraDirs: [],
   },
   discord: {
     prefix: '!claw',
@@ -326,6 +332,7 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
 
   const patch: Record<string, unknown> = {
     discord: {},
+    skills: {},
     hybridai: {},
     container: {},
     heartbeat: {},
@@ -343,6 +350,7 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
   };
 
   const discord = patch.discord as Record<string, unknown>;
+  const skills = patch.skills as Record<string, unknown>;
   const hybridai = patch.hybridai as Record<string, unknown>;
   const container = patch.container as Record<string, unknown>;
   const heartbeat = patch.heartbeat as Record<string, unknown>;
@@ -356,6 +364,7 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
   const proactiveAutoRetry = proactive.autoRetry as Record<string, unknown>;
 
   if (env.DISCORD_PREFIX != null) discord.prefix = env.DISCORD_PREFIX;
+  if (env.SKILLS_EXTRA_DIRS != null) skills.extraDirs = env.SKILLS_EXTRA_DIRS;
 
   if (env.HYBRIDAI_BASE_URL != null) hybridai.baseUrl = env.HYBRIDAI_BASE_URL;
   if (env.HYBRIDAI_MODEL != null) hybridai.defaultModel = env.HYBRIDAI_MODEL;
@@ -452,6 +461,7 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
   const raw = patch ?? {};
 
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
+  const rawSkills = isRecord(raw.skills) ? raw.skills : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawContainer = isRecord(raw.container) ? raw.container : {};
@@ -499,6 +509,9 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
       trustModelAcceptedAt: normalizeString(rawSecurity.trustModelAcceptedAt, DEFAULT_RUNTIME_CONFIG.security.trustModelAcceptedAt, { allowEmpty: true }),
       trustModelVersion: normalizeString(rawSecurity.trustModelVersion, DEFAULT_RUNTIME_CONFIG.security.trustModelVersion, { allowEmpty: true }),
       trustModelAcceptedBy: normalizeString(rawSecurity.trustModelAcceptedBy, DEFAULT_RUNTIME_CONFIG.security.trustModelAcceptedBy, { allowEmpty: true }),
+    },
+    skills: {
+      extraDirs: normalizeStringArray(rawSkills.extraDirs, DEFAULT_RUNTIME_CONFIG.skills.extraDirs),
     },
     discord: {
       prefix: normalizeString(rawDiscord.prefix, DEFAULT_RUNTIME_CONFIG.discord.prefix, { allowEmpty: false }),

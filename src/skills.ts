@@ -1,23 +1,45 @@
 /**
  * Skills — CLAUDE/OpenClaw-compatible SKILL.md discovery.
- * The system prompt only includes skill metadata + location; the model reads
- * SKILL.md on demand with the `read` tool.
+ * The system prompt includes skill metadata + location, and inlines full
+ * bodies for skills marked `always: true`.
  */
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createHash } from 'crypto';
+import { fileURLToPath } from 'url';
 
 import { agentWorkspaceDir } from './ipc.js';
 import { logger } from './logger.js';
+import { getRuntimeConfig } from './runtime-config.js';
+import { guardSkillDirectory } from './skills-guard.js';
 
-type SkillSource = 'workspace' | 'project' | 'codex' | 'claude';
+type SkillSource =
+  | 'extra'
+  | 'bundled'
+  | 'codex'
+  | 'claude'
+  | 'agents-personal'
+  | 'agents-project'
+  | 'community'
+  | 'workspace';
 
 interface SkillCandidate {
   name: string;
   description: string;
   userInvocable: boolean;
   disableModelInvocation: boolean;
+  always: boolean;
+  requires: {
+    bins: string[];
+    env: string[];
+  };
+  metadata: {
+    hybridclaw: {
+      tags: string[];
+      relatedSkills: string[];
+    };
+  };
   filePath: string;
   baseDir: string;
   source: SkillSource;
@@ -28,17 +50,70 @@ export interface Skill {
   description: string;
   userInvocable: boolean;
   disableModelInvocation: boolean;
+  always: boolean;
+  requires: {
+    bins: string[];
+    env: string[];
+  };
+  metadata: {
+    hybridclaw: {
+      tags: string[];
+      relatedSkills: string[];
+    };
+  };
   filePath: string;
   baseDir: string;
   source: SkillSource;
   location: string;
 }
 
-const PROJECT_SKILLS_DIR = path.join(process.cwd(), 'skills');
+const WORKSPACE_SKILLS_DIR = path.join(process.cwd(), 'skills');
+const PROJECT_AGENTS_SKILLS_DIR = path.join(process.cwd(), '.agents', 'skills');
 const SYNCED_SKILLS_DIR = '.synced-skills';
 const MAX_SKILLS_IN_PROMPT = 150;
 const MAX_SKILLS_PROMPT_CHARS = 30_000;
 const MAX_INVOKED_SKILL_CHARS = 35_000;
+const MAX_ALWAYS_CHARS = 10_000;
+const MAX_SKILL_COMMAND_NAME_LENGTH = 32;
+const RESERVED_SKILL_COMMAND_NAMES = new Set<string>([
+  'help',
+  'clear',
+  'compact',
+  'new',
+  'status',
+  'bot',
+  'bots',
+  'rag',
+  'info',
+  'stop',
+  'abort',
+  'exit',
+  'quit',
+  'q',
+  'model',
+  'sessions',
+  'audit',
+  'schedule',
+  'skill',
+]);
+const warnedBlockedSkills = new Set<string>();
+
+type FrontmatterParseResult = {
+  meta: Record<string, string>;
+  body: string;
+  block: string;
+};
+
+type FrontmatterSection = {
+  inline: string;
+  children: string[];
+};
+
+type SkillCommandSpec = {
+  name: string;
+  skillName: string;
+  skill: Skill;
+};
 
 function normalizeLineEndings(raw: string): string {
   return raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -54,11 +129,11 @@ function stripQuotes(value: string): string {
   return value;
 }
 
-function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
+function parseFrontmatter(raw: string): FrontmatterParseResult {
   const normalized = normalizeLineEndings(raw);
   const match = normalized.match(/^---\n([\s\S]*?)\n---\n?/);
   if (!match) {
-    return { meta: {}, body: normalized.trim() };
+    return { meta: {}, body: normalized.trim(), block: '' };
   }
 
   const block = match[1] || '';
@@ -74,7 +149,7 @@ function parseFrontmatter(raw: string): { meta: Record<string, string>; body: st
     meta[key] = value;
   }
 
-  return { meta, body };
+  return { meta, body, block };
 }
 
 function parseBool(raw: string | undefined, fallback: boolean): boolean {
@@ -98,6 +173,276 @@ function toPosixPath(p: string): string {
   return p.split(path.sep).join('/');
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function leadingWhitespaceCount(line: string): number {
+  let count = 0;
+  while (count < line.length) {
+    const ch = line[count];
+    if (ch !== ' ' && ch !== '\t') break;
+    count += 1;
+  }
+  return count;
+}
+
+function parseInlineStringList(raw: string): string[] {
+  const trimmed = stripQuotes(raw.trim());
+  if (!trimmed) return [];
+  if (trimmed === '[]') return [];
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    const inner = trimmed.slice(1, -1).trim();
+    if (!inner) return [];
+    return inner
+      .split(',')
+      .map((item) => stripQuotes(item.trim()))
+      .filter(Boolean);
+  }
+  return [trimmed];
+}
+
+function normalizeStringList(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => (typeof item === 'string' ? item.trim() : String(item ?? '').trim()))
+      .filter(Boolean);
+  }
+  if (typeof raw === 'string') {
+    const inline = parseInlineStringList(raw);
+    if (inline.length > 0) return inline;
+    return raw
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function tryParseJsonObject(raw: string): Record<string, unknown> | null {
+  const trimmed = stripQuotes(raw.trim());
+  if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (isRecord(parsed)) return parsed;
+  } catch {
+    // ignore invalid JSON-ish values
+  }
+  return null;
+}
+
+function extractTopLevelSection(block: string, key: string): FrontmatterSection | null {
+  const lines = block.split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] || '';
+    const match = line.match(/^([ \t]*)([\w-]+):\s*(.*)$/);
+    if (!match) continue;
+    const indent = (match[1] || '').length;
+    const candidate = (match[2] || '').trim();
+    if (indent !== 0 || candidate !== key) continue;
+
+    const inline = (match[3] || '').trim();
+    const children: string[] = [];
+
+    let j = i + 1;
+    while (j < lines.length) {
+      const next = lines[j] || '';
+      const trimmed = next.trim();
+      if (!trimmed) {
+        children.push(next);
+        j += 1;
+        continue;
+      }
+
+      const nextIndent = leadingWhitespaceCount(next);
+      if (nextIndent <= indent) break;
+      children.push(next);
+      j += 1;
+    }
+    return { inline, children };
+  }
+  return null;
+}
+
+function parseSectionChildren(children: string[]): Map<string, FrontmatterSection> {
+  const parsed = new Map<string, FrontmatterSection>();
+  for (let i = 0; i < children.length;) {
+    const line = children[i] || '';
+    const trimmed = line.trim();
+    if (!trimmed) {
+      i += 1;
+      continue;
+    }
+
+    const match = trimmed.match(/^([\w-]+):\s*(.*)$/);
+    if (!match) {
+      i += 1;
+      continue;
+    }
+
+    const key = (match[1] || '').trim();
+    const inline = (match[2] || '').trim();
+    const indent = leadingWhitespaceCount(line);
+    const nested: string[] = [];
+    i += 1;
+
+    while (i < children.length) {
+      const next = children[i] || '';
+      const nextTrimmed = next.trim();
+      if (!nextTrimmed) {
+        nested.push(next);
+        i += 1;
+        continue;
+      }
+      const nextIndent = leadingWhitespaceCount(next);
+      if (nextIndent <= indent) break;
+      nested.push(next);
+      i += 1;
+    }
+
+    if (key) parsed.set(key, { inline, children: nested });
+  }
+  return parsed;
+}
+
+function parseSectionStringList(section: FrontmatterSection | undefined): string[] {
+  if (!section) return [];
+  const inline = parseInlineStringList(section.inline);
+  if (inline.length > 0 || section.inline.trim() === '[]') return inline;
+  const values: string[] = [];
+  for (const line of section.children) {
+    const trimmed = line.trim();
+    const match = trimmed.match(/^-\s*(.+)$/);
+    if (!match) continue;
+    const value = stripQuotes((match[1] || '').trim());
+    if (value) values.push(value);
+  }
+  return values;
+}
+
+function parseRequiresFromFrontmatter(frontmatter: FrontmatterParseResult): {
+  bins: string[];
+  env: string[];
+} {
+  const fromInlineJson = frontmatter.meta.requires ? tryParseJsonObject(frontmatter.meta.requires) : null;
+  if (fromInlineJson) {
+    return {
+      bins: normalizeStringList(fromInlineJson.bins),
+      env: normalizeStringList(fromInlineJson.env),
+    };
+  }
+
+  const section = extractTopLevelSection(frontmatter.block, 'requires');
+  if (!section) return { bins: [], env: [] };
+
+  const inlineJson = tryParseJsonObject(section.inline);
+  if (inlineJson) {
+    return {
+      bins: normalizeStringList(inlineJson.bins),
+      env: normalizeStringList(inlineJson.env),
+    };
+  }
+
+  const fields = parseSectionChildren(section.children);
+  return {
+    bins: parseSectionStringList(fields.get('bins')),
+    env: parseSectionStringList(fields.get('env')),
+  };
+}
+
+function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
+  tags: string[];
+  relatedSkills: string[];
+} {
+  const normalizeMetadata = (raw: Record<string, unknown>): { tags: string[]; relatedSkills: string[] } => {
+    const hybridRaw = isRecord(raw.hybridclaw) ? raw.hybridclaw : raw;
+    return {
+      tags: normalizeStringList(hybridRaw.tags),
+      relatedSkills: normalizeStringList(hybridRaw.related_skills ?? hybridRaw.relatedSkills),
+    };
+  };
+
+  const fromInlineJson = frontmatter.meta.metadata ? tryParseJsonObject(frontmatter.meta.metadata) : null;
+  if (fromInlineJson) return normalizeMetadata(fromInlineJson);
+
+  const metadataSection = extractTopLevelSection(frontmatter.block, 'metadata');
+  if (!metadataSection) return { tags: [], relatedSkills: [] };
+
+  const metadataInlineJson = tryParseJsonObject(metadataSection.inline);
+  if (metadataInlineJson) return normalizeMetadata(metadataInlineJson);
+
+  const metadataFields = parseSectionChildren(metadataSection.children);
+  const hybridSection = metadataFields.get('hybridclaw');
+  if (!hybridSection) return { tags: [], relatedSkills: [] };
+
+  const hybridInlineJson = tryParseJsonObject(hybridSection.inline);
+  if (hybridInlineJson) return normalizeMetadata(hybridInlineJson);
+
+  const hybridFields = parseSectionChildren(hybridSection.children);
+  return {
+    tags: parseSectionStringList(hybridFields.get('tags')),
+    relatedSkills: parseSectionStringList(hybridFields.get('related_skills')),
+  };
+}
+
+let cachedPathEnv = '';
+let cachedPathExt = '';
+const hasBinaryCache = new Map<string, boolean>();
+
+function hasBinary(binName: string): boolean {
+  const bin = binName.trim();
+  if (!bin) return false;
+
+  const currentPath = process.env.PATH || '';
+  const currentPathExt = process.platform === 'win32' ? (process.env.PATHEXT || '') : '';
+  if (cachedPathEnv !== currentPath || cachedPathExt !== currentPathExt) {
+    cachedPathEnv = currentPath;
+    cachedPathExt = currentPathExt;
+    hasBinaryCache.clear();
+  }
+
+  const cached = hasBinaryCache.get(bin);
+  if (cached != null) return cached;
+
+  const exts = process.platform === 'win32'
+    ? ['', ...currentPathExt.split(';').map((ext) => ext.trim()).filter(Boolean)]
+    : [''];
+  for (const part of currentPath.split(path.delimiter).filter(Boolean)) {
+    for (const ext of exts) {
+      const candidate = path.join(part, `${bin}${ext}`);
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        hasBinaryCache.set(bin, true);
+        return true;
+      } catch {
+        // continue scanning
+      }
+    }
+  }
+
+  hasBinaryCache.set(bin, false);
+  return false;
+}
+
+function checkEligibility(skill: {
+  requires?: {
+    bins?: string[];
+    env?: string[];
+  };
+}): {
+  available: boolean;
+  missing: string[];
+} {
+  const missing: string[] = [];
+  for (const bin of skill.requires?.bins ?? []) {
+    if (!hasBinary(bin)) missing.push(`bin:${bin}`);
+  }
+  for (const envVar of skill.requires?.env ?? []) {
+    if (!process.env[envVar]) missing.push(`env:${envVar}`);
+  }
+  return { available: missing.length === 0, missing };
+}
+
 function pathWithin(root: string, target: string): boolean {
   const rel = path.relative(root, target);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
@@ -109,20 +454,33 @@ function asContainerPath(workspaceDir: string, absolutePath: string): string | n
   return rel ? `/workspace/${rel}` : '/workspace';
 }
 
-function resolveManagedSkillsDirs(): Array<{ source: SkillSource; dir: string }> {
+function resolveUserPath(raw: string): string {
+  const value = raw.trim();
+  if (!value) return '';
+  if (value === '~') return os.homedir();
+  if (value.startsWith('~/') || value.startsWith('~\\')) {
+    return path.join(os.homedir(), value.slice(2));
+  }
+  return path.resolve(value);
+}
+
+function resolveBundledSkillsDir(): string | null {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const bundledDir = path.resolve(moduleDir, '..', 'skills');
+  return fs.existsSync(bundledDir) ? bundledDir : null;
+}
+
+function resolveCodexSkillsDirs(): string[] {
   const home = os.homedir();
-  const dirs: Array<{ source: SkillSource; dir: string }> = [
-    { source: 'codex', dir: path.join(home, '.codex', 'skills') },
-    { source: 'claude', dir: path.join(home, '.claude', 'skills') },
-  ];
+  const dirs: string[] = [path.join(home, '.codex', 'skills')];
 
   const codexHome = process.env.CODEX_HOME?.trim();
   if (codexHome) {
-    dirs.unshift({ source: 'codex', dir: path.join(codexHome, 'skills') });
+    dirs.unshift(path.join(codexHome, 'skills'));
   }
 
   const seen = new Set<string>();
-  return dirs.filter(({ dir }) => {
+  return dirs.filter((dir) => {
     const resolved = path.resolve(dir);
     if (seen.has(resolved)) return false;
     seen.add(resolved);
@@ -145,15 +503,24 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
 
       try {
         const raw = fs.readFileSync(skillFile, 'utf-8');
-        const { meta } = parseFrontmatter(raw);
+        const frontmatter = parseFrontmatter(raw);
+        const { meta } = frontmatter;
         const name = (meta.name || entry.name).trim();
         if (!name) continue;
+        const always = parseBool(meta.always, false);
+        const requires = parseRequiresFromFrontmatter(frontmatter);
+        const metadataHybridClaw = parseHybridClawMetadata(frontmatter);
 
         skills.push({
           name,
           description: (meta.description || '').trim(),
           userInvocable: parseBool(meta['user-invocable'], true),
           disableModelInvocation: parseBool(meta['disable-model-invocation'], false),
+          always,
+          requires,
+          metadata: {
+            hybridclaw: metadataHybridClaw,
+          },
           filePath: skillFile,
           baseDir,
           source,
@@ -189,14 +556,30 @@ function resolveSyncedSkillTarget(
   skill: SkillCandidate,
   workspaceDir: string,
 ): { rootDir: string; targetDir: string; targetSkillFile: string } {
-  // Keep project skills under /workspace/skills so script paths like
+  // Keep workspace skills under /workspace/skills so script paths like
   // "skills/<skill>/scripts/..." remain valid inside the agent container.
-  if (skill.source === 'project') {
-    const projectRoot = path.resolve(PROJECT_SKILLS_DIR);
+  if (skill.source === 'workspace') {
+    const workspaceRoot = path.resolve(WORKSPACE_SKILLS_DIR);
     const skillBaseDir = path.resolve(skill.baseDir);
-    if (pathWithin(projectRoot, skillBaseDir)) {
-      const rel = path.relative(projectRoot, skillBaseDir);
+    if (pathWithin(workspaceRoot, skillBaseDir)) {
+      const rel = path.relative(workspaceRoot, skillBaseDir);
       const rootDir = path.join(workspaceDir, 'skills');
+      const targetDir = path.join(rootDir, rel);
+      return {
+        rootDir,
+        targetDir,
+        targetSkillFile: path.join(targetDir, 'SKILL.md'),
+      };
+    }
+  }
+
+  // Keep project .agents skills under /workspace/.agents/skills for path-compat.
+  if (skill.source === 'agents-project') {
+    const projectAgentsRoot = path.resolve(PROJECT_AGENTS_SKILLS_DIR);
+    const skillBaseDir = path.resolve(skill.baseDir);
+    if (pathWithin(projectAgentsRoot, skillBaseDir)) {
+      const rel = path.relative(projectAgentsRoot, skillBaseDir);
+      const rootDir = path.join(workspaceDir, '.agents', 'skills');
       const targetDir = path.join(rootDir, rel);
       return {
         rootDir,
@@ -250,6 +633,61 @@ function normalizeSkillLookup(value: string): string {
     .replace(/[\s_]+/g, '-');
 }
 
+function sanitizeCommandName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, MAX_SKILL_COMMAND_NAME_LENGTH);
+}
+
+function resolveUniqueCommandName(baseName: string, usedNames: Set<string>): string | null {
+  const normalizedBase = (baseName || 'skill').slice(0, MAX_SKILL_COMMAND_NAME_LENGTH);
+  if (!usedNames.has(normalizedBase)) {
+    usedNames.add(normalizedBase);
+    return normalizedBase;
+  }
+
+  for (let index = 2; index < 10_000; index += 1) {
+    const suffix = `-${index}`;
+    const prefixLen = Math.max(1, MAX_SKILL_COMMAND_NAME_LENGTH - suffix.length);
+    const candidate = `${normalizedBase.slice(0, prefixLen)}${suffix}`;
+    if (usedNames.has(candidate)) continue;
+    usedNames.add(candidate);
+    return candidate;
+  }
+  return null;
+}
+
+function buildSkillCommandSpecs(skills: Skill[]): SkillCommandSpec[] {
+  const used = new Set<string>(Array.from(RESERVED_SKILL_COMMAND_NAMES.values()));
+  const specs: SkillCommandSpec[] = [];
+
+  for (const skill of skills) {
+    if (!skill.userInvocable) continue;
+    const base = sanitizeCommandName(skill.name);
+    const name = resolveUniqueCommandName(base, used);
+    if (!name) continue;
+    specs.push({
+      name,
+      skillName: skill.name,
+      skill,
+    });
+  }
+
+  return specs;
+}
+
+function findSkillCommand(skillCommands: SkillCommandSpec[], rawName: string): SkillCommandSpec | null {
+  const lowered = rawName.trim().toLowerCase();
+  if (!lowered) return null;
+  const sanitized = sanitizeCommandName(rawName);
+  return skillCommands.find((entry) => (
+    entry.name === lowered ||
+    (sanitized && entry.name === sanitized)
+  )) || null;
+}
+
 function findInvocableSkill(skills: Skill[], rawName: string): Skill | null {
   const target = rawName.trim().toLowerCase();
   if (!target) return null;
@@ -265,6 +703,7 @@ function findInvocableSkill(skills: Skill[], rawName: string): Skill | null {
 function parseSkillInvocation(content: string, skills: Skill[]): { skill: Skill; args: string } | null {
   const trimmed = content.trim();
   if (!trimmed.startsWith('/')) return null;
+  const skillCommands = buildSkillCommandSpecs(skills);
 
   const commandMatch = trimmed.match(/^\/([^\s]+)(?:\s+([\s\S]+))?$/);
   if (!commandMatch) return null;
@@ -278,30 +717,33 @@ function parseSkillInvocation(content: string, skills: Skill[]): { skill: Skill;
     if (!remainder) return null;
     const skillMatch = remainder.match(/^([^\s]+)(?:\s+([\s\S]+))?$/);
     if (!skillMatch) return null;
-    const skill = findInvocableSkill(skills, skillMatch[1] || '');
+    const explicitName = (skillMatch[1] || '').trim();
+    const explicitSkill = findInvocableSkill(skills, explicitName);
+    const skill = explicitSkill || findSkillCommand(skillCommands, explicitName)?.skill || null;
     if (!skill) return null;
     return { skill, args: (skillMatch[2] || '').trim() };
   }
 
   if (lowerCommand.startsWith('skill:')) {
-    const skillName = lowerCommand.slice('skill:'.length).trim();
+    const skillName = commandName.slice('skill:'.length).trim();
     if (!skillName) return null;
-    const skill = findInvocableSkill(skills, skillName);
+    const explicitSkill = findInvocableSkill(skills, skillName);
+    const skill = explicitSkill || findSkillCommand(skillCommands, skillName)?.skill || null;
     if (!skill) return null;
     return { skill, args: remainder };
   }
 
-  const directSkill = findInvocableSkill(skills, commandName);
-  if (!directSkill) return null;
-  return { skill: directSkill, args: remainder };
+  const directSkillCommand = findSkillCommand(skillCommands, commandName);
+  if (!directSkillCommand) return null;
+  return { skill: directSkillCommand.skill, args: remainder };
 }
 
-function loadSkillBody(skill: Skill): string {
+function loadSkillBody(skill: Skill, maxChars: number): string {
   try {
     const raw = fs.readFileSync(skill.filePath, 'utf-8');
     const { body } = parseFrontmatter(raw);
-    if (body.length <= MAX_INVOKED_SKILL_CHARS) return body;
-    return `${body.slice(0, MAX_INVOKED_SKILL_CHARS)}\n\n[truncated]`;
+    if (body.length <= maxChars) return body;
+    return `${body.slice(0, maxChars)}\n\n[truncated]`;
   } catch (err) {
     logger.warn({ skill: skill.name, path: skill.filePath, err }, 'Failed to load SKILL.md body');
     return '';
@@ -319,7 +761,7 @@ export function expandSkillInvocation(content: string, skills: Skill[]): string 
   const invocation = parseSkillInvocation(content, skills);
   if (!invocation) return content;
 
-  const body = loadSkillBody(invocation.skill);
+  const body = loadSkillBody(invocation.skill, MAX_INVOKED_SKILL_CHARS);
   const args = invocation.args || '(none)';
 
   const lines = [
@@ -344,7 +786,7 @@ export function expandSkillInvocation(content: string, skills: Skill[]): string 
 
 /**
  * Load all skills with precedence:
- * codex/claude managed < project skills < agent workspace skills.
+ * extra < bundled < codex < claude < agents-personal < agents-project < workspace.
  * Any non-workspace skill selected by precedence is mirrored into workspace so
  * the container can read it via /workspace/... paths.
  */
@@ -352,20 +794,61 @@ export function loadSkills(agentId: string): Skill[] {
   const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
   fs.mkdirSync(workspaceDir, { recursive: true });
 
-  const workspaceSkills = scanSkillsDir(path.join(workspaceDir, 'skills'), 'workspace');
-  const projectSkills = scanSkillsDir(PROJECT_SKILLS_DIR, 'project');
-  const managedSkills = resolveManagedSkillsDirs()
-    .flatMap(({ source, dir }) => scanSkillsDir(dir, source));
+  const config = getRuntimeConfig();
+  const extraDirs = (config.skills?.extraDirs ?? [])
+    .map((dir) => resolveUserPath(dir))
+    .filter(Boolean);
+  const bundledSkillsDir = resolveBundledSkillsDir();
+  const codexDirs = resolveCodexSkillsDirs();
+  const claudeSkillsDir = path.join(os.homedir(), '.claude', 'skills');
+  const agentsPersonalSkillsDir = path.join(os.homedir(), '.agents', 'skills');
+
+  const extraSkills = extraDirs.flatMap((dir) => scanSkillsDir(dir, 'extra'));
+  const bundledSkills = bundledSkillsDir ? scanSkillsDir(bundledSkillsDir, 'bundled') : [];
+  const codexSkills = codexDirs.flatMap((dir) => scanSkillsDir(dir, 'codex'));
+  const claudeSkills = scanSkillsDir(claudeSkillsDir, 'claude');
+  const agentsPersonalSkills = scanSkillsDir(agentsPersonalSkillsDir, 'agents-personal');
+  const projectAgentsSkills = scanSkillsDir(PROJECT_AGENTS_SKILLS_DIR, 'agents-project');
+  const workspaceSkills = scanSkillsDir(WORKSPACE_SKILLS_DIR, 'workspace');
 
   const byName = new Map<string, SkillCandidate>();
 
   // Lowest to highest precedence.
-  for (const skill of managedSkills) byName.set(skill.name, skill);
-  for (const skill of projectSkills) byName.set(skill.name, skill);
+  for (const skill of extraSkills) byName.set(skill.name, skill);
+  for (const skill of bundledSkills) byName.set(skill.name, skill);
+  for (const skill of codexSkills) byName.set(skill.name, skill);
+  for (const skill of claudeSkills) byName.set(skill.name, skill);
+  for (const skill of agentsPersonalSkills) byName.set(skill.name, skill);
+  for (const skill of projectAgentsSkills) byName.set(skill.name, skill);
   for (const skill of workspaceSkills) byName.set(skill.name, skill);
 
+  const eligible = Array.from(byName.values())
+    .filter((skill) => checkEligibility(skill).available);
+  const guarded = eligible.filter((skill) => {
+    const decision = guardSkillDirectory({
+      skillName: skill.name,
+      skillPath: skill.baseDir,
+      sourceTag: skill.source,
+    });
+    if (decision.allowed) return true;
+
+    const fingerprint = `${path.resolve(skill.baseDir)}:${decision.result.verdict}:${decision.result.findings.length}`;
+    if (!warnedBlockedSkills.has(fingerprint)) {
+      warnedBlockedSkills.add(fingerprint);
+      logger.warn({
+        skill: skill.name,
+        source: skill.source,
+        trustLevel: decision.result.trustLevel,
+        verdict: decision.result.verdict,
+        findings: decision.result.findings.length,
+        reason: decision.reason,
+      }, 'Blocked skill by security scanner');
+    }
+    return false;
+  });
+
   const resolved: Skill[] = [];
-  for (const skill of byName.values()) {
+  for (const skill of guarded) {
     try {
       let containerSkillPath = asContainerPath(workspaceDir, path.resolve(skill.filePath));
       if (!containerSkillPath) {
@@ -398,32 +881,58 @@ export function buildSkillsPrompt(skills: Skill[]): string {
     .slice(0, MAX_SKILLS_IN_PROMPT);
   if (promptCandidates.length === 0) return '';
 
-  const lines: string[] = [
-    '## Skills (mandatory)',
-    'Before replying: scan <available_skills> <description> entries.',
-    '- If exactly one skill clearly applies: read its SKILL.md at <location> with `read`, then follow it.',
-    '- If multiple could apply: choose the most specific one, then read/follow it.',
-    '- If none clearly apply: do not read any SKILL.md.',
-    'Constraints: never read more than one skill up front; only read after selecting.',
-    '',
-    '<available_skills>',
-  ];
+  const lines: string[] = [];
+  const embeddedAlways = new Set<string>();
+  const demotedAlways: Skill[] = [];
 
-  let chars = 0;
-  for (const skill of promptCandidates) {
+  let alwaysChars = 0;
+  for (const skill of promptCandidates.filter((candidate) => candidate.always)) {
+    const body = loadSkillBody(skill, Number.MAX_SAFE_INTEGER);
+    if (!body) {
+      demotedAlways.push(skill);
+      continue;
+    }
     const block = [
-      '  <skill>',
-      `    <name>${escapeXml(skill.name)}</name>`,
-      `    <description>${escapeXml(skill.description || skill.name)}</description>`,
-      `    <location>${escapeXml(skill.location)}</location>`,
-      '  </skill>',
+      `<skill_always name="${escapeXml(skill.name)}" path="${escapeXml(skill.location)}">`,
+      body,
+      '</skill_always>',
     ];
     const serialized = block.join('\n');
-    if (chars + serialized.length > MAX_SKILLS_PROMPT_CHARS) break;
-    lines.push(...block);
-    chars += serialized.length;
+    if (alwaysChars + serialized.length > MAX_ALWAYS_CHARS) {
+      demotedAlways.push(skill);
+      continue;
+    }
+    lines.push(...block, '');
+    alwaysChars += serialized.length;
+    embeddedAlways.add(skill.name);
   }
 
-  lines.push('</available_skills>');
-  return lines.join('\n');
+  if (demotedAlways.length > 0) {
+    const demotedNames = demotedAlways.map((skill) => skill.name).join(', ');
+    lines.push(`⚠️ maxAlwaysChars=${MAX_ALWAYS_CHARS} exceeded; demoted to summary: ${demotedNames}`, '');
+  }
+
+  const summaryCandidates = promptCandidates.filter((skill) => !embeddedAlways.has(skill.name));
+  if (summaryCandidates.length > 0) {
+    lines.push('<available_skills>');
+
+    let chars = 0;
+    for (const skill of summaryCandidates) {
+      const block = [
+        '  <skill>',
+        `    <name>${escapeXml(skill.name)}</name>`,
+        `    <description>${escapeXml(skill.description || skill.name)}</description>`,
+        `    <location>${escapeXml(skill.location)}</location>`,
+        '  </skill>',
+      ];
+      const serialized = block.join('\n');
+      if (chars + serialized.length > MAX_SKILLS_PROMPT_CHARS) break;
+      lines.push(...block);
+      chars += serialized.length;
+    }
+
+    lines.push('</available_skills>');
+  }
+
+  return lines.join('\n').trim();
 }

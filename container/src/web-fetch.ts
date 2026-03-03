@@ -19,6 +19,25 @@ const TIMEOUT_MS = 30_000;
 const CACHE_TTL_MS = 15 * 60_000; // 15 min
 const CACHE_MAX_ENTRIES = 100;
 const READABILITY_MAX_HTML_CHARS = 1_000_000;
+const ESCALATION_MIN_TEXT_CHARS = 200;
+const ESCALATION_MIN_HTML_CHARS = 5_000;
+const BOT_BLOCKED_PATTERNS = [
+  'access denied',
+  'bot detected',
+  'captcha',
+  'cf-chl-',
+  'checking your browser',
+  'cloudflare',
+  'just a moment',
+  'attention required',
+  'verification required',
+];
+const JAVASCRIPT_REQUIRED_PATTERNS = [
+  'enable javascript',
+  'javascript required',
+  'requires javascript',
+  'turn on javascript',
+];
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
@@ -271,9 +290,70 @@ async function fetchWithRedirects(
   throw new Error(`Too many redirects (max ${maxRedirects})`);
 }
 
+function normalizeForDetection(value: string): string {
+  return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function includesAny(haystack: string, needles: readonly string[]): boolean {
+  for (const needle of needles) {
+    if (haystack.includes(needle)) return true;
+  }
+  return false;
+}
+
+function detectEscalationHint(params: {
+  status: number;
+  contentType: string;
+  body: string;
+  extractedText: string;
+}): WebFetchEscalationHint | undefined {
+  const normalizedBody = normalizeForDetection(params.body);
+  if (params.status === 403 || params.status === 429 || includesAny(normalizedBody, BOT_BLOCKED_PATTERNS)) {
+    return 'bot_blocked';
+  }
+
+  const isHtml = params.contentType.toLowerCase().includes('text/html');
+  if (!isHtml) return undefined;
+
+  if (
+    /<noscript[\s\S]{0,2000}javascript[\s\S]{0,2000}<\/noscript>/i.test(params.body) ||
+    includesAny(normalizedBody, JAVASCRIPT_REQUIRED_PATTERNS)
+  ) {
+    return 'javascript_required';
+  }
+
+  if (
+    /<div[^>]+id=["'](?:root|app|__next)["'][^>]*>\s*<\/div>/i.test(params.body) &&
+    normalizeForDetection(params.extractedText).length < ESCALATION_MIN_TEXT_CHARS
+  ) {
+    return 'spa_shell_only';
+  }
+
+  const normalizedExtracted = normalizeForDetection(params.extractedText);
+  if (normalizedExtracted.length === 0) {
+    return 'empty_extraction';
+  }
+
+  if (
+    normalizedExtracted.length < ESCALATION_MIN_TEXT_CHARS &&
+    params.body.length > ESCALATION_MIN_HTML_CHARS
+  ) {
+    return 'boilerplate_only';
+  }
+
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+export type WebFetchEscalationHint =
+  | 'javascript_required'
+  | 'empty_extraction'
+  | 'spa_shell_only'
+  | 'bot_blocked'
+  | 'boilerplate_only';
 
 export interface WebFetchResult {
   url: string;
@@ -290,6 +370,7 @@ export interface WebFetchResult {
   text: string;
   cached?: boolean;
   warning?: string;
+  escalationHint?: WebFetchEscalationHint;
 }
 
 export async function webFetch(params: {
@@ -327,10 +408,6 @@ export async function webFetch(params: {
       controller.signal,
     );
 
-    if (!res.ok) {
-      throw new Error(`Web fetch failed (${res.status}): ${res.statusText}`);
-    }
-
     const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
     const normalizedContentType = contentType.split(';')[0]?.trim() || 'application/octet-stream';
     const bodyResult = await readResponseText(res, MAX_RESPONSE_BYTES);
@@ -357,13 +434,26 @@ export async function webFetch(params: {
       }
     }
 
+    const extractedText = extractMode === 'text' ? text : markdownToText(text);
+    const escalationHint = detectEscalationHint({
+      status: res.status,
+      contentType: normalizedContentType,
+      body,
+      extractedText,
+    });
+
+    if (!res.ok && !escalationHint) {
+      throw new Error(`Web fetch failed (${res.status}): ${res.statusText}`);
+    }
+
     // Truncate
     const truncated = text.length > maxChars;
     if (truncated) text = text.slice(0, maxChars);
 
-    const warning = bodyResult.truncated
-      ? `Response body truncated after ${MAX_RESPONSE_BYTES} bytes.`
-      : undefined;
+    const warnings: string[] = [];
+    if (!res.ok) warnings.push(`HTTP ${res.status} ${res.statusText}.`);
+    if (bodyResult.truncated) warnings.push(`Response body truncated after ${MAX_RESPONSE_BYTES} bytes.`);
+    const warning = warnings.length > 0 ? warnings.join(' ') : undefined;
 
     const result: WebFetchResult = {
       url: params.url,
@@ -379,6 +469,7 @@ export async function webFetch(params: {
       tookMs: Date.now() - start,
       text,
       warning,
+      escalationHint,
     };
 
     writeCache(cacheKey, result);

@@ -6,6 +6,9 @@
     "trustModelVersion": "",
     "trustModelAcceptedBy": ""
   },
+  "skills": {
+    "extraDirs": []
+  },
   "discord": {
     "prefix": "!claw"
   },

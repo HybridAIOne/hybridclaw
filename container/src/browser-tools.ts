@@ -56,6 +56,24 @@ const EXTRACT_IFRAMES_SCRIPT = `(() => {
   }));
 })()`;
 
+const EXTRACT_TEXT_PREVIEW_SCRIPT = `(() => {
+  const bodyText = document.body ? String(document.body.innerText || '') : '';
+  const normalized = bodyText
+    .replace(/\\r/g, '')
+    .replace(/[ \\t]+\\n/g, '\\n')
+    .replace(/\\n{3,}/g, '\\n\\n')
+    .trim();
+  const previewLimit = 6000;
+  return {
+    text_length: normalized.length,
+    preview: normalized.slice(0, previewLimit),
+    preview_truncated: normalized.length > previewLimit,
+    has_noscript: Boolean(document.querySelector('noscript')),
+    root_shell: Boolean(document.querySelector('div#root:empty, div#app:empty, div#__next:empty')),
+    ready_state: String(document.readyState || ''),
+  };
+})()`;
+
 const NETWORK_TIMINGS_SCRIPT = `(() => {
   const entries = performance.getEntriesByType('resource');
   return entries
@@ -563,6 +581,19 @@ function buildBotDetectionWarning(titleValue: unknown): Record<string, unknown> 
   };
 }
 
+function buildReadExtractionHint(params: {
+  contentLength: number;
+  hasNoscript: boolean;
+  rootShell: boolean;
+}): string {
+  const base =
+    'For content extraction, call browser_snapshot with {"mode":"full"} next. For long or lazy-loaded pages, run browser_scroll then browser_snapshot again.';
+  if (params.hasNoscript || params.rootShell || params.contentLength < 200) {
+    return `${base} This page currently looks dynamic/app-shell-like; do not conclude "inaccessible" before snapshot attempts.`;
+  }
+  return `${base} Avoid browser_pdf for text extraction; PDF export is for artifact output.`;
+}
+
 function extractVisionTextContent(content: unknown): string {
   if (typeof content === 'string') return content.trim();
   if (!Array.isArray(content)) return '';
@@ -754,12 +785,31 @@ export async function executeBrowserTool(name: string, args: Record<string, unkn
         const data = (result.data || {}) as Record<string, unknown>;
         const title = String(data.title || '');
         const botWarning = buildBotDetectionWarning(title);
+        const textEval = await runBrowserEval(effectiveSessionId, EXTRACT_TEXT_PREVIEW_SCRIPT, 20_000);
+        const textData = textEval.success ? asRecord(textEval.result) : null;
+        const contentPreview = typeof textData?.preview === 'string' ? textData.preview : '';
+        const contentLength =
+          typeof textData?.text_length === 'number' && Number.isFinite(textData.text_length)
+            ? Math.max(0, Math.floor(textData.text_length))
+            : 0;
+        const contentPreviewTruncated = textData?.preview_truncated === true;
+        const hasNoscript = textData?.has_noscript === true;
+        const rootShell = textData?.root_shell === true;
+        const readyState = typeof textData?.ready_state === 'string' ? textData.ready_state : '';
+        const extractionHint = buildReadExtractionHint({ contentLength, hasNoscript, rootShell });
         // Best-effort priming so browser_network has request listeners active quickly.
         await runAgentBrowser(effectiveSessionId, 'network', ['requests']).catch(() => undefined);
         return success({
           url: data.url || parsed.toString(),
           title,
           session_id: effectiveSessionId,
+          content_text_length: contentLength,
+          ...(contentPreview ? { content_preview: contentPreview } : {}),
+          ...(contentPreview ? { content_preview_truncated: contentPreviewTruncated } : {}),
+          ...(readyState ? { ready_state: readyState } : {}),
+          ...(hasNoscript ? { has_noscript: true } : {}),
+          ...(rootShell ? { root_shell: true } : {}),
+          read_extraction_hint: extractionHint,
           ...(botWarning ? { bot_detection_warning: botWarning } : {}),
         });
       }
@@ -1000,7 +1050,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_navigate',
       description:
-        'Navigate to an HTTP/HTTPS URL in a browser session. Private/loopback hosts are blocked by default (SSRF guard).',
+        'Navigate to a URL in a full browser session with JavaScript execution and dynamic rendering. Use for SPAs (React/Vue/Angular/Svelte), auth/login flows, dashboards/web apps (Notion, Google Docs, Airtable, Jira, etc.), interaction tasks (click/type/submit/scroll), bot/captcha/consent flows, or when web_fetch returns escalation hints (javascript_required, spa_shell_only, empty_extraction, boilerplate_only, bot_blocked). Prefer web_fetch instead for static docs/articles/wikis, direct API JSON/XML/text endpoints, and simple read-only retrieval. Important: browser_navigate opens the page but does not replace content extraction; for read/summarize tasks call browser_snapshot with mode="full" next. Browser usage is typically ~10-100x slower/more expensive than web_fetch. Private/loopback hosts are blocked by default (SSRF guard).',
       parameters: {
         type: 'object',
         properties: {
@@ -1015,7 +1065,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_snapshot',
       description:
-        'Return an accessibility-tree snapshot of the current page with element refs usable by browser_click/browser_type.',
+        'Return an accessibility-tree snapshot of the current page with element refs usable by browser_click/browser_type. Use this to actually read page content after browser_navigate; for extraction tasks prefer mode="full" and repeat after browser_scroll on long/lazy-loaded pages.',
       parameters: {
         type: 'object',
         properties: {
@@ -1134,7 +1184,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_pdf',
       description:
-        'Save the current page as PDF. Output path is constrained under /workspace/.browser-artifacts for safety.',
+        'Save the current page as PDF artifact. Output path is constrained under /workspace/.browser-artifacts for safety. Use for export/sharing only, not for text extraction or summarization.',
       parameters: {
         type: 'object',
         properties: {
