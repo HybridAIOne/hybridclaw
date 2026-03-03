@@ -84,6 +84,7 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'bash',
   'session_search',
   'web_fetch',
+  'message',
   'browser_navigate',
   'browser_snapshot',
   'browser_click',

@@ -47,8 +47,13 @@ let pendingSchedules: ScheduleSideEffect[] = [];
 let pendingDelegations: DelegationSideEffect[] = [];
 let injectedTasks: ScheduledTaskInfo[] = [];
 let currentSessionId = '';
+let gatewayBaseUrl = '';
+let gatewayApiToken = '';
+let gatewayChannelId = '';
 const MAX_PENDING_DELEGATIONS = 3;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
+
+type DiscordMessageToolAction = 'read' | 'member-info' | 'channel-info';
 
 export function resetSideEffects(): void {
   pendingSchedules = [];
@@ -74,6 +79,12 @@ export function setSessionContext(sessionId: string): void {
   currentSessionId = String(sessionId || '');
 }
 
+export function setGatewayContext(baseUrl?: string, apiToken?: string, channelId?: string): void {
+  gatewayBaseUrl = String(baseUrl || '').trim();
+  gatewayApiToken = String(apiToken || '').trim();
+  gatewayChannelId = String(channelId || '').trim();
+}
+
 export function setModelContext(
   baseUrl: string,
   apiKey: string,
@@ -81,6 +92,73 @@ export function setModelContext(
   chatbotId: string,
 ): void {
   setBrowserModelContext(baseUrl, apiKey, model, chatbotId);
+}
+
+function readStringValue(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function resolveDiscordMessageAction(rawAction: unknown): DiscordMessageToolAction | null {
+  const normalized = readStringValue(rawAction)?.toLowerCase();
+  if (!normalized) return null;
+  if (normalized === 'read' || normalized === 'readmessages') return 'read';
+  if (normalized === 'member-info' || normalized === 'memberinfo') return 'member-info';
+  if (normalized === 'channel-info' || normalized === 'channelinfo') return 'channel-info';
+  return null;
+}
+
+function resolveGatewayDiscordActionUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) return null;
+  return `${base}/api/discord/action`;
+}
+
+async function callGatewayDiscordAction(payload: Record<string, unknown>): Promise<string> {
+  const url = resolveGatewayDiscordActionUrl();
+  if (!url) {
+    return 'Error: Discord actions are unavailable because gatewayBaseUrl is not configured.';
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    return `Error: Discord action request failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  const rawText = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const maybe = JSON.parse(rawText) as unknown;
+    if (maybe && typeof maybe === 'object' && !Array.isArray(maybe)) {
+      parsed = maybe as Record<string, unknown>;
+    }
+  } catch {
+    parsed = null;
+  }
+
+  if (!response.ok) {
+    const detail = typeof parsed?.error === 'string'
+      ? parsed.error
+      : rawText || `HTTP ${response.status}`;
+    return `Error: Discord action failed (${response.status}): ${detail}`;
+  }
+
+  if (parsed) return JSON.stringify(parsed, null, 2);
+  return rawText || JSON.stringify({ ok: true }, null, 2);
 }
 
 function normalizeDelegationTask(raw: unknown, fallbackModel?: string): DelegationTaskSpec | null {
@@ -802,6 +880,68 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         return `Error: unknown memory action "${action}". Use read, append, write, replace, remove, list, or search.`;
       }
 
+      case 'message': {
+        const action = resolveDiscordMessageAction(args.action);
+        if (!action) {
+          return 'Error: unsupported message action. Use "read", "member-info", or "channel-info".';
+        }
+
+        const payload: Record<string, unknown> = { action };
+
+        if (action === 'read') {
+          const channelId =
+            readStringValue(args.channelId)
+            || readStringValue(args.to)
+            || readStringValue(args.target)
+            || gatewayChannelId;
+          if (!channelId) {
+            return 'Error: channelId is required for message action "read".';
+          }
+          payload.channelId = channelId;
+
+          if (typeof args.limit === 'number' && Number.isFinite(args.limit)) {
+            payload.limit = Math.max(1, Math.min(100, Math.floor(args.limit)));
+          }
+          const before = readStringValue(args.before);
+          const after = readStringValue(args.after);
+          const around = readStringValue(args.around);
+          if (before) payload.before = before;
+          if (after) payload.after = after;
+          if (around) payload.around = around;
+        }
+
+        if (action === 'member-info') {
+          const guildId = readStringValue(args.guildId);
+          const userId =
+            readStringValue(args.userId)
+            || readStringValue(args.memberId)
+            || readStringValue(args.user)
+            || readStringValue(args.username);
+          if (!guildId) {
+            return 'Error: guildId is required for message action "member-info".';
+          }
+          if (!userId) {
+            return 'Error: userId/username is required for message action "member-info".';
+          }
+          payload.guildId = guildId;
+          payload.userId = userId;
+        }
+
+        if (action === 'channel-info') {
+          const channelId =
+            readStringValue(args.channelId)
+            || readStringValue(args.to)
+            || readStringValue(args.target)
+            || gatewayChannelId;
+          if (!channelId) {
+            return 'Error: channelId is required for message action "channel-info".';
+          }
+          payload.channelId = channelId;
+        }
+
+        return await callGatewayDiscordAction(payload);
+      }
+
       case 'session_search': {
         const query = typeof args.query === 'string' ? args.query.trim() : '';
         if (!query) return 'Error: query is required for session_search';
@@ -1186,6 +1326,58 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           old_text: { type: 'string', description: 'Existing substring for replace/remove' },
           new_text: { type: 'string', description: 'Replacement text for replace' },
           query: { type: 'string', description: 'Case-insensitive query string for search' },
+        },
+        required: ['action'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'message',
+      description:
+        'OpenClaw-style channel action tool. In Discord-backed sessions supports actions: read, member-info, channel-info.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            description: 'Action to perform: "read", "member-info", or "channel-info".',
+            enum: ['read', 'member-info', 'channel-info'],
+          },
+          channelId: {
+            type: 'string',
+            description: 'Discord channel id. Defaults to current channel for read/channel-info.',
+          },
+          guildId: {
+            type: 'string',
+            description: 'Discord guild id (required for member-info).',
+          },
+          userId: {
+            type: 'string',
+            description: 'Discord user id (required for member-info).',
+          },
+          memberId: {
+            type: 'string',
+            description: 'Alias for userId in member-info.',
+          },
+          username: {
+            type: 'string',
+            description: 'Discord username/display name/@handle to resolve for member-info.',
+          },
+          user: {
+            type: 'string',
+            description: 'Alias for username/userId in member-info.',
+          },
+          limit: {
+            type: 'number',
+            description: 'Read limit for action="read" (default 20, max 100).',
+          },
+          before: { type: 'string', description: 'Read messages before this message id.' },
+          after: { type: 'string', description: 'Read messages after this message id.' },
+          around: { type: 'string', description: 'Read messages around this message id.' },
+          target: { type: 'string', description: 'Alias for channelId.' },
+          to: { type: 'string', description: 'Alias for channelId.' },
         },
         required: ['action'],
       },

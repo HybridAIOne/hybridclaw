@@ -8,6 +8,24 @@
 
 ### Fixed
 
+## [0.2.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.1)
+
+### Added
+
+- **Discord `message` tool actions**: Added OpenClaw-style `message` tool support in the container with `read`, `member-info`, and `channel-info` actions, routed via the gateway API.
+- **Gateway Discord action endpoint**: Added `POST /api/discord/action` to execute Discord context actions for tools and automated runs.
+
+### Changed
+
+- **Discord presence handling**: Switched from prompt-injected presence snapshots to cache-backed presence data returned by `member-info` (`status` + `activities`) when available.
+- **Discord context guidance**: Updated safety prompt policy to explicitly route recap/member lookup questions through `message` tool actions instead of guessing.
+- **Tool allowlists**: Enabled `message` in heartbeat and base subagent allowed tool sets for delegated and automated workflows.
+- **Container gateway auth context**: Container input now carries gateway base URL/token and maps loopback hosts to `host.docker.internal` for in-container API reachability.
+- **Gateway token fallback**: Runtime now generates an internal gateway API token when no explicit token is configured, while preserving env/config overrides.
+
+### Fixed
+
+
 ## [0.2.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.0)
 
 ### Added

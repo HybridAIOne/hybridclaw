@@ -11,6 +11,8 @@ import {
   CONTAINER_IMAGE,
   CONTAINER_MEMORY,
   CONTAINER_TIMEOUT,
+  GATEWAY_API_TOKEN,
+  GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
@@ -158,6 +160,10 @@ function remapOutputArtifacts(output: ContainerOutput, workspacePath: string): v
     return;
   }
   output.artifacts = mapped;
+}
+
+function remapHostBaseUrlForContainer(baseUrl: string): string {
+  return baseUrl.replace(/\/\/(localhost|127\.0\.0\.1)([:\/])/, '//host.docker.internal$2');
 }
 
 /**
@@ -327,7 +333,9 @@ export async function runContainer(
     chatbotId,
     enableRag,
     apiKey: getHybridAIApiKey(),
-    baseUrl: HYBRIDAI_BASE_URL.replace(/\/\/(localhost|127\.0\.0\.1)([:\/])/, '//host.docker.internal$2'),
+    baseUrl: remapHostBaseUrlForContainer(HYBRIDAI_BASE_URL),
+    gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_BASE_URL),
+    gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     model,
     channelId,
     scheduledTasks: scheduledTasks?.map((t) => ({

@@ -31,6 +31,8 @@ export interface ContainerInput {
   enableRag: boolean;
   apiKey: string;
   baseUrl: string;
+  gatewayBaseUrl?: string;
+  gatewayApiToken?: string;
   model: string;
   channelId: string;
   scheduledTasks?: { id: number; cronExpr: string; runAt: string | null; everyMs: number | null; prompt: string; enabled: number; lastRun: string | null; createdAt: string }[];

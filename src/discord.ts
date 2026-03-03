@@ -4,7 +4,6 @@ import {
   type ChatInputCommandInteraction,
   Client,
   GatewayIntentBits,
-  PermissionFlagsBits,
   type GuildMember,
   type Message as DiscordMessage,
   Partials,
@@ -30,6 +29,8 @@ interface PendingGuildHistoryEntry {
   userId: string;
   username: string;
   displayName: string | null;
+  isBot: boolean;
+  timestampMs: number;
   content: string;
 }
 
@@ -53,6 +54,22 @@ export interface MessageRunContext {
   abortSignal: AbortSignal;
   stream: DiscordStreamManager;
   mentionLookup: MentionLookup;
+}
+
+export type DiscordToolAction = 'read' | 'member-info' | 'channel-info';
+
+export interface DiscordToolActionRequest {
+  action: DiscordToolAction;
+  channelId?: string;
+  guildId?: string;
+  userId?: string;
+  username?: string;
+  user?: string;
+  memberId?: string;
+  limit?: number;
+  before?: string;
+  after?: string;
+  around?: string;
 }
 
 export type MessageHandler = (
@@ -85,15 +102,42 @@ const MAX_ATTACHMENT_CONTEXT_CHARS = 16_000;
 const MAX_SINGLE_ATTACHMENT_CHARS = 8_000;
 const DISCORD_RETRY_MAX_ATTEMPTS = 3;
 const DISCORD_RETRY_BASE_DELAY_MS = 500;
-const GUILD_PENDING_HISTORY_LIMIT = 30;
-const GUILD_PENDING_HISTORY_MAX_CHARS = 6_000;
+const GUILD_INBOUND_HISTORY_LIMIT = 20;
+const GUILD_INBOUND_HISTORY_MAX_CHARS = 6_000;
 const PARTICIPANT_CONTEXT_MAX_USERS = 30;
 const PARTICIPANT_MEMORY_MAX_CHANNELS = 200;
 const PARTICIPANT_MEMORY_MAX_USERS_PER_CHANNEL = 200;
 const PARTICIPANT_MEMORY_MAX_ALIASES_PER_USER = 8;
 const MENTION_ALIAS_LOOKUP_MAX = 8;
-const PRESENCE_SNAPSHOT_MAX_USERS = 25;
-const PRESENCE_SNAPSHOT_FETCH_LIMIT = 50;
+const MAX_PRESENCE_CACHE_USERS = 5_000;
+
+interface CachedDiscordPresenceActivity {
+  type: number;
+  name: string;
+  state: string | null;
+  details: string | null;
+}
+
+interface CachedDiscordPresence {
+  status: string;
+  activities: CachedDiscordPresenceActivity[];
+}
+
+const discordPresenceCache = new Map<string, CachedDiscordPresence>();
+
+function setDiscordPresence(userId: string, data: CachedDiscordPresence): void {
+  discordPresenceCache.set(userId, data);
+  if (discordPresenceCache.size > MAX_PRESENCE_CACHE_USERS) {
+    const oldestUserId = discordPresenceCache.keys().next().value;
+    if (oldestUserId) {
+      discordPresenceCache.delete(oldestUserId);
+    }
+  }
+}
+
+function getDiscordPresence(userId: string): CachedDiscordPresence | undefined {
+  return discordPresenceCache.get(userId);
+}
 
 function normalizeMentionAlias(raw: string | null | undefined): string {
   if (!raw) return '';
@@ -263,9 +307,10 @@ export async function rewriteUserMentionsForMessage(
 
 function summarizePendingHistoryEntry(entry: PendingGuildHistoryEntry): string {
   const author = entry.displayName || entry.username || 'user';
+  const authorLabel = entry.isBot ? `${author} [bot]` : author;
   const content = entry.content.trim();
   const snippet = content.length > 300 ? `${content.slice(0, 297)}...` : content;
-  return `${author}: ${snippet}`;
+  return `${authorLabel}: ${snippet}`;
 }
 
 function buildPendingHistoryContext(entries: PendingGuildHistoryEntry[]): string {
@@ -275,19 +320,110 @@ function buildPendingHistoryContext(entries: PendingGuildHistoryEntry[]): string
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const line = summarizePendingHistoryEntry(entries[i]);
     if (!line) continue;
-    if (totalChars + line.length > GUILD_PENDING_HISTORY_MAX_CHARS && selected.length > 0) break;
+    if (totalChars + line.length > GUILD_INBOUND_HISTORY_MAX_CHARS && selected.length > 0) break;
     selected.push(line);
     totalChars += line.length + 1;
   }
   if (selected.length === 0) return '';
   selected.reverse();
-  return `[Channel context since last trigger]\n${selected.join('\n')}\n\n`;
+  return [
+    '[InboundHistory]',
+    'Recent channel messages (most recent last):',
+    ...selected,
+    '',
+    '',
+  ].join('\n');
+}
+
+async function buildInboundHistorySnapshot(
+  msg: DiscordMessage,
+  excludeMessageIds: Set<string>,
+): Promise<{ entries: PendingGuildHistoryEntry[]; context: string }> {
+  if (!msg.guild || !('messages' in msg.channel)) return { entries: [], context: '' };
+
+  try {
+    const recentMessages = await msg.channel.messages.fetch({ limit: GUILD_INBOUND_HISTORY_LIMIT });
+    const entries: PendingGuildHistoryEntry[] = [];
+    let hiddenTextCount = 0;
+    let hiddenBotTextCount = 0;
+
+    const summarizeHistoryMessageContent = (recent: DiscordMessage): string => {
+      const plainText = cleanIncomingContent(recent.content || '').trim();
+      if (plainText) return plainText;
+
+      const embedChunks = recent.embeds
+        .map((embed) => [embed.title?.trim(), embed.description?.trim()].filter(Boolean).join(' — '))
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .slice(0, 3);
+      if (embedChunks.length > 0) {
+        return `[embed] ${embedChunks.join(' | ')}`;
+      }
+
+      const attachmentNames = Array.from(recent.attachments.values())
+        .map((attachment) => attachment.name?.trim())
+        .filter((name): name is string => Boolean(name))
+        .slice(0, 5);
+      if (attachmentNames.length > 0) {
+        return `[attachments] ${attachmentNames.join(', ')}`;
+      }
+
+      const systemContent = recent.system ? (recent.cleanContent || '').trim() : '';
+      if (systemContent) return `[system] ${systemContent}`;
+
+      hiddenTextCount += 1;
+      if (recent.author?.bot) hiddenBotTextCount += 1;
+      return '[no visible text]';
+    };
+
+    for (const recent of recentMessages.values()) {
+      if (excludeMessageIds.has(recent.id)) continue;
+      if (!recent.author?.id) continue;
+      if (recent.author.id === client.user?.id) continue;
+      const content = summarizeHistoryMessageContent(recent);
+      if (!content) continue;
+      entries.push({
+        messageId: recent.id,
+        userId: recent.author.id,
+        username: recent.author.username || 'user',
+        displayName: recent.member?.displayName || null,
+        isBot: Boolean(recent.author.bot),
+        timestampMs: Number.isFinite(recent.createdTimestamp) ? recent.createdTimestamp : 0,
+        content,
+      });
+    }
+    entries.sort((a, b) => a.timestampMs - b.timestampMs || a.messageId.localeCompare(b.messageId));
+    let context = buildPendingHistoryContext(entries);
+    if (hiddenTextCount > 0) {
+      const visibilityNote = [
+        '[Discord visibility note]',
+        `${hiddenTextCount} recent message(s) had no visible text via API${hiddenBotTextCount > 0 ? ` (${hiddenBotTextCount} from bot users)` : ''}.`,
+        'If asked for exact wording of those messages, say text was not visible in this snapshot.',
+        '',
+        '',
+      ].join('\n');
+      context = `${visibilityNote}${context}`;
+    }
+    return {
+      entries,
+      context,
+    };
+  } catch (error) {
+    logger.debug({ error, guildId: msg.guild.id, channelId: msg.channelId }, 'Failed to build inbound channel history snapshot');
+    return { entries: [], context: '' };
+  }
 }
 
 function addParticipantAlias(info: ParticipantInfo, alias: string | null | undefined): void {
   const normalized = normalizeMentionAlias(alias);
   if (!normalized) return;
   info.aliases.add(normalized);
+}
+
+function formatDiscordHandleFromAlias(alias: string | null | undefined): string | null {
+  const normalized = normalizeMentionAlias(alias);
+  if (!normalized) return null;
+  return `@${normalized}`;
 }
 
 function buildParticipantContext(
@@ -297,6 +433,7 @@ function buildParticipantContext(
 ): string {
   const participants = new Map<string, ParticipantInfo>();
   const botUserId = client.user?.id || '';
+  const botParticipantIds = new Set<string>();
 
   const upsert = (userId: string): ParticipantInfo => {
     let info = participants.get(userId);
@@ -310,12 +447,18 @@ function buildParticipantContext(
   for (const msg of messages) {
     if (!msg.author?.id || msg.author.id === botUserId) continue;
     const info = upsert(msg.author.id);
+    if (msg.author.bot) {
+      botParticipantIds.add(msg.author.id);
+    }
     addParticipantAlias(info, msg.author.username);
     addParticipantAlias(info, msg.member?.displayName);
 
     for (const mentioned of msg.mentions.users.values()) {
       if (!mentioned.id || mentioned.id === botUserId) continue;
       const mentionedInfo = upsert(mentioned.id);
+      if (mentioned.bot) {
+        botParticipantIds.add(mentioned.id);
+      }
       addParticipantAlias(mentionedInfo, mentioned.username);
       const mentionedMember = msg.mentions.members?.get(mentioned.id);
       addParticipantAlias(mentionedInfo, mentionedMember?.displayName);
@@ -331,6 +474,9 @@ function buildParticipantContext(
   for (const entry of pendingHistory) {
     if (!entry.userId || entry.userId === botUserId) continue;
     const info = upsert(entry.userId);
+    if (entry.isBot) {
+      botParticipantIds.add(entry.userId);
+    }
     addParticipantAlias(info, entry.username);
     addParticipantAlias(info, entry.displayName);
     for (const hint of extractMentionAliasHints(entry.content)) {
@@ -355,104 +501,21 @@ function buildParticipantContext(
     .filter((entry) => entry.aliases.size > 0)
     .sort((a, b) => a.id.localeCompare(b.id))
     .slice(0, PARTICIPANT_CONTEXT_MAX_USERS)
-    .map((entry) => `- <@${entry.id}> aliases: ${Array.from(entry.aliases).slice(0, 3).join(', ')}`);
+    .map((entry) => {
+      const aliases = Array.from(entry.aliases).slice(0, 3);
+      const preferredHandle = formatDiscordHandleFromAlias(aliases[0]) || `id:${entry.id}`;
+      const botSuffix = botParticipantIds.has(entry.id) ? ' [bot]' : '';
+      return `- ${preferredHandle}${botSuffix} id:${entry.id} aliases: ${aliases.join(', ')}`;
+    });
   if (lines.length === 0) return '';
   return [
     '[Known participants]',
-    'If you need to mention someone, prefer exact Discord mention IDs from this list.',
+    'Use @handles from this list in normal replies.',
+    'Use raw <@id> mention syntax only when the user explicitly asks for mention IDs/tokens.',
     'This list is derived from recent and remembered context; it may be incomplete.',
     ...lines,
     '',
   ].join('\n');
-}
-
-function shouldIncludePresenceContext(text: string): boolean {
-  if (!text.trim()) return false;
-  return /\b(online|offline|presence|anwesend|voice[-\s]?state|vc)\b|wer\s+ist\s+(hier|da|online)|who\s+is\s+(here|online)|who'?s\s+(here|online)|who\s+is\s+in\s+(this\s+)?(channel|server)|im\s+(channel|kanal).*(online|anwesend)|siehst\s+du|can\s+you\s+see|do\s+you\s+see|is\s+.+\s+online|ist\s+.+\s+online/iu.test(text);
-}
-
-function formatPresenceStatus(status: string): string {
-  if (status === 'dnd') return 'do-not-disturb';
-  return status;
-}
-
-function canMemberViewChannel(msg: DiscordMessage, member: GuildMember): boolean {
-  if (!('permissionsFor' in msg.channel)) return true;
-  try {
-    const permissions = msg.channel.permissionsFor(member);
-    return Boolean(permissions?.has(PermissionFlagsBits.ViewChannel));
-  } catch {
-    return false;
-  }
-}
-
-async function buildPresenceContext(msg: DiscordMessage, triggerContent: string): Promise<string> {
-  if (!msg.guild) return '';
-  if (!shouldIncludePresenceContext(triggerContent)) return '';
-
-  if (!DISCORD_GUILD_MEMBERS_INTENT || !DISCORD_PRESENCE_INTENT) {
-    return [
-      '[Discord presence lookup]',
-      'Presence data is unavailable for this run because privileged intents are disabled.',
-      `Current flags: guildMembersIntent=${DISCORD_GUILD_MEMBERS_INTENT}, presenceIntent=${DISCORD_PRESENCE_INTENT}.`,
-      'To answer online-status questions, enable both flags in config.json and enable both intents in the Discord Developer Portal.',
-      '',
-    ].join('\n');
-  }
-
-  try {
-    const presences = Array.from(msg.guild.presences.cache.values())
-      .filter((presence) => presence.status && presence.status !== 'offline' && presence.status !== 'invisible');
-
-    const members: Array<{ id: string; label: string; status: string }> = [];
-    let fetchBudget = PRESENCE_SNAPSHOT_FETCH_LIMIT;
-    for (const presence of presences) {
-      if (members.length >= PRESENCE_SNAPSHOT_MAX_USERS) break;
-
-      let member = msg.guild.members.cache.get(presence.userId) || null;
-      if (!member && fetchBudget > 0) {
-        fetchBudget -= 1;
-        member = await msg.guild.members.fetch(presence.userId).catch(() => null);
-      }
-      if (!member) continue;
-      if (!canMemberViewChannel(msg, member)) continue;
-
-      const label = member.displayName || member.user.username || 'user';
-      members.push({
-        id: member.id,
-        label,
-        status: formatPresenceStatus(presence.status),
-      });
-    }
-
-    if (members.length === 0) {
-      return [
-        '[Discord presence snapshot]',
-        `Captured at: ${new Date().toISOString()}`,
-        'No online/idle/dnd members with access to this channel were resolved.',
-        'If asked about a specific person, treat them as not visible online in this snapshot (offline/invisible/not cached).',
-        '',
-      ].join('\n');
-    }
-
-    members.sort((a, b) => a.label.localeCompare(b.label));
-    return [
-      '[Discord presence snapshot]',
-      `Captured at: ${new Date().toISOString()}`,
-      'Guild-level presence filtered to users who can view this channel.',
-      'This snapshot is authoritative for this response. Do not claim missing Discord access when this section exists.',
-      'If asked about a specific person not listed, treat them as not visible online in this snapshot (offline/invisible/not cached).',
-      ...members.map((entry) => `- <@${entry.id}> (${entry.label}) status=${entry.status}`),
-      '',
-    ].join('\n');
-  } catch (error) {
-    logger.debug({ error, guildId: msg.guild.id, channelId: msg.channelId }, 'Failed to build Discord presence context');
-    return [
-      '[Discord presence snapshot]',
-      'Presence lookup failed in this run. If asked, explain that presence data could not be resolved.',
-      '',
-    ].join('\n');
-  }
 }
 
 interface DiscordErrorLike {
@@ -483,6 +546,301 @@ export function formatInfo(title: string, body: string): string {
 
 export function formatError(title: string, detail: string): string {
   return `**${title}:** ${detail}`;
+}
+
+function requireDiscordClientReady(): Client {
+  if (!client) {
+    throw new Error('Discord client is not initialized.');
+  }
+  if (!client.isReady()) {
+    throw new Error('Discord client is not ready yet.');
+  }
+  return client;
+}
+
+function sanitizeDiscordId(rawValue: string | undefined, label: string): string {
+  const value = (rawValue || '').trim();
+  if (!/^\d{16,22}$/.test(value)) {
+    throw new Error(`${label} must be a Discord snowflake id.`);
+  }
+  return value;
+}
+
+function normalizeDiscordUserLookupQuery(rawValue: string | undefined): string {
+  const trimmed = (rawValue || '').trim();
+  if (!trimmed) return '';
+
+  const mentionMatch = trimmed.match(/^<@!?(\d{16,22})>$/);
+  if (mentionMatch) return mentionMatch[1];
+  const prefixedId = trimmed.match(/^(?:user:|discord:)?(\d{16,22})$/i);
+  if (prefixedId) return prefixedId[1];
+
+  return trimmed.replace(/^@+/, '').trim();
+}
+
+function scoreGuildMemberForLookup(member: GuildMember, query: string): number {
+  const q = query.toLowerCase();
+  const username = member.user.username?.toLowerCase() || '';
+  const globalName = member.user.globalName?.toLowerCase() || '';
+  const nickname = member.nickname?.toLowerCase() || '';
+  const displayName = member.displayName?.toLowerCase() || '';
+  const candidates = [username, globalName, nickname, displayName].filter(Boolean);
+
+  let score = 0;
+  if (candidates.some((value) => value === q)) score += 3;
+  if (candidates.some((value) => value.includes(q))) score += 1;
+  if (!member.user.bot) score += 1;
+  return score;
+}
+
+async function resolveGuildMemberIdFromLookup(params: {
+  guildId: string;
+  rawUser: string;
+}): Promise<{ userId: string; note?: string }> {
+  const activeClient = requireDiscordClientReady();
+  const guildId = sanitizeDiscordId(params.guildId, 'guildId');
+  const normalized = normalizeDiscordUserLookupQuery(params.rawUser);
+  if (!normalized) {
+    throw new Error('userId or username is required.');
+  }
+  if (/^\d{16,22}$/.test(normalized)) {
+    return { userId: normalized };
+  }
+
+  const guild = await activeClient.guilds.fetch(guildId);
+  const searchQuery = normalized.slice(0, 32);
+  if (!searchQuery) {
+    throw new Error('username query is empty after normalization.');
+  }
+
+  let members: Map<string, GuildMember>;
+  try {
+    members = await guild.members.search({ query: searchQuery, limit: 25 });
+  } catch {
+    const fetched = await guild.members.fetch({ query: searchQuery, limit: 25 });
+    members = fetched;
+  }
+  let best: GuildMember | null = null;
+  let bestScore = 0;
+  let matchCount = 0;
+  for (const member of members.values()) {
+    const score = scoreGuildMemberForLookup(member, searchQuery);
+    if (score <= 0) continue;
+    matchCount += 1;
+    if (!best || score > bestScore) {
+      best = member;
+      bestScore = score;
+    }
+  }
+
+  if (!best) {
+    throw new Error(`No guild member matched username "${searchQuery}".`);
+  }
+
+  return {
+    userId: best.id,
+    note: matchCount > 1 ? 'multiple matches; chose best' : undefined,
+  };
+}
+
+function normalizeDate(value: Date | null | undefined): string | null {
+  if (!value) return null;
+  const ms = value.getTime();
+  if (!Number.isFinite(ms)) return null;
+  return value.toISOString();
+}
+
+async function runDiscordReadAction(request: DiscordToolActionRequest): Promise<Record<string, unknown>> {
+  const activeClient = requireDiscordClientReady();
+  const channelId = sanitizeDiscordId(request.channelId, 'channelId');
+  const channel = await activeClient.channels.fetch(channelId);
+  if (!channel || !('messages' in channel)) {
+    throw new Error('Channel does not support message reads.');
+  }
+
+  const requestedLimit =
+    typeof request.limit === 'number' && Number.isFinite(request.limit)
+      ? Math.floor(request.limit)
+      : 20;
+  const limit = Math.max(1, Math.min(100, requestedLimit));
+  const before = request.before?.trim();
+  const after = request.after?.trim();
+  const around = request.around?.trim();
+
+  const query: { limit: number; before?: string; after?: string; around?: string } = { limit };
+  if (before) query.before = before;
+  if (after) query.after = after;
+  if (around) query.around = around;
+
+  const fetched = await channel.messages.fetch(query);
+  const messages = Array.from(fetched.values())
+    .sort((a, b) => a.createdTimestamp - b.createdTimestamp || a.id.localeCompare(b.id))
+    .map((message) => ({
+      id: message.id,
+      channelId: message.channelId,
+      guildId: message.guildId ?? null,
+      content: message.content || '',
+      createdAt: new Date(message.createdTimestamp).toISOString(),
+      editedAt: normalizeDate(message.editedAt),
+      author: {
+        id: message.author?.id || 'unknown',
+        username: message.author?.username || 'unknown',
+        handle: message.author?.username ? `@${message.author.username}` : null,
+        globalName: message.author?.globalName || null,
+        bot: Boolean(message.author?.bot),
+      },
+      member: message.member
+        ? {
+            id: message.member.id,
+            nickname: message.member.nickname || null,
+            displayName: message.member.displayName || null,
+          }
+        : null,
+      attachments: Array.from(message.attachments.values()).map((attachment) => ({
+        id: attachment.id,
+        name: attachment.name || null,
+        url: attachment.url,
+        contentType: attachment.contentType || null,
+        size: attachment.size,
+      })),
+      mentions: {
+        users: Array.from(message.mentions.users.values()).map((user) => ({
+          id: user.id,
+          username: user.username,
+          bot: Boolean(user.bot),
+        })),
+        roles: Array.from(message.mentions.roles.values()).map((role) => ({
+          id: role.id,
+          name: role.name,
+        })),
+        channels: Array.from(message.mentions.channels.values()).map((mentionedChannel) => ({
+          id: mentionedChannel.id,
+          name: 'name' in mentionedChannel && typeof mentionedChannel.name === 'string'
+            ? mentionedChannel.name
+            : null,
+        })),
+      },
+    }));
+
+  return {
+    ok: true,
+    action: 'read',
+    channelId,
+    count: messages.length,
+    messages,
+  };
+}
+
+async function runDiscordMemberInfoAction(request: DiscordToolActionRequest): Promise<Record<string, unknown>> {
+  const activeClient = requireDiscordClientReady();
+  const guildId = sanitizeDiscordId(request.guildId, 'guildId');
+  const userLookupRaw =
+    request.userId
+    || request.memberId
+    || request.user
+    || request.username;
+  const resolvedUser = await resolveGuildMemberIdFromLookup({
+    guildId,
+    rawUser: userLookupRaw || '',
+  });
+  const userId = sanitizeDiscordId(resolvedUser.userId, 'userId');
+
+  const guild = await activeClient.guilds.fetch(guildId);
+  const member = await guild.members.fetch(userId);
+  const presence = getDiscordPresence(userId);
+
+  const roles = member.roles.cache
+    .filter((role) => role.id !== guild.id)
+    .map((role) => ({
+      id: role.id,
+      name: role.name,
+      color: role.hexColor,
+      position: role.position,
+    }))
+    .sort((a, b) => b.position - a.position || a.name.localeCompare(b.name));
+
+  return {
+    ok: true,
+    action: 'member-info',
+    guildId,
+    userId,
+    ...(resolvedUser.note ? { note: resolvedUser.note } : {}),
+    member: {
+      id: member.id,
+      username: member.user.username,
+      handle: member.user.username ? `@${member.user.username}` : null,
+      globalName: member.user.globalName || null,
+      bot: Boolean(member.user.bot),
+      displayName: member.displayName,
+      nickname: member.nickname || null,
+      joinedAt: normalizeDate(member.joinedAt),
+      premiumSince: normalizeDate(member.premiumSince),
+      communicationDisabledUntil: normalizeDate(member.communicationDisabledUntil),
+      roles,
+    },
+    ...(presence
+      ? {
+          status: presence.status,
+          activities: presence.activities,
+        }
+      : {}),
+  };
+}
+
+async function runDiscordChannelInfoAction(request: DiscordToolActionRequest): Promise<Record<string, unknown>> {
+  const activeClient = requireDiscordClientReady();
+  const channelId = sanitizeDiscordId(request.channelId, 'channelId');
+  const channel = await activeClient.channels.fetch(channelId);
+  if (!channel) {
+    throw new Error('Channel not found.');
+  }
+
+  const channelData: Record<string, unknown> = {
+    id: channel.id,
+    type: channel.type,
+    guildId: 'guildId' in channel ? channel.guildId || null : null,
+    name: 'name' in channel && typeof channel.name === 'string' ? channel.name : null,
+    parentId: 'parentId' in channel ? channel.parentId || null : null,
+    topic: 'topic' in channel && typeof channel.topic === 'string' ? channel.topic : null,
+    nsfw: 'nsfw' in channel && typeof channel.nsfw === 'boolean' ? channel.nsfw : null,
+    rateLimitPerUser:
+      'rateLimitPerUser' in channel && typeof channel.rateLimitPerUser === 'number'
+        ? channel.rateLimitPerUser
+        : null,
+    isTextBased: typeof channel.isTextBased === 'function' ? channel.isTextBased() : false,
+    isDMBased: typeof channel.isDMBased === 'function' ? channel.isDMBased() : false,
+    isThread: typeof channel.isThread === 'function' ? channel.isThread() : false,
+    lastMessageId: 'lastMessageId' in channel ? channel.lastMessageId || null : null,
+  };
+
+  if (typeof channel.isThread === 'function' && channel.isThread()) {
+    channelData.archived =
+      'archived' in channel && typeof channel.archived === 'boolean' ? channel.archived : null;
+    channelData.locked =
+      'locked' in channel && typeof channel.locked === 'boolean' ? channel.locked : null;
+    channelData.ownerId = 'ownerId' in channel ? channel.ownerId || null : null;
+  }
+
+  return {
+    ok: true,
+    action: 'channel-info',
+    channel: channelData,
+  };
+}
+
+export async function runDiscordToolAction(
+  request: DiscordToolActionRequest,
+): Promise<Record<string, unknown>> {
+  switch (request.action) {
+    case 'read':
+      return await runDiscordReadAction(request);
+    case 'member-info':
+      return await runDiscordMemberInfoAction(request);
+    case 'channel-info':
+      return await runDiscordChannelInfoAction(request);
+    default:
+      throw new Error(`Unsupported Discord action: ${request.action as string}`);
+  }
 }
 
 function getSessionId(msg: DiscordMessage): string {
@@ -582,6 +940,33 @@ function summarizeContextMessage(msg: DiscordMessage): string {
   const content = (msg.content || '').trim();
   const snippet = content.length > 500 ? `${content.slice(0, 497)}...` : content;
   return `${author}: ${snippet || '(no text)'}`;
+}
+
+function buildChannelInfoContext(msg: DiscordMessage): string {
+  if (!msg.guild) return '';
+
+  const lines: string[] = [
+    '[Channel info]',
+    `- guild_id: ${msg.guild.id}`,
+    `- channel_id: ${msg.channelId}`,
+  ];
+
+  const namedChannel = msg.channel as unknown as { name?: string; topic?: string; parent?: { name?: string | null } | null };
+  const channelName = typeof namedChannel.name === 'string' ? namedChannel.name.trim() : '';
+  if (channelName) {
+    lines.push(`- channel_name: #${channelName}`);
+  }
+  const channelTopic = typeof namedChannel.topic === 'string' ? namedChannel.topic.trim() : '';
+  if (channelTopic) {
+    lines.push(`- channel_topic: ${channelTopic}`);
+  }
+  const parentName = typeof namedChannel.parent?.name === 'string' ? namedChannel.parent.name.trim() : '';
+  if (parentName) {
+    lines.push(`- parent_channel: ${parentName}`);
+  }
+
+  lines.push('');
+  return `${lines.join('\n')}\n`;
 }
 
 function looksLikeTextAttachment(name: string, contentType: string): boolean {
@@ -847,7 +1232,6 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
     msg: DiscordMessage;
     content: string;
     clearReaction: () => Promise<void>;
-    pendingHistory: PendingGuildHistoryEntry[];
   }
   interface PendingConversationBatch {
     items: QueuedConversationMessage[];
@@ -862,7 +1246,6 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
   const pendingBatches = new Map<string, PendingConversationBatch>();
   const inFlightByMessageId = new Map<string, InFlightConversation>();
   const negativeFeedbackByChannel = new Map<string, string>();
-  const pendingGuildHistoryByChannel = new Map<string, PendingGuildHistoryEntry[]>();
   const participantMemoryByChannel = new Map<string, Map<string, Set<string>>>();
 
   const touchParticipantMemoryChannel = (channelId: string): Map<string, Set<string>> => {
@@ -935,66 +1318,6 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
     }
   };
 
-  const rememberPendingGuildHistory = (msg: DiscordMessage, content: string): void => {
-    if (!msg.guild || !content.trim()) return;
-    const next: PendingGuildHistoryEntry = {
-      messageId: msg.id,
-      userId: msg.author.id,
-      username: msg.author.username || 'user',
-      displayName: msg.member?.displayName || null,
-      content: content.trim(),
-    };
-    const existing = pendingGuildHistoryByChannel.get(msg.channelId) || [];
-    existing.push(next);
-    while (existing.length > GUILD_PENDING_HISTORY_LIMIT) {
-      existing.shift();
-    }
-    pendingGuildHistoryByChannel.set(msg.channelId, existing);
-  };
-
-  const consumePendingGuildHistory = (channelId: string): PendingGuildHistoryEntry[] => {
-    const entries = pendingGuildHistoryByChannel.get(channelId) || [];
-    pendingGuildHistoryByChannel.delete(channelId);
-    return entries;
-  };
-
-  const updatePendingGuildHistory = (msg: DiscordMessage, content: string): void => {
-    if (!msg.guild) return;
-    const existing = pendingGuildHistoryByChannel.get(msg.channelId);
-    if (!existing || existing.length === 0) return;
-    const index = existing.findIndex((entry) => entry.messageId === msg.id);
-    if (index === -1) return;
-    const nextContent = content.trim();
-    if (!nextContent) {
-      existing.splice(index, 1);
-    } else {
-      existing[index] = {
-        ...existing[index],
-        username: msg.author.username || existing[index].username,
-        displayName: msg.member?.displayName || existing[index].displayName,
-        content: nextContent,
-      };
-    }
-    if (existing.length === 0) {
-      pendingGuildHistoryByChannel.delete(msg.channelId);
-      return;
-    }
-    pendingGuildHistoryByChannel.set(msg.channelId, existing);
-  };
-
-  const removePendingGuildHistoryByMessageId = (messageId: string): void => {
-    for (const [channelId, entries] of pendingGuildHistoryByChannel) {
-      const next = entries.filter((entry) => entry.messageId !== messageId);
-      if (next.length === entries.length) continue;
-      if (next.length === 0) {
-        pendingGuildHistoryByChannel.delete(channelId);
-      } else {
-        pendingGuildHistoryByChannel.set(channelId, next);
-      }
-      return;
-    }
-  };
-
   const intents: GatewayIntentBits[] = [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
@@ -1008,6 +1331,20 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
   client = new Client({
     intents,
     partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
+  });
+
+  client.on('presenceUpdate', (_oldPresence, nextPresence) => {
+    const userId = nextPresence.userId || nextPresence.user?.id;
+    if (!userId) return;
+    setDiscordPresence(userId, {
+      status: nextPresence.status,
+      activities: nextPresence.activities.map((activity) => ({
+        type: activity.type,
+        name: activity.name,
+        state: activity.state || null,
+        details: activity.details || null,
+      })),
+    });
   });
 
   client.on('clientReady', () => {
@@ -1070,27 +1407,27 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
     const batchedContent = items.length > 1
       ? items.map((item, index) => `Message ${index + 1}:\n${item.content}`).join('\n\n')
       : sourceItem.content;
+    const channelInfoContext = buildChannelInfoContext(msg);
     const replyContext = await buildReplyContext(msg);
     const feedbackNote = negativeFeedbackByChannel.get(channelId) || '';
     if (feedbackNote) {
       negativeFeedbackByChannel.delete(channelId);
     }
-    const pendingHistory = items.flatMap((item) => item.pendingHistory);
-    const pendingHistoryContext = buildPendingHistoryContext(pendingHistory);
+    const currentBatchMessageIds = new Set(items.map((item) => item.msg.id));
+    const inboundHistory = await buildInboundHistorySnapshot(msg, currentBatchMessageIds);
     const attachmentContext = await buildAttachmentContext(items.map((item) => item.msg));
     const rememberedParticipants = participantMemoryByChannel.get(msg.channelId);
     const participantContext = buildParticipantContext(
       items.map((item) => item.msg),
-      pendingHistory,
+      inboundHistory.entries,
       rememberedParticipants,
     );
-    const presenceContext = await buildPresenceContext(msg, batchedContent);
     const mentionLookup = buildMentionLookup(
       items.map((item) => item.msg),
-      pendingHistory,
+      inboundHistory.entries,
       rememberedParticipants,
     );
-    const combinedContent = `${feedbackNote ? `[Reaction feedback]\n${feedbackNote}\n\n` : ''}${replyContext}${pendingHistoryContext}${attachmentContext}${participantContext}${presenceContext}${batchedContent}`;
+    const combinedContent = `${feedbackNote ? `[Reaction feedback]\n${feedbackNote}\n\n` : ''}${channelInfoContext}${replyContext}${inboundHistory.context}${attachmentContext}${participantContext}${batchedContent}`;
 
     const abortController = new AbortController();
     const typingLoop = startTypingLoop(msg);
@@ -1155,11 +1492,10 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
   const queueConversationMessage = async (
     msg: DiscordMessage,
     content: string,
-    pendingHistory: PendingGuildHistoryEntry[] = [],
   ): Promise<void> => {
     const key = `${msg.channelId}:${msg.author.id}`;
     const clearReaction = await addProcessingReaction(msg);
-    const queued: QueuedConversationMessage = { msg, content, clearReaction, pendingHistory };
+    const queued: QueuedConversationMessage = { msg, content, clearReaction };
     const existing = pendingBatches.get(key);
 
     if (!existing) {
@@ -1174,9 +1510,6 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
     }
 
     clearTimeout(existing.timer);
-    if (pendingHistory.length > 0 && existing.items.length > 0) {
-      existing.items[0].pendingHistory.push(...pendingHistory);
-    }
     existing.items.push(queued);
     existing.timer = setTimeout(() => {
       void dispatchConversationBatch(key);
@@ -1280,10 +1613,7 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
       return;
     }
 
-    if (!isTrigger(msg)) {
-      rememberPendingGuildHistory(msg, content);
-      return;
-    }
+    if (!isTrigger(msg)) return;
 
     if (ignorePrefixCommand) {
       return;
@@ -1306,8 +1636,7 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
       return;
     }
 
-    const pendingHistory = msg.guild ? consumePendingGuildHistory(msg.channelId) : [];
-    await queueConversationMessage(msg, content, pendingHistory);
+    await queueConversationMessage(msg, content);
   });
 
   client.on('messageUpdate', async (_oldMsg, nextMsg) => {
@@ -1320,10 +1649,7 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
 
     const updatedContent = cleanIncomingContent(fetched.content || '');
     observeMessageParticipants(fetched, updatedContent);
-    if (!isTrigger(fetched)) {
-      updatePendingGuildHistory(fetched, updatedContent);
-      return;
-    }
+    if (!isTrigger(fetched)) return;
     await updatePendingMessage(fetched.id, fetched, updatedContent);
 
     const inFlight = inFlightByMessageId.get(fetched.id);
@@ -1342,7 +1668,6 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
   });
 
   client.on('messageDelete', async (msg) => {
-    removePendingGuildHistoryByMessageId(msg.id);
     await dropPendingMessage(msg.id);
     const inFlight = inFlightByMessageId.get(msg.id);
     if (!inFlight || inFlight.aborted) return;

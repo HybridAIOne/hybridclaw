@@ -10,7 +10,16 @@ import {
   estimateTextTokens,
   finalizeTokenUsage,
 } from './token-usage.js';
-import { executeTool, getPendingSideEffects, resetSideEffects, setModelContext, setScheduledTasks, setSessionContext, TOOL_DEFINITIONS } from './tools.js';
+import {
+  executeTool,
+  getPendingSideEffects,
+  resetSideEffects,
+  setGatewayContext,
+  setModelContext,
+  setScheduledTasks,
+  setSessionContext,
+  TOOL_DEFINITIONS,
+} from './tools.js';
 import type { ArtifactMetadata, ChatMessage, ContainerInput, ContainerOutput, ToolDefinition, ToolExecution } from './types.js';
 
 const MAX_ITERATIONS = 20;
@@ -499,6 +508,7 @@ async function main(): Promise<void> {
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
   setSessionContext(firstInput.sessionId);
+  setGatewayContext(firstInput.gatewayBaseUrl, firstInput.gatewayApiToken, firstInput.channelId);
   setModelContext(firstInput.baseUrl, storedApiKey, firstInput.model, firstInput.chatbotId);
 
   const firstOutput = await processRequest(
@@ -532,6 +542,7 @@ async function main(): Promise<void> {
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
     setSessionContext(input.sessionId);
+    setGatewayContext(input.gatewayBaseUrl, input.gatewayApiToken, input.channelId);
     setModelContext(input.baseUrl, apiKey, input.model, input.chatbotId);
 
     const output = await processRequest(

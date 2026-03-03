@@ -2,7 +2,7 @@ import fs from 'fs';
 import http, { type IncomingMessage, type ServerResponse } from 'http';
 import path from 'path';
 
-import { HEALTH_HOST, HEALTH_PORT, WEB_API_TOKEN } from './config.js';
+import { GATEWAY_API_TOKEN, HEALTH_HOST, HEALTH_PORT, WEB_API_TOKEN } from './config.js';
 import {
   getGatewayHistory,
   getGatewayStatus,
@@ -14,6 +14,7 @@ import {
 import { type GatewayChatRequestBody } from './gateway-types.js';
 import { type ToolProgressEvent } from './types.js';
 import { logger } from './logger.js';
+import { runDiscordToolAction, type DiscordToolActionRequest } from './discord.js';
 
 const SITE_DIR = path.resolve(process.cwd(), 'docs');
 const MAX_REQUEST_BYTES = 1_000_000; // 1MB
@@ -28,6 +29,7 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
+type ApiDiscordActionRequestBody = Partial<DiscordToolActionRequest>;
 
 function isLoopbackAddress(address: string | undefined): boolean {
   if (!address) return false;
@@ -36,11 +38,14 @@ function isLoopbackAddress(address: string | undefined): boolean {
 }
 
 function hasApiAuth(req: IncomingMessage): boolean {
-  if (!WEB_API_TOKEN) {
-    return isLoopbackAddress(req.socket.remoteAddress);
-  }
   const authHeader = req.headers.authorization || '';
-  return authHeader === `Bearer ${WEB_API_TOKEN}`;
+  const gatewayTokenMatch = Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`;
+
+  if (!WEB_API_TOKEN) {
+    return gatewayTokenMatch || isLoopbackAddress(req.socket.remoteAddress);
+  }
+  if (authHeader === `Bearer ${WEB_API_TOKEN}`) return true;
+  return gatewayTokenMatch;
 }
 
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
@@ -203,6 +208,34 @@ async function handleApiCommand(req: IncomingMessage, res: ServerResponse): Prom
   sendJson(res, result.kind === 'error' ? 400 : 200, result);
 }
 
+async function handleApiDiscordAction(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readJsonBody(req) as ApiDiscordActionRequestBody;
+  const action = typeof body.action === 'string' ? body.action.trim() : '';
+  if (action !== 'read' && action !== 'member-info' && action !== 'channel-info') {
+    sendJson(res, 400, {
+      error: 'Invalid `action`. Allowed: "read", "member-info", "channel-info".',
+    });
+    return;
+  }
+
+  const request: DiscordToolActionRequest = {
+    action,
+    channelId: typeof body.channelId === 'string' ? body.channelId : undefined,
+    guildId: typeof body.guildId === 'string' ? body.guildId : undefined,
+    userId: typeof body.userId === 'string' ? body.userId : undefined,
+    memberId: typeof body.memberId === 'string' ? body.memberId : undefined,
+    username: typeof body.username === 'string' ? body.username : undefined,
+    user: typeof body.user === 'string' ? body.user : undefined,
+    limit: typeof body.limit === 'number' ? body.limit : undefined,
+    before: typeof body.before === 'string' ? body.before : undefined,
+    after: typeof body.after === 'string' ? body.after : undefined,
+    around: typeof body.around === 'string' ? body.around : undefined,
+  };
+
+  const result = await runDiscordToolAction(request);
+  sendJson(res, 200, result);
+}
+
 function handleApiHistory(res: ServerResponse, url: URL): void {
   const sessionId = url.searchParams.get('sessionId') || 'web:default';
   const parsedLimit = parseInt(url.searchParams.get('limit') || '40', 10);
@@ -258,6 +291,10 @@ export function startHealthServer(): void {
           }
           if (pathname === '/api/command' && method === 'POST') {
             await handleApiCommand(req, res);
+            return;
+          }
+          if (pathname === '/api/discord/action' && method === 'POST') {
+            await handleApiDiscordAction(req, res);
             return;
           }
           sendJson(res, 404, { error: 'Not Found' });

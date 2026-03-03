@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { randomBytes } from 'crypto';
 
 import { loadEnvFile } from './env.js';
 import {
@@ -89,7 +90,8 @@ export let HEALTH_HOST = '127.0.0.1';
 export let HEALTH_PORT = 9090;
 export let WEB_API_TOKEN = '';
 export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
-export let GATEWAY_API_TOKEN = '';
+const INTERNAL_GATEWAY_API_TOKEN = randomBytes(24).toString('hex');
+export let GATEWAY_API_TOKEN = INTERNAL_GATEWAY_API_TOKEN;
 export let DB_PATH = 'data/hybridclaw.db';
 export let DATA_DIR = path.dirname(DB_PATH);
 
@@ -159,7 +161,11 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   HEALTH_PORT = config.ops.healthPort;
   WEB_API_TOKEN = process.env.WEB_API_TOKEN || config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
-  GATEWAY_API_TOKEN = process.env.GATEWAY_API_TOKEN || config.ops.gatewayApiToken || WEB_API_TOKEN;
+  GATEWAY_API_TOKEN =
+    process.env.GATEWAY_API_TOKEN
+    || config.ops.gatewayApiToken
+    || WEB_API_TOKEN
+    || INTERNAL_GATEWAY_API_TOKEN;
   DB_PATH = config.ops.dbPath;
   DATA_DIR = path.dirname(DB_PATH);
 

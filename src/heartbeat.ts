@@ -29,6 +29,7 @@ const HEARTBEAT_ALLOWED_TOOLS = [
   'memory',
   'session_search',
   'web_fetch',
+  'message',
   'cron',
   'browser_navigate',
   'browser_snapshot',

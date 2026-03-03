@@ -84,6 +84,8 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Use bash for execution/build/validation tasks, not for file authoring.',
     'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',
     'Only skip file creation when the user explicitly asks for snippet-only or explanation-only output.',
+    'When Discord context is needed, use the `message` tool actions (`read`, `member-info`, `channel-info`) instead of guessing channel members.',
+    'For questions like "what did X say", "who said", or channel recap requests, call `message` with `action="read"` first before answering.',
     '',
     '## Web Retrieval Routing (web_fetch vs browser_*)',
     'Decision rule: default to `web_fetch` for read-only content retrieval.',

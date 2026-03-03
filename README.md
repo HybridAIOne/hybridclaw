@@ -11,15 +11,15 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.2.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.0)
+Latest release: [v0.2.1](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.1)
 
-## What's new in v0.2.0
+## What's new in v0.2.1
 
-- Personality switcher skill with `/personality` profile commands and managed `SOUL.md` contract (`Name`, `Definition`, `Rules`)
-- Ralph autonomous loop mode (`proactive.ralph.maxIterations`) and live `ralph on|off|set <n>|info` runtime controls
-- Bundled skill-authoring toolkit (`skills/skill-creator/`) for creating and packaging new skills
-- Discord context enrichment pipeline with guild-history memory, participant aliases, mention rewrite (`@name` -> ID), and optional presence snapshots
-- Runtime self-awareness and Discord runtime controls (`guildMembersIntent`, `presenceIntent`, `respondToAllMessages`, `commandsOnly`, `commandUserId`)
+- Added OpenClaw-style Discord `message` tool actions (`read`, `member-info`, `channel-info`) to the container runtime
+- Added gateway endpoint `POST /api/discord/action` for Discord context lookups from tools
+- Replaced prompt-time Discord presence snapshots with cache-backed `member-info` presence fields (`status`, `activities`)
+- Routed Discord context lookups through gateway API from container with host remapping and token propagation
+- Enabled `message` tool in heartbeat and base subagent allowlists
 
 ## HybridAI Advantage
 
