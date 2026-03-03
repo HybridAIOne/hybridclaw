@@ -55,6 +55,17 @@ export interface ToolProgressEvent {
   durationMs?: number;
 }
 
+export interface TokenUsageStats {
+  modelCalls: number;
+  apiUsageAvailable: boolean;
+  apiPromptTokens: number;
+  apiCompletionTokens: number;
+  apiTotalTokens: number;
+  estimatedPromptTokens: number;
+  estimatedCompletionTokens: number;
+  estimatedTotalTokens: number;
+}
+
 export interface ArtifactMetadata {
   path: string;
   filename: string;
@@ -67,6 +78,7 @@ export interface ContainerOutput {
   toolsUsed: string[];
   artifacts?: ArtifactMetadata[];
   toolExecutions?: ToolExecution[];
+  tokenUsage?: TokenUsageStats;
   error?: string;
   sideEffects?: {
     schedules?: ScheduleSideEffect[];

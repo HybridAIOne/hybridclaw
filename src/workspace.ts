@@ -8,6 +8,7 @@ import path from 'path';
 
 import { logger } from './logger.js';
 import { agentWorkspaceDir } from './ipc.js';
+import { truncateHeadTailText } from './token-efficiency.js';
 
 const BOOTSTRAP_FILES = [
   'AGENTS.md',
@@ -65,7 +66,7 @@ export function loadBootstrapFiles(agentId: string): ContextFile[] {
       if (!content) continue;
 
       if (content.length > MAX_FILE_CHARS) {
-        content = content.slice(0, MAX_FILE_CHARS) + '\n\n[truncated]';
+        content = truncateHeadTailText(content, MAX_FILE_CHARS);
       }
 
       files.push({ name: filename, content });
@@ -168,4 +169,3 @@ export function isBootstrapping(agentId: string): boolean {
 
   return true;
 }
-

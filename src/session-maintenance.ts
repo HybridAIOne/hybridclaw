@@ -78,6 +78,7 @@ function buildSystemPrompt(agentId: string, sessionSummary?: string | null, extr
     sessionSummary,
     skills: loadSkills(agentId),
     purpose: 'memory-flush',
+    promptMode: 'minimal',
     extraSafetyText: extra,
   });
 }

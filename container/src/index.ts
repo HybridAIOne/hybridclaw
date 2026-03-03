@@ -3,6 +3,13 @@ import path from 'path';
 import { emitRuntimeEvent, runAfterToolHooks, runBeforeToolHooks } from './extensions.js';
 import { callHybridAI, HybridAIRequestError } from './hybridai-client.js';
 import { waitForInput, writeOutput } from './ipc.js';
+import {
+  accumulateApiUsage,
+  createTokenUsageStats,
+  estimateMessageTokens,
+  estimateTextTokens,
+  finalizeTokenUsage,
+} from './token-usage.js';
 import { executeTool, getPendingSideEffects, resetSideEffects, setModelContext, setScheduledTasks, setSessionContext, TOOL_DEFINITIONS } from './tools.js';
 import type { ArtifactMetadata, ChatMessage, ContainerInput, ContainerOutput, ToolDefinition, ToolExecution } from './types.js';
 
@@ -189,10 +196,13 @@ async function processRequest(
   const toolExecutions: ToolExecution[] = [];
   const artifacts: ArtifactMetadata[] = [];
   const artifactPaths = new Set<string>();
+  const tokenUsage = createTokenUsageStats();
   let iterations = 0;
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
+    tokenUsage.modelCalls += 1;
+    tokenUsage.estimatedPromptTokens += estimateMessageTokens(history);
 
     let response;
     try {
@@ -212,11 +222,14 @@ async function processRequest(
         toolsUsed,
         ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
+        tokenUsage: finalizeTokenUsage(tokenUsage),
         error: `API error: ${err instanceof Error ? err.message : String(err)}`,
       };
       await emitRuntimeEvent({ event: 'turn_end', status: failed.status, toolsUsed });
       return failed;
     }
+
+    accumulateApiUsage(tokenUsage, response);
 
     const choice = response.choices[0];
     if (!choice) {
@@ -226,10 +239,16 @@ async function processRequest(
         toolsUsed,
         ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
+        tokenUsage: finalizeTokenUsage(tokenUsage),
         error: 'No response from API',
       };
       await emitRuntimeEvent({ event: 'turn_end', status: failed.status, toolsUsed });
       return failed;
+    }
+
+    tokenUsage.estimatedCompletionTokens += estimateTextTokens(choice.message.content);
+    if (choice.message.tool_calls?.length) {
+      tokenUsage.estimatedCompletionTokens += estimateTextTokens(JSON.stringify(choice.message.tool_calls));
     }
 
     const assistantMessage: ChatMessage = {
@@ -251,6 +270,7 @@ async function processRequest(
         toolsUsed: [...new Set(toolsUsed)],
         ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
+        tokenUsage: finalizeTokenUsage(tokenUsage),
       };
       await emitRuntimeEvent({ event: 'turn_end', status: completed.status, toolsUsed: completed.toolsUsed });
       return completed;
@@ -293,6 +313,7 @@ async function processRequest(
           toolsUsed,
           ...(artifacts.length > 0 ? { artifacts } : {}),
           toolExecutions,
+          tokenUsage: finalizeTokenUsage(tokenUsage),
           error: result,
         };
         await emitRuntimeEvent({ event: 'turn_end', status: failed.status, toolsUsed });
@@ -308,6 +329,7 @@ async function processRequest(
     toolsUsed: [...new Set(toolsUsed)],
     ...(artifacts.length > 0 ? { artifacts } : {}),
     toolExecutions,
+    tokenUsage: finalizeTokenUsage(tokenUsage),
   };
   await emitRuntimeEvent({ event: 'turn_end', status: completed.status, toolsUsed: completed.toolsUsed });
   return completed;

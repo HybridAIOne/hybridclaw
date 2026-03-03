@@ -50,16 +50,19 @@ import {
 } from './gateway-types.js';
 import type {
   ArtifactMetadata,
+  ChatMessage,
   DelegationSideEffect,
   DelegationTaskSpec,
   ScheduledTask,
   StoredMessage,
+  TokenUsageStats,
   ToolProgressEvent,
 } from './types.js';
 import { ensureBootstrapFiles } from './workspace.js';
 import { buildConversationContext } from './conversation.js';
 import { runIsolatedScheduledTask } from './scheduled-task-runner.js';
 import { delegationQueueStatus, enqueueDelegation } from './delegation-manager.js';
+import { estimateTokenCountFromMessages, estimateTokenCountFromText } from './token-efficiency.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
@@ -208,6 +211,49 @@ function infoCommand(title: string, text: string): GatewayCommandResult {
 
 function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
+}
+
+function buildTokenUsageAuditPayload(
+  messages: ChatMessage[],
+  resultText: string | null | undefined,
+  tokenUsage?: TokenUsageStats,
+): Record<string, number | boolean> {
+  const promptChars = messages.reduce((total, message) => {
+    const content = typeof message.content === 'string' ? message.content : '';
+    return total + content.length;
+  }, 0);
+  const completionChars = (resultText || '').length;
+
+  const fallbackEstimatedPromptTokens = estimateTokenCountFromMessages(messages);
+  const fallbackEstimatedCompletionTokens = estimateTokenCountFromText(resultText || '');
+  const estimatedPromptTokens = tokenUsage?.estimatedPromptTokens || fallbackEstimatedPromptTokens;
+  const estimatedCompletionTokens = tokenUsage?.estimatedCompletionTokens || fallbackEstimatedCompletionTokens;
+  const estimatedTotalTokens =
+    tokenUsage?.estimatedTotalTokens || (estimatedPromptTokens + estimatedCompletionTokens);
+
+  const apiUsageAvailable = tokenUsage?.apiUsageAvailable === true;
+  const apiPromptTokens = tokenUsage?.apiPromptTokens || 0;
+  const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
+  const apiTotalTokens = tokenUsage?.apiTotalTokens || (apiPromptTokens + apiCompletionTokens);
+  const promptTokens = apiUsageAvailable ? apiPromptTokens : estimatedPromptTokens;
+  const completionTokens = apiUsageAvailable ? apiCompletionTokens : estimatedCompletionTokens;
+  const totalTokens = apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens;
+
+  return {
+    modelCalls: tokenUsage ? Math.max(1, tokenUsage.modelCalls) : 0,
+    promptChars,
+    completionChars,
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    estimatedPromptTokens,
+    estimatedCompletionTokens,
+    estimatedTotalTokens,
+    apiUsageAvailable,
+    apiPromptTokens,
+    apiCompletionTokens,
+    apiTotalTokens,
+  };
 }
 
 export function getGatewayStatus(): GatewayStatus {
@@ -811,10 +857,30 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
   ensureBootstrapFiles(agentId);
 
   const history = getConversationHistory(req.sessionId, MAX_HISTORY_MESSAGES);
-  const { messages, skills } = buildConversationContext({
+  const { messages, skills, historyStats } = buildConversationContext({
     agentId,
     sessionSummary: session.session_summary,
     history,
+  });
+  const historyStart = messages.length > 0 && messages[0].role === 'system' ? 1 : 0;
+  recordAuditEvent({
+    sessionId: req.sessionId,
+    runId,
+    event: {
+      type: 'context.optimization',
+      historyMessagesOriginal: historyStats.originalCount,
+      historyMessagesIncluded: historyStats.includedCount,
+      historyMessagesDropped: historyStats.droppedCount,
+      historyCharsOriginal: historyStats.originalChars,
+      historyCharsPreBudget: historyStats.preBudgetChars,
+      historyCharsIncluded: historyStats.includedChars,
+      historyCharsDropped: historyStats.droppedChars,
+      historyMaxChars: historyStats.maxTotalChars,
+      historyMaxMessageChars: historyStats.maxMessageChars,
+      perMessageTruncatedCount: historyStats.perMessageTruncatedCount,
+      middleCompressionApplied: historyStats.middleCompressionApplied,
+      historyEstimatedTokens: estimateTokenCountFromMessages(messages.slice(historyStart)),
+    },
   });
   messages.push({
     role: 'user',
@@ -851,6 +917,7 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
         model,
         durationMs: Date.now() - startedAt,
         toolCallCount: toolExecutions.length,
+        ...buildTokenUsageAuditPayload(messages, output.result, output.tokenUsage),
       },
     });
 
@@ -944,6 +1011,7 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
         toolsUsed: output.toolsUsed || [],
         artifacts: output.artifacts,
         toolExecutions,
+        tokenUsage: output.tokenUsage,
         error: errorMessage,
       };
     }
@@ -1009,6 +1077,7 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
       toolsUsed: output.toolsUsed || [],
       artifacts: output.artifacts,
       toolExecutions,
+      tokenUsage: output.tokenUsage,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);

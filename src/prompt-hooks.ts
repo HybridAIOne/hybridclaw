@@ -6,12 +6,14 @@ import path from 'path';
 
 export type PromptHookName = 'bootstrap' | 'memory' | 'safety';
 export type ExtendedPromptHookName = PromptHookName | 'proactivity';
+export type PromptMode = 'full' | 'minimal' | 'none';
 
 export interface PromptHookContext {
   agentId: string;
   sessionSummary?: string | null;
   skills: Skill[];
   purpose?: 'conversation' | 'memory-flush';
+  promptMode?: PromptMode;
   extraSafetyText?: string;
 }
 
@@ -217,11 +219,27 @@ const PROMPT_HOOKS: PromptHook[] = [
   },
 ];
 
+function resolvePromptMode(context: PromptHookContext): PromptMode {
+  if (context.promptMode === 'minimal' || context.promptMode === 'none') return context.promptMode;
+  return 'full';
+}
+
+function isHookAllowedForMode(hookName: ExtendedPromptHookName, mode: PromptMode): boolean {
+  if (mode === 'none') return false;
+  if (mode === 'full') return true;
+  // Minimal mode keeps only safety + memory durability context.
+  return hookName === 'memory' || hookName === 'safety';
+}
+
 export function runPromptHooks(context: PromptHookContext): PromptHookOutput[] {
+  const mode = resolvePromptMode(context);
+  if (mode === 'none') return [];
+
   const runtime = getRuntimeConfig();
   const output: PromptHookOutput[] = [];
 
   for (const hook of PROMPT_HOOKS) {
+    if (!isHookAllowedForMode(hook.name, mode)) continue;
     if (!hook.isEnabled(runtime)) continue;
     const content = hook.run(context).trim();
     if (!content) continue;

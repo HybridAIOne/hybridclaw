@@ -222,6 +222,17 @@ function readNullableInteger(payload: Record<string, unknown>, key: string): num
   return null;
 }
 
+function readNullableBoolean(payload: Record<string, unknown>, key: string): boolean | null {
+  const value = payload[key];
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return null;
+}
+
 function inferDenied(payload: Record<string, unknown>): boolean {
   if (typeof payload.denied === 'boolean') return payload.denied;
   if (payload.approved === false) return true;
@@ -257,6 +268,19 @@ function mapAuditRowToEvent(config: ResolvedIngestConfig, row: StructuredAuditEn
     denied: inferDenied(payload),
     error_type: readNullableString(payload, 'errorType'),
     duration_ms: readNullableInteger(payload, 'durationMs'),
+    model_calls: readNullableInteger(payload, 'modelCalls'),
+    prompt_chars: readNullableInteger(payload, 'promptChars'),
+    completion_chars: readNullableInteger(payload, 'completionChars'),
+    prompt_tokens: readNullableInteger(payload, 'promptTokens'),
+    completion_tokens: readNullableInteger(payload, 'completionTokens'),
+    total_tokens: readNullableInteger(payload, 'totalTokens'),
+    estimated_prompt_tokens: readNullableInteger(payload, 'estimatedPromptTokens'),
+    estimated_completion_tokens: readNullableInteger(payload, 'estimatedCompletionTokens'),
+    estimated_total_tokens: readNullableInteger(payload, 'estimatedTotalTokens'),
+    api_usage_available: readNullableBoolean(payload, 'apiUsageAvailable'),
+    api_prompt_tokens: readNullableInteger(payload, 'apiPromptTokens'),
+    api_completion_tokens: readNullableInteger(payload, 'apiCompletionTokens'),
+    api_total_tokens: readNullableInteger(payload, 'apiTotalTokens'),
     event_uid: buildEventUid(config, row),
   };
 }

@@ -1,3 +1,5 @@
+import type { TokenUsageStats } from './types.js';
+
 export interface GatewayCommandResult {
   kind: 'plain' | 'info' | 'error';
   title?: string;
@@ -19,6 +21,7 @@ export interface GatewayChatResult {
     result: string;
     durationMs: number;
   }>;
+  tokenUsage?: TokenUsageStats;
   error?: string;
 }
 

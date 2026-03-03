@@ -1,6 +1,7 @@
 import { runAgent } from './agent.js';
 import { emitToolExecutionAuditEvents, makeAuditRunId, recordAuditEvent } from './audit-events.js';
 import type { ChatMessage } from './types.js';
+import { estimateTokenCountFromMessages, estimateTokenCountFromText } from './token-efficiency.js';
 
 export async function runIsolatedScheduledTask(params: {
   taskId: number;
@@ -53,6 +54,14 @@ export async function runIsolatedScheduledTask(params: {
       runId,
       toolExecutions: output.toolExecutions || [],
     });
+    const tokenUsage = output.tokenUsage;
+    const estimatedPromptTokens = tokenUsage?.estimatedPromptTokens || estimateTokenCountFromMessages(messages);
+    const estimatedCompletionTokens = tokenUsage?.estimatedCompletionTokens || estimateTokenCountFromText(output.result || '');
+    const estimatedTotalTokens = tokenUsage?.estimatedTotalTokens || (estimatedPromptTokens + estimatedCompletionTokens);
+    const apiUsageAvailable = tokenUsage?.apiUsageAvailable === true;
+    const apiPromptTokens = tokenUsage?.apiPromptTokens || 0;
+    const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
+    const apiTotalTokens = tokenUsage?.apiTotalTokens || (apiPromptTokens + apiCompletionTokens);
     recordAuditEvent({
       sessionId: cronSessionId,
       runId,
@@ -62,6 +71,17 @@ export async function runIsolatedScheduledTask(params: {
         model,
         durationMs: Date.now() - startedAt,
         toolCallCount: (output.toolExecutions || []).length,
+        modelCalls: tokenUsage ? Math.max(1, tokenUsage.modelCalls) : 0,
+        promptTokens: apiUsageAvailable ? apiPromptTokens : estimatedPromptTokens,
+        completionTokens: apiUsageAvailable ? apiCompletionTokens : estimatedCompletionTokens,
+        totalTokens: apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens,
+        estimatedPromptTokens,
+        estimatedCompletionTokens,
+        estimatedTotalTokens,
+        apiUsageAvailable,
+        apiPromptTokens,
+        apiCompletionTokens,
+        apiTotalTokens,
       },
     });
 

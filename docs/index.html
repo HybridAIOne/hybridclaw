@@ -1014,7 +1014,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Prompt Orchestration</h3>
-      <p>Structured hook pipeline: <code>bootstrap</code>, <code>memory</code>, and <code>safety</code>, with runtime toggles.</p>
+      <p>Structured hook pipeline: <code>bootstrap</code>, <code>memory</code>, <code>safety</code>, and <code>proactivity</code>, plus history/token budgets and prompt-mode tiers for predictable context size control.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Configuration</h3>
@@ -1025,12 +1025,20 @@
       <p>Persistent workspace memory plus long-session compaction keeps conversations responsive without losing important context.</p>
     </div>
     <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Skills Engine</h3>
+      <p>OpenClaw/CLAUDE-compatible <code>SKILL.md</code> support with multi-tier discovery, prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning.</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Web Routing Intelligence</h3>
+      <p>Read-first routing prefers <code>web_fetch</code> for static retrieval, emits escalation hints on JS/app-shell/bot-blocked pages, and guides browser extraction with full snapshots for dynamic content.</p>
+    </div>
+    <div class="feature-card">
       <h3 style="color: var(--accent-1);">Interfaces &amp; Integrations</h3>
       <p>Shared assistant behavior across Discord, web, and terminal, powered by HybridAI bots and model selection.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Observability Export</h3>
-      <p>Structured audit events are pushed to HybridAI observability ingest with cursor-based delivery and auto-managed bot-scoped ingest tokens.</p>
+      <p>Structured audit events are pushed to HybridAI observability ingest with cursor-based delivery, auto-managed bot-scoped ingest tokens, and per-turn token usage metrics.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Gateway Lifecycle</h3>
@@ -1045,7 +1053,7 @@
 <section id="tools">
   <div class="section-center">
     <div class="section-label">Toolbox</div>
-    <h2 class="section-title">12 built-in capabilities</h2>
+    <h2 class="section-title">13 built-in capabilities</h2>
     <p class="section-desc">From reading content to taking action, HybridClaw can complete real workflows end-to-end.</p>
   </div>
   <div class="tools-grid">
@@ -1103,6 +1111,11 @@
       <div class="tool-pill-icon">&#x1f5a5;&#xfe0f;</div>
       <div class="tool-pill-name">browser_*</div>
       <div class="tool-pill-desc">JS-rendered + interactive automation (auth, click, type, screenshot, PDF)</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f9f0;</div>
+      <div class="tool-pill-name">delegate</div>
+      <div class="tool-pill-desc">Push-based subagent orchestration (single/parallel/chain)</div>
     </div>
     <div class="tool-pill">
       <div class="tool-pill-icon">&#x1f551;</div>
@@ -1172,7 +1185,8 @@
     </div>
   </div>
   <div class="quickstart-box">
-    <pre><span class="comment"># 60-second flow</span>
+    <pre>
+<span class="comment"># 60-second flow</span>
 <span class="cmd">npm install -g @hybridaione/hybridclaw</span>
 <span class="cmd">hybridclaw</span> <span class="flag">onboarding</span>
 <span class="cmd">hybridclaw</span> <span class="flag">gateway</span>
@@ -1204,6 +1218,10 @@
     <div class="faq-item">
       <div class="faq-q">Can browser tools test real login flows?</div>
       <div class="faq-a">Yes, when explicitly requested by the user for the intended site. Runtime guidance allows authenticated browser-flow testing, while sensitive credential values are redacted from structured audit tool-argument logs.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">How does HybridClaw choose web_fetch vs browser tools?</div>
+      <div class="faq-a">Default is <code>web_fetch</code> for static/read-only retrieval. HybridClaw escalates to browser automation for JavaScript-heavy apps, auth-gated flows, interaction steps, or when <code>web_fetch</code> reports hints like <code>javascript_required</code>, <code>spa_shell_only</code>, <code>empty_extraction</code>, <code>boilerplate_only</code>, or <code>bot_blocked</code>.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Is the audit trail immutable?</div>

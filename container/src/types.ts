@@ -25,6 +25,13 @@ export interface ChatCompletionResponse {
     finish_reason: string;
   }>;
   model: string;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+  };
 }
 
 export interface ToolDefinition {
@@ -76,6 +83,17 @@ export interface ToolExecution {
   blockedReason?: string;
 }
 
+export interface TokenUsageStats {
+  modelCalls: number;
+  apiUsageAvailable: boolean;
+  apiPromptTokens: number;
+  apiCompletionTokens: number;
+  apiTotalTokens: number;
+  estimatedPromptTokens: number;
+  estimatedCompletionTokens: number;
+  estimatedTotalTokens: number;
+}
+
 export interface ArtifactMetadata {
   path: string;
   filename: string;
@@ -88,6 +106,7 @@ export interface ContainerOutput {
   toolsUsed: string[];
   artifacts?: ArtifactMetadata[];
   toolExecutions?: ToolExecution[];
+  tokenUsage?: TokenUsageStats;
   error?: string;
   sideEffects?: {
     schedules?: ScheduleSideEffect[];

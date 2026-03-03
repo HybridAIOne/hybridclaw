@@ -1,6 +1,10 @@
 import { expandSkillInvocation, loadSkills, type Skill } from './skills.js';
 import type { ChatMessage } from './types.js';
-import { buildSystemPromptFromHooks } from './prompt-hooks.js';
+import { buildSystemPromptFromHooks, type PromptMode } from './prompt-hooks.js';
+import {
+  optimizeHistoryMessagesForPrompt,
+  type HistoryOptimizationStats,
+} from './token-efficiency.js';
 
 interface HistoryMessage {
   role: string;
@@ -10,6 +14,7 @@ interface HistoryMessage {
 export interface ConversationContext {
   messages: ChatMessage[];
   skills: Skill[];
+  historyStats: HistoryOptimizationStats;
 }
 
 export function buildConversationContext(params: {
@@ -17,14 +22,22 @@ export function buildConversationContext(params: {
   sessionSummary?: string | null;
   history: HistoryMessage[];
   expandLatestHistoryUser?: boolean;
+  promptMode?: PromptMode;
 }): ConversationContext {
-  const { agentId, sessionSummary, history, expandLatestHistoryUser = false } = params;
+  const {
+    agentId,
+    sessionSummary,
+    history,
+    expandLatestHistoryUser = false,
+    promptMode = 'full',
+  } = params;
   const skills = loadSkills(agentId);
   const systemPrompt = buildSystemPromptFromHooks({
     agentId,
     sessionSummary,
     skills,
     purpose: 'conversation',
+    promptMode,
   });
 
   const messages: ChatMessage[] = [];
@@ -44,6 +57,17 @@ export function buildConversationContext(params: {
     }
   }
 
-  messages.push(...historyMessages);
-  return { messages, skills };
+  const optimizedHistory = optimizeHistoryMessagesForPrompt(
+    historyMessages.map((message) => ({
+      role: message.role,
+      content: typeof message.content === 'string' ? message.content : '',
+    })),
+  );
+
+  messages.push(...optimizedHistory.messages);
+  return {
+    messages,
+    skills,
+    historyStats: optimizedHistory.stats,
+  };
 }

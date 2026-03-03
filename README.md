@@ -75,9 +75,11 @@ HybridClaw best-in-class capabilities:
 - explicit trust-model acceptance during onboarding (recorded in `config.json`)
 - typed `config.json` runtime settings with defaults, validation, and hot reload
 - formal prompt hook orchestration (`bootstrap`, `memory`, `safety`)
+- token-efficient context assembly: per-message history truncation, hard history budgets with head/tail preservation, and head/tail truncation for oversized bootstrap files
 - proactive runtime layer with active-hours gating, push delegation (`single`/`parallel`/`chain`), depth-aware tool policy, and retry controls
 - structured audit trail: append-only hash-chained wire logs (`data/audit/<session>/wire.jsonl`) with tamper-evident immutability, normalized SQLite audit tables, and verification/search CLI commands
 - observability export: incremental `events:batch` forwarding with durable cursor tracking and bot-scoped ingest token lifecycle via `ingest-token:ensure`
+- model token telemetry in audit/observability events (`model.usage`) with API usage + deterministic fallback estimates
 - gateway lifecycle controls: managed + unmanaged restart/stop flows with graceful shutdown fallback paths
 - instruction-integrity approval flow: core instruction docs (`AGENTS.md`, `SECURITY.md`, `TRUST_MODEL.md`) are hash-verified against a local approved baseline before TUI start
 
@@ -139,6 +141,7 @@ HybridClaw can forward structured audit records to HybridAI's ingest API:
 - transport: bearer ingest token auto-fetched via `POST /api/v1/agent-observability/ingest-token:ensure` using `HYBRIDAI_API_KEY`
 - delivery: incremental batches with persisted cursor (`observability_offsets` table), max 1000 events and max 2,000,000-byte payload per request
 - token handling: token cache is stored locally in SQLite (`observability_ingest_tokens`) and automatically refreshed on ingest auth failures
+- token visibility: `model.usage` payloads include `promptTokens`, `completionTokens`, `totalTokens`, plus estimated and API-native counters for accuracy/coverage
 
 Config keys (in `config.json`):
 
