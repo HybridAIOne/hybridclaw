@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Creator"
+  short_description: "Create and maintain Skill Creator"
+  default_prompt: "Use $skill-creator to help with skill creator tasks."
