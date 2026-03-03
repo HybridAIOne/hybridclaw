@@ -1,6 +1,10 @@
 import { expandSkillInvocation, loadSkills, type Skill } from './skills.js';
 import type { ChatMessage } from './types.js';
-import { buildSystemPromptFromHooks, type PromptMode } from './prompt-hooks.js';
+import {
+  buildSystemPromptFromHooks,
+  type PromptMode,
+  type PromptRuntimeInfo,
+} from './prompt-hooks.js';
 import {
   optimizeHistoryMessagesForPrompt,
   type HistoryOptimizationStats,
@@ -23,6 +27,7 @@ export function buildConversationContext(params: {
   history: HistoryMessage[];
   expandLatestHistoryUser?: boolean;
   promptMode?: PromptMode;
+  runtimeInfo?: PromptRuntimeInfo;
 }): ConversationContext {
   const {
     agentId,
@@ -30,6 +35,7 @@ export function buildConversationContext(params: {
     history,
     expandLatestHistoryUser = false,
     promptMode = 'full',
+    runtimeInfo,
   } = params;
   const skills = loadSkills(agentId);
   const systemPrompt = buildSystemPromptFromHooks({
@@ -38,6 +44,7 @@ export function buildConversationContext(params: {
     skills,
     purpose: 'conversation',
     promptMode,
+    runtimeInfo,
   });
 
   const messages: ChatMessage[] = [];

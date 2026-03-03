@@ -10,7 +10,12 @@
     "extraDirs": []
   },
   "discord": {
-    "prefix": "!claw"
+    "prefix": "!claw",
+    "guildMembersIntent": false,
+    "presenceIntent": false,
+    "respondToAllMessages": false,
+    "commandsOnly": false,
+    "commandUserId": ""
   },
   "hybridai": {
     "baseUrl": "https://hybridai.one",

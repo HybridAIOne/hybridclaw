@@ -879,6 +879,13 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
     agentId,
     sessionSummary: session.session_summary,
     history,
+    runtimeInfo: {
+      chatbotId,
+      model,
+      defaultModel: HYBRIDAI_MODEL,
+      channelId: req.channelId,
+      guildId: req.guildId,
+    },
   });
   const historyStart = messages.length > 0 && messages[0].role === 'system' ? 1 : 0;
   recordAuditEvent({
@@ -1351,6 +1358,7 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
       const status = getGatewayStatus();
       const delegationStatus = delegationQueueStatus();
       const lines = [
+        `Version: ${status.version}`,
         `Uptime: ${formatUptime(status.uptime)}`,
         `Sessions: ${status.sessions}`,
         `Active Containers: ${status.activeContainers}`,

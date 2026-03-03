@@ -1,12 +1,22 @@
 import { getRuntimeConfig, isSecurityTrustAccepted, SECURITY_POLICY_VERSION } from './runtime-config.js';
 import { buildSkillsPrompt, type Skill } from './skills.js';
 import { buildContextPrompt, loadBootstrapFiles } from './workspace.js';
+import { APP_VERSION, HYBRIDAI_MODEL } from './config.js';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
-export type PromptHookName = 'bootstrap' | 'memory' | 'safety';
+export type PromptHookName = 'bootstrap' | 'memory' | 'safety' | 'runtime';
 export type ExtendedPromptHookName = PromptHookName | 'proactivity';
 export type PromptMode = 'full' | 'minimal' | 'none';
+
+export interface PromptRuntimeInfo {
+  chatbotId?: string;
+  model?: string;
+  defaultModel?: string;
+  channelId?: string;
+  guildId?: string | null;
+}
 
 export interface PromptHookContext {
   agentId: string;
@@ -15,6 +25,7 @@ export interface PromptHookContext {
   purpose?: 'conversation' | 'memory-flush';
   promptMode?: PromptMode;
   extraSafetyText?: string;
+  runtimeInfo?: PromptRuntimeInfo;
 }
 
 export interface PromptHookOutput {
@@ -196,6 +207,34 @@ function buildProactivityHook(context: PromptHookContext): string {
   return lines.join('\n');
 }
 
+function buildRuntimeHook(context: PromptHookContext): string {
+  const runtimeInfo = context.runtimeInfo || {};
+  const model = runtimeInfo.model?.trim() || HYBRIDAI_MODEL;
+  const defaultModel = runtimeInfo.defaultModel?.trim() || HYBRIDAI_MODEL;
+  const guildLabel = runtimeInfo.guildId === null
+    ? 'dm'
+    : runtimeInfo.guildId?.trim() || 'unknown';
+
+  const lines = [
+    '## Runtime Metadata',
+    `HybridClaw version: v${APP_VERSION}`,
+    `Date (UTC): ${new Date().toISOString().slice(0, 10)}`,
+    `Agent ID: ${context.agentId}`,
+    runtimeInfo.chatbotId?.trim() ? `Chatbot ID: ${runtimeInfo.chatbotId.trim()}` : '',
+    `Model: ${model}`,
+    `Default model: ${defaultModel}`,
+    runtimeInfo.channelId?.trim() ? `Channel ID: ${runtimeInfo.channelId.trim()}` : '',
+    `Guild ID: ${guildLabel}`,
+    `Node: ${process.version}`,
+    `OS: ${process.platform} (${process.arch})`,
+    `Host: ${os.hostname()}`,
+    `Workspace: ${process.cwd()}`,
+    'When asked about your runtime, version, model, or bot identity, use these exact values.',
+  ];
+
+  return lines.filter(Boolean).join('\n');
+}
+
 const PROMPT_HOOKS: PromptHook[] = [
   {
     name: 'bootstrap',
@@ -213,6 +252,11 @@ const PROMPT_HOOKS: PromptHook[] = [
     run: buildSafetyHook,
   },
   {
+    name: 'runtime',
+    isEnabled: () => true,
+    run: buildRuntimeHook,
+  },
+  {
     name: 'proactivity',
     isEnabled: (config) => config.promptHooks.proactivityEnabled,
     run: buildProactivityHook,
@@ -228,7 +272,7 @@ function isHookAllowedForMode(hookName: ExtendedPromptHookName, mode: PromptMode
   if (mode === 'none') return false;
   if (mode === 'full') return true;
   // Minimal mode keeps only safety + memory durability context.
-  return hookName === 'memory' || hookName === 'safety';
+  return hookName === 'memory' || hookName === 'safety' || hookName === 'runtime';
 }
 
 export function runPromptHooks(context: PromptHookContext): PromptHookOutput[] {

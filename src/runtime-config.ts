@@ -36,6 +36,11 @@ export interface RuntimeConfig {
   };
   discord: {
     prefix: string;
+    guildMembersIntent: boolean;
+    presenceIntent: boolean;
+    respondToAllMessages: boolean;
+    commandsOnly: boolean;
+    commandUserId: string;
   };
   hybridai: {
     baseUrl: string;
@@ -137,6 +142,11 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   discord: {
     prefix: '!claw',
+    guildMembersIntent: false,
+    presenceIntent: false,
+    respondToAllMessages: false,
+    commandsOnly: false,
+    commandUserId: '',
   },
   hybridai: {
     baseUrl: 'https://hybridai.one',
@@ -372,6 +382,21 @@ function readLegacyEnvPatch(): DeepPartial<RuntimeConfig> {
   const proactiveRalph = proactive.ralph as Record<string, unknown>;
 
   if (env.DISCORD_PREFIX != null) discord.prefix = env.DISCORD_PREFIX;
+  if (env.DISCORD_GUILD_MEMBERS_INTENT != null) {
+    discord.guildMembersIntent = env.DISCORD_GUILD_MEMBERS_INTENT;
+  }
+  if (env.DISCORD_PRESENCE_INTENT != null) {
+    discord.presenceIntent = env.DISCORD_PRESENCE_INTENT;
+  }
+  if (env.DISCORD_RESPOND_TO_ALL_MESSAGES != null) {
+    discord.respondToAllMessages = env.DISCORD_RESPOND_TO_ALL_MESSAGES;
+  }
+  if (env.DISCORD_COMMANDS_ONLY != null) {
+    discord.commandsOnly = env.DISCORD_COMMANDS_ONLY;
+  }
+  if (env.DISCORD_COMMAND_USER_ID != null) {
+    discord.commandUserId = env.DISCORD_COMMAND_USER_ID;
+  }
   if (env.SKILLS_EXTRA_DIRS != null) skills.extraDirs = env.SKILLS_EXTRA_DIRS;
 
   if (env.HYBRIDAI_BASE_URL != null) hybridai.baseUrl = env.HYBRIDAI_BASE_URL;
@@ -527,6 +552,27 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
     },
     discord: {
       prefix: normalizeString(rawDiscord.prefix, DEFAULT_RUNTIME_CONFIG.discord.prefix, { allowEmpty: false }),
+      guildMembersIntent: normalizeBoolean(
+        rawDiscord.guildMembersIntent,
+        DEFAULT_RUNTIME_CONFIG.discord.guildMembersIntent,
+      ),
+      presenceIntent: normalizeBoolean(
+        rawDiscord.presenceIntent,
+        DEFAULT_RUNTIME_CONFIG.discord.presenceIntent,
+      ),
+      respondToAllMessages: normalizeBoolean(
+        rawDiscord.respondToAllMessages,
+        DEFAULT_RUNTIME_CONFIG.discord.respondToAllMessages,
+      ),
+      commandsOnly: normalizeBoolean(
+        rawDiscord.commandsOnly,
+        DEFAULT_RUNTIME_CONFIG.discord.commandsOnly,
+      ),
+      commandUserId: normalizeString(
+        rawDiscord.commandUserId,
+        DEFAULT_RUNTIME_CONFIG.discord.commandUserId,
+        { allowEmpty: true },
+      ),
     },
     hybridai: {
       baseUrl: hybridBaseUrl,

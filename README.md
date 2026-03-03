@@ -79,6 +79,7 @@ HybridClaw best-in-class capabilities:
 - formal prompt hook orchestration (`bootstrap`, `memory`, `safety`)
 - Discord conversational UX: edit-in-place streaming responses, fence-safe chunking beyond Discord's 2000-char limit, typing keepalive, debounce batching, reply-chain-aware context, and concise attachment-first screenshot replies
 - token-efficient context assembly: per-message history truncation, hard history budgets with head/tail preservation, and head/tail truncation for oversized bootstrap files
+- runtime self-awareness in prompts: exact HybridClaw version/date, model/chatbot, and runtime host metadata injected each turn for reliable "what version/model are you?" answers
 - proactive runtime layer with active-hours gating, push delegation (`single`/`parallel`/`chain`), depth-aware tool policy, and retry controls
 - structured audit trail: append-only hash-chained wire logs (`data/audit/<session>/wire.jsonl`) with tamper-evident immutability, normalized SQLite audit tables, and verification/search CLI commands
 - observability export: incremental `events:batch` forwarding with durable cursor tracking and bot-scoped ingest token lifecycle via `ingest-token:ensure`
@@ -92,6 +93,11 @@ HybridClaw uses typed runtime config in `config.json` (auto-created on first run
 
 - Start from `config.example.json` (reference)
 - Runtime watches `config.json` and hot-reloads most settings (model defaults, heartbeat, prompt hooks, limits, etc.)
+- `discord.guildMembersIntent` enables richer guild member context and better `@name` mention resolution in replies (requires enabling **Server Members Intent** in Discord Developer Portal)
+- `discord.presenceIntent` enables Discord presence events (requires enabling **Presence Intent** in Discord Developer Portal)
+- `discord.respondToAllMessages` changes guild trigger behavior: `false` (default) replies only on mention/`!claw`; `true` replies to every user message in the channel
+- `discord.commandUserId` restricts `!claw <command>` admin commands to a single Discord user ID (all other messages still use normal chat handling)
+- `discord.commandsOnly` optional hard mode: if `true`, the bot ignores non-`!claw` messages and only accepts prefixed commands (optionally limited by `discord.commandUserId`)
 - `skills.extraDirs` adds additional enterprise/shared skill roots (lowest precedence tier)
 - `proactive.*` controls autonomous behavior (`activeHours`, `delegation`, `autoRetry`, `ralph`)
 - `proactive.ralph.maxIterations` enables Ralph loop (`0` off, `-1` unlimited, `>0` extra autonomous iterations before forcing completion)
@@ -262,6 +268,7 @@ Example skill in this repo:
 - `skills/repo-orientation/SKILL.md`
 - `skills/current-time/SKILL.md`
 - `skills/personality/SKILL.md`
+- `skills/skill-creator/SKILL.md`
 
 ### Personality switching skill
 

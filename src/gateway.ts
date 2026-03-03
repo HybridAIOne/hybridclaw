@@ -35,6 +35,7 @@ import {
   formatError,
   formatInfo,
   initDiscord,
+  rewriteUserMentionsForMessage,
   sendToChannel,
   type ReplyFn,
 } from './discord.js';
@@ -227,8 +228,13 @@ async function startDiscordIntegration(): Promise<void> {
           result.result || 'No response from agent.',
           result.artifacts,
         );
+        const renderedText = await rewriteUserMentionsForMessage(
+          userText,
+          context.sourceMessage,
+          context.mentionLookup,
+        );
         await context.stream.finalize(
-          buildResponseText(userText, result.toolsUsed),
+          buildResponseText(renderedText, result.toolsUsed),
           attachments,
         );
       } catch (error) {

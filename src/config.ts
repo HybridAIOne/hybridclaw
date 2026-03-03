@@ -56,6 +56,11 @@ export function getHybridAIApiKey(): string {
 
 // Runtime settings hot-reload from config.json
 export let DISCORD_PREFIX = '!claw';
+export let DISCORD_GUILD_MEMBERS_INTENT = false;
+export let DISCORD_PRESENCE_INTENT = false;
+export let DISCORD_RESPOND_TO_ALL_MESSAGES = false;
+export let DISCORD_COMMANDS_ONLY = false;
+export let DISCORD_COMMAND_USER_ID = '';
 
 export let HYBRIDAI_BASE_URL = 'https://hybridai.one';
 export let HYBRIDAI_MODEL = 'gpt-5-nano';
@@ -126,6 +131,11 @@ export let PROACTIVE_RALPH_MAX_ITERATIONS = 0;
 
 function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_PREFIX = config.discord.prefix;
+  DISCORD_GUILD_MEMBERS_INTENT = config.discord.guildMembersIntent;
+  DISCORD_PRESENCE_INTENT = config.discord.presenceIntent;
+  DISCORD_RESPOND_TO_ALL_MESSAGES = config.discord.respondToAllMessages;
+  DISCORD_COMMANDS_ONLY = config.discord.commandsOnly;
+  DISCORD_COMMAND_USER_ID = config.discord.commandUserId;
 
   HYBRIDAI_BASE_URL = config.hybridai.baseUrl;
   HYBRIDAI_MODEL = config.hybridai.defaultModel;
