@@ -59,7 +59,16 @@ export interface ContainerInput {
   gatewayApiToken?: string;
   model: string;
   channelId: string;
-  scheduledTasks?: { id: number; cronExpr: string; runAt: string | null; everyMs: number | null; prompt: string; enabled: number; lastRun: string | null; createdAt: string }[];
+  scheduledTasks?: {
+    id: number;
+    cronExpr: string;
+    runAt: string | null;
+    everyMs: number | null;
+    prompt: string;
+    enabled: number;
+    lastRun: string | null;
+    createdAt: string;
+  }[];
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
@@ -115,7 +124,13 @@ export interface ContainerOutput {
 }
 
 export type ScheduleSideEffect =
-  | { action: 'add'; cronExpr?: string; runAt?: string; everyMs?: number; prompt: string }
+  | {
+      action: 'add';
+      cronExpr?: string;
+      runAt?: string;
+      everyMs?: number;
+      prompt: string;
+    }
   | { action: 'remove'; taskId: number };
 
 export interface DelegationTaskSpec {
@@ -172,6 +187,8 @@ export interface ScheduledTask {
   prompt: string;
   enabled: number;
   last_run: string | null;
+  last_status: string | null;
+  consecutive_errors: number;
   created_at: string;
 }
 

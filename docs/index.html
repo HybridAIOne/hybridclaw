@@ -674,7 +674,7 @@
       <a href="#quickstart">Get Started</a>
       <a href="#faq">FAQ</a>
       <a href="https://github.com/HybridAIOne/hybridclaw" class="nav-gh">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><title>GitHub</title><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
         GitHub
       </a>
     </div>
@@ -693,7 +693,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). Browser automation tooling is preinstalled in the container image. HybridAI API key setup can be completed during onboarding. Current release: v0.2.1.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). Browser automation tooling is preinstalled in the container image. HybridAI API key setup can be completed during onboarding. Current release: v0.2.4.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -809,7 +809,7 @@
     <div class="feature-card">
       <div class="feature-icon">&#x23f0;</div>
       <h3>Follow through automatically</h3>
-      <p>Schedule recurring or one-shot tasks so your assistant continues work without manual reminders.</p>
+      <p>Schedule recurring or one-shot tasks with cron/interval/at semantics, and deliver proactive output to channels or webhooks.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4ca;</div>
@@ -1018,7 +1018,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Configuration</h3>
-      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Discord supports channel policies/modes (<code>open</code>/<code>allowlist</code>/<code>disabled</code>, <code>off</code>/<code>mention</code>/<code>free</code>) via config and slash commands. Secrets remain in <code>.env</code>.</p>
+      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Discord supports channel policies/modes plus coworker-feel controls (typing mode, lifecycle reactions, ack scope, debounce, and per-user limits), and <code>scheduler.jobs[]</code> adds proactive cron/every/at job automation. Secrets remain in <code>.env</code>.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
@@ -1026,7 +1026,11 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Discord Conversational UX</h3>
-      <p>Edit-in-place streaming, chunk-safe long messages, typing keepalive, multi-message debounce batching, reply-chain context, and concise attachment-first screenshot delivery.</p>
+      <p>Edit-in-place streaming, chunk-safe long messages, phase-aware typing/reactions, dynamic self-presence, adaptive debounce/rate limits, and humanized pacing (night/weekend slowdown, exchange cooldown scaling, selective silence, read-without-reply reactions, reconnect staggering).</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Proactive Scheduler Jobs</h3>
+      <p><code>scheduler.jobs[]</code> supports <code>cron</code>/<code>every</code>/<code>at</code> schedules with <code>agent_turn</code> or <code>system_event</code> actions and delivery to fixed channels, last-active channels, or webhooks. Metadata persists atomically and jobs auto-disable after repeated failures.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Skills Engine</h3>
@@ -1272,8 +1276,12 @@
       <div class="faq-a">Set guild policy to <code>allowlist</code> using <code>/channel-policy policy:allowlist</code>, then run <code>/channel-mode mode:free</code> in the one channel you want active. Leave other channels unlisted (or set them to <code>off</code>).</div>
     </div>
     <div class="faq-item">
+      <div class="faq-q">How does HybridClaw avoid over-replying in busy channels?</div>
+      <div class="faq-a">In free-response channels, HybridClaw can selectively stay silent when a peer likely already answered, react instead of replying to short acknowledgments (for example "thanks"), and slow pacing during nights/weekends or long back-and-forth exchanges.</div>
+    </div>
+    <div class="faq-item">
       <div class="faq-q">How does scheduling work?</div>
-      <div class="faq-a">Three modes: cron expressions for recurring tasks, ISO-8601 timestamps for one-shot execution, and simple intervals (minimum 10 seconds). All tasks persist in SQLite and one-shot tasks auto-delete after running.</div>
+      <div class="faq-a">Two layers: chat-created tasks (<code>schedule add</code>) and config-backed <code>scheduler.jobs[]</code>. Both support cron, one-shot <code>at</code>, and interval semantics. Config jobs also support <code>agent_turn</code>/<code>system_event</code> actions plus <code>channel</code>/<code>last-channel</code>/<code>webhook</code> delivery, with persisted metadata and auto-disable after repeated failures.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">What is HybridAI?</div>

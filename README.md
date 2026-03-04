@@ -11,7 +11,7 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.2.3](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.3)
+Latest release: [v0.2.4](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.4)
 
 ## What's new in v0.2.3
 
@@ -21,6 +21,15 @@ Latest release: [v0.2.3](https://github.com/HybridAIOne/hybridclaw/releases/tag/
 - Enforced channel mode/policy in Discord trigger logic while keeping prefixed commands available
 - Clarified trigger precedence so per-guild/per-channel mode rules win over global `respondToAllMessages`
 - Updated status/activation labeling to reflect allowlist/disabled/mixed channel policy modes
+
+## What's new in v0.2.4
+
+- Added dynamic Discord self-presence health states (`online`/`idle`/`dnd`) with maintenance shutdown presence (`invisible`)
+- Added config-backed proactive scheduler jobs via `scheduler.jobs[]` with `cron|every|at` schedules, `agent_turn|system_event` actions, and `channel|last-channel|webhook` delivery targets
+- Added atomic scheduler state persistence in `data/scheduler-jobs-state.json` (last run/status, consecutive errors, one-shot completion, auto-disable flags)
+- Added humanized Discord pacing behaviors: time-of-day/weekend slowdown, conversation cooldown scaling after long back-and-forth, and reconnect startup staggering
+- Added selective silence in active group channels when peers likely already answered
+- Added read-without-reply handling for short acknowledgments (react instead of full reply)
 
 ## HybridAI Advantage
 
@@ -86,7 +95,7 @@ HybridClaw best-in-class capabilities:
 - explicit trust-model acceptance during onboarding (recorded in `config.json`)
 - typed `config.json` runtime settings with defaults, validation, and hot reload
 - formal prompt hook orchestration (`bootstrap`, `memory`, `safety`)
-- Discord conversational UX: edit-in-place streaming responses, fence-safe chunking beyond Discord's 2000-char limit, typing keepalive, debounce batching, reply-chain-aware context, and concise attachment-first screenshot replies
+- Discord conversational UX: edit-in-place streaming responses, fence-safe chunking beyond Discord's 2000-char limit, phase-aware typing/reactions, adaptive debounce batching, per-user rate limits, health-driven self-presence, reply-chain-aware context, concise attachment-first screenshot replies, and humanized pacing (time-of-day slowdown, cooldown scaling, selective silence, read-without-reply, startup staggering)
 - token-efficient context assembly: per-message history truncation, hard history budgets with head/tail preservation, and head/tail truncation for oversized bootstrap files
 - runtime self-awareness in prompts: exact HybridClaw version/date, model, and runtime host metadata injected each turn for reliable "what version/model are you?" answers
 - proactive runtime layer with active-hours gating, push delegation (`single`/`parallel`/`chain`), depth-aware tool policy, and retry controls
@@ -109,8 +118,21 @@ HybridClaw uses typed runtime config in `config.json` (auto-created on first run
 - `discord.commandsOnly` optional hard mode: if `true`, the bot ignores non-`!claw` messages and only accepts prefixed commands (optionally limited by `discord.commandUserId`)
 - `discord.groupPolicy` controls guild channel scope: `open` (default), `allowlist`, or `disabled`
 - `discord.freeResponseChannels` is a Hermes-style channel ID list that gets free-response behavior while other channels remain mention-gated
+- `discord.humanDelay` controls natural delays between multi-part messages (`off|natural|custom`)
+- `discord.typingMode` controls typing indicator lifecycle (`instant|thinking|streaming|never`)
+- `discord.presence.*` enables dynamic self-presence health states (healthy/degraded/exhausted mapped to `online|idle|dnd`, plus maintenance `invisible` during shutdown)
+- `discord.lifecycleReactions.*` enables phase emoji transitions (`queued|thinking|toolUse|streaming|done|error`)
+- `discord.ackReaction`, `discord.ackReactionScope`, and `discord.removeAckAfterReply` control acknowledgment reaction behavior
+- `discord.debounceMs` controls default inbound debounce; channel overrides can tune noisy channels
+- `discord.rateLimitPerUser` and `discord.rateLimitExemptRoles` enforce per-user sliding-window limits
+- `discord.suppressPatterns` blocks auto-reply triggers for suppression terms (case-insensitive)
+- `discord.maxConcurrentPerChannel` limits concurrent in-flight runs per channel
 - `discord.guilds.<guildId>.defaultMode` sets that guild's fallback mode in `open` policy (`mention` recommended)
-- `discord.guilds.<guildId>.channels.<channelId>.mode` sets per-channel behavior to `off`, `mention`, or `free` (used as allowlist entries when policy is `allowlist`)
+- `discord.guilds.<guildId>.channels.<channelId>.*` supports per-channel mode and behavior overrides (`mode`, `typingMode`, `debounceMs`, `ackReaction*`, `humanDelay`, `rateLimitPerUser`, `suppressPatterns`, `maxConcurrentPerChannel`)
+- `scheduler.jobs[]` defines config-backed proactive jobs with `schedule.kind` (`cron|every|at`), `action.kind` (`agent_turn|system_event`), and delivery targets (`channel|last-channel|webhook`)
+- Config scheduler job metadata (last status, consecutive errors, one-shot completion) persists atomically in `data/scheduler-jobs-state.json`
+- Config scheduler jobs auto-disable after repeated failures (5 consecutive errors) and one-shot jobs retry on a bounded interval until successful
+- Built-in Discord humanization behaviors include night/weekend pacing, post-exchange cooldown scaling (after 5+ exchanges, reset after 20 minutes idle), selective silence in active free-mode channels, short-ack read reactions, and reconnect staggered dequeue
 - Per-guild/per-channel mode takes precedence over `discord.respondToAllMessages`
 - Discord slash commands: `/status`, `/channel-mode <off|mention|free>`, and `/channel-policy <open|allowlist|disabled>` (ephemeral replies)
 - `skills.extraDirs` adds additional enterprise/shared skill roots (lowest precedence tier)
@@ -409,7 +431,9 @@ In Discord, use `!claw help` to see all commands. Key ones:
 - `!claw audit verify [sessionId]` — Verify audit hash chain integrity
 - `!claw audit search <query>` — Search structured audit history
 - `!claw audit approvals [n] [--denied]` — Show policy approval decisions
-- `!claw schedule add "<cron>" <prompt>` — Add scheduled task
+- `!claw schedule add "<cron>" <prompt>` — Add cron scheduled task
+- `!claw schedule add at "<ISO time>" <prompt>` — Add one-shot task
+- `!claw schedule add every <ms> <prompt>` — Add interval task
 
 ## Project structure
 

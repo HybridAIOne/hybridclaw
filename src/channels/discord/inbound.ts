@@ -6,7 +6,13 @@ export interface ParsedCommand {
 
 export type DiscordGuildMessageMode = 'off' | 'mention' | 'free';
 
-export function stripBotMentions(text: string, botMentionRegex: RegExp | null): string {
+const GREETING_ONLY_RE =
+  /^(hi|hey|hello|yo|sup|thanks|thank you|thx|ok|okay|got it|roger|cool)[!. ]*$/i;
+
+export function stripBotMentions(
+  text: string,
+  botMentionRegex: RegExp | null,
+): string {
   if (!botMentionRegex) return text;
   return text.replace(botMentionRegex, '').trim();
 }
@@ -32,7 +38,11 @@ export function hasPrefixInvocation(
   return text.startsWith(prefix);
 }
 
-export function buildSessionIdFromContext(guildId: string | null, channelId: string, userId: string): string {
+export function buildSessionIdFromContext(
+  guildId: string | null,
+  channelId: string,
+  userId: string,
+): string {
   return guildId ? `${guildId}:${channelId}` : `dm:${userId}`;
 }
 
@@ -47,12 +57,41 @@ export function parseCommand(
   }
 
   const parts = text.split(/\s+/);
-  const subcommands = ['bot', 'rag', 'model', 'sessions', 'audit', 'schedule', 'channel', 'clear', 'help'];
+  const subcommands = [
+    'bot',
+    'rag',
+    'model',
+    'sessions',
+    'audit',
+    'schedule',
+    'channel',
+    'clear',
+    'help',
+  ];
   if (parts.length > 0 && subcommands.includes(parts[0].toLowerCase())) {
-    return { isCommand: true, command: parts[0].toLowerCase(), args: parts.slice(1) };
+    return {
+      isCommand: true,
+      command: parts[0].toLowerCase(),
+      args: parts.slice(1),
+    };
   }
 
   return { isCommand: false, command: '', args: [] };
+}
+
+export function shouldSuppressAutoReply(
+  content: string,
+  suppressPatterns?: string[],
+): boolean {
+  const normalized = content.trim().toLowerCase();
+  if (!normalized) return false;
+  if (GREETING_ONLY_RE.test(normalized)) return true;
+  if (!suppressPatterns || suppressPatterns.length === 0) return false;
+  return suppressPatterns.some((pattern) => {
+    const needle = pattern.trim().toLowerCase();
+    if (!needle) return false;
+    return normalized.includes(needle);
+  });
 }
 
 export function isTrigger(params: {
@@ -64,15 +103,27 @@ export function isTrigger(params: {
   prefix: string;
   botMentionRegex: RegExp | null;
   hasBotMention: boolean;
+  suppressPatterns?: string[];
 }): boolean {
+  const stripped = stripBotMentions(params.content, params.botMentionRegex);
+
   if (params.commandsOnly) {
-    return hasPrefixInvocation(params.content, params.botMentionRegex, params.prefix);
+    return hasPrefixInvocation(
+      params.content,
+      params.botMentionRegex,
+      params.prefix,
+    );
   }
+  if (
+    hasPrefixInvocation(params.content, params.botMentionRegex, params.prefix)
+  )
+    return true;
+  if (shouldSuppressAutoReply(stripped, params.suppressPatterns)) return false;
   if (params.isDm) return true;
-  if (hasPrefixInvocation(params.content, params.botMentionRegex, params.prefix)) return true;
   if (params.guildMessageMode === 'off') return false;
   if (params.guildMessageMode === 'free') return true;
-  if (params.respondToAllMessages) return true;
+  // Keep `respondToAllMessages` consumed for compatibility; mode resolution decides guild behavior.
+  void params.respondToAllMessages;
   if (params.hasBotMention) return true;
   return false;
 }

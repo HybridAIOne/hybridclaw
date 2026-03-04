@@ -2,12 +2,27 @@ import fs from 'fs';
 import path from 'path';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 3;
+export const CONFIG_VERSION = 5;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 
-const KNOWN_LOG_LEVELS = new Set(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']);
+const KNOWN_LOG_LEVELS = new Set([
+  'fatal',
+  'error',
+  'warn',
+  'info',
+  'debug',
+  'trace',
+  'silent',
+]);
 
-type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
+type LogLevel =
+  | 'fatal'
+  | 'error'
+  | 'warn'
+  | 'info'
+  | 'debug'
+  | 'trace'
+  | 'silent';
 
 type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends Array<infer U>
@@ -26,10 +41,89 @@ export interface RuntimeSecurityConfig {
 
 export type DiscordGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type DiscordChannelMode = 'off' | 'mention' | 'free';
+export type DiscordTypingMode = 'instant' | 'thinking' | 'streaming' | 'never';
+export type DiscordHumanDelayMode = 'off' | 'natural' | 'custom';
+export type DiscordAckReactionScope =
+  | 'all'
+  | 'group-mentions'
+  | 'direct'
+  | 'off';
+export type DiscordPresenceActivityType =
+  | 'playing'
+  | 'watching'
+  | 'listening'
+  | 'competing'
+  | 'custom';
+export type SchedulerScheduleKind = 'at' | 'every' | 'cron';
+export type SchedulerActionKind = 'agent_turn' | 'system_event';
+export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
+
+export interface RuntimeDiscordHumanDelayConfig {
+  mode: DiscordHumanDelayMode;
+  minMs: number;
+  maxMs: number;
+}
+
+export interface RuntimeDiscordPresenceConfig {
+  enabled: boolean;
+  intervalMs: number;
+  healthyText: string;
+  degradedText: string;
+  exhaustedText: string;
+  activityType: DiscordPresenceActivityType;
+}
+
+export interface RuntimeDiscordLifecycleReactionsConfig {
+  enabled: boolean;
+  removeOnComplete: boolean;
+  phases: {
+    queued: string;
+    thinking: string;
+    toolUse: string;
+    streaming: string;
+    done: string;
+    error: string;
+  };
+}
+
+export interface RuntimeDiscordChannelConfig {
+  mode: DiscordChannelMode;
+  typingMode?: DiscordTypingMode;
+  debounceMs?: number;
+  ackReaction?: string;
+  ackReactionScope?: DiscordAckReactionScope;
+  removeAckAfterReply?: boolean;
+  humanDelay?: RuntimeDiscordHumanDelayConfig;
+  rateLimitPerUser?: number;
+  suppressPatterns?: string[];
+  maxConcurrentPerChannel?: number;
+}
 
 export interface RuntimeDiscordGuildConfig {
   defaultMode: DiscordChannelMode;
-  channels: Record<string, { mode: DiscordChannelMode }>;
+  channels: Record<string, RuntimeDiscordChannelConfig>;
+}
+
+export interface RuntimeSchedulerJob {
+  id: string;
+  schedule: {
+    kind: SchedulerScheduleKind;
+    at: string | null;
+    everyMs: number | null;
+    expr: string | null;
+    tz: string;
+  };
+  action: {
+    kind: SchedulerActionKind;
+    message: string;
+  };
+  delivery: {
+    kind: SchedulerDeliveryKind;
+    channel: string;
+    to: string;
+    webhookUrl: string;
+  };
+  enabled: boolean;
 }
 
 export interface RuntimeConfig {
@@ -47,6 +141,18 @@ export interface RuntimeConfig {
     commandUserId: string;
     groupPolicy: DiscordGroupPolicy;
     freeResponseChannels: string[];
+    humanDelay: RuntimeDiscordHumanDelayConfig;
+    typingMode: DiscordTypingMode;
+    presence: RuntimeDiscordPresenceConfig;
+    lifecycleReactions: RuntimeDiscordLifecycleReactionsConfig;
+    ackReaction: string;
+    ackReactionScope: DiscordAckReactionScope;
+    removeAckAfterReply: boolean;
+    debounceMs: number;
+    rateLimitPerUser: number;
+    rateLimitExemptRoles: string[];
+    suppressPatterns: string[];
+    maxConcurrentPerChannel: number;
     guilds: Record<string, RuntimeDiscordGuildConfig>;
   };
   hybridai: {
@@ -132,9 +238,15 @@ export interface RuntimeConfig {
       maxIterations: number;
     };
   };
+  scheduler: {
+    jobs: RuntimeSchedulerJob[];
+  };
 }
 
-export type RuntimeConfigChangeListener = (next: RuntimeConfig, prev: RuntimeConfig) => void;
+export type RuntimeConfigChangeListener = (
+  next: RuntimeConfig,
+  prev: RuntimeConfig,
+) => void;
 
 const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
@@ -156,6 +268,40 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     commandUserId: '',
     groupPolicy: 'open',
     freeResponseChannels: [],
+    humanDelay: {
+      mode: 'natural',
+      minMs: 800,
+      maxMs: 2_500,
+    },
+    typingMode: 'thinking',
+    presence: {
+      enabled: true,
+      intervalMs: 30_000,
+      healthyText: 'Watching the channels',
+      degradedText: 'Thinking slowly...',
+      exhaustedText: 'Taking a break',
+      activityType: 'watching',
+    },
+    lifecycleReactions: {
+      enabled: true,
+      removeOnComplete: true,
+      phases: {
+        queued: '⏳',
+        thinking: '🤔',
+        toolUse: '⚙️',
+        streaming: '✍️',
+        done: '✅',
+        error: '❌',
+      },
+    },
+    ackReaction: '👀',
+    ackReactionScope: 'group-mentions',
+    removeAckAfterReply: true,
+    debounceMs: 2_500,
+    rateLimitPerUser: 0,
+    rateLimitExemptRoles: [],
+    suppressPatterns: ['/stop', '/pause', 'brb', 'afk'],
+    maxConcurrentPerChannel: 2,
     guilds: {},
   },
   hybridai: {
@@ -240,6 +386,9 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     ralph: {
       maxIterations: 0,
     },
+  },
+  scheduler: {
+    jobs: [],
   },
 };
 
@@ -326,21 +475,296 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   return fallback;
 }
 
-function normalizeDiscordGroupPolicy(value: unknown, fallback: DiscordGroupPolicy): DiscordGroupPolicy {
+function normalizeDiscordGroupPolicy(
+  value: unknown,
+  fallback: DiscordGroupPolicy,
+): DiscordGroupPolicy {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'open' || normalized === 'allowlist' || normalized === 'disabled') {
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
     return normalized;
   }
   return fallback;
 }
 
-function normalizeDiscordChannelMode(value: unknown, fallback: DiscordChannelMode): DiscordChannelMode {
+function normalizeDiscordChannelMode(
+  value: unknown,
+  fallback: DiscordChannelMode,
+): DiscordChannelMode {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'off' || normalized === 'mention' || normalized === 'free') return normalized;
-  if (normalized === 'free-response' || normalized === 'free_response') return 'free';
+  if (normalized === 'off' || normalized === 'mention' || normalized === 'free')
+    return normalized;
+  if (normalized === 'free-response' || normalized === 'free_response')
+    return 'free';
   return fallback;
+}
+
+function normalizeDiscordTypingMode(
+  value: unknown,
+  fallback: DiscordTypingMode,
+): DiscordTypingMode {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'instant' ||
+    normalized === 'thinking' ||
+    normalized === 'streaming' ||
+    normalized === 'never'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeDiscordHumanDelayMode(
+  value: unknown,
+  fallback: DiscordHumanDelayMode,
+): DiscordHumanDelayMode {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'off' ||
+    normalized === 'natural' ||
+    normalized === 'custom'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeDiscordAckReactionScope(
+  value: unknown,
+  fallback: DiscordAckReactionScope,
+): DiscordAckReactionScope {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'all' ||
+    normalized === 'group-mentions' ||
+    normalized === 'direct' ||
+    normalized === 'off'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeDiscordPresenceActivityType(
+  value: unknown,
+  fallback: DiscordPresenceActivityType,
+): DiscordPresenceActivityType {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'playing' ||
+    normalized === 'watching' ||
+    normalized === 'listening' ||
+    normalized === 'competing' ||
+    normalized === 'custom'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeDiscordHumanDelayConfig(
+  value: unknown,
+  fallback: RuntimeDiscordHumanDelayConfig,
+): RuntimeDiscordHumanDelayConfig {
+  const raw = isRecord(value) ? value : {};
+  const mode = normalizeDiscordHumanDelayMode(raw.mode, fallback.mode);
+  const minMs = normalizeInteger(raw.minMs, fallback.minMs, {
+    min: 0,
+    max: 120_000,
+  });
+  const maxMsRaw = normalizeInteger(raw.maxMs, fallback.maxMs, {
+    min: 0,
+    max: 120_000,
+  });
+  const maxMs = Math.max(minMs, maxMsRaw);
+  return { mode, minMs, maxMs };
+}
+
+function normalizeDiscordPresenceConfig(
+  value: unknown,
+  fallback: RuntimeDiscordPresenceConfig,
+): RuntimeDiscordPresenceConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    intervalMs: normalizeInteger(raw.intervalMs, fallback.intervalMs, {
+      min: 5_000,
+      max: 300_000,
+    }),
+    healthyText: normalizeString(raw.healthyText, fallback.healthyText, {
+      allowEmpty: false,
+    }),
+    degradedText: normalizeString(raw.degradedText, fallback.degradedText, {
+      allowEmpty: false,
+    }),
+    exhaustedText: normalizeString(raw.exhaustedText, fallback.exhaustedText, {
+      allowEmpty: false,
+    }),
+    activityType: normalizeDiscordPresenceActivityType(
+      raw.activityType,
+      fallback.activityType,
+    ),
+  };
+}
+
+function normalizeDiscordLifecycleReactionsConfig(
+  value: unknown,
+  fallback: RuntimeDiscordLifecycleReactionsConfig,
+): RuntimeDiscordLifecycleReactionsConfig {
+  const raw = isRecord(value) ? value : {};
+  const rawPhases = isRecord(raw.phases) ? raw.phases : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    removeOnComplete: normalizeBoolean(
+      raw.removeOnComplete,
+      fallback.removeOnComplete,
+    ),
+    phases: {
+      queued: normalizeString(rawPhases.queued, fallback.phases.queued, {
+        allowEmpty: false,
+      }),
+      thinking: normalizeString(rawPhases.thinking, fallback.phases.thinking, {
+        allowEmpty: false,
+      }),
+      toolUse: normalizeString(rawPhases.toolUse, fallback.phases.toolUse, {
+        allowEmpty: false,
+      }),
+      streaming: normalizeString(
+        rawPhases.streaming,
+        fallback.phases.streaming,
+        { allowEmpty: false },
+      ),
+      done: normalizeString(rawPhases.done, fallback.phases.done, {
+        allowEmpty: false,
+      }),
+      error: normalizeString(rawPhases.error, fallback.phases.error, {
+        allowEmpty: false,
+      }),
+    },
+  };
+}
+
+function normalizeDiscordChannelConfig(
+  value: unknown,
+  fallback: RuntimeDiscordChannelConfig,
+  defaultMode: DiscordChannelMode,
+): RuntimeDiscordChannelConfig | null {
+  const channelFallback = {
+    ...fallback,
+    mode: fallback.mode || defaultMode,
+  };
+
+  if (typeof value === 'string') {
+    return { mode: normalizeDiscordChannelMode(value, channelFallback.mode) };
+  }
+  if (!isRecord(value)) return null;
+
+  const channelConfig: RuntimeDiscordChannelConfig = {
+    mode: normalizeDiscordChannelMode(value.mode, channelFallback.mode),
+  };
+
+  if (
+    value.typingMode !== undefined ||
+    channelFallback.typingMode !== undefined
+  ) {
+    channelConfig.typingMode = normalizeDiscordTypingMode(
+      value.typingMode,
+      channelFallback.typingMode ?? DEFAULT_RUNTIME_CONFIG.discord.typingMode,
+    );
+  }
+  if (
+    value.debounceMs !== undefined ||
+    channelFallback.debounceMs !== undefined
+  ) {
+    channelConfig.debounceMs = normalizeInteger(
+      value.debounceMs,
+      channelFallback.debounceMs ?? DEFAULT_RUNTIME_CONFIG.discord.debounceMs,
+      { min: 0, max: 120_000 },
+    );
+  }
+  if (
+    value.ackReaction !== undefined ||
+    channelFallback.ackReaction !== undefined
+  ) {
+    channelConfig.ackReaction = normalizeString(
+      value.ackReaction,
+      channelFallback.ackReaction ?? DEFAULT_RUNTIME_CONFIG.discord.ackReaction,
+      { allowEmpty: false },
+    );
+  }
+  if (
+    value.ackReactionScope !== undefined ||
+    channelFallback.ackReactionScope !== undefined
+  ) {
+    channelConfig.ackReactionScope = normalizeDiscordAckReactionScope(
+      value.ackReactionScope,
+      channelFallback.ackReactionScope ??
+        DEFAULT_RUNTIME_CONFIG.discord.ackReactionScope,
+    );
+  }
+  if (
+    value.removeAckAfterReply !== undefined ||
+    channelFallback.removeAckAfterReply !== undefined
+  ) {
+    channelConfig.removeAckAfterReply = normalizeBoolean(
+      value.removeAckAfterReply,
+      channelFallback.removeAckAfterReply ??
+        DEFAULT_RUNTIME_CONFIG.discord.removeAckAfterReply,
+    );
+  }
+  if (
+    value.humanDelay !== undefined ||
+    channelFallback.humanDelay !== undefined
+  ) {
+    channelConfig.humanDelay = normalizeDiscordHumanDelayConfig(
+      value.humanDelay,
+      channelFallback.humanDelay ?? DEFAULT_RUNTIME_CONFIG.discord.humanDelay,
+    );
+  }
+  if (
+    value.rateLimitPerUser !== undefined ||
+    channelFallback.rateLimitPerUser !== undefined
+  ) {
+    channelConfig.rateLimitPerUser = normalizeInteger(
+      value.rateLimitPerUser,
+      channelFallback.rateLimitPerUser ??
+        DEFAULT_RUNTIME_CONFIG.discord.rateLimitPerUser,
+      { min: 0, max: 300 },
+    );
+  }
+  if (
+    value.suppressPatterns !== undefined ||
+    channelFallback.suppressPatterns !== undefined
+  ) {
+    channelConfig.suppressPatterns = normalizeStringArray(
+      value.suppressPatterns,
+      channelFallback.suppressPatterns ??
+        DEFAULT_RUNTIME_CONFIG.discord.suppressPatterns,
+    );
+  }
+  if (
+    value.maxConcurrentPerChannel !== undefined ||
+    channelFallback.maxConcurrentPerChannel !== undefined
+  ) {
+    channelConfig.maxConcurrentPerChannel = normalizeInteger(
+      value.maxConcurrentPerChannel,
+      channelFallback.maxConcurrentPerChannel ??
+        DEFAULT_RUNTIME_CONFIG.discord.maxConcurrentPerChannel,
+      { min: 1, max: 16 },
+    );
+  }
+
+  return channelConfig;
 }
 
 function normalizeDiscordGuildConfig(
@@ -348,18 +772,25 @@ function normalizeDiscordGuildConfig(
   fallback: RuntimeDiscordGuildConfig,
 ): RuntimeDiscordGuildConfig {
   if (!isRecord(value)) return fallback;
-  const defaultMode = normalizeDiscordChannelMode(value.defaultMode, fallback.defaultMode);
+  const defaultMode = normalizeDiscordChannelMode(
+    value.defaultMode,
+    fallback.defaultMode,
+  );
   const rawChannels = isRecord(value.channels) ? value.channels : {};
-  const channels: Record<string, { mode: DiscordChannelMode }> = {};
+  const channels: Record<string, RuntimeDiscordChannelConfig> = {};
   for (const [rawChannelId, rawChannelConfig] of Object.entries(rawChannels)) {
     const channelId = rawChannelId.trim();
     if (!channelId) continue;
-    if (typeof rawChannelConfig === 'string') {
-      channels[channelId] = { mode: normalizeDiscordChannelMode(rawChannelConfig, defaultMode) };
-      continue;
-    }
-    if (!isRecord(rawChannelConfig)) continue;
-    channels[channelId] = { mode: normalizeDiscordChannelMode(rawChannelConfig.mode, defaultMode) };
+    const fallbackChannel = fallback.channels[channelId] ?? {
+      mode: defaultMode,
+    };
+    const channelConfig = normalizeDiscordChannelConfig(
+      rawChannelConfig,
+      fallbackChannel,
+      defaultMode,
+    );
+    if (!channelConfig) continue;
+    channels[channelId] = channelConfig;
   }
 
   return { defaultMode, channels };
@@ -374,14 +805,147 @@ function normalizeDiscordGuildMap(
   for (const [rawGuildId, rawGuildConfig] of Object.entries(value)) {
     const guildId = rawGuildId.trim();
     if (!guildId) continue;
-    const fallbackGuild = fallback[guildId] ?? { defaultMode: 'mention', channels: {} };
-    guilds[guildId] = normalizeDiscordGuildConfig(rawGuildConfig, fallbackGuild);
+    const fallbackGuild = fallback[guildId] ?? {
+      defaultMode: 'mention',
+      channels: {},
+    };
+    guilds[guildId] = normalizeDiscordGuildConfig(
+      rawGuildConfig,
+      fallbackGuild,
+    );
   }
   return guilds;
 }
 
+function normalizeSchedulerScheduleKind(
+  value: unknown,
+  fallback: SchedulerScheduleKind,
+): SchedulerScheduleKind {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'at' || normalized === 'every' || normalized === 'cron')
+    return normalized;
+  return fallback;
+}
+
+function normalizeSchedulerActionKind(
+  value: unknown,
+  fallback: SchedulerActionKind,
+): SchedulerActionKind {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'agent_turn' || normalized === 'system_event')
+    return normalized;
+  return fallback;
+}
+
+function normalizeSchedulerDeliveryKind(
+  value: unknown,
+  fallback: SchedulerDeliveryKind,
+): SchedulerDeliveryKind {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'channel' ||
+    normalized === 'last-channel' ||
+    normalized === 'webhook'
+  )
+    return normalized;
+  return fallback;
+}
+
+function normalizeSchedulerJobList(
+  value: unknown,
+  fallback: RuntimeSchedulerJob[],
+): RuntimeSchedulerJob[] {
+  if (!Array.isArray(value)) return fallback;
+  const jobs: RuntimeSchedulerJob[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const jobId = normalizeString(item.id, '', { allowEmpty: false });
+    if (!jobId) continue;
+
+    const rawSchedule = isRecord(item.schedule) ? item.schedule : {};
+    const rawAction = isRecord(item.action) ? item.action : {};
+    const rawDelivery = isRecord(item.delivery) ? item.delivery : {};
+
+    const scheduleKind = normalizeSchedulerScheduleKind(
+      rawSchedule.kind,
+      'cron',
+    );
+    const everyMs =
+      scheduleKind === 'every'
+        ? normalizeInteger(rawSchedule.everyMs, 60_000, {
+            min: 10_000,
+            max: 86_400_000,
+          })
+        : null;
+    const atRaw =
+      scheduleKind === 'at'
+        ? normalizeString(rawSchedule.at, '', { allowEmpty: false })
+        : '';
+    const atIso =
+      scheduleKind === 'at'
+        ? (() => {
+            const parsed = new Date(atRaw);
+            return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+          })()
+        : null;
+    const expr =
+      scheduleKind === 'cron'
+        ? normalizeString(rawSchedule.expr, '', { allowEmpty: false })
+        : '';
+    if (scheduleKind === 'at' && !atIso) continue;
+    if (scheduleKind === 'cron' && !expr) continue;
+
+    const deliveryKind = normalizeSchedulerDeliveryKind(
+      rawDelivery.kind,
+      'channel',
+    );
+    const to = normalizeString(rawDelivery.to, '', { allowEmpty: true });
+    const webhookUrl = normalizeString(
+      rawDelivery.webhookUrl ?? rawDelivery.url,
+      '',
+      { allowEmpty: true },
+    );
+    if (deliveryKind === 'channel' && !to) continue;
+    if (deliveryKind === 'webhook' && !webhookUrl) continue;
+    const actionMessage = normalizeString(rawAction.message, '', {
+      allowEmpty: false,
+    });
+    if (!actionMessage) continue;
+
+    jobs.push({
+      id: jobId,
+      schedule: {
+        kind: scheduleKind,
+        at: atIso,
+        everyMs,
+        expr: scheduleKind === 'cron' ? expr : null,
+        tz: normalizeString(rawSchedule.tz, '', { allowEmpty: true }),
+      },
+      action: {
+        kind: normalizeSchedulerActionKind(rawAction.kind, 'agent_turn'),
+        message: actionMessage,
+      },
+      delivery: {
+        kind: deliveryKind,
+        channel: normalizeString(rawDelivery.channel, 'discord', {
+          allowEmpty: true,
+        }),
+        to,
+        webhookUrl,
+      },
+      enabled: normalizeBoolean(item.enabled, true),
+    });
+  }
+  return jobs;
+}
+
 function normalizeLogLevel(value: unknown, fallback: LogLevel): LogLevel {
-  const normalized = normalizeString(value, fallback, { allowEmpty: false }).toLowerCase();
+  const normalized = normalizeString(value, fallback, {
+    allowEmpty: false,
+  }).toLowerCase();
   if (KNOWN_LOG_LEVELS.has(normalized)) return normalized as LogLevel;
   return fallback;
 }
@@ -392,7 +956,10 @@ function normalizeBaseUrl(value: unknown, fallback: string): string {
 }
 
 function normalizeApiPath(value: unknown, fallback: string): string {
-  const normalized = normalizeString(value, fallback, { allowEmpty: false, trim: true });
+  const normalized = normalizeString(value, fallback, {
+    allowEmpty: false,
+    trim: true,
+  });
   if (/^https?:\/\//i.test(normalized)) {
     return normalized.replace(/\/+$/, '');
   }
@@ -407,7 +974,9 @@ function parseConfigPatch(payload: unknown): DeepPartial<RuntimeConfig> {
   return payload as DeepPartial<RuntimeConfig>;
 }
 
-function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConfig {
+function normalizeRuntimeConfig(
+  patch?: DeepPartial<RuntimeConfig>,
+): RuntimeConfig {
   const raw = patch ?? {};
 
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
@@ -418,21 +987,41 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
   const rawHeartbeat = isRecord(raw.heartbeat) ? raw.heartbeat : {};
   const rawOps = isRecord(raw.ops) ? raw.ops : {};
   const rawObservability = isRecord(raw.observability) ? raw.observability : {};
-  const rawSessionCompaction = isRecord(raw.sessionCompaction) ? raw.sessionCompaction : {};
+  const rawSessionCompaction = isRecord(raw.sessionCompaction)
+    ? raw.sessionCompaction
+    : {};
   const rawPreFlush = isRecord(rawSessionCompaction.preCompactionMemoryFlush)
     ? rawSessionCompaction.preCompactionMemoryFlush
     : {};
   const rawPromptHooks = isRecord(raw.promptHooks) ? raw.promptHooks : {};
   const rawProactive = isRecord(raw.proactive) ? raw.proactive : {};
-  const rawActiveHours = isRecord(rawProactive.activeHours) ? rawProactive.activeHours : {};
-  const rawDelegation = isRecord(rawProactive.delegation) ? rawProactive.delegation : {};
-  const rawAutoRetry = isRecord(rawProactive.autoRetry) ? rawProactive.autoRetry : {};
+  const rawActiveHours = isRecord(rawProactive.activeHours)
+    ? rawProactive.activeHours
+    : {};
+  const rawDelegation = isRecord(rawProactive.delegation)
+    ? rawProactive.delegation
+    : {};
+  const rawAutoRetry = isRecord(rawProactive.autoRetry)
+    ? rawProactive.autoRetry
+    : {};
   const rawRalph = isRecord(rawProactive.ralph) ? rawProactive.ralph : {};
+  const rawScheduler = isRecord(raw.scheduler) ? raw.scheduler : {};
 
   const defaultOps = DEFAULT_RUNTIME_CONFIG.ops;
-  const healthPort = normalizeInteger(rawOps.healthPort, defaultOps.healthPort, { min: 1, max: 65_535 });
-  const webApiToken = normalizeString(rawOps.webApiToken, defaultOps.webApiToken, { allowEmpty: true });
-  const hybridBaseUrl = normalizeBaseUrl(rawHybridAi.baseUrl, DEFAULT_RUNTIME_CONFIG.hybridai.baseUrl);
+  const healthPort = normalizeInteger(
+    rawOps.healthPort,
+    defaultOps.healthPort,
+    { min: 1, max: 65_535 },
+  );
+  const webApiToken = normalizeString(
+    rawOps.webApiToken,
+    defaultOps.webApiToken,
+    { allowEmpty: true },
+  );
+  const hybridBaseUrl = normalizeBaseUrl(
+    rawHybridAi.baseUrl,
+    DEFAULT_RUNTIME_CONFIG.hybridai.baseUrl,
+  );
   const hybridDefaultChatbotId = normalizeString(
     rawHybridAi.defaultChatbotId,
     DEFAULT_RUNTIME_CONFIG.hybridai.defaultChatbotId,
@@ -451,21 +1040,46 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
   );
   const keepRecent = Math.min(keepRecentRaw, Math.max(1, threshold - 1));
 
-  const modelList = normalizeStringArray(rawHybridAi.models, DEFAULT_RUNTIME_CONFIG.hybridai.models);
+  const modelList = normalizeStringArray(
+    rawHybridAi.models,
+    DEFAULT_RUNTIME_CONFIG.hybridai.models,
+  );
 
   return {
     version: CONFIG_VERSION,
     security: {
-      trustModelAccepted: normalizeBoolean(rawSecurity.trustModelAccepted, DEFAULT_RUNTIME_CONFIG.security.trustModelAccepted),
-      trustModelAcceptedAt: normalizeString(rawSecurity.trustModelAcceptedAt, DEFAULT_RUNTIME_CONFIG.security.trustModelAcceptedAt, { allowEmpty: true }),
-      trustModelVersion: normalizeString(rawSecurity.trustModelVersion, DEFAULT_RUNTIME_CONFIG.security.trustModelVersion, { allowEmpty: true }),
-      trustModelAcceptedBy: normalizeString(rawSecurity.trustModelAcceptedBy, DEFAULT_RUNTIME_CONFIG.security.trustModelAcceptedBy, { allowEmpty: true }),
+      trustModelAccepted: normalizeBoolean(
+        rawSecurity.trustModelAccepted,
+        DEFAULT_RUNTIME_CONFIG.security.trustModelAccepted,
+      ),
+      trustModelAcceptedAt: normalizeString(
+        rawSecurity.trustModelAcceptedAt,
+        DEFAULT_RUNTIME_CONFIG.security.trustModelAcceptedAt,
+        { allowEmpty: true },
+      ),
+      trustModelVersion: normalizeString(
+        rawSecurity.trustModelVersion,
+        DEFAULT_RUNTIME_CONFIG.security.trustModelVersion,
+        { allowEmpty: true },
+      ),
+      trustModelAcceptedBy: normalizeString(
+        rawSecurity.trustModelAcceptedBy,
+        DEFAULT_RUNTIME_CONFIG.security.trustModelAcceptedBy,
+        { allowEmpty: true },
+      ),
     },
     skills: {
-      extraDirs: normalizeStringArray(rawSkills.extraDirs, DEFAULT_RUNTIME_CONFIG.skills.extraDirs),
+      extraDirs: normalizeStringArray(
+        rawSkills.extraDirs,
+        DEFAULT_RUNTIME_CONFIG.skills.extraDirs,
+      ),
     },
     discord: {
-      prefix: normalizeString(rawDiscord.prefix, DEFAULT_RUNTIME_CONFIG.discord.prefix, { allowEmpty: false }),
+      prefix: normalizeString(
+        rawDiscord.prefix,
+        DEFAULT_RUNTIME_CONFIG.discord.prefix,
+        { allowEmpty: false },
+      ),
       guildMembersIntent: normalizeBoolean(
         rawDiscord.guildMembersIntent,
         DEFAULT_RUNTIME_CONFIG.discord.guildMembersIntent,
@@ -495,52 +1109,196 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
         rawDiscord.freeResponseChannels,
         DEFAULT_RUNTIME_CONFIG.discord.freeResponseChannels,
       ),
-      guilds: normalizeDiscordGuildMap(rawDiscord.guilds, DEFAULT_RUNTIME_CONFIG.discord.guilds),
+      humanDelay: normalizeDiscordHumanDelayConfig(
+        rawDiscord.humanDelay,
+        DEFAULT_RUNTIME_CONFIG.discord.humanDelay,
+      ),
+      typingMode: normalizeDiscordTypingMode(
+        rawDiscord.typingMode,
+        DEFAULT_RUNTIME_CONFIG.discord.typingMode,
+      ),
+      presence: normalizeDiscordPresenceConfig(
+        rawDiscord.presence,
+        DEFAULT_RUNTIME_CONFIG.discord.presence,
+      ),
+      lifecycleReactions: normalizeDiscordLifecycleReactionsConfig(
+        rawDiscord.lifecycleReactions,
+        DEFAULT_RUNTIME_CONFIG.discord.lifecycleReactions,
+      ),
+      ackReaction: normalizeString(
+        rawDiscord.ackReaction,
+        DEFAULT_RUNTIME_CONFIG.discord.ackReaction,
+        { allowEmpty: false },
+      ),
+      ackReactionScope: normalizeDiscordAckReactionScope(
+        rawDiscord.ackReactionScope,
+        DEFAULT_RUNTIME_CONFIG.discord.ackReactionScope,
+      ),
+      removeAckAfterReply: normalizeBoolean(
+        rawDiscord.removeAckAfterReply,
+        DEFAULT_RUNTIME_CONFIG.discord.removeAckAfterReply,
+      ),
+      debounceMs: normalizeInteger(
+        rawDiscord.debounceMs,
+        DEFAULT_RUNTIME_CONFIG.discord.debounceMs,
+        { min: 0, max: 120_000 },
+      ),
+      rateLimitPerUser: normalizeInteger(
+        rawDiscord.rateLimitPerUser,
+        DEFAULT_RUNTIME_CONFIG.discord.rateLimitPerUser,
+        { min: 0, max: 300 },
+      ),
+      rateLimitExemptRoles: normalizeStringArray(
+        rawDiscord.rateLimitExemptRoles,
+        DEFAULT_RUNTIME_CONFIG.discord.rateLimitExemptRoles,
+      ),
+      suppressPatterns: normalizeStringArray(
+        rawDiscord.suppressPatterns,
+        DEFAULT_RUNTIME_CONFIG.discord.suppressPatterns,
+      ),
+      maxConcurrentPerChannel: normalizeInteger(
+        rawDiscord.maxConcurrentPerChannel,
+        DEFAULT_RUNTIME_CONFIG.discord.maxConcurrentPerChannel,
+        { min: 1, max: 16 },
+      ),
+      guilds: normalizeDiscordGuildMap(
+        rawDiscord.guilds,
+        DEFAULT_RUNTIME_CONFIG.discord.guilds,
+      ),
     },
     hybridai: {
       baseUrl: hybridBaseUrl,
-      defaultModel: normalizeString(rawHybridAi.defaultModel, DEFAULT_RUNTIME_CONFIG.hybridai.defaultModel, { allowEmpty: false }),
+      defaultModel: normalizeString(
+        rawHybridAi.defaultModel,
+        DEFAULT_RUNTIME_CONFIG.hybridai.defaultModel,
+        { allowEmpty: false },
+      ),
       defaultChatbotId: hybridDefaultChatbotId,
-      enableRag: normalizeBoolean(rawHybridAi.enableRag, DEFAULT_RUNTIME_CONFIG.hybridai.enableRag),
+      enableRag: normalizeBoolean(
+        rawHybridAi.enableRag,
+        DEFAULT_RUNTIME_CONFIG.hybridai.enableRag,
+      ),
       models: modelList,
     },
     container: {
-      image: normalizeString(rawContainer.image, DEFAULT_RUNTIME_CONFIG.container.image, { allowEmpty: false }),
-      memory: normalizeString(rawContainer.memory, DEFAULT_RUNTIME_CONFIG.container.memory, { allowEmpty: false }),
-      cpus: normalizeString(rawContainer.cpus, DEFAULT_RUNTIME_CONFIG.container.cpus, { allowEmpty: false }),
-      timeoutMs: normalizeInteger(rawContainer.timeoutMs, DEFAULT_RUNTIME_CONFIG.container.timeoutMs, { min: 1_000 }),
-      additionalMounts: normalizeString(rawContainer.additionalMounts, DEFAULT_RUNTIME_CONFIG.container.additionalMounts, { allowEmpty: true }),
-      maxOutputBytes: normalizeInteger(rawContainer.maxOutputBytes, DEFAULT_RUNTIME_CONFIG.container.maxOutputBytes, { min: 1_024 }),
-      maxConcurrent: normalizeInteger(rawContainer.maxConcurrent, DEFAULT_RUNTIME_CONFIG.container.maxConcurrent, { min: 1 }),
+      image: normalizeString(
+        rawContainer.image,
+        DEFAULT_RUNTIME_CONFIG.container.image,
+        { allowEmpty: false },
+      ),
+      memory: normalizeString(
+        rawContainer.memory,
+        DEFAULT_RUNTIME_CONFIG.container.memory,
+        { allowEmpty: false },
+      ),
+      cpus: normalizeString(
+        rawContainer.cpus,
+        DEFAULT_RUNTIME_CONFIG.container.cpus,
+        { allowEmpty: false },
+      ),
+      timeoutMs: normalizeInteger(
+        rawContainer.timeoutMs,
+        DEFAULT_RUNTIME_CONFIG.container.timeoutMs,
+        { min: 1_000 },
+      ),
+      additionalMounts: normalizeString(
+        rawContainer.additionalMounts,
+        DEFAULT_RUNTIME_CONFIG.container.additionalMounts,
+        { allowEmpty: true },
+      ),
+      maxOutputBytes: normalizeInteger(
+        rawContainer.maxOutputBytes,
+        DEFAULT_RUNTIME_CONFIG.container.maxOutputBytes,
+        { min: 1_024 },
+      ),
+      maxConcurrent: normalizeInteger(
+        rawContainer.maxConcurrent,
+        DEFAULT_RUNTIME_CONFIG.container.maxConcurrent,
+        { min: 1 },
+      ),
     },
     heartbeat: {
-      enabled: normalizeBoolean(rawHeartbeat.enabled, DEFAULT_RUNTIME_CONFIG.heartbeat.enabled),
-      intervalMs: normalizeInteger(rawHeartbeat.intervalMs, DEFAULT_RUNTIME_CONFIG.heartbeat.intervalMs, { min: 10_000 }),
-      channel: normalizeString(rawHeartbeat.channel, DEFAULT_RUNTIME_CONFIG.heartbeat.channel, { allowEmpty: true }),
+      enabled: normalizeBoolean(
+        rawHeartbeat.enabled,
+        DEFAULT_RUNTIME_CONFIG.heartbeat.enabled,
+      ),
+      intervalMs: normalizeInteger(
+        rawHeartbeat.intervalMs,
+        DEFAULT_RUNTIME_CONFIG.heartbeat.intervalMs,
+        { min: 10_000 },
+      ),
+      channel: normalizeString(
+        rawHeartbeat.channel,
+        DEFAULT_RUNTIME_CONFIG.heartbeat.channel,
+        { allowEmpty: true },
+      ),
     },
     ops: {
-      healthHost: normalizeString(rawOps.healthHost, defaultOps.healthHost, { allowEmpty: false }),
+      healthHost: normalizeString(rawOps.healthHost, defaultOps.healthHost, {
+        allowEmpty: false,
+      }),
       healthPort,
       webApiToken,
-      gatewayBaseUrl: normalizeBaseUrl(rawOps.gatewayBaseUrl, `http://127.0.0.1:${healthPort}`),
-      gatewayApiToken: normalizeString(rawOps.gatewayApiToken, webApiToken, { allowEmpty: true }),
-      dbPath: normalizeString(rawOps.dbPath, defaultOps.dbPath, { allowEmpty: false }),
+      gatewayBaseUrl: normalizeBaseUrl(
+        rawOps.gatewayBaseUrl,
+        `http://127.0.0.1:${healthPort}`,
+      ),
+      gatewayApiToken: normalizeString(rawOps.gatewayApiToken, webApiToken, {
+        allowEmpty: true,
+      }),
+      dbPath: normalizeString(rawOps.dbPath, defaultOps.dbPath, {
+        allowEmpty: false,
+      }),
       logLevel: normalizeLogLevel(rawOps.logLevel, defaultOps.logLevel),
     },
     observability: {
-      enabled: normalizeBoolean(rawObservability.enabled, DEFAULT_RUNTIME_CONFIG.observability.enabled),
+      enabled: normalizeBoolean(
+        rawObservability.enabled,
+        DEFAULT_RUNTIME_CONFIG.observability.enabled,
+      ),
       baseUrl: normalizeBaseUrl(rawObservability.baseUrl, hybridBaseUrl),
-      ingestPath: normalizeApiPath(rawObservability.ingestPath, DEFAULT_RUNTIME_CONFIG.observability.ingestPath),
-      statusPath: normalizeApiPath(rawObservability.statusPath, DEFAULT_RUNTIME_CONFIG.observability.statusPath),
-      botId: normalizeString(rawObservability.botId, hybridDefaultChatbotId, { allowEmpty: true }),
-      agentId: normalizeString(rawObservability.agentId, DEFAULT_RUNTIME_CONFIG.observability.agentId, { allowEmpty: false }),
-      label: normalizeString(rawObservability.label, DEFAULT_RUNTIME_CONFIG.observability.label, { allowEmpty: true }),
-      environment: normalizeString(rawObservability.environment, DEFAULT_RUNTIME_CONFIG.observability.environment, { allowEmpty: false }),
-      flushIntervalMs: normalizeInteger(rawObservability.flushIntervalMs, DEFAULT_RUNTIME_CONFIG.observability.flushIntervalMs, { min: 1_000, max: 3_600_000 }),
-      batchMaxEvents: normalizeInteger(rawObservability.batchMaxEvents, DEFAULT_RUNTIME_CONFIG.observability.batchMaxEvents, { min: 1, max: 1_000 }),
+      ingestPath: normalizeApiPath(
+        rawObservability.ingestPath,
+        DEFAULT_RUNTIME_CONFIG.observability.ingestPath,
+      ),
+      statusPath: normalizeApiPath(
+        rawObservability.statusPath,
+        DEFAULT_RUNTIME_CONFIG.observability.statusPath,
+      ),
+      botId: normalizeString(rawObservability.botId, hybridDefaultChatbotId, {
+        allowEmpty: true,
+      }),
+      agentId: normalizeString(
+        rawObservability.agentId,
+        DEFAULT_RUNTIME_CONFIG.observability.agentId,
+        { allowEmpty: false },
+      ),
+      label: normalizeString(
+        rawObservability.label,
+        DEFAULT_RUNTIME_CONFIG.observability.label,
+        { allowEmpty: true },
+      ),
+      environment: normalizeString(
+        rawObservability.environment,
+        DEFAULT_RUNTIME_CONFIG.observability.environment,
+        { allowEmpty: false },
+      ),
+      flushIntervalMs: normalizeInteger(
+        rawObservability.flushIntervalMs,
+        DEFAULT_RUNTIME_CONFIG.observability.flushIntervalMs,
+        { min: 1_000, max: 3_600_000 },
+      ),
+      batchMaxEvents: normalizeInteger(
+        rawObservability.batchMaxEvents,
+        DEFAULT_RUNTIME_CONFIG.observability.batchMaxEvents,
+        { min: 1, max: 1_000 },
+      ),
     },
     sessionCompaction: {
-      enabled: normalizeBoolean(rawSessionCompaction.enabled, DEFAULT_RUNTIME_CONFIG.sessionCompaction.enabled),
+      enabled: normalizeBoolean(
+        rawSessionCompaction.enabled,
+        DEFAULT_RUNTIME_CONFIG.sessionCompaction.enabled,
+      ),
       threshold,
       keepRecent,
       summaryMaxChars: normalizeInteger(
@@ -549,48 +1307,124 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
         { min: 1_000 },
       ),
       preCompactionMemoryFlush: {
-        enabled: normalizeBoolean(rawPreFlush.enabled, DEFAULT_RUNTIME_CONFIG.sessionCompaction.preCompactionMemoryFlush.enabled),
+        enabled: normalizeBoolean(
+          rawPreFlush.enabled,
+          DEFAULT_RUNTIME_CONFIG.sessionCompaction.preCompactionMemoryFlush
+            .enabled,
+        ),
         maxMessages: normalizeInteger(
           rawPreFlush.maxMessages,
-          DEFAULT_RUNTIME_CONFIG.sessionCompaction.preCompactionMemoryFlush.maxMessages,
+          DEFAULT_RUNTIME_CONFIG.sessionCompaction.preCompactionMemoryFlush
+            .maxMessages,
           { min: 8 },
         ),
         maxChars: normalizeInteger(
           rawPreFlush.maxChars,
-          DEFAULT_RUNTIME_CONFIG.sessionCompaction.preCompactionMemoryFlush.maxChars,
+          DEFAULT_RUNTIME_CONFIG.sessionCompaction.preCompactionMemoryFlush
+            .maxChars,
           { min: 4_000 },
         ),
       },
     },
     promptHooks: {
-      bootstrapEnabled: normalizeBoolean(rawPromptHooks.bootstrapEnabled, DEFAULT_RUNTIME_CONFIG.promptHooks.bootstrapEnabled),
-      memoryEnabled: normalizeBoolean(rawPromptHooks.memoryEnabled, DEFAULT_RUNTIME_CONFIG.promptHooks.memoryEnabled),
-      safetyEnabled: normalizeBoolean(rawPromptHooks.safetyEnabled, DEFAULT_RUNTIME_CONFIG.promptHooks.safetyEnabled),
-      proactivityEnabled: normalizeBoolean(rawPromptHooks.proactivityEnabled, DEFAULT_RUNTIME_CONFIG.promptHooks.proactivityEnabled),
+      bootstrapEnabled: normalizeBoolean(
+        rawPromptHooks.bootstrapEnabled,
+        DEFAULT_RUNTIME_CONFIG.promptHooks.bootstrapEnabled,
+      ),
+      memoryEnabled: normalizeBoolean(
+        rawPromptHooks.memoryEnabled,
+        DEFAULT_RUNTIME_CONFIG.promptHooks.memoryEnabled,
+      ),
+      safetyEnabled: normalizeBoolean(
+        rawPromptHooks.safetyEnabled,
+        DEFAULT_RUNTIME_CONFIG.promptHooks.safetyEnabled,
+      ),
+      proactivityEnabled: normalizeBoolean(
+        rawPromptHooks.proactivityEnabled,
+        DEFAULT_RUNTIME_CONFIG.promptHooks.proactivityEnabled,
+      ),
     },
     proactive: {
       activeHours: {
-        enabled: normalizeBoolean(rawActiveHours.enabled, DEFAULT_RUNTIME_CONFIG.proactive.activeHours.enabled),
-        timezone: normalizeString(rawActiveHours.timezone, DEFAULT_RUNTIME_CONFIG.proactive.activeHours.timezone, { allowEmpty: true }),
-        startHour: normalizeInteger(rawActiveHours.startHour, DEFAULT_RUNTIME_CONFIG.proactive.activeHours.startHour, { min: 0, max: 23 }),
-        endHour: normalizeInteger(rawActiveHours.endHour, DEFAULT_RUNTIME_CONFIG.proactive.activeHours.endHour, { min: 0, max: 23 }),
-        queueOutsideHours: normalizeBoolean(rawActiveHours.queueOutsideHours, DEFAULT_RUNTIME_CONFIG.proactive.activeHours.queueOutsideHours),
+        enabled: normalizeBoolean(
+          rawActiveHours.enabled,
+          DEFAULT_RUNTIME_CONFIG.proactive.activeHours.enabled,
+        ),
+        timezone: normalizeString(
+          rawActiveHours.timezone,
+          DEFAULT_RUNTIME_CONFIG.proactive.activeHours.timezone,
+          { allowEmpty: true },
+        ),
+        startHour: normalizeInteger(
+          rawActiveHours.startHour,
+          DEFAULT_RUNTIME_CONFIG.proactive.activeHours.startHour,
+          { min: 0, max: 23 },
+        ),
+        endHour: normalizeInteger(
+          rawActiveHours.endHour,
+          DEFAULT_RUNTIME_CONFIG.proactive.activeHours.endHour,
+          { min: 0, max: 23 },
+        ),
+        queueOutsideHours: normalizeBoolean(
+          rawActiveHours.queueOutsideHours,
+          DEFAULT_RUNTIME_CONFIG.proactive.activeHours.queueOutsideHours,
+        ),
       },
       delegation: {
-        enabled: normalizeBoolean(rawDelegation.enabled, DEFAULT_RUNTIME_CONFIG.proactive.delegation.enabled),
-        maxConcurrent: normalizeInteger(rawDelegation.maxConcurrent, DEFAULT_RUNTIME_CONFIG.proactive.delegation.maxConcurrent, { min: 1, max: 8 }),
-        maxDepth: normalizeInteger(rawDelegation.maxDepth, DEFAULT_RUNTIME_CONFIG.proactive.delegation.maxDepth, { min: 1, max: 4 }),
-        maxPerTurn: normalizeInteger(rawDelegation.maxPerTurn, DEFAULT_RUNTIME_CONFIG.proactive.delegation.maxPerTurn, { min: 1, max: 8 }),
+        enabled: normalizeBoolean(
+          rawDelegation.enabled,
+          DEFAULT_RUNTIME_CONFIG.proactive.delegation.enabled,
+        ),
+        maxConcurrent: normalizeInteger(
+          rawDelegation.maxConcurrent,
+          DEFAULT_RUNTIME_CONFIG.proactive.delegation.maxConcurrent,
+          { min: 1, max: 8 },
+        ),
+        maxDepth: normalizeInteger(
+          rawDelegation.maxDepth,
+          DEFAULT_RUNTIME_CONFIG.proactive.delegation.maxDepth,
+          { min: 1, max: 4 },
+        ),
+        maxPerTurn: normalizeInteger(
+          rawDelegation.maxPerTurn,
+          DEFAULT_RUNTIME_CONFIG.proactive.delegation.maxPerTurn,
+          { min: 1, max: 8 },
+        ),
       },
       autoRetry: {
-        enabled: normalizeBoolean(rawAutoRetry.enabled, DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.enabled),
-        maxAttempts: normalizeInteger(rawAutoRetry.maxAttempts, DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.maxAttempts, { min: 1, max: 8 }),
-        baseDelayMs: normalizeInteger(rawAutoRetry.baseDelayMs, DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.baseDelayMs, { min: 100, max: 120_000 }),
-        maxDelayMs: normalizeInteger(rawAutoRetry.maxDelayMs, DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.maxDelayMs, { min: 100, max: 600_000 }),
+        enabled: normalizeBoolean(
+          rawAutoRetry.enabled,
+          DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.enabled,
+        ),
+        maxAttempts: normalizeInteger(
+          rawAutoRetry.maxAttempts,
+          DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.maxAttempts,
+          { min: 1, max: 8 },
+        ),
+        baseDelayMs: normalizeInteger(
+          rawAutoRetry.baseDelayMs,
+          DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.baseDelayMs,
+          { min: 100, max: 120_000 },
+        ),
+        maxDelayMs: normalizeInteger(
+          rawAutoRetry.maxDelayMs,
+          DEFAULT_RUNTIME_CONFIG.proactive.autoRetry.maxDelayMs,
+          { min: 100, max: 600_000 },
+        ),
       },
       ralph: {
-        maxIterations: normalizeInteger(rawRalph.maxIterations, DEFAULT_RUNTIME_CONFIG.proactive.ralph.maxIterations, { min: -1, max: 64 }),
+        maxIterations: normalizeInteger(
+          rawRalph.maxIterations,
+          DEFAULT_RUNTIME_CONFIG.proactive.ralph.maxIterations,
+          { min: -1, max: 64 },
+        ),
       },
+    },
+    scheduler: {
+      jobs: normalizeSchedulerJobList(
+        rawScheduler.jobs,
+        DEFAULT_RUNTIME_CONFIG.scheduler.jobs,
+      ),
     },
   };
 }
@@ -621,7 +1455,9 @@ function applyConfig(next: RuntimeConfig): void {
     try {
       listener(cloneConfig(currentConfig), cloneConfig(prev));
     } catch (err) {
-      console.warn(`[runtime-config] listener failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(
+        `[runtime-config] listener failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 }
@@ -636,7 +1472,9 @@ function reloadFromDisk(trigger: string): void {
     const next = loadRuntimeConfigFromSources();
     applyConfig(next);
   } catch (err) {
-    console.warn(`[runtime-config] reload failed (${trigger}): ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(
+      `[runtime-config] reload failed (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -651,13 +1489,15 @@ function scheduleReload(trigger: string): void {
 function scheduleWatcherRestart(reason: string): void {
   if (watcherRestartTimer) return;
   if (watcherRetryAttempt >= WATCHER_RETRY_MAX_ATTEMPTS) {
-    console.warn(`[runtime-config] watcher disabled after ${WATCHER_RETRY_MAX_ATTEMPTS} retries (${reason})`);
+    console.warn(
+      `[runtime-config] watcher disabled after ${WATCHER_RETRY_MAX_ATTEMPTS} retries (${reason})`,
+    );
     return;
   }
 
   watcherRetryAttempt += 1;
   const delay = Math.min(
-    WATCHER_RETRY_BASE_DELAY_MS * (2 ** (watcherRetryAttempt - 1)),
+    WATCHER_RETRY_BASE_DELAY_MS * 2 ** (watcherRetryAttempt - 1),
     WATCHER_RETRY_MAX_DELAY_MS,
   );
   console.warn(
@@ -673,14 +1513,18 @@ function startWatcher(): void {
   if (configWatcher) return;
 
   try {
-    configWatcher = fs.watch(path.dirname(CONFIG_PATH), { persistent: false }, (_event, filename) => {
-      if (!filename) {
-        scheduleReload('unknown');
-        return;
-      }
-      if (filename.toString() !== path.basename(CONFIG_PATH)) return;
-      scheduleReload(`watch:${filename.toString()}`);
-    });
+    configWatcher = fs.watch(
+      path.dirname(CONFIG_PATH),
+      { persistent: false },
+      (_event, filename) => {
+        if (!filename) {
+          scheduleReload('unknown');
+          return;
+        }
+        if (filename.toString() !== path.basename(CONFIG_PATH)) return;
+        scheduleReload(`watch:${filename.toString()}`);
+      },
+    );
     watcherRetryAttempt = 0;
     if (watcherRestartTimer) {
       clearTimeout(watcherRestartTimer);
@@ -716,21 +1560,28 @@ function migrateConfigSchemaOnStartup(): void {
     raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
     parsed = JSON.parse(raw) as unknown;
   } catch (err) {
-    console.warn(`[runtime-config] schema migration skipped (invalid JSON): ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(
+      `[runtime-config] schema migration skipped (invalid JSON): ${err instanceof Error ? err.message : String(err)}`,
+    );
     return;
   }
 
   if (!isRecord(parsed)) {
-    console.warn('[runtime-config] schema migration skipped: config.json is not an object');
+    console.warn(
+      '[runtime-config] schema migration skipped: config.json is not an object',
+    );
     return;
   }
 
-  const previousVersion = typeof parsed.version === 'number' ? parsed.version : null;
+  const previousVersion =
+    typeof parsed.version === 'number' ? parsed.version : null;
   let migrated: RuntimeConfig;
   try {
     migrated = normalizeRuntimeConfig(parseConfigPatch(parsed));
   } catch (err) {
-    console.warn(`[runtime-config] schema migration skipped: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(
+      `[runtime-config] schema migration skipped: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return;
   }
 
@@ -741,12 +1592,18 @@ function migrateConfigSchemaOnStartup(): void {
     writeConfigFile(migrated);
     const from = previousVersion == null ? 'unknown' : String(previousVersion);
     if (previousVersion !== CONFIG_VERSION) {
-      console.info(`[runtime-config] migrated config schema from v${from} to v${CONFIG_VERSION}`);
+      console.info(
+        `[runtime-config] migrated config schema from v${from} to v${CONFIG_VERSION}`,
+      );
     } else {
-      console.info(`[runtime-config] normalized config schema v${CONFIG_VERSION} (filled defaults/canonicalized values)`);
+      console.info(
+        `[runtime-config] normalized config schema v${CONFIG_VERSION} (filled defaults/canonicalized values)`,
+      );
     }
   } catch (err) {
-    console.warn(`[runtime-config] schema migration failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(
+      `[runtime-config] schema migration failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -774,7 +1631,9 @@ export function getRuntimeConfig(): RuntimeConfig {
   return cloneConfig(currentConfig);
 }
 
-export function onRuntimeConfigChange(listener: RuntimeConfigChangeListener): () => void {
+export function onRuntimeConfigChange(
+  listener: RuntimeConfigChangeListener,
+): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
@@ -786,17 +1645,21 @@ export function saveRuntimeConfig(next: RuntimeConfig): RuntimeConfig {
   return cloneConfig(normalized);
 }
 
-export function updateRuntimeConfig(mutator: (draft: RuntimeConfig) => void): RuntimeConfig {
+export function updateRuntimeConfig(
+  mutator: (draft: RuntimeConfig) => void,
+): RuntimeConfig {
   const draft = cloneConfig(currentConfig);
   mutator(draft);
   return saveRuntimeConfig(draft);
 }
 
-export function isSecurityTrustAccepted(config: RuntimeConfig = currentConfig): boolean {
+export function isSecurityTrustAccepted(
+  config: RuntimeConfig = currentConfig,
+): boolean {
   return Boolean(
-    config.security.trustModelAccepted
-    && config.security.trustModelAcceptedAt
-    && config.security.trustModelVersion === SECURITY_POLICY_VERSION,
+    config.security.trustModelAccepted &&
+      config.security.trustModelAcceptedAt &&
+      config.security.trustModelVersion === SECURITY_POLICY_VERSION,
   );
 }
 
@@ -805,9 +1668,19 @@ export function acceptSecurityTrustModel(params?: {
   acceptedBy?: string | null;
   policyVersion?: string;
 }): RuntimeConfig {
-  const acceptedAt = normalizeString(params?.acceptedAt, new Date().toISOString(), { allowEmpty: false });
-  const acceptedBy = normalizeString(params?.acceptedBy ?? '', '', { allowEmpty: true });
-  const policyVersion = normalizeString(params?.policyVersion, SECURITY_POLICY_VERSION, { allowEmpty: false });
+  const acceptedAt = normalizeString(
+    params?.acceptedAt,
+    new Date().toISOString(),
+    { allowEmpty: false },
+  );
+  const acceptedBy = normalizeString(params?.acceptedBy ?? '', '', {
+    allowEmpty: true,
+  });
+  const policyVersion = normalizeString(
+    params?.policyVersion,
+    SECURITY_POLICY_VERSION,
+    { allowEmpty: false },
+  );
 
   return updateRuntimeConfig((draft) => {
     draft.security.trustModelAccepted = true;

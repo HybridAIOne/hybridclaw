@@ -1,6 +1,11 @@
-import { CronExpressionParser } from 'cron-parser';
 import { spawnSync } from 'child_process';
-
+import { CronExpressionParser } from 'cron-parser';
+import { runAgent } from './agent.js';
+import {
+  emitToolExecutionAuditEvents,
+  makeAuditRunId,
+  recordAuditEvent,
+} from './audit-events.js';
 import {
   APP_VERSION,
   DISCORD_COMMANDS_ONLY,
@@ -20,8 +25,11 @@ import {
   PROACTIVE_DELEGATION_MAX_PER_TURN,
   PROACTIVE_RALPH_MAX_ITERATIONS,
 } from './config.js';
-import { runAgent } from './agent.js';
-import { getActiveContainerCount, stopSessionContainer } from './container-runner.js';
+import {
+  getActiveContainerCount,
+  stopSessionContainer,
+} from './container-runner.js';
+import { buildConversationContext } from './conversation.js';
 import {
   clearSessionHistory,
   createTask,
@@ -40,23 +48,32 @@ import {
   updateSessionModel,
   updateSessionRag,
 } from './db.js';
-import { emitToolExecutionAuditEvents, makeAuditRunId, recordAuditEvent } from './audit-events.js';
+import {
+  delegationQueueStatus,
+  enqueueDelegation,
+} from './delegation-manager.js';
+import {
+  type GatewayChatRequestBody,
+  type GatewayChatResult,
+  type GatewayCommandRequest,
+  type GatewayCommandResult,
+  type GatewayStatus,
+  renderGatewayCommand,
+} from './gateway-types.js';
 import { fetchHybridAIBots } from './hybridai-bots.js';
 import { logger } from './logger.js';
 import { getObservabilityIngestState } from './observability-ingest.js';
+import { updateRuntimeConfig } from './runtime-config.js';
+import { runIsolatedScheduledTask } from './scheduled-task-runner.js';
 import { rearmScheduler } from './scheduler.js';
 import { maybeCompactSession } from './session-maintenance.js';
 import { appendSessionTranscript } from './session-transcripts.js';
 import { processSideEffects } from './side-effects.js';
 import { expandSkillInvocation } from './skills.js';
 import {
-  renderGatewayCommand,
-  type GatewayChatRequestBody,
-  type GatewayChatResult,
-  type GatewayCommandRequest,
-  type GatewayCommandResult,
-  type GatewayStatus,
-} from './gateway-types.js';
+  estimateTokenCountFromMessages,
+  estimateTokenCountFromText,
+} from './token-efficiency.js';
 import type {
   ArtifactMetadata,
   ChatMessage,
@@ -64,17 +81,12 @@ import type {
   DelegationTaskSpec,
   MediaContextItem,
   ScheduledTask,
-  StructuredAuditEntry,
   StoredMessage,
+  StructuredAuditEntry,
   TokenUsageStats,
   ToolProgressEvent,
 } from './types.js';
 import { ensureBootstrapFiles } from './workspace.js';
-import { buildConversationContext } from './conversation.js';
-import { runIsolatedScheduledTask } from './scheduled-task-runner.js';
-import { delegationQueueStatus, enqueueDelegation } from './delegation-manager.js';
-import { estimateTokenCountFromMessages, estimateTokenCountFromText } from './token-efficiency.js';
-import { updateRuntimeConfig } from './runtime-config.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
@@ -106,7 +118,10 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'browser_network',
   'browser_close',
 ];
-const ORCHESTRATOR_SUBAGENT_ALLOWED_TOOLS = [...BASE_SUBAGENT_ALLOWED_TOOLS, 'delegate'];
+const ORCHESTRATOR_SUBAGENT_ALLOWED_TOOLS = [
+  ...BASE_SUBAGENT_ALLOWED_TOOLS,
+  'delegate',
+];
 const MAX_DELEGATION_TASKS = 6;
 const MAX_DELEGATION_USER_CHARS = 500;
 const MAX_RALPH_ITERATIONS = 64;
@@ -195,7 +210,9 @@ export interface GatewayChatRequest {
   enableRag?: GatewayChatRequestBody['enableRag'];
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
-  onProactiveMessage?: (message: ProactiveMessagePayload) => void | Promise<void>;
+  onProactiveMessage?: (
+    message: ProactiveMessagePayload,
+  ) => void | Promise<void>;
   abortSignal?: AbortSignal;
 }
 
@@ -204,7 +221,12 @@ export interface ProactiveMessagePayload {
   artifacts?: ArtifactMetadata[];
 }
 
-export type { GatewayChatResult, GatewayCommandRequest, GatewayCommandResult, GatewayStatus };
+export type {
+  GatewayChatResult,
+  GatewayCommandRequest,
+  GatewayCommandResult,
+  GatewayStatus,
+};
 export { renderGatewayCommand };
 
 function formatUptime(seconds: number): string {
@@ -226,22 +248,31 @@ function parseIntOrNull(raw: string | undefined): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function normalizeMediaContextItems(raw: GatewayChatRequestBody['media']): MediaContextItem[] {
+function normalizeMediaContextItems(
+  raw: GatewayChatRequestBody['media'],
+): MediaContextItem[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
   const normalized: MediaContextItem[] = [];
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
-    const path = typeof item.path === 'string' && item.path.trim() ? item.path.trim() : null;
+    const path =
+      typeof item.path === 'string' && item.path.trim()
+        ? item.path.trim()
+        : null;
     const url = typeof item.url === 'string' ? item.url.trim() : '';
-    const originalUrl = typeof item.originalUrl === 'string' ? item.originalUrl.trim() : '';
-    const filename = typeof item.filename === 'string' ? item.filename.trim() : '';
+    const originalUrl =
+      typeof item.originalUrl === 'string' ? item.originalUrl.trim() : '';
+    const filename =
+      typeof item.filename === 'string' ? item.filename.trim() : '';
     if (!url || !originalUrl || !filename) continue;
-    const sizeBytes = typeof item.sizeBytes === 'number' && Number.isFinite(item.sizeBytes)
-      ? Math.max(0, Math.floor(item.sizeBytes))
-      : 0;
-    const mimeType = typeof item.mimeType === 'string' && item.mimeType.trim()
-      ? item.mimeType.trim().toLowerCase()
-      : null;
+    const sizeBytes =
+      typeof item.sizeBytes === 'number' && Number.isFinite(item.sizeBytes)
+        ? Math.max(0, Math.floor(item.sizeBytes))
+        : 0;
+    const mimeType =
+      typeof item.mimeType === 'string' && item.mimeType.trim()
+        ? item.mimeType.trim().toLowerCase()
+        : null;
     normalized.push({
       path,
       url,
@@ -256,7 +287,9 @@ function normalizeMediaContextItems(raw: GatewayChatRequestBody['media']): Media
 
 function buildMediaPromptContext(media: MediaContextItem[]): string {
   if (media.length === 0) return '';
-  const mediaPaths = media.map((item) => item.path).filter((path): path is string => Boolean(path));
+  const mediaPaths = media
+    .map((item) => item.path)
+    .filter((path): path is string => Boolean(path));
   const mediaUrls = media.map((item) => item.url);
   const mediaTypes = media.map((item) => item.mimeType || 'unknown');
   const payload = media.map((item, index) => ({
@@ -299,7 +332,10 @@ export interface MediaToolPolicy {
   prioritizeVisionTool: boolean;
 }
 
-export function resolveMediaToolPolicy(content: string, media: MediaContextItem[]): MediaToolPolicy {
+export function resolveMediaToolPolicy(
+  content: string,
+  media: MediaContextItem[],
+): MediaToolPolicy {
   if (media.length === 0) {
     return {
       blockedTools: undefined,
@@ -358,14 +394,22 @@ function formatRelativeTime(raw: string | null | undefined): string {
   if (!at) return 'unknown';
   const deltaMs = Date.now() - at.getTime();
   if (deltaMs < 15_000) return 'just now';
-  if (deltaMs < 60_000) return `${Math.max(1, Math.floor(deltaMs / 1_000))}s ago`;
-  if (deltaMs < 3_600_000) return `${Math.max(1, Math.floor(deltaMs / 60_000))}m ago`;
-  if (deltaMs < 86_400_000) return `${Math.max(1, Math.floor(deltaMs / 3_600_000))}h ago`;
+  if (deltaMs < 60_000)
+    return `${Math.max(1, Math.floor(deltaMs / 1_000))}s ago`;
+  if (deltaMs < 3_600_000)
+    return `${Math.max(1, Math.floor(deltaMs / 60_000))}m ago`;
+  if (deltaMs < 86_400_000)
+    return `${Math.max(1, Math.floor(deltaMs / 3_600_000))}h ago`;
   return `${Math.max(1, Math.floor(deltaMs / 86_400_000))}d ago`;
 }
 
 function numberFromUnknown(value: unknown): number | null {
-  if (typeof value !== 'number' || Number.isNaN(value) || !Number.isFinite(value)) return null;
+  if (
+    typeof value !== 'number' ||
+    Number.isNaN(value) ||
+    !Number.isFinite(value)
+  )
+    return null;
   return value;
 }
 
@@ -377,7 +421,9 @@ function firstNumber(values: unknown[]): number | null {
   return null;
 }
 
-function parseAuditPayload(entry: StructuredAuditEntry): Record<string, unknown> | null {
+function parseAuditPayload(
+  entry: StructuredAuditEntry,
+): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(entry.payload) as unknown;
     if (!parsed || typeof parsed !== 'object') return null;
@@ -391,18 +437,23 @@ function formatCompactNumber(value: number | null): string {
   if (value == null) return 'n/a';
   const abs = Math.abs(value);
   if (abs >= 1_000_000) {
-    const scaled = abs >= 10_000_000 ? (value / 1_000_000).toFixed(0) : (value / 1_000_000).toFixed(1);
+    const scaled =
+      abs >= 10_000_000
+        ? (value / 1_000_000).toFixed(0)
+        : (value / 1_000_000).toFixed(1);
     return `${scaled.replace(/\.0$/, '')}M`;
   }
   if (abs >= 1_000) {
-    const scaled = abs >= 10_000 ? (value / 1_000).toFixed(0) : (value / 1_000).toFixed(1);
+    const scaled =
+      abs >= 10_000 ? (value / 1_000).toFixed(0) : (value / 1_000).toFixed(1);
     return `${scaled.replace(/\.0$/, '')}k`;
   }
   return String(Math.round(value));
 }
 
 function formatPercent(value: number | null): string {
-  if (value == null || Number.isNaN(value) || !Number.isFinite(value)) return 'n/a';
+  if (value == null || Number.isNaN(value) || !Number.isFinite(value))
+    return 'n/a';
   return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
 }
 
@@ -410,12 +461,16 @@ function resolveActivationModeLabel(): string {
   if (DISCORD_COMMANDS_ONLY) return 'commands-only';
   if (DISCORD_GROUP_POLICY === 'disabled') return 'disabled';
   if (DISCORD_GROUP_POLICY === 'allowlist') return 'allowlist';
-  if (DISCORD_FREE_RESPONSE_CHANNELS.length > 0) return `mention + ${DISCORD_FREE_RESPONSE_CHANNELS.length} free channel(s)`;
+  if (DISCORD_FREE_RESPONSE_CHANNELS.length > 0)
+    return `mention + ${DISCORD_FREE_RESPONSE_CHANNELS.length} free channel(s)`;
   if (DISCORD_RESPOND_TO_ALL_MESSAGES) return 'all messages';
   return 'mention';
 }
 
-function resolveGuildChannelMode(guildId: string | null, channelId: string): 'off' | 'mention' | 'free' {
+function resolveGuildChannelMode(
+  guildId: string | null,
+  channelId: string,
+): 'off' | 'mention' | 'free' {
   if (!guildId) return 'free';
   if (DISCORD_GROUP_POLICY === 'disabled') return 'off';
   const guild = DISCORD_GUILDS[guildId];
@@ -429,7 +484,11 @@ function resolveGuildChannelMode(guildId: string | null, channelId: string): 'of
   if (DISCORD_FREE_RESPONSE_CHANNELS.includes(channelId)) return 'free';
   if (guild) {
     const defaultMode = guild.defaultMode;
-    if (defaultMode === 'off' || defaultMode === 'mention' || defaultMode === 'free') {
+    if (
+      defaultMode === 'off' ||
+      defaultMode === 'mention' ||
+      defaultMode === 'free'
+    ) {
       return defaultMode;
     }
   }
@@ -456,7 +515,8 @@ function readSessionStatusSnapshot(sessionId: string): SessionStatusSnapshot {
   for (const entry of entries) {
     const payload = parseAuditPayload(entry);
     if (!payload) continue;
-    const payloadType = typeof payload.type === 'string' ? payload.type : entry.event_type;
+    const payloadType =
+      typeof payload.type === 'string' ? payload.type : entry.event_type;
     if (!usagePayload && payloadType === 'model.usage') {
       usagePayload = payload;
     } else if (!contextPayload && payloadType === 'context.optimization') {
@@ -487,21 +547,23 @@ function readSessionStatusSnapshot(sessionId: string): SessionStatusSnapshot {
   const cacheRead = Math.max(0, cacheReadTokens || 0);
   const cacheWrite = Math.max(0, cacheWriteTokens || 0);
   const cacheTotal = cacheRead + cacheWrite;
-  const cacheHitPercent = cacheTotal > 0 ? (cacheRead / cacheTotal) * 100 : null;
+  const cacheHitPercent =
+    cacheTotal > 0 ? (cacheRead / cacheTotal) * 100 : null;
 
-  const contextUsedTokens = firstNumber([contextPayload?.historyEstimatedTokens]);
+  const contextUsedTokens = firstNumber([
+    contextPayload?.historyEstimatedTokens,
+  ]);
   const contextBudgetTokens = (() => {
     const maxChars = firstNumber([contextPayload?.historyMaxChars]);
     if (maxChars == null || maxChars <= 0) return null;
     return Math.max(1, Math.round(maxChars / 4));
   })();
-  const contextUsagePercent = (
-    contextUsedTokens != null
-    && contextBudgetTokens != null
-    && contextBudgetTokens > 0
-  )
-    ? (contextUsedTokens / contextBudgetTokens) * 100
-    : null;
+  const contextUsagePercent =
+    contextUsedTokens != null &&
+    contextBudgetTokens != null &&
+    contextBudgetTokens > 0
+      ? (contextUsedTokens / contextBudgetTokens) * 100
+      : null;
 
   return {
     promptTokens,
@@ -552,10 +614,12 @@ function isVersionOnlyQuestion(raw: string): boolean {
   if (detailedRuntimeTokens.some((token) => text.includes(token))) return false;
 
   const words = text.split(' ').filter(Boolean);
-  if (words.length > 8
-    && !text.includes('welche version')
-    && !text.includes('what version')
-    && !text.includes('which version')) {
+  if (
+    words.length > 8 &&
+    !text.includes('welche version') &&
+    !text.includes('what version') &&
+    !text.includes('which version')
+  ) {
     return false;
   }
 
@@ -578,7 +642,13 @@ function recordSuccessfulTurn(opts: {
   toolCallCount: number;
   startedAt: number;
 }): void {
-  storeMessage(opts.sessionId, opts.userId, opts.username, 'user', opts.userContent);
+  storeMessage(
+    opts.sessionId,
+    opts.userId,
+    opts.username,
+    'user',
+    opts.userContent,
+  );
   storeMessage(opts.sessionId, 'assistant', null, 'assistant', opts.resultText);
   appendSessionTranscript(opts.agentId, {
     sessionId: opts.sessionId,
@@ -605,7 +675,10 @@ function recordSuccessfulTurn(opts: {
     model: opts.model,
     channelId: opts.channelId,
   }).catch((err) => {
-    logger.warn({ sessionId: opts.sessionId, err }, 'Background session compaction failed');
+    logger.warn(
+      { sessionId: opts.sessionId, err },
+      'Background session compaction failed',
+    );
   });
 
   recordAuditEvent({
@@ -670,19 +743,30 @@ function buildTokenUsageAuditPayload(
   }, 0);
   const completionChars = (resultText || '').length;
 
-  const fallbackEstimatedPromptTokens = estimateTokenCountFromMessages(messages);
-  const fallbackEstimatedCompletionTokens = estimateTokenCountFromText(resultText || '');
-  const estimatedPromptTokens = tokenUsage?.estimatedPromptTokens || fallbackEstimatedPromptTokens;
-  const estimatedCompletionTokens = tokenUsage?.estimatedCompletionTokens || fallbackEstimatedCompletionTokens;
+  const fallbackEstimatedPromptTokens =
+    estimateTokenCountFromMessages(messages);
+  const fallbackEstimatedCompletionTokens = estimateTokenCountFromText(
+    resultText || '',
+  );
+  const estimatedPromptTokens =
+    tokenUsage?.estimatedPromptTokens || fallbackEstimatedPromptTokens;
+  const estimatedCompletionTokens =
+    tokenUsage?.estimatedCompletionTokens || fallbackEstimatedCompletionTokens;
   const estimatedTotalTokens =
-    tokenUsage?.estimatedTotalTokens || (estimatedPromptTokens + estimatedCompletionTokens);
+    tokenUsage?.estimatedTotalTokens ||
+    estimatedPromptTokens + estimatedCompletionTokens;
 
   const apiUsageAvailable = tokenUsage?.apiUsageAvailable === true;
   const apiPromptTokens = tokenUsage?.apiPromptTokens || 0;
   const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
-  const apiTotalTokens = tokenUsage?.apiTotalTokens || (apiPromptTokens + apiCompletionTokens);
-  const promptTokens = apiUsageAvailable ? apiPromptTokens : estimatedPromptTokens;
-  const completionTokens = apiUsageAvailable ? apiCompletionTokens : estimatedCompletionTokens;
+  const apiTotalTokens =
+    tokenUsage?.apiTotalTokens || apiPromptTokens + apiCompletionTokens;
+  const promptTokens = apiUsageAvailable
+    ? apiPromptTokens
+    : estimatedPromptTokens;
+  const completionTokens = apiUsageAvailable
+    ? apiCompletionTokens
+    : estimatedCompletionTokens;
   const totalTokens = apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens;
 
   return {
@@ -717,8 +801,14 @@ export function getGatewayStatus(): GatewayStatus {
   };
 }
 
-export function getGatewayHistory(sessionId: string, limit = MAX_HISTORY_MESSAGES): StoredMessage[] {
-  return getConversationHistory(sessionId, Math.max(1, Math.min(limit, 200))).reverse();
+export function getGatewayHistory(
+  sessionId: string,
+  limit = MAX_HISTORY_MESSAGES,
+): StoredMessage[] {
+  return getConversationHistory(
+    sessionId,
+    Math.max(1, Math.min(limit, 200)),
+  ).reverse();
 }
 
 function extractDelegationDepth(sessionId: string): number {
@@ -728,18 +818,28 @@ function extractDelegationDepth(sessionId: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function nextDelegationSessionId(parentSessionId: string, nextDepth: number): string {
-  const safeParent = parentSessionId.replace(/[^a-zA-Z0-9:_-]/g, '-').slice(0, 48);
+function nextDelegationSessionId(
+  parentSessionId: string,
+  nextDepth: number,
+): string {
+  const safeParent = parentSessionId
+    .replace(/[^a-zA-Z0-9:_-]/g, '-')
+    .slice(0, 48);
   const nonce = Math.random().toString(36).slice(2, 8);
   return `delegate:d${nextDepth}:${safeParent}:${Date.now()}:${nonce}`;
 }
 
 function resolveSubagentAllowedTools(depth: number): string[] {
-  if (depth < PROACTIVE_DELEGATION_MAX_DEPTH) return ORCHESTRATOR_SUBAGENT_ALLOWED_TOOLS;
+  if (depth < PROACTIVE_DELEGATION_MAX_DEPTH)
+    return ORCHESTRATOR_SUBAGENT_ALLOWED_TOOLS;
   return BASE_SUBAGENT_ALLOWED_TOOLS;
 }
 
-function buildSubagentSystemPrompt(params: { depth: number; canDelegate: boolean; mode: DelegationMode }): string {
+function buildSubagentSystemPrompt(params: {
+  depth: number;
+  canDelegate: boolean;
+  mode: DelegationMode;
+}): string {
   const { depth, canDelegate, mode } = params;
   const delegationLine = canDelegate
     ? 'You may delegate further only if absolutely necessary and still within depth/turn limits.'
@@ -787,31 +887,50 @@ function formatDurationMs(ms: number): string {
   return `${(ms / 1_000).toFixed(1)}s`;
 }
 
-function abbreviateForUser(text: string, maxChars = MAX_DELEGATION_USER_CHARS): string {
+function abbreviateForUser(
+  text: string,
+  maxChars = MAX_DELEGATION_USER_CHARS,
+): string {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (normalized.length <= maxChars) return normalized;
   return `${normalized.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
 }
 
 function classifyDelegationError(errorText: string): DelegationErrorClass {
-  if (PERMANENT_DELEGATION_ERROR_PATTERNS.some((pattern) => pattern.test(errorText))) return 'permanent';
-  if (TRANSIENT_DELEGATION_ERROR_PATTERNS.some((pattern) => pattern.test(errorText))) return 'transient';
+  if (
+    PERMANENT_DELEGATION_ERROR_PATTERNS.some((pattern) =>
+      pattern.test(errorText),
+    )
+  )
+    return 'permanent';
+  if (
+    TRANSIENT_DELEGATION_ERROR_PATTERNS.some((pattern) =>
+      pattern.test(errorText),
+    )
+  )
+    return 'transient';
   return 'unknown';
 }
 
 function inferDelegationStatus(errorText: string): DelegationRunStatus {
-  return /timeout|timed out|deadline exceeded/i.test(errorText) ? 'timeout' : 'failed';
+  return /timeout|timed out|deadline exceeded/i.test(errorText)
+    ? 'timeout'
+    : 'failed';
 }
 
-function normalizeDelegationTask(raw: unknown, fallbackModel: string): NormalizedDelegationTask | null {
+function normalizeDelegationTask(
+  raw: unknown,
+  fallbackModel: string,
+): NormalizedDelegationTask | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const task = raw as DelegationTaskSpec;
   const prompt = typeof task.prompt === 'string' ? task.prompt.trim() : '';
   if (!prompt) return null;
   const label = typeof task.label === 'string' ? task.label.trim() : '';
-  const model = typeof task.model === 'string' && task.model.trim()
-    ? task.model.trim()
-    : fallbackModel;
+  const model =
+    typeof task.model === 'string' && task.model.trim()
+      ? task.model.trim()
+      : fallbackModel;
   return {
     prompt,
     label: label || undefined,
@@ -819,11 +938,15 @@ function normalizeDelegationTask(raw: unknown, fallbackModel: string): Normalize
   };
 }
 
-function normalizeDelegationEffect(effect: DelegationSideEffect, fallbackModel: string): {
+function normalizeDelegationEffect(
+  effect: DelegationSideEffect,
+  fallbackModel: string,
+): {
   plan?: NormalizedDelegationPlan;
   error?: string;
 } {
-  const rawMode = typeof effect.mode === 'string' ? effect.mode.trim().toLowerCase() : '';
+  const rawMode =
+    typeof effect.mode === 'string' ? effect.mode.trim().toLowerCase() : '';
   const modeRaw: DelegationMode | '' =
     rawMode === 'single' || rawMode === 'parallel' || rawMode === 'chain'
       ? rawMode
@@ -833,9 +956,10 @@ function normalizeDelegationEffect(effect: DelegationSideEffect, fallbackModel: 
   }
 
   const label = typeof effect.label === 'string' ? effect.label.trim() : '';
-  const baseModel = typeof effect.model === 'string' && effect.model.trim()
-    ? effect.model.trim()
-    : fallbackModel;
+  const baseModel =
+    typeof effect.model === 'string' && effect.model.trim()
+      ? effect.model.trim()
+      : fallbackModel;
   const prompt = typeof effect.prompt === 'string' ? effect.prompt.trim() : '';
   const rawTasks = Array.isArray(effect.tasks) ? effect.tasks : [];
   const rawChain = Array.isArray(effect.chain) ? effect.chain : [];
@@ -862,12 +986,15 @@ function normalizeDelegationEffect(effect: DelegationSideEffect, fallbackModel: 
     return { error: `${mode} delegation requires at least one task` };
   }
   if (sourceTasks.length > MAX_DELEGATION_TASKS) {
-    return { error: `${mode} delegation exceeds max tasks (${MAX_DELEGATION_TASKS})` };
+    return {
+      error: `${mode} delegation exceeds max tasks (${MAX_DELEGATION_TASKS})`,
+    };
   }
   const tasks: NormalizedDelegationTask[] = [];
   for (let i = 0; i < sourceTasks.length; i++) {
     const normalized = normalizeDelegationTask(sourceTasks[i], baseModel);
-    if (!normalized) return { error: `${mode} delegation task #${i + 1} is invalid` };
+    if (!normalized)
+      return { error: `${mode} delegation task #${i + 1} is invalid` };
     tasks.push(normalized);
   }
   return {
@@ -879,14 +1006,22 @@ function normalizeDelegationEffect(effect: DelegationSideEffect, fallbackModel: 
   };
 }
 
-function renderDelegationTaskTitle(mode: DelegationMode, task: NormalizedDelegationTask, index: number, total: number): string {
+function renderDelegationTaskTitle(
+  mode: DelegationMode,
+  task: NormalizedDelegationTask,
+  index: number,
+  total: number,
+): string {
   if (task.label) return task.label;
   if (mode === 'chain') return `step ${index + 1}/${total}`;
   if (mode === 'parallel') return `task ${index + 1}/${total}`;
   return 'task';
 }
 
-function interpolateChainPrompt(prompt: string, previousResult: string): string {
+function interpolateChainPrompt(
+  prompt: string,
+  previousResult: string,
+): string {
   if (!prompt.includes('{previous}')) return prompt;
   const replacement = previousResult.trim() || '(no previous output)';
   return prompt.replace(/\{previous\}/g, replacement);
@@ -896,7 +1031,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function runDelegationTaskWithRetry(input: DelegationTaskRunInput): Promise<DelegationRunResult> {
+async function runDelegationTaskWithRetry(
+  input: DelegationTaskRunInput,
+): Promise<DelegationRunResult> {
   const {
     parentSessionId,
     childDepth,
@@ -909,7 +1046,9 @@ async function runDelegationTaskWithRetry(input: DelegationTaskRunInput): Promis
   } = input;
   const allowedTools = resolveSubagentAllowedTools(childDepth);
   const canDelegate = allowedTools.includes('delegate');
-  const maxAttempts = PROACTIVE_AUTO_RETRY_ENABLED ? PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS : 1;
+  const maxAttempts = PROACTIVE_AUTO_RETRY_ENABLED
+    ? PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS
+    : 1;
   let attempt = 0;
   let delayMs = PROACTIVE_AUTO_RETRY_BASE_DELAY_MS;
   let lastError = 'Delegation failed with unknown error';
@@ -928,7 +1067,14 @@ async function runDelegationTaskWithRetry(input: DelegationTaskRunInput): Promis
       const output = await runAgent(
         sessionId,
         [
-          { role: 'system', content: buildSubagentSystemPrompt({ depth: childDepth, canDelegate, mode }) },
+          {
+            role: 'system',
+            content: buildSubagentSystemPrompt({
+              depth: childDepth,
+              canDelegate,
+              mode,
+            }),
+          },
           { role: 'user', content: task.prompt },
         ],
         chatbotId,
@@ -961,11 +1107,19 @@ async function runDelegationTaskWithRetry(input: DelegationTaskRunInput): Promis
       lastError = errorText;
       lastStatus = inferDelegationStatus(errorText);
       const classification = classifyDelegationError(errorText);
-      const shouldRetry = classification === 'transient' && attempt < maxAttempts;
+      const shouldRetry =
+        classification === 'transient' && attempt < maxAttempts;
       if (!shouldRetry) break;
 
       logger.warn(
-        { parentSessionId, sessionId, attempt, maxAttempts, delayMs, errorText },
+        {
+          parentSessionId,
+          sessionId,
+          attempt,
+          maxAttempts,
+          delayMs,
+          errorText,
+        },
         'Delegation retry scheduled after transient error',
       );
       await sleep(delayMs);
@@ -977,10 +1131,18 @@ async function runDelegationTaskWithRetry(input: DelegationTaskRunInput): Promis
       lastError = errorText;
       lastStatus = inferDelegationStatus(errorText);
       const classification = classifyDelegationError(errorText);
-      const shouldRetry = classification === 'transient' && attempt < maxAttempts;
+      const shouldRetry =
+        classification === 'transient' && attempt < maxAttempts;
       if (!shouldRetry) break;
       logger.warn(
-        { parentSessionId, sessionId, attempt, maxAttempts, delayMs, errorText },
+        {
+          parentSessionId,
+          sessionId,
+          attempt,
+          maxAttempts,
+          delayMs,
+          errorText,
+        },
         'Delegation retry scheduled after transient exception',
       );
       await sleep(delayMs);
@@ -1007,19 +1169,32 @@ function formatDelegationCompletion(params: {
   totalDurationMs: number;
 }): { forUser: string; forLLM: string; artifacts?: ArtifactMetadata[] } {
   const { mode, label, entries, totalDurationMs } = params;
-  const completedCount = entries.filter((entry) => entry.run.status === 'completed').length;
+  const completedCount = entries.filter(
+    (entry) => entry.run.status === 'completed',
+  ).length;
   const failedCount = entries.length - completedCount;
-  const overallStatus = failedCount === 0 ? 'completed' : completedCount === 0 ? 'failed' : 'partial';
-  const heading = label?.trim() ? `[Delegate: ${label.trim()}]` : `[Delegate ${mode}]`;
+  const overallStatus =
+    failedCount === 0
+      ? 'completed'
+      : completedCount === 0
+        ? 'failed'
+        : 'partial';
+  const heading = label?.trim()
+    ? `[Delegate: ${label.trim()}]`
+    : `[Delegate ${mode}]`;
 
   const userLines = [
     `${heading} ${overallStatus} (${completedCount}/${entries.length} completed, ${formatDurationMs(totalDurationMs)}).`,
   ];
   for (const entry of entries) {
     if (entry.run.status === 'completed') {
-      userLines.push(`- ${entry.title}: ${abbreviateForUser(entry.run.result || '')}`);
+      userLines.push(
+        `- ${entry.title}: ${abbreviateForUser(entry.run.result || '')}`,
+      );
     } else {
-      userLines.push(`- ${entry.title}: ${entry.run.status} (${abbreviateForUser(entry.run.error || 'Unknown error')})`);
+      userLines.push(
+        `- ${entry.title}: ${entry.run.status} (${abbreviateForUser(entry.run.error || 'Unknown error')})`,
+      );
     }
   }
 
@@ -1075,7 +1250,9 @@ async function publishDelegationCompletion(params: {
   forLLM: string;
   forUser: string;
   artifacts?: ArtifactMetadata[];
-  onProactiveMessage?: (message: ProactiveMessagePayload) => void | Promise<void>;
+  onProactiveMessage?: (
+    message: ProactiveMessagePayload,
+  ) => void | Promise<void>;
 }): Promise<void> {
   const {
     parentSessionId,
@@ -1102,7 +1279,11 @@ async function publishDelegationCompletion(params: {
     return;
   }
   logger.info(
-    { parentSessionId, message: forUser, artifactCount: artifacts?.length || 0 },
+    {
+      parentSessionId,
+      message: forUser,
+      artifactCount: artifacts?.length || 0,
+    },
     'Delegation completion (no proactive channel callback)',
   );
 }
@@ -1114,7 +1295,9 @@ function enqueueDelegationFromSideEffect(params: {
   chatbotId: string;
   enableRag: boolean;
   agentId: string;
-  onProactiveMessage?: (message: ProactiveMessagePayload) => void | Promise<void>;
+  onProactiveMessage?: (
+    message: ProactiveMessagePayload,
+  ) => void | Promise<void>;
   parentDepth: number;
 }): void {
   const {
@@ -1129,7 +1312,10 @@ function enqueueDelegationFromSideEffect(params: {
   } = params;
   const childDepth = parentDepth + 1;
   if (childDepth > PROACTIVE_DELEGATION_MAX_DEPTH) {
-    logger.info({ parentSessionId, childDepth, maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH }, 'Delegation skipped — depth limit reached');
+    logger.info(
+      { parentSessionId, childDepth, maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH },
+      'Delegation skipped — depth limit reached',
+    );
     return;
   }
 
@@ -1141,22 +1327,29 @@ function enqueueDelegationFromSideEffect(params: {
       const entries: DelegationCompletionEntry[] = [];
 
       if (plan.mode === 'parallel') {
-        const runs = await Promise.all(plan.tasks.map(async (task, index) => {
-          const run = await runDelegationTaskWithRetry({
-            parentSessionId,
-            childDepth,
-            channelId,
-            chatbotId,
-            enableRag,
-            agentId,
-            mode: plan.mode,
-            task,
-          });
-          return {
-            title: renderDelegationTaskTitle(plan.mode, task, index, plan.tasks.length),
-            run,
-          } as DelegationCompletionEntry;
-        }));
+        const runs = await Promise.all(
+          plan.tasks.map(async (task, index) => {
+            const run = await runDelegationTaskWithRetry({
+              parentSessionId,
+              childDepth,
+              channelId,
+              chatbotId,
+              enableRag,
+              agentId,
+              mode: plan.mode,
+              task,
+            });
+            return {
+              title: renderDelegationTaskTitle(
+                plan.mode,
+                task,
+                index,
+                plan.tasks.length,
+              ),
+              run,
+            } as DelegationCompletionEntry;
+          }),
+        );
         entries.push(...runs);
       } else if (plan.mode === 'chain') {
         let previousResult = '';
@@ -1176,7 +1369,12 @@ function enqueueDelegationFromSideEffect(params: {
             },
           });
           entries.push({
-            title: renderDelegationTaskTitle(plan.mode, task, i, plan.tasks.length),
+            title: renderDelegationTaskTitle(
+              plan.mode,
+              task,
+              i,
+              plan.tasks.length,
+            ),
             run,
           });
           if (run.status !== 'completed') break;
@@ -1201,7 +1399,10 @@ function enqueueDelegationFromSideEffect(params: {
       }
 
       if (entries.length === 0) {
-        logger.warn({ parentSessionId, mode: plan.mode }, 'Delegation produced no entries');
+        logger.warn(
+          { parentSessionId, mode: plan.mode },
+          'Delegation produced no entries',
+        );
         return;
       }
 
@@ -1224,7 +1425,9 @@ function enqueueDelegationFromSideEffect(params: {
   });
 }
 
-export async function handleGatewayMessage(req: GatewayChatRequest): Promise<GatewayChatResult> {
+export async function handleGatewayMessage(
+  req: GatewayChatRequest,
+): Promise<GatewayChatResult> {
   const startedAt = Date.now();
   const runId = makeAuditRunId('turn');
   const session = getOrCreateSession(req.sessionId, req.guildId, req.channelId);
@@ -1259,7 +1462,8 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
   });
 
   if (!chatbotId) {
-    const error = 'No chatbot configured. Set `hybridai.defaultChatbotId` in config.json or select a bot for this session.';
+    const error =
+      'No chatbot configured. Set `hybridai.defaultChatbotId` in config.json or select a bot for this session.';
     recordAuditEvent({
       sessionId: req.sessionId,
       runId,
@@ -1307,10 +1511,20 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
   if (isVersionOnlyQuestion(req.content)) {
     const resultText = `HybridClaw v${APP_VERSION}`;
     recordSuccessfulTurn({
-      sessionId: req.sessionId, agentId, chatbotId, enableRag, model,
-      channelId: req.channelId, runId, turnIndex,
-      userId: req.userId, username: req.username,
-      userContent: req.content, resultText, toolCallCount: 0, startedAt,
+      sessionId: req.sessionId,
+      agentId,
+      chatbotId,
+      enableRag,
+      model,
+      channelId: req.channelId,
+      runId,
+      turnIndex,
+      userId: req.userId,
+      username: req.username,
+      userContent: req.content,
+      resultText,
+      toolCallCount: 0,
+      startedAt,
     });
     return {
       status: 'success',
@@ -1332,7 +1546,8 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
       guildId: req.guildId,
     },
   });
-  const historyStart = messages.length > 0 && messages[0].role === 'system' ? 1 : 0;
+  const historyStart =
+    messages.length > 0 && messages[0].role === 'system' ? 1 : 0;
   recordAuditEvent({
     sessionId: req.sessionId,
     runId,
@@ -1349,7 +1564,9 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
       historyMaxMessageChars: historyStats.maxMessageChars,
       perMessageTruncatedCount: historyStats.perMessageTruncatedCount,
       middleCompressionApplied: historyStats.middleCompressionApplied,
-      historyEstimatedTokens: estimateTokenCountFromMessages(messages.slice(historyStart)),
+      historyEstimatedTokens: estimateTokenCountFromMessages(
+        messages.slice(historyStart),
+      ),
     },
   });
   const mediaPolicy = resolveMediaToolPolicy(req.content, media);
@@ -1406,7 +1623,11 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
         model,
         durationMs: Date.now() - startedAt,
         toolCallCount: toolExecutions.length,
-        ...buildTokenUsageAuditPayload(messages, output.result, output.tokenUsage),
+        ...buildTokenUsageAuditPayload(
+          messages,
+          output.result,
+          output.tokenUsage,
+        ),
       },
     });
 
@@ -1417,7 +1638,11 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
         const normalized = normalizeDelegationEffect(effect, model);
         if (!normalized.plan) {
           logger.warn(
-            { sessionId: req.sessionId, error: normalized.error || 'unknown', effect },
+            {
+              sessionId: req.sessionId,
+              error: normalized.error || 'unknown',
+              effect,
+            },
             'Delegation skipped — invalid payload',
           );
           return;
@@ -1426,14 +1651,21 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
         const childDepth = parentDepth + 1;
         if (childDepth > PROACTIVE_DELEGATION_MAX_DEPTH) {
           logger.info(
-            { sessionId: req.sessionId, childDepth, maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH },
+            {
+              sessionId: req.sessionId,
+              childDepth,
+              maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH,
+            },
             'Delegation skipped — depth limit reached',
           );
           return;
         }
 
         const requestedRuns = normalized.plan.tasks.length;
-        if (acceptedDelegations + requestedRuns > PROACTIVE_DELEGATION_MAX_PER_TURN) {
+        if (
+          acceptedDelegations + requestedRuns >
+          PROACTIVE_DELEGATION_MAX_PER_TURN
+        ) {
           logger.info(
             {
               sessionId: req.sessionId,
@@ -1507,10 +1739,20 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
 
     const resultText = output.result || 'No response from agent.';
     recordSuccessfulTurn({
-      sessionId: req.sessionId, agentId, chatbotId, enableRag, model,
-      channelId: req.channelId, runId, turnIndex,
-      userId: req.userId, username: req.username,
-      userContent: req.content, resultText, toolCallCount: toolExecutions.length, startedAt,
+      sessionId: req.sessionId,
+      agentId,
+      chatbotId,
+      enableRag,
+      model,
+      channelId: req.channelId,
+      runId,
+      turnIndex,
+      userId: req.userId,
+      username: req.username,
+      userContent: req.content,
+      resultText,
+      toolCallCount: toolExecutions.length,
+      startedAt,
     });
 
     return {
@@ -1523,8 +1765,16 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    logAudit('error', req.sessionId, { error: errorMsg }, Date.now() - startedAt);
-    logger.error({ sessionId: req.sessionId, err }, 'Gateway message handling failed');
+    logAudit(
+      'error',
+      req.sessionId,
+      { error: errorMsg },
+      Date.now() - startedAt,
+    );
+    logger.error(
+      { sessionId: req.sessionId, err },
+      'Gateway message handling failed',
+    );
     recordAuditEvent({
       sessionId: req.sessionId,
       runId,
@@ -1575,6 +1825,7 @@ export async function runGatewayScheduledTask(
   taskId: number,
   onResult: (result: ProactiveMessagePayload) => Promise<void>,
   onError: (error: unknown) => void,
+  runKey?: string,
 ): Promise<void> {
   const session = getOrCreateSession(origSessionId, null, channelId);
   const chatbotId = session.chatbot_id || HYBRIDAI_CHATBOT_ID;
@@ -1589,12 +1840,15 @@ export async function runGatewayScheduledTask(
     chatbotId,
     model,
     agentId,
+    sessionKey: runKey,
     onResult,
     onError,
   });
 }
 
-export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<GatewayCommandResult> {
+export async function handleGatewayCommand(
+  req: GatewayCommandRequest,
+): Promise<GatewayCommandResult> {
   const cmd = (req.args[0] || '').toLowerCase();
   const session = getOrCreateSession(req.sessionId, req.guildId, req.channelId);
 
@@ -1614,8 +1868,11 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
         '`clear` — Clear session history',
         '`/status` — Show runtime status (Discord slash command, private to caller)',
         '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
+        '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
         '`sessions` — List active sessions',
-        '`schedule add "<cron>" <prompt>` — Add scheduled task',
+        '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
+        '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
+        '`schedule add every <ms> <prompt>` — Add interval task',
         '`schedule list` — List scheduled tasks',
         '`schedule remove <id>` — Remove a task',
         '`schedule toggle <id>` — Enable/disable a task',
@@ -1629,30 +1886,41 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
         try {
           const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
           if (bots.length === 0) return plainCommand('No bots available.');
-          const list = bots.map((b) =>
-            `• ${b.name} (${b.id})${b.description ? ` — ${b.description}` : ''}`
-          ).join('\n');
+          const list = bots
+            .map(
+              (b) =>
+                `• ${b.name} (${b.id})${b.description ? ` — ${b.description}` : ''}`,
+            )
+            .join('\n');
           return infoCommand('Available Bots', list);
         } catch (err) {
-          return badCommand('Error', `Failed to fetch bots: ${err instanceof Error ? err.message : String(err)}`);
+          return badCommand(
+            'Error',
+            `Failed to fetch bots: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
 
       if (sub === 'set') {
         const requested = req.args.slice(2).join(' ').trim();
-        if (!requested) return badCommand('Usage', 'Usage: `bot set <id|name>`');
+        if (!requested)
+          return badCommand('Usage', 'Usage: `bot set <id|name>`');
         let resolvedBotId = requested;
         try {
           const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
-          const matched = bots.find((b) =>
-            b.id === requested || b.name.toLowerCase() === requested.toLowerCase()
+          const matched = bots.find(
+            (b) =>
+              b.id === requested ||
+              b.name.toLowerCase() === requested.toLowerCase(),
           );
           if (matched) resolvedBotId = matched.id;
         } catch {
           // keep user-supplied value when lookup fails
         }
         updateSessionChatbot(session.id, resolvedBotId);
-        return plainCommand(`Chatbot set to \`${resolvedBotId}\` for this session.`);
+        return plainCommand(
+          `Chatbot set to \`${resolvedBotId}\` for this session.`,
+        );
       }
 
       if (sub === 'info') {
@@ -1667,7 +1935,10 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
         }
         const model = session.model || HYBRIDAI_MODEL;
         const ragStatus = session.enable_rag ? 'Enabled' : 'Disabled';
-        return infoCommand('Bot Info', `Chatbot: ${botLabel}\nModel: ${model}\nRAG: ${ragStatus}`);
+        return infoCommand(
+          'Bot Info',
+          `Chatbot: ${botLabel}\nModel: ${model}\nRAG: ${ragStatus}`,
+        );
       }
 
       return badCommand('Usage', 'Usage: `bot list|set <id|name>|info`');
@@ -1678,7 +1949,7 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
       if (sub === 'list') {
         const current = session.model || HYBRIDAI_MODEL;
         const list = HYBRIDAI_MODELS.map((m) =>
-          m === current ? `${m} (current)` : m
+          m === current ? `${m} (current)` : m,
         ).join('\n');
         return infoCommand('Available Models', list);
       }
@@ -1686,8 +1957,14 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
       if (sub === 'set') {
         const modelName = req.args[2];
         if (!modelName) return badCommand('Usage', 'Usage: `model set <name>`');
-        if (HYBRIDAI_MODELS.length > 0 && !HYBRIDAI_MODELS.includes(modelName)) {
-          return badCommand('Unknown Model', `\`${modelName}\` is not in the available models list.`);
+        if (
+          HYBRIDAI_MODELS.length > 0 &&
+          !HYBRIDAI_MODELS.includes(modelName)
+        ) {
+          return badCommand(
+            'Unknown Model',
+            `\`${modelName}\` is not in the available models list.`,
+          );
         }
         updateSessionModel(session.id, modelName);
         return plainCommand(`Model set to \`${modelName}\` for this session.`);
@@ -1695,7 +1972,10 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
 
       if (sub === 'info') {
         const current = session.model || HYBRIDAI_MODEL;
-        return infoCommand('Model Info', `Current model: ${current}\nDefault model: ${HYBRIDAI_MODEL}`);
+        return infoCommand(
+          'Model Info',
+          `Current model: ${current}\nDefault model: ${HYBRIDAI_MODEL}`,
+        );
       }
 
       return badCommand('Usage', 'Usage: `model list|set <name>|info`');
@@ -1705,12 +1985,16 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
       const sub = req.args[1]?.toLowerCase();
       if (sub === 'on' || sub === 'off') {
         updateSessionRag(session.id, sub === 'on');
-        return plainCommand(`RAG ${sub === 'on' ? 'enabled' : 'disabled'} for this session.`);
+        return plainCommand(
+          `RAG ${sub === 'on' ? 'enabled' : 'disabled'} for this session.`,
+        );
       }
       if (!sub) {
         const nextEnabled = session.enable_rag === 0;
         updateSessionRag(session.id, nextEnabled);
-        return plainCommand(`RAG ${nextEnabled ? 'enabled' : 'disabled'} for this session.`);
+        return plainCommand(
+          `RAG ${nextEnabled ? 'enabled' : 'disabled'} for this session.`,
+        );
       }
       return badCommand('Usage', 'Usage: `rag [on|off]`');
     }
@@ -1720,7 +2004,10 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
       if (sub === 'mode' || !sub) {
         const guildId = req.guildId;
         if (!guildId) {
-          return badCommand('Guild Only', '`channel mode` is only available in Discord guild channels.');
+          return badCommand(
+            'Guild Only',
+            '`channel mode` is only available in Discord guild channels.',
+          );
         }
         const requestedMode = (req.args[sub ? 2 : 1] || '').toLowerCase();
         if (!requestedMode) {
@@ -1740,7 +2027,10 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
         }
         const mode = requestedMode as 'off' | 'mention' | 'free';
         updateRuntimeConfig((draft) => {
-          const guild = draft.discord.guilds[guildId] ?? { defaultMode: 'mention', channels: {} };
+          const guild = draft.discord.guilds[guildId] ?? {
+            defaultMode: 'mention',
+            channels: {},
+          };
           guild.channels[req.channelId] = { mode };
           draft.discord.guilds[guildId] = guild;
         });
@@ -1765,7 +2055,10 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
           );
         }
         if (!DISCORD_GROUP_POLICY_VALUES.has(requestedPolicy)) {
-          return badCommand('Usage', 'Usage: `channel policy open|allowlist|disabled`');
+          return badCommand(
+            'Usage',
+            'Usage: `channel policy open|allowlist|disabled`',
+          );
         }
         const policy = requestedPolicy as 'open' | 'allowlist' | 'disabled';
         updateRuntimeConfig((draft) => {
@@ -1774,13 +2067,18 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
         return plainCommand(`Discord group policy set to \`${policy}\`.`);
       }
 
-      return badCommand('Usage', 'Usage: `channel mode [off|mention|free]` or `channel policy [open|allowlist|disabled]`');
+      return badCommand(
+        'Usage',
+        'Usage: `channel mode [off|mention|free]` or `channel policy [open|allowlist|disabled]`',
+      );
     }
 
     case 'ralph': {
       const sub = (req.args[1] || '').toLowerCase();
       if (!sub || sub === 'info' || sub === 'status') {
-        const current = normalizeRalphIterations(PROACTIVE_RALPH_MAX_ITERATIONS);
+        const current = normalizeRalphIterations(
+          PROACTIVE_RALPH_MAX_ITERATIONS,
+        );
         return infoCommand(
           'Ralph Loop',
           [
@@ -1793,19 +2091,31 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
 
       let nextValue: number | null = null;
       if (sub === 'on') {
-        nextValue = PROACTIVE_RALPH_MAX_ITERATIONS === 0 ? 3 : PROACTIVE_RALPH_MAX_ITERATIONS;
+        nextValue =
+          PROACTIVE_RALPH_MAX_ITERATIONS === 0
+            ? 3
+            : PROACTIVE_RALPH_MAX_ITERATIONS;
       } else if (sub === 'off') {
         nextValue = 0;
       } else if (sub === 'set') {
         if (req.args[2] == null) {
-          return badCommand('Usage', 'Usage: `ralph set <n>` (0=off, -1=unlimited, 1-64=extra iterations)');
+          return badCommand(
+            'Usage',
+            'Usage: `ralph set <n>` (0=off, -1=unlimited, 1-64=extra iterations)',
+          );
         }
         const parsed = Number.parseInt(req.args[2], 10);
         if (Number.isNaN(parsed)) {
-          return badCommand('Usage', 'Usage: `ralph set <n>` where n is an integer');
+          return badCommand(
+            'Usage',
+            'Usage: `ralph set <n>` where n is an integer',
+          );
         }
         if (parsed < -1 || parsed > MAX_RALPH_ITERATIONS) {
-          return badCommand('Range', `Ralph iterations must be between -1 and ${MAX_RALPH_ITERATIONS}.`);
+          return badCommand(
+            'Range',
+            `Ralph iterations must be between -1 and ${MAX_RALPH_ITERATIONS}.`,
+          );
         }
         nextValue = parsed;
       } else {
@@ -1814,7 +2124,10 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
           return badCommand('Usage', 'Usage: `ralph on|off|set <n>|info`');
         }
         if (parsed < -1 || parsed > MAX_RALPH_ITERATIONS) {
-          return badCommand('Range', `Ralph iterations must be between -1 and ${MAX_RALPH_ITERATIONS}.`);
+          return badCommand(
+            'Range',
+            `Ralph iterations must be between -1 and ${MAX_RALPH_ITERATIONS}.`,
+          );
         }
         nextValue = parsed;
       }
@@ -1827,12 +2140,17 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
       const restartNote = restarted
         ? ' Current session container restarted to apply immediately.'
         : '';
-      return plainCommand(`Ralph loop set to ${formatRalphIterations(normalized)}.${restartNote}`);
+      return plainCommand(
+        `Ralph loop set to ${formatRalphIterations(normalized)}.${restartNote}`,
+      );
     }
 
     case 'clear': {
       const deleted = clearSessionHistory(session.id);
-      return infoCommand('Session Cleared', `Deleted ${deleted} messages. Workspace files preserved.`);
+      return infoCommand(
+        'Session Cleared',
+        `Deleted ${deleted} messages. Workspace files preserved.`,
+      );
     }
 
     case 'status': {
@@ -1843,14 +2161,14 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
       const sessionModel = session.model || HYBRIDAI_MODEL;
       const queueLabel = `${delegationStatus.active} active / ${delegationStatus.queued} queued`;
       const proactiveQueued = getQueuedProactiveMessageCount();
-      const cacheKnown = metrics.cacheReadTokens != null || metrics.cacheWriteTokens != null;
-      const contextLabel = (
+      const cacheKnown =
+        metrics.cacheReadTokens != null || metrics.cacheWriteTokens != null;
+      const contextLabel =
         metrics.contextUsedTokens != null && metrics.contextBudgetTokens != null
-      )
-        ? `${formatCompactNumber(metrics.contextUsedTokens)}/${formatCompactNumber(metrics.contextBudgetTokens)} (${formatPercent(metrics.contextUsagePercent)})`
-        : metrics.contextUsedTokens != null
-          ? `${formatCompactNumber(metrics.contextUsedTokens)} est`
-          : 'n/a';
+          ? `${formatCompactNumber(metrics.contextUsedTokens)}/${formatCompactNumber(metrics.contextBudgetTokens)} (${formatPercent(metrics.contextUsagePercent)})`
+          : metrics.contextUsedTokens != null
+            ? `${formatCompactNumber(metrics.contextUsedTokens)} est`
+            : 'n/a';
       const lines = [
         `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
         `🧠 Model: ${sessionModel}`,
@@ -1870,9 +2188,13 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
     case 'sessions': {
       const sessions = getAllSessions();
       if (sessions.length === 0) return plainCommand('No active sessions.');
-      const list = sessions.slice(0, 20).map((s) =>
-        `${s.id} — ${s.message_count} msgs, last active ${s.last_active}`
-      ).join('\n');
+      const list = sessions
+        .slice(0, 20)
+        .map(
+          (s) =>
+            `${s.id} — ${s.message_count} msgs, last active ${s.last_active}`,
+        )
+        .join('\n');
       return infoCommand('Sessions', list);
     }
 
@@ -1880,33 +2202,103 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
       const sub = req.args[1]?.toLowerCase();
       if (sub === 'add') {
         const rest = req.args.slice(2).join(' ');
+        const atMatch = rest.match(/^at\s+"([^"]+)"\s+(.+)$/i);
+        if (atMatch) {
+          const [, runAtRaw, prompt] = atMatch;
+          const parsedDate = new Date(runAtRaw);
+          if (Number.isNaN(parsedDate.getTime())) {
+            return badCommand(
+              'Invalid Time',
+              `\`${runAtRaw}\` is not a valid ISO timestamp.`,
+            );
+          }
+          const taskId = createTask(
+            session.id,
+            req.channelId,
+            '',
+            prompt,
+            parsedDate.toISOString(),
+          );
+          rearmScheduler();
+          return plainCommand(
+            `Task #${taskId} created: one-shot at \`${parsedDate.toISOString()}\` — ${prompt}`,
+          );
+        }
+
+        const everyMatch = rest.match(/^every\s+(\d+)\s+(.+)$/i);
+        if (everyMatch) {
+          const [, everyRaw, prompt] = everyMatch;
+          const everyMs = Number.parseInt(everyRaw, 10);
+          if (!Number.isFinite(everyMs) || everyMs < 10_000) {
+            return badCommand(
+              'Invalid Interval',
+              'Interval must be at least 10000ms.',
+            );
+          }
+          const taskId = createTask(
+            session.id,
+            req.channelId,
+            '',
+            prompt,
+            undefined,
+            everyMs,
+          );
+          rearmScheduler();
+          return plainCommand(
+            `Task #${taskId} created: every \`${everyMs}ms\` — ${prompt}`,
+          );
+        }
+
         const cronMatch = rest.match(/^"([^"]+)"\s+(.+)$/);
         if (!cronMatch) {
-          return badCommand('Usage', 'Usage: `schedule add "<cron>" <prompt>`');
+          return badCommand(
+            'Usage',
+            'Usage: `schedule add "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>`',
+          );
         }
         const [, cronExpr, prompt] = cronMatch;
         try {
           CronExpressionParser.parse(cronExpr);
         } catch {
-          return badCommand('Invalid Cron', `\`${cronExpr}\` is not a valid cron expression.`);
+          return badCommand(
+            'Invalid Cron',
+            `\`${cronExpr}\` is not a valid cron expression.`,
+          );
         }
         const taskId = createTask(session.id, req.channelId, cronExpr, prompt);
         rearmScheduler();
-        return plainCommand(`Task #${taskId} created: \`${cronExpr}\` — ${prompt}`);
+        return plainCommand(
+          `Task #${taskId} created: cron \`${cronExpr}\` — ${prompt}`,
+        );
       }
 
       if (sub === 'list') {
         const tasks = getTasksForSession(session.id);
         if (tasks.length === 0) return plainCommand('No scheduled tasks.');
-        const list = tasks.map((task) =>
-          `#${task.id} ${task.enabled ? 'enabled' : 'disabled'} \`${task.cron_expr}\` — ${task.prompt.slice(0, 60)}`
-        ).join('\n');
+        const list = tasks
+          .map((task) => {
+            const scheduleLabel = task.run_at
+              ? `at ${task.run_at}`
+              : task.every_ms
+                ? `every ${task.every_ms}ms`
+                : task.cron_expr
+                  ? `cron ${task.cron_expr}`
+                  : 'unspecified';
+            const statusLabel = task.last_status || 'n/a';
+            const errorSuffix =
+              task.consecutive_errors > 0
+                ? ` · errors ${task.consecutive_errors}`
+                : '';
+            return `#${task.id} ${task.enabled ? 'enabled' : 'disabled'} (${scheduleLabel}) [${statusLabel}${errorSuffix}] — ${task.prompt.slice(0, 60)}`;
+          })
+          .join('\n');
         return infoCommand('Scheduled Tasks', list);
       }
 
       if (sub === 'remove') {
         const taskId = parseIntOrNull(req.args[2]);
-        if (!taskId) return badCommand('Usage', 'Usage: `schedule remove <id>`');
+        if (!taskId)
+          return badCommand('Usage', 'Usage: `schedule remove <id>`');
         deleteTask(taskId);
         rearmScheduler();
         return plainCommand(`Task #${taskId} removed.`);
@@ -1914,19 +2306,29 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
 
       if (sub === 'toggle') {
         const taskId = parseIntOrNull(req.args[2]);
-        if (!taskId) return badCommand('Usage', 'Usage: `schedule toggle <id>`');
+        if (!taskId)
+          return badCommand('Usage', 'Usage: `schedule toggle <id>`');
         const tasks = getTasksForSession(session.id);
         const task = tasks.find((t) => t.id === taskId);
-        if (!task) return badCommand('Not Found', `Task #${taskId} was not found in this session.`);
-        toggleTask(taskId, !Boolean(task.enabled));
+        if (!task)
+          return badCommand(
+            'Not Found',
+            `Task #${taskId} was not found in this session.`,
+          );
+        toggleTask(taskId, !task.enabled);
         rearmScheduler();
-        return plainCommand(`Task #${taskId} ${task.enabled ? 'disabled' : 'enabled'}.`);
+        return plainCommand(
+          `Task #${taskId} ${task.enabled ? 'disabled' : 'enabled'}.`,
+        );
       }
 
       return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
     }
 
     default:
-      return badCommand('Unknown Command', `Unknown command: \`${cmd || '(empty)'}\`.`);
+      return badCommand(
+        'Unknown Command',
+        `Unknown command: \`${cmd || '(empty)'}\`.`,
+      );
   }
 }

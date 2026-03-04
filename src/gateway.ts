@@ -1,19 +1,30 @@
-import fs from 'fs';
-
 import { AttachmentBuilder } from 'discord.js';
-
+import fs from 'fs';
+import {
+  buildResponseText,
+  formatError,
+  formatInfo,
+} from './channels/discord/delivery.js';
+import { rewriteUserMentionsForMessage } from './channels/discord/mentions.js';
+import {
+  initDiscord,
+  type ReplyFn,
+  sendToChannel,
+  setDiscordMaintenancePresence,
+} from './channels/discord/runtime.js';
 import {
   DISCORD_TOKEN,
   HEARTBEAT_CHANNEL,
   HEARTBEAT_INTERVAL,
   HYBRIDAI_CHATBOT_ID,
-  PROACTIVE_QUEUE_OUTSIDE_HOURS,
   onConfigChange,
+  PROACTIVE_QUEUE_OUTSIDE_HOURS,
 } from './config.js';
 import { stopAllContainers } from './container-runner.js';
 import {
   deleteQueuedProactiveMessage,
   enqueueProactiveMessage,
+  getMostRecentSessionChannelId,
   getQueuedProactiveMessageCount,
   initDatabase,
   listQueuedProactiveMessages,
@@ -25,19 +36,23 @@ import {
   renderGatewayCommand,
   runGatewayScheduledTask,
 } from './gateway-service.js';
-import { buildResponseText, formatError, formatInfo } from './channels/discord/delivery.js';
-import { rewriteUserMentionsForMessage } from './channels/discord/mentions.js';
 import { startHealthServer } from './health.js';
 import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
 import { logger } from './logger.js';
-import { startObservabilityIngest, stopObservabilityIngest } from './observability-ingest.js';
-import { startScheduler, stopScheduler } from './scheduler.js';
 import {
-  initDiscord,
-  sendToChannel,
-  type ReplyFn,
-} from './channels/discord/runtime.js';
-import { isWithinActiveHours, proactiveWindowLabel } from './proactive-policy.js';
+  startObservabilityIngest,
+  stopObservabilityIngest,
+} from './observability-ingest.js';
+import {
+  isWithinActiveHours,
+  proactiveWindowLabel,
+} from './proactive-policy.js';
+import {
+  rearmScheduler,
+  type SchedulerDispatchRequest,
+  startScheduler,
+  stopScheduler,
+} from './scheduler.js';
 import type { ArtifactMetadata } from './types.js';
 
 let detachConfigListener: (() => void) | null = null;
@@ -57,9 +72,14 @@ function buildArtifactAttachments(
   for (const artifact of artifacts) {
     try {
       const content = fs.readFileSync(artifact.path);
-      attachments.push(new AttachmentBuilder(content, { name: artifact.filename }));
+      attachments.push(
+        new AttachmentBuilder(content, { name: artifact.filename }),
+      );
     } catch (error) {
-      logger.warn({ artifactPath: artifact.path, error }, 'Failed to read artifact for Discord attachment');
+      logger.warn(
+        { artifactPath: artifact.path, error },
+        'Failed to read artifact for Discord attachment',
+      );
     }
   }
   return attachments;
@@ -75,7 +95,9 @@ function simplifyImageAttachmentNarration(
 ): string {
   if (!text.trim() || !artifacts || artifacts.length === 0) return text;
 
-  const imageArtifacts = artifacts.filter((artifact) => artifact.mimeType.startsWith('image/'));
+  const imageArtifacts = artifacts.filter((artifact) =>
+    artifact.mimeType.startsWith('image/'),
+  );
   if (imageArtifacts.length === 0) return text;
 
   const pathHints = new Set<string>();
@@ -88,14 +110,18 @@ function simplifyImageAttachmentNarration(
     if (filename) pathHints.add(`.browser-artifacts/${filename}`);
   }
 
-  const pathishLine = /(^`?\s*(\.\/|\/|~\/|[a-zA-Z]:\\|\.browser-artifacts\/))|([\\/][^\\/\s]+\.[a-zA-Z0-9]{1,8})/;
-  const locationNarration = /(workspace|saved to|find it at|located at|liegt unter|pfad|path)/i;
+  const pathishLine =
+    /(^`?\s*(\.\/|\/|~\/|[a-zA-Z]:\\|\.browser-artifacts\/))|([\\/][^\\/\s]+\.[a-zA-Z0-9]{1,8})/;
+  const locationNarration =
+    /(workspace|saved to|find it at|located at|liegt unter|pfad|path)/i;
 
   let removedPathNarration = false;
   const keptLines: string[] = [];
   for (const line of text.split('\n')) {
     const normalizedLine = normalizePathForMatch(line);
-    const mentionsArtifact = Array.from(pathHints).some((hint) => normalizedLine.includes(hint));
+    const mentionsArtifact = Array.from(pathHints).some((hint) =>
+      normalizedLine.includes(hint),
+    );
     const isPathLine = pathishLine.test(line.trim());
     const isLocationNarration = locationNarration.test(line);
     if (mentionsArtifact && (isPathLine || isLocationNarration)) {
@@ -107,7 +133,10 @@ function simplifyImageAttachmentNarration(
 
   if (!removedPathNarration) return text;
 
-  const cleaned = keptLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  const cleaned = keptLines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   if (cleaned) return cleaned;
   return imageArtifacts.length === 1 ? 'Here it is.' : 'Here they are.';
 }
@@ -120,7 +149,12 @@ async function deliverProactiveMessage(
 ): Promise<void> {
   if (!isWithinActiveHours()) {
     if (PROACTIVE_QUEUE_OUTSIDE_HOURS) {
-      const { queued, dropped } = enqueueProactiveMessage(channelId, text, source, MAX_QUEUED_PROACTIVE_MESSAGES);
+      const { queued, dropped } = enqueueProactiveMessage(
+        channelId,
+        text,
+        source,
+        MAX_QUEUED_PROACTIVE_MESSAGES,
+      );
       logger.info(
         {
           source,
@@ -140,7 +174,10 @@ async function deliverProactiveMessage(
       }
       return;
     }
-    logger.info({ source, channelId, activeHours: proactiveWindowLabel() }, 'Proactive message suppressed (outside active hours)');
+    logger.info(
+      { source, channelId, activeHours: proactiveWindowLabel() },
+      'Proactive message suppressed (outside active hours)',
+    );
     return;
   }
 
@@ -155,16 +192,57 @@ async function sendProactiveMessageNow(
 ): Promise<void> {
   const attachments = buildArtifactAttachments(artifacts);
   if (!DISCORD_TOKEN || !isDiscordChannelId(channelId)) {
-    logger.info({ source, channelId, text, artifactCount: attachments.length }, 'Proactive message (no Discord delivery)');
+    logger.info(
+      { source, channelId, text, artifactCount: attachments.length },
+      'Proactive message (no Discord delivery)',
+    );
     return;
   }
 
   try {
     await sendToChannel(channelId, text, attachments);
   } catch (error) {
-    logger.warn({ source, channelId, error, artifactCount: attachments.length }, 'Failed to send proactive message to Discord channel');
+    logger.warn(
+      { source, channelId, error, artifactCount: attachments.length },
+      'Failed to send proactive message to Discord channel',
+    );
     logger.info({ source, channelId, text }, 'Proactive message fallback');
   }
+}
+
+async function deliverWebhookMessage(
+  webhookUrl: string,
+  text: string,
+  source: string,
+  artifacts?: ArtifactMetadata[],
+): Promise<void> {
+  const response = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+    },
+    body: JSON.stringify({
+      text,
+      source,
+      artifactCount: artifacts?.length || 0,
+      artifacts: (artifacts || []).map((artifact) => ({
+        filename: artifact.filename,
+        mimeType: artifact.mimeType,
+      })),
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(
+      `Webhook delivery failed (${response.status}): ${body.slice(0, 300)}`,
+    );
+  }
+}
+
+function resolveLastUsedDiscordChannelId(): string | null {
+  const channelId = getMostRecentSessionChannelId();
+  if (!channelId) return null;
+  return isDiscordChannelId(channelId) ? channelId : null;
 }
 
 async function flushQueuedProactiveMessages(): Promise<void> {
@@ -178,7 +256,11 @@ async function flushQueuedProactiveMessages(): Promise<void> {
 
   for (const item of pending) {
     if (!isWithinActiveHours()) break;
-    await sendProactiveMessageNow(item.channel_id, item.text, `${item.source}:queued`);
+    await sendProactiveMessageNow(
+      item.channel_id,
+      item.text,
+      `${item.source}:queued`,
+    );
     deleteQueuedProactiveMessage(item.id);
   }
 }
@@ -202,6 +284,7 @@ async function startDiscordIntegration(): Promise<void> {
       context,
     ) => {
       try {
+        let sawTextDelta = false;
         const result = await handleGatewayMessage({
           sessionId,
           guildId,
@@ -211,15 +294,35 @@ async function startDiscordIntegration(): Promise<void> {
           content,
           media,
           onTextDelta: (delta) => {
+            if (!sawTextDelta) {
+              sawTextDelta = true;
+              context.emitLifecyclePhase('streaming');
+            }
             void context.stream.append(delta);
           },
+          onToolProgress: (event) => {
+            if (sawTextDelta) return;
+            if (event.phase === 'start') {
+              context.emitLifecyclePhase('toolUse');
+            } else {
+              context.emitLifecyclePhase('thinking');
+            }
+          },
           onProactiveMessage: async (message) => {
-            await deliverProactiveMessage(channelId, message.text, 'delegate', message.artifacts);
+            await deliverProactiveMessage(
+              channelId,
+              message.text,
+              'delegate',
+              message.artifacts,
+            );
           },
           abortSignal: context.abortSignal,
         });
         if (result.status === 'error') {
-          const errorText = formatError('Agent Error', result.error || 'Unknown error');
+          const errorText = formatError(
+            'Agent Error',
+            result.error || 'Unknown error',
+          );
           await context.stream.fail(errorText);
           return;
         }
@@ -239,7 +342,10 @@ async function startDiscordIntegration(): Promise<void> {
         );
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
-        logger.error({ error, sessionId, channelId }, 'Discord message handling failed');
+        logger.error(
+          { error, sessionId, channelId },
+          'Discord message handling failed',
+        );
         const errorText = formatError('Gateway Error', text);
         await context.stream.fail(errorText);
       }
@@ -269,7 +375,10 @@ async function startDiscordIntegration(): Promise<void> {
         await reply(renderGatewayCommand(result));
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
-        logger.error({ error, sessionId, channelId, args }, 'Discord command handling failed');
+        logger.error(
+          { error, sessionId, channelId, args },
+          'Discord command handling failed',
+        );
         await reply(formatError('Gateway Error', text));
       }
     },
@@ -278,12 +387,21 @@ async function startDiscordIntegration(): Promise<void> {
 }
 
 function setupShutdown(): void {
-  const shutdown = () => {
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     logger.info('Shutting down gateway...');
     if (detachConfigListener) {
       detachConfigListener();
       detachConfigListener = null;
     }
+    await setDiscordMaintenancePresence().catch((error) => {
+      logger.debug(
+        { error },
+        'Failed to set Discord maintenance presence during shutdown',
+      );
+    });
     stopHeartbeat();
     stopObservabilityIngest();
     stopAllContainers();
@@ -294,31 +412,115 @@ function setupShutdown(): void {
     }
     process.exit(0);
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => {
+    void shutdown();
+  });
+  process.on('SIGTERM', () => {
+    void shutdown();
+  });
 }
 
 async function runScheduledTask(
-  sessionId: string,
-  channelId: string,
-  prompt: string,
-  taskId: number,
+  request: SchedulerDispatchRequest,
 ): Promise<void> {
+  const sourceLabel =
+    request.source === 'db-task'
+      ? `schedule:${request.taskId ?? 'unknown'}`
+      : `schedule-job:${request.jobId ?? 'unknown'}`;
+  const resolvedDeliveryChannelId =
+    request.delivery.kind === 'channel'
+      ? request.delivery.channelId
+      : request.delivery.kind === 'last-channel'
+        ? resolveLastUsedDiscordChannelId()
+        : null;
+
+  if (request.actionKind === 'system_event') {
+    if (request.delivery.kind === 'webhook') {
+      await deliverWebhookMessage(
+        request.delivery.webhookUrl,
+        request.prompt,
+        `${sourceLabel}:system`,
+      );
+      return;
+    }
+    if (!resolvedDeliveryChannelId) {
+      throw new Error(
+        'No Discord channel available for scheduled system event delivery.',
+      );
+    }
+    await deliverProactiveMessage(
+      resolvedDeliveryChannelId,
+      request.prompt,
+      `${sourceLabel}:system`,
+    );
+    return;
+  }
+
+  const runChannelId =
+    request.channelId || resolvedDeliveryChannelId || 'scheduler';
+  const taskId = request.taskId ?? -1;
+
   await runGatewayScheduledTask(
-    sessionId,
-    channelId,
-    prompt,
+    request.sessionId,
+    runChannelId,
+    request.prompt,
     taskId,
     async (result) => {
-      await deliverProactiveMessage(channelId, result.text, `schedule:${taskId}`, result.artifacts);
+      if (request.delivery.kind === 'webhook') {
+        await deliverWebhookMessage(
+          request.delivery.webhookUrl,
+          result.text,
+          sourceLabel,
+          result.artifacts,
+        );
+        logger.info(
+          {
+            jobId: request.jobId,
+            taskId: request.taskId,
+            source: request.source,
+            delivery: 'webhook',
+            result: result.text,
+            artifactCount: result.artifacts?.length || 0,
+          },
+          'Scheduled task completed',
+        );
+        return;
+      }
+
+      if (!resolvedDeliveryChannelId) {
+        throw new Error('No Discord channel available for scheduled delivery.');
+      }
+      await deliverProactiveMessage(
+        resolvedDeliveryChannelId,
+        result.text,
+        sourceLabel,
+        result.artifacts,
+      );
       logger.info(
-        { taskId, channelId, result: result.text, artifactCount: result.artifacts?.length || 0 },
+        {
+          jobId: request.jobId,
+          taskId: request.taskId,
+          source: request.source,
+          channelId: resolvedDeliveryChannelId,
+          result: result.text,
+          artifactCount: result.artifacts?.length || 0,
+        },
         'Scheduled task completed',
       );
     },
     (error) => {
-      logger.error({ taskId, channelId, error }, 'Scheduled task failed');
+      logger.error(
+        {
+          jobId: request.jobId,
+          taskId: request.taskId,
+          source: request.source,
+          delivery: request.delivery.kind,
+          error,
+        },
+        'Scheduled task failed',
+      );
     },
+    request.sessionId,
   );
 }
 
@@ -343,9 +545,9 @@ async function main(): Promise<void> {
   startObservabilityIngest();
   detachConfigListener = onConfigChange((next, prev) => {
     const shouldRestart =
-      next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId
-      || next.heartbeat.intervalMs !== prev.heartbeat.intervalMs
-      || next.heartbeat.enabled !== prev.heartbeat.enabled;
+      next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId ||
+      next.heartbeat.intervalMs !== prev.heartbeat.intervalMs ||
+      next.heartbeat.enabled !== prev.heartbeat.enabled;
     if (shouldRestart) {
       logger.info(
         {
@@ -358,9 +560,19 @@ async function main(): Promise<void> {
       startOrRestartHeartbeat();
     }
 
+    const schedulerChanged =
+      JSON.stringify(next.scheduler) !== JSON.stringify(prev.scheduler);
+    if (schedulerChanged) {
+      logger.info(
+        'Config changed, re-arming scheduler for updated scheduler.jobs',
+      );
+      rearmScheduler();
+    }
+
     const shouldRestartObservability =
-      JSON.stringify(next.observability) !== JSON.stringify(prev.observability)
-      || next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId;
+      JSON.stringify(next.observability) !==
+        JSON.stringify(prev.observability) ||
+      next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId;
     if (!shouldRestartObservability) return;
 
     logger.info(
@@ -383,7 +595,10 @@ async function main(): Promise<void> {
     logger.warn({ err }, 'Initial proactive queue flush failed');
   });
 
-  logger.info({ ...getGatewayStatus(), discord: !!DISCORD_TOKEN }, 'HybridClaw gateway started');
+  logger.info(
+    { ...getGatewayStatus(), discord: !!DISCORD_TOKEN },
+    'HybridClaw gateway started',
+  );
 }
 
 main().catch((err) => {

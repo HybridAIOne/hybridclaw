@@ -1,10 +1,9 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
-
+import type { AuditEventPayload, WireRecord } from './audit-trail.js';
 import { DB_PATH } from './config.js';
 import { logger } from './logger.js';
-import type { AuditEventPayload, WireRecord } from './audit-trail.js';
 import type {
   ApprovalAuditEntry,
   AuditEntry,
@@ -50,9 +49,13 @@ function createSchema(database: Database.Database): void {
       session_id TEXT NOT NULL,
       channel_id TEXT NOT NULL,
       cron_expr TEXT NOT NULL,
+      run_at TEXT,
+      every_ms INTEGER,
       prompt TEXT NOT NULL,
       enabled INTEGER DEFAULT 1,
       last_run TEXT,
+      last_status TEXT,
+      consecutive_errors INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -126,29 +129,51 @@ interface InitDatabaseOptions {
   quiet?: boolean;
 }
 
-function migrateSchema(database: Database.Database, opts?: InitDatabaseOptions): void {
+function migrateSchema(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
   const quiet = opts?.quiet === true;
-  const addColumnIfMissing = (table: string, column: string, ddl: string): void => {
-    const cols = database.pragma(`table_info(${table})`) as Array<{ name: string }>;
+  const addColumnIfMissing = (
+    table: string,
+    column: string,
+    ddl: string,
+  ): void => {
+    const cols = database.pragma(`table_info(${table})`) as Array<{
+      name: string;
+    }>;
     if (!cols.some((c) => c.name === column)) {
       database.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
-      if (!quiet) logger.info({ table, column }, 'Migrated table: added column');
+      if (!quiet)
+        logger.info({ table, column }, 'Migrated table: added column');
     }
   };
 
   // Add session columns if they don't exist
-  const sessionCols = database.pragma('table_info(sessions)') as Array<{ name: string }>;
+  const sessionCols = database.pragma('table_info(sessions)') as Array<{
+    name: string;
+  }>;
   if (!sessionCols.some((c) => c.name === 'model')) {
     database.exec('ALTER TABLE sessions ADD COLUMN model TEXT');
     if (!quiet) logger.info('Migrated sessions table: added model column');
   }
   addColumnIfMissing('sessions', 'session_summary', 'session_summary TEXT');
-  addColumnIfMissing('sessions', 'summary_updated_at', 'summary_updated_at TEXT');
-  addColumnIfMissing('sessions', 'compaction_count', 'compaction_count INTEGER DEFAULT 0');
+  addColumnIfMissing(
+    'sessions',
+    'summary_updated_at',
+    'summary_updated_at TEXT',
+  );
+  addColumnIfMissing(
+    'sessions',
+    'compaction_count',
+    'compaction_count INTEGER DEFAULT 0',
+  );
   addColumnIfMissing('sessions', 'memory_flush_at', 'memory_flush_at TEXT');
 
   // Add run_at and every_ms columns to tasks if they don't exist
-  const taskCols = database.pragma('table_info(tasks)') as Array<{ name: string }>;
+  const taskCols = database.pragma('table_info(tasks)') as Array<{
+    name: string;
+  }>;
   if (!taskCols.some((c) => c.name === 'run_at')) {
     database.exec('ALTER TABLE tasks ADD COLUMN run_at TEXT');
     if (!quiet) logger.info('Migrated tasks table: added run_at column');
@@ -156,6 +181,17 @@ function migrateSchema(database: Database.Database, opts?: InitDatabaseOptions):
   if (!taskCols.some((c) => c.name === 'every_ms')) {
     database.exec('ALTER TABLE tasks ADD COLUMN every_ms INTEGER');
     if (!quiet) logger.info('Migrated tasks table: added every_ms column');
+  }
+  if (!taskCols.some((c) => c.name === 'last_status')) {
+    database.exec('ALTER TABLE tasks ADD COLUMN last_status TEXT');
+    if (!quiet) logger.info('Migrated tasks table: added last_status column');
+  }
+  if (!taskCols.some((c) => c.name === 'consecutive_errors')) {
+    database.exec(
+      'ALTER TABLE tasks ADD COLUMN consecutive_errors INTEGER DEFAULT 0',
+    );
+    if (!quiet)
+      logger.info('Migrated tasks table: added consecutive_errors column');
   }
 }
 
@@ -180,7 +216,9 @@ export function getOrCreateSession(
   const existing = getSessionById(sessionId);
 
   if (existing) {
-    db.prepare('UPDATE sessions SET last_active = datetime(\'now\') WHERE id = ?').run(sessionId);
+    db.prepare(
+      "UPDATE sessions SET last_active = datetime('now') WHERE id = ?",
+    ).run(sessionId);
     return existing;
   }
 
@@ -192,34 +230,66 @@ export function getOrCreateSession(
 }
 
 export function getSessionById(sessionId: string): Session | undefined {
-  return db
-    .prepare('SELECT * FROM sessions WHERE id = ?')
-    .get(sessionId) as Session | undefined;
+  return db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as
+    | Session
+    | undefined;
 }
 
-export function updateSessionChatbot(sessionId: string, chatbotId: string | null): void {
-  db.prepare('UPDATE sessions SET chatbot_id = ? WHERE id = ?').run(chatbotId, sessionId);
+export function updateSessionChatbot(
+  sessionId: string,
+  chatbotId: string | null,
+): void {
+  db.prepare('UPDATE sessions SET chatbot_id = ? WHERE id = ?').run(
+    chatbotId,
+    sessionId,
+  );
 }
 
-export function updateSessionModel(sessionId: string, model: string | null): void {
-  db.prepare('UPDATE sessions SET model = ? WHERE id = ?').run(model, sessionId);
+export function updateSessionModel(
+  sessionId: string,
+  model: string | null,
+): void {
+  db.prepare('UPDATE sessions SET model = ? WHERE id = ?').run(
+    model,
+    sessionId,
+  );
 }
 
 export function updateSessionRag(sessionId: string, enableRag: boolean): void {
-  db.prepare('UPDATE sessions SET enable_rag = ? WHERE id = ?').run(enableRag ? 1 : 0, sessionId);
+  db.prepare('UPDATE sessions SET enable_rag = ? WHERE id = ?').run(
+    enableRag ? 1 : 0,
+    sessionId,
+  );
 }
 
 export function getAllSessions(): Session[] {
-  return db.prepare('SELECT * FROM sessions ORDER BY last_active DESC').all() as Session[];
+  return db
+    .prepare('SELECT * FROM sessions ORDER BY last_active DESC')
+    .all() as Session[];
 }
 
 export function getSessionCount(): number {
-  const row = db.prepare('SELECT COUNT(*) as count FROM sessions').get() as { count: number };
+  const row = db.prepare('SELECT COUNT(*) as count FROM sessions').get() as {
+    count: number;
+  };
   return row.count;
 }
 
+export function getMostRecentSessionChannelId(): string | null {
+  const row = db
+    .prepare(
+      'SELECT channel_id FROM sessions ORDER BY last_active DESC LIMIT 1',
+    )
+    .get() as { channel_id?: string } | undefined;
+  if (!row || typeof row.channel_id !== 'string') return null;
+  const channelId = row.channel_id.trim();
+  return channelId || null;
+}
+
 export function clearSessionHistory(sessionId: string): number {
-  const result = db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId);
+  const result = db
+    .prepare('DELETE FROM messages WHERE session_id = ?')
+    .run(sessionId);
   db.prepare(
     'UPDATE sessions SET message_count = 0, session_summary = NULL, summary_updated_at = NULL, compaction_count = 0, memory_flush_at = NULL WHERE id = ?',
   ).run(sessionId);
@@ -240,11 +310,14 @@ export function storeMessage(
   ).run(sessionId, userId, username, role, content);
 
   db.prepare(
-    'UPDATE sessions SET message_count = message_count + 1, last_active = datetime(\'now\') WHERE id = ?',
+    "UPDATE sessions SET message_count = message_count + 1, last_active = datetime('now') WHERE id = ?",
   ).run(sessionId);
 }
 
-export function getConversationHistory(sessionId: string, limit = 50): StoredMessage[] {
+export function getConversationHistory(
+  sessionId: string,
+  limit = 50,
+): StoredMessage[] {
   return db
     .prepare(
       'SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
@@ -263,12 +336,16 @@ export function getCompactionCandidateMessages(
 ): CompactionCandidate | null {
   const keep = Math.max(1, Math.floor(keepRecent));
   const cutoffRow = db
-    .prepare('SELECT id FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?')
+    .prepare(
+      'SELECT id FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?',
+    )
     .get(sessionId, keep - 1) as { id: number } | undefined;
   if (!cutoffRow) return null;
 
   const older = db
-    .prepare('SELECT * FROM messages WHERE session_id = ? AND id < ? ORDER BY id ASC')
+    .prepare(
+      'SELECT * FROM messages WHERE session_id = ? AND id < ? ORDER BY id ASC',
+    )
     .all(sessionId, cutoffRow.id) as StoredMessage[];
   if (older.length === 0) return null;
 
@@ -278,12 +355,15 @@ export function getCompactionCandidateMessages(
   };
 }
 
-export function deleteMessagesBeforeId(sessionId: string, cutoffId: number): number {
+export function deleteMessagesBeforeId(
+  sessionId: string,
+  cutoffId: number,
+): number {
   const result = db
     .prepare('DELETE FROM messages WHERE session_id = ? AND id < ?')
     .run(sessionId, cutoffId);
   db.prepare(
-    'UPDATE sessions SET message_count = (SELECT COUNT(*) FROM messages WHERE session_id = ?), last_active = datetime(\'now\') WHERE id = ?',
+    "UPDATE sessions SET message_count = (SELECT COUNT(*) FROM messages WHERE session_id = ?), last_active = datetime('now') WHERE id = ?",
   ).run(sessionId, sessionId);
   return result.changes;
 }
@@ -291,12 +371,14 @@ export function deleteMessagesBeforeId(sessionId: string, cutoffId: number): num
 export function updateSessionSummary(sessionId: string, summary: string): void {
   const normalized = summary.trim();
   db.prepare(
-    'UPDATE sessions SET session_summary = ?, summary_updated_at = datetime(\'now\'), compaction_count = compaction_count + 1 WHERE id = ?',
+    "UPDATE sessions SET session_summary = ?, summary_updated_at = datetime('now'), compaction_count = compaction_count + 1 WHERE id = ?",
   ).run(normalized || null, sessionId);
 }
 
 export function markSessionMemoryFlush(sessionId: string): void {
-  db.prepare('UPDATE sessions SET memory_flush_at = datetime(\'now\') WHERE id = ?').run(sessionId);
+  db.prepare(
+    "UPDATE sessions SET memory_flush_at = datetime('now') WHERE id = ?",
+  ).run(sessionId);
 }
 
 // --- Tasks ---
@@ -309,28 +391,75 @@ export function createTask(
   runAt?: string,
   everyMs?: number,
 ): number {
-  const result = db.prepare(
-    'INSERT INTO tasks (session_id, channel_id, cron_expr, prompt, run_at, every_ms) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(sessionId, channelId, cronExpr, prompt, runAt || null, everyMs || null);
+  const result = db
+    .prepare(
+      'INSERT INTO tasks (session_id, channel_id, cron_expr, prompt, run_at, every_ms) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    .run(
+      sessionId,
+      channelId,
+      cronExpr,
+      prompt,
+      runAt || null,
+      everyMs || null,
+    );
   return result.lastInsertRowid as number;
 }
 
 export function getTasksForSession(sessionId: string): ScheduledTask[] {
   return db
-    .prepare('SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at DESC')
+    .prepare(
+      'SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at DESC',
+    )
     .all(sessionId) as ScheduledTask[];
 }
 
 export function getAllEnabledTasks(): ScheduledTask[] {
-  return db.prepare('SELECT * FROM tasks WHERE enabled = 1').all() as ScheduledTask[];
+  return db
+    .prepare('SELECT * FROM tasks WHERE enabled = 1')
+    .all() as ScheduledTask[];
 }
 
 export function updateTaskLastRun(taskId: number): void {
-  db.prepare('UPDATE tasks SET last_run = datetime(\'now\') WHERE id = ?').run(taskId);
+  db.prepare("UPDATE tasks SET last_run = datetime('now') WHERE id = ?").run(
+    taskId,
+  );
+}
+
+export function markTaskSuccess(taskId: number): void {
+  db.prepare(
+    'UPDATE tasks SET last_status = ?, consecutive_errors = 0 WHERE id = ?',
+  ).run('success', taskId);
+}
+
+export function markTaskFailure(
+  taskId: number,
+  maxConsecutiveErrors = 5,
+): { disabled: boolean; consecutiveErrors: number } {
+  const row = db
+    .prepare('SELECT consecutive_errors FROM tasks WHERE id = ?')
+    .get(taskId) as { consecutive_errors?: number } | undefined;
+  if (!row) {
+    return { disabled: false, consecutiveErrors: 0 };
+  }
+
+  const nextCount = Math.max(0, Math.floor(row.consecutive_errors || 0)) + 1;
+  const shouldDisable =
+    nextCount >= Math.max(1, Math.floor(maxConsecutiveErrors));
+  db.prepare(
+    'UPDATE tasks SET last_status = ?, consecutive_errors = ?, enabled = ? WHERE id = ?',
+  ).run('error', nextCount, shouldDisable ? 0 : 1, taskId);
+  return {
+    disabled: shouldDisable,
+    consecutiveErrors: nextCount,
+  };
 }
 
 export function toggleTask(taskId: number, enabled: boolean): void {
-  db.prepare('UPDATE tasks SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, taskId);
+  db.prepare('UPDATE tasks SET enabled = ? WHERE id = ?').run(
+    enabled ? 1 : 0,
+    taskId,
+  );
 }
 
 export function deleteTask(taskId: number): void {
@@ -347,7 +476,12 @@ export function logAudit(
 ): void {
   db.prepare(
     'INSERT INTO audit_log (session_id, event, detail, duration_ms) VALUES (?, ?, ?, ?)',
-  ).run(sessionId || null, event, detail ? JSON.stringify(detail) : null, durationMs || null);
+  ).run(
+    sessionId || null,
+    event,
+    detail ? JSON.stringify(detail) : null,
+    durationMs || null,
+  );
 }
 
 export function getRecentAudit(limit = 20): AuditEntry[] {
@@ -360,12 +494,18 @@ function toPayloadObject(payload: AuditEventPayload): Record<string, unknown> {
   return payload as unknown as Record<string, unknown>;
 }
 
-function readPayloadStringValue(payload: Record<string, unknown>, key: string): string | null {
+function readPayloadStringValue(
+  payload: Record<string, unknown>,
+  key: string,
+): string | null {
   const value = payload[key];
   return typeof value === 'string' ? value : null;
 }
 
-function readPayloadBooleanValue(payload: Record<string, unknown>, key: string): boolean | null {
+function readPayloadBooleanValue(
+  payload: Record<string, unknown>,
+  key: string,
+): boolean | null {
   const value = payload[key];
   return typeof value === 'boolean' ? value : null;
 }
@@ -393,7 +533,8 @@ export function logStructuredAuditEvent(record: WireRecord): void {
   if (eventType !== 'approval.response') return;
 
   const payload = toPayloadObject(record.event);
-  const toolCallId = readPayloadStringValue(payload, 'toolCallId') || `seq:${record.seq}`;
+  const toolCallId =
+    readPayloadStringValue(payload, 'toolCallId') || `seq:${record.seq}`;
   const action = readPayloadStringValue(payload, 'action') || 'unknown';
   const description = readPayloadStringValue(payload, 'description');
   const approved = readPayloadBooleanValue(payload, 'approved') ? 1 : 0;
@@ -425,14 +566,22 @@ export function getRecentStructuredAudit(limit = 20): StructuredAuditEntry[] {
     .all(bounded) as StructuredAuditEntry[];
 }
 
-export function getRecentStructuredAuditForSession(sessionId: string, limit = 20): StructuredAuditEntry[] {
+export function getRecentStructuredAuditForSession(
+  sessionId: string,
+  limit = 20,
+): StructuredAuditEntry[] {
   const bounded = Math.max(1, Math.min(limit, 200));
   return db
-    .prepare('SELECT * FROM audit_events WHERE session_id = ? ORDER BY seq DESC LIMIT ?')
+    .prepare(
+      'SELECT * FROM audit_events WHERE session_id = ? ORDER BY seq DESC LIMIT ?',
+    )
     .all(sessionId, bounded) as StructuredAuditEntry[];
 }
 
-export function getStructuredAuditAfterId(afterId: number, limit = 200): StructuredAuditEntry[] {
+export function getStructuredAuditAfterId(
+  afterId: number,
+  limit = 200,
+): StructuredAuditEntry[] {
   const boundedAfterId = Math.max(0, Math.floor(afterId));
   const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 5_000));
   return db
@@ -440,7 +589,10 @@ export function getStructuredAuditAfterId(afterId: number, limit = 200): Structu
     .all(boundedAfterId, boundedLimit) as StructuredAuditEntry[];
 }
 
-export function searchStructuredAudit(query: string, limit = 20): StructuredAuditEntry[] {
+export function searchStructuredAudit(
+  query: string,
+  limit = 20,
+): StructuredAuditEntry[] {
   const normalized = query.trim();
   if (!normalized) return [];
   const bounded = Math.max(1, Math.min(limit, 200));
@@ -459,11 +611,16 @@ export function searchStructuredAudit(query: string, limit = 20): StructuredAudi
     .all(like, like, like, like, bounded) as StructuredAuditEntry[];
 }
 
-export function getRecentApprovals(limit = 20, deniedOnly = false): ApprovalAuditEntry[] {
+export function getRecentApprovals(
+  limit = 20,
+  deniedOnly = false,
+): ApprovalAuditEntry[] {
   const bounded = Math.max(1, Math.min(limit, 200));
   if (deniedOnly) {
     return db
-      .prepare('SELECT * FROM approvals WHERE approved = 0 ORDER BY id DESC LIMIT ?')
+      .prepare(
+        'SELECT * FROM approvals WHERE approved = 0 ORDER BY id DESC LIMIT ?',
+      )
       .all(bounded) as ApprovalAuditEntry[];
   }
   return db
@@ -475,12 +632,17 @@ export function getObservabilityOffset(streamKey: string): number {
   const normalized = streamKey.trim();
   if (!normalized) return 0;
   const row = db
-    .prepare('SELECT last_event_id FROM observability_offsets WHERE stream_key = ?')
+    .prepare(
+      'SELECT last_event_id FROM observability_offsets WHERE stream_key = ?',
+    )
     .get(normalized) as { last_event_id: number } | undefined;
   return row ? Math.max(0, Math.floor(row.last_event_id)) : 0;
 }
 
-export function setObservabilityOffset(streamKey: string, lastEventId: number): void {
+export function setObservabilityOffset(
+  streamKey: string,
+  lastEventId: number,
+): void {
   const normalized = streamKey.trim();
   if (!normalized) return;
   const boundedLastEventId = Math.max(0, Math.floor(lastEventId));
@@ -497,14 +659,19 @@ export function getObservabilityIngestToken(tokenKey: string): string | null {
   const normalized = tokenKey.trim();
   if (!normalized) return null;
   const row = db
-    .prepare('SELECT token FROM observability_ingest_tokens WHERE token_key = ?')
+    .prepare(
+      'SELECT token FROM observability_ingest_tokens WHERE token_key = ?',
+    )
     .get(normalized) as { token: string } | undefined;
   if (!row || typeof row.token !== 'string') return null;
   const token = row.token.trim();
   return token || null;
 }
 
-export function setObservabilityIngestToken(tokenKey: string, token: string): void {
+export function setObservabilityIngestToken(
+  tokenKey: string,
+  token: string,
+): void {
   const normalizedKey = tokenKey.trim();
   const normalizedToken = token.trim();
   if (!normalizedKey || !normalizedToken) return;
@@ -520,7 +687,9 @@ export function setObservabilityIngestToken(tokenKey: string, token: string): vo
 export function deleteObservabilityIngestToken(tokenKey: string): void {
   const normalized = tokenKey.trim();
   if (!normalized) return;
-  db.prepare('DELETE FROM observability_ingest_tokens WHERE token_key = ?').run(normalized);
+  db.prepare('DELETE FROM observability_ingest_tokens WHERE token_key = ?').run(
+    normalized,
+  );
 }
 
 // --- Proactive Message Queue ---
@@ -541,7 +710,7 @@ export function enqueueProactiveMessage(
 ): { queued: number; dropped: number } {
   const boundedMax = Math.max(1, Math.floor(maxQueueSize));
   db.prepare(
-    'INSERT INTO proactive_message_queue (channel_id, text, source, queued_at) VALUES (?, ?, ?, datetime(\'now\'))',
+    "INSERT INTO proactive_message_queue (channel_id, text, source, queued_at) VALUES (?, ?, ?, datetime('now'))",
   ).run(channelId, text, source);
 
   const countRow = db
@@ -566,7 +735,9 @@ export function enqueueProactiveMessage(
   };
 }
 
-export function listQueuedProactiveMessages(limit = 100): QueuedProactiveMessage[] {
+export function listQueuedProactiveMessages(
+  limit = 100,
+): QueuedProactiveMessage[] {
   const boundedLimit = Math.max(1, Math.floor(limit));
   return db
     .prepare('SELECT * FROM proactive_message_queue ORDER BY id ASC LIMIT ?')

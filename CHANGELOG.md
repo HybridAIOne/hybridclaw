@@ -2,17 +2,25 @@
 
 ## [Unreleased]
 
+## [0.2.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.4)
+
 ### Added
 
-- **Discord `/channel-policy` slash command**: Added guild policy switching directly from Discord (`open`, `allowlist`, `disabled`) with ephemeral command replies.
+- **Dynamic Discord self-presence states**: Added health-aware presence management that maps runtime state to Discord status (`online`, `idle`, `dnd`) and applies maintenance `invisible` presence during shutdown.
+- **Config-backed proactive scheduler jobs**: Added `scheduler.jobs[]` runtime jobs with `cron`/`every`/`at` schedules, `agent_turn`/`system_event` actions, and `channel`/`last-channel`/`webhook` delivery targets.
+- **Scheduler metadata persistence for config jobs**: Added atomic persisted state at `data/scheduler-jobs-state.json` for per-job `lastRun`, `lastStatus`, `consecutiveErrors`, `disabled`, and one-shot completion tracking.
+- **Discord humanization behaviors**: Added time-of-day/weekend pacing, conversation cooldown scaling after long back-and-forth, selective silence in active group channels, short-ack read-without-reply reactions, and reconnect startup staggering.
 
 ### Changed
 
-- **Docs sync for Discord channel controls**: Updated README/site guidance to document policy/mode config shape, slash command usage, and allowlist workflow.
+- **Scheduler execution model**: Scheduler now co-schedules legacy DB tasks and config jobs in one timer loop with consistent due-time arming and persisted per-job error recovery behavior.
+- **Discord inbound debounce behavior**: Debounce batching now skips immediate flush delays for commands/media and keeps per-channel debounce tuning for normal chat messages.
+- **Documentation sync for Discord humanization/scheduler controls**: Updated README and site docs to cover health-driven presence, proactive job config, and human-like reply pacing behavior.
 
 ### Fixed
 
-- **Guild mode precedence over global free-response**: Resolved trigger precedence so configured guild/channel mode (`off`/`mention`/`free`) is no longer overridden by global `discord.respondToAllMessages`.
+- **Uncanny Discord response timing**: Reduced robotic burst behavior by adding natural delay variation over long exchanges and reconnect bursts.
+- **Over-eager group replies**: Free-mode channels now avoid unnecessary follow-up replies when another participant likely already answered.
 
 ## [0.2.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.3)
 

@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 5,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -18,6 +18,40 @@
     "commandUserId": "",
     "groupPolicy": "open",
     "freeResponseChannels": [],
+    "humanDelay": {
+      "mode": "natural",
+      "minMs": 800,
+      "maxMs": 2500
+    },
+    "typingMode": "thinking",
+    "presence": {
+      "enabled": true,
+      "intervalMs": 30000,
+      "healthyText": "Watching the channels",
+      "degradedText": "Thinking slowly...",
+      "exhaustedText": "Taking a break",
+      "activityType": "watching"
+    },
+    "lifecycleReactions": {
+      "enabled": true,
+      "removeOnComplete": true,
+      "phases": {
+        "queued": "⏳",
+        "thinking": "🤔",
+        "toolUse": "⚙️",
+        "streaming": "✍️",
+        "done": "✅",
+        "error": "❌"
+      }
+    },
+    "ackReaction": "👀",
+    "ackReactionScope": "group-mentions",
+    "removeAckAfterReply": true,
+    "debounceMs": 2500,
+    "rateLimitPerUser": 0,
+    "rateLimitExemptRoles": [],
+    "suppressPatterns": ["/stop", "/pause", "brb", "afk"],
+    "maxConcurrentPerChannel": 2,
     "guilds": {}
   },
   "hybridai": {
@@ -25,11 +59,7 @@
     "defaultModel": "gpt-5-nano",
     "defaultChatbotId": "",
     "enableRag": true,
-    "models": [
-      "gpt-5-nano",
-      "gpt-5-mini",
-      "gpt-5"
-    ]
+    "models": ["gpt-5-nano", "gpt-5-mini", "gpt-5"]
   },
   "container": {
     "image": "hybridclaw-agent",
@@ -106,5 +136,27 @@
     "ralph": {
       "maxIterations": 0
     }
+  },
+  "scheduler": {
+    "jobs": [
+      {
+        "id": "morning-standup",
+        "schedule": {
+          "kind": "cron",
+          "expr": "0 9 * * 1-5",
+          "tz": "America/New_York"
+        },
+        "action": {
+          "kind": "agent_turn",
+          "message": "Post a brief morning standup update for the team."
+        },
+        "delivery": {
+          "kind": "channel",
+          "channel": "discord",
+          "to": "123456789012345678"
+        },
+        "enabled": false
+      }
+    ]
   }
 }

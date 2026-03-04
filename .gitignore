@@ -5,6 +5,7 @@ container/node_modules/
 # Build output
 dist/
 container/dist/
+coverage/
 
 # Runtime data
 data/

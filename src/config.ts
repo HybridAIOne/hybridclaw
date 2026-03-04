@@ -1,7 +1,7 @@
+import { randomBytes } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { randomBytes } from 'crypto';
 
 import { loadEnvFile } from './env.js';
 import {
@@ -62,8 +62,51 @@ export let DISCORD_PRESENCE_INTENT = false;
 export let DISCORD_RESPOND_TO_ALL_MESSAGES = false;
 export let DISCORD_COMMANDS_ONLY = false;
 export let DISCORD_COMMAND_USER_ID = '';
-export let DISCORD_GROUP_POLICY: RuntimeConfig['discord']['groupPolicy'] = 'open';
+export let DISCORD_GROUP_POLICY: RuntimeConfig['discord']['groupPolicy'] =
+  'open';
 export let DISCORD_FREE_RESPONSE_CHANNELS: string[] = [];
+export let DISCORD_HUMAN_DELAY: RuntimeConfig['discord']['humanDelay'] = {
+  mode: 'natural',
+  minMs: 800,
+  maxMs: 2_500,
+};
+export let DISCORD_TYPING_MODE: RuntimeConfig['discord']['typingMode'] =
+  'thinking';
+export let DISCORD_SELF_PRESENCE: RuntimeConfig['discord']['presence'] = {
+  enabled: true,
+  intervalMs: 30_000,
+  healthyText: 'Watching the channels',
+  degradedText: 'Thinking slowly...',
+  exhaustedText: 'Taking a break',
+  activityType: 'watching',
+};
+export let DISCORD_LIFECYCLE_REACTIONS: RuntimeConfig['discord']['lifecycleReactions'] =
+  {
+    enabled: true,
+    removeOnComplete: true,
+    phases: {
+      queued: '⏳',
+      thinking: '🤔',
+      toolUse: '⚙️',
+      streaming: '✍️',
+      done: '✅',
+      error: '❌',
+    },
+  };
+export let DISCORD_ACK_REACTION = '👀';
+export let DISCORD_ACK_REACTION_SCOPE: RuntimeConfig['discord']['ackReactionScope'] =
+  'group-mentions';
+export let DISCORD_REMOVE_ACK_AFTER_REPLY = true;
+export let DISCORD_DEBOUNCE_MS = 2_500;
+export let DISCORD_RATE_LIMIT_PER_USER = 0;
+export let DISCORD_RATE_LIMIT_EXEMPT_ROLES: string[] = [];
+export let DISCORD_SUPPRESS_PATTERNS: string[] = [
+  '/stop',
+  '/pause',
+  'brb',
+  'afk',
+];
+export let DISCORD_MAX_CONCURRENT_PER_CHANNEL = 2;
 export let DISCORD_GUILDS: RuntimeConfig['discord']['guilds'] = {};
 
 export let HYBRIDAI_BASE_URL = 'https://hybridai.one';
@@ -78,7 +121,10 @@ export let CONTAINER_CPUS = '1';
 export let CONTAINER_TIMEOUT = 300_000;
 
 export const MOUNT_ALLOWLIST_PATH = path.join(
-  os.homedir(), '.config', 'hybridclaw', 'mount-allowlist.json',
+  os.homedir(),
+  '.config',
+  'hybridclaw',
+  'mount-allowlist.json',
 );
 export let ADDITIONAL_MOUNTS = '';
 
@@ -100,7 +146,8 @@ export let DATA_DIR = path.dirname(DB_PATH);
 
 export let OBSERVABILITY_ENABLED = true;
 export let OBSERVABILITY_BASE_URL = 'https://hybridai.one';
-export let OBSERVABILITY_INGEST_PATH = '/api/v1/agent-observability/events:batch';
+export let OBSERVABILITY_INGEST_PATH =
+  '/api/v1/agent-observability/events:batch';
 export let OBSERVABILITY_STATUS_PATH = '/api/v1/agent-observability/status';
 export let OBSERVABILITY_BOT_ID = '';
 export let OBSERVABILITY_AGENT_ID = 'agent_main';
@@ -143,7 +190,30 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_COMMAND_USER_ID = config.discord.commandUserId;
   DISCORD_GROUP_POLICY = config.discord.groupPolicy;
   DISCORD_FREE_RESPONSE_CHANNELS = [...config.discord.freeResponseChannels];
-  DISCORD_GUILDS = JSON.parse(JSON.stringify(config.discord.guilds)) as RuntimeConfig['discord']['guilds'];
+  DISCORD_HUMAN_DELAY = JSON.parse(
+    JSON.stringify(config.discord.humanDelay),
+  ) as RuntimeConfig['discord']['humanDelay'];
+  DISCORD_TYPING_MODE = config.discord.typingMode;
+  DISCORD_SELF_PRESENCE = JSON.parse(
+    JSON.stringify(config.discord.presence),
+  ) as RuntimeConfig['discord']['presence'];
+  DISCORD_LIFECYCLE_REACTIONS = JSON.parse(
+    JSON.stringify(config.discord.lifecycleReactions),
+  ) as RuntimeConfig['discord']['lifecycleReactions'];
+  DISCORD_ACK_REACTION = config.discord.ackReaction;
+  DISCORD_ACK_REACTION_SCOPE = config.discord.ackReactionScope;
+  DISCORD_REMOVE_ACK_AFTER_REPLY = config.discord.removeAckAfterReply;
+  DISCORD_DEBOUNCE_MS = Math.max(0, config.discord.debounceMs);
+  DISCORD_RATE_LIMIT_PER_USER = Math.max(0, config.discord.rateLimitPerUser);
+  DISCORD_RATE_LIMIT_EXEMPT_ROLES = [...config.discord.rateLimitExemptRoles];
+  DISCORD_SUPPRESS_PATTERNS = [...config.discord.suppressPatterns];
+  DISCORD_MAX_CONCURRENT_PER_CHANNEL = Math.max(
+    1,
+    config.discord.maxConcurrentPerChannel,
+  );
+  DISCORD_GUILDS = JSON.parse(
+    JSON.stringify(config.discord.guilds),
+  ) as RuntimeConfig['discord']['guilds'];
 
   HYBRIDAI_BASE_URL = config.hybridai.baseUrl;
   HYBRIDAI_MODEL = config.hybridai.defaultModel;
@@ -168,10 +238,10 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   WEB_API_TOKEN = process.env.WEB_API_TOKEN || config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
   GATEWAY_API_TOKEN =
-    process.env.GATEWAY_API_TOKEN
-    || config.ops.gatewayApiToken
-    || WEB_API_TOKEN
-    || INTERNAL_GATEWAY_API_TOKEN;
+    process.env.GATEWAY_API_TOKEN ||
+    config.ops.gatewayApiToken ||
+    WEB_API_TOKEN ||
+    INTERNAL_GATEWAY_API_TOKEN;
   DB_PATH = config.ops.dbPath;
   DATA_DIR = path.dirname(DB_PATH);
 
@@ -183,41 +253,86 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   OBSERVABILITY_AGENT_ID = config.observability.agentId;
   OBSERVABILITY_LABEL = config.observability.label;
   OBSERVABILITY_ENVIRONMENT = config.observability.environment;
-  OBSERVABILITY_FLUSH_INTERVAL_MS = Math.max(1_000, config.observability.flushIntervalMs);
-  OBSERVABILITY_BATCH_MAX_EVENTS = Math.max(1, Math.min(1_000, config.observability.batchMaxEvents));
+  OBSERVABILITY_FLUSH_INTERVAL_MS = Math.max(
+    1_000,
+    config.observability.flushIntervalMs,
+  );
+  OBSERVABILITY_BATCH_MAX_EVENTS = Math.max(
+    1,
+    Math.min(1_000, config.observability.batchMaxEvents),
+  );
 
   SESSION_COMPACTION_ENABLED = config.sessionCompaction.enabled;
-  SESSION_COMPACTION_THRESHOLD = Math.max(20, config.sessionCompaction.threshold);
+  SESSION_COMPACTION_THRESHOLD = Math.max(
+    20,
+    config.sessionCompaction.threshold,
+  );
   SESSION_COMPACTION_KEEP_RECENT = Math.max(
     1,
-    Math.min(config.sessionCompaction.keepRecent, SESSION_COMPACTION_THRESHOLD - 1),
+    Math.min(
+      config.sessionCompaction.keepRecent,
+      SESSION_COMPACTION_THRESHOLD - 1,
+    ),
   );
-  SESSION_COMPACTION_SUMMARY_MAX_CHARS = Math.max(1_000, config.sessionCompaction.summaryMaxChars);
-  PRE_COMPACTION_MEMORY_FLUSH_ENABLED = config.sessionCompaction.preCompactionMemoryFlush.enabled;
-  PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES = Math.max(8, config.sessionCompaction.preCompactionMemoryFlush.maxMessages);
-  PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS = Math.max(4_000, config.sessionCompaction.preCompactionMemoryFlush.maxChars);
+  SESSION_COMPACTION_SUMMARY_MAX_CHARS = Math.max(
+    1_000,
+    config.sessionCompaction.summaryMaxChars,
+  );
+  PRE_COMPACTION_MEMORY_FLUSH_ENABLED =
+    config.sessionCompaction.preCompactionMemoryFlush.enabled;
+  PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES = Math.max(
+    8,
+    config.sessionCompaction.preCompactionMemoryFlush.maxMessages,
+  );
+  PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS = Math.max(
+    4_000,
+    config.sessionCompaction.preCompactionMemoryFlush.maxChars,
+  );
 
   PROACTIVE_ACTIVE_HOURS_ENABLED = config.proactive.activeHours.enabled;
   PROACTIVE_ACTIVE_HOURS_TIMEZONE = config.proactive.activeHours.timezone;
-  PROACTIVE_ACTIVE_HOURS_START = Math.max(0, Math.min(23, config.proactive.activeHours.startHour));
-  PROACTIVE_ACTIVE_HOURS_END = Math.max(0, Math.min(23, config.proactive.activeHours.endHour));
-  PROACTIVE_QUEUE_OUTSIDE_HOURS = config.proactive.activeHours.queueOutsideHours;
+  PROACTIVE_ACTIVE_HOURS_START = Math.max(
+    0,
+    Math.min(23, config.proactive.activeHours.startHour),
+  );
+  PROACTIVE_ACTIVE_HOURS_END = Math.max(
+    0,
+    Math.min(23, config.proactive.activeHours.endHour),
+  );
+  PROACTIVE_QUEUE_OUTSIDE_HOURS =
+    config.proactive.activeHours.queueOutsideHours;
 
   PROACTIVE_DELEGATION_ENABLED = config.proactive.delegation.enabled;
-  PROACTIVE_DELEGATION_MAX_CONCURRENT = Math.max(1, config.proactive.delegation.maxConcurrent);
-  PROACTIVE_DELEGATION_MAX_DEPTH = Math.max(1, config.proactive.delegation.maxDepth);
-  PROACTIVE_DELEGATION_MAX_PER_TURN = Math.max(1, config.proactive.delegation.maxPerTurn);
+  PROACTIVE_DELEGATION_MAX_CONCURRENT = Math.max(
+    1,
+    config.proactive.delegation.maxConcurrent,
+  );
+  PROACTIVE_DELEGATION_MAX_DEPTH = Math.max(
+    1,
+    config.proactive.delegation.maxDepth,
+  );
+  PROACTIVE_DELEGATION_MAX_PER_TURN = Math.max(
+    1,
+    config.proactive.delegation.maxPerTurn,
+  );
 
   PROACTIVE_AUTO_RETRY_ENABLED = config.proactive.autoRetry.enabled;
-  PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS = Math.max(1, config.proactive.autoRetry.maxAttempts);
-  PROACTIVE_AUTO_RETRY_BASE_DELAY_MS = Math.max(100, config.proactive.autoRetry.baseDelayMs);
+  PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS = Math.max(
+    1,
+    config.proactive.autoRetry.maxAttempts,
+  );
+  PROACTIVE_AUTO_RETRY_BASE_DELAY_MS = Math.max(
+    100,
+    config.proactive.autoRetry.baseDelayMs,
+  );
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS = Math.max(
     PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
     config.proactive.autoRetry.maxDelayMs,
   );
 
   const rawRalphMax = Math.trunc(config.proactive.ralph.maxIterations);
-  PROACTIVE_RALPH_MAX_ITERATIONS = rawRalphMax === -1 ? -1 : Math.max(0, rawRalphMax);
+  PROACTIVE_RALPH_MAX_ITERATIONS =
+    rawRalphMax === -1 ? -1 : Math.max(0, rawRalphMax);
 }
 
 applyRuntimeConfig(getRuntimeConfig());

@@ -2,7 +2,10 @@ import { expect, test } from 'vitest';
 
 import { buildResponseText } from '../src/channels/discord/delivery.js';
 import { isTrigger, parseCommand } from '../src/channels/discord/inbound.js';
-import { rewriteUserMentions, type MentionLookup } from '../src/channels/discord/mentions.js';
+import {
+  type MentionLookup,
+  rewriteUserMentions,
+} from '../src/channels/discord/mentions.js';
 
 function createLookup(entries: Record<string, string[]>): MentionLookup {
   const byAlias = new Map<string, Set<string>>();
@@ -19,7 +22,9 @@ test('rewriteUserMentions rewrites a uniquely-resolved @alias', () => {
 });
 
 test('rewriteUserMentions does not rewrite ambiguous aliases', () => {
-  const lookup = createLookup({ bob: ['111111111111111111', '222222222222222222'] });
+  const lookup = createLookup({
+    bob: ['111111111111111111', '222222222222222222'],
+  });
   const output = rewriteUserMentions('hi @bob', lookup);
   expect(output).toBe('hi @bob');
 });
@@ -73,7 +78,7 @@ test('isTrigger still allows prefixed commands when channel mode is off', () => 
 
 test('isTrigger allows free-response mode in guild channels', () => {
   const shouldTrigger = isTrigger({
-    content: 'hello',
+    content: 'Can you review this patch?',
     isDm: false,
     commandsOnly: false,
     respondToAllMessages: false,
@@ -83,6 +88,20 @@ test('isTrigger allows free-response mode in guild channels', () => {
     hasBotMention: false,
   });
   expect(shouldTrigger).toBe(true);
+});
+
+test('isTrigger keeps mention mode even when respondToAllMessages is enabled', () => {
+  const shouldTrigger = isTrigger({
+    content: 'hello',
+    isDm: false,
+    commandsOnly: false,
+    respondToAllMessages: true,
+    guildMessageMode: 'mention',
+    prefix: '!claw',
+    botMentionRegex: null,
+    hasBotMention: false,
+  });
+  expect(shouldTrigger).toBe(false);
 });
 
 test('parseCommand recognizes channel command namespace', () => {

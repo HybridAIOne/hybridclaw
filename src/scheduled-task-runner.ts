@@ -1,7 +1,14 @@
 import { runAgent } from './agent.js';
-import { emitToolExecutionAuditEvents, makeAuditRunId, recordAuditEvent } from './audit-events.js';
+import {
+  emitToolExecutionAuditEvents,
+  makeAuditRunId,
+  recordAuditEvent,
+} from './audit-events.js';
+import {
+  estimateTokenCountFromMessages,
+  estimateTokenCountFromText,
+} from './token-efficiency.js';
 import type { ChatMessage } from './types.js';
-import { estimateTokenCountFromMessages, estimateTokenCountFromText } from './token-efficiency.js';
 
 export async function runIsolatedScheduledTask(params: {
   taskId: number;
@@ -10,14 +17,26 @@ export async function runIsolatedScheduledTask(params: {
   chatbotId: string;
   model: string;
   agentId: string;
+  sessionKey?: string;
   onResult: (result: {
     text: string;
     artifacts?: Array<{ path: string; filename: string; mimeType: string }>;
   }) => void | Promise<void>;
   onError: (error: unknown) => void;
 }): Promise<void> {
-  const { taskId, prompt, channelId, chatbotId, model, agentId, onResult, onError } = params;
-  const cronSessionId = `cron:${taskId}`;
+  const {
+    taskId,
+    prompt,
+    channelId,
+    chatbotId,
+    model,
+    agentId,
+    sessionKey,
+    onResult,
+    onError,
+  } = params;
+  const cronSessionId =
+    sessionKey && sessionKey.trim() ? sessionKey.trim() : `cron:${taskId}`;
   const runId = makeAuditRunId('cron');
   const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
   const startedAt = Date.now();
@@ -48,20 +67,37 @@ export async function runIsolatedScheduledTask(params: {
   });
 
   try {
-    const output = await runAgent(cronSessionId, messages, chatbotId, false, model, agentId, channelId, undefined, ['cron']);
+    const output = await runAgent(
+      cronSessionId,
+      messages,
+      chatbotId,
+      false,
+      model,
+      agentId,
+      channelId,
+      undefined,
+      ['cron'],
+    );
     emitToolExecutionAuditEvents({
       sessionId: cronSessionId,
       runId,
       toolExecutions: output.toolExecutions || [],
     });
     const tokenUsage = output.tokenUsage;
-    const estimatedPromptTokens = tokenUsage?.estimatedPromptTokens || estimateTokenCountFromMessages(messages);
-    const estimatedCompletionTokens = tokenUsage?.estimatedCompletionTokens || estimateTokenCountFromText(output.result || '');
-    const estimatedTotalTokens = tokenUsage?.estimatedTotalTokens || (estimatedPromptTokens + estimatedCompletionTokens);
+    const estimatedPromptTokens =
+      tokenUsage?.estimatedPromptTokens ||
+      estimateTokenCountFromMessages(messages);
+    const estimatedCompletionTokens =
+      tokenUsage?.estimatedCompletionTokens ||
+      estimateTokenCountFromText(output.result || '');
+    const estimatedTotalTokens =
+      tokenUsage?.estimatedTotalTokens ||
+      estimatedPromptTokens + estimatedCompletionTokens;
     const apiUsageAvailable = tokenUsage?.apiUsageAvailable === true;
     const apiPromptTokens = tokenUsage?.apiPromptTokens || 0;
     const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
-    const apiTotalTokens = tokenUsage?.apiTotalTokens || (apiPromptTokens + apiCompletionTokens);
+    const apiTotalTokens =
+      tokenUsage?.apiTotalTokens || apiPromptTokens + apiCompletionTokens;
     recordAuditEvent({
       sessionId: cronSessionId,
       runId,
@@ -72,8 +108,12 @@ export async function runIsolatedScheduledTask(params: {
         durationMs: Date.now() - startedAt,
         toolCallCount: (output.toolExecutions || []).length,
         modelCalls: tokenUsage ? Math.max(1, tokenUsage.modelCalls) : 0,
-        promptTokens: apiUsageAvailable ? apiPromptTokens : estimatedPromptTokens,
-        completionTokens: apiUsageAvailable ? apiCompletionTokens : estimatedCompletionTokens,
+        promptTokens: apiUsageAvailable
+          ? apiPromptTokens
+          : estimatedPromptTokens,
+        completionTokens: apiUsageAvailable
+          ? apiCompletionTokens
+          : estimatedCompletionTokens,
         totalTokens: apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens,
         estimatedPromptTokens,
         estimatedCompletionTokens,

@@ -1,17 +1,25 @@
-import {
-  AttachmentBuilder,
-  type Message as DiscordMessage,
-} from 'discord.js';
+import type { AttachmentBuilder, Message as DiscordMessage } from 'discord.js';
 
 import { chunkMessage } from '../../chunk.js';
 import { logger } from '../../logger.js';
+import {
+  getHumanDelayMs,
+  type HumanDelayConfig,
+  sleep,
+} from './human-delay.js';
 
 interface DiscordSendChannel {
-  send: (payload: { content: string; files?: AttachmentBuilder[] }) => Promise<DiscordMessage>;
+  send: (payload: {
+    content: string;
+    files?: AttachmentBuilder[];
+  }) => Promise<DiscordMessage>;
 }
 
 interface DiscordEditMessage {
-  edit: (payload: { content: string; files?: AttachmentBuilder[] }) => Promise<DiscordMessage>;
+  edit: (payload: {
+    content: string;
+    files?: AttachmentBuilder[];
+  }) => Promise<DiscordMessage>;
   delete: () => Promise<unknown>;
 }
 
@@ -29,6 +37,7 @@ export interface DiscordStreamOptions {
   maxLines?: number;
   editIntervalMs?: number;
   onFirstMessage?: () => void;
+  humanDelay?: HumanDelayConfig;
 }
 
 const DEFAULT_MAX_CHARS = 1_800;
@@ -40,20 +49,30 @@ const RETRY_BASE_DELAY_MS = 500;
 function isRetryableDiscordError(error: unknown): boolean {
   const maybe = error as DiscordErrorLike;
   const status = maybe.status ?? maybe.httpStatus;
-  return status === 429 || (typeof status === 'number' && status >= 500 && status <= 599);
+  return (
+    status === 429 ||
+    (typeof status === 'number' && status >= 500 && status <= 599)
+  );
 }
 
 function extractRetryDelayMs(error: unknown, fallbackMs: number): number {
   const maybe = error as DiscordErrorLike;
   const retryAfterSeconds = maybe.retryAfter ?? maybe.data?.retry_after;
-  if (typeof retryAfterSeconds === 'number' && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+  if (
+    typeof retryAfterSeconds === 'number' &&
+    Number.isFinite(retryAfterSeconds) &&
+    retryAfterSeconds > 0
+  ) {
     return Math.max(50, Math.ceil(retryAfterSeconds * 1_000));
   }
   const jitter = Math.floor(Math.random() * 250);
   return fallbackMs + jitter;
 }
 
-async function withDiscordRetry<T>(label: string, run: () => Promise<T>): Promise<T> {
+async function withDiscordRetry<T>(
+  label: string,
+  run: () => Promise<T>,
+): Promise<T> {
   let attempt = 0;
   let delayMs = RETRY_BASE_DELAY_MS;
   while (true) {
@@ -65,7 +84,10 @@ async function withDiscordRetry<T>(label: string, run: () => Promise<T>): Promis
         throw error;
       }
       const waitMs = extractRetryDelayMs(error, delayMs);
-      logger.warn({ label, attempt, waitMs, error }, 'Discord request failed; retrying');
+      logger.warn(
+        { label, attempt, waitMs, error },
+        'Discord request failed; retrying',
+      );
       await new Promise((resolve) => setTimeout(resolve, waitMs));
       delayMs = Math.min(delayMs * 2, 4_000);
     }
@@ -79,6 +101,7 @@ export class DiscordStreamManager {
   private readonly maxLines: number;
   private readonly editIntervalMs: number;
   private readonly onFirstMessage?: () => void;
+  private readonly humanDelay?: HumanDelayConfig;
 
   private readonly messages: DiscordEditMessage[] = [];
   private sentChunks: string[] = [];
@@ -93,8 +116,12 @@ export class DiscordStreamManager {
     this.channel = sourceMessage.channel as unknown as DiscordSendChannel;
     this.maxChars = Math.max(200, options?.maxChars ?? DEFAULT_MAX_CHARS);
     this.maxLines = Math.max(4, options?.maxLines ?? DEFAULT_MAX_LINES);
-    this.editIntervalMs = Math.max(250, options?.editIntervalMs ?? DEFAULT_EDIT_INTERVAL_MS);
+    this.editIntervalMs = Math.max(
+      250,
+      options?.editIntervalMs ?? DEFAULT_EDIT_INTERVAL_MS,
+    );
     this.onFirstMessage = options?.onFirstMessage;
+    this.humanDelay = options?.humanDelay;
   }
 
   hasSentMessages(): boolean {
@@ -125,9 +152,7 @@ export class DiscordStreamManager {
 
   fail(errorText: string): Promise<void> {
     if (this.closed) return Promise.resolve();
-    this.content = this.content
-      ? `${this.content}\n\n${errorText}`
-      : errorText;
+    this.content = this.content ? `${this.content}\n\n${errorText}` : errorText;
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
@@ -159,17 +184,18 @@ export class DiscordStreamManager {
   }
 
   private enqueue(task: () => Promise<void>): Promise<void> {
-    this.opQueue = this.opQueue
-      .then(task)
-      .catch((error) => {
-        logger.warn({ error }, 'Discord stream operation failed');
-      });
+    this.opQueue = this.opQueue.then(task).catch((error) => {
+      logger.warn({ error }, 'Discord stream operation failed');
+    });
     return this.opQueue;
   }
 
   private scheduleFlush(): void {
     if (this.flushTimer || this.closed) return;
-    const waitMs = Math.max(0, this.editIntervalMs - (Date.now() - this.lastEditAt));
+    const waitMs = Math.max(
+      0,
+      this.editIntervalMs - (Date.now() - this.lastEditAt),
+    );
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       void this.enqueue(async () => {
@@ -178,7 +204,10 @@ export class DiscordStreamManager {
     }, waitMs);
   }
 
-  private async sync(forceLastEdit: boolean, files?: AttachmentBuilder[]): Promise<void> {
+  private async sync(
+    forceLastEdit: boolean,
+    files?: AttachmentBuilder[],
+  ): Promise<void> {
     const chunks = chunkMessage(this.content, {
       maxChars: this.maxChars,
       maxLines: this.maxLines,
@@ -187,7 +216,9 @@ export class DiscordStreamManager {
     if (chunks.length === 0) {
       if (files && files.length > 0) {
         const fallback = 'Attached files:';
-        const sent = await withDiscordRetry('reply', () => this.sourceMessage.reply({ content: fallback, files }));
+        const sent = await withDiscordRetry('reply', () =>
+          this.sourceMessage.reply({ content: fallback, files }),
+        );
         this.messages.push(sent as unknown as DiscordEditMessage);
         this.sentChunks.push(fallback);
         this.onFirstMessage?.();
@@ -200,9 +231,20 @@ export class DiscordStreamManager {
       const isLast = i === chunks.length - 1;
 
       if (i >= this.messages.length) {
-        const sent = i === 0
-          ? await withDiscordRetry('reply', () => this.sourceMessage.reply({ content: chunk }))
-          : await withDiscordRetry('send', () => this.channel.send({ content: chunk }));
+        if (i > 0) {
+          const delayMs = getHumanDelayMs(this.humanDelay);
+          if (delayMs > 0) {
+            await sleep(delayMs);
+          }
+        }
+        const sent =
+          i === 0
+            ? await withDiscordRetry('reply', () =>
+                this.sourceMessage.reply({ content: chunk }),
+              )
+            : await withDiscordRetry('send', () =>
+                this.channel.send({ content: chunk }),
+              );
         this.messages.push(sent as unknown as DiscordEditMessage);
         this.sentChunks.push(chunk);
         this.onFirstMessage?.();
@@ -217,7 +259,9 @@ export class DiscordStreamManager {
         continue;
       }
 
-      await withDiscordRetry('edit', () => this.messages[i].edit({ content: chunk }));
+      await withDiscordRetry('edit', () =>
+        this.messages[i].edit({ content: chunk }),
+      );
       this.sentChunks[i] = chunk;
       this.lastEditAt = Date.now();
     }
@@ -232,7 +276,9 @@ export class DiscordStreamManager {
 
     if (files && files.length > 0) {
       const lastIndex = chunks.length - 1;
-      await withDiscordRetry('edit', () => this.messages[lastIndex].edit({ content: chunks[lastIndex], files }));
+      await withDiscordRetry('edit', () =>
+        this.messages[lastIndex].edit({ content: chunks[lastIndex], files }),
+      );
       this.sentChunks[lastIndex] = chunks[lastIndex];
       this.lastEditAt = Date.now();
     }
