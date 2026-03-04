@@ -11,17 +11,15 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.2.2](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.2)
+Latest release: [v0.2.3](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.3)
 
-## What's new in v0.2.2
+## What's new in v0.2.3
 
-- Added Discord attachment ingest/cache with structured media context (`path`, `mime`, `size`, `original_url`) passed into the agent pipeline
-- Added `vision_analyze`/`image` tools for Discord-uploaded image analysis (local cached path first, Discord CDN fallback)
-- Added native model vision image-part injection for vision-capable models, with safe fallback if multimodal input is rejected
-- Routed Discord image questions away from `browser_vision` (unless explicitly about the active browser tab/page)
-- Completed Discord runtime migration into `src/channels/discord/*` and removed the legacy root-level `src/discord.ts` shim
-- Switched tests from compiled `dist-tests` artifacts to direct TypeScript execution via Vitest
-- Moved basic tests to `tests/` with explicit scope naming conventions
+- Added Discord guild channel policy controls with typed config: `discord.groupPolicy`, `discord.freeResponseChannels`, and `discord.guilds.<guildId>.channels.<channelId>.mode`
+- Added `/channel-mode` slash command to switch a channel between `off`, `mention`, and `free`
+- Added `!claw channel mode` and `!claw channel policy` command flows for in-chat policy changes
+- Enforced channel mode/policy in Discord trigger logic while keeping prefixed commands available
+- Updated status/activation labeling to reflect allowlist/disabled/mixed channel policy modes
 
 ## HybridAI Advantage
 
@@ -108,6 +106,10 @@ HybridClaw uses typed runtime config in `config.json` (auto-created on first run
 - `discord.respondToAllMessages` changes guild trigger behavior: `false` (default) replies only on mention/`!claw`; `true` replies to every user message in the channel
 - `discord.commandUserId` restricts `!claw <command>` admin commands to a single Discord user ID (all other messages still use normal chat handling)
 - `discord.commandsOnly` optional hard mode: if `true`, the bot ignores non-`!claw` messages and only accepts prefixed commands (optionally limited by `discord.commandUserId`)
+- `discord.groupPolicy` controls guild channel scope: `open` (default), `allowlist`, or `disabled`
+- `discord.freeResponseChannels` is a Hermes-style channel ID list that gets free-response behavior while other channels remain mention-gated
+- `discord.guilds.<guildId>.channels.<channelId>.mode` sets per-channel behavior to `off`, `mention`, or `free` (works with `allowlist` policy)
+- Discord slash commands: `/status` and `/channel-mode <off|mention|free>` (ephemeral replies)
 - `skills.extraDirs` adds additional enterprise/shared skill roots (lowest precedence tier)
 - `proactive.*` controls autonomous behavior (`activeHours`, `delegation`, `autoRetry`, `ralph`)
 - `proactive.ralph.maxIterations` enables Ralph loop (`0` off, `-1` unlimited, `>0` extra autonomous iterations before forcing completion)

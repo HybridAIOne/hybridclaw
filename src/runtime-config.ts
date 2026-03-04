@@ -24,6 +24,14 @@ export interface RuntimeSecurityConfig {
   trustModelAcceptedBy: string;
 }
 
+export type DiscordGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type DiscordChannelMode = 'off' | 'mention' | 'free';
+
+export interface RuntimeDiscordGuildConfig {
+  defaultMode: DiscordChannelMode;
+  channels: Record<string, { mode: DiscordChannelMode }>;
+}
+
 export interface RuntimeConfig {
   version: number;
   security: RuntimeSecurityConfig;
@@ -37,6 +45,9 @@ export interface RuntimeConfig {
     respondToAllMessages: boolean;
     commandsOnly: boolean;
     commandUserId: string;
+    groupPolicy: DiscordGroupPolicy;
+    freeResponseChannels: string[];
+    guilds: Record<string, RuntimeDiscordGuildConfig>;
   };
   hybridai: {
     baseUrl: string;
@@ -143,6 +154,9 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     respondToAllMessages: false,
     commandsOnly: false,
     commandUserId: '',
+    groupPolicy: 'open',
+    freeResponseChannels: [],
+    guilds: {},
   },
   hybridai: {
     baseUrl: 'https://hybridai.one',
@@ -312,6 +326,60 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   return fallback;
 }
 
+function normalizeDiscordGroupPolicy(value: unknown, fallback: DiscordGroupPolicy): DiscordGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'open' || normalized === 'allowlist' || normalized === 'disabled') {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeDiscordChannelMode(value: unknown, fallback: DiscordChannelMode): DiscordChannelMode {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'off' || normalized === 'mention' || normalized === 'free') return normalized;
+  if (normalized === 'free-response' || normalized === 'free_response') return 'free';
+  return fallback;
+}
+
+function normalizeDiscordGuildConfig(
+  value: unknown,
+  fallback: RuntimeDiscordGuildConfig,
+): RuntimeDiscordGuildConfig {
+  if (!isRecord(value)) return fallback;
+  const defaultMode = normalizeDiscordChannelMode(value.defaultMode, fallback.defaultMode);
+  const rawChannels = isRecord(value.channels) ? value.channels : {};
+  const channels: Record<string, { mode: DiscordChannelMode }> = {};
+  for (const [rawChannelId, rawChannelConfig] of Object.entries(rawChannels)) {
+    const channelId = rawChannelId.trim();
+    if (!channelId) continue;
+    if (typeof rawChannelConfig === 'string') {
+      channels[channelId] = { mode: normalizeDiscordChannelMode(rawChannelConfig, defaultMode) };
+      continue;
+    }
+    if (!isRecord(rawChannelConfig)) continue;
+    channels[channelId] = { mode: normalizeDiscordChannelMode(rawChannelConfig.mode, defaultMode) };
+  }
+
+  return { defaultMode, channels };
+}
+
+function normalizeDiscordGuildMap(
+  value: unknown,
+  fallback: Record<string, RuntimeDiscordGuildConfig>,
+): Record<string, RuntimeDiscordGuildConfig> {
+  if (!isRecord(value)) return fallback;
+  const guilds: Record<string, RuntimeDiscordGuildConfig> = {};
+  for (const [rawGuildId, rawGuildConfig] of Object.entries(value)) {
+    const guildId = rawGuildId.trim();
+    if (!guildId) continue;
+    const fallbackGuild = fallback[guildId] ?? { defaultMode: 'mention', channels: {} };
+    guilds[guildId] = normalizeDiscordGuildConfig(rawGuildConfig, fallbackGuild);
+  }
+  return guilds;
+}
+
 function normalizeLogLevel(value: unknown, fallback: LogLevel): LogLevel {
   const normalized = normalizeString(value, fallback, { allowEmpty: false }).toLowerCase();
   if (KNOWN_LOG_LEVELS.has(normalized)) return normalized as LogLevel;
@@ -419,6 +487,15 @@ function normalizeRuntimeConfig(patch?: DeepPartial<RuntimeConfig>): RuntimeConf
         DEFAULT_RUNTIME_CONFIG.discord.commandUserId,
         { allowEmpty: true },
       ),
+      groupPolicy: normalizeDiscordGroupPolicy(
+        rawDiscord.groupPolicy,
+        DEFAULT_RUNTIME_CONFIG.discord.groupPolicy,
+      ),
+      freeResponseChannels: normalizeStringArray(
+        rawDiscord.freeResponseChannels,
+        DEFAULT_RUNTIME_CONFIG.discord.freeResponseChannels,
+      ),
+      guilds: normalizeDiscordGuildMap(rawDiscord.guilds, DEFAULT_RUNTIME_CONFIG.discord.guilds),
     },
     hybridai: {
       baseUrl: hybridBaseUrl,

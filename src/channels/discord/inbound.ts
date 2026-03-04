@@ -4,6 +4,8 @@ export interface ParsedCommand {
   args: string[];
 }
 
+export type DiscordGuildMessageMode = 'off' | 'mention' | 'free';
+
 export function stripBotMentions(text: string, botMentionRegex: RegExp | null): string {
   if (!botMentionRegex) return text;
   return text.replace(botMentionRegex, '').trim();
@@ -45,7 +47,7 @@ export function parseCommand(
   }
 
   const parts = text.split(/\s+/);
-  const subcommands = ['bot', 'rag', 'model', 'sessions', 'audit', 'schedule', 'clear', 'help'];
+  const subcommands = ['bot', 'rag', 'model', 'sessions', 'audit', 'schedule', 'channel', 'clear', 'help'];
   if (parts.length > 0 && subcommands.includes(parts[0].toLowerCase())) {
     return { isCommand: true, command: parts[0].toLowerCase(), args: parts.slice(1) };
   }
@@ -58,6 +60,7 @@ export function isTrigger(params: {
   isDm: boolean;
   commandsOnly: boolean;
   respondToAllMessages: boolean;
+  guildMessageMode: DiscordGuildMessageMode;
   prefix: string;
   botMentionRegex: RegExp | null;
   hasBotMention: boolean;
@@ -66,7 +69,10 @@ export function isTrigger(params: {
     return hasPrefixInvocation(params.content, params.botMentionRegex, params.prefix);
   }
   if (params.isDm) return true;
+  if (hasPrefixInvocation(params.content, params.botMentionRegex, params.prefix)) return true;
+  if (params.guildMessageMode === 'off') return false;
+  if (params.guildMessageMode === 'free') return true;
   if (params.respondToAllMessages) return true;
   if (params.hasBotMention) return true;
-  return params.content.startsWith(params.prefix);
+  return false;
 }

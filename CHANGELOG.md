@@ -8,6 +8,21 @@
 
 ### Fixed
 
+## [0.2.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.3)
+
+### Added
+
+- **Discord channel policy config**: Added typed runtime config support for `discord.groupPolicy` (`open`/`allowlist`/`disabled`), `discord.freeResponseChannels`, and per-guild/per-channel mode overrides at `discord.guilds.<guildId>.channels.<channelId>.mode`.
+- **Discord channel mode slash command**: Added `/channel-mode` with `off`, `mention`, and `free` options to set the active guild channel behavior directly from Discord.
+- **Gateway channel control commands**: Added `channel mode` and `channel policy` command flows for inspecting/updating Discord channel response behavior via `!claw` commands.
+
+### Changed
+
+- **Discord trigger enforcement**: Guild message handling now applies channel mode + group policy before normal trigger checks, while still allowing prefixed commands in disabled channels.
+- **Activation/status labeling**: Runtime status output now reflects `disabled`/`allowlist`/mixed free-channel activation modes instead of only legacy mention/all-messages labels.
+
+### Fixed
+
 ## [0.2.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.2)
 
 ### Added

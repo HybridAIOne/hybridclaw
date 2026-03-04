@@ -15,7 +15,10 @@
     "presenceIntent": false,
     "respondToAllMessages": false,
     "commandsOnly": false,
-    "commandUserId": ""
+    "commandUserId": "",
+    "groupPolicy": "open",
+    "freeResponseChannels": [],
+    "guilds": {}
   },
   "hybridai": {
     "baseUrl": "https://hybridai.one",

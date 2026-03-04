@@ -1,8 +1,10 @@
 import {
   ActivityType,
+  ApplicationCommandOptionType,
   AttachmentBuilder,
   Client,
   GatewayIntentBits,
+  type ApplicationCommandDataResolvable,
   type Message as DiscordMessage,
   Partials,
 } from 'discord.js';
@@ -10,7 +12,10 @@ import {
 import {
   DISCORD_COMMAND_USER_ID,
   DISCORD_COMMANDS_ONLY,
+  DISCORD_FREE_RESPONSE_CHANNELS,
+  DISCORD_GROUP_POLICY,
   DISCORD_GUILD_MEMBERS_INTENT,
+  DISCORD_GUILDS,
   DISCORD_PRESENCE_INTENT,
   DISCORD_PREFIX,
   DISCORD_RESPOND_TO_ALL_MESSAGES,
@@ -23,6 +28,7 @@ import {
   hasPrefixInvocation as hasPrefixInvocationInbound,
   isTrigger as isTriggerInbound,
   parseCommand as parseCommandInbound,
+  type DiscordGuildMessageMode,
   type ParsedCommand,
 } from './inbound.js';
 import {
@@ -433,12 +439,29 @@ function buildSessionIdFromContext(guildId: string | null, channelId: string, us
   return buildSessionIdFromContextInbound(guildId, channelId, userId);
 }
 
+function resolveGuildMessageMode(msg: DiscordMessage): DiscordGuildMessageMode {
+  if (!msg.guild) return 'free';
+  if (DISCORD_GROUP_POLICY === 'disabled') return 'off';
+
+  const guildConfig = DISCORD_GUILDS[msg.guild.id];
+  const explicitMode = guildConfig?.channels[msg.channelId]?.mode;
+  if (DISCORD_GROUP_POLICY === 'allowlist') {
+    return explicitMode ?? 'off';
+  }
+  if (explicitMode) return explicitMode;
+  if (DISCORD_FREE_RESPONSE_CHANNELS.includes(msg.channelId)) return 'free';
+  if (guildConfig) return guildConfig.defaultMode;
+  if (DISCORD_RESPOND_TO_ALL_MESSAGES) return 'free';
+  return 'mention';
+}
+
 function isTrigger(msg: DiscordMessage): boolean {
   return isTriggerInbound({
     content: msg.content,
     isDm: !msg.guild,
     commandsOnly: DISCORD_COMMANDS_ONLY,
     respondToAllMessages: DISCORD_RESPOND_TO_ALL_MESSAGES,
+    guildMessageMode: resolveGuildMessageMode(msg),
     prefix: DISCORD_PREFIX,
     botMentionRegex,
     hasBotMention: Boolean(client.user && msg.mentions.has(client.user)),
@@ -646,29 +669,60 @@ async function sendChunkedInteractionReply(
   });
 }
 
-async function ensureSlashStatusCommand(): Promise<void> {
-  const definition = {
-    name: 'status',
-    description: 'Show HybridClaw runtime status (only visible to you)',
-  };
+async function ensureSlashCommands(): Promise<void> {
+  interface SlashCommandDefinition {
+    name: string;
+    description: string;
+    options?: Array<{
+      type: ApplicationCommandOptionType.String;
+      name: string;
+      description: string;
+      required?: boolean;
+      choices?: Array<{ name: string; value: string }>;
+    }>;
+  }
+
+  const definitions: SlashCommandDefinition[] = [
+    {
+      name: 'status',
+      description: 'Show HybridClaw runtime status (only visible to you)',
+    },
+    {
+      name: 'channel-mode',
+      description: 'Set this channel to off, mention-only, or free-response',
+      options: [
+        {
+          type: ApplicationCommandOptionType.String,
+          name: 'mode',
+          description: 'Response mode for this channel',
+          required: true,
+          choices: [
+            { name: 'off', value: 'off' },
+            { name: 'mention', value: 'mention' },
+            { name: 'free', value: 'free' },
+          ],
+        },
+      ],
+    },
+  ];
 
   if (!client.application) return;
   await Promise.allSettled(
     [...client.guilds.cache.values()].map(async (guild) => {
       try {
         const existing = await guild.commands.fetch();
-        const current = existing.find((command) => command.name === definition.name);
-        if (!current) {
-          await guild.commands.create(definition);
-          logger.info({ guildId: guild.id }, 'Registered slash command /status');
-          return;
-        }
-        if (current.description !== definition.description) {
-          await guild.commands.edit(current.id, definition);
-          logger.info({ guildId: guild.id }, 'Updated slash command /status');
+        for (const definition of definitions) {
+          const current = existing.find((command) => command.name === definition.name);
+          if (!current) {
+            await guild.commands.create(definition as unknown as ApplicationCommandDataResolvable);
+            logger.info({ guildId: guild.id, command: definition.name }, 'Registered slash command');
+            continue;
+          }
+          await guild.commands.edit(current.id, definition as unknown as ApplicationCommandDataResolvable);
+          logger.info({ guildId: guild.id, command: definition.name }, 'Updated slash command');
         }
       } catch (error) {
-        logger.warn({ error, guildId: guild.id }, 'Failed to register slash command /status');
+        logger.warn({ error, guildId: guild.id }, 'Failed to register Discord slash commands');
       }
     }),
   );
@@ -818,12 +872,12 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
       botMentionRegex = new RegExp(`<@!?${client.user.id}>`, 'g');
     }
     updatePresence();
-    void ensureSlashStatusCommand();
+    void ensureSlashCommands();
   });
 
   client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
-    if (interaction.commandName !== 'status') return;
+    if (interaction.commandName !== 'status' && interaction.commandName !== 'channel-mode') return;
 
     if (!isAuthorizedCommandUserId(interaction.user.id)) {
       await sendChunkedInteractionReply(
@@ -836,19 +890,34 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
     const guildId = interaction.guildId ?? null;
     const channelId = interaction.channelId;
     const sessionId = buildSessionIdFromContext(guildId, channelId, interaction.user.id);
+    const args = interaction.commandName === 'status'
+      ? ['status']
+      : (() => {
+          if (!interaction.guildId) return null;
+          const selectedMode = interaction.options.getString('mode', true).trim().toLowerCase();
+          if (selectedMode !== 'off' && selectedMode !== 'mention' && selectedMode !== 'free') return null;
+          return ['channel', 'mode', selectedMode];
+        })();
+    if (!args) {
+      await sendChunkedInteractionReply(
+        interaction,
+        'This command can only be used in a server channel with mode `off`, `mention`, or `free`.',
+      );
+      return;
+    }
     try {
       await commandHandler(
         sessionId,
         guildId,
         channelId,
-        ['status'],
+        args,
         async (text, files) => sendChunkedInteractionReply(interaction, text, files),
       );
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       logger.error(
         { error, guildId, channelId, userId: interaction.user.id },
-        'Discord slash /status command failed',
+        'Discord slash command failed',
       );
       await sendChunkedInteractionReply(interaction, formatError('Gateway Error', detail));
     }

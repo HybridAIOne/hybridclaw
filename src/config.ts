@@ -62,6 +62,9 @@ export let DISCORD_PRESENCE_INTENT = false;
 export let DISCORD_RESPOND_TO_ALL_MESSAGES = false;
 export let DISCORD_COMMANDS_ONLY = false;
 export let DISCORD_COMMAND_USER_ID = '';
+export let DISCORD_GROUP_POLICY: RuntimeConfig['discord']['groupPolicy'] = 'open';
+export let DISCORD_FREE_RESPONSE_CHANNELS: string[] = [];
+export let DISCORD_GUILDS: RuntimeConfig['discord']['guilds'] = {};
 
 export let HYBRIDAI_BASE_URL = 'https://hybridai.one';
 export let HYBRIDAI_MODEL = 'gpt-5-nano';
@@ -138,6 +141,9 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_RESPOND_TO_ALL_MESSAGES = config.discord.respondToAllMessages;
   DISCORD_COMMANDS_ONLY = config.discord.commandsOnly;
   DISCORD_COMMAND_USER_ID = config.discord.commandUserId;
+  DISCORD_GROUP_POLICY = config.discord.groupPolicy;
+  DISCORD_FREE_RESPONSE_CHANNELS = [...config.discord.freeResponseChannels];
+  DISCORD_GUILDS = JSON.parse(JSON.stringify(config.discord.guilds)) as RuntimeConfig['discord']['guilds'];
 
   HYBRIDAI_BASE_URL = config.hybridai.baseUrl;
   HYBRIDAI_MODEL = config.hybridai.defaultModel;

@@ -4,6 +4,9 @@ import { spawnSync } from 'child_process';
 import {
   APP_VERSION,
   DISCORD_COMMANDS_ONLY,
+  DISCORD_FREE_RESPONSE_CHANNELS,
+  DISCORD_GROUP_POLICY,
+  DISCORD_GUILDS,
   DISCORD_RESPOND_TO_ALL_MESSAGES,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
@@ -107,6 +110,8 @@ const ORCHESTRATOR_SUBAGENT_ALLOWED_TOOLS = [...BASE_SUBAGENT_ALLOWED_TOOLS, 'de
 const MAX_DELEGATION_TASKS = 6;
 const MAX_DELEGATION_USER_CHARS = 500;
 const MAX_RALPH_ITERATIONS = 64;
+const DISCORD_CHANNEL_MODE_VALUES = new Set(['off', 'mention', 'free']);
+const DISCORD_GROUP_POLICY_VALUES = new Set(['open', 'allowlist', 'disabled']);
 const IMAGE_QUESTION_RE =
   /(what(?:'s| is)? on (?:the )?(?:image|picture|photo|screenshot)|describe (?:this|the) (?:image|picture|photo)|image|picture|photo|screenshot|ocr|diagram|chart|grafik|bild|foto|was steht|was ist auf dem bild)/i;
 const BROWSER_TAB_RE =
@@ -403,7 +408,32 @@ function formatPercent(value: number | null): string {
 
 function resolveActivationModeLabel(): string {
   if (DISCORD_COMMANDS_ONLY) return 'commands-only';
+  if (DISCORD_GROUP_POLICY === 'disabled') return 'disabled';
+  if (DISCORD_GROUP_POLICY === 'allowlist') return 'allowlist';
+  if (DISCORD_FREE_RESPONSE_CHANNELS.length > 0) return `mention + ${DISCORD_FREE_RESPONSE_CHANNELS.length} free channel(s)`;
   if (DISCORD_RESPOND_TO_ALL_MESSAGES) return 'all messages';
+  return 'mention';
+}
+
+function resolveGuildChannelMode(guildId: string | null, channelId: string): 'off' | 'mention' | 'free' {
+  if (!guildId) return 'free';
+  if (DISCORD_GROUP_POLICY === 'disabled') return 'off';
+  const guild = DISCORD_GUILDS[guildId];
+  const explicit = guild?.channels[channelId]?.mode;
+  if (DISCORD_GROUP_POLICY === 'allowlist') {
+    return explicit ?? 'off';
+  }
+  if (explicit === 'off' || explicit === 'mention' || explicit === 'free') {
+    return explicit;
+  }
+  if (DISCORD_FREE_RESPONSE_CHANNELS.includes(channelId)) return 'free';
+  if (guild) {
+    const defaultMode = guild.defaultMode;
+    if (defaultMode === 'off' || defaultMode === 'mention' || defaultMode === 'free') {
+      return defaultMode;
+    }
+  }
+  if (DISCORD_RESPOND_TO_ALL_MESSAGES) return 'free';
   return 'mention';
 }
 
@@ -1578,9 +1608,12 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
         '`model set <name>` — Set model for this session',
         '`model info` — Show current model',
         '`rag [on|off]` — Toggle or set RAG mode',
+        '`channel mode [off|mention|free]` — Set or inspect this Discord channel response mode',
+        '`channel policy [open|allowlist|disabled]` — Set or inspect guild channel policy',
         '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
         '`clear` — Clear session history',
         '`/status` — Show runtime status (Discord slash command, private to caller)',
+        '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
         '`sessions` — List active sessions',
         '`schedule add "<cron>" <prompt>` — Add scheduled task',
         '`schedule list` — List scheduled tasks',
@@ -1680,6 +1713,68 @@ export async function handleGatewayCommand(req: GatewayCommandRequest): Promise<
         return plainCommand(`RAG ${nextEnabled ? 'enabled' : 'disabled'} for this session.`);
       }
       return badCommand('Usage', 'Usage: `rag [on|off]`');
+    }
+
+    case 'channel': {
+      const sub = (req.args[1] || '').toLowerCase();
+      if (sub === 'mode' || !sub) {
+        const guildId = req.guildId;
+        if (!guildId) {
+          return badCommand('Guild Only', '`channel mode` is only available in Discord guild channels.');
+        }
+        const requestedMode = (req.args[sub ? 2 : 1] || '').toLowerCase();
+        if (!requestedMode) {
+          const currentMode = resolveGuildChannelMode(guildId, req.channelId);
+          return infoCommand(
+            'Channel Mode',
+            [
+              `Current mode: \`${currentMode}\``,
+              `Group policy: \`${DISCORD_GROUP_POLICY}\``,
+              `Config path: \`discord.guilds.${guildId}.channels.${req.channelId}.mode\``,
+              'Usage: `channel mode off|mention|free`',
+            ].join('\n'),
+          );
+        }
+        if (!DISCORD_CHANNEL_MODE_VALUES.has(requestedMode)) {
+          return badCommand('Usage', 'Usage: `channel mode off|mention|free`');
+        }
+        const mode = requestedMode as 'off' | 'mention' | 'free';
+        updateRuntimeConfig((draft) => {
+          const guild = draft.discord.guilds[guildId] ?? { defaultMode: 'mention', channels: {} };
+          guild.channels[req.channelId] = { mode };
+          draft.discord.guilds[guildId] = guild;
+        });
+        return plainCommand(
+          `Set channel mode to \`${mode}\` for this channel. (Policy: \`${DISCORD_GROUP_POLICY}\`)`,
+        );
+      }
+
+      if (sub === 'policy') {
+        const requestedPolicy = (req.args[2] || '').toLowerCase();
+        if (!requestedPolicy) {
+          return infoCommand(
+            'Channel Policy',
+            [
+              `Current policy: \`${DISCORD_GROUP_POLICY}\``,
+              'Policies:',
+              '• `open` — all guild channels are active unless a per-channel mode overrides',
+              '• `allowlist` — only channels listed under `discord.guilds.<guild>.channels` are active',
+              '• `disabled` — all guild channels are disabled',
+              'Usage: `channel policy open|allowlist|disabled`',
+            ].join('\n'),
+          );
+        }
+        if (!DISCORD_GROUP_POLICY_VALUES.has(requestedPolicy)) {
+          return badCommand('Usage', 'Usage: `channel policy open|allowlist|disabled`');
+        }
+        const policy = requestedPolicy as 'open' | 'allowlist' | 'disabled';
+        updateRuntimeConfig((draft) => {
+          draft.discord.groupPolicy = policy;
+        });
+        return plainCommand(`Discord group policy set to \`${policy}\`.`);
+      }
+
+      return badCommand('Usage', 'Usage: `channel mode [off|mention|free]` or `channel policy [open|allowlist|disabled]`');
     }
 
     case 'ralph': {
