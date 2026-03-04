@@ -11,6 +11,8 @@ import {
 import {
   DISCORD_ACK_REACTION,
   DISCORD_ACK_REACTION_SCOPE,
+  DISCORD_COMMAND_ALLOWED_USER_IDS,
+  DISCORD_COMMAND_MODE,
   DISCORD_COMMAND_USER_ID,
   DISCORD_COMMANDS_ONLY,
   DISCORD_DEBOUNCE_MS,
@@ -52,10 +54,16 @@ import {
   buildSessionIdFromContext as buildSessionIdFromContextInbound,
   cleanIncomingContent as cleanIncomingContentInbound,
   type DiscordGuildMessageMode,
+  hasSlashCommandInvocation as hasSlashCommandInvocationInbound,
+  hasLooseBotMention as hasLooseBotMentionInbound,
   hasPrefixInvocation as hasPrefixInvocationInbound,
+  isAddressedToChannel as isAddressedToChannelInbound,
+  isAuthorizedCommandUser as isAuthorizedCommandUserInbound,
   isTrigger as isTriggerInbound,
   type ParsedCommand,
   parseCommand as parseCommandInbound,
+  shouldReplyInFreeMode as shouldReplyInFreeModeInbound,
+  shouldSkipFreeReplyBecauseOtherUsersMentioned as shouldSkipFreeReplyBecauseOtherUsersMentionedInbound,
 } from './inbound.js';
 import {
   addMentionAlias,
@@ -536,10 +544,17 @@ function hasPrefixInvocation(content: string): boolean {
   return hasPrefixInvocationInbound(content, botMentionRegex, DISCORD_PREFIX);
 }
 
+function hasSlashCommandInvocation(content: string): boolean {
+  return hasSlashCommandInvocationInbound(content, botMentionRegex);
+}
+
 function isAuthorizedCommandUserId(userId: string): boolean {
-  const configuredUserId = DISCORD_COMMAND_USER_ID.trim();
-  if (!configuredUserId) return true;
-  return userId === configuredUserId;
+  return isAuthorizedCommandUserInbound({
+    mode: DISCORD_COMMAND_MODE,
+    userId,
+    allowedUserIds: DISCORD_COMMAND_ALLOWED_USER_IDS,
+    legacyCommandUserId: DISCORD_COMMAND_USER_ID,
+  });
 }
 
 function buildSessionIdFromContext(
@@ -625,6 +640,53 @@ function isTrigger(
     botMentionRegex,
     hasBotMention: Boolean(client.user && msg.mentions.has(client.user)),
     suppressPatterns: behavior.suppressPatterns,
+  });
+}
+
+function shouldHandleFreeModeMessage(
+  msg: DiscordMessage,
+  behavior: ResolvedChannelBehavior,
+  content: string,
+): boolean {
+  if (!msg.guild) return true;
+
+  const hasPrefixedInvocation = hasPrefixInvocation(msg.content || '');
+  const hasBotMention = Boolean(client.user && msg.mentions.has(client.user));
+  const hasLooseBotMention =
+    client.user != null
+      ? hasLooseBotMentionInbound(content, [
+          client.user.username,
+          client.user.globalName || '',
+          msg.guild?.members.me?.displayName || '',
+        ])
+      : false;
+  const isReplyToBot = Boolean(
+    client.user && msg.mentions.repliedUser?.id === client.user.id,
+  );
+  const mentionedUserIds = Array.from(msg.mentions.users.keys());
+  const botUserId = client.user?.id ?? null;
+
+  if (
+    shouldSkipFreeReplyBecauseOtherUsersMentionedInbound({
+      guildMessageMode: behavior.guildMessageMode,
+      hasBotMention,
+      hasPrefixInvocation: hasPrefixedInvocation,
+      botUserId,
+      mentionedUserIds,
+    })
+  ) {
+    return false;
+  }
+
+  return shouldReplyInFreeModeInbound({
+    guildMessageMode: behavior.guildMessageMode,
+    content,
+    hasBotMention,
+    hasLooseBotMention,
+    isAddressedToChannel: isAddressedToChannelInbound(content),
+    hasPrefixInvocation: hasPrefixedInvocation,
+    isReplyToBot,
+    hasAttachments: msg.attachments.size > 0,
   });
 }
 
@@ -856,6 +918,7 @@ async function ensureSlashCommands(): Promise<void> {
   interface SlashCommandDefinition {
     name: string;
     description: string;
+    dmPermission?: boolean;
     options?: Array<{
       type: ApplicationCommandOptionType.String;
       name: string;
@@ -869,10 +932,12 @@ async function ensureSlashCommands(): Promise<void> {
     {
       name: 'status',
       description: 'Show HybridClaw runtime status (only visible to you)',
+      dmPermission: true,
     },
     {
       name: 'approve',
       description: 'View/respond to pending tool approval requests (private)',
+      dmPermission: true,
       options: [
         {
           type: ApplicationCommandOptionType.String,
@@ -932,6 +997,33 @@ async function ensureSlashCommands(): Promise<void> {
   ];
 
   if (!client.application) return;
+  const globalDefinitions = definitions.filter(
+    (definition) =>
+      definition.name === 'status' || definition.name === 'approve',
+  );
+  try {
+    const existingGlobal = await client.application.commands.fetch();
+    for (const definition of globalDefinitions) {
+      const current = existingGlobal.find(
+        (command) => command.name === definition.name,
+      );
+      if (current) {
+        // Recreate global commands so removed Discord metadata (for example
+        // contexts/integration types) does not remain stuck on edits.
+        await client.application.commands.delete(current.id);
+      }
+      await client.application.commands.create(
+        definition as unknown as ApplicationCommandDataResolvable,
+      );
+      logger.info(
+        { scope: 'global', command: definition.name },
+        current ? 'Recreated slash command' : 'Registered slash command',
+      );
+    }
+  } catch (error) {
+    logger.warn({ error }, 'Failed to register global slash commands');
+  }
+
   await Promise.allSettled(
     [...client.guilds.cache.values()].map(async (guild) => {
       try {
@@ -1291,8 +1383,10 @@ export function initDiscord(
     content: string,
   ): Promise<boolean> => {
     if (!content.trim()) return false;
+    if (!msg.guild) return false;
     if (msg.attachments.size > 0) return false;
     if (hasPrefixInvocation(msg.content || '')) return false;
+    if (hasSlashCommandInvocation(msg.content || '')) return false;
     if (client.user && msg.mentions.has(client.user)) return false;
     if (content.trim().length > 80) return false;
     if (!READ_WITHOUT_REPLY_RE.test(content.trim())) return false;
@@ -1411,7 +1505,7 @@ export function initDiscord(
       return;
     }
 
-    if (!isAuthorizedCommandUserId(interaction.user.id)) {
+    if (interaction.guildId && !isAuthorizedCommandUserId(interaction.user.id)) {
       await sendChunkedInteractionReply(
         interaction,
         'You are not authorized to run commands for this bot.',
@@ -1726,7 +1820,8 @@ export function initDiscord(
     const wasExplicitlyAddressed =
       !msg.guild ||
       hasPrefixInvocation(msg.content || '') ||
-      Boolean(client.user && msg.mentions.has(client.user));
+      Boolean(client.user && msg.mentions.has(client.user)) ||
+      Boolean(client.user && msg.mentions.repliedUser?.id === client.user.id);
 
     let clearAckReaction: () => Promise<void> = async () => {};
     if (client.user && shouldApplyAckReaction(msg, behavior)) {
@@ -1918,20 +2013,16 @@ export function initDiscord(
     };
 
     const parsed = parseCommand(msg.content);
-    const prefixedToken = hasPrefixInvocation(msg.content)
-      ? cleanIncomingContent(msg.content).split(/\s+/)[0]?.toLowerCase() || ''
-      : '';
-    const ignorePrefixCommand = prefixedToken === 'status';
+    const hasPrefixedInvocation = hasPrefixInvocation(msg.content);
+    const hasSlashInvocation = hasSlashCommandInvocation(msg.content);
+    const hasCommandInvocation = hasPrefixedInvocation || hasSlashInvocation;
     if (DISCORD_COMMANDS_ONLY) {
-      if (!hasPrefixInvocation(msg.content)) return;
-      if (!isAuthorizedCommandUserId(msg.author.id)) {
+      if (!hasCommandInvocation) return;
+      if (msg.guild && !isAuthorizedCommandUserId(msg.author.id)) {
         logger.debug(
           { userId: msg.author.id, channelId: msg.channelId },
           'Ignoring unauthorized Discord command in commands-only mode',
         );
-        return;
-      }
-      if (ignorePrefixCommand) {
         return;
       }
       if (!parsed.isCommand) {
@@ -1956,30 +2047,39 @@ export function initDiscord(
       return;
     }
 
-    if (!isTrigger(msg, behavior)) return;
-
-    if (ignorePrefixCommand) {
+    if (
+      msg.guild &&
+      hasCommandInvocation &&
+      !isAuthorizedCommandUserId(msg.author.id)
+    ) {
+      logger.debug(
+        { userId: msg.author.id, channelId: msg.channelId },
+        'Ignoring unauthorized Discord prefixed command',
+      );
       return;
     }
 
-    if (parsed.isCommand && hasPrefixInvocation(msg.content)) {
-      if (!isAuthorizedCommandUserId(msg.author.id)) {
-        logger.debug(
-          { userId: msg.author.id, channelId: msg.channelId },
-          'Ignoring unauthorized Discord command; processing as normal chat message',
-        );
-      } else {
-        await commandHandler(
-          sessionId,
-          guildId,
-          channelId,
-          msg.author.id,
-          msg.author.username,
-          [parsed.command, ...parsed.args],
-          commandReply,
-        );
-        return;
-      }
+    if (!isTrigger(msg, behavior)) return;
+
+    if (parsed.isCommand && hasCommandInvocation) {
+      await commandHandler(
+        sessionId,
+        guildId,
+        channelId,
+        msg.author.id,
+        msg.author.username,
+        [parsed.command, ...parsed.args],
+        commandReply,
+      );
+      return;
+    }
+
+    if (!shouldHandleFreeModeMessage(msg, behavior, content)) {
+      logger.debug(
+        { channelId: msg.channelId, messageId: msg.id, userId: msg.author.id },
+        'Skipping Discord free-mode message by relevance/mention gate',
+      );
+      return;
     }
 
     if (!content) {
@@ -2013,6 +2113,17 @@ export function initDiscord(
     const behavior = resolveChannelBehavior(fetched);
     observeMessageParticipants(fetched, updatedContent);
     if (!isTrigger(fetched, behavior)) {
+      await updatePendingMessage(fetched.id, fetched, '', behavior);
+      return;
+    }
+    if (
+      hasPrefixInvocation(fetched.content || '') &&
+      !isAuthorizedCommandUserId(fetched.author.id)
+    ) {
+      await updatePendingMessage(fetched.id, fetched, '', behavior);
+      return;
+    }
+    if (!shouldHandleFreeModeMessage(fetched, behavior, updatedContent)) {
       await updatePendingMessage(fetched.id, fetched, '', behavior);
       return;
     }
