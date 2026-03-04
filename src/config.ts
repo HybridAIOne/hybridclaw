@@ -46,16 +46,22 @@ function resolveAppVersion(): string {
   if (envVersion?.trim()) return envVersion.trim();
 
   const modulePath = fileURLToPath(import.meta.url);
-  const moduleVersion = readVersionFromPackageJson(path.join(path.dirname(modulePath), '..', 'package.json'));
+  const moduleVersion = readVersionFromPackageJson(
+    path.join(path.dirname(modulePath), '..', 'package.json'),
+  );
   if (moduleVersion) return moduleVersion;
 
   const entryPath = process.argv[1];
   if (entryPath) {
-    const entryVersion = readVersionFromPackageJson(path.join(path.dirname(path.resolve(entryPath)), '..', 'package.json'));
+    const entryVersion = readVersionFromPackageJson(
+      path.join(path.dirname(path.resolve(entryPath)), '..', 'package.json'),
+    );
     if (entryVersion) return entryVersion;
   }
 
-  const cwdVersion = readVersionFromPackageJson(path.join(process.cwd(), 'package.json'));
+  const cwdVersion = readVersionFromPackageJson(
+    path.join(process.cwd(), 'package.json'),
+  );
   if (cwdVersion) return cwdVersion;
 
   return '0.0.0';

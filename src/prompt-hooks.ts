@@ -1,10 +1,14 @@
-import { getRuntimeConfig, isSecurityTrustAccepted, SECURITY_POLICY_VERSION } from './runtime-config.js';
-import { buildSkillsPrompt, type Skill } from './skills.js';
-import { buildContextPrompt, loadBootstrapFiles } from './workspace.js';
-import { APP_VERSION, HYBRIDAI_MODEL } from './config.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { APP_VERSION, HYBRIDAI_MODEL } from './config.js';
+import {
+  getRuntimeConfig,
+  isSecurityTrustAccepted,
+  SECURITY_POLICY_VERSION,
+} from './runtime-config.js';
+import { buildSkillsPrompt, type Skill } from './skills.js';
+import { buildContextPrompt, loadBootstrapFiles } from './workspace.js';
 
 export type PromptHookName = 'bootstrap' | 'memory' | 'safety' | 'runtime';
 export type ExtendedPromptHookName = PromptHookName | 'proactivity';
@@ -39,7 +43,9 @@ interface PromptHook {
   run: (context: PromptHookContext) => string;
 }
 
-export function buildSessionSummaryPrompt(summary: string | null | undefined): string {
+export function buildSessionSummaryPrompt(
+  summary: string | null | undefined,
+): string {
   const trimmed = summary?.trim() || '';
   if (!trimmed) return '';
   return [
@@ -106,13 +112,19 @@ function buildSafetyHook(context: PromptHookContext): string {
   ];
 
   if (accepted) {
-    lines.push(`Trust model acceptance status: accepted (policy ${SECURITY_POLICY_VERSION}).`);
+    lines.push(
+      `Trust model acceptance status: accepted (policy ${SECURITY_POLICY_VERSION}).`,
+    );
   } else {
-    lines.push('Trust model acceptance status: missing. Remain conservative and read-only unless user intent is explicit.');
+    lines.push(
+      'Trust model acceptance status: missing. Remain conservative and read-only unless user intent is explicit.',
+    );
   }
 
   if (context.purpose === 'memory-flush') {
-    lines.push('This is a pre-compaction memory flush turn. Persist only durable memory worth keeping.');
+    lines.push(
+      'This is a pre-compaction memory flush turn. Persist only durable memory worth keeping.',
+    );
   }
 
   if (context.extraSafetyText?.trim()) {
@@ -203,7 +215,9 @@ function buildProactivityHook(context: PromptHookContext): string {
   }
 
   if (context.purpose === 'memory-flush') {
-    lines.push('This is a memory-flush pass. Prioritize preserving durable context over immediate user-facing output.');
+    lines.push(
+      'This is a memory-flush pass. Prioritize preserving durable context over immediate user-facing output.',
+    );
   }
 
   return lines.join('\n');
@@ -213,9 +227,10 @@ function buildRuntimeHook(context: PromptHookContext): string {
   const runtimeInfo = context.runtimeInfo || {};
   const model = runtimeInfo.model?.trim() || HYBRIDAI_MODEL;
   const defaultModel = runtimeInfo.defaultModel?.trim() || HYBRIDAI_MODEL;
-  const guildLabel = runtimeInfo.guildId === null
-    ? 'dm'
-    : runtimeInfo.guildId?.trim() || 'unknown';
+  const guildLabel =
+    runtimeInfo.guildId === null
+      ? 'dm'
+      : runtimeInfo.guildId?.trim() || 'unknown';
 
   const lines = [
     '## Runtime Metadata',
@@ -223,7 +238,9 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `Date (UTC): ${new Date().toISOString().slice(0, 10)}`,
     `Model: ${model}`,
     `Default model: ${defaultModel}`,
-    runtimeInfo.channelId?.trim() ? `Channel ID: ${runtimeInfo.channelId.trim()}` : '',
+    runtimeInfo.channelId?.trim()
+      ? `Channel ID: ${runtimeInfo.channelId.trim()}`
+      : '',
     `Guild ID: ${guildLabel}`,
     `Node: ${process.version}`,
     `OS: ${process.platform} (${process.arch})`,
@@ -265,15 +282,21 @@ const PROMPT_HOOKS: PromptHook[] = [
 ];
 
 function resolvePromptMode(context: PromptHookContext): PromptMode {
-  if (context.promptMode === 'minimal' || context.promptMode === 'none') return context.promptMode;
+  if (context.promptMode === 'minimal' || context.promptMode === 'none')
+    return context.promptMode;
   return 'full';
 }
 
-function isHookAllowedForMode(hookName: ExtendedPromptHookName, mode: PromptMode): boolean {
+function isHookAllowedForMode(
+  hookName: ExtendedPromptHookName,
+  mode: PromptMode,
+): boolean {
   if (mode === 'none') return false;
   if (mode === 'full') return true;
   // Minimal mode keeps only safety + memory durability context.
-  return hookName === 'memory' || hookName === 'safety' || hookName === 'runtime';
+  return (
+    hookName === 'memory' || hookName === 'safety' || hookName === 'runtime'
+  );
 }
 
 export function runPromptHooks(context: PromptHookContext): PromptHookOutput[] {

@@ -2,18 +2,35 @@
  * Heartbeat — periodic poll so the agent can proactively check tasks,
  * maintain memory, and reach out when needed.
  */
-import { HEARTBEAT_CHANNEL, HEARTBEAT_ENABLED, HYBRIDAI_CHATBOT_ID, HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL } from './config.js';
+
 import { runAgent } from './agent.js';
+import {
+  emitToolExecutionAuditEvents,
+  makeAuditRunId,
+  recordAuditEvent,
+} from './audit-events.js';
+import {
+  HEARTBEAT_CHANNEL,
+  HEARTBEAT_ENABLED,
+  HYBRIDAI_CHATBOT_ID,
+  HYBRIDAI_ENABLE_RAG,
+  HYBRIDAI_MODEL,
+} from './config.js';
+import { buildConversationContext } from './conversation.js';
 import { getTasksForSession } from './db.js';
 import { logger } from './logger.js';
 import { memoryService } from './memory-service.js';
-import { processSideEffects } from './side-effects.js';
+import {
+  isWithinActiveHours,
+  proactiveWindowLabel,
+} from './proactive-policy.js';
 import { maybeCompactSession } from './session-maintenance.js';
 import { appendSessionTranscript } from './session-transcripts.js';
-import { buildConversationContext } from './conversation.js';
-import { isWithinActiveHours, proactiveWindowLabel } from './proactive-policy.js';
-import { emitToolExecutionAuditEvents, makeAuditRunId, recordAuditEvent } from './audit-events.js';
-import { estimateTokenCountFromMessages, estimateTokenCountFromText } from './token-efficiency.js';
+import { processSideEffects } from './side-effects.js';
+import {
+  estimateTokenCountFromMessages,
+  estimateTokenCountFromText,
+} from './token-efficiency.js';
 
 const HEARTBEAT_PROMPT =
   '[Heartbeat poll] Check HEARTBEAT.md for periodic tasks. If nothing needs attention, reply HEARTBEAT_OK.';
@@ -54,7 +71,10 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
 function isHeartbeatOk(text: string): boolean {
-  const normalized = text.trim().replace(/[^a-z_]/gi, '').toUpperCase();
+  const normalized = text
+    .trim()
+    .replace(/[^a-z_]/gi, '')
+    .toUpperCase();
   return normalized === 'HEARTBEATOK' || normalized.startsWith('HEARTBEATOK');
 }
 
@@ -76,7 +96,10 @@ export function startHeartbeat(
       return;
     }
     if (!isWithinActiveHours()) {
-      logger.debug({ activeHours: proactiveWindowLabel() }, 'Heartbeat skipped — outside active hours window');
+      logger.debug(
+        { activeHours: proactiveWindowLabel() },
+        'Heartbeat skipped — outside active hours window',
+      );
       return;
     }
     running = true;
@@ -88,7 +111,11 @@ export function startHeartbeat(
     let turnIndex = 1;
 
     try {
-      const session = memoryService.getOrCreateSession(sessionId, null, channelId);
+      const session = memoryService.getOrCreateSession(
+        sessionId,
+        null,
+        channelId,
+      );
       turnIndex = session.message_count + 1;
 
       const history = memoryService.getConversationHistory(
@@ -149,13 +176,20 @@ export function startHeartbeat(
         toolExecutions: output.toolExecutions || [],
       });
       const tokenUsage = output.tokenUsage;
-      const estimatedPromptTokens = tokenUsage?.estimatedPromptTokens || estimateTokenCountFromMessages(messages);
-      const estimatedCompletionTokens = tokenUsage?.estimatedCompletionTokens || estimateTokenCountFromText(output.result || '');
-      const estimatedTotalTokens = tokenUsage?.estimatedTotalTokens || (estimatedPromptTokens + estimatedCompletionTokens);
+      const estimatedPromptTokens =
+        tokenUsage?.estimatedPromptTokens ||
+        estimateTokenCountFromMessages(messages);
+      const estimatedCompletionTokens =
+        tokenUsage?.estimatedCompletionTokens ||
+        estimateTokenCountFromText(output.result || '');
+      const estimatedTotalTokens =
+        tokenUsage?.estimatedTotalTokens ||
+        estimatedPromptTokens + estimatedCompletionTokens;
       const apiUsageAvailable = tokenUsage?.apiUsageAvailable === true;
       const apiPromptTokens = tokenUsage?.apiPromptTokens || 0;
       const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
-      const apiTotalTokens = tokenUsage?.apiTotalTokens || (apiPromptTokens + apiCompletionTokens);
+      const apiTotalTokens =
+        tokenUsage?.apiTotalTokens || apiPromptTokens + apiCompletionTokens;
       recordAuditEvent({
         sessionId,
         runId,
@@ -166,9 +200,15 @@ export function startHeartbeat(
           durationMs: Date.now() - startedAt,
           toolCallCount: (output.toolExecutions || []).length,
           modelCalls: tokenUsage ? Math.max(1, tokenUsage.modelCalls) : 0,
-          promptTokens: apiUsageAvailable ? apiPromptTokens : estimatedPromptTokens,
-          completionTokens: apiUsageAvailable ? apiCompletionTokens : estimatedCompletionTokens,
-          totalTokens: apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens,
+          promptTokens: apiUsageAvailable
+            ? apiPromptTokens
+            : estimatedPromptTokens,
+          completionTokens: apiUsageAvailable
+            ? apiCompletionTokens
+            : estimatedCompletionTokens,
+          totalTokens: apiUsageAvailable
+            ? apiTotalTokens
+            : estimatedTotalTokens,
           estimatedPromptTokens,
           estimatedCompletionTokens,
           estimatedTotalTokens,
@@ -286,7 +326,10 @@ export function startHeartbeat(
         model: HYBRIDAI_MODEL,
         channelId: heartbeatChannelId,
       });
-      logger.info({ length: result.length }, 'Heartbeat: agent has something to say');
+      logger.info(
+        { length: result.length },
+        'Heartbeat: agent has something to say',
+      );
       recordAuditEvent({
         sessionId,
         runId,

@@ -1,15 +1,22 @@
 #!/usr/bin/env node
 
+import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { spawn, spawnSync } from 'child_process';
 import readline from 'readline/promises';
-
+import {
+  APP_VERSION,
+  DATA_DIR,
+  GATEWAY_BASE_URL,
+  MissingRequiredEnvVarError,
+} from './config.js';
 import { ensureHybridAICredentials } from './onboarding.js';
-import { APP_VERSION, DATA_DIR, GATEWAY_BASE_URL, MissingRequiredEnvVarError } from './config.js';
 import { printUpdateUsage, runUpdateCommand } from './update.js';
 
-async function ensureRuntimeContainer(commandName: string, required = true): Promise<void> {
+async function ensureRuntimeContainer(
+  commandName: string,
+  required = true,
+): Promise<void> {
   const { ensureContainerImageReady } = await import('./container-setup.js');
   await ensureContainerImageReady({
     commandName,
@@ -43,13 +50,15 @@ async function ensureGatewayForTui(commandName: string): Promise<void> {
     return;
   }
 
-  console.log(`${commandName}: Gateway not found. Starting gateway backend at ${GATEWAY_BASE_URL}.`);
+  console.log(
+    `${commandName}: Gateway not found. Starting gateway backend at ${GATEWAY_BASE_URL}.`,
+  );
   await startGatewayBackend(commandName, true);
 
   if (!(await isGatewayReachable())) {
     throw new Error(
-      `Gateway did not become available at ${GATEWAY_BASE_URL} after startup.`
-      + ' Please run `hybridclaw gateway start --foreground` in another terminal and try again.',
+      `Gateway did not become available at ${GATEWAY_BASE_URL} after startup.` +
+        ' Please run `hybridclaw gateway start --foreground` in another terminal and try again.',
     );
   }
 }
@@ -81,17 +90,17 @@ function formatInstructionDiffLine(file: {
   ];
 }
 
-async function ensureTuiInstructionApproval(commandName: string): Promise<void> {
+async function ensureTuiInstructionApproval(
+  commandName: string,
+): Promise<void> {
   const {
     approveInstructionBaseline,
     INSTRUCTION_BASELINE_PATH,
     summarizeInstructionIntegrity,
     verifyInstructionBaseline,
   } = await import('./instruction-integrity.js');
-  const {
-    beginInstructionApprovalAudit,
-    completeInstructionApprovalAudit,
-  } = await import('./instruction-approval-audit.js');
+  const { beginInstructionApprovalAudit, completeInstructionApprovalAudit } =
+    await import('./instruction-approval-audit.js');
 
   const result = verifyInstructionBaseline();
   if (result.ok) return;
@@ -107,7 +116,9 @@ async function ensureTuiInstructionApproval(commandName: string): Promise<void> 
     console.error(`Instruction baseline is invalid: ${result.baselineError}`);
     console.error(`Baseline path: ${INSTRUCTION_BASELINE_PATH}`);
   } else if (!result.baseline) {
-    console.error(`No approved instruction baseline found at ${INSTRUCTION_BASELINE_PATH}.`);
+    console.error(
+      `No approved instruction baseline found at ${INSTRUCTION_BASELINE_PATH}.`,
+    );
   }
 
   const changed = result.files.filter((file) => file.status !== 'ok');
@@ -133,10 +144,17 @@ async function ensureTuiInstructionApproval(commandName: string): Promise<void> 
     );
   }
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
   let answer = '';
   try {
-    answer = (await rl.question('Approve current instruction changes now? [y/N] ')).trim().toLowerCase();
+    answer = (
+      await rl.question('Approve current instruction changes now? [y/N] ')
+    )
+      .trim()
+      .toLowerCase();
   } finally {
     rl.close();
   }
@@ -156,7 +174,9 @@ async function ensureTuiInstructionApproval(commandName: string): Promise<void> 
 
   try {
     const baseline = approveInstructionBaseline();
-    console.log(`Approved instruction baseline at ${INSTRUCTION_BASELINE_PATH} (${baseline.approvedAt}).`);
+    console.log(
+      `Approved instruction baseline at ${INSTRUCTION_BASELINE_PATH} (${baseline.approvedAt}).`,
+    );
     completeInstructionApprovalAudit({
       context: auditContext,
       approved: true,
@@ -312,12 +332,19 @@ function readGatewayPid(): GatewayPidState | null {
   try {
     const raw = fs.readFileSync(GATEWAY_PID_PATH, 'utf-8');
     const parsed = JSON.parse(raw) as Partial<GatewayPidState>;
-    if (!parsed || typeof parsed.pid !== 'number' || !Number.isFinite(parsed.pid)) return null;
+    if (
+      !parsed ||
+      typeof parsed.pid !== 'number' ||
+      !Number.isFinite(parsed.pid)
+    )
+      return null;
     return {
       pid: parsed.pid,
       startedAt: typeof parsed.startedAt === 'string' ? parsed.startedAt : '',
       cwd: typeof parsed.cwd === 'string' ? parsed.cwd : '',
-      command: Array.isArray(parsed.command) ? parsed.command.map((item) => String(item)) : [],
+      command: Array.isArray(parsed.command)
+        ? parsed.command.map((item) => String(item))
+        : [],
     };
   } catch {
     return null;
@@ -367,7 +394,11 @@ function parseGatewayBaseUrl(): URL | null {
 
 function isLocalGatewayHost(hostname: string): boolean {
   const normalized = hostname.trim().toLowerCase();
-  return normalized === '127.0.0.1' || normalized === 'localhost' || normalized === '::1';
+  return (
+    normalized === '127.0.0.1' ||
+    normalized === 'localhost' ||
+    normalized === '::1'
+  );
 }
 
 function resolveGatewayListenPort(url: URL): number {
@@ -383,9 +414,13 @@ function findGatewayPidByPort(): number | null {
   if (!parsed || !isLocalGatewayHost(parsed.hostname)) return null;
   const port = resolveGatewayListenPort(parsed);
 
-  const result = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], {
-    encoding: 'utf-8',
-  });
+  const result = spawnSync(
+    'lsof',
+    ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'],
+    {
+      encoding: 'utf-8',
+    },
+  );
   if (result.error) return null;
   const output = (result.stdout || '').trim();
   if (!output) return null;
@@ -411,12 +446,14 @@ function adoptGatewayPid(pid: number, source: string): boolean {
 async function adoptReachableGatewayIfPossible(): Promise<boolean> {
   const { gatewayStatus } = await import('./gateway-client.js');
   const status = await gatewayStatus();
-  const pid = typeof status.pid === 'number' && Number.isFinite(status.pid)
-    ? Math.floor(status.pid)
-    : 0;
+  const pid =
+    typeof status.pid === 'number' && Number.isFinite(status.pid)
+      ? Math.floor(status.pid)
+      : 0;
   if (pid > 0 && adoptGatewayPid(pid, 'api-status')) return true;
   const fallbackPid = findGatewayPidByPort();
-  if (fallbackPid && adoptGatewayPid(fallbackPid, 'lsof-port-probe')) return true;
+  if (fallbackPid && adoptGatewayPid(fallbackPid, 'lsof-port-probe'))
+    return true;
   return false;
 }
 
@@ -426,11 +463,16 @@ async function runGatewayForeground(commandName: string): Promise<void> {
   await import('./gateway.js');
 }
 
-async function startGatewayBackend(commandName: string, waitForHealthy = false): Promise<void> {
+async function startGatewayBackend(
+  commandName: string,
+  waitForHealthy = false,
+): Promise<void> {
   if (await isGatewayReachable()) {
     const existing = readGatewayPid();
     if (existing && isPidRunning(existing.pid)) {
-      console.log(`Gateway already running in backend mode (pid ${existing.pid}).`);
+      console.log(
+        `Gateway already running in backend mode (pid ${existing.pid}).`,
+      );
     } else {
       let adopted = false;
       try {
@@ -440,9 +482,13 @@ async function startGatewayBackend(commandName: string, waitForHealthy = false):
       }
       if (adopted) {
         const adoptedState = readGatewayPid();
-        console.log(`Gateway already reachable at ${GATEWAY_BASE_URL}; adopted pid ${adoptedState?.pid || '(unknown)'}.`);
+        console.log(
+          `Gateway already reachable at ${GATEWAY_BASE_URL}; adopted pid ${adoptedState?.pid || '(unknown)'}.`,
+        );
       } else {
-        console.log(`Gateway already reachable at ${GATEWAY_BASE_URL} (unmanaged by CLI PID file).`);
+        console.log(
+          `Gateway already reachable at ${GATEWAY_BASE_URL} (unmanaged by CLI PID file).`,
+        );
       }
     }
     return;
@@ -454,12 +500,14 @@ async function startGatewayBackend(commandName: string, waitForHealthy = false):
       const healthy = await waitForGatewayReachable(15_000);
       if (!healthy) {
         throw new Error(
-          `Gateway process ${existing.pid} exists but did not become reachable at ${GATEWAY_BASE_URL}.`
-          + ` Check logs: ${GATEWAY_LOG_PATH}`,
+          `Gateway process ${existing.pid} exists but did not become reachable at ${GATEWAY_BASE_URL}.` +
+            ` Check logs: ${GATEWAY_LOG_PATH}`,
         );
       }
     }
-    console.log(`Gateway already running in backend mode (pid ${existing.pid}).`);
+    console.log(
+      `Gateway already running in backend mode (pid ${existing.pid}).`,
+    );
     return;
   }
   if (existing && !isPidRunning(existing.pid)) {
@@ -497,8 +545,8 @@ async function startGatewayBackend(commandName: string, waitForHealthy = false):
     const healthy = await waitForGatewayReachable(20_000);
     if (!healthy) {
       throw new Error(
-        `Gateway backend started (pid ${child.pid}) but not reachable at ${GATEWAY_BASE_URL}.`
-        + ` Check logs: ${GATEWAY_LOG_PATH}`,
+        `Gateway backend started (pid ${child.pid}) but not reachable at ${GATEWAY_BASE_URL}.` +
+          ` Check logs: ${GATEWAY_LOG_PATH}`,
       );
     }
   }
@@ -517,7 +565,9 @@ async function stopManagedGatewayByPid(state: GatewayPidState): Promise<void> {
     process.kill(state.pid, 'SIGTERM');
   } catch (err) {
     removeGatewayPidFile();
-    throw new Error(`Failed to stop gateway pid ${state.pid}: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(
+      `Failed to stop gateway pid ${state.pid}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   const deadline = Date.now() + 10_000;
@@ -541,7 +591,9 @@ async function stopManagedGatewayByPid(state: GatewayPidState): Promise<void> {
   console.log(`Gateway stop timed out; sent SIGKILL to pid ${state.pid}.`);
 }
 
-async function stopUnmanagedGatewayGracefully(mode: 'stop' | 'restart'): Promise<void> {
+async function stopUnmanagedGatewayGracefully(
+  mode: 'stop' | 'restart',
+): Promise<void> {
   const suffix = mode === 'restart' ? ' before restart' : '';
   console.log('Gateway is reachable but unmanaged by CLI PID file.');
   console.log(`Requesting graceful shutdown over API${suffix}...`);
@@ -551,8 +603,8 @@ async function stopUnmanagedGatewayGracefully(mode: 'stop' | 'restart'): Promise
     const stopped = await waitForGatewayUnreachable(10_000);
     if (!stopped) {
       throw new Error(
-        `Gateway remained reachable at ${GATEWAY_BASE_URL} after shutdown request.`
-        + ' Stop it from its owning process or use your system process manager.',
+        `Gateway remained reachable at ${GATEWAY_BASE_URL} after shutdown request.` +
+          ' Stop it from its owning process or use your system process manager.',
       );
     }
     console.log('Unmanaged gateway stopped via API request.');
@@ -562,18 +614,24 @@ async function stopUnmanagedGatewayGracefully(mode: 'stop' | 'restart'): Promise
   }
 
   const discoveredPid = findGatewayPidByPort();
-  if (discoveredPid && discoveredPid !== process.pid && adoptGatewayPid(discoveredPid, 'lsof-port-probe')) {
+  if (
+    discoveredPid &&
+    discoveredPid !== process.pid &&
+    adoptGatewayPid(discoveredPid, 'lsof-port-probe')
+  ) {
     const adoptedState = readGatewayPid();
     if (adoptedState && isPidRunning(adoptedState.pid)) {
-      console.log(`Shutdown API unavailable; stopping gateway pid ${adoptedState.pid} via local signal.`);
+      console.log(
+        `Shutdown API unavailable; stopping gateway pid ${adoptedState.pid} via local signal.`,
+      );
       await stopManagedGatewayByPid(adoptedState);
       return;
     }
   }
 
   throw new Error(
-    `Gateway shutdown endpoint is unavailable at ${GATEWAY_BASE_URL} and PID ownership could not be recovered.`
-    + ' Stop the process manually once, then retry.',
+    `Gateway shutdown endpoint is unavailable at ${GATEWAY_BASE_URL} and PID ownership could not be recovered.` +
+      ' Stop the process manually once, then retry.',
   );
 }
 
@@ -591,11 +649,15 @@ async function stopGatewayBackend(): Promise<void> {
   if (!isPidRunning(state.pid)) {
     removeGatewayPidFile();
     if (await isGatewayReachable()) {
-      console.log(`Removed stale gateway PID file (pid ${state.pid} not running).`);
+      console.log(
+        `Removed stale gateway PID file (pid ${state.pid} not running).`,
+      );
       await stopUnmanagedGatewayGracefully('stop');
       return;
     }
-    console.log(`Removed stale gateway PID file (pid ${state.pid} not running).`);
+    console.log(
+      `Removed stale gateway PID file (pid ${state.pid} not running).`,
+    );
     return;
   }
 
@@ -614,21 +676,29 @@ async function printGatewayLifecycleStatus(): Promise<void> {
   } else {
     console.log('PID file: not found');
   }
-  console.log(`Gateway API reachable: ${reachable ? 'yes' : 'no'} (${GATEWAY_BASE_URL})`);
+  console.log(
+    `Gateway API reachable: ${reachable ? 'yes' : 'no'} (${GATEWAY_BASE_URL})`,
+  );
 
   if (reachable) {
     try {
       const { gatewayStatus } = await import('./gateway-client.js');
       const status = await gatewayStatus();
-      console.log(`Uptime: ${status.uptime}s | Sessions: ${status.sessions} | Containers: ${status.activeContainers}`);
+      console.log(
+        `Uptime: ${status.uptime}s | Sessions: ${status.sessions} | Containers: ${status.activeContainers}`,
+      );
     } catch (err) {
-      console.log(`Gateway status fetch failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.log(
+        `Gateway status fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 }
 
 async function runGatewayApiCommand(args: string[]): Promise<void> {
-  const { gatewayCommand, renderGatewayCommand } = await import('./gateway-client.js');
+  const { gatewayCommand, renderGatewayCommand } = await import(
+    './gateway-client.js'
+  );
   const result = await gatewayCommand({
     sessionId: 'cli:gateway',
     guildId: null,
@@ -729,7 +799,10 @@ async function main(): Promise<void> {
         printOnboardingUsage();
         break;
       }
-      await ensureHybridAICredentials({ force: true, commandName: 'hybridclaw onboarding' });
+      await ensureHybridAICredentials({
+        force: true,
+        commandName: 'hybridclaw onboarding',
+      });
       await ensureRuntimeContainer('hybridclaw onboarding', false);
       break;
     case 'update': {
@@ -779,16 +852,21 @@ const envVarHint: Record<string, string> = {
 };
 
 function printMissingEnvVarError(message: string, envVar?: string): void {
-  const hint = envVar ? envVarHint[envVar] : 'Set this variable and rerun the command.';
+  const hint = envVar
+    ? envVarHint[envVar]
+    : 'Set this variable and rerun the command.';
   console.error(`hybridclaw error: ${message}`);
   console.error(`Hint: ${hint}`);
-  console.error('Make sure you run `hybridclaw` from the directory that contains your .env file.');
+  console.error(
+    'Make sure you run `hybridclaw` from the directory that contains your .env file.',
+  );
 }
 
 main().catch((err) => {
-  const missingEnvVarMatch = err instanceof Error
-    ? err.message.match(/^Missing required env var:\s*([A-Za-z0-9_]+)/)
-    : null;
+  const missingEnvVarMatch =
+    err instanceof Error
+      ? err.message.match(/^Missing required env var:\s*([A-Za-z0-9_]+)/)
+      : null;
   if (missingEnvVarMatch) {
     printMissingEnvVarError(err.message, missingEnvVarMatch[1]);
   } else if (err instanceof MissingRequiredEnvVarError) {

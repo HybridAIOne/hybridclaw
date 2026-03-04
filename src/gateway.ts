@@ -14,10 +14,10 @@ import {
 } from './channels/discord/runtime.js';
 import {
   DISCORD_TOKEN,
+  getConfigSnapshot,
   HEARTBEAT_CHANNEL,
   HEARTBEAT_INTERVAL,
   HYBRIDAI_CHATBOT_ID,
-  getConfigSnapshot,
   onConfigChange,
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
 } from './config.js';
@@ -575,10 +575,7 @@ function startOrRestartMemoryConsolidationScheduler(): void {
     }
   }, intervalMs);
 
-  logger.info(
-    { intervalHours },
-    'Memory consolidation scheduled',
-  );
+  logger.info({ intervalHours }, 'Memory consolidation scheduled');
 }
 
 async function main(): Promise<void> {
@@ -616,7 +613,8 @@ async function main(): Promise<void> {
       rearmScheduler();
     }
 
-    const memoryChanged = JSON.stringify(next.memory) !== JSON.stringify(prev.memory);
+    const memoryChanged =
+      JSON.stringify(next.memory) !== JSON.stringify(prev.memory);
     if (memoryChanged) {
       logger.info(
         {
