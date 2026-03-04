@@ -13,6 +13,7 @@ const execFileAsync = promisify(execFile);
 const WORKSPACE_ROOT = '/workspace';
 const BROWSER_SOCKET_ROOT = '/tmp/hybridclaw-browser';
 const BROWSER_ARTIFACT_ROOT = path.join(WORKSPACE_ROOT, '.browser-artifacts');
+const DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 const BROWSER_DEFAULT_TIMEOUT_MS = 45_000;
 const BROWSER_MAX_SNAPSHOT_CHARS = 12_000;
 const BROWSER_RUNTIME_ROOT = path.join(WORKSPACE_ROOT, '.hybridclaw-runtime');
@@ -98,10 +99,54 @@ const CLEAR_NETWORK_TIMINGS_SCRIPT = `(() => {
   return true;
 })()`;
 
+const FIND_FILE_INPUT_SELECTORS_SCRIPT = `(() => {
+  const selectors = [];
+  const seen = new Set();
+  const esc = (value) => {
+    const text = String(value || '');
+    if (typeof CSS !== 'undefined' && CSS && typeof CSS.escape === 'function') {
+      return CSS.escape(text);
+    }
+    return text.replace(/["\\\\]/g, '\\\\$&');
+  };
+  const push = (selector) => {
+    const normalized = String(selector || '').trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    selectors.push(normalized);
+  };
+  const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
+  for (const input of inputs) {
+    const id = input.getAttribute('id');
+    if (id) push(\`#\${esc(id)}\`);
+
+    const name = input.getAttribute('name');
+    if (name) push(\`input[type="file"][name="\${esc(name)}"]\`);
+
+    const accept = input.getAttribute('accept');
+    if (accept) push(\`input[type="file"][accept="\${esc(accept)}"]\`);
+
+    const form = input.closest('form');
+    const formId = form ? form.getAttribute('id') : null;
+    if (formId) {
+      if (name) {
+        push(\`#\${esc(formId)} input[type="file"][name="\${esc(name)}"]\`);
+      }
+      push(\`#\${esc(formId)} input[type="file"]\`);
+    }
+  }
+  push('input[type="file"]');
+  return selectors.slice(0, 10);
+})()`;
+
 type SnapshotMode = 'default' | 'interactive' | 'full';
 type FrameTarget = {
   raw: string;
   isMain: boolean;
+};
+type UploadTarget = {
+  raw: string;
+  source: 'ref' | 'selector';
 };
 type BrowserModelContext = {
   baseUrl: string;
@@ -428,6 +473,85 @@ function ensureRef(raw: unknown): string {
   return ref.startsWith('@') ? ref : `@${ref}`;
 }
 
+function resolveUploadTarget(args: Record<string, unknown>): UploadTarget {
+  const selector = String(args.selector || args.target || '').trim();
+  if (selector) return { raw: selector, source: 'selector' };
+
+  const ref = String(args.ref || '').trim();
+  if (!ref) {
+    throw new Error('ref is required (or provide selector)');
+  }
+  return {
+    raw: ref.startsWith('@') ? ref : `@${ref}`,
+    source: 'ref',
+  };
+}
+
+function normalizeUploadPath(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+  const normalizedInput = trimmed.replace(/\\/g, '/');
+  const candidate = normalizedInput.startsWith('/')
+    ? path.posix.normalize(normalizedInput)
+    : path.posix.normalize(path.posix.join(WORKSPACE_ROOT, normalizedInput));
+  if (
+    !(
+      candidate === WORKSPACE_ROOT || candidate.startsWith(`${WORKSPACE_ROOT}/`)
+    ) &&
+    !(
+      candidate === DISCORD_MEDIA_CACHE_ROOT ||
+      candidate.startsWith(`${DISCORD_MEDIA_CACHE_ROOT}/`)
+    )
+  ) {
+    return null;
+  }
+  return candidate;
+}
+
+function resolveUploadPaths(args: Record<string, unknown>): string[] {
+  const candidates: string[] = [];
+  const addPath = (value: unknown): void => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) candidates.push(trimmed);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item !== 'string') continue;
+        const trimmed = item.trim();
+        if (trimmed) candidates.push(trimmed);
+      }
+    }
+  };
+
+  addPath(args.path);
+  addPath(args.file);
+  addPath(args.files);
+  addPath(args.paths);
+
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of candidates) {
+    const normalized = normalizeUploadPath(raw);
+    if (!normalized) {
+      throw new Error(
+        `invalid upload path "${raw}" (must stay within /workspace or /discord-media-cache)`,
+      );
+    }
+    if (!fs.existsSync(normalized)) {
+      throw new Error(`upload file not found: ${normalized}`);
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    deduped.push(normalized);
+  }
+  if (deduped.length === 0) {
+    throw new Error('path is required (or provide files/paths)');
+  }
+  return deduped;
+}
+
 function resolveOutputPath(rawPath: unknown, extension: 'png' | 'pdf'): string {
   fs.mkdirSync(BROWSER_ARTIFACT_ROOT, { recursive: true });
 
@@ -561,6 +685,30 @@ function normalizeImageList(raw: unknown): Record<string, unknown>[] {
     images.push({ src, alt, width, height });
   }
   return images;
+}
+
+function normalizeStringList(raw: unknown, max = 10): string[] {
+  if (!Array.isArray(raw)) return [];
+  const values: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const normalized = item.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    values.push(normalized);
+    if (values.length >= max) break;
+  }
+  return values;
+}
+
+function isUploadTypeMismatchError(message: string): boolean {
+  const normalized = String(message || '').toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('setinputfiles') ||
+    normalized.includes('not an htmlinputelement')
+  );
 }
 
 function normalizeTrackedRequests(raw: unknown): Record<string, unknown>[] {
@@ -1025,6 +1173,60 @@ export async function executeBrowserTool(
         });
       }
 
+      case 'browser_upload': {
+        const target = resolveUploadTarget(args);
+        const filePaths = resolveUploadPaths(args);
+        const frame = parseOptionalFrame(args.frame);
+        await applyFrameTarget(effectiveSessionId, frame);
+        const result = await runAgentBrowser(effectiveSessionId, 'upload', [
+          target.raw,
+          ...filePaths,
+        ]);
+        if (
+          !result.success &&
+          target.source === 'ref' &&
+          isUploadTypeMismatchError(result.error || '')
+        ) {
+          const selectorEval = await runBrowserEval(
+            effectiveSessionId,
+            FIND_FILE_INPUT_SELECTORS_SCRIPT,
+            15_000,
+          );
+          const selectors = selectorEval.success
+            ? normalizeStringList(selectorEval.result, 10)
+            : [];
+          for (const selector of selectors) {
+            const retry = await runAgentBrowser(
+              effectiveSessionId,
+              'upload',
+              [selector, ...filePaths],
+            );
+            if (!retry.success) continue;
+            return success({
+              element: target.raw,
+              selector,
+              target: selector,
+              uploaded_count: filePaths.length,
+              files: filePaths,
+              fallback_from_ref: true,
+              ...(frame ? { frame: frame.raw } : {}),
+            });
+          }
+        }
+        if (!result.success) {
+          return failure(result.error || `failed to upload via ${target.raw}`);
+        }
+        return success({
+          target: target.raw,
+          ...(target.source === 'ref'
+            ? { element: target.raw }
+            : { selector: target.raw }),
+          uploaded_count: filePaths.length,
+          files: filePaths,
+          ...(frame ? { frame: frame.raw } : {}),
+        });
+      }
+
       case 'browser_press': {
         const key = String(args.key || '').trim();
         if (!key) return failure('key is required');
@@ -1375,6 +1577,46 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
           },
         },
         required: ['ref', 'text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_upload',
+      description:
+        'Upload one or more local files to a file input. Prefer a snapshot ref (for example "@e12"); if that ref points to a wrapper (like a span/button), provide selector for the underlying input[type=file].',
+      parameters: {
+        type: 'object',
+        properties: {
+          ref: {
+            type: 'string',
+            description:
+              'Optional element reference from browser_snapshot (for example "@e12").',
+          },
+          selector: {
+            type: 'string',
+            description:
+              'Optional CSS selector for the actual file input (for example input[type="file"]).',
+          },
+          path: {
+            type: 'string',
+            description:
+              'Primary local file path to upload (relative to /workspace or absolute /discord-media-cache path).',
+          },
+          files: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Optional additional local file paths for multi-file inputs.',
+          },
+          frame: {
+            type: 'string',
+            description:
+              'Optional frame selector. Use "main" to target the main document again.',
+          },
+        },
+        required: ['path'],
       },
     },
   },

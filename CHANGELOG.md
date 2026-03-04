@@ -2,7 +2,18 @@
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- **Private approval slash command**: Added `/approve` with private (ephemeral) responses for `view`, `yes`, `session`, `agent`, and `no`, including optional `approval_id`.
+
+### Changed
+
+- **Approval prompt visibility in Discord**: Channel responses now post a minimal “approval required” notice and move full approval details/decisions into private slash-command responses (`/approve`), matching the visibility pattern of `/status`.
+- **Discord command handler context**: Command execution now receives invoking `userId` and `username` so approval actions can be scoped to the requesting user.
+
+### Fixed
+
+- **Google Images/Lens upload compatibility**: `browser_upload` now supports CSS-selector targets and automatically falls back from wrapper refs to detected `input[type="file"]` selectors when upload fails with non-input elements.
 
 ## [0.2.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.6)
 

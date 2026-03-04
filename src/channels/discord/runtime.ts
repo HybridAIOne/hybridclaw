@@ -126,6 +126,8 @@ export type CommandHandler = (
   sessionId: string,
   guildId: string | null,
   channelId: string,
+  userId: string,
+  username: string,
   args: string[],
   reply: ReplyFn,
 ) => Promise<void>;
@@ -869,6 +871,31 @@ async function ensureSlashCommands(): Promise<void> {
       description: 'Show HybridClaw runtime status (only visible to you)',
     },
     {
+      name: 'approve',
+      description: 'View/respond to pending tool approval requests (private)',
+      options: [
+        {
+          type: ApplicationCommandOptionType.String,
+          name: 'action',
+          description: 'Action to perform',
+          required: false,
+          choices: [
+            { name: 'view', value: 'view' },
+            { name: 'yes', value: 'yes' },
+            { name: 'session', value: 'session' },
+            { name: 'agent', value: 'agent' },
+            { name: 'no', value: 'no' },
+          ],
+        },
+        {
+          type: ApplicationCommandOptionType.String,
+          name: 'approval_id',
+          description: 'Optional approval id (defaults to latest pending)',
+          required: false,
+        },
+      ],
+    },
+    {
       name: 'channel-mode',
       description: 'Set this channel to off, mention-only, or free-response',
       options: [
@@ -1377,6 +1404,7 @@ export function initDiscord(
     if (!interaction.isChatInputCommand()) return;
     if (
       interaction.commandName !== 'status' &&
+      interaction.commandName !== 'approve' &&
       interaction.commandName !== 'channel-mode' &&
       interaction.commandName !== 'channel-policy'
     ) {
@@ -1398,38 +1426,54 @@ export function initDiscord(
       channelId,
       interaction.user.id,
     );
-    const args =
-      interaction.commandName === 'status'
-        ? ['status']
-        : interaction.commandName === 'channel-mode'
-          ? (() => {
-              if (!interaction.guildId) return null;
-              const selectedMode = interaction.options
-                .getString('mode', true)
-                .trim()
-                .toLowerCase();
-              if (
-                selectedMode !== 'off' &&
-                selectedMode !== 'mention' &&
-                selectedMode !== 'free'
-              )
-                return null;
-              return ['channel', 'mode', selectedMode];
-            })()
-          : (() => {
-              if (!interaction.guildId) return null;
-              const selectedPolicy = interaction.options
-                .getString('policy', true)
-                .trim()
-                .toLowerCase();
-              if (
-                selectedPolicy !== 'open' &&
-                selectedPolicy !== 'allowlist' &&
-                selectedPolicy !== 'disabled'
-              )
-                return null;
-              return ['channel', 'policy', selectedPolicy];
-            })();
+    const args = (() => {
+      if (interaction.commandName === 'status') return ['status'];
+      if (interaction.commandName === 'approve') {
+        const action =
+          interaction.options.getString('action', false)?.trim().toLowerCase() ||
+          'view';
+        if (
+          action !== 'view' &&
+          action !== 'yes' &&
+          action !== 'session' &&
+          action !== 'agent' &&
+          action !== 'no'
+        ) {
+          return null;
+        }
+        const approvalId =
+          interaction.options.getString('approval_id', false)?.trim() || '';
+        return approvalId
+          ? ['approve', action, approvalId]
+          : ['approve', action];
+      }
+      if (interaction.commandName === 'channel-mode') {
+        if (!interaction.guildId) return null;
+        const selectedMode = interaction.options
+          .getString('mode', true)
+          .trim()
+          .toLowerCase();
+        if (
+          selectedMode !== 'off' &&
+          selectedMode !== 'mention' &&
+          selectedMode !== 'free'
+        )
+          return null;
+        return ['channel', 'mode', selectedMode];
+      }
+      if (!interaction.guildId) return null;
+      const selectedPolicy = interaction.options
+        .getString('policy', true)
+        .trim()
+        .toLowerCase();
+      if (
+        selectedPolicy !== 'open' &&
+        selectedPolicy !== 'allowlist' &&
+        selectedPolicy !== 'disabled'
+      )
+        return null;
+      return ['channel', 'policy', selectedPolicy];
+    })();
     if (!args) {
       await sendChunkedInteractionReply(
         interaction,
@@ -1442,6 +1486,8 @@ export function initDiscord(
         sessionId,
         guildId,
         channelId,
+        interaction.user.id,
+        interaction.user.username,
         args,
         async (text, files) =>
           sendChunkedInteractionReply(interaction, text, files),
@@ -1900,6 +1946,8 @@ export function initDiscord(
         sessionId,
         guildId,
         channelId,
+        msg.author.id,
+        msg.author.username,
         [parsed.command, ...parsed.args],
         commandReply,
       );
@@ -1923,6 +1971,8 @@ export function initDiscord(
           sessionId,
           guildId,
           channelId,
+          msg.author.id,
+          msg.author.username,
           [parsed.command, ...parsed.args],
           commandReply,
         );

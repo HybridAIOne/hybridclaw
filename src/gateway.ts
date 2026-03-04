@@ -62,6 +62,16 @@ let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
 let memoryConsolidationTimer: ReturnType<typeof setInterval> | null = null;
 
 const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
+const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
+
+interface PendingApprovalPrompt {
+  prompt: string;
+  createdAt: number;
+  expiresAt: number;
+  userId: string;
+}
+
+const pendingApprovalBySession = new Map<string, PendingApprovalPrompt>();
 
 function isDiscordChannelId(channelId: string): boolean {
   return /^\d{16,22}$/.test(channelId);
@@ -142,6 +152,132 @@ function simplifyImageAttachmentNarration(
     .trim();
   if (cleaned) return cleaned;
   return imageArtifacts.length === 1 ? 'Here it is.' : 'Here they are.';
+}
+
+function isApprovalPromptForPrivateDelivery(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return (
+    normalized.includes('i need your approval before i') &&
+    normalized.includes('approval id:') &&
+    normalized.includes('reply `yes`')
+  );
+}
+
+function parseApprovalExpiryMs(prompt: string): number {
+  const match = prompt.match(/Approval expires in\s+(\d+)s\./i);
+  const seconds = match ? Number.parseInt(match[1], 10) : NaN;
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return APPROVAL_PROMPT_DEFAULT_TTL_MS;
+  }
+  return Math.max(15_000, seconds * 1_000);
+}
+
+function extractApprovalId(prompt: string): string {
+  const match = prompt.match(/Approval ID:\s*([a-f0-9-]{6,64})/i);
+  return match?.[1]?.trim() || '';
+}
+
+function cleanupExpiredPendingApprovals(): void {
+  const now = Date.now();
+  for (const [sessionId, pending] of pendingApprovalBySession.entries()) {
+    if (pending.expiresAt <= now) {
+      pendingApprovalBySession.delete(sessionId);
+    }
+  }
+}
+
+async function handleApprovalCommand(params: {
+  sessionId: string;
+  guildId: string | null;
+  channelId: string;
+  userId: string;
+  username: string;
+  args: string[];
+  reply: ReplyFn;
+}): Promise<boolean> {
+  const { sessionId, guildId, channelId, userId, username, args, reply } =
+    params;
+  if ((args[0] || '').toLowerCase() !== 'approve') return false;
+
+  cleanupExpiredPendingApprovals();
+  const pending = pendingApprovalBySession.get(sessionId) || null;
+  const action = (args[1] || 'view').trim().toLowerCase();
+  const providedApprovalId = (args[2] || '').trim();
+  const currentApprovalId = pending ? extractApprovalId(pending.prompt) : '';
+  const approvalId = providedApprovalId || currentApprovalId;
+
+  if (action === 'view' || action === 'status' || action === 'show') {
+    if (!pending || pending.userId !== userId) {
+      await reply('No pending approval request for you in this session.');
+      return true;
+    }
+    await reply(formatInfo('Pending Approval', pending.prompt));
+    return true;
+  }
+
+  const directive = (() => {
+    if (action === 'yes' || action === '1') return 'yes';
+    if (action === 'session' || action === '2') return 'yes for session';
+    if (action === 'agent' || action === '3') return 'yes for agent';
+    if (
+      action === 'no' ||
+      action === 'deny' ||
+      action === 'skip' ||
+      action === '4'
+    ) {
+      return 'no';
+    }
+    return null;
+  })();
+
+  if (!directive) {
+    await reply(
+      'Usage: `/approve action:view|yes|session|agent|no [approval_id]`',
+    );
+    return true;
+  }
+
+  if (!approvalId && !pending) {
+    await reply('No pending approval request for this session.');
+    return true;
+  }
+
+  const approvalContent = approvalId ? `${directive} ${approvalId}` : directive;
+  const approvalResult = await handleGatewayMessage({
+    sessionId,
+    guildId,
+    channelId,
+    userId,
+    username,
+    content: approvalContent,
+    media: [],
+  });
+  if (approvalResult.status === 'error') {
+    await reply(
+      formatError('Approval Error', approvalResult.error || 'Unknown error'),
+    );
+    return true;
+  }
+
+  const resultText = buildResponseText(
+    approvalResult.result || 'No response from agent.',
+    approvalResult.toolsUsed,
+  );
+  if (isApprovalPromptForPrivateDelivery(resultText)) {
+    pendingApprovalBySession.set(sessionId, {
+      prompt: resultText,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + parseApprovalExpiryMs(resultText),
+      userId,
+    });
+    await reply(formatInfo('Pending Approval', resultText));
+    return true;
+  }
+
+  pendingApprovalBySession.delete(sessionId);
+  const attachments = buildArtifactAttachments(approvalResult.artifacts);
+  await reply(resultText, attachments);
+  return true;
 }
 
 async function deliverProactiveMessage(
@@ -339,10 +475,21 @@ async function startDiscordIntegration(): Promise<void> {
           context.sourceMessage,
           context.mentionLookup,
         );
-        await context.stream.finalize(
-          buildResponseText(renderedText, result.toolsUsed),
-          attachments,
-        );
+        const responseText = buildResponseText(renderedText, result.toolsUsed);
+        if (isApprovalPromptForPrivateDelivery(responseText)) {
+          pendingApprovalBySession.set(sessionId, {
+            prompt: responseText,
+            createdAt: Date.now(),
+            expiresAt: Date.now() + parseApprovalExpiryMs(responseText),
+            userId,
+          });
+          await context.stream.finalize(
+            `<@${userId}> approval required. Use \`/approve\` to view and respond privately.`,
+          );
+          return;
+        }
+        pendingApprovalBySession.delete(sessionId);
+        await context.stream.finalize(responseText, attachments);
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
         logger.error(
@@ -357,10 +504,25 @@ async function startDiscordIntegration(): Promise<void> {
       sessionId: string,
       guildId: string | null,
       channelId: string,
+      userId: string,
+      username: string,
       args: string[],
       reply: ReplyFn,
     ) => {
       try {
+        if (
+          await handleApprovalCommand({
+            sessionId,
+            guildId,
+            channelId,
+            userId,
+            username,
+            args,
+            reply,
+          })
+        ) {
+          return;
+        }
         const result = await handleGatewayCommand({
           sessionId,
           guildId,
