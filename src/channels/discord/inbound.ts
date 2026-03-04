@@ -45,7 +45,10 @@ function normalizeAlias(raw: string): string {
   return raw.trim().replace(/^@+/, '').toLowerCase();
 }
 
-export function hasLooseBotMention(content: string, botAliases: string[]): boolean {
+export function hasLooseBotMention(
+  content: string,
+  botAliases: string[],
+): boolean {
   const normalized = content.trim().toLowerCase();
   if (!normalized) return false;
 

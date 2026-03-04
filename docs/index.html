@@ -666,6 +666,7 @@
     </div>
     <div class="nav-links">
       <a href="#hybridai">HybridAI</a>
+      <a href="#latest">Latest</a>
       <a href="#features">Features</a>
       <a href="#comparison">Comparison</a>
       <a href="#architecture">Architecture</a>
@@ -693,7 +694,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). Browser automation tooling is preinstalled in the container image. HybridAI API key setup can be completed during onboarding. Current release: v0.2.6 (memory substrate with typed knowledge graph, canonical cross-channel sessions, usage aggregation/export, and SQLite user_version migrations with WAL defaults).</div>
+    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). Browser automation tooling is preinstalled in the container image. HybridAI API key setup can be completed during onboarding. Current release: v0.2.6 (memory substrate with typed knowledge graph, canonical cross-channel sessions, usage aggregation/export, and SQLite user_version migrations with WAL defaults). Main-branch updates since v0.2.6 include private `/approve` flow in Discord, stronger free-mode relevance gating, and model-window-aware status telemetry.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -727,6 +728,40 @@
     <div class="stat-label">Security + Control</div>
   </div>
 </div>
+
+<div class="glow-divider"></div>
+
+<section id="latest">
+  <div class="section-center">
+    <div class="section-label">Since v0.2.6</div>
+    <h2 class="section-title">Current main-branch updates</h2>
+    <p class="section-desc">These updates are already in `main` and will land in the next tagged release.</p>
+  </div>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f513;</div>
+      <h3>Private approval flow</h3>
+      <p>`/approve` now handles private approval decisions, and `/status` + `/approve` stay discoverable in Discord DMs via global slash registration.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f5e3;&#xfe0f;</div>
+      <h3>Smarter Discord command/reply handling</h3>
+      <p>Guild command access now supports public/restricted allowlists, and free-mode replies skip low-signal chatter to reduce noisy over-replies.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f4c8;</div>
+      <h3>Model-aware status telemetry</h3>
+      <p>Runtime status now resolves model context windows from HybridAI model catalogs (with fallbacks) and surfaces stronger context/cache usage signals.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f4c2;</div>
+      <h3>Upload + runtime hardening</h3>
+      <p>`browser_upload` now supports selector/fallback targeting for wrapper elements, and CLI/container diagnostics were hardened for install-root and prompt-debug scenarios.</p>
+    </div>
+  </div>
+</section>
+
+<div class="glow-divider"></div>
 
 <!-- HYBRIDAI PLATFORM -->
 <section id="hybridai">

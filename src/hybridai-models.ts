@@ -39,7 +39,9 @@ function firstPositiveNumber(values: unknown[]): number | null {
   return null;
 }
 
-function extractContextWindowTokens(item: Record<string, unknown>): number | null {
+function extractContextWindowTokens(
+  item: Record<string, unknown>,
+): number | null {
   const usageRecord = asRecord(item.usage);
   const limitsRecord = asRecord(item.limits);
   const metadataRecord = asRecord(item.metadata);
@@ -72,16 +74,15 @@ function extractContextWindowTokens(item: Record<string, unknown>): number | nul
 
 function normalizeModels(payload: unknown): HybridAIModel[] {
   const rootRecord = asRecord(payload);
-  const rawItems =
-    Array.isArray(payload)
-      ? payload
-      : Array.isArray(rootRecord?.data)
-        ? rootRecord.data
-        : Array.isArray(rootRecord?.models)
-          ? rootRecord.models
-          : Array.isArray(rootRecord?.items)
-            ? rootRecord.items
-            : [];
+  const rawItems = Array.isArray(payload)
+    ? payload
+    : Array.isArray(rootRecord?.data)
+      ? rootRecord.data
+      : Array.isArray(rootRecord?.models)
+        ? rootRecord.models
+        : Array.isArray(rootRecord?.items)
+          ? rootRecord.items
+          : [];
   const results: HybridAIModel[] = [];
   for (const raw of rawItems) {
     const item = asRecord(raw);
@@ -149,11 +150,14 @@ export function resolveModelContextWindowFromList(
 
   const direct = models.find(
     (entry) =>
-      entry.contextWindowTokens != null && entry.id.trim().toLowerCase() === target,
+      entry.contextWindowTokens != null &&
+      entry.id.trim().toLowerCase() === target,
   );
   if (direct?.contextWindowTokens != null) return direct.contextWindowTokens;
 
-  const targetTail = target.includes('/') ? (target.split('/').at(-1) ?? '') : target;
+  const targetTail = target.includes('/')
+    ? (target.split('/').at(-1) ?? '')
+    : target;
   if (!targetTail) return null;
 
   const tailMatch = models.find((entry) => {

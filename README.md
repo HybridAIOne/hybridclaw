@@ -13,6 +13,16 @@ hybridclaw onboarding
 
 Latest release: [v0.2.6](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.6)
 
+## Main branch updates (since v0.2.6)
+
+- Private approval flow via `/approve [view|yes|session|agent|no] [approval_id]` with ephemeral responses, and DM-ready global slash registration for `/status` + `/approve`.
+- Discord command access controls now support `discord.commandMode` (`public|restricted`) plus `discord.commandAllowedUserIds` (with legacy `commandUserId` compatibility).
+- Free-mode Discord replies now apply stronger relevance gating (for example short acknowledgements/URL-only chatter are skipped, and messages mentioning other users are de-prioritized).
+- `browser_upload` now supports selector targets and automatic fallback from wrapper refs to detected `input[type="file"]` elements.
+- HybridAI status/usage context metrics now use model-catalog context-window metadata with fallback mappings, and runtime supports `hybridai.maxTokens` for default completion budgeting.
+- Model-usage telemetry now captures cache read/write token counters where providers expose them, and prompt-dump diagnostics include media plus allowed/blocked tool context.
+- CLI container readiness checks now resolve the package install root to avoid non-root invocation failures.
+
 ## HybridAI Advantage
 
 - Security-focused foundation
@@ -128,7 +138,7 @@ HybridClaw uses typed runtime config in `config.json` (auto-created on first run
 - `sessionCompaction.tokenBudget` and `sessionCompaction.budgetRatio` tune compaction token budgeting behavior
 - Built-in Discord humanization behaviors include night/weekend pacing, post-exchange cooldown scaling (after 5+ exchanges, reset after 20 minutes idle), selective silence in active free-mode channels, short-ack read reactions, and reconnect staggered dequeue
 - Per-guild/per-channel mode takes precedence over `discord.respondToAllMessages`
-- Discord slash commands: `/status`, `/channel-mode <off|mention|free>`, and `/channel-policy <open|allowlist|disabled>` (ephemeral replies)
+- Discord slash commands: `/status`, `/approve [view|yes|session|agent|no] [approval_id]`, `/channel-mode <off|mention|free>`, and `/channel-policy <open|allowlist|disabled>` (ephemeral replies)
 - `skills.extraDirs` adds additional enterprise/shared skill roots (lowest precedence tier)
 - `proactive.*` controls autonomous behavior (`activeHours`, `delegation`, `autoRetry`, `ralph`)
 - `proactive.ralph.maxIterations` enables Ralph loop (`0` off, `-1` unlimited, `>0` extra autonomous iterations before forcing completion)

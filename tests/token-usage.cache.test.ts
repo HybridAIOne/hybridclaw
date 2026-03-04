@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { accumulateApiUsage, createTokenUsageStats } from '../container/src/token-usage.js';
+import {
+  accumulateApiUsage,
+  createTokenUsageStats,
+} from '../container/src/token-usage.js';
 import type { ChatCompletionResponse } from '../container/src/types.js';
 
 function buildResponse(usage: Record<string, unknown>): ChatCompletionResponse {

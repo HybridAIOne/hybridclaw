@@ -2404,7 +2404,9 @@ export async function handleGatewayCommand(
       const sessionModel = session.model || HYBRIDAI_MODEL;
       let modelContextWindowTokens: number | null = null;
       try {
-        const models = await fetchHybridAIModels({ cacheTtlMs: MODEL_CACHE_TTL });
+        const models = await fetchHybridAIModels({
+          cacheTtlMs: MODEL_CACHE_TTL,
+        });
         modelContextWindowTokens = resolveModelContextWindowFromList(
           models,
           sessionModel,
@@ -2416,7 +2418,8 @@ export async function handleGatewayCommand(
         );
       }
       if (modelContextWindowTokens == null) {
-        modelContextWindowTokens = resolveModelContextWindowFallback(sessionModel);
+        modelContextWindowTokens =
+          resolveModelContextWindowFallback(sessionModel);
       }
       const metrics = readSessionStatusSnapshot(session.id, {
         modelContextWindowTokens,

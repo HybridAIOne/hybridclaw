@@ -437,7 +437,8 @@ function latestUserMessageText(messages: ChatMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     if (messages[i].role !== 'user') continue;
     const content = messages[i].content;
-    if (typeof content === 'string') return content.trim().slice(0, MAX_PROMPT_CHARS);
+    if (typeof content === 'string')
+      return content.trim().slice(0, MAX_PROMPT_CHARS);
     if (!Array.isArray(content)) continue;
     const textParts: string[] = [];
     for (const part of content) {
@@ -475,10 +476,7 @@ function extractHostsFromUrlLikeText(input: string): string[] {
 }
 
 function normalizeHostScope(host: string): string {
-  const normalized = host
-    .trim()
-    .toLowerCase()
-    .replace(/\.$/, '');
+  const normalized = host.trim().toLowerCase().replace(/\.$/, '');
   if (!normalized) return 'unknown-host';
   if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) return normalized;
   if (normalized.includes(':')) return normalized; // IPv6/host:port fragments

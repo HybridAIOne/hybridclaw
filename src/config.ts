@@ -220,9 +220,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_RESPOND_TO_ALL_MESSAGES = config.discord.respondToAllMessages;
   DISCORD_COMMANDS_ONLY = config.discord.commandsOnly;
   DISCORD_COMMAND_MODE = config.discord.commandMode;
-  DISCORD_COMMAND_ALLOWED_USER_IDS = [
-    ...config.discord.commandAllowedUserIds,
-  ];
+  DISCORD_COMMAND_ALLOWED_USER_IDS = [...config.discord.commandAllowedUserIds];
   DISCORD_COMMAND_USER_ID = config.discord.commandUserId;
   DISCORD_GROUP_POLICY = config.discord.groupPolicy;
   DISCORD_FREE_RESPONSE_CHANNELS = [...config.discord.freeResponseChannels];

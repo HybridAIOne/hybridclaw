@@ -190,7 +190,8 @@ export function startHeartbeat(
       const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
       const apiTotalTokens =
         tokenUsage?.apiTotalTokens || apiPromptTokens + apiCompletionTokens;
-      const apiCacheUsageAvailable = tokenUsage?.apiCacheUsageAvailable === true;
+      const apiCacheUsageAvailable =
+        tokenUsage?.apiCacheUsageAvailable === true;
       const apiCacheReadTokens = tokenUsage?.apiCacheReadTokens || 0;
       const apiCacheWriteTokens = tokenUsage?.apiCacheWriteTokens || 0;
       recordAuditEvent({

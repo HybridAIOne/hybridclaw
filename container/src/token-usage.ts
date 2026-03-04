@@ -98,9 +98,7 @@ export function accumulateApiUsage(
 ): void {
   const usage = response.usage;
   if (!usage) return;
-  const usageRecord = isRecord(usage)
-    ? (usage as Record<string, unknown>)
-    : {};
+  const usageRecord = isRecord(usage) ? (usage as Record<string, unknown>) : {};
 
   const hasTokenUsageFields =
     usage.prompt_tokens != null ||

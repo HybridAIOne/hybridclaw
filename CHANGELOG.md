@@ -5,15 +5,25 @@
 ### Added
 
 - **Private approval slash command**: Added `/approve` with private (ephemeral) responses for `view`, `yes`, `session`, `agent`, and `no`, including optional `approval_id`.
+- **HybridAI model metadata resolver**: Added cached model-catalog fetch (`/v1/models` with fallback to `/api/v1/model-management/models`) plus context-window extraction/fallback mapping for session status metrics.
+- **Discord command access + output controls**: Added runtime config support for `discord.commandMode`, `discord.commandAllowedUserIds`, `discord.textChunkLimit`, and `discord.maxLinesPerMessage`.
+- **HybridAI completion budget control**: Added `hybridai.maxTokens` runtime setting and request wiring (`max_tokens`) for container model calls.
 
 ### Changed
 
 - **Approval prompt visibility in Discord**: Channel responses now post a minimal “approval required” notice and move full approval details/decisions into private slash-command responses (`/approve`), matching the visibility pattern of `/status`.
 - **Discord command handler context**: Command execution now receives invoking `userId` and `username` so approval actions can be scoped to the requesting user.
+- **Discord slash command discoverability**: `/status` and `/approve` are now upserted globally for DM visibility while guild-only authorization checks remain enforced in servers.
+- **Discord free-mode message relevance gating**: Free-mode replies now skip low-signal acknowledgements/URL-only chatter and avoid jumping in when other users are explicitly mentioned.
+- **Status context usage reporting**: Session status now derives context usage from usage telemetry and model context-window metadata (with static fallbacks) instead of char-budget estimation only.
+- **Approval parsing and trust scoping**: Approval response parsing now handles mention-prefixed/batched messages, and network trust scopes now normalize hosts to broader domain scopes.
+- **Prompt dump diagnostics**: `data/last_prompt.jsonl` now includes media context plus allowed/blocked tool lists for richer debugging context.
 
 ### Fixed
 
 - **Google Images/Lens upload compatibility**: `browser_upload` now supports CSS-selector targets and automatically falls back from wrapper refs to detected `input[type="file"]` selectors when upload fails with non-input elements.
+- **Install-root container bootstrap**: CLI container readiness checks now resolve the package install root, preventing false build failures when invoked from non-package working directories.
+- **DM slash command registration regression**: Restored reliable discovery/usage of HybridClaw slash commands in Discord DMs.
 
 ## [0.2.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.6)
 
