@@ -4,6 +4,7 @@ import {
   makeAuditRunId,
   recordAuditEvent,
 } from './audit-events.js';
+import { recordUsageEvent } from './db.js';
 import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
@@ -123,6 +124,17 @@ export async function runIsolatedScheduledTask(params: {
         apiCompletionTokens,
         apiTotalTokens,
       },
+    });
+    recordUsageEvent({
+      sessionId: cronSessionId,
+      agentId,
+      model,
+      inputTokens: apiUsageAvailable ? apiPromptTokens : estimatedPromptTokens,
+      outputTokens: apiUsageAvailable
+        ? apiCompletionTokens
+        : estimatedCompletionTokens,
+      totalTokens: apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens,
+      toolCalls: (output.toolExecutions || []).length,
     });
 
     if (output.status === 'success' && output.result) {

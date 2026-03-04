@@ -31,19 +31,20 @@ import {
 } from './container-runner.js';
 import { buildConversationContext } from './conversation.js';
 import {
-  clearSessionHistory,
   createTask,
   deleteTask,
   getAllSessions,
-  getConversationHistory,
-  getOrCreateSession,
   getQueuedProactiveMessageCount,
   getRecentStructuredAuditForSession,
   getSessionCount,
+  getUsageTotals,
   getTasksForSession,
+  listUsageByAgent,
+  listUsageByModel,
   logAudit,
-  storeMessage,
-  toggleTask,
+  pauseTask,
+  recordUsageEvent,
+  resumeTask,
   updateSessionChatbot,
   updateSessionModel,
   updateSessionRag,
@@ -62,11 +63,13 @@ import {
 } from './gateway-types.js';
 import { fetchHybridAIBots } from './hybridai-bots.js';
 import { logger } from './logger.js';
+import { memoryService } from './memory-service.js';
 import { getObservabilityIngestState } from './observability-ingest.js';
 import { updateRuntimeConfig } from './runtime-config.js';
 import { runIsolatedScheduledTask } from './scheduled-task-runner.js';
-import { rearmScheduler } from './scheduler.js';
+import { getSchedulerStatus, rearmScheduler } from './scheduler.js';
 import { maybeCompactSession } from './session-maintenance.js';
+import { exportSessionSnapshotJsonl } from './session-export.js';
 import { appendSessionTranscript } from './session-transcripts.js';
 import { processSideEffects } from './side-effects.js';
 import { expandSkillInvocation } from './skills.js';
@@ -76,6 +79,7 @@ import {
 } from './token-efficiency.js';
 import type {
   ArtifactMetadata,
+  CanonicalSessionContext,
   ChatMessage,
   DelegationSideEffect,
   DelegationTaskSpec,
@@ -457,6 +461,83 @@ function formatPercent(value: number | null): string {
   return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
 }
 
+function formatUsd(value: number | null): string {
+  if (value == null || Number.isNaN(value) || !Number.isFinite(value)) {
+    return 'n/a';
+  }
+  if (value <= 0) return '$0.0000';
+  if (value >= 1) return `$${value.toFixed(2)}`;
+  if (value >= 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(6)}`;
+}
+
+function resolveSessionAgentId(session: {
+  chatbot_id: string | null;
+}): string | null {
+  const sessionAgent = session.chatbot_id?.trim();
+  if (sessionAgent) return sessionAgent;
+  const defaultAgent = HYBRIDAI_CHATBOT_ID?.trim();
+  if (defaultAgent) return defaultAgent;
+  return null;
+}
+
+function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
+  if (!tokenUsage) return 0;
+  const costCarrier = tokenUsage as unknown as Record<string, unknown>;
+  const value = firstNumber([
+    costCarrier.costUsd,
+    costCarrier.costUSD,
+    costCarrier.cost_usd,
+    costCarrier.estimatedCostUsd,
+    costCarrier.estimated_cost_usd,
+  ]);
+  if (value == null) return 0;
+  return Math.max(0, value);
+}
+
+function formatCanonicalContextPrompt(params: {
+  summary: string | null;
+  recentMessages: Array<{
+    role: string;
+    content: string;
+    session_id: string;
+    channel_id: string | null;
+  }>;
+}): string | null {
+  const sections: string[] = [];
+  const summary = (params.summary || '').trim();
+  if (summary) {
+    sections.push(
+      ['### Canonical Session Summary', summary].join('\n'),
+    );
+  }
+
+  if (params.recentMessages.length > 0) {
+    const lines = params.recentMessages.slice(-6).map((entry) => {
+      const role = (entry.role || 'user').trim().toLowerCase();
+      const who = role === 'assistant' ? 'Assistant' : 'User';
+      const from =
+        entry.channel_id && entry.channel_id.trim()
+          ? `${entry.channel_id.trim()} (${entry.session_id})`
+          : entry.session_id;
+      const compact = entry.content.replace(/\s+/g, ' ').trim();
+      const short =
+        compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
+      return `- ${who} [${from}]: ${short}`;
+    });
+    sections.push(
+      [
+        '### Cross-Channel Recall',
+        'Recent context from other sessions/channels for this user:',
+        ...lines,
+      ].join('\n'),
+    );
+  }
+
+  const merged = sections.join('\n\n').trim();
+  return merged || null;
+}
+
 function resolveActivationModeLabel(): string {
   if (DISCORD_COMMANDS_ONLY) return 'commands-only';
   if (DISCORD_GROUP_POLICY === 'disabled') return 'disabled';
@@ -642,14 +723,46 @@ function recordSuccessfulTurn(opts: {
   toolCallCount: number;
   startedAt: number;
 }): void {
-  storeMessage(
-    opts.sessionId,
-    opts.userId,
-    opts.username,
-    'user',
-    opts.userContent,
-  );
-  storeMessage(opts.sessionId, 'assistant', null, 'assistant', opts.resultText);
+  memoryService.storeTurn({
+    sessionId: opts.sessionId,
+    user: {
+      userId: opts.userId,
+      username: opts.username,
+      content: opts.userContent,
+    },
+    assistant: {
+      userId: 'assistant',
+      username: null,
+      content: opts.resultText,
+    },
+  });
+  try {
+    if (opts.userId.trim()) {
+      memoryService.appendCanonicalMessages({
+        agentId: opts.agentId,
+        userId: opts.userId,
+        newMessages: [
+          {
+            role: 'user',
+            content: opts.userContent,
+            sessionId: opts.sessionId,
+            channelId: opts.channelId,
+          },
+          {
+            role: 'assistant',
+            content: opts.resultText,
+            sessionId: opts.sessionId,
+            channelId: opts.channelId,
+          },
+        ],
+      });
+    }
+  } catch (err) {
+    logger.debug(
+      { sessionId: opts.sessionId, userId: opts.userId, err },
+      'Failed to append canonical session memory',
+    );
+  }
   appendSessionTranscript(opts.agentId, {
     sessionId: opts.sessionId,
     channelId: opts.channelId,
@@ -798,6 +911,9 @@ export function getGatewayStatus(): GatewayStatus {
     ragDefault: HYBRIDAI_ENABLE_RAG,
     timestamp: new Date().toISOString(),
     observability: getObservabilityIngestState(),
+    scheduler: {
+      jobs: getSchedulerStatus(),
+    },
   };
 }
 
@@ -805,7 +921,7 @@ export function getGatewayHistory(
   sessionId: string,
   limit = MAX_HISTORY_MESSAGES,
 ): StoredMessage[] {
-  return getConversationHistory(
+  return memoryService.getConversationHistory(
     sessionId,
     Math.max(1, Math.min(limit, 200)),
   ).reverse();
@@ -1264,7 +1380,13 @@ async function publishDelegationCompletion(params: {
     onProactiveMessage,
   } = params;
 
-  storeMessage(parentSessionId, 'assistant', null, 'assistant', forLLM);
+  memoryService.storeMessage({
+    sessionId: parentSessionId,
+    userId: 'assistant',
+    username: null,
+    role: 'assistant',
+    content: forLLM,
+  });
   appendSessionTranscript(agentId, {
     sessionId: parentSessionId,
     channelId,
@@ -1430,7 +1552,11 @@ export async function handleGatewayMessage(
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
   const runId = makeAuditRunId('turn');
-  const session = getOrCreateSession(req.sessionId, req.guildId, req.channelId);
+  const session = memoryService.getOrCreateSession(
+    req.sessionId,
+    req.guildId,
+    req.channelId,
+  );
   const chatbotId = req.chatbotId ?? session.chatbot_id ?? HYBRIDAI_CHATBOT_ID;
   const enableRag = req.enableRag ?? session.enable_rag === 1;
   const model = req.model ?? session.model ?? HYBRIDAI_MODEL;
@@ -1533,10 +1659,48 @@ export async function handleGatewayMessage(
     };
   }
 
-  const history = getConversationHistory(req.sessionId, MAX_HISTORY_MESSAGES);
+  const history = memoryService.getConversationHistory(
+    req.sessionId,
+    MAX_HISTORY_MESSAGES,
+  );
+  let canonicalContext: CanonicalSessionContext = {
+    summary: null,
+    recent_messages: [],
+  };
+  if (req.userId.trim()) {
+    try {
+      canonicalContext = memoryService.getCanonicalContext({
+        agentId,
+        userId: req.userId,
+        windowSize: 12,
+        excludeSessionId: req.sessionId,
+      });
+    } catch (err) {
+      logger.debug(
+        { sessionId: req.sessionId, userId: req.userId, err },
+        'Failed to load canonical session context',
+      );
+    }
+  }
+  const canonicalPromptSummary = formatCanonicalContextPrompt({
+    summary: canonicalContext.summary,
+    recentMessages: canonicalContext.recent_messages,
+  });
+  const memoryContext = memoryService.buildPromptMemoryContext({
+    session,
+    query: req.content,
+  });
+  const mergedSessionSummary =
+    [canonicalPromptSummary, memoryContext.promptSummary]
+      .filter(
+        (value): value is string =>
+          typeof value === 'string' && value.trim().length > 0,
+      )
+      .join('\n\n')
+      .trim() || null;
   const { messages, skills, historyStats } = buildConversationContext({
     agentId,
-    sessionSummary: session.session_summary,
+    sessionSummary: mergedSessionSummary,
     history,
     runtimeInfo: {
       chatbotId,
@@ -1567,6 +1731,8 @@ export async function handleGatewayMessage(
       historyEstimatedTokens: estimateTokenCountFromMessages(
         messages.slice(historyStart),
       ),
+      canonicalSummaryIncluded: Boolean(canonicalPromptSummary),
+      canonicalRecentMessagesIncluded: canonicalContext.recent_messages.length,
     },
   });
   const mediaPolicy = resolveMediaToolPolicy(req.content, media);
@@ -1619,6 +1785,11 @@ export async function handleGatewayMessage(
       runId,
       toolExecutions,
     });
+    const usagePayload = buildTokenUsageAuditPayload(
+      messages,
+      output.result,
+      output.tokenUsage,
+    );
     recordAuditEvent({
       sessionId: req.sessionId,
       runId,
@@ -1628,12 +1799,18 @@ export async function handleGatewayMessage(
         model,
         durationMs: Date.now() - startedAt,
         toolCallCount: toolExecutions.length,
-        ...buildTokenUsageAuditPayload(
-          messages,
-          output.result,
-          output.tokenUsage,
-        ),
+        ...usagePayload,
       },
+    });
+    recordUsageEvent({
+      sessionId: req.sessionId,
+      agentId,
+      model,
+      inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
+      outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
+      totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
+      toolCalls: toolExecutions.length,
+      costUsd: extractUsageCostUsd(output.tokenUsage),
     });
 
     const parentDepth = extractDelegationDepth(req.sessionId);
@@ -1833,7 +2010,7 @@ export async function runGatewayScheduledTask(
   onError: (error: unknown) => void,
   runKey?: string,
 ): Promise<void> {
-  const session = getOrCreateSession(origSessionId, null, channelId);
+  const session = memoryService.getOrCreateSession(origSessionId, null, channelId);
   const chatbotId = session.chatbot_id || HYBRIDAI_CHATBOT_ID;
   if (!chatbotId) return;
   const model = session.model || HYBRIDAI_MODEL;
@@ -1856,7 +2033,11 @@ export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
   const cmd = (req.args[0] || '').toLowerCase();
-  const session = getOrCreateSession(req.sessionId, req.guildId, req.channelId);
+  const session = memoryService.getOrCreateSession(
+    req.sessionId,
+    req.guildId,
+    req.channelId,
+  );
 
   switch (cmd) {
     case 'help': {
@@ -1876,6 +2057,8 @@ export async function handleGatewayCommand(
         '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
         '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
         '`sessions` — List active sessions',
+        '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
+        '`export session [sessionId]` — Export session JSONL snapshot for debugging',
         '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
         '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
         '`schedule add every <ms> <prompt>` — Add interval task',
@@ -2152,7 +2335,7 @@ export async function handleGatewayCommand(
     }
 
     case 'clear': {
-      const deleted = clearSessionHistory(session.id);
+      const deleted = memoryService.clearSessionHistory(session.id);
       return infoCommand(
         'Session Cleared',
         `Deleted ${deleted} messages. Workspace files preserved.`,
@@ -2202,6 +2385,133 @@ export async function handleGatewayCommand(
         )
         .join('\n');
       return infoCommand('Sessions', list);
+    }
+
+    case 'usage': {
+      const sub = (req.args[1] || 'summary').toLowerCase();
+      if (sub === 'daily' || sub === 'monthly') {
+        const rows = listUsageByAgent({ window: sub });
+        if (rows.length === 0) {
+          return plainCommand(`No usage events recorded for ${sub} window.`);
+        }
+        const lines = rows.slice(0, 20).map((row) => {
+          return `${row.agent_id} — ${formatCompactNumber(row.total_tokens)} tokens (${formatCompactNumber(row.total_input_tokens)} in / ${formatCompactNumber(row.total_output_tokens)} out) · ${row.call_count} calls · ${formatUsd(row.total_cost_usd)}`;
+        });
+        return infoCommand(`Usage (${sub} · by agent)`, lines.join('\n'));
+      }
+
+      if (sub === 'model') {
+        const maybeWindow = (req.args[2] || '').toLowerCase();
+        const window =
+          maybeWindow === 'daily' || maybeWindow === 'monthly'
+            ? maybeWindow
+            : 'monthly';
+        const modelAgentId =
+          maybeWindow === 'daily' || maybeWindow === 'monthly'
+            ? (req.args[3] || '').trim()
+            : (req.args[2] || '').trim();
+        const rows = listUsageByModel({
+          window,
+          agentId: modelAgentId || undefined,
+        });
+        if (rows.length === 0) {
+          return plainCommand('No usage events recorded for model breakdown.');
+        }
+        const lines = rows.slice(0, 20).map((row) => {
+          return `${row.model} — ${formatCompactNumber(row.total_tokens)} tokens · ${row.call_count} calls · ${formatUsd(row.total_cost_usd)}`;
+        });
+        const scope = modelAgentId ? `agent ${modelAgentId}` : 'all agents';
+        return infoCommand(
+          `Usage (${window} · by model · ${scope})`,
+          lines.join('\n'),
+        );
+      }
+
+      if (sub !== 'summary') {
+        return badCommand(
+          'Usage',
+          'Usage: `usage [summary|daily|monthly|model [daily|monthly] [agentId]]`',
+        );
+      }
+
+      const currentAgentId = resolveSessionAgentId(session);
+      const daily = getUsageTotals({
+        agentId: currentAgentId || undefined,
+        window: 'daily',
+      });
+      const monthly = getUsageTotals({
+        agentId: currentAgentId || undefined,
+        window: 'monthly',
+      });
+      const topModels = listUsageByModel({
+        agentId: currentAgentId || undefined,
+        window: 'monthly',
+      }).slice(0, 5);
+      const scopeLabel = currentAgentId || 'all agents';
+      const lines = [
+        `Scope: ${scopeLabel}`,
+        `Today: ${formatCompactNumber(daily.total_tokens)} tokens · ${daily.call_count} calls · ${formatUsd(daily.total_cost_usd)}`,
+        `Month: ${formatCompactNumber(monthly.total_tokens)} tokens · ${monthly.call_count} calls · ${formatUsd(monthly.total_cost_usd)}`,
+      ];
+      if (topModels.length > 0) {
+        lines.push('Top models (monthly):');
+        lines.push(
+          ...topModels.map(
+            (row) =>
+              `- ${row.model}: ${formatCompactNumber(row.total_tokens)} tokens · ${formatUsd(row.total_cost_usd)}`,
+          ),
+        );
+      }
+      return infoCommand('Usage Summary', lines.join('\n'));
+    }
+
+    case 'export': {
+      const sub = (req.args[1] || 'session').toLowerCase();
+      if (sub !== 'session') {
+        return badCommand('Usage', 'Usage: `export session [sessionId]`');
+      }
+      const targetSessionId = (req.args[2] || session.id || '').trim();
+      if (!targetSessionId) {
+        return badCommand('Usage', 'Usage: `export session [sessionId]`');
+      }
+      const targetSession = memoryService.getSessionById(targetSessionId);
+      if (!targetSession) {
+        return badCommand(
+          'Not Found',
+          `Session \`${targetSessionId}\` was not found.`,
+        );
+      }
+      const exportAgentId =
+        resolveSessionAgentId(targetSession) || resolveSessionAgentId(session);
+      if (!exportAgentId) {
+        return badCommand(
+          'Missing Agent',
+          'Cannot export session: no agent/chatbot is configured for the target session.',
+        );
+      }
+      const messages = memoryService.getRecentMessages(targetSessionId);
+      const exported = exportSessionSnapshotJsonl({
+        agentId: exportAgentId,
+        sessionId: targetSessionId,
+        channelId: targetSession.channel_id,
+        summary: targetSession.session_summary,
+        messages,
+        reason: 'manual',
+      });
+      if (!exported) {
+        return badCommand(
+          'Export Failed',
+          'Failed to write session export JSONL file. Check gateway logs for details.',
+        );
+      }
+      return infoCommand(
+        'Session Exported',
+        [
+          `File: ${exported.path}`,
+          `Messages: ${messages.length}`,
+          `Summary: ${targetSession.session_summary ? 'yes' : 'no'}`,
+        ].join('\n'),
+      );
     }
 
     case 'schedule': {
@@ -2321,7 +2631,11 @@ export async function handleGatewayCommand(
             'Not Found',
             `Task #${taskId} was not found in this session.`,
           );
-        toggleTask(taskId, !task.enabled);
+        if (task.enabled) {
+          pauseTask(taskId);
+        } else {
+          resumeTask(taskId);
+        }
         rearmScheduler();
         return plainCommand(
           `Task #${taskId} ${task.enabled ? 'disabled' : 'enabled'}.`,

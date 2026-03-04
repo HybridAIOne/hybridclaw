@@ -13,6 +13,15 @@ hybridclaw onboarding
 
 Latest release: [v0.2.5](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.5)
 
+## What's new (Unreleased)
+
+- Added canonical cross-channel memory sessions (`agent_id + user_id`) with compacted summaries and recent-message recall
+- Added usage aggregation storage/query layer (`usage_events`) with daily/monthly totals and by-agent/by-model breakdowns
+- Added gateway usage commands: `usage`, `usage daily`, `usage monthly`, `usage model [daily|monthly] [agentId]`
+- Added JSONL session export command: `export session [sessionId]`
+- Added automatic JSONL export snapshots after session compaction for debugging
+- Added schema migration versioning for canonical + usage tables, with WAL + `busy_timeout` at DB init
+
 ## What's new in v0.2.5
 
 - Added trusted-coworker approval controls with `yes`, `yes for session`, `yes for agent`, and `skip` flows for red-tier actions
@@ -379,6 +388,9 @@ HybridClaw also supports automatic session compaction with pre-compaction memory
 
 - when a session gets long, old turns are summarized into `session_summary`
 - before compaction, the agent gets a `memory`-only flush turn to persist durable notes
+- each `(agent_id, user_id)` pair also maintains a canonical cross-channel session for continuity across channels
+- canonical context injection includes compacted summary + recent cross-channel messages (excluding the current live session)
+- compaction writes JSONL exports to `<workspace>/.session-exports/` for human-readable debugging
 
 System prompt assembly is handled by a formal hook pipeline:
 
@@ -442,6 +454,8 @@ In Discord, use `!claw help` to see all commands. Key ones:
 - `!claw audit verify [sessionId]` — Verify audit hash chain integrity
 - `!claw audit search <query>` — Search structured audit history
 - `!claw audit approvals [n] [--denied]` — Show policy approval decisions
+- `!claw usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Show token/cost aggregates
+- `!claw export session [sessionId]` — Export session snapshot as JSONL
 - `!claw schedule add "<cron>" <prompt>` — Add cron scheduled task
 - `!claw schedule add at "<ISO time>" <prompt>` — Add one-shot task
 - `!claw schedule add every <ms> <prompt>` — Add interval task

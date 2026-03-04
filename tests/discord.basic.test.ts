@@ -112,3 +112,12 @@ test('parseCommand recognizes channel command namespace', () => {
     args: ['mode', 'free'],
   });
 });
+
+test('parseCommand recognizes usage command namespace', () => {
+  const parsed = parseCommand('!claw usage monthly', null, '!claw');
+  expect(parsed).toEqual({
+    isCommand: true,
+    command: 'usage',
+    args: ['monthly'],
+  });
+});

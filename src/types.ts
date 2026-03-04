@@ -192,6 +192,167 @@ export interface StoredMessage {
   created_at: string;
 }
 
+export interface SemanticMemoryEntry {
+  id: number;
+  session_id: string;
+  role: string;
+  source: string;
+  scope: string;
+  metadata: Record<string, unknown>;
+  content: string;
+  confidence: number;
+  embedding: number[] | null;
+  source_message_id: number | null;
+  created_at: string;
+  accessed_at: string;
+  access_count: number;
+}
+
+export interface StructuredMemoryEntry {
+  agent_id: string;
+  key: string;
+  value: unknown;
+  version: number;
+  updated_at: string;
+}
+
+export enum KnowledgeEntityType {
+  Person = 'person',
+  Organization = 'organization',
+  Project = 'project',
+  Concept = 'concept',
+  Event = 'event',
+  Location = 'location',
+  Document = 'document',
+  Tool = 'tool',
+}
+
+export interface KnowledgeEntityCustomType {
+  custom: string;
+}
+
+export type KnowledgeEntityTypeValue =
+  | KnowledgeEntityType
+  | KnowledgeEntityCustomType;
+
+export enum KnowledgeRelationType {
+  WorksAt = 'works_at',
+  KnowsAbout = 'knows_about',
+  RelatedTo = 'related_to',
+  DependsOn = 'depends_on',
+  OwnedBy = 'owned_by',
+  CreatedBy = 'created_by',
+  LocatedIn = 'located_in',
+  PartOf = 'part_of',
+  Uses = 'uses',
+  Produces = 'produces',
+}
+
+export interface KnowledgeRelationCustomType {
+  custom: string;
+}
+
+export type KnowledgeRelationTypeValue =
+  | KnowledgeRelationType
+  | KnowledgeRelationCustomType;
+
+export interface KnowledgeEntity {
+  id: string;
+  entity_type: KnowledgeEntityTypeValue;
+  name: string;
+  properties: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeRelation {
+  source: string;
+  relation: KnowledgeRelationTypeValue;
+  target: string;
+  properties: Record<string, unknown>;
+  confidence: number;
+  created_at: string;
+}
+
+export interface KnowledgeGraphPattern {
+  source?: string;
+  relation?: KnowledgeRelationTypeValue;
+  target?: string;
+  max_depth?: number;
+}
+
+export interface KnowledgeGraphMatch {
+  source: KnowledgeEntity;
+  relation: KnowledgeRelation;
+  target: KnowledgeEntity;
+}
+
+export interface CanonicalSessionMessage {
+  role: string;
+  content: string;
+  session_id: string;
+  channel_id: string | null;
+  created_at: string;
+}
+
+export interface CanonicalSession {
+  canonical_id: string;
+  agent_id: string;
+  user_id: string;
+  messages: CanonicalSessionMessage[];
+  compaction_cursor: number;
+  compacted_summary: string | null;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CanonicalSessionContext {
+  summary: string | null;
+  recent_messages: CanonicalSessionMessage[];
+}
+
+export type UsageWindow = 'daily' | 'monthly' | 'all';
+
+export interface UsageTotals {
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  call_count: number;
+  total_tool_calls: number;
+}
+
+export interface UsageModelAggregate {
+  model: string;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  call_count: number;
+  total_tool_calls: number;
+}
+
+export interface UsageAgentAggregate {
+  agent_id: string;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  call_count: number;
+  total_tool_calls: number;
+}
+
+export interface UsageDailyAggregate {
+  day: string;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  call_count: number;
+  total_tool_calls: number;
+}
+
 export interface ScheduledTask {
   id: number;
   session_id: string;

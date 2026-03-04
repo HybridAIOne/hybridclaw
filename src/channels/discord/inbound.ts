@@ -61,6 +61,8 @@ export function parseCommand(
     'bot',
     'rag',
     'model',
+    'usage',
+    'export',
     'sessions',
     'audit',
     'schedule',

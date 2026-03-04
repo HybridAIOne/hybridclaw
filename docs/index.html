@@ -693,7 +693,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). Browser automation tooling is preinstalled in the container image. HybridAI API key setup can be completed during onboarding. Current release: v0.2.5.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). Browser automation tooling is preinstalled in the container image. HybridAI API key setup can be completed during onboarding. Current release: v0.2.5. Main branch adds canonical cross-channel memory, usage aggregation, and JSONL session export.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -1022,7 +1022,11 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
-      <p>Persistent workspace memory plus long-session compaction keeps conversations responsive without losing important context.</p>
+      <p>Persistent workspace memory, canonical cross-channel sessions, and long-session compaction keep context coherent across Discord/web/terminal channels without losing important history.</p>
+    </div>
+    <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Usage Analytics &amp; Export</h3>
+      <p>Per-turn usage events are aggregated by day/month, model, and agent via <code>usage</code> commands, and sessions can be exported as JSONL snapshots (<code>export session [sessionId]</code>) for debugging.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Discord Conversational UX</h3>
@@ -1293,7 +1297,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Does the agent remember things between conversations?</div>
-      <div class="faq-a">Yes. The agent writes daily memory files (<code>memory/YYYY-MM-DD.md</code>) and curates long-term insights into <code>MEMORY.md</code>. Before session compaction, a dedicated flush turn ensures durable notes are persisted. These files plus <code>SOUL.md</code> are injected into every request, giving the agent continuous, growing context.</div>
+      <div class="faq-a">Yes. The agent writes daily memory files (<code>memory/YYYY-MM-DD.md</code>) and curates long-term insights into <code>MEMORY.md</code>. It also maintains canonical cross-channel context per user/agent pair so continuity survives channel switches. Before session compaction, a dedicated flush turn ensures durable notes are persisted. These files plus <code>SOUL.md</code> are injected into every request.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I switch the assistant personality at runtime?</div>
