@@ -248,6 +248,8 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `Workspace: ${process.cwd()}`,
     `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,
     'Only provide more runtime details when the user explicitly asks for them.',
+    'Default response style: concise and direct.',
+    'Use the shortest complete answer unless the user asks for depth.',
   ];
 
   return lines.filter(Boolean).join('\n');

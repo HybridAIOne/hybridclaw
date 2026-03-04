@@ -107,6 +107,117 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(second.decision).toBe('approved_session');
   });
 
+  test('network approvals reuse site scope across subdomains', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    const originalPrompt = 'Open Google Images';
+
+    const first = runtime.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson: JSON.stringify({ url: 'https://images.google.de' }),
+      latestUserPrompt: originalPrompt,
+    });
+    expect(first.decision).toBe('required');
+    expect(first.actionKey).toBe('network:google.de');
+
+    const prelude = runtime.handleApprovalResponse([userMessage('yes')]);
+    expect(prelude?.approvalMode).toBe('once');
+
+    const second = runtime.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson: JSON.stringify({ url: 'https://www.google.de' }),
+      latestUserPrompt: originalPrompt,
+    });
+    expect(second.actionKey).toBe('network:google.de');
+    expect(second.decision).toBe('promoted');
+    expect(second.tier).toBe('yellow');
+  });
+
+  test('approval prompt lists options in 1/2/3/4 order for non-pinned actions', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'web_fetch',
+      argsJson: JSON.stringify({ url: 'https://example.com' }),
+      latestUserPrompt: 'Fetch page',
+    });
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.pinned).toBe(false);
+
+    const prompt = runtime.formatApprovalRequest(evaluation);
+    const onceIdx = prompt.indexOf('Reply `yes` (or `1`) to approve once.');
+    const sessionIdx = prompt.indexOf(
+      'Reply `yes for session` (or `2`) to trust this action for this session.',
+    );
+    const agentIdx = prompt.indexOf(
+      'Reply `yes for agent` (or `3`) to trust it for this agent.',
+    );
+    const denyIdx = prompt.indexOf('Reply `no` (or `4`) to deny.');
+
+    expect(onceIdx).toBeGreaterThanOrEqual(0);
+    expect(sessionIdx).toBeGreaterThan(onceIdx);
+    expect(agentIdx).toBeGreaterThan(sessionIdx);
+    expect(denyIdx).toBeGreaterThan(agentIdx);
+  });
+
+  test('approval prompt marks session/agent trust unavailable for pinned actions', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'write',
+      argsJson: JSON.stringify({ path: '.env', contents: 'TOKEN=abc' }),
+      latestUserPrompt: 'Write env file',
+    });
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.pinned).toBe(true);
+
+    const prompt = runtime.formatApprovalRequest(evaluation);
+    expect(prompt).toContain(
+      'Reply `yes for session` (or `2`) is unavailable for pinned-sensitive actions.',
+    );
+    expect(prompt).toContain(
+      'Reply `yes for agent` (or `3`) is unavailable for pinned-sensitive actions.',
+    );
+  });
+
+  test('approval parser accepts wrapped Discord batch reply "Message 1: 3"', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    const originalPrompt = 'Open images.google.de';
+    const argsJson = JSON.stringify({ url: 'https://images.google.de' });
+
+    const first = runtime.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson,
+      latestUserPrompt: originalPrompt,
+    });
+    expect(first.decision).toBe('required');
+
+    const wrappedReply = [
+      '[Channel info]',
+      '- Channel: #chat',
+      '',
+      'Message 1:',
+      '3',
+    ].join('\n');
+    const prelude = runtime.handleApprovalResponse([userMessage(wrappedReply)]);
+    expect(prelude?.approvalMode).toBe('agent');
+    expect(prelude?.replayPrompt).toBe(originalPrompt);
+
+    const second = runtime.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson,
+      latestUserPrompt: originalPrompt,
+    });
+    expect(second.decision).toBe('approved_agent');
+  });
+
   test('pinned red cannot be session-trusted across runs', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

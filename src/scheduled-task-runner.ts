@@ -99,6 +99,9 @@ export async function runIsolatedScheduledTask(params: {
     const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
     const apiTotalTokens =
       tokenUsage?.apiTotalTokens || apiPromptTokens + apiCompletionTokens;
+    const apiCacheUsageAvailable = tokenUsage?.apiCacheUsageAvailable === true;
+    const apiCacheReadTokens = tokenUsage?.apiCacheReadTokens || 0;
+    const apiCacheWriteTokens = tokenUsage?.apiCacheWriteTokens || 0;
     recordAuditEvent({
       sessionId: cronSessionId,
       runId,
@@ -123,6 +126,17 @@ export async function runIsolatedScheduledTask(params: {
         apiPromptTokens,
         apiCompletionTokens,
         apiTotalTokens,
+        ...(apiCacheUsageAvailable
+          ? {
+              apiCacheUsageAvailable,
+              apiCacheReadTokens,
+              apiCacheWriteTokens,
+              cacheReadTokens: apiCacheReadTokens,
+              cacheReadInputTokens: apiCacheReadTokens,
+              cacheWriteTokens: apiCacheWriteTokens,
+              cacheWriteInputTokens: apiCacheWriteTokens,
+            }
+          : {}),
       },
     });
     recordUsageEvent({

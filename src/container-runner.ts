@@ -17,6 +17,7 @@ import {
   GATEWAY_BASE_URL,
   getHybridAIApiKey,
   HYBRIDAI_BASE_URL,
+  HYBRIDAI_MAX_TOKENS,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
@@ -434,6 +435,7 @@ export async function runContainer(
     gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_BASE_URL),
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     model,
+    maxTokens: HYBRIDAI_MAX_TOKENS,
     channelId,
     scheduledTasks: scheduledTasks?.map((t) => ({
       id: t.id,

@@ -62,6 +62,11 @@ import {
   renderGatewayCommand,
 } from './gateway-types.js';
 import { fetchHybridAIBots } from './hybridai-bots.js';
+import {
+  fetchHybridAIModels,
+  resolveModelContextWindowFallback,
+  resolveModelContextWindowFromList,
+} from './hybridai-models.js';
 import { logger } from './logger.js';
 import { memoryService } from './memory-service.js';
 import { getObservabilityIngestState } from './observability-ingest.js';
@@ -93,6 +98,7 @@ import type {
 import { ensureBootstrapFiles } from './workspace.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
+const MODEL_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
 const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'read',
@@ -109,6 +115,7 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'browser_snapshot',
   'browser_click',
   'browser_type',
+  'browser_upload',
   'browser_press',
   'browser_scroll',
   'browser_back',
@@ -586,10 +593,12 @@ interface SessionStatusSnapshot {
   contextUsagePercent: number | null;
 }
 
-function readSessionStatusSnapshot(sessionId: string): SessionStatusSnapshot {
+function readSessionStatusSnapshot(
+  sessionId: string,
+  options?: { modelContextWindowTokens?: number | null },
+): SessionStatusSnapshot {
   const entries = getRecentStructuredAuditForSession(sessionId, 160);
   let usagePayload: Record<string, unknown> | null = null;
-  let contextPayload: Record<string, unknown> | null = null;
 
   for (const entry of entries) {
     const payload = parseAuditPayload(entry);
@@ -598,10 +607,8 @@ function readSessionStatusSnapshot(sessionId: string): SessionStatusSnapshot {
       typeof payload.type === 'string' ? payload.type : entry.event_type;
     if (!usagePayload && payloadType === 'model.usage') {
       usagePayload = payload;
-    } else if (!contextPayload && payloadType === 'context.optimization') {
-      contextPayload = payload;
     }
-    if (usagePayload && contextPayload) break;
+    if (usagePayload) break;
   }
 
   const promptTokens = firstNumber([
@@ -618,10 +625,24 @@ function readSessionStatusSnapshot(sessionId: string): SessionStatusSnapshot {
   const cacheReadTokens = firstNumber([
     usagePayload?.cacheReadTokens,
     usagePayload?.cacheReadInputTokens,
+    usagePayload?.apiCacheReadTokens,
+    usagePayload?.cacheRead,
+    usagePayload?.cache_read,
+    usagePayload?.cache_read_tokens,
+    usagePayload?.cache_read_input_tokens,
+    usagePayload?.cached_tokens,
+    (usagePayload?.prompt_tokens_details as Record<string, unknown> | undefined)
+      ?.cached_tokens,
   ]);
   const cacheWriteTokens = firstNumber([
     usagePayload?.cacheWriteTokens,
     usagePayload?.cacheWriteInputTokens,
+    usagePayload?.apiCacheWriteTokens,
+    usagePayload?.cacheWrite,
+    usagePayload?.cache_write,
+    usagePayload?.cache_write_tokens,
+    usagePayload?.cache_write_input_tokens,
+    usagePayload?.cache_creation_input_tokens,
   ]);
   const cacheRead = Math.max(0, cacheReadTokens || 0);
   const cacheWrite = Math.max(0, cacheWriteTokens || 0);
@@ -630,13 +651,31 @@ function readSessionStatusSnapshot(sessionId: string): SessionStatusSnapshot {
     cacheTotal > 0 ? (cacheRead / cacheTotal) * 100 : null;
 
   const contextUsedTokens = firstNumber([
-    contextPayload?.historyEstimatedTokens,
+    usagePayload?.contextTokens,
+    usagePayload?.context_tokens,
+    usagePayload?.tokensInContext,
+    usagePayload?.tokens_in_context,
+    usagePayload?.promptTokens,
+    usagePayload?.apiPromptTokens,
+    usagePayload?.estimatedPromptTokens,
   ]);
-  const contextBudgetTokens = (() => {
-    const maxChars = firstNumber([contextPayload?.historyMaxChars]);
-    if (maxChars == null || maxChars <= 0) return null;
-    return Math.max(1, Math.round(maxChars / 4));
-  })();
+  const contextBudgetTokens = firstNumber([
+    usagePayload?.contextWindowTokens,
+    usagePayload?.context_window_tokens,
+    usagePayload?.modelContextWindowTokens,
+    usagePayload?.model_context_window_tokens,
+    usagePayload?.modelContextWindow,
+    usagePayload?.model_context_window,
+    usagePayload?.maxContextTokens,
+    usagePayload?.max_context_tokens,
+    usagePayload?.contextWindow,
+    usagePayload?.context_window,
+    usagePayload?.contextLength,
+    usagePayload?.context_length,
+    usagePayload?.maxContextSize,
+    usagePayload?.max_context_size,
+    options?.modelContextWindowTokens,
+  ]);
   const contextUsagePercent =
     contextUsedTokens != null &&
     contextBudgetTokens != null &&
@@ -872,6 +911,9 @@ function buildTokenUsageAuditPayload(
   const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
   const apiTotalTokens =
     tokenUsage?.apiTotalTokens || apiPromptTokens + apiCompletionTokens;
+  const apiCacheUsageAvailable = tokenUsage?.apiCacheUsageAvailable === true;
+  const apiCacheReadTokens = tokenUsage?.apiCacheReadTokens || 0;
+  const apiCacheWriteTokens = tokenUsage?.apiCacheWriteTokens || 0;
   const promptTokens = apiUsageAvailable
     ? apiPromptTokens
     : estimatedPromptTokens;
@@ -894,6 +936,17 @@ function buildTokenUsageAuditPayload(
     apiPromptTokens,
     apiCompletionTokens,
     apiTotalTokens,
+    ...(apiCacheUsageAvailable
+      ? {
+          apiCacheUsageAvailable,
+          apiCacheReadTokens,
+          apiCacheWriteTokens,
+          cacheReadTokens: apiCacheReadTokens,
+          cacheReadInputTokens: apiCacheReadTokens,
+          cacheWriteTokens: apiCacheWriteTokens,
+          cacheWriteInputTokens: apiCacheWriteTokens,
+        }
+      : {}),
   };
 }
 
@@ -2055,6 +2108,7 @@ export async function handleGatewayCommand(
         '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
         '`clear` — Clear session history',
         '`/status` — Show runtime status (Discord slash command, private to caller)',
+        '`/approve [view|yes|session|agent|no] [approval_id]` — View/respond to pending approvals privately',
         '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
         '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
         '`sessions` — List active sessions',
@@ -2346,9 +2400,27 @@ export async function handleGatewayCommand(
     case 'status': {
       const status = getGatewayStatus();
       const delegationStatus = delegationQueueStatus();
-      const metrics = readSessionStatusSnapshot(session.id);
       const commitShort = resolveGitCommitShort();
       const sessionModel = session.model || HYBRIDAI_MODEL;
+      let modelContextWindowTokens: number | null = null;
+      try {
+        const models = await fetchHybridAIModels({ cacheTtlMs: MODEL_CACHE_TTL });
+        modelContextWindowTokens = resolveModelContextWindowFromList(
+          models,
+          sessionModel,
+        );
+      } catch (err) {
+        logger.debug(
+          { sessionId: session.id, model: sessionModel, err },
+          'Failed to resolve model context window for status',
+        );
+      }
+      if (modelContextWindowTokens == null) {
+        modelContextWindowTokens = resolveModelContextWindowFallback(sessionModel);
+      }
+      const metrics = readSessionStatusSnapshot(session.id, {
+        modelContextWindowTokens,
+      });
       const queueLabel = `${delegationStatus.active} active / ${delegationStatus.queued} queued`;
       const proactiveQueued = getQueuedProactiveMessageCount();
       const cacheKnown =
@@ -2357,7 +2429,7 @@ export async function handleGatewayCommand(
         metrics.contextUsedTokens != null && metrics.contextBudgetTokens != null
           ? `${formatCompactNumber(metrics.contextUsedTokens)}/${formatCompactNumber(metrics.contextBudgetTokens)} (${formatPercent(metrics.contextUsagePercent)})`
           : metrics.contextUsedTokens != null
-            ? `${formatCompactNumber(metrics.contextUsedTokens)} est`
+            ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
             : 'n/a';
       const lines = [
         `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,

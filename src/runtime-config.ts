@@ -40,6 +40,7 @@ export interface RuntimeSecurityConfig {
 }
 
 export type DiscordGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type DiscordCommandMode = 'public' | 'restricted';
 export type DiscordChannelMode = 'off' | 'mention' | 'free';
 export type DiscordTypingMode = 'instant' | 'thinking' | 'streaming' | 'never';
 export type DiscordHumanDelayMode = 'off' | 'natural' | 'custom';
@@ -140,9 +141,13 @@ export interface RuntimeConfig {
     presenceIntent: boolean;
     respondToAllMessages: boolean;
     commandsOnly: boolean;
+    commandMode: DiscordCommandMode;
+    commandAllowedUserIds: string[];
     commandUserId: string;
     groupPolicy: DiscordGroupPolicy;
     freeResponseChannels: string[];
+    textChunkLimit: number;
+    maxLinesPerMessage: number;
     humanDelay: RuntimeDiscordHumanDelayConfig;
     typingMode: DiscordTypingMode;
     presence: RuntimeDiscordPresenceConfig;
@@ -161,6 +166,7 @@ export interface RuntimeConfig {
     baseUrl: string;
     defaultModel: string;
     defaultChatbotId: string;
+    maxTokens: number;
     enableRag: boolean;
     models: string[];
   };
@@ -273,9 +279,13 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     presenceIntent: false,
     respondToAllMessages: false,
     commandsOnly: false,
+    commandMode: 'public',
+    commandAllowedUserIds: [],
     commandUserId: '',
     groupPolicy: 'open',
     freeResponseChannels: [],
+    textChunkLimit: 2_000,
+    maxLinesPerMessage: 17,
     humanDelay: {
       mode: 'natural',
       minMs: 800,
@@ -316,6 +326,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     baseUrl: 'https://hybridai.one',
     defaultModel: 'gpt-5-nano',
     defaultChatbotId: '',
+    maxTokens: 4_096,
     enableRag: true,
     models: ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
   },
@@ -520,6 +531,18 @@ function normalizeDiscordGroupPolicy(
     normalized === 'allowlist' ||
     normalized === 'disabled'
   ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeDiscordCommandMode(
+  value: unknown,
+  fallback: DiscordCommandMode,
+): DiscordCommandMode {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'public' || normalized === 'restricted') {
     return normalized;
   }
   return fallback;
@@ -1095,6 +1118,22 @@ function normalizeRuntimeConfig(
     rawHybridAi.models,
     DEFAULT_RUNTIME_CONFIG.hybridai.models,
   );
+  const normalizedCommandUserId = normalizeString(
+    rawDiscord.commandUserId,
+    DEFAULT_RUNTIME_CONFIG.discord.commandUserId,
+    { allowEmpty: true },
+  );
+  const normalizedCommandAllowedUserIds = normalizeStringArray(
+    rawDiscord.commandAllowedUserIds,
+    DEFAULT_RUNTIME_CONFIG.discord.commandAllowedUserIds,
+  );
+  const legacyCommandModeFallback = normalizedCommandUserId
+    ? 'restricted'
+    : DEFAULT_RUNTIME_CONFIG.discord.commandMode;
+  const normalizedCommandMode = normalizeDiscordCommandMode(
+    rawDiscord.commandMode,
+    legacyCommandModeFallback,
+  );
 
   return {
     version: CONFIG_VERSION,
@@ -1147,11 +1186,9 @@ function normalizeRuntimeConfig(
         rawDiscord.commandsOnly,
         DEFAULT_RUNTIME_CONFIG.discord.commandsOnly,
       ),
-      commandUserId: normalizeString(
-        rawDiscord.commandUserId,
-        DEFAULT_RUNTIME_CONFIG.discord.commandUserId,
-        { allowEmpty: true },
-      ),
+      commandMode: normalizedCommandMode,
+      commandAllowedUserIds: normalizedCommandAllowedUserIds,
+      commandUserId: normalizedCommandUserId,
       groupPolicy: normalizeDiscordGroupPolicy(
         rawDiscord.groupPolicy,
         DEFAULT_RUNTIME_CONFIG.discord.groupPolicy,
@@ -1159,6 +1196,16 @@ function normalizeRuntimeConfig(
       freeResponseChannels: normalizeStringArray(
         rawDiscord.freeResponseChannels,
         DEFAULT_RUNTIME_CONFIG.discord.freeResponseChannels,
+      ),
+      textChunkLimit: normalizeInteger(
+        rawDiscord.textChunkLimit,
+        DEFAULT_RUNTIME_CONFIG.discord.textChunkLimit,
+        { min: 200, max: 2_000 },
+      ),
+      maxLinesPerMessage: normalizeInteger(
+        rawDiscord.maxLinesPerMessage,
+        DEFAULT_RUNTIME_CONFIG.discord.maxLinesPerMessage,
+        { min: 4, max: 200 },
       ),
       humanDelay: normalizeDiscordHumanDelayConfig(
         rawDiscord.humanDelay,
@@ -1225,6 +1272,11 @@ function normalizeRuntimeConfig(
         { allowEmpty: false },
       ),
       defaultChatbotId: hybridDefaultChatbotId,
+      maxTokens: normalizeInteger(
+        rawHybridAi.maxTokens,
+        DEFAULT_RUNTIME_CONFIG.hybridai.maxTokens,
+        { min: 256, max: 32_768 },
+      ),
       enableRag: normalizeBoolean(
         rawHybridAi.enableRag,
         DEFAULT_RUNTIME_CONFIG.hybridai.enableRag,

@@ -58,6 +58,7 @@ export interface ContainerInput {
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
   model: string;
+  maxTokens?: number;
   channelId: string;
   scheduledTasks?: {
     id: number;
@@ -112,6 +113,9 @@ export interface TokenUsageStats {
   apiPromptTokens: number;
   apiCompletionTokens: number;
   apiTotalTokens: number;
+  apiCacheUsageAvailable: boolean;
+  apiCacheReadTokens: number;
+  apiCacheWriteTokens: number;
   estimatedPromptTokens: number;
   estimatedCompletionTokens: number;
   estimatedTotalTokens: number;

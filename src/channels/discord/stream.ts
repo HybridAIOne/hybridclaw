@@ -1,6 +1,10 @@
 import type { AttachmentBuilder, Message as DiscordMessage } from 'discord.js';
 
 import { chunkMessage } from '../../chunk.js';
+import {
+  DISCORD_MAX_LINES_PER_MESSAGE,
+  DISCORD_TEXT_CHUNK_LIMIT,
+} from '../../config.js';
 import { logger } from '../../logger.js';
 import {
   getHumanDelayMs,
@@ -40,8 +44,6 @@ export interface DiscordStreamOptions {
   humanDelay?: HumanDelayConfig;
 }
 
-const DEFAULT_MAX_CHARS = 1_800;
-const DEFAULT_MAX_LINES = 20;
 const DEFAULT_EDIT_INTERVAL_MS = 1_200;
 const RETRY_MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 500;
@@ -114,8 +116,14 @@ export class DiscordStreamManager {
   constructor(sourceMessage: DiscordMessage, options?: DiscordStreamOptions) {
     this.sourceMessage = sourceMessage;
     this.channel = sourceMessage.channel as unknown as DiscordSendChannel;
-    this.maxChars = Math.max(200, options?.maxChars ?? DEFAULT_MAX_CHARS);
-    this.maxLines = Math.max(4, options?.maxLines ?? DEFAULT_MAX_LINES);
+    this.maxChars = Math.max(
+      200,
+      Math.min(2_000, options?.maxChars ?? DISCORD_TEXT_CHUNK_LIMIT),
+    );
+    this.maxLines = Math.max(
+      4,
+      Math.min(200, options?.maxLines ?? DISCORD_MAX_LINES_PER_MESSAGE),
+    );
     this.editIntervalMs = Math.max(
       250,
       options?.editIntervalMs ?? DEFAULT_EDIT_INTERVAL_MS,

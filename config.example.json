@@ -15,9 +15,13 @@
     "presenceIntent": false,
     "respondToAllMessages": false,
     "commandsOnly": false,
+    "commandMode": "public",
+    "commandAllowedUserIds": [],
     "commandUserId": "",
     "groupPolicy": "open",
     "freeResponseChannels": [],
+    "textChunkLimit": 2000,
+    "maxLinesPerMessage": 17,
     "humanDelay": {
       "mode": "natural",
       "minMs": 800,
@@ -58,6 +62,7 @@
     "baseUrl": "https://hybridai.one",
     "defaultModel": "gpt-5-nano",
     "defaultChatbotId": "",
+    "maxTokens": 4096,
     "enableRag": true,
     "models": ["gpt-5-nano", "gpt-5-mini", "gpt-5"]
   },

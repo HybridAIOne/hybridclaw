@@ -6,6 +6,10 @@ import type {
 
 const CHARS_PER_TOKEN = 4;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function parseUsageNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Math.max(0, Math.floor(value));
@@ -17,6 +21,24 @@ function parseUsageNumber(value: unknown): number {
   return 0;
 }
 
+function parseOptionalUsageNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.floor(value));
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed)) return Math.max(0, parsed);
+  }
+  return undefined;
+}
+
+function firstDefined(values: unknown[]): unknown {
+  for (const value of values) {
+    if (value !== undefined && value !== null) return value;
+  }
+  return undefined;
+}
+
 export function createTokenUsageStats(): TokenUsageStats {
   return {
     modelCalls: 0,
@@ -24,6 +46,9 @@ export function createTokenUsageStats(): TokenUsageStats {
     apiPromptTokens: 0,
     apiCompletionTokens: 0,
     apiTotalTokens: 0,
+    apiCacheUsageAvailable: false,
+    apiCacheReadTokens: 0,
+    apiCacheWriteTokens: 0,
     estimatedPromptTokens: 0,
     estimatedCompletionTokens: 0,
     estimatedTotalTokens: 0,
@@ -73,30 +98,86 @@ export function accumulateApiUsage(
 ): void {
   const usage = response.usage;
   if (!usage) return;
+  const usageRecord = isRecord(usage)
+    ? (usage as Record<string, unknown>)
+    : {};
 
-  const hasUsageFields =
+  const hasTokenUsageFields =
     usage.prompt_tokens != null ||
     usage.completion_tokens != null ||
     usage.total_tokens != null ||
     usage.input_tokens != null ||
-    usage.output_tokens != null;
-  if (!hasUsageFields) return;
+    usage.output_tokens != null ||
+    usageRecord.promptTokens != null ||
+    usageRecord.completionTokens != null ||
+    usageRecord.totalTokens != null ||
+    usageRecord.inputTokens != null ||
+    usageRecord.outputTokens != null;
+  const promptTokenDetails = isRecord(usage.prompt_tokens_details)
+    ? usage.prompt_tokens_details
+    : null;
+  const cacheReadTokens = parseOptionalUsageNumber(
+    firstDefined([
+      usageRecord.cacheRead,
+      usageRecord.cache_read,
+      usageRecord.cacheReadTokens,
+      usage.cache_read_tokens,
+      usageRecord.cacheReadInputTokens,
+      usage.cache_read_input_tokens,
+      usageRecord.cached_tokens,
+      usage.cached_tokens,
+      promptTokenDetails?.cached_tokens,
+    ]),
+  );
+  const cacheWriteTokens = parseOptionalUsageNumber(
+    firstDefined([
+      usageRecord.cacheWrite,
+      usageRecord.cache_write,
+      usageRecord.cacheWriteTokens,
+      usage.cache_write_tokens,
+      usageRecord.cacheWriteInputTokens,
+      usage.cache_write_input_tokens,
+      usage.cache_creation_input_tokens,
+    ]),
+  );
+  const hasCacheUsageFields =
+    cacheReadTokens !== undefined || cacheWriteTokens !== undefined;
+  if (!hasTokenUsageFields && !hasCacheUsageFields) return;
 
   const promptTokens = parseUsageNumber(
-    usage.prompt_tokens ?? usage.input_tokens,
+    firstDefined([
+      usage.prompt_tokens,
+      usage.input_tokens,
+      usageRecord.promptTokens,
+      usageRecord.inputTokens,
+    ]),
   );
   const completionTokens = parseUsageNumber(
-    usage.completion_tokens ?? usage.output_tokens,
+    firstDefined([
+      usage.completion_tokens,
+      usage.output_tokens,
+      usageRecord.completionTokens,
+      usageRecord.outputTokens,
+    ]),
   );
-  let totalTokens = parseUsageNumber(usage.total_tokens);
+  let totalTokens = parseUsageNumber(
+    firstDefined([usage.total_tokens, usageRecord.totalTokens]),
+  );
   if (totalTokens === 0 && (promptTokens > 0 || completionTokens > 0)) {
     totalTokens = promptTokens + completionTokens;
   }
 
-  stats.apiUsageAvailable = true;
-  stats.apiPromptTokens += promptTokens;
-  stats.apiCompletionTokens += completionTokens;
-  stats.apiTotalTokens += totalTokens;
+  if (hasTokenUsageFields) {
+    stats.apiUsageAvailable = true;
+    stats.apiPromptTokens += promptTokens;
+    stats.apiCompletionTokens += completionTokens;
+    stats.apiTotalTokens += totalTokens;
+  }
+  if (hasCacheUsageFields) {
+    stats.apiCacheUsageAvailable = true;
+    stats.apiCacheReadTokens += cacheReadTokens ?? 0;
+    stats.apiCacheWriteTokens += cacheWriteTokens ?? 0;
+  }
 }
 
 export function finalizeTokenUsage(stats: TokenUsageStats): TokenUsageStats {

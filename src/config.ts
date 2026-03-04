@@ -83,10 +83,15 @@ export let DISCORD_GUILD_MEMBERS_INTENT = false;
 export let DISCORD_PRESENCE_INTENT = false;
 export let DISCORD_RESPOND_TO_ALL_MESSAGES = false;
 export let DISCORD_COMMANDS_ONLY = false;
+export let DISCORD_COMMAND_MODE: RuntimeConfig['discord']['commandMode'] =
+  'public';
+export let DISCORD_COMMAND_ALLOWED_USER_IDS: string[] = [];
 export let DISCORD_COMMAND_USER_ID = '';
 export let DISCORD_GROUP_POLICY: RuntimeConfig['discord']['groupPolicy'] =
   'open';
 export let DISCORD_FREE_RESPONSE_CHANNELS: string[] = [];
+export let DISCORD_TEXT_CHUNK_LIMIT = 2_000;
+export let DISCORD_MAX_LINES_PER_MESSAGE = 17;
 export let DISCORD_HUMAN_DELAY: RuntimeConfig['discord']['humanDelay'] = {
   mode: 'natural',
   minMs: 800,
@@ -134,6 +139,7 @@ export let DISCORD_GUILDS: RuntimeConfig['discord']['guilds'] = {};
 export let HYBRIDAI_BASE_URL = 'https://hybridai.one';
 export let HYBRIDAI_MODEL = 'gpt-5-nano';
 export let HYBRIDAI_CHATBOT_ID = '';
+export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
 export let HYBRIDAI_MODELS: string[] = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
 
@@ -213,9 +219,21 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_PRESENCE_INTENT = config.discord.presenceIntent;
   DISCORD_RESPOND_TO_ALL_MESSAGES = config.discord.respondToAllMessages;
   DISCORD_COMMANDS_ONLY = config.discord.commandsOnly;
+  DISCORD_COMMAND_MODE = config.discord.commandMode;
+  DISCORD_COMMAND_ALLOWED_USER_IDS = [
+    ...config.discord.commandAllowedUserIds,
+  ];
   DISCORD_COMMAND_USER_ID = config.discord.commandUserId;
   DISCORD_GROUP_POLICY = config.discord.groupPolicy;
   DISCORD_FREE_RESPONSE_CHANNELS = [...config.discord.freeResponseChannels];
+  DISCORD_TEXT_CHUNK_LIMIT = Math.max(
+    200,
+    Math.min(2_000, config.discord.textChunkLimit),
+  );
+  DISCORD_MAX_LINES_PER_MESSAGE = Math.max(
+    4,
+    Math.min(200, config.discord.maxLinesPerMessage),
+  );
   DISCORD_HUMAN_DELAY = JSON.parse(
     JSON.stringify(config.discord.humanDelay),
   ) as RuntimeConfig['discord']['humanDelay'];
@@ -244,6 +262,10 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   HYBRIDAI_BASE_URL = config.hybridai.baseUrl;
   HYBRIDAI_MODEL = config.hybridai.defaultModel;
   HYBRIDAI_CHATBOT_ID = config.hybridai.defaultChatbotId;
+  HYBRIDAI_MAX_TOKENS = Math.max(
+    256,
+    Math.min(32_768, config.hybridai.maxTokens),
+  );
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   HYBRIDAI_MODELS = [...config.hybridai.models];
 

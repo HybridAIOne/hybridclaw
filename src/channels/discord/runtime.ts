@@ -54,9 +54,9 @@ import {
   buildSessionIdFromContext as buildSessionIdFromContextInbound,
   cleanIncomingContent as cleanIncomingContentInbound,
   type DiscordGuildMessageMode,
-  hasSlashCommandInvocation as hasSlashCommandInvocationInbound,
   hasLooseBotMention as hasLooseBotMentionInbound,
   hasPrefixInvocation as hasPrefixInvocationInbound,
+  hasSlashCommandInvocation as hasSlashCommandInvocationInbound,
   isAddressedToChannel as isAddressedToChannelInbound,
   isAuthorizedCommandUser as isAuthorizedCommandUserInbound,
   isTrigger as isTriggerInbound,
@@ -1002,22 +1002,15 @@ async function ensureSlashCommands(): Promise<void> {
       definition.name === 'status' || definition.name === 'approve',
   );
   try {
-    const existingGlobal = await client.application.commands.fetch();
     for (const definition of globalDefinitions) {
-      const current = existingGlobal.find(
-        (command) => command.name === definition.name,
-      );
-      if (current) {
-        // Recreate global commands so removed Discord metadata (for example
-        // contexts/integration types) does not remain stuck on edits.
-        await client.application.commands.delete(current.id);
-      }
+      // POST is an upsert by name for global commands. Keep command IDs stable
+      // to avoid stale-client command references in DMs.
       await client.application.commands.create(
         definition as unknown as ApplicationCommandDataResolvable,
       );
       logger.info(
         { scope: 'global', command: definition.name },
-        current ? 'Recreated slash command' : 'Registered slash command',
+        'Upserted slash command',
       );
     }
   } catch (error) {
@@ -1505,7 +1498,10 @@ export function initDiscord(
       return;
     }
 
-    if (interaction.guildId && !isAuthorizedCommandUserId(interaction.user.id)) {
+    if (
+      interaction.guildId &&
+      !isAuthorizedCommandUserId(interaction.user.id)
+    ) {
       await sendChunkedInteractionReply(
         interaction,
         'You are not authorized to run commands for this bot.',

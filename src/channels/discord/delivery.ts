@@ -6,6 +6,10 @@ import type {
 
 import { chunkMessage } from '../../chunk.js';
 import {
+  DISCORD_MAX_LINES_PER_MESSAGE,
+  DISCORD_TEXT_CHUNK_LIMIT,
+} from '../../config.js';
+import {
   getHumanDelayMs,
   type HumanDelayConfig,
   sleep,
@@ -42,7 +46,10 @@ export function prepareChunkedPayloads(
   const prepared = mentionLookup
     ? rewriteUserMentions(text, mentionLookup)
     : text;
-  const chunks = chunkMessage(prepared, { maxChars: 1_900, maxLines: 20 });
+  const chunks = chunkMessage(prepared, {
+    maxChars: Math.max(200, Math.min(2_000, DISCORD_TEXT_CHUNK_LIMIT)),
+    maxLines: Math.max(4, Math.min(200, DISCORD_MAX_LINES_PER_MESSAGE)),
+  });
   const safeChunks = chunks.length > 0 ? chunks : ['(no content)'];
   return safeChunks.map((content, i) => ({
     content,

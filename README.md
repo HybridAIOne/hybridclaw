@@ -32,7 +32,7 @@ Latest release: [v0.2.6](https://github.com/HybridAIOne/hybridclaw/releases/tag/
 ## Quick start
 
 ```bash
-# Install dependencies (this also installs container deps via postinstall)
+# Install dependencies
 npm install
 
 # Run onboarding (also auto-runs on first `gateway`/`tui` start if API key is missing)
@@ -100,10 +100,14 @@ HybridClaw uses typed runtime config in `config.json` (auto-created on first run
 - `discord.guildMembersIntent` enables richer guild member context and better `@name` mention resolution in replies (requires enabling **Server Members Intent** in Discord Developer Portal)
 - `discord.presenceIntent` enables Discord presence events (requires enabling **Presence Intent** in Discord Developer Portal)
 - `discord.respondToAllMessages` is a global fallback for open-policy guild channels without explicit mode config (`false` mention-gated, `true` free-response)
-- `discord.commandUserId` restricts `!claw <command>` admin commands to a single Discord user ID (all other messages still use normal chat handling)
-- `discord.commandsOnly` optional hard mode: if `true`, the bot ignores non-`!claw` messages and only accepts prefixed commands (optionally limited by `discord.commandUserId`)
-- `discord.groupPolicy` controls guild channel scope: `open` (default), `allowlist`, or `disabled`
+- `discord.commandMode` controls command access: `public` (any user can run slash/`!claw` commands) or `restricted` (only allowlisted users can run slash/`!claw` commands)
+- `discord.commandAllowedUserIds` is the allowlist used when `discord.commandMode` is `restricted`
+- `discord.commandUserId` is a legacy single-user allowlist alias; when set without `commandMode`, runtime treats command access as `restricted` for backward compatibility
+- `discord.commandsOnly` optional hard mode: if `true`, the bot ignores non-`!claw` messages and only accepts prefixed commands (still subject to `discord.commandMode`)
+- `discord.groupPolicy` controls guild channel scope: `open` (default, mention-first unless a channel is set to `free`), `allowlist`, or `disabled`
 - `discord.freeResponseChannels` is a Hermes-style channel ID list that gets free-response behavior while other channels remain mention-gated
+- `discord.textChunkLimit` controls Discord message chunk size (default `2000`)
+- `discord.maxLinesPerMessage` controls max lines per Discord chunk (default `17`)
 - `discord.humanDelay` controls natural delays between multi-part messages (`off|natural|custom`)
 - `discord.typingMode` controls typing indicator lifecycle (`instant|thinking|streaming|never`)
 - `discord.presence.*` enables dynamic self-presence health states (healthy/degraded/exhausted mapped to `online|idle|dnd`, plus maintenance `invisible` during shutdown)
@@ -132,6 +136,7 @@ HybridClaw uses typed runtime config in `config.json` (auto-created on first run
 - `observability.*` controls push ingest into HybridAI (`events:batch` endpoint, batching, identity metadata)
 - Some settings require restart to fully apply (for example HTTP bind host/port)
 - Default bot is configured via `hybridai.defaultChatbotId` in `config.json`
+- `hybridai.maxTokens` sets the default completion budget per model call (default `4096`)
 
 Secrets remain in `.env`:
 
@@ -328,7 +333,7 @@ The agent has access to these sandboxed tools inside the container:
 - `session_search` — search/summarize historical sessions from transcript archives
 - `delegate` — push-based background subagent tasks (`single`, `parallel`, `chain`) with auto-announced completion (no polling)
 - `web_fetch` — plain HTTP fetch + extraction for static/read-only content (docs, articles, READMEs, JSON/text APIs, direct files)
-- `browser_*` (optional) — full browser automation for JS-rendered or interactive pages (`navigate`, `snapshot`, `click`, `type`, `press`, `scroll`, `back`, `screenshot`, `pdf`, `close`)
+- `browser_*` (optional) — full browser automation for JS-rendered or interactive pages (`navigate`, `snapshot`, `click`, `type`, `upload`, `press`, `scroll`, `back`, `screenshot`, `pdf`, `close`)
 
 `delegate` mode examples:
 

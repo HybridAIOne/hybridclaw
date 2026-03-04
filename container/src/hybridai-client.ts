@@ -54,8 +54,9 @@ function buildRequestBody(
   enableRag: boolean,
   messages: ChatMessage[],
   tools: ToolDefinition[],
+  maxTokens?: number,
 ): Record<string, unknown> {
-  return {
+  const request: Record<string, unknown> = {
     model,
     chatbot_id: chatbotId,
     messages,
@@ -63,6 +64,14 @@ function buildRequestBody(
     tool_choice: 'auto',
     enable_rag: enableRag,
   };
+  if (
+    typeof maxTokens === 'number' &&
+    Number.isFinite(maxTokens) &&
+    maxTokens > 0
+  ) {
+    request.max_tokens = Math.floor(maxTokens);
+  }
+  return request;
 }
 
 function parseStreamPayloadLine(rawLine: string): string | null {
@@ -124,10 +133,18 @@ export async function callHybridAI(
   enableRag: boolean,
   messages: ChatMessage[],
   tools: ToolDefinition[],
+  maxTokens?: number,
 ): Promise<ChatCompletionResponse> {
   const url = `${baseUrl}/v1/chat/completions`;
 
-  const body = buildRequestBody(model, chatbotId, enableRag, messages, tools);
+  const body = buildRequestBody(
+    model,
+    chatbotId,
+    enableRag,
+    messages,
+    tools,
+    maxTokens,
+  );
 
   const response = await fetch(url, {
     method: 'POST',
@@ -155,11 +172,22 @@ export async function callHybridAIStream(
   messages: ChatMessage[],
   tools: ToolDefinition[],
   onTextDelta: (delta: string) => void,
+  maxTokens?: number,
 ): Promise<ChatCompletionResponse> {
   const url = `${baseUrl}/v1/chat/completions`;
   const body = {
-    ...buildRequestBody(model, chatbotId, enableRag, messages, tools),
+    ...buildRequestBody(
+      model,
+      chatbotId,
+      enableRag,
+      messages,
+      tools,
+      maxTokens,
+    ),
     stream: true,
+    stream_options: {
+      include_usage: true,
+    },
   };
 
   const response = await fetch(url, {

@@ -437,7 +437,7 @@ function latestUserMessageText(messages: ChatMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     if (messages[i].role !== 'user') continue;
     const content = messages[i].content;
-    if (typeof content === 'string') return normalizePrompt(content);
+    if (typeof content === 'string') return content.trim().slice(0, MAX_PROMPT_CHARS);
     if (!Array.isArray(content)) continue;
     const textParts: string[] = [];
     for (const part of content) {
@@ -448,7 +448,7 @@ function latestUserMessageText(messages: ChatMessage[]): string {
       if (trimmed) textParts.push(trimmed);
     }
     if (textParts.length > 0) {
-      return normalizePrompt(textParts.join('\n'));
+      return textParts.join('\n').trim().slice(0, MAX_PROMPT_CHARS);
     }
   }
   return '';
@@ -472,6 +472,47 @@ function extractHostsFromUrlLikeText(input: string): string[] {
     if (host) hosts.add(host);
   }
   return [...hosts];
+}
+
+function normalizeHostScope(host: string): string {
+  const normalized = host
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, '');
+  if (!normalized) return 'unknown-host';
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) return normalized;
+  if (normalized.includes(':')) return normalized; // IPv6/host:port fragments
+
+  const labels = normalized.split('.').filter(Boolean);
+  if (labels.length <= 2) return normalized;
+
+  const secondLevel = labels[labels.length - 2];
+  const topLevel = labels[labels.length - 1];
+  const commonSecondLevelTlds = new Set([
+    'ac',
+    'co',
+    'com',
+    'edu',
+    'gov',
+    'net',
+    'org',
+  ]);
+  if (
+    topLevel.length === 2 &&
+    commonSecondLevelTlds.has(secondLevel) &&
+    labels.length >= 3
+  ) {
+    return labels.slice(-3).join('.');
+  }
+  return labels.slice(-2).join('.');
+}
+
+function extractHostScopes(hosts: string[]): string[] {
+  const scopes = new Set<string>();
+  for (const host of hosts) {
+    scopes.add(normalizeHostScope(host));
+  }
+  return [...scopes];
 }
 
 function extractAbsolutePaths(input: string): string[] {
@@ -500,39 +541,91 @@ function parseModeFromApproveMatch(
   return 'once';
 }
 
+function parseApprovalDirective(input: string): {
+  kind: 'approve' | 'deny';
+  mode?: 'once' | 'session' | 'agent';
+  requestId: string;
+} | null {
+  const normalized = input.trim();
+  if (!normalized) return null;
+
+  const directiveCandidates = [
+    normalized,
+    normalized.replace(/^(?:<@!?\d+>\s*)+/, ''),
+  ];
+
+  for (const candidate of directiveCandidates) {
+    if (!candidate) continue;
+    const menuMatch = candidate.match(MENU_SELECTION_RE);
+    if (menuMatch) {
+      const requestId = String(menuMatch[2] || '').trim();
+      const selection = menuMatch[1];
+      if (selection === '1')
+        return { kind: 'approve', mode: 'once', requestId };
+      if (selection === '2')
+        return { kind: 'approve', mode: 'session', requestId };
+      if (selection === '3')
+        return { kind: 'approve', mode: 'agent', requestId };
+      return { kind: 'deny', requestId };
+    }
+
+    const approveMatch = candidate.match(APPROVE_RE);
+    if (approveMatch) {
+      return {
+        kind: 'approve',
+        mode: parseModeFromApproveMatch(approveMatch),
+        requestId: String(approveMatch[1] || '').trim(),
+      };
+    }
+
+    const denyMatch = candidate.match(DENY_RE);
+    if (denyMatch) {
+      return {
+        kind: 'deny',
+        requestId: String(denyMatch[1] || '').trim(),
+      };
+    }
+  }
+
+  return null;
+}
+
 function parseApprovalUserResponse(input: string): {
   kind: 'approve' | 'deny';
   mode?: 'once' | 'session' | 'agent';
   requestId: string;
 } | null {
-  const menuMatch = input.match(MENU_SELECTION_RE);
-  if (menuMatch) {
-    const requestId = String(menuMatch[2] || '').trim();
-    const selection = menuMatch[1];
-    if (selection === '1') return { kind: 'approve', mode: 'once', requestId };
-    if (selection === '2')
-      return { kind: 'approve', mode: 'session', requestId };
-    if (selection === '3') return { kind: 'approve', mode: 'agent', requestId };
-    return { kind: 'deny', requestId };
+  const normalized = input.trim();
+  if (!normalized) return null;
+
+  const candidates: string[] = [];
+  const pushCandidate = (value: string): void => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (candidates.includes(trimmed)) return;
+    candidates.push(trimmed);
+  };
+
+  pushCandidate(normalized);
+  pushCandidate(normalized.replace(/^(?:<@!?\d+>\s*)+/, ''));
+
+  const batchTailMatch = normalized.match(/Message\s+\d+\s*:\s*([\s\S]+)$/i);
+  if (batchTailMatch?.[1]) {
+    pushCandidate(batchTailMatch[1]);
   }
 
-  const approveMatch = input.match(APPROVE_RE);
-  if (approveMatch) {
-    return {
-      kind: 'approve',
-      mode: parseModeFromApproveMatch(approveMatch),
-      requestId: String(approveMatch[1] || '').trim(),
-    };
+  const lines = normalized
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length > 0) {
+    pushCandidate(lines[lines.length - 1]);
   }
 
-  const denyMatch = input.match(DENY_RE);
-  if (denyMatch) {
-    return {
-      kind: 'deny',
-      requestId: String(denyMatch[1] || '').trim(),
-    };
+  for (const candidate of candidates) {
+    const parsed = parseApprovalDirective(candidate);
+    if (parsed) return parsed;
   }
-
   return null;
 }
 
@@ -879,16 +972,25 @@ export class TrustedCoworkerApprovalRuntime {
     const requestLabel = evaluation.requestId
       ? `Approval ID: ${evaluation.requestId}`
       : '';
-    const trustHint = evaluation.pinned
-      ? 'This action is pinned sensitive, so session/agent trust is disabled.'
-      : 'Reply `yes for session` (or `2`) to trust this action for this session, or `yes for agent` (or `3`) to trust it for this agent.';
+    const optionLines = evaluation.pinned
+      ? [
+          'Reply `yes` (or `1`) to approve once.',
+          'Reply `yes for session` (or `2`) is unavailable for pinned-sensitive actions.',
+          'Reply `yes for agent` (or `3`) is unavailable for pinned-sensitive actions.',
+          'Reply `no` (or `4`) to deny.',
+        ]
+      : [
+          'Reply `yes` (or `1`) to approve once.',
+          'Reply `yes for session` (or `2`) to trust this action for this session.',
+          'Reply `yes for agent` (or `3`) to trust it for this agent.',
+          'Reply `no` (or `4`) to deny.',
+        ];
     return [
       `I need your approval before I ${evaluation.intent.toLowerCase()}.`,
       `Why: ${evaluation.reason}`,
       `If you skip this, ${evaluation.consequenceIfDenied.charAt(0).toLowerCase()}${evaluation.consequenceIfDenied.slice(1)}`,
       requestLabel,
-      `Reply \`yes\` (or \`1\`) to approve once, or \`no\` (or \`4\`) to deny.`,
-      trustHint,
+      ...optionLines,
       `Approval expires in ${expiresIn}s.`,
     ]
       .filter(Boolean)
@@ -1023,9 +1125,11 @@ export class TrustedCoworkerApprovalRuntime {
 
     if (lowerTool === 'web_fetch' || lowerTool === 'browser_navigate') {
       const rawUrl = normalizeText(args.url);
-      const hosts = extractHostsFromUrlLikeText(rawUrl);
-      const primaryHost = hosts[0] || 'unknown-host';
-      const unseen = hosts.filter((host) => !this.seenNetworkHosts.has(host));
+      const hostScopes = extractHostScopes(extractHostsFromUrlLikeText(rawUrl));
+      const primaryHost = hostScopes[0] || 'unknown-host';
+      const unseen = hostScopes.filter(
+        (host) => !this.seenNetworkHosts.has(host),
+      );
       return {
         tier: unseen.length > 0 ? 'red' : 'yellow',
         actionKey: `network:${primaryHost}`,
@@ -1038,7 +1142,7 @@ export class TrustedCoworkerApprovalRuntime {
             : 'this is an external network action',
         commandPreview: normalizePreview(rawUrl),
         pathHints: [],
-        hostHints: hosts,
+        hostHints: hostScopes,
         writeIntent: false,
         promotableRed: unseen.length > 0,
         stickyYellow: true,

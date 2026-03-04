@@ -1516,6 +1516,7 @@ export async function executeTool(
       case 'browser_snapshot':
       case 'browser_click':
       case 'browser_type':
+      case 'browser_upload':
       case 'browser_press':
       case 'browser_scroll':
       case 'browser_back':

@@ -46,6 +46,19 @@ export interface ChatCompletionResponse {
     total_tokens?: number;
     input_tokens?: number;
     output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_tokens?: number;
+    cache_write_tokens?: number;
+    cache_write_input_tokens?: number;
+    cached_tokens?: number;
+    cache_read?: number;
+    cache_write?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+    };
   };
 }
 
@@ -85,6 +98,7 @@ export interface ContainerInput {
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
   model: string;
+  maxTokens?: number;
   channelId: string;
   scheduledTasks?: {
     id: number;
@@ -140,6 +154,9 @@ export interface TokenUsageStats {
   apiPromptTokens: number;
   apiCompletionTokens: number;
   apiTotalTokens: number;
+  apiCacheUsageAvailable: boolean;
+  apiCacheReadTokens: number;
+  apiCacheWriteTokens: number;
   estimatedPromptTokens: number;
   estimatedCompletionTokens: number;
   estimatedTotalTokens: number;

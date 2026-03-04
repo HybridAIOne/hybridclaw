@@ -502,6 +502,7 @@ async function callHybridAIWithRetry(params: {
   history: ChatMessage[];
   tools: ToolDefinition[];
   onTextDelta?: (delta: string) => void;
+  maxTokens?: number;
 }): Promise<Awaited<ReturnType<typeof callHybridAI>>> {
   const {
     baseUrl,
@@ -512,6 +513,7 @@ async function callHybridAIWithRetry(params: {
     history,
     tools,
     onTextDelta,
+    maxTokens,
   } = params;
   let attempt = 0;
   let delayMs = RETRY_BASE_DELAY_MS;
@@ -532,6 +534,7 @@ async function callHybridAIWithRetry(params: {
             history,
             tools,
             onTextDelta,
+            maxTokens,
           );
         } catch (streamErr) {
           const fallbackEligible =
@@ -548,6 +551,7 @@ async function callHybridAIWithRetry(params: {
             enableRag,
             history,
             tools,
+            maxTokens,
           );
         }
       } else {
@@ -559,6 +563,7 @@ async function callHybridAIWithRetry(params: {
           enableRag,
           history,
           tools,
+          maxTokens,
         );
       }
       await emitRuntimeEvent({
@@ -594,6 +599,7 @@ async function processRequest(
   chatbotId: string,
   enableRag: boolean,
   tools: ToolDefinition[],
+  maxTokens?: number,
   effectiveUserPromptOverride?: string,
 ): Promise<ContainerOutput> {
   await emitRuntimeEvent({
@@ -629,6 +635,7 @@ async function processRequest(
         history,
         tools,
         onTextDelta: emitStreamDelta,
+        maxTokens,
       });
     } catch (err) {
       const failed: ContainerOutput = {
@@ -933,7 +940,7 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
     );
     tools = tools.filter((tool) => !blocked.has(tool.function.name));
   }
-  // Sort alphabetically for deterministic system-prompt ordering (KV cache stability)
+  // Sort alphabetically for deterministic tool ordering (request/cache stability)
   tools.sort((a, b) => a.function.name.localeCompare(b.function.name));
   return tools;
 }
@@ -1010,6 +1017,7 @@ async function main(): Promise<void> {
       firstInput.chatbotId,
       firstInput.enableRag,
       resolveTools(firstInput),
+      firstInput.maxTokens,
       firstPromptOverride,
     );
     if (
@@ -1031,6 +1039,7 @@ async function main(): Promise<void> {
         firstInput.chatbotId,
         firstInput.enableRag,
         resolveTools(firstInput),
+        firstInput.maxTokens,
         firstPromptOverride,
       );
     }
@@ -1101,6 +1110,7 @@ async function main(): Promise<void> {
       input.chatbotId,
       input.enableRag,
       resolveTools(input),
+      input.maxTokens,
       promptOverride,
     );
     if (
@@ -1122,6 +1132,7 @@ async function main(): Promise<void> {
         input.chatbotId,
         input.enableRag,
         resolveTools(input),
+        input.maxTokens,
         promptOverride,
       );
     }
