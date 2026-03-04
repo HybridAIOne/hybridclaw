@@ -17,6 +17,7 @@ import {
   HEARTBEAT_CHANNEL,
   HEARTBEAT_INTERVAL,
   HYBRIDAI_CHATBOT_ID,
+  getConfigSnapshot,
   onConfigChange,
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
 } from './config.js';
@@ -39,6 +40,7 @@ import {
 import { startHealthServer } from './health.js';
 import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
 import { logger } from './logger.js';
+import { memoryService } from './memory-service.js';
 import {
   startObservabilityIngest,
   stopObservabilityIngest,
@@ -57,6 +59,7 @@ import type { ArtifactMetadata } from './types.js';
 
 let detachConfigListener: (() => void) | null = null;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
+let memoryConsolidationTimer: ReturnType<typeof setInterval> | null = null;
 
 const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
 
@@ -406,6 +409,7 @@ function setupShutdown(): void {
     stopObservabilityIngest();
     stopAllContainers();
     stopScheduler();
+    stopMemoryConsolidationScheduler();
     if (proactiveFlushTimer) {
       clearInterval(proactiveFlushTimer);
       proactiveFlushTimer = null;
@@ -534,6 +538,49 @@ function startOrRestartHeartbeat(): void {
   });
 }
 
+function stopMemoryConsolidationScheduler(): void {
+  if (!memoryConsolidationTimer) return;
+  clearInterval(memoryConsolidationTimer);
+  memoryConsolidationTimer = null;
+}
+
+function startOrRestartMemoryConsolidationScheduler(): void {
+  stopMemoryConsolidationScheduler();
+  const intervalHours = Math.max(
+    0,
+    Math.trunc(getConfigSnapshot().memory.consolidationIntervalHours),
+  );
+  if (intervalHours <= 0) {
+    logger.info('Memory consolidation scheduler disabled');
+    return;
+  }
+
+  const intervalMs = intervalHours * 3_600_000;
+  memoryConsolidationTimer = setInterval(() => {
+    const { decayRate } = getConfigSnapshot().memory;
+    try {
+      const report = memoryService.consolidateMemories({ decayRate });
+      if (report.memoriesDecayed > 0) {
+        logger.info(
+          {
+            decayed: report.memoriesDecayed,
+            durationMs: report.durationMs,
+            decayRate,
+          },
+          'Memory consolidation completed',
+        );
+      }
+    } catch (error) {
+      logger.warn({ error, decayRate }, 'Memory consolidation failed');
+    }
+  }, intervalMs);
+
+  logger.info(
+    { intervalHours },
+    'Memory consolidation scheduled',
+  );
+}
+
 async function main(): Promise<void> {
   logger.info('Starting HybridClaw gateway');
   initDatabase();
@@ -569,6 +616,18 @@ async function main(): Promise<void> {
       rearmScheduler();
     }
 
+    const memoryChanged = JSON.stringify(next.memory) !== JSON.stringify(prev.memory);
+    if (memoryChanged) {
+      logger.info(
+        {
+          consolidationIntervalHours: next.memory.consolidationIntervalHours,
+          decayRate: next.memory.decayRate,
+        },
+        'Config changed, restarting memory consolidation scheduler',
+      );
+      startOrRestartMemoryConsolidationScheduler();
+    }
+
     const shouldRestartObservability =
       JSON.stringify(next.observability) !==
         JSON.stringify(prev.observability) ||
@@ -586,6 +645,7 @@ async function main(): Promise<void> {
     startObservabilityIngest();
   });
   startScheduler(runScheduledTask);
+  startOrRestartMemoryConsolidationScheduler();
   proactiveFlushTimer = setInterval(() => {
     void flushQueuedProactiveMessages().catch((err) => {
       logger.warn({ err }, 'Failed to flush queued proactive messages');

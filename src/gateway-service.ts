@@ -37,8 +37,8 @@ import {
   getQueuedProactiveMessageCount,
   getRecentStructuredAuditForSession,
   getSessionCount,
-  getUsageTotals,
   getTasksForSession,
+  getUsageTotals,
   listUsageByAgent,
   listUsageByModel,
   logAudit,
@@ -68,8 +68,8 @@ import { getObservabilityIngestState } from './observability-ingest.js';
 import { updateRuntimeConfig } from './runtime-config.js';
 import { runIsolatedScheduledTask } from './scheduled-task-runner.js';
 import { getSchedulerStatus, rearmScheduler } from './scheduler.js';
-import { maybeCompactSession } from './session-maintenance.js';
 import { exportSessionSnapshotJsonl } from './session-export.js';
+import { maybeCompactSession } from './session-maintenance.js';
 import { appendSessionTranscript } from './session-transcripts.js';
 import { processSideEffects } from './side-effects.js';
 import { expandSkillInvocation } from './skills.js';
@@ -507,9 +507,7 @@ function formatCanonicalContextPrompt(params: {
   const sections: string[] = [];
   const summary = (params.summary || '').trim();
   if (summary) {
-    sections.push(
-      ['### Canonical Session Summary', summary].join('\n'),
-    );
+    sections.push(['### Canonical Session Summary', summary].join('\n'));
   }
 
   if (params.recentMessages.length > 0) {
@@ -921,10 +919,9 @@ export function getGatewayHistory(
   sessionId: string,
   limit = MAX_HISTORY_MESSAGES,
 ): StoredMessage[] {
-  return memoryService.getConversationHistory(
-    sessionId,
-    Math.max(1, Math.min(limit, 200)),
-  ).reverse();
+  return memoryService
+    .getConversationHistory(sessionId, Math.max(1, Math.min(limit, 200)))
+    .reverse();
 }
 
 function extractDelegationDepth(sessionId: string): number {
@@ -2010,7 +2007,11 @@ export async function runGatewayScheduledTask(
   onError: (error: unknown) => void,
   runKey?: string,
 ): Promise<void> {
-  const session = memoryService.getOrCreateSession(origSessionId, null, channelId);
+  const session = memoryService.getOrCreateSession(
+    origSessionId,
+    null,
+    channelId,
+  );
   const chatbotId = session.chatbot_id || HYBRIDAI_CHATBOT_ID;
   if (!chatbotId) return;
   const model = session.model || HYBRIDAI_MODEL;

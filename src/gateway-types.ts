@@ -93,6 +93,18 @@ export interface GatewayCommandRequest {
   args: string[];
 }
 
+export interface GatewaySchedulerJobStatus {
+  id: string;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  lastRun: string | null;
+  lastStatus: 'success' | 'error' | null;
+  nextRunAt: string | null;
+  disabled: boolean;
+  consecutiveErrors: number;
+}
+
 export interface GatewayStatus {
   status: 'ok';
   pid?: number;
@@ -113,6 +125,9 @@ export interface GatewayStatus {
     lastSuccessAt: string | null;
     lastFailureAt: string | null;
     lastError: string | null;
+  };
+  scheduler?: {
+    jobs: GatewaySchedulerJobStatus[];
   };
 }
 

@@ -186,7 +186,10 @@ function printMainUsage(): void {
   onboarding Run HybridAI account/API key onboarding
   update     Check and apply HybridClaw CLI updates
   audit      Inspect/verify structured audit trail
-  help       Show general or topic-specific help (e.g. \`hybridclaw help gateway\`)`);
+  help       Show general or topic-specific help (e.g. \`hybridclaw help gateway\`)
+
+  Options:
+  --version, -v  Show HybridClaw CLI version`);
 }
 
 function printGatewayUsage(): void {
@@ -703,6 +706,10 @@ async function main(): Promise<void> {
   const subargs = process.argv.slice(3);
 
   switch (command) {
+    case '--version':
+    case '-v':
+      console.log(APP_VERSION);
+      break;
     case 'gateway':
       await handleGatewayCommand(subargs);
       break;

@@ -4,8 +4,9 @@
  */
 import { HEARTBEAT_CHANNEL, HEARTBEAT_ENABLED, HYBRIDAI_CHATBOT_ID, HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL } from './config.js';
 import { runAgent } from './agent.js';
-import { getConversationHistory, getOrCreateSession, getTasksForSession, storeMessage } from './db.js';
+import { getTasksForSession } from './db.js';
 import { logger } from './logger.js';
+import { memoryService } from './memory-service.js';
 import { processSideEffects } from './side-effects.js';
 import { maybeCompactSession } from './session-maintenance.js';
 import { appendSessionTranscript } from './session-transcripts.js';
@@ -87,13 +88,20 @@ export function startHeartbeat(
     let turnIndex = 1;
 
     try {
-      const session = getOrCreateSession(sessionId, null, channelId);
+      const session = memoryService.getOrCreateSession(sessionId, null, channelId);
       turnIndex = session.message_count + 1;
 
-      const history = getConversationHistory(sessionId, MAX_HEARTBEAT_HISTORY);
+      const history = memoryService.getConversationHistory(
+        sessionId,
+        MAX_HEARTBEAT_HISTORY,
+      );
+      const memoryContext = memoryService.buildPromptMemoryContext({
+        session,
+        query: HEARTBEAT_PROMPT,
+      });
       const { messages } = buildConversationContext({
         agentId,
-        sessionSummary: session.session_summary,
+        sessionSummary: memoryContext.promptSummary,
         history,
       });
       messages.push({ role: 'user', content: HEARTBEAT_PROMPT });
@@ -241,8 +249,19 @@ export function startHeartbeat(
       }
 
       // Real content — persist and deliver
-      storeMessage(sessionId, 'heartbeat', 'heartbeat', 'user', HEARTBEAT_PROMPT);
-      storeMessage(sessionId, 'assistant', null, 'assistant', result);
+      memoryService.storeTurn({
+        sessionId,
+        user: {
+          userId: 'heartbeat',
+          username: 'heartbeat',
+          content: HEARTBEAT_PROMPT,
+        },
+        assistant: {
+          userId: 'assistant',
+          username: null,
+          content: result,
+        },
+      });
       appendSessionTranscript(agentId, {
         sessionId,
         channelId: heartbeatChannelId,

@@ -1,11 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import type { AuditEventPayload, WireRecord } from './audit-trail.js';
 import { DB_PATH } from './config.js';
 import { logger } from './logger.js';
-import { KnowledgeEntityType, KnowledgeRelationType } from './types.js';
 import type {
   ApprovalAuditEntry,
   AuditEntry,
@@ -28,6 +27,7 @@ import type {
   UsageTotals,
   UsageWindow,
 } from './types.js';
+import { KnowledgeEntityType, KnowledgeRelationType } from './types.js';
 
 let db: Database.Database;
 
@@ -56,9 +56,7 @@ function setSchemaVersion(database: Database.Database, version: number): void {
 
 function tableExists(database: Database.Database, table: string): boolean {
   const row = database
-    .prepare(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
-    )
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
     .get(table) as { name: string } | undefined;
   return Boolean(row?.name);
 }
@@ -551,10 +549,7 @@ function parseMemoryKvValue(raw: unknown): unknown {
   }
 }
 
-export function getMemoryValue(
-  sessionId: string,
-  key: string,
-): unknown | null {
+export function getMemoryValue(sessionId: string, key: string): unknown | null {
   const normalizedKey = normalizeMemoryKvKey(key);
   if (!normalizedKey) return null;
   const row = db
@@ -564,7 +559,9 @@ export function getMemoryValue(
        WHERE agent_id = ?
          AND key = ?`,
     )
-    .get(sessionId, normalizedKey) as { value: Buffer | Uint8Array | string } | undefined;
+    .get(sessionId, normalizedKey) as
+    | { value: Buffer | Uint8Array | string }
+    | undefined;
   if (!row) return null;
   return parseMemoryKvValue(row.value);
 }
@@ -586,10 +583,7 @@ export function setMemoryValue(
   ).run(sessionId, normalizedKey, valueBlob, now);
 }
 
-export function deleteMemoryValue(
-  sessionId: string,
-  key: string,
-): boolean {
+export function deleteMemoryValue(sessionId: string, key: string): boolean {
   const normalizedKey = normalizeMemoryKvKey(key);
   if (!normalizedKey) return false;
   const result = db
@@ -691,7 +685,9 @@ function parseCanonicalMessages(raw: unknown): CanonicalSessionMessage[] {
           ? row.created_at.trim()
           : new Date().toISOString();
       messages.push({
-        role: normalizeCanonicalRole(typeof row.role === 'string' ? row.role : 'user'),
+        role: normalizeCanonicalRole(
+          typeof row.role === 'string' ? row.role : 'user',
+        ),
         content,
         session_id: sessionId,
         channel_id:
@@ -707,7 +703,9 @@ function parseCanonicalMessages(raw: unknown): CanonicalSessionMessage[] {
   }
 }
 
-function serializeCanonicalMessages(messages: CanonicalSessionMessage[]): string {
+function serializeCanonicalMessages(
+  messages: CanonicalSessionMessage[],
+): string {
   try {
     return JSON.stringify(messages);
   } catch {
@@ -723,13 +721,14 @@ function buildCanonicalSummary(params: {
   const previous = (params.previousSummary || '').trim();
   if (previous) lines.push(previous);
   for (const message of params.compactingMessages) {
-    const role = message.role === 'assistant'
-      ? 'Assistant'
-      : message.role === 'system'
-        ? 'System'
-        : message.role === 'tool'
-          ? 'Tool'
-          : 'User';
+    const role =
+      message.role === 'assistant'
+        ? 'Assistant'
+        : message.role === 'system'
+          ? 'System'
+          : message.role === 'tool'
+            ? 'Tool'
+            : 'User';
     const compact = truncateCanonicalContent(message.content);
     if (!compact) continue;
     lines.push(`${role}: ${compact}`);
@@ -737,9 +736,7 @@ function buildCanonicalSummary(params: {
   if (lines.length === 0) return previous || null;
   const merged = lines.join('\n');
   if (merged.length <= CANONICAL_SUMMARY_MAX_CHARS) return merged;
-  return merged.slice(
-    Math.max(0, merged.length - CANONICAL_SUMMARY_MAX_CHARS),
-  );
+  return merged.slice(Math.max(0, merged.length - CANONICAL_SUMMARY_MAX_CHARS));
 }
 
 interface CanonicalSessionRow {
@@ -798,7 +795,9 @@ export function loadCanonicalSession(
          AND user_id = ?
        LIMIT 1`,
     )
-    .get(normalizedAgentId, normalizedUserId) as CanonicalSessionRow | undefined;
+    .get(normalizedAgentId, normalizedUserId) as
+    | CanonicalSessionRow
+    | undefined;
 
   const now = new Date().toISOString();
   if (!row) {
@@ -1033,7 +1032,8 @@ export function getUsageTotals(params?: {
     agentId: params?.agentId,
     window: params?.window,
   });
-  const where = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const where =
+    whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
   const row = db
     .prepare(
@@ -1071,7 +1071,8 @@ export function listUsageByModel(params?: {
     agentId: params?.agentId,
     window: params?.window,
   });
-  const where = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const where =
+    whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
   const rows = db
     .prepare(
       `SELECT
@@ -1110,7 +1111,8 @@ export function listUsageByAgent(params?: {
     args,
     window: params?.window,
   });
-  const where = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const where =
+    whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
   const rows = db
     .prepare(
       `SELECT
@@ -1295,7 +1297,9 @@ function normalizeRelationType(
   }
 }
 
-function serializeEntityType(entityType: KnowledgeEntityTypeValue | string): string {
+function serializeEntityType(
+  entityType: KnowledgeEntityTypeValue | string,
+): string {
   const normalized = normalizeEntityType(entityType);
   return typeof normalized === 'string'
     ? JSON.stringify(normalized)
@@ -1311,7 +1315,9 @@ function serializeRelationType(
     : JSON.stringify({ custom: normalized.custom });
 }
 
-function parseEntityType(raw: string | null | undefined): KnowledgeEntityTypeValue {
+function parseEntityType(
+  raw: string | null | undefined,
+): KnowledgeEntityTypeValue {
   const value = (raw || '').trim();
   if (!value) return { custom: 'unknown' };
 
@@ -1362,7 +1368,11 @@ function parseRelationType(
 function serializeKnowledgeProperties(
   properties: Record<string, unknown> | null | undefined,
 ): string {
-  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+  if (
+    !properties ||
+    typeof properties !== 'object' ||
+    Array.isArray(properties)
+  ) {
     return '{}';
   }
   try {
@@ -1382,7 +1392,8 @@ function parseKnowledgeProperties(raw: unknown): Record<string, unknown> {
         : '{}';
   try {
     const parsed = JSON.parse(text) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      return {};
     return parsed as Record<string, unknown>;
   } catch {
     return {};
@@ -1552,7 +1563,9 @@ export function queryKnowledgeGraph(
   // OpenFang-compatible v1 query semantics: single-hop relation scan, max 100.
   sql.push('LIMIT 100');
 
-  const rows = db.prepare(sql.join('\n')).all(...args) as RawKnowledgeGraphRow[];
+  const rows = db
+    .prepare(sql.join('\n'))
+    .all(...args) as RawKnowledgeGraphRow[];
   return rows.map(mapKnowledgeMatchRow);
 }
 
@@ -1658,9 +1671,11 @@ export function storeMessage(
   role: string,
   content: string,
 ): number {
-  const result = db.prepare(
-    'INSERT INTO messages (session_id, user_id, username, role, content) VALUES (?, ?, ?, ?, ?)',
-  ).run(sessionId, userId, username, role, content);
+  const result = db
+    .prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content) VALUES (?, ?, ?, ?, ?)',
+    )
+    .run(sessionId, userId, username, role, content);
 
   db.prepare(
     "UPDATE sessions SET message_count = message_count + 1, last_active = datetime('now') WHERE id = ?",
@@ -1825,20 +1840,21 @@ interface RawSemanticMemoryRow {
   access_count: number;
 }
 
-function parseSemanticMetadata(raw: string | null | undefined): Record<string, unknown> {
+function parseSemanticMetadata(
+  raw: string | null | undefined,
+): Record<string, unknown> {
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      return {};
     return parsed as Record<string, unknown>;
   } catch {
     return {};
   }
 }
 
-function serializeSemanticMetadata(
-  metadata: Record<string, unknown>,
-): string {
+function serializeSemanticMetadata(metadata: Record<string, unknown>): string {
   try {
     return JSON.stringify(metadata);
   } catch {
@@ -1882,7 +1898,9 @@ function touchSemanticMemoryRows(entries: SemanticMemoryEntry[]): void {
 }
 
 export function touchSemanticMemories(ids: number[]): void {
-  const uniqueIds = [...new Set(ids.map((id) => Math.floor(id)).filter((id) => id > 0))];
+  const uniqueIds = [
+    ...new Set(ids.map((id) => Math.floor(id)).filter((id) => id > 0)),
+  ];
   if (uniqueIds.length === 0) return;
   const touch = db.prepare(
     `UPDATE semantic_memories
@@ -1960,7 +1978,11 @@ function recallSemanticMemoriesByLike(params: {
     'confidence >= ?',
     `(${placeholders})`,
   ];
-  const args: unknown[] = [params.sessionId, params.minConfidence, ...likePatterns];
+  const args: unknown[] = [
+    params.sessionId,
+    params.minConfidence,
+    ...likePatterns,
+  ];
   applySemanticRecallFilterClauses({
     whereClauses,
     args,
@@ -1995,7 +2017,9 @@ function recallSemanticMemoriesByLike(params: {
       if (b.row.confidence !== a.row.confidence) {
         return b.row.confidence - a.row.confidence;
       }
-      return parseTimestamp(b.row.accessed_at) - parseTimestamp(a.row.accessed_at);
+      return (
+        parseTimestamp(b.row.accessed_at) - parseTimestamp(a.row.accessed_at)
+      );
     })
     .slice(0, params.limit)
     .map((entry) => entry.row);
@@ -2051,7 +2075,9 @@ function recallSemanticMemoriesByVector(params: {
       if (b.row.confidence !== a.row.confidence) {
         return b.row.confidence - a.row.confidence;
       }
-      return parseTimestamp(b.row.accessed_at) - parseTimestamp(a.row.accessed_at);
+      return (
+        parseTimestamp(b.row.accessed_at) - parseTimestamp(a.row.accessed_at)
+      );
     })
     .slice(0, params.limit)
     .map((entry) => entry.row);
@@ -2121,10 +2147,7 @@ export function storeSemanticMemory(params: {
     typeof params.confidence === 'number' && Number.isFinite(params.confidence)
       ? params.confidence
       : 1;
-  const boundedConfidence = Math.max(
-    0,
-    Math.min(1, rawConfidence),
-  );
+  const boundedConfidence = Math.max(0, Math.min(1, rawConfidence));
   const normalizedEmbedding = normalizeEmbeddingInput(params.embedding);
   const embeddingBlob = normalizedEmbedding
     ? embeddingToBlob(normalizedEmbedding)
@@ -2172,10 +2195,7 @@ export function recallSemanticMemories(params: {
     Number.isFinite(params.minConfidence)
       ? params.minConfidence
       : 0.2;
-  const minConfidence = Math.max(
-    0,
-    Math.min(1, rawMinConfidence),
-  );
+  const minConfidence = Math.max(0, Math.min(1, rawMinConfidence));
 
   if (!queryEmbedding && queryTerms.length === 0) {
     return recallSemanticMemoriesByRecent({
@@ -2229,10 +2249,7 @@ export function decaySemanticMemories(params?: {
     typeof params?.decayRate === 'number' && Number.isFinite(params.decayRate)
       ? params.decayRate
       : 0.1;
-  const decayRate = Math.max(
-    0,
-    Math.min(0.95, rawDecayRate),
-  );
+  const decayRate = Math.max(0, Math.min(0.95, rawDecayRate));
   const decayFactor = 1 - decayRate;
   const rawStaleAfterDays =
     typeof params?.staleAfterDays === 'number' &&
@@ -2248,10 +2265,7 @@ export function decaySemanticMemories(params?: {
     Number.isFinite(params.minConfidence)
       ? params.minConfidence
       : 0.1;
-  const minConfidence = Math.max(
-    0,
-    Math.min(0.95, rawMinConfidence),
-  );
+  const minConfidence = Math.max(0, Math.min(0.95, rawMinConfidence));
   const cutoff = `-${staleAfterDays} days`;
   const result = db
     .prepare(

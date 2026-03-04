@@ -1,7 +1,8 @@
-import { randomBytes } from 'crypto';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import { randomBytes } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { loadEnvFile } from './env.js';
 import {
@@ -27,13 +28,9 @@ function required(name: string): string {
   return val;
 }
 
-function resolveAppVersion(): string {
-  const envVersion = process.env.npm_package_version;
-  if (envVersion) return envVersion;
-
-  const packagePath = path.join(process.cwd(), 'package.json');
+function readVersionFromPackageJson(packageJsonPath: string): string | null {
   try {
-    const raw = fs.readFileSync(packagePath, 'utf-8');
+    const raw = fs.readFileSync(packageJsonPath, 'utf-8');
     const parsed = JSON.parse(raw) as { version?: unknown };
     if (typeof parsed.version === 'string' && parsed.version.trim()) {
       return parsed.version.trim();
@@ -41,6 +38,25 @@ function resolveAppVersion(): string {
   } catch {
     // fall through
   }
+  return null;
+}
+
+function resolveAppVersion(): string {
+  const envVersion = process.env.npm_package_version;
+  if (envVersion?.trim()) return envVersion.trim();
+
+  const modulePath = fileURLToPath(import.meta.url);
+  const moduleVersion = readVersionFromPackageJson(path.join(path.dirname(modulePath), '..', 'package.json'));
+  if (moduleVersion) return moduleVersion;
+
+  const entryPath = process.argv[1];
+  if (entryPath) {
+    const entryVersion = readVersionFromPackageJson(path.join(path.dirname(path.resolve(entryPath)), '..', 'package.json'));
+    if (entryVersion) return entryVersion;
+  }
+
+  const cwdVersion = readVersionFromPackageJson(path.join(process.cwd(), 'package.json'));
+  if (cwdVersion) return cwdVersion;
 
   return '0.0.0';
 }
@@ -134,6 +150,8 @@ export let MAX_CONCURRENT_CONTAINERS = 5;
 export let HEARTBEAT_ENABLED = true;
 export let HEARTBEAT_INTERVAL = 1_800_000;
 export let HEARTBEAT_CHANNEL = '';
+export let MEMORY_DECAY_RATE = 0.1;
+export let MEMORY_CONSOLIDATION_INTERVAL_HOURS = 24;
 
 export let HEALTH_HOST = '127.0.0.1';
 export let HEALTH_PORT = 9090;
@@ -157,7 +175,9 @@ export let OBSERVABILITY_FLUSH_INTERVAL_MS = 10_000;
 export let OBSERVABILITY_BATCH_MAX_EVENTS = 500;
 
 export let SESSION_COMPACTION_ENABLED = true;
-export let SESSION_COMPACTION_THRESHOLD = 120;
+export let SESSION_COMPACTION_TOKEN_BUDGET = 100_000;
+export let SESSION_COMPACTION_BUDGET_RATIO = 0.7;
+export let SESSION_COMPACTION_THRESHOLD = 200;
 export let SESSION_COMPACTION_KEEP_RECENT = 40;
 export let SESSION_COMPACTION_SUMMARY_MAX_CHARS = 8_000;
 export let PRE_COMPACTION_MEMORY_FLUSH_ENABLED = true;
@@ -232,6 +252,9 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   HEARTBEAT_ENABLED = config.heartbeat.enabled;
   HEARTBEAT_INTERVAL = config.heartbeat.intervalMs;
   HEARTBEAT_CHANNEL = config.heartbeat.channel;
+  MEMORY_DECAY_RATE = config.memory.decayRate;
+  MEMORY_CONSOLIDATION_INTERVAL_HOURS =
+    config.memory.consolidationIntervalHours;
 
   HEALTH_HOST = config.ops.healthHost;
   HEALTH_PORT = config.ops.healthPort;
@@ -263,6 +286,14 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
 
   SESSION_COMPACTION_ENABLED = config.sessionCompaction.enabled;
+  SESSION_COMPACTION_TOKEN_BUDGET = Math.max(
+    1_000,
+    config.sessionCompaction.tokenBudget,
+  );
+  SESSION_COMPACTION_BUDGET_RATIO = Math.max(
+    0.05,
+    Math.min(1, config.sessionCompaction.budgetRatio),
+  );
   SESSION_COMPACTION_THRESHOLD = Math.max(
     20,
     config.sessionCompaction.threshold,

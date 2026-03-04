@@ -262,7 +262,11 @@ function printError(text: string): void {
 }
 
 function printInfo(text: string): void {
-  console.log(`\n  ${GOLD}${text}${RESET}\n`);
+  console.log();
+  for (const line of text.split('\n')) {
+    console.log(`  ${GOLD}${line}${RESET}`);
+  }
+  console.log();
 }
 
 function printToolUsage(tools: string[]): void {

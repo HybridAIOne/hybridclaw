@@ -887,7 +887,7 @@ export class TrustedCoworkerApprovalRuntime {
       `Why: ${evaluation.reason}`,
       `If you skip this, ${evaluation.consequenceIfDenied.charAt(0).toLowerCase()}${evaluation.consequenceIfDenied.slice(1)}`,
       requestLabel,
-      `Reply \`yes\` (or \`1\`) to approve once, or \`skip\` (or \`4\`) to deny.`,
+      `Reply \`yes\` (or \`1\`) to approve once, or \`no\` (or \`4\`) to deny.`,
       trustHint,
       `Approval expires in ${expiresIn}s.`,
     ]

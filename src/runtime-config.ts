@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 
 export const CONFIG_FILE_NAME = 'config.json';
 export const CONFIG_VERSION = 5;
@@ -106,6 +106,8 @@ export interface RuntimeDiscordGuildConfig {
 
 export interface RuntimeSchedulerJob {
   id: string;
+  name?: string;
+  description?: string;
   schedule: {
     kind: SchedulerScheduleKind;
     at: string | null;
@@ -176,6 +178,10 @@ export interface RuntimeConfig {
     intervalMs: number;
     channel: string;
   };
+  memory: {
+    decayRate: number;
+    consolidationIntervalHours: number;
+  };
   ops: {
     healthHost: string;
     healthPort: number;
@@ -199,6 +205,8 @@ export interface RuntimeConfig {
   };
   sessionCompaction: {
     enabled: boolean;
+    tokenBudget: number;
+    budgetRatio: number;
     threshold: number;
     keepRecent: number;
     summaryMaxChars: number;
@@ -325,6 +333,10 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     intervalMs: 1_800_000,
     channel: '',
   },
+  memory: {
+    decayRate: 0.1,
+    consolidationIntervalHours: 24,
+  },
   ops: {
     healthHost: '127.0.0.1',
     healthPort: 9090,
@@ -348,7 +360,9 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   sessionCompaction: {
     enabled: true,
-    threshold: 120,
+    tokenBudget: 100_000,
+    budgetRatio: 0.7,
+    threshold: 200,
     keepRecent: 40,
     summaryMaxChars: 8_000,
     preCompactionMemoryFlush: {
@@ -445,6 +459,26 @@ function normalizeInteger(
     parsed = Math.trunc(value);
   } else if (typeof value === 'string' && value.trim()) {
     parsed = Number.parseInt(value, 10);
+  } else {
+    parsed = fallback;
+  }
+
+  if (!Number.isFinite(parsed)) parsed = fallback;
+  if (opts?.min != null && parsed < opts.min) parsed = opts.min;
+  if (opts?.max != null && parsed > opts.max) parsed = opts.max;
+  return parsed;
+}
+
+function normalizeNumber(
+  value: unknown,
+  fallback: number,
+  opts?: { min?: number; max?: number },
+): number {
+  let parsed: number;
+  if (typeof value === 'number') {
+    parsed = value;
+  } else if (typeof value === 'string' && value.trim()) {
+    parsed = Number.parseFloat(value);
   } else {
     parsed = fallback;
   }
@@ -914,9 +948,15 @@ function normalizeSchedulerJobList(
       allowEmpty: false,
     });
     if (!actionMessage) continue;
+    const name = normalizeString(item.name, '', { allowEmpty: true });
+    const description = normalizeString(item.description, '', {
+      allowEmpty: true,
+    });
 
     jobs.push({
       id: jobId,
+      ...(name ? { name } : {}),
+      ...(description ? { description } : {}),
       schedule: {
         kind: scheduleKind,
         at: atIso,
@@ -985,6 +1025,7 @@ function normalizeRuntimeConfig(
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawContainer = isRecord(raw.container) ? raw.container : {};
   const rawHeartbeat = isRecord(raw.heartbeat) ? raw.heartbeat : {};
+  const rawMemory = isRecord(raw.memory) ? raw.memory : {};
   const rawOps = isRecord(raw.ops) ? raw.ops : {};
   const rawObservability = isRecord(raw.observability) ? raw.observability : {};
   const rawSessionCompaction = isRecord(raw.sessionCompaction)
@@ -1032,6 +1073,16 @@ function normalizeRuntimeConfig(
     rawSessionCompaction.threshold,
     DEFAULT_RUNTIME_CONFIG.sessionCompaction.threshold,
     { min: 20 },
+  );
+  const tokenBudget = normalizeInteger(
+    rawSessionCompaction.tokenBudget,
+    DEFAULT_RUNTIME_CONFIG.sessionCompaction.tokenBudget,
+    { min: 1_000 },
+  );
+  const budgetRatio = normalizeNumber(
+    rawSessionCompaction.budgetRatio,
+    DEFAULT_RUNTIME_CONFIG.sessionCompaction.budgetRatio,
+    { min: 0.05, max: 1 },
   );
   const keepRecentRaw = normalizeInteger(
     rawSessionCompaction.keepRecent,
@@ -1233,6 +1284,18 @@ function normalizeRuntimeConfig(
         { allowEmpty: true },
       ),
     },
+    memory: {
+      decayRate: normalizeNumber(
+        rawMemory.decayRate,
+        DEFAULT_RUNTIME_CONFIG.memory.decayRate,
+        { min: 0, max: 0.95 },
+      ),
+      consolidationIntervalHours: normalizeInteger(
+        rawMemory.consolidationIntervalHours,
+        DEFAULT_RUNTIME_CONFIG.memory.consolidationIntervalHours,
+        { min: 0, max: 24 * 30 },
+      ),
+    },
     ops: {
       healthHost: normalizeString(rawOps.healthHost, defaultOps.healthHost, {
         allowEmpty: false,
@@ -1299,6 +1362,8 @@ function normalizeRuntimeConfig(
         rawSessionCompaction.enabled,
         DEFAULT_RUNTIME_CONFIG.sessionCompaction.enabled,
       ),
+      tokenBudget,
+      budgetRatio,
       threshold,
       keepRecent,
       summaryMaxChars: normalizeInteger(

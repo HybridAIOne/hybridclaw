@@ -40,10 +40,7 @@ function exportBaseDir(agentId: string, sessionId: string): string {
   );
 }
 
-function exportFilePath(
-  baseDir: string,
-  reason: string,
-): string {
+function exportFilePath(baseDir: string, reason: string): string {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const filename = `${stamp}-${safeFilePart(reason)}.jsonl`;
   return path.join(baseDir, filename);
@@ -113,7 +110,10 @@ export function exportSessionSnapshotJsonl(params: {
     if (!writeJsonlFile(filePath, rows)) return null;
     return { path: filePath, lineCount: rows.length };
   } catch (err) {
-    logger.warn({ agentId, sessionId, err }, 'Failed to export session snapshot');
+    logger.warn(
+      { agentId, sessionId, err },
+      'Failed to export session snapshot',
+    );
     return null;
   }
 }

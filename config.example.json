@@ -75,6 +75,10 @@
     "intervalMs": 1800000,
     "channel": ""
   },
+  "memory": {
+    "decayRate": 0.1,
+    "consolidationIntervalHours": 24
+  },
   "ops": {
     "healthHost": "127.0.0.1",
     "healthPort": 9090,
@@ -98,7 +102,9 @@
   },
   "sessionCompaction": {
     "enabled": true,
-    "threshold": 120,
+    "tokenBudget": 100000,
+    "budgetRatio": 0.7,
+    "threshold": 200,
     "keepRecent": 40,
     "summaryMaxChars": 8000,
     "preCompactionMemoryFlush": {
@@ -141,6 +147,8 @@
     "jobs": [
       {
         "id": "morning-standup",
+        "name": "Daily Standup Report",
+        "description": "Runs standup summary every weekday at 9am.",
         "schedule": {
           "kind": "cron",
           "expr": "0 9 * * 1-5",

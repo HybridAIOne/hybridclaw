@@ -44,7 +44,7 @@ export function buildSessionSummaryPrompt(summary: string | null | undefined): s
   if (!trimmed) return '';
   return [
     '## Session Summary',
-    'Compressed context from earlier turns. Treat this as durable prior context.',
+    'Compressed and recalled context from earlier turns. Treat this as durable prior context.',
     '',
     trimmed,
   ].join('\n');

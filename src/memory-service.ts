@@ -3,13 +3,13 @@ import {
   addKnowledgeRelation as dbAddKnowledgeRelation,
   appendCanonicalMessages as dbAppendCanonicalMessages,
   clearSessionHistory as dbClearSessionHistory,
+  deleteMemoryValue as dbDeleteMemoryValue,
   deleteMessagesBeforeId as dbDeleteMessagesBeforeId,
-  decaySemanticMemories,
   forgetSemanticMemory as dbForgetSemanticMemory,
   getCanonicalContext as dbGetCanonicalContext,
-  getMemoryValue as dbGetMemoryValue,
   getCompactionCandidateMessages as dbGetCompactionCandidateMessages,
   getConversationHistory as dbGetConversationHistory,
+  getMemoryValue as dbGetMemoryValue,
   getOrCreateSession as dbGetOrCreateSession,
   getRecentMessages as dbGetRecentMessages,
   getSessionById as dbGetSessionById,
@@ -17,16 +17,16 @@ import {
   markSessionMemoryFlush as dbMarkSessionMemoryFlush,
   queryKnowledgeGraph as dbQueryKnowledgeGraph,
   recallSemanticMemories as dbRecallSemanticMemories,
-  type SemanticRecallFilter,
   setMemoryValue as dbSetMemoryValue,
   storeMessage as dbStoreMessage,
   storeSemanticMemory as dbStoreSemanticMemory,
   updateSessionSummary as dbUpdateSessionSummary,
-  deleteMemoryValue as dbDeleteMemoryValue,
+  decaySemanticMemories,
+  type SemanticRecallFilter,
 } from './db.js';
 import {
-  MemoryConsolidationEngine,
   type MemoryConsolidationConfig,
+  MemoryConsolidationEngine,
   type MemoryConsolidationReport,
 } from './memory-consolidation.js';
 import type {
@@ -54,15 +54,15 @@ export interface MemoryBackend {
     channelId: string,
   ) => Session;
   getSessionById: (sessionId: string) => Session | undefined;
-  getConversationHistory: (sessionId: string, limit?: number) => StoredMessage[];
+  getConversationHistory: (
+    sessionId: string,
+    limit?: number,
+  ) => StoredMessage[];
   getRecentMessages: (sessionId: string, limit?: number) => StoredMessage[];
   get: (sessionId: string, key: string) => unknown | null;
   set: (sessionId: string, key: string, value: unknown) => void;
   delete: (sessionId: string, key: string) => boolean;
-  list: (
-    sessionId: string,
-    prefix?: string,
-  ) => StructuredMemoryEntry[];
+  list: (sessionId: string, prefix?: string) => StructuredMemoryEntry[];
   appendCanonicalMessages: (params: {
     agentId: string;
     userId: string;
@@ -95,7 +95,9 @@ export interface MemoryBackend {
     properties?: Record<string, unknown> | null;
     confidence?: number;
   }) => string;
-  queryKnowledgeGraph: (pattern?: KnowledgeGraphPattern) => KnowledgeGraphMatch[];
+  queryKnowledgeGraph: (
+    pattern?: KnowledgeGraphPattern,
+  ) => KnowledgeGraphMatch[];
   getCompactionCandidateMessages: (
     sessionId: string,
     keepRecent: number,
@@ -427,7 +429,9 @@ export class MemoryService {
     return this.consolidationEngine.consolidate(overrides);
   }
 
-  recallSemanticMemories(params: RecallSemanticMemoriesParams): SemanticMemoryEntry[] {
+  recallSemanticMemories(
+    params: RecallSemanticMemoriesParams,
+  ): SemanticMemoryEntry[] {
     const limit = Math.max(
       1,
       Math.min(Math.floor(params.limit || this.config.semanticRecallLimit), 50),
@@ -576,7 +580,11 @@ export class MemoryService {
         return `- (${confidence}%) ${truncateInline(memory.content, 220)}`;
       });
       sections.push(
-        ['### Relevant Memory Recall', 'Topic-matched context from older turns (vector cosine search):', ...lines].join('\n'),
+        [
+          '### Relevant Memory Recall',
+          'Topic-matched context from older turns (vector cosine search):',
+          ...lines,
+        ].join('\n'),
       );
     }
 

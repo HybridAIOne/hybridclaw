@@ -16,10 +16,10 @@ import {
   getOrCreateSession,
   getUsageTotals,
   initDatabase,
+  listMemoryValues,
   listUsageByAgent,
   listUsageByModel,
   listUsageDailyBreakdown,
-  listMemoryValues,
   queryKnowledgeGraph,
   recallSemanticMemories,
   recordUsageEvent,
@@ -27,9 +27,9 @@ import {
   storeSemanticMemory,
 } from '../src/db.js';
 import {
-  MemoryService,
   computeDecayedConfidence,
   type MemoryBackend,
+  MemoryService,
 } from '../src/memory-service.js';
 import {
   KnowledgeEntityType,
@@ -97,7 +97,9 @@ describe.sequential('semantic memory DB', () => {
 
     expect(results.length).toBe(2);
     expect(results[0].content.toLowerCase()).toContain('rust');
-    expect(results.some((row) => row.content.toLowerCase().includes('gardening'))).toBe(false);
+    expect(
+      results.some((row) => row.content.toLowerCase().includes('gardening')),
+    ).toBe(false);
   });
 
   test('ranks semantic memories by cosine similarity when query embedding is provided', () => {
@@ -276,7 +278,10 @@ describe.sequential('structured memory DB', () => {
     expect(prefixed.every((entry) => entry.agent_id === 's-kv')).toBe(true);
     expect(prefixed.every((entry) => entry.version === 1)).toBe(true);
 
-    setMemoryValue('s-kv', 'release.tag', { format: 'rYY.MM.patch', major: 26 });
+    setMemoryValue('s-kv', 'release.tag', {
+      format: 'rYY.MM.patch',
+      major: 26,
+    });
     const updated = listMemoryValues('s-kv', 'release.').find(
       (entry) => entry.key === 'release.tag',
     );
@@ -356,7 +361,9 @@ describe.sequential('schema migrations', () => {
 
     initDatabase({ quiet: true, dbPath });
 
-    expect(getMemoryValue('legacy-session', 'release.codename')).toBe('AtlasFox');
+    expect(getMemoryValue('legacy-session', 'release.codename')).toBe(
+      'AtlasFox',
+    );
 
     const inspect = new Database(dbPath, { readonly: true });
     const schemaVersion = inspect.pragma('user_version', { simple: true });
@@ -507,7 +514,9 @@ describe.sequential('canonical sessions DB', () => {
     });
     expect(context.summary).toBeNull();
     expect(context.recent_messages.length).toBe(2);
-    expect(context.recent_messages.every((row) => row.session_id === 'tg:1')).toBe(true);
+    expect(
+      context.recent_messages.every((row) => row.session_id === 'tg:1'),
+    ).toBe(true);
   });
 
   test('compacts canonical history into summary after threshold', () => {
@@ -636,7 +645,11 @@ describe('MemoryService', () => {
     ];
     const backend: MemoryBackend = {
       getOrCreateSession: (sessionId, guildId, channelId) =>
-        makeSession({ id: sessionId, guild_id: guildId, channel_id: channelId }),
+        makeSession({
+          id: sessionId,
+          guild_id: guildId,
+          channel_id: channelId,
+        }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
       getRecentMessages: () => [] as StoredMessage[],
@@ -644,18 +657,17 @@ describe('MemoryService', () => {
       set: () => {},
       delete: () => false,
       list: () => [],
-      appendCanonicalMessages: () =>
-        ({
-          canonical_id: 'entity-id:u1',
-          agent_id: 'entity-id',
-          user_id: 'u1',
-          messages: [],
-          compaction_cursor: 0,
-          compacted_summary: null,
-          message_count: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }),
+      appendCanonicalMessages: () => ({
+        canonical_id: 'entity-id:u1',
+        agent_id: 'entity-id',
+        user_id: 'u1',
+        messages: [],
+        compaction_cursor: 0,
+        compacted_summary: null,
+        message_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
       getCanonicalContext: () => ({ summary: null, recent_messages: [] }),
       addKnowledgeEntity: () => 'entity-id',
       addKnowledgeRelation: () => 'relation-id',
@@ -695,7 +707,9 @@ describe('MemoryService', () => {
 
     expect(first.summaryConfidence).toBeLessThan(0.3);
     expect(first.promptSummary).toContain('Relevant Memory Recall');
-    expect(first.promptSummary).not.toContain('Old summary that should be filtered out.');
+    expect(first.promptSummary).not.toContain(
+      'Old summary that should be filtered out.',
+    );
     expect(second.promptSummary).toContain('Relevant Memory Recall');
     expect(recallCalls).toBe(2);
   });
@@ -712,7 +726,11 @@ describe('MemoryService', () => {
     let nextMessageId = 100;
     const backend: MemoryBackend = {
       getOrCreateSession: (sessionId, guildId, channelId) =>
-        makeSession({ id: sessionId, guild_id: guildId, channel_id: channelId }),
+        makeSession({
+          id: sessionId,
+          guild_id: guildId,
+          channel_id: channelId,
+        }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
       getRecentMessages: () => [] as StoredMessage[],
@@ -720,18 +738,17 @@ describe('MemoryService', () => {
       set: () => {},
       delete: () => false,
       list: () => [],
-      appendCanonicalMessages: () =>
-        ({
-          canonical_id: 'entity-id:u1',
-          agent_id: 'entity-id',
-          user_id: 'u1',
-          messages: [],
-          compaction_cursor: 0,
-          compacted_summary: null,
-          message_count: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }),
+      appendCanonicalMessages: () => ({
+        canonical_id: 'entity-id:u1',
+        agent_id: 'entity-id',
+        user_id: 'u1',
+        messages: [],
+        compaction_cursor: 0,
+        compacted_summary: null,
+        message_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
       getCanonicalContext: () => ({ summary: null, recent_messages: [] }),
       addKnowledgeEntity: () => 'entity-id',
       addKnowledgeRelation: () => 'relation-id',
@@ -742,7 +759,13 @@ describe('MemoryService', () => {
         nextMessageId += 1;
         return nextMessageId;
       },
-      storeSemanticMemory: ({ role, source, scope, content, sourceMessageId }) => {
+      storeSemanticMemory: ({
+        role,
+        source,
+        scope,
+        content,
+        sourceMessageId,
+      }) => {
         storedSemantic.push({ role, source, scope, content, sourceMessageId });
         return 1;
       },
@@ -793,7 +816,11 @@ describe('MemoryService', () => {
     let semanticWrites = 0;
     const backend: MemoryBackend = {
       getOrCreateSession: (sessionId, guildId, channelId) =>
-        makeSession({ id: sessionId, guild_id: guildId, channel_id: channelId }),
+        makeSession({
+          id: sessionId,
+          guild_id: guildId,
+          channel_id: channelId,
+        }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
       getRecentMessages: () => [] as StoredMessage[],
@@ -801,18 +828,17 @@ describe('MemoryService', () => {
       set: () => {},
       delete: () => false,
       list: () => [],
-      appendCanonicalMessages: () =>
-        ({
-          canonical_id: 'entity-id:u1',
-          agent_id: 'entity-id',
-          user_id: 'u1',
-          messages: [],
-          compaction_cursor: 0,
-          compacted_summary: null,
-          message_count: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }),
+      appendCanonicalMessages: () => ({
+        canonical_id: 'entity-id:u1',
+        agent_id: 'entity-id',
+        user_id: 'u1',
+        messages: [],
+        compaction_cursor: 0,
+        compacted_summary: null,
+        message_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
       getCanonicalContext: () => ({ summary: null, recent_messages: [] }),
       addKnowledgeEntity: () => 'entity-id',
       addKnowledgeRelation: () => 'relation-id',
@@ -994,7 +1020,11 @@ describe('MemoryService', () => {
     };
     const backend: MemoryBackend = {
       getOrCreateSession: (sessionId, guildId, channelId) =>
-        makeSession({ id: sessionId, guild_id: guildId, channel_id: channelId }),
+        makeSession({
+          id: sessionId,
+          guild_id: guildId,
+          channel_id: channelId,
+        }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
       getRecentMessages: () => [] as StoredMessage[],
@@ -1012,16 +1042,16 @@ describe('MemoryService', () => {
         },
       ],
       appendCanonicalMessages: () => ({
-          canonical_id: 'entity-id:u1',
-          agent_id: 'entity-id',
-          user_id: 'u1',
-          messages: [],
-          compaction_cursor: 0,
-          compacted_summary: null,
-          message_count: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }),
+        canonical_id: 'entity-id:u1',
+        agent_id: 'entity-id',
+        user_id: 'u1',
+        messages: [],
+        compaction_cursor: 0,
+        compacted_summary: null,
+        message_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
       getCanonicalContext: () => canonicalContext,
       addKnowledgeEntity: () => 'entity-id',
       addKnowledgeRelation: () => 'relation-id',
@@ -1039,9 +1069,7 @@ describe('MemoryService', () => {
     };
     const service = new MemoryService(backend);
 
-    expect(service.get('session:test', 'release.codename')).toBe(
-      'AtlasFox',
-    );
+    expect(service.get('session:test', 'release.codename')).toBe('AtlasFox');
     service.set('session:test', 'release.codename', 'AtlasFox');
     expect(service.delete('session:test', 'release.codename')).toBe(true);
     expect(service.list('session:test', 'release.').length).toBe(1);

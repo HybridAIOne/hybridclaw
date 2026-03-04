@@ -4,9 +4,9 @@
  * Runs both legacy DB-backed tasks and config-backed scheduler.jobs.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
-import fs from 'fs';
-import path from 'path';
 
 import { DATA_DIR, getConfigSnapshot } from './config.js';
 import {
@@ -45,9 +45,25 @@ type TaskRunner = (request: SchedulerDispatchRequest) => Promise<void>;
 interface ConfigJobMeta {
   lastRun: string | null;
   lastStatus: 'success' | 'error' | null;
+  nextRunAt: string | null;
   consecutiveErrors: number;
   disabled: boolean;
   oneShotCompleted: boolean;
+}
+
+export interface ConfigJobRuntimeState {
+  lastRun: string | null;
+  lastStatus: 'success' | 'error' | null;
+  nextRunAt: string | null;
+  disabled: boolean;
+  consecutiveErrors: number;
+}
+
+export interface SchedulerStatusJob extends ConfigJobRuntimeState {
+  id: string;
+  name: string;
+  description: string | null;
+  enabled: boolean;
 }
 
 interface SchedulerStateFile {
@@ -83,6 +99,7 @@ function defaultConfigJobMeta(): ConfigJobMeta {
   return {
     lastRun: null,
     lastStatus: null,
+    nextRunAt: null,
     consecutiveErrors: 0,
     disabled: false,
     oneShotCompleted: false,
@@ -103,6 +120,10 @@ function normalizeConfigJobMeta(value: unknown): ConfigJobMeta {
     value.lastStatus === 'success' || value.lastStatus === 'error'
       ? value.lastStatus
       : null;
+  const nextRunAt =
+    typeof value.nextRunAt === 'string' && value.nextRunAt.trim()
+      ? value.nextRunAt.trim()
+      : null;
   const consecutiveErrors =
     typeof value.consecutiveErrors === 'number' &&
     Number.isFinite(value.consecutiveErrors)
@@ -111,6 +132,7 @@ function normalizeConfigJobMeta(value: unknown): ConfigJobMeta {
   return {
     lastRun,
     lastStatus,
+    nextRunAt,
     consecutiveErrors,
     disabled: Boolean(value.disabled),
     oneShotCompleted: Boolean(value.oneShotCompleted),
@@ -189,6 +211,13 @@ function pruneConfigJobMeta(activeJobs: RuntimeSchedulerJob[]): void {
   if (changed) persistSchedulerState();
 }
 
+function resolveConfigJobLabel(
+  job: Pick<RuntimeSchedulerJob, 'id' | 'name'>,
+): string {
+  const candidate = typeof job.name === 'string' ? job.name.trim() : '';
+  return candidate || job.id;
+}
+
 function parseCronExpression(
   expr: string,
   tz: string | undefined,
@@ -226,6 +255,33 @@ function nextFireMsForDbTask(
   } catch {
     return null;
   }
+}
+
+function toIsoTimestamp(ms: number | null): string | null {
+  if (ms == null || !Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString();
+}
+
+function syncConfigJobNextRunAt(
+  job: RuntimeSchedulerJob,
+  nowMs: number,
+): boolean {
+  const meta = getConfigJobMeta(job.id);
+  const nextRunAt = toIsoTimestamp(nextFireMsForConfigJob(job, nowMs));
+  if (meta.nextRunAt === nextRunAt) return false;
+  meta.nextRunAt = nextRunAt;
+  return true;
+}
+
+function syncConfigJobsNextRunAt(
+  jobs: RuntimeSchedulerJob[],
+  nowMs: number,
+): boolean {
+  let changed = false;
+  for (const job of jobs) {
+    if (syncConfigJobNextRunAt(job, nowMs)) changed = true;
+  }
+  return changed;
 }
 
 function nextFireMsForConfigJob(
@@ -270,10 +326,11 @@ function nextFireMsForConfigJob(
 
 function computeNextFireMs(nowMs = Date.now()): number | null {
   const dbTasks = getAllEnabledTasks();
-  const cfgJobs = getConfigSnapshot().scheduler.jobs.filter(
-    (job) => job.enabled,
-  );
+  const cfgJobs = getConfigSnapshot().scheduler.jobs;
   pruneConfigJobMeta(cfgJobs);
+  if (syncConfigJobsNextRunAt(cfgJobs, nowMs)) {
+    persistSchedulerState();
+  }
 
   let earliest: number | null = null;
 
@@ -334,11 +391,12 @@ async function dispatchDbTask(task: ScheduledTask): Promise<void> {
 
 async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
   if (!taskRunner) return;
+  const jobLabel = resolveConfigJobLabel(job);
   const contextChannelId =
     job.delivery.kind === 'channel' ? job.delivery.to : 'scheduler';
   const prompt =
     job.action.kind === 'agent_turn'
-      ? wrapCronPrompt(job.id, job.action.message)
+      ? wrapCronPrompt(jobLabel, job.action.message)
       : job.action.message;
   await taskRunner({
     source: 'config-job',
@@ -356,24 +414,29 @@ async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
   });
 }
 
-function markConfigJobSuccess(jobId: string, markOneShotDone = false): void {
-  const meta = getConfigJobMeta(jobId);
+function markConfigJobSuccess(
+  job: RuntimeSchedulerJob,
+  markOneShotDone = false,
+): void {
+  const meta = getConfigJobMeta(job.id);
   meta.lastStatus = 'success';
   meta.consecutiveErrors = 0;
   if (markOneShotDone) meta.oneShotCompleted = true;
+  syncConfigJobNextRunAt(job, Date.now());
   persistSchedulerState();
 }
 
-function markConfigJobFailure(jobId: string): {
+function markConfigJobFailure(job: RuntimeSchedulerJob): {
   disabled: boolean;
   consecutiveErrors: number;
 } {
-  const meta = getConfigJobMeta(jobId);
+  const meta = getConfigJobMeta(job.id);
   meta.lastStatus = 'error';
   meta.consecutiveErrors = Math.max(0, meta.consecutiveErrors) + 1;
   if (meta.consecutiveErrors >= MAX_CONSECUTIVE_FAILURES) {
     meta.disabled = true;
   }
+  syncConfigJobNextRunAt(job, Date.now());
   persistSchedulerState();
   return {
     disabled: meta.disabled,
@@ -513,6 +576,7 @@ async function tick(): Promise<void> {
       if (!job.enabled) continue;
       const meta = getConfigJobMeta(job.id);
       if (meta.disabled) continue;
+      const jobLabel = resolveConfigJobLabel(job);
 
       try {
         if (job.schedule.kind === 'at') {
@@ -525,23 +589,24 @@ async function tick(): Promise<void> {
           meta.lastRun = now.toISOString();
           persistSchedulerState();
           logger.info(
-            { jobId: job.id, runAt: job.schedule.at },
+            { jobId: job.id, jobLabel, runAt: job.schedule.at },
             'Config one-shot job firing',
           );
           dispatchConfigJob(job)
             .then(() => {
-              markConfigJobSuccess(job.id, true);
+              markConfigJobSuccess(job, true);
             })
             .catch((err) => {
-              const failure = markConfigJobFailure(job.id);
+              const failure = markConfigJobFailure(job);
               logger.error(
-                { jobId: job.id, err },
+                { jobId: job.id, jobLabel, err },
                 'Config one-shot job failed',
               );
               if (failure.disabled) {
                 logger.warn(
                   {
                     jobId: job.id,
+                    jobLabel,
                     consecutiveErrors: failure.consecutiveErrors,
                   },
                   'Config scheduler job auto-disabled after repeated failures',
@@ -559,21 +624,25 @@ async function tick(): Promise<void> {
           if (dueAt > nowMs) continue;
           meta.lastRun = now.toISOString();
           persistSchedulerState();
-          logger.info({ jobId: job.id, everyMs }, 'Config interval job firing');
+          logger.info(
+            { jobId: job.id, jobLabel, everyMs },
+            'Config interval job firing',
+          );
           dispatchConfigJob(job)
             .then(() => {
-              markConfigJobSuccess(job.id, false);
+              markConfigJobSuccess(job, false);
             })
             .catch((err) => {
-              const failure = markConfigJobFailure(job.id);
+              const failure = markConfigJobFailure(job);
               logger.error(
-                { jobId: job.id, err },
+                { jobId: job.id, jobLabel, err },
                 'Config interval job failed',
               );
               if (failure.disabled) {
                 logger.warn(
                   {
                     jobId: job.id,
+                    jobLabel,
                     consecutiveErrors: failure.consecutiveErrors,
                   },
                   'Config scheduler job auto-disabled after repeated failures',
@@ -595,31 +664,134 @@ async function tick(): Promise<void> {
         meta.lastRun = now.toISOString();
         persistSchedulerState();
         logger.info(
-          { jobId: job.id, expr: job.schedule.expr, tz: job.schedule.tz },
+          {
+            jobId: job.id,
+            jobLabel,
+            expr: job.schedule.expr,
+            tz: job.schedule.tz,
+          },
           'Config cron job firing',
         );
         dispatchConfigJob(job)
           .then(() => {
-            markConfigJobSuccess(job.id, false);
+            markConfigJobSuccess(job, false);
           })
           .catch((err) => {
-            const failure = markConfigJobFailure(job.id);
-            logger.error({ jobId: job.id, err }, 'Config cron job failed');
+            const failure = markConfigJobFailure(job);
+            logger.error(
+              { jobId: job.id, jobLabel, err },
+              'Config cron job failed',
+            );
             if (failure.disabled) {
               logger.warn(
-                { jobId: job.id, consecutiveErrors: failure.consecutiveErrors },
+                {
+                  jobId: job.id,
+                  jobLabel,
+                  consecutiveErrors: failure.consecutiveErrors,
+                },
                 'Config scheduler job auto-disabled after repeated failures',
               );
             }
           });
       } catch (err) {
-        logger.error({ jobId: job.id, err }, 'Scheduler error for config job');
+        logger.error(
+          { jobId: job.id, jobLabel, err },
+          'Scheduler error for config job',
+        );
       }
     }
   } finally {
     ticking = false;
     arm();
   }
+}
+
+function toRuntimeState(meta: ConfigJobMeta): ConfigJobRuntimeState {
+  return {
+    lastRun: meta.lastRun,
+    lastStatus: meta.lastStatus,
+    nextRunAt: meta.nextRunAt,
+    disabled: meta.disabled,
+    consecutiveErrors: meta.consecutiveErrors,
+  };
+}
+
+export function getConfigJobState(jobId: string): ConfigJobRuntimeState | null {
+  const normalizedJobId = jobId.trim();
+  if (!normalizedJobId) return null;
+  const jobs = getConfigSnapshot().scheduler.jobs;
+  pruneConfigJobMeta(jobs);
+  const job = jobs.find((candidate) => candidate.id === normalizedJobId);
+  if (!job) return null;
+  if (syncConfigJobNextRunAt(job, Date.now())) {
+    persistSchedulerState();
+  }
+  return toRuntimeState(getConfigJobMeta(normalizedJobId));
+}
+
+export function getSchedulerStatus(): SchedulerStatusJob[] {
+  const jobs = getConfigSnapshot().scheduler.jobs;
+  pruneConfigJobMeta(jobs);
+  if (syncConfigJobsNextRunAt(jobs, Date.now())) {
+    persistSchedulerState();
+  }
+  return jobs.map((job) => {
+    const meta = getConfigJobMeta(job.id);
+    const description =
+      typeof job.description === 'string' && job.description.trim()
+        ? job.description.trim()
+        : null;
+    return {
+      id: job.id,
+      name: resolveConfigJobLabel(job),
+      description,
+      enabled: job.enabled,
+      ...toRuntimeState(meta),
+    };
+  });
+}
+
+export function pauseConfigJob(jobId: string): boolean {
+  const normalizedJobId = jobId.trim();
+  if (!normalizedJobId) return false;
+  const jobs = getConfigSnapshot().scheduler.jobs;
+  pruneConfigJobMeta(jobs);
+  const job = jobs.find((candidate) => candidate.id === normalizedJobId);
+  if (!job) return false;
+
+  const meta = getConfigJobMeta(normalizedJobId);
+  meta.disabled = true;
+  meta.nextRunAt = null;
+  persistSchedulerState();
+  rearmScheduler();
+
+  logger.info(
+    { jobId: normalizedJobId, jobLabel: resolveConfigJobLabel(job) },
+    'Config scheduler job paused',
+  );
+  return true;
+}
+
+export function resumeConfigJob(jobId: string): boolean {
+  const normalizedJobId = jobId.trim();
+  if (!normalizedJobId) return false;
+  const jobs = getConfigSnapshot().scheduler.jobs;
+  pruneConfigJobMeta(jobs);
+  const job = jobs.find((candidate) => candidate.id === normalizedJobId);
+  if (!job) return false;
+
+  const meta = getConfigJobMeta(normalizedJobId);
+  meta.disabled = false;
+  meta.consecutiveErrors = 0;
+  syncConfigJobNextRunAt(job, Date.now());
+  persistSchedulerState();
+  rearmScheduler();
+
+  logger.info(
+    { jobId: normalizedJobId, jobLabel: resolveConfigJobLabel(job) },
+    'Config scheduler job resumed',
+  );
+  return true;
 }
 
 // --- Public API ---
