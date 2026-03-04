@@ -4,6 +4,7 @@ import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline/promises';
+import { fileURLToPath } from 'url';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -13,6 +14,37 @@ import {
 import { ensureHybridAICredentials } from './onboarding.js';
 import { printUpdateUsage, runUpdateCommand } from './update.js';
 
+const PACKAGE_NAME = '@hybridaione/hybridclaw';
+let cachedInstallRoot: string | null = null;
+
+function resolveInstallRoot(): string {
+  if (cachedInstallRoot) return cachedInstallRoot;
+  let current = path.dirname(fileURLToPath(import.meta.url));
+
+  while (true) {
+    const packageJsonPath = path.join(current, 'package.json');
+    if (fs.existsSync(packageJsonPath)) {
+      try {
+        const parsed = JSON.parse(
+          fs.readFileSync(packageJsonPath, 'utf-8'),
+        ) as Partial<{ name: string }>;
+        if (parsed.name === PACKAGE_NAME) {
+          cachedInstallRoot = current;
+          return cachedInstallRoot;
+        }
+      } catch {
+        // ignore parse errors and continue searching upward
+      }
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  cachedInstallRoot = process.cwd();
+  return cachedInstallRoot;
+}
+
 async function ensureRuntimeContainer(
   commandName: string,
   required = true,
@@ -21,7 +53,7 @@ async function ensureRuntimeContainer(
   await ensureContainerImageReady({
     commandName,
     required,
-    cwd: process.cwd(),
+    cwd: resolveInstallRoot(),
   });
 }
 

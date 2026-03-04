@@ -20,6 +20,9 @@ function dumpPrompt(
   messages: ChatMessage[],
   model: string,
   chatbotId: string,
+  media?: MediaContextItem[],
+  allowedTools?: string[],
+  blockedTools?: string[],
 ): void {
   try {
     const entry = {
@@ -28,6 +31,9 @@ function dumpPrompt(
       model,
       chatbotId,
       messages,
+      media: Array.isArray(media) ? media : [],
+      allowedTools: Array.isArray(allowedTools) ? allowedTools : undefined,
+      blockedTools: Array.isArray(blockedTools) ? blockedTools : undefined,
     };
     const filePath = path.join(DATA_DIR, 'last_prompt.jsonl');
     fs.writeFileSync(filePath, JSON.stringify(entry) + '\n');
@@ -52,7 +58,15 @@ export async function runAgent(
   abortSignal?: AbortSignal,
   media?: MediaContextItem[],
 ): Promise<ContainerOutput> {
-  dumpPrompt(sessionId, messages, model, chatbotId);
+  dumpPrompt(
+    sessionId,
+    messages,
+    model,
+    chatbotId,
+    media,
+    allowedTools,
+    blockedTools,
+  );
   return runContainer(
     sessionId,
     messages,
