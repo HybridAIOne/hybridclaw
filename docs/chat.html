@@ -470,15 +470,21 @@
             alt="HybridAI"
           >
         </div>
-        <button id="sidebarToggle" class="sidebar-toggle" aria-label="Toggle sidebar">
+        <button
+          id="sidebarToggle"
+          type="button"
+          class="sidebar-toggle"
+          aria-label="Toggle sidebar"
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <title>Toggle sidebar</title>
             <rect x="3" y="4" width="18" height="16" rx="4"></rect>
             <path d="M12 4v16"></path>
           </svg>
         </button>
       </div>
 
-      <button id="newChat" class="new-chat-btn">
+      <button id="newChat" type="button" class="new-chat-btn">
         <span class="new-chat-icon">+</span>
         <span class="new-chat-label">New Conversation</span>
       </button>
@@ -492,7 +498,7 @@
         <h1 class="empty-greeting">Ready to claw through your to-do list? 🦞</h1>
         <div class="composer">
           <div class="prompt-wrap">
-            <button id="send" aria-label="Send message">
+            <button id="send" type="button" aria-label="Send message">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 19V5"></path>
                 <path d="m5 12 7-7 7 7"></path>

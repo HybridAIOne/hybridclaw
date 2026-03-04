@@ -55,13 +55,17 @@ export function extractMentionAliasHints(text: string): MentionAliasHint[] {
   const aliasToId =
     /(^|[\s,;:.!?])@?([\p{L}\p{N}._-]{2,32})\s*(?:ist|is|=|->|=>|means|heißt)\s*(?:<@!?(\d{16,22})>|(\d{16,22}))/giu;
   let match: RegExpExecArray | null;
-  while ((match = aliasToId.exec(text)) !== null) {
+  while (true) {
+    match = aliasToId.exec(text);
+    if (match === null) break;
     collect(match[2], match[3] || match[4]);
   }
 
   const idToAlias =
     /(?:<@!?(\d{16,22})>|(\d{16,22}))\s*(?:ist|is|=|->|=>|means|heißt)\s*@?([\p{L}\p{N}._-]{2,32})/giu;
-  while ((match = idToAlias.exec(text)) !== null) {
+  while (true) {
+    match = idToAlias.exec(text);
+    if (match === null) break;
     collect(match[3], match[1] || match[2]);
   }
 
@@ -93,7 +97,9 @@ function extractMentionAliases(text: string): string[] {
   const aliases = new Set<string>();
   const re = /(^|[\s([{:>])@([\p{L}\p{N}._-]{2,32})\b/gu;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(text)) !== null) {
+  while (true) {
+    match = re.exec(text);
+    if (match === null) break;
     const alias = normalizeMentionAlias(match[2]);
     if (!alias) continue;
     aliases.add(alias);
