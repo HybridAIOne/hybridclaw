@@ -1199,7 +1199,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_vision',
       description:
-        'Capture a screenshot and analyze it with a vision model using the provided question.',
+        'Capture the current browser page screenshot and analyze it with a vision model. Use only for active browser-tab/page tasks, not for Discord-uploaded files.',
       parameters: {
         type: 'object',
         properties: {

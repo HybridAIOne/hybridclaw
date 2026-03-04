@@ -1,6 +1,21 @@
+export interface ChatContentTextPart {
+  type: 'text';
+  text: string;
+}
+
+export interface ChatContentImageUrlPart {
+  type: 'image_url';
+  image_url: {
+    url: string;
+  };
+}
+
+export type ChatContentPart = ChatContentTextPart | ChatContentImageUrlPart;
+export type ChatMessageContent = string | ChatContentPart[] | null;
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: ChatMessageContent;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
 }
@@ -19,7 +34,7 @@ export interface ChatCompletionResponse {
   choices: Array<{
     message: {
       role: string;
-      content: string | null;
+      content: ChatMessageContent;
       tool_calls?: ToolCall[];
     };
     finish_reason: string;
@@ -73,6 +88,17 @@ export interface ContainerInput {
   channelId: string;
   scheduledTasks?: { id: number; cronExpr: string; runAt: string | null; everyMs: number | null; prompt: string; enabled: number; lastRun: string | null; createdAt: string }[];
   allowedTools?: string[];
+  blockedTools?: string[];
+  media?: MediaContextItem[];
+}
+
+export interface MediaContextItem {
+  path: string | null;
+  url: string;
+  originalUrl: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  filename: string;
 }
 
 export interface ToolExecution {

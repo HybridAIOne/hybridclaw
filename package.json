@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "description": "Personal AI assistant bot for Discord, powered by HybridAI",
   "publishConfig": {
@@ -11,7 +11,14 @@
   },
   "scripts": {
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
+    "test:watch": "vitest --config vitest.unit.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts --passWithNoTests",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts --passWithNoTests",
+    "test:live": "vitest run --config vitest.live.config.ts --passWithNoTests",
     "setup": "npm --prefix container install",
     "dev": "tsx src/cli.ts gateway",
     "gateway": "tsx src/cli.ts gateway",
@@ -30,6 +37,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.19.13",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }

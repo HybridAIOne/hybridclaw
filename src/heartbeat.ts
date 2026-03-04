@@ -41,6 +41,8 @@ const HEARTBEAT_ALLOWED_TOOLS = [
   'browser_screenshot',
   'browser_pdf',
   'browser_vision',
+  'vision_analyze',
+  'image',
   'browser_get_images',
   'browser_console',
   'browser_network',

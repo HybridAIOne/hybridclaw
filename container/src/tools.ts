@@ -3,7 +3,13 @@ import fs from 'fs';
 import path from 'path';
 
 import { BROWSER_TOOL_DEFINITIONS, executeBrowserTool, setBrowserModelContext } from './browser-tools.js';
-import type { DelegationSideEffect, DelegationTaskSpec, ScheduleSideEffect, ToolDefinition } from './types.js';
+import type {
+  DelegationSideEffect,
+  DelegationTaskSpec,
+  MediaContextItem,
+  ScheduleSideEffect,
+  ToolDefinition,
+} from './types.js';
 import { webFetch } from './web-fetch.js';
 
 // --- Exec safety deny-list (defense-in-depth, adapted from PicoClaw) ---
@@ -50,8 +56,22 @@ let currentSessionId = '';
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
 let gatewayChannelId = '';
+let currentModelBaseUrl = '';
+let currentModelApiKey = '';
+let currentModelName = '';
+let currentChatbotId = '';
+let currentMediaContext: MediaContextItem[] = [];
 const MAX_PENDING_DELEGATIONS = 3;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
+const DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
+const VISION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const VISION_FETCH_TIMEOUT_MS = 12_000;
+const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
+  /^cdn\.discordapp\.com$/i,
+  /^media\.discordapp\.net$/i,
+  /^cdn\.discordapp\.net$/i,
+  /^images-ext-\d+\.discordapp\.net$/i,
+];
 
 type DiscordMessageToolAction = 'read' | 'member-info' | 'channel-info';
 
@@ -91,7 +111,15 @@ export function setModelContext(
   model: string,
   chatbotId: string,
 ): void {
+  currentModelBaseUrl = String(baseUrl || '').trim();
+  currentModelApiKey = String(apiKey || '').trim();
+  currentModelName = String(model || '').trim();
+  currentChatbotId = String(chatbotId || '').trim();
   setBrowserModelContext(baseUrl, apiKey, model, chatbotId);
+}
+
+export function setMediaContext(media?: MediaContextItem[]): void {
+  currentMediaContext = Array.isArray(media) ? media : [];
 }
 
 function readStringValue(value: unknown): string | undefined {
@@ -214,6 +242,251 @@ function normalizeDelegationTaskList(params: {
   }
 
   return { tasks };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function extractVisionTextContent(content: unknown): string {
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+  const chunks: string[] = [];
+  for (const part of content) {
+    if (typeof part === 'string') {
+      if (part.trim()) chunks.push(part.trim());
+      continue;
+    }
+    const obj = asRecord(part);
+    if (!obj) continue;
+    const text = typeof obj.text === 'string' ? obj.text : '';
+    if (text.trim()) chunks.push(text.trim());
+  }
+  return chunks.join('\n').trim();
+}
+
+function isSafeDiscordCdnUrl(raw: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'https:') return false;
+  return DISCORD_CDN_HOST_PATTERNS.some((pattern) => pattern.test(parsed.hostname));
+}
+
+function normalizeVisionLocalPath(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+
+  const normalizedInput = trimmed.replace(/\\/g, '/');
+  const candidate = normalizedInput.startsWith('/')
+    ? path.posix.normalize(normalizedInput)
+    : path.posix.normalize(path.posix.join(WORKSPACE_ROOT, normalizedInput));
+  if (
+    !(candidate === WORKSPACE_ROOT || candidate.startsWith(`${WORKSPACE_ROOT}/`))
+    && !(candidate === DISCORD_MEDIA_CACHE_ROOT || candidate.startsWith(`${DISCORD_MEDIA_CACHE_ROOT}/`))
+  ) {
+    return null;
+  }
+  return candidate;
+}
+
+function isKnownDiscordMediaPath(localPath: string): boolean {
+  const knownPaths = currentMediaContext
+    .map((entry) => (typeof entry.path === 'string' ? entry.path.trim() : ''))
+    .filter(Boolean)
+    .map((entryPath) => normalizeVisionLocalPath(entryPath))
+    .filter((value): value is string => Boolean(value));
+  if (knownPaths.length === 0) return true;
+  return knownPaths.includes(localPath);
+}
+
+function inferImageMimeTypeFromPath(localPath: string, fallbackMime?: string | null): string {
+  const normalizedFallback = String(fallbackMime || '').trim().toLowerCase();
+  if (normalizedFallback.startsWith('image/')) return normalizedFallback;
+  const ext = path.posix.extname(localPath).toLowerCase();
+  if (ext === '.png') return 'image/png';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.bmp') return 'image/bmp';
+  if (ext === '.svg') return 'image/svg+xml';
+  if (ext === '.tif' || ext === '.tiff') return 'image/tiff';
+  return 'image/png';
+}
+
+async function readVisionImageFromLocalPath(localPath: string): Promise<{ buffer: Buffer; mimeType: string; source: string }> {
+  const normalizedPath = normalizeVisionLocalPath(localPath);
+  if (!normalizedPath) {
+    throw new Error('local image path must be under /workspace or /discord-media-cache');
+  }
+  if (normalizedPath.startsWith(`${DISCORD_MEDIA_CACHE_ROOT}/`) && !isKnownDiscordMediaPath(normalizedPath)) {
+    throw new Error('requested local image is not part of current media context');
+  }
+  if (!fs.existsSync(normalizedPath)) {
+    throw new Error(`local image not found: ${normalizedPath}`);
+  }
+  const stat = fs.statSync(normalizedPath);
+  if (!stat.isFile()) {
+    throw new Error(`local image path is not a file: ${normalizedPath}`);
+  }
+  if (stat.size <= 0) {
+    throw new Error(`local image is empty: ${normalizedPath}`);
+  }
+  if (stat.size > VISION_IMAGE_MAX_BYTES) {
+    throw new Error(`local image exceeds max size (${VISION_IMAGE_MAX_BYTES} bytes)`);
+  }
+  const buffer = fs.readFileSync(normalizedPath);
+  const mediaHint = currentMediaContext.find((entry) => {
+    const normalizedEntryPath = entry.path ? normalizeVisionLocalPath(entry.path) : null;
+    return normalizedEntryPath === normalizedPath;
+  });
+  const mimeType = inferImageMimeTypeFromPath(normalizedPath, mediaHint?.mimeType);
+  if (!mimeType.startsWith('image/')) {
+    throw new Error(`unsupported local image type: ${mimeType}`);
+  }
+  return {
+    buffer,
+    mimeType,
+    source: normalizedPath,
+  };
+}
+
+async function readVisionImageFromUrl(rawUrl: string): Promise<{ buffer: Buffer; mimeType: string; source: string }> {
+  if (!isSafeDiscordCdnUrl(rawUrl)) {
+    throw new Error('remote image URL is blocked (only Discord CDN HTTPS URLs are allowed)');
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), VISION_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(rawUrl, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`image download failed (${response.status})`);
+    }
+    const mimeType = String(response.headers.get('content-type') || '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
+    if (!mimeType.startsWith('image/')) {
+      throw new Error(`remote URL is not an image (${mimeType || 'unknown'})`);
+    }
+    const contentLength = Number.parseInt(response.headers.get('content-length') || '', 10);
+    if (Number.isFinite(contentLength) && contentLength > VISION_IMAGE_MAX_BYTES) {
+      throw new Error(`remote image exceeds max size (${VISION_IMAGE_MAX_BYTES} bytes)`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length > VISION_IMAGE_MAX_BYTES) {
+      throw new Error(`remote image exceeds max size (${VISION_IMAGE_MAX_BYTES} bytes)`);
+    }
+    return {
+      buffer,
+      mimeType,
+      source: rawUrl,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function visionModelContextError(): string | null {
+  if (!currentModelApiKey) return 'vision_analyze is not configured: missing API key context.';
+  if (!currentModelBaseUrl) return 'vision_analyze is not configured: missing base URL context.';
+  if (!currentModelName) return 'vision_analyze is not configured: missing model context.';
+  if (!currentChatbotId) return 'vision_analyze is not configured: missing chatbot_id context.';
+  return null;
+}
+
+async function callVisionModel(question: string, imageDataUrl: string): Promise<{ model: string; analysis: string }> {
+  const contextError = visionModelContextError();
+  if (contextError) throw new Error(contextError);
+
+  const response = await fetch(`${currentModelBaseUrl}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${currentModelApiKey}`,
+    },
+    body: JSON.stringify({
+      model: currentModelName,
+      chatbot_id: currentChatbotId,
+      enable_rag: false,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: question },
+            { type: 'image_url', image_url: { url: imageDataUrl } },
+          ],
+        },
+      ],
+    }),
+  });
+
+  const rawText = await response.text();
+  if (!response.ok) {
+    const detail = rawText.length > 600 ? `${rawText.slice(0, 600)}...` : rawText;
+    throw new Error(`vision API request failed (${response.status}): ${detail}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    throw new Error('vision API returned non-JSON response');
+  }
+  const record = asRecord(parsed);
+  const choices = record?.choices;
+  if (!Array.isArray(choices) || choices.length === 0) {
+    throw new Error('vision API response did not include choices');
+  }
+  const firstChoice = asRecord(choices[0]);
+  const message = asRecord(firstChoice?.message);
+  const analysis = extractVisionTextContent(message?.content);
+  if (!analysis) {
+    throw new Error('vision API returned empty analysis');
+  }
+  return {
+    model: currentModelName,
+    analysis,
+  };
+}
+
+async function runVisionAnalyze(args: Record<string, unknown>): Promise<string> {
+  const question = readStringValue(args.question);
+  if (!question) return 'Error: question is required';
+
+  const imageRef = readStringValue(args.image_url) || readStringValue(args.imageUrl) || readStringValue(args.path);
+  const fallbackUrl = readStringValue(args.fallback_url) || readStringValue(args.fallbackUrl) || readStringValue(args.original_url);
+  if (!imageRef) return 'Error: image_url is required';
+
+  const candidates = [imageRef, fallbackUrl].filter((value): value is string => Boolean(value));
+  const errors: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      const isRemote = /^https?:\/\//i.test(candidate);
+      const image = isRemote
+        ? await readVisionImageFromUrl(candidate)
+        : await readVisionImageFromLocalPath(candidate);
+      const dataUrl = `data:${image.mimeType};base64,${image.buffer.toString('base64')}`;
+      const vision = await callVisionModel(question, dataUrl);
+      return JSON.stringify({
+        success: true,
+        model: vision.model,
+        analysis: vision.analysis,
+        source: image.source,
+        mime_type: image.mimeType,
+        size_bytes: image.buffer.length,
+      }, null, 2);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      errors.push(`${candidate}: ${detail}`);
+    }
+  }
+
+  return `Error: vision_analyze failed. ${errors.join(' | ') || 'No candidate image sources succeeded.'}`;
 }
 
 const PREVIEW_MAX_OUTPUT_LINES = 6;
@@ -1029,6 +1302,11 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         return `${lines.join('\n')}\n\n${header}${result.text}`;
       }
 
+      case 'vision_analyze':
+      case 'image': {
+        return await runVisionAnalyze(args);
+      }
+
       case 'browser_navigate':
       case 'browser_snapshot':
       case 'browser_click':
@@ -1421,6 +1699,66 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
         },
         required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'vision_analyze',
+      description:
+        'Analyze an image attachment using vision. Use for Discord-uploaded files (local /discord-media-cache paths first, Discord CDN URLs as fallback).',
+      parameters: {
+        type: 'object',
+        properties: {
+          image_url: {
+            type: 'string',
+            description: 'Local image path (preferred) or Discord CDN HTTPS URL.',
+          },
+          question: {
+            type: 'string',
+            description: 'Question to ask about the image.',
+          },
+          fallback_url: {
+            type: 'string',
+            description: 'Optional fallback Discord CDN URL if image_url cannot be read.',
+          },
+          original_url: {
+            type: 'string',
+            description: 'Optional original URL alias for fallback_url.',
+          },
+        },
+        required: ['image_url', 'question'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'image',
+      description:
+        'Alias of vision_analyze for image analysis.',
+      parameters: {
+        type: 'object',
+        properties: {
+          image_url: {
+            type: 'string',
+            description: 'Local image path (preferred) or Discord CDN HTTPS URL.',
+          },
+          question: {
+            type: 'string',
+            description: 'Question to ask about the image.',
+          },
+          fallback_url: {
+            type: 'string',
+            description: 'Optional fallback Discord CDN URL if image_url cannot be read.',
+          },
+          original_url: {
+            type: 'string',
+            description: 'Optional original URL alias for fallback_url.',
+          },
+        },
+        required: ['image_url', 'question'],
       },
     },
   },

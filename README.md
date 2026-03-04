@@ -11,15 +11,17 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.2.1](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.1)
+Latest release: [v0.2.2](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.2)
 
-## What's new in v0.2.1
+## What's new in v0.2.2
 
-- Added OpenClaw-style Discord `message` tool actions (`read`, `member-info`, `channel-info`) to the container runtime
-- Added gateway endpoint `POST /api/discord/action` for Discord context lookups from tools
-- Replaced prompt-time Discord presence snapshots with cache-backed `member-info` presence fields (`status`, `activities`)
-- Routed Discord context lookups through gateway API from container with host remapping and token propagation
-- Enabled `message` tool in heartbeat and base subagent allowlists
+- Added Discord attachment ingest/cache with structured media context (`path`, `mime`, `size`, `original_url`) passed into the agent pipeline
+- Added `vision_analyze`/`image` tools for Discord-uploaded image analysis (local cached path first, Discord CDN fallback)
+- Added native model vision image-part injection for vision-capable models, with safe fallback if multimodal input is rejected
+- Routed Discord image questions away from `browser_vision` (unless explicitly about the active browser tab/page)
+- Completed Discord runtime migration into `src/channels/discord/*` and removed the legacy root-level `src/discord.ts` shim
+- Switched tests from compiled `dist-tests` artifacts to direct TypeScript execution via Vitest
+- Moved basic tests to `tests/` with explicit scope naming conventions
 
 ## HybridAI Advantage
 
@@ -349,6 +351,34 @@ System prompt assembly is handled by a formal hook pipeline:
 
 Hook toggles live in `config.json` under `promptHooks`.
 
+## Testing
+
+Run checks locally:
+
+```bash
+# Typecheck only (no emit)
+npm run typecheck
+
+# Strict TS lint gate (unused locals/params)
+npm run lint
+
+# Unit tests (default `npm test`)
+npm run test:unit
+
+# Scoped suites (ready for dedicated tests)
+npm run test:integration
+npm run test:e2e
+npm run test:live
+```
+
+Test layout and scopes:
+
+- tests live under `tests/` (not `src/`)
+- unit tests: `tests/**/*.test.ts` (excluding `*.integration|*.e2e|*.live`)
+- integration tests: `tests/**/*.integration.test.ts`
+- e2e tests: `tests/**/*.e2e.test.ts`
+- live tests: `tests/**/*.live.test.ts`
+
 ## Commands
 
 CLI runtime commands:
@@ -379,12 +409,14 @@ In Discord, use `!claw help` to see all commands. Key ones:
 ## Project structure
 
 ```
-src/gateway.ts          Core runtime entrypoint (DB, scheduler, heartbeat, HTTP API)
-src/tui.ts              Terminal adapter (thin client to gateway)
-src/discord.ts          Discord integration and message transport
-src/gateway-service.ts  Core shared agent/session logic used by gateway API
-src/gateway-client.ts   HTTP client used by thin clients (e.g. TUI)
-container/src/          Agent code (tools, HybridAI client, IPC)
-templates/              Workspace bootstrap files
-data/                   Runtime data (gitignored): SQLite DB, sessions, agent workspaces
+src/gateway.ts                    Core runtime entrypoint (DB, scheduler, heartbeat, HTTP API)
+src/tui.ts                        Terminal adapter (thin client to gateway)
+src/channels/discord/runtime.ts   Discord runtime integration and message transport
+src/channels/discord/*.ts         Discord responsibility modules (inbound, delivery, mentions, attachments, tools, stream)
+src/gateway-service.ts            Core shared agent/session logic used by gateway API
+src/gateway-client.ts             HTTP client used by thin clients (e.g. TUI)
+tests/                            Vitest suites (unit/integration/e2e/live scopes)
+container/src/                    Agent code (tools, HybridAI client, IPC)
+templates/                        Workspace bootstrap files
+data/                             Runtime data (gitignored): SQLite DB, sessions, agent workspaces
 ```

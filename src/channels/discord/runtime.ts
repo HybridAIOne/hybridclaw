@@ -1,10 +1,8 @@
 import {
   ActivityType,
   AttachmentBuilder,
-  type ChatInputCommandInteraction,
   Client,
   GatewayIntentBits,
-  type GuildMember,
   type Message as DiscordMessage,
   Partials,
 } from 'discord.js';
@@ -17,10 +15,37 @@ import {
   DISCORD_PREFIX,
   DISCORD_RESPOND_TO_ALL_MESSAGES,
   DISCORD_TOKEN,
-} from './config.js';
-import { chunkMessage } from './chunk.js';
-import { DiscordStreamManager } from './discord-stream.js';
-import { logger } from './logger.js';
+} from '../../config.js';
+import { buildAttachmentContext } from './attachments.js';
+import {
+  buildSessionIdFromContext as buildSessionIdFromContextInbound,
+  cleanIncomingContent as cleanIncomingContentInbound,
+  hasPrefixInvocation as hasPrefixInvocationInbound,
+  isTrigger as isTriggerInbound,
+  parseCommand as parseCommandInbound,
+  type ParsedCommand,
+} from './inbound.js';
+import {
+  addMentionAlias,
+  extractMentionAliasHints,
+  normalizeMentionAlias,
+  type MentionLookup,
+} from './mentions.js';
+import {
+  formatError,
+  prepareChunkedPayloads,
+  sendChunkedDirectReply as sendChunkedDirectReplyFromDelivery,
+  sendChunkedInteractionReply as sendChunkedInteractionReplyFromDelivery,
+  sendChunkedReply as sendChunkedReplyFromDelivery,
+} from './delivery.js';
+import {
+  createDiscordToolActionRunner,
+  type CachedDiscordPresence,
+  type DiscordToolActionRequest,
+} from './tool-actions.js';
+import { DiscordStreamManager } from './stream.js';
+import { logger } from '../../logger.js';
+import type { MediaContextItem } from '../../types.js';
 
 export type ReplyFn = (content: string, files?: AttachmentBuilder[]) => Promise<void>;
 
@@ -39,37 +64,12 @@ interface ParticipantInfo {
   aliases: Set<string>;
 }
 
-export interface MentionLookup {
-  byAlias: Map<string, Set<string>>;
-}
-
-interface MentionAliasHint {
-  alias: string;
-  userId: string;
-}
-
 export interface MessageRunContext {
   sourceMessage: DiscordMessage;
   batchedMessages: DiscordMessage[];
   abortSignal: AbortSignal;
   stream: DiscordStreamManager;
   mentionLookup: MentionLookup;
-}
-
-export type DiscordToolAction = 'read' | 'member-info' | 'channel-info';
-
-export interface DiscordToolActionRequest {
-  action: DiscordToolAction;
-  channelId?: string;
-  guildId?: string;
-  userId?: string;
-  username?: string;
-  user?: string;
-  memberId?: string;
-  limit?: number;
-  before?: string;
-  after?: string;
-  around?: string;
 }
 
 export type MessageHandler = (
@@ -79,6 +79,7 @@ export type MessageHandler = (
   userId: string,
   username: string,
   content: string,
+  media: MediaContextItem[],
   reply: ReplyFn,
   context: MessageRunContext,
 ) => Promise<void>;
@@ -97,9 +98,6 @@ let commandHandler: CommandHandler;
 let activeConversationRuns = 0;
 let botMentionRegex: RegExp | null = null;
 const MESSAGE_DEBOUNCE_MS = 2_500;
-const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
-const MAX_ATTACHMENT_CONTEXT_CHARS = 16_000;
-const MAX_SINGLE_ATTACHMENT_CHARS = 8_000;
 const DISCORD_RETRY_MAX_ATTEMPTS = 3;
 const DISCORD_RETRY_BASE_DELAY_MS = 500;
 const GUILD_INBOUND_HISTORY_LIMIT = 20;
@@ -108,20 +106,7 @@ const PARTICIPANT_CONTEXT_MAX_USERS = 30;
 const PARTICIPANT_MEMORY_MAX_CHANNELS = 200;
 const PARTICIPANT_MEMORY_MAX_USERS_PER_CHANNEL = 200;
 const PARTICIPANT_MEMORY_MAX_ALIASES_PER_USER = 8;
-const MENTION_ALIAS_LOOKUP_MAX = 8;
 const MAX_PRESENCE_CACHE_USERS = 5_000;
-
-interface CachedDiscordPresenceActivity {
-  type: number;
-  name: string;
-  state: string | null;
-  details: string | null;
-}
-
-interface CachedDiscordPresence {
-  status: string;
-  activities: CachedDiscordPresenceActivity[];
-}
 
 const discordPresenceCache = new Map<string, CachedDiscordPresence>();
 
@@ -137,54 +122,6 @@ function setDiscordPresence(userId: string, data: CachedDiscordPresence): void {
 
 function getDiscordPresence(userId: string): CachedDiscordPresence | undefined {
   return discordPresenceCache.get(userId);
-}
-
-function normalizeMentionAlias(raw: string | null | undefined): string {
-  if (!raw) return '';
-  const trimmed = raw.trim().replace(/^@+/, '');
-  if (!trimmed) return '';
-  const lowered = trimmed.toLowerCase();
-  if (lowered === 'everyone' || lowered === 'here') return '';
-  if (!/^[\p{L}\p{N}._-]{2,32}$/u.test(trimmed)) return '';
-  return lowered;
-}
-
-function addMentionAlias(lookup: MentionLookup, rawAlias: string | null | undefined, userId: string): void {
-  const alias = normalizeMentionAlias(rawAlias);
-  if (!alias) return;
-  let ids = lookup.byAlias.get(alias);
-  if (!ids) {
-    ids = new Set<string>();
-    lookup.byAlias.set(alias, ids);
-  }
-  ids.add(userId);
-}
-
-function extractMentionAliasHints(text: string): MentionAliasHint[] {
-  if (!text) return [];
-
-  const hints = new Map<string, MentionAliasHint>();
-  const collect = (rawAlias: string | null | undefined, rawUserId: string | null | undefined): void => {
-    const userId = (rawUserId || '').trim();
-    if (!/^\d{16,22}$/.test(userId)) return;
-    const alias = normalizeMentionAlias(rawAlias);
-    if (!alias) return;
-    const key = `${alias}:${userId}`;
-    if (!hints.has(key)) hints.set(key, { alias, userId });
-  };
-
-  const aliasToId = /(^|[\s,;:.!?])@?([\p{L}\p{N}._-]{2,32})\s*(?:ist|is|=|->|=>|means|heißt)\s*(?:<@!?(\d{16,22})>|(\d{16,22}))/giu;
-  let match: RegExpExecArray | null;
-  while ((match = aliasToId.exec(text)) !== null) {
-    collect(match[2], match[3] || match[4]);
-  }
-
-  const idToAlias = /(?:<@!?(\d{16,22})>|(\d{16,22}))\s*(?:ist|is|=|->|=>|means|heißt)\s*@?([\p{L}\p{N}._-]{2,32})/giu;
-  while ((match = idToAlias.exec(text)) !== null) {
-    collect(match[3], match[1] || match[2]);
-  }
-
-  return Array.from(hints.values());
 }
 
 function buildMentionLookup(
@@ -233,76 +170,6 @@ function buildMentionLookup(
   }
 
   return lookup;
-}
-
-export function rewriteUserMentions(text: string, lookup: MentionLookup): string {
-  if (!text) return text;
-  if (!lookup.byAlias.size) return text;
-  return text.replace(/(^|[\s([{:>])@([\p{L}\p{N}._-]{2,32})\b/gu, (full, prefix: string, rawAlias: string) => {
-    const alias = normalizeMentionAlias(rawAlias);
-    if (!alias) return full;
-    const ids = lookup.byAlias.get(alias);
-    if (!ids || ids.size !== 1) return full;
-    const [id] = Array.from(ids);
-    if (!id) return full;
-    return `${prefix}<@${id}>`;
-  });
-}
-
-function extractMentionAliases(text: string): string[] {
-  if (!text) return [];
-  const aliases = new Set<string>();
-  const re = /(^|[\s([{:>])@([\p{L}\p{N}._-]{2,32})\b/gu;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(text)) !== null) {
-    const alias = normalizeMentionAlias(match[2]);
-    if (!alias) continue;
-    aliases.add(alias);
-    if (aliases.size >= MENTION_ALIAS_LOOKUP_MAX) break;
-  }
-  return Array.from(aliases);
-}
-
-async function enrichMentionLookupFromGuild(
-  msg: DiscordMessage,
-  lookup: MentionLookup,
-  aliases: string[],
-): Promise<void> {
-  if (!msg.guild || aliases.length === 0) return;
-
-  for (const alias of aliases) {
-    if (lookup.byAlias.has(alias)) continue;
-    try {
-      const members = await msg.guild.members.search({ query: alias, limit: 5 });
-      const exactMatches = Array.from(members.values()).filter((member) => {
-        const username = normalizeMentionAlias(member.user?.username || '');
-        const displayName = normalizeMentionAlias(member.displayName || '');
-        return username === alias || displayName === alias;
-      });
-      if (exactMatches.length !== 1) continue;
-      const match = exactMatches[0];
-      addMentionAlias(lookup, alias, match.id);
-      addMentionAlias(lookup, match.user?.username || '', match.id);
-      addMentionAlias(lookup, match.displayName || '', match.id);
-    } catch (error) {
-      logger.debug(
-        { error, guildId: msg.guild.id, alias },
-        'Failed to resolve guild member alias for mention rewrite',
-      );
-    }
-  }
-}
-
-export async function rewriteUserMentionsForMessage(
-  text: string,
-  msg: DiscordMessage,
-  lookup: MentionLookup,
-): Promise<string> {
-  const aliases = extractMentionAliases(text);
-  if (aliases.length > 0) {
-    await enrichMentionLookupFromGuild(msg, lookup, aliases);
-  }
-  return rewriteUserMentions(text, lookup);
 }
 
 function summarizePendingHistoryEntry(entry: PendingGuildHistoryEntry): string {
@@ -527,27 +394,6 @@ interface DiscordErrorLike {
   };
 }
 
-/**
- * Format an agent response as plain text.
- * Appends a subtle tools line if any tools were used.
- */
-export function buildResponseText(text: string, toolsUsed?: string[]): string {
-  let body = text;
-  if (toolsUsed && toolsUsed.length > 0) {
-    const toolsLine = `\n*Tools: ${toolsUsed.join(', ')}*`;
-    body = `${text}${toolsLine}`;
-  }
-  return body;
-}
-
-export function formatInfo(title: string, body: string): string {
-  return `**${title}**\n${body}`;
-}
-
-export function formatError(title: string, detail: string): string {
-  return `**${title}:** ${detail}`;
-}
-
 function requireDiscordClientReady(): Client {
   if (!client) {
     throw new Error('Discord client is not initialized.');
@@ -558,303 +404,23 @@ function requireDiscordClientReady(): Client {
   return client;
 }
 
-function sanitizeDiscordId(rawValue: string | undefined, label: string): string {
-  const value = (rawValue || '').trim();
-  if (!/^\d{16,22}$/.test(value)) {
-    throw new Error(`${label} must be a Discord snowflake id.`);
-  }
-  return value;
-}
-
-function normalizeDiscordUserLookupQuery(rawValue: string | undefined): string {
-  const trimmed = (rawValue || '').trim();
-  if (!trimmed) return '';
-
-  const mentionMatch = trimmed.match(/^<@!?(\d{16,22})>$/);
-  if (mentionMatch) return mentionMatch[1];
-  const prefixedId = trimmed.match(/^(?:user:|discord:)?(\d{16,22})$/i);
-  if (prefixedId) return prefixedId[1];
-
-  return trimmed.replace(/^@+/, '').trim();
-}
-
-function scoreGuildMemberForLookup(member: GuildMember, query: string): number {
-  const q = query.toLowerCase();
-  const username = member.user.username?.toLowerCase() || '';
-  const globalName = member.user.globalName?.toLowerCase() || '';
-  const nickname = member.nickname?.toLowerCase() || '';
-  const displayName = member.displayName?.toLowerCase() || '';
-  const candidates = [username, globalName, nickname, displayName].filter(Boolean);
-
-  let score = 0;
-  if (candidates.some((value) => value === q)) score += 3;
-  if (candidates.some((value) => value.includes(q))) score += 1;
-  if (!member.user.bot) score += 1;
-  return score;
-}
-
-async function resolveGuildMemberIdFromLookup(params: {
-  guildId: string;
-  rawUser: string;
-}): Promise<{ userId: string; note?: string }> {
-  const activeClient = requireDiscordClientReady();
-  const guildId = sanitizeDiscordId(params.guildId, 'guildId');
-  const normalized = normalizeDiscordUserLookupQuery(params.rawUser);
-  if (!normalized) {
-    throw new Error('userId or username is required.');
-  }
-  if (/^\d{16,22}$/.test(normalized)) {
-    return { userId: normalized };
-  }
-
-  const guild = await activeClient.guilds.fetch(guildId);
-  const searchQuery = normalized.slice(0, 32);
-  if (!searchQuery) {
-    throw new Error('username query is empty after normalization.');
-  }
-
-  let members: Map<string, GuildMember>;
-  try {
-    members = await guild.members.search({ query: searchQuery, limit: 25 });
-  } catch {
-    const fetched = await guild.members.fetch({ query: searchQuery, limit: 25 });
-    members = fetched;
-  }
-  let best: GuildMember | null = null;
-  let bestScore = 0;
-  let matchCount = 0;
-  for (const member of members.values()) {
-    const score = scoreGuildMemberForLookup(member, searchQuery);
-    if (score <= 0) continue;
-    matchCount += 1;
-    if (!best || score > bestScore) {
-      best = member;
-      bestScore = score;
-    }
-  }
-
-  if (!best) {
-    throw new Error(`No guild member matched username "${searchQuery}".`);
-  }
-
-  return {
-    userId: best.id,
-    note: matchCount > 1 ? 'multiple matches; chose best' : undefined,
-  };
-}
-
-function normalizeDate(value: Date | null | undefined): string | null {
-  if (!value) return null;
-  const ms = value.getTime();
-  if (!Number.isFinite(ms)) return null;
-  return value.toISOString();
-}
-
-async function runDiscordReadAction(request: DiscordToolActionRequest): Promise<Record<string, unknown>> {
-  const activeClient = requireDiscordClientReady();
-  const channelId = sanitizeDiscordId(request.channelId, 'channelId');
-  const channel = await activeClient.channels.fetch(channelId);
-  if (!channel || !('messages' in channel)) {
-    throw new Error('Channel does not support message reads.');
-  }
-
-  const requestedLimit =
-    typeof request.limit === 'number' && Number.isFinite(request.limit)
-      ? Math.floor(request.limit)
-      : 20;
-  const limit = Math.max(1, Math.min(100, requestedLimit));
-  const before = request.before?.trim();
-  const after = request.after?.trim();
-  const around = request.around?.trim();
-
-  const query: { limit: number; before?: string; after?: string; around?: string } = { limit };
-  if (before) query.before = before;
-  if (after) query.after = after;
-  if (around) query.around = around;
-
-  const fetched = await channel.messages.fetch(query);
-  const messages = Array.from(fetched.values())
-    .sort((a, b) => a.createdTimestamp - b.createdTimestamp || a.id.localeCompare(b.id))
-    .map((message) => ({
-      id: message.id,
-      channelId: message.channelId,
-      guildId: message.guildId ?? null,
-      content: message.content || '',
-      createdAt: new Date(message.createdTimestamp).toISOString(),
-      editedAt: normalizeDate(message.editedAt),
-      author: {
-        id: message.author?.id || 'unknown',
-        username: message.author?.username || 'unknown',
-        handle: message.author?.username ? `@${message.author.username}` : null,
-        globalName: message.author?.globalName || null,
-        bot: Boolean(message.author?.bot),
-      },
-      member: message.member
-        ? {
-            id: message.member.id,
-            nickname: message.member.nickname || null,
-            displayName: message.member.displayName || null,
-          }
-        : null,
-      attachments: Array.from(message.attachments.values()).map((attachment) => ({
-        id: attachment.id,
-        name: attachment.name || null,
-        url: attachment.url,
-        contentType: attachment.contentType || null,
-        size: attachment.size,
-      })),
-      mentions: {
-        users: Array.from(message.mentions.users.values()).map((user) => ({
-          id: user.id,
-          username: user.username,
-          bot: Boolean(user.bot),
-        })),
-        roles: Array.from(message.mentions.roles.values()).map((role) => ({
-          id: role.id,
-          name: role.name,
-        })),
-        channels: Array.from(message.mentions.channels.values()).map((mentionedChannel) => ({
-          id: mentionedChannel.id,
-          name: 'name' in mentionedChannel && typeof mentionedChannel.name === 'string'
-            ? mentionedChannel.name
-            : null,
-        })),
-      },
-    }));
-
-  return {
-    ok: true,
-    action: 'read',
-    channelId,
-    count: messages.length,
-    messages,
-  };
-}
-
-async function runDiscordMemberInfoAction(request: DiscordToolActionRequest): Promise<Record<string, unknown>> {
-  const activeClient = requireDiscordClientReady();
-  const guildId = sanitizeDiscordId(request.guildId, 'guildId');
-  const userLookupRaw =
-    request.userId
-    || request.memberId
-    || request.user
-    || request.username;
-  const resolvedUser = await resolveGuildMemberIdFromLookup({
-    guildId,
-    rawUser: userLookupRaw || '',
-  });
-  const userId = sanitizeDiscordId(resolvedUser.userId, 'userId');
-
-  const guild = await activeClient.guilds.fetch(guildId);
-  const member = await guild.members.fetch(userId);
-  const presence = getDiscordPresence(userId);
-
-  const roles = member.roles.cache
-    .filter((role) => role.id !== guild.id)
-    .map((role) => ({
-      id: role.id,
-      name: role.name,
-      color: role.hexColor,
-      position: role.position,
-    }))
-    .sort((a, b) => b.position - a.position || a.name.localeCompare(b.name));
-
-  return {
-    ok: true,
-    action: 'member-info',
-    guildId,
-    userId,
-    ...(resolvedUser.note ? { note: resolvedUser.note } : {}),
-    member: {
-      id: member.id,
-      username: member.user.username,
-      handle: member.user.username ? `@${member.user.username}` : null,
-      globalName: member.user.globalName || null,
-      bot: Boolean(member.user.bot),
-      displayName: member.displayName,
-      nickname: member.nickname || null,
-      joinedAt: normalizeDate(member.joinedAt),
-      premiumSince: normalizeDate(member.premiumSince),
-      communicationDisabledUntil: normalizeDate(member.communicationDisabledUntil),
-      roles,
-    },
-    ...(presence
-      ? {
-          status: presence.status,
-          activities: presence.activities,
-        }
-      : {}),
-  };
-}
-
-async function runDiscordChannelInfoAction(request: DiscordToolActionRequest): Promise<Record<string, unknown>> {
-  const activeClient = requireDiscordClientReady();
-  const channelId = sanitizeDiscordId(request.channelId, 'channelId');
-  const channel = await activeClient.channels.fetch(channelId);
-  if (!channel) {
-    throw new Error('Channel not found.');
-  }
-
-  const channelData: Record<string, unknown> = {
-    id: channel.id,
-    type: channel.type,
-    guildId: 'guildId' in channel ? channel.guildId || null : null,
-    name: 'name' in channel && typeof channel.name === 'string' ? channel.name : null,
-    parentId: 'parentId' in channel ? channel.parentId || null : null,
-    topic: 'topic' in channel && typeof channel.topic === 'string' ? channel.topic : null,
-    nsfw: 'nsfw' in channel && typeof channel.nsfw === 'boolean' ? channel.nsfw : null,
-    rateLimitPerUser:
-      'rateLimitPerUser' in channel && typeof channel.rateLimitPerUser === 'number'
-        ? channel.rateLimitPerUser
-        : null,
-    isTextBased: typeof channel.isTextBased === 'function' ? channel.isTextBased() : false,
-    isDMBased: typeof channel.isDMBased === 'function' ? channel.isDMBased() : false,
-    isThread: typeof channel.isThread === 'function' ? channel.isThread() : false,
-    lastMessageId: 'lastMessageId' in channel ? channel.lastMessageId || null : null,
-  };
-
-  if (typeof channel.isThread === 'function' && channel.isThread()) {
-    channelData.archived =
-      'archived' in channel && typeof channel.archived === 'boolean' ? channel.archived : null;
-    channelData.locked =
-      'locked' in channel && typeof channel.locked === 'boolean' ? channel.locked : null;
-    channelData.ownerId = 'ownerId' in channel ? channel.ownerId || null : null;
-  }
-
-  return {
-    ok: true,
-    action: 'channel-info',
-    channel: channelData,
-  };
-}
+const runDiscordToolActionInternal = createDiscordToolActionRunner({
+  requireDiscordClientReady,
+  getDiscordPresence,
+});
 
 export async function runDiscordToolAction(
   request: DiscordToolActionRequest,
 ): Promise<Record<string, unknown>> {
-  switch (request.action) {
-    case 'read':
-      return await runDiscordReadAction(request);
-    case 'member-info':
-      return await runDiscordMemberInfoAction(request);
-    case 'channel-info':
-      return await runDiscordChannelInfoAction(request);
-    default:
-      throw new Error(`Unsupported Discord action: ${request.action as string}`);
-  }
+  return await runDiscordToolActionInternal(request);
 }
 
 function getSessionId(msg: DiscordMessage): string {
   return buildSessionIdFromContext(msg.guild?.id ?? null, msg.channelId, msg.author.id);
 }
 
-function stripBotMentions(text: string): string {
-  if (!botMentionRegex) return text;
-  return text.replace(botMentionRegex, '').trim();
-}
-
 function hasPrefixInvocation(content: string): boolean {
-  const text = stripBotMentions(content);
-  return text.startsWith(DISCORD_PREFIX);
+  return hasPrefixInvocationInbound(content, botMentionRegex, DISCORD_PREFIX);
 }
 
 function isAuthorizedCommandUserId(userId: string): boolean {
@@ -864,33 +430,23 @@ function isAuthorizedCommandUserId(userId: string): boolean {
 }
 
 function buildSessionIdFromContext(guildId: string | null, channelId: string, userId: string): string {
-  return guildId ? `${guildId}:${channelId}` : `dm:${userId}`;
+  return buildSessionIdFromContextInbound(guildId, channelId, userId);
 }
 
 function isTrigger(msg: DiscordMessage): boolean {
-  if (DISCORD_COMMANDS_ONLY) return hasPrefixInvocation(msg.content);
-  if (!msg.guild) return true;
-  if (DISCORD_RESPOND_TO_ALL_MESSAGES) return true;
-  if (client.user && msg.mentions.has(client.user)) return true;
-  if (msg.content.startsWith(DISCORD_PREFIX)) return true;
-  return false;
+  return isTriggerInbound({
+    content: msg.content,
+    isDm: !msg.guild,
+    commandsOnly: DISCORD_COMMANDS_ONLY,
+    respondToAllMessages: DISCORD_RESPOND_TO_ALL_MESSAGES,
+    prefix: DISCORD_PREFIX,
+    botMentionRegex,
+    hasBotMention: Boolean(client.user && msg.mentions.has(client.user)),
+  });
 }
 
-function parseCommand(content: string): { isCommand: boolean; command: string; args: string[] } {
-  let text = stripBotMentions(content);
-
-  if (text.startsWith(DISCORD_PREFIX)) {
-    text = text.slice(DISCORD_PREFIX.length).trim();
-  }
-
-  const parts = text.split(/\s+/);
-  const subcommands = ['bot', 'rag', 'model', 'sessions', 'audit', 'schedule', 'clear', 'help'];
-
-  if (parts.length > 0 && subcommands.includes(parts[0].toLowerCase())) {
-    return { isCommand: true, command: parts[0].toLowerCase(), args: parts.slice(1) };
-  }
-
-  return { isCommand: false, command: '', args: [] };
+function parseCommand(content: string): ParsedCommand {
+  return parseCommandInbound(content, botMentionRegex, DISCORD_PREFIX);
 }
 
 function isRetryableDiscordError(error: unknown): boolean {
@@ -928,11 +484,7 @@ async function withDiscordRetry<T>(label: string, fn: () => Promise<T>): Promise
 }
 
 function cleanIncomingContent(content: string): string {
-  let text = stripBotMentions(content);
-  if (text.startsWith(DISCORD_PREFIX)) {
-    text = text.slice(DISCORD_PREFIX.length).trim();
-  }
-  return text;
+  return cleanIncomingContentInbound(content, botMentionRegex, DISCORD_PREFIX);
 }
 
 function summarizeContextMessage(msg: DiscordMessage): string {
@@ -969,25 +521,6 @@ function buildChannelInfoContext(msg: DiscordMessage): string {
   return `${lines.join('\n')}\n`;
 }
 
-function looksLikeTextAttachment(name: string, contentType: string): boolean {
-  if (contentType.startsWith('text/')) return true;
-  if (contentType.includes('json') || contentType.includes('xml') || contentType.includes('yaml')) return true;
-  return /\.(txt|md|markdown|json|ya?ml|js|jsx|ts|tsx|py|rb|go|rs|java|c|cpp|h|hpp|cs|php|html?|css|scss|sql|log|csv)$/i.test(name);
-}
-
-async function fetchAttachmentText(url: string, maxChars: number): Promise<string | null> {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    const text = await response.text();
-    if (!text) return null;
-    if (text.length <= maxChars) return text;
-    return `${text.slice(0, Math.max(1_000, maxChars - 32))}\n...[truncated]`;
-  } catch {
-    return null;
-  }
-}
-
 async function buildReplyContext(msg: DiscordMessage): Promise<string> {
   const blocks: string[] = [];
 
@@ -1021,52 +554,6 @@ async function buildReplyContext(msg: DiscordMessage): Promise<string> {
 
   if (blocks.length === 0) return '';
   return `${blocks.join('\n\n')}\n\n`;
-}
-
-async function buildAttachmentContext(messages: DiscordMessage[]): Promise<string> {
-  const lines: string[] = [];
-  let remainingChars = MAX_ATTACHMENT_CONTEXT_CHARS;
-
-  for (const msg of messages) {
-    if (!msg.attachments || msg.attachments.size === 0) continue;
-    for (const attachment of msg.attachments.values()) {
-      const name = attachment.name || 'unnamed';
-      const size = attachment.size || 0;
-      const contentType = (attachment.contentType || '').toLowerCase();
-      if (size > MAX_ATTACHMENT_BYTES) {
-        lines.push(`- ${name}: skipped (size ${size} bytes exceeds 10MB limit)`);
-        continue;
-      }
-
-      if (contentType.startsWith('image/')) {
-        lines.push(`- ${name}: image attachment (${size} bytes, ${contentType || 'unknown type'})`);
-        continue;
-      }
-
-      if (looksLikeTextAttachment(name, contentType)) {
-        const maxChars = Math.min(MAX_SINGLE_ATTACHMENT_CHARS, Math.max(500, remainingChars));
-        const text = await fetchAttachmentText(attachment.url, maxChars);
-        if (!text) {
-          lines.push(`- ${name}: text attachment (failed to read content)`);
-          continue;
-        }
-
-        const block = `- ${name} (text attachment):\n\`\`\`\n${text}\n\`\`\``;
-        remainingChars -= block.length;
-        lines.push(block);
-        if (remainingChars <= 0) {
-          lines.push('- Additional attachment content omitted (context budget reached).');
-          return `[Attachments]\n${lines.join('\n')}\n\n`;
-        }
-        continue;
-      }
-
-      lines.push(`- ${name}: attachment (${size} bytes, ${contentType || 'unknown type'})`);
-    }
-  }
-
-  if (lines.length === 0) return '';
-  return `[Attachments]\n${lines.join('\n')}\n\n`;
 }
 
 async function addProcessingReaction(msg: DiscordMessage): Promise<() => Promise<void>> {
@@ -1116,36 +603,19 @@ function startTypingLoop(msg: DiscordMessage): { stop: () => void } {
   };
 }
 
-function prepareChunkedPayloads(
-  text: string,
-  files?: AttachmentBuilder[],
-  mentionLookup?: MentionLookup,
-): { content: string; files?: AttachmentBuilder[] }[] {
-  const prepared = mentionLookup ? rewriteUserMentions(text, mentionLookup) : text;
-  const chunks = chunkMessage(prepared, { maxChars: 1_900, maxLines: 20 });
-  const safeChunks = chunks.length > 0 ? chunks : ['(no content)'];
-  return safeChunks.map((content, i) => ({
-    content,
-    ...(i === safeChunks.length - 1 && files && files.length > 0 ? { files } : {}),
-  }));
-}
-
 async function sendChunkedReply(
   msg: DiscordMessage,
   text: string,
   files?: AttachmentBuilder[],
   mentionLookup?: MentionLookup,
 ): Promise<void> {
-  const payloads = prepareChunkedPayloads(text, files, mentionLookup);
-  for (let i = 0; i < payloads.length; i += 1) {
-    if (i === 0) {
-      await withDiscordRetry('reply', () => msg.reply(payloads[i]));
-    } else {
-      await withDiscordRetry('send', () => (msg.channel as unknown as {
-        send: (next: { content: string; files?: AttachmentBuilder[] }) => Promise<void>;
-      }).send(payloads[i]));
-    }
-  }
+  await sendChunkedReplyFromDelivery({
+    msg,
+    text,
+    withRetry: withDiscordRetry,
+    ...(files ? { files } : {}),
+    ...(mentionLookup ? { mentionLookup } : {}),
+  });
 }
 
 async function sendChunkedDirectReply(
@@ -1154,31 +624,26 @@ async function sendChunkedDirectReply(
   files?: AttachmentBuilder[],
   mentionLookup?: MentionLookup,
 ): Promise<void> {
-  const payloads = prepareChunkedPayloads(text, files, mentionLookup);
-  const dm = await withDiscordRetry('dm-open', () => msg.author.createDM());
-  for (const payload of payloads) {
-    await withDiscordRetry('dm-send', () => dm.send(payload));
-  }
+  await sendChunkedDirectReplyFromDelivery({
+    msg,
+    text,
+    withRetry: withDiscordRetry,
+    ...(files ? { files } : {}),
+    ...(mentionLookup ? { mentionLookup } : {}),
+  });
 }
 
 async function sendChunkedInteractionReply(
-  interaction: ChatInputCommandInteraction,
+  interaction: Parameters<typeof sendChunkedInteractionReplyFromDelivery>[0]['interaction'],
   text: string,
   files?: AttachmentBuilder[],
 ): Promise<void> {
-  const payloads = prepareChunkedPayloads(text, files);
-  for (let i = 0; i < payloads.length; i += 1) {
-    const payload = { ...payloads[i], ephemeral: true };
-    if (i === 0) {
-      if (interaction.replied || interaction.deferred) {
-        await withDiscordRetry('interaction-followup', () => interaction.followUp(payload));
-      } else {
-        await withDiscordRetry('interaction-reply', () => interaction.reply(payload));
-      }
-      continue;
-    }
-    await withDiscordRetry('interaction-followup', () => interaction.followUp(payload));
-  }
+  await sendChunkedInteractionReplyFromDelivery({
+    interaction,
+    text,
+    withRetry: withDiscordRetry,
+    ...(files ? { files } : {}),
+  });
 }
 
 async function ensureSlashStatusCommand(): Promise<void> {
@@ -1427,7 +892,7 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
       inboundHistory.entries,
       rememberedParticipants,
     );
-    const combinedContent = `${feedbackNote ? `[Reaction feedback]\n${feedbackNote}\n\n` : ''}${channelInfoContext}${replyContext}${inboundHistory.context}${attachmentContext}${participantContext}${batchedContent}`;
+    const combinedContent = `${feedbackNote ? `[Reaction feedback]\n${feedbackNote}\n\n` : ''}${channelInfoContext}${replyContext}${inboundHistory.context}${attachmentContext.context}${participantContext}${batchedContent}`;
 
     const abortController = new AbortController();
     const typingLoop = startTypingLoop(msg);
@@ -1454,6 +919,7 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
         userId,
         username,
         combinedContent,
+        attachmentContext.media,
         async (text, files) => {
           typingLoop.stop();
           await sendChunkedReply(msg, text, files, mentionLookup);
@@ -1714,16 +1180,12 @@ export function initDiscord(onMessage: MessageHandler, onCommand: CommandHandler
 export async function sendToChannel(channelId: string, text: string, files?: AttachmentBuilder[]): Promise<void> {
   const channel = await client.channels.fetch(channelId);
   if (channel && 'send' in channel) {
-    const chunks = chunkMessage(text, { maxChars: 1_900, maxLines: 20 });
-    const safeChunks = chunks.length > 0 ? chunks : ['(no content)'];
+    const payloads = prepareChunkedPayloads(text, files);
     const send = (channel as unknown as {
       send: (payload: { content: string; files?: AttachmentBuilder[] }) => Promise<void>;
     }).send;
-    for (let i = 0; i < safeChunks.length; i += 1) {
-      await withDiscordRetry('send-channel', () => send({
-        content: safeChunks[i],
-        ...(i === safeChunks.length - 1 && files && files.length > 0 ? { files } : {}),
-      }));
+    for (const payload of payloads) {
+      await withDiscordRetry('send-channel', () => send(payload));
     }
   }
 }

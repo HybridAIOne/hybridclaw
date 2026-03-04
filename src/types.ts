@@ -1,8 +1,23 @@
 // --- HybridAI API types ---
 
+export interface ChatContentTextPart {
+  type: 'text';
+  text: string;
+}
+
+export interface ChatContentImageUrlPart {
+  type: 'image_url';
+  image_url: {
+    url: string;
+  };
+}
+
+export type ChatContentPart = ChatContentTextPart | ChatContentImageUrlPart;
+export type ChatMessageContent = string | ChatContentPart[] | null;
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: ChatMessageContent;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
 }
@@ -24,6 +39,15 @@ export interface HybridAIBot {
 
 // --- Container IPC types ---
 
+export interface MediaContextItem {
+  path: string | null;
+  url: string;
+  originalUrl: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  filename: string;
+}
+
 export interface ContainerInput {
   sessionId: string;
   messages: ChatMessage[];
@@ -37,6 +61,8 @@ export interface ContainerInput {
   channelId: string;
   scheduledTasks?: { id: number; cronExpr: string; runAt: string | null; everyMs: number | null; prompt: string; enabled: number; lastRun: string | null; createdAt: string }[];
   allowedTools?: string[];
+  blockedTools?: string[];
+  media?: MediaContextItem[];
 }
 
 export interface ToolExecution {

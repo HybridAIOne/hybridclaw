@@ -3,8 +3,8 @@ import {
   type Message as DiscordMessage,
 } from 'discord.js';
 
-import { chunkMessage } from './chunk.js';
-import { logger } from './logger.js';
+import { chunkMessage } from '../../chunk.js';
+import { logger } from '../../logger.js';
 
 interface DiscordSendChannel {
   send: (payload: { content: string; files?: AttachmentBuilder[] }) => Promise<DiscordMessage>;

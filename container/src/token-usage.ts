@@ -26,10 +26,26 @@ export function createTokenUsageStats(): TokenUsageStats {
   };
 }
 
-export function estimateTextTokens(text: string | null | undefined): number {
+export function estimateTextTokens(text: unknown): number {
   const normalized = typeof text === 'string' ? text : '';
   if (!normalized) return 0;
   return Math.max(1, Math.ceil(normalized.length / CHARS_PER_TOKEN));
+}
+
+function normalizeContentText(content: ChatMessage['content']): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  const chunks: string[] = [];
+  for (const part of content) {
+    if (part?.type === 'text' && typeof part.text === 'string') {
+      chunks.push(part.text);
+      continue;
+    }
+    if (part?.type === 'image_url' && part.image_url?.url) {
+      chunks.push('[image]');
+    }
+  }
+  return chunks.join('\n');
 }
 
 export function estimateMessageTokens(messages: ChatMessage[]): number {
@@ -39,7 +55,7 @@ export function estimateMessageTokens(messages: ChatMessage[]): number {
   for (const message of messages) {
     total += 4;
     total += estimateTextTokens(message.role);
-    total += estimateTextTokens(message.content);
+    total += estimateTextTokens(normalizeContentText(message.content));
     if (message.tool_calls) total += estimateTextTokens(JSON.stringify(message.tool_calls));
     if (message.tool_call_id) total += estimateTextTokens(message.tool_call_id);
   }

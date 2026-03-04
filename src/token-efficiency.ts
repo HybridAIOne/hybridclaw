@@ -73,6 +73,22 @@ export function estimateTokenCountFromText(text: string | null | undefined): num
   return Math.max(1, Math.ceil(normalized.length / DEFAULT_CHARS_PER_TOKEN));
 }
 
+function normalizeMessageContentToText(content: ChatMessage['content']): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  const chunks: string[] = [];
+  for (const part of content) {
+    if (part?.type === 'text' && typeof part.text === 'string') {
+      chunks.push(part.text);
+      continue;
+    }
+    if (part?.type === 'image_url' && part.image_url?.url) {
+      chunks.push('[image]');
+    }
+  }
+  return chunks.join('\n');
+}
+
 export function estimateTokenCountFromMessages(
   messages: Array<Pick<ChatMessage, 'role' | 'content'>>,
 ): number {
@@ -82,7 +98,7 @@ export function estimateTokenCountFromMessages(
   for (const message of messages) {
     total += 4; // Approximate per-message framing overhead.
     total += estimateTokenCountFromText(message.role);
-    total += estimateTokenCountFromText(message.content);
+    total += estimateTokenCountFromText(normalizeMessageContentToText(message.content));
   }
   return total;
 }

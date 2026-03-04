@@ -3,6 +3,7 @@
  * Containers stay alive between requests and exit after an idle timeout.
  */
 import { ChildProcess, spawn } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 
 import {
@@ -11,6 +12,7 @@ import {
   CONTAINER_IMAGE,
   CONTAINER_MEMORY,
   CONTAINER_TIMEOUT,
+  DATA_DIR,
   GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
@@ -26,7 +28,16 @@ import {
 import { cleanupIpc, ensureAgentDirs, ensureSessionDirs, getSessionPaths, readOutput, writeInput } from './ipc.js';
 import { logger } from './logger.js';
 import { validateAdditionalMounts } from './mount-security.js';
-import type { AdditionalMount, ArtifactMetadata, ChatMessage, ContainerInput, ContainerOutput, ScheduledTask, ToolProgressEvent } from './types.js';
+import type {
+  AdditionalMount,
+  ArtifactMetadata,
+  ChatMessage,
+  ContainerInput,
+  ContainerOutput,
+  MediaContextItem,
+  ScheduledTask,
+  ToolProgressEvent,
+} from './types.js';
 
 const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
 
@@ -45,6 +56,11 @@ const TOOL_RESULT_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const STREAM_DELTA_RE = /^\[stream\]\s+([A-Za-z0-9+/=]+)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
+const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
+
+function resolveDiscordMediaCacheHostDir(): string {
+  return path.resolve(path.join(DATA_DIR, 'discord-media-cache'));
+}
 
 function emitTextDelta(entry: PoolEntry, line: string): void {
   const callback = entry.onTextDelta;
@@ -184,6 +200,8 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
   ensureSessionDirs(sessionId);
   ensureAgentDirs(agentId);
   const { ipcPath, workspacePath } = getSessionPaths(sessionId, agentId);
+  const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
+  fs.mkdirSync(mediaCacheHostPath, { recursive: true });
   const containerName = `hybridclaw-${sessionId.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
 
   const args = [
@@ -197,6 +215,7 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     '--tmpfs', '/tmp',
     '-v', `${workspacePath}:/workspace:rw`,
     '-v', `${ipcPath}:/ipc:rw`,
+    '-v', `${mediaCacheHostPath}:${CONTAINER_DISCORD_MEDIA_CACHE_ROOT}:ro`,
     '-e', `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
     '-e', `HYBRIDAI_MODEL=${HYBRIDAI_MODEL}`,
     '-e', `CONTAINER_IDLE_TIMEOUT=${IDLE_TIMEOUT_MS}`,
@@ -292,9 +311,11 @@ export async function runContainer(
   channelId: string = '',
   scheduledTasks?: ScheduledTask[],
   allowedTools?: string[],
+  blockedTools?: string[],
   onTextDelta?: (delta: string) => void,
   onToolProgress?: (event: ToolProgressEvent) => void,
   abortSignal?: AbortSignal,
+  media?: MediaContextItem[],
 ): Promise<ContainerOutput> {
   const { workspacePath } = getSessionPaths(sessionId, agentId);
   // Enforce concurrent container limit
@@ -349,6 +370,8 @@ export async function runContainer(
       createdAt: t.created_at,
     })),
     allowedTools,
+    blockedTools,
+    media,
   };
 
   entry.onTextDelta = onTextDelta;

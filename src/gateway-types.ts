@@ -55,6 +55,14 @@ export interface GatewayChatRequestBody {
   userId: string;
   username: string | null;
   content: string;
+  media?: Array<{
+    path: string | null;
+    url: string;
+    originalUrl: string;
+    mimeType: string | null;
+    sizeBytes: number;
+    filename: string;
+  }>;
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;

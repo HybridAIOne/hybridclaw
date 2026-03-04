@@ -25,20 +25,18 @@ import {
   renderGatewayCommand,
   runGatewayScheduledTask,
 } from './gateway-service.js';
+import { buildResponseText, formatError, formatInfo } from './channels/discord/delivery.js';
+import { rewriteUserMentionsForMessage } from './channels/discord/mentions.js';
 import { startHealthServer } from './health.js';
 import { startHeartbeat, stopHeartbeat } from './heartbeat.js';
 import { logger } from './logger.js';
 import { startObservabilityIngest, stopObservabilityIngest } from './observability-ingest.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import {
-  buildResponseText,
-  formatError,
-  formatInfo,
   initDiscord,
-  rewriteUserMentionsForMessage,
   sendToChannel,
   type ReplyFn,
-} from './discord.js';
+} from './channels/discord/runtime.js';
 import { isWithinActiveHours, proactiveWindowLabel } from './proactive-policy.js';
 import type { ArtifactMetadata } from './types.js';
 
@@ -199,6 +197,7 @@ async function startDiscordIntegration(): Promise<void> {
       userId: string,
       username: string,
       content: string,
+      media,
       _reply: ReplyFn,
       context,
     ) => {
@@ -210,6 +209,7 @@ async function startDiscordIntegration(): Promise<void> {
           userId,
           username,
           content,
+          media,
           onTextDelta: (delta) => {
             void context.stream.append(delta);
           },

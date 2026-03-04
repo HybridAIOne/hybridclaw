@@ -59,6 +59,7 @@ import type {
   ChatMessage,
   DelegationSideEffect,
   DelegationTaskSpec,
+  MediaContextItem,
   ScheduledTask,
   StructuredAuditEntry,
   StoredMessage,
@@ -95,6 +96,8 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'browser_screenshot',
   'browser_pdf',
   'browser_vision',
+  'vision_analyze',
+  'image',
   'browser_get_images',
   'browser_console',
   'browser_network',
@@ -104,6 +107,10 @@ const ORCHESTRATOR_SUBAGENT_ALLOWED_TOOLS = [...BASE_SUBAGENT_ALLOWED_TOOLS, 'de
 const MAX_DELEGATION_TASKS = 6;
 const MAX_DELEGATION_USER_CHARS = 500;
 const MAX_RALPH_ITERATIONS = 64;
+const IMAGE_QUESTION_RE =
+  /(what(?:'s| is)? on (?:the )?(?:image|picture|photo|screenshot)|describe (?:this|the) (?:image|picture|photo)|image|picture|photo|screenshot|ocr|diagram|chart|grafik|bild|foto|was steht|was ist auf dem bild)/i;
+const BROWSER_TAB_RE =
+  /(browser|tab|current tab|web page|website|seite im browser|aktuellen tab)/i;
 const TRANSIENT_DELEGATION_ERROR_PATTERNS: RegExp[] = [
   /econnreset/i,
   /etimedout/i,
@@ -177,6 +184,7 @@ export interface GatewayChatRequest {
   userId: GatewayChatRequestBody['userId'];
   username: GatewayChatRequestBody['username'];
   content: GatewayChatRequestBody['content'];
+  media?: GatewayChatRequestBody['media'];
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];
   enableRag?: GatewayChatRequestBody['enableRag'];
@@ -211,6 +219,102 @@ function parseIntOrNull(raw: string | undefined): number | null {
   if (!raw) return null;
   const parsed = parseInt(raw, 10);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+function normalizeMediaContextItems(raw: GatewayChatRequestBody['media']): MediaContextItem[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const normalized: MediaContextItem[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const path = typeof item.path === 'string' && item.path.trim() ? item.path.trim() : null;
+    const url = typeof item.url === 'string' ? item.url.trim() : '';
+    const originalUrl = typeof item.originalUrl === 'string' ? item.originalUrl.trim() : '';
+    const filename = typeof item.filename === 'string' ? item.filename.trim() : '';
+    if (!url || !originalUrl || !filename) continue;
+    const sizeBytes = typeof item.sizeBytes === 'number' && Number.isFinite(item.sizeBytes)
+      ? Math.max(0, Math.floor(item.sizeBytes))
+      : 0;
+    const mimeType = typeof item.mimeType === 'string' && item.mimeType.trim()
+      ? item.mimeType.trim().toLowerCase()
+      : null;
+    normalized.push({
+      path,
+      url,
+      originalUrl,
+      mimeType,
+      sizeBytes,
+      filename,
+    });
+  }
+  return normalized;
+}
+
+function buildMediaPromptContext(media: MediaContextItem[]): string {
+  if (media.length === 0) return '';
+  const mediaPaths = media.map((item) => item.path).filter((path): path is string => Boolean(path));
+  const mediaUrls = media.map((item) => item.url);
+  const mediaTypes = media.map((item) => item.mimeType || 'unknown');
+  const payload = media.map((item, index) => ({
+    order: index + 1,
+    path: item.path,
+    mime: item.mimeType || 'unknown',
+    size: item.sizeBytes,
+    filename: item.filename,
+    original_url: item.originalUrl,
+    url: item.url,
+  }));
+  return [
+    '[MediaContext]',
+    `MediaPaths: ${JSON.stringify(mediaPaths)}`,
+    `MediaUrls: ${JSON.stringify(mediaUrls)}`,
+    `MediaTypes: ${JSON.stringify(mediaTypes)}`,
+    `MediaItems: ${JSON.stringify(payload)}`,
+    'When the user asks about these Discord files, use `vision_analyze` with `image_url` from MediaPaths first.',
+    'Use MediaUrls as fallback when a local path is missing or fails to open.',
+    'Use `browser_vision` only for questions about the active browser tab/page.',
+    '',
+    '',
+  ].join('\n');
+}
+
+function isImageQuestion(content: string): boolean {
+  const normalized = content.trim();
+  if (!normalized) return false;
+  return IMAGE_QUESTION_RE.test(normalized);
+}
+
+function isExplicitBrowserTabQuestion(content: string): boolean {
+  const normalized = content.trim();
+  if (!normalized) return false;
+  return BROWSER_TAB_RE.test(normalized);
+}
+
+export interface MediaToolPolicy {
+  blockedTools?: string[];
+  prioritizeVisionTool: boolean;
+}
+
+export function resolveMediaToolPolicy(content: string, media: MediaContextItem[]): MediaToolPolicy {
+  if (media.length === 0) {
+    return {
+      blockedTools: undefined,
+      prioritizeVisionTool: false,
+    };
+  }
+
+  const imageQuestion = isImageQuestion(content);
+  const explicitBrowserTab = isExplicitBrowserTabQuestion(content);
+  if (imageQuestion && !explicitBrowserTab) {
+    return {
+      blockedTools: ['browser_vision'],
+      prioritizeVisionTool: true,
+    };
+  }
+
+  return {
+    blockedTools: undefined,
+    prioritizeVisionTool: false,
+  };
 }
 
 function resolveGitCommitShort(): string | null {
@@ -1098,6 +1202,7 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
   const enableRag = req.enableRag ?? session.enable_rag === 1;
   const model = req.model ?? session.model ?? HYBRIDAI_MODEL;
   const turnIndex = session.message_count + 1;
+  const media = normalizeMediaContextItems(req.media);
 
   recordAuditEvent({
     sessionId: req.sessionId,
@@ -1119,6 +1224,7 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
       turnIndex,
       userInput: req.content,
       username: req.username,
+      mediaCount: media.length,
     },
   });
 
@@ -1216,9 +1322,25 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
       historyEstimatedTokens: estimateTokenCountFromMessages(messages.slice(historyStart)),
     },
   });
+  const mediaPolicy = resolveMediaToolPolicy(req.content, media);
+  if (mediaPolicy.prioritizeVisionTool) {
+    logger.info(
+      {
+        sessionId: req.sessionId,
+        mediaCount: media.length,
+        blockedTools: mediaPolicy.blockedTools || [],
+      },
+      'Routing Discord image question to vision_analyze tool',
+    );
+  }
+  const mediaContextBlock = buildMediaPromptContext(media);
+  const expandedUserContent = expandSkillInvocation(req.content, skills);
+  const agentUserContent = mediaContextBlock
+    ? `${expandedUserContent}\n\n${mediaContextBlock}`
+    : expandedUserContent;
   messages.push({
     role: 'user',
-    content: expandSkillInvocation(req.content, skills),
+    content: agentUserContent,
   });
 
   try {
@@ -1233,9 +1355,11 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
       req.channelId,
       scheduledTasks,
       undefined,
+      mediaPolicy.blockedTools,
       req.onTextDelta,
       req.onToolProgress,
       req.abortSignal,
+      media,
     );
     const toolExecutions = output.toolExecutions || [];
     emitToolExecutionAuditEvents({

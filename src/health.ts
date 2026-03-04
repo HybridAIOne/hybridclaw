@@ -12,9 +12,10 @@ import {
   type GatewayChatRequest,
 } from './gateway-service.js';
 import { type GatewayChatRequestBody } from './gateway-types.js';
+import { type DiscordToolActionRequest } from './channels/discord/tool-actions.js';
+import { runDiscordToolAction } from './channels/discord/runtime.js';
 import { type ToolProgressEvent } from './types.js';
 import { logger } from './logger.js';
-import { runDiscordToolAction, type DiscordToolActionRequest } from './discord.js';
 
 const SITE_DIR = path.resolve(process.cwd(), 'docs');
 const MAX_REQUEST_BYTES = 1_000_000; // 1MB
