@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { describe, expect, test } from 'vitest';
 
 import { TrustedCoworkerApprovalRuntime } from '../container/src/approval-policy.js';
 import type { ChatMessage } from '../container/src/types.js';
@@ -17,7 +17,9 @@ function tempTrustStorePath(name: string): string {
 
 describe('TrustedCoworkerApprovalRuntime', () => {
   test('yellow actions promote to green after successful repeat', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime('/tmp/hybridclaw-missing-policy.yaml');
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
 
     const first = runtime.evaluateToolCall({
       toolName: 'bash',
@@ -38,7 +40,9 @@ describe('TrustedCoworkerApprovalRuntime', () => {
   });
 
   test('sensitive paths stay pinned red and require explicit approval', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime('/tmp/hybridclaw-missing-policy.yaml');
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'write',
@@ -53,7 +57,9 @@ describe('TrustedCoworkerApprovalRuntime', () => {
   });
 
   test('yes response approves once and replays original prompt', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime('/tmp/hybridclaw-missing-policy.yaml');
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
     const originalPrompt = 'Delete dist and rebuild cleanly';
 
     const pending = runtime.evaluateToolCall({
@@ -63,9 +69,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     });
     expect(pending.decision).toBe('required');
 
-    const prelude = runtime.handleApprovalResponse([
-      userMessage('yes'),
-    ]);
+    const prelude = runtime.handleApprovalResponse([userMessage('yes')]);
     expect(prelude?.replayPrompt).toBe(originalPrompt);
     expect(prelude?.approvalMode).toBe('once');
 
@@ -78,7 +82,9 @@ describe('TrustedCoworkerApprovalRuntime', () => {
   });
 
   test('yes for session persists trust for repeated action key', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime('/tmp/hybridclaw-missing-policy.yaml');
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
     const originalPrompt = 'Fetch from example.com';
 
     const first = runtime.evaluateToolCall({
@@ -88,7 +94,9 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     });
     expect(first.decision).toBe('required');
 
-    const prelude = runtime.handleApprovalResponse([userMessage('yes for session')]);
+    const prelude = runtime.handleApprovalResponse([
+      userMessage('yes for session'),
+    ]);
     expect(prelude?.approvalMode).toBe('session');
 
     const second = runtime.evaluateToolCall({
@@ -100,7 +108,9 @@ describe('TrustedCoworkerApprovalRuntime', () => {
   });
 
   test('pinned red cannot be session-trusted across runs', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime('/tmp/hybridclaw-missing-policy.yaml');
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
     const prompt = 'Append token to .env';
 
     const first = runtime.evaluateToolCall({
@@ -111,7 +121,9 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(first.decision).toBe('required');
     expect(first.pinned).toBe(true);
 
-    const prelude = runtime.handleApprovalResponse([userMessage('yes for session')]);
+    const prelude = runtime.handleApprovalResponse([
+      userMessage('yes for session'),
+    ]);
     expect(prelude?.approvalMode).toBe('once');
 
     const second = runtime.evaluateToolCall({
@@ -135,7 +147,10 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     const prompt = 'Fetch from example.com';
     const argsJson = JSON.stringify({ url: 'https://example.com' });
 
-    const runtime = new TrustedCoworkerApprovalRuntime(policyPath, trustStorePath);
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      policyPath,
+      trustStorePath,
+    );
     const first = runtime.evaluateToolCall({
       toolName: 'web_fetch',
       argsJson,
@@ -143,7 +158,9 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     });
     expect(first.decision).toBe('required');
 
-    const prelude = runtime.handleApprovalResponse([userMessage('yes for agent')]);
+    const prelude = runtime.handleApprovalResponse([
+      userMessage('yes for agent'),
+    ]);
     expect(prelude?.approvalMode).toBe('agent');
 
     const second = runtime.evaluateToolCall({
@@ -153,7 +170,10 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     });
     expect(second.decision).toBe('approved_agent');
 
-    const restarted = new TrustedCoworkerApprovalRuntime(policyPath, trustStorePath);
+    const restarted = new TrustedCoworkerApprovalRuntime(
+      policyPath,
+      trustStorePath,
+    );
     const third = restarted.evaluateToolCall({
       toolName: 'web_fetch',
       argsJson,
@@ -168,7 +188,10 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     const prompt = 'Write .env';
     const argsJson = JSON.stringify({ path: '.env', contents: 'TOKEN=abc' });
 
-    const runtime = new TrustedCoworkerApprovalRuntime(policyPath, trustStorePath);
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      policyPath,
+      trustStorePath,
+    );
     const first = runtime.evaluateToolCall({
       toolName: 'write',
       argsJson,
@@ -187,7 +210,10 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     });
     expect(second.decision).toBe('approved_once');
 
-    const restarted = new TrustedCoworkerApprovalRuntime(policyPath, trustStorePath);
+    const restarted = new TrustedCoworkerApprovalRuntime(
+      policyPath,
+      trustStorePath,
+    );
     const third = restarted.evaluateToolCall({
       toolName: 'write',
       argsJson,
