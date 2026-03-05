@@ -7,11 +7,6 @@ import {
   resolveRuntimeInstructionPath,
 } from './instruction-integrity.js';
 import {
-  loadRuntimeSecrets,
-  runtimeSecretsPath,
-  saveRuntimeSecrets,
-} from './runtime-secrets.js';
-import {
   acceptSecurityTrustModel,
   ensureRuntimeConfigFile,
   getRuntimeConfig,
@@ -20,6 +15,11 @@ import {
   SECURITY_POLICY_VERSION,
   updateRuntimeConfig,
 } from './runtime-config.js';
+import {
+  loadRuntimeSecrets,
+  runtimeSecretsPath,
+  saveRuntimeSecrets,
+} from './runtime-secrets.js';
 
 interface HybridAIBot {
   id: string;

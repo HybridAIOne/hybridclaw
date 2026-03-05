@@ -160,7 +160,10 @@ describe('runtime home layout', () => {
     const legacyDataDir = path.join(cwdDir, 'data');
     const legacyMarkerPath = path.join(legacyDataDir, 'marker.txt');
     const legacyConfig = JSON.parse(
-      fs.readFileSync(path.join(WORKSPACE_ROOT, 'config.example.json'), 'utf-8'),
+      fs.readFileSync(
+        path.join(WORKSPACE_ROOT, 'config.example.json'),
+        'utf-8',
+      ),
     ) as RuntimeConfig;
 
     legacyConfig.hybridai.defaultChatbotId = 'legacy-bot-id';
