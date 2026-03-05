@@ -8,6 +8,22 @@
 
 ### Fixed
 
+## [0.2.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.10)
+
+### Added
+
+- **Model retry policy helpers + tests**: Added shared model stream-fallback/retry predicates with dedicated unit coverage for retryable/non-retryable HybridAI error classes.
+- **Message tool schema regression test**: Added explicit schema test coverage to enforce valid `components` parameter structure for the `message` tool definition.
+
+### Changed
+
+- **Stream failure fallback behavior**: Container model-call flow now applies stream-to-non-stream fallback policy through centralized retry helpers for consistent error classification.
+
+### Fixed
+
+- **HybridAI function schema rejection**: Fixed `message` tool `components` schema by defining `items` for the array variant, resolving `invalid_function_parameters` 400 failures.
+- **HybridAI 500 handling robustness**: Streamed 5xx API failures now trigger the non-stream fallback path before hard-failing the turn.
+
 ## [0.2.9](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.9)
 
 ### Added

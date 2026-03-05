@@ -2319,6 +2319,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           components: {
             type: ['object', 'array'],
+            items: {
+              type: 'object',
+            },
             description:
               'Optional Discord components payload for action="send" (buttons/selects/action rows).',
           },

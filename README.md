@@ -11,15 +11,13 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.2.9](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.9)
+Latest release: [v0.2.10](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.10)
 
-## Release highlights (v0.2.9)
+## Release highlights (v0.2.10)
 
-- Added release-bundle guard scripts (`release:check`) for root and container packages.
-- Added dry-run publish helpers (`publish:dry`) for safer package validation before publish.
-- Hardened package allowlists and prepack/CI checks to prevent accidental publish regressions.
-- Implemented robust silent-reply token handling for Discord/API streaming paths.
-- Suppressed silent token fragment leakage in streaming output and removed silent placeholders from prompt history.
+- Fixed HybridAI `400 invalid_function_parameters` failures by correcting `message.components` schema (`array` now defines `items`).
+- Improved HybridAI reliability by centralizing stream-fallback/retry error classification in the container runtime.
+- Added regression tests for message-tool schema validity and HybridAI retry/fallback behavior.
 
 ## HybridAI Advantage
 

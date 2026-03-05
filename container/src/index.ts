@@ -8,12 +8,12 @@ import {
   runAfterToolHooks,
   runBeforeToolHooks,
 } from './extensions.js';
-import {
-  callHybridAI,
-  callHybridAIStream,
-  HybridAIRequestError,
-} from './hybridai-client.js';
+import { callHybridAI, callHybridAIStream } from './hybridai-client.js';
 import { waitForInput, writeOutput } from './ipc.js';
+import {
+  isRetryableModelError,
+  shouldFallbackFromStreamError,
+} from './model-retry.js';
 import {
   accumulateApiUsage,
   createTokenUsageStats,
@@ -305,16 +305,6 @@ function emitStreamDelta(delta: string): void {
   console.error(`[stream] ${payload}`);
 }
 
-function isRetryableError(err: unknown): boolean {
-  if (err instanceof HybridAIRequestError) {
-    return err.status === 429 || (err.status >= 500 && err.status <= 504);
-  }
-  const message = err instanceof Error ? err.message : String(err);
-  return /fetch failed|network|socket|timeout|timed out|ECONNRESET|ECONNREFUSED|EAI_AGAIN/i.test(
-    message,
-  );
-}
-
 function inferToolError(result: string, blockedReason: string | null): boolean {
   if (blockedReason) return true;
   return /\b(error|failed|denied|forbidden|timed out|timeout|exception|invalid)\b/i.test(
@@ -538,11 +528,7 @@ async function callHybridAIWithRetry(params: {
             maxTokens,
           );
         } catch (streamErr) {
-          const fallbackEligible =
-            streamErr instanceof HybridAIRequestError &&
-            streamErr.status >= 400 &&
-            streamErr.status < 500 &&
-            streamErr.status !== 429;
+          const fallbackEligible = shouldFallbackFromStreamError(streamErr);
           if (!fallbackEligible) throw streamErr;
           response = await callHybridAI(
             baseUrl,
@@ -575,7 +561,9 @@ async function callHybridAIWithRetry(params: {
       return response;
     } catch (err) {
       const retryable =
-        RETRY_ENABLED && isRetryableError(err) && attempt < RETRY_MAX_ATTEMPTS;
+        RETRY_ENABLED &&
+        isRetryableModelError(err) &&
+        attempt < RETRY_MAX_ATTEMPTS;
       await emitRuntimeEvent({
         event: retryable ? 'model_retry' : 'model_error',
         attempt,
