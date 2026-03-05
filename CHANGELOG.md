@@ -2,7 +2,16 @@
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- **Release bundle guard scripts**: Added root and container `release:check` scripts that validate `npm pack --dry-run` contents and fail on forbidden files (tests, source, CI/config artifacts).
+- **Dry-run publish helpers**: Added `publish:dry` scripts for root and container package smoke checks before publish.
+
+### Changed
+
+- **NPM package allowlists**: Added explicit `files` allowlists for root and container packages so publish output is limited to runtime assets and docs/templates/skills that HybridClaw loads at runtime.
+- **Prepack gating**: Root and container packages now run clean build + release bundle validation during `prepack`.
+- **CI packaging checks**: CI now runs root/container release bundle checks to catch publish-regression changes on PRs and pushes.
 
 ## [0.2.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.8)
 

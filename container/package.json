@@ -2,9 +2,18 @@
   "name": "hybridclaw-agent",
   "version": "0.2.8",
   "type": "module",
+  "main": "dist/index.js",
+  "files": [
+    "dist/",
+    "Dockerfile"
+  ],
   "scripts": {
+    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true});\"",
     "build": "tsc",
-    "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters"
+    "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
+    "prepack": "npm run clean && npm run build && npm run release:check",
+    "release:check": "node ./scripts/release-check.mjs",
+    "publish:dry": "npm publish --dry-run"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",

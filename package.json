@@ -9,7 +9,27 @@
   "bin": {
     "hybridclaw": "dist/cli.js"
   },
+  "files": [
+    "dist/",
+    "skills/",
+    "templates/",
+    "docs/",
+    "container/Dockerfile",
+    "container/package.json",
+    "container/package-lock.json",
+    "container/tsconfig.json",
+    "container/src/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "AGENTS.md",
+    "SECURITY.md",
+    "TRUST_MODEL.md",
+    ".env.example",
+    "config.example.json"
+  ],
   "scripts": {
+    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true});\"",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
@@ -27,7 +47,10 @@
     "tui": "tsx src/cli.ts tui",
     "start": "node dist/cli.js gateway",
     "build:container": "cd container && npm run build && docker build -t hybridclaw-agent .",
-    "prepare": "husky"
+    "prepack": "npm run clean && npm run build && npm run release:check",
+    "release:check": "node ./scripts/release-check.mjs",
+    "publish:dry": "npm publish --access public --dry-run",
+    "prepare": "command -v git >/dev/null 2>&1 && test -w .git/config && husky || true"
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",

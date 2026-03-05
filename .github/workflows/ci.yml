@@ -66,5 +66,11 @@ jobs:
       - name: TypeScript lint (container)
         run: npm --prefix container run lint
 
+      - name: Release bundle check (root)
+        run: npm run release:check
+
+      - name: Release bundle check (container)
+        run: npm --prefix container run release:check
+
       - name: Unit tests with coverage
         run: npx vitest run --coverage --config vitest.unit.config.ts
