@@ -22,10 +22,8 @@ import {
 } from './gateway-service.js';
 import type { GatewayChatRequestBody } from './gateway-types.js';
 import { logger } from './logger.js';
-import {
-  MESSAGE_SEND_SILENT_REPLY_TOKEN,
-  stripMessageSendSilentReplyToken,
-} from './prompt-hooks.js';
+import { isSilentReply, stripSilentToken } from './silent-reply.js';
+import { createSilentReplyStreamFilter } from './silent-reply-stream.js';
 import type { ToolProgressEvent } from './types.js';
 
 const SITE_DIR = path.resolve(process.cwd(), 'docs');
@@ -48,10 +46,14 @@ function normalizeSilentMessageSendReply(
 ): Awaited<ReturnType<typeof handleGatewayMessage>> {
   if (result.status !== 'success') return result;
   const rawResult = result.result || '';
-  const cleanedResult = stripMessageSendSilentReplyToken(rawResult);
-  if (!rawResult.includes(MESSAGE_SEND_SILENT_REPLY_TOKEN)) {
-    return result;
+  if (isSilentReply(rawResult)) {
+    return {
+      ...result,
+      result: 'Message sent.',
+    };
   }
+  const cleanedResult = stripSilentToken(rawResult);
+  if (cleanedResult === rawResult) return result;
   return {
     ...result,
     result: cleanedResult || 'Message sent.',
@@ -193,21 +195,39 @@ async function handleApiChatStream(
     });
   };
 
+  const streamFilter = createSilentReplyStreamFilter();
   const onTextDelta = (delta: string): void => {
+    const filteredDelta = streamFilter.push(delta);
+    if (!filteredDelta) return;
     sendEvent({
       type: 'text',
-      delta,
+      delta: filteredDelta,
     });
   };
 
   try {
-    const result = normalizeSilentMessageSendReply(
+    let result = normalizeSilentMessageSendReply(
       await handleGatewayMessage({
         ...chatRequest,
         onTextDelta,
         onToolProgress,
       }),
     );
+    if (result.status === 'success') {
+      const bufferedDelta = streamFilter.flush();
+      if (bufferedDelta) {
+        sendEvent({
+          type: 'text',
+          delta: bufferedDelta,
+        });
+      }
+      if (streamFilter.isSilent()) {
+        result = {
+          ...result,
+          result: 'Message sent.',
+        };
+      }
+    }
     sendEvent({ type: 'result', result });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

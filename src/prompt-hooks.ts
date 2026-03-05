@@ -8,25 +8,19 @@ import {
   isSecurityTrustAccepted,
   SECURITY_POLICY_VERSION,
 } from './runtime-config.js';
+import { SILENT_REPLY_TOKEN, stripSilentToken } from './silent-reply.js';
 import { buildSkillsPrompt, type Skill } from './skills.js';
 import { buildContextPrompt, loadBootstrapFiles } from './workspace.js';
 
 export type PromptHookName = 'bootstrap' | 'memory' | 'safety' | 'runtime';
 export type ExtendedPromptHookName = PromptHookName | 'proactivity';
 export type PromptMode = 'full' | 'minimal' | 'none';
-export const MESSAGE_SEND_SILENT_REPLY_TOKEN = '__MESSAGE_SEND_HANDLED__';
+export const MESSAGE_SEND_SILENT_REPLY_TOKEN = SILENT_REPLY_TOKEN;
 
 export function stripMessageSendSilentReplyToken(
   value: string | null | undefined,
 ): string {
-  const raw = String(value || '');
-  if (!raw) return '';
-  const stripped = raw
-    .split('\n')
-    .filter((line) => line.trim() !== MESSAGE_SEND_SILENT_REPLY_TOKEN)
-    .join('\n')
-    .trim();
-  return stripped;
+  return stripSilentToken(String(value || ''));
 }
 
 export interface PromptRuntimeInfo {

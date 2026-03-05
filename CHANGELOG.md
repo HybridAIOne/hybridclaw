@@ -12,6 +12,11 @@
 - **NPM package allowlists**: Added explicit `files` allowlists for root and container packages so publish output is limited to runtime assets and docs/templates/skills that HybridClaw loads at runtime.
 - **Prepack gating**: Root and container packages now run clean build + release bundle validation during `prepack`.
 - **CI packaging checks**: CI now runs root/container release bundle checks to catch publish-regression changes on PRs and pushes.
+- **Silent reply token handling**: Centralized `__MESSAGE_SEND_HANDLED__` parsing/cleanup, added streaming prefix buffering for Discord/API output paths, and aligned prompt token constants with shared silent-reply utilities.
+
+### Fixed
+
+- **Silent token leakage in streams/history**: Streaming token fragments are now suppressed until divergence/confirmation, trailing silent tokens are stripped from mixed replies, and silent assistant placeholders are filtered from conversation history before model calls.
 
 ## [0.2.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.8)
 

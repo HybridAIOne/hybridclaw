@@ -50,15 +50,13 @@ import {
   proactiveWindowLabel,
 } from './proactive-policy.js';
 import {
-  MESSAGE_SEND_SILENT_REPLY_TOKEN,
-  stripMessageSendSilentReplyToken,
-} from './prompt-hooks.js';
-import {
   rearmScheduler,
   type SchedulerDispatchRequest,
   startScheduler,
   stopScheduler,
 } from './scheduler.js';
+import { isSilentReply, stripSilentToken } from './silent-reply.js';
+import { createSilentReplyStreamFilter } from './silent-reply-stream.js';
 import type { ArtifactMetadata } from './types.js';
 
 let detachConfigListener: (() => void) | null = null;
@@ -79,10 +77,6 @@ const pendingApprovalBySession = new Map<string, PendingApprovalPrompt>();
 
 function isDiscordChannelId(channelId: string): boolean {
   return /^\d{16,22}$/.test(channelId);
-}
-
-function isMessageSendSilentReply(value: string | null | undefined): boolean {
-  return (value || '').trim() === MESSAGE_SEND_SILENT_REPLY_TOKEN;
 }
 
 function buildArtifactAttachments(
@@ -266,16 +260,18 @@ async function handleApprovalCommand(params: {
     );
     return true;
   }
-  if (isMessageSendSilentReply(approvalResult.result)) {
+  if (isSilentReply(approvalResult.result)) {
     pendingApprovalBySession.delete(sessionId);
     return true;
   }
-  const approvalResultText = stripMessageSendSilentReplyToken(
-    approvalResult.result,
-  );
+  const approvalResultText = stripSilentToken(String(approvalResult.result));
+  if (!approvalResultText.trim()) {
+    pendingApprovalBySession.delete(sessionId);
+    return true;
+  }
 
   const resultText = buildResponseText(
-    approvalResultText || 'No response from agent.',
+    approvalResultText,
     approvalResult.toolsUsed,
   );
   if (isApprovalPromptForPrivateDelivery(resultText)) {
@@ -439,6 +435,15 @@ async function startDiscordIntegration(): Promise<void> {
     ) => {
       try {
         let sawTextDelta = false;
+        const streamFilter = createSilentReplyStreamFilter();
+        const appendStreamText = async (text: string): Promise<void> => {
+          if (!text) return;
+          if (!sawTextDelta) {
+            sawTextDelta = true;
+            context.emitLifecyclePhase('streaming');
+          }
+          await context.stream.append(text);
+        };
         const result = await handleGatewayMessage({
           sessionId,
           guildId,
@@ -448,11 +453,9 @@ async function startDiscordIntegration(): Promise<void> {
           content,
           media,
           onTextDelta: (delta) => {
-            if (!sawTextDelta) {
-              sawTextDelta = true;
-              context.emitLifecyclePhase('streaming');
-            }
-            void context.stream.append(delta);
+            const filteredDelta = streamFilter.push(delta);
+            if (!filteredDelta) return;
+            void appendStreamText(filteredDelta);
           },
           onToolProgress: (event) => {
             if (sawTextDelta) return;
@@ -480,17 +483,24 @@ async function startDiscordIntegration(): Promise<void> {
           await context.stream.fail(errorText);
           return;
         }
-        if (isMessageSendSilentReply(result.result)) {
+        const bufferedDelta = streamFilter.flush();
+        if (bufferedDelta) {
+          await appendStreamText(bufferedDelta);
+        }
+        if (streamFilter.isSilent() || isSilentReply(result.result)) {
           pendingApprovalBySession.delete(sessionId);
           await context.stream.discard();
           return;
         }
         const attachments = buildArtifactAttachments(result.artifacts);
-        const cleanedResultText = stripMessageSendSilentReplyToken(
-          result.result,
-        );
+        const cleanedResultText = stripSilentToken(String(result.result));
+        if (!cleanedResultText.trim()) {
+          pendingApprovalBySession.delete(sessionId);
+          await context.stream.discard();
+          return;
+        }
         const userText = simplifyImageAttachmentNarration(
-          cleanedResultText || 'No response from agent.',
+          cleanedResultText,
           result.artifacts,
         );
         const renderedText = await rewriteUserMentionsForMessage(

@@ -73,6 +73,7 @@ import { exportSessionSnapshotJsonl } from './session-export.js';
 import { maybeCompactSession } from './session-maintenance.js';
 import { appendSessionTranscript } from './session-transcripts.js';
 import { processSideEffects } from './side-effects.js';
+import { isSilentReply } from './silent-reply.js';
 import { expandSkillInvocation } from './skills.js';
 import {
   estimateTokenCountFromMessages,
@@ -1703,10 +1704,10 @@ export async function handleGatewayMessage(
     };
   }
 
-  const history = memoryService.getConversationHistory(
-    req.sessionId,
-    MAX_HISTORY_MESSAGES,
-  );
+  const history = memoryService
+    .getConversationHistory(req.sessionId, MAX_HISTORY_MESSAGES * 2)
+    .filter((message) => !isSilentReply(message.content))
+    .slice(0, MAX_HISTORY_MESSAGES);
   let canonicalContext: CanonicalSessionContext = {
     summary: null,
     recent_messages: [],
@@ -1719,6 +1720,12 @@ export async function handleGatewayMessage(
         windowSize: 12,
         excludeSessionId: req.sessionId,
       });
+      canonicalContext = {
+        ...canonicalContext,
+        recent_messages: canonicalContext.recent_messages.filter(
+          (message) => !isSilentReply(message.content),
+        ),
+      };
     } catch (err) {
       logger.debug(
         { sessionId: req.sessionId, userId: req.userId, err },
