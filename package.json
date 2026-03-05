@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "Personal AI assistant bot for Discord, powered by HybridAI",
   "publishConfig": {
@@ -27,7 +27,6 @@
     "AGENTS.md",
     "SECURITY.md",
     "TRUST_MODEL.md",
-    ".env.example",
     "config.example.json"
   ],
   "scripts": {

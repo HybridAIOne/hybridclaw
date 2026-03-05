@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.3.1)
+
+### Changed
+
+- **Home-only runtime state**: Runtime config, credentials, and data now stay under `~/.hybridclaw` exclusively; onboarding writes `credentials.json`, existing `./.env` secrets are imported into that file for compatibility, and the CLI stops probing legacy `./config.json` / `./data` runtime files.
+- **Container image state handling**: Container image fingerprint/state recording is now centralized, missing files are tolerated during fingerprint collection, and build/pull status lines use the invoking command name for clearer operator output.
+
+### Fixed
+
+- **Gateway lifecycle flag parsing**: `hybridclaw gateway start --sandbox=host` and `hybridclaw gateway restart --sandbox=host` no longer trip the top-level unsupported-flag guard, while non-lifecycle gateway subcommands still reject misplaced `--sandbox` / `--foreground` flags.
+
 ## [0.3.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.3.0)
 
 ### Added

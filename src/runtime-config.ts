@@ -12,11 +12,6 @@ const DEFAULT_DB_PATH = path.join(
   'data',
   'hybridclaw.db',
 );
-const LEGACY_DATA_DIR = path.join(process.cwd(), 'data');
-const MIGRATION_BACKUP_ROOT_DIR = path.join(
-  DEFAULT_RUNTIME_HOME_DIR,
-  'migration-backups',
-);
 
 const KNOWN_LOG_LEVELS = new Set([
   'fatal',
@@ -447,7 +442,6 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
 };
 
-const LEGACY_CONFIG_PATH = path.join(process.cwd(), CONFIG_FILE_NAME);
 const CONFIG_PATH = path.join(DEFAULT_RUNTIME_HOME_DIR, CONFIG_FILE_NAME);
 
 let currentConfig: RuntimeConfig = cloneConfig(DEFAULT_RUNTIME_CONFIG);
@@ -465,102 +459,6 @@ let watcherRestartTimer: ReturnType<typeof setTimeout> | null = null;
 
 function cloneConfig<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function pathExists(filePath: string): boolean {
-  return fs.existsSync(filePath);
-}
-
-function isDirectory(filePath: string): boolean {
-  try {
-    return fs.statSync(filePath).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-function isDirectoryEmpty(dirPath: string): boolean {
-  try {
-    return fs.readdirSync(dirPath).length === 0;
-  } catch {
-    return true;
-  }
-}
-
-function copyPathRecursive(sourcePath: string, targetPath: string): void {
-  const stat = fs.statSync(sourcePath);
-  if (stat.isDirectory()) {
-    fs.mkdirSync(targetPath, { recursive: true });
-    for (const entry of fs.readdirSync(sourcePath, { withFileTypes: true })) {
-      copyPathRecursive(
-        path.join(sourcePath, entry.name),
-        path.join(targetPath, entry.name),
-      );
-    }
-    return;
-  }
-
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.copyFileSync(sourcePath, targetPath);
-}
-
-function movePathSafely(sourcePath: string, targetPath: string): void {
-  try {
-    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-    fs.renameSync(sourcePath, targetPath);
-  } catch (err) {
-    const error = err as NodeJS.ErrnoException;
-    if (error.code !== 'EXDEV') throw err;
-    copyPathRecursive(sourcePath, targetPath);
-    fs.rmSync(sourcePath, { recursive: true, force: true });
-  }
-}
-
-function createMigrationBackupDir(label: string): string {
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const dirPath = path.join(MIGRATION_BACKUP_ROOT_DIR, `${stamp}-${label}`);
-  fs.mkdirSync(dirPath, { recursive: true });
-  return dirPath;
-}
-
-function archiveLegacyPath(sourcePath: string, label: string): string | null {
-  if (!pathExists(sourcePath)) return null;
-  const backupDir = createMigrationBackupDir(label);
-  const backupPath = path.join(backupDir, path.basename(sourcePath));
-  movePathSafely(sourcePath, backupPath);
-  return backupPath;
-}
-
-function mergeMissingEntries(
-  sourceDir: string,
-  targetDir: string,
-  conflicts: string[],
-  relativePrefix = '',
-): void {
-  if (!isDirectory(sourceDir)) return;
-
-  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
-    const sourcePath = path.join(sourceDir, entry.name);
-    const targetPath = path.join(targetDir, entry.name);
-    const relativePath = relativePrefix
-      ? `${relativePrefix}/${entry.name}`
-      : entry.name;
-
-    if (!pathExists(targetPath)) {
-      movePathSafely(sourcePath, targetPath);
-      continue;
-    }
-
-    if (entry.isDirectory() && isDirectory(targetPath)) {
-      mergeMissingEntries(sourcePath, targetPath, conflicts, relativePath);
-      if (isDirectoryEmpty(sourcePath)) {
-        fs.rmSync(sourcePath, { recursive: true, force: true });
-      }
-      continue;
-    }
-
-    conflicts.push(relativePath);
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1266,13 +1164,6 @@ function parseConfigPatch(payload: unknown): DeepPartial<RuntimeConfig> {
   return payload as DeepPartial<RuntimeConfig>;
 }
 
-function isLikelyLegacyRuntimeConfig(payload: unknown): boolean {
-  if (!isRecord(payload)) return false;
-  return (
-    'hybridai' in payload || 'discord' in payload || 'container' in payload
-  );
-}
-
 function normalizeRuntimeConfig(
   patch?: DeepPartial<RuntimeConfig>,
 ): RuntimeConfig {
@@ -1970,112 +1861,8 @@ function startWatcher(): void {
 
 function ensureInitialConfigFile(): void {
   if (fs.existsSync(CONFIG_PATH)) return;
-  if (fs.existsSync(LEGACY_CONFIG_PATH)) {
-    try {
-      const legacyRaw = fs.readFileSync(LEGACY_CONFIG_PATH, 'utf-8');
-      const parsed = JSON.parse(legacyRaw) as unknown;
-      if (!isLikelyLegacyRuntimeConfig(parsed)) {
-        const seeded = normalizeRuntimeConfig();
-        writeConfigFile(seeded, { omitImplicitSandboxMode: true });
-        return;
-      }
-      const migrated = normalizeRuntimeConfig(parseConfigPatch(parsed));
-      const parsedRecord = parsed as Record<string, unknown>;
-      const rawContainer = isRecord(parsedRecord.container)
-        ? parsedRecord.container
-        : {};
-      writeConfigFile(migrated, {
-        omitImplicitSandboxMode: !hasOwn(rawContainer, 'sandboxMode'),
-      });
-      const archivedConfigPath = archiveLegacyPath(
-        LEGACY_CONFIG_PATH,
-        'legacy-config',
-      );
-      console.info(
-        `[runtime-config] migrated config path from ${LEGACY_CONFIG_PATH} to ${CONFIG_PATH}`,
-      );
-      if (archivedConfigPath) {
-        console.info(
-          `[runtime-config] archived legacy config to ${archivedConfigPath}`,
-        );
-      }
-      return;
-    } catch (err) {
-      console.warn(
-        `[runtime-config] failed to migrate legacy config path (${LEGACY_CONFIG_PATH}): ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
   const seeded = normalizeRuntimeConfig();
   writeConfigFile(seeded, { omitImplicitSandboxMode: true });
-}
-
-function cleanupLegacyConfigOnStartup(): void {
-  if (!pathExists(LEGACY_CONFIG_PATH)) return;
-  if (!pathExists(CONFIG_PATH)) return;
-  if (path.resolve(LEGACY_CONFIG_PATH) === path.resolve(CONFIG_PATH)) return;
-
-  try {
-    const legacyRaw = fs.readFileSync(LEGACY_CONFIG_PATH, 'utf-8');
-    const parsed = JSON.parse(legacyRaw) as unknown;
-    if (!isLikelyLegacyRuntimeConfig(parsed)) return;
-
-    const archivedConfigPath = archiveLegacyPath(
-      LEGACY_CONFIG_PATH,
-      'legacy-config',
-    );
-    if (archivedConfigPath) {
-      console.info(
-        `[runtime-config] archived legacy config to ${archivedConfigPath}`,
-      );
-    }
-  } catch (err) {
-    console.warn(
-      `[runtime-config] legacy config cleanup skipped (${LEGACY_CONFIG_PATH}): ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}
-
-function migrateLegacyRuntimeDataOnStartup(): void {
-  if (!pathExists(LEGACY_DATA_DIR) || !isDirectory(LEGACY_DATA_DIR)) return;
-  if (isDirectoryEmpty(LEGACY_DATA_DIR)) {
-    fs.rmSync(LEGACY_DATA_DIR, { recursive: true, force: true });
-    return;
-  }
-
-  const runtimeDataDir = path.join(DEFAULT_RUNTIME_HOME_DIR, 'data');
-  fs.mkdirSync(DEFAULT_RUNTIME_HOME_DIR, { recursive: true });
-
-  if (!pathExists(runtimeDataDir) || isDirectoryEmpty(runtimeDataDir)) {
-    if (pathExists(runtimeDataDir) && isDirectoryEmpty(runtimeDataDir)) {
-      fs.rmSync(runtimeDataDir, { recursive: true, force: true });
-    }
-    movePathSafely(LEGACY_DATA_DIR, runtimeDataDir);
-    console.info(
-      `[runtime-config] migrated runtime data path from ${LEGACY_DATA_DIR} to ${runtimeDataDir}`,
-    );
-    return;
-  }
-
-  const backupDir = createMigrationBackupDir('preexisting-home-data');
-  const backupHomeDataDir = path.join(backupDir, 'home-data');
-  movePathSafely(runtimeDataDir, backupHomeDataDir);
-  movePathSafely(LEGACY_DATA_DIR, runtimeDataDir);
-
-  const conflicts: string[] = [];
-  mergeMissingEntries(backupHomeDataDir, runtimeDataDir, conflicts);
-  const backupHasRemainder =
-    pathExists(backupHomeDataDir) && !isDirectoryEmpty(backupHomeDataDir);
-  if (!backupHasRemainder) {
-    fs.rmSync(backupHomeDataDir, { recursive: true, force: true });
-  }
-
-  const conflictMessage = backupHasRemainder
-    ? ` Kept ${conflicts.length} conflicting path(s) in ${backupHomeDataDir}.`
-    : '';
-  console.info(
-    `[runtime-config] migrated runtime data path from ${LEGACY_DATA_DIR} to ${runtimeDataDir}. Previous home data was backed up to ${backupDir}.${conflictMessage}`,
-  );
 }
 
 function migrateConfigSchemaOnStartup(): void {
@@ -2140,14 +1927,6 @@ function migrateConfigSchemaOnStartup(): void {
 
 function initializeRuntimeConfig(): void {
   ensureInitialConfigFile();
-  cleanupLegacyConfigOnStartup();
-  try {
-    migrateLegacyRuntimeDataOnStartup();
-  } catch (err) {
-    console.warn(
-      `[runtime-config] runtime data migration failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
   migrateConfigSchemaOnStartup();
   reloadFromDisk('startup');
   startWatcher();

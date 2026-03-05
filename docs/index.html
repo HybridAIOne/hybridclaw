@@ -694,7 +694,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 20+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.3.0.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 20+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.3.1.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -733,31 +733,31 @@
 
 <section id="latest">
   <div class="section-center">
-    <div class="section-label">Release v0.3.0</div>
+    <div class="section-label">Release v0.3.1</div>
     <h2 class="section-title">Latest release highlights</h2>
     <p class="section-desc">Key improvements included in the latest tagged release.</p>
   </div>
-  <div class="features-grid">
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f5a5;&#xfe0f;</div>
-      <h3>Selectable sandbox runtime</h3>
-      <p>Gateway start/restart now support <code>--sandbox=container|host</code>, status surfaces show the active mode, and containerized deployments can auto-switch to host execution to avoid Docker-in-Docker.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f4c1;</div>
-      <h3>Install-root aware runtime assets</h3>
-      <p>Docs, templates, onboarding policy files, and safety prompt inputs now resolve from the installed package root, so npm installs no longer depend on the launch directory.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f504;</div>
-      <h3>Instruction sync workflow</h3>
-      <p><code>hybridclaw audit instructions</code> now checks runtime copies under <code>~/.hybridclaw/instructions/</code> against installed sources, and <code>--sync</code> restores shipped defaults when they drift.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
-      <h3>Hardened container defaults</h3>
-      <p>Container execution now prefers GHCR before the optional Docker Hub mirror, always publishes GHCR on release tags, and tightens isolation with dropped capabilities, no-new-privileges, PID limits, and configurable network/memory-swap settings.</p>
-    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+      <div class="feature-icon">&#x1f511;</div>
+      <h3>Home-scoped credentials</h3>
+      <p>Runtime secrets now live in <code>~/.hybridclaw/credentials.json</code>, and supported keys from an existing <code>.env</code> are migrated there automatically for compatibility.</p>
+      </div>
+      <div class="feature-card">
+      <div class="feature-icon">&#x1f6aa;</div>
+      <h3>No cwd runtime probes</h3>
+      <p>Startup no longer reads or migrates legacy <code>./config.json</code> or <code>./data</code>, so launching HybridClaw from a project directory does not create or relocate runtime state there.</p>
+      </div>
+      <div class="feature-card">
+      <div class="feature-icon">&#x2699;&#xfe0f;</div>
+      <h3>Gateway flag fix</h3>
+      <p><code>hybridclaw gateway start --sandbox=host</code> and restart now parse correctly, while non-lifecycle subcommands still reject misplaced lifecycle flags.</p>
+      </div>
+      <div class="feature-card">
+      <div class="feature-icon">&#x1f4be;</div>
+      <h3>Defensive image state</h3>
+      <p>Container image fingerprinting and state recording now tolerate missing files more gracefully and emit clearer command-scoped pull/build status lines for operators.</p>
+      </div>
   </div>
 </section>
 
@@ -1053,7 +1053,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Configuration</h3>
-      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Includes container isolation controls (<code>container.sandboxMode</code>, <code>container.memorySwap</code>, <code>container.network</code>), memory controls (<code>memory.decayRate</code>, <code>memory.consolidationIntervalHours</code>), compaction controls (<code>sessionCompaction.tokenBudget</code>, <code>sessionCompaction.budgetRatio</code>), Discord policy controls, and proactive <code>scheduler.jobs[]</code> automation. Secrets remain in <code>.env</code>.</p>
+      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Includes container isolation controls (<code>container.sandboxMode</code>, <code>container.memorySwap</code>, <code>container.network</code>), memory controls (<code>memory.decayRate</code>, <code>memory.consolidationIntervalHours</code>), compaction controls (<code>sessionCompaction.tokenBudget</code>, <code>sessionCompaction.budgetRatio</code>), Discord policy controls, and proactive <code>scheduler.jobs[]</code> automation. Secrets live in <code>~/.hybridclaw/credentials.json</code>.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
@@ -1280,7 +1280,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Do I still configure everything through .env?</div>
-      <div class="faq-a">No. Runtime behavior now lives in typed <code>config.json</code> (with defaults, validation, and hot reload). Keep <code>.env</code> for secrets like API tokens and credentials.</div>
+      <div class="faq-a">No. Runtime behavior lives in typed <code>config.json</code> and runtime secrets live in <code>~/.hybridclaw/credentials.json</code>. If <code>.env</code> exists in the current working directory, supported secrets are imported into <code>~/.hybridclaw/credentials.json</code> once for compatibility.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Is it safe to let the agent run shell commands?</div>

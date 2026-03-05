@@ -158,21 +158,10 @@ function legacyStateFilePath(cwd: string): string {
   return path.join(cwd, LEGACY_STATE_DIRNAME, STATE_FILENAME);
 }
 
-function readContainerImageState(
-  cwd: string,
+function tryParseStateFile(
+  file: string,
   imageName: string,
 ): ContainerImageState | null {
-  const primaryFile = stateFilePath(cwd);
-  const legacyFile = legacyStateFilePath(cwd);
-  const files = [primaryFile, legacyFile];
-  let file: string | null = null;
-  for (const candidate of files) {
-    if (fs.existsSync(candidate)) {
-      file = candidate;
-      break;
-    }
-  }
-  if (!file) return null;
   try {
     const parsed = JSON.parse(
       fs.readFileSync(file, 'utf-8'),
@@ -183,26 +172,37 @@ function readContainerImageState(
       typeof parsed.fingerprint === 'string' &&
       parsed.fingerprint.trim() !== ''
     ) {
-      const normalizedState = {
+      return {
         imageName: parsed.imageName,
         fingerprint: parsed.fingerprint,
         recordedAt:
           typeof parsed.recordedAt === 'string' ? parsed.recordedAt : '',
       };
-      if (file === legacyFile) {
-        try {
-          writeContainerImageState(cwd, normalizedState);
-          fs.rmSync(legacyFile, { force: true });
-        } catch {
-          // best-effort legacy state migration
-        }
-      }
-      return normalizedState;
     }
   } catch {
-    // ignore invalid state, we'll regenerate it
+    // ignore missing/invalid state
   }
   return null;
+}
+
+function readContainerImageState(
+  cwd: string,
+  imageName: string,
+): ContainerImageState | null {
+  const primaryState = tryParseStateFile(stateFilePath(cwd), imageName);
+  if (primaryState) return primaryState;
+
+  const legacyFile = legacyStateFilePath(cwd);
+  const legacyState = tryParseStateFile(legacyFile, imageName);
+  if (legacyState) {
+    try {
+      writeContainerImageState(cwd, legacyState);
+      fs.rmSync(legacyFile, { force: true });
+    } catch {
+      // best-effort legacy state migration
+    }
+  }
+  return legacyState;
 }
 
 function writeContainerImageState(
@@ -215,11 +215,13 @@ function writeContainerImageState(
 }
 
 function collectFilesRecursive(root: string, out: string[]): void {
-  if (!fs.existsSync(root)) return;
-  const stat = fs.statSync(root);
-  if (!stat.isDirectory()) return;
-
-  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
     const fullPath = path.join(root, entry.name);
     if (entry.isDirectory()) {
       collectFilesRecursive(fullPath, out);
@@ -241,12 +243,12 @@ function computeContainerFingerprint(
     for (const rel of TRACKED_FILES) {
       const abs = path.join(cwd, rel);
       hash.update(`file:${rel}\n`);
-      if (!fs.existsSync(abs)) {
+      try {
+        hash.update(fs.readFileSync(abs));
+        hash.update('\n');
+      } catch {
         hash.update('missing\n');
-        continue;
       }
-      hash.update(fs.readFileSync(abs));
-      hash.update('\n');
     }
 
     const sourceRoot = path.join(cwd, TRACKED_SOURCE_ROOT);
@@ -264,6 +266,20 @@ function computeContainerFingerprint(
     return hash.digest('hex');
   } catch {
     return null;
+  }
+}
+
+function recordImageState(
+  cwd: string,
+  imageName: string,
+  fingerprint: string | null,
+): void {
+  if (fingerprint) {
+    writeContainerImageState(cwd, {
+      imageName,
+      fingerprint,
+      recordedAt: new Date().toISOString(),
+    });
   }
 }
 
@@ -305,18 +321,8 @@ async function buildAndValidateImage(params: {
       try {
         await pullContainerImage(pullImage);
         await tagContainerImage(pullImage, imageName);
-        const pulled = await containerImageExists(imageName);
-        if (!pulled) {
-          throw new Error('Image still not available after pull.');
-        }
-        if (fingerprint) {
-          writeContainerImageState(cwd, {
-            imageName,
-            fingerprint,
-            recordedAt: new Date().toISOString(),
-          });
-        }
-        console.log(`hybridclaw: Pulled container image '${imageName}'.`);
+        recordImageState(cwd, imageName, fingerprint);
+        console.log(`${commandName}: Pulled container image '${imageName}'.`);
         return;
       } catch (err) {
         const pullMessage = err instanceof Error ? err.message : String(err);
@@ -329,18 +335,8 @@ async function buildAndValidateImage(params: {
       `${commandName}: ${reason} Building container image '${imageName}'...`,
     );
     await buildContainerImage(cwd, imageName);
-    const built = await containerImageExists(imageName);
-    if (!built) {
-      throw new Error('Image still not available after build.');
-    }
-    if (fingerprint) {
-      writeContainerImageState(cwd, {
-        imageName,
-        fingerprint,
-        recordedAt: new Date().toISOString(),
-      });
-    }
-    console.log(`hybridclaw: Built container image '${imageName}'.`);
+    recordImageState(cwd, imageName, fingerprint);
+    console.log(`${commandName}: Built container image '${imageName}'.`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (!required) {
@@ -386,11 +382,7 @@ export async function ensureContainerImageReady(
 
   if (rebuildPolicy === 'never') {
     if (fingerprint && !readContainerImageState(cwd, imageName)) {
-      writeContainerImageState(cwd, {
-        imageName,
-        fingerprint,
-        recordedAt: new Date().toISOString(),
-      });
+      recordImageState(cwd, imageName, fingerprint);
     }
     return;
   }
@@ -412,11 +404,7 @@ export async function ensureContainerImageReady(
 
   const state = readContainerImageState(cwd, imageName);
   if (!state) {
-    writeContainerImageState(cwd, {
-      imageName,
-      fingerprint,
-      recordedAt: new Date().toISOString(),
-    });
+    recordImageState(cwd, imageName, fingerprint);
     return;
   }
   if (state.fingerprint === fingerprint) return;

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { hasSandboxFlag, parseGatewayFlags } from '../src/cli-flags.js';
+import {
+  findUnsupportedGatewayLifecycleFlag,
+  hasForegroundFlag,
+  hasSandboxFlag,
+  parseGatewayFlags,
+} from '../src/cli-flags.js';
 
 describe('parseGatewayFlags', () => {
   it('parses gateway lifecycle flags without sandbox override', () => {
@@ -46,5 +51,34 @@ describe('hasSandboxFlag', () => {
   it('detects sandbox flags in gateway subcommand args', () => {
     expect(hasSandboxFlag(['status', '--sandbox=host'])).toBe(true);
     expect(hasSandboxFlag(['status'])).toBe(false);
+  });
+});
+
+describe('hasForegroundFlag', () => {
+  it('detects foreground flags in gateway subcommand args', () => {
+    expect(hasForegroundFlag(['status', '--foreground'])).toBe(true);
+    expect(hasForegroundFlag(['status', '-f'])).toBe(true);
+    expect(hasForegroundFlag(['status'])).toBe(false);
+  });
+});
+
+describe('findUnsupportedGatewayLifecycleFlag', () => {
+  it('allows lifecycle flags on start and restart', () => {
+    expect(
+      findUnsupportedGatewayLifecycleFlag(['start', '--sandbox=host']),
+    ).toBeNull();
+    expect(findUnsupportedGatewayLifecycleFlag(['restart', '-f'])).toBeNull();
+  });
+
+  it('rejects lifecycle flags on other gateway subcommands', () => {
+    expect(
+      findUnsupportedGatewayLifecycleFlag(['status', '--sandbox=host']),
+    ).toBe('sandbox');
+    expect(findUnsupportedGatewayLifecycleFlag(['sessions', '-f'])).toBe(
+      'foreground',
+    );
+    expect(findUnsupportedGatewayLifecycleFlag(['--sandbox=host'])).toBe(
+      'sandbox',
+    );
   });
 });

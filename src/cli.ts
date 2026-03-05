@@ -6,7 +6,7 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import {
-  hasSandboxFlag,
+  findUnsupportedGatewayLifecycleFlag,
   parseGatewayFlags,
   type SandboxModeOverride,
 } from './cli-flags.js';
@@ -19,6 +19,7 @@ import {
   setSandboxModeOverride,
 } from './config.js';
 import { ensureHybridAICredentials } from './onboarding.js';
+import { runtimeSecretsPath } from './runtime-secrets.js';
 import { printUpdateUsage, runUpdateCommand } from './update.js';
 
 const PACKAGE_NAME = '@hybridaione/hybridclaw';
@@ -785,25 +786,13 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
     return;
   }
 
-  if (hasSandboxFlag(normalized)) {
+  const unsupportedLifecycleFlag =
+    findUnsupportedGatewayLifecycleFlag(normalized);
+  if (unsupportedLifecycleFlag) {
     console.error(
-      '`--sandbox` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.',
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  if (sub === '--foreground' || sub === '-f') {
-    console.error(
-      '`--foreground` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.',
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  if (sub !== 'start' && sub !== 'restart' && hasSandboxFlag(subArgs)) {
-    console.error(
-      '`--sandbox` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.',
+      unsupportedLifecycleFlag === 'sandbox'
+        ? '`--sandbox` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.'
+        : '`--foreground` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.',
     );
     process.exitCode = 1;
     return;
@@ -947,30 +936,22 @@ async function main(): Promise<void> {
   }
 }
 
-const envVarHint: Record<string, string> = {
-  HYBRIDAI_API_KEY:
-    'Set HYBRIDAI_API_KEY in .env or your shell, then run the command again. You can also run `hybridclaw onboarding` to set it interactively.',
-};
-
 function printMissingEnvVarError(message: string, envVar?: string): void {
+  const envVarHint: Record<string, string> = {
+    HYBRIDAI_API_KEY: `Set HYBRIDAI_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again. You can also run \`hybridclaw onboarding\` to set it interactively.`,
+  };
   const hint = envVar
     ? envVarHint[envVar]
     : 'Set this variable and rerun the command.';
   console.error(`hybridclaw error: ${message}`);
   console.error(`Hint: ${hint}`);
   console.error(
-    'Make sure you run `hybridclaw` from the directory that contains your .env file.',
+    `HybridClaw stores runtime secrets in ${runtimeSecretsPath()}. If .env exists in the current working directory, supported secrets are migrated there automatically.`,
   );
 }
 
 main().catch((err) => {
-  const missingEnvVarMatch =
-    err instanceof Error
-      ? err.message.match(/^Missing required env var:\s*([A-Za-z0-9_]+)/)
-      : null;
-  if (missingEnvVarMatch) {
-    printMissingEnvVarError(err.message, missingEnvVarMatch[1]);
-  } else if (err instanceof MissingRequiredEnvVarError) {
+  if (err instanceof MissingRequiredEnvVarError) {
     printMissingEnvVarError(err.message, err.envVar);
   } else {
     const message = err instanceof Error ? err.message : String(err);

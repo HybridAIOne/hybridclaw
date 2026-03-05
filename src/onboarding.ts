@@ -1,13 +1,16 @@
 import { spawn } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 import readline from 'node:readline/promises';
 
-import { loadEnvFile } from './env.js';
+import { refreshRuntimeSecretsFromEnv } from './config.js';
 import {
   ensureRuntimeInstructionCopies,
   resolveRuntimeInstructionPath,
 } from './instruction-integrity.js';
+import {
+  loadRuntimeSecrets,
+  runtimeSecretsPath,
+  saveRuntimeSecrets,
+} from './runtime-secrets.js';
 import {
   acceptSecurityTrustModel,
   ensureRuntimeConfigFile,
@@ -125,17 +128,6 @@ const DEFAULT_VERIFY_PATH = '/verify_code';
 const BOT_LIST_PATH = '/api/v1/bot-management/bots';
 const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
 const SECURITY_ACK_TOKEN = 'ACCEPT';
-
-function ensureEnvFileFromExample(): boolean {
-  const envPath = path.join(process.cwd(), '.env');
-  if (fs.existsSync(envPath)) return false;
-
-  const envExamplePath = path.join(process.cwd(), '.env.example');
-  if (!fs.existsSync(envExamplePath)) return false;
-
-  fs.copyFileSync(envExamplePath, envPath);
-  return true;
-}
 
 function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, '') || DEFAULT_BASE_URL;
@@ -293,42 +285,8 @@ async function validateApiKey(
   };
 }
 
-function escapeEnvValue(value: string): string {
-  if (/^[A-Za-z0-9._:/-]+$/.test(value)) return value;
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
-function escapeRegex(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function upsertEnvLine(content: string, key: string, value: string): string {
-  const normalizedLine = `${key}=${escapeEnvValue(value)}`;
-  const lineRe = new RegExp(`^\\s*${escapeRegex(key)}\\s*=.*$`, 'm');
-
-  if (lineRe.test(content)) {
-    return content.replace(lineRe, normalizedLine);
-  }
-
-  const prefix = content.length === 0 || content.endsWith('\n') ? '' : '\n';
-  return `${content}${prefix}${normalizedLine}\n`;
-}
-
-function removeEnvLine(content: string, key: string): string {
-  const lineRe = new RegExp(`^\\s*${escapeRegex(key)}\\s*=.*\\n?`, 'gm');
-  return content.replace(lineRe, '');
-}
-
-function saveEnvCredentials(apiKey: string): void {
-  const envPath = path.join(process.cwd(), '.env');
-  const existing = fs.existsSync(envPath)
-    ? fs.readFileSync(envPath, 'utf-8')
-    : '';
-
-  let updated = upsertEnvLine(existing, 'HYBRIDAI_API_KEY', apiKey);
-  updated = removeEnvLine(updated, 'HYBRIDAI_CHATBOT_ID');
-
-  fs.writeFileSync(envPath, updated, 'utf-8');
+function saveHybridAICredentials(apiKey: string): string {
+  return saveRuntimeSecrets({ HYBRIDAI_API_KEY: apiKey });
 }
 
 function saveDefaultChatbotId(chatbotId: string): void {
@@ -522,7 +480,7 @@ async function ensureSecurityTrustAcceptance(
 export async function ensureHybridAICredentials(
   options: OnboardingOptions = {},
 ): Promise<void> {
-  loadEnvFile();
+  loadRuntimeSecrets();
   const bootstrappedConfig = ensureRuntimeConfigFile();
 
   const existingKey = (process.env.HYBRIDAI_API_KEY || '').trim();
@@ -539,12 +497,9 @@ export async function ensureHybridAICredentials(
       );
     }
     throw new Error(
-      'HYBRIDAI_API_KEY is missing. Run `hybridclaw onboarding` in an interactive terminal or set the key in .env.',
+      `HYBRIDAI_API_KEY is missing. Run \`hybridclaw onboarding\` in an interactive terminal or store it in ${runtimeSecretsPath()}.`,
     );
   }
-
-  const bootstrappedEnv = ensureEnvFileFromExample();
-  if (bootstrappedEnv) loadEnvFile();
 
   const baseUrl = normalizeBaseUrl(
     getRuntimeConfig().hybridai.baseUrl ||
@@ -562,9 +517,6 @@ export async function ensureHybridAICredentials(
 
   try {
     printHeadline('HybridAI onboarding');
-    if (bootstrappedEnv) {
-      printSetup('Created `.env` from `.env.example` for first-run setup.');
-    }
     if (bootstrappedConfig) {
       printSetup(
         `Created runtime config with validated defaults at ${runtimeConfigPath()}.`,
@@ -708,12 +660,13 @@ export async function ensureHybridAICredentials(
       fallbackChatbotId,
     );
 
-    saveEnvCredentials(apiKey);
+    const secretsPath = saveHybridAICredentials(apiKey);
     saveDefaultChatbotId(chosenChatbotId || '');
     process.env.HYBRIDAI_API_KEY = apiKey;
+    refreshRuntimeSecretsFromEnv();
 
     console.log();
-    printSuccess(`Saved credentials to ${path.join(process.cwd(), '.env')}.`);
+    printSuccess(`Saved credentials to ${secretsPath}.`);
     printSuccess(`Saved runtime settings to ${runtimeConfigPath()}.`);
     if (chosenChatbotId) {
       printSuccess(`Default bot set to: ${chosenChatbotId}`);

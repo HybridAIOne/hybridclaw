@@ -144,7 +144,7 @@ HybridClaw runtime configuration is typed and validated in
 Core details:
 
 - Runtime hot-reloads most settings (model defaults, heartbeat, prompt hooks, limits).
-- Legacy runtime paths (`./config.json`, `./data`) are migrated to `~/.hybridclaw/*` on startup; merge/rollback backups are written to `~/.hybridclaw/migration-backups/` when conflicts exist.
+- Runtime config, credentials, and data live under `~/.hybridclaw/*`; startup no longer probes or migrates `./config.json` or `./data` from the current working directory, and only reads `./.env` to import supported secrets into `~/.hybridclaw/credentials.json`.
 - Some settings still require restart (for example bind host/port).
 - Default bot is configured via `hybridai.defaultChatbotId`.
 - `hybridai.maxTokens` sets default completion budget per model call.

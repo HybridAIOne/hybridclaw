@@ -1,4 +1,5 @@
 export type SandboxModeOverride = 'container' | 'host';
+export type UnsupportedGatewayLifecycleFlag = 'foreground' | 'sandbox';
 
 export interface ParsedGatewayFlags {
   foreground: boolean;
@@ -13,11 +14,36 @@ function normalizeSandboxMode(value: string): SandboxModeOverride | null {
   return null;
 }
 
+function isSandboxFlag(arg: string): boolean {
+  const normalized = String(arg || '').trim();
+  return normalized === '--sandbox' || normalized.startsWith('--sandbox=');
+}
+
+function isForegroundFlag(arg: string): boolean {
+  const normalized = String(arg || '').trim();
+  return normalized === '--foreground' || normalized === '-f';
+}
+
 export function hasSandboxFlag(argv: string[]): boolean {
-  return argv.some((arg) => {
-    const normalized = String(arg || '').trim();
-    return normalized === '--sandbox' || normalized.startsWith('--sandbox=');
-  });
+  return argv.some((arg) => isSandboxFlag(arg));
+}
+
+export function hasForegroundFlag(argv: string[]): boolean {
+  return argv.some((arg) => isForegroundFlag(arg));
+}
+
+export function findUnsupportedGatewayLifecycleFlag(
+  argv: string[],
+): UnsupportedGatewayLifecycleFlag | null {
+  if (argv.length === 0) return null;
+
+  const sub = String(argv[0] || '')
+    .trim()
+    .toLowerCase();
+  if (sub === 'start' || sub === 'restart') return null;
+  if (hasSandboxFlag(argv)) return 'sandbox';
+  if (hasForegroundFlag(argv)) return 'foreground';
+  return null;
 }
 
 export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
@@ -29,7 +55,7 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
     const arg = String(argv[i] || '').trim();
     if (!arg) continue;
 
-    if (arg === '--foreground' || arg === '-f') {
+    if (isForegroundFlag(arg)) {
       foreground = true;
       continue;
     }

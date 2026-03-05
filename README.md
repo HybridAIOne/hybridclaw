@@ -11,14 +11,7 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.3.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.3.0)
-
-## Release highlights (v0.3.0)
-
-- Gateway start/restart now support `--sandbox=container|host`, runtime config adds `container.sandboxMode`, and gateway/TUI status surfaces show the active mode.
-- Container execution is hardened with dropped capabilities, `no-new-privileges`, PID limits, configurable network/memory-swap controls, and better GHCR-first image handling.
-- Root builds now package `container/dist/` so host sandbox mode can launch the bundled agent runtime from installed npm packages.
-- Runtime docs/templates/instructions now resolve from the actual install root, and `hybridclaw audit instructions --sync` restores shipped instruction copies under `~/.hybridclaw/instructions/`.
+Latest release: [v0.3.1](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.3.1)
 
 ## HybridAI Advantage
 
@@ -43,7 +36,6 @@ Latest release: [v0.3.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/
 npm install
 
 # Run onboarding (also auto-runs on first `gateway`/`tui` start if API key is missing)
-# On first run, it creates `.env` from `.env.example` automatically if needed.
 hybridclaw onboarding
 
 # Onboarding flow:
@@ -52,7 +44,7 @@ hybridclaw onboarding
 # 3) open /register in browser (optional) and confirm in terminal
 # 4) open /login?next=/admin_api_keys in browser and get an API key
 # 5) paste API key (or URL containing it) back into the CLI
-# 6) choose the default bot (saved to ~/.hybridclaw/config.json) and save secrets to `.env`
+# 6) choose the default bot (saved to ~/.hybridclaw/config.json) and save secrets to ~/.hybridclaw/credentials.json
 
 # Start gateway backend (default)
 hybridclaw gateway
@@ -85,10 +77,10 @@ Runtime model:
 HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most runtime settings.
 
 - Start from `config.example.json` (reference).
-- Runtime data is stored in `~/.hybridclaw/` by default (`config.json`, `data/hybridclaw.db`, audit/session files).
-- On upgrade, legacy `./config.json` and `./data` are migrated to `~/.hybridclaw` automatically; backups are kept in `~/.hybridclaw/migration-backups/` when needed.
+- Runtime state lives under `~/.hybridclaw/` (`config.json`, `credentials.json`, `data/hybridclaw.db`, audit/session files).
+- HybridClaw does not keep runtime state in the current working directory. If `./.env` exists, supported secrets are migrated once into `~/.hybridclaw/credentials.json`.
 - `container.*` controls execution isolation, including `sandboxMode`, `memory`, `memorySwap`, `cpus`, `network`, and additional mounts.
-- Keep secrets in `.env` (`HYBRIDAI_API_KEY` required, `DISCORD_TOKEN` optional).
+- Keep secrets in `~/.hybridclaw/credentials.json` (`HYBRIDAI_API_KEY` required, `DISCORD_TOKEN` optional).
 - Trust-model acceptance is stored in `~/.hybridclaw/config.json` under `security.*` and is required before runtime starts.
 - See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
 - For advanced configuration, audit/observability details, skills internals, agent tools, and developer docs, see [CONTRIBUTING.md](./CONTRIBUTING.md).

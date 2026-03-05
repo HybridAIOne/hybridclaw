@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { loadEnvFile } from './env.js';
+import { loadRuntimeSecrets } from './runtime-secrets.js';
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
@@ -13,7 +13,7 @@ import {
   type RuntimeConfig,
 } from './runtime-config.js';
 
-loadEnvFile();
+loadRuntimeSecrets();
 ensureRuntimeConfigFile();
 
 export class MissingRequiredEnvVarError extends Error {
@@ -70,10 +70,21 @@ function resolveAppVersion(): string {
 
 export const APP_VERSION = resolveAppVersion();
 
-// Secrets stay in env/.env
-export const DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';
+function syncRuntimeSecretExports(): void {
+  DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';
+  HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY || '';
+}
+
+// Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
+export let DISCORD_TOKEN = '';
 // Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
-export const HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY || '';
+export let HYBRIDAI_API_KEY = '';
+syncRuntimeSecretExports();
+
+export function refreshRuntimeSecretsFromEnv(): void {
+  syncRuntimeSecretExports();
+}
+
 export function getHybridAIApiKey(): string {
   return required('HYBRIDAI_API_KEY');
 }
