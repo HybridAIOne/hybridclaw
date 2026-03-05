@@ -19,6 +19,8 @@
     "commandAllowedUserIds": [],
     "commandUserId": "",
     "groupPolicy": "open",
+    "sendPolicy": "open",
+    "sendAllowedChannelIds": [],
     "freeResponseChannels": [],
     "textChunkLimit": 2000,
     "maxLinesPerMessage": 17,

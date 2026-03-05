@@ -1,5 +1,5 @@
+import fs from 'node:fs';
 import { AttachmentBuilder } from 'discord.js';
-import fs from 'fs';
 import {
   buildResponseText,
   formatError,
@@ -50,6 +50,10 @@ import {
   proactiveWindowLabel,
 } from './proactive-policy.js';
 import {
+  MESSAGE_SEND_SILENT_REPLY_TOKEN,
+  stripMessageSendSilentReplyToken,
+} from './prompt-hooks.js';
+import {
   rearmScheduler,
   type SchedulerDispatchRequest,
   startScheduler,
@@ -75,6 +79,10 @@ const pendingApprovalBySession = new Map<string, PendingApprovalPrompt>();
 
 function isDiscordChannelId(channelId: string): boolean {
   return /^\d{16,22}$/.test(channelId);
+}
+
+function isMessageSendSilentReply(value: string | null | undefined): boolean {
+  return (value || '').trim() === MESSAGE_SEND_SILENT_REPLY_TOKEN;
 }
 
 function buildArtifactAttachments(
@@ -258,9 +266,16 @@ async function handleApprovalCommand(params: {
     );
     return true;
   }
+  if (isMessageSendSilentReply(approvalResult.result)) {
+    pendingApprovalBySession.delete(sessionId);
+    return true;
+  }
+  const approvalResultText = stripMessageSendSilentReplyToken(
+    approvalResult.result,
+  );
 
   const resultText = buildResponseText(
-    approvalResult.result || 'No response from agent.',
+    approvalResultText || 'No response from agent.',
     approvalResult.toolsUsed,
   );
   if (isApprovalPromptForPrivateDelivery(resultText)) {
@@ -465,9 +480,17 @@ async function startDiscordIntegration(): Promise<void> {
           await context.stream.fail(errorText);
           return;
         }
+        if (isMessageSendSilentReply(result.result)) {
+          pendingApprovalBySession.delete(sessionId);
+          await context.stream.discard();
+          return;
+        }
         const attachments = buildArtifactAttachments(result.artifacts);
+        const cleanedResultText = stripMessageSendSilentReplyToken(
+          result.result,
+        );
         const userText = simplifyImageAttachmentNarration(
-          result.result || 'No response from agent.',
+          cleanedResultText || 'No response from agent.',
           result.artifacts,
         );
         const renderedText = await rewriteUserMentionsForMessage(

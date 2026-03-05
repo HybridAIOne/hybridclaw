@@ -60,6 +60,7 @@ export interface ContainerInput {
   model: string;
   maxTokens?: number;
   channelId: string;
+  configuredDiscordChannels?: string[];
   scheduledTasks?: {
     id: number;
     cronExpr: string;

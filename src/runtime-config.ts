@@ -40,6 +40,7 @@ export interface RuntimeSecurityConfig {
 }
 
 export type DiscordGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type DiscordSendPolicy = 'open' | 'allowlist' | 'disabled';
 export type DiscordCommandMode = 'public' | 'restricted';
 export type DiscordChannelMode = 'off' | 'mention' | 'free';
 export type DiscordTypingMode = 'instant' | 'thinking' | 'streaming' | 'never';
@@ -98,11 +99,16 @@ export interface RuntimeDiscordChannelConfig {
   rateLimitPerUser?: number;
   suppressPatterns?: string[];
   maxConcurrentPerChannel?: number;
+  allowSend?: boolean;
+  sendAllowedUserIds?: string[];
+  sendAllowedRoleIds?: string[];
 }
 
 export interface RuntimeDiscordGuildConfig {
   defaultMode: DiscordChannelMode;
   channels: Record<string, RuntimeDiscordChannelConfig>;
+  sendAllowedUserIds?: string[];
+  sendAllowedRoleIds?: string[];
 }
 
 export interface RuntimeSchedulerJob {
@@ -145,6 +151,8 @@ export interface RuntimeConfig {
     commandAllowedUserIds: string[];
     commandUserId: string;
     groupPolicy: DiscordGroupPolicy;
+    sendPolicy: DiscordSendPolicy;
+    sendAllowedChannelIds: string[];
     freeResponseChannels: string[];
     textChunkLimit: number;
     maxLinesPerMessage: number;
@@ -283,6 +291,8 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     commandAllowedUserIds: [],
     commandUserId: '',
     groupPolicy: 'open',
+    sendPolicy: 'open',
+    sendAllowedChannelIds: [],
     freeResponseChannels: [],
     textChunkLimit: 2_000,
     maxLinesPerMessage: 17,
@@ -524,6 +534,22 @@ function normalizeDiscordGroupPolicy(
   value: unknown,
   fallback: DiscordGroupPolicy,
 ): DiscordGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeDiscordSendPolicy(
+  value: unknown,
+  fallback: DiscordSendPolicy,
+): DiscordSendPolicy {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
   if (
@@ -820,6 +846,33 @@ function normalizeDiscordChannelConfig(
       { min: 1, max: 16 },
     );
   }
+  if (
+    value.allowSend !== undefined ||
+    channelFallback.allowSend !== undefined
+  ) {
+    channelConfig.allowSend = normalizeBoolean(
+      value.allowSend,
+      channelFallback.allowSend ?? true,
+    );
+  }
+  if (
+    value.sendAllowedUserIds !== undefined ||
+    channelFallback.sendAllowedUserIds !== undefined
+  ) {
+    channelConfig.sendAllowedUserIds = normalizeStringArray(
+      value.sendAllowedUserIds,
+      channelFallback.sendAllowedUserIds ?? [],
+    );
+  }
+  if (
+    value.sendAllowedRoleIds !== undefined ||
+    channelFallback.sendAllowedRoleIds !== undefined
+  ) {
+    channelConfig.sendAllowedRoleIds = normalizeStringArray(
+      value.sendAllowedRoleIds,
+      channelFallback.sendAllowedRoleIds ?? [],
+    );
+  }
 
   return channelConfig;
 }
@@ -850,7 +903,21 @@ function normalizeDiscordGuildConfig(
     channels[channelId] = channelConfig;
   }
 
-  return { defaultMode, channels };
+  const sendAllowedUserIds = normalizeStringArray(
+    value.sendAllowedUserIds,
+    fallback.sendAllowedUserIds ?? [],
+  );
+  const sendAllowedRoleIds = normalizeStringArray(
+    value.sendAllowedRoleIds,
+    fallback.sendAllowedRoleIds ?? [],
+  );
+
+  return {
+    defaultMode,
+    channels,
+    ...(sendAllowedUserIds.length > 0 ? { sendAllowedUserIds } : {}),
+    ...(sendAllowedRoleIds.length > 0 ? { sendAllowedRoleIds } : {}),
+  };
 }
 
 function normalizeDiscordGuildMap(
@@ -1192,6 +1259,14 @@ function normalizeRuntimeConfig(
       groupPolicy: normalizeDiscordGroupPolicy(
         rawDiscord.groupPolicy,
         DEFAULT_RUNTIME_CONFIG.discord.groupPolicy,
+      ),
+      sendPolicy: normalizeDiscordSendPolicy(
+        rawDiscord.sendPolicy,
+        DEFAULT_RUNTIME_CONFIG.discord.sendPolicy,
+      ),
+      sendAllowedChannelIds: normalizeStringArray(
+        rawDiscord.sendAllowedChannelIds,
+        DEFAULT_RUNTIME_CONFIG.discord.sendAllowedChannelIds,
       ),
       freeResponseChannels: normalizeStringArray(
         rawDiscord.freeResponseChannels,

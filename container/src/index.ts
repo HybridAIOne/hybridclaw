@@ -23,6 +23,7 @@ import {
 } from './token-usage.js';
 import {
   executeTool,
+  getMessageToolDescription,
   getPendingSideEffects,
   resetSideEffects,
   setGatewayContext,
@@ -940,6 +941,16 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
     );
     tools = tools.filter((tool) => !blocked.has(tool.function.name));
   }
+  tools = tools.map((tool) => {
+    if (tool.function.name !== 'message') return tool;
+    return {
+      ...tool,
+      function: {
+        ...tool.function,
+        description: getMessageToolDescription(input.channelId),
+      },
+    };
+  });
   // Sort alphabetically for deterministic tool ordering (request/cache stability)
   tools.sort((a, b) => a.function.name.localeCompare(b.function.name));
   return tools;
@@ -979,6 +990,7 @@ async function main(): Promise<void> {
     firstInput.gatewayBaseUrl,
     firstInput.gatewayApiToken,
     firstInput.channelId,
+    firstInput.configuredDiscordChannels,
   );
   setModelContext(
     firstInput.baseUrl,
@@ -1074,6 +1086,7 @@ async function main(): Promise<void> {
       input.gatewayBaseUrl,
       input.gatewayApiToken,
       input.channelId,
+      input.configuredDiscordChannels,
     );
     setModelContext(input.baseUrl, apiKey, input.model, input.chatbotId);
     setMediaContext(input.media);

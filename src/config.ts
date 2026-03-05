@@ -89,6 +89,8 @@ export let DISCORD_COMMAND_ALLOWED_USER_IDS: string[] = [];
 export let DISCORD_COMMAND_USER_ID = '';
 export let DISCORD_GROUP_POLICY: RuntimeConfig['discord']['groupPolicy'] =
   'open';
+export let DISCORD_SEND_POLICY: RuntimeConfig['discord']['sendPolicy'] = 'open';
+export let DISCORD_SEND_ALLOWED_CHANNEL_IDS: string[] = [];
 export let DISCORD_FREE_RESPONSE_CHANNELS: string[] = [];
 export let DISCORD_TEXT_CHUNK_LIMIT = 2_000;
 export let DISCORD_MAX_LINES_PER_MESSAGE = 17;
@@ -223,6 +225,8 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_COMMAND_ALLOWED_USER_IDS = [...config.discord.commandAllowedUserIds];
   DISCORD_COMMAND_USER_ID = config.discord.commandUserId;
   DISCORD_GROUP_POLICY = config.discord.groupPolicy;
+  DISCORD_SEND_POLICY = config.discord.sendPolicy;
+  DISCORD_SEND_ALLOWED_CHANNEL_IDS = [...config.discord.sendAllowedChannelIds];
   DISCORD_FREE_RESPONSE_CHANNELS = [...config.discord.freeResponseChannels];
   DISCORD_TEXT_CHUNK_LIMIT = Math.max(
     200,

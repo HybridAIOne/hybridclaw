@@ -516,10 +516,9 @@ function formatCanonicalContextPrompt(params: {
     const lines = params.recentMessages.slice(-6).map((entry) => {
       const role = (entry.role || 'user').trim().toLowerCase();
       const who = role === 'assistant' ? 'Assistant' : 'User';
-      const from =
-        entry.channel_id && entry.channel_id.trim()
-          ? `${entry.channel_id.trim()} (${entry.session_id})`
-          : entry.session_id;
+      const from = entry.channel_id?.trim()
+        ? `${entry.channel_id.trim()} (${entry.session_id})`
+        : entry.session_id;
       const compact = entry.content.replace(/\s+/g, ' ').trim();
       const short =
         compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
@@ -1751,6 +1750,7 @@ export async function handleGatewayMessage(
       chatbotId,
       model,
       defaultModel: HYBRIDAI_MODEL,
+      channelType: 'discord',
       channelId: req.channelId,
       guildId: req.guildId,
     },

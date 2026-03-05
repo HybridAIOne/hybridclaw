@@ -694,7 +694,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). Browser automation tooling is preinstalled in the container image. HybridAI API key setup can be completed during onboarding. Current release: v0.2.7 (private `/approve` flow, stronger Discord free-mode relevance gating, static model-window-aware status telemetry, and improved upload/install-root robustness).</div>
+    <div class="hero-install-note">Prerequisites: Node.js 20+ (Docker required for full sandboxed tool execution). Browser automation tooling is preinstalled in the container image. HybridAI API key setup can be completed during onboarding. Current release: v0.2.8 (expanded Discord `message` actions, inline DM target resolution, channel-aware tool hints, and send-policy allowlist controls).</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -733,30 +733,30 @@
 
 <section id="latest">
   <div class="section-center">
-    <div class="section-label">v0.2.7</div>
+    <div class="section-label">v0.2.8</div>
     <h2 class="section-title">Release highlights</h2>
     <p class="section-desc">Key improvements included in the current release.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
       <div class="feature-icon">&#x1f513;</div>
-      <h3>Private approval flow</h3>
-      <p>`/approve` now handles private approval decisions, and `/status` + `/approve` stay discoverable in Discord DMs via global slash registration.</p>
+      <h3>Expanded Discord message actions</h3>
+      <p>The `message` tool now supports richer Discord workflows including reactions, quote replies, edit/delete, pin/unpin, and thread create/reply operations.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f5e3;&#xfe0f;</div>
-      <h3>Smarter Discord command/reply handling</h3>
-      <p>Guild command access now supports public/restricted allowlists, and free-mode replies skip low-signal chatter to reduce noisy over-replies.</p>
+      <h3>Natural send + DM intent mapping</h3>
+      <p>Natural aliases like `dm`, `post`, and `reply` normalize automatically, and user targets (`@alice`, user IDs, mentions, display names) resolve inline for single-call DMs.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4c8;</div>
-      <h3>Model-aware status telemetry</h3>
-      <p>Runtime status now resolves model context windows from a curated static model catalog (with family-aware fallbacks) and surfaces stronger context/cache usage signals.</p>
+      <h3>Channel-aware tool discovery</h3>
+      <p>Message tool descriptions now include current and configured channel contexts with intent-focused guidance, improving autonomous tool selection in cron/isolated runs.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4c2;</div>
-      <h3>Upload + runtime hardening</h3>
-      <p>`browser_upload` now supports selector/fallback targeting for wrapper elements, and CLI/container diagnostics were hardened for install-root and prompt-debug scenarios.</p>
+      <h3>Safer outbound send controls</h3>
+      <p>Runtime send governance now supports `discord.sendPolicy` plus channel/guild/user/role allowlist checks, with structured disambiguation errors for ambiguous user lookups.</p>
     </div>
   </div>
 </section>

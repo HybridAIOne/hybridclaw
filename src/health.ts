@@ -1,8 +1,11 @@
-import fs from 'fs';
-import http, { type IncomingMessage, type ServerResponse } from 'http';
-import path from 'path';
+import fs from 'node:fs';
+import http, { type IncomingMessage, type ServerResponse } from 'node:http';
+import path from 'node:path';
 import { runDiscordToolAction } from './channels/discord/runtime.js';
-import type { DiscordToolActionRequest } from './channels/discord/tool-actions.js';
+import {
+  type DiscordToolActionRequest,
+  normalizeDiscordToolAction,
+} from './channels/discord/tool-actions.js';
 import {
   GATEWAY_API_TOKEN,
   HEALTH_HOST,
@@ -19,6 +22,10 @@ import {
 } from './gateway-service.js';
 import type { GatewayChatRequestBody } from './gateway-types.js';
 import { logger } from './logger.js';
+import {
+  MESSAGE_SEND_SILENT_REPLY_TOKEN,
+  stripMessageSendSilentReplyToken,
+} from './prompt-hooks.js';
 import type { ToolProgressEvent } from './types.js';
 
 const SITE_DIR = path.resolve(process.cwd(), 'docs');
@@ -35,6 +42,21 @@ const MIME_TYPES: Record<string, string> = {
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiDiscordActionRequestBody = Partial<DiscordToolActionRequest>;
+
+function normalizeSilentMessageSendReply(
+  result: Awaited<ReturnType<typeof handleGatewayMessage>>,
+): Awaited<ReturnType<typeof handleGatewayMessage>> {
+  if (result.status !== 'success') return result;
+  const rawResult = result.result || '';
+  const cleanedResult = stripMessageSendSilentReplyToken(rawResult);
+  if (!rawResult.includes(MESSAGE_SEND_SILENT_REPLY_TOKEN)) {
+    return result;
+  }
+  return {
+    ...result,
+    result: cleanedResult || 'Message sent.',
+  };
+}
 
 function isLoopbackAddress(address: string | undefined): boolean {
   if (!address) return false;
@@ -139,7 +161,9 @@ async function handleApiChat(
     return;
   }
 
-  const result = await handleGatewayMessage(chatRequest);
+  const result = normalizeSilentMessageSendReply(
+    await handleGatewayMessage(chatRequest),
+  );
   sendJson(res, result.status === 'success' ? 200 : 500, result);
 }
 
@@ -177,11 +201,13 @@ async function handleApiChatStream(
   };
 
   try {
-    const result = await handleGatewayMessage({
-      ...chatRequest,
-      onTextDelta,
-      onToolProgress,
-    });
+    const result = normalizeSilentMessageSendReply(
+      await handleGatewayMessage({
+        ...chatRequest,
+        onTextDelta,
+        onToolProgress,
+      }),
+    );
     sendEvent({ type: 'result', result });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -241,15 +267,14 @@ async function handleApiDiscordAction(
   res: ServerResponse,
 ): Promise<void> {
   const body = (await readJsonBody(req)) as ApiDiscordActionRequestBody;
-  const action = typeof body.action === 'string' ? body.action.trim() : '';
-  if (
-    action !== 'read' &&
-    action !== 'member-info' &&
-    action !== 'channel-info'
-  ) {
+  const action =
+    typeof body.action === 'string'
+      ? normalizeDiscordToolAction(body.action)
+      : null;
+  if (!action) {
     sendJson(res, 400, {
       error:
-        'Invalid `action`. Allowed: "read", "member-info", "channel-info".',
+        'Invalid `action`. Allowed: "read", "member-info", "channel-info", "send", "react", "quote-reply", "edit", "delete", "pin", "unpin", "thread-create", "thread-reply".',
     });
     return;
   }
@@ -262,10 +287,31 @@ async function handleApiDiscordAction(
     memberId: typeof body.memberId === 'string' ? body.memberId : undefined,
     username: typeof body.username === 'string' ? body.username : undefined,
     user: typeof body.user === 'string' ? body.user : undefined,
+    resolveAmbiguous:
+      body.resolveAmbiguous === 'best' || body.resolveAmbiguous === 'error'
+        ? body.resolveAmbiguous
+        : undefined,
     limit: typeof body.limit === 'number' ? body.limit : undefined,
     before: typeof body.before === 'string' ? body.before : undefined,
     after: typeof body.after === 'string' ? body.after : undefined,
     around: typeof body.around === 'string' ? body.around : undefined,
+    content: typeof body.content === 'string' ? body.content : undefined,
+    components:
+      Array.isArray(body.components) ||
+      (body.components !== null && typeof body.components === 'object')
+        ? body.components
+        : undefined,
+    contextChannelId:
+      typeof body.contextChannelId === 'string'
+        ? body.contextChannelId
+        : undefined,
+    messageId: typeof body.messageId === 'string' ? body.messageId : undefined,
+    emoji: typeof body.emoji === 'string' ? body.emoji : undefined,
+    name: typeof body.name === 'string' ? body.name : undefined,
+    autoArchiveDuration:
+      typeof body.autoArchiveDuration === 'number'
+        ? body.autoArchiveDuration
+        : undefined,
   };
 
   const result = await runDiscordToolAction(request);

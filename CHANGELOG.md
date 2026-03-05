@@ -4,6 +4,29 @@
 
 No unreleased changes.
 
+## [0.2.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.8)
+
+### Added
+
+- **Discord send policy controls**: Added runtime config for `discord.sendPolicy` (`open|allowlist|disabled`) with global/channel/guild/user/role allowlist checks for outbound sends.
+- **Channel-aware prompt adapters**: Added channel-specific message-tool hint adapters (including Discord action/component guidance) injected into system prompts.
+- **Expanded Discord message actions**: Added `react`, `quote-reply`, `edit`, `delete`, `pin`, `unpin`, `thread-create`, and `thread-reply` actions to the `message` tool path.
+- **Message-tool regression coverage**: Added focused unit coverage for action aliases, target normalization, member/channel lookup behavior, send-policy checks, and channel hint injection.
+
+### Changed
+
+- **Message-tool intent guidance**: System prompt guidance now includes explicit send/post/DM/notify triggers, send parameter guidance (`to` + message), and reply suppression token handling for tool-only sends.
+- **Action alias + target normalization**: Message action normalization now supports natural aliases (`dm`, `post`, `reply`, `respond`, `history`, `fetch`, `lookup`, `whois`) and normalizes Discord prefixes/mentions.
+- **Tool description enrichment**: `message` tool descriptions now emphasize natural-language intent phrases and enumerate current/other configured Discord channels with supported actions.
+- **Single-call DM targeting**: `send` now resolves user targets inline (IDs, mentions, usernames/display names with guild context), including fallback via `user`/`username` when no explicit channel target is passed.
+- **Discord action API flexibility**: `/api/discord/action` now accepts normalized aliases and extended send payload fields (`components`, `contextChannelId`, threading/message mutation fields).
+
+### Fixed
+
+- **Structured target-resolution errors**: Member/user lookup failures now return structured JSON errors with disambiguation candidates and actionable hints.
+- **Ambiguous target handling**: Added `resolveAmbiguous` support (`error|best`) to allow safe candidate return or best-match auto-resolution for member/user lookups.
+- **Duplicate send-reply leakage**: Gateway chat responses now strip the message-send silent reply token and normalize final user-visible success text.
+
 ## [0.2.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.7)
 
 ### Added

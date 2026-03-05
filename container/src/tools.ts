@@ -86,7 +86,64 @@ const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
   /^images-ext-\d+\.discordapp\.net$/i,
 ];
 
-type DiscordMessageToolAction = 'read' | 'member-info' | 'channel-info';
+type DiscordMessageToolAction =
+  | 'read'
+  | 'member-info'
+  | 'channel-info'
+  | 'send'
+  | 'react'
+  | 'quote-reply'
+  | 'edit'
+  | 'delete'
+  | 'pin'
+  | 'unpin'
+  | 'thread-create'
+  | 'thread-reply';
+
+const MESSAGE_TOOL_ACTION_LIST =
+  'read, member-info, channel-info, send, react, quote-reply, edit, delete, pin, unpin, thread-create, thread-reply';
+const MESSAGE_TOOL_DESCRIPTION_BASE =
+  'Send messages, DMs, read channel history, and look up member info in Discord. Use this when asked to send/post/DM/notify someone, read messages, or look up users.';
+let gatewayConfiguredChannels: string[] = [];
+
+function normalizeConfiguredChannelList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const id = entry.trim();
+    if (!/^\d{16,22}$/.test(id)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+export function getMessageToolDescription(channelId?: string): string {
+  const explicitChannelId = readStringValue(channelId);
+  const activeChannelId =
+    explicitChannelId || readStringValue(gatewayChannelId);
+  const configuredChannels = normalizeConfiguredChannelList(
+    gatewayConfiguredChannels,
+  );
+  const otherChannels = configuredChannels
+    .filter((id) => !activeChannelId || id !== activeChannelId)
+    .slice(0, 6);
+  if (activeChannelId) {
+    const withOthers =
+      otherChannels.length > 0
+        ? ` Other configured channels: ${otherChannels.map((id) => `${id} (${MESSAGE_TOOL_ACTION_LIST})`).join(', ')}.`
+        : '';
+    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Current channel (${activeChannelId}) supports: ${MESSAGE_TOOL_ACTION_LIST}. Omit channelId/to to target the current channel for read/channel-info/send.${withOthers}`;
+  }
+  const withOthers =
+    configuredChannels.length > 0
+      ? ` Configured channels: ${configuredChannels.map((id) => `${id} (${MESSAGE_TOOL_ACTION_LIST})`).join(', ')}.`
+      : '';
+  return `${MESSAGE_TOOL_DESCRIPTION_BASE} Supports actions: ${MESSAGE_TOOL_ACTION_LIST}.${withOthers}`;
+}
 
 export function resetSideEffects(): void {
   pendingSchedules = [];
@@ -121,10 +178,13 @@ export function setGatewayContext(
   baseUrl?: string,
   apiToken?: string,
   channelId?: string,
+  configuredChannels?: string[],
 ): void {
   gatewayBaseUrl = String(baseUrl || '').trim();
   gatewayApiToken = String(apiToken || '').trim();
   gatewayChannelId = String(channelId || '').trim();
+  gatewayConfiguredChannels =
+    normalizeConfiguredChannelList(configuredChannels);
 }
 
 export function setModelContext(
@@ -155,12 +215,120 @@ function resolveDiscordMessageAction(
 ): DiscordMessageToolAction | null {
   const normalized = readStringValue(rawAction)?.toLowerCase();
   if (!normalized) return null;
-  if (normalized === 'read' || normalized === 'readmessages') return 'read';
-  if (normalized === 'member-info' || normalized === 'memberinfo')
+  const compact = normalized.replace(/[\s_-]+/g, '');
+  if (
+    compact === 'read' ||
+    compact === 'readmessages' ||
+    compact === 'history' ||
+    compact === 'fetch'
+  ) {
+    return 'read';
+  }
+  if (compact === 'memberinfo' || compact === 'lookup' || compact === 'whois') {
     return 'member-info';
-  if (normalized === 'channel-info' || normalized === 'channelinfo')
-    return 'channel-info';
+  }
+  if (compact === 'channelinfo') return 'channel-info';
+  if (
+    compact === 'react' ||
+    compact === 'reaction' ||
+    compact === 'reactions'
+  ) {
+    return 'react';
+  }
+  if (
+    compact === 'quotereply' ||
+    compact === 'replymessage' ||
+    compact === 'replyto'
+  ) {
+    return 'quote-reply';
+  }
+  if (compact === 'edit' || compact === 'update') return 'edit';
+  if (compact === 'delete' || compact === 'remove') return 'delete';
+  if (compact === 'pin') return 'pin';
+  if (compact === 'unpin') return 'unpin';
+  if (compact === 'threadcreate' || compact === 'createthread') {
+    return 'thread-create';
+  }
+  if (compact === 'threadreply' || compact === 'replythread') {
+    return 'thread-reply';
+  }
+  if (
+    compact === 'send' ||
+    compact === 'sendmessage' ||
+    compact === 'dm' ||
+    compact === 'post' ||
+    compact === 'reply' ||
+    compact === 'respond'
+  ) {
+    return 'send';
+  }
   return null;
+}
+
+function normalizeDiscordMessageTarget(value: unknown): string | undefined {
+  const raw = readStringValue(value);
+  if (!raw) return undefined;
+  const withoutProviderPrefix = raw.replace(/^(discord|user):/i, '').trim();
+  if (!withoutProviderPrefix) return undefined;
+  const userMention = withoutProviderPrefix.match(/^<@!?(\d{16,22})>$/);
+  if (userMention) return userMention[1];
+  const channelMention = withoutProviderPrefix.match(/^<#(\d{16,22})>$/);
+  if (channelMention) return channelMention[1];
+  return withoutProviderPrefix;
+}
+
+function resolveDiscordMessageChannelTarget(
+  args: Record<string, unknown>,
+): string {
+  const resolved =
+    normalizeDiscordMessageTarget(args.channelId) ||
+    normalizeDiscordMessageTarget(args.to) ||
+    normalizeDiscordMessageTarget(args.target) ||
+    normalizeDiscordMessageTarget(gatewayChannelId);
+  return resolved || '';
+}
+
+function resolveDiscordMessageExplicitChannelTarget(
+  args: Record<string, unknown>,
+): string {
+  const resolved =
+    normalizeDiscordMessageTarget(args.channelId) ||
+    normalizeDiscordMessageTarget(args.to) ||
+    normalizeDiscordMessageTarget(args.target);
+  return resolved || '';
+}
+
+function resolveDiscordMessageSendUserLookupTarget(
+  args: Record<string, unknown>,
+): string {
+  const resolved =
+    normalizeDiscordMessageTarget(args.user) ||
+    normalizeDiscordMessageTarget(args.username);
+  return resolved || '';
+}
+
+function resolveDiscordMessageUserTarget(
+  args: Record<string, unknown>,
+): string {
+  const resolved =
+    normalizeDiscordMessageTarget(args.userId) ||
+    normalizeDiscordMessageTarget(args.memberId) ||
+    normalizeDiscordMessageTarget(args.user) ||
+    normalizeDiscordMessageTarget(args.username);
+  return resolved || '';
+}
+
+function resolveDiscordRequestingUserId(args: Record<string, unknown>): string {
+  const resolved =
+    normalizeDiscordMessageTarget(args.asUserId) ||
+    normalizeDiscordMessageTarget(args.userId);
+  return resolved || '';
+}
+
+function resolveDiscordGuildId(value: unknown): string {
+  const resolved =
+    normalizeDiscordMessageTarget(value) || readStringValue(value);
+  return resolved || '';
 }
 
 function resolveGatewayDiscordActionUrl(): string | null {
@@ -207,11 +375,29 @@ async function callGatewayDiscordAction(
   }
 
   if (!response.ok) {
-    const detail =
-      typeof parsed?.error === 'string'
-        ? parsed.error
-        : rawText || `HTTP ${response.status}`;
-    return `Error: Discord action failed (${response.status}): ${detail}`;
+    if (parsed) {
+      const structured: Record<string, unknown> = {
+        ok: false,
+        status: response.status,
+        ...parsed,
+      };
+      if (
+        typeof structured.error !== 'string' ||
+        structured.error.trim().length === 0
+      ) {
+        structured.error = rawText || `HTTP ${response.status}`;
+      }
+      return JSON.stringify(structured, null, 2);
+    }
+    return JSON.stringify(
+      {
+        ok: false,
+        status: response.status,
+        error: rawText || `HTTP ${response.status}`,
+      },
+      null,
+      2,
+    );
   }
 
   if (parsed) return JSON.stringify(parsed, null, 2);
@@ -1340,17 +1526,28 @@ export async function executeTool(
       case 'message': {
         const action = resolveDiscordMessageAction(args.action);
         if (!action) {
-          return 'Error: unsupported message action. Use "read", "member-info", or "channel-info".';
+          return 'Error: unsupported message action. Use "read", "member-info", "channel-info", "send", "react", "quote-reply", "edit", "delete", "pin", "unpin", "thread-create", or "thread-reply".';
         }
 
         const payload: Record<string, unknown> = { action };
+        const resolveAmbiguousRaw = readStringValue(args.resolveAmbiguous);
+        const resolveAmbiguous =
+          resolveAmbiguousRaw &&
+          (resolveAmbiguousRaw.toLowerCase() === 'best' ||
+            resolveAmbiguousRaw.toLowerCase() === 'error')
+            ? resolveAmbiguousRaw.toLowerCase()
+            : undefined;
+        const messageId = normalizeDiscordMessageTarget(args.messageId);
+        const emoji = readStringValue(args.emoji);
+        const threadName = readStringValue(args.name);
+        const autoArchiveDuration =
+          typeof args.autoArchiveDuration === 'number' &&
+          Number.isFinite(args.autoArchiveDuration)
+            ? Math.max(60, Math.floor(args.autoArchiveDuration))
+            : undefined;
 
         if (action === 'read') {
-          const channelId =
-            readStringValue(args.channelId) ||
-            readStringValue(args.to) ||
-            readStringValue(args.target) ||
-            gatewayChannelId;
+          const channelId = resolveDiscordMessageChannelTarget(args);
           if (!channelId) {
             return 'Error: channelId is required for message action "read".';
           }
@@ -1368,12 +1565,8 @@ export async function executeTool(
         }
 
         if (action === 'member-info') {
-          const guildId = readStringValue(args.guildId);
-          const userId =
-            readStringValue(args.userId) ||
-            readStringValue(args.memberId) ||
-            readStringValue(args.user) ||
-            readStringValue(args.username);
+          const guildId = resolveDiscordGuildId(args.guildId);
+          const userId = resolveDiscordMessageUserTarget(args);
           if (!guildId) {
             return 'Error: guildId is required for message action "member-info".';
           }
@@ -1382,18 +1575,155 @@ export async function executeTool(
           }
           payload.guildId = guildId;
           payload.userId = userId;
+          if (resolveAmbiguous) payload.resolveAmbiguous = resolveAmbiguous;
         }
 
         if (action === 'channel-info') {
-          const channelId =
-            readStringValue(args.channelId) ||
-            readStringValue(args.to) ||
-            readStringValue(args.target) ||
-            gatewayChannelId;
+          const channelId = resolveDiscordMessageChannelTarget(args);
           if (!channelId) {
             return 'Error: channelId is required for message action "channel-info".';
           }
           payload.channelId = channelId;
+        }
+
+        if (action === 'send') {
+          const explicitChannelId =
+            resolveDiscordMessageExplicitChannelTarget(args);
+          const userLookupTarget =
+            resolveDiscordMessageSendUserLookupTarget(args);
+          const fallbackChannelId = userLookupTarget
+            ? ''
+            : normalizeDiscordMessageTarget(gatewayChannelId);
+          const channelId = explicitChannelId || fallbackChannelId;
+          if (!channelId && !userLookupTarget) {
+            return 'Error: channelId is required for message action "send" unless user/username is provided.';
+          }
+          const content =
+            readStringValue(args.content) ||
+            readStringValue(args.text) ||
+            readStringValue(args.message);
+          const components =
+            Array.isArray(args.components) ||
+            (args.components &&
+              typeof args.components === 'object' &&
+              !Array.isArray(args.components))
+              ? args.components
+              : undefined;
+          if (!content && components === undefined) {
+            return 'Error: content is required for message action "send" unless components is provided.';
+          }
+          if (channelId) payload.channelId = channelId;
+          if (userLookupTarget) payload.user = userLookupTarget;
+          if (content) payload.content = content;
+          if (components !== undefined) payload.components = components;
+
+          const requestingUserId = resolveDiscordRequestingUserId(args);
+          const guildId = resolveDiscordGuildId(args.guildId);
+          const contextChannelId =
+            normalizeDiscordMessageTarget(gatewayChannelId);
+          if (requestingUserId) payload.userId = requestingUserId;
+          if (guildId) payload.guildId = guildId;
+          if (contextChannelId) payload.contextChannelId = contextChannelId;
+          if (resolveAmbiguous) payload.resolveAmbiguous = resolveAmbiguous;
+        }
+
+        if (action === 'react') {
+          const channelId = resolveDiscordMessageChannelTarget(args);
+          if (!channelId) {
+            return 'Error: channelId is required for message action "react".';
+          }
+          if (!messageId) {
+            return 'Error: messageId is required for message action "react".';
+          }
+          if (!emoji) {
+            return 'Error: emoji is required for message action "react".';
+          }
+          payload.channelId = channelId;
+          payload.messageId = messageId;
+          payload.emoji = emoji;
+        }
+
+        if (action === 'quote-reply') {
+          const channelId = resolveDiscordMessageChannelTarget(args);
+          if (!channelId) {
+            return 'Error: channelId is required for message action "quote-reply".';
+          }
+          if (!messageId) {
+            return 'Error: messageId is required for message action "quote-reply".';
+          }
+          const content =
+            readStringValue(args.content) ||
+            readStringValue(args.text) ||
+            readStringValue(args.message);
+          if (!content) {
+            return 'Error: content is required for message action "quote-reply".';
+          }
+          payload.channelId = channelId;
+          payload.messageId = messageId;
+          payload.content = content;
+          const requestingUserId = resolveDiscordRequestingUserId(args);
+          const guildId = resolveDiscordGuildId(args.guildId);
+          if (requestingUserId) payload.userId = requestingUserId;
+          if (guildId) payload.guildId = guildId;
+        }
+
+        if (
+          action === 'edit' ||
+          action === 'delete' ||
+          action === 'pin' ||
+          action === 'unpin' ||
+          action === 'thread-create'
+        ) {
+          const channelId = resolveDiscordMessageChannelTarget(args);
+          if (!channelId) {
+            return `Error: channelId is required for message action "${action}".`;
+          }
+          if (!messageId) {
+            return `Error: messageId is required for message action "${action}".`;
+          }
+          payload.channelId = channelId;
+          payload.messageId = messageId;
+
+          if (action === 'edit') {
+            const content =
+              readStringValue(args.content) ||
+              readStringValue(args.text) ||
+              readStringValue(args.message);
+            if (!content) {
+              return 'Error: content is required for message action "edit".';
+            }
+            payload.content = content;
+          }
+
+          if (action === 'thread-create') {
+            if (!threadName) {
+              return 'Error: name is required for message action "thread-create".';
+            }
+            payload.name = threadName;
+            if (autoArchiveDuration) {
+              payload.autoArchiveDuration = autoArchiveDuration;
+            }
+          }
+        }
+
+        if (action === 'thread-reply') {
+          const channelId = resolveDiscordMessageChannelTarget(args);
+          if (!channelId) {
+            return 'Error: channelId is required for message action "thread-reply".';
+          }
+          const content =
+            readStringValue(args.content) ||
+            readStringValue(args.text) ||
+            readStringValue(args.message);
+          if (!content) {
+            return 'Error: content is required for message action "thread-reply".';
+          }
+          payload.channelId = channelId;
+          payload.content = content;
+          const requestingUserId = resolveDiscordRequestingUserId(args);
+          const guildId = resolveDiscordGuildId(args.guildId);
+          if (requestingUserId) payload.userId = requestingUserId;
+          if (guildId) payload.guildId = guildId;
         }
 
         return await callGatewayDiscordAction(payload);
@@ -1909,29 +2239,43 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'message',
-      description:
-        'OpenClaw-style channel action tool. In Discord-backed sessions supports actions: read, member-info, channel-info.',
+      description: getMessageToolDescription(),
       parameters: {
         type: 'object',
         properties: {
           action: {
             type: 'string',
             description:
-              'Action to perform: "read", "member-info", or "channel-info".',
-            enum: ['read', 'member-info', 'channel-info'],
+              'Action to perform: "read", "member-info", "channel-info", "send", "react", "quote-reply", "edit", "delete", "pin", "unpin", "thread-create", or "thread-reply".',
+            enum: [
+              'read',
+              'member-info',
+              'channel-info',
+              'send',
+              'react',
+              'quote-reply',
+              'edit',
+              'delete',
+              'pin',
+              'unpin',
+              'thread-create',
+              'thread-reply',
+            ],
           },
           channelId: {
             type: 'string',
             description:
-              'Discord channel id. Defaults to current channel for read/channel-info.',
+              'Discord channel ID (snowflake). Defaults to current channel.',
           },
           guildId: {
             type: 'string',
-            description: 'Discord guild id (required for member-info).',
+            description:
+              'Discord guild id (required for member-info; optional for send).',
           },
           userId: {
             type: 'string',
-            description: 'Discord user id (required for member-info).',
+            description:
+              'Discord user id (required for member-info; optional requester id for send allowlist checks).',
           },
           memberId: {
             type: 'string',
@@ -1940,11 +2284,18 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           username: {
             type: 'string',
             description:
-              'Discord username/display name/@handle to resolve for member-info.',
+              'Discord username/display name/@handle to resolve for member-info, or as DM target for send when channelId/to/target is omitted.',
           },
           user: {
             type: 'string',
-            description: 'Alias for username/userId in member-info.',
+            description:
+              'Alias for username/userId in member-info; for send, used as DM target when channelId/to/target is omitted.',
+          },
+          resolveAmbiguous: {
+            type: 'string',
+            description:
+              'Ambiguity policy for member lookups in action="member-info" and user-target sends: "error" (default) returns candidates, "best" auto-picks top score.',
+            enum: ['error', 'best'],
           },
           limit: {
             type: 'number',
@@ -1962,8 +2313,61 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'string',
             description: 'Read messages around this message id.',
           },
-          target: { type: 'string', description: 'Alias for channelId.' },
-          to: { type: 'string', description: 'Alias for channelId.' },
+          content: {
+            type: 'string',
+            description: 'Message text payload (required for action="send").',
+          },
+          components: {
+            type: ['object', 'array'],
+            description:
+              'Optional Discord components payload for action="send" (buttons/selects/action rows).',
+          },
+          text: {
+            type: 'string',
+            description: 'Alias for content in action="send".',
+          },
+          message: {
+            type: 'string',
+            description: 'Alias for content in action="send".',
+          },
+          asUserId: {
+            type: 'string',
+            description:
+              'Requester user id for send allowlist checks (alias for userId).',
+          },
+          contextChannelId: {
+            type: 'string',
+            description:
+              'Context Discord channel id used to infer guild for user-target sends.',
+          },
+          messageId: {
+            type: 'string',
+            description:
+              'Discord message id for actions: react, quote-reply, edit, delete, pin, unpin, thread-create.',
+          },
+          emoji: {
+            type: 'string',
+            description: 'Emoji payload for action="react".',
+          },
+          name: {
+            type: 'string',
+            description: 'Thread name for action="thread-create".',
+          },
+          autoArchiveDuration: {
+            type: 'number',
+            description:
+              'Optional thread auto-archive duration in minutes for action="thread-create".',
+          },
+          target: {
+            type: 'string',
+            description:
+              'Target user or channel. Accepts: Discord channel ID, user ID, @username, #channel-name, or display name.',
+          },
+          to: {
+            type: 'string',
+            description:
+              'Target user or channel. Accepts: Discord channel ID, user ID, @username, #channel-name, or display name.',
+          },
         },
         required: ['action'],
       },

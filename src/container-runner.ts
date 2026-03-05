@@ -2,9 +2,9 @@
  * Container Runner — manages a pool of persistent containers.
  * Containers stay alive between requests and exit after an idle timeout.
  */
-import { type ChildProcess, spawn } from 'child_process';
-import fs from 'fs';
-import path from 'path';
+import { type ChildProcess, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import {
   ADDITIONAL_MOUNTS,
@@ -13,6 +13,9 @@ import {
   CONTAINER_MEMORY,
   CONTAINER_TIMEOUT,
   DATA_DIR,
+  DISCORD_FREE_RESPONSE_CHANNELS,
+  DISCORD_GUILDS,
+  DISCORD_SEND_ALLOWED_CHANNEL_IDS,
   GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
   getHybridAIApiKey,
@@ -66,6 +69,29 @@ const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const STREAM_DELTA_RE = /^\[stream\]\s+([A-Za-z0-9+/=]+)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
+
+function collectConfiguredDiscordChannelIds(
+  currentChannelId: string,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (value: string | undefined | null) => {
+    const id = String(value || '').trim();
+    if (!/^\d{16,22}$/.test(id)) return;
+    if (seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  };
+
+  add(currentChannelId);
+  for (const id of DISCORD_SEND_ALLOWED_CHANNEL_IDS) add(id);
+  for (const id of DISCORD_FREE_RESPONSE_CHANNELS) add(id);
+  for (const guildConfig of Object.values(DISCORD_GUILDS)) {
+    for (const channelId of Object.keys(guildConfig.channels || {}))
+      add(channelId);
+  }
+  return out;
+}
 
 function resolveDiscordMediaCacheHostDir(): string {
   return path.resolve(path.join(DATA_DIR, 'discord-media-cache'));
@@ -410,8 +436,8 @@ export async function runContainer(
 
   const isNewContainer =
     !pool.has(sessionId) ||
-    pool.get(sessionId)!.process.killed ||
-    pool.get(sessionId)!.process.exitCode !== null;
+    pool.get(sessionId)?.process.killed ||
+    pool.get(sessionId)?.process.exitCode !== null;
 
   let entry: PoolEntry;
   try {
@@ -437,6 +463,7 @@ export async function runContainer(
     model,
     maxTokens: HYBRIDAI_MAX_TOKENS,
     channelId,
+    configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
     scheduledTasks: scheduledTasks?.map((t) => ({
       id: t.id,
       cronExpr: t.cron_expr,
@@ -471,7 +498,7 @@ export async function runContainer(
       // First request: send full input (including apiKey) via stdin — no file on disk.
       // Write JSON on a single line followed by newline as delimiter.
       // Do NOT end stdin — closing stdin can cause docker -i to terminate the container.
-      entry.process.stdin?.write(JSON.stringify(input) + '\n');
+      entry.process.stdin?.write(`${JSON.stringify(input)}\n`);
     } else {
       // Follow-up requests: write to IPC file, omitting apiKey
       writeInput(sessionId, input, { omitApiKey: true });

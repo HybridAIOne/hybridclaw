@@ -11,17 +11,16 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.2.7](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.7)
+Latest release: [v0.2.8](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.8)
 
-## Release highlights (v0.2.7)
+## Release highlights (v0.2.8)
 
-- Private approval flow via `/approve [view|yes|session|agent|no] [approval_id]` with ephemeral responses, and DM-ready global slash registration for `/status` + `/approve`.
-- Discord command access controls now support `discord.commandMode` (`public|restricted`) plus `discord.commandAllowedUserIds` (with legacy `commandUserId` compatibility).
-- Free-mode Discord replies now apply stronger relevance gating (for example short acknowledgements/URL-only chatter are skipped, and messages mentioning other users are de-prioritized).
-- `browser_upload` now supports selector targets and automatic fallback from wrapper refs to detected `input[type="file"]` elements.
-- HybridAI status/usage context metrics now use a curated static context-window catalog (Claude/Gemini/GPT-5) with family-aware fallback matching, and runtime supports `hybridai.maxTokens` for default completion budgeting.
-- Model-usage telemetry now captures cache read/write token counters where providers expose them, and prompt-dump diagnostics include media plus allowed/blocked tool context.
-- CLI container readiness checks now resolve the package install root to avoid non-root invocation failures.
+- Discord `message` tool now supports richer actions (`send`, `read`, `member-info`, `channel-info`, `react`, `quote-reply`, `edit`, `delete`, `pin`, `unpin`, `thread-create`, `thread-reply`).
+- Send intent handling is more natural: aliases like `dm`, `post`, `reply`, `respond`, `history`, `fetch`, `lookup`, and `whois` normalize automatically.
+- Single-call DM routing is now supported for user targets (`user`/`username`, `@mentions`, IDs), including inline resolution when no explicit `channelId` is provided.
+- Message-tool descriptions now include intent phrases and enumerate configured channels so isolated/cron runs can discover available Discord targets.
+- Discord send governance gained runtime allowlist controls via `discord.sendPolicy` plus channel/guild/user/role checks.
+- Lookup failures now return structured errors with disambiguation candidates and optional `resolveAmbiguous=best` auto-pick behavior.
 
 ## HybridAI Advantage
 

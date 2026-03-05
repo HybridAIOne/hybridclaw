@@ -1,6 +1,7 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { resolveChannelMessageToolHints } from './channels/prompt-adapters.js';
 import { APP_VERSION, HYBRIDAI_MODEL } from './config.js';
 import {
   getRuntimeConfig,
@@ -13,11 +14,26 @@ import { buildContextPrompt, loadBootstrapFiles } from './workspace.js';
 export type PromptHookName = 'bootstrap' | 'memory' | 'safety' | 'runtime';
 export type ExtendedPromptHookName = PromptHookName | 'proactivity';
 export type PromptMode = 'full' | 'minimal' | 'none';
+export const MESSAGE_SEND_SILENT_REPLY_TOKEN = '__MESSAGE_SEND_HANDLED__';
+
+export function stripMessageSendSilentReplyToken(
+  value: string | null | undefined,
+): string {
+  const raw = String(value || '');
+  if (!raw) return '';
+  const stripped = raw
+    .split('\n')
+    .filter((line) => line.trim() !== MESSAGE_SEND_SILENT_REPLY_TOKEN)
+    .join('\n')
+    .trim();
+  return stripped;
+}
 
 export interface PromptRuntimeInfo {
   chatbotId?: string;
   model?: string;
   defaultModel?: string;
+  channelType?: string;
   channelId?: string;
   guildId?: string | null;
 }
@@ -76,6 +92,13 @@ function buildSafetyHook(context: PromptHookContext): string {
   const runtime = getRuntimeConfig();
   const accepted = isSecurityTrustAccepted(runtime);
   const securityDoc = readSecurityPromptGuardrails();
+  const channelMessageToolHints = resolveChannelMessageToolHints({
+    runtimeInfo: {
+      channelType: context.runtimeInfo?.channelType,
+      channelId: context.runtimeInfo?.channelId,
+      guildId: context.runtimeInfo?.guildId,
+    },
+  });
 
   const lines = [
     '## Runtime Safety Guardrails',
@@ -90,8 +113,31 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Use bash for execution/build/validation tasks, not for file authoring.',
     'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',
     'Only skip file creation when the user explicitly asks for snippet-only or explanation-only output.',
-    'When Discord context is needed, use the `message` tool actions (`read`, `member-info`, `channel-info`) instead of guessing channel members.',
+    'When Discord context is needed, use the `message` tool actions (`read`, `member-info`, `channel-info`, `send`) instead of guessing channel members.',
     'For questions like "what did X say", "who said", or channel recap requests, call `message` with `action="read"` first before answering.',
+    'For send intents like "send message", "post in", "DM", "tell X", "notify X", or "message X on discord", call `message` with `action="send"`.',
+    'For `message` with `action="send"`, include target as `channelId` (aliases: `to`, `target`) and text as `content` (aliases: `message`, `text`).',
+    `If \`message\` with \`action="send"\` already delivered the final user-visible reply, respond with ONLY: ${MESSAGE_SEND_SILENT_REPLY_TOKEN}`,
+    ...(channelMessageToolHints.length > 0
+      ? ['', '### Message Tool Hints', ...channelMessageToolHints]
+      : []),
+    '',
+    '### Discord message few-shot examples',
+    'Example 1',
+    'User: "Send a message to #general saying hello"',
+    'Tool call: `message` {"action":"send","channelId":"#general","content":"hello"}',
+    `Assistant final text: "${MESSAGE_SEND_SILENT_REPLY_TOKEN}"`,
+    '',
+    'Example 2',
+    'User: "DM @alice about the deploy"',
+    'Tool call 1: `message` {"action":"member-info","guildId":"<guild-id>","user":"@alice"}',
+    'Tool call 2: `message` {"action":"send","to":"<alice-user-or-dm-channel-id>","content":"Deploy finished. Please verify."}',
+    `Assistant final text: "${MESSAGE_SEND_SILENT_REPLY_TOKEN}"`,
+    '',
+    'Example 3',
+    'User: "What did Bob say?"',
+    'Tool call: `message` {"action":"read","channelId":"<current-or-target-channel-id>","limit":50}',
+    'Then answer from fetched messages; do not guess.',
     '',
     '## Web Retrieval Routing (web_fetch vs browser_*)',
     'Decision rule: default to `web_fetch` for read-only content retrieval.',

@@ -6,6 +6,7 @@ import {
   type Message as DiscordMessage,
   GatewayIntentBits,
   Partials,
+  PermissionFlagsBits,
 } from 'discord.js';
 
 import {
@@ -81,6 +82,7 @@ import {
   type LifecyclePhase,
   LifecycleReactionController,
 } from './reactions.js';
+import { resolveSendAllowed } from './send-permissions.js';
 import { DiscordStreamManager } from './stream.js';
 import {
   type CachedDiscordPresence,
@@ -524,6 +526,8 @@ function requireDiscordClientReady(): Client {
 const runDiscordToolActionInternal = createDiscordToolActionRunner({
   requireDiscordClientReady,
   getDiscordPresence,
+  sendToChannel,
+  resolveSendAllowed,
 });
 
 export async function runDiscordToolAction(
@@ -2198,19 +2202,58 @@ export async function sendToChannel(
   text: string,
   files?: AttachmentBuilder[],
 ): Promise<void> {
+  if (!client || !client.isReady()) {
+    throw new Error('Discord client is not ready yet.');
+  }
   const channel = await client.channels.fetch(channelId);
-  if (channel && 'send' in channel) {
-    const payloads = prepareChunkedPayloads(text, files);
-    const send = (
-      channel as unknown as {
-        send: (payload: {
-          content: string;
-          files?: AttachmentBuilder[];
-        }) => Promise<void>;
-      }
-    ).send;
-    for (const payload of payloads) {
-      await withDiscordRetry('send-channel', () => send(payload));
+  if (!channel || !('send' in channel)) {
+    throw new Error(`Channel ${channelId} does not support sending messages.`);
+  }
+
+  if (
+    'permissionsFor' in channel &&
+    typeof channel.permissionsFor === 'function' &&
+    'guild' in channel
+  ) {
+    const me =
+      channel.guild?.members?.me ||
+      (typeof channel.guild?.members?.fetchMe === 'function'
+        ? await channel.guild.members.fetchMe().catch(() => null)
+        : null);
+    const permissions = me ? channel.permissionsFor(me) : null;
+    if (!permissions) {
+      throw new Error(
+        `Unable to resolve bot permissions for channel ${channelId}.`,
+      );
     }
+    const requiredPermissions = [
+      { label: 'ViewChannel', flag: PermissionFlagsBits.ViewChannel },
+      { label: 'SendMessages', flag: PermissionFlagsBits.SendMessages },
+    ];
+    if (typeof channel.isThread === 'function' && channel.isThread()) {
+      requiredPermissions.push({
+        label: 'SendMessagesInThreads',
+        flag: PermissionFlagsBits.SendMessagesInThreads,
+      });
+    }
+    const missingPermissions = requiredPermissions
+      .filter(({ flag }) => !permissions.has(flag))
+      .map(({ label }) => label);
+    if (missingPermissions.length > 0) {
+      throw new Error(
+        `Missing Discord permissions for channel ${channelId}: ${missingPermissions.join(', ')}`,
+      );
+    }
+  }
+
+  const payloads = prepareChunkedPayloads(text, files);
+  const sendableChannel = channel as unknown as {
+    send: (payload: {
+      content: string;
+      files?: AttachmentBuilder[];
+    }) => Promise<void>;
+  };
+  for (const payload of payloads) {
+    await withDiscordRetry('send-channel', () => sendableChannel.send(payload));
   }
 }
