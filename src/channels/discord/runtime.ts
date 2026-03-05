@@ -1626,7 +1626,9 @@ export function initDiscord(
           .toLowerCase();
         if (modelSubcommand === 'info') return ['model', 'default'];
         if (modelSubcommand === 'default') {
-          const selectedModel = interaction.options.getString('name', true).trim();
+          const selectedModel = interaction.options
+            .getString('name', true)
+            .trim();
           if (!selectedModel) return null;
           return ['model', 'default', selectedModel];
         }

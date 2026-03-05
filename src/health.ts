@@ -58,7 +58,10 @@ function parseJsonObject(raw: unknown): Record<string, unknown> | null {
 
 function isMessageSendAction(rawAction: unknown): boolean {
   if (typeof rawAction !== 'string') return false;
-  const compact = rawAction.trim().toLowerCase().replace(/[\s_-]+/g, '');
+  const compact = rawAction
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
   return (
     compact === 'send' ||
     compact === 'sendmessage' ||
@@ -74,7 +77,11 @@ function hasMessageSendToolExecution(
 ): boolean {
   if (!Array.isArray(result.toolExecutions)) return false;
   for (const execution of result.toolExecutions) {
-    if (String(execution.name || '').trim().toLowerCase() !== 'message')
+    if (
+      String(execution.name || '')
+        .trim()
+        .toLowerCase() !== 'message'
+    )
       continue;
 
     const argsObj = parseJsonObject(execution.arguments);
@@ -111,7 +118,9 @@ function normalizeSilentMessageSendReply(
   if (isSilentReply(rawResult)) {
     return {
       ...result,
-      result: sentByMessageTool ? 'Message sent.' : fallbackResultFromTools(result),
+      result: sentByMessageTool
+        ? 'Message sent.'
+        : fallbackResultFromTools(result),
     };
   }
   const cleanedResult = stripSilentToken(rawResult);

@@ -188,7 +188,10 @@ async function promptApprovalSelection(
   return command;
 }
 
-function printBanner(modelInfo: { current: string; defaultModel: string }): void {
+function printBanner(modelInfo: {
+  current: string;
+  defaultModel: string;
+}): void {
   const T = TEAL;
   const N = NAVY;
   const logo = [
@@ -354,7 +357,9 @@ async function runGatewayCommand(args: string[]): Promise<void> {
   }
 }
 
-function parseCurrentModelFromInfo(result: GatewayCommandResult): string | null {
+function parseCurrentModelFromInfo(
+  result: GatewayCommandResult,
+): string | null {
   const info = parseModelInfoFromInfo(result);
   return info?.current || null;
 }
@@ -434,8 +439,7 @@ async function promptModelSelection(
     console.log(`  ${MUTED}Current:${RESET} ${TEAL}${currentModel}${RESET}`);
   }
   for (const [index, model] of models.entries()) {
-    const suffix =
-      currentModel === model ? ` ${MUTED}(current)${RESET}` : '';
+    const suffix = currentModel === model ? ` ${MUTED}(current)${RESET}` : '';
     console.log(`  ${TEAL}${index + 1}${RESET} ${model}${suffix}`);
   }
 
@@ -673,9 +677,7 @@ async function pollProactiveMessages(rl: readline.Interface): Promise<void> {
       const sourceSuffix = message.source
         ? ` ${MUTED}(${message.source})${RESET}`
         : '';
-      console.log(
-        `  ${GOLD}[reminder]${RESET} ${message.text}${sourceSuffix}`,
-      );
+      console.log(`  ${GOLD}[reminder]${RESET} ${message.text}${sourceSuffix}`);
     }
     console.log();
     rl.prompt();
