@@ -8,6 +8,7 @@ import {
   type GatewayChatToolProgressEvent,
   type GatewayCommandRequest,
   type GatewayCommandResult,
+  type GatewayProactivePullResponse,
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
@@ -17,6 +18,7 @@ export type {
   GatewayCommandResult,
   GatewayStatus,
   GatewayChatStreamEvent,
+  GatewayProactivePullResponse,
 };
 export type GatewayChatRequest = GatewayChatRequestBody;
 
@@ -225,6 +227,23 @@ export async function gatewayStatus(): Promise<GatewayStatus> {
 
 export async function gatewayHealth(): Promise<GatewayStatus> {
   return requestJson<GatewayStatus>('/health', { method: 'GET' });
+}
+
+export async function gatewayPullProactive(
+  channelId: string,
+  limit = 20,
+): Promise<GatewayProactivePullResponse> {
+  const params = new URLSearchParams({
+    channelId,
+    limit: String(Math.max(1, Math.floor(limit))),
+  });
+  return requestJson<GatewayProactivePullResponse>(
+    `/api/proactive/pull?${params.toString()}`,
+    {
+      method: 'GET',
+      headers: authHeaders(),
+    },
+  );
 }
 
 export async function gatewayShutdown(): Promise<{

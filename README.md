@@ -11,13 +11,13 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
-Latest release: [v0.2.10](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.10)
+Latest release: [v0.2.11](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.2.11)
 
-## Release highlights (v0.2.10)
+## Release highlights (v0.2.11)
 
-- Fixed HybridAI `400 invalid_function_parameters` failures by correcting `message.components` schema (`array` now defines `items`).
-- Improved HybridAI reliability by centralizing stream-fallback/retry error classification in the container runtime.
-- Added regression tests for message-tool schema validity and HybridAI retry/fallback behavior.
+- Added explicit cron-instruction scheduling (`at_seconds` + prompt aliases) so timer tasks are authored as clear model instructions.
+- Fixed scheduler UTC parsing for legacy SQLite timestamps to prevent interval timers from firing immediately due to timezone drift.
+- Added TUI proactive polling (`/api/proactive/pull`) so local `tui` reminder deliveries are surfaced reliably.
 
 ## HybridAI Advantage
 
@@ -134,7 +134,7 @@ HybridClaw uses typed runtime config in `config.json` (auto-created on first run
 - `sessionCompaction.tokenBudget` and `sessionCompaction.budgetRatio` tune compaction token budgeting behavior
 - Built-in Discord humanization behaviors include night/weekend pacing, post-exchange cooldown scaling (after 5+ exchanges, reset after 20 minutes idle), selective silence in active free-mode channels, short-ack read reactions, and reconnect staggered dequeue
 - Per-guild/per-channel mode takes precedence over `discord.respondToAllMessages`
-- Discord slash commands: `/status`, `/approve [view|yes|session|agent|no] [approval_id]`, `/channel-mode <off|mention|free>`, and `/channel-policy <open|allowlist|disabled>` (ephemeral replies)
+- Discord slash commands: `/status`, `/approve [view|yes|session|agent|no] [approval_id]`, `/channel-mode <off|mention|free>`, `/channel-policy <open|allowlist|disabled>`, and `/model info|default <name>` (ephemeral replies)
 - `skills.extraDirs` adds additional enterprise/shared skill roots (lowest precedence tier)
 - `proactive.*` controls autonomous behavior (`activeHours`, `delegation`, `autoRetry`, `ralph`)
 - `proactive.ralph.maxIterations` enables Ralph loop (`0` off, `-1` unlimited, `>0` extra autonomous iterations before forcing completion)

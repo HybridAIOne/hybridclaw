@@ -2103,6 +2103,7 @@ export async function handleGatewayCommand(
         '`bot info` — Show current chatbot settings',
         '`model list` — List available models',
         '`model set <name>` — Set model for this session',
+        '`model default [name]` — Show or set default model for new sessions',
         '`model info` — Show current model',
         '`rag [on|off]` — Toggle or set RAG mode',
         '`channel mode [off|mention|free]` — Set or inspect this Discord channel response mode',
@@ -2113,6 +2114,8 @@ export async function handleGatewayCommand(
         '`/approve [view|yes|session|agent|no] [approval_id]` — View/respond to pending approvals privately',
         '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
         '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
+        '`/model info` — Show current default model and allowed list',
+        '`/model default <name>` — Set default model for new sessions',
         '`sessions` — List active sessions',
         '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
         '`export session [sessionId]` — Export session JSONL snapshot for debugging',
@@ -2200,6 +2203,35 @@ export async function handleGatewayCommand(
         return infoCommand('Available Models', list);
       }
 
+      if (sub === 'default') {
+        const modelName = req.args[2];
+        if (!modelName) {
+          const defaultLine = `Default model: ${HYBRIDAI_MODEL}`;
+          if (HYBRIDAI_MODELS.length === 0) {
+            return infoCommand('Default Model', defaultLine);
+          }
+          const list = HYBRIDAI_MODELS.map((m) =>
+            m === HYBRIDAI_MODEL ? `${m} (default)` : m,
+          ).join('\n');
+          return infoCommand('Default Model', `${defaultLine}\n\n${list}`);
+        }
+        if (
+          HYBRIDAI_MODELS.length > 0 &&
+          !HYBRIDAI_MODELS.includes(modelName)
+        ) {
+          return badCommand(
+            'Unknown Model',
+            `\`${modelName}\` is not in the available models list.`,
+          );
+        }
+        updateRuntimeConfig((draft) => {
+          draft.hybridai.defaultModel = modelName;
+        });
+        return plainCommand(
+          `Default model set to \`${modelName}\` for new sessions.`,
+        );
+      }
+
       if (sub === 'set') {
         const modelName = req.args[2];
         if (!modelName) return badCommand('Usage', 'Usage: `model set <name>`');
@@ -2224,7 +2256,10 @@ export async function handleGatewayCommand(
         );
       }
 
-      return badCommand('Usage', 'Usage: `model list|set <name>|info`');
+      return badCommand(
+        'Usage',
+        'Usage: `model list|set <name>|default [name]|info`',
+      );
     }
 
     case 'rag': {

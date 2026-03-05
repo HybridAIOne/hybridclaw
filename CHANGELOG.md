@@ -8,6 +8,24 @@
 
 ### Fixed
 
+## [0.2.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.11)
+
+### Added
+
+- **Model default controls across TUI/Discord**: Added `model default [name]` command support in gateway/TUI plus a Discord `/model` slash command (`info`, `default`) with configured model choices.
+- **Local proactive reminder delivery path**: Added queued proactive pull API (`GET /api/proactive/pull`) and TUI polling so scheduler/heartbeat reminders reliably surface in `tui` channels.
+- **Scheduler timestamp regression test**: Added coverage for legacy SQLite second-precision timestamps and interval due-time regression handling.
+
+### Changed
+
+- **Cron tool reminder contract**: Cron `add` now accepts prompt aliases (`prompt`/`message`/`text`), supports relative one-shot scheduling via `at_seconds`, and documents prompt-as-instruction semantics for future model runs.
+- **Scheduler prompt framing**: Scheduled model turns now explicitly instruct execution of the provided instruction without follow-up questions.
+
+### Fixed
+
+- **SQLite timestamp interpretation drift**: Scheduler now normalizes legacy `YYYY-MM-DD HH:MM:SS` task timestamps as UTC, preventing immediate re-fire bugs on interval tasks after timezone conversion.
+- **Silent reply normalization edge case**: API/stream silent-token replacement now emits `Message sent.` only for real `message` send actions and otherwise falls back to the latest successful tool result.
+
 ## [0.2.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.10)
 
 ### Added

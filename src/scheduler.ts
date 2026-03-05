@@ -25,6 +25,19 @@ const MAX_CONSECUTIVE_FAILURES = 5;
 const CONFIG_ONESHOT_RETRY_MS = 60_000;
 const SCHEDULER_STATE_VERSION = 1;
 const SCHEDULER_STATE_PATH = path.join(DATA_DIR, 'scheduler-jobs-state.json');
+const SQLITE_SECOND_PRECISION_TS_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+
+export function parseSchedulerTimestampMs(
+  raw: string | null | undefined,
+): number | null {
+  const value = (raw || '').trim();
+  if (!value) return null;
+  const normalized = SQLITE_SECOND_PRECISION_TS_RE.test(value)
+    ? `${value.replace(' ', 'T')}Z`
+    : value;
+  const ms = new Date(normalized).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
 
 export interface SchedulerDispatchRequest {
   source: 'db-task' | 'config-job';
@@ -92,7 +105,7 @@ function formatFireTime(): string {
 
 export function wrapCronPrompt(jobLabel: string, message: string): string {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return `[cron:${jobLabel}] ${message}\nCurrent time: ${formatFireTime()} (${tz})\n\nReturn your response as plain text; it will be delivered automatically. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.`;
+  return `[cron:${jobLabel}] ${message}\nCurrent time: ${formatFireTime()} (${tz})\n\nReturn your response as plain text; it will be delivered automatically. Execute the instruction directly and do not ask follow-up questions. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.`;
 }
 
 function defaultConfigJobMeta(): ConfigJobMeta {
@@ -235,12 +248,11 @@ function nextFireMsForDbTask(
 ): number | null {
   if (task.run_at) {
     if (task.last_run) return null;
-    const ms = new Date(task.run_at).getTime();
-    return Number.isFinite(ms) ? ms : null;
+    return parseSchedulerTimestampMs(task.run_at);
   }
 
   if (task.every_ms) {
-    const lastRunMs = task.last_run ? new Date(task.last_run).getTime() : 0;
+    const lastRunMs = parseSchedulerTimestampMs(task.last_run) ?? 0;
     return lastRunMs > 0 ? lastRunMs + task.every_ms : nowMs;
   }
 
@@ -462,8 +474,8 @@ async function tick(): Promise<void> {
     for (const task of dbTasks) {
       try {
         if (task.run_at) {
-          const runAt = new Date(task.run_at);
-          if (runAt.getTime() <= nowMs && !task.last_run) {
+          const runAtMs = parseSchedulerTimestampMs(task.run_at);
+          if (runAtMs != null && runAtMs <= nowMs && !task.last_run) {
             logger.info(
               { taskId: task.id, runAt: task.run_at, prompt: task.prompt },
               'One-shot task firing',
@@ -498,9 +510,7 @@ async function tick(): Promise<void> {
         }
 
         if (task.every_ms) {
-          const lastRunMs = task.last_run
-            ? new Date(task.last_run).getTime()
-            : 0;
+          const lastRunMs = parseSchedulerTimestampMs(task.last_run) ?? 0;
           const dueAt = lastRunMs > 0 ? lastRunMs + task.every_ms : 0;
           if (dueAt <= nowMs) {
             logger.info(
@@ -535,9 +545,9 @@ async function tick(): Promise<void> {
         if (!task.cron_expr) continue;
         const cron = CronExpressionParser.parse(task.cron_expr);
         const prev = cron.prev();
-        const lastRun = task.last_run ? new Date(task.last_run) : new Date(0);
+        const lastRunMs = parseSchedulerTimestampMs(task.last_run) ?? 0;
 
-        if (prev.toDate() > lastRun) {
+        if (prev.toDate().getTime() > lastRunMs) {
           logger.info(
             { taskId: task.id, cron: task.cron_expr, prompt: task.prompt },
             'Cron task firing',

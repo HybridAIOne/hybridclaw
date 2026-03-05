@@ -2375,9 +2375,9 @@ export function getAllEnabledTasks(): ScheduledTask[] {
 }
 
 export function updateTaskLastRun(taskId: number): void {
-  db.prepare("UPDATE tasks SET last_run = datetime('now') WHERE id = ?").run(
-    taskId,
-  );
+  db.prepare(
+    "UPDATE tasks SET last_run = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+  ).run(taskId);
 }
 
 export function markTaskSuccess(taskId: number): void {
@@ -2704,6 +2704,36 @@ export function listQueuedProactiveMessages(
   return db
     .prepare('SELECT * FROM proactive_message_queue ORDER BY id ASC LIMIT ?')
     .all(boundedLimit) as QueuedProactiveMessage[];
+}
+
+export function claimQueuedProactiveMessages(
+  channelId: string,
+  limit = 20,
+): QueuedProactiveMessage[] {
+  const normalizedChannelId = channelId.trim();
+  if (!normalizedChannelId) return [];
+  const boundedLimit = Math.max(1, Math.floor(limit));
+
+  const runClaim = db.transaction(
+    (targetChannelId: string, maxRows: number): QueuedProactiveMessage[] => {
+      const rows = db
+        .prepare(
+          'SELECT * FROM proactive_message_queue WHERE channel_id = ? ORDER BY id ASC LIMIT ?',
+        )
+        .all(targetChannelId, maxRows) as QueuedProactiveMessage[];
+      if (rows.length === 0) return rows;
+
+      const deleteRow = db.prepare(
+        'DELETE FROM proactive_message_queue WHERE id = ?',
+      );
+      for (const row of rows) {
+        deleteRow.run(row.id);
+      }
+      return rows;
+    },
+  );
+
+  return runClaim(normalizedChannelId, boundedLimit);
 }
 
 export function deleteQueuedProactiveMessage(id: number): void {

@@ -10,6 +10,7 @@ import {
   HYBRIDAI_BASE_URL,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
+  HYBRIDAI_MODELS,
 } from './config.js';
 import {
   type GatewayChatResult,
@@ -17,6 +18,7 @@ import {
   gatewayChat,
   gatewayChatStream,
   gatewayCommand,
+  gatewayPullProactive,
   gatewayStatus,
   renderGatewayCommand,
 } from './gateway-client.js';
@@ -99,9 +101,14 @@ const TUI_MULTILINE_PASTE_DEBOUNCE_MS = Math.max(
   20,
   parseInt(process.env.TUI_MULTILINE_PASTE_DEBOUNCE_MS || '90', 10) || 90,
 );
+const TUI_PROACTIVE_POLL_INTERVAL_MS = Math.max(
+  500,
+  parseInt(process.env.TUI_PROACTIVE_POLL_INTERVAL_MS || '2500', 10) || 2500,
+);
 const TOOL_PREVIEW_MAX_CHARS = 140;
 
 let activeRunAbortController: AbortController | null = null;
+let proactivePollInFlight = false;
 
 function findPendingApprovalRequestId(
   result: GatewayChatResult,
@@ -181,7 +188,7 @@ async function promptApprovalSelection(
   return command;
 }
 
-function printBanner(): void {
+function printBanner(modelInfo: { current: string; defaultModel: string }): void {
   const T = TEAL;
   const N = NAVY;
   const logo = [
@@ -224,7 +231,7 @@ function printBanner(): void {
   console.log(`${MUTED}     Powered by HybridAI${RESET}`);
   console.log();
   console.log(
-    `  ${MUTED}Model:${RESET} ${TEAL}${HYBRIDAI_MODEL}${RESET}${MUTED} | Bot:${RESET} ${GOLD}${HYBRIDAI_CHATBOT_ID || 'unset'}${RESET}`,
+    `  ${MUTED}Model:${RESET} ${TEAL}${modelInfo.current}${RESET}${MUTED} (default: ${modelInfo.defaultModel})${RESET}${MUTED} | Bot:${RESET} ${GOLD}${HYBRIDAI_CHATBOT_ID || 'unset'}${RESET}`,
   );
   console.log(`  ${MUTED}Gateway:${RESET} ${TEAL}${GATEWAY_BASE_URL}${RESET}`);
   console.log(
@@ -239,6 +246,11 @@ function printHelp(): void {
   console.log(`  ${TEAL}/help${RESET}             Show this help`);
   console.log(`  ${TEAL}/bots${RESET}             List available bots`);
   console.log(`  ${TEAL}/bot <id|name>${RESET}    Switch bot for this session`);
+  console.log(`  ${TEAL}/model${RESET}            Pick model from selector`);
+  console.log(`  ${TEAL}/model <name>${RESET}     Set model for this session`);
+  console.log(
+    `  ${TEAL}/model default [name]${RESET} Show or set default model`,
+  );
   console.log(`  ${TEAL}/rag [on|off]${RESET}     Toggle or set RAG`);
   console.log(`  ${TEAL}/ralph [on|off|set n]${RESET} Configure Ralph loop`);
   console.log(`  ${TEAL}/info${RESET}             Show current settings`);
@@ -342,6 +354,110 @@ async function runGatewayCommand(args: string[]): Promise<void> {
   }
 }
 
+function parseCurrentModelFromInfo(result: GatewayCommandResult): string | null {
+  const info = parseModelInfoFromInfo(result);
+  return info?.current || null;
+}
+
+function parseModelInfoFromInfo(
+  result: GatewayCommandResult,
+): { current: string; defaultModel: string } | null {
+  const text = (result.text || '').trim();
+  if (!text) return null;
+  const currentMatch = text.match(/Current model:\s*([^\n\r]+)/i);
+  const defaultMatch = text.match(/Default model:\s*([^\n\r]+)/i);
+  const current = (currentMatch?.[1] || '').trim();
+  const defaultModel = (defaultMatch?.[1] || '').trim();
+  if (!current && !defaultModel) return null;
+  return {
+    current: current || defaultModel || HYBRIDAI_MODEL,
+    defaultModel: defaultModel || current || HYBRIDAI_MODEL,
+  };
+}
+
+function normalizeModelCandidates(models: string[]): string[] {
+  const deduped = new Set<string>();
+  for (const model of models) {
+    const candidate = model.trim();
+    if (!candidate) continue;
+    deduped.add(candidate);
+  }
+  return Array.from(deduped);
+}
+
+async function fetchCurrentSessionModel(): Promise<string | null> {
+  try {
+    const result = await gatewayCommand({
+      sessionId: SESSION_ID,
+      guildId: null,
+      channelId: CHANNEL_ID,
+      args: ['model', 'info'],
+    });
+    if (result.kind === 'error') return null;
+    return parseCurrentModelFromInfo(result);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchSessionAndDefaultModel(): Promise<{
+  current: string;
+  defaultModel: string;
+}> {
+  const fallback = { current: HYBRIDAI_MODEL, defaultModel: HYBRIDAI_MODEL };
+  try {
+    const result = await gatewayCommand({
+      sessionId: SESSION_ID,
+      guildId: null,
+      channelId: CHANNEL_ID,
+      args: ['model', 'info'],
+    });
+    if (result.kind === 'error') return fallback;
+    return parseModelInfoFromInfo(result) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function promptModelSelection(
+  rl: readline.Interface,
+): Promise<string | null> {
+  const models = normalizeModelCandidates(HYBRIDAI_MODELS);
+  if (models.length === 0) {
+    printError('No models configured in hybridai.models.');
+    return null;
+  }
+
+  const currentModel = await fetchCurrentSessionModel();
+  console.log(`  ${BOLD}${GOLD}Model selector${RESET}`);
+  if (currentModel) {
+    console.log(`  ${MUTED}Current:${RESET} ${TEAL}${currentModel}${RESET}`);
+  }
+  for (const [index, model] of models.entries()) {
+    const suffix =
+      currentModel === model ? ` ${MUTED}(current)${RESET}` : '';
+    console.log(`  ${TEAL}${index + 1}${RESET} ${model}${suffix}`);
+  }
+
+  const answer = await new Promise<string>((resolve) => {
+    rl.question(
+      `  ${MUTED}Select 1-${models.length} (Enter to cancel):${RESET} `,
+      resolve,
+    );
+  });
+  const trimmed = answer.trim();
+  if (!trimmed) return null;
+
+  const asNumber = Number.parseInt(trimmed, 10);
+  if (Number.isFinite(asNumber) && asNumber >= 1 && asNumber <= models.length) {
+    return models[asNumber - 1];
+  }
+  if (models.includes(trimmed)) return trimmed;
+
+  printInfo('Invalid model selection.');
+  return null;
+}
+
 async function handleSlashCommand(
   input: string,
   rl: readline.Interface,
@@ -369,6 +485,28 @@ async function handleSlashCommand(
       } else {
         await runGatewayCommand(['bot', 'info']);
       }
+      return true;
+    case 'model':
+      if (parts.length === 1 || parts[1] === 'select') {
+        const selectedModel = await promptModelSelection(rl);
+        if (selectedModel) {
+          await runGatewayCommand(['model', 'set', selectedModel]);
+        }
+        return true;
+      }
+      if (parts[1] === 'default') {
+        if (parts.length > 2) {
+          await runGatewayCommand(['model', 'default', ...parts.slice(2)]);
+        } else {
+          await runGatewayCommand(['model', 'default']);
+        }
+        return true;
+      }
+      if (parts[1] === 'info' || parts[1] === 'list') {
+        await runGatewayCommand(['model', parts[1]]);
+        return true;
+      }
+      await runGatewayCommand(['model', 'set', ...parts.slice(1)]);
       return true;
     case 'rag':
       if (parts.length > 1 && (parts[1] === 'on' || parts[1] === 'off')) {
@@ -520,10 +658,42 @@ async function processMessage(
   }
 }
 
+async function pollProactiveMessages(rl: readline.Interface): Promise<void> {
+  if (proactivePollInFlight) return;
+  if (activeRunAbortController && !activeRunAbortController.signal.aborted)
+    return;
+
+  proactivePollInFlight = true;
+  try {
+    const result = await gatewayPullProactive(CHANNEL_ID, 20);
+    if (!Array.isArray(result.messages) || result.messages.length === 0) return;
+
+    console.log();
+    for (const message of result.messages) {
+      const sourceSuffix = message.source
+        ? ` ${MUTED}(${message.source})${RESET}`
+        : '';
+      console.log(
+        `  ${GOLD}[reminder]${RESET} ${message.text}${sourceSuffix}`,
+      );
+    }
+    console.log();
+    rl.prompt();
+  } catch (error) {
+    logger.debug(
+      { error },
+      'Failed to poll proactive messages for TUI channel',
+    );
+  } finally {
+    proactivePollInFlight = false;
+  }
+}
+
 async function main(): Promise<void> {
   logger.level = 'warn';
   await gatewayStatus();
-  printBanner();
+  const modelInfo = await fetchSessionAndDefaultModel();
+  printBanner(modelInfo);
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -590,7 +760,13 @@ async function main(): Promise<void> {
     );
   });
 
+  const proactivePollTimer = setInterval(() => {
+    void pollProactiveMessages(rl);
+  }, TUI_PROACTIVE_POLL_INTERVAL_MS);
+  void pollProactiveMessages(rl);
+
   rl.on('close', () => {
+    clearInterval(proactivePollTimer);
     if (pendingInputTimer) clearTimeout(pendingInputTimer);
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
     console.log(`\n${MUTED}  Goodbye!${RESET}\n`);

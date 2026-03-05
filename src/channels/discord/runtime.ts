@@ -34,6 +34,7 @@ import {
   DISCORD_SUPPRESS_PATTERNS,
   DISCORD_TOKEN,
   DISCORD_TYPING_MODE,
+  HYBRIDAI_MODELS,
 } from '../../config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types.js';
@@ -923,14 +924,34 @@ async function ensureSlashCommands(): Promise<void> {
     name: string;
     description: string;
     dmPermission?: boolean;
-    options?: Array<{
-      type: ApplicationCommandOptionType.String;
-      name: string;
-      description: string;
-      required?: boolean;
-      choices?: Array<{ name: string; value: string }>;
-    }>;
+    options?: SlashCommandOptionDefinition[];
   }
+  type SlashCommandOptionDefinition =
+    | {
+        type: ApplicationCommandOptionType.String;
+        name: string;
+        description: string;
+        required?: boolean;
+        choices?: Array<{ name: string; value: string }>;
+      }
+    | {
+        type: ApplicationCommandOptionType.Subcommand;
+        name: string;
+        description: string;
+        options?: Array<{
+          type: ApplicationCommandOptionType.String;
+          name: string;
+          description: string;
+          required?: boolean;
+          choices?: Array<{ name: string; value: string }>;
+        }>;
+      };
+
+  const modelChoices = Array.from(
+    new Set(HYBRIDAI_MODELS.map((model) => model.trim()).filter(Boolean)),
+  )
+    .slice(0, 25)
+    .map((model) => ({ name: model, value: model }));
 
   const definitions: SlashCommandDefinition[] = [
     {
@@ -994,6 +1015,31 @@ async function ensureSlashCommands(): Promise<void> {
             { name: 'open', value: 'open' },
             { name: 'allowlist', value: 'allowlist' },
             { name: 'disabled', value: 'disabled' },
+          ],
+        },
+      ],
+    },
+    {
+      name: 'model',
+      description: 'Inspect or set the default runtime model',
+      options: [
+        {
+          type: ApplicationCommandOptionType.Subcommand,
+          name: 'info',
+          description: 'Show current default model and available models',
+        },
+        {
+          type: ApplicationCommandOptionType.Subcommand,
+          name: 'default',
+          description: 'Set default model for new sessions',
+          options: [
+            {
+              type: ApplicationCommandOptionType.String,
+              name: 'name',
+              description: 'Model name',
+              required: true,
+              choices: modelChoices.length > 0 ? modelChoices : undefined,
+            },
           ],
         },
       ],
@@ -1497,7 +1543,8 @@ export function initDiscord(
       interaction.commandName !== 'status' &&
       interaction.commandName !== 'approve' &&
       interaction.commandName !== 'channel-mode' &&
-      interaction.commandName !== 'channel-policy'
+      interaction.commandName !== 'channel-policy' &&
+      interaction.commandName !== 'model'
     ) {
       return;
     }
@@ -1557,23 +1604,39 @@ export function initDiscord(
           return null;
         return ['channel', 'mode', selectedMode];
       }
-      if (!interaction.guildId) return null;
-      const selectedPolicy = interaction.options
-        .getString('policy', true)
-        .trim()
-        .toLowerCase();
-      if (
-        selectedPolicy !== 'open' &&
-        selectedPolicy !== 'allowlist' &&
-        selectedPolicy !== 'disabled'
-      )
-        return null;
-      return ['channel', 'policy', selectedPolicy];
+      if (interaction.commandName === 'channel-policy') {
+        if (!interaction.guildId) return null;
+        const selectedPolicy = interaction.options
+          .getString('policy', true)
+          .trim()
+          .toLowerCase();
+        if (
+          selectedPolicy !== 'open' &&
+          selectedPolicy !== 'allowlist' &&
+          selectedPolicy !== 'disabled'
+        )
+          return null;
+        return ['channel', 'policy', selectedPolicy];
+      }
+      if (interaction.commandName === 'model') {
+        if (!interaction.guildId) return null;
+        const modelSubcommand = interaction.options
+          .getSubcommand(true)
+          .trim()
+          .toLowerCase();
+        if (modelSubcommand === 'info') return ['model', 'default'];
+        if (modelSubcommand === 'default') {
+          const selectedModel = interaction.options.getString('name', true).trim();
+          if (!selectedModel) return null;
+          return ['model', 'default', selectedModel];
+        }
+      }
+      return null;
     })();
     if (!args) {
       await sendChunkedInteractionReply(
         interaction,
-        'This command can only be used in a server channel with a valid mode/policy option.',
+        'This command can only be used in a server channel with valid options.',
       );
       return;
     }

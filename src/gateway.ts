@@ -341,7 +341,33 @@ async function sendProactiveMessageNow(
   artifacts?: ArtifactMetadata[],
 ): Promise<void> {
   const attachments = buildArtifactAttachments(artifacts);
-  if (!DISCORD_TOKEN || !isDiscordChannelId(channelId)) {
+  if (!isDiscordChannelId(channelId)) {
+    const { queued, dropped } = enqueueProactiveMessage(
+      channelId,
+      text,
+      source,
+      MAX_QUEUED_PROACTIVE_MESSAGES,
+    );
+    logger.info(
+      {
+        source,
+        channelId,
+        queued,
+        dropped,
+        artifactCount: attachments.length,
+      },
+      'Proactive message queued for local channel delivery',
+    );
+    if (attachments.length > 0) {
+      logger.warn(
+        { source, channelId, artifactCount: attachments.length },
+        'Queued proactive local delivery does not persist attachments; only text was queued',
+      );
+    }
+    return;
+  }
+
+  if (!DISCORD_TOKEN) {
     logger.info(
       { source, channelId, text, artifactCount: attachments.length },
       'Proactive message (no Discord delivery)',
@@ -406,6 +432,7 @@ async function flushQueuedProactiveMessages(): Promise<void> {
 
   for (const item of pending) {
     if (!isWithinActiveHours()) break;
+    if (!isDiscordChannelId(item.channel_id)) continue;
     await sendProactiveMessageNow(
       item.channel_id,
       item.text,
@@ -658,6 +685,12 @@ async function runScheduledTask(
   const runChannelId =
     request.channelId || resolvedDeliveryChannelId || 'scheduler';
   const taskId = request.taskId ?? -1;
+  const runKey =
+    request.source === 'config-job'
+      ? request.sessionId
+      : request.taskId != null
+        ? `cron:${request.taskId}`
+        : undefined;
 
   await runGatewayScheduledTask(
     request.sessionId,
@@ -719,7 +752,7 @@ async function runScheduledTask(
         'Scheduled task failed',
       );
     },
-    request.sessionId,
+    runKey,
   );
 }
 

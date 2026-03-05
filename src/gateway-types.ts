@@ -93,6 +93,19 @@ export interface GatewayCommandRequest {
   args: string[];
 }
 
+export interface GatewayProactiveMessage {
+  id: number;
+  channel_id: string;
+  text: string;
+  source: string;
+  queued_at: string;
+}
+
+export interface GatewayProactivePullResponse {
+  channelId: string;
+  messages: GatewayProactiveMessage[];
+}
+
 export interface GatewaySchedulerJobStatus {
   id: string;
   name: string;

@@ -265,8 +265,10 @@ Starts the terminal adapter and connects to the running gateway.
 If gateway is not running, it is started in backend mode automatically.
 
 Interactive slash commands inside TUI:
-  /help   /bots   /bot <id|name>   /rag [on|off]
-  /info   /clear  /stop            /exit`);
+  /help   /bots   /bot <id|name>   /model [name]
+  /model default [name]
+  /rag [on|off]   /info            /clear
+  /stop           /exit`);
 }
 
 function printOnboardingUsage(): void {

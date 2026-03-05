@@ -210,6 +210,18 @@ function readStringValue(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function readPositiveNumberValue(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
 function resolveDiscordMessageAction(
   rawAction: unknown,
 ): DiscordMessageToolAction | null {
@@ -1886,29 +1898,43 @@ export async function executeTool(
         }
 
         if (action === 'add') {
-          if (!args.prompt) return 'Error: prompt is required';
+          const promptInput =
+            readStringValue(args.prompt) ||
+            readStringValue(args.message) ||
+            readStringValue(args.text);
+          if (!promptInput) return 'Error: prompt is required';
+          const prompt = promptInput;
+          const atSeconds = readPositiveNumberValue(
+            args.at_seconds ?? args.atSeconds,
+          );
+          const relativeDelayMs =
+            atSeconds != null ? Math.round(atSeconds * 1000) : null;
+          const rawAt = readStringValue(args.at);
 
-          if (args.at) {
-            const runAt = new Date(args.at);
+          if (rawAt || relativeDelayMs != null) {
+            const runAt =
+              relativeDelayMs != null
+                ? new Date(Date.now() + relativeDelayMs)
+                : new Date(rawAt || '');
             if (Number.isNaN(runAt.getTime()))
-              return `Error: invalid ISO-8601 timestamp: ${args.at}`;
+              return `Error: invalid ISO-8601 timestamp: ${rawAt}`;
             if (runAt.getTime() <= Date.now())
-              return `Error: timestamp must be in the future: ${args.at}`;
+              return `Error: timestamp must be in the future: ${rawAt || runAt.toISOString()}`;
             pendingSchedules.push({
               action: 'add',
               runAt: runAt.toISOString(),
-              prompt: args.prompt,
+              prompt,
             });
-            return `Scheduled one-shot task at ${runAt.toISOString()}: ${args.prompt}`;
+            return `Scheduled one-shot task at ${runAt.toISOString()}: ${prompt}`;
           }
 
           if (args.cron) {
             pendingSchedules.push({
               action: 'add',
               cronExpr: args.cron,
-              prompt: args.prompt,
+              prompt,
             });
-            return `Scheduled recurring task with cron "${args.cron}": ${args.prompt}`;
+            return `Scheduled recurring task with cron "${args.cron}": ${prompt}`;
           }
 
           if (args.every) {
@@ -1919,12 +1945,12 @@ export async function executeTool(
             pendingSchedules.push({
               action: 'add',
               everyMs,
-              prompt: args.prompt,
+              prompt,
             });
-            return `Scheduled interval task every ${secs}s: ${args.prompt}`;
+            return `Scheduled interval task every ${secs}s: ${prompt}`;
           }
 
-          return 'Error: provide "at" (ISO-8601 timestamp), "cron" (cron expression), or "every" (seconds)';
+          return 'Error: provide "at" (ISO-8601 timestamp), "at_seconds" (one-shot seconds from now), "cron" (cron expression), or "every" (seconds)';
         }
 
         if (action === 'remove') {
@@ -2583,9 +2609,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       description:
         'Manage scheduled tasks and reminders. Actions:\n' +
         '- "list": show all scheduled tasks\n' +
-        '- "add": create a task. Provide "prompt" plus one of: "at" (ISO-8601 timestamp for one-shot), "cron" (cron expression for cron-based recurring), or "every" (interval in seconds for simple recurring)\n' +
+        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring cron expression), or "every" (recurring interval seconds)\n' +
         '- "remove": delete a task by taskId\n' +
-        'For relative times like "in 5 minutes", compute the ISO-8601 timestamp and use "at".',
+        'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence).',
       parameters: {
         type: 'object',
         properties: {
@@ -2595,12 +2621,18 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           prompt: {
             type: 'string',
-            description: 'Task prompt / reminder text (required for "add")',
+            description:
+              'Instruction the model should execute when task fires (required for "add")',
           },
           at: {
             type: 'string',
             description:
               'ISO-8601 timestamp for one-shot schedule (e.g. "2025-01-15T14:30:00Z")',
+          },
+          at_seconds: {
+            type: 'number',
+            description:
+              'One-shot schedule as seconds from now (e.g. 600 for 10 minutes from now)',
           },
           cron: {
             type: 'string',

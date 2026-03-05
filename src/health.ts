@@ -12,6 +12,7 @@ import {
   HEALTH_PORT,
   WEB_API_TOKEN,
 } from './config.js';
+import { claimQueuedProactiveMessages } from './db.js';
 import {
   type GatewayChatRequest,
   type GatewayCommandRequest,
@@ -41,22 +42,88 @@ const MIME_TYPES: Record<string, string> = {
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiDiscordActionRequestBody = Partial<DiscordToolActionRequest>;
 
+function parseJsonObject(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw !== 'string') return null;
+  const text = raw.trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function isMessageSendAction(rawAction: unknown): boolean {
+  if (typeof rawAction !== 'string') return false;
+  const compact = rawAction.trim().toLowerCase().replace(/[\s_-]+/g, '');
+  return (
+    compact === 'send' ||
+    compact === 'sendmessage' ||
+    compact === 'dm' ||
+    compact === 'post' ||
+    compact === 'reply' ||
+    compact === 'respond'
+  );
+}
+
+function hasMessageSendToolExecution(
+  result: Awaited<ReturnType<typeof handleGatewayMessage>>,
+): boolean {
+  if (!Array.isArray(result.toolExecutions)) return false;
+  for (const execution of result.toolExecutions) {
+    if (String(execution.name || '').trim().toLowerCase() !== 'message')
+      continue;
+
+    const argsObj = parseJsonObject(execution.arguments);
+    if (argsObj && isMessageSendAction(argsObj.action)) return true;
+
+    const resultObj = parseJsonObject(execution.result);
+    if (resultObj && isMessageSendAction(resultObj.action)) return true;
+  }
+  return false;
+}
+
+function fallbackResultFromTools(
+  result: Awaited<ReturnType<typeof handleGatewayMessage>>,
+): string {
+  const executions = Array.isArray(result.toolExecutions)
+    ? result.toolExecutions
+    : [];
+  for (let i = executions.length - 1; i >= 0; i -= 1) {
+    const execution = executions[i];
+    if (execution.isError) continue;
+    const text = String(execution.result || '').trim();
+    if (!text) continue;
+    return text;
+  }
+  return 'Done.';
+}
+
 function normalizeSilentMessageSendReply(
   result: Awaited<ReturnType<typeof handleGatewayMessage>>,
 ): Awaited<ReturnType<typeof handleGatewayMessage>> {
   if (result.status !== 'success') return result;
+  const sentByMessageTool = hasMessageSendToolExecution(result);
   const rawResult = result.result || '';
   if (isSilentReply(rawResult)) {
     return {
       ...result,
-      result: 'Message sent.',
+      result: sentByMessageTool ? 'Message sent.' : fallbackResultFromTools(result),
     };
   }
   const cleanedResult = stripSilentToken(rawResult);
   if (cleanedResult === rawResult) return result;
+  const nextResult = cleanedResult.trim()
+    ? cleanedResult
+    : sentByMessageTool
+      ? 'Message sent.'
+      : fallbackResultFromTools(result);
   return {
     ...result,
-    result: cleanedResult || 'Message sent.',
+    result: nextResult,
   };
 }
 
@@ -221,7 +288,7 @@ async function handleApiChatStream(
           delta: bufferedDelta,
         });
       }
-      if (streamFilter.isSilent()) {
+      if (streamFilter.isSilent() && hasMessageSendToolExecution(result)) {
         result = {
           ...result,
           result: 'Message sent.',
@@ -346,6 +413,18 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
   sendJson(res, 200, { sessionId, history });
 }
 
+function handleApiProactivePull(res: ServerResponse, url: URL): void {
+  const channelId = (url.searchParams.get('channelId') || '').trim();
+  if (!channelId) {
+    sendJson(res, 400, { error: 'Missing `channelId` query parameter.' });
+    return;
+  }
+  const parsedLimit = parseInt(url.searchParams.get('limit') || '20', 10);
+  const limit = Number.isNaN(parsedLimit) ? 20 : parsedLimit;
+  const messages = claimQueuedProactiveMessages(channelId, limit);
+  sendJson(res, 200, { channelId, messages });
+}
+
 function handleApiShutdown(res: ServerResponse): void {
   sendJson(res, 200, {
     status: 'ok',
@@ -383,6 +462,10 @@ export function startHealthServer(): void {
           }
           if (pathname === '/api/history' && method === 'GET') {
             handleApiHistory(res, url);
+            return;
+          }
+          if (pathname === '/api/proactive/pull' && method === 'GET') {
+            handleApiProactivePull(res, url);
             return;
           }
           if (pathname === '/api/admin/shutdown' && method === 'POST') {
