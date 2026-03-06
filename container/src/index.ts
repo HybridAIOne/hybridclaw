@@ -1,6 +1,6 @@
 import { emitRuntimeEvent, runAfterToolHooks, runBeforeToolHooks } from './extensions.js';
 import { callHybridAI, HybridAIRequestError } from './hybridai-client.js';
-import { waitForInput, writeOutput } from './ipc.js';
+import { emitStdioEvent, readStdinRequests, writeOutput } from './ipc.js';
 import { executeTool, getPendingSideEffects, resetSideEffects, setScheduledTasks, setSessionContext, TOOL_DEFINITIONS } from './tools.js';
 import type { ChatMessage, ContainerInput, ContainerOutput, ToolDefinition, ToolExecution } from './types.js';
 
@@ -13,34 +13,6 @@ const RETRY_MAX_DELAY_MS = Math.max(RETRY_BASE_DELAY_MS, parseInt(process.env.HY
 
 /** API key received once via stdin, held in memory for the container lifetime. */
 let storedApiKey = '';
-
-/**
- * Read a single line from stdin (the initial request JSON containing secrets).
- * Resolves on the first newline — does not consume the entire stream, so docker -i
- * keeps the container alive after the host stops writing.
- */
-function readStdinLine(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let buffer = '';
-    const onData = (chunk: Buffer) => {
-      buffer += chunk.toString('utf-8');
-      const nl = buffer.indexOf('\n');
-      if (nl !== -1) {
-        process.stdin.removeListener('data', onData);
-        process.stdin.removeListener('error', onError);
-        process.stdin.pause();
-        resolve(buffer.slice(0, nl));
-      }
-    };
-    const onError = (err: Error) => {
-      process.stdin.removeListener('data', onData);
-      reject(err);
-    };
-    process.stdin.on('data', onData);
-    process.stdin.on('error', onError);
-    process.stdin.resume();
-  });
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -173,6 +145,7 @@ async function processRequest(
       const toolName = call.function.name;
       toolsUsed.push(toolName);
       console.error(`[tool] ${toolName}: ${call.function.arguments.slice(0, 100)}`);
+      emitStdioEvent({ type: 'tool_start', name: toolName, args: call.function.arguments.slice(0, 100) });
       const toolStart = Date.now();
       const blockedReason = await runBeforeToolHooks(toolName, call.function.arguments);
       const result = blockedReason
@@ -181,6 +154,7 @@ async function processRequest(
       const toolDuration = Date.now() - toolStart;
       await runAfterToolHooks(toolName, call.function.arguments, result);
       console.error(`[tool] ${toolName} result (${toolDuration}ms): ${result.slice(0, 100)}`);
+      emitStdioEvent({ type: 'tool_finish', name: toolName, durationMs: toolDuration, preview: result.slice(0, 100) });
       toolExecutions.push({
         name: toolName,
         arguments: call.function.arguments,
@@ -227,66 +201,49 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
   return tools;
 }
 
-async function main(): Promise<void> {
-  console.error(`[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms`);
 
-  // First request arrives via stdin (contains apiKey — never written to disk)
-  const stdinData = await readStdinLine();
-  const firstInput: ContainerInput = JSON.parse(stdinData);
-  storedApiKey = firstInput.apiKey;
+function defaultEmitOutput(output: ContainerOutput): void {
+  writeOutput(output);
+}
 
-  console.error(`[hybridclaw-agent] processing first request (${firstInput.messages.length} messages)`);
+async function processAndRespond(input: ContainerInput, emitFn: (output: ContainerOutput) => void): Promise<void> {
+  const apiKey = input.apiKey || storedApiKey;
 
   resetSideEffects();
-  setScheduledTasks(firstInput.scheduledTasks);
-  setSessionContext(firstInput.sessionId);
+  setScheduledTasks(input.scheduledTasks);
+  setSessionContext(input.sessionId);
 
-  const firstOutput = await processRequest(
-    firstInput.messages,
-    storedApiKey,
-    firstInput.baseUrl,
-    firstInput.model,
-    firstInput.chatbotId,
-    firstInput.enableRag,
-    resolveTools(firstInput),
+  const output = await processRequest(
+    input.messages,
+    apiKey,
+    input.baseUrl,
+    input.model,
+    input.chatbotId,
+    input.enableRag,
+    resolveTools(input),
   );
 
-  firstOutput.sideEffects = getPendingSideEffects();
-  writeOutput(firstOutput);
-  console.error(`[hybridclaw-agent] first request complete: ${firstOutput.status}`);
+  output.sideEffects = getPendingSideEffects();
+  emitFn(output);
+  console.error(`[hybridclaw-agent] request complete: ${output.status}`);
+}
 
-  // Subsequent requests come via IPC file polling
-  while (true) {
-    const input = await waitForInput(IDLE_TIMEOUT_MS);
+async function main(): Promise<void> {
+  console.error(`[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms, ipc=stdio`);
 
-    if (!input) {
-      console.error('[hybridclaw-agent] idle timeout, exiting');
-      process.exit(0);
+  // All requests arrive as NDJSON lines on stdin. The first line carries the apiKey.
+  let first = true;
+  for await (const input of readStdinRequests()) {
+    if (first) {
+      storedApiKey = input.apiKey;
+      first = false;
+      console.error(`[hybridclaw-agent] processing first request (${input.messages.length} messages)`);
+    } else {
+      console.error(`[hybridclaw-agent] processing stdin request (${input.messages.length} messages)`);
     }
-
-    // Use stored apiKey — IPC file no longer contains it
-    const apiKey = input.apiKey || storedApiKey;
-
-    console.error(`[hybridclaw-agent] processing request (${input.messages.length} messages)`);
-
-    resetSideEffects();
-    setScheduledTasks(input.scheduledTasks);
-    setSessionContext(input.sessionId);
-
-    const output = await processRequest(
-      input.messages,
-      apiKey,
-      input.baseUrl,
-      input.model,
-      input.chatbotId,
-      input.enableRag,
-      resolveTools(input),
-    );
-
-    output.sideEffects = getPendingSideEffects();
-    writeOutput(output);
-    console.error(`[hybridclaw-agent] request complete: ${output.status}`);
+    await processAndRespond(input, defaultEmitOutput);
   }
+  console.error('[hybridclaw-agent] stdin closed, exiting');
 }
 
 main().catch((err) => {

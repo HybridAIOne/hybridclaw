@@ -1,21 +1,17 @@
 import fs from 'fs';
 import path from 'path';
+import readline, { type Interface as RLInterface } from 'readline';
 
-import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from './config.js';
+import { DATA_DIR } from './config.js';
 import { logger } from './logger.js';
-import type { ContainerInput, ContainerOutput } from './types.js';
+import type { ContainerOutput, ToolProgressEvent } from './types.js';
 
 /**
- * Get session directory, creating it if needed.
+ * Get session directory.
  */
 function sessionDir(sessionId: string): string {
   const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const dir = path.join(DATA_DIR, 'sessions', safe);
-  return dir;
-}
-
-function ipcDir(sessionId: string): string {
-  return path.join(sessionDir(sessionId), 'ipc');
+  return path.join(DATA_DIR, 'sessions', safe);
 }
 
 function agentDir(agentId: string): string {
@@ -28,10 +24,10 @@ export function agentWorkspaceDir(agentId: string): string {
 }
 
 /**
- * Ensure session directories exist (IPC only).
+ * Ensure session workspace directory exists.
  */
 export function ensureSessionDirs(sessionId: string): void {
-  fs.mkdirSync(ipcDir(sessionId), { recursive: true });
+  fs.mkdirSync(sessionDir(sessionId), { recursive: true });
 }
 
 /**
@@ -42,122 +38,125 @@ export function ensureAgentDirs(agentId: string): void {
 }
 
 /**
- * Write input for the container agent.
- * When omitApiKey is set, the apiKey field is excluded from the file on disk
- * (the container already has the key in memory from the initial stdin payload).
- */
-export function writeInput(sessionId: string, input: ContainerInput, opts?: { omitApiKey?: boolean }): string {
-  const dir = ipcDir(sessionId);
-  const inputPath = path.join(dir, 'input.json');
-  const toWrite = opts?.omitApiKey ? { ...input, apiKey: '' } : input;
-  fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2));
-  logger.debug({ sessionId, path: inputPath }, 'Wrote IPC input');
-  return inputPath;
-}
-
-/**
- * Read output from the container agent. Polls until file appears or timeout.
- */
-function interruptedOutput(): ContainerOutput {
-  return {
-    status: 'error',
-    result: null,
-    toolsUsed: [],
-    error: 'Interrupted by user.',
-  };
-}
-
-async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<boolean> {
-  if (!signal) {
-    await new Promise((resolve) => setTimeout(resolve, ms));
-    return false;
-  }
-  if (signal.aborted) return true;
-
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve(false);
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      signal.removeEventListener('abort', onAbort);
-      resolve(true);
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
-export async function readOutput(
-  sessionId: string,
-  timeoutMs: number,
-  opts?: { signal?: AbortSignal },
-): Promise<ContainerOutput> {
-  const dir = ipcDir(sessionId);
-  const outputPath = path.join(dir, 'output.json');
-  const signal = opts?.signal;
-
-  const start = Date.now();
-  const pollInterval = 250;
-
-  if (signal?.aborted) return interruptedOutput();
-
-  while (Date.now() - start < timeoutMs) {
-    if (signal?.aborted) return interruptedOutput();
-
-    if (fs.existsSync(outputPath)) {
-      const stat = fs.statSync(outputPath);
-      if (stat.size > CONTAINER_MAX_OUTPUT_SIZE) {
-        fs.unlinkSync(outputPath);
-        logger.warn({ sessionId, size: stat.size, limit: CONTAINER_MAX_OUTPUT_SIZE }, 'Container output exceeded size limit');
-        return { status: 'error', result: null, toolsUsed: [], error: `Output too large (${stat.size} bytes, limit ${CONTAINER_MAX_OUTPUT_SIZE})` };
-      }
-      try {
-        const raw = fs.readFileSync(outputPath, 'utf-8');
-        const output: ContainerOutput = JSON.parse(raw);
-        // Clean up output file after reading
-        fs.unlinkSync(outputPath);
-        logger.debug({ sessionId }, 'Read IPC output');
-        return output;
-      } catch (err) {
-        // File might be partially written, wait and retry
-        logger.debug({ sessionId, err }, 'Output file not ready, retrying');
-      }
-    }
-    const aborted = await sleepWithAbort(pollInterval, signal);
-    if (aborted) return interruptedOutput();
-  }
-
-  return {
-    status: 'error',
-    result: null,
-    toolsUsed: [],
-    error: `Timeout waiting for container output after ${timeoutMs}ms`,
-  };
-}
-
-/**
- * Clean up IPC files for a session.
- */
-export function cleanupIpc(sessionId: string): void {
-  const dir = ipcDir(sessionId);
-  for (const file of ['input.json', 'output.json', 'history.json']) {
-    const filePath = path.join(dir, file);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
-  }
-}
-
-/**
  * Get host paths for container mounting.
  */
 export function getSessionPaths(sessionId: string, agentId: string): {
-  ipcPath: string;
   workspacePath: string;
 } {
   return {
-    ipcPath: path.resolve(ipcDir(sessionId)),
     workspacePath: path.resolve(agentWorkspaceDir(agentId)),
   };
+}
+
+/**
+ * Create a persistent readline interface for a container's stdout.
+ * Must be created once per container and kept alive across requests.
+ */
+export function createContainerReadline(stdout: NodeJS.ReadableStream): RLInterface {
+  return readline.createInterface({ input: stdout, crlfDelay: Infinity });
+}
+
+/**
+ * Read one result from a persistent container readline interface.
+ * Attaches a temporary line listener, removes it on result/timeout/abort.
+ */
+export async function readStdioOutput(
+  rl: RLInterface,
+  timeoutMs: number,
+  opts?: {
+    signal?: AbortSignal;
+    onToolProgress?: (event: ToolProgressEvent) => void;
+    sessionId?: string;
+  },
+): Promise<ContainerOutput> {
+  const signal = opts?.signal;
+  const sessionId = opts?.sessionId || '';
+
+  return new Promise<ContainerOutput>((resolve) => {
+    if (signal?.aborted) {
+      resolve({ status: 'error', result: null, toolsUsed: [], error: 'Interrupted by user.' });
+      return;
+    }
+
+    let resolved = false;
+
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve({
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: `Timeout waiting for container output after ${timeoutMs}ms`,
+      });
+    }, timeoutMs);
+
+    const onAbort = () => {
+      cleanup();
+      resolve({ status: 'error', result: null, toolsUsed: [], error: 'Interrupted by user.' });
+    };
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+
+    function cleanup(): void {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
+      rl.removeListener('line', onLine);
+      rl.removeListener('close', onClose);
+    }
+
+    function onLine(line: string): void {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      let event: Record<string, unknown>;
+      try {
+        event = JSON.parse(trimmed) as Record<string, unknown>;
+      } catch {
+        logger.debug({ sessionId, line }, 'Unparseable stdout line from container');
+        return;
+      }
+
+      if (event.type === 'tool_start' || event.type === 'tool_finish') {
+        const cb = opts?.onToolProgress;
+        if (cb) {
+          try {
+            cb({
+              sessionId,
+              toolName: String(event.name || ''),
+              phase: event.type === 'tool_start' ? 'start' : 'finish',
+              durationMs: typeof event.durationMs === 'number' ? event.durationMs : undefined,
+              preview: typeof event.preview === 'string' ? event.preview : undefined,
+            });
+          } catch (err) {
+            logger.debug({ sessionId, err }, 'Tool progress callback failed');
+          }
+        }
+        return;
+      }
+
+      if (event.type === 'result') {
+        cleanup();
+        resolve({
+          status: (event.status as ContainerOutput['status']) || 'error',
+          result: typeof event.result === 'string' ? event.result : null,
+          toolsUsed: Array.isArray(event.toolsUsed) ? (event.toolsUsed as string[]) : [],
+          error: typeof event.error === 'string' ? event.error : undefined,
+          sideEffects: event.sideEffects != null ? (event.sideEffects as ContainerOutput['sideEffects']) : undefined,
+        });
+      }
+    }
+
+    function onClose(): void {
+      cleanup();
+      resolve({
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: 'Container stdout closed before result',
+      });
+    }
+
+    rl.on('line', onLine);
+    rl.on('close', onClose);
+  });
 }
