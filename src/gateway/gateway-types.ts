@@ -136,7 +136,7 @@ export interface GatewayStatus {
     reloginRequired: boolean;
   };
   sandbox?: {
-    mode: 'container' | 'host';
+    mode: 'container' | 'host' | 'sandbox-service';
     modeExplicit: boolean;
     runningInsideContainer: boolean;
     image: string | null;
