@@ -180,7 +180,7 @@ export async function runAgentLoop(
 
       const result = await dispatchTool(toolCall, sandboxId, client, {
         allowedTools,
-        onProgress: (phase, preview, durationMs) => {
+        onProgress: (phase, preview, _durationMs) => {
           if (phase === 'start' && preview) {
             onToolProgress?.({ sessionId: options.agentId, toolName, phase: 'start', preview });
           }

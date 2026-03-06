@@ -77,7 +77,7 @@ export class WorkspaceManager {
    * Download workspace files from sandbox via readFile.
    * Skip missing files gracefully.
    */
-  async loadWorkspaceContext(sandboxId: string, agentId: string): Promise<ContextFile[]> {
+  async loadWorkspaceContext(sandboxId: string, _agentId: string): Promise<ContextFile[]> {
     const files: ContextFile[] = [];
 
     for (const filename of BOOTSTRAP_FILES) {
