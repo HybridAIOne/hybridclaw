@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { HybridAIRequestError } from '../container/src/hybridai-client.js';
+import { HybridAIRequestError } from '../container/src/model-client.js';
 import {
   isRetryableModelError,
   shouldFallbackFromStreamError,

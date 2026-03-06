@@ -1,4 +1,4 @@
-import { HybridAIRequestError } from './hybridai-client.js';
+import { HybridAIRequestError } from './model-client.js';
 
 const TRANSIENT_NETWORK_ERROR_RE =
   /fetch failed|network|socket|timeout|timed out|ECONNRESET|ECONNREFUSED|EAI_AGAIN/i;

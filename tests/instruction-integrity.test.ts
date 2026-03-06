@@ -29,7 +29,7 @@ describe('instruction integrity', () => {
     vi.stubEnv('HOME', homeDir);
     process.chdir(unrelatedCwd);
 
-    const instructions = await import('../src/instruction-integrity.js');
+    const instructions = await import('../src/security/instruction-integrity.js');
 
     const initial = instructions.verifyInstructionIntegrity();
     expect(initial.ok).toBe(true);
@@ -71,7 +71,7 @@ describe('instruction integrity', () => {
     process.chdir(unrelatedCwd);
 
     const workspace = await import('../src/workspace.js');
-    const ipc = await import('../src/ipc.js');
+    const ipc = await import('../src/infra/ipc.js');
 
     workspace.ensureBootstrapFiles('agent-test');
 

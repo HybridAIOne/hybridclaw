@@ -4,8 +4,8 @@ import {
   isSilentReplyPrefix,
   SILENT_REPLY_TOKEN,
   stripSilentToken,
-} from '../src/silent-reply.js';
-import { createSilentReplyStreamFilter } from '../src/silent-reply-stream.js';
+} from '../src/agent/silent-reply.js';
+import { createSilentReplyStreamFilter } from '../src/agent/silent-reply-stream.js';
 
 describe('isSilentReply', () => {
   test('returns true for exact token', () => {

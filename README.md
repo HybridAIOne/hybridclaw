@@ -61,6 +61,44 @@ hybridclaw tui
 # open http://127.0.0.1:9090/chat
 ```
 
+## Authentication
+
+HybridClaw supports two auth paths:
+
+- `HybridAI API key` via `hybridclaw onboarding`
+- `OpenAI Codex OAuth` via `hybridclaw codex ...`
+
+Codex commands:
+
+```bash
+hybridclaw codex login
+hybridclaw codex login --device-code
+hybridclaw codex login --browser
+hybridclaw codex login --import
+hybridclaw codex status
+hybridclaw codex logout
+```
+
+- `hybridclaw codex login` auto-selects browser PKCE on local GUI machines and device code on headless or remote shells.
+- Codex credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
+- HybridAI secrets remain in `~/.hybridclaw/credentials.json`.
+
+## Model Selection
+
+Codex models use the `openai-codex/` prefix. The default shipped Codex model is `openai-codex/gpt-5-codex`.
+
+Examples:
+
+```text
+/model openai-codex/gpt-5-codex
+/model default openai-codex/gpt-5-codex
+```
+
+- `hybridai.defaultModel` in `~/.hybridclaw/config.json` can point at either a HybridAI model or an `openai-codex/...` model.
+- `codex.models` in runtime config controls the allowed Codex model list shown in selectors and status output.
+- When the selected model starts with `openai-codex/`, HybridClaw resolves OAuth credentials through the Codex provider instead of `HYBRIDAI_API_KEY`.
+- Use `HYBRIDCLAW_CODEX_BASE_URL` to override the default Codex backend base URL (`https://chatgpt.com/backend-api/codex`).
+
 Runtime model:
 
 - `hybridclaw gateway` is the core process and should run first.
@@ -80,7 +118,7 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - Runtime state lives under `~/.hybridclaw/` (`config.json`, `credentials.json`, `data/hybridclaw.db`, audit/session files).
 - HybridClaw does not keep runtime state in the current working directory. If `./.env` exists, supported secrets are migrated once into `~/.hybridclaw/credentials.json`.
 - `container.*` controls execution isolation, including `sandboxMode`, `memory`, `memorySwap`, `cpus`, `network`, and additional mounts.
-- Keep secrets in `~/.hybridclaw/credentials.json` (`HYBRIDAI_API_KEY` required, `DISCORD_TOKEN` optional).
+- Keep HybridAI secrets in `~/.hybridclaw/credentials.json` (`HYBRIDAI_API_KEY` required for HybridAI models, `DISCORD_TOKEN` optional). Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 - Trust-model acceptance is stored in `~/.hybridclaw/config.json` under `security.*` and is required before runtime starts.
 - See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
 - For advanced configuration, audit/observability details, skills internals, agent tools, and developer docs, see [CONTRIBUTING.md](./CONTRIBUTING.md).
@@ -97,6 +135,9 @@ CLI runtime commands:
 - `hybridclaw gateway <command...>` — Send a command to a running gateway (for example `sessions`, `bot info`)
 - `hybridclaw tui` — Start terminal client connected to gateway
 - `hybridclaw onboarding` — Run HybridAI account/API key onboarding
+- `hybridclaw codex login [--device-code|--browser|--import]` — Authenticate OpenAI Codex via OAuth or one-time Codex CLI import
+- `hybridclaw codex status` — Show stored Codex auth state, token mask, expiry, and source
+- `hybridclaw codex logout` — Clear stored Codex credentials
 - `hybridclaw update [status|--check] [--yes]` — Check for updates and upgrade global npm installs (source checkouts get git-based update instructions)
 - `hybridclaw audit ...` — Verify and inspect structured audit trail (`recent`, `search`, `approvals`, `verify`, `instructions`)
 - `hybridclaw audit instructions [--sync]` — Compare runtime instruction copies under `~/.hybridclaw/instructions/` against installed sources and restore shipped defaults when needed

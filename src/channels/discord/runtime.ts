@@ -35,7 +35,7 @@ import {
   DISCORD_TOKEN,
   DISCORD_TYPING_MODE,
   HYBRIDAI_MODELS,
-} from '../../config.js';
+} from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types.js';
 import { buildAttachmentContext } from './attachments.js';

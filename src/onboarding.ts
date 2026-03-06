@@ -1,11 +1,15 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline/promises';
 
-import { refreshRuntimeSecretsFromEnv } from './config.js';
+import { refreshRuntimeSecretsFromEnv } from './config/config.js';
+import {
+  getCodexAuthStatus,
+  loginCodexInteractive,
+} from './auth/codex-auth.js';
 import {
   ensureRuntimeInstructionCopies,
   resolveRuntimeInstructionPath,
-} from './instruction-integrity.js';
+} from './security/instruction-integrity.js';
 import {
   acceptSecurityTrustModel,
   ensureRuntimeConfigFile,
@@ -14,12 +18,13 @@ import {
   runtimeConfigPath,
   SECURITY_POLICY_VERSION,
   updateRuntimeConfig,
-} from './runtime-config.js';
+} from './config/runtime-config.js';
 import {
   loadRuntimeSecrets,
   runtimeSecretsPath,
   saveRuntimeSecrets,
-} from './runtime-secrets.js';
+} from './security/runtime-secrets.js';
+import { isCodexModel, resolveModelProvider } from './providers/factory.js';
 
 interface HybridAIBot {
   id: string;
@@ -36,6 +41,7 @@ interface ApiKeyValidationResult {
 interface OnboardingOptions {
   force?: boolean;
   commandName?: string;
+  preferredAuth?: 'hybridai' | 'openai-codex';
 }
 
 function trustModelDocPath(): string {
@@ -295,6 +301,28 @@ function saveDefaultChatbotId(chatbotId: string): void {
   });
 }
 
+function saveDefaultModel(model: string): void {
+  updateRuntimeConfig((draft) => {
+    draft.hybridai.defaultModel = model.trim();
+  });
+}
+
+function defaultHybridAIModel(): string {
+  const config = getRuntimeConfig();
+  const current = config.hybridai.defaultModel.trim();
+  if (current && !isCodexModel(current)) return current;
+  const first = config.hybridai.models.find((model) => !isCodexModel(model));
+  return (first || 'gpt-5-nano').trim();
+}
+
+function defaultCodexModel(): string {
+  const config = getRuntimeConfig();
+  const current = config.hybridai.defaultModel.trim();
+  if (current && isCodexModel(current)) return current;
+  const first = config.codex.models.find((model) => isCodexModel(model));
+  return (first || 'openai-codex/gpt-5-codex').trim();
+}
+
 function formatAcceptanceMeta(): string {
   const config = getRuntimeConfig();
   if (!isSecurityTrustAccepted(config)) return 'not accepted';
@@ -419,6 +447,56 @@ async function chooseDefaultBot(
   return selection;
 }
 
+async function promptAuthMethod(
+  rl: readline.Interface,
+  currentModel: string,
+): Promise<'hybridai' | 'openai-codex'> {
+  const currentProvider = resolveModelProvider(currentModel);
+  const defaultChoice = currentProvider === 'openai-codex' ? '2' : '1';
+
+  console.log(`${TEAL}${ICON_TITLE}${RESET} Auth methods:`);
+  console.log(`  ${TEAL}1.${RESET} HybridAI API key`);
+  console.log(`  ${TEAL}2.${RESET} OpenAI Codex (OAuth login)`);
+
+  while (true) {
+    const choice = await promptOptional(
+      rl,
+      `Choose auth method (Enter for ${defaultChoice}): `,
+      ICON_AUTH,
+    );
+    const normalized = (choice || defaultChoice).trim().toLowerCase();
+    if (normalized === '1' || normalized === 'hybridai') return 'hybridai';
+    if (
+      normalized === '2' ||
+      normalized === 'codex' ||
+      normalized === 'openai-codex'
+    ) {
+      return 'openai-codex';
+    }
+    printWarn('Enter 1 for HybridAI or 2 for OpenAI Codex.');
+  }
+}
+
+async function maybeSwitchDefaultModel(
+  rl: readline.Interface,
+  targetModel: string,
+  reason: string,
+): Promise<boolean> {
+  const currentModel = getRuntimeConfig().hybridai.defaultModel.trim();
+  if (!targetModel || currentModel === targetModel) return false;
+
+  const shouldSwitch = await promptYesNo(
+    rl,
+    `${reason} Set default model to ${targetModel}?`,
+    true,
+    ICON_SETUP,
+  );
+  if (!shouldSwitch) return false;
+
+  saveDefaultModel(targetModel);
+  return true;
+}
+
 async function ensureSecurityTrustAcceptance(
   rl: readline.Interface,
   commandLabel: string,
@@ -480,20 +558,243 @@ async function ensureSecurityTrustAcceptance(
 export async function ensureHybridAICredentials(
   options: OnboardingOptions = {},
 ): Promise<void> {
+  await ensureRuntimeCredentials({
+    ...options,
+    preferredAuth: 'hybridai',
+  });
+}
+
+async function runHybridAIApiKeyOnboarding(params: {
+  rl: readline.Interface;
+  baseUrl: string;
+  commandLabel: string;
+  existingKey: string;
+}): Promise<void> {
+  const { rl, commandLabel, existingKey } = params;
+  const baseUrl = normalizeBaseUrl(
+    params.baseUrl || getRuntimeConfig().hybridai.baseUrl || DEFAULT_BASE_URL,
+  );
+  const registerPageUrl = resolveUrl(baseUrl, DEFAULT_REGISTER_PATH);
+  const loginUrl = resolveUrl(baseUrl, DEFAULT_LOGIN_PATH);
+  printMeta('HYBRIDAI_BASE_URL', baseUrl);
+  if (!existingKey) {
+    printInfo(
+      `No HYBRIDAI_API_KEY found. ${commandLabel} needs HybridAI credentials before it can start.`,
+    );
+  } else {
+    printSetup('Reconfiguring HybridAI credentials.');
+  }
+  console.log();
+
+  const wantsNewAccount = await promptYesNo(
+    rl,
+    'Create a new HybridAI account now?',
+    true,
+    ICON_PERSON,
+  );
+  let email = '';
+
+  if (wantsNewAccount) {
+    console.log();
+    const openRegister = await promptYesNo(
+      rl,
+      `Open registration page ${registerPageUrl} in browser now?`,
+      true,
+      ICON_PERSON,
+    );
+    if (openRegister) {
+      const opened = await tryOpenUrl(registerPageUrl);
+      if (!opened) {
+        printWarn('Could not auto-open browser. Open the link manually.');
+      }
+    }
+    email = await promptOptional(
+      rl,
+      'Optional: email used for registration (used for verify link): ',
+      ICON_PERSON,
+    );
+    if (email) {
+      const verifyUrl = resolveUrl(
+        baseUrl,
+        `${DEFAULT_VERIFY_PATH}?email=${encodeURIComponent(email)}`,
+      );
+      printLink(`Verify your email here: ${verifyUrl}`);
+    }
+    await promptOptional(
+      rl,
+      'When registration/email verification is done, press Enter...',
+      ICON_PERSON,
+    );
+    console.log();
+  }
+
+  const openLogin = await promptYesNo(
+    rl,
+    `Open login page ${loginUrl} in browser now?`,
+    true,
+    ICON_AUTH,
+  );
+  if (openLogin) {
+    const opened = await tryOpenUrl(loginUrl);
+    if (!opened) {
+      printWarn('Could not auto-open browser. Open the link manually.');
+    }
+  }
+
+  let seededApiKey = '';
+  const pasted = await promptOptional(
+    rl,
+    'Paste API key or URL containing it (or press Enter to continue): ',
+    ICON_KEY,
+  );
+  if (pasted) {
+    seededApiKey = extractApiKeyFromInput(pasted) || '';
+    if (!seededApiKey) {
+      printWarn(
+        'Could not extract an API key from input; you can paste the raw key next.',
+      );
+    }
+  } else {
+    await promptOptional(
+      rl,
+      'When login/API key retrieval is done, press Enter...',
+      ICON_AUTH,
+    );
+  }
+
+  let apiKey = seededApiKey;
+  let validation: ApiKeyValidationResult = {
+    ok: false,
+    bots: [],
+    error: 'No validation yet.',
+  };
+  while (true) {
+    if (!apiKey) {
+      const entered = await promptRequired(rl, 'HybridAI API key: ', ICON_KEY);
+      apiKey = extractApiKeyFromInput(entered) || entered;
+    }
+
+    validation = await validateApiKey(baseUrl, apiKey);
+    if (validation.ok) {
+      printSuccess('API key validated successfully.');
+      console.log();
+      break;
+    }
+
+    printWarn(`Validation failed: ${validation.error}`);
+    const retry = await promptYesNo(rl, 'Try entering the key again?', true);
+    if (retry) {
+      apiKey = '';
+      continue;
+    }
+
+    const keepAnyway = await promptYesNo(rl, 'Save this key anyway?', false);
+    if (keepAnyway) break;
+    apiKey = '';
+  }
+
+  const fallbackChatbotId = getRuntimeConfig().hybridai.defaultChatbotId.trim();
+  const chosenChatbotId = await chooseDefaultBot(
+    rl,
+    validation.ok ? validation.bots : [],
+    fallbackChatbotId,
+  );
+
+  const secretsPath = saveHybridAICredentials(apiKey);
+  saveDefaultChatbotId(chosenChatbotId || '');
+  process.env.HYBRIDAI_API_KEY = apiKey;
+  refreshRuntimeSecretsFromEnv();
+  const switchedModel = await maybeSwitchDefaultModel(
+    rl,
+    defaultHybridAIModel(),
+    'HybridAI auth works only with HybridAI models.',
+  );
+
+  console.log();
+  printSuccess(`Saved credentials to ${secretsPath}.`);
+  printSuccess(`Saved runtime settings to ${runtimeConfigPath()}.`);
+  if (chosenChatbotId) {
+    printSuccess(`Default bot set to: ${chosenChatbotId}`);
+  } else {
+    printInfo(
+      `No default bot selected. You can set hybridai.defaultChatbotId in ${runtimeConfigPath()} later.`,
+    );
+  }
+  if (switchedModel) {
+    printSuccess(`Default model set to: ${defaultHybridAIModel()}`);
+  }
+  console.log();
+}
+
+async function runCodexOnboarding(params: {
+  rl: readline.Interface;
+}): Promise<void> {
+  const { rl } = params;
+  const existing = getCodexAuthStatus();
+  if (existing.authenticated) {
+    printSetup('Reconfiguring OpenAI Codex credentials.');
+  } else {
+    printInfo('No OpenAI Codex OAuth session found. Starting login.');
+  }
+  console.log();
+
+  const result = await (async () => {
+    rl.pause();
+    try {
+      return await loginCodexInteractive({ method: 'auto' });
+    } finally {
+      rl.resume();
+    }
+  })();
+
+  const switchedModel = await maybeSwitchDefaultModel(
+    rl,
+    defaultCodexModel(),
+    'OpenAI Codex auth works only with Codex models.',
+  );
+
+  console.log();
+  printSuccess(`Saved Codex credentials to ${result.path}.`);
+  printSuccess(`Account: ${result.credentials.accountId}`);
+  printSuccess(`Login method: ${result.method}`);
+  if (switchedModel) {
+    printSuccess(`Default model set to: ${defaultCodexModel()}`);
+  }
+  console.log();
+}
+
+export async function ensureRuntimeCredentials(
+  options: OnboardingOptions = {},
+): Promise<void> {
   loadRuntimeSecrets();
   const bootstrappedConfig = ensureRuntimeConfigFile();
 
+  const runtimeConfig = getRuntimeConfig();
   const existingKey = (process.env.HYBRIDAI_API_KEY || '').trim();
+  const codexStatus = getCodexAuthStatus();
+  const currentModel = runtimeConfig.hybridai.defaultModel.trim();
+  const resolvedCurrentProvider = resolveModelProvider(currentModel);
+  const currentAuth =
+    options.preferredAuth ||
+    (resolvedCurrentProvider === 'openai-codex'
+      ? 'openai-codex'
+      : 'hybridai');
   const force = options.force === true;
-  const securityAccepted = isSecurityTrustAccepted(getRuntimeConfig());
+  const securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
-  const needsApiCredentials = !existingKey || force;
-  if (!needsSecurityAcceptance && !needsApiCredentials) return;
+  const hasRequiredCredentials =
+    currentAuth === 'openai-codex' ? codexStatus.authenticated : !!existingKey;
+  if (!needsSecurityAcceptance && hasRequiredCredentials) return;
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     if (!securityAccepted) {
       throw new Error(
         'Security trust model is not accepted. Run `hybridclaw onboarding` in an interactive terminal to accept TRUST_MODEL.md.',
+      );
+    }
+    if (currentAuth === 'openai-codex') {
+      throw new Error(
+        'OpenAI Codex credentials are missing. Run `hybridclaw codex login` or `hybridclaw onboarding` in an interactive terminal.',
       );
     }
     throw new Error(
@@ -502,21 +803,18 @@ export async function ensureHybridAICredentials(
   }
 
   const baseUrl = normalizeBaseUrl(
-    getRuntimeConfig().hybridai.baseUrl ||
+    runtimeConfig.hybridai.baseUrl ||
       process.env.HYBRIDAI_BASE_URL ||
       DEFAULT_BASE_URL,
   );
-  const registerPageUrl = resolveUrl(baseUrl, DEFAULT_REGISTER_PATH);
-  const loginUrl = resolveUrl(baseUrl, DEFAULT_LOGIN_PATH);
   const commandLabel = options.commandName || 'hybridclaw';
-
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
   });
 
   try {
-    printHeadline('HybridAI onboarding');
+    printHeadline('HybridClaw onboarding');
     if (bootstrappedConfig) {
       printSetup(
         `Created runtime config with validated defaults at ${runtimeConfigPath()}.`,
@@ -524,158 +822,26 @@ export async function ensureHybridAICredentials(
     }
     await ensureSecurityTrustAcceptance(rl, commandLabel, force);
 
-    if (existingKey && !force) {
+    if (hasRequiredCredentials && !force) {
       printSuccess(
-        'Security trust model already accepted and API key is present. No credential changes needed.',
+        'Security trust model already accepted and the active model provider is configured.',
       );
       return;
     }
 
-    printMeta('HYBRIDAI_BASE_URL', baseUrl);
-    if (!existingKey) {
-      printInfo(
-        `No HYBRIDAI_API_KEY found. ${commandLabel} needs HybridAI credentials before it can start.`,
-      );
-    } else {
-      printSetup('Reconfiguring HybridAI credentials.');
+    const authMethod =
+      options.preferredAuth || (await promptAuthMethod(rl, currentModel));
+    if (authMethod === 'openai-codex') {
+      await runCodexOnboarding({ rl });
+      return;
     }
-    console.log();
 
-    const wantsNewAccount = await promptYesNo(
+    await runHybridAIApiKeyOnboarding({
       rl,
-      'Create a new HybridAI account now?',
-      true,
-      ICON_PERSON,
-    );
-    let email = '';
-
-    if (wantsNewAccount) {
-      console.log();
-      const openRegister = await promptYesNo(
-        rl,
-        `Open registration page ${registerPageUrl} in browser now?`,
-        true,
-        ICON_PERSON,
-      );
-      if (openRegister) {
-        const opened = await tryOpenUrl(registerPageUrl);
-        if (!opened) {
-          printWarn('Could not auto-open browser. Open the link manually.');
-        }
-      }
-      email = await promptOptional(
-        rl,
-        'Optional: email used for registration (used for verify link): ',
-        ICON_PERSON,
-      );
-      if (email) {
-        const verifyUrl = resolveUrl(
-          baseUrl,
-          `${DEFAULT_VERIFY_PATH}?email=${encodeURIComponent(email)}`,
-        );
-        printLink(`Verify your email here: ${verifyUrl}`);
-      }
-      await promptOptional(
-        rl,
-        'When registration/email verification is done, press Enter...',
-        ICON_PERSON,
-      );
-      console.log();
-    }
-
-    const openLogin = await promptYesNo(
-      rl,
-      `Open login page ${loginUrl} in browser now?`,
-      true,
-      ICON_AUTH,
-    );
-    if (openLogin) {
-      const opened = await tryOpenUrl(loginUrl);
-      if (!opened) {
-        printWarn('Could not auto-open browser. Open the link manually.');
-      }
-    }
-
-    let seededApiKey = '';
-    const pasted = await promptOptional(
-      rl,
-      'Paste API key or URL containing it (or press Enter to continue): ',
-      ICON_KEY,
-    );
-    if (pasted) {
-      seededApiKey = extractApiKeyFromInput(pasted) || '';
-      if (!seededApiKey) {
-        printWarn(
-          'Could not extract an API key from input; you can paste the raw key next.',
-        );
-      }
-    } else {
-      await promptOptional(
-        rl,
-        'When login/API key retrieval is done, press Enter...',
-        ICON_AUTH,
-      );
-    }
-
-    let apiKey = seededApiKey;
-    let validation: ApiKeyValidationResult = {
-      ok: false,
-      bots: [],
-      error: 'No validation yet.',
-    };
-    while (true) {
-      if (!apiKey) {
-        const entered = await promptRequired(
-          rl,
-          'HybridAI API key: ',
-          ICON_KEY,
-        );
-        apiKey = extractApiKeyFromInput(entered) || entered;
-      }
-
-      validation = await validateApiKey(baseUrl, apiKey);
-      if (validation.ok) {
-        printSuccess('API key validated successfully.');
-        console.log();
-        break;
-      }
-
-      printWarn(`Validation failed: ${validation.error}`);
-      const retry = await promptYesNo(rl, 'Try entering the key again?', true);
-      if (retry) {
-        apiKey = '';
-        continue;
-      }
-
-      const keepAnyway = await promptYesNo(rl, 'Save this key anyway?', false);
-      if (keepAnyway) break;
-      apiKey = '';
-    }
-
-    const fallbackChatbotId =
-      getRuntimeConfig().hybridai.defaultChatbotId.trim();
-    const chosenChatbotId = await chooseDefaultBot(
-      rl,
-      validation.ok ? validation.bots : [],
-      fallbackChatbotId,
-    );
-
-    const secretsPath = saveHybridAICredentials(apiKey);
-    saveDefaultChatbotId(chosenChatbotId || '');
-    process.env.HYBRIDAI_API_KEY = apiKey;
-    refreshRuntimeSecretsFromEnv();
-
-    console.log();
-    printSuccess(`Saved credentials to ${secretsPath}.`);
-    printSuccess(`Saved runtime settings to ${runtimeConfigPath()}.`);
-    if (chosenChatbotId) {
-      printSuccess(`Default bot set to: ${chosenChatbotId}`);
-    } else {
-      printInfo(
-        `No default bot selected. You can set hybridai.defaultChatbotId in ${runtimeConfigPath()} later.`,
-      );
-    }
-    console.log();
+      baseUrl,
+      commandLabel,
+      existingKey,
+    });
   } finally {
     rl.close();
   }

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { RuntimeConfig } from '../src/runtime-config.ts';
+import type { RuntimeConfig } from '../src/config/runtime-config.ts';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_CWD = process.cwd();
@@ -28,13 +28,13 @@ function restoreEnvVar(name: string, value: string | undefined): void {
 async function importFreshRuntimeSecrets(homeDir: string) {
   process.env.HOME = homeDir;
   vi.resetModules();
-  return import('../src/runtime-secrets.ts');
+  return import('../src/security/runtime-secrets.ts');
 }
 
 async function importFreshRuntimeConfig(homeDir: string) {
   process.env.HOME = homeDir;
   vi.resetModules();
-  return import('../src/runtime-config.ts');
+  return import('../src/config/runtime-config.ts');
 }
 
 afterEach(() => {

@@ -8,7 +8,7 @@ import {
   runAfterToolHooks,
   runBeforeToolHooks,
 } from './extensions.js';
-import { callHybridAI, callHybridAIStream } from './hybridai-client.js';
+import { callHybridAI, callHybridAIStream } from './model-client.js';
 import { waitForInput, writeOutput } from './ipc.js';
 import {
   isRetryableModelError,
@@ -100,8 +100,9 @@ const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
 ];
 const approvalRuntime = new TrustedCoworkerApprovalRuntime();
 
-/** API key received once via stdin, held in memory for the container lifetime. */
+/** Auth material received once via stdin, held in memory for the agent lifetime. */
 let storedApiKey = '';
+let storedRequestHeaders: Record<string, string> = {};
 
 function normalizeMessageContentToText(content: ChatMessageContent): string {
   if (typeof content === 'string') return content;
@@ -475,22 +476,26 @@ function extractToolArtifacts(
 }
 
 async function callHybridAIWithRetry(params: {
+  provider?: 'hybridai' | 'openai-codex';
   baseUrl: string;
   apiKey: string;
   model: string;
   chatbotId: string;
   enableRag: boolean;
+  requestHeaders?: Record<string, string>;
   history: ChatMessage[];
   tools: ToolDefinition[];
   onTextDelta?: (delta: string) => void;
   maxTokens?: number;
 }): Promise<Awaited<ReturnType<typeof callHybridAI>>> {
   const {
+    provider,
     baseUrl,
     apiKey,
     model,
     chatbotId,
     enableRag,
+    requestHeaders,
     history,
     tools,
     onTextDelta,
@@ -507,11 +512,13 @@ async function callHybridAIWithRetry(params: {
       if (onTextDelta) {
         try {
           response = await callHybridAIStream(
+            provider,
             baseUrl,
             apiKey,
             model,
             chatbotId,
             enableRag,
+            requestHeaders,
             history,
             tools,
             onTextDelta,
@@ -521,11 +528,13 @@ async function callHybridAIWithRetry(params: {
           const fallbackEligible = shouldFallbackFromStreamError(streamErr);
           if (!fallbackEligible) throw streamErr;
           response = await callHybridAI(
+            provider,
             baseUrl,
             apiKey,
             model,
             chatbotId,
             enableRag,
+            requestHeaders,
             history,
             tools,
             maxTokens,
@@ -533,11 +542,13 @@ async function callHybridAIWithRetry(params: {
         }
       } else {
         response = await callHybridAI(
+          provider,
           baseUrl,
           apiKey,
           model,
           chatbotId,
           enableRag,
+          requestHeaders,
           history,
           tools,
           maxTokens,
@@ -574,9 +585,11 @@ async function processRequest(
   messages: ChatMessage[],
   apiKey: string,
   baseUrl: string,
+  provider: 'hybridai' | 'openai-codex' | undefined,
   model: string,
   chatbotId: string,
   enableRag: boolean,
+  requestHeaders: Record<string, string> | undefined,
   tools: ToolDefinition[],
   maxTokens?: number,
   effectiveUserPromptOverride?: string,
@@ -606,11 +619,13 @@ async function processRequest(
     let response: Awaited<ReturnType<typeof callHybridAIWithRetry>>;
     try {
       response = await callHybridAIWithRetry({
+        provider,
         baseUrl,
         apiKey,
         model,
         chatbotId,
         enableRag,
+        requestHeaders,
         history,
         tools,
         onTextDelta: emitStreamDelta,
@@ -956,6 +971,7 @@ async function main(): Promise<void> {
   const stdinData = await readStdinLine();
   const firstInput: ContainerInput = JSON.parse(stdinData);
   storedApiKey = firstInput.apiKey;
+  storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
 
   console.error(
     `[hybridclaw-agent] processing first request (${firstInput.messages.length} messages)`,
@@ -971,10 +987,12 @@ async function main(): Promise<void> {
     firstInput.configuredDiscordChannels,
   );
   setModelContext(
+    firstInput.provider,
     firstInput.baseUrl,
     storedApiKey,
     firstInput.model,
     firstInput.chatbotId,
+    storedRequestHeaders,
   );
   setMediaContext(firstInput.media);
   const firstMessages = await injectNativeVisionContent(
@@ -1003,9 +1021,11 @@ async function main(): Promise<void> {
       firstPreparedMessages,
       storedApiKey,
       firstInput.baseUrl,
+      firstInput.provider,
       firstInput.model,
       firstInput.chatbotId,
       firstInput.enableRag,
+      storedRequestHeaders,
       resolveTools(firstInput),
       firstInput.maxTokens,
       firstPromptOverride,
@@ -1025,9 +1045,11 @@ async function main(): Promise<void> {
         firstRetryMessages,
         storedApiKey,
         firstInput.baseUrl,
+        firstInput.provider,
         firstInput.model,
         firstInput.chatbotId,
         firstInput.enableRag,
+        firstInput.requestHeaders,
         resolveTools(firstInput),
         firstInput.maxTokens,
         firstPromptOverride,
@@ -1052,6 +1074,14 @@ async function main(): Promise<void> {
 
     // Use stored apiKey — IPC file no longer contains it
     const apiKey = input.apiKey || storedApiKey;
+    const requestHeaders =
+      input.requestHeaders && Object.keys(input.requestHeaders).length > 0
+        ? input.requestHeaders
+        : storedRequestHeaders;
+    if (input.apiKey) storedApiKey = input.apiKey;
+    if (input.requestHeaders && Object.keys(input.requestHeaders).length > 0) {
+      storedRequestHeaders = { ...input.requestHeaders };
+    }
 
     console.error(
       `[hybridclaw-agent] processing request (${input.messages.length} messages)`,
@@ -1066,7 +1096,14 @@ async function main(): Promise<void> {
       input.channelId,
       input.configuredDiscordChannels,
     );
-    setModelContext(input.baseUrl, apiKey, input.model, input.chatbotId);
+    setModelContext(
+      input.provider,
+      input.baseUrl,
+      apiKey,
+      input.model,
+      input.chatbotId,
+      requestHeaders,
+    );
     setMediaContext(input.media);
     const preparedMessages = await injectNativeVisionContent(
       input.messages,
@@ -1097,9 +1134,11 @@ async function main(): Promise<void> {
       messagesForRequest,
       apiKey,
       input.baseUrl,
+      input.provider,
       input.model,
       input.chatbotId,
       input.enableRag,
+      requestHeaders,
       resolveTools(input),
       input.maxTokens,
       promptOverride,
@@ -1119,9 +1158,11 @@ async function main(): Promise<void> {
         retryMessages,
         apiKey,
         input.baseUrl,
+        input.provider,
         input.model,
         input.chatbotId,
         input.enableRag,
+        requestHeaders,
         resolveTools(input),
         input.maxTokens,
         promptOverride,

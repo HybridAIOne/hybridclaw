@@ -155,10 +155,12 @@ type UploadTarget = {
   source: 'ref' | 'selector';
 };
 type BrowserModelContext = {
+  provider: 'hybridai' | 'openai-codex';
   baseUrl: string;
   apiKey: string;
   model: string;
   chatbotId: string;
+  requestHeaders: Record<string, string>;
 };
 
 type BrowserRunner = {
@@ -178,26 +180,65 @@ type BrowserSession = {
 const activeSessions = new Map<string, BrowserSession>();
 let cachedRunner: BrowserRunner | null | undefined;
 let currentBrowserModelContext: BrowserModelContext = {
+  provider: 'hybridai',
   baseUrl: '',
   apiKey: '',
   model: '',
   chatbotId: '',
+  requestHeaders: {},
 };
 
 export function setBrowserModelContext(
+  provider: 'hybridai' | 'openai-codex' | undefined,
   baseUrl: string,
   apiKey: string,
   model: string,
   chatbotId: string,
+  requestHeaders?: Record<string, string>,
 ): void {
   currentBrowserModelContext = {
+    provider: provider || 'hybridai',
     baseUrl: String(baseUrl || '')
       .trim()
       .replace(/\/+$/, ''),
     apiKey: String(apiKey || '').trim(),
     model: String(model || '').trim(),
     chatbotId: String(chatbotId || '').trim(),
+    requestHeaders: { ...(requestHeaders || {}) },
   };
+}
+
+function normalizeCodexModelName(model: string): string {
+  const trimmed = String(model || '').trim();
+  if (!trimmed.toLowerCase().startsWith('openai-codex/')) return trimmed;
+  return trimmed.slice('openai-codex/'.length) || trimmed;
+}
+
+function extractCodexOutputText(payload: Record<string, unknown>): string {
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  const chunks: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    if (record.type !== 'message' || !Array.isArray(record.content)) continue;
+    for (const contentItem of record.content) {
+      if (
+        contentItem &&
+        typeof contentItem === 'object' &&
+        !Array.isArray(contentItem)
+      ) {
+        const contentRecord = contentItem as Record<string, unknown>;
+        const text =
+          typeof contentRecord.text === 'string'
+            ? contentRecord.text
+            : typeof contentRecord.output_text === 'string'
+              ? contentRecord.output_text
+              : '';
+        if (text) chunks.push(text);
+      }
+    }
+  }
+  return chunks.join('\n').trim();
 }
 
 function normalizeSessionKey(sessionId: string): string {
@@ -829,6 +870,7 @@ async function callVisionModel(
   const baseUrl = currentBrowserModelContext.baseUrl;
   const model = currentBrowserModelContext.model;
   const chatbotId = currentBrowserModelContext.chatbotId;
+  const provider = currentBrowserModelContext.provider;
   if (!apiKey) {
     throw new Error(
       'browser_vision is not configured: missing active request API key context.',
@@ -844,35 +886,56 @@ async function callVisionModel(
       'browser_vision is not configured: missing active request model context.',
     );
   }
-  if (!chatbotId) {
+  if (provider !== 'openai-codex' && !chatbotId) {
     throw new Error(
       'browser_vision is not configured: missing active request chatbot_id context.',
     );
   }
-  const endpoint = `${baseUrl}/v1/chat/completions`;
-  const payload = {
-    model,
-    chatbot_id: chatbotId,
-    enable_rag: false,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: question },
-          {
-            type: 'image_url',
-            image_url: { url: `data:image/png;base64,${imageBase64}` },
-          },
-        ],
-      },
-    ],
-  };
+  const endpoint =
+    provider === 'openai-codex'
+      ? `${baseUrl}/responses`
+      : `${baseUrl}/v1/chat/completions`;
+  const payload =
+    provider === 'openai-codex'
+      ? {
+          model: normalizeCodexModelName(model),
+          input: [
+            {
+              role: 'user',
+              content: [
+                { type: 'input_text', text: question },
+                {
+                  type: 'input_image',
+                  image_url: `data:image/png;base64,${imageBase64}`,
+                },
+              ],
+            },
+          ],
+        }
+      : {
+          model,
+          chatbot_id: chatbotId,
+          enable_rag: false,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: question },
+                {
+                  type: 'image_url',
+                  image_url: { url: `data:image/png;base64,${imageBase64}` },
+                },
+              ],
+            },
+          ],
+        };
 
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
+      ...currentBrowserModelContext.requestHeaders,
     },
     body: JSON.stringify(payload),
   });
@@ -894,6 +957,16 @@ async function callVisionModel(
   }
 
   const record = asRecord(parsed);
+  if (provider === 'openai-codex') {
+    if (!record) {
+      throw new Error('vision API response did not include a JSON object');
+    }
+    const analysis = extractCodexOutputText(record);
+    if (!analysis) {
+      throw new Error('vision API response did not include text output');
+    }
+    return { model, analysis };
+  }
   const choices = record?.choices;
   if (!Array.isArray(choices) || choices.length === 0) {
     throw new Error('vision API response did not include choices');

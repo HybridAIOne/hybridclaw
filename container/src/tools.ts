@@ -78,10 +78,12 @@ let currentSessionId = '';
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
 let gatewayChannelId = '';
+let currentModelProvider: 'hybridai' | 'openai-codex' = 'hybridai';
 let currentModelBaseUrl = '';
 let currentModelApiKey = '';
 let currentModelName = '';
 let currentChatbotId = '';
+let currentModelHeaders: Record<string, string> = {};
 let currentMediaContext: MediaContextItem[] = [];
 const MAX_PENDING_DELEGATIONS = 3;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
@@ -196,16 +198,27 @@ export function setGatewayContext(
 }
 
 export function setModelContext(
+  provider: 'hybridai' | 'openai-codex' | undefined,
   baseUrl: string,
   apiKey: string,
   model: string,
   chatbotId: string,
+  requestHeaders?: Record<string, string>,
 ): void {
+  currentModelProvider = provider || 'hybridai';
   currentModelBaseUrl = String(baseUrl || '').trim();
   currentModelApiKey = String(apiKey || '').trim();
   currentModelName = String(model || '').trim();
   currentChatbotId = String(chatbotId || '').trim();
-  setBrowserModelContext(baseUrl, apiKey, model, chatbotId);
+  currentModelHeaders = { ...(requestHeaders || {}) };
+  setBrowserModelContext(
+    provider,
+    baseUrl,
+    apiKey,
+    model,
+    chatbotId,
+    requestHeaders,
+  );
 }
 
 export function setMediaContext(media?: MediaContextItem[]): void {
@@ -667,9 +680,50 @@ function visionModelContextError(): string | null {
     return 'vision_analyze is not configured: missing base URL context.';
   if (!currentModelName)
     return 'vision_analyze is not configured: missing model context.';
-  if (!currentChatbotId)
+  if (currentModelProvider !== 'openai-codex' && !currentChatbotId)
     return 'vision_analyze is not configured: missing chatbot_id context.';
   return null;
+}
+
+function normalizeCodexModelName(model: string): string {
+  const trimmed = String(model || '').trim();
+  if (!trimmed.toLowerCase().startsWith('openai-codex/')) return trimmed;
+  return trimmed.slice('openai-codex/'.length) || trimmed;
+}
+
+function buildModelRequestHeaders(): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${currentModelApiKey}`,
+    ...currentModelHeaders,
+  };
+}
+
+function extractCodexOutputText(payload: Record<string, unknown>): string {
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  const chunks: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    if (record.type !== 'message' || !Array.isArray(record.content)) continue;
+    for (const contentItem of record.content) {
+      if (
+        contentItem &&
+        typeof contentItem === 'object' &&
+        !Array.isArray(contentItem)
+      ) {
+        const contentRecord = contentItem as Record<string, unknown>;
+        const text =
+          typeof contentRecord.text === 'string'
+            ? contentRecord.text
+            : typeof contentRecord.output_text === 'string'
+              ? contentRecord.output_text
+              : '';
+        if (text) chunks.push(text);
+      }
+    }
+  }
+  return chunks.join('\n').trim();
 }
 
 async function callVisionModel(
@@ -679,27 +733,44 @@ async function callVisionModel(
   const contextError = visionModelContextError();
   if (contextError) throw new Error(contextError);
 
-  const response = await fetch(`${currentModelBaseUrl}/v1/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${currentModelApiKey}`,
+  const response = await fetch(
+    currentModelProvider === 'openai-codex'
+      ? `${currentModelBaseUrl}/responses`
+      : `${currentModelBaseUrl}/v1/chat/completions`,
+    {
+      method: 'POST',
+      headers: buildModelRequestHeaders(),
+      body: JSON.stringify(
+        currentModelProvider === 'openai-codex'
+          ? {
+              model: normalizeCodexModelName(currentModelName),
+              input: [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'input_text', text: question },
+                    { type: 'input_image', image_url: imageDataUrl },
+                  ],
+                },
+              ],
+            }
+          : {
+              model: currentModelName,
+              chatbot_id: currentChatbotId,
+              enable_rag: false,
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: question },
+                    { type: 'image_url', image_url: { url: imageDataUrl } },
+                  ],
+                },
+              ],
+            },
+      ),
     },
-    body: JSON.stringify({
-      model: currentModelName,
-      chatbot_id: currentChatbotId,
-      enable_rag: false,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: question },
-            { type: 'image_url', image_url: { url: imageDataUrl } },
-          ],
-        },
-      ],
-    }),
-  });
+  );
 
   const rawText = await response.text();
   if (!response.ok) {
@@ -718,6 +789,19 @@ async function callVisionModel(
   }
   const record = asRecord(parsed);
   const choices = record?.choices;
+  if (currentModelProvider === 'openai-codex') {
+    if (!record) {
+      throw new Error('vision API response did not include a JSON object');
+    }
+    const analysis = extractCodexOutputText(record);
+    if (!analysis) {
+      throw new Error('vision API response did not include text output');
+    }
+    return {
+      model: currentModelName,
+      analysis,
+    };
+  }
   if (!Array.isArray(choices) || choices.length === 0) {
     throw new Error('vision API response did not include choices');
   }

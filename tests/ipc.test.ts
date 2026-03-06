@@ -1,0 +1,61 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { afterEach, expect, test, vi } from 'vitest';
+
+const ORIGINAL_HOME = process.env.HOME;
+
+function makeTempHome(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-ipc-'));
+}
+
+function restoreEnvVar(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.resetModules();
+  restoreEnvVar('HOME', ORIGINAL_HOME);
+});
+
+test('writeInput omits auth material from IPC files when requested', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { ensureSessionDirs, writeInput } = await import('../src/infra/ipc.ts');
+  const input = {
+    sessionId: 'session-1',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: '',
+    enableRag: false,
+    apiKey: 'token_secret',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    provider: 'openai-codex' as const,
+    requestHeaders: {
+      Authorization: 'Bearer token_secret',
+      'Chatgpt-Account-Id': 'acct_123',
+      'OpenAI-Beta': 'responses=experimental',
+    },
+    model: 'openai-codex/gpt-5-codex',
+    channelId: 'channel-1',
+  };
+
+  ensureSessionDirs('session-1');
+  const filePath = writeInput('session-1', input, { omitApiKey: true });
+  const written = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<
+    string,
+    unknown
+  >;
+
+  expect(written.apiKey).toBe('');
+  expect(written.requestHeaders).toEqual({});
+  expect(input.apiKey).toBe('token_secret');
+  expect(input.requestHeaders.Authorization).toBe('Bearer token_secret');
+});

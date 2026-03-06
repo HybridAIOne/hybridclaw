@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 
-import { buildSystemPromptFromHooks } from '../src/prompt-hooks.js';
-import { buildToolsSummary } from '../src/tool-summary.js';
+import { buildSystemPromptFromHooks } from '../src/agent/prompt-hooks.js';
+import { buildToolsSummary } from '../src/agent/tool-summary.js';
 
 test('buildToolsSummary groups the full tool catalog', () => {
   const summary = buildToolsSummary();

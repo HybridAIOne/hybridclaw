@@ -3,7 +3,7 @@ import { expect, test } from 'vitest';
 import {
   resolveModelContextWindowFallback,
   resolveModelContextWindowFromList,
-} from '../src/hybridai-models.js';
+} from '../src/providers/hybridai-models.js';
 
 test('resolveModelContextWindowFromList matches exact model id', () => {
   const models = [
@@ -31,6 +31,9 @@ test('resolveModelContextWindowFallback resolves known defaults', () => {
   expect(resolveModelContextWindowFallback('openai/gpt-5-nano')).toBe(400_000);
   expect(resolveModelContextWindowFallback('gpt-5.1')).toBe(400_000);
   expect(resolveModelContextWindowFallback('gpt-5.3')).toBe(400_000);
+  expect(resolveModelContextWindowFallback('openai-codex/gpt-5.4')).toBe(
+    400_000,
+  );
   expect(resolveModelContextWindowFallback('anthropic/claude-opus-4-6')).toBe(
     200_000,
   );

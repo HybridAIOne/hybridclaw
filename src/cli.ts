@@ -9,7 +9,7 @@ import {
   findUnsupportedGatewayLifecycleFlag,
   parseGatewayFlags,
   type SandboxModeOverride,
-} from './cli-flags.js';
+} from './config/cli-flags.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -17,9 +17,15 @@ import {
   getResolvedSandboxMode,
   MissingRequiredEnvVarError,
   setSandboxModeOverride,
-} from './config.js';
-import { ensureHybridAICredentials } from './onboarding.js';
-import { runtimeSecretsPath } from './runtime-secrets.js';
+} from './config/config.js';
+import {
+  CodexAuthError,
+  clearCodexCredentials,
+  getCodexAuthStatus,
+  loginCodexInteractive,
+} from './auth/codex-auth.js';
+import { ensureRuntimeCredentials } from './onboarding.js';
+import { runtimeSecretsPath } from './security/runtime-secrets.js';
 import { printUpdateUsage, runUpdateCommand } from './update.js';
 
 const PACKAGE_NAME = '@hybridaione/hybridclaw';
@@ -59,7 +65,7 @@ async function ensureRuntimeContainer(
   sandboxMode: SandboxModeOverride | null = null,
 ): Promise<void> {
   if ((sandboxMode || getResolvedSandboxMode()) === 'host') return;
-  const { ensureContainerImageReady } = await import('./container-setup.js');
+  const { ensureContainerImageReady } = await import('./infra/container-setup.js');
   await ensureContainerImageReady({
     commandName,
     required,
@@ -72,7 +78,9 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function isGatewayReachable(): Promise<boolean> {
-  const { gatewayHealth, gatewayStatus } = await import('./gateway-client.js');
+  const { gatewayHealth, gatewayStatus } = await import(
+    './gateway/gateway-client.js'
+  );
   try {
     await gatewayHealth();
     return true;
@@ -147,9 +155,9 @@ async function ensureTuiInstructionApproval(
     summarizeInstructionIntegrity,
     syncRuntimeInstructionCopies,
     verifyInstructionIntegrity,
-  } = await import('./instruction-integrity.js');
+  } = await import('./security/instruction-integrity.js');
   const { beginInstructionApprovalAudit, completeInstructionApprovalAudit } =
-    await import('./instruction-approval-audit.js');
+    await import('./security/instruction-approval-audit.js');
 
   const result = verifyInstructionIntegrity();
   if (result.ok) return;
@@ -249,7 +257,8 @@ function printMainUsage(): void {
   Commands:
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   tui        Start terminal adapter (starts gateway automatically when needed)
-  onboarding Run HybridAI account/API key onboarding
+  onboarding Run interactive auth + trust-model onboarding
+  codex      Manage OpenAI Codex OAuth login/logout/status
   update     Check and apply HybridClaw CLI updates
   audit      Inspect/verify structured audit trail
   help       Show general or topic-specific help (e.g. \`hybridclaw help gateway\`)
@@ -288,11 +297,23 @@ Interactive slash commands inside TUI:
 function printOnboardingUsage(): void {
   console.log(`Usage: hybridclaw onboarding
 
-Runs the HybridAI onboarding flow:
+Runs the HybridClaw onboarding flow:
   1) trust-model acceptance
-  2) account/login guidance
-  3) API key capture/validation
-  4) default bot selection and persistence`);
+  2) auth provider selection
+  3) HybridAI API key setup or OpenAI Codex OAuth login
+  4) default model/bot persistence`);
+}
+
+function printCodexUsage(): void {
+  console.log(`Usage: hybridclaw codex <command>
+
+Commands:
+  hybridclaw codex login
+  hybridclaw codex login --device-code
+  hybridclaw codex login --browser
+  hybridclaw codex login --import
+  hybridclaw codex logout
+  hybridclaw codex status`);
 }
 
 function printAuditUsage(): void {
@@ -314,6 +335,7 @@ Topics:
   gateway     Help for gateway lifecycle and passthrough commands
   tui         Help for terminal client
   onboarding  Help for onboarding flow
+  codex       Help for OpenAI Codex auth commands
   update      Help for checking/applying CLI updates
   audit       Help for audit commands
   help        This help`);
@@ -335,6 +357,9 @@ function printHelpTopic(topic: string): boolean {
       return true;
     case 'onboarding':
       printOnboardingUsage();
+      return true;
+    case 'codex':
+      printCodexUsage();
       return true;
     case 'update':
       printUpdateUsage();
@@ -428,7 +453,7 @@ async function waitForGatewayUnreachable(timeoutMs: number): Promise<boolean> {
 }
 
 async function requestUnmanagedGatewayShutdown(): Promise<void> {
-  const { gatewayShutdown } = await import('./gateway-client.js');
+  const { gatewayShutdown } = await import('./gateway/gateway-client.js');
   await gatewayShutdown();
 }
 
@@ -492,7 +517,7 @@ function adoptGatewayPid(pid: number, source: string): boolean {
 }
 
 async function adoptReachableGatewayIfPossible(): Promise<boolean> {
-  const { gatewayStatus } = await import('./gateway-client.js');
+  const { gatewayStatus } = await import('./gateway/gateway-client.js');
   const status = await gatewayStatus();
   const pid =
     typeof status.pid === 'number' && Number.isFinite(status.pid)
@@ -509,12 +534,12 @@ async function runGatewayForeground(
   commandName: string,
   sandboxMode: SandboxModeOverride | null = null,
 ): Promise<void> {
-  await ensureHybridAICredentials({ commandName });
+  await ensureRuntimeCredentials({ commandName });
   if (sandboxMode) {
     setSandboxModeOverride(sandboxMode);
   }
   await ensureRuntimeContainer(commandName, true, sandboxMode);
-  await import('./gateway.js');
+  await import('./gateway/gateway.js');
 }
 
 async function startGatewayBackend(
@@ -569,7 +594,7 @@ async function startGatewayBackend(
     removeGatewayPidFile();
   }
 
-  await ensureHybridAICredentials({ commandName });
+  await ensureRuntimeCredentials({ commandName });
   await ensureRuntimeContainer(commandName, true, sandboxMode);
 
   ensureGatewayRunDir();
@@ -743,7 +768,7 @@ async function printGatewayLifecycleStatus(): Promise<void> {
 
   if (reachable) {
     try {
-      const { gatewayStatus } = await import('./gateway-client.js');
+      const { gatewayStatus } = await import('./gateway/gateway-client.js');
       const status = await gatewayStatus();
       console.log(
         `Uptime: ${status.uptime}s | Sessions: ${status.sessions} | Sandbox: ${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`,
@@ -758,7 +783,7 @@ async function printGatewayLifecycleStatus(): Promise<void> {
 
 async function runGatewayApiCommand(args: string[]): Promise<void> {
   const { gatewayCommand, renderGatewayCommand } = await import(
-    './gateway-client.js'
+    './gateway/gateway-client.js'
   );
   const result = await gatewayCommand({
     sessionId: 'cli:gateway',
@@ -861,6 +886,69 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
   await runGatewayApiCommand(normalized);
 }
 
+function parseCodexLoginMethod(
+  args: string[],
+): 'auto' | 'device-code' | 'browser-pkce' | 'codex-cli-import' {
+  const flags = new Set(args.map((arg) => arg.trim().toLowerCase()));
+  const requested = [
+    flags.has('--device-code') ? 'device-code' : null,
+    flags.has('--browser') ? 'browser-pkce' : null,
+    flags.has('--import') ? 'codex-cli-import' : null,
+  ].filter(Boolean) as Array<'device-code' | 'browser-pkce' | 'codex-cli-import'>;
+
+  if (requested.length > 1) {
+    throw new Error(
+      'Use only one of `--device-code`, `--browser`, or `--import`.',
+    );
+  }
+  return requested[0] || 'auto';
+}
+
+async function handleCodexCommand(args: string[]): Promise<void> {
+  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printCodexUsage();
+    return;
+  }
+
+  const sub = normalized[0].toLowerCase();
+  if (sub === 'login') {
+    const method = parseCodexLoginMethod(normalized.slice(1));
+    const result = await loginCodexInteractive({ method });
+    console.log(`Saved Codex credentials to ${result.path}.`);
+    console.log(`Account: ${result.credentials.accountId}`);
+    console.log(`Source: ${result.method}`);
+    console.log(
+      `Expires: ${new Date(result.credentials.expiresAt).toISOString()}`,
+    );
+    return;
+  }
+
+  if (sub === 'logout') {
+    const filePath = clearCodexCredentials();
+    console.log(`Cleared Codex credentials in ${filePath}.`);
+    return;
+  }
+
+  if (sub === 'status') {
+    const status = getCodexAuthStatus();
+    console.log(`Path: ${status.path}`);
+    console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
+    console.log(`Relogin required: ${status.reloginRequired ? 'yes' : 'no'}`);
+    if (status.authenticated) {
+      console.log(`Source: ${status.source}`);
+      console.log(`Account: ${status.accountId}`);
+      console.log(`Access token: ${status.maskedAccessToken}`);
+      console.log(
+        `Expires: ${status.expiresAt ? new Date(status.expiresAt).toISOString() : 'unknown'}`,
+      );
+    }
+    return;
+  }
+
+  throw new Error(`Unknown codex subcommand: ${sub}`);
+}
+
 async function main(): Promise<void> {
   const command = process.argv[2];
   const subargs = process.argv.slice(3);
@@ -879,7 +967,7 @@ async function main(): Promise<void> {
         break;
       }
       await ensureTuiInstructionApproval('hybridclaw tui');
-      await ensureHybridAICredentials({ commandName: 'hybridclaw tui' });
+      await ensureRuntimeCredentials({ commandName: 'hybridclaw tui' });
       await ensureRuntimeContainer('hybridclaw tui');
       await ensureGatewayForTui('hybridclaw tui');
       await import('./tui.js');
@@ -889,11 +977,14 @@ async function main(): Promise<void> {
         printOnboardingUsage();
         break;
       }
-      await ensureHybridAICredentials({
+      await ensureRuntimeCredentials({
         force: true,
         commandName: 'hybridclaw onboarding',
       });
       await ensureRuntimeContainer('hybridclaw onboarding', false);
+      break;
+    case 'codex':
+      await handleCodexCommand(subargs);
       break;
     case 'update': {
       if (isHelpRequest(subargs)) {
@@ -908,7 +999,7 @@ async function main(): Promise<void> {
         printAuditUsage();
         break;
       }
-      const { runAuditCli } = await import('./audit-cli.js');
+      const { runAuditCli } = await import('./audit/audit-cli.js');
       await runAuditCli(subargs);
       break;
     }
@@ -953,6 +1044,13 @@ function printMissingEnvVarError(message: string, envVar?: string): void {
 main().catch((err) => {
   if (err instanceof MissingRequiredEnvVarError) {
     printMissingEnvVarError(err.message, err.envVar);
+  } else if (err instanceof CodexAuthError) {
+    console.error(`hybridclaw error: ${err.message}`);
+    if (err.reloginRequired) {
+      console.error(
+        'Hint: Run `hybridclaw codex login` or `hybridclaw onboarding` to refresh OpenAI Codex credentials.',
+      );
+    }
   } else {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`hybridclaw error: ${message}`);

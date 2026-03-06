@@ -6,7 +6,7 @@ import type {
 import fs from 'fs';
 import path from 'path';
 
-import { DATA_DIR } from '../../config.js';
+import { DATA_DIR } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types.js';
 

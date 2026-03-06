@@ -1,6 +1,9 @@
 import pino from 'pino';
 
-import { getRuntimeConfig, onRuntimeConfigChange } from './runtime-config.js';
+import {
+  getRuntimeConfig,
+  onRuntimeConfigChange,
+} from './config/runtime-config.js';
 
 const initialLevel = getRuntimeConfig().ops.logLevel;
 

@@ -25,12 +25,12 @@ import {
   recordUsageEvent,
   setMemoryValue,
   storeSemanticMemory,
-} from '../src/db.js';
+} from '../src/memory/db.js';
 import {
   computeDecayedConfidence,
   type MemoryBackend,
   MemoryService,
-} from '../src/memory-service.js';
+} from '../src/memory/memory-service.js';
 import {
   KnowledgeEntityType,
   KnowledgeRelationType,

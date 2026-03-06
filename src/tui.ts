@@ -11,7 +11,7 @@ import {
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
   HYBRIDAI_MODELS,
-} from './config.js';
+} from './config/config.js';
 import {
   type GatewayChatResult,
   type GatewayCommandResult,
@@ -21,7 +21,7 @@ import {
   gatewayPullProactive,
   gatewayStatus,
   renderGatewayCommand,
-} from './gateway-client.js';
+} from './gateway/gateway-client.js';
 import { logger } from './logger.js';
 
 const RESET = '\x1b[0m';

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { RuntimeConfig } from '../src/runtime-config.ts';
+import type { RuntimeConfig } from '../src/config/runtime-config.ts';
 
 const ORIGINAL_HOME = process.env.HOME;
 
@@ -49,7 +49,7 @@ function writeRuntimeConfig(
 async function importFreshRuntimeConfig(homeDir: string): Promise<void> {
   process.env.HOME = homeDir;
   vi.resetModules();
-  await import('../src/runtime-config.ts');
+  await import('../src/config/runtime-config.ts');
 }
 
 afterEach(() => {
@@ -75,7 +75,7 @@ describe('runtime config migration logging', () => {
 
     expect(
       infoSpy.mock.calls.some(([message]) =>
-        String(message).includes('normalized config schema v6'),
+        String(message).includes('normalized config schema v7'),
       ),
     ).toBe(false);
   });
@@ -91,8 +91,35 @@ describe('runtime config migration logging', () => {
 
     expect(
       infoSpy.mock.calls.some(([message]) =>
-        String(message).includes('normalized config schema v6'),
+        String(message).includes('normalized config schema v7'),
       ),
     ).toBe(true);
+  });
+
+  it('expands the legacy single-entry Codex model list on startup', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.codex.models = ['openai-codex/gpt-5-codex'];
+    });
+
+    await importFreshRuntimeConfig(homeDir);
+
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
+    ) as RuntimeConfig;
+
+    expect(stored.codex.models).toEqual([
+      'openai-codex/gpt-5-codex',
+      'openai-codex/gpt-5.3-codex',
+      'openai-codex/gpt-5.4',
+      'openai-codex/gpt-5.3-codex-spark',
+      'openai-codex/gpt-5.2-codex',
+      'openai-codex/gpt-5.1-codex-max',
+      'openai-codex/gpt-5.2',
+      'openai-codex/gpt-5.1-codex-mini',
+    ]);
   });
 });

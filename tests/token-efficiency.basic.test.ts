@@ -3,7 +3,7 @@ import { expect, test } from 'vitest';
 import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
-} from '../src/token-efficiency.js';
+} from '../src/session/token-efficiency.js';
 import type { ChatMessage } from '../src/types.js';
 
 test('estimateTokenCountFromText uses simple chars-per-token heuristic', () => {

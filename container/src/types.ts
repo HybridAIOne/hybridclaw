@@ -95,6 +95,8 @@ export interface ContainerInput {
   enableRag: boolean;
   apiKey: string;
   baseUrl: string;
+  provider?: 'hybridai' | 'openai-codex';
+  requestHeaders?: Record<string, string>;
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
   model: string;

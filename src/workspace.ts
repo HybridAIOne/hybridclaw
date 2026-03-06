@@ -5,10 +5,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveInstallPath } from './install-root.js';
-import { agentWorkspaceDir } from './ipc.js';
+import { resolveInstallPath } from './infra/install-root.js';
+import { agentWorkspaceDir } from './infra/ipc.js';
 import { logger } from './logger.js';
-import { truncateHeadTailText } from './token-efficiency.js';
+import { truncateHeadTailText } from './session/token-efficiency.js';
 
 const BOOTSTRAP_FILES = [
   'AGENTS.md',

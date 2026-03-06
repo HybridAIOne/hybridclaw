@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import { resolveMediaToolPolicy } from '../src/gateway-service.js';
+import { resolveMediaToolPolicy } from '../src/gateway/gateway-service.js';
 import type { MediaContextItem } from '../src/types.js';
 
 const SAMPLE_MEDIA: MediaContextItem[] = [

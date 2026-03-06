@@ -2,11 +2,11 @@ import {
   DISCORD_GUILDS,
   DISCORD_SEND_ALLOWED_CHANNEL_IDS,
   DISCORD_SEND_POLICY,
-} from '../../config.js';
+} from '../../config/config.js';
 import type {
   RuntimeConfig,
   RuntimeDiscordGuildConfig,
-} from '../../runtime-config.js';
+} from '../../config/runtime-config.js';
 
 export interface DiscordSendPermissionSnapshot {
   sendPolicy: RuntimeConfig['discord']['sendPolicy'];

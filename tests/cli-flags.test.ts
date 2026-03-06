@@ -5,7 +5,7 @@ import {
   hasForegroundFlag,
   hasSandboxFlag,
   parseGatewayFlags,
-} from '../src/cli-flags.js';
+} from '../src/config/cli-flags.js';
 
 describe('parseGatewayFlags', () => {
   it('parses gateway lifecycle flags without sandbox override', () => {
