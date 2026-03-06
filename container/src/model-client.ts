@@ -7,7 +7,6 @@ import {
   callOpenAICodexProviderStream,
 } from './providers/openai-codex.js';
 import {
-  HybridAIRequestError,
   normalizeCallArgs,
   normalizeStreamCallArgs,
 } from './providers/shared.js';
