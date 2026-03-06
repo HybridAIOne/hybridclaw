@@ -318,7 +318,9 @@ function normalizeLanguage(value: unknown): string | undefined {
 
 export function normalizeSearchParams(
   params: WebSearchParams,
-  config: Pick<WebSearchConfig, 'defaultCount'> = { defaultCount: DEFAULT_COUNT },
+  config: Pick<WebSearchConfig, 'defaultCount'> = {
+    defaultCount: DEFAULT_COUNT,
+  },
 ): NormalizedSearchParams {
   if (params.query == null) throw new Error('Search query is required');
   const query = String(params.query).trim();
@@ -467,7 +469,10 @@ function normalizeSearchResults(
   return dedupeResults(normalized);
 }
 
-function createTimeoutSignal(parentSignal: AbortSignal, timeoutMs: number): {
+function createTimeoutSignal(
+  parentSignal: AbortSignal,
+  timeoutMs: number,
+): {
   signal: AbortSignal;
   cancel: () => void;
   didTimeout: () => boolean;
@@ -639,10 +644,8 @@ function buildProviderRequestContext(
         : undefined,
     braveLanguage: mapLanguageForBrave(context.language),
     perplexityFreshness:
-      typeof mapFreshnessForProvider(
-        'perplexity',
-        context.freshness,
-      ) === 'string'
+      typeof mapFreshnessForProvider('perplexity', context.freshness) ===
+      'string'
         ? (mapFreshnessForProvider('perplexity', context.freshness) as string)
         : undefined,
     tavilyDays:
@@ -695,10 +698,7 @@ function parsePerplexitySearchResponse(payload: unknown): SearchResult[] {
         url: entry.url,
         snippet: entry.snippet ?? entry.content ?? entry.description,
         age:
-          entry.age ??
-          entry.date ??
-          entry.published_date ??
-          entry.last_updated,
+          entry.age ?? entry.date ?? entry.published_date ?? entry.last_updated,
       })),
   );
 }
@@ -780,9 +780,7 @@ export function parseDuckDuckGoHtml(html: string): SearchResult[] {
     const snippetMatch = segment.match(
       /class=["'][^"']*\bresult__snippet\b[^"']*["'][^>]*>([\s\S]*?)<\/(?:a|div|span)>/i,
     );
-    const snippet = normalizeWhitespace(
-      stripTags(snippetMatch?.[1] || ''),
-    );
+    const snippet = normalizeWhitespace(stripTags(snippetMatch?.[1] || ''));
 
     results.push({ title, url, snippet });
   }

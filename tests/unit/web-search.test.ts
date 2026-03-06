@@ -47,9 +47,9 @@ afterEach(() => {
 
 describe('web search params', () => {
   it('rejects a missing query', async () => {
-    await expect(
-      searchWeb({} as unknown as WebSearchParams),
-    ).rejects.toThrow('Search query is required');
+    await expect(searchWeb({} as unknown as WebSearchParams)).rejects.toThrow(
+      'Search query is required',
+    );
   });
 
   it('rejects an empty query', async () => {

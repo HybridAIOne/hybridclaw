@@ -363,10 +363,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   CODEX_BASE_URL = config.codex.baseUrl;
   CODEX_MODELS = [...config.codex.models];
   HYBRIDAI_MODELS = [...config.hybridai.models];
-  CONFIGURED_MODELS = dedupeStringList([
-    ...HYBRIDAI_MODELS,
-    ...CODEX_MODELS,
-  ]);
+  CONFIGURED_MODELS = dedupeStringList([...HYBRIDAI_MODELS, ...CODEX_MODELS]);
 
   CONTAINER_SANDBOX_MODE = resolveSandboxMode(config);
   CONTAINER_IMAGE = config.container.image;

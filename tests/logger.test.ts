@@ -11,7 +11,10 @@ describe('logger forced level override', () => {
   it('forces debug level over runtime config changes', async () => {
     process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
     let listener:
-      | ((next: { ops: { logLevel: string } }, prev: { ops: { logLevel: string } }) => void)
+      | ((
+          next: { ops: { logLevel: string } },
+          prev: { ops: { logLevel: string } },
+        ) => void)
       | null = null;
 
     vi.doMock('../src/config/runtime-config.ts', () => ({

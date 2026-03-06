@@ -31,10 +31,7 @@ function writeTrackedFiles(cwd: string): void {
     JSON.stringify({ name: 'hybridclaw', version: '0.4.1' }),
   );
   fs.mkdirSync(path.join(cwd, 'container', 'src'), { recursive: true });
-  fs.writeFileSync(
-    path.join(cwd, 'container', 'Dockerfile'),
-    'FROM scratch\n',
-  );
+  fs.writeFileSync(path.join(cwd, 'container', 'Dockerfile'), 'FROM scratch\n');
   fs.writeFileSync(
     path.join(cwd, 'container', 'package.json'),
     JSON.stringify({ name: 'hybridclaw-container', version: '0.4.1' }),
@@ -224,7 +221,11 @@ describe('ensureContainerImageReady', () => {
       ) {
         return makeSpawnResult({ code: 0 });
       }
-      if (command === 'npm' && args[0] === 'run' && args[1] === 'build:container') {
+      if (
+        command === 'npm' &&
+        args[0] === 'run' &&
+        args[1] === 'build:container'
+      ) {
         return makeSpawnResult({ code: 1, err: 'build failed' });
       }
       throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
@@ -269,7 +270,11 @@ describe('ensureContainerImageReady', () => {
       ) {
         return makeSpawnResult({ code: 1, err: 'missing image' });
       }
-      if (command === 'npm' && args[0] === 'run' && args[1] === 'build:container') {
+      if (
+        command === 'npm' &&
+        args[0] === 'run' &&
+        args[1] === 'build:container'
+      ) {
         return makeSpawnResult({ code: 1, err: 'build failed' });
       }
       throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  hasDebugFlag,
   findUnsupportedGatewayLifecycleFlag,
+  hasDebugFlag,
   hasForegroundFlag,
   hasSandboxFlag,
   parseGatewayFlags,

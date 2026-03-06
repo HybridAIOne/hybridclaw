@@ -1,8 +1,6 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-
-import type { WebSearchRuntimeConfig } from './web-search.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
   executeBrowserTool,
@@ -25,6 +23,7 @@ import type {
   ScheduleSideEffect,
   ToolDefinition,
 } from './types.js';
+import type { WebSearchRuntimeConfig } from './web-search.js';
 
 // --- Exec safety deny-list (defense-in-depth, adapted from PicoClaw) ---
 
@@ -1931,14 +1930,17 @@ export async function executeTool(
 
       case 'web_search': {
         const { webSearch } = await import('./web-search.js');
-        return await webSearch({
-          query: args.query,
-          count: args.count,
-          freshness: args.freshness,
-          country: args.country,
-          language: args.language,
-          provider: args.provider,
-        }, currentWebSearchConfig);
+        return await webSearch(
+          {
+            query: args.query,
+            count: args.count,
+            freshness: args.freshness,
+            country: args.country,
+            language: args.language,
+            provider: args.provider,
+          },
+          currentWebSearchConfig,
+        );
       }
 
       case 'vision_analyze':

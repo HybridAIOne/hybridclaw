@@ -4,8 +4,7 @@ import { searchWeb } from '../container/src/web-search.js';
 
 const RUN_LIVE = process.env.HYBRIDCLAW_RUN_LIVE_WEB_SEARCH === '1';
 const liveTest = RUN_LIVE ? test : test.skip;
-const braveTest =
-  RUN_LIVE && process.env.BRAVE_API_KEY ? test : test.skip;
+const braveTest = RUN_LIVE && process.env.BRAVE_API_KEY ? test : test.skip;
 
 liveTest(
   'duckduckgo live search returns results',

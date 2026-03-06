@@ -2330,9 +2330,9 @@ export async function handleGatewayCommand(
       const sub = req.args[1]?.toLowerCase();
       if (sub === 'list') {
         const current = session.model || HYBRIDAI_MODEL;
-        const list = availableModels.map((m) =>
-          m === current ? `${m} (current)` : m,
-        ).join('\n');
+        const list = availableModels
+          .map((m) => (m === current ? `${m} (current)` : m))
+          .join('\n');
         return infoCommand('Available Models', list);
       }
 
@@ -2343,9 +2343,9 @@ export async function handleGatewayCommand(
           if (availableModels.length === 0) {
             return infoCommand('Default Model', defaultLine);
           }
-          const list = availableModels.map((m) =>
-            m === HYBRIDAI_MODEL ? `${m} (default)` : m,
-          ).join('\n');
+          const list = availableModels
+            .map((m) => (m === HYBRIDAI_MODEL ? `${m} (default)` : m))
+            .join('\n');
           return infoCommand('Default Model', `${defaultLine}\n\n${list}`);
         }
         if (

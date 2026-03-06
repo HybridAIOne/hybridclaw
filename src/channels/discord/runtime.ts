@@ -947,9 +947,10 @@ async function ensureSlashCommands(): Promise<void> {
         }>;
       };
 
-  const modelChoices = CONFIGURED_MODELS
-    .slice(0, 25)
-    .map((model) => ({ name: model, value: model }));
+  const modelChoices = CONFIGURED_MODELS.slice(0, 25).map((model) => ({
+    name: model,
+    value: model,
+  }));
 
   const definitions: SlashCommandDefinition[] = [
     {
