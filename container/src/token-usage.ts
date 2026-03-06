@@ -1,3 +1,4 @@
+import { isRecord } from './providers/shared.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -5,10 +6,6 @@ import type {
 } from './types.js';
 
 const CHARS_PER_TOKEN = 4;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function parseUsageNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {

@@ -8,6 +8,7 @@ import type {
 import {
   buildRequestHeaders,
   HybridAIRequestError,
+  isRecord,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
 } from './shared.js';
@@ -161,9 +162,6 @@ function buildCodexRequestBody(
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
 
 function adaptCodexResponse(
   payload: unknown,

@@ -35,8 +35,12 @@ function isProvider(value: unknown): value is RuntimeProvider {
   return value === 'hybridai' || value === 'openai-codex';
 }
 
-function isStringRecord(value: unknown): value is Record<string, string> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value);
 }
 
 export function buildRequestHeaders(
