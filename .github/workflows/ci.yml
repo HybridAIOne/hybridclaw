@@ -66,6 +66,9 @@ jobs:
       - name: TypeScript lint (container)
         run: npm --prefix container run lint
 
+      - name: Build release artifacts
+        run: npm run build
+
       - name: Release bundle check (root)
         run: npm run release:check
 
