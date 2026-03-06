@@ -1,3 +1,7 @@
+import type { ToolProgressEvent } from '../types.js';
+
+export type { ToolProgressEvent };
+
 export interface ToolCall {
   id: string;
   name: string;
@@ -24,14 +28,6 @@ export interface AgentLoopOptions {
   abortSignal?: AbortSignal;
   /** Override the HybridAI API base URL (used in tests to point at a mock server). */
   hybridAiBaseUrl?: string;
-}
-
-export interface ToolProgressEvent {
-  sessionId: string;
-  toolName: string;
-  phase: 'start' | 'finish';
-  durationMs?: number;
-  preview?: string;
 }
 
 export interface StreamChunk {

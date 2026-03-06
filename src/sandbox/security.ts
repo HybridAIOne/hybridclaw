@@ -47,23 +47,6 @@ export function isToolAllowed(toolName: string, allowedTools: string[] | undefin
   return allowedTools.includes(toolName);
 }
 
-const SENSITIVE_PATTERNS = [/api[_-]?key/i, /token/i, /secret/i, /password/i, /passwd/i, /credential/i, /auth/i];
-
-/**
- * Sanitize environment variables before passing to sandbox process API.
- * Strips any keys that look like credentials.
- */
-export function sanitizeEnvVars(env: Record<string, string>): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const [key, value] of Object.entries(env)) {
-    if (SENSITIVE_PATTERNS.some(p => p.test(key))) {
-      continue;
-    }
-    result[key] = value;
-  }
-  return result;
-}
-
 /**
  * Assert that a string does NOT contain the API key.
  * Call this as a sanity check before any sandbox API call.
