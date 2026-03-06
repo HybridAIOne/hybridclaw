@@ -1,236 +1,108 @@
 /**
- * SandboxServiceBackend — implements ContainerBackend using sandbox-service HTTP API.
+ * SandboxServiceBackend — "sandbox as tool" pattern.
+ *
+ * LLM calls happen HERE in the gateway process (API keys never enter the sandbox).
+ * Only tool execution (bash, file I/O, browser) runs inside the sandboxed container.
  *
  * Activated via: HYBRIDCLAW_BACKEND=sandbox-service
  * Required env vars:
  *   HYBRIDCLAW_SANDBOX_URL   — base URL of the sandbox-service (e.g. http://localhost:8080)
  *   HYBRIDCLAW_SANDBOX_TOKEN — Bearer token for authentication (optional)
  */
+import { getAllSandboxInstances } from '../db.js';
 import { logger } from '../logger.js';
-import type { ChatMessage, ContainerInput, ContainerOutput, ScheduledTask, ToolProgressEvent } from '../types.js';
-import {
-  HYBRIDAI_BASE_URL,
-  HYBRIDAI_MODEL,
-  getHybridAIApiKey,
-} from '../config.js';
+import type { ChatMessage, ContainerOutput } from '../types.js';
+import { SandboxClient } from '../sandbox/client.js';
+import { runAgentLoop } from '../sandbox/agent-loop.js';
+import { WorkspaceManager } from '../sandbox/workspace-manager.js';
+import { SandboxLifecycleManager } from '../sandbox/lifecycle-manager.js';
 import type { ContainerBackend, RunContainerOptions } from './types.js';
 
-const SANDBOX_URL = (process.env.HYBRIDCLAW_SANDBOX_URL || '').replace(/\/+$/, '');
-const SANDBOX_TOKEN = process.env.HYBRIDCLAW_SANDBOX_TOKEN || '';
-
-function authHeaders(): Record<string, string> {
-  if (SANDBOX_TOKEN) return { Authorization: `Bearer ${SANDBOX_TOKEN}` };
-  return {};
-}
-
-async function apiRequest(method: string, path: string, body?: unknown): Promise<unknown> {
-  const url = `${SANDBOX_URL}${path}`;
-  const res = await fetch(url, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...authHeaders(),
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`sandbox-service ${method} ${path} → ${res.status}: ${text}`);
-  }
-  if (res.status === 204) return null;
-  return res.json();
-}
-
 export class SandboxServiceBackend implements ContainerBackend {
-  private sandboxIds = new Map<string, string>(); // sessionId → sandboxId
+  private client: SandboxClient;
+  private workspace: WorkspaceManager;
+  private lifecycle: SandboxLifecycleManager;
+
+  constructor() {
+    this.client = new SandboxClient();
+    this.workspace = new WorkspaceManager(this.client);
+    this.lifecycle = new SandboxLifecycleManager(this.client, this.workspace);
+  }
 
   getActiveCount(): number {
-    return this.sandboxIds.size;
+    return getAllSandboxInstances().length;
   }
 
   stop(sandboxId: string): void {
-    void apiRequest('DELETE', `/v1/sandboxes/${sandboxId}`).catch((err) => {
-      logger.debug({ sandboxId, err }, 'Failed to delete sandbox');
+    void this.client.deleteSandbox(sandboxId).catch(err => {
+      logger.debug({ sandboxId, err }, 'Failed to stop sandbox');
     });
   }
 
   stopAll(): void {
-    for (const [sessionId, sandboxId] of this.sandboxIds) {
-      logger.info({ sessionId, sandboxId }, 'Deleting sandbox (shutdown)');
-      this.stop(sandboxId);
-    }
-    this.sandboxIds.clear();
-  }
-
-  private async getOrCreateSandbox(sessionId: string): Promise<string> {
-    const existing = this.sandboxIds.get(sessionId);
-    if (existing) return existing;
-
-    const res = await apiRequest('POST', '/v1/sandboxes', {}) as { sandbox_id: string };
-    const sandboxId = res.sandbox_id;
-    this.sandboxIds.set(sessionId, sandboxId);
-    logger.info({ sessionId, sandboxId }, 'Created sandbox');
-    return sandboxId;
+    void this.lifecycle.stopAll();
   }
 
   async run(
-    sessionId: string,
+    _sessionId: string,
     messages: ChatMessage[],
     options: RunContainerOptions,
   ): Promise<ContainerOutput> {
-    const {
-      chatbotId,
-      enableRag,
-      model = HYBRIDAI_MODEL,
-      channelId = '',
-      scheduledTasks,
-      allowedTools,
-      onToolProgress,
-      abortSignal,
-    } = options;
+    const { chatbotId, agentId = chatbotId } = options;
+
+    // SECURITY: API key stays in the gateway process. It is NOT passed to the sandbox.
+    // The runAgentLoop function uses it directly for LLM calls only.
 
     let sandboxId: string;
     try {
-      sandboxId = await this.getOrCreateSandbox(sessionId);
+      const sandbox = await this.lifecycle.ensureHealthy(agentId);
+      sandboxId = sandbox.sandboxId;
     } catch (err) {
       return {
         status: 'error',
         result: null,
         toolsUsed: [],
-        error: `Failed to create sandbox: ${err instanceof Error ? err.message : String(err)}`,
+        error: `Failed to get sandbox: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
 
-    const input: ContainerInput = {
-      sessionId,
-      messages,
-      chatbotId,
-      enableRag,
-      apiKey: getHybridAIApiKey(),
-      baseUrl: HYBRIDAI_BASE_URL,
-      model,
-      channelId,
-      scheduledTasks: scheduledTasks?.map((t) => ({
-        id: t.id,
-        cronExpr: t.cron_expr,
-        runAt: t.run_at,
-        everyMs: t.every_ms,
-        prompt: t.prompt,
-        enabled: t.enabled,
-        lastRun: t.last_run,
-        createdAt: t.created_at,
-      })),
-      allowedTools,
-    };
-
+    // Load workspace context from sandbox volume (not host filesystem)
+    let contextFiles: { name: string; content: string }[] = [];
     try {
-      const streamRes = await fetch(`${SANDBOX_URL}/v1/sandboxes/${sandboxId}/process/stream`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders(),
-        },
-        body: JSON.stringify({
-          command: ['node', '/app/dist/index.js'],
-          env: { HYBRIDCLAW_INPUT: JSON.stringify(input) },
-          stdin: JSON.stringify(input) + '\n',
-        }),
-        signal: abortSignal,
-      });
-
-      if (!streamRes.ok) {
-        const text = await streamRes.text().catch(() => '');
-        this.sandboxIds.delete(sessionId);
-        return {
-          status: 'error',
-          result: null,
-          toolsUsed: [],
-          error: `Sandbox process stream failed: ${streamRes.status} ${text}`,
-        };
-      }
-
-      return await this.readStreamResponse(streamRes, onToolProgress, sessionId);
+      contextFiles = await this.workspace.loadWorkspaceContext(sandboxId, agentId);
     } catch (err) {
-      if ((err as Error)?.name === 'AbortError') {
-        return { status: 'error', result: null, toolsUsed: [], error: 'Interrupted by user.' };
-      }
-      this.sandboxIds.delete(sessionId);
-      return {
-        status: 'error',
-        result: null,
-        toolsUsed: [],
-        error: `Sandbox run error: ${err instanceof Error ? err.message : String(err)}`,
-      };
+      logger.warn({ agentId, err }, 'Failed to load workspace context, proceeding without it');
     }
+
+    // Inject workspace context into system message
+    const contextPrompt = this.workspace.buildContextPrompt(contextFiles);
+    const augmentedMessages = injectContext(messages, contextPrompt);
+
+    // Run agent loop in gateway (LLM calls here, tool calls dispatched to sandbox)
+    return runAgentLoop(augmentedMessages, sandboxId, {
+      chatbotId,
+      model: options.model,
+      enableRag: options.enableRag,
+      agentId,
+      channelId: options.channelId,
+      allowedTools: options.allowedTools,
+      scheduledTasks: options.scheduledTasks,
+      onToolProgress: options.onToolProgress,
+      abortSignal: options.abortSignal,
+    });
   }
+}
 
-  private async readStreamResponse(
-    res: Response,
-    onToolProgress: ((event: ToolProgressEvent) => void) | undefined,
-    sessionId: string,
-  ): Promise<ContainerOutput> {
-    const reader = res.body?.getReader();
-    if (!reader) {
-      return { status: 'error', result: null, toolsUsed: [], error: 'No response body' };
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-
-        let event: Record<string, unknown>;
-        try {
-          event = JSON.parse(trimmed) as Record<string, unknown>;
-        } catch {
-          // SSE data: prefix or other formats
-          const dataLine = trimmed.startsWith('data: ') ? trimmed.slice(6) : trimmed;
-          try {
-            event = JSON.parse(dataLine) as Record<string, unknown>;
-          } catch {
-            continue;
-          }
-        }
-
-        if (event.type === 'tool_start' || event.type === 'tool_finish') {
-          if (onToolProgress) {
-            try {
-              onToolProgress({
-                sessionId,
-                toolName: String(event.name || ''),
-                phase: event.type === 'tool_start' ? 'start' : 'finish',
-                durationMs: typeof event.durationMs === 'number' ? event.durationMs : undefined,
-                preview: typeof event.preview === 'string' ? event.preview : undefined,
-              });
-            } catch (err) {
-              logger.debug({ sessionId, err }, 'Tool progress callback failed');
-            }
-          }
-          continue;
-        }
-
-        if (event.type === 'result' || (event.text !== undefined)) {
-          // Final result event
-          return {
-            status: (event.status as ContainerOutput['status']) || 'success',
-            result: typeof event.result === 'string' ? event.result : (typeof event.text === 'string' ? event.text : null),
-            toolsUsed: Array.isArray(event.toolsUsed) ? (event.toolsUsed as string[]) : [],
-            error: typeof event.error === 'string' ? event.error : undefined,
-          };
-        }
-      }
-    }
-
-    return { status: 'error', result: null, toolsUsed: [], error: 'Stream ended without result' };
+function injectContext(messages: ChatMessage[], contextPrompt: string): ChatMessage[] {
+  if (!contextPrompt) return messages;
+  // Find existing system message and prepend context, or add new system message at start
+  const systemIdx = messages.findIndex(m => m.role === 'system');
+  if (systemIdx >= 0) {
+    return messages.map((m, i) =>
+      i === systemIdx
+        ? { ...m, content: contextPrompt + '\n\n' + m.content }
+        : m
+    );
   }
+  return [{ role: 'system', content: contextPrompt }, ...messages];
 }

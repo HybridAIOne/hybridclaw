@@ -12,6 +12,7 @@ import type { ContainerBackend } from './backends/types.js';
 function createBackend(): ContainerBackend {
   const backendName = (process.env.HYBRIDCLAW_BACKEND || 'docker').toLowerCase();
   if (backendName === 'docker') {
+    logger.warn('Using DockerBackend (legacy mode). Set HYBRIDCLAW_BACKEND=sandbox-service for production.');
     return new DockerBackend();
   }
   if (backendName === 'sandbox-service') {

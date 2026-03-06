@@ -1,5 +1,7 @@
 import { CronExpressionParser } from 'cron-parser';
 
+import { sleep } from './utils.js';
+
 import {
   APP_VERSION,
   HYBRIDAI_CHATBOT_ID,
@@ -380,10 +382,6 @@ function interpolateChainPrompt(prompt: string, previousResult: string): string 
   return prompt.replace(/\{previous\}/g, replacement);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function runDelegationTaskWithRetry(input: DelegationTaskRunInput): Promise<DelegationRunResult> {
   const {
     parentSessionId,
@@ -706,7 +704,14 @@ export async function handleGatewayMessage(req: GatewayChatRequest): Promise<Gat
   }
 
   const agentId = chatbotId;
-  ensureBootstrapFiles(agentId);
+  // REMOVED: ensureBootstrapFiles(agentId)
+  // Workspace bootstrapping now happens inside SandboxServiceBackend.run()
+  // via WorkspaceManager.bootstrapWorkspace() on first sandbox creation.
+  // The sandbox-service backend manages workspace files in sandbox volumes.
+  // DockerBackend (legacy) still uses the host-filesystem workspace.ts path.
+  if ((process.env.HYBRIDCLAW_BACKEND || 'docker').toLowerCase() === 'docker') {
+    ensureBootstrapFiles(agentId);
+  }
 
   const history = getConversationHistory(req.sessionId, MAX_HISTORY_MESSAGES);
   const { messages, skills } = buildConversationContext({

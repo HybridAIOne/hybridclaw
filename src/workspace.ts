@@ -1,4 +1,13 @@
 /**
+ * Host-filesystem workspace — used by DockerBackend (legacy local-dev mode only).
+ *
+ * In sandbox-service backend mode, workspace files live in sandbox-service volumes
+ * and are managed by src/sandbox/workspace-manager.ts via the sandbox filesystem API.
+ *
+ * @deprecated Used only when HYBRIDCLAW_BACKEND=docker (legacy mode)
+ */
+
+/**
  * Workspace bootstrap files — loads SOUL.md, IDENTITY.md, USER.md,
  * TOOLS.md, MEMORY.md, HEARTBEAT.md from the agent workspace
  * and injects them into the system prompt (like OpenClaw).

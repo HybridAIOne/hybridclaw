@@ -74,6 +74,14 @@ function createSchema(database: Database.Database): void {
       container_name TEXT NOT NULL,
       started_at     TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS sandbox_instances (
+      agent_id   TEXT PRIMARY KEY,
+      sandbox_id TEXT NOT NULL,
+      volume_id  TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      last_used  INTEGER NOT NULL
+    );
   `);
 }
 
@@ -386,6 +394,37 @@ export function trackContainerInstance(sessionId: string, containerName: string)
 
 export function untrackContainerInstance(sessionId: string): void {
   db.prepare('DELETE FROM container_instances WHERE session_id = ?').run(sessionId);
+}
+
+// --- Sandbox Instances ---
+
+export function saveSandboxInstance(agentId: string, sandboxId: string, volumeId: string): void {
+  db.prepare(
+    'INSERT OR REPLACE INTO sandbox_instances (agent_id, sandbox_id, volume_id, created_at, last_used) VALUES (?, ?, ?, unixepoch(), unixepoch())',
+  ).run(agentId, sandboxId, volumeId);
+}
+
+export function getSandboxInstance(agentId: string): { sandboxId: string; volumeId: string } | null {
+  const row = db
+    .prepare('SELECT sandbox_id, volume_id FROM sandbox_instances WHERE agent_id = ?')
+    .get(agentId) as { sandbox_id: string; volume_id: string } | undefined;
+  if (!row) return null;
+  return { sandboxId: row.sandbox_id, volumeId: row.volume_id };
+}
+
+export function deleteSandboxInstance(agentId: string): void {
+  db.prepare('DELETE FROM sandbox_instances WHERE agent_id = ?').run(agentId);
+}
+
+export function getAllSandboxInstances(): Array<{ agentId: string; sandboxId: string; volumeId: string }> {
+  const rows = db
+    .prepare('SELECT agent_id, sandbox_id, volume_id FROM sandbox_instances')
+    .all() as Array<{ agent_id: string; sandbox_id: string; volume_id: string }>;
+  return rows.map((r) => ({ agentId: r.agent_id, sandboxId: r.sandbox_id, volumeId: r.volume_id }));
+}
+
+export function touchSandboxInstance(agentId: string): void {
+  db.prepare('UPDATE sandbox_instances SET last_used = unixepoch() WHERE agent_id = ?').run(agentId);
 }
 
 function cleanupOrphanedContainers(): void {

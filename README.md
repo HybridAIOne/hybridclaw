@@ -24,8 +24,37 @@ hybridclaw onboarding
 
 - **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence, scheduler, heartbeat, web/API, and optional Discord integration
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`)
-- **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, and preinstalled browser automation runtime
-- Communication via file-based IPC (input.json / output.json)
+
+### Backend modes
+
+HybridClaw supports two container backends, selected via the `HYBRIDCLAW_BACKEND` env var:
+
+#### `sandbox-service` (recommended for production)
+
+Uses the **sandbox-as-tool** pattern:
+- LLM calls happen in the gateway process — API keys **never** enter the sandbox
+- Only tool execution (bash, file I/O) runs inside the sandboxed container
+- Workspaces persist in sandbox-service volumes (not the host filesystem)
+- No Docker socket required on the gateway host
+- Set `HYBRIDCLAW_SANDBOX_URL` to point at a running [sandbox-service](https://github.com/hybridaione/sandbox-service) instance
+
+```bash
+HYBRIDCLAW_BACKEND=sandbox-service \
+HYBRIDCLAW_SANDBOX_URL=http://sandbox-service:8080 \
+hybridclaw gateway
+```
+
+#### `docker` (legacy, local development only)
+
+Uses the **agent-in-sandbox** pattern:
+- Full agent loop (LLM + tools) runs inside a Docker container
+- Requires Docker socket access on the host
+- API keys are passed into the container environment
+- Workspaces live on the host filesystem under `data/`
+
+```bash
+HYBRIDCLAW_BACKEND=docker hybridclaw gateway
+```
 
 ## Quick start
 

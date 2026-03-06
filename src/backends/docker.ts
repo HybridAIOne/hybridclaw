@@ -1,4 +1,19 @@
+/**
+ * DockerBackend — LEGACY local-development mode.
+ *
+ * This backend runs the full agent loop INSIDE a Docker container (agent-in-sandbox pattern).
+ * It is kept for local development convenience when sandbox-service is not running.
+ *
+ * PRODUCTION USE: Set HYBRIDCLAW_BACKEND=sandbox-service instead.
+ * The sandbox-service backend uses the "sandbox as tool" pattern where:
+ *   - LLM calls happen in the gateway process (API keys never enter the sandbox)
+ *   - Only tool execution (bash, file I/O) runs inside the sandboxed container
+ *   - Workspaces persist in sandbox-service volumes (not host filesystem)
+ *
+ * @deprecated Prefer HYBRIDCLAW_BACKEND=sandbox-service for all deployments
+ */
 import { ChildProcess, spawn } from 'child_process';
+import type { Interface as RLInterface } from 'readline';
 
 import {
   ADDITIONAL_MOUNTS,
@@ -16,14 +31,15 @@ import {
   getHybridAIApiKey,
 } from '../config.js';
 import { trackContainerInstance, untrackContainerInstance } from '../db.js';
-import { ensureAgentDirs, ensureSessionDirs, getSessionPaths, readStdioOutput } from '../ipc.js';
+import { createContainerReadline, ensureAgentDirs, ensureSessionDirs, getSessionPaths, readStdioOutput } from '../ipc.js';
 import { logger } from '../logger.js';
 import { validateAdditionalMounts } from '../mount-security.js';
-import type { AdditionalMount, ChatMessage, ContainerInput, ScheduledTask, ToolProgressEvent } from '../types.js';
+import type { AdditionalMount, ChatMessage, ContainerInput, ContainerOutput, ScheduledTask, ToolProgressEvent } from '../types.js';
 import type { ContainerBackend, RunContainerOptions } from './types.js';
 
 interface PoolEntry {
   process: ChildProcess;
+  rl: RLInterface;
   containerName: string;
   sessionId: string;
   startedAt: number;
@@ -160,6 +176,7 @@ export class DockerBackend implements ContainerBackend {
 
     const entry: PoolEntry = {
       process: proc,
+      rl: createContainerReadline(proc.stdout!),
       containerName,
       sessionId,
       startedAt: Date.now(),
@@ -185,12 +202,14 @@ export class DockerBackend implements ContainerBackend {
         emitToolProgress(entry, tail);
         entry.stderrBuffer = '';
       }
+      entry.rl.close();
       this.pool.delete(sessionId);
       untrackContainerInstance(sessionId);
       logger.info({ sessionId, containerName, code }, 'Container exited');
     });
 
     proc.on('error', (err) => {
+      entry.rl.close();
       this.pool.delete(sessionId);
       logger.error({ sessionId, containerName, error: err }, 'Container error');
     });
@@ -277,7 +296,7 @@ export class DockerBackend implements ContainerBackend {
     try {
       // Stdio mode: all requests go as NDJSON lines to stdin; result comes from stdout
       entry.process.stdin?.write(JSON.stringify(input) + '\n');
-      const output = await readStdioOutput(entry.process, CONTAINER_TIMEOUT, {
+      const output = await readStdioOutput(entry.rl, CONTAINER_TIMEOUT, {
         signal: abortSignal,
         onToolProgress,
         sessionId,
