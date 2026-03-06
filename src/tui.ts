@@ -193,7 +193,7 @@ function printBanner(
     current: string;
     defaultModel: string;
   },
-  sandboxMode: 'container' | 'host',
+  sandboxMode: 'container' | 'host' | 'sandbox-service',
 ): void {
   const T = TEAL;
   const N = NAVY;

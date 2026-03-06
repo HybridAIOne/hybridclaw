@@ -69,7 +69,7 @@ export type DiscordPresenceActivityType =
 export type SchedulerScheduleKind = 'at' | 'every' | 'cron';
 export type SchedulerActionKind = 'agent_turn' | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
-export type ContainerSandboxMode = 'container' | 'host';
+export type ContainerSandboxMode = 'container' | 'host' | 'sandbox-service';
 
 export interface RuntimeDiscordHumanDelayConfig {
   mode: DiscordHumanDelayMode;

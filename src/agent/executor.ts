@@ -11,6 +11,7 @@ import {
 } from '../config/config.js';
 import { ContainerExecutor } from '../infra/container-runner.js';
 import { HostExecutor } from '../infra/host-runner.js';
+import { SandboxExecutor } from '../sandbox/executor.js';
 import type {
   ChatMessage,
   ContainerOutput,
@@ -45,7 +46,7 @@ export interface Executor {
 }
 
 export interface SandboxDiagnostics {
-  mode: 'container' | 'host';
+  mode: 'container' | 'host' | 'sandbox-service';
   modeExplicit: boolean;
   runningInsideContainer: boolean;
   image: string | null;
@@ -62,6 +63,7 @@ export interface SandboxDiagnostics {
 
 let containerExecutor: ContainerExecutor | null = null;
 let hostExecutor: HostExecutor | null = null;
+let sandboxExecutor: SandboxExecutor | null = null;
 
 function getContainerExecutor(): ContainerExecutor {
   containerExecutor ??= new ContainerExecutor();
@@ -73,15 +75,20 @@ function getHostExecutor(): HostExecutor {
   return hostExecutor;
 }
 
+function getSandboxExecutor(): SandboxExecutor {
+  sandboxExecutor ??= new SandboxExecutor();
+  return sandboxExecutor;
+}
+
 export function getExecutor(): Executor {
-  return CONTAINER_SANDBOX_MODE === 'host'
-    ? getHostExecutor()
-    : getContainerExecutor();
+  if (CONTAINER_SANDBOX_MODE === 'host') return getHostExecutor();
+  if (CONTAINER_SANDBOX_MODE === 'sandbox-service') return getSandboxExecutor();
+  return getContainerExecutor();
 }
 
 function initializedExecutors(): Executor[] {
-  return [containerExecutor, hostExecutor].filter((value): value is Executor =>
-    Boolean(value),
+  return [containerExecutor, hostExecutor, sandboxExecutor].filter(
+    (value): value is Executor => Boolean(value),
   );
 }
 
@@ -135,7 +142,9 @@ export function getSandboxDiagnostics(): SandboxDiagnostics {
           'pids-limit=256',
           `network=${CONTAINER_NETWORK}`,
         ]
-      : ['workspace fencing', 'command deny-list', 'secret env scrubbing'];
+      : mode === 'sandbox-service'
+        ? ['sandbox-service isolation', 'API key never enters sandbox', 'tool dispatch only']
+        : ['workspace fencing', 'command deny-list', 'secret env scrubbing'];
 
   return {
     mode,

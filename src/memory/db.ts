@@ -31,7 +31,7 @@ import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 
 let db: Database.Database;
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 interface InitDatabaseOptions {
   quiet?: boolean;
@@ -465,6 +465,20 @@ function migrateV4(database: Database.Database): void {
   );
 }
 
+function migrateV5(database: Database.Database): void {
+  database.prepare(
+    `CREATE TABLE IF NOT EXISTS sandbox_instances (
+      agent_id TEXT PRIMARY KEY,
+      sandbox_id TEXT NOT NULL,
+      volume_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT NOT NULL
+    )`,
+  ).run();
+
+  recordMigration(database, 5, 'Add sandbox_instances table');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -485,6 +499,7 @@ function runMigrations(
   if (currentVersion < 2) migrateV2(database, opts);
   if (currentVersion < 3) migrateV3(database);
   if (currentVersion < 4) migrateV4(database);
+  if (currentVersion < 5) migrateV5(database);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -2745,4 +2760,53 @@ export function getQueuedProactiveMessageCount(): number {
     .prepare('SELECT COUNT(*) as count FROM proactive_message_queue')
     .get() as { count: number };
   return row.count;
+}
+
+// --- Sandbox Instances ---
+
+export interface SandboxInstance {
+  agentId: string;
+  sandboxId: string;
+  volumeId: string;
+}
+
+export function saveSandboxInstance(
+  agentId: string,
+  sandboxId: string,
+  volumeId: string,
+): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO sandbox_instances (agent_id, sandbox_id, volume_id, created_at, last_used_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(agent_id) DO UPDATE SET
+       sandbox_id = excluded.sandbox_id,
+       volume_id = excluded.volume_id,
+       last_used_at = excluded.last_used_at`,
+  ).run(agentId, sandboxId, volumeId, now, now);
+}
+
+export function getSandboxInstance(agentId: string): SandboxInstance | null {
+  const row = db
+    .prepare('SELECT agent_id, sandbox_id, volume_id FROM sandbox_instances WHERE agent_id = ?')
+    .get(agentId) as { agent_id: string; sandbox_id: string; volume_id: string } | undefined;
+  if (!row) return null;
+  return { agentId: row.agent_id, sandboxId: row.sandbox_id, volumeId: row.volume_id };
+}
+
+export function deleteSandboxInstance(agentId: string): void {
+  db.prepare('DELETE FROM sandbox_instances WHERE agent_id = ?').run(agentId);
+}
+
+export function getAllSandboxInstances(): SandboxInstance[] {
+  const rows = db
+    .prepare('SELECT agent_id, sandbox_id, volume_id FROM sandbox_instances')
+    .all() as { agent_id: string; sandbox_id: string; volume_id: string }[];
+  return rows.map((row) => ({ agentId: row.agent_id, sandboxId: row.sandbox_id, volumeId: row.volume_id }));
+}
+
+export function touchSandboxInstance(agentId: string): void {
+  db.prepare(
+    `UPDATE sandbox_instances SET last_used_at = ? WHERE agent_id = ?`,
+  ).run(new Date().toISOString(), agentId);
 }
