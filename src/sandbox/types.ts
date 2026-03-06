@@ -22,6 +22,8 @@ export interface AgentLoopOptions {
   scheduledTasks?: unknown[];
   onToolProgress?: (event: ToolProgressEvent) => void;
   abortSignal?: AbortSignal;
+  /** Override the HybridAI API base URL (used in tests to point at a mock server). */
+  hybridAiBaseUrl?: string;
 }
 
 export interface ToolProgressEvent {

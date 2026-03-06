@@ -21,6 +21,9 @@ export interface LifecycleClient {
 }
 
 export class SandboxLifecycleManager {
+  /** Serializes concurrent creation/health-check for the same agentId. */
+  private inFlight = new Map<string, Promise<{ sandboxId: string; volumeId: string }>>();
+
   constructor(
     private client: LifecycleClient,
     private workspace: WorkspaceManager,
@@ -28,6 +31,7 @@ export class SandboxLifecycleManager {
 
   /**
    * Get existing sandbox or create a new one for the agent.
+   * Concurrent calls for the same agentId share one creation promise.
    */
   async getOrCreateSandbox(agentId: string): Promise<{ sandboxId: string; volumeId: string }> {
     const existing = getSandboxInstance(agentId);
@@ -36,44 +40,64 @@ export class SandboxLifecycleManager {
       return existing;
     }
 
-    const { volumeId } = await this.workspace.ensureVolume(agentId);
-    const { sandboxId } = await this.client.createSandbox({ volumeId });
-    await this.workspace.bootstrapWorkspace(sandboxId, agentId);
-    saveSandboxInstance(agentId, sandboxId, volumeId);
-    logger.info({ agentId, sandboxId, volumeId }, 'Created new sandbox for agent');
-    return { sandboxId, volumeId };
+    const inflight = this.inFlight.get(agentId);
+    if (inflight) return inflight;
+
+    const promise = (async () => {
+      try {
+        const { volumeId } = await this.workspace.ensureVolume(agentId);
+        const { sandboxId } = await this.client.createSandbox({ volumeId });
+        await this.workspace.bootstrapWorkspace(sandboxId, agentId);
+        saveSandboxInstance(agentId, sandboxId, volumeId);
+        logger.info({ agentId, sandboxId, volumeId }, 'Created new sandbox for agent');
+        return { sandboxId, volumeId };
+      } finally {
+        this.inFlight.delete(agentId);
+      }
+    })();
+    this.inFlight.set(agentId, promise);
+    return promise;
   }
 
   /**
    * Ensure the agent's sandbox exists and is healthy.
    * If unhealthy or missing, recreate it with the same volume.
+   * Concurrent calls for the same agentId share one health-check/creation promise.
    */
   async ensureHealthy(agentId: string): Promise<{ sandboxId: string; volumeId: string }> {
-    const existing = getSandboxInstance(agentId);
+    const inflight = this.inFlight.get(agentId);
+    if (inflight) return inflight;
 
-    if (existing) {
-      const healthy = await this.healthCheck(existing.sandboxId);
-      if (healthy) {
-        touchSandboxInstance(agentId);
-        return existing;
-      }
-      logger.warn({ agentId, sandboxId: existing.sandboxId }, 'Sandbox unhealthy, recreating');
-      // Clean up the old sandbox (best-effort)
+    const promise = (async () => {
       try {
-        await this.client.deleteSandbox(existing.sandboxId);
-      } catch {
-        // May already be gone
-      }
-      deleteSandboxInstance(agentId);
-    }
+        const existing = getSandboxInstance(agentId);
+        if (existing) {
+          const healthy = await this.healthCheck(existing.sandboxId);
+          if (healthy) {
+            touchSandboxInstance(agentId);
+            return existing;
+          }
+          logger.warn({ agentId, sandboxId: existing.sandboxId }, 'Sandbox unhealthy, recreating');
+          try {
+            await this.client.deleteSandbox(existing.sandboxId);
+          } catch {
+            // May already be gone
+          }
+          deleteSandboxInstance(agentId);
+        }
 
-    // Create new sandbox
-    const { volumeId } = await this.workspace.ensureVolume(agentId);
-    const { sandboxId } = await this.client.createSandbox({ volumeId });
-    await this.workspace.bootstrapWorkspace(sandboxId, agentId);
-    saveSandboxInstance(agentId, sandboxId, volumeId);
-    logger.info({ agentId, sandboxId, volumeId }, 'Created sandbox for agent');
-    return { sandboxId, volumeId };
+        const { volumeId } = await this.workspace.ensureVolume(agentId);
+        const { sandboxId } = await this.client.createSandbox({ volumeId });
+        await this.workspace.bootstrapWorkspace(sandboxId, agentId);
+        saveSandboxInstance(agentId, sandboxId, volumeId);
+        logger.info({ agentId, sandboxId, volumeId }, 'Created sandbox for agent');
+        return { sandboxId, volumeId };
+      } finally {
+        this.inFlight.delete(agentId);
+      }
+    })();
+    this.inFlight.set(agentId, promise);
+    return promise;
   }
 
   /**

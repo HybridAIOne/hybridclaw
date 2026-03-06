@@ -90,7 +90,7 @@ export async function runAgentLoop(
 ): Promise<ContainerOutput> {
   const client = new SandboxClient();
   const apiKey = getHybridAIApiKey();
-  const baseUrl = HYBRIDAI_BASE_URL;
+  const baseUrl = options.hybridAiBaseUrl ?? HYBRIDAI_BASE_URL;
   const { chatbotId, model, enableRag, allowedTools, onToolProgress, abortSignal } = options;
 
   // Build tool definitions, filtered by allowlist

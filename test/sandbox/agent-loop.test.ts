@@ -80,9 +80,10 @@ describe('runAgentLoop', () => {
     const sandboxAddr = sandboxServer.address();
     sandboxPort = typeof sandboxAddr === 'object' && sandboxAddr ? sandboxAddr.port : 0;
 
-    // Set env vars for the agent loop
+    // Set env vars (sandbox URL read at construction time)
     process.env.HYBRIDAI_API_KEY = 'test-api-key-12345';
     process.env.HYBRIDCLAW_SANDBOX_URL = `http://127.0.0.1:${sandboxPort}`;
+    process.env.HYBRIDAI_BASE_URL = `http://127.0.0.1:${hybridaiPort}`;
   });
 
   afterEach(async () => {
@@ -90,6 +91,7 @@ describe('runAgentLoop', () => {
     await new Promise<void>((resolve) => sandboxServer.close(() => resolve()));
     delete process.env.HYBRIDAI_API_KEY;
     delete process.env.HYBRIDCLAW_SANDBOX_URL;
+    delete process.env.HYBRIDAI_BASE_URL;
   });
 
   // Note: Full agent-loop integration tests require dynamic import to pick up
@@ -118,7 +120,6 @@ describe('runAgentLoop', () => {
         }],
       });
 
-      // Dynamic import to get fresh module with current env
       const { runAgentLoop } = await import('../../src/sandbox/agent-loop.js');
 
       const result = await runAgentLoop(
@@ -130,15 +131,39 @@ describe('runAgentLoop', () => {
           enableRag: false,
           agentId: 'test-agent',
           channelId: 'test-channel',
+          hybridAiBaseUrl: `http://127.0.0.1:${hybridaiPort}`,
         },
       );
 
-      // The LLM call should have been made but the result depends on
-      // whether HYBRIDAI_BASE_URL points to our mock. Since config.ts
-      // loads at import time, we verify the structure.
-      assert.ok(result);
-      assert.ok('status' in result);
-      assert.ok('toolsUsed' in result);
+      assert.equal(result.status, 'success');
+      assert.equal(result.result, 'Hello! How can I help?');
+      assert.deepEqual(result.toolsUsed, []);
+      // Verify the HybridAI API was actually called
+      assert.equal(hybridaiRequests.length, 1);
+    });
+
+    it('passes model and chatbotId in the LLM request', async () => {
+      hybridaiResponses.push({
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      });
+
+      const { runAgentLoop } = await import('../../src/sandbox/agent-loop.js');
+      await runAgentLoop(
+        [{ role: 'user', content: 'hi' }],
+        'test-sandbox',
+        {
+          chatbotId: 'my-bot',
+          model: 'claude-3-5-sonnet',
+          enableRag: false,
+          agentId: 'test-agent',
+          channelId: 'ch-1',
+          hybridAiBaseUrl: `http://127.0.0.1:${hybridaiPort}`,
+        },
+      );
+
+      const body = JSON.parse(hybridaiRequests[0].body);
+      assert.equal(body.model, 'claude-3-5-sonnet');
+      assert.equal(body.chatbot_id, 'my-bot');
     });
   });
 
@@ -199,38 +224,76 @@ describe('runAgentLoop', () => {
       // Second response: final answer
       hybridaiResponses.push({
         choices: [{
-          message: { role: 'assistant', content: 'The file contains: test content' },
+          message: { role: 'assistant', content: 'The file contains: file content' },
           finish_reason: 'stop',
         }],
       });
 
-      // Verify mock server is working for the multi-turn pattern
-      const res1 = await fetch(`http://127.0.0.1:${hybridaiPort}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      });
-      const data1 = await res1.json() as { choices: Array<{ message: { tool_calls?: unknown[] }; finish_reason: string }> };
-      assert.ok(data1.choices[0].message.tool_calls);
-      assert.equal(data1.choices[0].finish_reason, 'tool_calls');
+      const { runAgentLoop } = await import('../../src/sandbox/agent-loop.js');
+      const result = await runAgentLoop(
+        [{ role: 'user', content: 'Read test.txt' }],
+        'test-sandbox',
+        {
+          chatbotId: 'test-bot',
+          model: 'test-model',
+          enableRag: false,
+          agentId: 'test-agent',
+          channelId: 'ch-1',
+          hybridAiBaseUrl: `http://127.0.0.1:${hybridaiPort}`,
+        },
+      );
 
-      const res2 = await fetch(`http://127.0.0.1:${hybridaiPort}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
+      assert.equal(result.status, 'success');
+      assert.equal(result.result, 'The file contains: file content');
+      assert.deepEqual(result.toolsUsed, ['read']);
+      // Two LLM calls: one with tool_call, one for final answer
+      assert.equal(hybridaiRequests.length, 2);
+      // One sandbox filesystem request
+      assert.ok(sandboxRequests.some(r => r.url.includes('/filesystem')));
+    });
+
+    it('API key never appears in sandbox requests during tool execution', async () => {
+      hybridaiResponses.push({
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{ id: 'c1', type: 'function', function: { name: 'bash', arguments: '{"command":"echo hi"}' } }],
+          },
+          finish_reason: 'tool_calls',
+        }],
       });
-      const data2 = await res2.json() as { choices: Array<{ message: { content: string }; finish_reason: string }> };
-      assert.equal(data2.choices[0].finish_reason, 'stop');
-      assert.equal(data2.choices[0].message.content, 'The file contains: test content');
+      hybridaiResponses.push({
+        choices: [{ message: { role: 'assistant', content: 'Done' }, finish_reason: 'stop' }],
+      });
+
+      const { runAgentLoop } = await import('../../src/sandbox/agent-loop.js');
+      await runAgentLoop(
+        [{ role: 'user', content: 'Run echo' }],
+        'test-sandbox',
+        {
+          chatbotId: 'test-bot',
+          model: 'test-model',
+          enableRag: false,
+          agentId: 'test-agent',
+          channelId: 'ch-1',
+          hybridAiBaseUrl: `http://127.0.0.1:${hybridaiPort}`,
+        },
+      );
+
+      const apiKey = process.env.HYBRIDAI_API_KEY!;
+      for (const req of sandboxRequests) {
+        assert.ok(!req.body.includes(apiKey), `API key found in sandbox request to ${req.url}`);
+        assert.ok(!(req.headers.authorization ?? '').includes(apiKey), 'API key in sandbox auth header');
+      }
     });
   });
 
   describe('abort signal', () => {
-    it('aborted signal causes immediate return', async () => {
+    it('aborted signal causes immediate return without calling LLM', async () => {
       const controller = new AbortController();
       controller.abort();
 
-      // Dynamic import
       const { runAgentLoop } = await import('../../src/sandbox/agent-loop.js');
 
       const result = await runAgentLoop(
@@ -243,11 +306,14 @@ describe('runAgentLoop', () => {
           agentId: 'test-agent',
           channelId: 'test-channel',
           abortSignal: controller.signal,
+          hybridAiBaseUrl: `http://127.0.0.1:${hybridaiPort}`,
         },
       );
 
       assert.equal(result.status, 'error');
       assert.ok(result.error?.includes('Interrupted'));
+      // LLM should never have been called
+      assert.equal(hybridaiRequests.length, 0);
     });
   });
 });

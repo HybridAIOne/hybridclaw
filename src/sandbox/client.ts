@@ -1,14 +1,5 @@
 import type { StreamChunk } from './types.js';
 
-const SANDBOX_URL = (process.env.HYBRIDCLAW_SANDBOX_URL || '').replace(/\/+$/, '');
-const SANDBOX_TOKEN = process.env.HYBRIDCLAW_SANDBOX_TOKEN || '';
-
-function authHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (SANDBOX_TOKEN) headers.Authorization = `Bearer ${SANDBOX_TOKEN}`;
-  return headers;
-}
-
 async function assertOk(res: Response, context: string): Promise<void> {
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -18,12 +9,20 @@ async function assertOk(res: Response, context: string): Promise<void> {
 
 export class SandboxClient {
   private baseUrl: string;
+  private token: string;
 
-  constructor(baseUrl?: string) {
-    this.baseUrl = (baseUrl || SANDBOX_URL).replace(/\/+$/, '');
+  constructor(baseUrl?: string, token?: string) {
+    this.baseUrl = (baseUrl || process.env.HYBRIDCLAW_SANDBOX_URL || '').replace(/\/+$/, '');
     if (!this.baseUrl) {
       throw new Error('HYBRIDCLAW_SANDBOX_URL is not configured');
     }
+    this.token = token ?? process.env.HYBRIDCLAW_SANDBOX_TOKEN ?? '';
+  }
+
+  private authHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    return headers;
   }
 
   // -- Sandbox CRUD --
@@ -33,7 +32,7 @@ export class SandboxClient {
     if (opts?.volumeId) body.volume_id = opts.volumeId;
     const res = await fetch(`${this.baseUrl}/v1/sandboxes`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: this.authHeaders(),
       body: JSON.stringify(body),
     });
     await assertOk(res, 'POST /v1/sandboxes');
@@ -44,7 +43,7 @@ export class SandboxClient {
   async deleteSandbox(sandboxId: string): Promise<void> {
     const res = await fetch(`${this.baseUrl}/v1/sandboxes/${sandboxId}`, {
       method: 'DELETE',
-      headers: authHeaders(),
+      headers: this.authHeaders(),
     });
     await assertOk(res, `DELETE /v1/sandboxes/${sandboxId}`);
   }
@@ -62,7 +61,7 @@ export class SandboxClient {
     const timeoutSecs = opts.timeoutMs ? Math.ceil(opts.timeoutMs / 1000) : undefined;
     const res = await fetch(`${this.baseUrl}/v1/sandboxes/${sandboxId}/process`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: this.authHeaders(),
       body: JSON.stringify({
         code: opts.code,
         language: opts.language ?? 'bash',
@@ -85,7 +84,7 @@ export class SandboxClient {
   ): Promise<{ exitCode: number }> {
     const res = await fetch(`${this.baseUrl}/v1/sandboxes/${sandboxId}/process/stream`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: this.authHeaders(),
       body: JSON.stringify({ code, language: 'bash' }),
       signal,
     });
@@ -99,7 +98,7 @@ export class SandboxClient {
     const encoded = encodeURIComponent(filePath).replace(/%2F/g, '/');
     const res = await fetch(`${this.baseUrl}/v1/sandboxes/${sandboxId}/filesystem/${encoded}`, {
       method: 'GET',
-      headers: authHeaders(),
+      headers: this.authHeaders(),
     });
     await assertOk(res, `GET /v1/sandboxes/${sandboxId}/filesystem/${filePath}`);
     const data = (await res.json()) as { content: string };
@@ -110,7 +109,7 @@ export class SandboxClient {
     const encoded = encodeURIComponent(filePath).replace(/%2F/g, '/');
     const res = await fetch(`${this.baseUrl}/v1/sandboxes/${sandboxId}/filesystem/${encoded}`, {
       method: 'PUT',
-      headers: authHeaders(),
+      headers: this.authHeaders(),
       body: JSON.stringify({ content }),
     });
     await assertOk(res, `PUT /v1/sandboxes/${sandboxId}/filesystem/${filePath}`);
@@ -120,7 +119,7 @@ export class SandboxClient {
     const encoded = encodeURIComponent(filePath).replace(/%2F/g, '/');
     const res = await fetch(`${this.baseUrl}/v1/sandboxes/${sandboxId}/filesystem/${encoded}`, {
       method: 'DELETE',
-      headers: authHeaders(),
+      headers: this.authHeaders(),
     });
     await assertOk(res, `DELETE /v1/sandboxes/${sandboxId}/filesystem/${filePath}`);
   }
@@ -129,7 +128,7 @@ export class SandboxClient {
     const params = new URLSearchParams({ path: dirPath });
     const res = await fetch(
       `${this.baseUrl}/v1/sandboxes/${sandboxId}/filesystem?${params.toString()}`,
-      { method: 'GET', headers: authHeaders() },
+      { method: 'GET', headers: this.authHeaders() },
     );
     await assertOk(res, `GET /v1/sandboxes/${sandboxId}/filesystem?path=${dirPath}`);
     const data = (await res.json()) as { entries: { name: string }[] };
@@ -141,7 +140,7 @@ export class SandboxClient {
   async createVolume(name: string): Promise<{ volumeId: string }> {
     const res = await fetch(`${this.baseUrl}/v1/volumes`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: this.authHeaders(),
       body: JSON.stringify({ volume_id: name }),
     });
     await assertOk(res, 'POST /v1/volumes');
@@ -152,7 +151,7 @@ export class SandboxClient {
   async getOrCreateVolume(name: string): Promise<{ volumeId: string }> {
     const getRes = await fetch(`${this.baseUrl}/v1/volumes/${name}`, {
       method: 'GET',
-      headers: authHeaders(),
+      headers: this.authHeaders(),
     });
     if (getRes.ok) {
       const data = (await getRes.json()) as { volume_id: string };
