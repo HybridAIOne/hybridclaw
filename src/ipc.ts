@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import readline from 'readline';
-import type { ChildProcess } from 'child_process';
+import readline, { type Interface as RLInterface } from 'readline';
 
 import { DATA_DIR } from './config.js';
 import { logger } from './logger.js';
@@ -50,11 +49,19 @@ export function getSessionPaths(sessionId: string, agentId: string): {
 }
 
 /**
- * Read output from a container process's stdout in stdio IPC mode.
- * Parses NDJSON lines; calls onToolProgress for tool events, resolves on {type:'result'}.
+ * Create a persistent readline interface for a container's stdout.
+ * Must be created once per container and kept alive across requests.
+ */
+export function createContainerReadline(stdout: NodeJS.ReadableStream): RLInterface {
+  return readline.createInterface({ input: stdout, crlfDelay: Infinity });
+}
+
+/**
+ * Read one result from a persistent container readline interface.
+ * Attaches a temporary line listener, removes it on result/timeout/abort.
  */
 export async function readStdioOutput(
-  proc: ChildProcess,
+  rl: RLInterface,
   timeoutMs: number,
   opts?: {
     signal?: AbortSignal;
@@ -65,11 +72,13 @@ export async function readStdioOutput(
   const signal = opts?.signal;
   const sessionId = opts?.sessionId || '';
 
-  return new Promise<ContainerOutput>((resolve, reject) => {
+  return new Promise<ContainerOutput>((resolve) => {
     if (signal?.aborted) {
       resolve({ status: 'error', result: null, toolsUsed: [], error: 'Interrupted by user.' });
       return;
     }
+
+    let resolved = false;
 
     const timer = setTimeout(() => {
       cleanup();
@@ -87,15 +96,16 @@ export async function readStdioOutput(
     };
     if (signal) signal.addEventListener('abort', onAbort, { once: true });
 
-    const rl = readline.createInterface({ input: proc.stdout!, crlfDelay: Infinity });
-
     function cleanup(): void {
+      if (resolved) return;
+      resolved = true;
       clearTimeout(timer);
       if (signal) signal.removeEventListener('abort', onAbort);
-      rl.close();
+      rl.removeListener('line', onLine);
+      rl.removeListener('close', onClose);
     }
 
-    rl.on('line', (line) => {
+    function onLine(line: string): void {
       const trimmed = line.trim();
       if (!trimmed) return;
       let event: Record<string, unknown>;
@@ -131,16 +141,12 @@ export async function readStdioOutput(
           result: typeof event.result === 'string' ? event.result : null,
           toolsUsed: Array.isArray(event.toolsUsed) ? (event.toolsUsed as string[]) : [],
           error: typeof event.error === 'string' ? event.error : undefined,
+          sideEffects: event.sideEffects != null ? (event.sideEffects as ContainerOutput['sideEffects']) : undefined,
         });
       }
-    });
+    }
 
-    rl.on('error', (err) => {
-      cleanup();
-      reject(err);
-    });
-
-    rl.on('close', () => {
+    function onClose(): void {
       cleanup();
       resolve({
         status: 'error',
@@ -148,6 +154,9 @@ export async function readStdioOutput(
         toolsUsed: [],
         error: 'Container stdout closed before result',
       });
-    });
+    }
+
+    rl.on('line', onLine);
+    rl.on('close', onClose);
   });
 }

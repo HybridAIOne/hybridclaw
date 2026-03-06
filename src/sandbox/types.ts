@@ -1,0 +1,39 @@
+export interface ToolCall {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+}
+
+export interface ToolResult {
+  toolCallId: string;
+  content: string;
+  isError?: boolean;
+  /** Set by the delegate tool to signal delegation back to the gateway. */
+  isDelegate?: boolean;
+}
+
+export interface AgentLoopOptions {
+  chatbotId: string;
+  model: string;
+  enableRag: boolean;
+  agentId: string;
+  channelId: string;
+  allowedTools?: string[];
+  scheduledTasks?: unknown[];
+  onToolProgress?: (event: ToolProgressEvent) => void;
+  abortSignal?: AbortSignal;
+}
+
+export interface ToolProgressEvent {
+  sessionId: string;
+  toolName: string;
+  phase: 'start' | 'finish';
+  durationMs?: number;
+  preview?: string;
+}
+
+export interface StreamChunk {
+  type: 'stdout' | 'stderr' | 'exit';
+  text?: string;
+  exitCode?: number;
+}

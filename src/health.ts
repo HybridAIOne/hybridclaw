@@ -2,7 +2,7 @@ import fs from 'fs';
 import http, { type IncomingMessage, type ServerResponse } from 'http';
 import path from 'path';
 
-import { HEALTH_HOST, HEALTH_PORT, WEB_API_TOKEN } from './config.js';
+import { GATEWAY_API_TOKEN, HEALTH_HOST, HEALTH_PORT, WEB_API_TOKEN } from './config.js';
 import {
   getGatewayHistory,
   getGatewayStatus,
@@ -12,6 +12,7 @@ import {
   type GatewayChatRequest,
 } from './gateway-service.js';
 import { type GatewayChatRequestBody } from './gateway-types.js';
+import { getAllSandboxInstances } from './db.js';
 import { type ToolProgressEvent } from './types.js';
 import { logger } from './logger.js';
 
@@ -41,6 +42,14 @@ function hasApiAuth(req: IncomingMessage): boolean {
   }
   const authHeader = req.headers.authorization || '';
   return authHeader === `Bearer ${WEB_API_TOKEN}`;
+}
+
+function hasGatewayAuth(req: IncomingMessage): boolean {
+  if (!GATEWAY_API_TOKEN) {
+    return isLoopbackAddress(req.socket.remoteAddress);
+  }
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  return token === GATEWAY_API_TOKEN;
 }
 
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
@@ -203,6 +212,69 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
   sendJson(res, 200, { sessionId, history });
 }
 
+interface AgentRequestBody {
+  sessionId?: string;
+  content?: string;
+  chatbotId?: string;
+  model?: string;
+  enableRag?: boolean;
+  userId?: string;
+  username?: string;
+}
+
+async function handleApiAgent(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readJsonBody(req) as Partial<AgentRequestBody>;
+
+  const { sessionId, content, chatbotId, model, enableRag, userId, username } = body;
+  if (!sessionId || !content || !chatbotId) {
+    sendJson(res, 400, { error: 'Missing required fields: sessionId, content, chatbotId' });
+    return;
+  }
+
+  const wantsStream = (req.headers.accept || '').includes('text/event-stream');
+
+  if (wantsStream) {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+
+    const result = await handleGatewayMessage({
+      sessionId,
+      channelId: 'api',
+      guildId: null,
+      userId: userId || 'api-user',
+      username: username || null,
+      content,
+      chatbotId,
+      model,
+      enableRag,
+      onToolProgress: (event: ToolProgressEvent) => {
+        if (res.writableEnded) return;
+        res.write(`data: ${JSON.stringify({ type: 'tool_progress', ...event })}\n\n`);
+      },
+    });
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ type: 'result', ...result })}\n\n`);
+      res.end();
+    }
+  } else {
+    const result = await handleGatewayMessage({
+      sessionId,
+      channelId: 'api',
+      guildId: null,
+      userId: userId || 'api-user',
+      username: username || null,
+      content,
+      chatbotId,
+      model,
+      enableRag,
+    });
+    sendJson(res, result.status === 'success' ? 200 : 500, result);
+  }
+}
+
 let inflightRequests = 0;
 let acceptingRequests = true;
 let httpServer: http.Server | null = null;
@@ -224,6 +296,42 @@ export function startHealthServer(): void {
 
     if (pathname === '/health' && method === 'GET') {
       sendJson(res, 200, getGatewayStatus());
+      return;
+    }
+
+    // Agent API — uses GATEWAY_API_TOKEN (separate from WEB_API_TOKEN)
+    if (pathname === '/api/agent/health' && method === 'GET') {
+      if (!hasGatewayAuth(req)) {
+        sendJson(res, 401, { error: 'Unauthorized' });
+        return;
+      }
+      sendJson(res, 200, {
+        status: 'ok',
+        activeSandboxes: getAllSandboxInstances().length,
+      });
+      return;
+    }
+
+    if (pathname === '/api/agent' && method === 'POST') {
+      if (!hasGatewayAuth(req)) {
+        sendJson(res, 401, { error: 'Unauthorized' });
+        return;
+      }
+      void (async () => {
+        if (!acceptingRequests) {
+          sendJson(res, 503, { error: 'Server is shutting down.' });
+          return;
+        }
+        inflightRequests++;
+        try {
+          await handleApiAgent(req, res);
+        } catch (err) {
+          const errorText = err instanceof Error ? err.message : String(err);
+          sendJson(res, 500, { error: errorText });
+        } finally {
+          inflightRequests--;
+        }
+      })();
       return;
     }
 

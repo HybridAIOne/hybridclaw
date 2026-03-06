@@ -25,5 +25,5 @@ export async function* readStdinRequests(): AsyncGenerator<ContainerInput> {
 }
 
 export function writeOutput(output: ContainerOutput): void {
-  emitStdioEvent({ type: 'result', status: output.status, result: output.result, toolsUsed: output.toolsUsed, error: output.error });
+  emitStdioEvent({ type: 'result', status: output.status, result: output.result, toolsUsed: output.toolsUsed, error: output.error, sideEffects: output.sideEffects ?? null });
 }

@@ -11,6 +11,10 @@ export const SECURITY_POLICY_VERSION = '2026-02-28';
 
 const KNOWN_LOG_LEVELS = new Set(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']);
 
+const DEFAULT_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR
+  ? path.resolve(process.env.HYBRIDCLAW_DATA_DIR)
+  : path.join(process.cwd(), 'data');
+
 type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
 
 type DeepPartial<T> = {
@@ -190,10 +194,6 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
 const CONFIG_PATH = process.env.HYBRIDCLAW_CONFIG_PATH
   ? path.resolve(process.env.HYBRIDCLAW_CONFIG_PATH)
   : path.join(process.cwd(), CONFIG_FILE_NAME);
-
-const DEFAULT_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR
-  ? path.resolve(process.env.HYBRIDCLAW_DATA_DIR)
-  : path.join(process.cwd(), 'data');
 
 let currentConfig: RuntimeConfig = cloneConfig(DEFAULT_RUNTIME_CONFIG);
 let configWatcher: fs.FSWatcher | null = null;

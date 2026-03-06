@@ -1,0 +1,10 @@
+node_modules
+dist
+container
+test
+docs
+.github
+*.md
+.env
+config.json
+data/

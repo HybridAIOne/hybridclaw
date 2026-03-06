@@ -17,7 +17,13 @@
     "gateway": "tsx src/cli.ts gateway",
     "tui": "tsx src/cli.ts tui",
     "start": "node dist/cli.js gateway",
-    "build:container": "cd container && npm run build && docker build -t hybridclaw-agent ."
+    "build:container": "cd container && npm run build && docker build -t hybridclaw-agent .",
+    "test": "node --import tsx --test test/sandbox/*.test.ts",
+    "test:security": "node --import tsx --test test/sandbox/security.test.ts",
+    "test:workspace": "node --import tsx --test test/sandbox/workspace-manager.test.ts",
+    "test:dispatcher": "node --import tsx --test test/sandbox/tool-dispatcher.test.ts",
+    "test:client": "node --import tsx --test test/sandbox/client.test.ts",
+    "test:loop": "node --import tsx --test test/sandbox/agent-loop.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",

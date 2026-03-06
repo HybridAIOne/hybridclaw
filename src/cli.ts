@@ -3,6 +3,7 @@
 import { ensureHybridAICredentials } from './onboarding.js';
 import { GATEWAY_BASE_URL, MissingRequiredEnvVarError } from './config.js';
 import { logger } from './logger.js';
+import { sleep } from './utils.js';
 
 async function ensureRuntimeContainer(commandName: string, required = true): Promise<void> {
   const { ensureContainerImageReady } = await import('./container-setup.js');
@@ -11,10 +12,6 @@ async function ensureRuntimeContainer(commandName: string, required = true): Pro
     required,
     cwd: process.cwd(),
   });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function isGatewayReachable(): Promise<boolean> {

@@ -14,34 +14,6 @@ const RETRY_MAX_DELAY_MS = Math.max(RETRY_BASE_DELAY_MS, parseInt(process.env.HY
 /** API key received once via stdin, held in memory for the container lifetime. */
 let storedApiKey = '';
 
-/**
- * Read a single line from stdin (the initial request JSON containing secrets).
- * Resolves on the first newline — does not consume the entire stream, so docker -i
- * keeps the container alive after the host stops writing.
- */
-function readStdinLine(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let buffer = '';
-    const onData = (chunk: Buffer) => {
-      buffer += chunk.toString('utf-8');
-      const nl = buffer.indexOf('\n');
-      if (nl !== -1) {
-        process.stdin.removeListener('data', onData);
-        process.stdin.removeListener('error', onError);
-        process.stdin.pause();
-        resolve(buffer.slice(0, nl));
-      }
-    };
-    const onError = (err: Error) => {
-      process.stdin.removeListener('data', onData);
-      reject(err);
-    };
-    process.stdin.on('data', onData);
-    process.stdin.on('error', onError);
-    process.stdin.resume();
-  });
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -259,18 +231,16 @@ async function processAndRespond(input: ContainerInput, emitFn: (output: Contain
 async function main(): Promise<void> {
   console.error(`[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms, ipc=stdio`);
 
-  // First request always arrives via stdin (contains apiKey — never written to disk)
-  const stdinData = await readStdinLine();
-  const firstInput: ContainerInput = JSON.parse(stdinData);
-  storedApiKey = firstInput.apiKey;
-
-  console.error(`[hybridclaw-agent] processing first request (${firstInput.messages.length} messages)`);
-
-  await processAndRespond(firstInput, defaultEmitOutput);
-
-  // Read subsequent requests as NDJSON from stdin
+  // All requests arrive as NDJSON lines on stdin. The first line carries the apiKey.
+  let first = true;
   for await (const input of readStdinRequests()) {
-    console.error(`[hybridclaw-agent] processing stdin request (${input.messages.length} messages)`);
+    if (first) {
+      storedApiKey = input.apiKey;
+      first = false;
+      console.error(`[hybridclaw-agent] processing first request (${input.messages.length} messages)`);
+    } else {
+      console.error(`[hybridclaw-agent] processing stdin request (${input.messages.length} messages)`);
+    }
     await processAndRespond(input, defaultEmitOutput);
   }
   console.error('[hybridclaw-agent] stdin closed, exiting');

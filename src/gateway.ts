@@ -165,8 +165,12 @@ async function startDiscordIntegration(): Promise<void> {
 }
 
 const DRAIN_TIMEOUT_MS = 10_000;
+let shuttingDown = false;
 
 async function gracefulShutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
   logger.info({ signal }, 'Shutdown signal received');
 
   if (detachConfigListener) {
