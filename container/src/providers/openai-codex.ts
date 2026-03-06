@@ -162,7 +162,6 @@ function buildCodexRequestBody(
   };
 }
 
-
 function adaptCodexResponse(
   payload: unknown,
   fallbackModel: string,
