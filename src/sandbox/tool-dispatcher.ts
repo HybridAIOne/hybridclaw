@@ -1,5 +1,5 @@
 import type { SandboxClient } from './client.js';
-import { guardCommand, isToolAllowed } from './security.js';
+import { assertNoApiKey, guardCommand, isToolAllowed } from './security.js';
 import type { ToolCall, ToolResult } from './types.js';
 
 // --- Bash output formatting ---
@@ -27,9 +27,15 @@ export async function dispatchTool(
     allowedTools?: string[];
     onProgress?: (phase: 'start' | 'finish', preview?: string, durationMs?: number) => void;
     abortSignal?: AbortSignal;
+    apiKey?: string;
   } = {},
 ): Promise<ToolResult> {
   const { name, args, id: toolCallId } = toolCall;
+
+  // Defense-in-depth: assert API key never leaks into tool args sent to sandbox
+  if (opts.apiKey) {
+    assertNoApiKey(JSON.stringify(args), opts.apiKey);
+  }
 
   // Tool allowlist enforcement
   if (!isToolAllowed(name, opts.allowedTools)) {
@@ -141,7 +147,7 @@ async function dispatchToolInner(
       const pattern = String(args.pattern || '');
       if (!pattern) return err('Error: pattern is required');
       const basePath = String(args.path || '/workspace');
-      const cmd = `find ${basePath} -name "${pattern}" -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | head -200`;
+      const cmd = `find ${shellEscape(basePath)} -name ${shellEscape(pattern)} -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | head -200`;
       const { stdout } = await client.runProcess(sandboxId, { code: cmd, timeoutMs: 10_000 });
       return ok(stdout.trim() || 'No files found.');
     }
@@ -150,8 +156,7 @@ async function dispatchToolInner(
       const pattern = String(args.pattern || '');
       if (!pattern) return err('Error: pattern is required');
       const searchPath = String(args.path || '/workspace');
-      const escaped = pattern.replace(/"/g, '\\"');
-      const cmd = `rg --no-heading --line-number "${escaped}" "${searchPath}" 2>/dev/null | head -30`;
+      const cmd = `rg --no-heading --line-number ${shellEscape(pattern)} ${shellEscape(searchPath)} 2>/dev/null | head -30`;
       const { stdout } = await client.runProcess(sandboxId, { code: cmd, timeoutMs: 10_000 });
       return ok(stdout.trim() || 'No matches found.');
     }
@@ -238,7 +243,7 @@ async function dispatchToolInner(
         const query = String(args.query || '');
         if (!query) return err('Error: query is required for memory search');
         const { stdout } = await client.runProcess(sandboxId, {
-          code: `grep -rn "${query.replace(/"/g, '\\"')}" /workspace/MEMORY.md /workspace/USER.md /workspace/memory/ 2>/dev/null | head -40`,
+          code: `grep -rn ${shellEscape(query)} /workspace/MEMORY.md /workspace/USER.md /workspace/memory/ 2>/dev/null | head -40`,
           timeoutMs: 5_000,
         });
         return ok(stdout.trim() || `No memory matches for "${query}".`);
@@ -272,9 +277,8 @@ async function dispatchToolInner(
     case 'session_search': {
       const query = String(args.query || '');
       if (!query) return err('Error: query is required');
-      const escaped = query.replace(/"/g, '\\"');
       const { stdout } = await client.runProcess(sandboxId, {
-        code: `grep -r "${escaped}" /workspace/.session-transcripts/ 2>/dev/null | head -100`,
+        code: `grep -r ${shellEscape(query)} /workspace/.session-transcripts/ 2>/dev/null | head -100`,
         timeoutMs: 10_000,
       });
       return ok(stdout.trim() || 'No session matches found.');

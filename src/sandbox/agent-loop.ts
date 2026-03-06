@@ -186,6 +186,7 @@ export async function runAgentLoop(
           }
         },
         abortSignal,
+        apiKey,
       });
 
       const durationMs = Date.now() - startMs;

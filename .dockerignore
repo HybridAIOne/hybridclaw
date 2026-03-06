@@ -4,7 +4,9 @@ container
 test
 docs
 .github
-*.md
+README.md
+CHANGELOG.md
+CONTRIBUTING.md
 .env
 config.json
 data/
