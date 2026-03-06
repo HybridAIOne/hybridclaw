@@ -9,6 +9,7 @@ import {
 } from './runtime-config.js';
 import { SILENT_REPLY_TOKEN, stripSilentToken } from './silent-reply.js';
 import { buildSkillsPrompt, type Skill } from './skills.js';
+import { buildToolsSummary } from './tool-summary.js';
 import { buildContextPrompt, loadBootstrapFiles } from './workspace.js';
 
 export type PromptHookName = 'bootstrap' | 'memory' | 'safety' | 'runtime';
@@ -39,6 +40,8 @@ export interface PromptHookContext {
   promptMode?: PromptMode;
   extraSafetyText?: string;
   runtimeInfo?: PromptRuntimeInfo;
+  allowedTools?: string[];
+  blockedTools?: string[];
 }
 
 export interface PromptHookOutput {
@@ -84,6 +87,10 @@ function buildSafetyHook(context: PromptHookContext): string {
   const runtime = getRuntimeConfig();
   const accepted = isSecurityTrustAccepted(runtime);
   const securityDoc = readSecurityPromptGuardrails();
+  const toolsSummary = buildToolsSummary({
+    allowedTools: context.allowedTools,
+    blockedTools: context.blockedTools,
+  });
   const channelMessageToolHints = resolveChannelMessageToolHints({
     runtimeInfo: {
       channelType: context.runtimeInfo?.channelType,
@@ -96,6 +103,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     '## Runtime Safety Guardrails',
     'Follow TRUST_MODEL.md and SECURITY.md boundaries, and use the least-privilege tools possible.',
     '',
+    ...(toolsSummary ? [toolsSummary, ''] : []),
     securityDoc,
     '',
     '## Tool Execution Discipline',

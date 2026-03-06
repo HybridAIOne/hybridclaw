@@ -76,6 +76,7 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from './token-efficiency.js';
+import { buildToolsSummary } from './tool-summary.js';
 import type {
   ArtifactMetadata,
   CanonicalSessionContext,
@@ -999,11 +1000,13 @@ function buildSubagentSystemPrompt(params: {
   depth: number;
   canDelegate: boolean;
   mode: DelegationMode;
+  allowedTools: string[];
 }): string {
-  const { depth, canDelegate, mode } = params;
+  const { depth, canDelegate, mode, allowedTools } = params;
   const delegationLine = canDelegate
     ? 'You may delegate further only if absolutely necessary and still within depth/turn limits.'
     : 'You are a leaf subagent. Do not delegate further work.';
+  const toolsSummary = buildToolsSummary({ allowedTools });
 
   return [
     '# Subagent Context',
@@ -1023,6 +1026,7 @@ function buildSubagentSystemPrompt(params: {
     `Current delegation depth: ${depth}.`,
     delegationLine,
     '',
+    ...(toolsSummary ? [toolsSummary, ''] : []),
     '## Rules',
     '- Do not interact with users directly.',
     '- Do not create schedules or persistent autonomous workflows.',
@@ -1233,6 +1237,7 @@ async function runDelegationTaskWithRetry(
               depth: childDepth,
               canDelegate,
               mode,
+              allowedTools,
             }),
           },
           { role: 'user', content: task.prompt },
@@ -1748,6 +1753,7 @@ export async function handleGatewayMessage(
       )
       .join('\n\n')
       .trim() || null;
+  const mediaPolicy = resolveMediaToolPolicy(req.content, media);
   const { messages, skills, historyStats } = buildConversationContext({
     agentId,
     sessionSummary: mergedSessionSummary,
@@ -1760,6 +1766,7 @@ export async function handleGatewayMessage(
       channelId: req.channelId,
       guildId: req.guildId,
     },
+    blockedTools: mediaPolicy.blockedTools,
   });
   const historyStart =
     messages.length > 0 && messages[0].role === 'system' ? 1 : 0;
@@ -1786,7 +1793,6 @@ export async function handleGatewayMessage(
       canonicalRecentMessagesIncluded: canonicalContext.recent_messages.length,
     },
   });
-  const mediaPolicy = resolveMediaToolPolicy(req.content, media);
   if (mediaPolicy.prioritizeVisionTool) {
     logger.info(
       {

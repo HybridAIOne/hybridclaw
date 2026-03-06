@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Human-readable tool summary in prompts**: System prompts now include a compact grouped tool inventory, and delegated subagents see the same summary filtered to their actual allowed toolset so plain-language tool selection guidance reinforces the API schemas.
+
 ## [0.3.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.3.1)
 
 ### Changed

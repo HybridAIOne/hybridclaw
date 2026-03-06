@@ -130,6 +130,7 @@ export function startHeartbeat(
         agentId,
         sessionSummary: memoryContext.promptSummary,
         history,
+        allowedTools: HEARTBEAT_ALLOWED_TOOLS,
       });
       messages.push({ role: 'user', content: HEARTBEAT_PROMPT });
 

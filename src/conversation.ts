@@ -28,6 +28,8 @@ export function buildConversationContext(params: {
   expandLatestHistoryUser?: boolean;
   promptMode?: PromptMode;
   runtimeInfo?: PromptRuntimeInfo;
+  allowedTools?: string[];
+  blockedTools?: string[];
 }): ConversationContext {
   const {
     agentId,
@@ -36,6 +38,8 @@ export function buildConversationContext(params: {
     expandLatestHistoryUser = false,
     promptMode = 'full',
     runtimeInfo,
+    allowedTools,
+    blockedTools,
   } = params;
   const skills = loadSkills(agentId);
   const systemPrompt = buildSystemPromptFromHooks({
@@ -45,6 +49,8 @@ export function buildConversationContext(params: {
     purpose: 'conversation',
     promptMode,
     runtimeInfo,
+    allowedTools,
+    blockedTools,
   });
 
   const messages: ChatMessage[] = [];

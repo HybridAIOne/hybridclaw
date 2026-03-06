@@ -103,6 +103,7 @@ function buildSystemPrompt(
     purpose: 'memory-flush',
     promptMode: 'minimal',
     extraSafetyText: extra,
+    allowedTools: ['memory'],
   });
 }
 
