@@ -13,6 +13,7 @@ test('buildToolsSummary groups the full tool catalog', () => {
   expect(summary).toContain(
     '**Browser**: `browser_navigate`, `browser_snapshot`, `browser_click`',
   );
+  expect(summary).toContain('**Web**: `web_search`, `web_fetch`');
   expect(summary).toContain('**Communication**: `message`');
   expect(summary).toContain('**Delegation**: `delegate`');
   expect(summary).toContain('**Vision**: `vision_analyze`, `image`');

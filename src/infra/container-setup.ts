@@ -327,6 +327,7 @@ async function buildAndValidateImage(params: {
   reason: string;
   hint: string;
   fingerprint: string | null;
+  fallbackToExistingImage?: boolean;
 }): Promise<void> {
   const {
     commandName,
@@ -337,8 +338,23 @@ async function buildAndValidateImage(params: {
     reason,
     hint,
     fingerprint,
+    fallbackToExistingImage = false,
   } = params;
-  if (!ensureInteractiveAutoBuild(commandName, required, reason, hint)) return;
+  if (
+    !ensureInteractiveAutoBuild(
+      commandName,
+      required && !fallbackToExistingImage,
+      reason,
+      hint,
+    )
+  ) {
+    if (fallbackToExistingImage) {
+      console.warn(
+        `${commandName}: Continuing with existing container image '${imageName}'.`,
+      );
+    }
+    return;
+  }
 
   try {
     if (acquisitionMode === 'pull-or-build') {
@@ -377,6 +393,13 @@ async function buildAndValidateImage(params: {
     console.log(`${commandName}: Built container image '${imageName}'.`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (fallbackToExistingImage) {
+      console.warn(
+        `${commandName}: Unable to refresh image automatically. Continuing with existing container image '${imageName}'.`,
+      );
+      console.warn(`Details: ${message}`);
+      return;
+    }
     if (!required) {
       console.warn(
         `${commandName}: Unable to build image automatically. ${hint}`,
@@ -399,10 +422,18 @@ export async function ensureContainerImageReady(
   const fingerprint = computeContainerFingerprint(cwd, imageName);
 
   const exists = await containerImageExists(imageName);
-  const hint = [
+  const missingImageHint = [
     `${commandName}: Required container image '${imageName}' not found.`,
     'Run `npm run build:container` in the project root to build it.',
     'HybridClaw also attempts to pull published images automatically before local build.',
+  ].join(' ');
+  const rebuildImageHint = [
+    `${commandName}: Unable to rebuild container image '${imageName}' automatically.`,
+    'Run `npm run build:container` in the project root to rebuild it manually.',
+  ].join(' ');
+  const refreshImageHint = [
+    `Run \`npm run build:container\` in the project root to refresh container image '${imageName}' manually.`,
+    'The existing image will be reused for now.',
   ].join(' ');
 
   if (!exists) {
@@ -413,7 +444,7 @@ export async function ensureContainerImageReady(
       imageName,
       acquisitionMode: resolveContainerImageAcquisitionMode(cwd, imageName),
       reason: 'Container image not found.',
-      hint,
+      hint: missingImageHint,
       fingerprint,
     });
     return;
@@ -434,7 +465,7 @@ export async function ensureContainerImageReady(
       imageName,
       acquisitionMode: 'build-only',
       reason: "Container rebuild policy is 'always'.",
-      hint,
+      hint: rebuildImageHint,
       fingerprint,
     });
     return;
@@ -456,7 +487,8 @@ export async function ensureContainerImageReady(
     imageName,
     acquisitionMode: 'build-only',
     reason: 'Container sources changed since the last recorded build.',
-    hint,
+    hint: refreshImageHint,
     fingerprint,
+    fallbackToExistingImage: true,
   });
 }

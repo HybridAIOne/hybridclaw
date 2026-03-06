@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  hasDebugFlag,
   findUnsupportedGatewayLifecycleFlag,
   hasForegroundFlag,
   hasSandboxFlag,
@@ -10,6 +11,7 @@ import {
 describe('parseGatewayFlags', () => {
   it('parses gateway lifecycle flags without sandbox override', () => {
     expect(parseGatewayFlags(['--foreground'])).toEqual({
+      debug: false,
       foreground: true,
       help: false,
       sandboxMode: null,
@@ -17,7 +19,10 @@ describe('parseGatewayFlags', () => {
   });
 
   it('parses equals-style sandbox override', () => {
-    expect(parseGatewayFlags(['--foreground', '--sandbox=host'])).toEqual({
+    expect(
+      parseGatewayFlags(['--foreground', '--debug', '--sandbox=host']),
+    ).toEqual({
+      debug: true,
       foreground: true,
       help: false,
       sandboxMode: 'host',
@@ -26,6 +31,7 @@ describe('parseGatewayFlags', () => {
 
   it('parses split sandbox override', () => {
     expect(parseGatewayFlags(['--sandbox', 'container'])).toEqual({
+      debug: false,
       foreground: false,
       help: false,
       sandboxMode: 'container',
@@ -34,6 +40,7 @@ describe('parseGatewayFlags', () => {
 
   it('parses help without starting the command', () => {
     expect(parseGatewayFlags(['--help'])).toEqual({
+      debug: false,
       foreground: false,
       help: true,
       sandboxMode: null,
@@ -51,6 +58,13 @@ describe('hasSandboxFlag', () => {
   it('detects sandbox flags in gateway subcommand args', () => {
     expect(hasSandboxFlag(['status', '--sandbox=host'])).toBe(true);
     expect(hasSandboxFlag(['status'])).toBe(false);
+  });
+});
+
+describe('hasDebugFlag', () => {
+  it('detects debug flags in gateway subcommand args', () => {
+    expect(hasDebugFlag(['status', '--debug'])).toBe(true);
+    expect(hasDebugFlag(['status'])).toBe(false);
   });
 });
 
@@ -76,6 +90,9 @@ describe('findUnsupportedGatewayLifecycleFlag', () => {
     ).toBe('sandbox');
     expect(findUnsupportedGatewayLifecycleFlag(['sessions', '-f'])).toBe(
       'foreground',
+    );
+    expect(findUnsupportedGatewayLifecycleFlag(['status', '--debug'])).toBe(
+      'debug',
     );
     expect(findUnsupportedGatewayLifecycleFlag(['--sandbox=host'])).toBe(
       'sandbox',

@@ -67,6 +67,10 @@ function normalizeMessageText(content: ChatMessage['content']): string {
     .join('\n');
 }
 
+function logCodexTransport(message: string): void {
+  console.error(`[codex] ${message}`);
+}
+
 function convertContentPart(
   part: ChatContentPart,
 ): Record<string, unknown> | null {
@@ -664,6 +668,10 @@ function consumeCodexStreamPayload(
 export async function callOpenAICodexProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
+  const startedAt = Date.now();
+  logCodexTransport(
+    `request start model=${normalizeCodexModelName(args.model)} messages=${args.messages.length} tools=${args.tools.length}`,
+  );
   const response = await fetch(`${args.baseUrl}/responses`, {
     method: 'POST',
     headers: buildRequestHeaders(args.apiKey, args.requestHeaders),
@@ -671,18 +679,32 @@ export async function callOpenAICodexProvider(
       buildCodexRequestBody(args.model, args.messages, args.tools),
     ),
   });
+  logCodexTransport(
+    `response headers model=${normalizeCodexModelName(args.model)} status=${response.status} durationMs=${Date.now() - startedAt} contentType=${response.headers.get('content-type') || '<missing>'}`,
+  );
 
   if (!response.ok) {
     const text = await response.text();
     throw new HybridAIRequestError(response.status, text);
   }
 
-  return adaptCodexResponse((await response.json()) as unknown, args.model);
+  const adapted = adaptCodexResponse(
+    (await response.json()) as unknown,
+    args.model,
+  );
+  logCodexTransport(
+    `request complete model=${normalizeCodexModelName(args.model)} durationMs=${Date.now() - startedAt}`,
+  );
+  return adapted;
 }
 
 export async function callOpenAICodexProviderStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
+  const startedAt = Date.now();
+  logCodexTransport(
+    `stream request start model=${normalizeCodexModelName(args.model)} messages=${args.messages.length} tools=${args.tools.length}`,
+  );
   const response = await fetch(`${args.baseUrl}/responses`, {
     method: 'POST',
     headers: {
@@ -694,6 +716,9 @@ export async function callOpenAICodexProviderStream(
       stream: true,
     }),
   });
+  logCodexTransport(
+    `stream response headers model=${normalizeCodexModelName(args.model)} status=${response.status} durationMs=${Date.now() - startedAt} contentType=${response.headers.get('content-type') || '<missing>'}`,
+  );
 
   if (!response.ok) {
     const text = await response.text();
@@ -734,6 +759,7 @@ export async function callOpenAICodexProviderStream(
   let buffer = '';
   let sawPayload = false;
   let streamDone = false;
+  let firstEventMs: number | null = null;
 
   try {
     while (!streamDone) {
@@ -748,6 +774,12 @@ export async function callOpenAICodexProviderStream(
         const event = parseServerSentEventBlock(block);
         if (!event) continue;
         sawPayload = true;
+        if (firstEventMs == null) {
+          firstEventMs = Date.now() - startedAt;
+          logCodexTransport(
+            `stream first event model=${normalizeCodexModelName(args.model)} durationMs=${firstEventMs} event=${event.event || '<default>'}`,
+          );
+        }
         streamDone = consumeCodexStreamPayload(
           event.data,
           event.event,
@@ -762,6 +794,12 @@ export async function callOpenAICodexProviderStream(
       const event = parseServerSentEventBlock(buffer);
       if (event) {
         sawPayload = true;
+        if (firstEventMs == null) {
+          firstEventMs = Date.now() - startedAt;
+          logCodexTransport(
+            `stream first event model=${normalizeCodexModelName(args.model)} durationMs=${firstEventMs} event=${event.event || '<default>'}`,
+          );
+        }
         streamDone = consumeCodexStreamPayload(
           event.data,
           event.event,
@@ -779,5 +817,8 @@ export async function callOpenAICodexProviderStream(
     throw new Error('Codex streaming response ended without payload');
   }
 
+  logCodexTransport(
+    `stream complete model=${normalizeCodexModelName(args.model)} durationMs=${Date.now() - startedAt}`,
+  );
   return buildCodexStreamResponse(streamState, args.model);
 }

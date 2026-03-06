@@ -694,7 +694,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 20+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.4.1.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 20+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.4.2.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -733,30 +733,30 @@
 
 <section id="latest">
   <div class="section-center">
-    <div class="section-label">Release v0.4.1</div>
+    <div class="section-label">Release v0.4.2</div>
     <h2 class="section-title">Latest release highlights</h2>
     <p class="section-desc">Key improvements included in the latest tagged release.</p>
   </div>
     <div class="features-grid">
       <div class="feature-card">
-      <div class="feature-icon">&#x1f511;</div>
-      <h3>HybridAI auth commands</h3>
-      <p><code>hybridclaw hybridai login</code>, <code>status</code>, and <code>logout</code> now cover browser-assisted, headless/manual, and env-import API-key flows backed by <code>~/.hybridclaw/credentials.json</code>.</p>
+      <div class="feature-icon">&#x1f41e;</div>
+      <h3>Gateway debug tracing</h3>
+      <p><code>hybridclaw gateway start|restart --debug</code> now surfaces Discord intake, gateway turn stages, container model-call timing, and Codex streaming transport details in one foreground log.</p>
       </div>
       <div class="feature-card">
       <div class="feature-icon">&#x1f9ed;</div>
-      <h3>Provider-aware model selection</h3>
-      <p>Runtime config, onboarding, and model commands now understand both HybridAI and <code>openai-codex/...</code> models, including the expanded default Codex model catalog and provider-specific credential routing.</p>
+      <h3>Unified model catalog</h3>
+      <p>Discord, TUI, and gateway model commands now read from the same configured model list, so Codex and HybridAI options stay in sync across every control surface.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x1f4cb;</div>
-      <h3>Clearer tool guidance</h3>
-      <p>System prompts now include a compact grouped tool inventory, and delegated subagents see the same summary filtered to their allowed tools for more reliable tool selection.</p>
+      <div class="feature-icon">&#x1f4ac;</div>
+      <h3>Discord DM fix</h3>
+      <p>Direct-message greetings are no longer filtered out by the guild chatter suppression path, so normal DM prompts now reach the model pipeline again.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x1f50d;</div>
-      <h3>Smarter web/browser routing</h3>
-      <p>Prompt guidance and gateway media routing now steer read-only fetches toward <code>web_fetch</code>, keep browser vision focused on active browser-tab tasks, and surface Codex auth status in gateway status output.</p>
+      <div class="feature-icon">&#x2699;&#xfe0f;</div>
+      <h3>More reliable startup</h3>
+      <p>Symlinked CLI installs now launch correctly, TUI attaches cleanly to a running gateway, and stale container refresh failures fall back to an existing local image when one is already usable.</p>
       </div>
   </div>
 </section>

@@ -1121,6 +1121,54 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
+    if (lowerTool === 'web_search') {
+      const provider = normalizeText(args.provider).toLowerCase();
+      const providerHosts = (() => {
+        switch (provider) {
+          case 'brave':
+            return ['api.search.brave.com'];
+          case 'perplexity':
+            return ['api.perplexity.ai'];
+          case 'tavily':
+            return ['api.tavily.com'];
+          case 'duckduckgo':
+            return ['html.duckduckgo.com'];
+          case 'searxng':
+            return extractHostScopes(
+              extractHostsFromUrlLikeText(process.env.SEARXNG_BASE_URL || ''),
+            );
+          default:
+            return [
+              'api.search.brave.com',
+              'api.perplexity.ai',
+              'api.tavily.com',
+              'html.duckduckgo.com',
+            ];
+        }
+      })();
+      const primaryHost = providerHosts[0] || 'web-search';
+      const unseen = providerHosts.filter(
+        (host) => !this.seenNetworkHosts.has(host),
+      );
+      return {
+        tier: unseen.length > 0 ? 'red' : 'yellow',
+        actionKey: `network:${primaryHost}`,
+        intent: `search the web via ${provider || 'configured providers'}`,
+        consequenceIfDenied:
+          'I will avoid external search providers and continue with local context only.',
+        reason:
+          unseen.length > 0
+            ? 'this would contact a new external host'
+            : 'this is an external network action',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: providerHosts,
+        writeIntent: false,
+        promotableRed: unseen.length > 0,
+        stickyYellow: true,
+      };
+    }
+
     if (lowerTool === 'web_fetch' || lowerTool === 'browser_navigate') {
       const rawUrl = normalizeText(args.url);
       const hostScopes = extractHostScopes(extractHostsFromUrlLikeText(rawUrl));

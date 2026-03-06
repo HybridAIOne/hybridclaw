@@ -22,6 +22,7 @@ import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import {
   APP_VERSION,
+  CONFIGURED_MODELS,
   DISCORD_COMMANDS_ONLY,
   DISCORD_FREE_RESPONSE_CHANNELS,
   DISCORD_GROUP_POLICY,
@@ -30,7 +31,6 @@ import {
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
-  HYBRIDAI_MODELS,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
   PROACTIVE_AUTO_RETRY_ENABLED,
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
@@ -112,6 +112,7 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'grep',
   'bash',
   'session_search',
+  'web_search',
   'web_fetch',
   'message',
   'browser_navigate',
@@ -1629,6 +1630,20 @@ export async function handleGatewayMessage(
   const provider = resolveModelProvider(model);
   const turnIndex = session.message_count + 1;
   const media = normalizeMediaContextItems(req.media);
+  const debugMeta = {
+    sessionId: req.sessionId,
+    guildId: req.guildId,
+    channelId: req.channelId,
+    userId: req.userId,
+    model,
+    provider,
+    turnIndex,
+    mediaCount: media.length,
+    contentLength: req.content.length,
+    streamingRequested: Boolean(req.onTextDelta || req.onToolProgress),
+  };
+
+  logger.debug(debugMeta, 'Gateway chat request received');
 
   recordAuditEvent({
     sessionId: req.sessionId,
@@ -1657,6 +1672,18 @@ export async function handleGatewayMessage(
   if (modelRequiresChatbotId(model) && !chatbotId) {
     const error =
       'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
+    logger.warn(
+      {
+        ...debugMeta,
+        sessionModel: session.model ?? null,
+        sessionChatbotId: session.chatbot_id ?? null,
+        requestChatbotId: req.chatbotId ?? null,
+        defaultModel: HYBRIDAI_MODEL,
+        defaultChatbotConfigured: Boolean(HYBRIDAI_CHATBOT_ID),
+        durationMs: Date.now() - startedAt,
+      },
+      'Gateway chat blocked by missing chatbot configuration',
+    );
     recordAuditEvent({
       sessionId: req.sessionId,
       runId,
@@ -1826,6 +1853,18 @@ export async function handleGatewayMessage(
   const agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;
+  logger.debug(
+    {
+      ...debugMeta,
+      durationMs: Date.now() - startedAt,
+      historyMessages: history.length,
+      promptMessages: messages.length + 1,
+      skillsLoaded: skills.length,
+      blockedTools: mediaPolicy.blockedTools || [],
+      scheduledTaskHistoryCount: historyStats.includedCount,
+    },
+    'Gateway chat context prepared',
+  );
   messages.push({
     role: 'user',
     content: agentUserContent,
@@ -1833,6 +1872,41 @@ export async function handleGatewayMessage(
 
   try {
     const scheduledTasks: ScheduledTask[] = getTasksForSession(req.sessionId);
+    let firstTextDeltaMs: number | null = null;
+    const onTextDelta = (delta: string): void => {
+      if (firstTextDeltaMs == null && delta) {
+        firstTextDeltaMs = Date.now() - startedAt;
+        logger.debug(
+          {
+            ...debugMeta,
+            firstTextDeltaMs,
+            firstDeltaChars: delta.length,
+          },
+          'Gateway chat emitted first text delta',
+        );
+      }
+      req.onTextDelta?.(delta);
+    };
+    const onToolProgress = (event: ToolProgressEvent): void => {
+      logger.debug(
+        {
+          ...debugMeta,
+          toolName: event.toolName,
+          phase: event.phase,
+          toolDurationMs: event.durationMs ?? null,
+          sinceStartMs: Date.now() - startedAt,
+        },
+        'Gateway tool progress',
+      );
+      req.onToolProgress?.(event);
+    };
+    logger.debug(
+      {
+        ...debugMeta,
+        scheduledTaskCount: scheduledTasks.length,
+      },
+      'Gateway chat invoking agent',
+    );
     const output = await runAgent(
       req.sessionId,
       messages,
@@ -1844,8 +1918,8 @@ export async function handleGatewayMessage(
       scheduledTasks,
       undefined,
       mediaPolicy.blockedTools,
-      req.onTextDelta,
-      req.onToolProgress,
+      onTextDelta,
+      onToolProgress,
       req.abortSignal,
       media,
     );
@@ -1950,6 +2024,16 @@ export async function handleGatewayMessage(
 
     if (output.status === 'error') {
       const errorMessage = output.error || 'Unknown agent error.';
+      logger.debug(
+        {
+          ...debugMeta,
+          durationMs: Date.now() - startedAt,
+          toolCallCount: toolExecutions.length,
+          firstTextDeltaMs,
+          artifactCount: output.artifacts?.length || 0,
+        },
+        'Gateway chat completed with agent error',
+      );
       recordAuditEvent({
         sessionId: req.sessionId,
         runId,
@@ -1995,6 +2079,16 @@ export async function handleGatewayMessage(
     }
 
     const resultText = output.result || 'No response from agent.';
+    logger.debug(
+      {
+        ...debugMeta,
+        durationMs: Date.now() - startedAt,
+        toolCallCount: toolExecutions.length,
+        firstTextDeltaMs,
+        artifactCount: output.artifacts?.length || 0,
+      },
+      'Gateway chat completed successfully',
+    );
     recordSuccessfulTurn({
       sessionId: req.sessionId,
       agentId,
@@ -2030,7 +2124,7 @@ export async function handleGatewayMessage(
       Date.now() - startedAt,
     );
     logger.error(
-      { sessionId: req.sessionId, err },
+      { ...debugMeta, durationMs: Date.now() - startedAt, err },
       'Gateway message handling failed',
     );
     recordAuditEvent({
@@ -2092,7 +2186,22 @@ export async function runGatewayScheduledTask(
   );
   const chatbotId = session.chatbot_id || HYBRIDAI_CHATBOT_ID;
   const model = session.model || HYBRIDAI_MODEL;
-  if (modelRequiresChatbotId(model) && !chatbotId) return;
+  if (modelRequiresChatbotId(model) && !chatbotId) {
+    logger.warn(
+      {
+        sessionId: origSessionId,
+        channelId,
+        taskId,
+        model,
+        sessionModel: session.model ?? null,
+        sessionChatbotId: session.chatbot_id ?? null,
+        defaultModel: HYBRIDAI_MODEL,
+        defaultChatbotConfigured: Boolean(HYBRIDAI_CHATBOT_ID),
+      },
+      'Scheduled task skipped due to missing chatbot configuration',
+    );
+    return;
+  }
   const agentId = resolveAgentIdForModel(model, chatbotId);
 
   await runIsolatedScheduledTask({
@@ -2217,10 +2326,11 @@ export async function handleGatewayCommand(
     }
 
     case 'model': {
+      const availableModels = CONFIGURED_MODELS;
       const sub = req.args[1]?.toLowerCase();
       if (sub === 'list') {
         const current = session.model || HYBRIDAI_MODEL;
-        const list = HYBRIDAI_MODELS.map((m) =>
+        const list = availableModels.map((m) =>
           m === current ? `${m} (current)` : m,
         ).join('\n');
         return infoCommand('Available Models', list);
@@ -2230,17 +2340,17 @@ export async function handleGatewayCommand(
         const modelName = req.args[2];
         if (!modelName) {
           const defaultLine = `Default model: ${HYBRIDAI_MODEL}`;
-          if (HYBRIDAI_MODELS.length === 0) {
+          if (availableModels.length === 0) {
             return infoCommand('Default Model', defaultLine);
           }
-          const list = HYBRIDAI_MODELS.map((m) =>
+          const list = availableModels.map((m) =>
             m === HYBRIDAI_MODEL ? `${m} (default)` : m,
           ).join('\n');
           return infoCommand('Default Model', `${defaultLine}\n\n${list}`);
         }
         if (
-          HYBRIDAI_MODELS.length > 0 &&
-          !HYBRIDAI_MODELS.includes(modelName)
+          availableModels.length > 0 &&
+          !availableModels.includes(modelName)
         ) {
           return badCommand(
             'Unknown Model',
@@ -2259,8 +2369,8 @@ export async function handleGatewayCommand(
         const modelName = req.args[2];
         if (!modelName) return badCommand('Usage', 'Usage: `model set <name>`');
         if (
-          HYBRIDAI_MODELS.length > 0 &&
-          !HYBRIDAI_MODELS.includes(modelName)
+          availableModels.length > 0 &&
+          !availableModels.includes(modelName)
         ) {
           return badCommand(
             'Unknown Model',

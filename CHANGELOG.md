@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.4.2)
+
+### Added
+
+- **Gateway debug tracing**: Added `hybridclaw gateway start|restart --debug` to force debug logging and emit request-stage traces across Discord intake, gateway chat handling, container model calls, and Codex streaming transport.
+
+### Changed
+
+- **Unified configured model catalog**: Discord slash commands, gateway model commands, and TUI model selection now all consume the same deduplicated configured model list derived from runtime config.
+- **Startup path reliability**: TUI now attaches to a reachable gateway without redundant local runtime preflight, and the CLI resolves symlinked installs correctly so globally linked `hybridclaw` commands no longer exit silently.
+
+### Fixed
+
+- **Discord DM trigger suppression**: Greeting-only direct messages are no longer dropped by the guild-oriented auto-suppress filter before they reach the model pipeline.
+- **Container refresh fallback**: Gateway restart now keeps using an existing local image if a stale-image rebuild attempt fails, instead of aborting despite a usable runtime image.
+
 ## [0.4.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.4.1)
 
 ### Added

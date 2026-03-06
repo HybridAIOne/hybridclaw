@@ -6,11 +6,11 @@ import readline from 'node:readline';
 
 import {
   APP_VERSION,
+  CONFIGURED_MODELS,
   GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
-  HYBRIDAI_MODELS,
 } from './config/config.js';
 import {
   type GatewayChatResult,
@@ -432,9 +432,9 @@ async function fetchSessionAndDefaultModel(): Promise<{
 async function promptModelSelection(
   rl: readline.Interface,
 ): Promise<string | null> {
-  const models = normalizeModelCandidates(HYBRIDAI_MODELS);
+  const models = normalizeModelCandidates(CONFIGURED_MODELS);
   if (models.length === 0) {
-    printError('No models configured in hybridai.models.');
+    printError('No models configured.');
     return null;
   }
 

@@ -234,6 +234,17 @@ async function handleApiChat(
     enableRag: body.enableRag,
     model: body.model,
   };
+  logger.debug(
+    {
+      sessionId: chatRequest.sessionId,
+      channelId: chatRequest.channelId,
+      guildId: chatRequest.guildId,
+      model: chatRequest.model || null,
+      stream: wantsStream,
+      contentLength: chatRequest.content.length,
+    },
+    'Received gateway API chat request',
+  );
 
   if (wantsStream) {
     await handleApiChatStream(req, res, chatRequest);

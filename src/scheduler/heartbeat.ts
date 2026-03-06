@@ -51,6 +51,7 @@ const HEARTBEAT_ALLOWED_TOOLS = [
   'bash',
   'memory',
   'session_search',
+  'web_search',
   'web_fetch',
   'message',
   'cron',

@@ -10,6 +10,7 @@ import {
 } from 'discord.js';
 
 import {
+  CONFIGURED_MODELS,
   DISCORD_ACK_REACTION,
   DISCORD_ACK_REACTION_SCOPE,
   DISCORD_COMMAND_ALLOWED_USER_IDS,
@@ -34,7 +35,6 @@ import {
   DISCORD_SUPPRESS_PATTERNS,
   DISCORD_TOKEN,
   DISCORD_TYPING_MODE,
-  HYBRIDAI_MODELS,
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types.js';
@@ -947,9 +947,7 @@ async function ensureSlashCommands(): Promise<void> {
         }>;
       };
 
-  const modelChoices = Array.from(
-    new Set(HYBRIDAI_MODELS.map((model) => model.trim()).filter(Boolean)),
-  )
+  const modelChoices = CONFIGURED_MODELS
     .slice(0, 25)
     .map((model) => ({ name: model, value: model }));
 
@@ -1385,7 +1383,19 @@ export function initDiscord(
     abortSignal?: AbortSignal,
   ): Promise<() => void> => {
     const boundedMax = Math.max(1, Math.floor(maxConcurrent));
+    let waitStartedAt: number | null = null;
     while ((channelConcurrencyById.get(channelId) ?? 0) >= boundedMax) {
+      if (waitStartedAt == null) {
+        waitStartedAt = Date.now();
+        logger.debug(
+          {
+            channelId,
+            active: channelConcurrencyById.get(channelId) ?? 0,
+            maxConcurrent: boundedMax,
+          },
+          'Waiting for Discord channel concurrency slot',
+        );
+      }
       if (abortSignal?.aborted) {
         throw new Error(
           'Conversation aborted while waiting for channel concurrency slot.',
@@ -1404,6 +1414,17 @@ export function initDiscord(
       channelId,
       (channelConcurrencyById.get(channelId) ?? 0) + 1,
     );
+    if (waitStartedAt != null) {
+      logger.debug(
+        {
+          channelId,
+          waitMs: Date.now() - waitStartedAt,
+          active: channelConcurrencyById.get(channelId) ?? 0,
+          maxConcurrent: boundedMax,
+        },
+        'Acquired Discord channel concurrency slot after waiting',
+      );
+    }
     return () => {
       const current = channelConcurrencyById.get(channelId) ?? 0;
       const next = Math.max(0, current - 1);
@@ -1744,6 +1765,19 @@ export function initDiscord(
       inboundHistory: inboundHistory.entries,
       behavior,
     });
+    logger.debug(
+      {
+        batchKey,
+        sessionId,
+        channelId,
+        userId,
+        messageCount: items.length,
+        contentLength: combinedContent.length,
+        mediaCount: attachmentContext.media.length,
+        selectiveSilence,
+      },
+      'Dispatching Discord conversation batch',
+    );
 
     const abortController = new AbortController();
     const typingController = pending.typingController;
@@ -1790,6 +1824,15 @@ export function initDiscord(
           durationMs: Date.now() - startedAt,
           ok: true,
         });
+        logger.debug(
+          {
+            batchKey,
+            sessionId,
+            channelId,
+            durationMs: Date.now() - startedAt,
+          },
+          'Discord conversation batch selectively silenced',
+        );
         return;
       }
 
@@ -1836,6 +1879,15 @@ export function initDiscord(
         ok: true,
       });
       noteConversationExchange(sourceItem.cooldownKey);
+      logger.debug(
+        {
+          batchKey,
+          sessionId,
+          channelId,
+          durationMs: Date.now() - startedAt,
+        },
+        'Discord conversation batch completed',
+      );
     } catch (error) {
       if (abortController.signal.aborted || inFlight.aborted) {
         logger.debug(
@@ -1964,6 +2016,19 @@ export function initDiscord(
             )
           : 0;
       const delayMs = baseDelayMs + startupStaggerMs;
+      logger.debug(
+        {
+          batchKey: key,
+          channelId: msg.channelId,
+          userId: msg.author.id,
+          messageId: msg.id,
+          debounceMs: delayMs,
+          contentLength: content.length,
+          shouldDebounceMessage,
+          queuedMessages: 1,
+        },
+        'Queued Discord conversation batch',
+      );
       const timer = setTimeout(() => {
         void dispatchConversationBatch(key);
       }, delayMs);
@@ -1994,6 +2059,19 @@ export function initDiscord(
           )
         : 0;
     const delayMs = baseDelayMs + startupStaggerMs;
+    logger.debug(
+      {
+        batchKey: key,
+        channelId: msg.channelId,
+        userId: msg.author.id,
+        messageId: msg.id,
+        debounceMs: delayMs,
+        contentLength: content.length,
+        shouldDebounceMessage,
+        queuedMessages: existing.items.length + 1,
+      },
+      'Updated queued Discord conversation batch',
+    );
     existing.timer = setTimeout(() => {
       void dispatchConversationBatch(key);
     }, delayMs);
@@ -2102,6 +2180,20 @@ export function initDiscord(
     const hasPrefixedInvocation = hasPrefixInvocation(msg.content);
     const hasSlashInvocation = hasSlashCommandInvocation(msg.content);
     const hasCommandInvocation = hasPrefixedInvocation || hasSlashInvocation;
+    logger.debug(
+      {
+        sessionId,
+        guildId,
+        channelId,
+        messageId: msg.id,
+        userId: msg.author.id,
+        contentLength: content.length,
+        hasCommandInvocation,
+        guildMessageMode: behavior.guildMessageMode,
+        typingMode: behavior.typingMode,
+      },
+      'Received Discord message',
+    );
     if (DISCORD_COMMANDS_ONLY) {
       if (!hasCommandInvocation) return;
       if (msg.guild && !isAuthorizedCommandUserId(msg.author.id)) {
@@ -2145,7 +2237,20 @@ export function initDiscord(
       return;
     }
 
-    if (!isTrigger(msg, behavior)) return;
+    if (!isTrigger(msg, behavior)) {
+      logger.debug(
+        {
+          sessionId,
+          guildId,
+          channelId,
+          messageId: msg.id,
+          userId: msg.author.id,
+          guildMessageMode: behavior.guildMessageMode,
+        },
+        'Ignoring Discord message because channel trigger conditions were not met',
+      );
+      return;
+    }
 
     if (parsed.isCommand && hasCommandInvocation) {
       await commandHandler(

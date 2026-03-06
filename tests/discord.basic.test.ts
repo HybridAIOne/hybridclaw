@@ -126,6 +126,20 @@ test('isTrigger keeps mention mode even when respondToAllMessages is enabled', (
   expect(shouldTrigger).toBe(false);
 });
 
+test('isTrigger allows greeting-only direct messages', () => {
+  const shouldTrigger = isTrigger({
+    content: 'hey',
+    isDm: true,
+    commandsOnly: false,
+    respondToAllMessages: false,
+    guildMessageMode: 'free',
+    prefix: '!claw',
+    botMentionRegex: null,
+    hasBotMention: false,
+  });
+  expect(shouldTrigger).toBe(true);
+});
+
 test('parseCommand recognizes channel command namespace', () => {
   const parsed = parseCommand('!claw channel mode free', null, '!claw');
   expect(parsed).toEqual({

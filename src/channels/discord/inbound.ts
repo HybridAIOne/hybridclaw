@@ -249,8 +249,8 @@ export function isTrigger(params: {
     return hasPrefixed || hasSlash;
   }
   if (hasPrefixed || hasSlash) return true;
-  if (shouldSuppressAutoReply(stripped, params.suppressPatterns)) return false;
   if (params.isDm) return true;
+  if (shouldSuppressAutoReply(stripped, params.suppressPatterns)) return false;
   if (params.guildMessageMode === 'off') return false;
   if (params.guildMessageMode === 'free') return true;
   // Keep `respondToAllMessages` consumed for compatibility; mode resolution decides guild behavior.

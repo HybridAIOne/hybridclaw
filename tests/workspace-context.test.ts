@@ -9,7 +9,9 @@ test('buildContextPrompt marks bootstrap files as already loaded context', () =>
     { name: 'MEMORY.md', content: '# memory' },
   ]);
 
-  expect(prompt).toContain('The following workspace context files have been loaded.');
+  expect(prompt).toContain(
+    'The following workspace context files have been loaded.',
+  );
   expect(prompt).toContain(
     'Treat SOUL.md, USER.md, MEMORY.md, and the other files below as already read for this turn.',
   );

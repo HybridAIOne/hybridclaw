@@ -70,6 +70,17 @@ export type SchedulerScheduleKind = 'at' | 'every' | 'cron';
 export type SchedulerActionKind = 'agent_turn' | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
 export type ContainerSandboxMode = 'container' | 'host';
+export type RuntimeWebSearchProvider =
+  | 'auto'
+  | 'brave'
+  | 'perplexity'
+  | 'tavily'
+  | 'duckduckgo'
+  | 'searxng';
+export type RuntimeWebSearchConcreteProvider = Exclude<
+  RuntimeWebSearchProvider,
+  'auto'
+>;
 
 export interface RuntimeDiscordHumanDelayConfig {
   mode: DiscordHumanDelayMode;
@@ -204,6 +215,16 @@ export interface RuntimeConfig {
     additionalMounts: string;
     maxOutputBytes: number;
     maxConcurrent: number;
+  };
+  web: {
+    search: {
+      provider: RuntimeWebSearchProvider;
+      fallbackProviders: RuntimeWebSearchConcreteProvider[];
+      defaultCount: number;
+      cacheTtlMinutes: number;
+      searxngBaseUrl: string;
+      tavilySearchDepth: 'basic' | 'advanced';
+    };
   };
   heartbeat: {
     enabled: boolean;
@@ -385,6 +406,16 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     additionalMounts: '',
     maxOutputBytes: 10_485_760,
     maxConcurrent: 5,
+  },
+  web: {
+    search: {
+      provider: 'auto',
+      fallbackProviders: [],
+      defaultCount: 5,
+      cacheTtlMinutes: 5,
+      searxngBaseUrl: '',
+      tavilySearchDepth: 'advanced',
+    },
   },
   heartbeat: {
     enabled: true,
@@ -1202,6 +1233,49 @@ function normalizeContainerSandboxMode(
   return normalized === 'host' ? 'host' : 'container';
 }
 
+function normalizeWebSearchProvider(
+  value: unknown,
+  fallback: RuntimeWebSearchProvider,
+): RuntimeWebSearchProvider {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'auto' ||
+    normalized === 'brave' ||
+    normalized === 'perplexity' ||
+    normalized === 'tavily' ||
+    normalized === 'duckduckgo' ||
+    normalized === 'searxng'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeWebSearchFallbackProviders(
+  value: unknown,
+  fallback: RuntimeWebSearchConcreteProvider[],
+): RuntimeWebSearchConcreteProvider[] {
+  const normalized = normalizeStringArray(value, fallback);
+  const seen = new Set<RuntimeWebSearchConcreteProvider>();
+  const providers: RuntimeWebSearchConcreteProvider[] = [];
+  for (const entry of normalized) {
+    const provider = normalizeWebSearchProvider(entry, 'auto');
+    if (provider === 'auto' || seen.has(provider)) continue;
+    seen.add(provider);
+    providers.push(provider);
+  }
+  return providers;
+}
+
+function normalizeTavilySearchDepth(
+  value: unknown,
+  fallback: 'basic' | 'advanced',
+): 'basic' | 'advanced' {
+  if (typeof value !== 'string') return fallback;
+  return value.trim().toLowerCase() === 'basic' ? 'basic' : 'advanced';
+}
+
 function parseConfigPatch(payload: unknown): DeepPartial<RuntimeConfig> {
   if (!isRecord(payload)) {
     throw new Error('config.json must contain a top-level object');
@@ -1220,6 +1294,8 @@ function normalizeRuntimeConfig(
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
   const rawContainer = isRecord(raw.container) ? raw.container : {};
+  const rawWeb = isRecord(raw.web) ? raw.web : {};
+  const rawWebSearch = isRecord(rawWeb.search) ? rawWeb.search : {};
   const rawHeartbeat = isRecord(raw.heartbeat) ? raw.heartbeat : {};
   const rawMemory = isRecord(raw.memory) ? raw.memory : {};
   const rawOps = isRecord(raw.ops) ? raw.ops : {};
@@ -1526,6 +1602,37 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.container.maxConcurrent,
         { min: 1 },
       ),
+    },
+    web: {
+      search: {
+        provider: normalizeWebSearchProvider(
+          rawWebSearch.provider,
+          DEFAULT_RUNTIME_CONFIG.web.search.provider,
+        ),
+        fallbackProviders: normalizeWebSearchFallbackProviders(
+          rawWebSearch.fallbackProviders,
+          DEFAULT_RUNTIME_CONFIG.web.search.fallbackProviders,
+        ),
+        defaultCount: normalizeInteger(
+          rawWebSearch.defaultCount,
+          DEFAULT_RUNTIME_CONFIG.web.search.defaultCount,
+          { min: 1, max: 10 },
+        ),
+        cacheTtlMinutes: normalizeInteger(
+          rawWebSearch.cacheTtlMinutes,
+          DEFAULT_RUNTIME_CONFIG.web.search.cacheTtlMinutes,
+          { min: 1, max: 60 },
+        ),
+        searxngBaseUrl: normalizeString(
+          rawWebSearch.searxngBaseUrl,
+          DEFAULT_RUNTIME_CONFIG.web.search.searxngBaseUrl,
+          { allowEmpty: true },
+        ),
+        tavilySearchDepth: normalizeTavilySearchDepth(
+          rawWebSearch.tavilySearchDepth,
+          DEFAULT_RUNTIME_CONFIG.web.search.tavilySearchDepth,
+        ),
+      },
     },
     heartbeat: {
       enabled: normalizeBoolean(

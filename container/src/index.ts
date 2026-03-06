@@ -37,6 +37,7 @@ import {
   setModelContext,
   setScheduledTasks,
   setSessionContext,
+  setWebSearchConfig,
   TOOL_DEFINITIONS,
 } from './tools.js';
 import type {
@@ -506,6 +507,10 @@ async function callHybridAIWithRetry(params: {
 
   while (true) {
     attempt += 1;
+    const attemptStartedAt = Date.now();
+    console.error(
+      `[model] call start provider=${provider || 'hybridai'} model=${model} attempt=${attempt} streaming=${Boolean(onTextDelta)} messages=${history.length} tools=${tools.length}`,
+    );
     await emitRuntimeEvent({ event: 'before_model_call', attempt });
     try {
       let response: Awaited<ReturnType<typeof callHybridAI>>;
@@ -554,6 +559,9 @@ async function callHybridAIWithRetry(params: {
           maxTokens,
         );
       }
+      console.error(
+        `[model] call success provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} toolCalls=${response.choices[0]?.message?.tool_calls?.length || 0}`,
+      );
       await emitRuntimeEvent({
         event: 'after_model_call',
         attempt,
@@ -571,6 +579,9 @@ async function callHybridAIWithRetry(params: {
         retryable,
         error: err instanceof Error ? err.message : String(err),
       });
+      console.error(
+        `[model] call ${retryable ? 'retry' : 'error'} provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} retryable=${retryable} error=${err instanceof Error ? err.message : String(err)}`,
+      );
       if (!retryable) throw err;
       await sleep(delayMs);
       delayMs = Math.min(delayMs * 2, RETRY_MAX_DELAY_MS);
@@ -986,6 +997,7 @@ async function main(): Promise<void> {
     firstInput.channelId,
     firstInput.configuredDiscordChannels,
   );
+  setWebSearchConfig(firstInput.webSearch);
   setModelContext(
     firstInput.provider,
     firstInput.baseUrl,
@@ -1096,6 +1108,7 @@ async function main(): Promise<void> {
       input.channelId,
       input.configuredDiscordChannels,
     );
+    setWebSearchConfig(input.webSearch);
     setModelContext(
       input.provider,
       input.baseUrl,

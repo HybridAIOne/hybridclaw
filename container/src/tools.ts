@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import type { WebSearchRuntimeConfig } from './web-search.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
   executeBrowserTool,
@@ -85,6 +86,7 @@ let currentModelName = '';
 let currentChatbotId = '';
 let currentModelHeaders: Record<string, string> = {};
 let currentMediaContext: MediaContextItem[] = [];
+let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 const MAX_PENDING_DELEGATIONS = 3;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
 const VISION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
@@ -223,6 +225,15 @@ export function setModelContext(
 
 export function setMediaContext(media?: MediaContextItem[]): void {
   currentMediaContext = Array.isArray(media) ? media : [];
+}
+
+export function setWebSearchConfig(config?: WebSearchRuntimeConfig): void {
+  currentWebSearchConfig = config
+    ? {
+        ...config,
+        fallbackProviders: [...config.fallbackProviders],
+      }
+    : undefined;
 }
 
 function readStringValue(value: unknown): string | undefined {
@@ -1918,6 +1929,18 @@ export async function executeTool(
         return `${lines.join('\n')}\n\n${header}${result.text}`;
       }
 
+      case 'web_search': {
+        const { webSearch } = await import('./web-search.js');
+        return await webSearch({
+          query: args.query,
+          count: args.count,
+          freshness: args.freshness,
+          country: args.country,
+          language: args.language,
+          provider: args.provider,
+        }, currentWebSearchConfig);
+      }
+
       case 'vision_analyze':
       case 'image': {
         return await runVisionAnalyze(args);
@@ -2525,6 +2548,45 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
         },
         required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description:
+        'Search the web for current information. Returns titles, URLs, and snippets. Use before web_fetch to discover relevant URLs. Providers: auto (default), brave, perplexity, tavily, duckduckgo, searxng.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Search query string.',
+          },
+          count: {
+            type: 'number',
+            description: 'Number of results (1-10, default 5).',
+          },
+          freshness: {
+            type: 'string',
+            description: 'Time filter: "day", "week", "month", "year".',
+          },
+          country: {
+            type: 'string',
+            description: '2-letter country code (e.g. "US", "DE").',
+          },
+          language: {
+            type: 'string',
+            description: 'ISO 639-1 language code (e.g. "en", "de").',
+          },
+          provider: {
+            type: 'string',
+            description:
+              'Override provider: brave, perplexity, tavily, duckduckgo, searxng.',
+          },
+        },
+        required: ['query'],
       },
     },
   },

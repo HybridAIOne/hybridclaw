@@ -116,6 +116,26 @@ export interface ContainerInput {
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
+  webSearch?: {
+    provider:
+      | 'auto'
+      | 'brave'
+      | 'perplexity'
+      | 'tavily'
+      | 'duckduckgo'
+      | 'searxng';
+    fallbackProviders: (
+      | 'brave'
+      | 'perplexity'
+      | 'tavily'
+      | 'duckduckgo'
+      | 'searxng'
+    )[];
+    defaultCount: number;
+    cacheTtlMinutes: number;
+    searxngBaseUrl: string;
+    tavilySearchDepth: 'basic' | 'advanced';
+  };
 }
 
 export interface MediaContextItem {

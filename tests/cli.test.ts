@@ -1,4 +1,17 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const tempDirs: string[] = [];
+
+function createTempDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-cli-'));
+  tempDirs.push(dir);
+  return dir;
+}
 
 async function importFreshCli(options?: {
   hybridAIStatus?: {
@@ -14,6 +27,8 @@ async function importFreshCli(options?: {
     method: 'browser' | 'device-code' | 'env-import';
     validated: boolean;
   };
+  gatewayReachable?: boolean;
+  sandboxMode?: 'host' | 'container';
 }) {
   vi.resetModules();
 
@@ -40,6 +55,27 @@ async function importFreshCli(options?: {
   const printUpdateUsage = vi.fn();
   const runUpdateCommand = vi.fn();
   const ensureRuntimeCredentials = vi.fn();
+  const ensureContainerImageReady = vi.fn();
+  const gatewayHealth = vi.fn(async () => {
+    if (!options?.gatewayReachable) {
+      throw new Error('gateway unavailable');
+    }
+    return {
+      status: 'ok',
+    };
+  });
+  const gatewayStatus = vi.fn(async () => ({
+    status: 'ok',
+    pid: 12345,
+    version: '0.4.1',
+    uptime: 1,
+    sessions: 1,
+    activeContainers: 0,
+    defaultModel: 'gpt-5-nano',
+    ragDefault: true,
+    timestamp: new Date().toISOString(),
+  }));
+  const tuiModuleLoaded = vi.fn();
 
   class MissingRequiredEnvVarError extends Error {
     constructor(public readonly envVar: string) {
@@ -93,15 +129,38 @@ async function importFreshCli(options?: {
     DATA_DIR: '/tmp/hybridclaw-data',
     GATEWAY_BASE_URL: 'http://127.0.0.1:9090',
     MissingRequiredEnvVarError,
-    getResolvedSandboxMode: vi.fn(() => 'host'),
+    getResolvedSandboxMode: vi.fn(() => options?.sandboxMode || 'host'),
     setSandboxModeOverride: vi.fn(),
+  }));
+  vi.doMock('../src/gateway/gateway-client.ts', () => ({
+    gatewayHealth,
+    gatewayStatus,
+  }));
+  vi.doMock('../src/infra/container-setup.ts', () => ({
+    ensureContainerImageReady,
   }));
   vi.doMock('../src/onboarding.ts', () => ({
     ensureRuntimeCredentials,
   }));
+  vi.doMock('../src/security/instruction-approval-audit.ts', () => ({
+    beginInstructionApprovalAudit: vi.fn(() => ({
+      sessionId: 'tui:local',
+      approvalId: 'approval-1',
+    })),
+    completeInstructionApprovalAudit: vi.fn(),
+  }));
+  vi.doMock('../src/security/instruction-integrity.ts', () => ({
+    summarizeInstructionIntegrity: vi.fn(() => 'ok'),
+    syncRuntimeInstructionCopies: vi.fn(),
+    verifyInstructionIntegrity: vi.fn(() => ({ ok: true })),
+  }));
   vi.doMock('../src/security/runtime-secrets.ts', () => ({
     runtimeSecretsPath: vi.fn(() => '/tmp/credentials.json'),
   }));
+  vi.doMock('../src/tui.ts', () => {
+    tuiModuleLoaded();
+    return {};
+  });
   vi.doMock('../src/update.ts', () => ({
     printUpdateUsage,
     runUpdateCommand,
@@ -115,6 +174,11 @@ async function importFreshCli(options?: {
     loginHybridAIInteractive,
     printUpdateUsage,
     runUpdateCommand,
+    ensureRuntimeCredentials,
+    ensureContainerImageReady,
+    gatewayHealth,
+    gatewayStatus,
+    tuiModuleLoaded,
   };
 }
 
@@ -124,10 +188,20 @@ afterEach(() => {
   vi.doUnmock('../src/auth/codex-auth.ts');
   vi.doUnmock('../src/config/cli-flags.ts');
   vi.doUnmock('../src/config/config.ts');
+  vi.doUnmock('../src/gateway/gateway-client.ts');
+  vi.doUnmock('../src/infra/container-setup.ts');
   vi.doUnmock('../src/onboarding.ts');
+  vi.doUnmock('../src/security/instruction-approval-audit.ts');
+  vi.doUnmock('../src/security/instruction-integrity.ts');
   vi.doUnmock('../src/security/runtime-secrets.ts');
+  vi.doUnmock('../src/tui.ts');
   vi.doUnmock('../src/update.ts');
   vi.resetModules();
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (!dir) continue;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 describe('CLI hybridai commands', () => {
@@ -271,5 +345,43 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Usage: hybridclaw <command>'),
     );
+  });
+
+  it('launches tui without local runtime preflight when gateway is already reachable', async () => {
+    const {
+      cli,
+      ensureRuntimeCredentials,
+      ensureContainerImageReady,
+      gatewayHealth,
+      tuiModuleLoaded,
+    } = await importFreshCli({
+      gatewayReachable: true,
+      sandboxMode: 'container',
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['tui']);
+
+    expect(gatewayHealth).toHaveBeenCalled();
+    expect(ensureRuntimeCredentials).not.toHaveBeenCalled();
+    expect(ensureContainerImageReady).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'hybridclaw tui: Gateway found at http://127.0.0.1:9090.',
+    );
+    expect(tuiModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a symlinked bin path as direct execution', async () => {
+    const { cli } = await importFreshCli();
+    const tempDir = createTempDir();
+    const linkPath = path.join(tempDir, 'hybridclaw');
+    fs.symlinkSync('/Users/bkoehler/src/hybridclaw/src/cli.ts', linkPath);
+
+    expect(
+      cli.isDirectExecution(
+        linkPath,
+        pathToFileURL('/Users/bkoehler/src/hybridclaw/src/cli.ts').toString(),
+      ),
+    ).toBe(true);
   });
 });

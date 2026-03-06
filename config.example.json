@@ -93,6 +93,16 @@
     "maxOutputBytes": 10485760,
     "maxConcurrent": 5
   },
+  "web": {
+    "search": {
+      "provider": "auto",
+      "fallbackProviders": [],
+      "defaultCount": 5,
+      "cacheTtlMinutes": 5,
+      "searxngBaseUrl": "",
+      "tavilySearchDepth": "advanced"
+    }
+  },
   "heartbeat": {
     "enabled": true,
     "intervalMs": 1800000,

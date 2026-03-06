@@ -1,7 +1,11 @@
 export type SandboxModeOverride = 'container' | 'host';
-export type UnsupportedGatewayLifecycleFlag = 'foreground' | 'sandbox';
+export type UnsupportedGatewayLifecycleFlag =
+  | 'foreground'
+  | 'sandbox'
+  | 'debug';
 
 export interface ParsedGatewayFlags {
+  debug: boolean;
   foreground: boolean;
   help: boolean;
   sandboxMode: SandboxModeOverride | null;
@@ -24,12 +28,20 @@ function isForegroundFlag(arg: string): boolean {
   return normalized === '--foreground' || normalized === '-f';
 }
 
+function isDebugFlag(arg: string): boolean {
+  return String(arg || '').trim() === '--debug';
+}
+
 export function hasSandboxFlag(argv: string[]): boolean {
   return argv.some((arg) => isSandboxFlag(arg));
 }
 
 export function hasForegroundFlag(argv: string[]): boolean {
   return argv.some((arg) => isForegroundFlag(arg));
+}
+
+export function hasDebugFlag(argv: string[]): boolean {
+  return argv.some((arg) => isDebugFlag(arg));
 }
 
 export function findUnsupportedGatewayLifecycleFlag(
@@ -43,10 +55,12 @@ export function findUnsupportedGatewayLifecycleFlag(
   if (sub === 'start' || sub === 'restart') return null;
   if (hasSandboxFlag(argv)) return 'sandbox';
   if (hasForegroundFlag(argv)) return 'foreground';
+  if (hasDebugFlag(argv)) return 'debug';
   return null;
 }
 
 export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
+  let debug = false;
   let foreground = false;
   let help = false;
   let sandboxMode: SandboxModeOverride | null = null;
@@ -57,6 +71,11 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
 
     if (isForegroundFlag(arg)) {
       foreground = true;
+      continue;
+    }
+
+    if (isDebugFlag(arg)) {
+      debug = true;
       continue;
     }
 
@@ -92,5 +111,5 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
     throw new Error(`Unexpected gateway lifecycle option: ${arg}`);
   }
 
-  return { foreground, help, sandboxMode };
+  return { debug, foreground, help, sandboxMode };
 }

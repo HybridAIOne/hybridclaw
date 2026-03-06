@@ -280,8 +280,8 @@ function printGatewayUsage(): void {
 
 Commands:
   hybridclaw gateway
-  hybridclaw gateway start [--foreground] [--sandbox=container|host]
-  hybridclaw gateway restart [--foreground] [--sandbox=container|host]
+  hybridclaw gateway start [--foreground] [--debug] [--sandbox=container|host]
+  hybridclaw gateway restart [--foreground] [--debug] [--sandbox=container|host]
   hybridclaw gateway stop
   hybridclaw gateway status
   hybridclaw gateway sessions
@@ -557,10 +557,15 @@ async function adoptReachableGatewayIfPossible(): Promise<boolean> {
 async function runGatewayForeground(
   commandName: string,
   sandboxMode: SandboxModeOverride | null = null,
+  debug = false,
 ): Promise<void> {
   await ensureRuntimeCredentials({ commandName });
   if (sandboxMode) {
     setSandboxModeOverride(sandboxMode);
+  }
+  if (debug) {
+    process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
+    console.log(`${commandName}: forcing gateway log level to debug.`);
   }
   await ensureRuntimeContainer(commandName, true, sandboxMode);
   await import('./gateway/gateway.js');
@@ -570,6 +575,7 @@ async function startGatewayBackend(
   commandName: string,
   waitForHealthy = false,
   sandboxMode: SandboxModeOverride | null = null,
+  debug = false,
 ): Promise<void> {
   if (await isGatewayReachable()) {
     const existing = readGatewayPid();
@@ -630,6 +636,7 @@ async function startGatewayBackend(
     'gateway',
     'start',
     '--foreground',
+    ...(debug ? ['--debug'] : []),
     ...(sandboxMode ? [`--sandbox=${sandboxMode}`] : []),
   ];
   const child = spawn(process.execPath, childArgs, {
@@ -841,7 +848,9 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
     console.error(
       unsupportedLifecycleFlag === 'sandbox'
         ? '`--sandbox` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.'
-        : '`--foreground` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.',
+        : unsupportedLifecycleFlag === 'foreground'
+          ? '`--foreground` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.'
+          : '`--debug` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.',
     );
     process.exitCode = 1;
     return;
@@ -857,6 +866,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       await runGatewayForeground(
         'hybridclaw gateway start --foreground',
         flags.sandboxMode,
+        flags.debug,
       );
       return;
     }
@@ -864,6 +874,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       'hybridclaw gateway start',
       false,
       flags.sandboxMode,
+      flags.debug,
     );
     return;
   }
@@ -880,6 +891,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       await runGatewayForeground(
         'hybridclaw gateway restart --foreground',
         flags.sandboxMode,
+        flags.debug,
       );
       return;
     }
@@ -887,6 +899,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       'hybridclaw gateway restart',
       false,
       flags.sandboxMode,
+      flags.debug,
     );
     return;
   }
@@ -1054,8 +1067,6 @@ export async function main(
         break;
       }
       await ensureTuiInstructionApproval('hybridclaw tui');
-      await ensureRuntimeCredentials({ commandName: 'hybridclaw tui' });
-      await ensureRuntimeContainer('hybridclaw tui');
       await ensureGatewayForTui('hybridclaw tui');
       await import('./tui.js');
       break;
@@ -1131,10 +1142,17 @@ function printMissingEnvVarError(message: string, envVar?: string): void {
   );
 }
 
-function isDirectExecution(): boolean {
-  const entry = process.argv[1];
+export function isDirectExecution(
+  entry: string | undefined = process.argv[1],
+  moduleUrl: string = import.meta.url,
+): boolean {
   if (!entry) return false;
-  return path.resolve(entry) === fileURLToPath(import.meta.url);
+  const modulePath = fileURLToPath(moduleUrl);
+  try {
+    return fs.realpathSync(entry) === fs.realpathSync(modulePath);
+  } catch {
+    return path.resolve(entry) === modulePath;
+  }
 }
 
 if (isDirectExecution()) {

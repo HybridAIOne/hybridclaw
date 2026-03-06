@@ -161,6 +161,10 @@ export let CODEX_MODELS: string[] = [
   'openai-codex/gpt-5.2',
   'openai-codex/gpt-5.1-codex-mini',
 ];
+export let CONFIGURED_MODELS: string[] = dedupeStringList([
+  ...HYBRIDAI_MODELS,
+  ...CODEX_MODELS,
+]);
 
 export let CONTAINER_IMAGE = 'hybridclaw-agent';
 export let CONTAINER_MEMORY = '512m';
@@ -181,6 +185,15 @@ export let ADDITIONAL_MOUNTS = '';
 
 export let CONTAINER_MAX_OUTPUT_SIZE = 10_485_760;
 export let MAX_CONCURRENT_CONTAINERS = 5;
+export let WEB_SEARCH_PROVIDER: RuntimeConfig['web']['search']['provider'] =
+  'auto';
+export let WEB_SEARCH_FALLBACK_PROVIDERS: RuntimeConfig['web']['search']['fallbackProviders'] =
+  [];
+export let WEB_SEARCH_DEFAULT_COUNT = 5;
+export let WEB_SEARCH_CACHE_TTL_MINUTES = 5;
+export let WEB_SEARCH_SEARXNG_BASE_URL = '';
+export let WEB_SEARCH_TAVILY_SEARCH_DEPTH: RuntimeConfig['web']['search']['tavilySearchDepth'] =
+  'advanced';
 
 export let HEARTBEAT_ENABLED = true;
 export let HEARTBEAT_INTERVAL = 1_800_000;
@@ -349,9 +362,10 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   CODEX_BASE_URL = config.codex.baseUrl;
   CODEX_MODELS = [...config.codex.models];
-  HYBRIDAI_MODELS = dedupeStringList([
-    ...config.hybridai.models,
-    ...config.codex.models,
+  HYBRIDAI_MODELS = [...config.hybridai.models];
+  CONFIGURED_MODELS = dedupeStringList([
+    ...HYBRIDAI_MODELS,
+    ...CODEX_MODELS,
   ]);
 
   CONTAINER_SANDBOX_MODE = resolveSandboxMode(config);
@@ -364,6 +378,19 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   ADDITIONAL_MOUNTS = config.container.additionalMounts;
   CONTAINER_MAX_OUTPUT_SIZE = config.container.maxOutputBytes;
   MAX_CONCURRENT_CONTAINERS = Math.max(1, config.container.maxConcurrent);
+  WEB_SEARCH_PROVIDER = config.web.search.provider;
+  WEB_SEARCH_FALLBACK_PROVIDERS = [...config.web.search.fallbackProviders];
+  WEB_SEARCH_DEFAULT_COUNT = Math.max(
+    1,
+    Math.min(10, config.web.search.defaultCount),
+  );
+  WEB_SEARCH_CACHE_TTL_MINUTES = Math.max(
+    1,
+    Math.min(60, config.web.search.cacheTtlMinutes),
+  );
+  WEB_SEARCH_SEARXNG_BASE_URL =
+    process.env.SEARXNG_BASE_URL || config.web.search.searxngBaseUrl;
+  WEB_SEARCH_TAVILY_SEARCH_DEPTH = config.web.search.tavilySearchDepth;
 
   HEARTBEAT_ENABLED = config.heartbeat.enabled;
   HEARTBEAT_INTERVAL = config.heartbeat.intervalMs;

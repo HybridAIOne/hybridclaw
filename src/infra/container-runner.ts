@@ -29,6 +29,12 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_RALPH_MAX_ITERATIONS,
+  WEB_SEARCH_CACHE_TTL_MINUTES,
+  WEB_SEARCH_DEFAULT_COUNT,
+  WEB_SEARCH_FALLBACK_PROVIDERS,
+  WEB_SEARCH_PROVIDER,
+  WEB_SEARCH_SEARXNG_BASE_URL,
+  WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
@@ -339,8 +345,29 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     '-e',
     `HYBRIDCLAW_RALPH_MAX_ITERATIONS=${PROACTIVE_RALPH_MAX_ITERATIONS}`,
     '-e',
+    `HYBRIDCLAW_WEB_SEARCH_PROVIDER=${WEB_SEARCH_PROVIDER}`,
+    '-e',
+    `HYBRIDCLAW_WEB_SEARCH_FALLBACK_PROVIDERS=${WEB_SEARCH_FALLBACK_PROVIDERS.join(',')}`,
+    '-e',
+    `HYBRIDCLAW_WEB_SEARCH_DEFAULT_COUNT=${WEB_SEARCH_DEFAULT_COUNT}`,
+    '-e',
+    `HYBRIDCLAW_WEB_SEARCH_CACHE_TTL_MINUTES=${WEB_SEARCH_CACHE_TTL_MINUTES}`,
+    '-e',
+    `HYBRIDCLAW_WEB_SEARCH_TAVILY_SEARCH_DEPTH=${WEB_SEARCH_TAVILY_SEARCH_DEPTH}`,
+    '-e',
+    `SEARXNG_BASE_URL=${WEB_SEARCH_SEARXNG_BASE_URL}`,
+    '-e',
     'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
   ];
+
+  for (const [name, value] of [
+    ['BRAVE_API_KEY', process.env.BRAVE_API_KEY || ''],
+    ['PERPLEXITY_API_KEY', process.env.PERPLEXITY_API_KEY || ''],
+    ['TAVILY_API_KEY', process.env.TAVILY_API_KEY || ''],
+  ] as const) {
+    if (!value) continue;
+    args.push('-e', `${name}=${value}`);
+  }
 
   // Run as host user so bind-mount file ownership matches
   const hostUid = process.getuid?.();
@@ -489,6 +516,14 @@ export async function runContainer(
     allowedTools,
     blockedTools,
     media,
+    webSearch: {
+      provider: WEB_SEARCH_PROVIDER,
+      fallbackProviders: [...WEB_SEARCH_FALLBACK_PROVIDERS],
+      defaultCount: WEB_SEARCH_DEFAULT_COUNT,
+      cacheTtlMinutes: WEB_SEARCH_CACHE_TTL_MINUTES,
+      searxngBaseUrl: WEB_SEARCH_SEARXNG_BASE_URL,
+      tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
+    },
   };
   const authSignature = computeAuthSignature(
     input.apiKey,

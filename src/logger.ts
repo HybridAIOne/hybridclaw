@@ -5,14 +5,54 @@ import {
   onRuntimeConfigChange,
 } from './config/runtime-config.js';
 
-const initialLevel = getRuntimeConfig().ops.logLevel;
+const VALID_LOG_LEVELS = new Set([
+  'fatal',
+  'error',
+  'warn',
+  'info',
+  'debug',
+  'trace',
+  'silent',
+]);
+
+function resolveForcedLogLevel():
+  | ReturnType<typeof getRuntimeConfig>['ops']['logLevel']
+  | null {
+  const raw = String(process.env.HYBRIDCLAW_FORCE_LOG_LEVEL || '')
+    .trim()
+    .toLowerCase();
+  if (!raw || !VALID_LOG_LEVELS.has(raw)) return null;
+  return raw as ReturnType<typeof getRuntimeConfig>['ops']['logLevel'];
+}
+
+const forcedLevel = resolveForcedLogLevel();
+const initialLevel = forcedLevel || getRuntimeConfig().ops.logLevel;
 
 export const logger = pino({
   level: initialLevel,
   transport: { target: 'pino-pretty', options: { colorize: true } },
 });
 
+if (forcedLevel) {
+  logger.info(
+    { level: forcedLevel },
+    'Logger level forced by HYBRIDCLAW_FORCE_LOG_LEVEL',
+  );
+}
+
 onRuntimeConfigChange((next, prev) => {
+  if (forcedLevel) {
+    if (next.ops.logLevel !== prev.ops.logLevel) {
+      logger.debug(
+        {
+          configuredLevel: next.ops.logLevel,
+          forcedLevel,
+        },
+        'Ignoring runtime config log-level change due to forced override',
+      );
+    }
+    return;
+  }
   if (next.ops.logLevel !== prev.ops.logLevel) {
     logger.level = next.ops.logLevel;
     logger.info(
