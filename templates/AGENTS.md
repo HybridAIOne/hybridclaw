@@ -10,11 +10,12 @@ If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out w
 
 Before doing anything else:
 
-1. Read `SOUL.md` — this is who you are
-2. Read `USER.md` — this is who you're helping
-3. Read `MEMORY.md` — recent context and long-term memory
+1. Use the already-loaded `SOUL.md` context — this is who you are
+2. Use the already-loaded `USER.md` context — this is who you're helping
+3. Use the already-loaded `MEMORY.md` context — recent context and long-term memory
 
 Don't ask permission. Just do it.
+Only reread one of these files if you have reason to think it changed after the current prompt was assembled.
 
 ## Memory
 

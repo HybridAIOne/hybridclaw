@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -92,6 +93,26 @@ afterEach(() => {
 });
 
 describe('HybridAI auth status', () => {
+  it('reports missing credentials when no key is configured', async () => {
+    const homeDir = makeTempHome();
+    process.env.HOME = homeDir;
+    process.chdir(homeDir);
+    delete process.env.HYBRIDAI_API_KEY;
+
+    const hybridAIAuth = await importFreshHybridAIAuth(homeDir);
+    expect(hybridAIAuth.getHybridAIAuthStatus(homeDir)).toEqual({
+      authenticated: false,
+      path: path.join(homeDir, '.hybridclaw', 'credentials.json'),
+      maskedApiKey: null,
+      source: null,
+    });
+    expect(() => hybridAIAuth.getHybridAIApiKey()).toThrowError(
+      expect.objectContaining({
+        envVar: 'HYBRIDAI_API_KEY',
+      }),
+    );
+  });
+
   it('resolves the API key from runtime secrets', async () => {
     const homeDir = makeTempHome();
     process.env.HOME = homeDir;
@@ -131,6 +152,19 @@ describe('HybridAI auth status', () => {
 });
 
 describe('HybridAI auth credential management', () => {
+  it('requires a shell key before env import', async () => {
+    const homeDir = makeTempHome();
+    process.env.HOME = homeDir;
+    delete process.env.HYBRIDAI_API_KEY;
+
+    const hybridAIAuth = await importFreshHybridAIAuth(homeDir);
+    expect(() => hybridAIAuth.importHybridAIEnvCredentials(homeDir)).toThrowError(
+      expect.objectContaining({
+        envVar: 'HYBRIDAI_API_KEY',
+      }),
+    );
+  });
+
   it('imports the current shell key into runtime secrets', async () => {
     const homeDir = makeTempHome();
     process.env.HOME = homeDir;
@@ -255,6 +289,184 @@ describe('HybridAI login helpers', () => {
       path: result.path,
       maskedApiKey: 'hai-…7890',
       source: 'runtime-secrets',
+    });
+  });
+
+  it('rejects interactive login when no tty is available', async () => {
+    const homeDir = makeTempHome();
+    process.env.HOME = homeDir;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: false,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: false,
+      configurable: true,
+    });
+
+    const hybridAIAuth = await importFreshHybridAIAuth(homeDir);
+    await expect(
+      hybridAIAuth.loginHybridAIInteractive({
+        method: 'browser',
+        homeDir,
+      }),
+    ).rejects.toThrow('HybridAI login requires an interactive terminal.');
+  });
+
+  it('uses browser login, retries blank input, and extracts an API key from a URL', async () => {
+    const homeDir = makeTempHome();
+    process.env.HOME = homeDir;
+    delete process.env.HYBRIDAI_API_KEY;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+
+    const spawnMock = vi.fn(() => {
+      const child = new EventEmitter() as EventEmitter & { unref: () => void };
+      child.unref = vi.fn();
+      queueMicrotask(() => child.emit('error', new Error('open failed')));
+      return child;
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const hybridAIAuth = await importFreshHybridAIAuth(homeDir, {
+      readlineAnswers: ['yes', '', 'https://hybridai.one/path?token=hai-browser1234567890'],
+      spawnMock,
+    });
+    const result = await hybridAIAuth.loginHybridAIInteractive({
+      method: 'browser',
+      homeDir,
+    });
+
+    expect(spawnMock).toHaveBeenCalled();
+    expect(result).toMatchObject({
+      method: 'browser',
+      maskedApiKey: 'hai-…7890',
+      path: path.join(homeDir, '.hybridclaw', 'credentials.json'),
+      validated: true,
+    });
+    expect(logSpy).toHaveBeenCalledWith('Please enter a value.');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Could not auto-open browser. Open the link manually.',
+    );
+  });
+
+  it('can retry after validation errors and eventually save a validated key', async () => {
+    const homeDir = makeTempHome();
+    process.env.HOME = homeDir;
+    delete process.env.HYBRIDAI_API_KEY;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockRejectedValueOnce(new Error('network down'))
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ data: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+    );
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const hybridAIAuth = await importFreshHybridAIAuth(homeDir, {
+      readlineAnswers: ['hai-first1234567890', 'y', 'hai-second1234567890'],
+    });
+    const result = await hybridAIAuth.loginHybridAIInteractive({
+      method: 'device-code',
+      homeDir,
+    });
+
+    expect(result).toMatchObject({
+      method: 'device-code',
+      maskedApiKey: 'hai-…7890',
+      validated: true,
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Validation failed: Could not validate API key (network down).',
+      ),
+    );
+  });
+
+  it('can save an unvalidated key after a JSON validation error', async () => {
+    const homeDir = makeTempHome();
+    process.env.HOME = homeDir;
+    delete process.env.HYBRIDAI_API_KEY;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ error: { message: 'bad key' } }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const hybridAIAuth = await importFreshHybridAIAuth(homeDir, {
+      readlineAnswers: ['n', 'hai-saveanyway1234567890', 'n', 'y'],
+    });
+    const result = await hybridAIAuth.loginHybridAIInteractive({
+      method: 'browser',
+      homeDir,
+    });
+
+    expect(result).toMatchObject({
+      method: 'browser',
+      maskedApiKey: 'hai-…7890',
+      validated: false,
+    });
+    expect(logSpy).toHaveBeenCalledWith('Validation failed: bad key');
+  });
+
+  it('uses env import when requested explicitly', async () => {
+    const homeDir = makeTempHome();
+    process.env.HOME = homeDir;
+    process.env.HYBRIDAI_API_KEY = 'hai-autoimport1234567890';
+
+    const hybridAIAuth = await importFreshHybridAIAuth(homeDir);
+    const result = await hybridAIAuth.loginHybridAIInteractive({
+      method: 'import',
+      homeDir,
+    });
+
+    expect(result).toMatchObject({
+      method: 'env-import',
+      maskedApiKey: 'hai-…7890',
+      validated: false,
     });
   });
 });

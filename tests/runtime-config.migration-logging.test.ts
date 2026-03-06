@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.ts';
 
 const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_DISABLE_CONFIG_WATCHER =
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-runtime-config-'));
@@ -59,6 +61,12 @@ afterEach(() => {
     delete process.env.HOME;
   } else {
     process.env.HOME = ORIGINAL_HOME;
+  }
+  if (ORIGINAL_DISABLE_CONFIG_WATCHER === undefined) {
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+  } else {
+    process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
+      ORIGINAL_DISABLE_CONFIG_WATCHER;
   }
 });
 
@@ -121,5 +129,16 @@ describe('runtime config migration logging', () => {
       'openai-codex/gpt-5.2',
       'openai-codex/gpt-5.1-codex-mini',
     ]);
+  });
+
+  it('does not start the fs watcher when watcher disable env is set', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+    const watchSpy = vi.spyOn(fs, 'watch');
+
+    await importFreshRuntimeConfig(homeDir);
+
+    expect(watchSpy).not.toHaveBeenCalled();
   });
 });

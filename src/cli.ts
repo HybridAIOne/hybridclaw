@@ -1034,9 +1034,9 @@ async function handleCodexCommand(args: string[]): Promise<void> {
   throw new Error(`Unknown codex subcommand: ${sub}`);
 }
 
-async function main(): Promise<void> {
-  const command = process.argv[2];
-  const subargs = process.argv.slice(3);
+export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
+  const command = argv[0];
+  const subargs = argv.slice(1);
 
   switch (command) {
     case '--version':
@@ -1129,19 +1129,27 @@ function printMissingEnvVarError(message: string, envVar?: string): void {
   );
 }
 
-main().catch((err) => {
-  if (err instanceof MissingRequiredEnvVarError) {
-    printMissingEnvVarError(err.message, err.envVar);
-  } else if (err instanceof CodexAuthError) {
-    console.error(`hybridclaw error: ${err.message}`);
-    if (err.reloginRequired) {
-      console.error(
-        'Hint: Run `hybridclaw codex login` or `hybridclaw onboarding` to refresh OpenAI Codex credentials.',
-      );
+function isDirectExecution(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  return path.resolve(entry) === fileURLToPath(import.meta.url);
+}
+
+if (isDirectExecution()) {
+  main().catch((err) => {
+    if (err instanceof MissingRequiredEnvVarError) {
+      printMissingEnvVarError(err.message, err.envVar);
+    } else if (err instanceof CodexAuthError) {
+      console.error(`hybridclaw error: ${err.message}`);
+      if (err.reloginRequired) {
+        console.error(
+          'Hint: Run `hybridclaw codex login` or `hybridclaw onboarding` to refresh OpenAI Codex credentials.',
+        );
+      }
+    } else {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`hybridclaw error: ${message}`);
     }
-  } else {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`hybridclaw error: ${message}`);
-  }
-  process.exit(1);
-});
+    process.exit(1);
+  });
+}
