@@ -68,10 +68,27 @@ export function buildSessionSummaryPrompt(
   ].join('\n');
 }
 
+function buildSkillsSection(skillsPrompt: string): string {
+  const trimmed = skillsPrompt.trim();
+  if (!trimmed) return '';
+  if (!trimmed.includes('<available_skills>')) return trimmed;
+
+  return [
+    '## Skills (mandatory)',
+    'Before replying: scan `<available_skills>` `<description>` entries.',
+    '- If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
+    '- If multiple could apply: choose the most specific one, then read/follow it.',
+    '- If none clearly apply: do not read any SKILL.md.',
+    'Constraints: never read more than one skill up front; only read after selecting.',
+    '',
+    trimmed,
+  ].join('\n');
+}
+
 function buildBootstrapHook(context: PromptHookContext): string {
   const contextFiles = loadBootstrapFiles(context.agentId);
   const contextPrompt = buildContextPrompt(contextFiles);
-  const skillsPrompt = buildSkillsPrompt(context.skills);
+  const skillsPrompt = buildSkillsSection(buildSkillsPrompt(context.skills));
   return [contextPrompt, skillsPrompt].filter(Boolean).join('\n\n');
 }
 
@@ -104,6 +121,13 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Follow TRUST_MODEL.md and SECURITY.md boundaries, and use the least-privilege tools possible.',
     '',
     ...(toolsSummary ? [toolsSummary, ''] : []),
+    '## Tool Call Style',
+    'Default: do not narrate routine, low-risk tool calls; just call the tool.',
+    'Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions, or when the user explicitly asks.',
+    'Keep narration brief and value-dense; avoid repeating obvious steps.',
+    'When a direct first-class tool exists, use it instead of asking the user to run equivalent CLI commands or doing indirect rediscovery.',
+    'If the relevant content is already available directly in the current turn, injected `<file>` content, or `[PDFContext]`, answer from that content first before reading skills or searching for the same artifact again.',
+    '',
     securityDoc,
     '',
     '## Tool Execution Discipline',
@@ -111,8 +135,11 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Create or modify files on disk first via file tools.',
     'Do not create or edit files via shell heredocs, echo redirects, sed, or awk.',
     'Use bash for execution/build/validation tasks, not for file authoring.',
+    'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) are workspace-bound, but configured container bind mounts can make selected host paths available through those tools. Prefer file tools when a bound path resolves; otherwise use `bash` for absolute paths outside the workspace.',
+    'For `bash`, the working directory is the workspace root. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` for temporary artifacts.',
     'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',
     'Only skip file creation when the user explicitly asks for snippet-only or explanation-only output.',
+    'If the current turn already includes an attachment, local file path, `MediaItems`, injected `<file>` content, or `[PDFContext]`, use that artifact first. Do not start with `message` reads, `glob`, `find`, workspace-wide discovery, or skill reads unless the user explicitly asked for history or folder discovery.',
     'When Discord context is needed, use the `message` tool actions (`read`, `member-info`, `channel-info`, `send`) instead of guessing channel members.',
     'For questions like "what did X say", "who said", or channel recap requests, call `message` with `action="read"` first before answering.',
     'For send intents like "send message", "post in", "DM", "tell X", "notify X", or "message X on discord", call `message` with `action="send"`.',
@@ -140,6 +167,12 @@ function buildSafetyHook(context: PromptHookContext): string {
     'User: "What did Bob say?"',
     'Tool call: `message` {"action":"read","channelId":"<current-or-target-channel-id>","limit":50}',
     'Then answer from fetched messages; do not guess.',
+    '',
+    'Example 4',
+    'User: "Pull the key fields from this attached invoice PDF."',
+    'Current-turn context already includes a local PDF path or injected `<file>` block.',
+    'Action: use that attachment content directly; do not call `message` `read`, `glob`, `find`, or read `skills/pdf/SKILL.md` first.',
+    'Then answer with the extracted invoice fields.',
     '',
     '### Cron reminder few-shot examples',
     'Example 1',
@@ -306,7 +339,8 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,
     'Only provide more runtime details when the user explicitly asks for them.',
     'Default response style: concise and direct.',
-    'Use the shortest complete answer unless the user asks for depth.',
+    'For structured documents, extracted fields, and comparisons, prefer complete field coverage over extreme brevity.',
+    'Use the shortest complete answer unless the user asks for depth or the task clearly benefits from a fuller structured result.',
   ];
 
   return lines.filter(Boolean).join('\n');

@@ -212,6 +212,7 @@ export interface RuntimeConfig {
     cpus: string;
     network: string;
     timeoutMs: number;
+    binds: string[];
     additionalMounts: string;
     maxOutputBytes: number;
     maxConcurrent: number;
@@ -403,6 +404,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     cpus: '1',
     network: 'bridge',
     timeoutMs: 300_000,
+    binds: [],
     additionalMounts: '',
     maxOutputBytes: 10_485_760,
     maxConcurrent: 5,
@@ -1586,6 +1588,10 @@ function normalizeRuntimeConfig(
         rawContainer.timeoutMs,
         DEFAULT_RUNTIME_CONFIG.container.timeoutMs,
         { min: 1_000 },
+      ),
+      binds: normalizeStringArray(
+        rawContainer.binds,
+        DEFAULT_RUNTIME_CONFIG.container.binds,
       ),
       additionalMounts: normalizeString(
         rawContainer.additionalMounts,

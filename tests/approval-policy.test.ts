@@ -1,6 +1,6 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { TrustedCoworkerApprovalRuntime } from '../container/src/approval-policy.js';
@@ -39,6 +39,50 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(second.tier).toBe('green');
   });
 
+  test('message read-only actions are green', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const read = runtime.evaluateToolCall({
+      toolName: 'message',
+      argsJson: JSON.stringify({ action: 'read', limit: 10 }),
+      latestUserPrompt: 'What did Bob say?',
+    });
+    const memberInfo = runtime.evaluateToolCall({
+      toolName: 'message',
+      argsJson: JSON.stringify({ action: 'member-info', user: '@alice' }),
+      latestUserPrompt: 'Who is @alice?',
+    });
+    const channelInfo = runtime.evaluateToolCall({
+      toolName: 'message',
+      argsJson: JSON.stringify({ action: 'channel-info' }),
+      latestUserPrompt: 'What channel is this?',
+    });
+
+    expect(read.tier).toBe('green');
+    expect(memberInfo.tier).toBe('green');
+    expect(channelInfo.tier).toBe('green');
+  });
+
+  test('read-only bundled PDF extraction commands are green', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({
+        command:
+          'node skills/pdf/scripts/extract_pdf_text.mjs invoice.pdf --json',
+      }),
+      latestUserPrompt: 'Read this invoice PDF',
+    });
+
+    expect(evaluation.tier).toBe('green');
+    expect(evaluation.actionKey).toBe('bash:pdf-read-only');
+  });
+
   test('sensitive paths stay pinned red and require explicit approval', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
@@ -70,7 +114,9 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(pending.decision).toBe('required');
 
     const prelude = runtime.handleApprovalResponse([userMessage('yes')]);
-    expect(prelude?.replayPrompt).toBe(originalPrompt);
+    expect(prelude?.replayPrompt).toContain('Approval already granted');
+    expect(prelude?.replayPrompt).toContain(originalPrompt);
+    expect(prelude?.replayPrompt).toContain('Do not ask for approval again');
     expect(prelude?.approvalMode).toBe('once');
 
     const approved = runtime.evaluateToolCall({
@@ -79,6 +125,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
       latestUserPrompt: originalPrompt,
     });
     expect(approved.decision).toBe('approved_once');
+    expect(approved.implicitDelayMs).toBeUndefined();
   });
 
   test('yes for session persists trust for repeated action key', () => {
@@ -208,7 +255,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     ].join('\n');
     const prelude = runtime.handleApprovalResponse([userMessage(wrappedReply)]);
     expect(prelude?.approvalMode).toBe('agent');
-    expect(prelude?.replayPrompt).toBe(originalPrompt);
+    expect(prelude?.replayPrompt).toContain(originalPrompt);
 
     const second = runtime.evaluateToolCall({
       toolName: 'browser_navigate',
@@ -250,6 +297,24 @@ describe('TrustedCoworkerApprovalRuntime', () => {
       latestUserPrompt: prompt,
     });
     expect(third.decision).toBe('required');
+  });
+
+  test('scratch outputs under /tmp do not trigger workspace-fence approvals', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({
+        command:
+          "mkdir -p /tmp/hybridclaw-pdf && sips -s format png '/Users/example/invoice.pdf' --out /tmp/hybridclaw-pdf/invoice.png",
+      }),
+      latestUserPrompt: 'Extract the invoice data',
+    });
+
+    expect(evaluation.baseTier).toBe('yellow');
+    expect(evaluation.decision).toBe('implicit');
   });
 
   test('yes for agent persists trust across runtime restarts', () => {

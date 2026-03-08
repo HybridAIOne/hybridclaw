@@ -100,6 +100,7 @@ const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
   /^images-ext-\d+\.discordapp\.net$/i,
 ];
 const approvalRuntime = new TrustedCoworkerApprovalRuntime();
+let cachedSelectedSkillPath: string | null = null;
 
 /** Auth material received once via stdin, held in memory for the agent lifetime. */
 let storedApiKey = '';
@@ -138,6 +139,14 @@ function inferImageMimeType(
   if (normalizedFallback.startsWith('image/')) return normalizedFallback;
   const ext = path.posix.extname(filePath).toLowerCase();
   return ARTIFACT_MIME_TYPES[ext] || 'image/png';
+}
+
+function isImageMediaItem(item: MediaContextItem): boolean {
+  const mimeType = String(item.mimeType || '')
+    .trim()
+    .toLowerCase();
+  if (mimeType.startsWith('image/')) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|svg|tiff?)$/i.test(item.filename || '');
 }
 
 function isSafeDiscordCdnUrl(raw: string): boolean {
@@ -215,7 +224,9 @@ async function injectNativeVisionContent(
   if (!Array.isArray(media) || media.length === 0) return messages;
   if (!modelSupportsNativeVision(model)) return messages;
 
-  const mediaSlice = media.slice(0, NATIVE_VISION_MAX_IMAGES);
+  const mediaSlice = media
+    .filter((item) => isImageMediaItem(item))
+    .slice(0, NATIVE_VISION_MAX_IMAGES);
   const imageParts: ChatContentPart[] = [];
   for (const item of mediaSlice) {
     const url = await resolveMediaImagePartUrl(item);
@@ -255,6 +266,62 @@ async function injectNativeVisionContent(
   console.error(
     `[media] injected ${imageParts.length} native vision image part(s) for model ${model}`,
   );
+  return cloned;
+}
+
+function parseToolArgs(argsJson: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(argsJson) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function captureSkillSelection(toolName: string, argsJson: string): void {
+  if (toolName !== 'read') return;
+  const args = parseToolArgs(argsJson);
+  const rawPath = String(args?.path || '').trim();
+  if (!rawPath) return;
+  const normalized = rawPath.replace(/\\/g, '/');
+  if (!/(^|\/)skills\/[^/]+\/SKILL\.md$/i.test(normalized)) return;
+  cachedSelectedSkillPath = rawPath;
+}
+
+function injectSkillCacheHint(messages: ChatMessage[]): ChatMessage[] {
+  if (!cachedSelectedSkillPath) return messages;
+  const latestPrompt = latestUserPrompt(messages);
+  if (!latestPrompt.includes('[Approval already granted]')) return messages;
+  if (
+    messages.some(
+      (message) =>
+        message.role === 'system' &&
+        normalizeMessageContentToText(message.content).includes(
+          '[SkillSelectionCache]',
+        ),
+    )
+  ) {
+    return messages;
+  }
+
+  const latestUserIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === 'user') return i;
+    }
+    return messages.length;
+  })();
+  const cloned = messages.map((message) => ({ ...message }));
+  cloned.splice(latestUserIndex, 0, {
+    role: 'system',
+    content: [
+      '[SkillSelectionCache]',
+      `You already selected skill guidance from \`${cachedSelectedSkillPath}\` earlier in this session.`,
+      'Reuse that skill now and do not reread the SKILL.md unless the task scope changed or a missing detail requires it.',
+    ].join('\n'),
+  });
   return cloned;
 }
 
@@ -859,6 +926,9 @@ async function processRequest(
       const toolDuration = Date.now() - toolStart;
       const isError = inferToolError(result, blockedReason);
       const succeeded = !blockedReason && !isError;
+      if (succeeded) {
+        captureSkillSelection(toolName, call.function.arguments);
+      }
       approvalRuntime.afterToolExecution(approval, succeeded);
       await runAfterToolHooks(toolName, call.function.arguments, result);
       console.error(
@@ -1017,6 +1087,7 @@ async function main(): Promise<void> {
   const firstPreparedMessages = firstPromptOverride
     ? replaceLatestUserPrompt(firstMessages, firstPromptOverride)
     : firstMessages;
+  const firstMessagesForRequest = injectSkillCacheHint(firstPreparedMessages);
 
   let firstOutput: ContainerOutput;
   if (firstPrelude?.immediateMessage && !firstPromptOverride) {
@@ -1025,12 +1096,12 @@ async function main(): Promise<void> {
       result: firstPrelude.immediateMessage,
       toolsUsed: [],
       toolExecutions: [],
-      effectiveUserPrompt: latestUserPrompt(firstPreparedMessages),
+      effectiveUserPrompt: latestUserPrompt(firstMessagesForRequest),
     };
     console.error('[approval] resolved user response without model run');
   } else {
     firstOutput = await processRequest(
-      firstPreparedMessages,
+      firstMessagesForRequest,
       storedApiKey,
       firstInput.baseUrl,
       firstInput.provider,
@@ -1043,7 +1114,7 @@ async function main(): Promise<void> {
       firstPromptOverride,
     );
     if (
-      firstPreparedMessages !== firstInput.messages &&
+      firstMessagesForRequest !== firstInput.messages &&
       firstOutput.status === 'error' &&
       shouldRetryWithoutNativeVision(firstOutput.error)
     ) {
@@ -1053,8 +1124,10 @@ async function main(): Promise<void> {
       const firstRetryMessages = firstPromptOverride
         ? replaceLatestUserPrompt(firstInput.messages, firstPromptOverride)
         : firstInput.messages;
+      const firstRetryMessagesWithSkillCache =
+        injectSkillCacheHint(firstRetryMessages);
       firstOutput = await processRequest(
-        firstRetryMessages,
+        firstRetryMessagesWithSkillCache,
         storedApiKey,
         firstInput.baseUrl,
         firstInput.provider,
@@ -1128,6 +1201,8 @@ async function main(): Promise<void> {
     const messagesForRequest = promptOverride
       ? replaceLatestUserPrompt(preparedMessages, promptOverride)
       : preparedMessages;
+    const messagesForRequestWithSkillCache =
+      injectSkillCacheHint(messagesForRequest);
 
     if (prelude?.immediateMessage && !promptOverride) {
       const immediate: ContainerOutput = {
@@ -1135,7 +1210,7 @@ async function main(): Promise<void> {
         result: prelude.immediateMessage,
         toolsUsed: [],
         toolExecutions: [],
-        effectiveUserPrompt: latestUserPrompt(messagesForRequest),
+        effectiveUserPrompt: latestUserPrompt(messagesForRequestWithSkillCache),
       };
       immediate.sideEffects = getPendingSideEffects();
       writeOutput(immediate);
@@ -1144,7 +1219,7 @@ async function main(): Promise<void> {
     }
 
     let output = await processRequest(
-      messagesForRequest,
+      messagesForRequestWithSkillCache,
       apiKey,
       input.baseUrl,
       input.provider,
@@ -1157,7 +1232,7 @@ async function main(): Promise<void> {
       promptOverride,
     );
     if (
-      messagesForRequest !== input.messages &&
+      messagesForRequestWithSkillCache !== input.messages &&
       output.status === 'error' &&
       shouldRetryWithoutNativeVision(output.error)
     ) {
@@ -1167,8 +1242,9 @@ async function main(): Promise<void> {
       const retryMessages = promptOverride
         ? replaceLatestUserPrompt(input.messages, promptOverride)
         : input.messages;
+      const retryMessagesWithSkillCache = injectSkillCacheHint(retryMessages);
       output = await processRequest(
-        retryMessages,
+        retryMessagesWithSkillCache,
         apiKey,
         input.baseUrl,
         input.provider,

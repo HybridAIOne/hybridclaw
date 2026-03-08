@@ -4,6 +4,11 @@ import {
   getRuntimeConfig,
   onRuntimeConfigChange,
 } from './config/runtime-config.js';
+import {
+  LOGGER_ERROR_KEY,
+  LOGGER_PRETTY_OPTIONS,
+  LOGGER_SERIALIZERS,
+} from './logger-format.js';
 
 const VALID_LOG_LEVELS = new Set([
   'fatal',
@@ -29,8 +34,10 @@ const forcedLevel = resolveForcedLogLevel();
 const initialLevel = forcedLevel || getRuntimeConfig().ops.logLevel;
 
 export const logger = pino({
+  errorKey: LOGGER_ERROR_KEY,
   level: initialLevel,
-  transport: { target: 'pino-pretty', options: { colorize: true } },
+  serializers: LOGGER_SERIALIZERS,
+  transport: { target: 'pino-pretty', options: LOGGER_PRETTY_OPTIONS },
 });
 
 if (forcedLevel) {

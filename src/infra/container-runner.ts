@@ -8,6 +8,7 @@ import path from 'node:path';
 
 import {
   ADDITIONAL_MOUNTS,
+  CONTAINER_BINDS,
   CONTAINER_CPUS,
   CONTAINER_IMAGE,
   CONTAINER_MEMORY,
@@ -38,6 +39,7 @@ import {
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
+import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
 import type {
   AdditionalMount,
@@ -58,6 +60,13 @@ import {
   readOutput,
   writeInput,
 } from './ipc.js';
+import {
+  consumeCollapsedStreamDebugLine,
+  createStreamDebugState,
+  decodeStreamDelta,
+  flushCollapsedStreamDebugSummary,
+  type StreamDebugState,
+} from './stream-debug.js';
 
 const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
 
@@ -67,16 +76,22 @@ interface PoolEntry {
   sessionId: string;
   startedAt: number;
   stderrBuffer: string;
+  streamDebug: StreamDebugState;
   authSignature: string;
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
+}
+
+interface ContainerPathAliasMount {
+  hostPaths: string[];
+  containerPath: string;
+  readonly: boolean;
 }
 
 const pool = new Map<string, PoolEntry>();
 const TOOL_RESULT_RE =
   /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
-const STREAM_DELTA_RE = /^\[stream\]\s+([A-Za-z0-9+/=]+)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 
@@ -120,11 +135,10 @@ export function resolveDiscordMediaCacheHostDir(): string {
 function emitTextDelta(entry: PoolEntry, line: string): void {
   const callback = entry.onTextDelta;
   if (!callback) return;
-  const match = line.match(STREAM_DELTA_RE);
-  if (!match) return;
+  const delta = decodeStreamDelta(line);
+  if (delta == null) return;
 
   try {
-    const delta = Buffer.from(match[1], 'base64').toString('utf-8');
     if (!delta) return;
     callback(delta);
   } catch (err) {
@@ -378,20 +392,33 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
   }
 
   // Validate and append additional mounts
-  if (ADDITIONAL_MOUNTS) {
-    try {
-      const requested = JSON.parse(ADDITIONAL_MOUNTS) as AdditionalMount[];
-      const validated = validateAdditionalMounts(requested);
-      for (const m of validated) {
-        args.push(
-          '-v',
-          `${m.hostPath}:${m.containerPath}:${m.readonly ? 'ro' : 'rw'}`,
-        );
-      }
-    } catch (err) {
-      logger.warn(
-        { error: err instanceof Error ? err.message : String(err) },
-        'Failed to parse ADDITIONAL_MOUNTS',
+  const configuredMounts = resolveConfiguredAdditionalMounts({
+    binds: CONTAINER_BINDS,
+    additionalMounts: ADDITIONAL_MOUNTS,
+  });
+  for (const warning of configuredMounts.warnings) {
+    logger.warn({ warning }, 'Configured container bind ignored');
+  }
+  if (configuredMounts.mounts.length > 0) {
+    const validated = validateAdditionalMounts(
+      configuredMounts.mounts as AdditionalMount[],
+    );
+    const mountAliases: ContainerPathAliasMount[] = [];
+    for (const m of validated) {
+      args.push(
+        '-v',
+        `${m.hostPath}:${m.containerPath}:${m.readonly ? 'ro' : 'rw'}`,
+      );
+      mountAliases.push({
+        hostPaths: Array.from(new Set([m.expandedHostPath, m.hostPath])),
+        containerPath: m.containerPath,
+        readonly: m.readonly,
+      });
+    }
+    if (mountAliases.length > 0) {
+      args.push(
+        '-e',
+        `HYBRIDCLAW_AGENT_EXTRA_MOUNTS=${JSON.stringify(mountAliases)}`,
       );
     }
   }
@@ -410,6 +437,7 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     sessionId,
     startedAt: Date.now(),
     stderrBuffer: '',
+    streamDebug: createStreamDebugState(),
     authSignature: '',
   };
 
@@ -421,6 +449,13 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
       const line = rawLine.trim();
       if (!line) continue;
       emitTextDelta(entry, line);
+      if (
+        consumeCollapsedStreamDebugLine(line, entry.streamDebug, (message) => {
+          logger.debug({ container: containerName }, message);
+        })
+      ) {
+        continue;
+      }
       logger.debug({ container: containerName }, line);
       emitToolProgress(entry, line);
     }
@@ -430,10 +465,19 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
       emitTextDelta(entry, tail);
-      logger.debug({ container: containerName }, tail);
-      emitToolProgress(entry, tail);
+      if (
+        !consumeCollapsedStreamDebugLine(tail, entry.streamDebug, (message) => {
+          logger.debug({ container: containerName }, message);
+        })
+      ) {
+        logger.debug({ container: containerName }, tail);
+        emitToolProgress(entry, tail);
+      }
       entry.stderrBuffer = '';
     }
+    flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
+      logger.debug({ container: containerName }, message);
+    });
     pool.delete(sessionId);
     logger.info({ sessionId, containerName, code }, 'Container exited');
   });
@@ -603,6 +647,9 @@ export async function runContainer(
     return output;
   } finally {
     abortSignal?.removeEventListener('abort', onAbort);
+    flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
+      logger.debug({ container: entry.containerName }, message);
+    });
     if (entry.onTextDelta === onTextDelta) {
       entry.onTextDelta = undefined;
     }

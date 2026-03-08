@@ -5,9 +5,9 @@
  *
  * Allowlist location: ~/.config/hybridclaw/mount-allowlist.json
  */
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { MOUNT_ALLOWLIST_PATH } from '../config/config.js';
 import { logger } from '../logger.js';
@@ -220,22 +220,31 @@ export function validateMount(mount: AdditionalMount): MountValidationResult {
  * Validate all additional mounts.
  * Returns only mounts that passed validation; logs warnings for rejected ones.
  */
-export function validateAdditionalMounts(
-  mounts: AdditionalMount[],
-): Array<{ hostPath: string; containerPath: string; readonly: boolean }> {
+export function validateAdditionalMounts(mounts: AdditionalMount[]): Array<{
+  hostPath: string;
+  expandedHostPath: string;
+  containerPath: string;
+  readonly: boolean;
+}> {
   const validated: Array<{
     hostPath: string;
+    expandedHostPath: string;
     containerPath: string;
     readonly: boolean;
   }> = [];
 
   for (const mount of mounts) {
     const result = validateMount(mount);
-    if (result.allowed) {
+    if (
+      result.allowed &&
+      result.realHostPath &&
+      result.effectiveReadonly !== undefined
+    ) {
       validated.push({
-        hostPath: result.realHostPath!,
+        hostPath: result.realHostPath,
+        expandedHostPath: expandPath(mount.hostPath),
         containerPath: `/workspace/extra/${result.resolvedContainerPath}`,
-        readonly: result.effectiveReadonly!,
+        readonly: result.effectiveReadonly,
       });
       logger.debug(
         {

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { DATA_DIR } from '../config/config.js';
+import { injectPdfContextMessages } from '../media/pdf-context.js';
 import type {
   ChatMessage,
   ContainerOutput,
@@ -55,9 +56,16 @@ export async function runAgent(
   abortSignal?: AbortSignal,
   media?: MediaContextItem[],
 ): Promise<ContainerOutput> {
-  dumpPrompt(
+  const workspaceRoot = getExecutor().getWorkspacePath(agentId);
+  const preparedMessages = await injectPdfContextMessages({
     sessionId,
     messages,
+    workspaceRoot,
+    media,
+  });
+  dumpPrompt(
+    sessionId,
+    preparedMessages,
     model,
     chatbotId,
     media,
@@ -66,7 +74,7 @@ export async function runAgent(
   );
   return getExecutor().exec({
     sessionId,
-    messages,
+    messages: preparedMessages,
     chatbotId,
     enableRag,
     model,

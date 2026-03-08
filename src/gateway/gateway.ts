@@ -60,6 +60,11 @@ import {
   runGatewayScheduledTask,
 } from './gateway-service.js';
 import { startHealthServer } from './health.js';
+import {
+  isDiscordChannelId,
+  resolveHeartbeatDeliveryChannelId,
+  shouldDropQueuedProactiveMessage,
+} from './proactive-delivery.js';
 
 let detachConfigListener: (() => void) | null = null;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
@@ -76,10 +81,6 @@ interface PendingApprovalPrompt {
 }
 
 const pendingApprovalBySession = new Map<string, PendingApprovalPrompt>();
-
-function isDiscordChannelId(channelId: string): boolean {
-  return /^\d{16,22}$/.test(channelId);
-}
 
 function buildArtifactAttachments(
   artifacts?: ArtifactMetadata[],
@@ -432,15 +433,29 @@ async function flushQueuedProactiveMessages(): Promise<void> {
     'Flushing queued proactive messages',
   );
 
+  let droppedUndeliverable = 0;
   for (const item of pending) {
     if (!isWithinActiveHours()) break;
-    if (!isDiscordChannelId(item.channel_id)) continue;
+    if (!isDiscordChannelId(item.channel_id)) {
+      if (shouldDropQueuedProactiveMessage(item)) {
+        deleteQueuedProactiveMessage(item.id);
+        droppedUndeliverable += 1;
+      }
+      continue;
+    }
     await sendProactiveMessageNow(
       item.channel_id,
       item.text,
       `${item.source}:queued`,
     );
     deleteQueuedProactiveMessage(item.id);
+  }
+
+  if (droppedUndeliverable > 0) {
+    logger.info(
+      { dropped: droppedUndeliverable },
+      'Dropped undeliverable queued proactive messages',
+    );
   }
 }
 
@@ -762,9 +777,19 @@ function startOrRestartHeartbeat(): void {
   stopHeartbeat();
   const agentId = resolveAgentIdForModel(HYBRIDAI_MODEL, HYBRIDAI_CHATBOT_ID);
   startHeartbeat(agentId, HEARTBEAT_INTERVAL, (text) => {
-    const channelId = HEARTBEAT_CHANNEL || 'heartbeat';
+    const channelId = resolveHeartbeatDeliveryChannelId({
+      explicitChannelId: HEARTBEAT_CHANNEL,
+      lastUsedDiscordChannelId: resolveLastUsedDiscordChannelId(),
+    });
+    if (!channelId) {
+      logger.info(
+        { text },
+        'Heartbeat message dropped: no Discord delivery channel available',
+      );
+      return;
+    }
     void deliverProactiveMessage(channelId, text, 'heartbeat');
-    logger.info({ text }, 'Heartbeat message');
+    logger.info({ channelId, text }, 'Heartbeat message');
   });
 }
 

@@ -191,4 +191,26 @@ describe('runtime home layout', () => {
       fs.existsSync(path.join(homeDir, '.hybridclaw', 'migration-backups')),
     ).toBe(false);
   });
+
+  it('does not treat ~/.hybridclaw/data as a legacy cwd data directory when launched from runtime home', async () => {
+    const homeDir = makeTempDir('hybridclaw-runtime-home-');
+    const runtimeHomeDir = path.join(homeDir, '.hybridclaw');
+    const runtimeDataDir = path.join(runtimeHomeDir, 'data');
+    const runtimeMarkerPath = path.join(runtimeDataDir, 'marker.txt');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    fs.mkdirSync(runtimeDataDir, { recursive: true });
+    fs.writeFileSync(runtimeMarkerPath, 'runtime-data\n', 'utf-8');
+
+    process.chdir(runtimeHomeDir);
+    await importFreshRuntimeConfig(homeDir);
+
+    expect(fs.readFileSync(runtimeMarkerPath, 'utf-8')).toBe('runtime-data\n');
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('runtime data migration failed'),
+    );
+    expect(fs.existsSync(path.join(runtimeHomeDir, 'migration-backups'))).toBe(
+      false,
+    );
+  });
 });

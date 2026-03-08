@@ -15,6 +15,8 @@ export const CODEX_DEFAULT_BASE_URL = 'https://chatgpt.com/backend-api/codex';
 export const CODEX_DEFAULT_CALLBACK_HOST = '127.0.0.1';
 export const CODEX_DEFAULT_CALLBACK_PORT = 1455;
 export const CODEX_DEFAULT_CALLBACK_REDIRECT_HOST = 'localhost';
+export const CODEX_DEFAULT_DEVICE_CODE_VERIFICATION_URL =
+  'https://auth.openai.com/activate';
 export const CODEX_REFRESH_SKEW_MS = 2 * 60_000;
 export const CODEX_LOCK_STALE_MS = 30_000;
 export const CODEX_LOCK_TIMEOUT_MS = 15_000;
@@ -518,6 +520,26 @@ function parseResponseError(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+function parseResponseErrorCode(payload: unknown): string {
+  if (!isRecord(payload)) return '';
+
+  const direct =
+    normalizeString(payload.error) ||
+    normalizeString(payload.code) ||
+    normalizeString(payload.status);
+  if (direct) return direct;
+
+  if (isRecord(payload.error)) {
+    const nestedCode =
+      normalizeString(payload.error.code) ||
+      normalizeString(payload.error.status) ||
+      normalizeString(payload.error.type);
+    if (nestedCode) return nestedCode;
+  }
+
+  return '';
+}
+
 function normalizeTokenResponse(
   payload: unknown,
   fallbackRefreshToken: string,
@@ -785,9 +807,11 @@ function normalizeDeviceCodeResponse(payload: unknown): DeviceCodeResponse {
   const verificationUrl =
     normalizeString(payload.verification_uri) ||
     normalizeString(payload.verification_url) ||
-    normalizeString(payload.verificationUrl);
+    normalizeString(payload.verificationUrl) ||
+    (userCode ? CODEX_DEFAULT_DEVICE_CODE_VERIFICATION_URL : '');
   const verificationUrlComplete =
     normalizeString(payload.verification_uri_complete) ||
+    normalizeString(payload.verification_url_complete) ||
     normalizeString(payload.verificationUrlComplete) ||
     null;
   const intervalSeconds =
@@ -869,10 +893,7 @@ function normalizeDeviceCodePoll(payload: unknown): DeviceCodePollResponse {
     };
   }
 
-  const status =
-    normalizeString(payload.status) ||
-    normalizeString(payload.error) ||
-    normalizeString(payload.code);
+  const status = parseResponseErrorCode(payload);
   if (
     status === 'authorization_pending' ||
     status === 'pending' ||
@@ -935,11 +956,7 @@ async function pollDeviceAuthorizationCode(
       continue;
     }
 
-    const errorCode =
-      isRecord(payload) &&
-      (normalizeString(payload.error) ||
-        normalizeString(payload.code) ||
-        normalizeString(payload.status));
+    const errorCode = parseResponseErrorCode(payload);
     if (
       response.status === 400 ||
       response.status === 401 ||

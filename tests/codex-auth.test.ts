@@ -481,6 +481,105 @@ describe('codex auth device code flow', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     vi.useRealTimers();
   });
+
+  it('falls back to the default activation URL and tolerates nested pending errors', async () => {
+    vi.useFakeTimers();
+    const homeDir = makeTempHome();
+    const codexAuth = await importFreshCodexAuth(homeDir);
+    const accessToken = makeJwt({
+      exp: Math.floor(Date.now() / 1000) + 3_600,
+      chatgpt_account_id: 'acct_device_nested',
+    });
+
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/accounts/deviceauth/usercode')) {
+        return new Response(
+          JSON.stringify({
+            device_auth_id: 'device_auth_nested',
+            user_code: 'USER-NESTED',
+            interval: '1',
+            expires_at: '2026-03-06T17:59:56.536528+00:00',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+
+      if (url.endsWith('/api/accounts/deviceauth/token')) {
+        const pollCount = fetchMock.mock.calls.filter(([callUrl]) =>
+          String(callUrl).endsWith('/api/accounts/deviceauth/token'),
+        ).length;
+        if (pollCount === 1) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message: 'Waiting for approval.',
+                type: 'invalid_request_error',
+                code: 'authorization_pending',
+              },
+            }),
+            {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          );
+        }
+
+        expect(JSON.parse(String(init?.body))).toEqual({
+          device_auth_id: 'device_auth_nested',
+          user_code: 'USER-NESTED',
+        });
+        return new Response(
+          JSON.stringify({
+            authorization_code: 'authorization_code_nested',
+            code_verifier: 'server_verifier_nested',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+
+      const params = new URLSearchParams(String(init?.body || ''));
+      expect(params.get('code')).toBe('authorization_code_nested');
+      expect(params.get('code_verifier')).toBe('server_verifier_nested');
+      return new Response(
+        JSON.stringify({
+          access_token: accessToken,
+          refresh_token: 'refresh_nested',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const loginPromise = codexAuth.loginWithDeviceCode(homeDir);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await loginPromise;
+
+    expect(result.credentials.accountId).toBe('acct_device_nested');
+    expect(consoleLog).toHaveBeenCalledWith(
+      'Verify: https://auth.openai.com/activate',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    vi.useRealTimers();
+  });
 });
 
 describe('codex auth browser flow', () => {

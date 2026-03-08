@@ -267,6 +267,7 @@ function printMainUsage(): void {
   onboarding Run interactive auth + trust-model onboarding
   hybridai   Manage HybridAI API-key login/logout/status
   codex      Manage OpenAI Codex OAuth login/logout/status
+  skill      List skill dependency installers or run one
   update     Check and apply HybridClaw CLI updates
   audit      Inspect/verify structured audit trail
   help       Show general or topic-specific help (e.g. \`hybridclaw help gateway\`)
@@ -348,6 +349,18 @@ Commands:
   instructions [--sync] [--approve]  Verify or restore runtime instruction files`);
 }
 
+function printSkillUsage(): void {
+  console.log(`Usage: hybridclaw skill <command>
+
+Commands:
+  hybridclaw skill list
+  hybridclaw skill install <skill-name> [install-id]
+
+Notes:
+  - \`list\` shows declared install options from skill frontmatter.
+  - \`install\` runs one declared installer (brew, uv, npm, go, download).`);
+}
+
 function printHelpUsage(): void {
   console.log(`Usage: hybridclaw help <topic>
 
@@ -357,6 +370,7 @@ Topics:
   onboarding  Help for onboarding flow
   hybridai    Help for HybridAI API-key auth commands
   codex       Help for OpenAI Codex auth commands
+  skill       Help for skill installer commands
   update      Help for checking/applying CLI updates
   audit       Help for audit commands
   help        This help`);
@@ -384,6 +398,9 @@ function printHelpTopic(topic: string): boolean {
       return true;
     case 'codex':
       printCodexUsage();
+      return true;
+    case 'skill':
+      printSkillUsage();
       return true;
     case 'update':
       printUpdateUsage();
@@ -1047,6 +1064,59 @@ async function handleCodexCommand(args: string[]): Promise<void> {
   throw new Error(`Unknown codex subcommand: ${sub}`);
 }
 
+async function handleSkillCommand(args: string[]): Promise<void> {
+  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printSkillUsage();
+    return;
+  }
+
+  const sub = normalized[0].toLowerCase();
+  if (sub === 'list') {
+    const { loadSkillCatalog } = await import('./skills/skills.js');
+    const { resolveSkillInstallId } = await import(
+      './skills/skills-install.js'
+    );
+    const catalog = loadSkillCatalog();
+    for (const skill of catalog) {
+      const availability = skill.available
+        ? 'available'
+        : skill.missing.join(', ');
+      console.log(`${skill.name} [${availability}]`);
+      const installs = skill.metadata.hybridclaw.install || [];
+      for (const [index, spec] of installs.entries()) {
+        const installId = resolveSkillInstallId(spec, index);
+        const label = spec.label ? ` — ${spec.label}` : '';
+        console.log(`  ${installId} (${spec.kind})${label}`);
+      }
+    }
+    return;
+  }
+
+  if (sub === 'install') {
+    const skillName = normalized[1];
+    const installId = normalized[2];
+    if (!skillName) {
+      printSkillUsage();
+      throw new Error('Missing skill name for `hybridclaw skill install`.');
+    }
+
+    const { installSkillDependency } = await import(
+      './skills/skills-install.js'
+    );
+    const result = await installSkillDependency({ skillName, installId });
+    if (result.stdout) console.log(result.stdout);
+    if (result.stderr) console.error(result.stderr);
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+    console.log(result.message);
+    return;
+  }
+
+  throw new Error(`Unknown skill subcommand: ${sub}`);
+}
+
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<void> {
@@ -1086,6 +1156,9 @@ export async function main(
       break;
     case 'codex':
       await handleCodexCommand(subargs);
+      break;
+    case 'skill':
+      await handleSkillCommand(subargs);
       break;
     case 'update': {
       if (isHelpRequest(subargs)) {

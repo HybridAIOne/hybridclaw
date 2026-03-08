@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
 
@@ -99,6 +100,18 @@ const YELLOW_IMPLICIT_DELAY_SECS = Math.max(
 );
 const MAX_PROMPT_CHARS = 1_200;
 const MAX_COMMAND_PREVIEW_CHARS = 160;
+const WORKSPACE_ROOT_DISPLAY = '/workspace';
+const WORKSPACE_ROOT_ACTUAL = path.resolve(
+  process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT || WORKSPACE_ROOT_DISPLAY,
+);
+const SCRATCH_ROOTS = Array.from(
+  new Set(
+    ['/tmp', '/private/tmp', os.tmpdir()]
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .map((value) => path.resolve(value)),
+  ),
+);
 
 const DEFAULT_POLICY: ApprovalPolicyConfig = {
   pinnedRed: [
@@ -126,6 +139,8 @@ const GIT_WRITE_RE =
   /\bgit\s+(add|commit|checkout\s+-b|branch|merge|rebase|tag)\b/i;
 const UNKNOWN_SCRIPT_RE =
   /(^|\s)(\.[/\\][^\s]+|bash\s+[^\s]+\.sh|zsh\s+[^\s]+\.sh|sh\s+[^\s]+\.sh)(\s|$)/i;
+const READ_ONLY_PDF_SCRIPT_RE =
+  /^\s*node\s+skills\/pdf\/scripts\/(?:extract_pdf_text|check_fillable_fields|extract_form_field_info|extract_form_structure)\.mjs\b/i;
 const READ_ONLY_BASH_RE =
   /^\s*(ls|pwd|cat|head|tail|wc|rg|grep|find|git\s+(status|log|diff|show)|npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|phpunit|node\s+--version|npm\s+--version|pnpm\s+--version|yarn\s+--version)\b/i;
 const NETWORK_COMMAND_RE = /\b(curl|wget|http|https|ssh|scp)\b/i;
@@ -523,6 +538,129 @@ function extractAbsolutePaths(input: string): string[] {
   return [...paths];
 }
 
+function splitCommandSegments(command: string): string[] {
+  const segments: string[] = [];
+  let current = '';
+  let quote: "'" | '"' | null = null;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    const next = command[index + 1];
+
+    if (char === "'" && quote !== '"') {
+      quote = quote === "'" ? null : "'";
+      current += char;
+      continue;
+    }
+    if (char === '"' && quote !== "'") {
+      quote = quote === '"' ? null : '"';
+      current += char;
+      continue;
+    }
+
+    if (!quote) {
+      if (char === ';') {
+        if (current.trim()) segments.push(current.trim());
+        current = '';
+        continue;
+      }
+      if ((char === '&' || char === '|') && next === char) {
+        if (current.trim()) segments.push(current.trim());
+        current = '';
+        index += 1;
+        continue;
+      }
+      if (char === '|') {
+        if (current.trim()) segments.push(current.trim());
+        current = '';
+        continue;
+      }
+    }
+
+    current += char;
+  }
+
+  if (current.trim()) segments.push(current.trim());
+  return segments;
+}
+
+function unquotePathToken(rawValue: string): string {
+  const trimmed = rawValue.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function pushAbsolutePath(
+  output: Set<string>,
+  rawValue: string | undefined,
+): void {
+  const candidate = unquotePathToken(String(rawValue || ''));
+  if (!candidate.startsWith('/')) return;
+  output.add(candidate);
+}
+
+function extractLikelyWritePaths(command: string): string[] {
+  const paths = new Set<string>();
+  const segments = splitCommandSegments(command);
+
+  for (const segment of segments) {
+    const segmentAbsPaths = extractAbsolutePaths(segment);
+    for (const match of segment.matchAll(
+      /(?:^|\s)(?:--out|-o)\s+("[^"]+"|'[^']+'|\/[^\s"'`;,|&()<>]+)/g,
+    )) {
+      pushAbsolutePath(paths, match[1]);
+    }
+    for (const match of segment.matchAll(
+      /(?:^|[^>])>>?\s*("[^"]+"|'[^']+'|\/[^\s"'`;,|&()<>]+)/g,
+    )) {
+      pushAbsolutePath(paths, match[1]);
+    }
+    for (const match of segment.matchAll(
+      /(?:^|\s)tee(?:\s+-a)?\s+("[^"]+"|'[^']+'|\/[^\s"'`;,|&()<>]+)/g,
+    )) {
+      pushAbsolutePath(paths, match[1]);
+    }
+
+    if (/^\s*(mkdir|touch|chmod|chown)\b/i.test(segment)) {
+      for (const candidate of segmentAbsPaths) {
+        paths.add(candidate);
+      }
+    }
+
+    if (/^\s*(cp|mv)\b/i.test(segment)) {
+      const destination = segmentAbsPaths.at(-1);
+      if (destination) paths.add(destination);
+    }
+  }
+
+  return [...paths];
+}
+
+function isWithinResolvedRoot(candidate: string, root: string): boolean {
+  const resolvedCandidate = path.resolve(candidate);
+  const resolvedRoot = path.resolve(root);
+  return (
+    resolvedCandidate === resolvedRoot ||
+    resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`)
+  );
+}
+
+function isWorkspacePath(rawPath: string): boolean {
+  return (
+    isWithinResolvedRoot(rawPath, WORKSPACE_ROOT_DISPLAY) ||
+    isWithinResolvedRoot(rawPath, WORKSPACE_ROOT_ACTUAL)
+  );
+}
+
+function isScratchPath(rawPath: string): boolean {
+  return SCRATCH_ROOTS.some((root) => isWithinResolvedRoot(rawPath, root));
+}
+
 function primaryPathKey(rawPath: string): string {
   const normalized = normalizePathValue(rawPath);
   if (!normalized) return 'root';
@@ -802,7 +940,15 @@ export class TrustedCoworkerApprovalRuntime {
         : mode === 'agent'
           ? 'agent trust'
           : 'once';
-    const replayPrompt = normalizePrompt(target.originalPrompt);
+    const replayPrompt = normalizePrompt(
+      [
+        '[Approval already granted]',
+        `The action "${target.intent}" is approved (${modeSummary}). Continue with it now.`,
+        'Do not ask for approval again unless a new blocked action appears.',
+        '',
+        `Original user request: ${target.originalPrompt}`,
+      ].join('\n'),
+    );
     return {
       replayPrompt: replayPrompt || undefined,
       approvalMode: mode,
@@ -943,7 +1089,10 @@ export class TrustedCoworkerApprovalRuntime {
       reason: classified.reason,
       commandPreview: classified.commandPreview,
       pinned: pinnedByPolicy,
-      implicitDelayMs: tier === 'yellow' ? YELLOW_IMPLICIT_DELAY_MS : undefined,
+      implicitDelayMs:
+        tier === 'yellow' && decision === 'implicit'
+          ? YELLOW_IMPLICIT_DELAY_MS
+          : undefined,
       hostHints: classified.hostHints,
     };
   }
@@ -1060,6 +1209,32 @@ export class TrustedCoworkerApprovalRuntime {
         pathHints: [],
         hostHints: [],
         writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    if (lowerTool === 'message') {
+      const action = normalizeText(args.action).toLowerCase();
+      const readonlyAction =
+        action === 'read' ||
+        action === 'member-info' ||
+        action === 'channel-info';
+      return {
+        tier: readonlyAction ? 'green' : 'yellow',
+        actionKey: action ? `message:${action}` : 'message',
+        intent: `run message${action ? ` ${action}` : ''}`,
+        consequenceIfDenied:
+          action === 'send'
+            ? 'no message will be sent.'
+            : 'I will continue without this message lookup.',
+        reason: readonlyAction
+          ? 'this is a read-only channel operation'
+          : 'this action may change channel state',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: action === 'send',
         promotableRed: false,
         stickyYellow: false,
       };
@@ -1243,6 +1418,7 @@ export class TrustedCoworkerApprovalRuntime {
       (host) => !this.seenNetworkHosts.has(host),
     );
     const absPaths = extractAbsolutePaths(command);
+    const likelyWritePaths = extractLikelyWritePaths(command);
     const writeIntent =
       WRITE_INTENT_RE.test(command) ||
       DELETE_RE.test(command) ||
@@ -1267,9 +1443,13 @@ export class TrustedCoworkerApprovalRuntime {
     }
 
     if (this.loadedPolicy.workspaceFence && writeIntent) {
-      const outsideWorkspace = absPaths.find(
+      const workspaceFencePaths =
+        likelyWritePaths.length > 0 ? likelyWritePaths : absPaths;
+      const outsideWorkspace = workspaceFencePaths.find(
         (entry) =>
-          !entry.startsWith('/workspace') && !entry.startsWith('/dev/null'),
+          !isWorkspacePath(entry) &&
+          !entry.startsWith('/dev/null') &&
+          !isScratchPath(entry),
       );
       if (outsideWorkspace) {
         return {
@@ -1378,6 +1558,22 @@ export class TrustedCoworkerApprovalRuntime {
         intent: `run read-only command \`${normalizePreview(command)}\``,
         consequenceIfDenied: 'I will continue without that check.',
         reason: 'this command is read-only',
+        commandPreview: normalizePreview(command),
+        pathHints: absPaths,
+        hostHints: hosts,
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    if (READ_ONLY_PDF_SCRIPT_RE.test(command)) {
+      return {
+        tier: 'green',
+        actionKey: 'bash:pdf-read-only',
+        intent: `run read-only PDF command \`${normalizePreview(command)}\``,
+        consequenceIfDenied: 'I will continue without that PDF check.',
+        reason: 'this command only reads PDF content',
         commandPreview: normalizePreview(command),
         pathHints: absPaths,
         hostHints: hosts,

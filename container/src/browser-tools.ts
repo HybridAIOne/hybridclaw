@@ -30,6 +30,8 @@ const BROWSER_PLAYWRIGHT_CACHE = path.join(
   BROWSER_RUNTIME_ROOT,
   'ms-playwright',
 );
+const CODEX_VISION_INSTRUCTIONS =
+  'You are Codex, a coding assistant. Analyze the provided image and answer the user question using only visible evidence. If text is unreadable or missing, say so.';
 const BROWSER_PROFILE_ROOT = path.join(
   BROWSER_RUNTIME_ROOT,
   'browser-profiles',
@@ -899,6 +901,7 @@ async function callVisionModel(
     provider === 'openai-codex'
       ? {
           model: normalizeCodexModelName(model),
+          instructions: CODEX_VISION_INSTRUCTIONS,
           input: [
             {
               role: 'user',

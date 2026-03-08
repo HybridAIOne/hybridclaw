@@ -21,6 +21,10 @@ const BOOTSTRAP_FILES = [
   'BOOTSTRAP.md',
   'BOOT.md',
 ] as const;
+const ONE_TIME_BOOTSTRAP_FILES = new Set(['BOOTSTRAP.md']);
+const WORKSPACE_STATE_DIRNAME = '.hybridclaw';
+const WORKSPACE_STATE_FILENAME = 'workspace-state.json';
+const WORKSPACE_STATE_VERSION = 1;
 const POLICY_RELATIVE_PATH = path.join('.hybridclaw', 'policy.yaml');
 const DEFAULT_POLICY_TEMPLATE = `approval:
   pinned_red:
@@ -45,14 +49,120 @@ export interface ContextFile {
   content: string;
 }
 
+interface WorkspaceOnboardingState {
+  version: typeof WORKSPACE_STATE_VERSION;
+  bootstrapSeededAt?: string;
+  onboardingCompletedAt?: string;
+}
+
+function resolveWorkspaceStatePath(wsDir: string): string {
+  return path.join(wsDir, WORKSPACE_STATE_DIRNAME, WORKSPACE_STATE_FILENAME);
+}
+
+function readWorkspaceOnboardingState(
+  statePath: string,
+): WorkspaceOnboardingState {
+  try {
+    const raw = fs.readFileSync(statePath, 'utf-8');
+    const parsed = JSON.parse(raw) as {
+      bootstrapSeededAt?: unknown;
+      onboardingCompletedAt?: unknown;
+    };
+    if (!parsed || typeof parsed !== 'object') {
+      return { version: WORKSPACE_STATE_VERSION };
+    }
+    return {
+      version: WORKSPACE_STATE_VERSION,
+      bootstrapSeededAt:
+        typeof parsed.bootstrapSeededAt === 'string'
+          ? parsed.bootstrapSeededAt
+          : undefined,
+      onboardingCompletedAt:
+        typeof parsed.onboardingCompletedAt === 'string'
+          ? parsed.onboardingCompletedAt
+          : undefined,
+    };
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT') {
+      return { version: WORKSPACE_STATE_VERSION };
+    }
+    logger.warn({ statePath, error }, 'Failed to read workspace state');
+    return { version: WORKSPACE_STATE_VERSION };
+  }
+}
+
+function writeWorkspaceOnboardingState(
+  statePath: string,
+  state: WorkspaceOnboardingState,
+): void {
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  const tempPath = `${statePath}.tmp-${process.pid}-${Date.now().toString(36)}`;
+  const payload = `${JSON.stringify(state, null, 2)}\n`;
+  fs.writeFileSync(tempPath, payload, 'utf-8');
+  fs.renameSync(tempPath, statePath);
+}
+
+function readTemplateFile(filename: (typeof BOOTSTRAP_FILES)[number]): string {
+  const templatePath = path.join(TEMPLATES_DIR, filename);
+  return fs.readFileSync(templatePath, 'utf-8');
+}
+
+function isWorkspaceFileCustomized(
+  wsDir: string,
+  filename: (typeof BOOTSTRAP_FILES)[number],
+): boolean {
+  const filePath = path.join(wsDir, filename);
+  if (!fs.existsSync(filePath)) return false;
+  try {
+    return fs.readFileSync(filePath, 'utf-8') !== readTemplateFile(filename);
+  } catch (error) {
+    logger.warn(
+      { wsDir, file: filename, error },
+      'Failed to compare workspace file against template',
+    );
+    return false;
+  }
+}
+
+function hasWorkspaceUserContent(wsDir: string): boolean {
+  if (fs.existsSync(path.join(wsDir, 'memory'))) return true;
+  if (fs.existsSync(path.join(wsDir, '.git'))) return true;
+  return isWorkspaceFileCustomized(wsDir, 'MEMORY.md');
+}
+
+function looksLikeCompletedWorkspace(
+  wsDir: string,
+  bootstrapExists: boolean,
+): boolean {
+  const customizedIdentity = isWorkspaceFileCustomized(wsDir, 'IDENTITY.md');
+  const customizedUser = isWorkspaceFileCustomized(wsDir, 'USER.md');
+  const userContentPresent = hasWorkspaceUserContent(wsDir);
+
+  if (!bootstrapExists) {
+    return customizedIdentity || customizedUser || userContentPresent;
+  }
+
+  return (customizedIdentity || customizedUser) && userContentPresent;
+}
+
 /**
  * Ensure workspace has bootstrap files, copying from templates if missing.
  */
 export function ensureBootstrapFiles(agentId: string): void {
   const wsDir = agentWorkspaceDir(agentId);
   fs.mkdirSync(wsDir, { recursive: true });
+  const statePath = resolveWorkspaceStatePath(wsDir);
+  let state = readWorkspaceOnboardingState(statePath);
+  let stateDirty = false;
+  const markState = (next: Partial<WorkspaceOnboardingState>) => {
+    state = { ...state, ...next };
+    stateDirty = true;
+  };
+  const nowIso = () => new Date().toISOString();
 
   for (const filename of BOOTSTRAP_FILES) {
+    if (ONE_TIME_BOOTSTRAP_FILES.has(filename)) continue;
     const destPath = path.join(wsDir, filename);
     if (fs.existsSync(destPath)) continue;
 
@@ -61,6 +171,57 @@ export function ensureBootstrapFiles(agentId: string): void {
       fs.copyFileSync(templatePath, destPath);
       logger.debug({ agentId, file: filename }, 'Copied bootstrap template');
     }
+  }
+
+  const bootstrapPath = path.join(wsDir, 'BOOTSTRAP.md');
+  let bootstrapExists = fs.existsSync(bootstrapPath);
+  if (bootstrapExists && !state.bootstrapSeededAt) {
+    markState({ bootstrapSeededAt: nowIso() });
+  }
+
+  const shouldCompleteOnboarding =
+    Boolean(state.onboardingCompletedAt) ||
+    looksLikeCompletedWorkspace(wsDir, bootstrapExists);
+
+  if (shouldCompleteOnboarding) {
+    if (bootstrapExists) {
+      fs.unlinkSync(bootstrapPath);
+      bootstrapExists = false;
+      logger.debug(
+        { agentId, path: bootstrapPath },
+        'Removed stale BOOTSTRAP.md',
+      );
+    }
+    if (!state.onboardingCompletedAt) {
+      markState({ onboardingCompletedAt: nowIso() });
+    }
+  }
+
+  if (
+    !state.onboardingCompletedAt &&
+    state.bootstrapSeededAt &&
+    !bootstrapExists
+  ) {
+    markState({ onboardingCompletedAt: nowIso() });
+  }
+
+  if (!state.onboardingCompletedAt && !bootstrapExists) {
+    const templatePath = path.join(TEMPLATES_DIR, 'BOOTSTRAP.md');
+    if (fs.existsSync(templatePath)) {
+      fs.copyFileSync(templatePath, bootstrapPath);
+      bootstrapExists = true;
+      logger.debug(
+        { agentId, file: 'BOOTSTRAP.md' },
+        'Copied bootstrap template',
+      );
+      if (!state.bootstrapSeededAt) {
+        markState({ bootstrapSeededAt: nowIso() });
+      }
+    }
+  }
+
+  if (stateDirty) {
+    writeWorkspaceOnboardingState(statePath, state);
   }
 
   const policyDestPath = path.join(wsDir, POLICY_RELATIVE_PATH);
@@ -207,21 +368,33 @@ export function buildContextPrompt(files: ContextFile[]): string {
  */
 export function isBootstrapping(agentId: string): boolean {
   const wsDir = agentWorkspaceDir(agentId);
-  if (!fs.existsSync(path.join(wsDir, 'BOOTSTRAP.md'))) return false;
+  const statePath = resolveWorkspaceStatePath(wsDir);
+  const state = readWorkspaceOnboardingState(statePath);
+  if (state.onboardingCompletedAt) return false;
 
-  // Fallback: if the agent already filled in IDENTITY.md or USER.md, it's done
-  for (const filename of ['IDENTITY.md', 'USER.md']) {
-    const wsFile = path.join(wsDir, filename);
-    const tmplFile = path.join(TEMPLATES_DIR, filename);
-    if (!fs.existsSync(wsFile) || !fs.existsSync(tmplFile)) continue;
-    const wsContent = fs.readFileSync(wsFile, 'utf-8');
-    const tmplContent = fs.readFileSync(tmplFile, 'utf-8');
-    if (wsContent !== tmplContent) {
-      // Agent modified workspace files — bootstrapping is effectively done, clean up
-      fs.unlinkSync(path.join(wsDir, 'BOOTSTRAP.md'));
-      return false;
-    }
+  const bootstrapPath = path.join(wsDir, 'BOOTSTRAP.md');
+  const bootstrapExists = fs.existsSync(bootstrapPath);
+  if (!bootstrapExists) return false;
+
+  if (!looksLikeCompletedWorkspace(wsDir, true)) {
+    return true;
   }
 
-  return true;
+  try {
+    fs.unlinkSync(bootstrapPath);
+    writeWorkspaceOnboardingState(statePath, {
+      ...state,
+      version: WORKSPACE_STATE_VERSION,
+      onboardingCompletedAt:
+        state.onboardingCompletedAt || new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.warn(
+      { agentId, path: bootstrapPath, error },
+      'Failed to clean up stale BOOTSTRAP.md while checking bootstrapping state',
+    );
+    return true;
+  }
+
+  return false;
 }

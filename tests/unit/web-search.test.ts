@@ -71,6 +71,12 @@ describe('web search params', () => {
       }),
     ).toThrow('Invalid web search provider: invalid-provider');
   });
+
+  it('accepts auto as an explicit per-call provider override', () => {
+    expect(
+      normalizeSearchParams({ query: 'test', provider: 'auto' }).provider,
+    ).toBe('auto');
+  });
 });
 
 describe('provider chain', () => {

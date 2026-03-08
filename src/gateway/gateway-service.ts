@@ -300,11 +300,27 @@ function normalizeMediaContextItems(
   return normalized;
 }
 
+function isImageMediaItem(item: MediaContextItem): boolean {
+  const mimeType = String(item.mimeType || '')
+    .trim()
+    .toLowerCase();
+  if (mimeType.startsWith('image/')) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif|tiff?)$/i.test(
+    item.filename || '',
+  );
+}
+
 function buildMediaPromptContext(media: MediaContextItem[]): string {
   if (media.length === 0) return '';
   const mediaPaths = media
     .map((item) => item.path)
     .filter((path): path is string => Boolean(path));
+  const imagePaths = media
+    .filter((item) => isImageMediaItem(item) && item.path)
+    .map((item) => item.path as string);
+  const documentPaths = media
+    .filter((item) => !isImageMediaItem(item) && item.path)
+    .map((item) => item.path as string);
   const mediaUrls = media.map((item) => item.url);
   const mediaTypes = media.map((item) => item.mimeType || 'unknown');
   const payload = media.map((item, index) => ({
@@ -319,10 +335,14 @@ function buildMediaPromptContext(media: MediaContextItem[]): string {
   return [
     '[MediaContext]',
     `MediaPaths: ${JSON.stringify(mediaPaths)}`,
+    `ImageMediaPaths: ${JSON.stringify(imagePaths)}`,
+    `DocumentMediaPaths: ${JSON.stringify(documentPaths)}`,
     `MediaUrls: ${JSON.stringify(mediaUrls)}`,
     `MediaTypes: ${JSON.stringify(mediaTypes)}`,
     `MediaItems: ${JSON.stringify(payload)}`,
-    'When the user asks about these Discord files, use `vision_analyze` with `image_url` from MediaPaths first.',
+    'Prefer current-turn attachments and file inputs over `message` reads, `glob`, `find`, or workspace-wide discovery.',
+    'When the user asks about current-turn image attachments, use `vision_analyze` with local image paths from `ImageMediaPaths` first.',
+    'When the user asks about current-turn PDF/document attachments, prefer the injected `<file>` content or the supplied local path before reading chat history.',
     'Use MediaUrls as fallback when a local path is missing or fails to open.',
     'Use `browser_vision` only for questions about the active browser tab/page.',
     '',
@@ -351,7 +371,8 @@ export function resolveMediaToolPolicy(
   content: string,
   media: MediaContextItem[],
 ): MediaToolPolicy {
-  if (media.length === 0) {
+  const imageMedia = media.filter((item) => isImageMediaItem(item));
+  if (imageMedia.length === 0) {
     return {
       blockedTools: undefined,
       prioritizeVisionTool: false,

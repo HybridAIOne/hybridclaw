@@ -47,18 +47,25 @@ import {
   readOutput,
   writeInput,
 } from './ipc.js';
+import {
+  consumeCollapsedStreamDebugLine,
+  createStreamDebugState,
+  decodeStreamDelta,
+  flushCollapsedStreamDebugSummary,
+  type StreamDebugState,
+} from './stream-debug.js';
 
 const IDLE_TIMEOUT_MS = 300_000;
 const TOOL_RESULT_RE =
   /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
-const STREAM_DELTA_RE = /^\[stream\]\s+([A-Za-z0-9+/=]+)$/;
 
 interface PoolEntry {
   process: ChildProcess;
   sessionId: string;
   startedAt: number;
   stderrBuffer: string;
+  streamDebug: StreamDebugState;
   authSignature: string;
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
@@ -79,11 +86,10 @@ function computeAuthSignature(
 function emitTextDelta(entry: PoolEntry, line: string): void {
   const callback = entry.onTextDelta;
   if (!callback) return;
-  const match = line.match(STREAM_DELTA_RE);
-  if (!match) return;
+  const delta = decodeStreamDelta(line);
+  if (delta == null) return;
 
   try {
-    const delta = Buffer.from(match[1], 'base64').toString('utf-8');
     if (delta) callback(delta);
   } catch (err) {
     logger.debug(
@@ -170,6 +176,31 @@ function resolveHostAgentCommand(): { command: string; args: string[] } {
   );
 }
 
+function ensureWorkspaceNodeModulesLink(workspacePath: string): void {
+  const packageRoot = resolvePackageRoot();
+  const sourceNodeModules = path.join(packageRoot, 'node_modules');
+  if (!fs.existsSync(sourceNodeModules)) return;
+
+  const targetNodeModules = path.join(workspacePath, 'node_modules');
+
+  try {
+    const stat = fs.lstatSync(targetNodeModules);
+    if (stat.isSymbolicLink()) {
+      const existingTarget = fs.readlinkSync(targetNodeModules);
+      const resolvedExisting = path.resolve(
+        path.dirname(targetNodeModules),
+        existingTarget,
+      );
+      if (resolvedExisting === sourceNodeModules) return;
+    }
+    fs.rmSync(targetNodeModules, { recursive: true, force: true });
+  } catch {
+    // Missing target is fine; we'll create it below.
+  }
+
+  fs.symlinkSync(sourceNodeModules, targetNodeModules, 'dir');
+}
+
 function stopHostProcess(entry: PoolEntry): void {
   try {
     entry.process.kill('SIGTERM');
@@ -197,6 +228,7 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
   ensureSessionDirs(sessionId);
   ensureAgentDirs(agentId);
   const { ipcPath, workspacePath } = getSessionPaths(sessionId, agentId);
+  ensureWorkspaceNodeModulesLink(workspacePath);
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
 
@@ -244,6 +276,7 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     sessionId,
     startedAt: Date.now(),
     stderrBuffer: '',
+    streamDebug: createStreamDebugState(),
     authSignature: '',
   };
 
@@ -255,6 +288,13 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
       const line = rawLine.trim();
       if (!line) continue;
       emitTextDelta(entry, line);
+      if (
+        consumeCollapsedStreamDebugLine(line, entry.streamDebug, (message) => {
+          logger.debug({ sessionId }, message);
+        })
+      ) {
+        continue;
+      }
       emitToolProgress(entry, line);
       logger.debug({ sessionId }, line);
     }
@@ -264,10 +304,19 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
       emitTextDelta(entry, tail);
-      emitToolProgress(entry, tail);
-      logger.debug({ sessionId }, tail);
+      if (
+        !consumeCollapsedStreamDebugLine(tail, entry.streamDebug, (message) => {
+          logger.debug({ sessionId }, message);
+        })
+      ) {
+        emitToolProgress(entry, tail);
+        logger.debug({ sessionId }, tail);
+      }
       entry.stderrBuffer = '';
     }
+    flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
+      logger.debug({ sessionId }, message);
+    });
     pool.delete(sessionId);
     logger.info({ sessionId, code }, 'Host agent process exited');
   });
@@ -443,6 +492,9 @@ export async function runHostProcess(params: {
     return output;
   } finally {
     abortSignal?.removeEventListener('abort', onAbort);
+    flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
+      logger.debug({ sessionId }, message);
+    });
     if (entry.onTextDelta === onTextDelta) entry.onTextDelta = undefined;
     if (entry.onToolProgress === onToolProgress)
       entry.onToolProgress = undefined;

@@ -64,7 +64,7 @@ If `provider` is set explicitly, the tool uses that provider first, then `fallba
 - `freshness`: optional `day`, `week`, `month`, or `year`.
 - `country`: optional two-letter country code such as `US` or `DE`.
 - `language`: optional ISO 639-1 code such as `en` or `de`.
-- `provider`: optional per-call provider override.
+- `provider`: optional per-call provider override, including `auto`.
 
 ## Notes
 

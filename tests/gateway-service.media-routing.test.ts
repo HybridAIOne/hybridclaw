@@ -14,6 +14,17 @@ const SAMPLE_MEDIA: MediaContextItem[] = [
   },
 ];
 
+const SAMPLE_PDF_MEDIA: MediaContextItem[] = [
+  {
+    path: '/discord-media-cache/2026-03-04/sample.pdf',
+    url: 'https://cdn.discordapp.com/attachments/1/2/sample.pdf',
+    originalUrl: 'https://cdn.discordapp.com/attachments/1/2/sample.pdf',
+    mimeType: 'application/pdf',
+    sizeBytes: 5678,
+    filename: 'sample.pdf',
+  },
+];
+
 test('Discord image question blocks browser_vision and prioritizes vision_analyze', () => {
   const policy = resolveMediaToolPolicy(
     'Was steht auf dem Bild?',
@@ -34,6 +45,15 @@ test('Explicit browser-tab question does not block browser_vision', () => {
 
 test('No media context leaves tool policy unchanged', () => {
   const policy = resolveMediaToolPolicy('Was steht auf dem Bild?', []);
+  expect(policy.prioritizeVisionTool).toBe(false);
+  expect(policy.blockedTools).toBeUndefined();
+});
+
+test('PDF-only media does not trigger image routing heuristics', () => {
+  const policy = resolveMediaToolPolicy(
+    'Was steht auf dem Bild?',
+    SAMPLE_PDF_MEDIA,
+  );
   expect(policy.prioritizeVisionTool).toBe(false);
   expect(policy.blockedTools).toBeUndefined();
 });

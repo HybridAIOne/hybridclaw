@@ -1,12 +1,12 @@
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import type {
   Attachment as DiscordAttachment,
   Message as DiscordMessage,
 } from 'discord.js';
-import fs from 'fs';
-import path from 'path';
 
-import { DATA_DIR } from '../../config/config.js';
+import { CONTAINER_SANDBOX_MODE, DATA_DIR } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types.js';
 
@@ -51,6 +51,11 @@ function looksLikeImageAttachment(name: string, contentType: string): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif|tiff?)$/i.test(name);
 }
 
+function looksLikePdfAttachment(name: string, contentType: string): boolean {
+  if (contentType === 'application/pdf') return true;
+  return /\.pdf$/i.test(name);
+}
+
 function sanitizeAttachmentFilename(name: string): string {
   const base = name
     .trim()
@@ -66,6 +71,13 @@ function normalizeAttachmentPathForContainer(hostPath: string): string | null {
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative))
     return null;
   return `${CONTAINER_DISCORD_MEDIA_CACHE_DIR}/${relative.replace(/\\/g, '/')}`;
+}
+
+function normalizeAttachmentPathForRuntime(hostPath: string): string | null {
+  if (CONTAINER_SANDBOX_MODE === 'host') {
+    return hostPath;
+  }
+  return normalizeAttachmentPathForContainer(hostPath);
 }
 
 function isAllowedDiscordAttachmentUrl(rawUrl: string): boolean {
@@ -99,18 +111,20 @@ async function fetchAttachmentText(
 
 interface CachedDiscordImageResult {
   path: string | null;
+  hostPath: string | null;
   sourceUrl: string;
   mimeType: string | null;
   cacheError?: string;
 }
 
-async function cacheDiscordImageAttachment(params: {
+async function cacheDiscordAttachment(params: {
   attachment: DiscordAttachment;
   messageId: string;
   order: number;
   fallbackMimeType: string | null;
+  acceptMime: (mimeType: string, attachmentName: string) => boolean;
 }): Promise<CachedDiscordImageResult> {
-  const { attachment, messageId, order, fallbackMimeType } = params;
+  const { attachment, messageId, order, fallbackMimeType, acceptMime } = params;
   const attachmentName = attachment.name || 'image';
   const sourceCandidates = [attachment.url, attachment.proxyURL]
     .map((value) => String(value || '').trim())
@@ -143,7 +157,7 @@ async function cacheDiscordImageAttachment(params: {
         .split(';')[0]
         .trim()
         .toLowerCase();
-      if (!resolvedMime.startsWith('image/')) {
+      if (!acceptMime(resolvedMime, attachmentName)) {
         fetchErrors.push(
           `invalid_type:${resolvedMime || 'unknown'}@${candidateUrl}`,
         );
@@ -174,13 +188,14 @@ async function cacheDiscordImageAttachment(params: {
       const hostPath = path.join(DISCORD_MEDIA_CACHE_DIR, datePrefix, fileName);
       await fs.promises.mkdir(path.dirname(hostPath), { recursive: true });
       await fs.promises.writeFile(hostPath, buffer);
-      const containerPath = normalizeAttachmentPathForContainer(hostPath);
-      if (!containerPath) {
+      const runtimePath = normalizeAttachmentPathForRuntime(hostPath);
+      if (!runtimePath) {
         fetchErrors.push(`cache_path_error:${hostPath}`);
         continue;
       }
       return {
-        path: containerPath,
+        path: runtimePath,
+        hostPath,
         sourceUrl: candidateUrl,
         mimeType: resolvedMime,
       };
@@ -198,6 +213,7 @@ async function cacheDiscordImageAttachment(params: {
     '';
   return {
     path: null,
+    hostPath: null,
     sourceUrl: fallbackUrl,
     mimeType: fallbackMimeType,
     cacheError:
@@ -248,11 +264,12 @@ export async function buildAttachmentContext(
 
       if (looksLikeImageAttachment(name, contentType)) {
         mediaOrder += 1;
-        const cached = await cacheDiscordImageAttachment({
+        const cached = await cacheDiscordAttachment({
           attachment,
           messageId: msg.id,
           order: mediaOrder,
           fallbackMimeType: contentType || null,
+          acceptMime: (mimeType) => mimeType.startsWith('image/'),
         });
         media.push({
           path: cached.path,
@@ -291,6 +308,59 @@ export async function buildAttachmentContext(
               cacheError: cached.cacheError || 'unknown',
             },
             'Discord image attachment cache failed; using CDN fallback',
+          );
+        }
+        continue;
+      }
+
+      if (looksLikePdfAttachment(name, contentType)) {
+        mediaOrder += 1;
+        const cached = await cacheDiscordAttachment({
+          attachment,
+          messageId: msg.id,
+          order: mediaOrder,
+          fallbackMimeType: contentType || null,
+          acceptMime: (mimeType, attachmentName) =>
+            mimeType === 'application/pdf' || /\.pdf$/i.test(attachmentName),
+        });
+        media.push({
+          path: cached.path,
+          url: cached.sourceUrl || attachment.url,
+          originalUrl: attachment.url,
+          mimeType: cached.mimeType || contentType || 'application/pdf',
+          sizeBytes: size,
+          filename: name,
+        });
+        if (cached.path) {
+          lines.push(
+            `- ${name}: PDF attachment cached (${size} bytes, ${cached.mimeType || contentType || 'application/pdf'})`,
+          );
+          logger.info(
+            {
+              messageId: msg.id,
+              attachmentId: attachment.id,
+              name,
+              sizeBytes: size,
+              mimeType: cached.mimeType || contentType || 'application/pdf',
+              localPath: cached.path,
+              hostPath: cached.hostPath,
+            },
+            'Discord PDF attachment cached successfully',
+          );
+        } else {
+          lines.push(
+            `- ${name}: PDF attachment (cache failed, using URL fallback)`,
+          );
+          logger.warn(
+            {
+              messageId: msg.id,
+              attachmentId: attachment.id,
+              name,
+              sizeBytes: size,
+              mimeType: contentType || 'application/pdf',
+              cacheError: cached.cacheError || 'unknown',
+            },
+            'Discord PDF attachment cache failed; using CDN fallback',
           );
         }
         continue;

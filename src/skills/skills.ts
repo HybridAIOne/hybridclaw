@@ -4,11 +4,11 @@
  * bodies for skills marked `always: true`.
  */
 
-import { createHash } from 'crypto';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -24,6 +24,27 @@ type SkillSource =
   | 'community'
   | 'workspace';
 
+export type SkillInstallKind =
+  | 'brew'
+  | 'uv'
+  | 'npm'
+  | 'node'
+  | 'go'
+  | 'download';
+
+export interface SkillInstallSpec {
+  id?: string;
+  kind: SkillInstallKind;
+  label?: string;
+  bins?: string[];
+  formula?: string;
+  package?: string;
+  module?: string;
+  url?: string;
+  path?: string;
+  chmod?: string;
+}
+
 interface SkillCandidate {
   name: string;
   description: string;
@@ -38,6 +59,7 @@ interface SkillCandidate {
     hybridclaw: {
       tags: string[];
       relatedSkills: string[];
+      install: SkillInstallSpec[];
     };
   };
   filePath: string;
@@ -59,6 +81,7 @@ export interface Skill {
     hybridclaw: {
       tags: string[];
       relatedSkills: string[];
+      install: SkillInstallSpec[];
     };
   };
   filePath: string;
@@ -221,6 +244,55 @@ function normalizeStringList(raw: unknown): string[] {
   return [];
 }
 
+function tryParseJsonArray(raw: string): unknown[] | null {
+  const trimmed = stripQuotes(raw.trim());
+  if (!trimmed || !trimmed.startsWith('[')) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeInstallSpecs(raw: unknown): SkillInstallSpec[] {
+  if (!Array.isArray(raw)) return [];
+
+  const specs: SkillInstallSpec[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    const kindRaw =
+      typeof entry.kind === 'string' ? entry.kind.trim().toLowerCase() : '';
+    if (
+      kindRaw !== 'brew' &&
+      kindRaw !== 'uv' &&
+      kindRaw !== 'npm' &&
+      kindRaw !== 'node' &&
+      kindRaw !== 'go' &&
+      kindRaw !== 'download'
+    ) {
+      continue;
+    }
+
+    specs.push({
+      id: typeof entry.id === 'string' ? entry.id.trim() : undefined,
+      kind: kindRaw,
+      label: typeof entry.label === 'string' ? entry.label.trim() : undefined,
+      bins: normalizeStringList(entry.bins),
+      formula:
+        typeof entry.formula === 'string' ? entry.formula.trim() : undefined,
+      package:
+        typeof entry.package === 'string' ? entry.package.trim() : undefined,
+      module:
+        typeof entry.module === 'string' ? entry.module.trim() : undefined,
+      url: typeof entry.url === 'string' ? entry.url.trim() : undefined,
+      path: typeof entry.path === 'string' ? entry.path.trim() : undefined,
+      chmod: typeof entry.chmod === 'string' ? entry.chmod.trim() : undefined,
+    });
+  }
+  return specs;
+}
+
 function tryParseJsonObject(raw: string): Record<string, unknown> | null {
   const trimmed = stripQuotes(raw.trim());
   if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('[')))
@@ -330,6 +402,40 @@ function parseSectionStringList(
   return values;
 }
 
+function parseSectionObjectList(
+  section: FrontmatterSection | undefined,
+): Record<string, string>[] {
+  if (!section) return [];
+  const values: Record<string, string>[] = [];
+  let current: Record<string, string> | null = null;
+
+  for (const line of section.children) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const itemMatch = trimmed.match(/^-\s*(.*)$/);
+    if (itemMatch) {
+      if (current && Object.keys(current).length > 0) values.push(current);
+      current = {};
+      const remainder = (itemMatch[1] || '').trim();
+      if (!remainder) continue;
+      const inlineMatch = remainder.match(/^([\w-]+):\s*(.*)$/);
+      if (inlineMatch) {
+        current[inlineMatch[1]] = stripQuotes((inlineMatch[2] || '').trim());
+      }
+      continue;
+    }
+
+    const fieldMatch = trimmed.match(/^([\w-]+):\s*(.*)$/);
+    if (!fieldMatch) continue;
+    if (!current) current = {};
+    current[fieldMatch[1]] = stripQuotes((fieldMatch[2] || '').trim());
+  }
+
+  if (current && Object.keys(current).length > 0) values.push(current);
+  return values;
+}
+
 function parseRequiresFromFrontmatter(frontmatter: FrontmatterParseResult): {
   bins: string[];
   env: string[];
@@ -365,16 +471,22 @@ function parseRequiresFromFrontmatter(frontmatter: FrontmatterParseResult): {
 function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
   tags: string[];
   relatedSkills: string[];
+  install: SkillInstallSpec[];
 } {
   const normalizeMetadata = (
     raw: Record<string, unknown>,
-  ): { tags: string[]; relatedSkills: string[] } => {
+  ): {
+    tags: string[];
+    relatedSkills: string[];
+    install: SkillInstallSpec[];
+  } => {
     const hybridRaw = isRecord(raw.hybridclaw) ? raw.hybridclaw : raw;
     return {
       tags: normalizeStringList(hybridRaw.tags),
       relatedSkills: normalizeStringList(
         hybridRaw.related_skills ?? hybridRaw.relatedSkills,
       ),
+      install: normalizeInstallSpecs(hybridRaw.install),
     };
   };
 
@@ -384,22 +496,29 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
   if (fromInlineJson) return normalizeMetadata(fromInlineJson);
 
   const metadataSection = extractTopLevelSection(frontmatter.block, 'metadata');
-  if (!metadataSection) return { tags: [], relatedSkills: [] };
+  if (!metadataSection) return { tags: [], relatedSkills: [], install: [] };
 
   const metadataInlineJson = tryParseJsonObject(metadataSection.inline);
   if (metadataInlineJson) return normalizeMetadata(metadataInlineJson);
 
   const metadataFields = parseSectionChildren(metadataSection.children);
   const hybridSection = metadataFields.get('hybridclaw');
-  if (!hybridSection) return { tags: [], relatedSkills: [] };
+  if (!hybridSection) return { tags: [], relatedSkills: [], install: [] };
 
   const hybridInlineJson = tryParseJsonObject(hybridSection.inline);
   if (hybridInlineJson) return normalizeMetadata(hybridInlineJson);
 
   const hybridFields = parseSectionChildren(hybridSection.children);
+  const installSection = hybridFields.get('install');
+  const installInlineJson = installSection
+    ? tryParseJsonArray(installSection.inline)
+    : null;
   return {
     tags: parseSectionStringList(hybridFields.get('tags')),
     relatedSkills: parseSectionStringList(hybridFields.get('related_skills')),
+    install: normalizeInstallSpecs(
+      installInlineJson ?? parseSectionObjectList(installSection),
+    ),
   };
 }
 
@@ -407,7 +526,7 @@ let cachedPathEnv = '';
 let cachedPathExt = '';
 const hasBinaryCache = new Map<string, boolean>();
 
-function hasBinary(binName: string): boolean {
+export function hasBinary(binName: string): boolean {
   const bin = binName.trim();
   if (!bin) return false;
 
@@ -850,16 +969,31 @@ export function expandSkillInvocation(
   return lines.join('\n');
 }
 
-/**
- * Load all skills with precedence:
- * extra < bundled < codex < claude < agents-personal < agents-project < workspace.
- * Any non-workspace skill selected by precedence is mirrored into workspace so
- * the container can read it via /workspace/... paths.
- */
-export function loadSkills(agentId: string): Skill[] {
-  const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
-  fs.mkdirSync(workspaceDir, { recursive: true });
+export interface SkillCatalogEntry {
+  name: string;
+  description: string;
+  userInvocable: boolean;
+  disableModelInvocation: boolean;
+  always: boolean;
+  requires: {
+    bins: string[];
+    env: string[];
+  };
+  metadata: {
+    hybridclaw: {
+      tags: string[];
+      relatedSkills: string[];
+      install: SkillInstallSpec[];
+    };
+  };
+  filePath: string;
+  baseDir: string;
+  source: SkillSource;
+  available: boolean;
+  missing: string[];
+}
 
+function collectResolvedSkillCandidates(): SkillCandidate[] {
   const config = getRuntimeConfig();
   const extraDirs = (config.skills?.extraDirs ?? [])
     .map((dir) => resolveUserPath(dir))
@@ -886,8 +1020,6 @@ export function loadSkills(agentId: string): Skill[] {
   const workspaceSkills = scanSkillsDir(WORKSPACE_SKILLS_DIR, 'workspace');
 
   const byName = new Map<string, SkillCandidate>();
-
-  // Lowest to highest precedence.
   for (const skill of extraSkills) byName.set(skill.name, skill);
   for (const skill of bundledSkills) byName.set(skill.name, skill);
   for (const skill of codexSkills) byName.set(skill.name, skill);
@@ -896,10 +1028,13 @@ export function loadSkills(agentId: string): Skill[] {
   for (const skill of projectAgentsSkills) byName.set(skill.name, skill);
   for (const skill of workspaceSkills) byName.set(skill.name, skill);
 
-  const eligible = Array.from(byName.values()).filter(
-    (skill) => checkEligibility(skill).available,
-  );
-  const guarded = eligible.filter((skill) => {
+  return Array.from(byName.values());
+}
+
+function filterGuardedSkillCandidates(
+  skills: SkillCandidate[],
+): SkillCandidate[] {
+  return skills.filter((skill) => {
     const decision = guardSkillDirectory({
       skillName: skill.name,
       skillPath: skill.baseDir,
@@ -924,6 +1059,36 @@ export function loadSkills(agentId: string): Skill[] {
     }
     return false;
   });
+}
+
+export function loadSkillCatalog(): SkillCatalogEntry[] {
+  const candidates = filterGuardedSkillCandidates(
+    collectResolvedSkillCandidates(),
+  );
+  return candidates
+    .map((skill) => {
+      const eligibility = checkEligibility(skill);
+      return {
+        ...skill,
+        available: eligibility.available,
+        missing: eligibility.missing,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Load all skills with precedence:
+ * extra < bundled < codex < claude < agents-personal < agents-project < workspace.
+ * Any non-workspace skill selected by precedence is mirrored into workspace so
+ * the container can read it via /workspace/... paths.
+ */
+export function loadSkills(agentId: string): Skill[] {
+  const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
+  fs.mkdirSync(workspaceDir, { recursive: true });
+  const guarded = filterGuardedSkillCandidates(
+    collectResolvedSkillCandidates(),
+  ).filter((skill) => checkEligibility(skill).available);
 
   const resolved: Skill[] = [];
   for (const skill of guarded) {

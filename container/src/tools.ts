@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   BROWSER_TOOL_DEFINITIONS,
@@ -11,6 +12,7 @@ import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   replaceWorkspaceRootInOutput,
   resolveMediaPath,
+  resolveWorkspaceGlobPattern,
   resolveWorkspacePath,
   stripWorkspaceRootPrefix,
   WORKSPACE_ROOT,
@@ -90,6 +92,13 @@ const MAX_PENDING_DELEGATIONS = 3;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
 const VISION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const VISION_FETCH_TIMEOUT_MS = 12_000;
+const CODEX_VISION_INSTRUCTIONS =
+  'You are Codex, a coding assistant. Analyze the provided image and answer the user question using only visible evidence. If text is unreadable or missing, say so.';
+const VISION_LOCAL_SCRATCH_ROOTS = Array.from(
+  new Set(
+    ['/tmp', '/private/tmp', os.tmpdir()].map((entry) => path.resolve(entry)),
+  ),
+);
 const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
   /^cdn\.discordapp\.com$/i,
   /^media\.discordapp\.net$/i,
@@ -548,7 +557,23 @@ function isSafeDiscordCdnUrl(raw: string): boolean {
 }
 
 function normalizeVisionLocalPath(rawPath: string): string | null {
-  return resolveWorkspacePath(rawPath) || resolveMediaPath(rawPath);
+  const normalized = String(rawPath || '').trim();
+  if (!normalized) return null;
+
+  const workspacePath = resolveWorkspacePath(normalized);
+  if (workspacePath) return workspacePath;
+
+  const mediaPath = resolveMediaPath(normalized);
+  if (mediaPath) return mediaPath;
+
+  const resolved = path.resolve(normalized);
+  for (const root of VISION_LOCAL_SCRATCH_ROOTS) {
+    if (resolved === root || resolved.startsWith(`${root}${path.sep}`)) {
+      return resolved;
+    }
+  }
+
+  return null;
 }
 
 function isKnownDiscordMediaPath(localPath: string): boolean {
@@ -586,7 +611,7 @@ async function readVisionImageFromLocalPath(
   const normalizedPath = normalizeVisionLocalPath(localPath);
   if (!normalizedPath) {
     throw new Error(
-      `local image path must be under ${WORKSPACE_ROOT_DISPLAY} or ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}`,
+      `local image path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}, or a local temp directory`,
     );
   }
   if (
@@ -754,6 +779,7 @@ async function callVisionModel(
         currentModelProvider === 'openai-codex'
           ? {
               model: normalizeCodexModelName(currentModelName),
+              instructions: CODEX_VISION_INSTRUCTIONS,
               input: [
                 {
                   role: 'user',
@@ -1021,6 +1047,55 @@ function safeJoin(userPath: string): string {
   const resolved = resolveWorkspacePath(userPath);
   if (resolved) return resolved;
   throw new Error(`Path escapes workspace: ${userPath}`);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function globPatternToRegExp(pattern: string): RegExp {
+  let regex = '^';
+
+  for (let index = 0; index < pattern.length; index += 1) {
+    const ch = pattern[index];
+    if (ch === '*') {
+      const next = pattern[index + 1];
+      const afterNext = pattern[index + 2];
+      if (next === '*') {
+        if (afterNext === '/') {
+          regex += '(?:[^/]+/)*';
+          index += 2;
+          continue;
+        }
+        regex += '.*';
+        index += 1;
+        continue;
+      }
+      regex += '[^/]*';
+      continue;
+    }
+    if (ch === '?') {
+      regex += '[^/]';
+      continue;
+    }
+    if (ch === '{') {
+      const end = pattern.indexOf('}', index + 1);
+      if (end > index) {
+        const body = pattern
+          .slice(index + 1, end)
+          .split(',')
+          .map((part) => escapeRegExp(part))
+          .join('|');
+        regex += `(?:${body})`;
+        index = end;
+        continue;
+      }
+    }
+    regex += escapeRegExp(ch);
+  }
+
+  regex += '$';
+  return new RegExp(regex);
 }
 
 const MEMORY_ROOT_FILES = new Set(['MEMORY.md', 'USER.md']);
@@ -1402,17 +1477,28 @@ export async function executeTool(
       }
 
       case 'glob': {
-        const pattern = args.pattern;
+        const pattern = String(args.pattern || '').trim();
         try {
-          // Use find as a simple glob implementation
-          const cmd = `find "${WORKSPACE_ROOT.replace(/"/g, '\\"')}" -path "${String(pattern || '').replace(/"/g, '\\"')}" -type f 2>/dev/null | head -50`;
+          const normalizedWorkspacePattern =
+            resolveWorkspaceGlobPattern(pattern);
+          if (!normalizedWorkspacePattern) {
+            return 'Error: glob only searches inside the workspace or configured external bind mounts. For other absolute paths, use bash.';
+          }
+          const matcher = globPatternToRegExp(
+            normalizedWorkspacePattern.replace(/\\/g, '/'),
+          );
+          const cmd = `find "${WORKSPACE_ROOT.replace(/"/g, '\\"')}" -type f 2>/dev/null | head -5000`;
           const result = execSync(cmd, { timeout: 10000, encoding: 'utf-8' });
           if (!result.trim()) return 'No files found.';
-          // Convert absolute paths to relative
           const files = result
             .trim()
             .split('\n')
-            .map((f) => replaceWorkspaceRootInOutput(f));
+            .map((filePath) => filePath.trim())
+            .filter(Boolean)
+            .filter((filePath) => matcher.test(filePath.replace(/\\/g, '/')))
+            .slice(0, 50)
+            .map((filePath) => replaceWorkspaceRootInOutput(filePath));
+          if (files.length === 0) return 'No files found.';
           return abbreviatePreview(files.join('\n'));
         } catch {
           return 'No files found.';
@@ -2245,13 +2331,15 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'glob',
-      description: 'List files matching a glob pattern',
+      description:
+        'List files matching a glob pattern inside the workspace only. For absolute paths outside the workspace, use bash instead.',
       parameters: {
         type: 'object',
         properties: {
           pattern: {
             type: 'string',
-            description: 'Glob pattern to match files',
+            description:
+              'Glob pattern to match files inside the workspace (relative paths preferred)',
           },
         },
         required: ['pattern'],
@@ -2285,7 +2373,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'bash',
       description:
-        'Run a shell command and return stdout/stderr. Do not use for file creation or file editing; use write/edit tools for file authoring.',
+        'Run a shell command and return stdout/stderr. The shell starts in the workspace root; use relative workspace paths instead of literal /workspace paths. Use bash for absolute paths outside the workspace, and prefer /tmp for temporary scratch files. Do not use for file creation or file editing; use write/edit tools for file authoring.',
       parameters: {
         type: 'object',
         properties: {
@@ -2585,7 +2673,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           provider: {
             type: 'string',
             description:
-              'Override provider: brave, perplexity, tavily, duckduckgo, searxng.',
+              'Override provider: auto, brave, perplexity, tavily, duckduckgo, searxng.',
           },
         },
         required: ['query'],

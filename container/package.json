@@ -19,7 +19,12 @@
     "@mozilla/readability": "^0.6.0",
     "agent-browser": "^0.15.1",
     "linkedom": "^0.18.12",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.4.394",
     "playwright": "^1.58.2"
+  },
+  "optionalDependencies": {
+    "@napi-rs/canvas": "^0.1.82"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

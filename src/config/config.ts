@@ -174,6 +174,7 @@ export let CONTAINER_NETWORK = 'bridge';
 export let CONTAINER_TIMEOUT = 300_000;
 export let CONTAINER_SANDBOX_MODE: RuntimeConfig['container']['sandboxMode'] =
   'container';
+export let CONTAINER_BINDS: string[] = [];
 
 export const MOUNT_ALLOWLIST_PATH = path.join(
   os.homedir(),
@@ -372,6 +373,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   CONTAINER_CPUS = config.container.cpus;
   CONTAINER_NETWORK = config.container.network;
   CONTAINER_TIMEOUT = config.container.timeoutMs;
+  CONTAINER_BINDS = config.container.binds;
   ADDITIONAL_MOUNTS = config.container.additionalMounts;
   CONTAINER_MAX_OUTPUT_SIZE = config.container.maxOutputBytes;
   MAX_CONCURRENT_CONTAINERS = Math.max(1, config.container.maxConcurrent);

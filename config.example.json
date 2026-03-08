@@ -89,6 +89,7 @@
     "cpus": "1",
     "network": "bridge",
     "timeoutMs": 300000,
+    "binds": [],
     "additionalMounts": "",
     "maxOutputBytes": 10485760,
     "maxConcurrent": 5

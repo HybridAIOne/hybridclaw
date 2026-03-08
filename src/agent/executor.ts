@@ -1,5 +1,6 @@
 import {
   ADDITIONAL_MOUNTS,
+  CONTAINER_BINDS,
   CONTAINER_CPUS,
   CONTAINER_IMAGE,
   CONTAINER_MEMORY,
@@ -11,6 +12,10 @@ import {
 } from '../config/config.js';
 import { ContainerExecutor } from '../infra/container-runner.js';
 import { HostExecutor } from '../infra/host-runner.js';
+import {
+  parseBindSpecs,
+  parseLegacyAdditionalMounts,
+} from '../security/mount-config.js';
 import type {
   ChatMessage,
   ContainerOutput,
@@ -86,13 +91,10 @@ function initializedExecutors(): Executor[] {
 }
 
 function parseAdditionalMountsCount(): number {
-  if (!ADDITIONAL_MOUNTS.trim()) return 0;
-  try {
-    const parsed = JSON.parse(ADDITIONAL_MOUNTS) as unknown;
-    return Array.isArray(parsed) ? parsed.length : 0;
-  } catch {
-    return 0;
-  }
+  const bindCount = parseBindSpecs(CONTAINER_BINDS).mounts.length;
+  const legacyCount =
+    parseLegacyAdditionalMounts(ADDITIONAL_MOUNTS).mounts.length;
+  return bindCount + legacyCount;
 }
 
 export function getActiveExecutorCount(): number {

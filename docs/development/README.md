@@ -1,0 +1,15 @@
+# Development Docs
+
+These docs hold the deeper reference material that does not belong in the
+top-level contributor quickstart.
+
+- [Architecture](./architecture.md) for the major runtime pieces and repository
+  layout
+- [Runtime Internals](./runtime.md) for sandboxing, configuration, audit, and
+  observability behavior
+- [Testing Reference](./testing.md) for local checks, hooks, and test-suite
+  boundaries
+- [Release and Publishing](./releasing.md) for release tags and container
+  publish flow
+- [Skills Internals](./skills.md) for skill roots, precedence, and invocation
+  rules

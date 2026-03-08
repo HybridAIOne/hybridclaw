@@ -111,7 +111,7 @@ export interface WebSearchParams {
   freshness?: SearchFreshness;
   country?: string;
   language?: string;
-  provider?: SearchProviderName;
+  provider?: SearchProviderMode;
 }
 
 interface NormalizedSearchParams {
@@ -120,7 +120,7 @@ interface NormalizedSearchParams {
   freshness?: SearchFreshness;
   country?: string;
   language?: string;
-  provider?: SearchProviderName;
+  provider?: SearchProviderMode;
 }
 
 interface SearchExecutionContext {
@@ -333,13 +333,7 @@ export function normalizeSearchParams(
     country: normalizeCountry(params.country),
     language: normalizeLanguage(params.language),
     provider: params.provider
-      ? (() => {
-          const provider = normalizeProviderName(params.provider);
-          if (!provider) {
-            throw new Error(`Invalid web search provider: ${params.provider}`);
-          }
-          return provider;
-        })()
+      ? normalizeProviderMode(params.provider)
       : undefined,
   };
 }

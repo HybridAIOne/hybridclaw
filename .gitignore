@@ -29,7 +29,6 @@ config.local.json
 
 # Claude Code
 .claude/
-CLAUDE.md
 
 # OS
 .DS_Store

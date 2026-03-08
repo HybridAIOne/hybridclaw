@@ -13,6 +13,48 @@ export const IPC_DIR = path.resolve(
   process.env.HYBRIDCLAW_AGENT_IPC_DIR || '/ipc',
 );
 
+interface ExtraMountAlias {
+  hostPaths: string[];
+  containerPath: string;
+  readonly: boolean;
+}
+
+function loadExtraMountAliases(): ExtraMountAlias[] {
+  const raw = (process.env.HYBRIDCLAW_AGENT_EXTRA_MOUNTS || '').trim();
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') return null;
+        const mount = entry as Partial<ExtraMountAlias>;
+        const hostPaths = Array.isArray(mount.hostPaths)
+          ? mount.hostPaths
+              .filter((value): value is string => typeof value === 'string')
+              .map((value) => value.trim())
+              .filter(Boolean)
+          : [];
+        const containerPath =
+          typeof mount.containerPath === 'string'
+            ? mount.containerPath.trim()
+            : '';
+        if (hostPaths.length === 0 || !containerPath) return null;
+        return {
+          hostPaths,
+          containerPath,
+          readonly: mount.readonly !== false,
+        };
+      })
+      .filter((value): value is ExtraMountAlias => value !== null);
+  } catch {
+    return [];
+  }
+}
+
+const EXTRA_MOUNT_ALIASES = loadExtraMountAliases();
+
 function normalizeSlashes(value: string): string {
   return value.replace(/\\/g, '/');
 }
@@ -57,6 +99,9 @@ function resolveRootBoundPath(
 
   const normalizedInput = normalizeSlashes(input);
   if (path.posix.isAbsolute(normalizedInput)) {
+    const fromExtraMount = resolveExtraMountPath(normalizedInput, actualRoot);
+    if (fromExtraMount) return fromExtraMount;
+
     const fromDisplay = resolveDisplayAbsoluteToActual(
       path.posix.normalize(normalizedInput),
       displayRoot,
@@ -76,8 +121,59 @@ function resolveRootBoundPath(
   return isWithinRoot(resolved, actualRoot) ? resolved : null;
 }
 
+function resolveExtraMountPath(
+  normalizedAbsolutePath: string,
+  actualRoot: string,
+): string | null {
+  const resolvedInput = path.resolve(normalizedAbsolutePath);
+
+  for (const mount of EXTRA_MOUNT_ALIASES) {
+    for (const hostPath of mount.hostPaths) {
+      const resolvedHostPath = path.resolve(hostPath);
+      const relative = path.relative(resolvedHostPath, resolvedInput);
+      if (
+        relative === '..' ||
+        relative.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relative)
+      ) {
+        continue;
+      }
+
+      const mapped = relative
+        ? path.resolve(mount.containerPath, relative)
+        : path.resolve(mount.containerPath);
+      if (isWithinRoot(mapped, actualRoot)) return mapped;
+    }
+  }
+
+  return null;
+}
+
 export function resolveWorkspacePath(rawPath: string): string | null {
   return resolveRootBoundPath(rawPath, WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY);
+}
+
+export function resolveWorkspaceGlobPattern(rawPattern: string): string | null {
+  const input = String(rawPattern || '').trim();
+  if (!input) return null;
+
+  const normalized = normalizeSlashes(input);
+  const firstMeta = normalized.search(/[*?[{]/);
+  if (firstMeta === -1) return resolveWorkspacePath(input);
+
+  if (!path.posix.isAbsolute(normalized)) {
+    const clean = path.posix.normalize(normalized);
+    if (clean === '..' || clean.startsWith('../')) return null;
+    return path.resolve(WORKSPACE_ROOT, clean);
+  }
+
+  const prefixEnd = normalized.lastIndexOf('/', firstMeta);
+  if (prefixEnd <= 0) return null;
+  const prefix = normalized.slice(0, prefixEnd);
+  const suffix = normalized.slice(prefixEnd);
+  const resolvedPrefix = resolveWorkspacePath(prefix);
+  if (!resolvedPrefix) return null;
+  return `${resolvedPrefix.replace(/\\/g, '/')}${suffix}`;
 }
 
 export function resolveMediaPath(rawPath: string): string | null {

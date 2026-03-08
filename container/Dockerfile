@@ -1,10 +1,16 @@
 FROM node:20-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ripgrep git curl python3 python3-pip \
+    ripgrep git curl python3 python3-pip poppler-utils qpdf \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --no-cache-dir --break-system-packages uv
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
+    uv \
+    pypdf==5.4.0 \
+    pdfplumber==0.11.6 \
+    pdf2image==1.17.0 \
+    reportlab==4.4.4 \
+    pillow==11.3.0
 
 WORKDIR /app
 
