@@ -375,12 +375,13 @@ describe('CLI hybridai commands', () => {
     const { cli } = await importFreshCli();
     const tempDir = createTempDir();
     const linkPath = path.join(tempDir, 'hybridclaw');
-    fs.symlinkSync('/Users/bkoehler/src/hybridclaw/src/cli.ts', linkPath);
+    const cliPath = path.resolve('src/cli.ts');
+    fs.symlinkSync(cliPath, linkPath);
 
     expect(
       cli.isDirectExecution(
         linkPath,
-        pathToFileURL('/Users/bkoehler/src/hybridclaw/src/cli.ts').toString(),
+        pathToFileURL(cliPath).toString(),
       ),
     ).toBe(true);
   });
