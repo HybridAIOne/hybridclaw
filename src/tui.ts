@@ -23,6 +23,7 @@ import {
   renderGatewayCommand,
 } from './gateway/gateway-client.js';
 import { logger } from './logger.js';
+import { parseTuiSlashCommand } from './tui-slash-command.js';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -261,6 +262,19 @@ function printHelp(): void {
   );
   console.log(`  ${TEAL}/rag [on|off]${RESET}     Toggle or set RAG`);
   console.log(`  ${TEAL}/ralph [on|off|set n]${RESET} Configure Ralph loop`);
+  console.log(`  ${TEAL}/mcp list${RESET}         List configured MCP servers`);
+  console.log(
+    `  ${TEAL}/mcp add <name> <json>${RESET} Add or update an MCP server`,
+  );
+  console.log(
+    `  ${TEAL}/mcp toggle <name>${RESET} Disable or enable an MCP server`,
+  );
+  console.log(
+    `  ${TEAL}/mcp remove <name>${RESET} Remove an MCP server config`,
+  );
+  console.log(
+    `  ${TEAL}/mcp reconnect <name>${RESET} Restart MCP for the current session`,
+  );
   console.log(`  ${TEAL}/info${RESET}             Show current settings`);
   console.log(
     `  ${TEAL}/compact${RESET}          Archive and compact older session history`,
@@ -474,8 +488,9 @@ async function handleSlashCommand(
   input: string,
   rl: readline.Interface,
 ): Promise<boolean> {
-  const parts = input.slice(1).trim().split(/\s+/).filter(Boolean);
-  const cmd = (parts[0] || '').toLowerCase();
+  const parsed = parseTuiSlashCommand(input);
+  const parts = parsed.parts;
+  const cmd = parsed.cmd;
 
   switch (cmd) {
     case 'help':
@@ -532,6 +547,13 @@ async function handleSlashCommand(
         await runGatewayCommand(['ralph', ...parts.slice(1)]);
       } else {
         await runGatewayCommand(['ralph', 'info']);
+      }
+      return true;
+    case 'mcp':
+      if (parts.length > 1) {
+        await runGatewayCommand(['mcp', ...parts.slice(1)]);
+      } else {
+        await runGatewayCommand(['mcp', 'list']);
       }
       return true;
     case 'info':

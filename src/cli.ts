@@ -299,7 +299,9 @@ If gateway is not running, it is started in backend mode automatically.
 Interactive slash commands inside TUI:
   /help   /bots   /bot <id|name>   /model [name]
   /model default [name]
-  /rag [on|off]   /info            /compact   /clear
+  /rag [on|off]   /mcp list        /mcp add <name> <json>
+  /mcp toggle <name> /mcp remove <name> /mcp reconnect <name>
+  /info            /compact   /clear
   /stop           /exit`);
 }
 
