@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "type": "module",
   "description": "Personal AI assistant bot for Discord, powered by HybridAI",
   "engines": {

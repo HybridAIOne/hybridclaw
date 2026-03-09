@@ -19,6 +19,9 @@ npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
 ```
 
+Prerequisites: Node.js 22. Docker is recommended when you want the default
+container sandbox.
+
 ## HybridAI Advantage
 
 - Security-focused foundation
@@ -144,6 +147,11 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
 - For contributor workflow, see [CONTRIBUTING.md](./CONTRIBUTING.md). For deeper runtime, skills, release, and maintainer reference docs, see [docs/development/README.md](./docs/development/README.md).
 
+## Bundled Skills
+
+- `pdf` is bundled and supports text extraction, page rendering, fillable form inspection/filling, and non-fillable overlay workflows.
+- Use `hybridclaw skill list` to inspect available installers and `hybridclaw skill install pdf [install-id]` when a bundled skill advertises optional setup helpers.
+
 ## Commands
 
 CLI runtime commands:
@@ -154,6 +162,7 @@ CLI runtime commands:
 - `hybridclaw gateway stop` — Stop managed gateway backend process
 - `hybridclaw gateway status` — Show lifecycle/API status
 - `hybridclaw gateway <command...>` — Send a command to a running gateway (for example `sessions`, `bot info`)
+- `hybridclaw gateway compact` — Archive older session history into semantic memory while preserving a recent active context tail
 - `hybridclaw tui` — Start terminal client connected to gateway
 - `hybridclaw onboarding` — Run HybridAI account/API key onboarding
 - `hybridclaw hybridai login [--device-code|--browser|--import]` — Store HybridAI API credentials via browser-assisted, headless/manual, or env-import flows
@@ -174,6 +183,7 @@ In Discord, use `!claw help` to see all commands. Key ones:
 - `!claw bot set <id>` — Set chatbot for this channel
 - `!claw model set <name>` — Set model for this channel
 - `!claw rag on/off` — Toggle RAG
+- `!claw compact` — Archive older history into session memory and keep a recent working tail
 - `!claw clear` — Clear conversation history
 - `!claw audit recent [n]` — Show recent structured audit events
 - `!claw audit verify [sessionId]` — Verify audit hash chain integrity
@@ -184,3 +194,5 @@ In Discord, use `!claw help` to see all commands. Key ones:
 - `!claw schedule add "<cron>" <prompt>` — Add cron scheduled task
 - `!claw schedule add at "<ISO time>" <prompt>` — Add one-shot task
 - `!claw schedule add every <ms> <prompt>` — Add interval task
+
+In the TUI, use `/compact` to trigger the same session compaction flow.

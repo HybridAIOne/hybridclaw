@@ -694,7 +694,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 20+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.4.2.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 22+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.4.3.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -733,30 +733,30 @@
 
 <section id="latest">
   <div class="section-center">
-    <div class="section-label">Release v0.4.2</div>
+    <div class="section-label">Release v0.4.3</div>
     <h2 class="section-title">Latest release highlights</h2>
     <p class="section-desc">Key improvements included in the latest tagged release.</p>
   </div>
     <div class="features-grid">
       <div class="feature-card">
-      <div class="feature-icon">&#x1f41e;</div>
-      <h3>Gateway debug tracing</h3>
-      <p><code>hybridclaw gateway start|restart --debug</code> now surfaces Discord intake, gateway turn stages, container model-call timing, and Codex streaming transport details in one foreground log.</p>
+      <div class="feature-icon">&#x1f9f9;</div>
+      <h3>Manual session compaction</h3>
+      <p><code>/compact</code> now archives older transcript history, condenses it into high-confidence session memory, and keeps a recent working tail active across Discord, web, and terminal sessions.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x1f9ed;</div>
-      <h3>Unified model catalog</h3>
-      <p>Discord, TUI, and gateway model commands now read from the same configured model list, so Codex and HybridAI options stay in sync across every control surface.</p>
+      <div class="feature-icon">&#x1f4c4;</div>
+      <h3>Built-in PDF workflows</h3>
+      <p>The bundled <code>pdf</code> skill adds extraction, rendering, fillable-form inspection/filling, and non-fillable overlay flows, with current-turn context for explicit local files and Discord PDF uploads.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x1f4ac;</div>
-      <h3>Discord DM fix</h3>
-      <p>Direct-message greetings are no longer filtered out by the guild chatter suppression path, so normal DM prompts now reach the model pipeline again.</p>
+      <div class="feature-icon">&#x1f6e0;&#xfe0f;</div>
+      <h3>Skill installer commands</h3>
+      <p><code>hybridclaw skill list</code> and <code>hybridclaw skill install</code> now expose bundled installer metadata so optional runtime dependencies can be set up directly from the CLI.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x2699;&#xfe0f;</div>
-      <h3>More reliable startup</h3>
-      <p>Symlinked CLI installs now launch correctly, TUI attaches cleanly to a running gateway, and stale container refresh failures fall back to an existing local image when one is already usable.</p>
+      <div class="feature-icon">&#x1f5c3;&#xfe0f;</div>
+      <h3>Safer runtime continuity</h3>
+      <p>Configured bind mounts, better host-runtime workspace linking, smarter attachment routing, and expanded regression coverage make long-running sessions and PDF-heavy workflows more reliable.</p>
       </div>
   </div>
 </section>

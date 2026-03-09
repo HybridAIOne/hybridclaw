@@ -56,6 +56,7 @@ CI currently runs:
 - `npm run release:check`
 - `npm --prefix container run release:check`
 - unit tests with coverage
+- coverage badge publication to `gh-pages/badge/coverage.json` for README/docs badges
 
 ## Repository Structure For Testing
 

@@ -2,18 +2,23 @@
 
 ## [Unreleased]
 
+## [0.4.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.4.3)
+
 ### Added
 
 - **Manual session compaction command**: Added built-in `/compact` support across gateway, TUI, and Discord to archive older transcript history, summarize it into high-confidence session memory, and preserve a recent conversation tail for active context.
 - **Bundled PDF workflow support**: Added a built-in `pdf` skill plus Node-based PDF tooling for text extraction, page rendering, fillable form inspection/filling, and non-fillable overlay workflows, with current-turn PDF context injection for explicit file paths and Discord attachments.
 - **Skill installer commands**: Added `hybridclaw skill list` and `hybridclaw skill install <skill> [install-id]` so bundled skills can advertise optional dependency installers.
 - **Container bind path config**: Added `container.binds` support alongside validated host/container path aliasing so configured external directories can be used safely from sandboxed tools and PDF workflows.
+- **Published coverage badge**: CI now generates and publishes a coverage badge JSON artifact for the README badge and release-health visibility.
 
 ### Changed
 
 - **Attachment and media routing**: Gateway/media prompt assembly now distinguishes image attachments from document attachments, prefers current-turn local files for PDFs, and limits native vision injection to actual image inputs.
 - **Contributor documentation structure**: Promoted `AGENTS.md` to the canonical repo-level agent guide, slimmed `CONTRIBUTING.md` into a contributor quickstart, and moved deeper maintainer/runtime references into `docs/development/`.
 - **Host runtime workspace setup**: Host-mode agent workspaces now link package `node_modules`, while runtime path handling and workspace globbing understand configured extra mounts and local scratch paths more reliably.
+- **Release metadata and docs alignment**: The published package now declares `Node 22.x`, README badges point at maintained badge sources, and the docs landing page tracks the current tagged release/version requirements.
+- **Regression coverage**: Added focused unit coverage for memory chunking, gateway startup/health flows, Discord delivery chunking, PDF context handling, and compaction paths.
 
 ### Fixed
 
@@ -22,6 +27,7 @@
 - **Codex device-code activation flow**: Device-code login now falls back to the default activation URL and tolerates nested pending/authorization error payloads from the auth service.
 - **Runtime-home migration false positive**: Launching HybridClaw from `~/.hybridclaw` no longer treats the runtime `data/` directory as a legacy current-working-directory migration target.
 - **Heartbeat proactive queue cleanup**: Local proactive delivery now drops orphaned heartbeat queue rows instead of trying to route them as real outbound messages.
+- **Coverage badge publishing permissions**: CI now has the repository permissions needed to update the published coverage badge without failing the main workflow.
 
 ## [0.4.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.4.2)
 
