@@ -1,11 +1,11 @@
 # HybridClaw
 
 [![CI](https://github.com/HybridAIOne/hybridclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/HybridAIOne/hybridclaw/actions/workflows/ci.yml)
-[![coverage](https://img.shields.io/endpoint?url=https://hybridclaw.io/badge/coverage.json)](https://github.com/HybridAIOne/hybridclaw/actions/workflows/ci.yml)
+[![coverage](https://img.shields.io/endpoint?url=https://hybridaione.github.io/hybridclaw/badge/coverage.json)](https://github.com/HybridAIOne/hybridclaw/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@hybridaione/hybridclaw)](https://www.npmjs.com/package/@hybridaione/hybridclaw)
 [![Node](https://img.shields.io/node/v/@hybridaione/hybridclaw)](https://nodejs.org)
 [![License](https://img.shields.io/github/license/HybridAIOne/hybridclaw)](https://github.com/HybridAIOne/hybridclaw/blob/main/LICENSE)
-[![Docs](https://img.shields.io/badge/docs-hybridclaw.io-blue)](https://hybridclaw.io)
+[![Docs](https://img.shields.io/badge/docs-github%20pages-blue)](https://hybridaione.github.io/hybridclaw/)
 [![Powered by HybridAI](https://img.shields.io/badge/powered%20by-HybridAI-blueviolet)](https://hybridai.one)
 
 <img width="540" height="511" alt="image" src="docs/hero.png" />
