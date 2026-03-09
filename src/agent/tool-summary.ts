@@ -61,6 +61,10 @@ const TOOL_GROUPS: ToolGroup[] = [
     label: 'Vision',
     tools: ['vision_analyze', 'image'],
   },
+  {
+    label: 'MCP',
+    tools: [],
+  },
 ];
 
 const KNOWN_TOOL_NAMES = new Set(
@@ -105,8 +109,14 @@ export function buildToolsSummary(options: ToolSummaryOptions = {}): string {
     lines.push(`**${group.label}**: ${formatToolList(present)}`);
   }
 
+  const mcpTools = Array.from(available).filter((tool) => tool.includes('__'));
+  if (mcpTools.length > 0) {
+    mcpTools.sort((a, b) => a.localeCompare(b));
+    lines.push(`**MCP**: ${formatToolList(mcpTools)}`);
+  }
+
   const otherTools = Array.from(available).filter(
-    (tool) => !KNOWN_TOOL_NAMES.has(tool),
+    (tool) => !KNOWN_TOOL_NAMES.has(tool) && !tool.includes('__'),
   );
   if (otherTools.length > 0) {
     otherTools.sort((a, b) => a.localeCompare(b));

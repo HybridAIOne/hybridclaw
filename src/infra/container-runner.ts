@@ -25,6 +25,7 @@ import {
   HYBRIDAI_MAX_TOKENS,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
+  MCP_SERVERS,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
   PROACTIVE_AUTO_RETRY_ENABLED,
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
@@ -560,6 +561,7 @@ export async function runContainer(
     allowedTools,
     blockedTools,
     media,
+    mcpServers: MCP_SERVERS,
     webSearch: {
       provider: WEB_SEARCH_PROVIDER,
       fallbackProviders: [...WEB_SEARCH_FALLBACK_PROVIDERS],

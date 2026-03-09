@@ -37,6 +37,18 @@ test('buildSystemPromptFromHooks reflects restricted tool availability', () => {
   expect(prompt).not.toContain('`delegate`');
 });
 
+test('buildToolsSummary groups MCP tools separately from other tools', () => {
+  const summary = buildToolsSummary({
+    allowedTools: ['read', 'playwright__navigate', 'tavily__search'],
+  });
+
+  expect(summary).toContain('**Files**: `read`');
+  expect(summary).toContain(
+    '**MCP**: `playwright__navigate`, `tavily__search`',
+  );
+  expect(summary).not.toContain('**Other**:');
+});
+
 function makeSkill(overrides: Partial<Skill> = {}): Skill {
   return {
     name: 'pdf',

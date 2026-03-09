@@ -6,6 +6,10 @@ type RuntimeEventName =
   | 'model_error'
   | 'before_tool_call'
   | 'after_tool_call'
+  | 'mcp_server_connected'
+  | 'mcp_server_disconnected'
+  | 'mcp_server_error'
+  | 'mcp_tool_call'
   | 'turn_end';
 
 interface RuntimeEventPayload {

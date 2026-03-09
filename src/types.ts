@@ -48,6 +48,17 @@ export interface MediaContextItem {
   filename: string;
 }
 
+export interface McpServerConfig {
+  transport: 'stdio' | 'http' | 'sse';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  headers?: Record<string, string>;
+  enabled?: boolean;
+}
+
 export interface ContainerInput {
   sessionId: string;
   messages: ChatMessage[];
@@ -76,6 +87,7 @@ export interface ContainerInput {
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
+  mcpServers?: Record<string, McpServerConfig>;
   webSearch?: {
     provider:
       | 'auto'

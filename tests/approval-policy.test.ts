@@ -65,6 +65,37 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(channelInfo.tier).toBe('green');
   });
 
+  test('read-like MCP tools are green', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'tavily__search',
+      argsJson: JSON.stringify({ query: 'hybridclaw mcp' }),
+      latestUserPrompt: 'Search for MCP docs',
+    });
+
+    expect(evaluation.tier).toBe('green');
+    expect(evaluation.actionKey).toBe('mcp:tavily:search');
+  });
+
+  test('execute-like MCP tools are red', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'runner__exec_command',
+      argsJson: JSON.stringify({ command: 'npm test' }),
+      latestUserPrompt: 'Run the tests',
+    });
+
+    expect(evaluation.tier).toBe('red');
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.actionKey).toBe('mcp:runner:execute');
+  });
+
   test('read-only bundled PDF extraction commands are green', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

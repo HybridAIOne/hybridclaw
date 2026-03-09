@@ -71,6 +71,7 @@ Common advanced areas:
 - Scheduler jobs: `scheduler.jobs[]` with cron, every, or at delivery targets
 - Memory compaction and consolidation: `sessionCompaction.*`, `memory.*`
 - Proactive runtime: `proactive.*`
+- MCP server registry: `mcpServers.*`
 - Observability export: `observability.*`
 - Skills roots: `skills.extraDirs`
 

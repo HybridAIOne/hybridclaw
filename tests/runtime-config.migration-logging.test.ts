@@ -83,7 +83,7 @@ describe('runtime config migration logging', () => {
 
     expect(
       infoSpy.mock.calls.some(([message]) =>
-        String(message).includes('normalized config schema v7'),
+        String(message).includes('normalized config schema v8'),
       ),
     ).toBe(false);
   });
@@ -99,9 +99,39 @@ describe('runtime config migration logging', () => {
 
     expect(
       infoSpy.mock.calls.some(([message]) =>
-        String(message).includes('normalized config schema v7'),
+        String(message).includes('normalized config schema v8'),
       ),
     ).toBe(true);
+  });
+
+  it('normalizes MCP server transport aliases on startup', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.mcpServers = {
+        demo: {
+          transport: 'stdio',
+          command: 'node',
+          enabled: true,
+        },
+      };
+      (config.mcpServers.demo as Record<string, unknown>).transport =
+        'streamable-http';
+      (config.mcpServers.demo as Record<string, unknown>).url =
+        'https://example.com/mcp';
+      delete (config.mcpServers.demo as Record<string, unknown>).command;
+    });
+
+    await importFreshRuntimeConfig(homeDir);
+
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
+    ) as RuntimeConfig;
+
+    expect(stored.mcpServers.demo.transport).toBe('http');
+    expect(stored.mcpServers.demo.url).toBe('https://example.com/mcp');
   });
 
   it('expands the legacy single-entry Codex model list on startup', async () => {

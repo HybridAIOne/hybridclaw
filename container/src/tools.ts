@@ -7,6 +7,7 @@ import {
   executeBrowserTool,
   setBrowserModelContext,
 } from './browser-tools.js';
+import type { McpClientManager } from './mcp/client-manager.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -88,6 +89,7 @@ let currentChatbotId = '';
 let currentModelHeaders: Record<string, string> = {};
 let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
+let mcpClientManager: McpClientManager | null = null;
 const MAX_PENDING_DELEGATIONS = 3;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
 const VISION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
@@ -242,6 +244,10 @@ export function setWebSearchConfig(config?: WebSearchRuntimeConfig): void {
         fallbackProviders: [...config.fallbackProviders],
       }
     : undefined;
+}
+
+export function setMcpClientManager(manager: McpClientManager | null): void {
+  mcpClientManager = manager;
 }
 
 function readStringValue(value: unknown): string | undefined {
@@ -1373,6 +1379,14 @@ export async function executeTool(
 ): Promise<string> {
   try {
     const args = JSON.parse(argsJson);
+    const argsObject =
+      args && typeof args === 'object' && !Array.isArray(args)
+        ? (args as Record<string, unknown>)
+        : {};
+
+    if (mcpClientManager?.isKnownTool(name)) {
+      return await mcpClientManager.callTool(name, argsObject);
+    }
 
     switch (name) {
       case 'read': {

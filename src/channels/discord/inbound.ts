@@ -19,6 +19,7 @@ const KNOWN_SUBCOMMANDS = new Set([
   'schedule',
   'channel',
   'ralph',
+  'mcp',
   'clear',
   'compact',
   'help',

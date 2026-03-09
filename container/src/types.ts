@@ -1,3 +1,5 @@
+import type { McpServerConfig } from './mcp/types.js';
+
 export interface ChatContentTextPart {
   type: 'text';
   text: string;
@@ -116,6 +118,7 @@ export interface ContainerInput {
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
+  mcpServers?: Record<string, McpServerConfig>;
   webSearch?: {
     provider:
       | 'auto'

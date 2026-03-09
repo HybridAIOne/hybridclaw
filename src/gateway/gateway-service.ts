@@ -41,7 +41,10 @@ import {
   PROACTIVE_DELEGATION_MAX_PER_TURN,
   PROACTIVE_RALPH_MAX_ITERATIONS,
 } from '../config/config.js';
-import { updateRuntimeConfig } from '../config/runtime-config.js';
+import {
+  getRuntimeConfig,
+  updateRuntimeConfig,
+} from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
@@ -87,6 +90,7 @@ import type {
   ChatMessage,
   DelegationSideEffect,
   DelegationTaskSpec,
+  McpServerConfig,
   MediaContextItem,
   ScheduledTask,
   StoredMessage,
@@ -919,6 +923,75 @@ function infoCommand(title: string, text: string): GatewayCommandResult {
 
 function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
+}
+
+function parseMcpServerConfig(rawJson: string): {
+  config?: McpServerConfig;
+  error?: string;
+} {
+  const trimmed = rawJson.trim();
+  if (!trimmed) {
+    return { error: 'Usage: `mcp add <name> <json>`' };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (error) {
+    return {
+      error: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { error: 'MCP server config must be a JSON object.' };
+  }
+
+  const record = parsed as Record<string, unknown>;
+  const rawTransport = String(record.transport ?? record.type ?? '')
+    .trim()
+    .toLowerCase();
+  const transport =
+    rawTransport === 'streamable-http' || rawTransport === 'streamable_http'
+      ? 'http'
+      : rawTransport;
+
+  if (transport !== 'stdio' && transport !== 'http' && transport !== 'sse') {
+    return {
+      error: 'MCP server transport must be one of `stdio`, `http`, or `sse`.',
+    };
+  }
+  if (
+    transport === 'stdio' &&
+    (typeof record.command !== 'string' || !record.command.trim())
+  ) {
+    return { error: 'stdio MCP servers require a non-empty `command`.' };
+  }
+  if (
+    (transport === 'http' || transport === 'sse') &&
+    (typeof record.url !== 'string' || !record.url.trim())
+  ) {
+    return {
+      error: `${transport} MCP servers require a non-empty \`url\`.`,
+    };
+  }
+
+  return { config: parsed as McpServerConfig };
+}
+
+function summarizeMcpServer(name: string, config: McpServerConfig): string {
+  const enabled = config.enabled === false ? 'disabled' : 'enabled';
+  const target =
+    config.transport === 'stdio'
+      ? [config.command, ...(config.args || [])].filter(Boolean).join(' ')
+      : config.url || '(missing url)';
+  return `${name} — ${enabled} · ${config.transport} · ${target || '(missing command)'}`;
+}
+
+function restartNoteForMcpChange(sessionId: string): string {
+  return stopSessionExecution(sessionId)
+    ? ' Current session container restarted to apply immediately.'
+    : ' Changes apply on the next turn.';
 }
 
 function buildTokenUsageAuditPayload(
@@ -2277,6 +2350,11 @@ export async function handleGatewayCommand(
         '`channel mode [off|mention|free]` — Set or inspect this Discord channel response mode',
         '`channel policy [open|allowlist|disabled]` — Set or inspect guild channel policy',
         '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
+        '`mcp list` — List configured MCP servers',
+        '`mcp add <name> <json>` — Add or update an MCP server config',
+        '`mcp remove <name>` — Remove an MCP server config',
+        '`mcp toggle <name>` — Enable or disable an MCP server',
+        '`mcp reconnect <name>` — Restart current session runtime so the server reconnects next turn',
         '`clear` — Clear session history',
         '`/compact` — Archive older history, summarize it, and retain recent context',
         '`/status` — Show runtime status (Discord slash command, private to caller)',
@@ -2593,6 +2671,96 @@ export async function handleGatewayCommand(
         : '';
       return plainCommand(
         `Ralph loop set to ${formatRalphIterations(normalized)}.${restartNote}`,
+      );
+    }
+
+    case 'mcp': {
+      const sub = (req.args[1] || 'list').toLowerCase();
+      const runtimeConfig = getRuntimeConfig();
+      const servers = runtimeConfig.mcpServers || {};
+
+      if (sub === 'list') {
+        const entries = Object.entries(servers);
+        if (entries.length === 0) {
+          return plainCommand(
+            'No MCP servers configured. Use `mcp add <name> <json>`.',
+          );
+        }
+        entries.sort(([left], [right]) => left.localeCompare(right));
+        return infoCommand(
+          'MCP Servers',
+          entries.map(([name, config]) => summarizeMcpServer(name, config)).join('\n'),
+        );
+      }
+
+      if (sub === 'add') {
+        const name = String(req.args[2] || '').trim();
+        if (!name) {
+          return badCommand('Usage', 'Usage: `mcp add <name> <json>`');
+        }
+        const parsed = parseMcpServerConfig(req.args.slice(3).join(' '));
+        if (!parsed.config) {
+          return badCommand('Invalid MCP Config', parsed.error || 'Invalid config.');
+        }
+        updateRuntimeConfig((draft) => {
+          draft.mcpServers[name] = parsed.config as McpServerConfig;
+        });
+        return plainCommand(
+          `MCP server \`${name}\` saved.${restartNoteForMcpChange(req.sessionId)}`,
+        );
+      }
+
+      if (sub === 'remove') {
+        const name = String(req.args[2] || '').trim();
+        if (!name) {
+          return badCommand('Usage', 'Usage: `mcp remove <name>`');
+        }
+        if (!servers[name]) {
+          return badCommand('Not Found', `MCP server \`${name}\` was not found.`);
+        }
+        updateRuntimeConfig((draft) => {
+          delete draft.mcpServers[name];
+        });
+        return plainCommand(
+          `MCP server \`${name}\` removed.${restartNoteForMcpChange(req.sessionId)}`,
+        );
+      }
+
+      if (sub === 'toggle') {
+        const name = String(req.args[2] || '').trim();
+        if (!name) {
+          return badCommand('Usage', 'Usage: `mcp toggle <name>`');
+        }
+        const existing = servers[name];
+        if (!existing) {
+          return badCommand('Not Found', `MCP server \`${name}\` was not found.`);
+        }
+        const nextEnabled = existing.enabled === false;
+        updateRuntimeConfig((draft) => {
+          const entry = draft.mcpServers[name];
+          if (entry) entry.enabled = nextEnabled;
+        });
+        return plainCommand(
+          `MCP server \`${name}\` ${nextEnabled ? 'enabled' : 'disabled'}.${restartNoteForMcpChange(req.sessionId)}`,
+        );
+      }
+
+      if (sub === 'reconnect') {
+        const name = String(req.args[2] || '').trim();
+        if (!name) {
+          return badCommand('Usage', 'Usage: `mcp reconnect <name>`');
+        }
+        if (!servers[name]) {
+          return badCommand('Not Found', `MCP server \`${name}\` was not found.`);
+        }
+        return plainCommand(
+          `MCP server \`${name}\` scheduled for reconnect.${restartNoteForMcpChange(req.sessionId)}`,
+        );
+      }
+
+      return badCommand(
+        'Usage',
+        'Usage: `mcp list|add <name> <json>|remove <name>|toggle <name>|reconnect <name>`',
       );
     }
 

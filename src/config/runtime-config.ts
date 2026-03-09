@@ -3,9 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { CODEX_DEFAULT_BASE_URL } from '../auth/codex-auth.js';
+import type { McpServerConfig } from '../types.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 7;
+export const CONFIG_VERSION = 8;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
@@ -217,6 +218,7 @@ export interface RuntimeConfig {
     maxOutputBytes: number;
     maxConcurrent: number;
   };
+  mcpServers: Record<string, McpServerConfig>;
   web: {
     search: {
       provider: RuntimeWebSearchProvider;
@@ -409,6 +411,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     maxOutputBytes: 10_485_760,
     maxConcurrent: 5,
   },
+  mcpServers: {},
   web: {
     search: {
       provider: 'auto',
@@ -608,6 +611,84 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   }
 
   return fallback;
+}
+
+function normalizeStringRecord(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {};
+  const normalized: Record<string, string> = {};
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = rawKey.trim();
+    if (!key) continue;
+    if (typeof rawValue === 'string') {
+      normalized[key] = rawValue;
+      continue;
+    }
+    if (typeof rawValue === 'number' || typeof rawValue === 'boolean') {
+      normalized[key] = String(rawValue);
+    }
+  }
+  return normalized;
+}
+
+function normalizeMcpTransport(
+  value: unknown,
+  fallback: McpServerConfig['transport'],
+): McpServerConfig['transport'] {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'stdio') return 'stdio';
+  if (
+    normalized === 'http' ||
+    normalized === 'streamable-http' ||
+    normalized === 'streamable_http'
+  ) {
+    return 'http';
+  }
+  if (normalized === 'sse') return 'sse';
+  return fallback;
+}
+
+function normalizeMcpServerConfig(value: unknown): McpServerConfig | null {
+  if (!isRecord(value)) return null;
+  const transport = normalizeMcpTransport(
+    value.transport ?? value.type,
+    'stdio',
+  );
+  const command = normalizeString(value.command, '', { allowEmpty: true });
+  const cwd = normalizeString(value.cwd, '', { allowEmpty: true });
+  const url = normalizeString(value.url, '', { allowEmpty: true });
+
+  return {
+    transport,
+    ...(command ? { command } : {}),
+    ...(Array.isArray(value.args)
+      ? { args: normalizeStringArray(value.args, []) }
+      : {}),
+    ...(Object.keys(normalizeStringRecord(value.env)).length > 0
+      ? { env: normalizeStringRecord(value.env) }
+      : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(url ? { url } : {}),
+    ...(Object.keys(normalizeStringRecord(value.headers)).length > 0
+      ? { headers: normalizeStringRecord(value.headers) }
+      : {}),
+    enabled: normalizeBoolean(value.enabled, true),
+  };
+}
+
+function normalizeMcpServers(
+  value: unknown,
+): Record<string, McpServerConfig> {
+  if (!isRecord(value)) return {};
+  const normalized: Record<string, McpServerConfig> = {};
+  for (const [rawName, rawConfig] of Object.entries(value)) {
+    const name = rawName.trim();
+    if (!name) continue;
+    const serverConfig = normalizeMcpServerConfig(rawConfig);
+    if (!serverConfig) continue;
+    normalized[name] = serverConfig;
+  }
+  return normalized;
 }
 
 function normalizeCodexModelArray(
@@ -1296,6 +1377,7 @@ function normalizeRuntimeConfig(
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
   const rawContainer = isRecord(raw.container) ? raw.container : {};
+  const rawMcpServers = isRecord(raw.mcpServers) ? raw.mcpServers : {};
   const rawWeb = isRecord(raw.web) ? raw.web : {};
   const rawWebSearch = isRecord(rawWeb.search) ? rawWeb.search : {};
   const rawHeartbeat = isRecord(raw.heartbeat) ? raw.heartbeat : {};
@@ -1609,6 +1691,7 @@ function normalizeRuntimeConfig(
         { min: 1 },
       ),
     },
+    mcpServers: normalizeMcpServers(rawMcpServers),
     web: {
       search: {
         provider: normalizeWebSearchProvider(

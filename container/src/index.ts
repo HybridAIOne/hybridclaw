@@ -33,6 +33,7 @@ import {
   getPendingSideEffects,
   resetSideEffects,
   setGatewayContext,
+  setMcpClientManager,
   setMediaContext,
   setModelContext,
   setScheduledTasks,
@@ -40,6 +41,8 @@ import {
   setWebSearchConfig,
   TOOL_DEFINITIONS,
 } from './tools.js';
+import { McpClientManager } from './mcp/client-manager.js';
+import { McpConfigWatcher } from './mcp/config-watcher.js';
 import type {
   ArtifactMetadata,
   ChatContentPart,
@@ -105,6 +108,31 @@ let cachedSelectedSkillPath: string | null = null;
 /** Auth material received once via stdin, held in memory for the agent lifetime. */
 let storedApiKey = '';
 let storedRequestHeaders: Record<string, string> = {};
+let mcpClientManager: McpClientManager | null = null;
+let mcpConfigWatcher: McpConfigWatcher | null = null;
+
+async function syncMcpConfig(
+  servers: ContainerInput['mcpServers'],
+): Promise<void> {
+  const nextServers = servers || {};
+  if (!mcpClientManager && Object.keys(nextServers).length === 0) return;
+  if (!mcpClientManager) {
+    mcpClientManager = new McpClientManager();
+    mcpConfigWatcher = new McpConfigWatcher(mcpClientManager);
+    setMcpClientManager(mcpClientManager);
+  }
+  await mcpConfigWatcher?.applyConfig(nextServers);
+}
+
+async function shutdownMcp(): Promise<void> {
+  mcpConfigWatcher?.stop();
+  mcpConfigWatcher = null;
+  setMcpClientManager(null);
+  if (mcpClientManager) {
+    await mcpClientManager.shutdown();
+  }
+  mcpClientManager = null;
+}
 
 function normalizeMessageContentToText(content: ChatMessageContent): string {
   if (typeof content === 'string') return content;
@@ -1002,11 +1030,12 @@ async function processRequest(
  * Main loop: read first request from stdin (with secrets), then poll IPC for follow-ups.
  */
 function resolveTools(input: ContainerInput): ToolDefinition[] {
-  let tools = input.allowedTools
-    ? TOOL_DEFINITIONS.filter((t) =>
-        input.allowedTools?.includes(t.function.name),
-      )
-    : [...TOOL_DEFINITIONS];
+  const mcpTools = mcpClientManager?.getAllToolDefinitions() || [];
+  let tools = [...TOOL_DEFINITIONS, ...mcpTools];
+  if (input.allowedTools) {
+    const allowed = new Set(input.allowedTools);
+    tools = tools.filter((tool) => allowed.has(tool.function.name));
+  }
   if (Array.isArray(input.blockedTools) && input.blockedTools.length > 0) {
     const blocked = new Set(
       input.blockedTools
@@ -1058,6 +1087,7 @@ async function main(): Promise<void> {
     `[hybridclaw-agent] processing first request (${firstInput.messages.length} messages)`,
   );
 
+  await syncMcpConfig(firstInput.mcpServers);
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
   setSessionContext(firstInput.sessionId);
@@ -1154,6 +1184,7 @@ async function main(): Promise<void> {
 
     if (!input) {
       console.error('[hybridclaw-agent] idle timeout, exiting');
+      await shutdownMcp();
       process.exit(0);
     }
 
@@ -1172,6 +1203,7 @@ async function main(): Promise<void> {
       `[hybridclaw-agent] processing request (${input.messages.length} messages)`,
     );
 
+    await syncMcpConfig(input.mcpServers);
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
     setSessionContext(input.sessionId);
@@ -1266,11 +1298,13 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   console.error('Container agent fatal error:', err);
-  writeOutput({
-    status: 'error',
-    result: null,
-    toolsUsed: [],
-    error: `Unhandled error: ${err instanceof Error ? err.message : String(err)}`,
+  void shutdownMcp().finally(() => {
+    writeOutput({
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: `Unhandled error: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    process.exit(1);
   });
-  process.exit(1);
 });

@@ -16,6 +16,7 @@
     "publish:dry": "npm publish --dry-run"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@mozilla/readability": "^0.6.0",
     "agent-browser": "^0.15.1",
     "linkedom": "^0.18.12",

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
 
+import { classifyMcpTool } from './mcp/tool-classifier.js';
 import type { ChatMessage } from './types.js';
 
 export type ApprovalTier = 'green' | 'yellow' | 'red';
@@ -1386,6 +1387,68 @@ export class TrustedCoworkerApprovalRuntime {
         pathHints: [],
         hostHints: [],
         writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    if (lowerTool.includes('__')) {
+      const kind = classifyMcpTool(lowerTool);
+      const [serverName, rawToolName] = lowerTool.split('__', 2);
+      const toolLabel = rawToolName || lowerTool;
+      const actionKey = `mcp:${serverName || 'server'}:${kind}`;
+
+      if (kind === 'read' || kind === 'search' || kind === 'fetch') {
+        return {
+          tier: 'green',
+          actionKey,
+          intent: `run MCP tool ${toolLabel}`,
+          consequenceIfDenied: 'I will continue without this MCP lookup.',
+          reason: 'this MCP tool appears read-only',
+          commandPreview: normalizePreview(JSON.stringify(args)),
+          pathHints: [],
+          hostHints: [],
+          writeIntent: false,
+          promotableRed: false,
+          stickyYellow: false,
+        };
+      }
+
+      if (kind === 'delete' || kind === 'execute') {
+        return {
+          tier: 'red',
+          actionKey,
+          intent: `run MCP tool ${toolLabel}`,
+          consequenceIfDenied:
+            kind === 'delete'
+              ? 'I will continue without deleting anything.'
+              : 'I will continue without executing that action.',
+          reason:
+            kind === 'delete'
+              ? 'this MCP tool appears destructive'
+              : 'this MCP tool appears to execute commands or external actions',
+          commandPreview: normalizePreview(JSON.stringify(args)),
+          pathHints: [],
+          hostHints: [],
+          writeIntent: true,
+          promotableRed: false,
+          stickyYellow: false,
+        };
+      }
+
+      return {
+        tier: kind === 'edit' ? 'yellow' : 'yellow',
+        actionKey,
+        intent: `run MCP tool ${toolLabel}`,
+        consequenceIfDenied: 'I will continue without this MCP action.',
+        reason:
+          kind === 'edit'
+            ? 'this MCP tool appears to modify state'
+            : 'this MCP tool may have side effects',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: kind === 'edit',
         promotableRed: false,
         stickyYellow: false,
       };

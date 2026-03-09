@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -93,6 +93,23 @@
     "additionalMounts": "",
     "maxOutputBytes": 10485760,
     "maxConcurrent": 5
+  },
+  "mcpServers": {
+    "tavily": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "tavily-mcp@latest"],
+      "env": {
+        "TAVILY_API_KEY": "replace-me"
+      },
+      "enabled": false
+    },
+    "playwright": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"],
+      "enabled": false
+    }
   },
   "web": {
     "search": {
