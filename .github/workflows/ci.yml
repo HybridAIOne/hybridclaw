@@ -77,3 +77,28 @@ jobs:
 
       - name: Unit tests with coverage
         run: npx vitest run --coverage --config vitest.unit.config.ts
+
+      - name: Generate coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          PCT=$(node -e "
+            const s = require('./coverage/coverage-summary.json').total.lines;
+            console.log(Math.round(s.pct));
+          ")
+          COLOR="red"
+          if [ "$PCT" -ge 80 ]; then COLOR="brightgreen"
+          elif [ "$PCT" -ge 60 ]; then COLOR="green"
+          elif [ "$PCT" -ge 40 ]; then COLOR="yellowgreen"
+          elif [ "$PCT" -ge 20 ]; then COLOR="yellow"
+          fi
+          mkdir -p badge
+          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${PCT}%\",\"color\":\"${COLOR}\"}" > badge/coverage.json
+
+      - name: Publish coverage badge to gh-pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./badge
+          destination_dir: badge
+          keep_files: true
