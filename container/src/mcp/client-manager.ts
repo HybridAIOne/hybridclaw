@@ -33,6 +33,11 @@ interface ToolIndexEntry {
   toolName: string;
 }
 
+interface ListToolsResult {
+  tools: SdkTool[];
+  nextCursor?: string;
+}
+
 function stableHash(input: string): string {
   return createHash('sha256').update(input).digest('hex').slice(0, 8);
 }
@@ -251,7 +256,7 @@ export class McpClientManager {
     this.attachTransportHandlers(name, transport);
 
     if (transport instanceof StdioClientTransport && transport.stderr) {
-      transport.stderr.on('data', (chunk) => {
+      transport.stderr.on('data', (chunk: Buffer | string) => {
         const line = String(chunk || '').trim();
         if (line) console.error(`[mcp:${name}] ${line}`);
       });
@@ -335,7 +340,7 @@ export class McpClientManager {
       | SSEClientTransport
       | StreamableHTTPClientTransport,
   ): void {
-    transport.onerror = (error) => {
+    transport.onerror = (error: unknown) => {
       if (this.closingServers.has(name)) return;
       this.markServerUnhealthy(name, error);
       void emitRuntimeEvent({
@@ -362,11 +367,11 @@ export class McpClientManager {
     let cursor: string | undefined;
 
     do {
-      const result = await withTimeout(
+      const result = (await withTimeout(
         handle.client.listTools(cursor ? { cursor } : undefined),
         MCP_CONNECT_TIMEOUT_MS,
         `List tools from MCP server ${handle.serverName}`,
-      );
+      )) as ListToolsResult;
       tools.push(...this.mapTools(handle.serverName, result.tools, seenNames));
       cursor = result.nextCursor;
     } while (cursor);
