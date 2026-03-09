@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Manual session compaction command**: Added built-in `/compact` support across gateway, TUI, and Discord to archive older transcript history, summarize it into high-confidence session memory, and preserve a recent conversation tail for active context.
 - **Bundled PDF workflow support**: Added a built-in `pdf` skill plus Node-based PDF tooling for text extraction, page rendering, fillable form inspection/filling, and non-fillable overlay workflows, with current-turn PDF context injection for explicit file paths and Discord attachments.
 - **Skill installer commands**: Added `hybridclaw skill list` and `hybridclaw skill install <skill> [install-id]` so bundled skills can advertise optional dependency installers.
 - **Container bind path config**: Added `container.binds` support alongside validated host/container path aliasing so configured external directories can be used safely from sandboxed tools and PDF workflows.
@@ -16,6 +17,7 @@
 
 ### Fixed
 
+- **Compaction archive path exposure**: `/compact` responses now show a safe archive reference instead of leaking absolute host filesystem paths in user-facing output.
 - **Workspace bootstrap lifecycle**: `BOOTSTRAP.md` is now removed once onboarding is effectively complete and is not recreated on subsequent starts.
 - **Codex device-code activation flow**: Device-code login now falls back to the default activation URL and tolerates nested pending/authorization error payloads from the auth service.
 - **Runtime-home migration false positive**: Launching HybridClaw from `~/.hybridclaw` no longer treats the runtime `data/` directory as a legacy current-working-directory migration target.
