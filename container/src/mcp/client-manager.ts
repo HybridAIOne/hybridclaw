@@ -144,7 +144,10 @@ function renderCallToolResult(result: CallToolResult): string {
     const rendered = renderToolBlock(block).trim();
     if (rendered) segments.push(rendered);
   }
-  if (result.structuredContent && Object.keys(result.structuredContent).length) {
+  if (
+    result.structuredContent &&
+    Object.keys(result.structuredContent).length
+  ) {
     segments.push(JSON.stringify(result.structuredContent, null, 2));
   }
   const body =
@@ -162,7 +165,9 @@ export class McpClientManager {
   private readonly closingServers = new Set<string>();
   private readonly replaceLocks = new Map<string, Promise<void>>();
 
-  async initFromConfig(servers: Record<string, McpServerConfig>): Promise<void> {
+  async initFromConfig(
+    servers: Record<string, McpServerConfig>,
+  ): Promise<void> {
     for (const [name, config] of Object.entries(servers)) {
       await this.replaceClient(name, config);
     }
