@@ -98,7 +98,11 @@
     "filesystem": {
       "transport": "stdio",
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/absolute/path/to/a/workspace"],
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/absolute/path/to/a/workspace"
+      ],
       "enabled": false
     },
     "tavily": {
