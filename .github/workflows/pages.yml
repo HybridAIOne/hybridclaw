@@ -6,7 +6,6 @@ on:
       - main
     paths:
       - "docs/**"
-      - "docs/CNAME"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
