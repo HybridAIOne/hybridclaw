@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   type ApplicationCommandDataResolvable,
-  ApplicationCommandOptionType,
   AttachmentBuilder,
   Client,
   type Message as DiscordMessage,
@@ -41,11 +40,17 @@ import {
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
 } from '../../config/config.js';
+import { findPendingApprovalByApprovalId } from '../../gateway/pending-approvals.js';
 import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { logger } from '../../logger.js';
 import { getSessionById } from '../../memory/db.js';
 import { resolveAgentIdForModel } from '../../providers/factory.js';
 import type { MediaContextItem } from '../../types.js';
+import {
+  buildApprovalActionRow,
+  disableApprovalButtons,
+  parseApprovalCustomId,
+} from './approval-buttons.js';
 import { buildAttachmentContext } from './attachments.js';
 import {
   DEFAULT_DEBOUNCE_MAX_BUFFER,
@@ -93,6 +98,10 @@ import {
 } from './reactions.js';
 import { resolveDiscordLocalFileForSend } from './send-files.js';
 import { resolveSendAllowed } from './send-permissions.js';
+import {
+  buildSlashCommandDefinitions,
+  parseSlashInteractionArgs,
+} from './slash-commands.js';
 import { DiscordStreamManager } from './stream.js';
 import {
   type CachedDiscordPresence,
@@ -128,6 +137,11 @@ export interface MessageRunContext {
   stream: DiscordStreamManager;
   mentionLookup: MentionLookup;
   emitLifecyclePhase: (phase: LifecyclePhase) => void;
+  sendApprovalNotification?: (params: {
+    text: string;
+    approvalId: string;
+    userId: string;
+  }) => Promise<{ disableButtons: () => Promise<void> } | null>;
 }
 
 export type MessageHandler = (
@@ -1033,209 +1047,62 @@ async function sendChunkedInteractionReply(
 }
 
 async function ensureSlashCommands(): Promise<void> {
-  interface SlashCommandDefinition {
-    name: string;
-    description: string;
-    dmPermission?: boolean;
-    options?: SlashCommandOptionDefinition[];
-  }
-  type SlashCommandOptionDefinition =
-    | {
-        type: ApplicationCommandOptionType.String;
-        name: string;
-        description: string;
-        required?: boolean;
-        choices?: Array<{ name: string; value: string }>;
-      }
-    | {
-        type: ApplicationCommandOptionType.Subcommand;
-        name: string;
-        description: string;
-        options?: Array<{
-          type: ApplicationCommandOptionType.String;
-          name: string;
-          description: string;
-          required?: boolean;
-          choices?: Array<{ name: string; value: string }>;
-        }>;
-      };
-
   const modelChoices = CONFIGURED_MODELS.slice(0, 25).map((model) => ({
     name: model,
     value: model,
   }));
-
-  const definitions: SlashCommandDefinition[] = [
-    {
-      name: 'status',
-      description: 'Show HybridClaw runtime status (only visible to you)',
-      dmPermission: true,
-    },
-    {
-      name: 'approve',
-      description: 'View/respond to pending tool approval requests (private)',
-      dmPermission: true,
-      options: [
-        {
-          type: ApplicationCommandOptionType.String,
-          name: 'action',
-          description: 'Action to perform',
-          required: false,
-          choices: [
-            { name: 'view', value: 'view' },
-            { name: 'yes', value: 'yes' },
-            { name: 'session', value: 'session' },
-            { name: 'agent', value: 'agent' },
-            { name: 'no', value: 'no' },
-          ],
-        },
-        {
-          type: ApplicationCommandOptionType.String,
-          name: 'approval_id',
-          description: 'Optional approval id (defaults to latest pending)',
-          required: false,
-        },
-      ],
-    },
-    {
-      name: 'compact',
-      description: 'Archive older session history and compact it into memory',
-      dmPermission: true,
-    },
-    {
-      name: 'channel-mode',
-      description: 'Set this channel to off, mention-only, or free-response',
-      options: [
-        {
-          type: ApplicationCommandOptionType.String,
-          name: 'mode',
-          description: 'Response mode for this channel',
-          required: true,
-          choices: [
-            { name: 'off', value: 'off' },
-            { name: 'mention', value: 'mention' },
-            { name: 'free', value: 'free' },
-          ],
-        },
-      ],
-    },
-    {
-      name: 'channel-policy',
-      description: 'Set guild channel policy to open, allowlist, or disabled',
-      options: [
-        {
-          type: ApplicationCommandOptionType.String,
-          name: 'policy',
-          description: 'Guild channel policy',
-          required: true,
-          choices: [
-            { name: 'open', value: 'open' },
-            { name: 'allowlist', value: 'allowlist' },
-            { name: 'disabled', value: 'disabled' },
-          ],
-        },
-      ],
-    },
-    {
-      name: 'model',
-      description: 'Inspect or set the default runtime model',
-      options: [
-        {
-          type: ApplicationCommandOptionType.Subcommand,
-          name: 'info',
-          description: 'Show current default model and available models',
-        },
-        {
-          type: ApplicationCommandOptionType.Subcommand,
-          name: 'default',
-          description: 'Set default model for new sessions',
-          options: [
-            {
-              type: ApplicationCommandOptionType.String,
-              name: 'name',
-              description: 'Model name',
-              required: true,
-              choices: modelChoices.length > 0 ? modelChoices : undefined,
-            },
-          ],
-        },
-      ],
-    },
-  ];
+  const definitions = buildSlashCommandDefinitions(modelChoices);
+  const definitionNames = new Set(
+    definitions.map((definition) => definition.name),
+  );
 
   if (!client.application) return;
-  const globalDefinitions = definitions.filter(
-    (definition) =>
-      definition.name === 'status' || definition.name === 'approve',
-  );
-  const globalCommandNames = new Set(
-    globalDefinitions.map((definition) => definition.name),
-  );
-  let globalRegistrationSucceeded = true;
+  let globalRegisteredCount = 0;
   try {
-    for (const definition of globalDefinitions) {
+    for (const definition of definitions) {
       // POST is an upsert by name for global commands. Keep command IDs stable
       // to avoid stale-client command references in DMs.
       await client.application.commands.create(
         definition as unknown as ApplicationCommandDataResolvable,
       );
+      globalRegisteredCount += 1;
       logger.debug(
         { scope: 'global', command: definition.name },
         'Upserted slash command',
       );
     }
+    logger.info(
+      { scope: 'global', count: globalRegisteredCount },
+      'Successfully registered slash commands',
+    );
   } catch (error) {
-    globalRegistrationSucceeded = false;
     logger.warn({ error }, 'Failed to register global slash commands');
   }
-  const guildDefinitions = globalRegistrationSucceeded
-    ? definitions.filter(
-        (definition) => !globalCommandNames.has(definition.name),
-      )
-    : definitions;
 
   await Promise.allSettled(
     [...client.guilds.cache.values()].map(async (guild) => {
       try {
-        const existing = await guild.commands.fetch();
-        if (globalRegistrationSucceeded) {
-          for (const command of existing.values()) {
-            if (!globalCommandNames.has(command.name)) continue;
-            await guild.commands.delete(command.id);
-            logger.debug(
-              { guildId: guild.id, command: command.name },
-              'Removed guild slash command because command is global-only',
-            );
-          }
-        }
         const refreshed = await guild.commands.fetch();
-        for (const definition of guildDefinitions) {
-          const current = refreshed.find(
-            (command) => command.name === definition.name,
-          );
-          if (!current) {
-            await guild.commands.create(
-              definition as unknown as ApplicationCommandDataResolvable,
-            );
-            logger.debug(
-              { guildId: guild.id, command: definition.name },
-              'Registered slash command',
-            );
+        let removedCount = 0;
+        for (const command of refreshed.values()) {
+          if (!definitionNames.has(command.name)) {
             continue;
           }
-          await guild.commands.edit(
-            current.id,
-            definition as unknown as ApplicationCommandDataResolvable,
-          );
+          await guild.commands.delete(command.id);
+          removedCount += 1;
           logger.debug(
-            { guildId: guild.id, command: definition.name },
-            'Updated slash command',
+            { guildId: guild.id, command: command.name },
+            'Removed guild slash command',
           );
         }
+        logger.info(
+          { guildId: guild.id, count: removedCount },
+          'Successfully cleaned up guild slash commands',
+        );
       } catch (error) {
         logger.warn(
           { error, guildId: guild.id },
-          'Failed to register Discord slash commands',
+          'Failed to clean up Discord guild slash commands',
         );
       }
     }),
@@ -1699,17 +1566,67 @@ export function initDiscord(
   });
 
   client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
-    if (
-      interaction.commandName !== 'status' &&
-      interaction.commandName !== 'approve' &&
-      interaction.commandName !== 'compact' &&
-      interaction.commandName !== 'channel-mode' &&
-      interaction.commandName !== 'channel-policy' &&
-      interaction.commandName !== 'model'
-    ) {
+    if (interaction.isButton() && interaction.customId.startsWith('approve:')) {
+      const interactionVisibility = interaction.guildId
+        ? { flags: 'Ephemeral' as const }
+        : {};
+      const parsed = parseApprovalCustomId(interaction.customId);
+      if (!parsed) {
+        await interaction.reply({
+          content: 'Invalid button.',
+          ...interactionVisibility,
+        });
+        return;
+      }
+      const pending = findPendingApprovalByApprovalId(parsed.approvalId);
+      if (!pending) {
+        await interaction.reply({
+          content: 'This approval has expired or was already handled.',
+          ...interactionVisibility,
+        });
+        return;
+      }
+      if (interaction.user.id !== pending.entry.userId) {
+        await interaction.reply({
+          content: 'Only the requesting user can respond.',
+          ...interactionVisibility,
+        });
+        return;
+      }
+      const guildId = interaction.guildId ?? null;
+      const channelId = interaction.channelId;
+      await interaction.deferReply(interactionVisibility);
+      try {
+        await commandHandler(
+          pending.sessionId,
+          guildId,
+          channelId,
+          interaction.user.id,
+          interaction.user.username,
+          ['approve', parsed.action, parsed.approvalId],
+          async (text) => {
+            await interaction.followUp({
+              content: text,
+              ...interactionVisibility,
+            });
+          },
+        );
+        await pending.entry.disableButtons?.().catch(() => {});
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        logger.error(
+          { error, guildId, channelId, userId: interaction.user.id },
+          'Discord approval button failed',
+        );
+        await interaction.followUp({
+          content: formatError('Gateway Error', detail),
+          ...interactionVisibility,
+        });
+      }
       return;
     }
+
+    if (!interaction.isChatInputCommand()) return;
 
     if (
       interaction.guildId &&
@@ -1729,77 +1646,7 @@ export function initDiscord(
       channelId,
       interaction.user.id,
     );
-    const args = (() => {
-      if (interaction.commandName === 'status') return ['status'];
-      if (interaction.commandName === 'approve') {
-        const action =
-          interaction.options
-            .getString('action', false)
-            ?.trim()
-            .toLowerCase() || 'view';
-        if (
-          action !== 'view' &&
-          action !== 'yes' &&
-          action !== 'session' &&
-          action !== 'agent' &&
-          action !== 'no'
-        ) {
-          return null;
-        }
-        const approvalId =
-          interaction.options.getString('approval_id', false)?.trim() || '';
-        return approvalId
-          ? ['approve', action, approvalId]
-          : ['approve', action];
-      }
-      if (interaction.commandName === 'compact') {
-        return ['compact'];
-      }
-      if (interaction.commandName === 'channel-mode') {
-        if (!interaction.guildId) return null;
-        const selectedMode = interaction.options
-          .getString('mode', true)
-          .trim()
-          .toLowerCase();
-        if (
-          selectedMode !== 'off' &&
-          selectedMode !== 'mention' &&
-          selectedMode !== 'free'
-        )
-          return null;
-        return ['channel', 'mode', selectedMode];
-      }
-      if (interaction.commandName === 'channel-policy') {
-        if (!interaction.guildId) return null;
-        const selectedPolicy = interaction.options
-          .getString('policy', true)
-          .trim()
-          .toLowerCase();
-        if (
-          selectedPolicy !== 'open' &&
-          selectedPolicy !== 'allowlist' &&
-          selectedPolicy !== 'disabled'
-        )
-          return null;
-        return ['channel', 'policy', selectedPolicy];
-      }
-      if (interaction.commandName === 'model') {
-        if (!interaction.guildId) return null;
-        const modelSubcommand = interaction.options
-          .getSubcommand(true)
-          .trim()
-          .toLowerCase();
-        if (modelSubcommand === 'info') return ['model', 'default'];
-        if (modelSubcommand === 'default') {
-          const selectedModel = interaction.options
-            .getString('name', true)
-            .trim();
-          if (!selectedModel) return null;
-          return ['model', 'default', selectedModel];
-        }
-      }
-      return null;
-    })();
+    const args = parseSlashInteractionArgs(interaction);
     if (!args) {
       await sendChunkedInteractionReply(
         interaction,
@@ -2007,6 +1854,18 @@ export function initDiscord(
           stream,
           mentionLookup,
           emitLifecyclePhase,
+          sendApprovalNotification: async ({ text, approvalId, userId }) => {
+            const row = buildApprovalActionRow(approvalId);
+            const sent = await withDiscordRetry('approval-notification', () =>
+              msg.reply({
+                content: `<@${userId}> ${text}`,
+                components: [row],
+              }),
+            );
+            return {
+              disableButtons: () => disableApprovalButtons(sent),
+            };
+          },
         },
       );
       emitLifecyclePhase('done');

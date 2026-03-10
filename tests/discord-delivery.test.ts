@@ -149,7 +149,7 @@ describe('discord delivery', () => {
     expect(sleep).toHaveBeenCalledWith(10);
   });
 
-  test('replies to interactions and uses follow-up for additional chunks', async () => {
+  test('replies to guild interactions ephemerally and uses follow-up for additional chunks', async () => {
     const { delivery, chunkMessage } = await importFreshDelivery();
     chunkMessage.mockReturnValue(['one', 'two']);
 
@@ -163,6 +163,7 @@ describe('discord delivery', () => {
 
     await delivery.sendChunkedInteractionReply({
       interaction: {
+        guildId: 'guild-1',
         replied: false,
         deferred: false,
         reply,
@@ -173,11 +174,38 @@ describe('discord delivery', () => {
     });
 
     expect(attempts).toEqual(['interaction-reply', 'interaction-followup']);
-    expect(reply).toHaveBeenCalledWith({ content: 'one', ephemeral: true });
+    expect(reply).toHaveBeenCalledWith({
+      content: 'one',
+      flags: 'Ephemeral',
+    });
     expect(followUp).toHaveBeenCalledWith({
       content: 'two',
-      ephemeral: true,
+      flags: 'Ephemeral',
     });
+  });
+
+  test('uses normal visible replies for DM interactions', async () => {
+    const { delivery, chunkMessage } = await importFreshDelivery();
+    chunkMessage.mockReturnValue(['one', 'two']);
+
+    const reply = vi.fn(async () => {});
+    const followUp = vi.fn(async () => {});
+    const withRetry = async <T>(_label: string, fn: () => Promise<T>) => fn();
+
+    await delivery.sendChunkedInteractionReply({
+      interaction: {
+        guildId: null,
+        replied: false,
+        deferred: false,
+        reply,
+        followUp,
+      } as never,
+      text: 'ignored',
+      withRetry,
+    });
+
+    expect(reply).toHaveBeenCalledWith({ content: 'one' });
+    expect(followUp).toHaveBeenCalledWith({ content: 'two' });
   });
 
   test('uses follow-up immediately when an interaction was already replied or deferred', async () => {
@@ -190,6 +218,7 @@ describe('discord delivery', () => {
 
     await delivery.sendChunkedInteractionReply({
       interaction: {
+        guildId: 'guild-1',
         replied: true,
         deferred: false,
         reply,
@@ -202,7 +231,7 @@ describe('discord delivery', () => {
     expect(reply).not.toHaveBeenCalled();
     expect(followUp).toHaveBeenCalledWith({
       content: 'only',
-      ephemeral: true,
+      flags: 'Ephemeral',
     });
   });
 });

@@ -128,8 +128,11 @@ export async function sendChunkedInteractionReply(params: {
   files?: AttachmentBuilder[];
 }): Promise<void> {
   const payloads = prepareChunkedPayloads(params.text, params.files);
+  const isGuildInteraction = Boolean(params.interaction.guildId);
   for (let i = 0; i < payloads.length; i += 1) {
-    const payload = { ...payloads[i], ephemeral: true };
+    const payload = isGuildInteraction
+      ? { ...payloads[i], flags: 'Ephemeral' as const }
+      : payloads[i];
     if (i === 0) {
       if (params.interaction.replied || params.interaction.deferred) {
         await params.withRetry('interaction-followup', () =>
