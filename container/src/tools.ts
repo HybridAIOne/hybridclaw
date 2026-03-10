@@ -1379,13 +1379,15 @@ export async function executeTool(
 ): Promise<string> {
   try {
     const args = JSON.parse(argsJson);
-    const argsObject =
-      args && typeof args === 'object' && !Array.isArray(args)
-        ? (args as Record<string, unknown>)
-        : {};
 
     if (mcpClientManager?.isKnownTool(name)) {
-      return await mcpClientManager.callTool(name, argsObject);
+      if (!args || typeof args !== 'object' || Array.isArray(args)) {
+        return 'Error: MCP tool arguments must be a JSON object';
+      }
+      return await mcpClientManager.callTool(
+        name,
+        args as Record<string, unknown>,
+      );
     }
 
     switch (name) {
