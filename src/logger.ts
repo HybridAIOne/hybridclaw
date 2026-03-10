@@ -1,4 +1,8 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { Writable } from 'node:stream';
 import pino from 'pino';
+import pretty from 'pino-pretty';
 
 import {
   getRuntimeConfig,
@@ -32,17 +36,76 @@ function resolveForcedLogLevel():
 
 const forcedLevel = resolveForcedLogLevel();
 const initialLevel = forcedLevel || getRuntimeConfig().ops.logLevel;
+const gatewayLogFile = String(
+  process.env.HYBRIDCLAW_GATEWAY_LOG_FILE || '',
+).trim();
 
-export const logger = pino({
-  errorKey: LOGGER_ERROR_KEY,
-  level: initialLevel,
-  serializers: LOGGER_SERIALIZERS,
-  transport: { target: 'pino-pretty', options: LOGGER_PRETTY_OPTIONS },
-});
+function createPrettyDestination(
+  prettyOptions: typeof LOGGER_PRETTY_OPTIONS,
+  destination: NodeJS.WritableStream,
+): Writable {
+  const render = pretty.prettyFactory(prettyOptions);
+  return new Writable({
+    write(chunk, _encoding, callback) {
+      let formatted = '';
+      try {
+        formatted = render(chunk.toString('utf-8')) || '';
+      } catch (error) {
+        callback(error as Error);
+        return;
+      }
+
+      if (!formatted) {
+        callback();
+        return;
+      }
+
+      if (destination.write(formatted)) {
+        callback();
+        return;
+      }
+
+      destination.once('drain', callback);
+    },
+  });
+}
+
+function createLogger() {
+  const options = {
+    errorKey: LOGGER_ERROR_KEY,
+    level: initialLevel,
+    serializers: LOGGER_SERIALIZERS,
+  };
+  const streams: Array<{ level: 'trace'; stream: NodeJS.WritableStream }> = [
+    {
+      level: 'trace',
+      stream: createPrettyDestination(LOGGER_PRETTY_OPTIONS, process.stdout),
+    },
+  ];
+
+  if (gatewayLogFile) {
+    fs.mkdirSync(path.dirname(gatewayLogFile), { recursive: true });
+    const fileStream = fs.createWriteStream(gatewayLogFile, { flags: 'a' });
+    streams.push({
+      level: 'trace',
+      stream: createPrettyDestination(
+        {
+          ...LOGGER_PRETTY_OPTIONS,
+          colorize: false,
+        },
+        fileStream,
+      ),
+    });
+  }
+
+  return pino(options, pino.multistream(streams));
+}
+
+export const logger = createLogger();
 
 if (forcedLevel) {
-  logger.info(
-    { level: forcedLevel },
+  logger.debug(
+    { forcedLevel },
     'Logger level forced by HYBRIDCLAW_FORCE_LOG_LEVEL',
   );
 }

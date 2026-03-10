@@ -428,6 +428,8 @@ interface GatewayPidState {
 const GATEWAY_RUN_DIR = path.join(DATA_DIR, 'gateway');
 const GATEWAY_PID_PATH = path.join(GATEWAY_RUN_DIR, 'gateway.pid.json');
 const GATEWAY_LOG_PATH = path.join(GATEWAY_RUN_DIR, 'gateway.log');
+const GATEWAY_LOG_FILE_ENV = 'HYBRIDCLAW_GATEWAY_LOG_FILE';
+const GATEWAY_STDIO_TO_LOG_ENV = 'HYBRIDCLAW_GATEWAY_STDIO_TO_LOG';
 
 function ensureGatewayRunDir(): void {
   fs.mkdirSync(GATEWAY_RUN_DIR, { recursive: true });
@@ -586,6 +588,12 @@ async function runGatewayForeground(
     process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
     console.log(`${commandName}: forcing gateway log level to debug.`);
   }
+  ensureGatewayRunDir();
+  if (process.env[GATEWAY_STDIO_TO_LOG_ENV] === '1') {
+    delete process.env[GATEWAY_LOG_FILE_ENV];
+  } else {
+    process.env[GATEWAY_LOG_FILE_ENV] = GATEWAY_LOG_PATH;
+  }
   await ensureRuntimeContainer(commandName, true, sandboxMode);
   await import('./gateway/gateway.js');
 }
@@ -662,7 +670,10 @@ async function startGatewayBackend(
     detached: true,
     stdio: ['ignore', out, err],
     cwd: process.cwd(),
-    env: process.env,
+    env: {
+      ...process.env,
+      [GATEWAY_STDIO_TO_LOG_ENV]: '1',
+    },
   });
   child.unref();
 

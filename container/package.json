@@ -19,6 +19,7 @@
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@mozilla/readability": "^0.6.0",
     "agent-browser": "^0.15.1",
+    "jszip": "^3.10.1",
     "linkedom": "^0.18.12",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.394",

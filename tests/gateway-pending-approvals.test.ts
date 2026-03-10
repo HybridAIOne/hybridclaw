@@ -25,14 +25,14 @@ test('findPendingApprovalByApprovalId returns stored approvals', async () => {
     userId: 'user-1',
   });
 
-  expect(pendingApprovals.findPendingApprovalByApprovalId('abc123')).toMatchObject(
-    {
-      sessionId: 'session-1',
-      entry: {
-        userId: 'user-1',
-      },
+  expect(
+    pendingApprovals.findPendingApprovalByApprovalId('abc123'),
+  ).toMatchObject({
+    sessionId: 'session-1',
+    entry: {
+      userId: 'user-1',
     },
-  );
+  });
 
   await pendingApprovals.clearPendingApproval('session-1');
 });
@@ -53,7 +53,9 @@ test('findPendingApprovalByApprovalId removes expired approvals during lookup', 
     disableTimeout: setTimeout(() => {}, 60_000),
   });
 
-  expect(pendingApprovals.findPendingApprovalByApprovalId('dead999')).toBeNull();
+  expect(
+    pendingApprovals.findPendingApprovalByApprovalId('dead999'),
+  ).toBeNull();
   await Promise.resolve();
 
   expect(disableButtons).toHaveBeenCalledTimes(1);
@@ -90,9 +92,7 @@ test('setPendingApproval disables and clears overwritten approval entries', asyn
 
   expect(disableOriginal).toHaveBeenCalledTimes(1);
   expect(originalTimerFired).toBe(false);
-  expect(
-    pendingApprovals.findPendingApprovalByApprovalId('abc124'),
-  ).toBeNull();
+  expect(pendingApprovals.findPendingApprovalByApprovalId('abc124')).toBeNull();
   expect(
     pendingApprovals.findPendingApprovalByApprovalId('def456'),
   ).toMatchObject({

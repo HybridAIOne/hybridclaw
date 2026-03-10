@@ -3,17 +3,21 @@ import path from 'node:path';
 import { URL } from 'node:url';
 
 import { TrustedCoworkerApprovalRuntime } from './approval-policy.js';
+import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import {
   emitRuntimeEvent,
   runAfterToolHooks,
   runBeforeToolHooks,
 } from './extensions.js';
 import { waitForInput, writeOutput } from './ipc.js';
+import { McpClientManager } from './mcp/client-manager.js';
+import { McpConfigWatcher } from './mcp/config-watcher.js';
 import { callHybridAI, callHybridAIStream } from './model-client.js';
 import {
   isRetryableModelError,
-  shouldFallbackFromStreamError,
+  shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
+import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
 import {
   resolveMediaPath,
   resolveWorkspacePath,
@@ -41,8 +45,6 @@ import {
   setWebSearchConfig,
   TOOL_DEFINITIONS,
 } from './tools.js';
-import { McpClientManager } from './mcp/client-manager.js';
-import { McpConfigWatcher } from './mcp/config-watcher.js';
 import type {
   ArtifactMetadata,
   ChatContentPart,
@@ -85,15 +87,6 @@ const RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(
     : Math.max(0, Math.min(64, RAW_RALPH_MAX_EXTRA_ITERATIONS))
   : 0;
 const RALPH_ENABLED = RALPH_MAX_EXTRA_ITERATIONS !== 0;
-const ARTIFACT_MIME_TYPES: Record<string, string> = {
-  '.gif': 'image/gif',
-  '.jpeg': 'image/jpeg',
-  '.jpg': 'image/jpeg',
-  '.pdf': 'application/pdf',
-  '.png': 'image/png',
-  '.svg': 'image/svg+xml',
-  '.webp': 'image/webp',
-};
 const NATIVE_VISION_MAX_IMAGES = 8;
 const NATIVE_VISION_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
@@ -165,8 +158,8 @@ function inferImageMimeType(
     .trim()
     .toLowerCase();
   if (normalizedFallback.startsWith('image/')) return normalizedFallback;
-  const ext = path.posix.extname(filePath).toLowerCase();
-  return ARTIFACT_MIME_TYPES[ext] || 'image/png';
+  const inferred = inferArtifactMimeType(filePath);
+  return inferred.startsWith('image/') ? inferred : 'image/png';
 }
 
 function isImageMediaItem(item: MediaContextItem): boolean {
@@ -496,8 +489,7 @@ function resolveMaxModelTurns(): number {
 }
 
 function inferMimeType(filePath: string): string {
-  const ext = path.posix.extname(filePath).toLowerCase();
-  return ARTIFACT_MIME_TYPES[ext] || 'application/octet-stream';
+  return inferArtifactMimeType(filePath);
 }
 
 function normalizeArtifactPath(rawPath: unknown): string | null {
@@ -571,6 +563,35 @@ function extractToolArtifacts(
   return artifacts;
 }
 
+function normalizeArtifactKey(filePath: string): string {
+  return normalizePathSlashes(filePath).toLowerCase();
+}
+
+function collectRequestedArtifacts(params: {
+  artifacts: ArtifactMetadata[];
+  artifactPaths: Set<string>;
+  startedAtMs: number;
+}): void {
+  const discovered = discoverArtifactsSince(WORKSPACE_ROOT, {
+    modifiedAfterMs: Math.max(0, params.startedAtMs - 1_000),
+    modifiedBeforeMs: Date.now() + 1_000,
+    limit: 8,
+  });
+
+  for (const artifact of discovered) {
+    const normalizedPath = normalizeArtifactPath(artifact.path);
+    if (!normalizedPath) continue;
+    const key = normalizeArtifactKey(normalizedPath);
+    if (params.artifactPaths.has(key)) continue;
+    params.artifactPaths.add(key);
+    params.artifacts.push({
+      path: normalizedPath,
+      filename: artifact.filename,
+      mimeType: artifact.mimeType,
+    });
+  }
+}
+
 async function callHybridAIWithRetry(params: {
   provider?: 'hybridai' | 'openai-codex';
   baseUrl: string;
@@ -625,7 +646,10 @@ async function callHybridAIWithRetry(params: {
             maxTokens,
           );
         } catch (streamErr) {
-          const fallbackEligible = shouldFallbackFromStreamError(streamErr);
+          const fallbackEligible = shouldDowngradeStreamToNonStreaming(
+            provider,
+            streamErr,
+          );
           if (!fallbackEligible) throw streamErr;
           response = await callHybridAI(
             provider,
@@ -700,11 +724,12 @@ async function processRequest(
   maxTokens?: number,
   effectiveUserPromptOverride?: string,
 ): Promise<ContainerOutput> {
+  const processStartedAt = Date.now();
   await emitRuntimeEvent({
     event: 'before_agent_start',
     messageCount: messages.length,
   });
-  const history: ChatMessage[] = [...messages];
+  const history: ChatMessage[] = injectRuntimeCapabilitiesMessage(messages);
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
   const artifacts: ArtifactMetadata[] = [];
@@ -801,6 +826,11 @@ async function processRequest(
       if (RALPH_ENABLED) {
         const branchChoice = parseRalphChoice(choice.message.content);
         if (branchChoice === 'STOP') {
+          collectRequestedArtifacts({
+            artifacts,
+            artifactPaths,
+            startedAtMs: processStartedAt,
+          });
           const completed: ContainerOutput = {
             status: 'success',
             result: stripRalphChoiceTags(choice.message.content),
@@ -837,6 +867,11 @@ async function processRequest(
         }
       }
 
+      collectRequestedArtifacts({
+        artifacts,
+        artifactPaths,
+        startedAtMs: processStartedAt,
+      });
       const completed: ContainerOutput = {
         status: 'success',
         result: stripRalphChoiceTags(choice.message.content),
@@ -978,8 +1013,9 @@ async function processRequest(
         approvalRequestId: approval.requestId,
       });
       for (const artifact of extractToolArtifacts(toolName, result)) {
-        if (artifactPaths.has(artifact.path)) continue;
-        artifactPaths.add(artifact.path);
+        const artifactKey = normalizeArtifactKey(artifact.path);
+        if (artifactPaths.has(artifactKey)) continue;
+        artifactPaths.add(artifactKey);
         artifacts.push(artifact);
       }
       history.push({ role: 'tool', content: result, tool_call_id: call.id });
@@ -1007,6 +1043,11 @@ async function processRequest(
   }
 
   const lastAssistant = history.filter((m) => m.role === 'assistant').pop();
+  collectRequestedArtifacts({
+    artifacts,
+    artifactPaths,
+    startedAtMs: processStartedAt,
+  });
   const completed: ContainerOutput = {
     status: 'success',
     result:

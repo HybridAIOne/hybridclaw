@@ -47,6 +47,10 @@ const DEFAULT_EDIT_INTERVAL_MS = 1_200;
 const RETRY_MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 500;
 
+function isRenderableChunk(chunk: string): boolean {
+  return chunk.trim().length > 0;
+}
+
 function isRetryableDiscordError(error: unknown): boolean {
   const maybe = error as DiscordErrorLike;
   const status = maybe.status ?? maybe.httpStatus;
@@ -218,7 +222,7 @@ export class DiscordStreamManager {
     const chunks = chunkMessage(this.content, {
       maxChars: this.maxChars,
       maxLines: this.maxLines,
-    });
+    }).filter(isRenderableChunk);
 
     if (chunks.length === 0) {
       if (files && files.length > 0) {

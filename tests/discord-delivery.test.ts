@@ -85,6 +85,15 @@ describe('discord delivery', () => {
     ]);
   });
 
+  test('filters blank-only chunks before building Discord payloads', async () => {
+    const { delivery, chunkMessage } = await importFreshDelivery();
+    chunkMessage.mockReturnValue(['\n', 'visible chunk']);
+
+    expect(delivery.prepareChunkedPayloads('ignored')).toEqual([
+      { content: 'visible chunk' },
+    ]);
+  });
+
   test('sends chunked replies through reply then channel send with delay', async () => {
     const { delivery, chunkMessage, getHumanDelayMs, sleep } =
       await importFreshDelivery();

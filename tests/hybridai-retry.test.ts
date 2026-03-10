@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { HybridAIRequestError } from '../container/src/model-client.js';
 import {
   isRetryableModelError,
+  shouldDowngradeStreamToNonStreaming,
   shouldFallbackFromStreamError,
 } from '../container/src/model-retry.js';
 
@@ -30,10 +31,42 @@ describe('shouldFallbackFromStreamError', () => {
     ).toBe(false);
   });
 
-  test('does not fallback for non-HTTP typed errors', () => {
+  test('falls back for transient network stream errors', () => {
     expect(shouldFallbackFromStreamError(new Error('socket closed'))).toBe(
-      false,
+      true,
     );
+  });
+
+  test('falls back for generic Codex stream failures with request ids', () => {
+    expect(
+      shouldFallbackFromStreamError(
+        new Error(
+          'An error occurred while processing your request. Please include request ID 3f700c22-8979-4803-a858-c1ae3a4c7110.',
+        ),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('shouldDowngradeStreamToNonStreaming', () => {
+  test('does not downgrade openai-codex stream failures to non-streaming', () => {
+    expect(
+      shouldDowngradeStreamToNonStreaming(
+        'openai-codex',
+        new Error(
+          'An error occurred while processing your request. Please include request ID 3f700c22-8979-4803-a858-c1ae3a4c7110.',
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  test('still downgrades other provider stream failures when fallback is valid', () => {
+    expect(
+      shouldDowngradeStreamToNonStreaming(
+        'hybridai',
+        new HybridAIRequestError(500, '{"error":"server_error"}'),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -73,6 +106,16 @@ describe('isRetryableModelError', () => {
     expect(isRetryableModelError(new Error('fetch failed'))).toBe(true);
     expect(isRetryableModelError(new Error('ECONNRESET upstream'))).toBe(true);
     expect(isRetryableModelError(new Error('timed out'))).toBe(true);
+  });
+
+  test('retries generic Codex processing failures', () => {
+    expect(
+      isRetryableModelError(
+        new Error(
+          'An error occurred while processing your request. Please include request ID 3f700c22-8979-4803-a858-c1ae3a4c7110.',
+        ),
+      ),
+    ).toBe(true);
   });
 
   test('does not retry unrelated generic errors', () => {

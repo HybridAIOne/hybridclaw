@@ -20,6 +20,7 @@ Skill roots include:
 - skills merge by `name`
 - higher-precedence definitions override lower-precedence ones
 - trust-aware scanning blocks risky personal or workspace skills
+- bundled repo skills are mirrored into `/workspace/skills/<name>` inside the agent runtime so bundled script paths like `skills/pdf/scripts/...` stay valid
 
 ## Frontmatter Contract
 

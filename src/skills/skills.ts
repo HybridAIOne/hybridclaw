@@ -703,10 +703,57 @@ function stableSkillDirName(name: string): string {
   return `${base}-${hash}`;
 }
 
+function buildDirectoryContentSignature(rootDir: string): string {
+  const resolvedRoot = path.resolve(rootDir);
+  const entries: string[] = [];
+  const stack = [resolvedRoot];
+
+  while (stack.length > 0) {
+    const currentDir = stack.pop();
+    if (!currentDir) continue;
+
+    const dirEntries = fs
+      .readdirSync(currentDir, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const entry of dirEntries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+        continue;
+      }
+
+      const relPath = path
+        .relative(resolvedRoot, fullPath)
+        .split(path.sep)
+        .join('/');
+      const contentHash = createHash('sha1')
+        .update(fs.readFileSync(fullPath))
+        .digest('hex');
+      entries.push(`${relPath}:${contentHash}`);
+    }
+  }
+
+  return createHash('sha1').update(entries.join('\n')).digest('hex');
+}
+
 function resolveSyncedSkillTarget(
   skill: SkillCandidate,
   workspaceDir: string,
 ): { rootDir: string; targetDir: string; targetSkillFile: string } {
+  // Keep bundled skills under /workspace/skills so bundled docs can refer to
+  // skill-local scripts with stable paths like "skills/<skill>/scripts/...".
+  if (skill.source === 'bundled') {
+    const rootDir = path.join(workspaceDir, 'skills');
+    const dirName = sanitizeSkillDirName(path.basename(skill.baseDir));
+    const targetDir = path.join(rootDir, dirName);
+    return {
+      rootDir,
+      targetDir,
+      targetSkillFile: path.join(targetDir, 'SKILL.md'),
+    };
+  }
+
   // Keep workspace skills under /workspace/skills so script paths like
   // "skills/<skill>/scripts/..." remain valid inside the agent container.
   if (skill.source === 'workspace') {
@@ -767,9 +814,9 @@ function syncSkillIntoWorkspace(
   let shouldSync = true;
   try {
     if (fs.existsSync(targetSkillFile)) {
-      const srcStat = fs.statSync(skill.filePath);
-      const dstStat = fs.statSync(targetSkillFile);
-      shouldSync = dstStat.mtimeMs < srcStat.mtimeMs;
+      shouldSync =
+        buildDirectoryContentSignature(skill.baseDir) !==
+        buildDirectoryContentSignature(targetDir);
     }
   } catch {
     shouldSync = true;
@@ -781,6 +828,80 @@ function syncSkillIntoWorkspace(
   }
 
   return targetSkillFile;
+}
+
+function collectSyncedSkillDirs(rootDir: string): string[] {
+  if (!fs.existsSync(rootDir)) return [];
+
+  const skillDirs: string[] = [];
+  const stack = [rootDir];
+
+  while (stack.length > 0) {
+    const currentDir = stack.pop();
+    if (!currentDir) continue;
+
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch (err) {
+      logger.debug(
+        { rootDir, currentDir, err },
+        'Failed to scan synced skill dir',
+      );
+      continue;
+    }
+
+    if (
+      entries.some(
+        (entry) => entry.isFile() && entry.name.toLowerCase() === 'skill.md',
+      )
+    ) {
+      skillDirs.push(currentDir);
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      stack.push(path.join(currentDir, entry.name));
+    }
+  }
+
+  return skillDirs;
+}
+
+function pruneStaleSyncedSkills(
+  skills: SkillCandidate[],
+  workspaceDir: string,
+): void {
+  const desiredByRoot = new Map<string, Set<string>>();
+
+  for (const skill of skills) {
+    const { rootDir, targetDir } = resolveSyncedSkillTarget(
+      skill,
+      workspaceDir,
+    );
+    const resolvedRoot = path.resolve(rootDir);
+    const resolvedTarget = path.resolve(targetDir);
+    if (!desiredByRoot.has(resolvedRoot)) {
+      desiredByRoot.set(resolvedRoot, new Set<string>());
+    }
+    desiredByRoot.get(resolvedRoot)?.add(resolvedTarget);
+  }
+
+  for (const [rootDir, desiredDirs] of desiredByRoot) {
+    for (const skillDir of collectSyncedSkillDirs(rootDir)) {
+      const resolvedSkillDir = path.resolve(skillDir);
+      if (desiredDirs.has(resolvedSkillDir)) continue;
+      if (!pathWithin(rootDir, resolvedSkillDir)) {
+        logger.warn(
+          { rootDir, skillDir: resolvedSkillDir },
+          'Refusing to prune synced skill outside sync root',
+        );
+        continue;
+      }
+      fs.rmSync(resolvedSkillDir, { recursive: true, force: true });
+    }
+  }
 }
 
 function normalizeSkillLookup(value: string): string {
@@ -1089,6 +1210,7 @@ export function loadSkills(agentId: string): Skill[] {
   const guarded = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
   ).filter((skill) => checkEligibility(skill).available);
+  pruneStaleSyncedSkills(guarded, workspaceDir);
 
   const resolved: Skill[] = [];
   for (const skill of guarded) {

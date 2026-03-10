@@ -39,7 +39,9 @@ test('disableApprovalButtons edits the message with disabled buttons', async () 
 
   expect(edit).toHaveBeenCalledTimes(1);
   const payload = edit.mock.calls[0][0] as {
-    components: Array<{ toJSON(): { components: Array<{ disabled?: boolean }> } }>;
+    components: Array<{
+      toJSON(): { components: Array<{ disabled?: boolean }> };
+    }>;
   };
   const json = payload.components[0].toJSON();
   expect(json.components.every((component) => component.disabled)).toBe(true);

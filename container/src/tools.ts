@@ -2258,8 +2258,6 @@ export async function executeTool(
         } else if (mode === 'parallel') {
           if (!hasTasks)
             return 'Error: tasks are required for mode="parallel".';
-          if (hasPrompt || hasChain)
-            return 'Error: mode="parallel" accepts only "tasks" plus optional label/model.';
           effect = {
             action: 'delegate',
             mode,
@@ -2270,8 +2268,6 @@ export async function executeTool(
           summary = `${tasksResult.tasks.length} parallel task(s)`;
         } else {
           if (!hasChain) return 'Error: chain is required for mode="chain".';
-          if (hasPrompt || hasTasks)
-            return 'Error: mode="chain" accepts only "chain" plus optional label/model.';
           effect = {
             action: 'delegate',
             mode,

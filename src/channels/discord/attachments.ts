@@ -56,6 +56,20 @@ function looksLikePdfAttachment(name: string, contentType: string): boolean {
   return /\.pdf$/i.test(name);
 }
 
+function looksLikeOfficeAttachment(name: string, contentType: string): boolean {
+  if (
+    contentType ===
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    contentType ===
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    contentType ===
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  ) {
+    return true;
+  }
+  return /\.(docx|xlsx|pptx)$/i.test(name);
+}
+
 function sanitizeAttachmentFilename(name: string): string {
   const base = name
     .trim()
@@ -361,6 +375,59 @@ export async function buildAttachmentContext(
               cacheError: cached.cacheError || 'unknown',
             },
             'Discord PDF attachment cache failed; using CDN fallback',
+          );
+        }
+        continue;
+      }
+
+      if (looksLikeOfficeAttachment(name, contentType)) {
+        mediaOrder += 1;
+        const cached = await cacheDiscordAttachment({
+          attachment,
+          messageId: msg.id,
+          order: mediaOrder,
+          fallbackMimeType: contentType || null,
+          acceptMime: (mimeType, attachmentName) =>
+            looksLikeOfficeAttachment(attachmentName, mimeType),
+        });
+        media.push({
+          path: cached.path,
+          url: cached.sourceUrl || attachment.url,
+          originalUrl: attachment.url,
+          mimeType: cached.mimeType || contentType || null,
+          sizeBytes: size,
+          filename: name,
+        });
+        if (cached.path) {
+          lines.push(
+            `- ${name}: office attachment cached (${size} bytes, ${cached.mimeType || contentType || 'unknown type'}, local path ${cached.path})`,
+          );
+          logger.info(
+            {
+              messageId: msg.id,
+              attachmentId: attachment.id,
+              name,
+              sizeBytes: size,
+              mimeType: cached.mimeType || contentType || null,
+              localPath: cached.path,
+              hostPath: cached.hostPath,
+            },
+            'Discord office attachment cached successfully',
+          );
+        } else {
+          lines.push(
+            `- ${name}: office attachment (cache failed, using URL fallback)`,
+          );
+          logger.warn(
+            {
+              messageId: msg.id,
+              attachmentId: attachment.id,
+              name,
+              sizeBytes: size,
+              mimeType: contentType || 'unknown',
+              cacheError: cached.cacheError || 'unknown',
+            },
+            'Discord office attachment cache failed; using CDN fallback',
           );
         }
         continue;

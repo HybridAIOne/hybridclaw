@@ -275,6 +275,70 @@
       justify-content: flex-start;
     }
 
+    .artifact-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .artifact-card {
+      border: 1px solid #dbe4f0;
+      border-radius: 12px;
+      background: #fbfcff;
+      padding: 10px 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .artifact-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      color: #5f6f88;
+    }
+
+    .artifact-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #223554;
+      text-decoration: none;
+    }
+
+    .artifact-name:hover {
+      text-decoration: underline;
+    }
+
+    .artifact-badge {
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #eef3fb;
+      color: #3657e9;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .artifact-preview {
+      border: 1px solid #dde5f2;
+      border-radius: 10px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    .artifact-preview img,
+    .artifact-preview iframe {
+      display: block;
+      width: 100%;
+      border: 0;
+    }
+
+    .artifact-preview iframe {
+      min-height: 320px;
+      background: #ffffff;
+    }
+
     .copy-btn {
       border: none;
       background: transparent;
@@ -772,7 +836,67 @@
       chatEl.classList.toggle('is-empty', !hasMessages);
     }
 
-    function addMessage(role, content) {
+    function buildArtifactUrl(filePath) {
+      const params = new URLSearchParams({ path: filePath || '' });
+      if (apiToken) {
+        params.set('token', apiToken);
+      }
+      return `/api/artifact?${params.toString()}`;
+    }
+
+    function renderArtifactCards(artifacts) {
+      if (!Array.isArray(artifacts) || artifacts.length === 0) return null;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'artifact-list';
+
+      for (const artifact of artifacts) {
+        const card = document.createElement('div');
+        card.className = 'artifact-card';
+
+        const meta = document.createElement('div');
+        meta.className = 'artifact-meta';
+
+        const link = document.createElement('a');
+        link.className = 'artifact-name';
+        link.href = buildArtifactUrl(artifact.path || '');
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = artifact.filename || 'artifact';
+        meta.appendChild(link);
+
+        const badge = document.createElement('span');
+        badge.className = 'artifact-badge';
+        badge.textContent = String(artifact.mimeType || 'file').split('/').pop();
+        meta.appendChild(badge);
+
+        card.appendChild(meta);
+
+        const mimeType = String(artifact.mimeType || '').toLowerCase();
+        if (mimeType.startsWith('image/')) {
+          const preview = document.createElement('div');
+          preview.className = 'artifact-preview';
+          const image = document.createElement('img');
+          image.src = buildArtifactUrl(artifact.path || '');
+          image.alt = artifact.filename || 'artifact preview';
+          preview.appendChild(image);
+          card.appendChild(preview);
+        } else if (mimeType === 'application/pdf') {
+          const preview = document.createElement('div');
+          preview.className = 'artifact-preview';
+          const frame = document.createElement('iframe');
+          frame.src = buildArtifactUrl(artifact.path || '');
+          frame.title = artifact.filename || 'PDF preview';
+          preview.appendChild(frame);
+          card.appendChild(preview);
+        }
+
+        wrapper.appendChild(card);
+      }
+
+      return wrapper;
+    }
+
+    function addMessage(role, content, artifacts) {
       const item = document.createElement('div');
       item.className = `msg ${role}`;
       if (role === 'assistant') {
@@ -785,6 +909,10 @@
         const block = document.createElement('div');
         block.className = 'msg-block';
         block.appendChild(item);
+        const artifactsBlock = renderArtifactCards(artifacts);
+        if (artifactsBlock) {
+          block.appendChild(artifactsBlock);
+        }
 
         const actions = document.createElement('div');
         actions.className = 'msg-actions';
@@ -888,7 +1016,7 @@
           throw new Error(payload.error || 'Unknown error');
         }
         thinkingItem.remove();
-        addMessage('assistant', payload.result || '');
+        addMessage('assistant', payload.result || '', payload.artifacts || []);
       } catch (err) {
         thinkingItem.remove();
         const text = err instanceof Error ? err.message : String(err);

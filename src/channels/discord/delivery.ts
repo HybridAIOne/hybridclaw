@@ -48,7 +48,7 @@ export function prepareChunkedPayloads(
   const chunks = chunkMessage(prepared, {
     maxChars: Math.max(200, Math.min(2_000, DISCORD_TEXT_CHUNK_LIMIT)),
     maxLines: Math.max(4, Math.min(200, DISCORD_MAX_LINES_PER_MESSAGE)),
-  });
+  }).filter((chunk) => chunk.trim().length > 0);
   const safeChunks = chunks.length > 0 ? chunks : ['(no content)'];
   return safeChunks.map((content, i) => ({
     content,
