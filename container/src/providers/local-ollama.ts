@@ -64,7 +64,9 @@ function normalizeMessageText(content: ChatMessage['content']): string {
 }
 
 function extractDataUriImagePayload(url: string): string | null {
-  const match = String(url || '').match(/^data:[^;]+;base64,([A-Za-z0-9+/=]+)$/i);
+  const match = String(url || '').match(
+    /^data:[^;]+;base64,([A-Za-z0-9+/=]+)$/i,
+  );
   return match?.[1] || null;
 }
 
@@ -135,9 +137,13 @@ function buildRequestBody(
   return request;
 }
 
-function buildUsage(payload: OllamaStreamPayload): ChatCompletionResponse['usage'] | undefined {
+function buildUsage(
+  payload: OllamaStreamPayload,
+): ChatCompletionResponse['usage'] | undefined {
   const promptTokens =
-    typeof payload.prompt_eval_count === 'number' ? payload.prompt_eval_count : 0;
+    typeof payload.prompt_eval_count === 'number'
+      ? payload.prompt_eval_count
+      : 0;
   const completionTokens =
     typeof payload.eval_count === 'number' ? payload.eval_count : 0;
   if (promptTokens === 0 && completionTokens === 0) return undefined;
@@ -148,7 +154,10 @@ function buildUsage(payload: OllamaStreamPayload): ChatCompletionResponse['usage
   };
 }
 
-function finalizeContent(rawContent: string, thinkingText: string): string | null {
+function finalizeContent(
+  rawContent: string,
+  thinkingText: string,
+): string | null {
   const extracted = extractThinkingBlocks(rawContent);
   if (extracted.content && extracted.content !== 'Done.') {
     return extracted.content;
@@ -284,14 +293,23 @@ export async function callOllamaProviderStream(
 
         sawPayload = true;
         latestPayload = payload;
-        if (typeof payload.message?.content === 'string' && payload.message.content) {
+        if (
+          typeof payload.message?.content === 'string' &&
+          payload.message.content
+        ) {
           rawContent += payload.message.content;
           thinkingFilter.push(payload.message.content);
         }
-        if (typeof payload.message?.thinking === 'string' && payload.message.thinking) {
+        if (
+          typeof payload.message?.thinking === 'string' &&
+          payload.message.thinking
+        ) {
           thinkingText += payload.message.thinking;
         }
-        if (Array.isArray(payload.message?.tool_calls) && payload.message.tool_calls.length > 0) {
+        if (
+          Array.isArray(payload.message?.tool_calls) &&
+          payload.message.tool_calls.length > 0
+        ) {
           rawToolCalls = payload.message.tool_calls;
         }
         if (payload.done) {
@@ -306,14 +324,23 @@ export async function callOllamaProviderStream(
         const payload = JSON.parse(buffer.trim()) as OllamaStreamPayload;
         sawPayload = true;
         latestPayload = payload;
-        if (typeof payload.message?.content === 'string' && payload.message.content) {
+        if (
+          typeof payload.message?.content === 'string' &&
+          payload.message.content
+        ) {
           rawContent += payload.message.content;
           thinkingFilter.push(payload.message.content);
         }
-        if (typeof payload.message?.thinking === 'string' && payload.message.thinking) {
+        if (
+          typeof payload.message?.thinking === 'string' &&
+          payload.message.thinking
+        ) {
           thinkingText += payload.message.thinking;
         }
-        if (Array.isArray(payload.message?.tool_calls) && payload.message.tool_calls.length > 0) {
+        if (
+          Array.isArray(payload.message?.tool_calls) &&
+          payload.message.tool_calls.length > 0
+        ) {
           rawToolCalls = payload.message.tool_calls;
         }
       } catch {
@@ -329,5 +356,10 @@ export async function callOllamaProviderStream(
     throw new Error('Streaming response ended without payload');
   }
 
-  return adaptOllamaPayload(latestPayload, rawContent, thinkingText, rawToolCalls);
+  return adaptOllamaPayload(
+    latestPayload,
+    rawContent,
+    thinkingText,
+    rawToolCalls,
+  );
 }

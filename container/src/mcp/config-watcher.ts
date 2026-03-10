@@ -16,7 +16,10 @@ function stableHash(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
 
-function configsEqual(left: McpServerConfig | undefined, right: McpServerConfig): boolean {
+function configsEqual(
+  left: McpServerConfig | undefined,
+  right: McpServerConfig,
+): boolean {
   return JSON.stringify(left || null) === JSON.stringify(right);
 }
 

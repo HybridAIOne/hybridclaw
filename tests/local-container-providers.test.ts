@@ -1,9 +1,4 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-
-import type {
-  ChatMessage,
-  ToolDefinition,
-} from '../container/src/types.js';
 import {
   callOllamaProvider,
   callOllamaProviderStream,
@@ -12,6 +7,7 @@ import {
   callLocalOpenAICompatProvider,
   callLocalOpenAICompatProviderStream,
 } from '../container/src/providers/local-openai-compat.js';
+import type { ChatMessage, ToolDefinition } from '../container/src/types.js';
 
 function makeEventStreamResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
@@ -175,22 +171,25 @@ describe('local container providers', () => {
         unknown
       >;
       expect(body.model).toBe('qwen2.5-coder');
-      return new Response(JSON.stringify({
-        id: 'resp_1',
-        model: 'qwen2.5-coder',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: 'ok',
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'qwen2.5-coder',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'ok',
+              },
+              finish_reason: 'stop',
             },
-            finish_reason: 'stop',
-          },
-        ],
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -454,24 +453,25 @@ describe('local container providers', () => {
   test('OpenAI-compatible provider surfaces structured qwen reasoning content', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            id: 'resp_1',
-            model: 'qwen/qwen3.5-9b',
-            choices: [
-              {
-                message: {
-                  role: 'assistant',
-                  reasoning_content: 'plan',
-                  content: 'answer',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              id: 'resp_1',
+              model: 'qwen/qwen3.5-9b',
+              choices: [
+                {
+                  message: {
+                    role: 'assistant',
+                    reasoning_content: 'plan',
+                    content: 'answer',
+                  },
+                  finish_reason: 'stop',
                 },
-                finish_reason: 'stop',
-              },
-            ],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
       ),
     );
 

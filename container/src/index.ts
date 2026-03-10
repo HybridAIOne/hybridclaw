@@ -589,12 +589,7 @@ function collectRequestedArtifacts(params: {
 }
 
 async function callHybridAIWithRetry(params: {
-  provider?:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'ollama'
-    | 'lmstudio'
-    | 'vllm';
+  provider?: 'hybridai' | 'openai-codex' | 'ollama' | 'lmstudio' | 'vllm';
   baseUrl: string;
   apiKey: string;
   model: string;

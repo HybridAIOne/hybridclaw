@@ -399,7 +399,11 @@ export function resolveLocalModelContextWindow(model: string): number | null {
 export function resolveLocalModelThinkingFormat(
   model: string,
 ): LocalThinkingFormat | null {
-  return getLocalModelInfo(model)?.thinkingFormat || detectThinkingFormat(model) || null;
+  return (
+    getLocalModelInfo(model)?.thinkingFormat ||
+    detectThinkingFormat(model) ||
+    null
+  );
 }
 
 export function startDiscoveryLoop(): void {

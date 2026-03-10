@@ -139,11 +139,12 @@ describe('local health checks', () => {
     writeRuntimeConfig(homeDir);
     const health = await importFreshHealth(homeDir);
 
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
 

@@ -893,7 +893,12 @@ async function callVisionModel(
   const model = currentBrowserModelContext.model;
   const chatbotId = currentBrowserModelContext.chatbotId;
   const provider = currentBrowserModelContext.provider;
-  if (!apiKey && provider !== 'ollama' && provider !== 'lmstudio' && provider !== 'vllm') {
+  if (
+    !apiKey &&
+    provider !== 'ollama' &&
+    provider !== 'lmstudio' &&
+    provider !== 'vllm'
+  ) {
     throw new Error(
       'browser_vision is not configured: missing active request API key context.',
     );
@@ -957,27 +962,27 @@ async function callVisionModel(
               },
             ],
           }
-      : {
-          model: normalizeLocalModelName(provider, model),
-          ...(provider === 'hybridai'
-            ? {
-                chatbot_id: chatbotId,
-                enable_rag: false,
-              }
-            : {}),
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: question },
-                {
-                  type: 'image_url',
-                  image_url: { url: `data:image/png;base64,${imageBase64}` },
-                },
-              ],
-            },
-          ],
-        };
+        : {
+            model: normalizeLocalModelName(provider, model),
+            ...(provider === 'hybridai'
+              ? {
+                  chatbot_id: chatbotId,
+                  enable_rag: false,
+                }
+              : {}),
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: question },
+                  {
+                    type: 'image_url',
+                    image_url: { url: `data:image/png;base64,${imageBase64}` },
+                  },
+                ],
+              },
+            ],
+          };
 
   const response = await fetch(endpoint, {
     method: 'POST',

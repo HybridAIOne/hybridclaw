@@ -3,13 +3,13 @@ import {
   callHybridAIProviderStream,
 } from './providers/hybridai.js';
 import {
-  callLocalOpenAICompatProvider,
-  callLocalOpenAICompatProviderStream,
-} from './providers/local-openai-compat.js';
-import {
   callOllamaProvider,
   callOllamaProviderStream,
 } from './providers/local-ollama.js';
+import {
+  callLocalOpenAICompatProvider,
+  callLocalOpenAICompatProviderStream,
+} from './providers/local-openai-compat.js';
 import {
   callOpenAICodexProvider,
   callOpenAICodexProviderStream,

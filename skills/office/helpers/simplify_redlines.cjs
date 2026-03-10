@@ -1,7 +1,4 @@
-const ACCEPT_UNWRAP = new Set([
-  `w:ins`,
-  `w:moveTo`,
-]);
+const ACCEPT_UNWRAP = new Set([`w:ins`, `w:moveTo`]);
 
 const ACCEPT_DROP = new Set([
   `w:del`,

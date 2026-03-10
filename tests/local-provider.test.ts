@@ -170,13 +170,14 @@ describe('local providers', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            data: [{ id: 'qwen/qwen3.5-9b' }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [{ id: 'qwen/qwen3.5-9b' }],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
       ),
     );
 

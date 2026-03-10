@@ -24,7 +24,9 @@ function textSignature(run, textTag) {
     return null;
   }
 
-  const formatting = children.find((child) => localName(child.tagName) === 'rPr');
+  const formatting = children.find(
+    (child) => localName(child.tagName) === 'rPr',
+  );
   return formatting ? formatting.toString() : '';
 }
 
@@ -77,7 +79,11 @@ function mergeRunSequence(paragraph, runTag, textTag) {
         lastCurrentText.removeAttribute('xml:space');
       }
 
-      for (let textIndex = 0; textIndex < currentTextNodes.length - 1; textIndex += 1) {
+      for (
+        let textIndex = 0;
+        textIndex < currentTextNodes.length - 1;
+        textIndex += 1
+      ) {
         current.removeChild(currentTextNodes[textIndex]);
       }
       paragraph.removeChild(following);

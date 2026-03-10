@@ -23,10 +23,7 @@ async function importFreshCli(homeDir: string) {
 
 function readRuntimeConfig(homeDir: string): RuntimeConfig {
   return JSON.parse(
-    fs.readFileSync(
-      path.join(homeDir, '.hybridclaw', 'config.json'),
-      'utf-8',
-    ),
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
   ) as RuntimeConfig;
 }
 

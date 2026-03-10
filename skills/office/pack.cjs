@@ -5,11 +5,7 @@ const path = require('node:path');
 
 const JSZip = require('jszip');
 
-const {
-  compactDocument,
-  parseXmlFile,
-  serializeXml,
-} = require('./xml.cjs');
+const { compactDocument, parseXmlFile, serializeXml } = require('./xml.cjs');
 const { detectPackageFormat, validatePackage } = require('./validate.cjs');
 
 const XML_EXTENSIONS = new Set(['.xml', '.rels']);
@@ -36,7 +32,10 @@ function sortedMembers(rootDir) {
   const members = listFilesRecursively(rootDir);
 
   const sortKey = (memberPath) => {
-    const relativePath = path.relative(rootDir, memberPath).split(path.sep).join('/');
+    const relativePath = path
+      .relative(rootDir, memberPath)
+      .split(path.sep)
+      .join('/');
     if (relativePath === '[Content_Types].xml') {
       return [0, relativePath];
     }
@@ -94,7 +93,9 @@ function emit(payload, asJson) {
     return;
   }
   if (payload.success) {
-    process.stdout.write(`Packed ${payload.format} file at ${payload.output_path}\n`);
+    process.stdout.write(
+      `Packed ${payload.format} file at ${payload.output_path}\n`,
+    );
     return;
   }
   process.stdout.write('Pack failed:\n');
@@ -118,7 +119,10 @@ async function main() {
     return 1;
   }
 
-  if (!fs.existsSync(options.inputDir) || !fs.statSync(options.inputDir).isDirectory()) {
+  if (
+    !fs.existsSync(options.inputDir) ||
+    !fs.statSync(options.inputDir).isDirectory()
+  ) {
     emit(
       {
         success: false,

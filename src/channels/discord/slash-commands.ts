@@ -591,7 +591,10 @@ export function parseSlashInteractionArgs(
 
     case 'usage': {
       const view = normalizeStringOption(interaction, 'view')?.toLowerCase();
-      const window = normalizeStringOption(interaction, 'window')?.toLowerCase();
+      const window = normalizeStringOption(
+        interaction,
+        'window',
+      )?.toLowerCase();
       const agentId = normalizeStringOption(interaction, 'agent_id');
       if (!view) return ['usage'];
       if (

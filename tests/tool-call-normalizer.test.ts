@@ -39,7 +39,8 @@ describe('tool call normalizer', () => {
           type: 'function',
           function: {
             name: 'tool.call',
-            arguments: '{"name":"tool.file_read","arguments":{"path":"README.md"}}',
+            arguments:
+              '{"name":"tool.file_read","arguments":{"path":"README.md"}}',
           },
         },
       ],
@@ -152,7 +153,8 @@ describe('tool call normalizer', () => {
   });
 
   test('leaves malformed tag JSON untouched', () => {
-    const content = '<tool_call>{"name":"shell","arguments":not-json}</tool_call>';
+    const content =
+      '<tool_call>{"name":"shell","arguments":not-json}</tool_call>';
     const result = normalizeToolCalls(undefined, content);
 
     expect(result.toolCalls).toEqual([]);

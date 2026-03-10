@@ -46,7 +46,9 @@ interface OnboardingOptions {
 function isLocalProvider(
   provider: ReturnType<typeof resolveModelProvider>,
 ): boolean {
-  return provider === 'ollama' || provider === 'lmstudio' || provider === 'vllm';
+  return (
+    provider === 'ollama' || provider === 'lmstudio' || provider === 'vllm'
+  );
 }
 
 function trustModelDocPath(): string {
@@ -786,12 +788,11 @@ export async function ensureRuntimeCredentials(
   const force = options.force === true;
   const securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
-  const hasRequiredCredentials =
-    currentProviderIsLocal
-      ? true
-      : currentAuth === 'openai-codex'
-        ? codexStatus.authenticated
-        : !!existingKey;
+  const hasRequiredCredentials = currentProviderIsLocal
+    ? true
+    : currentAuth === 'openai-codex'
+      ? codexStatus.authenticated
+      : !!existingKey;
   if (!needsSecurityAcceptance && hasRequiredCredentials) return;
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {

@@ -1149,7 +1149,9 @@ function printLocalStatus(): void {
   ensureRuntimeConfigFile();
   const config = getRuntimeConfig();
   console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Local providers enabled: ${config.local.enabled ? 'yes' : 'no'}`);
+  console.log(
+    `Local providers enabled: ${config.local.enabled ? 'yes' : 'no'}`,
+  );
   console.log(`Default model: ${config.hybridai.defaultModel}`);
   for (const backend of ['ollama', 'lmstudio', 'vllm'] as const) {
     const settings = config.local.backends[backend];
@@ -1157,7 +1159,9 @@ function printLocalStatus(): void {
       `${backend}: ${settings.enabled ? 'enabled' : 'disabled'} (${settings.baseUrl})`,
     );
     if (backend === 'vllm') {
-      console.log(`vllm api key: ${settings.apiKey ? 'configured' : 'not set'}`);
+      console.log(
+        `vllm api key: ${settings.apiKey ? 'configured' : 'not set'}`,
+      );
     }
   }
 }
@@ -1194,9 +1198,7 @@ function configureLocalBackend(args: string[]): void {
   if (parsed.setDefault) {
     console.log(`Default model: ${fullModelName}`);
   } else {
-    console.log(
-      `Default model unchanged: ${nextConfig.hybridai.defaultModel}`,
-    );
+    console.log(`Default model unchanged: ${nextConfig.hybridai.defaultModel}`);
   }
   console.log('Next:');
   console.log('  hybridclaw gateway restart --foreground --sandbox=host');

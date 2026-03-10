@@ -66,9 +66,9 @@ describe('local discovery', () => {
     writeRuntimeConfig(homeDir);
     const discovery = await importFreshDiscovery(homeDir);
 
-    expect(
-      discovery.resolveOllamaApiBase('http://127.0.0.1:11434/v1/'),
-    ).toBe('http://127.0.0.1:11434');
+    expect(discovery.resolveOllamaApiBase('http://127.0.0.1:11434/v1/')).toBe(
+      'http://127.0.0.1:11434',
+    );
     expect(discovery.resolveOllamaApiBase()).toBe('http://127.0.0.1:11434');
   });
 
@@ -160,13 +160,14 @@ describe('local discovery', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            data: [{ id: 'qwen2.5-coder:7b' }, { id: 'mistral-nemo' }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [{ id: 'qwen2.5-coder:7b' }, { id: 'mistral-nemo' }],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
       ),
     );
 
@@ -187,25 +188,24 @@ describe('local discovery', () => {
     writeRuntimeConfig(homeDir);
     const discovery = await importFreshDiscovery(homeDir);
 
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ data: [{ id: 'granite-3.2' }] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [{ id: 'granite-3.2' }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
     await discovery.discoverVllmModels('http://127.0.0.1:8000/v1', 'secret');
     await discovery.discoverVllmModels('http://127.0.0.1:8000/v1', '');
 
-    expect(
-      (fetchMock.mock.calls[0]?.[1] as RequestInit).headers,
-    ).toMatchObject({
-      Authorization: 'Bearer secret',
-    });
-    expect(
-      (fetchMock.mock.calls[1]?.[1] as RequestInit).headers,
-    ).toEqual({});
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).headers).toMatchObject(
+      {
+        Authorization: 'Bearer secret',
+      },
+    );
+    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).headers).toEqual({});
   });
 
   test('discoverAllLocalModels caches discovered names for prefixed selection', async () => {

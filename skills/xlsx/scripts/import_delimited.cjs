@@ -35,7 +35,12 @@ function parseArgs(argv) {
       options.noHeader = true;
       continue;
     }
-    if ((arg === '--sheet-name' || arg === '--delimiter' || arg === '--encoding') && args[index + 1]) {
+    if (
+      (arg === '--sheet-name' ||
+        arg === '--delimiter' ||
+        arg === '--encoding') &&
+      args[index + 1]
+    ) {
       const next = args[index + 1];
       if (arg === '--sheet-name') options.sheetName = next;
       if (arg === '--delimiter') options.delimiter = next;
@@ -74,10 +79,16 @@ function decodeBuffer(buffer, encoding) {
     return { decoded: buffer.toString('utf8'), encodingUsed: 'utf-8-sig' };
   }
   if (buffer[0] === 0xff && buffer[1] === 0xfe) {
-    return { decoded: iconv.decode(buffer, 'utf16le'), encodingUsed: 'utf-16le' };
+    return {
+      decoded: iconv.decode(buffer, 'utf16le'),
+      encodingUsed: 'utf-16le',
+    };
   }
   if (buffer[0] === 0xfe && buffer[1] === 0xff) {
-    return { decoded: iconv.decode(buffer, 'utf16be'), encodingUsed: 'utf-16be' };
+    return {
+      decoded: iconv.decode(buffer, 'utf16be'),
+      encodingUsed: 'utf-16be',
+    };
   }
 
   const utf16Guess = looksLikeUtf16(buffer);
@@ -158,7 +169,9 @@ function parseValue(value) {
 
   const normalized = trimmed.replace(/,/g, '');
   if (/^-?\d+(\.\d+)?$/.test(normalized)) {
-    return normalized.includes('.') ? Number.parseFloat(normalized) : Number.parseInt(normalized, 10);
+    return normalized.includes('.')
+      ? Number.parseFloat(normalized)
+      : Number.parseInt(normalized, 10);
   }
 
   return trimmed;
@@ -220,7 +233,10 @@ async function main() {
     return 1;
   }
 
-  if (!fs.existsSync(options.inputPath) || !fs.statSync(options.inputPath).isFile()) {
+  if (
+    !fs.existsSync(options.inputPath) ||
+    !fs.statSync(options.inputPath).isFile()
+  ) {
     emit(
       {
         success: false,
@@ -277,7 +293,9 @@ async function main() {
 
   for (const row of rows.slice(startIndex)) {
     worksheet.addRow(
-      Array.isArray(row) ? row.map((value) => parseValue(value)) : [parseValue(row)],
+      Array.isArray(row)
+        ? row.map((value) => parseValue(value))
+        : [parseValue(row)],
     );
   }
 

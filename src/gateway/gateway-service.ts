@@ -74,9 +74,7 @@ import {
 } from '../providers/factory.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
 import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
-import {
-  resolveLocalModelContextWindow,
-} from '../providers/local-discovery.js';
+import { resolveLocalModelContextWindow } from '../providers/local-discovery.js';
 import { getAllBackendHealth } from '../providers/local-health.js';
 import { getAvailableModelList } from '../providers/model-catalog.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';

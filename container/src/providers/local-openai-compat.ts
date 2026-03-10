@@ -1,9 +1,9 @@
+import { collapseSystemMessages } from '../system-messages.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
   ToolCall,
 } from '../types.js';
-import { collapseSystemMessages } from '../system-messages.js';
 import {
   HybridAIRequestError,
   type NormalizedCallArgs,
@@ -68,10 +68,15 @@ function buildHeaders(apiKey: string): Record<string, string> {
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
-  return String(baseUrl || '').trim().replace(/\/+$/g, '');
+  return String(baseUrl || '')
+    .trim()
+    .replace(/\/+$/g, '');
 }
 
-function normalizeLocalModelName(provider: string | undefined, model: string): string {
+function normalizeLocalModelName(
+  provider: string | undefined,
+  model: string,
+): string {
   const trimmed = String(model || '').trim();
   if (!provider || provider === 'hybridai' || provider === 'openai-codex') {
     return trimmed;
@@ -103,7 +108,9 @@ function resolveStopSequences(args: NormalizedCallArgs): string[] | undefined {
   return ['<|im_end|>', '<|im_start|>'];
 }
 
-function normalizeMessageContent(content: ChatMessage['content']): ChatMessage['content'] {
+function normalizeMessageContent(
+  content: ChatMessage['content'],
+): ChatMessage['content'] {
   return content;
 }
 
@@ -196,7 +203,9 @@ function mergeToolCallDelta(
   }
 }
 
-function normalizeContentToText(content: ChatMessage['content']): string | null {
+function normalizeContentToText(
+  content: ChatMessage['content'],
+): string | null {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return null;
   const chunks: string[] = [];
@@ -305,14 +314,17 @@ function emitResponseTextDeltas(
 export async function callLocalOpenAICompatProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
-  const response = await fetch(`${normalizeBaseUrl(args.baseUrl)}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      ...buildHeaders(args.apiKey),
-      ...(args.requestHeaders || {}),
+  const response = await fetch(
+    `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
+    {
+      method: 'POST',
+      headers: {
+        ...buildHeaders(args.apiKey),
+        ...(args.requestHeaders || {}),
+      },
+      body: JSON.stringify(buildRequestBody(args)),
     },
-    body: JSON.stringify(buildRequestBody(args)),
-  });
+  );
 
   if (!response.ok) {
     throw new HybridAIRequestError(response.status, await response.text());
@@ -326,21 +338,24 @@ export async function callLocalOpenAICompatProvider(
 export async function callLocalOpenAICompatProviderStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
-  const response = await fetch(`${normalizeBaseUrl(args.baseUrl)}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      ...buildHeaders(args.apiKey),
-      ...(args.requestHeaders || {}),
-      Accept: 'text/event-stream, application/json',
-    },
-    body: JSON.stringify({
-      ...buildRequestBody(args),
-      stream: true,
-      stream_options: {
-        include_usage: true,
+  const response = await fetch(
+    `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
+    {
+      method: 'POST',
+      headers: {
+        ...buildHeaders(args.apiKey),
+        ...(args.requestHeaders || {}),
+        Accept: 'text/event-stream, application/json',
       },
-    }),
-  });
+      body: JSON.stringify({
+        ...buildRequestBody(args),
+        stream: true,
+        stream_options: {
+          include_usage: true,
+        },
+      }),
+    },
+  );
 
   if (!response.ok) {
     throw new HybridAIRequestError(response.status, await response.text());
