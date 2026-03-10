@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
 import { McpClientManager } from '../container/src/mcp/client-manager.js';
-import type { McpClientHandle, McpServerConfig } from '../container/src/mcp/types.js';
+import type {
+  McpClientHandle,
+  McpServerConfig,
+} from '../container/src/mcp/types.js';
 
 function makeConfig(command: string): McpServerConfig {
   return {

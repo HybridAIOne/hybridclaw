@@ -84,8 +84,12 @@ function sanitizeToolSegment(value: string): string {
   return sanitized || 'tool';
 }
 
-function buildServerNamespaces(serverNames: Iterable<string>): Map<string, string> {
-  const names = [...serverNames].sort((left, right) => left.localeCompare(right));
+function buildServerNamespaces(
+  serverNames: Iterable<string>,
+): Map<string, string> {
+  const names = [...serverNames].sort((left, right) =>
+    left.localeCompare(right),
+  );
   const counts = new Map<string, number>();
 
   for (const name of names) {
