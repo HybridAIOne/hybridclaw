@@ -1,7 +1,4 @@
-import {
-  ApplicationIntegrationType,
-  InteractionContextType,
-} from 'discord.js';
+import { ApplicationIntegrationType, InteractionContextType } from 'discord.js';
 import { expect, test } from 'vitest';
 
 import {

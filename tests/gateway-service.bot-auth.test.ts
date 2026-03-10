@@ -52,7 +52,6 @@ test('bot list returns an actionable message on HybridAI auth failure', async ()
 
   expect(result).toMatchObject({
     kind: 'error',
-    text:
-      'HybridAI bot commands require valid HybridAI API credentials. Run `hybridclaw hybridai login` and try again.',
+    text: 'HybridAI bot commands require valid HybridAI API credentials. Run `hybridclaw hybridai login` and try again.',
   });
 });
