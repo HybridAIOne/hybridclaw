@@ -1437,7 +1437,7 @@ export class TrustedCoworkerApprovalRuntime {
       }
 
       return {
-        tier: kind === 'edit' ? 'yellow' : 'yellow',
+        tier: 'yellow',
         actionKey,
         intent: `run MCP tool ${toolLabel}`,
         consequenceIfDenied: 'I will continue without this MCP action.',
