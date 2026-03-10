@@ -134,6 +134,11 @@ describe('office bundled skills', () => {
     ).toBe(true);
     expect(
       fs.existsSync(
+        path.join(workspaceDir, 'skills', 'pptx', 'scripts', 'thumbnail.cjs'),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
         path.join(
           workspaceDir,
           'skills',
@@ -202,5 +207,41 @@ describe('office bundled skills', () => {
     expect(
       fs.existsSync(path.join(workspaceDir, 'skills', 'office', 'SKILL.md')),
     ).toBe(true);
+  });
+
+  test('refreshes mirrored bundled skill scripts when helper files change', async () => {
+    const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+    const { loadSkills } = await import('../src/skills/skills.ts');
+
+    const agentId = 'office-agent-refresh';
+    const workspaceDir = agentWorkspaceDir(agentId);
+    const mirroredThumbnailPath = path.join(
+      workspaceDir,
+      'skills',
+      'pptx',
+      'scripts',
+      'thumbnail.cjs',
+    );
+    const sourceThumbnailPath = path.resolve(
+      process.cwd(),
+      'skills',
+      'pptx',
+      'scripts',
+      'thumbnail.cjs',
+    );
+
+    loadSkills(agentId);
+
+    fs.writeFileSync(
+      mirroredThumbnailPath,
+      '#!/usr/bin/env node\nmodule.exports = { stale: true };\n',
+      'utf8',
+    );
+
+    loadSkills(agentId);
+
+    expect(fs.readFileSync(mirroredThumbnailPath, 'utf8')).toBe(
+      fs.readFileSync(sourceThumbnailPath, 'utf8'),
+    );
   });
 });

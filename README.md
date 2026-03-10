@@ -184,6 +184,46 @@ such as `filesystem__read_file` or `github__list_issues`.
 - `office-workflows` is bundled for cross-format tasks such as CSV to XLSX cleanup and XLSX to PPTX or DOCX deliverables coordinated with delegation.
 - Use `hybridclaw skill list` to inspect available installers and `hybridclaw skill install pdf [install-id]` when a bundled skill advertises optional setup helpers.
 
+## Optional Office Dependencies
+
+When you run HybridClaw in the default container sandbox, the bundled office image already includes the main office tooling. These installs matter primarily for `--sandbox=host` workflows or when you want the same capabilities on your local machine.
+
+What they unlock:
+
+- LibreOffice (`soffice`) enables Office-to-PDF export, PPTX visual QA, and XLSX formula recalculation.
+- Poppler (`pdftoppm`) enables slide/page thumbnail rendering for PPTX visual QA.
+- Pandoc improves document conversion workflows around DOCX and Markdown.
+
+macOS:
+
+```bash
+brew install --cask libreoffice
+brew install poppler pandoc
+```
+
+Ubuntu / Debian:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libreoffice poppler-utils pandoc
+```
+
+Fedora:
+
+```bash
+sudo dnf install -y libreoffice poppler-utils pandoc
+```
+
+Verify availability:
+
+```bash
+sh -lc 'command -v soffice >/dev/null 2>&1 || command -v libreoffice >/dev/null 2>&1 && echo soffice_ok'
+sh -lc 'command -v pdftoppm >/dev/null 2>&1 && echo pdftoppm_ok'
+sh -lc 'command -v pandoc >/dev/null 2>&1 && echo pandoc_ok'
+```
+
+Without these tools, the office skills still create and edit `.docx`, `.xlsx`, and `.pptx` files, but some higher-quality QA and conversion paths are skipped.
+
 ## Commands
 
 CLI runtime commands:

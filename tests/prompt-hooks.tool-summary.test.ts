@@ -34,7 +34,7 @@ test('buildSystemPromptFromHooks reflects restricted tool availability', () => {
   expect(prompt).toContain('**Memory**: `memory`');
   expect(prompt).not.toContain('**Files**:');
   expect(prompt).not.toContain('`session_search`');
-  expect(prompt).not.toContain('`delegate`');
+  expect(prompt).not.toContain('**Delegation**:');
 });
 
 test('buildToolsSummary groups MCP tools separately from other tools', () => {
@@ -100,10 +100,31 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'If the current turn already includes an attachment, local file path, `MediaItems`, injected `<file>` content, or `[PDFContext]`, use that artifact first.',
   );
   expect(prompt).toContain(
+    'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output.',
+  );
+  expect(prompt).toContain(
     'For local Discord uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',
   );
   expect(prompt).toContain(
     'When the user asks you to create or generate a file and return/upload/post it, include the file immediately in the final delivery. Do not ask a follow-up question offering to upload it later.',
+  );
+  expect(prompt).toContain(
+    'For deliverable-generation tasks such as presentations, slide decks, spreadsheets, documents, PDFs, reports, or images, assume the created asset should be attached in the final reply unless the user explicitly says not to send the file.',
+  );
+  expect(prompt).toContain(
+    'If you created or updated the requested deliverable successfully, prefer posting the asset immediately over replying with a path plus "if you want, I can upload it."',
+  );
+  expect(prompt).toContain(
+    'For deliverable-generation tasks, once the requested file exists and the generation command succeeded, stop.',
+  );
+  expect(prompt).toContain(
+    'Follow the runtime capability hint for Office QA/export steps instead of assuming tools like `soffice` or `pdftoppm` are available.',
+  );
+  expect(prompt).toContain(
+    'Do not mention missing Office/PDF QA tools in the final reply unless the user asked for QA/export/validation',
+  );
+  expect(prompt).toContain(
+    'For new `pptxgenjs` decks, do not use OOXML shorthand values in table options. Never set table-cell `valign: "mid"` and never emit raw `anchor: "mid"`.',
   );
   expect(prompt).toContain(
     'Never write plain text placeholder content to binary office files such as `.docx`, `.xlsx`, `.pptx`, or `.pdf`. If generation fails, report the error instead of creating a fake file.',

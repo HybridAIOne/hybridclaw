@@ -36,7 +36,7 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
 );
 const MAX_REQUEST_BYTES = 1_000_000; // 1MB
 
-const MIME_TYPES: Record<string, string> = {
+const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
   '.docx':
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -48,6 +48,21 @@ const MIME_TYPES: Record<string, string> = {
   '.pptx':
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.svg': 'image/svg+xml',
+  '.xlsx':
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+
+const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
+  '.docx':
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.pptx':
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.webp': 'image/webp',
   '.xlsx':
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
@@ -204,18 +219,39 @@ function isWithinRoot(candidate: string, root: string): boolean {
   );
 }
 
+function resolvePathForContainmentCheck(filePath: string): string {
+  try {
+    return fs.realpathSync(filePath);
+  } catch {
+    return path.resolve(filePath);
+  }
+}
+
 function resolveArtifactFile(url: URL): string | null {
   const raw = (url.searchParams.get('path') || '').trim();
   if (!raw) return null;
   const resolved = path.resolve(raw);
+  let realFilePath: string;
+  try {
+    realFilePath = fs.realpathSync(resolved);
+  } catch {
+    return null;
+  }
   if (
-    !isWithinRoot(resolved, AGENT_ARTIFACT_ROOT) &&
-    !isWithinRoot(resolved, DISCORD_MEDIA_CACHE_DIR)
+    !isWithinRoot(
+      realFilePath,
+      resolvePathForContainmentCheck(AGENT_ARTIFACT_ROOT),
+    ) &&
+    !isWithinRoot(
+      realFilePath,
+      resolvePathForContainmentCheck(DISCORD_MEDIA_CACHE_DIR),
+    )
   ) {
     return null;
   }
-  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) return null;
-  return resolved;
+  if (!fs.existsSync(realFilePath) || !fs.statSync(realFilePath).isFile())
+    return null;
+  return realFilePath;
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -251,7 +287,7 @@ function serveStatic(pathname: string, res: ServerResponse): boolean {
   );
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
-  const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
+  const mimeType = SITE_MIME_TYPES[ext] || 'application/octet-stream';
   res.writeHead(200, { 'Content-Type': mimeType });
   res.end(fs.readFileSync(filePath));
   return true;
@@ -512,7 +548,8 @@ function handleApiArtifact(
 ): void {
   if (!hasApiAuth(req, url, { allowQueryToken: true })) {
     sendJson(res, 401, {
-      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+      error:
+        'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass `?token=<WEB_API_TOKEN>`.',
     });
     return;
   }
@@ -523,15 +560,69 @@ function handleApiArtifact(
     return;
   }
 
-  const ext = path.extname(filePath).toLowerCase();
-  const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
-  const filename = path.basename(filePath);
-  res.writeHead(200, {
-    'Content-Type': mimeType,
-    'Content-Disposition': `inline; filename="${filename.replace(/"/g, '')}"`,
-    'Cache-Control': 'no-store',
+  fs.stat(filePath, (statError, stats) => {
+    if (statError) {
+      const code = (statError as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        sendJson(res, 404, { error: 'Artifact not found.' });
+        return;
+      }
+      logger.warn(
+        { filePath, error: statError },
+        'Failed to stat artifact before streaming',
+      );
+      sendJson(res, 500, { error: 'Failed to read artifact.' });
+      return;
+    }
+
+    if (!stats.isFile()) {
+      sendJson(res, 404, { error: 'Artifact not found.' });
+      return;
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const inlineMimeType = SAFE_INLINE_ARTIFACT_MIME_TYPES[ext];
+    const mimeType = inlineMimeType || 'application/octet-stream';
+    const dispositionType = inlineMimeType ? 'inline' : 'attachment';
+    const filename = path.basename(filePath);
+    const stream = fs.createReadStream(filePath);
+
+    stream.on('open', () => {
+      res.writeHead(200, {
+        'Content-Type': mimeType,
+        'Content-Disposition': `${dispositionType}; filename="${filename.replace(/"/g, '')}"`,
+        'Cache-Control': 'no-store',
+        'Content-Length': String(stats.size),
+        'X-Content-Type-Options': 'nosniff',
+        ...(dispositionType === 'attachment'
+          ? {
+              'Content-Security-Policy': "sandbox; default-src 'none'",
+            }
+          : {}),
+      });
+    });
+
+    stream.on('data', (chunk) => {
+      res.write(chunk);
+    });
+
+    stream.on('end', () => {
+      if (!res.writableEnded) res.end();
+    });
+
+    stream.on('error', (error) => {
+      logger.warn({ filePath, error }, 'Failed to stream artifact');
+      if (!res.headersSent) {
+        sendJson(res, 500, { error: 'Failed to read artifact.' });
+        return;
+      }
+      if (typeof res.destroy === 'function') {
+        res.destroy(error);
+        return;
+      }
+      if (!res.writableEnded) res.end();
+    });
   });
-  res.end(fs.readFileSync(filePath));
 }
 
 export function startHealthServer(): void {

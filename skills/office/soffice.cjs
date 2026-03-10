@@ -225,4 +225,21 @@ function main() {
   return payload.success ? 0 : 1;
 }
 
-process.exitCode = main();
+if (require.main === module) {
+  try {
+    process.exitCode = main();
+  } catch (error) {
+    emit(
+      {
+        success: false,
+        stderr: error instanceof Error ? error.message : String(error),
+      },
+      true,
+    );
+    process.exitCode = 1;
+  }
+}
+
+module.exports = {
+  findSoffice,
+};

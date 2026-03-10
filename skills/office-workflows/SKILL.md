@@ -19,6 +19,11 @@ metadata:
 
 Use this skill when the task spans multiple office formats or involves both analysis and polished deliverables.
 
+## Fresh Outputs By Default
+
+- When the user asks for a new deliverable from a folder of source files, build it fresh from the primary inputs named by the task.
+- Do not inspect or reuse older generated artifacts in that folder such as dashboards, summary files, helper scripts, or prior reports unless the user explicitly asks to update them or use them as templates.
+
 ## Recommended Patterns
 
 - CSV/TSV -> XLSX:
@@ -27,7 +32,10 @@ Use this skill when the task spans multiple office formats or involves both anal
   Use `delegate` in `chain` mode.
   Step 1: inspect the workbook and extract the few metrics or charts that matter.
   Step 2: build the deck with the `pptx` skill.
-  Step 3: run PPTX visual QA on thumbnails.
+  Step 3: check whether `soffice`/`libreoffice` and `pdftoppm` exist:
+  `sh -lc 'command -v soffice >/dev/null 2>&1 || command -v libreoffice >/dev/null 2>&1'`
+  `sh -lc 'command -v pdftoppm >/dev/null 2>&1'`
+  Step 4: only if both checks succeed, run the PPTX render-and-review loop on thumbnails until there are no concrete slide-level issues left. Otherwise skip that QA path silently unless the user explicitly asked for QA, export, thumbnails, validation, or render verification.
 - XLSX -> DOCX memo:
   Analyze the workbook first, then draft the memo in Markdown and convert with `pandoc` or generate/edit a DOCX directly.
 

@@ -7,7 +7,6 @@ import { expect, test } from 'vitest';
 import {
   discoverArtifactsSince,
   inferArtifactMimeType,
-  promptRequestsArtifactReturn,
 } from '../container/src/artifacts.js';
 
 test('infers OOXML artifact mime types', () => {
@@ -21,17 +20,6 @@ test('infers OOXML artifact mime types', () => {
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   );
   expect(inferArtifactMimeType('preview.png')).toBe('image/png');
-});
-
-test('detects prompts that explicitly request returned artifacts', () => {
-  expect(
-    promptRequestsArtifactReturn(
-      'Create an Excel workbook named profit-summary.xlsx and return the file.',
-    ),
-  ).toBe(true);
-  expect(promptRequestsArtifactReturn('Summarize this spreadsheet.')).toBe(
-    false,
-  );
 });
 
 test('discovers recently created artifact files under the workspace root', () => {

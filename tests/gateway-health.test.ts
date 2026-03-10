@@ -51,14 +51,18 @@ function makeRequest(params: {
 function makeResponse() {
   const response = {
     writableEnded: false,
+    headersSent: false,
+    destroyed: false,
     statusCode: 0,
     headers: {} as Record<string, string>,
     body: '',
     writeHead(statusCode: number, headers: Record<string, string>) {
       response.statusCode = statusCode;
       response.headers = headers;
+      response.headersSent = true;
     },
     write(chunk: unknown) {
+      response.headersSent = true;
       response.body += Buffer.isBuffer(chunk)
         ? chunk.toString('utf8')
         : String(chunk);
@@ -71,6 +75,11 @@ function makeResponse() {
           : String(chunk);
       }
       response.writableEnded = true;
+      response.headersSent = true;
+    },
+    destroy() {
+      response.destroyed = true;
+      response.writableEnded = true;
     },
   };
   return response;
@@ -79,6 +88,18 @@ function makeResponse() {
 async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
+}
+
+async function waitForResponse(
+  response: ReturnType<typeof makeResponse>,
+  predicate: (response: ReturnType<typeof makeResponse>) => boolean,
+): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    if (predicate(response)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error('Timed out waiting for response state.');
 }
 
 async function importFreshHealth(options?: {
@@ -356,6 +377,7 @@ describe('gateway health server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
 
     expect(res.statusCode).toBe(200);
     expect(res.headers['Content-Type']).toBe(
@@ -364,6 +386,158 @@ describe('gateway health server', () => {
     expect(res.headers['Content-Disposition']).toContain(
       'quarterly-update.docx',
     );
+    expect(res.headers['Content-Length']).toBe(String('docx payload'.length));
+    expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
     expect(res.body).toBe('docx payload');
+  });
+
+  test('forces active artifact types to download with defensive headers', async () => {
+    const dataDir = makeTempDataDir();
+    const artifactPath = path.join(
+      dataDir,
+      'agents',
+      'agent-1',
+      'workspace',
+      'dashboard.html',
+    );
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    fs.writeFileSync(artifactPath, '<script>window.pwned = true;</script>', 'utf8');
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: `/api/artifact?path=${encodeURIComponent(artifactPath)}&token=web-token`,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('application/octet-stream');
+    expect(res.headers['Content-Disposition']).toContain(
+      'attachment; filename="dashboard.html"',
+    );
+    expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
+    expect(res.headers['Content-Security-Policy']).toBe(
+      "sandbox; default-src 'none'",
+    );
+    expect(res.body).toContain('window.pwned');
+  });
+
+  test('mentions query-token auth in artifact auth failures', async () => {
+    const dataDir = makeTempDataDir();
+    const artifactPath = path.join(
+      dataDir,
+      'agents',
+      'agent-1',
+      'workspace',
+      'quarterly-update.docx',
+    );
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    fs.writeFileSync(artifactPath, 'docx payload', 'utf8');
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: `/api/artifact?path=${encodeURIComponent(artifactPath)}`,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass `?token=<WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('rejects symlinked artifact paths that escape the allowed roots', async () => {
+    const dataDir = makeTempDataDir();
+    const outsideDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-health-outside-'),
+    );
+    tempDirs.push(outsideDir);
+    const outsideFilePath = path.join(outsideDir, 'secret.docx');
+    fs.writeFileSync(outsideFilePath, 'top secret', 'utf8');
+
+    const symlinkPath = path.join(
+      dataDir,
+      'agents',
+      'agent-1',
+      'workspace',
+      'secret-link.docx',
+    );
+    fs.mkdirSync(path.dirname(symlinkPath), { recursive: true });
+    fs.symlinkSync(outsideFilePath, symlinkPath);
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: `/api/artifact?path=${encodeURIComponent(symlinkPath)}&token=web-token`,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Artifact not found.',
+    });
+  });
+
+  test('returns 500 when artifact streaming fails before headers are sent', async () => {
+    const dataDir = makeTempDataDir();
+    const artifactPath = path.join(
+      dataDir,
+      'agents',
+      'agent-1',
+      'workspace',
+      'broken.docx',
+    );
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    fs.writeFileSync(artifactPath, 'broken payload', 'utf8');
+
+    const createReadStreamSpy = vi
+      .spyOn(fs, 'createReadStream')
+      .mockImplementationOnce(() => {
+        const stream = new Readable({
+          read() {
+            this.destroy(new Error('boom'));
+          },
+        });
+        return stream as unknown as fs.ReadStream;
+      });
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: `/api/artifact?path=${encodeURIComponent(artifactPath)}&token=web-token`,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(500);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Failed to read artifact.',
+    });
+    createReadStreamSpy.mockRestore();
   });
 });

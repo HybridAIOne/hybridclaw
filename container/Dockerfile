@@ -13,7 +13,12 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
     reportlab==4.4.4 \
     pillow==11.3.0
 
-RUN npm install -g docx pptxgenjs exceljs csv-parse iconv-lite
+RUN npm install -g \
+    docx@9.5.1 \
+    pptxgenjs@4.0.1 \
+    exceljs@4.4.0 \
+    csv-parse@6.1.0 \
+    iconv-lite@0.7.0
 ENV NODE_PATH=/usr/local/lib/node_modules:/app/node_modules
 
 WORKDIR /app

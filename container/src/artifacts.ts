@@ -31,19 +31,6 @@ export function inferArtifactMimeType(filePath: string): string {
   return ARTIFACT_MIME_TYPES[ext] || 'application/octet-stream';
 }
 
-export function promptRequestsArtifactReturn(prompt: string): boolean {
-  const normalized = String(prompt || '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return false;
-  return (
-    /\b(return|upload|attach|post|send)\b/.test(normalized) &&
-    /\b(file|artifact|workbook|spreadsheet|document|deck|presentation|report|image|png|jpe?g|gif|svg|webp|pdf|xlsx|docx|pptx)\b/.test(
-      normalized,
-    )
-  );
-}
-
 export function discoverArtifactsSince(
   rootPath: string,
   options?: {

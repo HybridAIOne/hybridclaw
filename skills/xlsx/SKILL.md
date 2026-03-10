@@ -29,7 +29,7 @@ Use this skill whenever the user asks to create, inspect, analyze, or edit an `.
 ## Rules
 
 - Keep formulas as formulas. Do not replace derived cells with hardcoded values unless the user explicitly asks for static outputs.
-- `exceljs` does not recalculate formulas. Keep formula strings intact and use LibreOffice-backed verification when cached values matter.
+- `exceljs` does not recalculate formulas. Keep formula strings intact and use LibreOffice-backed verification when cached values matter and the runtime says `soffice` is available.
 - Preserve existing worksheets, named ranges, freeze panes, filters, and formats unless the user asked for a redesign.
 - Prefer `.xlsx` as the final deliverable. Only fall back to CSV/TSV if the user explicitly wants a flat export.
 - Use number formats, explicit column widths, alignment, and header styling for user-facing workbooks.
@@ -81,5 +81,5 @@ main();
 
 ## Recalculation And Templates
 
-- Use `skills/xlsx/scripts/recalc.cjs` after significant formula edits to refresh calculated values through LibreOffice.
+- Use `skills/xlsx/scripts/recalc.cjs` after significant formula edits when `soffice` is available to refresh calculated values through LibreOffice.
 - Prefer user-provided templates from the current workspace when the user needs a financial model or branded workbook preserved.

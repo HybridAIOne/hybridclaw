@@ -123,7 +123,7 @@ function main() {
       emit(
         {
           success: false,
-          error: `Invalid soffice JSON output: ${error instanceof Error ? error.message : String(error)}`,
+          error: `Invalid office conversion JSON output: ${error instanceof Error ? error.message : String(error)}`,
         },
         options.asJson,
       );
@@ -135,7 +135,7 @@ function main() {
       emit(
         {
           success: false,
-          error: 'LibreOffice did not produce a PDF.',
+          error: 'LibreOffice conversion did not produce a PDF.',
         },
         options.asJson,
       );

@@ -6,7 +6,6 @@ import { TrustedCoworkerApprovalRuntime } from './approval-policy.js';
 import {
   discoverArtifactsSince,
   inferArtifactMimeType,
-  promptRequestsArtifactReturn,
 } from './artifacts.js';
 import {
   emitRuntimeEvent,
@@ -27,6 +26,7 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
+import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
 import {
   accumulateApiUsage,
   createTokenUsageStats,
@@ -573,11 +573,8 @@ function normalizeArtifactKey(filePath: string): string {
 function collectRequestedArtifacts(params: {
   artifacts: ArtifactMetadata[];
   artifactPaths: Set<string>;
-  effectiveUserPrompt: string;
   startedAtMs: number;
 }): void {
-  if (!promptRequestsArtifactReturn(params.effectiveUserPrompt)) return;
-
   const discovered = discoverArtifactsSince(WORKSPACE_ROOT, {
     modifiedAfterMs: Math.max(0, params.startedAtMs - 1_000),
     modifiedBeforeMs: Date.now() + 1_000,
@@ -735,7 +732,7 @@ async function processRequest(
     event: 'before_agent_start',
     messageCount: messages.length,
   });
-  const history: ChatMessage[] = [...messages];
+  const history: ChatMessage[] = injectRuntimeCapabilitiesMessage(messages);
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
   const artifacts: ArtifactMetadata[] = [];
@@ -835,7 +832,6 @@ async function processRequest(
           collectRequestedArtifacts({
             artifacts,
             artifactPaths,
-            effectiveUserPrompt,
             startedAtMs: processStartedAt,
           });
           const completed: ContainerOutput = {
@@ -877,7 +873,6 @@ async function processRequest(
       collectRequestedArtifacts({
         artifacts,
         artifactPaths,
-        effectiveUserPrompt,
         startedAtMs: processStartedAt,
       });
       const completed: ContainerOutput = {
@@ -1054,7 +1049,6 @@ async function processRequest(
   collectRequestedArtifacts({
     artifacts,
     artifactPaths,
-    effectiveUserPrompt,
     startedAtMs: processStartedAt,
   });
   const completed: ContainerOutput = {

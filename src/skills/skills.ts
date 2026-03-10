@@ -703,6 +703,40 @@ function stableSkillDirName(name: string): string {
   return `${base}-${hash}`;
 }
 
+function buildDirectoryContentSignature(rootDir: string): string {
+  const resolvedRoot = path.resolve(rootDir);
+  const entries: string[] = [];
+  const stack = [resolvedRoot];
+
+  while (stack.length > 0) {
+    const currentDir = stack.pop();
+    if (!currentDir) continue;
+
+    const dirEntries = fs
+      .readdirSync(currentDir, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const entry of dirEntries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+        continue;
+      }
+
+      const relPath = path
+        .relative(resolvedRoot, fullPath)
+        .split(path.sep)
+        .join('/');
+      const contentHash = createHash('sha1')
+        .update(fs.readFileSync(fullPath))
+        .digest('hex');
+      entries.push(`${relPath}:${contentHash}`);
+    }
+  }
+
+  return createHash('sha1').update(entries.join('\n')).digest('hex');
+}
+
 function resolveSyncedSkillTarget(
   skill: SkillCandidate,
   workspaceDir: string,
@@ -780,9 +814,9 @@ function syncSkillIntoWorkspace(
   let shouldSync = true;
   try {
     if (fs.existsSync(targetSkillFile)) {
-      const srcStat = fs.statSync(skill.filePath);
-      const dstStat = fs.statSync(targetSkillFile);
-      shouldSync = dstStat.mtimeMs < srcStat.mtimeMs;
+      shouldSync =
+        buildDirectoryContentSignature(skill.baseDir) !==
+        buildDirectoryContentSignature(targetDir);
     }
   } catch {
     shouldSync = true;

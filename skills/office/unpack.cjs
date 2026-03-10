@@ -5,10 +5,37 @@ const path = require('node:path');
 
 const JSZip = require('jszip');
 
-const { mergeAdjacentRuns } = require('./helpers/merge_runs.cjs');
-const { parseXml, serializeXml } = require('./xml.cjs');
-
 const XML_EXTENSIONS = new Set(['.xml', '.rels']);
+
+function isPathWithinRoot(candidate, root) {
+  const resolvedCandidate = path.resolve(candidate);
+  const resolvedRoot = path.resolve(root);
+  return (
+    resolvedCandidate === resolvedRoot ||
+    resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`)
+  );
+}
+
+function resolveMemberDestination(outputDir, memberName) {
+  const normalizedMemberName = String(memberName || '').replace(/\\/g, '/');
+  if (!normalizedMemberName || normalizedMemberName.includes('\0')) {
+    throw new Error(`Unsafe archive member name: ${memberName}`);
+  }
+  if (
+    normalizedMemberName.startsWith('/') ||
+    /^[a-zA-Z]:\//.test(normalizedMemberName)
+  ) {
+    throw new Error(`Archive member uses an absolute path: ${memberName}`);
+  }
+
+  const destination = path.resolve(outputDir, normalizedMemberName);
+  if (!isPathWithinRoot(destination, outputDir)) {
+    throw new Error(
+      `Archive member would extract outside the output directory: ${memberName}`,
+    );
+  }
+  return destination;
+}
 
 function parseArgs(argv) {
   const args = argv.slice(2);
@@ -102,12 +129,14 @@ async function main() {
   fs.mkdirSync(options.outputDir, { recursive: true });
 
   const archive = await JSZip.loadAsync(fs.readFileSync(options.inputPath));
+  const { mergeAdjacentRuns } = require('./helpers/merge_runs.cjs');
+  const { parseXml, serializeXml } = require('./xml.cjs');
   let filesWritten = 0;
   let mergedRuns = 0;
 
   for (const [memberName, member] of Object.entries(archive.files)) {
     if (member.dir) continue;
-    const destination = path.join(options.outputDir, memberName);
+    const destination = resolveMemberDestination(options.outputDir, memberName);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
 
     const payload = await member.async('nodebuffer');
@@ -136,18 +165,24 @@ async function main() {
   return 0;
 }
 
-main().then(
-  (code) => {
-    process.exitCode = code;
-  },
-  (error) => {
-    emit(
-      {
-        success: false,
-        issues: [error instanceof Error ? error.message : String(error)],
-      },
-      true,
-    );
-    process.exitCode = 1;
-  },
-);
+if (require.main === module) {
+  main().then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error) => {
+      emit(
+        {
+          success: false,
+          issues: [error instanceof Error ? error.message : String(error)],
+        },
+        true,
+      );
+      process.exitCode = 1;
+    },
+  );
+}
+
+module.exports = {
+  resolveMemberDestination,
+};
