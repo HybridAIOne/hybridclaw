@@ -61,6 +61,14 @@ import {
 } from './gateway-service.js';
 import { startHealthServer } from './health.js';
 import {
+  cleanupExpiredPendingApprovals,
+  clearPendingApproval,
+  extractApprovalId,
+  getPendingApproval,
+  type PendingApprovalPrompt,
+  setPendingApproval,
+} from './pending-approvals.js';
+import {
   isDiscordChannelId,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
@@ -72,15 +80,6 @@ let memoryConsolidationTimer: ReturnType<typeof setInterval> | null = null;
 
 const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
 const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
-
-interface PendingApprovalPrompt {
-  prompt: string;
-  createdAt: number;
-  expiresAt: number;
-  userId: string;
-}
-
-const pendingApprovalBySession = new Map<string, PendingApprovalPrompt>();
 
 function buildArtifactAttachments(
   artifacts?: ArtifactMetadata[],
@@ -177,18 +176,29 @@ function parseApprovalExpiryMs(prompt: string): number {
   return Math.max(15_000, seconds * 1_000);
 }
 
-function extractApprovalId(prompt: string): string {
-  const match = prompt.match(/Approval ID:\s*([a-f0-9-]{6,64})/i);
-  return match?.[1]?.trim() || '';
-}
-
-function cleanupExpiredPendingApprovals(): void {
-  const now = Date.now();
-  for (const [sessionId, pending] of pendingApprovalBySession.entries()) {
-    if (pending.expiresAt <= now) {
-      pendingApprovalBySession.delete(sessionId);
-    }
-  }
+async function rememberPendingApproval(params: {
+  sessionId: string;
+  prompt: string;
+  userId: string;
+  disableButtons?: (() => Promise<void>) | null;
+}): Promise<void> {
+  const createdAt = Date.now();
+  const expiresAt = createdAt + parseApprovalExpiryMs(params.prompt);
+  const entry: PendingApprovalPrompt = {
+    prompt: params.prompt,
+    createdAt,
+    expiresAt,
+    userId: params.userId,
+    disableButtons: params.disableButtons ?? null,
+    disableTimeout: null,
+  };
+  entry.disableTimeout = setTimeout(
+    () => {
+      void clearPendingApproval(params.sessionId, { disableButtons: true });
+    },
+    Math.max(0, expiresAt - Date.now()),
+  );
+  await setPendingApproval(params.sessionId, entry);
 }
 
 async function handleApprovalCommand(params: {
@@ -204,8 +214,8 @@ async function handleApprovalCommand(params: {
     params;
   if ((args[0] || '').toLowerCase() !== 'approve') return false;
 
-  cleanupExpiredPendingApprovals();
-  const pending = pendingApprovalBySession.get(sessionId) || null;
+  await cleanupExpiredPendingApprovals();
+  const pending = getPendingApproval(sessionId);
   const action = (args[1] || 'view').trim().toLowerCase();
   const providedApprovalId = (args[2] || '').trim();
   const currentApprovalId = pending ? extractApprovalId(pending.prompt) : '';
@@ -264,12 +274,12 @@ async function handleApprovalCommand(params: {
     return true;
   }
   if (isSilentReply(approvalResult.result)) {
-    pendingApprovalBySession.delete(sessionId);
+    await clearPendingApproval(sessionId, { disableButtons: true });
     return true;
   }
   const approvalResultText = stripSilentToken(String(approvalResult.result));
   if (!approvalResultText.trim()) {
-    pendingApprovalBySession.delete(sessionId);
+    await clearPendingApproval(sessionId, { disableButtons: true });
     return true;
   }
 
@@ -278,17 +288,16 @@ async function handleApprovalCommand(params: {
     approvalResult.toolsUsed,
   );
   if (isApprovalPromptForPrivateDelivery(resultText)) {
-    pendingApprovalBySession.set(sessionId, {
+    await rememberPendingApproval({
+      sessionId,
       prompt: resultText,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + parseApprovalExpiryMs(resultText),
       userId,
     });
     await reply(formatInfo('Pending Approval', resultText));
     return true;
   }
 
-  pendingApprovalBySession.delete(sessionId);
+  await clearPendingApproval(sessionId, { disableButtons: true });
   const attachments = buildArtifactAttachments(approvalResult.artifacts);
   await reply(resultText, attachments);
   return true;
@@ -532,14 +541,14 @@ async function startDiscordIntegration(): Promise<void> {
           await appendStreamText(bufferedDelta);
         }
         if (streamFilter.isSilent() || isSilentReply(result.result)) {
-          pendingApprovalBySession.delete(sessionId);
+          await clearPendingApproval(sessionId, { disableButtons: true });
           await context.stream.discard();
           return;
         }
         const attachments = buildArtifactAttachments(result.artifacts);
         const cleanedResultText = stripSilentToken(String(result.result));
         if (!cleanedResultText.trim()) {
-          pendingApprovalBySession.delete(sessionId);
+          await clearPendingApproval(sessionId, { disableButtons: true });
           await context.stream.discard();
           return;
         }
@@ -554,18 +563,31 @@ async function startDiscordIntegration(): Promise<void> {
         );
         const responseText = buildResponseText(renderedText, result.toolsUsed);
         if (isApprovalPromptForPrivateDelivery(responseText)) {
-          pendingApprovalBySession.set(sessionId, {
+          let cleanup: { disableButtons: () => Promise<void> } | null = null;
+          const approvalId = extractApprovalId(responseText);
+          if (context.sendApprovalNotification && approvalId) {
+            cleanup = await context.sendApprovalNotification({
+              text: 'Approval required — use buttons below or `/approve` to respond.',
+              approvalId,
+              userId,
+            });
+          } else {
+            await context.stream.finalize(
+              `<@${userId}> approval required. Use \`/approve\` to view and respond privately.`,
+            );
+          }
+          await rememberPendingApproval({
+            sessionId,
             prompt: responseText,
-            createdAt: Date.now(),
-            expiresAt: Date.now() + parseApprovalExpiryMs(responseText),
             userId,
+            disableButtons: cleanup?.disableButtons ?? null,
           });
-          await context.stream.finalize(
-            `<@${userId}> approval required. Use \`/approve\` to view and respond privately.`,
-          );
+          if (cleanup) {
+            await context.stream.discard();
+          }
           return;
         }
-        pendingApprovalBySession.delete(sessionId);
+        await clearPendingApproval(sessionId, { disableButtons: true });
         await context.stream.finalize(responseText, attachments);
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);

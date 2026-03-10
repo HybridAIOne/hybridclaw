@@ -476,6 +476,19 @@ function parseAuditPayload(
   }
 }
 
+function summarizeAuditPayload(payloadRaw: string): string {
+  try {
+    const payload = JSON.parse(payloadRaw) as Record<string, unknown>;
+    if (payload.type === 'tool.result') {
+      const status = payload.isError ? 'error' : 'ok';
+      return `${String(payload.toolName || 'tool')} ${status} ${String(payload.durationMs || 0)}ms`;
+    }
+    return JSON.stringify(payload).slice(0, 140);
+  } catch {
+    return payloadRaw.slice(0, 140);
+  }
+}
+
 function formatCompactNumber(value: number | null): string {
   if (value == null) return 'n/a';
   const abs = Math.abs(value);
@@ -2385,6 +2398,7 @@ export async function handleGatewayCommand(
         '`sessions` — List active sessions',
         '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
         '`export session [sessionId]` — Export session JSONL snapshot for debugging',
+        '`audit [sessionId]` — Show recent structured audit events for a session',
         '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
         '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
         '`schedule add every <ms> <prompt>` — Add interval task',
@@ -3014,6 +3028,23 @@ export async function handleGatewayCommand(
           `Summary: ${targetSession.session_summary ? 'yes' : 'no'}`,
         ].join('\n'),
       );
+    }
+
+    case 'audit': {
+      const targetSessionId = (req.args[1] || session.id || '').trim();
+      if (!targetSessionId) {
+        return badCommand('Usage', 'Usage: `audit [sessionId]`');
+      }
+      const rows = getRecentStructuredAuditForSession(targetSessionId, 20);
+      if (rows.length === 0) {
+        return plainCommand(
+          `No structured audit events for session \`${targetSessionId}\`.`,
+        );
+      }
+      const lines = rows.map((row) => {
+        return `#${row.seq} ${row.event_type} ${row.timestamp} ${summarizeAuditPayload(row.payload)}`;
+      });
+      return infoCommand(`Audit (${targetSessionId})`, lines.join('\n'));
     }
 
     case 'schedule': {
