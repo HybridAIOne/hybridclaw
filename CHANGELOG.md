@@ -2,9 +2,20 @@
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.5.0)
+
+### Added
+
+- **Model Context Protocol support**: Added runtime `mcpServers` config plus container MCP client loading so HybridClaw can expose configured MCP servers as namespaced tools, with TUI `/mcp list|add|toggle|remove|reconnect` management commands.
+- **Discord slash command control plane**: Added global Discord slash commands for status, approvals, compaction, channel policy, model/bot selection, RAG, Ralph loop, MCP management, usage, export, sessions, audit, and scheduling, with private approval responses.
+- **Bundled office document skills**: Added `docx`, `xlsx`, `pptx`, and `office-workflows` bundled skills plus shared office helper scripts for OOXML pack/unpack, tracked-change cleanup, spreadsheet import/recalc, and presentation thumbnail QA.
+- **Authenticated artifact downloads**: Added gateway `/api/artifact` serving for generated agent artifacts and cached Discord media so the web chat can render previews and download generated office outputs safely.
+
 ### Changed
 
-- **Discord message tool uploads**: The Discord `message` tool now supports native local-file uploads via `filePath`, with prompt guidance and validation for current-workspace and `/discord-media-cache` paths so image/file posts use real Discord attachments instead of broken URL-button fallbacks.
+- **Runtime capability guidance**: Prompt/tool summaries now group MCP tools cleanly and add office-file guardrails so models avoid fake binary placeholders and follow document QA workflows.
+- **Discord delivery workflow**: The Discord `message` tool now supports native local-file uploads via `filePath`, and runtime delivery/register flows better handle workspace files, `/discord-media-cache`, and DM-visible global slash commands.
+- **Documentation and examples**: README, runtime docs, and built-in web/chat surfaces now document MCP setup, bundled office skills, and artifact handling for the new workflows.
 
 ## [0.4.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.4.3)
 
