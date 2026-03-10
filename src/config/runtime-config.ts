@@ -679,9 +679,7 @@ function normalizeMcpServerConfig(value: unknown): McpServerConfig | null {
   };
 }
 
-function normalizeMcpServers(
-  value: unknown,
-): Record<string, McpServerConfig> {
+function normalizeMcpServers(value: unknown): Record<string, McpServerConfig> {
   if (!isRecord(value)) return {};
   const normalized: Record<string, McpServerConfig> = {};
   for (const [rawName, rawConfig] of Object.entries(value)) {
