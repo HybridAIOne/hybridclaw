@@ -1,5 +1,18 @@
-export type AIProviderId = 'hybridai' | 'openai-codex' | 'anthropic';
-export type RuntimeProviderId = 'hybridai' | 'openai-codex';
+import type { LocalThinkingFormat } from './local-types.js';
+
+export type AIProviderId =
+  | 'hybridai'
+  | 'openai-codex'
+  | 'anthropic'
+  | 'ollama'
+  | 'lmstudio'
+  | 'vllm';
+export type RuntimeProviderId =
+  | 'hybridai'
+  | 'openai-codex'
+  | 'ollama'
+  | 'lmstudio'
+  | 'vllm';
 
 export interface ResolvedModelRuntimeCredentials {
   provider: RuntimeProviderId;
@@ -10,6 +23,9 @@ export interface ResolvedModelRuntimeCredentials {
   requestHeaders: Record<string, string>;
   agentId: string;
   accountId?: string;
+  isLocal?: boolean;
+  contextWindow?: number;
+  thinkingFormat?: LocalThinkingFormat;
 }
 
 export interface ResolveProviderRuntimeParams {

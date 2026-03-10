@@ -1,6 +1,11 @@
 import type { ChatMessage, ToolDefinition } from '../types.js';
 
-export type RuntimeProvider = 'hybridai' | 'openai-codex';
+export type RuntimeProvider =
+  | 'hybridai'
+  | 'openai-codex'
+  | 'ollama'
+  | 'lmstudio'
+  | 'vllm';
 
 export interface NormalizedCallArgs {
   provider: RuntimeProvider | undefined;
@@ -13,6 +18,9 @@ export interface NormalizedCallArgs {
   messages: ChatMessage[];
   tools: ToolDefinition[];
   maxTokens: number | undefined;
+  isLocal: boolean;
+  contextWindow: number | undefined;
+  thinkingFormat: 'qwen' | undefined;
 }
 
 export interface NormalizedStreamCallArgs extends NormalizedCallArgs {
@@ -32,7 +40,13 @@ export class HybridAIRequestError extends Error {
 }
 
 function isProvider(value: unknown): value is RuntimeProvider {
-  return value === 'hybridai' || value === 'openai-codex';
+  return (
+    value === 'hybridai' ||
+    value === 'openai-codex' ||
+    value === 'ollama' ||
+    value === 'lmstudio' ||
+    value === 'vllm'
+  );
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -67,6 +81,9 @@ export function normalizeCallArgs(rawArgs: unknown[]): NormalizedCallArgs {
       messages: (rawArgs[7] as ChatMessage[]) || [],
       tools: (rawArgs[8] as ToolDefinition[]) || [],
       maxTokens: typeof rawArgs[9] === 'number' ? rawArgs[9] : undefined,
+      isLocal: Boolean(rawArgs[10]),
+      contextWindow: typeof rawArgs[11] === 'number' ? rawArgs[11] : undefined,
+      thinkingFormat: rawArgs[12] === 'qwen' ? 'qwen' : undefined,
     };
   }
 
@@ -81,6 +98,9 @@ export function normalizeCallArgs(rawArgs: unknown[]): NormalizedCallArgs {
     messages: (rawArgs[5] as ChatMessage[]) || [],
     tools: (rawArgs[6] as ToolDefinition[]) || [],
     maxTokens: typeof rawArgs[7] === 'number' ? rawArgs[7] : undefined,
+    isLocal: Boolean(rawArgs[8]),
+    contextWindow: typeof rawArgs[9] === 'number' ? rawArgs[9] : undefined,
+    thinkingFormat: rawArgs[10] === 'qwen' ? 'qwen' : undefined,
   };
 }
 
@@ -100,6 +120,9 @@ export function normalizeStreamCallArgs(
       tools: (rawArgs[8] as ToolDefinition[]) || [],
       onTextDelta: (rawArgs[9] as (delta: string) => void) || (() => {}),
       maxTokens: typeof rawArgs[10] === 'number' ? rawArgs[10] : undefined,
+      isLocal: Boolean(rawArgs[11]),
+      contextWindow: typeof rawArgs[12] === 'number' ? rawArgs[12] : undefined,
+      thinkingFormat: rawArgs[13] === 'qwen' ? 'qwen' : undefined,
     };
   }
 
@@ -115,5 +138,8 @@ export function normalizeStreamCallArgs(
     tools: (rawArgs[6] as ToolDefinition[]) || [],
     onTextDelta: (rawArgs[7] as (delta: string) => void) || (() => {}),
     maxTokens: typeof rawArgs[8] === 'number' ? rawArgs[8] : undefined,
+    isLocal: Boolean(rawArgs[9]),
+    contextWindow: typeof rawArgs[10] === 'number' ? rawArgs[10] : undefined,
+    thinkingFormat: rawArgs[11] === 'qwen' ? 'qwen' : undefined,
   };
 }

@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 
+import { mergeSystemMessage } from './system-messages.js';
 import type { ChatMessage } from './types.js';
 
 export interface RuntimeCapabilities {
@@ -51,18 +52,10 @@ export function injectRuntimeCapabilitiesMessage(
   messages: ChatMessage[],
   capabilities: RuntimeCapabilities = detectRuntimeCapabilities(),
 ): ChatMessage[] {
-  const history = messages.map((message) => ({ ...message }));
-  const runtimeMessage: ChatMessage = {
-    role: 'system',
-    content: buildRuntimeCapabilitiesMessage(capabilities),
-  };
-  const insertIndex = history.findIndex((message) => message.role !== 'system');
-  if (insertIndex === -1) {
-    history.push(runtimeMessage);
-    return history;
-  }
-  history.splice(insertIndex, 0, runtimeMessage);
-  return history;
+  return mergeSystemMessage(
+    messages,
+    buildRuntimeCapabilitiesMessage(capabilities),
+  );
 }
 
 export function resetRuntimeCapabilitiesCache(): void {

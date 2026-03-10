@@ -11,7 +11,6 @@ import {
 } from 'discord.js';
 
 import {
-  CONFIGURED_MODELS,
   DATA_DIR,
   DISCORD_ACK_REACTION,
   DISCORD_ACK_REACTION_SCOPE,
@@ -45,6 +44,7 @@ import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { logger } from '../../logger.js';
 import { getSessionById } from '../../memory/db.js';
 import { resolveAgentIdForModel } from '../../providers/factory.js';
+import { getAvailableModelChoices } from '../../providers/model-catalog.js';
 import type { MediaContextItem } from '../../types.js';
 import {
   buildApprovalActionRow,
@@ -1047,10 +1047,7 @@ async function sendChunkedInteractionReply(
 }
 
 async function ensureSlashCommands(): Promise<void> {
-  const modelChoices = CONFIGURED_MODELS.slice(0, 25).map((model) => ({
-    name: model,
-    value: model,
-  }));
+  const modelChoices = await getAvailableModelChoices(25);
   const definitions = buildSlashCommandDefinitions(modelChoices);
   const definitionNames = new Set(
     definitions.map((definition) => definition.name),

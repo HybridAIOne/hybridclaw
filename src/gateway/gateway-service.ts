@@ -23,7 +23,6 @@ import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import {
   APP_VERSION,
-  CONFIGURED_MODELS,
   DATA_DIR,
   DISCORD_COMMANDS_ONLY,
   DISCORD_FREE_RESPONSE_CHANNELS,
@@ -75,6 +74,11 @@ import {
 } from '../providers/factory.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
 import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
+import {
+  resolveLocalModelContextWindow,
+} from '../providers/local-discovery.js';
+import { getAllBackendHealth } from '../providers/local-health.js';
+import { getAvailableModelList } from '../providers/model-catalog.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
@@ -1111,6 +1115,19 @@ function buildTokenUsageAuditPayload(
 export function getGatewayStatus(): GatewayStatus {
   const sandbox = getSandboxDiagnostics();
   const codex = getCodexAuthStatus();
+  const localBackends = Object.fromEntries(
+    [...getAllBackendHealth().entries()].map(([backend, status]) => [
+      backend,
+      {
+        reachable: status.reachable,
+        latencyMs: status.latencyMs,
+        ...(status.error ? { error: status.error } : {}),
+        ...(typeof status.modelCount === 'number'
+          ? { modelCount: status.modelCount }
+          : {}),
+      },
+    ]),
+  ) as GatewayStatus['localBackends'];
   return {
     status: 'ok',
     pid: process.pid,
@@ -1133,6 +1150,7 @@ export function getGatewayStatus(): GatewayStatus {
     scheduler: {
       jobs: getSchedulerStatus(),
     },
+    localBackends,
   };
 }
 
@@ -2407,8 +2425,10 @@ export async function handleGatewayCommand(
         '`/approve [view|yes|session|agent|no] [approval_id]` — View/respond to pending approvals privately',
         '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
         '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
-        '`/model info` — Show current default model and allowed list',
-        '`/model default <name>` — Set default model for new sessions',
+        '`/model list` — List available runtime models',
+        '`/model set <name>` — Set the model for this session',
+        '`/model info` — Show current and default model details',
+        '`/model default [name]` — Show or set the default model for new sessions',
         '`sessions` — List active sessions',
         '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
         '`export session [sessionId]` — Export session JSONL snapshot for debugging',
@@ -2485,7 +2505,7 @@ export async function handleGatewayCommand(
     }
 
     case 'model': {
-      const availableModels = CONFIGURED_MODELS;
+      const availableModels = getAvailableModelList();
       const sub = req.args[1]?.toLowerCase();
       if (sub === 'list') {
         const current = session.model || HYBRIDAI_MODEL;
@@ -2870,6 +2890,7 @@ export async function handleGatewayCommand(
       const commitShort = resolveGitCommitShort();
       const sessionModel = session.model || HYBRIDAI_MODEL;
       const modelContextWindowTokens =
+        resolveLocalModelContextWindow(sessionModel) ??
         resolveModelContextWindowFallback(sessionModel);
       const metrics = readSessionStatusSnapshot(session.id, {
         modelContextWindowTokens,

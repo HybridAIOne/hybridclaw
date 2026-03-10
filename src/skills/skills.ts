@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CONTAINER_SANDBOX_MODE } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -599,6 +600,13 @@ function asContainerPath(
 ): string | null {
   if (!pathWithin(workspaceDir, absolutePath)) return null;
   const rel = toPosixPath(path.relative(workspaceDir, absolutePath));
+  // In host mode there is no /workspace mount; use the real workspace path
+  // so the system prompt shows paths the agent can actually access.
+  if (CONTAINER_SANDBOX_MODE === 'host') {
+    return rel
+      ? `${toPosixPath(workspaceDir)}/${rel}`
+      : toPosixPath(workspaceDir);
+  }
   return rel ? `/workspace/${rel}` : '/workspace';
 }
 

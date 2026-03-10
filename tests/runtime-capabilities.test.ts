@@ -43,7 +43,7 @@ describe('runtime capability hints', () => {
     expect(spawnSync).toHaveBeenCalledTimes(3);
   });
 
-  test('injects a system hint ahead of the first non-system message', async () => {
+  test('merges runtime hints into the existing system message', async () => {
     const { injectRuntimeCapabilitiesMessage } = await import(
       '../container/src/runtime-capabilities.ts'
     );
@@ -56,25 +56,43 @@ describe('runtime capability hints', () => {
       { hasSoffice: false, hasPdftoppm: false },
     );
 
-    expect(messages).toHaveLength(3);
-    expect(messages[0]).toEqual({
-      role: 'system',
-      content: 'base instructions',
-    });
-    expect(messages[1]?.role).toBe('system');
-    expect(messages[1]?.content).toContain(
+    expect(messages).toHaveLength(2);
+    expect(messages[0]?.role).toBe('system');
+    expect(messages[0]?.content).toContain('base instructions');
+    expect(messages[0]?.content).toContain(
       'LibreOffice `soffice`: unavailable',
     );
-    expect(messages[1]?.content).toContain(
+    expect(messages[0]?.content).toContain(
       'Do not attempt PPTX render-and-review when either `soffice` or `pdftoppm` is unavailable.',
     );
-    expect(messages[1]?.content).toContain(
+    expect(messages[0]?.content).toContain(
       'Skip that QA path silently unless the user explicitly asked for QA',
     );
-    expect(messages[1]?.content).toContain(
+    expect(messages[0]?.content).toContain(
       'Do not mention missing Office/PDF QA tools in the final reply by default.',
     );
-    expect(messages[2]).toEqual({
+    expect(messages[1]).toEqual({
+      role: 'user',
+      content: 'Create a PPTX.',
+    });
+  });
+
+  test('injects a system hint when no system prompt exists yet', async () => {
+    const { injectRuntimeCapabilitiesMessage } = await import(
+      '../container/src/runtime-capabilities.ts'
+    );
+
+    const messages = injectRuntimeCapabilitiesMessage(
+      [{ role: 'user', content: 'Create a PPTX.' }],
+      { hasSoffice: false, hasPdftoppm: false },
+    );
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0]?.role).toBe('system');
+    expect(messages[0]?.content).toContain(
+      'LibreOffice `soffice`: unavailable',
+    );
+    expect(messages[1]).toEqual({
       role: 'user',
       content: 'Create a PPTX.',
     });

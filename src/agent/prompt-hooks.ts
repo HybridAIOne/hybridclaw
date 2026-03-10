@@ -1,6 +1,10 @@
 import os from 'node:os';
 import { resolveChannelMessageToolHints } from '../channels/prompt-adapters.js';
-import { APP_VERSION, HYBRIDAI_MODEL } from '../config/config.js';
+import {
+  APP_VERSION,
+  CONTAINER_SANDBOX_MODE,
+  HYBRIDAI_MODEL,
+} from '../config/config.js';
 import {
   getRuntimeConfig,
   isSecurityTrustAccepted,
@@ -135,8 +139,12 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Create or modify files on disk first via file tools.',
     'Do not create or edit files via shell heredocs, echo redirects, sed, or awk.',
     'Use bash for execution/build/validation tasks, not for file authoring.',
-    'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) are workspace-bound, but configured container bind mounts can make selected host paths available through those tools. Prefer file tools when a bound path resolves; otherwise use `bash` for absolute paths outside the workspace.',
-    'For `bash`, the working directory is the workspace root. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` for temporary artifacts.',
+    CONTAINER_SANDBOX_MODE === 'host'
+      ? 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) operate relative to the workspace directory shown in Runtime Metadata. Use `bash` for absolute paths outside the workspace.'
+      : 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) are workspace-bound, but configured container bind mounts can make selected host paths available through those tools. Prefer file tools when a bound path resolves; otherwise use `bash` for absolute paths outside the workspace.',
+    CONTAINER_SANDBOX_MODE === 'host'
+      ? 'For `bash`, the working directory is the workspace root. Use relative paths from the workspace, and prefer `/tmp` for temporary artifacts. There is no `/workspace` directory; use the real workspace path from Runtime Metadata.'
+      : 'For `bash`, the working directory is the workspace root. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` for temporary artifacts.',
     'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',
     'Only skip file creation when the user explicitly asks for snippet-only or explanation-only output.',
     'Never write plain text placeholder content to binary office files such as `.docx`, `.xlsx`, `.pptx`, or `.pdf`. If generation fails, report the error instead of creating a fake file.',

@@ -3,10 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { CODEX_DEFAULT_BASE_URL } from '../auth/codex-auth.js';
+import type { LocalProviderConfig } from '../providers/local-types.js';
 import type { McpServerConfig } from '../types.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 8;
+export const CONFIG_VERSION = 9;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
@@ -205,6 +206,7 @@ export interface RuntimeConfig {
     baseUrl: string;
     models: string[];
   };
+  local: LocalProviderConfig;
   container: {
     sandboxMode: ContainerSandboxMode;
     image: string;
@@ -397,6 +399,37 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
     models: [...DEFAULT_CODEX_MODEL_LIST],
+  },
+  local: {
+    enabled: false,
+    backends: {
+      ollama: {
+        enabled: true,
+        baseUrl: 'http://127.0.0.1:11434',
+      },
+      lmstudio: {
+        enabled: false,
+        baseUrl: 'http://127.0.0.1:1234/v1',
+      },
+      vllm: {
+        enabled: false,
+        baseUrl: 'http://127.0.0.1:8000/v1',
+        apiKey: '',
+      },
+    },
+    discovery: {
+      enabled: true,
+      intervalMs: 300_000,
+      maxModels: 200,
+      concurrency: 8,
+    },
+    healthCheck: {
+      enabled: true,
+      intervalMs: 60_000,
+      timeoutMs: 5_000,
+    },
+    defaultContextWindow: 128_000,
+    defaultMaxTokens: 8_192,
   },
   container: {
     sandboxMode: 'container',
@@ -1377,6 +1410,23 @@ function normalizeRuntimeConfig(
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
+  const rawLocal = isRecord(raw.local) ? raw.local : {};
+  const rawLocalBackends = isRecord(rawLocal.backends) ? rawLocal.backends : {};
+  const rawOllamaBackend = isRecord(rawLocalBackends.ollama)
+    ? rawLocalBackends.ollama
+    : {};
+  const rawLmStudioBackend = isRecord(rawLocalBackends.lmstudio)
+    ? rawLocalBackends.lmstudio
+    : {};
+  const rawVllmBackend = isRecord(rawLocalBackends.vllm)
+    ? rawLocalBackends.vllm
+    : {};
+  const rawLocalDiscovery = isRecord(rawLocal.discovery)
+    ? rawLocal.discovery
+    : {};
+  const rawLocalHealthCheck = isRecord(rawLocal.healthCheck)
+    ? rawLocal.healthCheck
+    : {};
   const rawContainer = isRecord(raw.container) ? raw.container : {};
   const rawMcpServers = isRecord(raw.mcpServers) ? raw.mcpServers : {};
   const rawWeb = isRecord(raw.web) ? raw.web : {};
@@ -1636,6 +1686,96 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.codex.baseUrl,
       ),
       models: codexModelList,
+    },
+    local: {
+      enabled: normalizeBoolean(
+        rawLocal.enabled,
+        DEFAULT_RUNTIME_CONFIG.local.enabled,
+      ),
+      backends: {
+        ollama: {
+          enabled: normalizeBoolean(
+            rawOllamaBackend.enabled,
+            DEFAULT_RUNTIME_CONFIG.local.backends.ollama.enabled,
+          ),
+          baseUrl: normalizeBaseUrl(
+            rawOllamaBackend.baseUrl,
+            DEFAULT_RUNTIME_CONFIG.local.backends.ollama.baseUrl,
+          ),
+        },
+        lmstudio: {
+          enabled: normalizeBoolean(
+            rawLmStudioBackend.enabled,
+            DEFAULT_RUNTIME_CONFIG.local.backends.lmstudio.enabled,
+          ),
+          baseUrl: normalizeBaseUrl(
+            rawLmStudioBackend.baseUrl,
+            DEFAULT_RUNTIME_CONFIG.local.backends.lmstudio.baseUrl,
+          ),
+        },
+        vllm: {
+          enabled: normalizeBoolean(
+            rawVllmBackend.enabled,
+            DEFAULT_RUNTIME_CONFIG.local.backends.vllm.enabled,
+          ),
+          baseUrl: normalizeBaseUrl(
+            rawVllmBackend.baseUrl,
+            DEFAULT_RUNTIME_CONFIG.local.backends.vllm.baseUrl,
+          ),
+          apiKey: normalizeString(
+            rawVllmBackend.apiKey,
+            DEFAULT_RUNTIME_CONFIG.local.backends.vllm.apiKey || '',
+            { allowEmpty: true },
+          ),
+        },
+      },
+      discovery: {
+        enabled: normalizeBoolean(
+          rawLocalDiscovery.enabled,
+          DEFAULT_RUNTIME_CONFIG.local.discovery.enabled,
+        ),
+        intervalMs: normalizeInteger(
+          rawLocalDiscovery.intervalMs,
+          DEFAULT_RUNTIME_CONFIG.local.discovery.intervalMs,
+          { min: 10_000, max: 86_400_000 },
+        ),
+        maxModels: normalizeInteger(
+          rawLocalDiscovery.maxModels,
+          DEFAULT_RUNTIME_CONFIG.local.discovery.maxModels,
+          { min: 1, max: 1_000 },
+        ),
+        concurrency: normalizeInteger(
+          rawLocalDiscovery.concurrency,
+          DEFAULT_RUNTIME_CONFIG.local.discovery.concurrency,
+          { min: 1, max: 32 },
+        ),
+      },
+      healthCheck: {
+        enabled: normalizeBoolean(
+          rawLocalHealthCheck.enabled,
+          DEFAULT_RUNTIME_CONFIG.local.healthCheck.enabled,
+        ),
+        intervalMs: normalizeInteger(
+          rawLocalHealthCheck.intervalMs,
+          DEFAULT_RUNTIME_CONFIG.local.healthCheck.intervalMs,
+          { min: 5_000, max: 86_400_000 },
+        ),
+        timeoutMs: normalizeInteger(
+          rawLocalHealthCheck.timeoutMs,
+          DEFAULT_RUNTIME_CONFIG.local.healthCheck.timeoutMs,
+          { min: 250, max: 120_000 },
+        ),
+      },
+      defaultContextWindow: normalizeInteger(
+        rawLocal.defaultContextWindow,
+        DEFAULT_RUNTIME_CONFIG.local.defaultContextWindow,
+        { min: 1_024, max: 10_000_000 },
+      ),
+      defaultMaxTokens: normalizeInteger(
+        rawLocal.defaultMaxTokens,
+        DEFAULT_RUNTIME_CONFIG.local.defaultMaxTokens,
+        { min: 64, max: 1_000_000 },
+      ),
     },
     container: {
       sandboxMode: normalizeContainerSandboxMode(

@@ -157,7 +157,7 @@ type UploadTarget = {
   source: 'ref' | 'selector';
 };
 type BrowserModelContext = {
-  provider: 'hybridai' | 'openai-codex';
+  provider: 'hybridai' | 'openai-codex' | 'ollama' | 'lmstudio' | 'vllm';
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -191,7 +191,13 @@ let currentBrowserModelContext: BrowserModelContext = {
 };
 
 export function setBrowserModelContext(
-  provider: 'hybridai' | 'openai-codex' | undefined,
+  provider:
+    | 'hybridai'
+    | 'openai-codex'
+    | 'ollama'
+    | 'lmstudio'
+    | 'vllm'
+    | undefined,
   baseUrl: string,
   apiKey: string,
   model: string,
@@ -214,6 +220,20 @@ function normalizeCodexModelName(model: string): string {
   const trimmed = String(model || '').trim();
   if (!trimmed.toLowerCase().startsWith('openai-codex/')) return trimmed;
   return trimmed.slice('openai-codex/'.length) || trimmed;
+}
+
+function normalizeLocalModelName(provider: string, model: string): string {
+  const trimmed = String(model || '').trim();
+  const prefix = `${provider}/`;
+  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
+  return trimmed.slice(prefix.length) || trimmed;
+}
+
+function normalizeOllamaBaseUrl(baseUrl: string): string {
+  return String(baseUrl || '')
+    .trim()
+    .replace(/\/+$/g, '')
+    .replace(/\/v1$/i, '');
 }
 
 function extractCodexOutputText(payload: Record<string, unknown>): string {
@@ -873,7 +893,7 @@ async function callVisionModel(
   const model = currentBrowserModelContext.model;
   const chatbotId = currentBrowserModelContext.chatbotId;
   const provider = currentBrowserModelContext.provider;
-  if (!apiKey) {
+  if (!apiKey && provider !== 'ollama' && provider !== 'lmstudio' && provider !== 'vllm') {
     throw new Error(
       'browser_vision is not configured: missing active request API key context.',
     );
@@ -888,7 +908,13 @@ async function callVisionModel(
       'browser_vision is not configured: missing active request model context.',
     );
   }
-  if (provider !== 'openai-codex' && !chatbotId) {
+  if (
+    provider !== 'openai-codex' &&
+    provider !== 'ollama' &&
+    provider !== 'lmstudio' &&
+    provider !== 'vllm' &&
+    !chatbotId
+  ) {
     throw new Error(
       'browser_vision is not configured: missing active request chatbot_id context.',
     );
@@ -896,7 +922,11 @@ async function callVisionModel(
   const endpoint =
     provider === 'openai-codex'
       ? `${baseUrl}/responses`
-      : `${baseUrl}/v1/chat/completions`;
+      : provider === 'ollama'
+        ? `${normalizeOllamaBaseUrl(baseUrl)}/api/chat`
+        : provider === 'lmstudio' || provider === 'vllm'
+          ? `${baseUrl}/chat/completions`
+          : `${baseUrl}/v1/chat/completions`;
   const payload =
     provider === 'openai-codex'
       ? {
@@ -915,10 +945,26 @@ async function callVisionModel(
             },
           ],
         }
+      : provider === 'ollama'
+        ? {
+            model: normalizeLocalModelName(provider, model),
+            stream: false,
+            messages: [
+              {
+                role: 'user',
+                content: question,
+                images: [imageBase64],
+              },
+            ],
+          }
       : {
-          model,
-          chatbot_id: chatbotId,
-          enable_rag: false,
+          model: normalizeLocalModelName(provider, model),
+          ...(provider === 'hybridai'
+            ? {
+                chatbot_id: chatbotId,
+                enable_rag: false,
+              }
+            : {}),
           messages: [
             {
               role: 'user',
@@ -937,7 +983,7 @@ async function callVisionModel(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       ...currentBrowserModelContext.requestHeaders,
     },
     body: JSON.stringify(payload),
@@ -967,6 +1013,14 @@ async function callVisionModel(
     const analysis = extractCodexOutputText(record);
     if (!analysis) {
       throw new Error('vision API response did not include text output');
+    }
+    return { model, analysis };
+  }
+  if (provider === 'ollama') {
+    const message = asRecord(record?.message);
+    const analysis = extractVisionTextContent(message?.content);
+    if (!analysis) {
+      throw new Error('vision API returned an empty analysis');
     }
     return { model, analysis };
   }

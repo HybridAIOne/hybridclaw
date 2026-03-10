@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
@@ -97,21 +97,50 @@ async function sleepWithAbort(
   });
 }
 
+/**
+ * Shared activity tracker that callers can update to reset the read timeout.
+ * Create one via {@link createActivityTracker} and pass it to {@link readOutput}.
+ * Call {@link ActivityTracker.notify} whenever the agent shows progress
+ * (text deltas, tool progress, etc.) so the deadline keeps extending.
+ */
+export interface ActivityTracker {
+  /** Millisecond timestamp of the most recent activity. */
+  lastActivityMs: number;
+  /** Call this to record activity and reset the timeout deadline. */
+  notify(): void;
+}
+
+export function createActivityTracker(): ActivityTracker {
+  const tracker: ActivityTracker = {
+    lastActivityMs: Date.now(),
+    notify() {
+      tracker.lastActivityMs = Date.now();
+    },
+  };
+  return tracker;
+}
+
 export async function readOutput(
   sessionId: string,
   timeoutMs: number,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal; activity?: ActivityTracker },
 ): Promise<ContainerOutput> {
   const dir = ipcDir(sessionId);
   const outputPath = path.join(dir, 'output.json');
   const signal = opts?.signal;
+  const activity = opts?.activity;
 
   const start = Date.now();
+  // Seed the tracker so the initial deadline starts now.
+  if (activity) activity.lastActivityMs = start;
   const pollInterval = 250;
 
   if (signal?.aborted) return interruptedOutput();
 
-  while (Date.now() - start < timeoutMs) {
+  while (true) {
+    const now = Date.now();
+    const base = activity ? activity.lastActivityMs : start;
+    if (now - base >= timeoutMs) break;
     if (signal?.aborted) return interruptedOutput();
 
     if (fs.existsSync(outputPath)) {
@@ -149,7 +178,7 @@ export async function readOutput(
     status: 'error',
     result: null,
     toolsUsed: [],
-    error: `Timeout waiting for container output after ${timeoutMs}ms`,
+    error: `Timeout waiting for agent output after ${timeoutMs}ms`,
   };
 }
 

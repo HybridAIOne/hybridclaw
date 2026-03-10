@@ -55,6 +55,7 @@ import type {
 import {
   agentWorkspaceDir,
   cleanupIpc,
+  createActivityTracker,
   ensureAgentDirs,
   ensureSessionDirs,
   getSessionPaths,
@@ -81,6 +82,7 @@ interface PoolEntry {
   authSignature: string;
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
+  activity?: import('./ipc.js').ActivityTracker;
 }
 
 interface ContainerPathAliasMount {
@@ -455,10 +457,12 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
           logger.debug({ container: containerName }, message);
         })
       ) {
+        entry.activity?.notify();
         continue;
       }
       logger.debug({ container: containerName }, line);
       emitToolProgress(entry, line);
+      entry.activity?.notify();
     }
   });
 
@@ -542,6 +546,9 @@ export async function runContainer(
     baseUrl: remapHostBaseUrlForContainer(modelRuntime.baseUrl),
     provider: modelRuntime.provider,
     requestHeaders: modelRuntime.requestHeaders,
+    isLocal: modelRuntime.isLocal,
+    contextWindow: modelRuntime.contextWindow,
+    thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_BASE_URL),
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     model,
@@ -602,9 +609,11 @@ export async function runContainer(
       error: `Container spawn error: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+  const activity = createActivityTracker();
   entry.authSignature = authSignature;
   entry.onTextDelta = onTextDelta;
   entry.onToolProgress = onToolProgress;
+  entry.activity = activity;
   const onAbort = () => {
     logger.info(
       { sessionId, containerName: entry.containerName },
@@ -631,6 +640,7 @@ export async function runContainer(
     // Wait for the container to produce output
     const output = await readOutput(sessionId, CONTAINER_TIMEOUT, {
       signal: abortSignal,
+      activity,
     });
     remapOutputArtifacts(output, workspacePath);
     const duration = Date.now() - startTime;
@@ -658,6 +668,7 @@ export async function runContainer(
     if (entry.onToolProgress === onToolProgress) {
       entry.onToolProgress = undefined;
     }
+    entry.activity = undefined;
   }
 }
 

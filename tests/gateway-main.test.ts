@@ -68,6 +68,8 @@ async function importFreshGatewayMain() {
     setInterval: vi.fn(() => ({ timer: true })),
     startHealthServer: vi.fn(),
     startHeartbeat: vi.fn(),
+    startDiscoveryLoop: vi.fn(),
+    startHealthCheckLoop: vi.fn(),
     startObservabilityIngest: vi.fn(),
     startScheduler: vi.fn(),
   };
@@ -165,6 +167,14 @@ async function importFreshGatewayMain() {
   vi.doMock('../src/providers/factory.js', () => ({
     resolveAgentIdForModel: state.resolveAgentIdForModel,
   }));
+  vi.doMock('../src/providers/local-discovery.js', () => ({
+    startDiscoveryLoop: state.startDiscoveryLoop,
+    stopDiscoveryLoop: vi.fn(),
+  }));
+  vi.doMock('../src/providers/local-health.js', () => ({
+    startHealthCheckLoop: state.startHealthCheckLoop,
+    stopHealthCheckLoop: vi.fn(),
+  }));
   vi.doMock('../src/scheduler/heartbeat.js', () => ({
     startHeartbeat: state.startHeartbeat,
     stopHeartbeat: vi.fn(),
@@ -220,6 +230,8 @@ afterEach(() => {
   vi.doUnmock('../src/memory/db.js');
   vi.doUnmock('../src/memory/memory-service.js');
   vi.doUnmock('../src/providers/factory.js');
+  vi.doUnmock('../src/providers/local-discovery.js');
+  vi.doUnmock('../src/providers/local-health.js');
   vi.doUnmock('../src/scheduler/heartbeat.js');
   vi.doUnmock('../src/scheduler/scheduler.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
@@ -240,6 +252,8 @@ describe('gateway bootstrap', () => {
       1_000,
       expect.any(Function),
     );
+    expect(state.startDiscoveryLoop).toHaveBeenCalledTimes(1);
+    expect(state.startHealthCheckLoop).toHaveBeenCalledTimes(1);
     expect(state.startObservabilityIngest).toHaveBeenCalledTimes(1);
     expect(state.startScheduler).toHaveBeenCalledTimes(1);
     expect(state.onConfigChange).toHaveBeenCalledTimes(1);

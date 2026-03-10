@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -80,6 +80,37 @@
       "openai-codex/gpt-5.2",
       "openai-codex/gpt-5.1-codex-mini"
     ]
+  },
+  "local": {
+    "enabled": false,
+    "backends": {
+      "ollama": {
+        "enabled": true,
+        "baseUrl": "http://127.0.0.1:11434"
+      },
+      "lmstudio": {
+        "enabled": false,
+        "baseUrl": "http://127.0.0.1:1234/v1"
+      },
+      "vllm": {
+        "enabled": false,
+        "baseUrl": "http://127.0.0.1:8000/v1",
+        "apiKey": ""
+      }
+    },
+    "discovery": {
+      "enabled": true,
+      "intervalMs": 300000,
+      "maxModels": 200,
+      "concurrency": 8
+    },
+    "healthCheck": {
+      "enabled": true,
+      "intervalMs": 60000,
+      "timeoutMs": 5000
+    },
+    "defaultContextWindow": 128000,
+    "defaultMaxTokens": 8192
   },
   "container": {
     "sandboxMode": "container",

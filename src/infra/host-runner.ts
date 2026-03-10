@@ -42,6 +42,7 @@ import {
 import {
   agentWorkspaceDir,
   cleanupIpc,
+  createActivityTracker,
   ensureAgentDirs,
   ensureSessionDirs,
   getSessionPaths,
@@ -70,6 +71,8 @@ interface PoolEntry {
   authSignature: string;
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
+  /** Activity tracker that resets the IPC read timeout on agent progress. */
+  activity?: import('./ipc.js').ActivityTracker;
 }
 
 const pool = new Map<string, PoolEntry>();
@@ -294,9 +297,14 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
           logger.debug({ sessionId }, message);
         })
       ) {
+        // Stream debug lines indicate model activity — reset timeout.
+        entry.activity?.notify();
         continue;
       }
       emitToolProgress(entry, line);
+      // Any recognised stderr output (tool progress, model output, etc.)
+      // counts as activity and should keep the timeout alive.
+      entry.activity?.notify();
       logger.debug({ sessionId }, line);
     }
   });
@@ -404,6 +412,9 @@ export async function runHostProcess(params: {
     baseUrl: modelRuntime.baseUrl,
     provider: modelRuntime.provider,
     requestHeaders: modelRuntime.requestHeaders,
+    isLocal: modelRuntime.isLocal,
+    contextWindow: modelRuntime.contextWindow,
+    thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: GATEWAY_BASE_URL,
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     model,
@@ -465,8 +476,10 @@ export async function runHostProcess(params: {
   }
   entry.authSignature = authSignature;
 
+  const activity = createActivityTracker();
   entry.onTextDelta = onTextDelta;
   entry.onToolProgress = onToolProgress;
+  entry.activity = activity;
 
   const onAbort = () => {
     logger.info(
@@ -489,6 +502,7 @@ export async function runHostProcess(params: {
 
     const output = await readOutput(sessionId, CONTAINER_TIMEOUT, {
       signal: abortSignal,
+      activity,
     });
     remapOutputArtifacts(output, workspacePath);
     return output;
@@ -500,6 +514,7 @@ export async function runHostProcess(params: {
     if (entry.onTextDelta === onTextDelta) entry.onTextDelta = undefined;
     if (entry.onToolProgress === onToolProgress)
       entry.onToolProgress = undefined;
+    entry.activity = undefined;
   }
 }
 

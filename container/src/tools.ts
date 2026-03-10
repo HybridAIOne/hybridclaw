@@ -81,7 +81,12 @@ let currentSessionId = '';
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
 let gatewayChannelId = '';
-let currentModelProvider: 'hybridai' | 'openai-codex' = 'hybridai';
+let currentModelProvider:
+  | 'hybridai'
+  | 'openai-codex'
+  | 'ollama'
+  | 'lmstudio'
+  | 'vllm' = 'hybridai';
 let currentModelBaseUrl = '';
 let currentModelApiKey = '';
 let currentModelName = '';
@@ -210,7 +215,13 @@ export function setGatewayContext(
 }
 
 export function setModelContext(
-  provider: 'hybridai' | 'openai-codex' | undefined,
+  provider:
+    | 'hybridai'
+    | 'openai-codex'
+    | 'ollama'
+    | 'lmstudio'
+    | 'vllm'
+    | undefined,
   baseUrl: string,
   apiKey: string,
   model: string,
