@@ -62,7 +62,9 @@ describe('runtime capability hints', () => {
       content: 'base instructions',
     });
     expect(messages[1]?.role).toBe('system');
-    expect(messages[1]?.content).toContain('LibreOffice `soffice`: unavailable');
+    expect(messages[1]?.content).toContain(
+      'LibreOffice `soffice`: unavailable',
+    );
     expect(messages[1]?.content).toContain(
       'Do not attempt PPTX render-and-review when either `soffice` or `pdftoppm` is unavailable.',
     );

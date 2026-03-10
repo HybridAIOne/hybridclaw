@@ -401,7 +401,11 @@ describe('gateway health server', () => {
       'dashboard.html',
     );
     fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
-    fs.writeFileSync(artifactPath, '<script>window.pwned = true;</script>', 'utf8');
+    fs.writeFileSync(
+      artifactPath,
+      '<script>window.pwned = true;</script>',
+      'utf8',
+    );
 
     const state = await importFreshHealth({
       dataDir,

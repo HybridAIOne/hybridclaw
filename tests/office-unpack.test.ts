@@ -19,16 +19,16 @@ describe('office unpack path validation', () => {
   test('rejects absolute archive member paths', () => {
     const outputDir = path.join(os.tmpdir(), 'hybridclaw-office-unpack-out');
 
-    expect(() => resolveMemberDestination(outputDir, '/tmp/escape.txt')).toThrow(
-      /absolute path/,
-    );
+    expect(() =>
+      resolveMemberDestination(outputDir, '/tmp/escape.txt'),
+    ).toThrow(/absolute path/);
   });
 
   test('resolves safe archive members inside the output directory', () => {
     const outputDir = path.join(os.tmpdir(), 'hybridclaw-office-unpack-out');
 
-    expect(
-      resolveMemberDestination(outputDir, 'word/document.xml'),
-    ).toBe(path.join(outputDir, 'word', 'document.xml'));
+    expect(resolveMemberDestination(outputDir, 'word/document.xml')).toBe(
+      path.join(outputDir, 'word', 'document.xml'),
+    );
   });
 });

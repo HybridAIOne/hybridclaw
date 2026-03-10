@@ -101,7 +101,10 @@ async function main() {
     return 1;
   }
 
-  if (!fs.existsSync(options.inputPath) || !fs.statSync(options.inputPath).isFile()) {
+  if (
+    !fs.existsSync(options.inputPath) ||
+    !fs.statSync(options.inputPath).isFile()
+  ) {
     const payload = {
       success: false,
       issues: [`File does not exist: ${options.inputPath}`],

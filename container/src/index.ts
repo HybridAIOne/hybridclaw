@@ -3,10 +3,7 @@ import path from 'node:path';
 import { URL } from 'node:url';
 
 import { TrustedCoworkerApprovalRuntime } from './approval-policy.js';
-import {
-  discoverArtifactsSince,
-  inferArtifactMimeType,
-} from './artifacts.js';
+import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import {
   emitRuntimeEvent,
   runAfterToolHooks,
@@ -20,13 +17,13 @@ import {
   isRetryableModelError,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
+import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
 import {
   resolveMediaPath,
   resolveWorkspacePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
-import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
 import {
   accumulateApiUsage,
   createTokenUsageStats,

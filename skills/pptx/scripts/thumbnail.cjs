@@ -60,7 +60,10 @@ function main() {
     return 1;
   }
 
-  if (!fs.existsSync(options.inputPath) || !fs.statSync(options.inputPath).isFile()) {
+  if (
+    !fs.existsSync(options.inputPath) ||
+    !fs.statSync(options.inputPath).isFile()
+  ) {
     emit(
       {
         success: false,
@@ -86,7 +89,9 @@ function main() {
   }
 
   fs.mkdirSync(options.outputDir, { recursive: true });
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-pptx-thumb-'));
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-pptx-thumb-'),
+  );
   try {
     const sofficeScript = path.resolve('skills/office/soffice.cjs');
     const officeResult = spawnSync(
@@ -145,15 +150,7 @@ function main() {
     const prefix = path.join(options.outputDir, 'slide');
     const renderResult = spawnSync(
       'pdftoppm',
-      [
-        '-png',
-        '-f',
-        '1',
-        '-l',
-        String(options.count),
-        pdfPath,
-        prefix,
-      ],
+      ['-png', '-f', '1', '-l', String(options.count), pdfPath, prefix],
       { encoding: 'utf8' },
     );
     if (renderResult.status !== 0) {
@@ -173,7 +170,9 @@ function main() {
     const artifacts = fs
       .readdirSync(options.outputDir)
       .filter((name) => /^slide-\d+\.png$/i.test(name))
-      .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+      .sort((left, right) =>
+        left.localeCompare(right, undefined, { numeric: true }),
+      )
       .map((name) => ({
         path: path.join(options.outputDir, name),
         filename: name,

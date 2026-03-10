@@ -48,8 +48,7 @@ const SITE_MIME_TYPES: Record<string, string> = {
   '.pptx':
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.svg': 'image/svg+xml',
-  '.xlsx':
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
 const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
@@ -63,8 +62,7 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
   '.pptx':
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.webp': 'image/webp',
-  '.xlsx':
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
