@@ -84,17 +84,49 @@ function sanitizeToolSegment(value: string): string {
   return sanitized || 'tool';
 }
 
+function buildServerNamespaces(serverNames: Iterable<string>): Map<string, string> {
+  const names = [...serverNames].sort((left, right) => left.localeCompare(right));
+  const counts = new Map<string, number>();
+
+  for (const name of names) {
+    const sanitized = sanitizeToolSegment(name);
+    counts.set(sanitized, (counts.get(sanitized) || 0) + 1);
+  }
+
+  const namespaces = new Map<string, string>();
+  const used = new Set<string>();
+
+  for (const name of names) {
+    const sanitized = sanitizeToolSegment(name);
+    const trimmed = name.trim();
+    const needsHash = sanitized !== trimmed || (counts.get(sanitized) || 0) > 1;
+    const base = needsHash ? `${sanitized}_${stableHash(name)}` : sanitized;
+
+    let candidate = base;
+    let suffix = 1;
+    while (used.has(candidate)) {
+      candidate = `${base}_${stableHash(`${name}:${suffix}`)}`;
+      suffix += 1;
+    }
+
+    used.add(candidate);
+    namespaces.set(name, candidate);
+  }
+
+  return namespaces;
+}
+
 function buildNamespacedToolName(
-  serverName: string,
+  serverNamespace: string,
   toolName: string,
   seen: Set<string>,
 ): string {
-  const base = `${sanitizeToolSegment(serverName)}__${sanitizeToolSegment(toolName)}`;
+  const base = `${serverNamespace}__${sanitizeToolSegment(toolName)}`;
   if (!seen.has(base)) {
     seen.add(base);
     return base;
   }
-  const deduped = `${base}_${stableHash(`${serverName}:${toolName}`)}`;
+  const deduped = `${base}_${stableHash(`${serverNamespace}:${toolName}`)}`;
   seen.add(deduped);
   return deduped;
 }
@@ -367,6 +399,7 @@ export class McpClientManager {
   private async discoverTools(
     handle: McpClientHandle,
   ): Promise<McpToolDefinition[]> {
+    const serverNamespace = this.getServerNamespace(handle.serverName);
     const seenNames = new Set<string>();
     const tools: McpToolDefinition[] = [];
     let cursor: string | undefined;
@@ -377,7 +410,14 @@ export class McpClientManager {
         MCP_CONNECT_TIMEOUT_MS,
         `List tools from MCP server ${handle.serverName}`,
       )) as ListToolsResult;
-      tools.push(...this.mapTools(handle.serverName, result.tools, seenNames));
+      tools.push(
+        ...this.mapTools(
+          handle.serverName,
+          serverNamespace,
+          result.tools,
+          seenNames,
+        ),
+      );
       cursor = result.nextCursor;
     } while (cursor);
 
@@ -386,12 +426,13 @@ export class McpClientManager {
 
   private mapTools(
     serverName: string,
+    serverNamespace: string,
     tools: SdkTool[],
     seenNames: Set<string>,
   ): McpToolDefinition[] {
     return tools.map((tool) => {
       const namespacedName = buildNamespacedToolName(
-        serverName,
+        serverNamespace,
         tool.name,
         seenNames,
       );
@@ -486,6 +527,7 @@ export class McpClientManager {
 
   private rebuildToolIndex(): void {
     this.toolIndex.clear();
+    this.refreshToolNames();
     for (const handle of this.clients.values()) {
       if (!handle.healthy) continue;
       for (const tool of handle.tools) {
@@ -493,6 +535,32 @@ export class McpClientManager {
           serverName: handle.serverName,
           toolName: tool.originalName,
         });
+      }
+    }
+  }
+
+  private getServerNamespace(serverName: string): string {
+    return (
+      buildServerNamespaces(this.configs.keys()).get(serverName) ||
+      sanitizeToolSegment(serverName)
+    );
+  }
+
+  private refreshToolNames(): void {
+    const serverNamespaces = buildServerNamespaces(this.configs.keys());
+
+    for (const handle of this.clients.values()) {
+      const serverNamespace =
+        serverNamespaces.get(handle.serverName) ||
+        sanitizeToolSegment(handle.serverName);
+      const seenNames = new Set<string>();
+
+      for (const tool of handle.tools) {
+        tool.name = buildNamespacedToolName(
+          serverNamespace,
+          tool.originalName,
+          seenNames,
+        );
       }
     }
   }
