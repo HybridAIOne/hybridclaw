@@ -136,6 +136,54 @@
       transform: translateY(-1px);
     }
 
+    .sidebar-nav {
+      display: grid;
+      gap: 4px;
+    }
+
+    .sidebar-link {
+      width: 100%;
+      border: none;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font: inherit;
+      background: transparent;
+      color: #374151;
+      text-decoration: none;
+      transition: background 0.2s ease, color 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    .sidebar-link:hover {
+      background: rgba(255, 255, 255, 0.7);
+      color: #111827;
+    }
+
+    .sidebar-link.is-active {
+      background: #ffffff;
+      color: var(--brand-blue);
+      box-shadow: 0 2px 8px rgba(50, 80, 140, 0.06);
+    }
+
+    .sidebar-link-icon {
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      color: currentColor;
+      flex: 0 0 auto;
+    }
+
+    .sidebar-link-icon svg {
+      width: 18px;
+      height: 18px;
+      display: block;
+    }
+
     .layout.is-sidebar-collapsed {
       grid-template-columns: 84px 1fr;
     }
@@ -144,7 +192,17 @@
       display: none;
     }
 
+    .layout.is-sidebar-collapsed .sidebar-link-label {
+      display: none;
+    }
+
     .layout.is-sidebar-collapsed .new-chat-btn {
+      justify-content: center;
+      padding-left: 0;
+      padding-right: 0;
+    }
+
+    .layout.is-sidebar-collapsed .sidebar-link {
       justify-content: center;
       padding-left: 0;
       padding-right: 0;
@@ -157,8 +215,60 @@
     .chat {
       min-height: 0;
       display: grid;
-      grid-template-rows: 1fr auto;
+      grid-template-rows: auto 1fr auto;
       background: #ffffff;
+    }
+
+    .chat-topbar {
+      display: flex;
+      justify-content: flex-end;
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .view-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #f8fafc;
+      box-shadow: 0 2px 8px rgba(50, 80, 140, 0.06);
+    }
+
+    .view-switch-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 14px;
+      border-radius: 999px;
+      color: #526277;
+      text-decoration: none;
+      font-weight: 600;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    .view-switch-link:hover {
+      color: #111827;
+    }
+
+    .view-switch-link.is-active {
+      background: #ffffff;
+      color: var(--brand-blue);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    }
+
+    .view-switch-link .sidebar-link-icon {
+      width: 18px;
+      height: 18px;
+    }
+
+    .view-switch-link .sidebar-link-icon svg {
+      width: 16px;
+      height: 16px;
     }
 
     .chat-body {
@@ -521,6 +631,21 @@
         font-size: clamp(22px, 6.8vw, 34px);
       }
     }
+
+    @media (max-width: 720px) {
+      .chat-topbar {
+        padding: 14px 16px 12px;
+      }
+
+      .view-switch {
+        width: 100%;
+      }
+
+      .view-switch-link {
+        flex: 1 1 0;
+        justify-content: center;
+      }
+    }
   </style>
 </head>
 <body>
@@ -552,11 +677,75 @@
         <span class="new-chat-icon">+</span>
         <span class="new-chat-label">New Conversation</span>
       </button>
+      <nav class="sidebar-nav" aria-label="Primary navigation">
+        <a class="sidebar-link is-active" href="/chat" aria-current="page">
+          <span class="sidebar-link-icon">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+          </span>
+          <span class="sidebar-link-label">Chat</span>
+        </a>
+        <a class="sidebar-link" href="/agents">
+          <span class="sidebar-link-icon">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="2"></rect>
+              <rect x="14" y="3" width="7" height="7" rx="2"></rect>
+              <rect x="3" y="14" width="7" height="7" rx="2"></rect>
+              <rect x="14" y="14" width="7" height="7" rx="2"></rect>
+            </svg>
+          </span>
+          <span class="sidebar-link-label">Agents</span>
+        </a>
+        <a class="sidebar-link" href="/admin">
+          <span class="sidebar-link-icon">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 3l7 4v10l-7 4-7-4V7l7-4z"></path>
+              <path d="M12 8v8"></path>
+              <path d="M8.5 10 12 8l3.5 2"></path>
+            </svg>
+          </span>
+          <span class="sidebar-link-label">Admin</span>
+        </a>
+      </nav>
       <div class="sidebar-spacer"></div>
       <div id="appVersion" class="app-version">HybridClaw v...</div>
     </aside>
 
     <main class="chat">
+      <div class="chat-topbar">
+        <nav class="view-switch" aria-label="Switch view">
+          <a class="view-switch-link is-active" href="/chat" aria-current="page">
+            <span class="sidebar-link-icon">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+            </span>
+            <span>Chat</span>
+          </a>
+          <a class="view-switch-link" href="/agents">
+            <span class="sidebar-link-icon">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7" rx="2"></rect>
+                <rect x="14" y="3" width="7" height="7" rx="2"></rect>
+                <rect x="3" y="14" width="7" height="7" rx="2"></rect>
+                <rect x="14" y="14" width="7" height="7" rx="2"></rect>
+              </svg>
+            </span>
+            <span>Agents</span>
+          </a>
+          <a class="view-switch-link" href="/admin">
+            <span class="sidebar-link-icon">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 3l7 4v10l-7 4-7-4V7l7-4z"></path>
+                <path d="M12 8v8"></path>
+                <path d="M8.5 10 12 8l3.5 2"></path>
+              </svg>
+            </span>
+            <span>Admin</span>
+          </a>
+        </nav>
+      </div>
       <div id="chatBody" class="chat-body">
         <section id="messages" class="messages"></section>
         <h1 class="empty-greeting">Ready to claw through your to-do list? 🦞</h1>
@@ -596,6 +785,9 @@
       lastSessionNumber = activeSessionNumber;
     }
     const apiToken = queryToken || localStorage.getItem('hybridclaw_token') || '';
+    if (queryToken) {
+      localStorage.setItem('hybridclaw_token', queryToken);
+    }
     const introLines = [
       'Ready to claw through your to-do list? 🦞',
       'What should we build, fix, or break first?',
@@ -806,7 +998,7 @@
 
     async function copyMessage(content, button) {
       try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
+        if (navigator.clipboard?.writeText) {
           await navigator.clipboard.writeText(content);
         } else {
           copyTextFallback(content);

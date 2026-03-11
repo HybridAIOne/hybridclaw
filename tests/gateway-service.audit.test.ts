@@ -65,3 +65,49 @@ test('audit command shows recent structured audit events for the current session
   expect(result.text).toContain('tool.result');
   expect(result.text).toContain('bash ok 12ms');
 });
+
+test('admin tools exposes recent tool error summaries', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-read',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'tool.result',
+      toolName: 'read',
+      isError: true,
+      resultSummary: 'File not found: notes.txt',
+      durationMs: 145,
+    },
+  });
+
+  const { getGatewayAdminTools } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = getGatewayAdminTools();
+  const readTool = result.groups
+    .flatMap((group) => group.tools)
+    .find((tool) => tool.name === 'read');
+
+  expect(readTool).toBeDefined();
+  expect(readTool?.recentErrors).toBe(1);
+  expect(readTool?.recentErrorSamples).toEqual([
+    expect.objectContaining({
+      sessionId: 'session-read',
+      summary: 'File not found: notes.txt',
+    }),
+  ]);
+  expect(result.recentExecutions[0]).toMatchObject({
+    toolName: 'read',
+    isError: true,
+    summary: 'File not found: notes.txt',
+  });
+});

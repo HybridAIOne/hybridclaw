@@ -79,6 +79,12 @@ interface PoolEntry {
 
 const pool = new Map<string, PoolEntry>();
 
+export function getActiveHostSessionIds(): string[] {
+  return Array.from(pool.keys()).sort((left, right) =>
+    left.localeCompare(right),
+  );
+}
+
 function emitTextDelta(entry: PoolEntry, line: string): void {
   const callback = entry.onTextDelta;
   if (!callback) return;
@@ -559,5 +565,9 @@ export class HostExecutor {
 
   getActiveSessionCount(): number {
     return getActiveHostProcessCount();
+  }
+
+  getActiveSessionIds(): string[] {
+    return getActiveHostSessionIds();
   }
 }

@@ -8,12 +8,18 @@ import {
   enqueueDelegation,
 } from '../agent/delegation-manager.js';
 import {
+  getActiveExecutorSessionIds,
   getSandboxDiagnostics,
   stopSessionExecution,
 } from '../agent/executor.js';
 import { processSideEffects } from '../agent/side-effects.js';
 import { isSilentReply } from '../agent/silent-reply.js';
-import { buildToolsSummary } from '../agent/tool-summary.js';
+import {
+  buildToolsSummary,
+  getKnownToolGroupLabel,
+  getKnownToolGroups,
+  isKnownToolName,
+} from '../agent/tool-summary.js';
 import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
@@ -21,6 +27,8 @@ import {
 } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
+import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
+import { getDiscordChannelDisplayName } from '../channels/discord/runtime.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -40,9 +48,13 @@ import {
   PROACTIVE_DELEGATION_MAX_DEPTH,
   PROACTIVE_DELEGATION_MAX_PER_TURN,
   PROACTIVE_RALPH_MAX_ITERATIONS,
+  WEB_API_TOKEN,
 } from '../config/config.js';
 import {
   getRuntimeConfig,
+  type RuntimeConfig,
+  runtimeConfigPath,
+  saveRuntimeConfig,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
@@ -50,15 +62,20 @@ import { logger } from '../logger.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
   createTask,
+  deleteSessionData,
   deleteTask,
   getAllSessions,
+  getAllTasks,
   getQueuedProactiveMessageCount,
+  getRecentMessages,
   getRecentStructuredAuditForSession,
   getSessionCount,
   getTasksForSession,
   getUsageTotals,
+  listStructuredAuditEntries,
   listUsageByAgent,
   listUsageByModel,
+  listUsageBySession,
   logAudit,
   pauseTask,
   recordUsageEvent,
@@ -75,11 +92,22 @@ import {
 } from '../providers/factory.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
 import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
-import { resolveLocalModelContextWindow } from '../providers/local-discovery.js';
+import {
+  discoverAllLocalModels,
+  getLocalModelInfo,
+  resolveLocalModelContextWindow,
+} from '../providers/local-discovery.js';
 import { getAllBackendHealth } from '../providers/local-health.js';
 import { getAvailableModelList } from '../providers/model-catalog.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
-import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
+import {
+  getScheduledTaskNextRunAt,
+  getSchedulerStatus,
+  parseSchedulerTimestampMs,
+  pauseConfigJob,
+  rearmScheduler,
+  resumeConfigJob,
+} from '../scheduler/scheduler.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
 import { maybeCompactSession } from '../session/session-maintenance.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
@@ -87,7 +115,7 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import { expandSkillInvocation } from '../skills/skills.js';
+import { expandSkillInvocation, loadSkillCatalog } from '../skills/skills.js';
 import type {
   ArtifactMetadata,
   CanonicalSessionContext,
@@ -105,6 +133,23 @@ import type {
 } from '../types.js';
 import { ensureBootstrapFiles, resetWorkspace } from '../workspace.js';
 import {
+  type GatewayAdminAuditResponse,
+  type GatewayAdminChannelsResponse,
+  type GatewayAdminChannelUpsertRequest,
+  type GatewayAdminConfigResponse,
+  type GatewayAdminDeleteSessionResult,
+  type GatewayAdminMcpResponse,
+  type GatewayAdminModelsResponse,
+  type GatewayAdminModelUsageRow,
+  type GatewayAdminOverview,
+  type GatewayAdminSchedulerJob,
+  type GatewayAdminSchedulerResponse,
+  type GatewayAdminSession,
+  type GatewayAdminSkillsResponse,
+  type GatewayAdminToolCatalogEntry,
+  type GatewayAdminToolsResponse,
+  type GatewayAdminUsageSummary,
+  type GatewayAgentsResponse,
   type GatewayChatRequestBody,
   type GatewayChatResult,
   type GatewayCommandRequest,
@@ -261,6 +306,11 @@ export interface ProactiveMessagePayload {
 }
 
 export type {
+  GatewayAdminChannelsResponse,
+  GatewayAdminConfigResponse,
+  GatewayAdminDeleteSessionResult,
+  GatewayAdminOverview,
+  GatewayAdminSession,
   GatewayChatResult,
   GatewayCommandRequest,
   GatewayCommandResult,
@@ -279,6 +329,457 @@ function formatUptime(seconds: number): string {
   if (m > 0) parts.push(`${m}m`);
   parts.push(`${s}s`);
   return parts.join(' ');
+}
+
+function mapUsageSummary(value: {
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  call_count: number;
+  total_tool_calls: number;
+}): GatewayAdminUsageSummary {
+  return {
+    totalInputTokens: value.total_input_tokens,
+    totalOutputTokens: value.total_output_tokens,
+    totalTokens: value.total_tokens,
+    totalCostUsd: value.total_cost_usd,
+    callCount: value.call_count,
+    totalToolCalls: value.total_tool_calls,
+  };
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const rawValue of values) {
+    const value = String(rawValue || '').trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    deduped.push(value);
+  }
+  return deduped;
+}
+
+function buildGatewayProviderHealth(params: {
+  localBackends: GatewayStatus['localBackends'];
+  codex: ReturnType<typeof getCodexAuthStatus>;
+  hybridai: ReturnType<typeof getHybridAIAuthStatus>;
+}): NonNullable<GatewayStatus['providerHealth']> {
+  const runtimeConfig = getRuntimeConfig();
+  const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
+    hybridai: {
+      kind: 'remote',
+      reachable: params.hybridai.authenticated,
+      ...(params.hybridai.authenticated ? {} : { error: 'API key missing' }),
+      modelCount: dedupeStrings([
+        runtimeConfig.hybridai.defaultModel,
+        ...runtimeConfig.hybridai.models,
+      ]).length,
+      detail: params.hybridai.authenticated
+        ? `API key ready${params.hybridai.source ? ` via ${params.hybridai.source}` : ''}`
+        : 'API key missing',
+    },
+    codex: {
+      kind: 'remote',
+      reachable: params.codex.authenticated && !params.codex.reloginRequired,
+      ...(params.codex.authenticated && !params.codex.reloginRequired
+        ? {}
+        : {
+            error: params.codex.reloginRequired
+              ? 'Login required'
+              : 'Not authenticated',
+          }),
+      modelCount: dedupeStrings(runtimeConfig.codex.models).length,
+      detail:
+        params.codex.authenticated && !params.codex.reloginRequired
+          ? `Authenticated${params.codex.source ? ` via ${params.codex.source}` : ''}`
+          : params.codex.reloginRequired
+            ? 'Login required'
+            : 'Not authenticated',
+    },
+  };
+
+  for (const [name, status] of Object.entries(params.localBackends || {})) {
+    providerHealth[name as keyof typeof providerHealth] = {
+      kind: 'local',
+      reachable: status.reachable,
+      latencyMs: status.latencyMs,
+      ...(status.error ? { error: status.error } : {}),
+      ...(typeof status.modelCount === 'number'
+        ? { modelCount: status.modelCount }
+        : {}),
+      detail: status.reachable
+        ? `${status.latencyMs}ms`
+        : status.error || 'unreachable',
+    };
+  }
+
+  return providerHealth;
+}
+
+function mapModelUsageRow(
+  value: ReturnType<typeof listUsageByModel>[number],
+): GatewayAdminModelUsageRow {
+  return {
+    model: value.model,
+    totalInputTokens: value.total_input_tokens,
+    totalOutputTokens: value.total_output_tokens,
+    totalTokens: value.total_tokens,
+    totalCostUsd: value.total_cost_usd,
+    callCount: value.call_count,
+    totalToolCalls: value.total_tool_calls,
+  };
+}
+
+function mapAdminSession(session: Session): GatewayAdminSession {
+  return {
+    id: session.id,
+    guildId: session.guild_id,
+    channelId: session.channel_id,
+    chatbotId: session.chatbot_id,
+    effectiveChatbotId: session.chatbot_id || HYBRIDAI_CHATBOT_ID || null,
+    model: session.model,
+    effectiveModel: session.model || HYBRIDAI_MODEL,
+    ragEnabled: session.enable_rag !== 0,
+    messageCount: session.message_count,
+    summary: session.session_summary,
+    compactionCount: session.compaction_count,
+    taskCount: getTasksForSession(session.id).length,
+    createdAt: session.created_at,
+    lastActive: session.last_active,
+  };
+}
+
+function trimPreviewText(raw: string, maxLength = 160): string {
+  const compact = String(raw || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!compact) return '';
+  return compact.length > maxLength
+    ? `${compact.slice(0, maxLength - 3).trimEnd()}...`
+    : compact;
+}
+
+function buildAgentName(session: Session): string {
+  if (session.id.startsWith('heartbeat:')) {
+    return `Heartbeat ${session.id.slice('heartbeat:'.length)}`;
+  }
+  if (session.id.startsWith('scheduler:')) {
+    return `Scheduler ${session.id.slice('scheduler:'.length)}`;
+  }
+  if (session.id.startsWith('delegate:')) {
+    return 'Delegated task';
+  }
+  if (session.id.startsWith('web:')) {
+    return `Web ${session.channel_id}`;
+  }
+  if (session.id.startsWith('tui:')) {
+    return `TUI ${session.channel_id}`;
+  }
+  return session.id;
+}
+
+function buildAgentTask(session: Session): string {
+  const recentMessages = getRecentMessages(session.id, 8);
+  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+    const message = recentMessages[index];
+    if (String(message.role || '').toLowerCase() !== 'user') continue;
+    const preview = trimPreviewText(message.content, 180);
+    if (preview) return preview;
+  }
+  if (session.session_summary) {
+    const preview = trimPreviewText(session.session_summary, 180);
+    if (preview) return preview;
+  }
+  if (session.id.startsWith('heartbeat:')) {
+    return 'Periodic heartbeat session using the configured runtime workspace.';
+  }
+  if (session.id.startsWith('scheduler:')) {
+    return 'Config-backed scheduler job delivering an automated agent turn.';
+  }
+  if (session.id.startsWith('delegate:')) {
+    return 'Delegated sub-agent session spawned for a focused task.';
+  }
+  return 'Persisted runtime session with no recent user prompt available.';
+}
+
+function buildAgentConversationPreview(session: Session): {
+  lastQuestion: string | null;
+  lastAnswer: string | null;
+} {
+  const recentMessages = getRecentMessages(session.id, 12);
+  let pendingAnswer: string | null = null;
+
+  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+    const message = recentMessages[index];
+    const role = String(message.role || '').toLowerCase();
+    const preview = trimPreviewText(message.content, 140);
+    if (!preview) continue;
+
+    if (role === 'assistant') {
+      if (!pendingAnswer) {
+        pendingAnswer = preview;
+      }
+      continue;
+    }
+
+    if (role === 'user') {
+      return {
+        lastQuestion: preview,
+        lastAnswer: pendingAnswer,
+      };
+    }
+  }
+
+  return {
+    lastQuestion: null,
+    lastAnswer: pendingAnswer,
+  };
+}
+
+function summarizeAgentAuditPreview(row: StructuredAuditEntry): string {
+  const payload = parseAuditPayload(row);
+  const eventType = String(row.event_type || '').trim() || 'event';
+  const payloadType =
+    typeof payload?.type === 'string' ? payload.type.trim() : eventType;
+
+  if (payloadType === 'tool.result') {
+    const toolName = String(payload?.toolName || 'tool').trim() || 'tool';
+    const status = payload?.isError === true ? 'error' : 'ok';
+    const durationMs = numberFromUnknown(payload?.durationMs);
+    return `${toolName} ${status}${durationMs == null ? '' : ` ${durationMs}ms`}`;
+  }
+
+  if (payloadType === 'tool.call') {
+    const toolName = String(payload?.toolName || 'tool').trim() || 'tool';
+    return `${toolName} called`;
+  }
+
+  if (payloadType === 'turn.end') {
+    const finishReason =
+      typeof payload?.finishReason === 'string' && payload.finishReason.trim()
+        ? payload.finishReason.trim()
+        : 'completed';
+    return finishReason === 'completed'
+      ? 'turn completed'
+      : `turn ${finishReason}`;
+  }
+
+  if (payloadType === 'turn.start') {
+    return 'turn started';
+  }
+
+  if (payloadType === 'session.start') {
+    return 'session started';
+  }
+
+  if (payloadType === 'session.end') {
+    const reason =
+      typeof payload?.reason === 'string' && payload.reason.trim()
+        ? payload.reason.trim()
+        : 'completed';
+    return reason === 'normal' ? 'session completed' : `session ${reason}`;
+  }
+
+  if (payloadType === 'model.usage') {
+    const model = String(payload?.model || '').trim();
+    const provider = String(payload?.provider || '').trim();
+    const label = [provider, model].filter(Boolean).join(' ');
+    return label ? `${label} usage` : 'model usage recorded';
+  }
+
+  if (payloadType === 'authorization.check') {
+    const action = String(payload?.action || '')
+      .replace(/^tool:/, '')
+      .trim();
+    const allowed = payload?.allowed === true;
+    if (action) {
+      return `${action} ${allowed ? 'allowed' : 'blocked'}`;
+    }
+    return allowed ? 'authorization allowed' : 'authorization blocked';
+  }
+
+  if (payloadType === 'approval.request') {
+    return 'approval requested';
+  }
+
+  if (payloadType === 'approval.response') {
+    if (payload?.approved === true) return 'approval granted';
+    return 'approval denied';
+  }
+
+  if (payloadType === 'context.optimization') {
+    return 'context optimized';
+  }
+
+  if (payloadType === 'error') {
+    const message =
+      typeof payload?.message === 'string' && payload.message.trim()
+        ? payload.message.trim()
+        : '';
+    return trimPreviewText(message ? `error · ${message}` : 'error', 120);
+  }
+
+  return trimPreviewText(eventType.replace(/\./g, ' '), 120);
+}
+
+function buildAgentPreview(session: Session): {
+  title: string;
+  meta: string | null;
+  lines: string[];
+} {
+  const auditRows = getRecentStructuredAuditForSession(session.id, 6);
+  const messageRows = getRecentMessages(session.id, 4);
+
+  const activity = [
+    ...auditRows.map((row) => ({
+      timestamp: row.timestamp,
+      kind: 'audit' as const,
+      label: row.event_type,
+      line: trimPreviewText(
+        `${formatRelativeTime(row.timestamp)} · ${summarizeAgentAuditPreview(row)}`,
+        180,
+      ),
+    })),
+    ...messageRows.map((message) => {
+      const role = String(message.role || '').toLowerCase();
+      const label = role === 'assistant' ? 'assistant' : 'user';
+      return {
+        timestamp: message.created_at,
+        kind: 'chat' as const,
+        label,
+        line: trimPreviewText(
+          `${formatRelativeTime(message.created_at)} · ${label} · ${String(message.content || '')}`,
+          180,
+        ),
+      };
+    }),
+  ]
+    .filter((entry) => entry.line)
+    .sort((left, right) => {
+      const leftMs = parseTimestamp(left.timestamp)?.getTime() ?? 0;
+      const rightMs = parseTimestamp(right.timestamp)?.getTime() ?? 0;
+      return rightMs - leftMs;
+    })
+    .slice(0, 6);
+
+  if (activity.length === 0) {
+    return {
+      title: 'No recent activity',
+      meta: 'Persisted session',
+      lines: [
+        'No recent audit or chat activity captured for this session yet.',
+      ],
+    };
+  }
+
+  const uniqueAuditTypes = Array.from(
+    new Set(
+      activity
+        .filter((entry) => entry.kind === 'audit')
+        .map((entry) => entry.label),
+    ),
+  );
+  const chatCount = activity.filter((entry) => entry.kind === 'chat').length;
+  const mostRecent = activity[0];
+
+  let title = 'Recent activity';
+  if (uniqueAuditTypes.length > 0 && chatCount > 0) {
+    title =
+      uniqueAuditTypes.length === 1
+        ? `${uniqueAuditTypes[0]} + chat`
+        : `${uniqueAuditTypes[0]} + ${uniqueAuditTypes[1] || 'chat'}`;
+  } else if (uniqueAuditTypes.length > 0) {
+    title =
+      uniqueAuditTypes.length === 1
+        ? uniqueAuditTypes[0]
+        : `${uniqueAuditTypes[0]} + ${uniqueAuditTypes[1]}`;
+  } else if (chatCount > 0) {
+    title = 'Chat transcript';
+  }
+
+  return {
+    title,
+    meta: `${activity.length} items · ${formatRelativeTime(mostRecent.timestamp)}`,
+    lines: activity.map((entry) => entry.line),
+  };
+}
+
+function getAgentStatus(
+  session: Session,
+  activeSessionIds: Set<string>,
+): GatewayAgentsResponse['agents'][number]['status'] {
+  if (activeSessionIds.has(session.id)) return 'active';
+  const lastActive = parseTimestamp(session.last_active);
+  if (lastActive && Date.now() - lastActive.getTime() <= 60 * 60 * 1000) {
+    return 'idle';
+  }
+  return 'stopped';
+}
+
+function getAgentWatcherLabel(
+  status: GatewayAgentsResponse['agents'][number]['status'],
+  sandboxMode: string,
+): string {
+  if (status === 'active') return `${sandboxMode} runtime attached`;
+  if (status === 'idle') return `runtime idle (${sandboxMode})`;
+  return 'runtime detached';
+}
+
+function mapAgentCard(params: {
+  session: Session;
+  activeSessionIds: Set<string>;
+  usageBySession: Map<string, ReturnType<typeof listUsageBySession>[number]>;
+  sandboxMode: string;
+}): GatewayAgentsResponse['agents'][number] {
+  const { session, activeSessionIds, usageBySession, sandboxMode } = params;
+  const effectiveModel = session.model || HYBRIDAI_MODEL;
+  const effectiveChatbotId = session.chatbot_id || HYBRIDAI_CHATBOT_ID || '';
+  const agentId = resolveAgentIdForModel(effectiveModel, effectiveChatbotId);
+  const status = getAgentStatus(session, activeSessionIds);
+  const usage = usageBySession.get(session.id);
+  const startedAt = session.created_at;
+  const startMs = parseTimestamp(startedAt)?.getTime() ?? Date.now();
+  const endMs =
+    status === 'stopped'
+      ? (parseTimestamp(session.last_active)?.getTime() ?? Date.now())
+      : Date.now();
+  const runtimeMinutes = Math.max(
+    0,
+    Math.floor((endMs - Math.min(startMs, endMs)) / 60_000),
+  );
+  const preview = buildAgentPreview(session);
+  const conversation = buildAgentConversationPreview(session);
+
+  return {
+    id: session.id,
+    name: buildAgentName(session),
+    task: buildAgentTask(session),
+    lastQuestion: conversation.lastQuestion,
+    lastAnswer: conversation.lastAnswer,
+    model: effectiveModel,
+    sessionId: session.id,
+    channelId: session.channel_id,
+    channelName: getDiscordChannelDisplayName(
+      session.guild_id,
+      session.channel_id,
+    ),
+    agentId,
+    startedAt,
+    lastActive: session.last_active,
+    runtimeMinutes,
+    inputTokens: usage?.total_input_tokens || 0,
+    outputTokens: usage?.total_output_tokens || 0,
+    costUsd: usage?.total_cost_usd || 0,
+    messageCount: session.message_count,
+    toolCalls: usage?.total_tool_calls || 0,
+    status,
+    watcher: getAgentWatcherLabel(status, sandboxMode),
+    previewTitle: preview.title,
+    previewMeta: preview.meta,
+    output: preview.lines,
+  };
 }
 
 function parseIntOrNull(raw: string | undefined): number | null {
@@ -1166,6 +1667,7 @@ function buildTokenUsageAuditPayload(
 export function getGatewayStatus(): GatewayStatus {
   const sandbox = getSandboxDiagnostics();
   const codex = getCodexAuthStatus();
+  const hybridai = getHybridAIAuthStatus();
   const localBackends = Object.fromEntries(
     [...getAllBackendHealth().entries()].map(([backend, status]) => [
       backend,
@@ -1179,8 +1681,14 @@ export function getGatewayStatus(): GatewayStatus {
       },
     ]),
   ) as GatewayStatus['localBackends'];
+  const providerHealth = buildGatewayProviderHealth({
+    localBackends,
+    codex,
+    hybridai,
+  });
   return {
     status: 'ok',
+    webAuthConfigured: Boolean(WEB_API_TOKEN),
     pid: process.pid,
     version: APP_VERSION,
     uptime: Math.floor(process.uptime()),
@@ -1201,8 +1709,956 @@ export function getGatewayStatus(): GatewayStatus {
     scheduler: {
       jobs: getSchedulerStatus(),
     },
+    providerHealth,
     localBackends,
   };
+}
+
+export function getGatewayAdminOverview(): GatewayAdminOverview {
+  return {
+    status: getGatewayStatus(),
+    configPath: runtimeConfigPath(),
+    recentSessions: getAllSessions().slice(0, 8).map(mapAdminSession),
+    usage: {
+      daily: mapUsageSummary(getUsageTotals({ window: 'daily' })),
+      monthly: mapUsageSummary(getUsageTotals({ window: 'monthly' })),
+      topModels: listUsageByModel({ window: 'monthly' })
+        .slice(0, 6)
+        .map(mapModelUsageRow),
+    },
+  };
+}
+
+export function getGatewayAgents(): GatewayAgentsResponse {
+  const status = getGatewayStatus();
+  const activeSessionIds = new Set(getActiveExecutorSessionIds());
+  const usageBySession = new Map(
+    listUsageBySession({ window: 'all' }).map(
+      (row) => [row.session_id, row] as const,
+    ),
+  );
+  const sandboxMode = status.sandbox?.mode || 'container';
+  const agents = getAllSessions()
+    .map((session) =>
+      mapAgentCard({
+        session,
+        activeSessionIds,
+        usageBySession,
+        sandboxMode,
+      }),
+    )
+    .sort((left, right) => {
+      const rank = { active: 0, idle: 1, stopped: 2 } as const;
+      const byStatus = rank[left.status] - rank[right.status];
+      if (byStatus !== 0) return byStatus;
+      return (
+        (parseTimestamp(right.lastActive)?.getTime() || 0) -
+        (parseTimestamp(left.lastActive)?.getTime() || 0)
+      );
+    });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    version: status.version,
+    uptime: status.uptime,
+    ralph: {
+      enabled: PROACTIVE_RALPH_MAX_ITERATIONS !== 0,
+      maxIterations: PROACTIVE_RALPH_MAX_ITERATIONS,
+    },
+    totals: {
+      all: agents.length,
+      active: agents.filter((agent) => agent.status === 'active').length,
+      idle: agents.filter((agent) => agent.status === 'idle').length,
+      stopped: agents.filter((agent) => agent.status === 'stopped').length,
+      running: agents.filter((agent) => agent.status !== 'stopped').length,
+      totalInputTokens: agents.reduce(
+        (sum, agent) => sum + agent.inputTokens,
+        0,
+      ),
+      totalOutputTokens: agents.reduce(
+        (sum, agent) => sum + agent.outputTokens,
+        0,
+      ),
+      totalTokens: agents.reduce(
+        (sum, agent) => sum + agent.inputTokens + agent.outputTokens,
+        0,
+      ),
+      totalCostUsd: agents.reduce((sum, agent) => sum + agent.costUsd, 0),
+    },
+    agents,
+  };
+}
+
+export function getGatewayAdminSessions(): GatewayAdminSession[] {
+  return getAllSessions().map(mapAdminSession);
+}
+
+export function deleteGatewayAdminSession(
+  sessionId: string,
+): GatewayAdminDeleteSessionResult {
+  stopSessionExecution(sessionId);
+  return deleteSessionData(sessionId);
+}
+
+export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
+  const runtimeConfig = getRuntimeConfig();
+  const channels: GatewayAdminChannelsResponse['channels'] = [];
+
+  const guildEntries = Object.entries(runtimeConfig.discord.guilds).sort(
+    ([left], [right]) => left.localeCompare(right),
+  );
+  for (const [guildId, guild] of guildEntries) {
+    const channelEntries = Object.entries(guild.channels).sort(
+      ([left], [right]) => left.localeCompare(right),
+    );
+    for (const [channelId, config] of channelEntries) {
+      channels.push({
+        id: `${guildId}:${channelId}`,
+        transport: 'discord',
+        guildId,
+        channelId,
+        defaultMode: guild.defaultMode,
+        config,
+      });
+    }
+  }
+
+  return {
+    groupPolicy: runtimeConfig.discord.groupPolicy,
+    defaultTypingMode: runtimeConfig.discord.typingMode,
+    defaultDebounceMs: runtimeConfig.discord.debounceMs,
+    defaultAckReaction: runtimeConfig.discord.ackReaction,
+    defaultRateLimitPerUser: runtimeConfig.discord.rateLimitPerUser,
+    defaultMaxConcurrentPerChannel:
+      runtimeConfig.discord.maxConcurrentPerChannel,
+    channels,
+  };
+}
+
+export function upsertGatewayAdminChannel(
+  input: GatewayAdminChannelUpsertRequest,
+): GatewayAdminChannelsResponse {
+  const guildId = input.guildId.trim();
+  const channelId = input.channelId.trim();
+  if (!guildId || !channelId) {
+    throw new Error('Both `guildId` and `channelId` are required.');
+  }
+
+  updateRuntimeConfig((draft) => {
+    const guild = draft.discord.guilds[guildId] ?? {
+      defaultMode: 'mention',
+      channels: {},
+    };
+    guild.channels[channelId] = input.config;
+    draft.discord.guilds[guildId] = guild;
+  });
+
+  return getGatewayAdminChannels();
+}
+
+export function removeGatewayAdminChannel(params: {
+  guildId: string;
+  channelId: string;
+}): GatewayAdminChannelsResponse {
+  const guildId = params.guildId.trim();
+  const channelId = params.channelId.trim();
+  if (!guildId || !channelId) {
+    throw new Error('Both `guildId` and `channelId` are required.');
+  }
+
+  updateRuntimeConfig((draft) => {
+    const guild = draft.discord.guilds[guildId];
+    if (!guild?.channels[channelId]) return;
+    delete guild.channels[channelId];
+    draft.discord.guilds[guildId] = guild;
+  });
+
+  return getGatewayAdminChannels();
+}
+
+export function getGatewayAdminConfig(): GatewayAdminConfigResponse {
+  return {
+    path: runtimeConfigPath(),
+    config: getRuntimeConfig(),
+  };
+}
+
+export function saveGatewayAdminConfig(
+  next: RuntimeConfig,
+): GatewayAdminConfigResponse {
+  return {
+    path: runtimeConfigPath(),
+    config: saveRuntimeConfig(next),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseStringArrayInput(
+  value: unknown,
+  fieldName: string,
+): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error(`Expected array \`${fieldName}\`.`);
+  }
+  return dedupeStrings(value.map((entry) => String(entry || '').trim()));
+}
+
+function parseAdminSchedulerJob(
+  value: unknown,
+): RuntimeConfig['scheduler']['jobs'][number] {
+  if (!isRecord(value)) {
+    throw new Error('Expected object `job`.');
+  }
+
+  const id = String(value.id || '').trim();
+  if (!id) {
+    throw new Error('Scheduler job requires a non-empty `id`.');
+  }
+
+  const name = String(value.name || '').trim();
+  const description = String(value.description || '').trim();
+  const rawSchedule = isRecord(value.schedule) ? value.schedule : {};
+  const rawAction = isRecord(value.action) ? value.action : {};
+  const rawDelivery = isRecord(value.delivery) ? value.delivery : {};
+
+  const scheduleKind = String(rawSchedule.kind || 'cron')
+    .trim()
+    .toLowerCase();
+  if (
+    scheduleKind !== 'cron' &&
+    scheduleKind !== 'every' &&
+    scheduleKind !== 'at'
+  ) {
+    throw new Error(
+      'Scheduler schedule kind must be `cron`, `every`, or `at`.',
+    );
+  }
+
+  let at: string | null = null;
+  let everyMs: number | null = null;
+  let expr: string | null = null;
+  if (scheduleKind === 'at') {
+    at = String(rawSchedule.at || '').trim();
+    const parsedAt = new Date(at);
+    if (!at || Number.isNaN(parsedAt.getTime())) {
+      throw new Error('`schedule.at` must be a valid ISO timestamp.');
+    }
+    at = parsedAt.toISOString();
+  } else if (scheduleKind === 'every') {
+    const parsedEveryMs =
+      typeof rawSchedule.everyMs === 'number'
+        ? rawSchedule.everyMs
+        : Number.parseInt(String(rawSchedule.everyMs || ''), 10);
+    if (!Number.isFinite(parsedEveryMs) || parsedEveryMs < 10_000) {
+      throw new Error('`schedule.everyMs` must be at least 10000.');
+    }
+    everyMs = Math.floor(parsedEveryMs);
+  } else {
+    expr = String(rawSchedule.expr || '').trim();
+    if (!expr) {
+      throw new Error('`schedule.expr` is required for cron jobs.');
+    }
+    try {
+      CronExpressionParser.parse(expr);
+    } catch {
+      throw new Error(`\`${expr}\` is not a valid cron expression.`);
+    }
+  }
+
+  const actionKind = String(rawAction.kind || 'agent_turn')
+    .trim()
+    .toLowerCase();
+  if (actionKind !== 'agent_turn' && actionKind !== 'system_event') {
+    throw new Error(
+      'Scheduler action kind must be `agent_turn` or `system_event`.',
+    );
+  }
+  const actionMessage = String(rawAction.message || '').trim();
+  if (!actionMessage) {
+    throw new Error('`action.message` is required.');
+  }
+
+  const deliveryKind = String(rawDelivery.kind || 'channel')
+    .trim()
+    .toLowerCase();
+  if (
+    deliveryKind !== 'channel' &&
+    deliveryKind !== 'last-channel' &&
+    deliveryKind !== 'webhook'
+  ) {
+    throw new Error(
+      'Scheduler delivery kind must be `channel`, `last-channel`, or `webhook`.',
+    );
+  }
+  const deliveryTo = String(rawDelivery.to || '').trim();
+  const webhookUrl = String(rawDelivery.webhookUrl || '').trim();
+  if (deliveryKind === 'channel' && !deliveryTo) {
+    throw new Error('`delivery.to` is required for channel deliveries.');
+  }
+  if (deliveryKind === 'webhook' && !webhookUrl) {
+    throw new Error(
+      '`delivery.webhookUrl` is required for webhook deliveries.',
+    );
+  }
+
+  return {
+    id,
+    ...(name ? { name } : {}),
+    ...(description ? { description } : {}),
+    schedule: {
+      kind: scheduleKind,
+      at,
+      everyMs,
+      expr,
+      tz: String(rawSchedule.tz || '').trim(),
+    },
+    action: {
+      kind: actionKind,
+      message: actionMessage,
+    },
+    delivery: {
+      kind: deliveryKind,
+      channel: String(rawDelivery.channel || 'discord').trim() || 'discord',
+      to: deliveryTo,
+      webhookUrl,
+    },
+    enabled: value.enabled !== false,
+  };
+}
+
+function mapAdminAuditEntry(
+  entry: StructuredAuditEntry,
+): GatewayAdminAuditResponse['entries'][number] {
+  return {
+    id: entry.id,
+    sessionId: entry.session_id,
+    seq: entry.seq,
+    eventType: entry.event_type,
+    timestamp: entry.timestamp,
+    runId: entry.run_id,
+    parentRunId: entry.parent_run_id,
+    payload: entry.payload,
+    createdAt: entry.created_at,
+  };
+}
+
+function readToolExecutionEvent(entry: StructuredAuditEntry): {
+  toolName: string;
+  durationMs: number | null;
+  isError: boolean;
+  summary: string | null;
+} | null {
+  const payload = parseAuditPayload(entry);
+  const toolName = String(payload?.toolName || '').trim();
+  if (!toolName) return null;
+  const summary =
+    typeof payload?.resultSummary === 'string' && payload.resultSummary.trim()
+      ? payload.resultSummary.trim()
+      : null;
+  return {
+    toolName,
+    durationMs: numberFromUnknown(payload?.durationMs),
+    isError: payload?.isError === true,
+    summary,
+  };
+}
+
+function mapAdminToolExecution(
+  entry: StructuredAuditEntry,
+  execution: NonNullable<ReturnType<typeof readToolExecutionEvent>>,
+): GatewayAdminToolsResponse['recentExecutions'][number] {
+  return {
+    id: entry.id,
+    toolName: execution.toolName,
+    sessionId: entry.session_id,
+    timestamp: entry.timestamp,
+    durationMs: execution.durationMs,
+    isError: execution.isError,
+    summary: execution.summary,
+  };
+}
+
+export function getGatewayAdminTools(): GatewayAdminToolsResponse {
+  const recentEntries = listStructuredAuditEntries({
+    eventType: 'tool.result',
+    limit: 200,
+  });
+  const usageByTool = new Map<
+    string,
+    {
+      recentCalls: number;
+      recentErrors: number;
+      lastUsedAt: string | null;
+      recentErrorSamples: GatewayAdminToolCatalogEntry['recentErrorSamples'];
+    }
+  >();
+  const recentExecutions: GatewayAdminToolsResponse['recentExecutions'] = [];
+
+  for (const entry of recentEntries) {
+    const execution = readToolExecutionEvent(entry);
+    if (!execution) continue;
+    recentExecutions.push(mapAdminToolExecution(entry, execution));
+    const current = usageByTool.get(execution.toolName) || {
+      recentCalls: 0,
+      recentErrors: 0,
+      lastUsedAt: null,
+      recentErrorSamples: [],
+    };
+    current.recentCalls += 1;
+    if (execution.isError) {
+      current.recentErrors += 1;
+      if (execution.summary && current.recentErrorSamples.length < 5) {
+        current.recentErrorSamples.push({
+          id: entry.id,
+          sessionId: entry.session_id,
+          timestamp: entry.timestamp,
+          summary: execution.summary,
+        });
+      }
+    }
+    current.lastUsedAt ||= entry.timestamp;
+    usageByTool.set(execution.toolName, current);
+  }
+
+  const groups: GatewayAdminToolsResponse['groups'] = getKnownToolGroups()
+    .filter((group) => group.tools.length > 0)
+    .map((group) => ({
+      label: group.label,
+      tools: group.tools.map((name) => {
+        const usage = usageByTool.get(name);
+        return {
+          name,
+          group: group.label,
+          kind: 'builtin' as const,
+          recentCalls: usage?.recentCalls || 0,
+          recentErrors: usage?.recentErrors || 0,
+          lastUsedAt: usage?.lastUsedAt || null,
+          recentErrorSamples: usage?.recentErrorSamples || [],
+        };
+      }),
+    }));
+
+  const recentOnlyTools = Array.from(usageByTool.keys()).filter(
+    (name) => !isKnownToolName(name),
+  );
+  const mcpTools = recentOnlyTools
+    .filter((name) => name.includes('__'))
+    .sort((left, right) => left.localeCompare(right));
+  const otherTools = recentOnlyTools
+    .filter((name) => !name.includes('__'))
+    .sort((left, right) => left.localeCompare(right));
+
+  if (mcpTools.length > 0) {
+    groups.push({
+      label: 'MCP',
+      tools: mcpTools.map((name) => {
+        const usage = usageByTool.get(name);
+        return {
+          name,
+          group: 'MCP',
+          kind: 'mcp' as const,
+          recentCalls: usage?.recentCalls || 0,
+          recentErrors: usage?.recentErrors || 0,
+          lastUsedAt: usage?.lastUsedAt || null,
+          recentErrorSamples: usage?.recentErrorSamples || [],
+        };
+      }),
+    });
+  }
+
+  if (otherTools.length > 0) {
+    groups.push({
+      label: 'Other',
+      tools: otherTools.map((name) => {
+        const usage = usageByTool.get(name);
+        return {
+          name,
+          group: getKnownToolGroupLabel(name) || 'Other',
+          kind: 'other' as const,
+          recentCalls: usage?.recentCalls || 0,
+          recentErrors: usage?.recentErrors || 0,
+          lastUsedAt: usage?.lastUsedAt || null,
+          recentErrorSamples: usage?.recentErrorSamples || [],
+        };
+      }),
+    });
+  }
+
+  const builtinTools = groups
+    .filter((group) => group.label !== 'MCP' && group.label !== 'Other')
+    .reduce((sum, group) => sum + group.tools.length, 0);
+  const mcpToolCount = groups
+    .filter((group) => group.label === 'MCP')
+    .reduce((sum, group) => sum + group.tools.length, 0);
+  const otherToolCount = groups
+    .filter((group) => group.label === 'Other')
+    .reduce((sum, group) => sum + group.tools.length, 0);
+
+  return {
+    totals: {
+      totalTools: groups.reduce((sum, group) => sum + group.tools.length, 0),
+      builtinTools,
+      mcpTools: mcpToolCount,
+      otherTools: otherToolCount,
+      recentExecutions: recentExecutions.length,
+      recentErrors: recentExecutions.filter((entry) => entry.isError).length,
+    },
+    groups,
+    recentExecutions: recentExecutions.slice(0, 40),
+  };
+}
+
+export async function getGatewayAdminModels(): Promise<GatewayAdminModelsResponse> {
+  try {
+    await discoverAllLocalModels();
+  } catch {
+    // Best-effort enrichment only.
+  }
+
+  const runtimeConfig = getRuntimeConfig();
+  const hybridaiModels = dedupeStrings(runtimeConfig.hybridai.models);
+  const codexModels = dedupeStrings(runtimeConfig.codex.models);
+  const configuredHybridai = new Set(hybridaiModels);
+  const configuredCodex = new Set(codexModels);
+  const dailyUsage = new Map(
+    listUsageByModel({ window: 'daily' }).map((row) => [row.model, row]),
+  );
+  const monthlyUsage = new Map(
+    listUsageByModel({ window: 'monthly' }).map((row) => [row.model, row]),
+  );
+
+  const modelIds = dedupeStrings([
+    runtimeConfig.hybridai.defaultModel,
+    ...getAvailableModelList(),
+  ]);
+  const status = getGatewayStatus();
+
+  return {
+    defaultModel: runtimeConfig.hybridai.defaultModel,
+    hybridaiModels,
+    codexModels,
+    providerStatus: status.providerHealth,
+    models: modelIds
+      .map((modelId) => {
+        const info = getLocalModelInfo(modelId);
+        const dailySummary = dailyUsage.get(modelId);
+        const monthlySummary = monthlyUsage.get(modelId);
+        return {
+          id: modelId,
+          configuredInHybridai: configuredHybridai.has(modelId),
+          configuredInCodex: configuredCodex.has(modelId),
+          discovered: Boolean(info),
+          backend: info?.backend || null,
+          contextWindow: info?.contextWindow ?? null,
+          maxTokens: info?.maxTokens ?? null,
+          isReasoning: info?.isReasoning ?? false,
+          thinkingFormat: info?.thinkingFormat || null,
+          family: info?.family || null,
+          parameterSize: info?.parameterSize || null,
+          usageDaily: dailySummary ? mapUsageSummary(dailySummary) : null,
+          usageMonthly: monthlySummary ? mapUsageSummary(monthlySummary) : null,
+        };
+      })
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  };
+}
+
+export async function saveGatewayAdminModels(input: {
+  defaultModel?: unknown;
+  hybridaiModels?: unknown;
+  codexModels?: unknown;
+}): Promise<GatewayAdminModelsResponse> {
+  const defaultModel = String(input.defaultModel || '').trim();
+  if (!defaultModel) {
+    throw new Error('Expected non-empty `defaultModel`.');
+  }
+
+  const hybridaiModels = parseStringArrayInput(
+    input.hybridaiModels,
+    'hybridaiModels',
+  );
+  const codexModels = parseStringArrayInput(input.codexModels, 'codexModels');
+  const discoveredDefault = getLocalModelInfo(defaultModel);
+
+  updateRuntimeConfig((draft) => {
+    draft.hybridai.defaultModel = defaultModel;
+    if (hybridaiModels) {
+      draft.hybridai.models = hybridaiModels;
+    }
+    if (codexModels) {
+      draft.codex.models = codexModels;
+    }
+    if (
+      !draft.hybridai.models.includes(defaultModel) &&
+      !draft.codex.models.includes(defaultModel) &&
+      !discoveredDefault
+    ) {
+      draft.hybridai.models = dedupeStrings([
+        ...draft.hybridai.models,
+        defaultModel,
+      ]);
+    }
+  });
+
+  return getGatewayAdminModels();
+}
+
+export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
+  const runtimeConfig = getRuntimeConfig();
+  const statuses = new Map(
+    getSchedulerStatus().map((job) => [job.id, job] as const),
+  );
+  const nowMs = Date.now();
+
+  return {
+    jobs: [
+      ...runtimeConfig.scheduler.jobs.map((job) => {
+        const runtime = statuses.get(job.id);
+        return {
+          id: job.id,
+          source: 'config',
+          name:
+            (typeof job.name === 'string' && job.name.trim()) ||
+            runtime?.name ||
+            job.id,
+          description:
+            (typeof job.description === 'string' && job.description.trim()) ||
+            runtime?.description ||
+            null,
+          enabled: job.enabled,
+          schedule: job.schedule,
+          action: job.action,
+          delivery: job.delivery,
+          lastRun: runtime?.lastRun || null,
+          lastStatus: runtime?.lastStatus || null,
+          nextRunAt: runtime?.nextRunAt || null,
+          disabled: runtime?.disabled || false,
+          consecutiveErrors: runtime?.consecutiveErrors || 0,
+          createdAt: null,
+          sessionId: null,
+          channelId:
+            job.delivery.kind === 'channel'
+              ? job.delivery.to
+              : job.delivery.kind === 'last-channel'
+                ? 'last-channel'
+                : null,
+          taskId: null,
+        } satisfies GatewayAdminSchedulerJob;
+      }),
+      ...getAllTasks().map((task) => {
+        const normalizedPrompt = task.prompt.replace(/\s+/g, ' ').trim();
+        const createdAtMs = parseSchedulerTimestampMs(task.created_at);
+        const lastStatus =
+          task.last_status === 'success' || task.last_status === 'error'
+            ? task.last_status
+            : null;
+
+        return {
+          id: `task:${task.id}`,
+          source: 'task',
+          name:
+            normalizedPrompt.length > 72
+              ? `${normalizedPrompt.slice(0, 69).trimEnd()}...`
+              : normalizedPrompt || `Task #${task.id}`,
+          description: `#${task.id}`,
+          enabled: Boolean(task.enabled),
+          schedule: task.run_at
+            ? {
+                kind: 'at',
+                at: task.run_at,
+                everyMs: null,
+                expr: null,
+                tz: '',
+              }
+            : task.every_ms
+              ? {
+                  kind: 'every',
+                  at: null,
+                  everyMs: task.every_ms,
+                  expr: null,
+                  tz: '',
+                }
+              : {
+                  kind: 'cron',
+                  at: null,
+                  everyMs: null,
+                  expr: task.cron_expr || null,
+                  tz: '',
+                },
+          action: {
+            kind: 'agent_turn',
+            message: task.prompt,
+          },
+          delivery: {
+            kind: 'channel',
+            channel: 'session',
+            to: task.channel_id,
+            webhookUrl: '',
+          },
+          lastRun: task.last_run,
+          lastStatus,
+          nextRunAt: getScheduledTaskNextRunAt(task, nowMs),
+          disabled: !task.enabled,
+          consecutiveErrors: Math.max(0, task.consecutive_errors || 0),
+          createdAt:
+            createdAtMs == null
+              ? task.created_at || null
+              : new Date(createdAtMs).toISOString(),
+          sessionId: task.session_id,
+          channelId: task.channel_id,
+          taskId: task.id,
+        } satisfies GatewayAdminSchedulerJob;
+      }),
+    ].sort(compareGatewayAdminSchedulerJobs),
+  };
+}
+
+function compareGatewayAdminSchedulerJobs(
+  left: GatewayAdminSchedulerJob,
+  right: GatewayAdminSchedulerJob,
+): number {
+  if (left.nextRunAt && right.nextRunAt) {
+    const delta =
+      new Date(left.nextRunAt).getTime() - new Date(right.nextRunAt).getTime();
+    if (delta !== 0) return delta;
+  } else if (left.nextRunAt) {
+    return -1;
+  } else if (right.nextRunAt) {
+    return 1;
+  }
+
+  if (left.createdAt && right.createdAt) {
+    const delta =
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    if (delta !== 0) return delta;
+  } else if (left.createdAt) {
+    return -1;
+  } else if (right.createdAt) {
+    return 1;
+  }
+
+  return left.name.localeCompare(right.name);
+}
+
+export function upsertGatewayAdminSchedulerJob(input: {
+  job: unknown;
+}): GatewayAdminSchedulerResponse {
+  const job = parseAdminSchedulerJob(input.job);
+
+  updateRuntimeConfig((draft) => {
+    const existingIndex = draft.scheduler.jobs.findIndex(
+      (entry) => entry.id === job.id,
+    );
+    if (existingIndex >= 0) {
+      draft.scheduler.jobs[existingIndex] = job;
+      return;
+    }
+    draft.scheduler.jobs.push(job);
+  });
+
+  if (job.enabled) {
+    resumeConfigJob(job.id);
+  }
+  rearmScheduler();
+  return getGatewayAdminScheduler();
+}
+
+export function removeGatewayAdminSchedulerJob(
+  jobId: string,
+  source: 'config' | 'task' = 'config',
+): GatewayAdminSchedulerResponse {
+  if (source === 'task') {
+    const taskId = Number.parseInt(jobId, 10);
+    if (!Number.isFinite(taskId) || taskId <= 0) {
+      throw new Error('Expected numeric scheduler `taskId`.');
+    }
+    deleteTask(taskId);
+    rearmScheduler();
+    return getGatewayAdminScheduler();
+  }
+
+  const normalizedJobId = jobId.trim();
+  if (!normalizedJobId) {
+    throw new Error('Expected non-empty scheduler `jobId`.');
+  }
+
+  updateRuntimeConfig((draft) => {
+    draft.scheduler.jobs = draft.scheduler.jobs.filter(
+      (job) => job.id !== normalizedJobId,
+    );
+  });
+  rearmScheduler();
+  return getGatewayAdminScheduler();
+}
+
+export function setGatewayAdminSchedulerJobPaused(params: {
+  jobId: string;
+  paused: boolean;
+  source?: 'config' | 'task';
+}): GatewayAdminSchedulerResponse {
+  if (params.source === 'task') {
+    const taskId = Number.parseInt(params.jobId, 10);
+    if (!Number.isFinite(taskId) || taskId <= 0) {
+      throw new Error('Expected numeric scheduler `taskId`.');
+    }
+    if (params.paused) {
+      pauseTask(taskId);
+    } else {
+      resumeTask(taskId);
+    }
+    rearmScheduler();
+    return getGatewayAdminScheduler();
+  }
+
+  const normalizedJobId = params.jobId.trim();
+  if (!normalizedJobId) {
+    throw new Error('Expected non-empty scheduler `jobId`.');
+  }
+
+  const ok = params.paused
+    ? pauseConfigJob(normalizedJobId)
+    : resumeConfigJob(normalizedJobId);
+  if (!ok) {
+    throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
+  }
+  return getGatewayAdminScheduler();
+}
+
+export function getGatewayAdminMcp(): GatewayAdminMcpResponse {
+  const servers = Object.entries(getRuntimeConfig().mcpServers)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, config]) => ({
+      name,
+      enabled: config.enabled !== false,
+      summary: summarizeMcpServer(name, config),
+      config,
+    }));
+  return { servers };
+}
+
+export function upsertGatewayAdminMcpServer(input: {
+  name: string;
+  config: unknown;
+}): GatewayAdminMcpResponse {
+  const parsedName = parseMcpServerName(input.name);
+  if (!parsedName.name) {
+    throw new Error(parsedName.error || 'Invalid MCP server name.');
+  }
+  const parsedConfig = parseMcpServerConfig(JSON.stringify(input.config));
+  if (!parsedConfig.config) {
+    throw new Error(parsedConfig.error || 'Invalid MCP server config.');
+  }
+  const serverName = parsedName.name;
+  if (!serverName) {
+    throw new Error(parsedName.error || 'Invalid MCP server name.');
+  }
+
+  updateRuntimeConfig((draft) => {
+    draft.mcpServers[serverName] = parsedConfig.config as McpServerConfig;
+  });
+  return getGatewayAdminMcp();
+}
+
+export function removeGatewayAdminMcpServer(
+  name: string,
+): GatewayAdminMcpResponse {
+  const parsedName = parseMcpServerName(name);
+  if (!parsedName.name) {
+    throw new Error(parsedName.error || 'Invalid MCP server name.');
+  }
+  const serverName = parsedName.name;
+  if (!serverName) {
+    throw new Error(parsedName.error || 'Invalid MCP server name.');
+  }
+
+  updateRuntimeConfig((draft) => {
+    delete draft.mcpServers[serverName];
+  });
+  return getGatewayAdminMcp();
+}
+
+export function getGatewayAdminAudit(params?: {
+  query?: string;
+  sessionId?: string;
+  eventType?: string;
+  limit?: number;
+}): GatewayAdminAuditResponse {
+  const query = String(params?.query || '').trim();
+  const sessionId = String(params?.sessionId || '').trim();
+  const eventType = String(params?.eventType || '').trim();
+  const limit = Math.max(1, Math.min(params?.limit ?? 60, 200));
+
+  return {
+    query,
+    sessionId,
+    eventType,
+    limit,
+    entries: listStructuredAuditEntries({
+      query,
+      sessionId,
+      eventType,
+      limit,
+    }).map(mapAdminAuditEntry),
+  };
+}
+
+export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
+  const runtimeConfig = getRuntimeConfig();
+  return {
+    extraDirs: runtimeConfig.skills.extraDirs,
+    disabled: dedupeStrings(runtimeConfig.skills.disabled).sort((a, b) =>
+      a.localeCompare(b),
+    ),
+    skills: loadSkillCatalog().map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+      source: String(skill.source),
+      available: skill.available,
+      enabled: skill.enabled,
+      missing: skill.missing,
+      userInvocable: skill.userInvocable,
+      disableModelInvocation: skill.disableModelInvocation,
+      always: skill.always,
+      tags: skill.metadata.hybridclaw.tags,
+      relatedSkills: skill.metadata.hybridclaw.relatedSkills,
+    })),
+  };
+}
+
+export function setGatewayAdminSkillEnabled(input: {
+  name: string;
+  enabled: boolean;
+}): GatewayAdminSkillsResponse {
+  const name = String(input.name || '').trim();
+  if (!name) {
+    throw new Error('Expected non-empty skill `name`.');
+  }
+  const known = loadSkillCatalog().some((skill) => skill.name === name);
+  if (!known) {
+    throw new Error(`Skill \`${name}\` was not found.`);
+  }
+
+  updateRuntimeConfig((draft) => {
+    const disabled = new Set(
+      draft.skills.disabled
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean),
+    );
+    if (input.enabled) {
+      disabled.delete(name);
+    } else {
+      disabled.add(name);
+    }
+    draft.skills.disabled = [...disabled].sort((left, right) =>
+      left.localeCompare(right),
+    );
+  });
+
+  return getGatewayAdminSkills();
 }
 
 export function getGatewayHistory(

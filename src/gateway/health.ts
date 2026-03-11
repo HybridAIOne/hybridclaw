@@ -15,21 +15,48 @@ import {
   HEALTH_PORT,
   WEB_API_TOKEN,
 } from '../config/config.js';
+import type {
+  RuntimeConfig,
+  RuntimeDiscordChannelConfig,
+} from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
 import type { ToolProgressEvent } from '../types.js';
 import {
+  deleteGatewayAdminSession,
   type GatewayChatRequest,
   type GatewayCommandRequest,
+  getGatewayAdminAudit,
+  getGatewayAdminChannels,
+  getGatewayAdminConfig,
+  getGatewayAdminMcp,
+  getGatewayAdminModels,
+  getGatewayAdminOverview,
+  getGatewayAdminScheduler,
+  getGatewayAdminSessions,
+  getGatewayAdminSkills,
+  getGatewayAdminTools,
+  getGatewayAgents,
   getGatewayHistory,
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
+  removeGatewayAdminChannel,
+  removeGatewayAdminMcpServer,
+  removeGatewayAdminSchedulerJob,
+  saveGatewayAdminConfig,
+  saveGatewayAdminModels,
+  setGatewayAdminSchedulerJobPaused,
+  setGatewayAdminSkillEnabled,
+  upsertGatewayAdminChannel,
+  upsertGatewayAdminMcpServer,
+  upsertGatewayAdminSchedulerJob,
 } from './gateway-service.js';
 import type { GatewayChatRequestBody } from './gateway-types.js';
 
 const SITE_DIR = resolveInstallPath('docs');
+const CONSOLE_DIST_DIR = resolveInstallPath('console', 'dist');
 const AGENT_ARTIFACT_ROOT = path.resolve(path.join(DATA_DIR, 'agents'));
 const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
@@ -43,11 +70,15 @@ const SITE_MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.ico': 'image/x-icon',
   '.pdf': 'application/pdf',
   '.png': 'image/png',
   '.pptx':
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.svg': 'image/svg+xml',
+  '.txt': 'text/plain; charset=utf-8',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
@@ -80,6 +111,14 @@ function parseJsonObject(raw: unknown): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function isRuntimeDiscordChannelConfig(
+  value: unknown,
+): value is RuntimeDiscordChannelConfig {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const mode = (value as { mode?: unknown }).mode;
+  return mode === 'off' || mode === 'mention' || mode === 'free';
 }
 
 function isMessageSendAction(rawAction: unknown): boolean {
@@ -270,10 +309,17 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 }
 
 function resolveSiteFile(pathname: string): string | null {
+  return resolveStaticFile(
+    SITE_DIR,
+    pathname === '/' ? '/index.html' : pathname,
+  );
+}
+
+function resolveStaticFile(rootDir: string, pathname: string): string | null {
   const cleanPath = pathname === '/' ? '/index.html' : pathname;
   const normalized = path.normalize(cleanPath).replace(/^(\.\.(\/|\\|$))+/, '');
-  const candidate = path.resolve(SITE_DIR, `.${normalized}`);
-  if (!candidate.startsWith(SITE_DIR)) return null;
+  const candidate = path.resolve(rootDir, `.${normalized}`);
+  if (!candidate.startsWith(rootDir)) return null;
   if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile())
     return null;
   return candidate;
@@ -281,12 +327,38 @@ function resolveSiteFile(pathname: string): string | null {
 
 function serveStatic(pathname: string, res: ServerResponse): boolean {
   const filePath = resolveSiteFile(
-    pathname === '/chat' ? '/chat.html' : pathname,
+    pathname === '/chat'
+      ? '/chat.html'
+      : pathname === '/agents'
+        ? '/agents.html'
+        : pathname,
   );
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
   const mimeType = SITE_MIME_TYPES[ext] || 'application/octet-stream';
   res.writeHead(200, { 'Content-Type': mimeType });
+  res.end(fs.readFileSync(filePath));
+  return true;
+}
+
+function resolveConsoleFile(pathname: string): string | null {
+  const subPath = pathname.replace(/^\/admin/, '') || '/index.html';
+  const directFile = resolveStaticFile(CONSOLE_DIST_DIR, subPath);
+  if (directFile) return directFile;
+  return resolveStaticFile(CONSOLE_DIST_DIR, '/index.html');
+}
+
+function serveConsole(pathname: string, res: ServerResponse): boolean {
+  const filePath = resolveConsoleFile(pathname);
+  if (!filePath) return false;
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeType = SITE_MIME_TYPES[ext] || 'application/octet-stream';
+  res.writeHead(200, {
+    'Content-Type': mimeType,
+    'Cache-Control': filePath.endsWith('index.html')
+      ? 'no-cache'
+      : 'public, max-age=31536000, immutable',
+  });
   res.end(fs.readFileSync(filePath));
   return true;
 }
@@ -517,6 +589,10 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
   sendJson(res, 200, { sessionId, history });
 }
 
+function handleApiAgents(res: ServerResponse): void {
+  sendJson(res, 200, getGatewayAgents());
+}
+
 function handleApiProactivePull(res: ServerResponse, url: URL): void {
   const channelId = (url.searchParams.get('channelId') || '').trim();
   if (!channelId) {
@@ -537,6 +613,277 @@ function handleApiShutdown(res: ServerResponse): void {
   setTimeout(() => {
     process.kill(process.pid, 'SIGTERM');
   }, 50);
+}
+
+function handleApiAdminOverview(res: ServerResponse): void {
+  sendJson(res, 200, getGatewayAdminOverview());
+}
+
+function handleApiAdminSessions(res: ServerResponse): void {
+  sendJson(res, 200, { sessions: getGatewayAdminSessions() });
+}
+
+function handleApiAdminSessionDelete(res: ServerResponse, url: URL): void {
+  const sessionId = (url.searchParams.get('sessionId') || '').trim();
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
+    return;
+  }
+  sendJson(res, 200, deleteGatewayAdminSession(sessionId));
+}
+
+async function handleApiAdminChannels(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if ((req.method || 'GET') === 'GET') {
+    sendJson(res, 200, getGatewayAdminChannels());
+    return;
+  }
+
+  if ((req.method || 'GET') === 'DELETE') {
+    const guildId = (url.searchParams.get('guildId') || '').trim();
+    const channelId = (url.searchParams.get('channelId') || '').trim();
+    sendJson(res, 200, removeGatewayAdminChannel({ guildId, channelId }));
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as {
+    guildId?: string;
+    channelId?: string;
+    config?: Record<string, unknown>;
+  };
+  if (
+    typeof body.guildId !== 'string' ||
+    typeof body.channelId !== 'string' ||
+    !isRuntimeDiscordChannelConfig(body.config)
+  ) {
+    sendJson(res, 400, {
+      error:
+        'Expected `guildId`, `channelId`, and object `config` with `mode` set to off, mention, or free.',
+    });
+    return;
+  }
+
+  sendJson(
+    res,
+    200,
+    upsertGatewayAdminChannel({
+      guildId: body.guildId,
+      channelId: body.channelId,
+      config: body.config,
+    }),
+  );
+}
+
+async function handleApiAdminConfig(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if ((req.method || 'GET') === 'GET') {
+    sendJson(res, 200, getGatewayAdminConfig());
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as { config?: unknown };
+  if (
+    !body.config ||
+    typeof body.config !== 'object' ||
+    Array.isArray(body.config)
+  ) {
+    sendJson(res, 400, { error: 'Expected object `config` in request body.' });
+    return;
+  }
+
+  sendJson(res, 200, saveGatewayAdminConfig(body.config as RuntimeConfig));
+}
+
+async function handleApiAdminModels(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if ((req.method || 'GET') === 'GET') {
+    sendJson(res, 200, await getGatewayAdminModels());
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as {
+    defaultModel?: unknown;
+    hybridaiModels?: unknown;
+    codexModels?: unknown;
+  };
+  sendJson(res, 200, await saveGatewayAdminModels(body));
+}
+
+async function handleApiAdminScheduler(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if ((req.method || 'GET') === 'GET') {
+    sendJson(res, 200, getGatewayAdminScheduler());
+    return;
+  }
+
+  if ((req.method || 'GET') === 'DELETE') {
+    const source =
+      (url.searchParams.get('source') || '').trim().toLowerCase() === 'task'
+        ? 'task'
+        : 'config';
+    const rawId =
+      source === 'task'
+        ? (url.searchParams.get('taskId') || '').trim()
+        : (url.searchParams.get('jobId') || '').trim();
+    const jobId = (url.searchParams.get('jobId') || '').trim();
+    sendJson(res, 200, removeGatewayAdminSchedulerJob(rawId || jobId, source));
+    return;
+  }
+
+  if ((req.method || 'GET') === 'POST') {
+    const body = (await readJsonBody(req)) as {
+      jobId?: unknown;
+      taskId?: unknown;
+      source?: unknown;
+      action?: unknown;
+    };
+    const source =
+      String(body.source || '')
+        .trim()
+        .toLowerCase() === 'task'
+        ? 'task'
+        : 'config';
+    const jobId = String(
+      source === 'task' ? body.taskId || '' : body.jobId || '',
+    ).trim();
+    const action = String(body.action || '')
+      .trim()
+      .toLowerCase();
+    if (action !== 'pause' && action !== 'resume') {
+      sendJson(res, 400, {
+        error: 'Expected scheduler action `pause` or `resume`.',
+      });
+      return;
+    }
+    sendJson(
+      res,
+      200,
+      setGatewayAdminSchedulerJobPaused({
+        jobId,
+        paused: action === 'pause',
+        source,
+      }),
+    );
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as { job?: unknown };
+  sendJson(res, 200, upsertGatewayAdminSchedulerJob({ job: body.job }));
+}
+
+async function handleApiAdminMcp(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if ((req.method || 'GET') === 'GET') {
+    sendJson(res, 200, getGatewayAdminMcp());
+    return;
+  }
+
+  if ((req.method || 'GET') === 'DELETE') {
+    const name = (url.searchParams.get('name') || '').trim();
+    sendJson(res, 200, removeGatewayAdminMcpServer(name));
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as {
+    name?: unknown;
+    config?: unknown;
+  };
+  sendJson(
+    res,
+    200,
+    upsertGatewayAdminMcpServer({
+      name: String(body.name || ''),
+      config: body.config,
+    }),
+  );
+}
+
+function handleApiAdminAudit(res: ServerResponse, url: URL): void {
+  const parsedLimit = parseInt(url.searchParams.get('limit') || '60', 10);
+  const limit = Number.isNaN(parsedLimit) ? 60 : parsedLimit;
+  sendJson(
+    res,
+    200,
+    getGatewayAdminAudit({
+      query: url.searchParams.get('query') || '',
+      sessionId: url.searchParams.get('sessionId') || '',
+      eventType: url.searchParams.get('eventType') || '',
+      limit,
+    }),
+  );
+}
+
+function handleApiAdminTools(res: ServerResponse): void {
+  sendJson(res, 200, getGatewayAdminTools());
+}
+
+async function handleApiAdminSkills(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if ((req.method || 'GET') === 'GET') {
+    sendJson(res, 200, getGatewayAdminSkills());
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as {
+    name?: unknown;
+    enabled?: unknown;
+  };
+  if (typeof body.enabled !== 'boolean') {
+    sendJson(res, 400, {
+      error: 'Expected boolean `enabled` in request body.',
+    });
+    return;
+  }
+  sendJson(
+    res,
+    200,
+    setGatewayAdminSkillEnabled({
+      name: String(body.name || ''),
+      enabled: body.enabled,
+    }),
+  );
+}
+
+function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
+  const sendEvent = (event: string, payload: unknown): void => {
+    if (res.writableEnded) return;
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+
+  const sendSnapshot = (): void => {
+    sendEvent('overview', getGatewayAdminOverview());
+    sendEvent('status', getGatewayStatus());
+  };
+
+  sendSnapshot();
+  const timer = setInterval(sendSnapshot, 10_000);
+
+  req.on('close', () => {
+    clearInterval(timer);
+    if (!res.writableEnded) res.end();
+  });
 }
 
 function handleApiArtifact(
@@ -640,7 +987,11 @@ export function startHealthServer(): void {
         return;
       }
 
-      if (!hasApiAuth(req, url)) {
+      if (
+        !hasApiAuth(req, url, {
+          allowQueryToken: pathname === '/api/events',
+        })
+      ) {
         sendJson(res, 401, {
           error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
         });
@@ -649,12 +1000,85 @@ export function startHealthServer(): void {
 
       void (async () => {
         try {
+          if (pathname === '/api/events' && method === 'GET') {
+            handleApiEvents(req, res);
+            return;
+          }
           if (pathname === '/api/status' && method === 'GET') {
             sendJson(res, 200, getGatewayStatus());
             return;
           }
+          if (pathname === '/api/admin/overview' && method === 'GET') {
+            handleApiAdminOverview(res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/models' &&
+            (method === 'GET' || method === 'PUT')
+          ) {
+            await handleApiAdminModels(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/sessions' && method === 'GET') {
+            handleApiAdminSessions(res);
+            return;
+          }
+          if (pathname === '/api/admin/sessions' && method === 'DELETE') {
+            handleApiAdminSessionDelete(res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/scheduler' &&
+            (method === 'GET' ||
+              method === 'PUT' ||
+              method === 'DELETE' ||
+              method === 'POST')
+          ) {
+            await handleApiAdminScheduler(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/channels' &&
+            (method === 'GET' || method === 'PUT' || method === 'DELETE')
+          ) {
+            await handleApiAdminChannels(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/mcp' &&
+            (method === 'GET' || method === 'PUT' || method === 'DELETE')
+          ) {
+            await handleApiAdminMcp(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/config' &&
+            (method === 'GET' || method === 'PUT')
+          ) {
+            await handleApiAdminConfig(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/audit' && method === 'GET') {
+            handleApiAdminAudit(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/tools' && method === 'GET') {
+            handleApiAdminTools(res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/skills' &&
+            (method === 'GET' || method === 'PUT')
+          ) {
+            await handleApiAdminSkills(req, res);
+            return;
+          }
           if (pathname === '/api/history' && method === 'GET') {
             handleApiHistory(res, url);
+            return;
+          }
+          if (pathname === '/api/agents' && method === 'GET') {
+            handleApiAgents(res);
             return;
           }
           if (pathname === '/api/proactive/pull' && method === 'GET') {
@@ -683,6 +1107,16 @@ export function startHealthServer(): void {
           sendJson(res, 500, { error: errorText });
         }
       })();
+      return;
+    }
+
+    if (pathname.startsWith('/admin')) {
+      if (serveConsole(pathname, res)) return;
+      sendText(
+        res,
+        503,
+        'Admin console assets not found. Run `npm run build:console`.',
+      );
       return;
     }
 

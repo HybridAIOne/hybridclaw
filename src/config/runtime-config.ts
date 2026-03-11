@@ -164,6 +164,7 @@ export interface RuntimeConfig {
   security: RuntimeSecurityConfig;
   skills: {
     extraDirs: string[];
+    disabled: string[];
   };
   discord: {
     prefix: string;
@@ -336,6 +337,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   skills: {
     extraDirs: [],
+    disabled: [],
   },
   discord: {
     prefix: '!claw',
@@ -1550,6 +1552,10 @@ function normalizeRuntimeConfig(
       extraDirs: normalizeStringArray(
         rawSkills.extraDirs,
         DEFAULT_RUNTIME_CONFIG.skills.extraDirs,
+      ),
+      disabled: normalizeStringArray(
+        rawSkills.disabled,
+        DEFAULT_RUNTIME_CONFIG.skills.disabled,
       ),
     },
     discord: {
