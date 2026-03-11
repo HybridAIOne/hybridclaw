@@ -8,11 +8,31 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 const tempDirs: string[] = [];
 
 function makeTempDocsDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-'));
-  tempDirs.push(dir);
-  fs.writeFileSync(path.join(dir, 'index.html'), '<h1>Docs</h1>', 'utf8');
-  fs.writeFileSync(path.join(dir, 'chat.html'), '<h1>Chat</h1>', 'utf8');
-  return dir;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-'));
+  const docsDir = path.join(root, 'docs');
+  const consoleDistDir = path.join(root, 'console', 'dist');
+  tempDirs.push(root);
+  fs.mkdirSync(docsDir, { recursive: true });
+  fs.mkdirSync(consoleDistDir, { recursive: true });
+  fs.writeFileSync(path.join(docsDir, 'index.html'), '<h1>Docs</h1>', 'utf8');
+  fs.writeFileSync(path.join(docsDir, 'chat.html'), '<h1>Chat</h1>', 'utf8');
+  fs.writeFileSync(
+    path.join(docsDir, 'agents.html'),
+    '<h1>Agents</h1>',
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(consoleDistDir, 'index.html'),
+    '<h1>Admin</h1>',
+    'utf8',
+  );
+  fs.mkdirSync(path.join(consoleDistDir, 'assets'), { recursive: true });
+  fs.writeFileSync(
+    path.join(consoleDistDir, 'assets', 'app.js'),
+    'console.log("admin")',
+    'utf8',
+  );
+  return root;
 }
 
 function makeTempDataDir(): string {
@@ -153,6 +173,196 @@ async function importFreshHealth(options?: {
     kind: 'plain' as const,
     text: 'ok',
   }));
+  const getGatewayAdminOverview = vi.fn(() => ({
+    status: { status: 'ok', sessions: 2, version: '0.6.0', uptime: 60 },
+    configPath: '/tmp/config.json',
+    recentSessions: [],
+    usage: {
+      daily: {
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalTokens: 0,
+        totalCostUsd: 0,
+        callCount: 0,
+        totalToolCalls: 0,
+      },
+      monthly: {
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalTokens: 0,
+        totalCostUsd: 0,
+        callCount: 0,
+        totalToolCalls: 0,
+      },
+      topModels: [],
+    },
+  }));
+  const getGatewayAgents = vi.fn(() => ({
+    generatedAt: '2026-03-11T10:00:00.000Z',
+    version: '0.6.0',
+    uptime: 60,
+    ralph: {
+      enabled: false,
+      maxIterations: 0,
+    },
+    totals: {
+      all: 1,
+      active: 1,
+      idle: 0,
+      stopped: 0,
+      running: 1,
+      totalInputTokens: 10,
+      totalOutputTokens: 5,
+      totalTokens: 15,
+      totalCostUsd: 0.01,
+    },
+    agents: [
+      {
+        id: 'web:default',
+        name: 'Web web',
+        task: 'User prompt',
+        lastQuestion: 'User prompt',
+        lastAnswer: 'Assistant reply',
+        model: 'gpt-5',
+        sessionId: 'web:default',
+        channelId: 'web',
+        channelName: null,
+        agentId: 'default',
+        startedAt: '2026-03-11T09:00:00.000Z',
+        lastActive: '2026-03-11T10:00:00.000Z',
+        runtimeMinutes: 60,
+        inputTokens: 10,
+        outputTokens: 5,
+        costUsd: 0.01,
+        messageCount: 2,
+        toolCalls: 1,
+        status: 'active',
+        watcher: 'container runtime attached',
+        previewTitle: 'tool.result + chat',
+        previewMeta: '3 items · just now',
+        output: ['tool.result read ok 12ms'],
+      },
+    ],
+  }));
+  const getGatewayAdminModels = vi.fn(async () => ({
+    defaultModel: 'gpt-5',
+    hybridaiModels: ['gpt-5'],
+    codexModels: ['openai-codex/gpt-5-codex'],
+    providerStatus: {},
+    models: [],
+  }));
+  const getGatewayAdminSessions = vi.fn(() => []);
+  const getGatewayAdminScheduler = vi.fn(() => ({
+    jobs: [],
+  }));
+  const getGatewayAdminChannels = vi.fn(() => ({
+    groupPolicy: 'open',
+    defaultTypingMode: 'thinking',
+    defaultDebounceMs: 2500,
+    defaultAckReaction: 'eyes',
+    defaultRateLimitPerUser: 0,
+    defaultMaxConcurrentPerChannel: 2,
+    channels: [],
+  }));
+  const getGatewayAdminConfig = vi.fn(() => ({
+    path: '/tmp/config.json',
+    config: { version: 1 },
+  }));
+  const getGatewayAdminMcp = vi.fn(() => ({
+    servers: [],
+  }));
+  const getGatewayAdminAudit = vi.fn(() => ({
+    query: '',
+    sessionId: '',
+    eventType: '',
+    limit: 60,
+    entries: [],
+  }));
+  const getGatewayAdminTools = vi.fn(() => ({
+    totals: {
+      totalTools: 2,
+      builtinTools: 2,
+      mcpTools: 0,
+      otherTools: 0,
+      recentExecutions: 1,
+      recentErrors: 0,
+    },
+    groups: [
+      {
+        label: 'Files',
+        tools: [
+          {
+            name: 'read',
+            group: 'Files',
+            kind: 'builtin',
+            recentCalls: 1,
+            recentErrors: 0,
+            lastUsedAt: '2026-03-11T10:00:00.000Z',
+          },
+        ],
+      },
+    ],
+    recentExecutions: [
+      {
+        id: 1,
+        toolName: 'read',
+        sessionId: 'web:default',
+        timestamp: '2026-03-11T10:00:00.000Z',
+        durationMs: 12,
+        isError: false,
+      },
+    ],
+  }));
+  const getGatewayAdminSkills = vi.fn(() => ({
+    extraDirs: [],
+    disabled: [],
+    skills: [],
+  }));
+  const deleteGatewayAdminSession = vi.fn(() => ({
+    deleted: true,
+    sessionId: 's1',
+    deletedMessages: 2,
+    deletedTasks: 0,
+    deletedSemanticMemories: 0,
+    deletedUsageEvents: 0,
+    deletedAuditEntries: 0,
+    deletedStructuredAuditEntries: 0,
+    deletedApprovalEntries: 0,
+  }));
+  const removeGatewayAdminChannel = vi.fn(() => ({
+    channels: [],
+  }));
+  const removeGatewayAdminSchedulerJob = vi.fn(() => ({
+    jobs: [],
+  }));
+  const removeGatewayAdminMcpServer = vi.fn(() => ({
+    servers: [],
+  }));
+  const saveGatewayAdminConfig = vi.fn((value) => value);
+  const saveGatewayAdminModels = vi.fn(async () => ({
+    defaultModel: 'gpt-5',
+    hybridaiModels: ['gpt-5'],
+    codexModels: ['openai-codex/gpt-5-codex'],
+    providerStatus: {},
+    models: [],
+  }));
+  const upsertGatewayAdminChannel = vi.fn(() => ({
+    channels: [],
+  }));
+  const upsertGatewayAdminSchedulerJob = vi.fn(() => ({
+    jobs: [],
+  }));
+  const setGatewayAdminSchedulerJobPaused = vi.fn(() => ({
+    jobs: [],
+  }));
+  const upsertGatewayAdminMcpServer = vi.fn(() => ({
+    servers: [],
+  }));
+  const setGatewayAdminSkillEnabled = vi.fn(() => ({
+    extraDirs: [],
+    disabled: [],
+    skills: [],
+  }));
   const runDiscordToolAction = vi.fn(async () => ({ ok: true }));
   const normalizeDiscordToolAction = vi.fn((value: string) =>
     value === 'reply' ? 'send' : null,
@@ -173,7 +383,9 @@ async function importFreshHealth(options?: {
     WEB_API_TOKEN: options?.webApiToken || '',
   }));
   vi.doMock('../src/infra/install-root.js', () => ({
-    resolveInstallPath: vi.fn(() => docsDir),
+    resolveInstallPath: vi.fn((...segments: string[]) =>
+      path.join(docsDir, ...segments),
+    ),
   }));
   vi.doMock('../src/logger.js', () => ({
     logger: {
@@ -187,10 +399,32 @@ async function importFreshHealth(options?: {
     claimQueuedProactiveMessages,
   }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
+    deleteGatewayAdminSession,
+    getGatewayAgents,
+    getGatewayAdminAudit,
+    getGatewayAdminChannels,
+    getGatewayAdminConfig,
+    getGatewayAdminMcp,
+    getGatewayAdminModels,
+    getGatewayAdminOverview,
+    getGatewayAdminScheduler,
+    getGatewayAdminSessions,
+    getGatewayAdminSkills,
+    getGatewayAdminTools,
     getGatewayHistory,
     getGatewayStatus,
     handleGatewayCommand,
     handleGatewayMessage,
+    removeGatewayAdminChannel,
+    removeGatewayAdminMcpServer,
+    removeGatewayAdminSchedulerJob,
+    saveGatewayAdminConfig,
+    saveGatewayAdminModels,
+    setGatewayAdminSchedulerJobPaused,
+    setGatewayAdminSkillEnabled,
+    upsertGatewayAdminChannel,
+    upsertGatewayAdminMcpServer,
+    upsertGatewayAdminSchedulerJob,
   }));
   vi.doMock('../src/channels/discord/runtime.js', () => ({
     runDiscordToolAction,
@@ -212,6 +446,15 @@ async function importFreshHealth(options?: {
     listenArgs,
     getGatewayStatus,
     getGatewayHistory,
+    getGatewayAdminOverview,
+    getGatewayAgents,
+    getGatewayAdminModels,
+    getGatewayAdminScheduler,
+    getGatewayAdminMcp,
+    getGatewayAdminAudit,
+    getGatewayAdminSkills,
+    getGatewayAdminTools,
+    setGatewayAdminSkillEnabled,
     handleGatewayMessage,
     handleGatewayCommand,
     runDiscordToolAction,
@@ -280,6 +523,30 @@ describe('gateway health server', () => {
     expect(res.body).toContain('<h1>Docs</h1>');
   });
 
+  test('serves the standalone agents docs page via /agents alias', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/agents' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(res.body).toContain('<h1>Agents</h1>');
+  });
+
+  test('serves admin SPA files and falls back to index.html', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/admin/sessions' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(res.body).toContain('<h1>Admin</h1>');
+  });
+
   test('returns history for authorized loopback API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/history?sessionId=s1&limit=2' });
@@ -297,6 +564,160 @@ describe('gateway health server', () => {
         { role: 'assistant', content: 'world' },
       ],
     });
+  });
+
+  test('returns admin overview for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/overview' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminOverview).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      configPath: '/tmp/config.json',
+      status: { status: 'ok', sessions: 2 },
+    });
+  });
+
+  test('returns agents for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/agents' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAgents).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      totals: {
+        all: 1,
+        active: 1,
+      },
+      agents: [
+        {
+          id: 'web:default',
+          status: 'active',
+        },
+      ],
+    });
+  });
+
+  test('returns admin models for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/models' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminModels).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      defaultModel: 'gpt-5',
+      hybridaiModels: ['gpt-5'],
+    });
+  });
+
+  test('returns admin scheduler for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/scheduler' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminScheduler).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ jobs: [] });
+  });
+
+  test('returns filtered admin audit entries for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/audit?query=approval&sessionId=s1&eventType=approval.response&limit=25',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAudit).toHaveBeenCalledWith({
+      eventType: 'approval.response',
+      limit: 25,
+      query: 'approval',
+      sessionId: 's1',
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('returns admin tools for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/tools' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminTools).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      totals: {
+        totalTools: 2,
+        recentExecutions: 1,
+      },
+      groups: [
+        {
+          label: 'Files',
+        },
+      ],
+    });
+  });
+
+  test('toggles admin skills for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/skills',
+      body: {
+        name: 'pdf',
+        enabled: false,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.setGatewayAdminSkillEnabled).toHaveBeenCalledWith({
+      enabled: false,
+      name: 'pdf',
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('allows query-token auth for SSE admin events', async () => {
+    const state = await importFreshHealth({
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: '/api/events?token=web-token',
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe(
+      'text/event-stream; charset=utf-8',
+    );
+    expect(res.body).toContain('event: overview');
+    expect(res.body).toContain('event: status');
   });
 
   test('normalizes silent message-send chat responses', async () => {

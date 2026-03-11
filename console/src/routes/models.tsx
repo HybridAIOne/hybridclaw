@@ -1,0 +1,324 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { fetchModels, saveModels } from '../api/client';
+import { useAuth } from '../auth';
+import { PageHeader, Panel } from '../components/ui';
+import {
+  formatCompactNumber,
+  formatRelativeTime,
+  formatUsd,
+  joinStringList,
+  parseStringList,
+} from '../lib/format';
+
+interface ModelDraft {
+  defaultModel: string;
+  hybridaiModels: string;
+  codexModels: string;
+}
+
+function createDraft(
+  payload?: Awaited<ReturnType<typeof fetchModels>>,
+): ModelDraft {
+  return {
+    defaultModel: payload?.defaultModel || '',
+    hybridaiModels: joinStringList(payload?.hybridaiModels),
+    codexModels: joinStringList(payload?.codexModels),
+  };
+}
+
+export function ModelsPage() {
+  const auth = useAuth();
+  const queryClient = useQueryClient();
+  const [filter, setFilter] = useState('');
+  const [draft, setDraft] = useState<ModelDraft>(createDraft());
+
+  const modelsQuery = useQuery({
+    queryKey: ['models', auth.token],
+    queryFn: () => fetchModels(auth.token),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      saveModels(auth.token, {
+        defaultModel: draft.defaultModel,
+        hybridaiModels: parseStringList(draft.hybridaiModels),
+        codexModels: parseStringList(draft.codexModels),
+      }),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['models', auth.token], payload);
+      setDraft(createDraft(payload));
+      void queryClient.invalidateQueries({ queryKey: ['overview'] });
+    },
+  });
+
+  useEffect(() => {
+    if (!modelsQuery.data) return;
+    setDraft((current) =>
+      current.defaultModel || current.hybridaiModels || current.codexModels
+        ? current
+        : createDraft(modelsQuery.data),
+    );
+  }, [modelsQuery.data]);
+
+  const filteredModels = (modelsQuery.data?.models || []).filter((model) => {
+    const haystack = [
+      model.id,
+      model.backend || '',
+      model.family || '',
+      model.parameterSize || '',
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(filter.trim().toLowerCase());
+  });
+
+  const providerEntries = Object.entries(
+    modelsQuery.data?.providerStatus || {},
+  );
+
+  return (
+    <div className="page-stack">
+      <PageHeader
+        title="Models"
+        actions={
+          <input
+            className="compact-search"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder="Filter models"
+          />
+        }
+      />
+
+      <div className="two-column-grid">
+        <Panel title="Provider status">
+          <div className="list-stack">
+            {providerEntries.map(([name, status]) => (
+              <div className="list-row" key={name}>
+                <div>
+                  <strong>{name}</strong>
+                  <small>
+                    {status?.reachable
+                      ? `${status.detail || (typeof status.latencyMs === 'number' ? `${status.latencyMs}ms` : 'ready')} · ${status.modelCount ?? 0} models`
+                      : status?.error || 'unreachable'}
+                  </small>
+                </div>
+                <span
+                  className={
+                    status?.reachable
+                      ? 'list-status list-status-success'
+                      : 'list-status list-status-danger'
+                  }
+                >
+                  <span
+                    className={
+                      status?.reachable
+                        ? 'status-dot status-dot-success'
+                        : 'status-dot status-dot-danger'
+                    }
+                  />
+                  {status?.reachable ? 'healthy' : 'down'}
+                </span>
+              </div>
+            ))}
+            {providerEntries.length === 0 ? (
+              <div className="empty-state">
+                No provider health checks available.
+              </div>
+            ) : null}
+          </div>
+        </Panel>
+
+        <Panel title="Selection" accent="warm">
+          {modelsQuery.isLoading ? (
+            <div className="empty-state">Loading model catalog...</div>
+          ) : (
+            <div className="stack-form">
+              <label className="field">
+                <span>Default model</span>
+                <select
+                  value={draft.defaultModel}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      defaultModel: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Select model</option>
+                  {(modelsQuery.data?.models || []).map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Configured HybridAI models</span>
+                <textarea
+                  rows={4}
+                  value={draft.hybridaiModels}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      hybridaiModels: event.target.value,
+                    }))
+                  }
+                  placeholder="One or more models, comma or newline separated"
+                />
+              </label>
+
+              <label className="field">
+                <span>Configured Codex models</span>
+                <textarea
+                  rows={4}
+                  value={draft.codexModels}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      codexModels: event.target.value,
+                    }))
+                  }
+                  placeholder="One or more models, comma or newline separated"
+                />
+              </label>
+
+              <div className="button-row">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={saveMutation.isPending}
+                  onClick={() => saveMutation.mutate()}
+                >
+                  {saveMutation.isPending ? 'Saving...' : 'Save selection'}
+                </button>
+              </div>
+
+              {saveMutation.isSuccess ? (
+                <p className="success-banner">
+                  Default model is now {saveMutation.data.defaultModel}.
+                </p>
+              ) : null}
+              {saveMutation.isError ? (
+                <p className="error-banner">
+                  {(saveMutation.error as Error).message}
+                </p>
+              ) : null}
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      <Panel
+        title="Catalog"
+        subtitle={`${filteredModels.length} model${filteredModels.length === 1 ? '' : 's'} visible`}
+      >
+        {modelsQuery.isLoading ? (
+          <div className="empty-state">Loading model catalog...</div>
+        ) : (
+          <div className="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>Source</th>
+                  <th>Backend</th>
+                  <th>Context</th>
+                  <th>Monthly usage</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredModels.map((model) => (
+                  <tr key={model.id}>
+                    <td>
+                      <strong>{model.id}</strong>
+                      <small>
+                        {model.isReasoning ? 'reasoning' : 'standard'}
+                        {model.thinkingFormat
+                          ? ` · ${model.thinkingFormat}`
+                          : ''}
+                        {model.family ? ` · ${model.family}` : ''}
+                      </small>
+                    </td>
+                    <td>
+                      {[
+                        model.configuredInHybridai ? 'hybridai' : null,
+                        model.configuredInCodex ? 'codex' : null,
+                        model.discovered ? 'discovered' : null,
+                      ]
+                        .filter(Boolean)
+                        .join(', ') || 'manual'}
+                    </td>
+                    <td>{model.backend || 'remote'}</td>
+                    <td>
+                      {model.contextWindow
+                        ? `${formatCompactNumber(model.contextWindow)} ctx`
+                        : 'unknown'}
+                    </td>
+                    <td>
+                      {model.usageMonthly ? (
+                        <>
+                          <strong>
+                            {formatCompactNumber(
+                              model.usageMonthly.totalTokens,
+                            )}
+                          </strong>
+                          <small>
+                            {formatUsd(model.usageMonthly.totalCostUsd)} ·{' '}
+                            {model.usageMonthly.callCount} calls
+                          </small>
+                        </>
+                      ) : (
+                        <small>No usage recorded</small>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {filteredModels.length === 0 ? (
+                  <tr>
+                    <td colSpan={5}>
+                      <div className="empty-state">
+                        No models match this filter.
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      {modelsQuery.data?.models.some((model) => model.usageDaily) ? (
+        <Panel
+          title="Recent daily activity"
+          subtitle={`Updated ${formatRelativeTime(new Date().toISOString())}`}
+        >
+          <div className="list-stack">
+            {modelsQuery.data.models
+              .filter((model) => model.usageDaily)
+              .sort(
+                (left, right) =>
+                  (right.usageDaily?.totalTokens || 0) -
+                  (left.usageDaily?.totalTokens || 0),
+              )
+              .slice(0, 6)
+              .map((model) => (
+                <div className="list-row" key={`${model.id}-daily`}>
+                  <div>
+                    <strong>{model.id}</strong>
+                    <small>
+                      {model.usageDaily?.callCount || 0} calls today
+                    </small>
+                  </div>
+                  <span>{formatUsd(model.usageDaily?.totalCostUsd || 0)}</span>
+                </div>
+              ))}
+          </div>
+        </Panel>
+      ) : null}
+    </div>
+  );
+}

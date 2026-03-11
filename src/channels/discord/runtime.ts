@@ -2480,6 +2480,35 @@ export async function setDiscordMaintenancePresence(): Promise<void> {
   await presenceController.setMaintenance();
 }
 
+export function getDiscordChannelDisplayName(
+  guildId: string | null | undefined,
+  channelId: string | null | undefined,
+): string | null {
+  const normalizedChannelId =
+    typeof channelId === 'string' ? channelId.trim() : '';
+  if (!normalizedChannelId) return null;
+
+  const activeClient = client as Client | undefined;
+  if (!activeClient?.isReady()) return null;
+
+  const cachedGuild =
+    guildId && activeClient.guilds.cache.has(guildId)
+      ? activeClient.guilds.cache.get(guildId)
+      : null;
+  const cachedChannel =
+    cachedGuild?.channels.cache.get(normalizedChannelId) ??
+    activeClient.channels.cache.get(normalizedChannelId);
+  if (!cachedChannel || typeof cachedChannel !== 'object') return null;
+
+  const rawName =
+    'name' in cachedChannel && typeof cachedChannel.name === 'string'
+      ? cachedChannel.name.trim()
+      : '';
+  if (!rawName) return null;
+
+  return rawName.startsWith('#') ? rawName : `#${rawName}`;
+}
+
 /**
  * Send a message to a channel by ID (used by scheduler).
  */

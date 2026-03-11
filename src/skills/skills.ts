@@ -1111,7 +1111,16 @@ export interface SkillCatalogEntry {
   baseDir: string;
   source: SkillSource;
   available: boolean;
+  enabled: boolean;
   missing: string[];
+}
+
+function getDisabledSkillNames(): Set<string> {
+  return new Set(
+    (getRuntimeConfig().skills?.disabled ?? [])
+      .map((name) => String(name || '').trim())
+      .filter(Boolean),
+  );
 }
 
 function collectResolvedSkillCandidates(): SkillCandidate[] {
@@ -1186,12 +1195,14 @@ export function loadSkillCatalog(): SkillCatalogEntry[] {
   const candidates = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
   );
+  const disabled = getDisabledSkillNames();
   return candidates
     .map((skill) => {
       const eligibility = checkEligibility(skill);
       return {
         ...skill,
         available: eligibility.available,
+        enabled: !disabled.has(skill.name),
         missing: eligibility.missing,
       };
     })
@@ -1207,9 +1218,12 @@ export function loadSkillCatalog(): SkillCatalogEntry[] {
 export function loadSkills(agentId: string): Skill[] {
   const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
   fs.mkdirSync(workspaceDir, { recursive: true });
+  const disabled = getDisabledSkillNames();
   const guarded = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
-  ).filter((skill) => checkEligibility(skill).available);
+  ).filter(
+    (skill) => checkEligibility(skill).available && !disabled.has(skill.name),
+  );
   pruneStaleSyncedSkills(guarded, workspaceDir);
 
   const resolved: Skill[] = [];
