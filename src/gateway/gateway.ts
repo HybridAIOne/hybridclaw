@@ -672,11 +672,12 @@ async function startDiscordIntegration(): Promise<void> {
           return;
         }
         if (result.kind === 'info') {
-          await reply(
-            formatInfo(result.title || 'Info', result.text),
-            undefined,
-            result.components,
-          );
+          const text = formatInfo(result.title || 'Info', result.text);
+          if (result.components !== undefined) {
+            await reply(text, undefined, result.components);
+          } else {
+            await reply(text);
+          }
           return;
         }
         await reply(renderGatewayCommand(result));

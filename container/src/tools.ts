@@ -1580,7 +1580,8 @@ async function executeToolInternal(
           .map((filePath) => replaceWorkspaceRootInOutput(filePath));
         if (files.length === 0) return 'No files found.';
         return abbreviatePreview(files.join('\n'));
-      } catch {
+      } catch (err) {
+        if (err instanceof ToolExecutionFailure) throw err;
         return 'No files found.';
       }
     }
