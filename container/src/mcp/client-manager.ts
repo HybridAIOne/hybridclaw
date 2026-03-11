@@ -13,7 +13,7 @@ import type {
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { emitRuntimeEvent } from '../extensions.js';
-import type { ToolDefinition } from '../types.js';
+import type { ToolDefinition, ToolRunResult } from '../types.js';
 import { classifyMcpTool } from './tool-classifier.js';
 import type {
   McpClientHandle,
@@ -267,10 +267,10 @@ export class McpClientManager {
     );
   }
 
-  async callTool(
+  async callToolDetailed(
     namespacedName: string,
     args: Record<string, unknown>,
-  ): Promise<string> {
+  ): Promise<ToolRunResult> {
     const entry = this.toolIndex.get(namespacedName);
     if (!entry) throw new Error(`Unknown MCP tool: ${namespacedName}`);
     return this.callToolOnServer(
@@ -280,6 +280,14 @@ export class McpClientManager {
       args,
       true,
     );
+  }
+
+  async callTool(
+    namespacedName: string,
+    args: Record<string, unknown>,
+  ): Promise<string> {
+    const result = await this.callToolDetailed(namespacedName, args);
+    return result.output;
   }
 
   async shutdown(): Promise<void> {
@@ -461,7 +469,7 @@ export class McpClientManager {
     namespacedName: string,
     args: Record<string, unknown>,
     allowRetry: boolean,
-  ): Promise<string> {
+  ): Promise<ToolRunResult> {
     const handle = this.clients.get(serverName);
     if (!handle) {
       throw new Error(`MCP server ${serverName} is not connected`);
@@ -488,7 +496,10 @@ export class McpClientManager {
         toolName: namespacedName,
         ok: !result.isError,
       });
-      return rendered;
+      return {
+        output: rendered,
+        isError: result.isError === true,
+      };
     } catch (error) {
       this.markServerUnhealthy(serverName, error);
       await emitRuntimeEvent({

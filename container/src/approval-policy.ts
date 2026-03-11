@@ -79,6 +79,7 @@ export interface ToolApprovalEvaluation {
   actionKey: string;
   fingerprint: string;
   requestId?: string;
+  expiresAtMs?: number;
   intent: string;
   consequenceIfDenied: string;
   reason: string;
@@ -532,10 +533,116 @@ function extractAbsolutePaths(input: string): string[] {
   const paths = new Set<string>();
   for (const match of input.matchAll(ABS_PATH_RE)) {
     const candidate = String(match[2] || '').trim();
-    if (!candidate) continue;
-    paths.add(candidate);
+    if (!candidate || candidate === '/' || candidate === '//') continue;
+    try {
+      paths.add(fs.realpathSync(candidate));
+    } catch {
+      paths.add(path.resolve(candidate));
+    }
   }
   return [...paths];
+}
+
+function stripHereDocBodies(command: string): string {
+  const lines = command.split(/\r?\n/);
+  const kept: string[] = [];
+  let delimiter: string | null = null;
+
+  for (const line of lines) {
+    if (delimiter) {
+      if (line.trim() === delimiter) {
+        delimiter = null;
+      }
+      continue;
+    }
+
+    kept.push(line);
+    const match = line.match(
+      /<<-?\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/,
+    );
+    delimiter = match?.[1] || match?.[2] || match?.[3] || null;
+  }
+
+  return kept.join('\n');
+}
+
+function tokenizeShellSegment(segment: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let quote: "'" | '"' | null = null;
+
+  for (let index = 0; index < segment.length; index += 1) {
+    const char = segment[index];
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+        continue;
+      }
+      if (char === '\\' && quote === '"' && index + 1 < segment.length) {
+        current += segment[index + 1];
+        index += 1;
+        continue;
+      }
+      current += char;
+      continue;
+    }
+
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current) tokens.push(current);
+  return tokens;
+}
+
+function sanitizeInterpreterInlineScripts(segment: string): string {
+  const tokens = tokenizeShellSegment(segment);
+  if (tokens.length === 0) return segment.trim();
+
+  const executable = path.posix.basename(tokens[0].trim().toLowerCase());
+  let inlineFlags: Set<string> | null = null;
+  if (executable === 'node' || executable === 'nodejs') {
+    inlineFlags = new Set(['-e', '--eval', '-p', '--print']);
+  } else if (/^python(?:\d+(?:\.\d+)*)?$/.test(executable)) {
+    inlineFlags = new Set(['-c']);
+  } else if (executable === 'perl' || executable === 'ruby') {
+    inlineFlags = new Set(['-e']);
+  } else if (executable === 'php') {
+    inlineFlags = new Set(['-r']);
+  }
+
+  if (!inlineFlags) return segment.trim();
+
+  const sanitized: string[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    const normalized = token.trim().toLowerCase();
+    sanitized.push(token);
+    if (!inlineFlags.has(normalized)) continue;
+    if (index + 1 >= tokens.length) continue;
+    sanitized.push('__INLINE_SCRIPT__');
+    index += 1;
+  }
+  return sanitized.join(' ');
+}
+
+function buildBashInspectionSurface(command: string): string {
+  const stripped = stripHereDocBodies(command);
+  return splitCommandSegments(stripped)
+    .map((segment) => sanitizeInterpreterInlineScripts(segment))
+    .join(' ; ');
 }
 
 function splitCommandSegments(command: string): string[] {
@@ -1040,6 +1147,7 @@ export class TrustedCoworkerApprovalRuntime {
           actionKey: classified.actionKey,
           fingerprint,
           requestId: request.id,
+          expiresAtMs: request.expiresAtMs,
           intent: classified.intent,
           consequenceIfDenied: classified.consequenceIfDenied,
           reason: classified.reason,
@@ -1461,18 +1569,19 @@ export class TrustedCoworkerApprovalRuntime {
 
   private classifyBashAction(args: Record<string, unknown>): ClassifiedAction {
     const command = normalizeText(args.command);
+    const inspectionSurface = buildBashInspectionSurface(command);
     const lower = command.toLowerCase();
     const hosts = extractHostsFromUrlLikeText(command);
     const unseenHosts = hosts.filter(
       (host) => !this.seenNetworkHosts.has(host),
     );
-    const absPaths = extractAbsolutePaths(command);
-    const likelyWritePaths = extractLikelyWritePaths(command);
+    const absPaths = extractAbsolutePaths(inspectionSurface);
+    const likelyWritePaths = extractLikelyWritePaths(inspectionSurface);
     const writeIntent =
-      WRITE_INTENT_RE.test(command) ||
-      DELETE_RE.test(command) ||
-      INSTALL_RE.test(command) ||
-      GIT_WRITE_RE.test(command);
+      WRITE_INTENT_RE.test(inspectionSurface) ||
+      DELETE_RE.test(inspectionSurface) ||
+      INSTALL_RE.test(inspectionSurface) ||
+      GIT_WRITE_RE.test(inspectionSurface);
 
     if (CRITICAL_BASH_RE.test(command) || FORCE_PUSH_RE.test(command)) {
       return {
@@ -1517,7 +1626,7 @@ export class TrustedCoworkerApprovalRuntime {
       }
     }
 
-    if (DELETE_RE.test(command)) {
+    if (DELETE_RE.test(inspectionSurface)) {
       const promotable = /(node_modules|dist|build|coverage|\.cache)/i.test(
         lower,
       );
@@ -1536,7 +1645,7 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
-    if (UNKNOWN_SCRIPT_RE.test(command)) {
+    if (UNKNOWN_SCRIPT_RE.test(inspectionSurface)) {
       return {
         tier: 'red',
         actionKey: 'bash:script',
@@ -1552,7 +1661,7 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
-    if (unseenHosts.length > 0 && NETWORK_COMMAND_RE.test(command)) {
+    if (unseenHosts.length > 0 && NETWORK_COMMAND_RE.test(inspectionSurface)) {
       return {
         tier: 'red',
         actionKey: `bash:network:${unseenHosts[0]}`,
@@ -1568,7 +1677,7 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
-    if (INSTALL_RE.test(command)) {
+    if (INSTALL_RE.test(inspectionSurface)) {
       return {
         tier: 'yellow',
         actionKey: 'bash:install-deps',
@@ -1584,7 +1693,10 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
-    if (GIT_WRITE_RE.test(command) || WRITE_INTENT_RE.test(command)) {
+    if (
+      GIT_WRITE_RE.test(inspectionSurface) ||
+      WRITE_INTENT_RE.test(inspectionSurface)
+    ) {
       return {
         tier: 'yellow',
         actionKey: 'bash:write-op',
@@ -1600,7 +1712,7 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
-    if (READ_ONLY_BASH_RE.test(command)) {
+    if (READ_ONLY_BASH_RE.test(inspectionSurface)) {
       return {
         tier: 'green',
         actionKey: 'bash:read-only',
@@ -1616,7 +1728,7 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
-    if (READ_ONLY_PDF_SCRIPT_RE.test(command)) {
+    if (READ_ONLY_PDF_SCRIPT_RE.test(inspectionSurface)) {
       return {
         tier: 'green',
         actionKey: 'bash:pdf-read-only',

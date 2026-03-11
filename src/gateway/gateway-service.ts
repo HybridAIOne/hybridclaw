@@ -112,6 +112,8 @@ import {
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
+import { isDiscordChannelId } from './proactive-delivery.js';
+import { buildResetConfirmationComponents } from './reset-confirmation.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
@@ -958,8 +960,17 @@ function badCommand(title: string, text: string): GatewayCommandResult {
   return { kind: 'error', title, text };
 }
 
-function infoCommand(title: string, text: string): GatewayCommandResult {
-  return { kind: 'info', title, text };
+function infoCommand(
+  title: string,
+  text: string,
+  components?: GatewayCommandResult['components'],
+): GatewayCommandResult {
+  return {
+    kind: 'info',
+    title,
+    text,
+    ...(components === undefined ? {} : { components }),
+  };
 }
 
 function plainCommand(text: string): GatewayCommandResult {
@@ -2963,6 +2974,13 @@ export async function handleGatewayCommand(
       }
 
       const runtime = resolveSessionRuntimeTarget(session);
+      const resetComponents =
+        isDiscordChannelId(req.channelId) && typeof req.userId === 'string'
+          ? buildResetConfirmationComponents({
+              sessionId: req.sessionId,
+              userId: req.userId,
+            })
+          : undefined;
       pendingSessionResets.set(req.sessionId, {
         requestedAt: Date.now(),
         agentId: runtime.agentId,
@@ -2976,8 +2994,11 @@ export async function handleGatewayCommand(
           `This will delete this session's history, reset per-session model/bot settings, and remove the current agent workspace.`,
           `Model: ${runtime.model}`,
           `Agent workspace: ${runtime.workspacePath}`,
-          'Reply with `reset yes` to continue or `reset no` to cancel.',
+          resetComponents
+            ? 'Use the buttons below to continue or cancel.'
+            : 'Reply with `reset yes` to continue or `reset no` to cancel.',
         ].join('\n'),
+        resetComponents,
       );
     }
 

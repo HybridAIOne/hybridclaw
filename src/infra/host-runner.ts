@@ -26,6 +26,7 @@ import {
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
+import { redactSecrets } from '../security/redact.js';
 import type {
   ChatMessage,
   ContainerInput,
@@ -85,7 +86,7 @@ function emitTextDelta(entry: PoolEntry, line: string): void {
   if (delta == null) return;
 
   try {
-    if (delta) callback(delta);
+    if (delta) callback(redactSecrets(delta));
   } catch (err) {
     logger.debug(
       { sessionId: entry.sessionId, err },
@@ -106,7 +107,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
         toolName: resultMatch[1],
         phase: 'finish',
         durationMs: parseInt(resultMatch[2], 10),
-        preview: resultMatch[3],
+        preview: redactSecrets(resultMatch[3]),
       });
     } catch (err) {
       logger.debug(
@@ -124,7 +125,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
       sessionId: entry.sessionId,
       toolName: startMatch[1],
       phase: 'start',
-      preview: startMatch[2],
+      preview: redactSecrets(startMatch[2]),
     });
   } catch (err) {
     logger.debug(
@@ -499,6 +500,10 @@ export async function runHostProcess(params: {
       activity,
     });
     remapOutputArtifacts(output, workspacePath);
+    if (typeof output.result === 'string')
+      output.result = redactSecrets(output.result);
+    if (typeof output.error === 'string')
+      output.error = redactSecrets(output.error);
     return output;
   } finally {
     abortSignal?.removeEventListener('abort', onAbort);

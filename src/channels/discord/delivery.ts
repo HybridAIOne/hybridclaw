@@ -1,5 +1,6 @@
 import type {
   AttachmentBuilder,
+  BaseMessageOptions,
   ChatInputCommandInteraction,
   Message as DiscordMessage,
 } from 'discord.js';
@@ -19,6 +20,16 @@ export type DiscordRetryFn = <T>(
   label: string,
   fn: () => Promise<T>,
 ) => Promise<T>;
+
+export type DiscordMessageComponents = NonNullable<
+  BaseMessageOptions['components']
+>;
+
+type ChunkedPayload = {
+  content: string;
+  files?: AttachmentBuilder[];
+  components?: DiscordMessageComponents;
+};
 
 export function buildResponseText(text: string, toolsUsed?: string[]): string {
   let body = text;
@@ -40,8 +51,9 @@ export function formatError(title: string, detail: string): string {
 export function prepareChunkedPayloads(
   text: string,
   files?: AttachmentBuilder[],
+  components?: DiscordMessageComponents,
   mentionLookup?: MentionLookup,
-): { content: string; files?: AttachmentBuilder[] }[] {
+): ChunkedPayload[] {
   const prepared = mentionLookup
     ? rewriteUserMentions(text, mentionLookup)
     : text;
@@ -52,6 +64,7 @@ export function prepareChunkedPayloads(
   const safeChunks = chunks.length > 0 ? chunks : ['(no content)'];
   return safeChunks.map((content, i) => ({
     content,
+    ...(i === 0 && components !== undefined ? { components } : {}),
     ...(i === safeChunks.length - 1 && files && files.length > 0
       ? { files }
       : {}),
@@ -63,12 +76,14 @@ export async function sendChunkedReply(params: {
   text: string;
   withRetry: DiscordRetryFn;
   files?: AttachmentBuilder[];
+  components?: DiscordMessageComponents;
   mentionLookup?: MentionLookup;
   humanDelay?: HumanDelayConfig;
 }): Promise<void> {
   const payloads = prepareChunkedPayloads(
     params.text,
     params.files,
+    params.components,
     params.mentionLookup,
   );
   for (let i = 0; i < payloads.length; i += 1) {
@@ -98,12 +113,14 @@ export async function sendChunkedDirectReply(params: {
   text: string;
   withRetry: DiscordRetryFn;
   files?: AttachmentBuilder[];
+  components?: DiscordMessageComponents;
   mentionLookup?: MentionLookup;
   humanDelay?: HumanDelayConfig;
 }): Promise<void> {
   const payloads = prepareChunkedPayloads(
     params.text,
     params.files,
+    params.components,
     params.mentionLookup,
   );
   const dm = await params.withRetry('dm-open', () =>
@@ -126,8 +143,13 @@ export async function sendChunkedInteractionReply(params: {
   text: string;
   withRetry: DiscordRetryFn;
   files?: AttachmentBuilder[];
+  components?: DiscordMessageComponents;
 }): Promise<void> {
-  const payloads = prepareChunkedPayloads(params.text, params.files);
+  const payloads = prepareChunkedPayloads(
+    params.text,
+    params.files,
+    params.components,
+  );
   const isGuildInteraction = Boolean(params.interaction.guildId);
   for (let i = 0; i < payloads.length; i += 1) {
     const payload = isGuildInteraction

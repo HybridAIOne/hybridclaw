@@ -1,10 +1,10 @@
-const APPROVAL_ID_RE = /Approval ID:\s*([a-f0-9-]{6,64})/i;
-
 export interface PendingApprovalPrompt {
+  approvalId: string;
   prompt: string;
   createdAt: number;
   expiresAt: number;
   userId: string;
+  resolvedAt?: number | null;
   disableButtons?: (() => Promise<void>) | null;
   disableTimeout?: ReturnType<typeof setTimeout> | null;
 }
@@ -24,11 +24,6 @@ async function disposePendingApprovalEntry(
   if (options?.disableButtons && disableButtons) {
     await disableButtons().catch(() => {});
   }
-}
-
-export function extractApprovalId(prompt: string): string {
-  const match = prompt.match(APPROVAL_ID_RE);
-  return match?.[1]?.trim() || '';
 }
 
 export function getPendingApproval(
@@ -85,9 +80,56 @@ export function findPendingApprovalByApprovalId(approvalId: string): {
       void disposePendingApprovalEntry(entry, { disableButtons: true });
       continue;
     }
-    if (extractApprovalId(entry.prompt) === normalizedApprovalId) {
+    if (entry.resolvedAt) {
+      continue;
+    }
+    if (entry.approvalId === normalizedApprovalId) {
       return { sessionId, entry };
     }
   }
   return null;
+}
+
+export function claimPendingApprovalByApprovalId(params: {
+  approvalId: string;
+  userId: string;
+}):
+  | {
+      status: 'claimed';
+      sessionId: string;
+      entry: PendingApprovalPrompt;
+    }
+  | {
+      status: 'unauthorized';
+      sessionId: string;
+      entry: PendingApprovalPrompt;
+    }
+  | {
+      status: 'already_handled';
+      sessionId: string;
+      entry: PendingApprovalPrompt;
+    }
+  | { status: 'not_found' } {
+  const normalizedApprovalId = params.approvalId.trim();
+  if (!normalizedApprovalId) return { status: 'not_found' };
+  const now = Date.now();
+  for (const [sessionId, entry] of pendingApprovalBySession.entries()) {
+    if (entry.expiresAt <= now) {
+      pendingApprovalBySession.delete(sessionId);
+      void disposePendingApprovalEntry(entry, { disableButtons: true });
+      continue;
+    }
+    if (entry.approvalId !== normalizedApprovalId) {
+      continue;
+    }
+    if (entry.userId !== params.userId) {
+      return { status: 'unauthorized', sessionId, entry };
+    }
+    if (entry.resolvedAt) {
+      return { status: 'already_handled', sessionId, entry };
+    }
+    entry.resolvedAt = now;
+    return { status: 'claimed', sessionId, entry };
+  }
+  return { status: 'not_found' };
 }

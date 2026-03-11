@@ -25,6 +25,10 @@ import {
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
 import {
+  advanceStalledTurnCount,
+  MAX_STALLED_MODEL_TURNS,
+} from './stalled-turns.js';
+import {
   collapseSystemMessages,
   mergeSystemMessage,
 } from './system-messages.js';
@@ -35,8 +39,13 @@ import {
   estimateTextTokens,
   finalizeTokenUsage,
 } from './token-usage.js';
+import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
-  executeTool,
+  detectToolCallLoop,
+  recordToolCallOutcome,
+} from './tool-loop-detection.js';
+import {
+  executeToolWithMetadata,
   getMessageToolDescription,
   getPendingSideEffects,
   resetSideEffects,
@@ -61,7 +70,6 @@ import type {
   ToolExecution,
 } from './types.js';
 
-const MAX_ITERATIONS = 20;
 const IDLE_TIMEOUT_MS = parseInt(
   process.env.CONTAINER_IDLE_TIMEOUT || '300000',
   10,
@@ -380,13 +388,6 @@ function emitStreamDelta(delta: string): void {
   console.error(`[stream] ${payload}`);
 }
 
-function inferToolError(result: string, blockedReason: string | null): boolean {
-  if (blockedReason) return true;
-  return /\b(error|failed|denied|forbidden|timed out|timeout|exception|invalid)\b/i.test(
-    result,
-  );
-}
-
 function latestUserPrompt(messages: ChatMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
@@ -478,10 +479,10 @@ function buildRalphPrompt(taskPrompt: string, missingChoice: boolean): string {
   return lines.join('\n');
 }
 
-function resolveMaxModelTurns(): number {
-  if (!RALPH_ENABLED) return MAX_ITERATIONS;
+function resolveMaxStalledTurns(): number {
+  if (!RALPH_ENABLED) return MAX_STALLED_MODEL_TURNS;
   if (RALPH_MAX_EXTRA_ITERATIONS < 0) return Number.MAX_SAFE_INTEGER;
-  return Math.max(MAX_ITERATIONS, RALPH_MAX_EXTRA_ITERATIONS + 1);
+  return Math.max(MAX_STALLED_MODEL_TURNS, RALPH_MAX_EXTRA_ITERATIONS + 1);
 }
 
 function inferMimeType(filePath: string): string {
@@ -754,18 +755,18 @@ async function processRequest(
   );
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
+  const toolCallHistory: ToolCallHistoryEntry[] = [];
   const artifacts: ArtifactMetadata[] = [];
   const artifactPaths = new Set<string>();
   const tokenUsage = createTokenUsageStats();
   const effectiveUserPrompt =
     effectiveUserPromptOverride || latestUserPrompt(messages);
   const ralphSeedPrompt = RALPH_ENABLED ? effectiveUserPrompt : '';
-  const maxModelTurns = resolveMaxModelTurns();
+  const maxStalledTurns = resolveMaxStalledTurns();
   let ralphExtraIterations = 0;
-  let iterations = 0;
+  let stalledTurns = 0;
 
-  while (iterations < maxModelTurns) {
-    iterations++;
+  while (stalledTurns < maxStalledTurns) {
     tokenUsage.modelCalls += 1;
     tokenUsage.estimatedPromptTokens += estimateMessageTokens(history);
 
@@ -878,6 +879,11 @@ async function processRequest(
           ralphExtraIterations < RALPH_MAX_EXTRA_ITERATIONS;
         if (canContinue) {
           ralphExtraIterations += 1;
+          stalledTurns = advanceStalledTurnCount({
+            current: stalledTurns,
+            toolCalls: 0,
+            successfulToolCalls: 0,
+          });
           history.push({
             role: 'user',
             content: buildRalphPrompt(ralphSeedPrompt, branchChoice == null),
@@ -914,6 +920,7 @@ async function processRequest(
       return completed;
     }
 
+    let successfulToolCallsThisTurn = 0;
     for (const call of toolCalls) {
       const toolName = call.function.name;
       const approval = approvalRuntime.evaluateToolCall({
@@ -946,6 +953,7 @@ async function processRequest(
           approvalActionKey: approval.actionKey,
           approvalReason: approval.reason,
           approvalRequestId: approval.requestId,
+          approvalExpiresAt: approval.expiresAtMs,
         });
         const waitingForApproval: ContainerOutput = {
           status: 'success',
@@ -980,6 +988,7 @@ async function processRequest(
           approvalActionKey: approval.actionKey,
           approvalReason: approval.reason,
           approvalRequestId: approval.requestId,
+          approvalExpiresAt: approval.expiresAtMs,
         });
         const denied: ContainerOutput = {
           status: 'success',
@@ -1008,17 +1017,38 @@ async function processRequest(
         toolName,
         call.function.arguments,
       );
-      const result = blockedReason
-        ? `Tool blocked by security hook: ${blockedReason}`
-        : await executeTool(toolName, call.function.arguments);
+      const loopGuard = blockedReason
+        ? { stuck: false as const }
+        : detectToolCallLoop(
+            toolCallHistory,
+            toolName,
+            call.function.arguments,
+          );
+      const runtimeResult = blockedReason
+        ? {
+            output: `Tool blocked by security hook: ${blockedReason}`,
+            isError: true,
+          }
+        : loopGuard.stuck
+          ? {
+              output: loopGuard.message,
+              isError: true,
+            }
+          : await executeToolWithMetadata(toolName, call.function.arguments);
       const toolDuration = Date.now() - toolStart;
-      const isError = inferToolError(result, blockedReason);
-      const succeeded = !blockedReason && !isError;
+      const result = runtimeResult.output;
+      const isError = runtimeResult.isError;
+      const executionBlockedReason =
+        blockedReason || (loopGuard.stuck ? loopGuard.message : null);
+      const succeeded = !isError;
       if (succeeded) {
+        successfulToolCallsThisTurn += 1;
         captureSkillSelection(toolName, call.function.arguments);
       }
       approvalRuntime.afterToolExecution(approval, succeeded);
-      await runAfterToolHooks(toolName, call.function.arguments, result);
+      if (!executionBlockedReason) {
+        await runAfterToolHooks(toolName, call.function.arguments, result);
+      }
       console.error(
         `[tool] ${toolName} result (${toolDuration}ms): ${result.slice(0, 100)}`,
       );
@@ -1028,14 +1058,15 @@ async function processRequest(
         result,
         durationMs: toolDuration,
         isError,
-        blocked: Boolean(blockedReason),
-        blockedReason: blockedReason || undefined,
+        blocked: Boolean(executionBlockedReason),
+        blockedReason: executionBlockedReason || undefined,
         approvalTier: approval.tier,
         approvalBaseTier: approval.baseTier,
-        approvalDecision: blockedReason ? 'denied' : approval.decision,
+        approvalDecision: executionBlockedReason ? 'denied' : approval.decision,
         approvalActionKey: approval.actionKey,
         approvalReason: approval.reason,
         approvalRequestId: approval.requestId,
+        approvalExpiresAt: approval.expiresAtMs,
       });
       for (const artifact of extractToolArtifacts(toolName, result)) {
         const artifactKey = normalizeArtifactKey(artifact.path);
@@ -1044,27 +1075,19 @@ async function processRequest(
         artifacts.push(artifact);
       }
       history.push({ role: 'tool', content: result, tool_call_id: call.id });
-
-      // Bail on fatal filesystem/system errors — retrying won't help
-      if (/EROFS|EPERM|EACCES|read-only file system/i.test(result)) {
-        const failed: ContainerOutput = {
-          status: 'error',
-          result: null,
-          toolsUsed,
-          ...(artifacts.length > 0 ? { artifacts } : {}),
-          toolExecutions,
-          tokenUsage: finalizeTokenUsage(tokenUsage),
-          error: result,
-          effectiveUserPrompt,
-        };
-        await emitRuntimeEvent({
-          event: 'turn_end',
-          status: failed.status,
-          toolsUsed,
-        });
-        return failed;
-      }
+      recordToolCallOutcome(
+        toolCallHistory,
+        toolName,
+        call.function.arguments,
+        result,
+        isError,
+      );
     }
+    stalledTurns = advanceStalledTurnCount({
+      current: stalledTurns,
+      toolCalls: toolCalls.length,
+      successfulToolCalls: successfulToolCallsThisTurn,
+    });
   }
 
   const lastAssistant = history.filter((m) => m.role === 'assistant').pop();
@@ -1077,7 +1100,7 @@ async function processRequest(
     status: 'success',
     result:
       stripRalphChoiceTags(lastAssistant?.content || null) ||
-      'Max tool iterations reached.',
+      `No successful tool progress for ${maxStalledTurns} consecutive model turns.`,
     toolsUsed: [...new Set(toolsUsed)],
     ...(artifacts.length > 0 ? { artifacts } : {}),
     toolExecutions,

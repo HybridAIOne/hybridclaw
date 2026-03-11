@@ -61,17 +61,23 @@ describe('discord delivery', () => {
       await importFreshDelivery();
     chunkMessage.mockReturnValue(['chunk-1', 'chunk-2']);
     const files = [{ name: 'report.txt' }] as unknown as [];
+    const components = [{ type: 1, components: [] }];
 
-    const payloads = delivery.prepareChunkedPayloads('@alice hello', files, {
-      byAlias: new Map(),
-    });
+    const payloads = delivery.prepareChunkedPayloads(
+      '@alice hello',
+      files,
+      components,
+      {
+        byAlias: new Map(),
+      },
+    );
 
     expect(rewriteUserMentions).toHaveBeenCalledWith(
       '@alice hello',
       expect.objectContaining({ byAlias: expect.any(Map) }),
     );
     expect(payloads).toEqual([
-      { content: 'chunk-1' },
+      { content: 'chunk-1', components },
       { content: 'chunk-2', files },
     ]);
   });
@@ -111,12 +117,16 @@ describe('discord delivery', () => {
     await delivery.sendChunkedReply({
       msg: { reply, channel: { send } } as never,
       text: 'ignored',
+      components: [{ type: 1, components: [] }],
       withRetry,
       humanDelay: { mode: 'custom', minMs: 25, maxMs: 25 },
     });
 
     expect(attempts).toEqual(['reply', 'send']);
-    expect(reply).toHaveBeenCalledWith({ content: 'first chunk' });
+    expect(reply).toHaveBeenCalledWith({
+      content: 'first chunk',
+      components: [{ type: 1, components: [] }],
+    });
     expect(send).toHaveBeenCalledWith({ content: 'second chunk' });
     expect(sleep).toHaveBeenCalledWith(25);
   });
@@ -170,12 +180,14 @@ describe('discord delivery', () => {
         followUp,
       } as never,
       text: 'ignored',
+      components: [{ type: 1, components: [] }],
       withRetry,
     });
 
     expect(attempts).toEqual(['interaction-reply', 'interaction-followup']);
     expect(reply).toHaveBeenCalledWith({
       content: 'one',
+      components: [{ type: 1, components: [] }],
       flags: 'Ephemeral',
     });
     expect(followUp).toHaveBeenCalledWith({

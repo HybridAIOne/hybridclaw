@@ -73,6 +73,11 @@ export interface ToolDefinition {
   };
 }
 
+export interface ToolRunResult {
+  output: string;
+  isError: boolean;
+}
+
 export interface ToolSchema {
   type: 'object';
   properties: Record<string, ToolSchemaProperty>;
@@ -175,6 +180,7 @@ export interface ToolExecution {
   approvalActionKey?: string;
   approvalReason?: string;
   approvalRequestId?: string;
+  approvalExpiresAt?: number;
 }
 
 export interface TokenUsageStats {

@@ -135,6 +135,7 @@ export interface ToolExecution {
   approvalActionKey?: string;
   approvalReason?: string;
   approvalRequestId?: string;
+  approvalExpiresAt?: number;
 }
 
 export interface ToolProgressEvent {

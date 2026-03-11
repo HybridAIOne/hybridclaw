@@ -348,6 +348,62 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(evaluation.decision).toBe('implicit');
   });
 
+  test('node heredocs are not treated as workspace writes based on JS arrow functions or comments', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({
+        command: [
+          "node - <<'NODE'",
+          "const ExcelJS = require('exceljs');",
+          "const path='/Users/example/input.xlsx';",
+          '(async()=>{',
+          '  const wb=new ExcelJS.Workbook();',
+          '  await wb.xlsx.readFile(path);',
+          "  const ws=wb.getWorksheet('Summary');",
+          '  for(let r=1;r<=ws.actualRowCount;r++){',
+          '    const vals=ws.getRow(r).values;',
+          "    if(!vals.some(v=>v!==null&&v!==undefined&&v!=='')) continue;",
+          '    // print first 10 cols with indexes',
+          "    console.log(`${r}: ${vals.join(' | ')}`);",
+          '  }',
+          '})();',
+          'NODE',
+        ].join('\n'),
+      }),
+      latestUserPrompt: 'Inspect the workbook summary',
+    });
+
+    expect(evaluation.actionKey).not.toBe('bash:workspace-fence');
+    expect(evaluation.decision).toBe('implicit');
+    expect(evaluation.tier).toBe('yellow');
+  });
+
+  test('outer-shell redirections in heredoc commands still trigger workspace-fence approvals', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({
+        command: [
+          "node - <<'NODE' > /Users/example/out.txt",
+          "console.log('hello');",
+          'NODE',
+        ].join('\n'),
+      }),
+      latestUserPrompt: 'Write the output to a host file',
+    });
+
+    expect(evaluation.actionKey).toBe('bash:workspace-fence');
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.intent).toContain('/Users/example/out.txt');
+  });
+
   test('yes for agent persists trust across runtime restarts', () => {
     const trustStorePath = tempTrustStorePath('agent-trust');
     const policyPath = '/tmp/hybridclaw-missing-policy.yaml';

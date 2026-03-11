@@ -1,14 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
 
-function makePrompt(approvalId: string): string {
-  return [
-    'I need your approval before I proceed.',
-    `Approval ID: ${approvalId}`,
-    'Reply `yes` to approve once.',
-    'Approval expires in 60s.',
-  ].join('\n');
-}
-
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -19,10 +10,12 @@ test('findPendingApprovalByApprovalId returns stored approvals', async () => {
   const pendingApprovals = await import('../src/gateway/pending-approvals.js');
 
   await pendingApprovals.setPendingApproval('session-1', {
-    prompt: makePrompt('abc123'),
+    approvalId: 'abc123',
+    prompt: 'I need your approval before I proceed.',
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-1',
+    resolvedAt: null,
   });
 
   expect(
@@ -45,10 +38,12 @@ test('findPendingApprovalByApprovalId removes expired approvals during lookup', 
   const disableButtons = vi.fn().mockResolvedValue(undefined);
 
   await pendingApprovals.setPendingApproval('session-expired', {
-    prompt: makePrompt('dead999'),
+    approvalId: 'dead999',
+    prompt: 'expired approval',
     createdAt: Date.now() - 120_000,
     expiresAt: Date.now() - 1,
     userId: 'user-1',
+    resolvedAt: null,
     disableButtons,
     disableTimeout: setTimeout(() => {}, 60_000),
   });
@@ -71,10 +66,12 @@ test('setPendingApproval disables and clears overwritten approval entries', asyn
   const disableOriginal = vi.fn().mockResolvedValue(undefined);
 
   await pendingApprovals.setPendingApproval('session-2', {
-    prompt: makePrompt('abc124'),
+    approvalId: 'abc124',
+    prompt: 'first approval',
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-1',
+    resolvedAt: null,
     disableButtons: disableOriginal,
     disableTimeout: setTimeout(() => {
       originalTimerFired = true;
@@ -82,10 +79,12 @@ test('setPendingApproval disables and clears overwritten approval entries', asyn
   });
 
   await pendingApprovals.setPendingApproval('session-2', {
-    prompt: makePrompt('def456'),
+    approvalId: 'def456',
+    prompt: 'second approval',
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-1',
+    resolvedAt: null,
   });
 
   vi.advanceTimersByTime(1_000);
@@ -110,10 +109,12 @@ test('cleanupExpiredPendingApprovals removes expired entries and disables button
   const disableButtons = vi.fn().mockResolvedValue(undefined);
 
   await pendingApprovals.setPendingApproval('session-3', {
-    prompt: makePrompt('expire03'),
+    approvalId: 'expire03',
+    prompt: 'expired approval',
     createdAt: Date.now() - 120_000,
     expiresAt: Date.now() - 1,
     userId: 'user-1',
+    resolvedAt: null,
     disableButtons,
     disableTimeout: setTimeout(() => {}, 60_000),
   });
@@ -122,4 +123,74 @@ test('cleanupExpiredPendingApprovals removes expired entries and disables button
 
   expect(disableButtons).toHaveBeenCalledTimes(1);
   expect(pendingApprovals.getPendingApproval('session-3')).toBeNull();
+});
+
+test('claimPendingApprovalByApprovalId marks an approval handled after first claim', async () => {
+  const pendingApprovals = await import('../src/gateway/pending-approvals.js');
+
+  await pendingApprovals.setPendingApproval('session-4', {
+    approvalId: 'claim44',
+    prompt: 'claim me once',
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    userId: 'user-1',
+    resolvedAt: null,
+  });
+
+  expect(
+    pendingApprovals.claimPendingApprovalByApprovalId({
+      approvalId: 'claim44',
+      userId: 'user-1',
+    }),
+  ).toMatchObject({
+    status: 'claimed',
+    sessionId: 'session-4',
+  });
+
+  expect(
+    pendingApprovals.claimPendingApprovalByApprovalId({
+      approvalId: 'claim44',
+      userId: 'user-1',
+    }),
+  ).toMatchObject({
+    status: 'already_handled',
+    sessionId: 'session-4',
+  });
+
+  await pendingApprovals.clearPendingApproval('session-4');
+});
+
+test('claimPendingApprovalByApprovalId leaves approvals unresolved for wrong users', async () => {
+  const pendingApprovals = await import('../src/gateway/pending-approvals.js');
+
+  await pendingApprovals.setPendingApproval('session-5', {
+    approvalId: 'claim55',
+    prompt: 'claim me correctly',
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    userId: 'owner-1',
+    resolvedAt: null,
+  });
+
+  expect(
+    pendingApprovals.claimPendingApprovalByApprovalId({
+      approvalId: 'claim55',
+      userId: 'other-user',
+    }),
+  ).toMatchObject({
+    status: 'unauthorized',
+    sessionId: 'session-5',
+  });
+
+  expect(
+    pendingApprovals.claimPendingApprovalByApprovalId({
+      approvalId: 'claim55',
+      userId: 'owner-1',
+    }),
+  ).toMatchObject({
+    status: 'claimed',
+    sessionId: 'session-5',
+  });
+
+  await pendingApprovals.clearPendingApproval('session-5');
 });

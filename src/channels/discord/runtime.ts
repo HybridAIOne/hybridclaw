@@ -39,7 +39,8 @@ import {
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
 } from '../../config/config.js';
-import { findPendingApprovalByApprovalId } from '../../gateway/pending-approvals.js';
+import { claimPendingApprovalByApprovalId } from '../../gateway/pending-approvals.js';
+import { parseResetConfirmationCustomId } from '../../gateway/reset-confirmation.js';
 import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { logger } from '../../logger.js';
 import { getSessionById } from '../../memory/db.js';
@@ -58,6 +59,7 @@ import {
   shouldDebounceInbound,
 } from './debounce.js';
 import {
+  type DiscordMessageComponents,
   formatError,
   prepareChunkedPayloads,
   sendChunkedDirectReply as sendChunkedDirectReplyFromDelivery,
@@ -113,6 +115,7 @@ import { createTypingController } from './typing.js';
 export type ReplyFn = (
   content: string,
   files?: AttachmentBuilder[],
+  components?: DiscordMessageComponents,
 ) => Promise<void>;
 
 interface PendingGuildHistoryEntry {
@@ -1001,6 +1004,7 @@ async function sendChunkedReply(
   msg: DiscordMessage,
   text: string,
   files?: AttachmentBuilder[],
+  components?: DiscordMessageComponents,
   mentionLookup?: MentionLookup,
   humanDelay?: HumanDelayConfig,
 ): Promise<void> {
@@ -1010,6 +1014,7 @@ async function sendChunkedReply(
     withRetry: withDiscordRetry,
     ...(humanDelay ? { humanDelay } : {}),
     ...(files ? { files } : {}),
+    ...(components !== undefined ? { components } : {}),
     ...(mentionLookup ? { mentionLookup } : {}),
   });
 }
@@ -1018,6 +1023,7 @@ async function sendChunkedDirectReply(
   msg: DiscordMessage,
   text: string,
   files?: AttachmentBuilder[],
+  components?: DiscordMessageComponents,
   mentionLookup?: MentionLookup,
   humanDelay?: HumanDelayConfig,
 ): Promise<void> {
@@ -1027,6 +1033,7 @@ async function sendChunkedDirectReply(
     withRetry: withDiscordRetry,
     ...(humanDelay ? { humanDelay } : {}),
     ...(files ? { files } : {}),
+    ...(components !== undefined ? { components } : {}),
     ...(mentionLookup ? { mentionLookup } : {}),
   });
 }
@@ -1037,12 +1044,14 @@ async function sendChunkedInteractionReply(
   >[0]['interaction'],
   text: string,
   files?: AttachmentBuilder[],
+  components?: DiscordMessageComponents,
 ): Promise<void> {
   await sendChunkedInteractionReplyFromDelivery({
     interaction,
     text,
     withRetry: withDiscordRetry,
     ...(files ? { files } : {}),
+    ...(components !== undefined ? { components } : {}),
   });
 }
 
@@ -1563,6 +1572,62 @@ export function initDiscord(
   });
 
   client.on('interactionCreate', async (interaction) => {
+    if (interaction.isButton() && interaction.customId.startsWith('reset:')) {
+      const interactionVisibility = interaction.guildId
+        ? { flags: 'Ephemeral' as const }
+        : {};
+      const parsed = parseResetConfirmationCustomId(interaction.customId);
+      if (!parsed) {
+        await interaction.reply({
+          content: 'Invalid button.',
+          ...interactionVisibility,
+        });
+        return;
+      }
+      if (interaction.user.id !== parsed.userId) {
+        await interaction.reply({
+          content: 'Only the requesting user can respond.',
+          ...interactionVisibility,
+        });
+        return;
+      }
+      const guildId = interaction.guildId ?? null;
+      const channelId = interaction.channelId;
+      await interaction.deferReply(interactionVisibility);
+      try {
+        await commandHandler(
+          parsed.sessionId,
+          guildId,
+          channelId,
+          interaction.user.id,
+          interaction.user.username,
+          ['reset', parsed.action],
+          async (text, files, components) => {
+            await interaction.followUp({
+              content: text,
+              ...(files ? { files } : {}),
+              ...(components !== undefined ? { components } : {}),
+              ...interactionVisibility,
+            });
+          },
+        );
+        await disableApprovalButtons(
+          interaction.message as DiscordMessage,
+        ).catch(() => {});
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        logger.error(
+          { error, guildId, channelId, userId: interaction.user.id },
+          'Discord reset button failed',
+        );
+        await interaction.followUp({
+          content: formatError('Gateway Error', detail),
+          ...interactionVisibility,
+        });
+      }
+      return;
+    }
+
     if (interaction.isButton() && interaction.customId.startsWith('approve:')) {
       const interactionVisibility = interaction.guildId
         ? { flags: 'Ephemeral' as const }
@@ -1575,17 +1640,27 @@ export function initDiscord(
         });
         return;
       }
-      const pending = findPendingApprovalByApprovalId(parsed.approvalId);
-      if (!pending) {
+      const pending = claimPendingApprovalByApprovalId({
+        approvalId: parsed.approvalId,
+        userId: interaction.user.id,
+      });
+      if (pending.status === 'not_found') {
         await interaction.reply({
           content: 'This approval has expired or was already handled.',
           ...interactionVisibility,
         });
         return;
       }
-      if (interaction.user.id !== pending.entry.userId) {
+      if (pending.status === 'unauthorized') {
         await interaction.reply({
           content: 'Only the requesting user can respond.',
+          ...interactionVisibility,
+        });
+        return;
+      }
+      if (pending.status === 'already_handled') {
+        await interaction.reply({
+          content: 'This approval has already been handled.',
           ...interactionVisibility,
         });
         return;
@@ -1593,6 +1668,9 @@ export function initDiscord(
       const guildId = interaction.guildId ?? null;
       const channelId = interaction.channelId;
       await interaction.deferReply(interactionVisibility);
+      await disableApprovalButtons(interaction.message as DiscordMessage).catch(
+        () => {},
+      );
       try {
         await commandHandler(
           pending.sessionId,
@@ -1610,6 +1688,7 @@ export function initDiscord(
         );
         await pending.entry.disableButtons?.().catch(() => {});
       } catch (error) {
+        pending.entry.resolvedAt = null;
         const detail = error instanceof Error ? error.message : String(error);
         logger.error(
           { error, guildId, channelId, userId: interaction.user.id },
@@ -1672,8 +1751,8 @@ export function initDiscord(
         interaction.user.id,
         interaction.user.username,
         args,
-        async (text, files) =>
-          sendChunkedInteractionReply(interaction, text, files),
+        async (text, files, components) =>
+          sendChunkedInteractionReply(interaction, text, files, components),
       );
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -1834,12 +1913,13 @@ export function initDiscord(
         username,
         combinedContent,
         attachmentContext.media,
-        async (text, files) => {
+        async (text, files, components) => {
           emitLifecyclePhase('streaming');
           await sendChunkedReply(
             msg,
             text,
             files,
+            components,
             mentionLookup,
             behavior.humanDelay,
           );
@@ -1905,6 +1985,7 @@ export function initDiscord(
         await sendChunkedReply(
           msg,
           formatError('Gateway Error', detail),
+          undefined,
           undefined,
           mentionLookup,
           behavior.humanDelay,
@@ -2142,21 +2223,23 @@ export function initDiscord(
       msg.guild ? participantMemoryByChannel.get(msg.channelId) : undefined,
     );
 
-    const reply: ReplyFn = async (text, files) => {
+    const reply: ReplyFn = async (text, files, components) => {
       await sendChunkedReply(
         msg,
         text,
         files,
+        components,
         immediateMentionLookup,
         behavior.humanDelay,
       );
     };
-    const commandReply: ReplyFn = async (text, files) => {
+    const commandReply: ReplyFn = async (text, files, components) => {
       try {
         await sendChunkedDirectReply(
           msg,
           text,
           files,
+          components,
           immediateMentionLookup,
           behavior.humanDelay,
         );

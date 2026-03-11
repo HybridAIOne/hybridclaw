@@ -25,6 +25,7 @@ import type {
   MediaContextItem,
   ScheduleSideEffect,
   ToolDefinition,
+  ToolRunResult,
 } from './types.js';
 import type { WebSearchRuntimeConfig } from './web-search.js';
 
@@ -126,6 +127,34 @@ type DiscordMessageToolAction =
   | 'unpin'
   | 'thread-create'
   | 'thread-reply';
+
+class ToolExecutionFailure extends Error {
+  readonly output: string;
+
+  constructor(output: string) {
+    super(output);
+    this.name = 'ToolExecutionFailure';
+    this.output = output;
+  }
+}
+
+function failTool(output: string): never {
+  throw new ToolExecutionFailure(output);
+}
+
+function parseStructuredToolOutput(
+  output: string,
+): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(output) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
 
 const MESSAGE_TOOL_ACTION_LIST =
   'read, member-info, channel-info, send, react, quote-reply, edit, delete, pin, unpin, thread-create, thread-reply';
@@ -411,7 +440,9 @@ async function callGatewayDiscordAction(
 ): Promise<string> {
   const url = resolveGatewayDiscordActionUrl();
   if (!url) {
-    return 'Error: Discord actions are unavailable because gatewayBaseUrl is not configured.';
+    return failTool(
+      'Error: Discord actions are unavailable because gatewayBaseUrl is not configured.',
+    );
   }
 
   const headers: Record<string, string> = {
@@ -437,7 +468,11 @@ async function callGatewayDiscordAction(
       body: JSON.stringify(requestPayload),
     });
   } catch (err) {
-    return `Error: Discord action request failed: ${err instanceof Error ? err.message : String(err)}`;
+    return failTool(
+      `Error: Discord action request failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
   }
 
   const rawText = await response.text();
@@ -464,16 +499,18 @@ async function callGatewayDiscordAction(
       ) {
         structured.error = rawText || `HTTP ${response.status}`;
       }
-      return JSON.stringify(structured, null, 2);
+      return failTool(JSON.stringify(structured, null, 2));
     }
-    return JSON.stringify(
-      {
-        ok: false,
-        status: response.status,
-        error: rawText || `HTTP ${response.status}`,
-      },
-      null,
-      2,
+    return failTool(
+      JSON.stringify(
+        {
+          ok: false,
+          status: response.status,
+          error: rawText || `HTTP ${response.status}`,
+        },
+        null,
+        2,
+      ),
     );
   }
 
@@ -882,7 +919,7 @@ async function runVisionAnalyze(
   args: Record<string, unknown>,
 ): Promise<string> {
   const question = readStringValue(args.question);
-  if (!question) return 'Error: question is required';
+  if (!question) return failTool('Error: question is required');
 
   const imageRef =
     readStringValue(args.image_url) ||
@@ -892,7 +929,7 @@ async function runVisionAnalyze(
     readStringValue(args.fallback_url) ||
     readStringValue(args.fallbackUrl) ||
     readStringValue(args.original_url);
-  if (!imageRef) return 'Error: image_url is required';
+  if (!imageRef) return failTool('Error: image_url is required');
 
   const candidates = [imageRef, fallbackUrl].filter((value): value is string =>
     Boolean(value),
@@ -924,7 +961,9 @@ async function runVisionAnalyze(
     }
   }
 
-  return `Error: vision_analyze failed. ${errors.join(' | ') || 'No candidate image sources succeeded.'}`;
+  return failTool(
+    `Error: vision_analyze failed. ${errors.join(' | ') || 'No candidate image sources succeeded.'}`,
+  );
 }
 
 const PREVIEW_MAX_OUTPUT_LINES = 6;
@@ -1392,914 +1431,1017 @@ function summarizeSessionCandidate(
   };
 }
 
-export async function executeTool(
+async function executeToolInternal(
   name: string,
   argsJson: string,
 ): Promise<string> {
-  try {
-    const args = JSON.parse(argsJson);
+  const args = JSON.parse(argsJson);
 
-    if (mcpClientManager?.isKnownTool(name)) {
-      if (!args || typeof args !== 'object' || Array.isArray(args)) {
-        return 'Error: MCP tool arguments must be a JSON object';
+  if (mcpClientManager?.isKnownTool(name)) {
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+      return failTool('Error: MCP tool arguments must be a JSON object');
+    }
+    const result = await mcpClientManager.callToolDetailed(
+      name,
+      args as Record<string, unknown>,
+    );
+    if (result.isError) {
+      return failTool(result.output);
+    }
+    return result.output;
+  }
+
+  switch (name) {
+    case 'read': {
+      if (typeof args.path !== 'string' || args.path.trim() === '') {
+        return failTool('Error: path is required');
       }
-      return await mcpClientManager.callTool(
-        name,
-        args as Record<string, unknown>,
+      const filePath = safeJoin(args.path);
+      if (!fs.existsSync(filePath))
+        return failTool(`Error: File not found: ${args.path}`);
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const lines = content.split('\n');
+      const totalFileLines = lines.length;
+
+      const rawOffset =
+        typeof args.offset === 'number' && Number.isFinite(args.offset)
+          ? args.offset
+          : 1;
+      const startLine = Math.max(1, Math.floor(rawOffset));
+      if (startLine > totalFileLines) {
+        return failTool(
+          `Error: Offset ${startLine} is beyond end of file (${totalFileLines} lines total)`,
+        );
+      }
+
+      const rawLimit =
+        typeof args.limit === 'number' &&
+        Number.isFinite(args.limit) &&
+        args.limit > 0
+          ? Math.floor(args.limit)
+          : undefined;
+
+      let selected = lines.slice(startLine - 1);
+      let userLimitedLines: number | undefined;
+      if (rawLimit !== undefined) {
+        selected = selected.slice(0, rawLimit);
+        userLimitedLines = selected.length;
+      }
+
+      const selectedContent = selected.join('\n');
+      const truncation = truncateReadContent(selectedContent);
+      if (truncation.firstLineExceedsLimit) {
+        const firstSelectedLine = selected[0] ?? '';
+        const firstLineSize = formatBytes(
+          Buffer.byteLength(firstSelectedLine, 'utf-8'),
+        );
+        return `[Line ${startLine} is ${firstLineSize}, exceeds ${formatBytes(READ_MAX_BYTES)} limit. Use bash: sed -n '${startLine}p' ${args.path} | head -c ${READ_MAX_BYTES}]`;
+      }
+
+      if (truncation.truncated) {
+        const endLine = startLine + truncation.outputLines - 1;
+        const nextOffset = endLine + 1;
+        if (truncation.truncatedBy === 'lines') {
+          return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines}. Use offset=${nextOffset} to continue]`;
+        }
+        return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines} (${formatBytes(READ_MAX_BYTES)} limit). Use offset=${nextOffset} to continue]`;
+      }
+
+      if (userLimitedLines !== undefined) {
+        const linesFromStart = startLine - 1 + userLimitedLines;
+        if (linesFromStart < totalFileLines) {
+          const remaining = totalFileLines - linesFromStart;
+          const nextOffset = startLine + userLimitedLines;
+          return `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue]`;
+        }
+      }
+
+      return truncation.content;
+    }
+
+    case 'write': {
+      const filePath = safeJoin(args.path);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, args.contents);
+      return `Wrote ${args.contents.length} bytes to ${args.path}`;
+    }
+
+    case 'edit': {
+      const filePath = safeJoin(args.path);
+      if (!fs.existsSync(filePath))
+        return failTool(`Error: File not found: ${args.path}`);
+      let content = fs.readFileSync(filePath, 'utf-8');
+      const count = args.count || 1;
+      for (let i = 0; i < count; i++) {
+        const idx = content.indexOf(args.old);
+        if (idx === -1) {
+          if (i === 0) return failTool(`Error: Text not found in ${args.path}`);
+          break;
+        }
+        content =
+          content.slice(0, idx) +
+          args.new +
+          content.slice(idx + args.old.length);
+      }
+      fs.writeFileSync(filePath, content);
+      return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})`;
+    }
+
+    case 'delete': {
+      const filePath = safeJoin(args.path);
+      if (!fs.existsSync(filePath))
+        return failTool(`Error: File not found: ${args.path}`);
+      fs.unlinkSync(filePath);
+      return `Deleted ${args.path}`;
+    }
+
+    case 'glob': {
+      const pattern = String(args.pattern || '').trim();
+      try {
+        const normalizedWorkspacePattern = resolveWorkspaceGlobPattern(pattern);
+        if (!normalizedWorkspacePattern) {
+          return failTool(
+            'Error: glob only searches inside the workspace or configured external bind mounts. For other absolute paths, use bash.',
+          );
+        }
+        const matcher = globPatternToRegExp(
+          normalizedWorkspacePattern.replace(/\\/g, '/'),
+        );
+        const cmd = `find "${WORKSPACE_ROOT.replace(/"/g, '\\"')}" -type f 2>/dev/null | head -5000`;
+        const result = execSync(cmd, { timeout: 10000, encoding: 'utf-8' });
+        if (!result.trim()) return 'No files found.';
+        const files = result
+          .trim()
+          .split('\n')
+          .map((filePath) => filePath.trim())
+          .filter(Boolean)
+          .filter((filePath) => matcher.test(filePath.replace(/\\/g, '/')))
+          .slice(0, 50)
+          .map((filePath) => replaceWorkspaceRootInOutput(filePath));
+        if (files.length === 0) return 'No files found.';
+        return abbreviatePreview(files.join('\n'));
+      } catch (err) {
+        if (err instanceof ToolExecutionFailure) throw err;
+        return 'No files found.';
+      }
+    }
+
+    case 'grep': {
+      const searchPath = args.path ? safeJoin(args.path) : WORKSPACE_ROOT;
+      try {
+        const cmd = `rg --no-heading --line-number "${args.pattern.replace(/"/g, '\\"')}" "${searchPath}" 2>/dev/null | head -30`;
+        const result = execSync(cmd, { timeout: 10000, encoding: 'utf-8' });
+        if (!result.trim()) return 'No matches found.';
+        // Convert absolute paths to relative
+        return abbreviatePreview(replaceWorkspaceRootInOutput(result));
+      } catch {
+        return 'No matches found.';
+      }
+    }
+
+    case 'bash': {
+      const blocked = guardCommand(args.command);
+      if (blocked) return failTool(blocked);
+      const timeoutMs = resolveBashTimeoutMs(args);
+      try {
+        // Strip secrets from subprocess environment (belt-and-suspenders)
+        const cleanEnv = { ...process.env };
+        delete cleanEnv.HYBRIDAI_API_KEY;
+        const result = execSync(args.command, {
+          timeout: timeoutMs,
+          encoding: 'utf-8',
+          cwd: WORKSPACE_ROOT,
+          maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
+          env: cleanEnv,
+        });
+        return formatBashOutput(
+          replaceWorkspaceRootInOutput(result || '(no output)'),
+        );
+      } catch (err: unknown) {
+        const execErr = err as {
+          code?: string | number;
+          signal?: string;
+          stdout?: string | Buffer;
+          stderr?: string | Buffer;
+          message?: string;
+        };
+
+        const stdout =
+          typeof execErr.stdout === 'string'
+            ? execErr.stdout
+            : Buffer.isBuffer(execErr.stdout)
+              ? execErr.stdout.toString('utf-8')
+              : '';
+        const stderr =
+          typeof execErr.stderr === 'string'
+            ? execErr.stderr
+            : Buffer.isBuffer(execErr.stderr)
+              ? execErr.stderr.toString('utf-8')
+              : '';
+        const combinedOutput = [stdout, stderr]
+          .filter(Boolean)
+          .join('\n')
+          .trim();
+
+        const errorMessage = execErr.message || 'Command failed';
+        const timeoutLikely =
+          execErr.code === 'ETIMEDOUT' ||
+          /ETIMEDOUT|timed out/i.test(errorMessage) ||
+          (execErr.signal === 'SIGTERM' && /spawnSync/i.test(errorMessage));
+        const summary = timeoutLikely
+          ? `Command timed out after ${timeoutMs}ms`
+          : errorMessage;
+
+        if (!combinedOutput) return failTool(`Error: ${summary}`);
+        return failTool(
+          `Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`,
+        );
+      }
+    }
+
+    case 'memory': {
+      const action =
+        typeof args.action === 'string'
+          ? args.action.trim().toLowerCase()
+          : 'read';
+      const relativePath = resolveMemoryFilePath(args);
+      if (!relativePath) {
+        return failTool(
+          'Error: memory file_path must be MEMORY.md, USER.md, or memory/YYYY-MM-DD.md',
+        );
+      }
+
+      const filePath = safeJoin(relativePath);
+      if (action === 'list') {
+        const files = listMemoryFiles();
+        if (files.length === 0) {
+          return 'No memory files found yet. Use action="append" with MEMORY.md or memory/YYYY-MM-DD.md.';
+        }
+        return files.join('\n');
+      }
+
+      if (action === 'search') {
+        const query =
+          typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
+        if (!query)
+          return failTool('Error: query is required for memory search');
+        const files = listMemoryFiles();
+        const matches: string[] = [];
+        for (const rel of files) {
+          const abs = safeJoin(rel);
+          let lines: string[] = [];
+          try {
+            lines = fs.readFileSync(abs, 'utf-8').split('\n');
+          } catch {
+            continue;
+          }
+          for (let i = 0; i < lines.length; i++) {
+            if (!lines[i].toLowerCase().includes(query)) continue;
+            const trimmed = lines[i].trim();
+            matches.push(`${rel}:${i + 1}: ${trimmed}`);
+            if (matches.length >= 40) break;
+          }
+          if (matches.length >= 40) break;
+        }
+        return matches.length > 0
+          ? matches.join('\n')
+          : `No memory matches for "${query}".`;
+      }
+
+      if (action === 'read') {
+        if (!fs.existsSync(filePath)) {
+          return `${relativePath}\n\n(empty)`;
+        }
+        const content = fs.readFileSync(filePath, 'utf-8');
+        return `${relativePath}\n\n${content || '(empty)'}`;
+      }
+
+      if (action === 'append') {
+        const content =
+          typeof args.content === 'string' ? args.content.trim() : '';
+        if (!content)
+          return failTool('Error: content is required for memory append');
+
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        const existing = fs.existsSync(filePath)
+          ? fs.readFileSync(filePath, 'utf-8')
+          : '';
+        let next = existing.replace(/\s+$/, '');
+        if (next.length > 0) next += '\n\n';
+        next += `${content}\n`;
+        const limit = memoryCharLimit(relativePath);
+        if (next.length > limit) {
+          return failTool(
+            `Error: ${relativePath} would exceed ${limit} chars. Shorten content or remove older entries first.`,
+          );
+        }
+        fs.writeFileSync(filePath, next, 'utf-8');
+        return `Appended ${content.length} chars to ${relativePath}`;
+      }
+
+      if (action === 'write') {
+        const content = typeof args.content === 'string' ? args.content : '';
+        const limit = memoryCharLimit(relativePath);
+        if (content.length > limit) {
+          return failTool(
+            `Error: ${relativePath} exceeds ${limit} char limit.`,
+          );
+        }
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, content, 'utf-8');
+        return `Wrote ${content.length} chars to ${relativePath}`;
+      }
+
+      if (action === 'replace') {
+        const oldText = typeof args.old_text === 'string' ? args.old_text : '';
+        const newText = typeof args.new_text === 'string' ? args.new_text : '';
+        if (!oldText)
+          return failTool('Error: old_text is required for memory replace');
+        if (!fs.existsSync(filePath))
+          return failTool(`Error: File not found: ${relativePath}`);
+        const content = fs.readFileSync(filePath, 'utf-8');
+        if (!content.includes(oldText))
+          return failTool(`Error: old_text not found in ${relativePath}`);
+        const next = content.replace(oldText, newText);
+        const limit = memoryCharLimit(relativePath);
+        if (next.length > limit) {
+          return failTool(
+            `Error: replacement would exceed ${limit} chars for ${relativePath}.`,
+          );
+        }
+        fs.writeFileSync(filePath, next, 'utf-8');
+        return `Updated ${relativePath}`;
+      }
+
+      if (action === 'remove') {
+        const oldText = typeof args.old_text === 'string' ? args.old_text : '';
+        if (!oldText)
+          return failTool('Error: old_text is required for memory remove');
+        if (!fs.existsSync(filePath))
+          return failTool(`Error: File not found: ${relativePath}`);
+        const content = fs.readFileSync(filePath, 'utf-8');
+        if (!content.includes(oldText))
+          return failTool(`Error: old_text not found in ${relativePath}`);
+        fs.writeFileSync(filePath, content.replace(oldText, ''), 'utf-8');
+        return `Removed matching text from ${relativePath}`;
+      }
+
+      return failTool(
+        `Error: unknown memory action "${action}". Use read, append, write, replace, remove, list, or search.`,
       );
     }
 
-    switch (name) {
-      case 'read': {
-        if (typeof args.path !== 'string' || args.path.trim() === '') {
-          return 'Error: path is required';
-        }
-        const filePath = safeJoin(args.path);
-        if (!fs.existsSync(filePath))
-          return `Error: File not found: ${args.path}`;
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const lines = content.split('\n');
-        const totalFileLines = lines.length;
+    case 'message': {
+      const action = resolveDiscordMessageAction(args.action);
+      if (!action) {
+        return failTool(
+          'Error: unsupported message action. Use "read", "member-info", "channel-info", "send", "react", "quote-reply", "edit", "delete", "pin", "unpin", "thread-create", or "thread-reply".',
+        );
+      }
 
-        const rawOffset =
-          typeof args.offset === 'number' && Number.isFinite(args.offset)
-            ? args.offset
-            : 1;
-        const startLine = Math.max(1, Math.floor(rawOffset));
-        if (startLine > totalFileLines) {
-          return `Error: Offset ${startLine} is beyond end of file (${totalFileLines} lines total)`;
-        }
+      const payload: Record<string, unknown> = { action };
+      const resolveAmbiguousRaw = readStringValue(args.resolveAmbiguous);
+      const resolveAmbiguous =
+        resolveAmbiguousRaw &&
+        (resolveAmbiguousRaw.toLowerCase() === 'best' ||
+          resolveAmbiguousRaw.toLowerCase() === 'error')
+          ? resolveAmbiguousRaw.toLowerCase()
+          : undefined;
+      const messageId = normalizeDiscordMessageTarget(args.messageId);
+      const emoji = readStringValue(args.emoji);
+      const threadName = readStringValue(args.name);
+      const autoArchiveDuration =
+        typeof args.autoArchiveDuration === 'number' &&
+        Number.isFinite(args.autoArchiveDuration)
+          ? Math.max(60, Math.floor(args.autoArchiveDuration))
+          : undefined;
 
-        const rawLimit =
-          typeof args.limit === 'number' &&
-          Number.isFinite(args.limit) &&
-          args.limit > 0
-            ? Math.floor(args.limit)
-            : undefined;
-
-        let selected = lines.slice(startLine - 1);
-        let userLimitedLines: number | undefined;
-        if (rawLimit !== undefined) {
-          selected = selected.slice(0, rawLimit);
-          userLimitedLines = selected.length;
-        }
-
-        const selectedContent = selected.join('\n');
-        const truncation = truncateReadContent(selectedContent);
-        if (truncation.firstLineExceedsLimit) {
-          const firstSelectedLine = selected[0] ?? '';
-          const firstLineSize = formatBytes(
-            Buffer.byteLength(firstSelectedLine, 'utf-8'),
+      if (action === 'read') {
+        const channelId = resolveDiscordMessageChannelTarget(args);
+        if (!channelId) {
+          return failTool(
+            'Error: channelId is required for message action "read".',
           );
-          return `[Line ${startLine} is ${firstLineSize}, exceeds ${formatBytes(READ_MAX_BYTES)} limit. Use bash: sed -n '${startLine}p' ${args.path} | head -c ${READ_MAX_BYTES}]`;
         }
+        payload.channelId = channelId;
 
-        if (truncation.truncated) {
-          const endLine = startLine + truncation.outputLines - 1;
-          const nextOffset = endLine + 1;
-          if (truncation.truncatedBy === 'lines') {
-            return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines}. Use offset=${nextOffset} to continue]`;
-          }
-          return `${truncation.content}\n\n[Showing lines ${startLine}-${endLine} of ${totalFileLines} (${formatBytes(READ_MAX_BYTES)} limit). Use offset=${nextOffset} to continue]`;
+        if (typeof args.limit === 'number' && Number.isFinite(args.limit)) {
+          payload.limit = Math.max(1, Math.min(100, Math.floor(args.limit)));
         }
-
-        if (userLimitedLines !== undefined) {
-          const linesFromStart = startLine - 1 + userLimitedLines;
-          if (linesFromStart < totalFileLines) {
-            const remaining = totalFileLines - linesFromStart;
-            const nextOffset = startLine + userLimitedLines;
-            return `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue]`;
-          }
-        }
-
-        return truncation.content;
+        const before = readStringValue(args.before);
+        const after = readStringValue(args.after);
+        const around = readStringValue(args.around);
+        if (before) payload.before = before;
+        if (after) payload.after = after;
+        if (around) payload.around = around;
       }
 
-      case 'write': {
-        const filePath = safeJoin(args.path);
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        fs.writeFileSync(filePath, args.contents);
-        return `Wrote ${args.contents.length} bytes to ${args.path}`;
-      }
-
-      case 'edit': {
-        const filePath = safeJoin(args.path);
-        if (!fs.existsSync(filePath))
-          return `Error: File not found: ${args.path}`;
-        let content = fs.readFileSync(filePath, 'utf-8');
-        const count = args.count || 1;
-        for (let i = 0; i < count; i++) {
-          const idx = content.indexOf(args.old);
-          if (idx === -1) {
-            if (i === 0) return `Error: Text not found in ${args.path}`;
-            break;
-          }
-          content =
-            content.slice(0, idx) +
-            args.new +
-            content.slice(idx + args.old.length);
-        }
-        fs.writeFileSync(filePath, content);
-        return `Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''})`;
-      }
-
-      case 'delete': {
-        const filePath = safeJoin(args.path);
-        if (!fs.existsSync(filePath))
-          return `Error: File not found: ${args.path}`;
-        fs.unlinkSync(filePath);
-        return `Deleted ${args.path}`;
-      }
-
-      case 'glob': {
-        const pattern = String(args.pattern || '').trim();
-        try {
-          const normalizedWorkspacePattern =
-            resolveWorkspaceGlobPattern(pattern);
-          if (!normalizedWorkspacePattern) {
-            return 'Error: glob only searches inside the workspace or configured external bind mounts. For other absolute paths, use bash.';
-          }
-          const matcher = globPatternToRegExp(
-            normalizedWorkspacePattern.replace(/\\/g, '/'),
+      if (action === 'member-info') {
+        const guildId = resolveDiscordGuildId(args.guildId);
+        const userId = resolveDiscordMessageUserTarget(args);
+        if (!guildId) {
+          return failTool(
+            'Error: guildId is required for message action "member-info".',
           );
-          const cmd = `find "${WORKSPACE_ROOT.replace(/"/g, '\\"')}" -type f 2>/dev/null | head -5000`;
-          const result = execSync(cmd, { timeout: 10000, encoding: 'utf-8' });
-          if (!result.trim()) return 'No files found.';
-          const files = result
-            .trim()
-            .split('\n')
-            .map((filePath) => filePath.trim())
-            .filter(Boolean)
-            .filter((filePath) => matcher.test(filePath.replace(/\\/g, '/')))
-            .slice(0, 50)
-            .map((filePath) => replaceWorkspaceRootInOutput(filePath));
-          if (files.length === 0) return 'No files found.';
-          return abbreviatePreview(files.join('\n'));
-        } catch {
-          return 'No files found.';
         }
-      }
-
-      case 'grep': {
-        const searchPath = args.path ? safeJoin(args.path) : WORKSPACE_ROOT;
-        try {
-          const cmd = `rg --no-heading --line-number "${args.pattern.replace(/"/g, '\\"')}" "${searchPath}" 2>/dev/null | head -30`;
-          const result = execSync(cmd, { timeout: 10000, encoding: 'utf-8' });
-          if (!result.trim()) return 'No matches found.';
-          // Convert absolute paths to relative
-          return abbreviatePreview(replaceWorkspaceRootInOutput(result));
-        } catch {
-          return 'No matches found.';
-        }
-      }
-
-      case 'bash': {
-        const blocked = guardCommand(args.command);
-        if (blocked) return blocked;
-        const timeoutMs = resolveBashTimeoutMs(args);
-        try {
-          // Strip secrets from subprocess environment (belt-and-suspenders)
-          const cleanEnv = { ...process.env };
-          delete cleanEnv.HYBRIDAI_API_KEY;
-          const result = execSync(args.command, {
-            timeout: timeoutMs,
-            encoding: 'utf-8',
-            cwd: WORKSPACE_ROOT,
-            maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
-            env: cleanEnv,
-          });
-          return formatBashOutput(
-            replaceWorkspaceRootInOutput(result || '(no output)'),
+        if (!userId) {
+          return failTool(
+            'Error: userId/username is required for message action "member-info".',
           );
-        } catch (err: unknown) {
-          const execErr = err as {
-            code?: string | number;
-            signal?: string;
-            stdout?: string | Buffer;
-            stderr?: string | Buffer;
-            message?: string;
-          };
-
-          const stdout =
-            typeof execErr.stdout === 'string'
-              ? execErr.stdout
-              : Buffer.isBuffer(execErr.stdout)
-                ? execErr.stdout.toString('utf-8')
-                : '';
-          const stderr =
-            typeof execErr.stderr === 'string'
-              ? execErr.stderr
-              : Buffer.isBuffer(execErr.stderr)
-                ? execErr.stderr.toString('utf-8')
-                : '';
-          const combinedOutput = [stdout, stderr]
-            .filter(Boolean)
-            .join('\n')
-            .trim();
-
-          const errorMessage = execErr.message || 'Command failed';
-          const timeoutLikely =
-            execErr.code === 'ETIMEDOUT' ||
-            /ETIMEDOUT|timed out/i.test(errorMessage) ||
-            (execErr.signal === 'SIGTERM' && /spawnSync/i.test(errorMessage));
-          const summary = timeoutLikely
-            ? `Command timed out after ${timeoutMs}ms`
-            : errorMessage;
-
-          if (!combinedOutput) return `Error: ${summary}`;
-          return `Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`;
         }
+        payload.guildId = guildId;
+        payload.userId = userId;
+        if (resolveAmbiguous) payload.resolveAmbiguous = resolveAmbiguous;
       }
 
-      case 'memory': {
-        const action =
-          typeof args.action === 'string'
-            ? args.action.trim().toLowerCase()
-            : 'read';
-        const relativePath = resolveMemoryFilePath(args);
-        if (!relativePath) {
-          return 'Error: memory file_path must be MEMORY.md, USER.md, or memory/YYYY-MM-DD.md';
+      if (action === 'channel-info') {
+        const channelId = resolveDiscordMessageChannelTarget(args);
+        if (!channelId) {
+          return failTool(
+            'Error: channelId is required for message action "channel-info".',
+          );
         }
-
-        const filePath = safeJoin(relativePath);
-        if (action === 'list') {
-          const files = listMemoryFiles();
-          if (files.length === 0) {
-            return 'No memory files found yet. Use action="append" with MEMORY.md or memory/YYYY-MM-DD.md.';
-          }
-          return files.join('\n');
-        }
-
-        if (action === 'search') {
-          const query =
-            typeof args.query === 'string'
-              ? args.query.trim().toLowerCase()
-              : '';
-          if (!query) return 'Error: query is required for memory search';
-          const files = listMemoryFiles();
-          const matches: string[] = [];
-          for (const rel of files) {
-            const abs = safeJoin(rel);
-            let lines: string[] = [];
-            try {
-              lines = fs.readFileSync(abs, 'utf-8').split('\n');
-            } catch {
-              continue;
-            }
-            for (let i = 0; i < lines.length; i++) {
-              if (!lines[i].toLowerCase().includes(query)) continue;
-              const trimmed = lines[i].trim();
-              matches.push(`${rel}:${i + 1}: ${trimmed}`);
-              if (matches.length >= 40) break;
-            }
-            if (matches.length >= 40) break;
-          }
-          return matches.length > 0
-            ? matches.join('\n')
-            : `No memory matches for "${query}".`;
-        }
-
-        if (action === 'read') {
-          if (!fs.existsSync(filePath)) {
-            return `${relativePath}\n\n(empty)`;
-          }
-          const content = fs.readFileSync(filePath, 'utf-8');
-          return `${relativePath}\n\n${content || '(empty)'}`;
-        }
-
-        if (action === 'append') {
-          const content =
-            typeof args.content === 'string' ? args.content.trim() : '';
-          if (!content) return 'Error: content is required for memory append';
-
-          fs.mkdirSync(path.dirname(filePath), { recursive: true });
-          const existing = fs.existsSync(filePath)
-            ? fs.readFileSync(filePath, 'utf-8')
-            : '';
-          let next = existing.replace(/\s+$/, '');
-          if (next.length > 0) next += '\n\n';
-          next += `${content}\n`;
-          const limit = memoryCharLimit(relativePath);
-          if (next.length > limit) {
-            return `Error: ${relativePath} would exceed ${limit} chars. Shorten content or remove older entries first.`;
-          }
-          fs.writeFileSync(filePath, next, 'utf-8');
-          return `Appended ${content.length} chars to ${relativePath}`;
-        }
-
-        if (action === 'write') {
-          const content = typeof args.content === 'string' ? args.content : '';
-          const limit = memoryCharLimit(relativePath);
-          if (content.length > limit) {
-            return `Error: ${relativePath} exceeds ${limit} char limit.`;
-          }
-          fs.mkdirSync(path.dirname(filePath), { recursive: true });
-          fs.writeFileSync(filePath, content, 'utf-8');
-          return `Wrote ${content.length} chars to ${relativePath}`;
-        }
-
-        if (action === 'replace') {
-          const oldText =
-            typeof args.old_text === 'string' ? args.old_text : '';
-          const newText =
-            typeof args.new_text === 'string' ? args.new_text : '';
-          if (!oldText) return 'Error: old_text is required for memory replace';
-          if (!fs.existsSync(filePath))
-            return `Error: File not found: ${relativePath}`;
-          const content = fs.readFileSync(filePath, 'utf-8');
-          if (!content.includes(oldText))
-            return `Error: old_text not found in ${relativePath}`;
-          const next = content.replace(oldText, newText);
-          const limit = memoryCharLimit(relativePath);
-          if (next.length > limit) {
-            return `Error: replacement would exceed ${limit} chars for ${relativePath}.`;
-          }
-          fs.writeFileSync(filePath, next, 'utf-8');
-          return `Updated ${relativePath}`;
-        }
-
-        if (action === 'remove') {
-          const oldText =
-            typeof args.old_text === 'string' ? args.old_text : '';
-          if (!oldText) return 'Error: old_text is required for memory remove';
-          if (!fs.existsSync(filePath))
-            return `Error: File not found: ${relativePath}`;
-          const content = fs.readFileSync(filePath, 'utf-8');
-          if (!content.includes(oldText))
-            return `Error: old_text not found in ${relativePath}`;
-          fs.writeFileSync(filePath, content.replace(oldText, ''), 'utf-8');
-          return `Removed matching text from ${relativePath}`;
-        }
-
-        return `Error: unknown memory action "${action}". Use read, append, write, replace, remove, list, or search.`;
+        payload.channelId = channelId;
       }
 
-      case 'message': {
-        const action = resolveDiscordMessageAction(args.action);
-        if (!action) {
-          return 'Error: unsupported message action. Use "read", "member-info", "channel-info", "send", "react", "quote-reply", "edit", "delete", "pin", "unpin", "thread-create", or "thread-reply".';
+      if (action === 'send') {
+        const explicitChannelId =
+          resolveDiscordMessageExplicitChannelTarget(args);
+        const userLookupTarget =
+          resolveDiscordMessageSendUserLookupTarget(args);
+        const fallbackChannelId = userLookupTarget
+          ? ''
+          : normalizeDiscordMessageTarget(gatewayChannelId);
+        const channelId = explicitChannelId || fallbackChannelId;
+        if (!channelId && !userLookupTarget) {
+          return failTool(
+            'Error: channelId is required for message action "send" unless user/username is provided.',
+          );
         }
-
-        const payload: Record<string, unknown> = { action };
-        const resolveAmbiguousRaw = readStringValue(args.resolveAmbiguous);
-        const resolveAmbiguous =
-          resolveAmbiguousRaw &&
-          (resolveAmbiguousRaw.toLowerCase() === 'best' ||
-            resolveAmbiguousRaw.toLowerCase() === 'error')
-            ? resolveAmbiguousRaw.toLowerCase()
+        const content =
+          readStringValue(args.content) ||
+          readStringValue(args.text) ||
+          readStringValue(args.message);
+        const filePath =
+          readStringValue(args.filePath) ||
+          readStringValue(args.attachmentPath) ||
+          readStringValue(args.mediaPath) ||
+          readStringValue(args.imagePath) ||
+          readStringValue(args.file);
+        const components =
+          Array.isArray(args.components) ||
+          (args.components &&
+            typeof args.components === 'object' &&
+            !Array.isArray(args.components))
+            ? args.components
             : undefined;
-        const messageId = normalizeDiscordMessageTarget(args.messageId);
-        const emoji = readStringValue(args.emoji);
-        const threadName = readStringValue(args.name);
-        const autoArchiveDuration =
-          typeof args.autoArchiveDuration === 'number' &&
-          Number.isFinite(args.autoArchiveDuration)
-            ? Math.max(60, Math.floor(args.autoArchiveDuration))
-            : undefined;
-
-        if (action === 'read') {
-          const channelId = resolveDiscordMessageChannelTarget(args);
-          if (!channelId) {
-            return 'Error: channelId is required for message action "read".';
+        if (filePath) {
+          const resolvedFilePath =
+            resolveWorkspacePath(filePath) || resolveMediaPath(filePath);
+          if (!resolvedFilePath) {
+            return failTool(
+              `Error: filePath must stay within ${WORKSPACE_ROOT_DISPLAY} or ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}.`,
+            );
           }
-          payload.channelId = channelId;
-
-          if (typeof args.limit === 'number' && Number.isFinite(args.limit)) {
-            payload.limit = Math.max(1, Math.min(100, Math.floor(args.limit)));
+          if (!fs.existsSync(resolvedFilePath)) {
+            return failTool(`Error: filePath does not exist: ${filePath}`);
           }
-          const before = readStringValue(args.before);
-          const after = readStringValue(args.after);
-          const around = readStringValue(args.around);
-          if (before) payload.before = before;
-          if (after) payload.after = after;
-          if (around) payload.around = around;
+          const stat = fs.statSync(resolvedFilePath);
+          if (!stat.isFile()) {
+            return failTool(`Error: filePath is not a file: ${filePath}`);
+          }
         }
-
-        if (action === 'member-info') {
-          const guildId = resolveDiscordGuildId(args.guildId);
-          const userId = resolveDiscordMessageUserTarget(args);
-          if (!guildId) {
-            return 'Error: guildId is required for message action "member-info".';
-          }
-          if (!userId) {
-            return 'Error: userId/username is required for message action "member-info".';
-          }
-          payload.guildId = guildId;
-          payload.userId = userId;
-          if (resolveAmbiguous) payload.resolveAmbiguous = resolveAmbiguous;
+        if (!content && components === undefined && !filePath) {
+          return failTool(
+            'Error: content is required for message action "send" unless components or filePath is provided.',
+          );
         }
+        if (channelId) payload.channelId = channelId;
+        if (userLookupTarget) payload.user = userLookupTarget;
+        if (content) payload.content = content;
+        if (filePath) payload.filePath = filePath;
+        if (components !== undefined) payload.components = components;
 
-        if (action === 'channel-info') {
-          const channelId = resolveDiscordMessageChannelTarget(args);
-          if (!channelId) {
-            return 'Error: channelId is required for message action "channel-info".';
-          }
-          payload.channelId = channelId;
+        const requestingUserId = resolveDiscordRequestingUserId(args);
+        const guildId = resolveDiscordGuildId(args.guildId);
+        const contextChannelId =
+          normalizeDiscordMessageTarget(gatewayChannelId);
+        if (requestingUserId) payload.userId = requestingUserId;
+        if (guildId) payload.guildId = guildId;
+        if (contextChannelId) payload.contextChannelId = contextChannelId;
+        if (resolveAmbiguous) payload.resolveAmbiguous = resolveAmbiguous;
+      }
+
+      if (action === 'react') {
+        const channelId = resolveDiscordMessageChannelTarget(args);
+        if (!channelId) {
+          return failTool(
+            'Error: channelId is required for message action "react".',
+          );
         }
-
-        if (action === 'send') {
-          const explicitChannelId =
-            resolveDiscordMessageExplicitChannelTarget(args);
-          const userLookupTarget =
-            resolveDiscordMessageSendUserLookupTarget(args);
-          const fallbackChannelId = userLookupTarget
-            ? ''
-            : normalizeDiscordMessageTarget(gatewayChannelId);
-          const channelId = explicitChannelId || fallbackChannelId;
-          if (!channelId && !userLookupTarget) {
-            return 'Error: channelId is required for message action "send" unless user/username is provided.';
-          }
-          const content =
-            readStringValue(args.content) ||
-            readStringValue(args.text) ||
-            readStringValue(args.message);
-          const filePath =
-            readStringValue(args.filePath) ||
-            readStringValue(args.attachmentPath) ||
-            readStringValue(args.mediaPath) ||
-            readStringValue(args.imagePath) ||
-            readStringValue(args.file);
-          const components =
-            Array.isArray(args.components) ||
-            (args.components &&
-              typeof args.components === 'object' &&
-              !Array.isArray(args.components))
-              ? args.components
-              : undefined;
-          if (filePath) {
-            const resolvedFilePath =
-              resolveWorkspacePath(filePath) || resolveMediaPath(filePath);
-            if (!resolvedFilePath) {
-              return `Error: filePath must stay within ${WORKSPACE_ROOT_DISPLAY} or ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}.`;
-            }
-            if (!fs.existsSync(resolvedFilePath)) {
-              return `Error: filePath does not exist: ${filePath}`;
-            }
-            const stat = fs.statSync(resolvedFilePath);
-            if (!stat.isFile()) {
-              return `Error: filePath is not a file: ${filePath}`;
-            }
-          }
-          if (!content && components === undefined && !filePath) {
-            return 'Error: content is required for message action "send" unless components or filePath is provided.';
-          }
-          if (channelId) payload.channelId = channelId;
-          if (userLookupTarget) payload.user = userLookupTarget;
-          if (content) payload.content = content;
-          if (filePath) payload.filePath = filePath;
-          if (components !== undefined) payload.components = components;
-
-          const requestingUserId = resolveDiscordRequestingUserId(args);
-          const guildId = resolveDiscordGuildId(args.guildId);
-          const contextChannelId =
-            normalizeDiscordMessageTarget(gatewayChannelId);
-          if (requestingUserId) payload.userId = requestingUserId;
-          if (guildId) payload.guildId = guildId;
-          if (contextChannelId) payload.contextChannelId = contextChannelId;
-          if (resolveAmbiguous) payload.resolveAmbiguous = resolveAmbiguous;
+        if (!messageId) {
+          return failTool(
+            'Error: messageId is required for message action "react".',
+          );
         }
-
-        if (action === 'react') {
-          const channelId = resolveDiscordMessageChannelTarget(args);
-          if (!channelId) {
-            return 'Error: channelId is required for message action "react".';
-          }
-          if (!messageId) {
-            return 'Error: messageId is required for message action "react".';
-          }
-          if (!emoji) {
-            return 'Error: emoji is required for message action "react".';
-          }
-          payload.channelId = channelId;
-          payload.messageId = messageId;
-          payload.emoji = emoji;
+        if (!emoji) {
+          return failTool(
+            'Error: emoji is required for message action "react".',
+          );
         }
+        payload.channelId = channelId;
+        payload.messageId = messageId;
+        payload.emoji = emoji;
+      }
 
-        if (action === 'quote-reply') {
-          const channelId = resolveDiscordMessageChannelTarget(args);
-          if (!channelId) {
-            return 'Error: channelId is required for message action "quote-reply".';
-          }
-          if (!messageId) {
-            return 'Error: messageId is required for message action "quote-reply".';
-          }
+      if (action === 'quote-reply') {
+        const channelId = resolveDiscordMessageChannelTarget(args);
+        if (!channelId) {
+          return failTool(
+            'Error: channelId is required for message action "quote-reply".',
+          );
+        }
+        if (!messageId) {
+          return failTool(
+            'Error: messageId is required for message action "quote-reply".',
+          );
+        }
+        const content =
+          readStringValue(args.content) ||
+          readStringValue(args.text) ||
+          readStringValue(args.message);
+        if (!content) {
+          return failTool(
+            'Error: content is required for message action "quote-reply".',
+          );
+        }
+        payload.channelId = channelId;
+        payload.messageId = messageId;
+        payload.content = content;
+        const requestingUserId = resolveDiscordRequestingUserId(args);
+        const guildId = resolveDiscordGuildId(args.guildId);
+        if (requestingUserId) payload.userId = requestingUserId;
+        if (guildId) payload.guildId = guildId;
+      }
+
+      if (
+        action === 'edit' ||
+        action === 'delete' ||
+        action === 'pin' ||
+        action === 'unpin' ||
+        action === 'thread-create'
+      ) {
+        const channelId = resolveDiscordMessageChannelTarget(args);
+        if (!channelId) {
+          return failTool(
+            `Error: channelId is required for message action "${action}".`,
+          );
+        }
+        if (!messageId) {
+          return failTool(
+            `Error: messageId is required for message action "${action}".`,
+          );
+        }
+        payload.channelId = channelId;
+        payload.messageId = messageId;
+
+        if (action === 'edit') {
           const content =
             readStringValue(args.content) ||
             readStringValue(args.text) ||
             readStringValue(args.message);
           if (!content) {
-            return 'Error: content is required for message action "quote-reply".';
+            return failTool(
+              'Error: content is required for message action "edit".',
+            );
           }
-          payload.channelId = channelId;
-          payload.messageId = messageId;
           payload.content = content;
-          const requestingUserId = resolveDiscordRequestingUserId(args);
-          const guildId = resolveDiscordGuildId(args.guildId);
-          if (requestingUserId) payload.userId = requestingUserId;
-          if (guildId) payload.guildId = guildId;
         }
 
-        if (
-          action === 'edit' ||
-          action === 'delete' ||
-          action === 'pin' ||
-          action === 'unpin' ||
-          action === 'thread-create'
-        ) {
-          const channelId = resolveDiscordMessageChannelTarget(args);
-          if (!channelId) {
-            return `Error: channelId is required for message action "${action}".`;
+        if (action === 'thread-create') {
+          if (!threadName) {
+            return failTool(
+              'Error: name is required for message action "thread-create".',
+            );
           }
-          if (!messageId) {
-            return `Error: messageId is required for message action "${action}".`;
-          }
-          payload.channelId = channelId;
-          payload.messageId = messageId;
-
-          if (action === 'edit') {
-            const content =
-              readStringValue(args.content) ||
-              readStringValue(args.text) ||
-              readStringValue(args.message);
-            if (!content) {
-              return 'Error: content is required for message action "edit".';
-            }
-            payload.content = content;
-          }
-
-          if (action === 'thread-create') {
-            if (!threadName) {
-              return 'Error: name is required for message action "thread-create".';
-            }
-            payload.name = threadName;
-            if (autoArchiveDuration) {
-              payload.autoArchiveDuration = autoArchiveDuration;
-            }
+          payload.name = threadName;
+          if (autoArchiveDuration) {
+            payload.autoArchiveDuration = autoArchiveDuration;
           }
         }
-
-        if (action === 'thread-reply') {
-          const channelId = resolveDiscordMessageChannelTarget(args);
-          if (!channelId) {
-            return 'Error: channelId is required for message action "thread-reply".';
-          }
-          const content =
-            readStringValue(args.content) ||
-            readStringValue(args.text) ||
-            readStringValue(args.message);
-          if (!content) {
-            return 'Error: content is required for message action "thread-reply".';
-          }
-          payload.channelId = channelId;
-          payload.content = content;
-          const requestingUserId = resolveDiscordRequestingUserId(args);
-          const guildId = resolveDiscordGuildId(args.guildId);
-          if (requestingUserId) payload.userId = requestingUserId;
-          if (guildId) payload.guildId = guildId;
-        }
-
-        return await callGatewayDiscordAction(payload);
       }
 
-      case 'session_search': {
-        const query = typeof args.query === 'string' ? args.query.trim() : '';
-        if (!query) return 'Error: query is required for session_search';
-
-        const requestedLimit =
-          typeof args.limit === 'number' && Number.isFinite(args.limit)
-            ? Math.floor(args.limit)
-            : 3;
-        const limit = Math.max(
-          1,
-          Math.min(requestedLimit, SESSION_SEARCH_MAX_RESULTS),
-        );
-        const includeCurrent = args.include_current === true;
-        const roleFilter = parseRoleFilter(args.role_filter);
-
-        const transcriptDir = safeJoin(SESSION_TRANSCRIPTS_DIR);
-        if (!fs.existsSync(transcriptDir)) {
-          return JSON.stringify(
-            {
-              success: true,
-              query,
-              count: 0,
-              results: [],
-              message: 'No historical transcripts found yet.',
-            },
-            null,
-            2,
+      if (action === 'thread-reply') {
+        const channelId = resolveDiscordMessageChannelTarget(args);
+        if (!channelId) {
+          return failTool(
+            'Error: channelId is required for message action "thread-reply".',
           );
         }
-
-        const files = fs
-          .readdirSync(transcriptDir)
-          .filter((name) => name.endsWith('.jsonl'))
-          .slice(0, SESSION_SEARCH_MAX_FILES);
-
-        const candidates: SessionSearchCandidate[] = [];
-        for (const filename of files) {
-          const filePath = path.join(transcriptDir, filename);
-          const rows = collectTranscriptRows(filePath);
-          if (rows.length === 0) continue;
-
-          const sessionId =
-            rows[0].sessionId || filename.replace(/\.jsonl$/, '');
-          if (
-            !includeCurrent &&
-            currentSessionId &&
-            sessionId === currentSessionId
-          )
-            continue;
-
-          const matchIndexes = findMatchIndexes(rows, query, roleFilter);
-          if (matchIndexes.length === 0) continue;
-
-          const stat = fs.statSync(filePath);
-          const score = scoreTranscript(rows, query, roleFilter);
-          candidates.push({
-            sessionId,
-            filePath,
-            rows,
-            matchIndexes,
-            score,
-            mtimeMs: stat.mtimeMs,
-          });
+        const content =
+          readStringValue(args.content) ||
+          readStringValue(args.text) ||
+          readStringValue(args.message);
+        if (!content) {
+          return failTool(
+            'Error: content is required for message action "thread-reply".',
+          );
         }
+        payload.channelId = channelId;
+        payload.content = content;
+        const requestingUserId = resolveDiscordRequestingUserId(args);
+        const guildId = resolveDiscordGuildId(args.guildId);
+        if (requestingUserId) payload.userId = requestingUserId;
+        if (guildId) payload.guildId = guildId;
+      }
 
-        candidates.sort((a, b) => {
-          if (b.score !== a.score) return b.score - a.score;
-          return b.mtimeMs - a.mtimeMs;
-        });
+      return await callGatewayDiscordAction(payload);
+    }
 
-        const top = candidates.slice(0, limit);
-        const results = top.map((candidate) =>
-          summarizeSessionCandidate(candidate, query),
-        );
+    case 'session_search': {
+      const query = typeof args.query === 'string' ? args.query.trim() : '';
+      if (!query)
+        return failTool('Error: query is required for session_search');
 
+      const requestedLimit =
+        typeof args.limit === 'number' && Number.isFinite(args.limit)
+          ? Math.floor(args.limit)
+          : 3;
+      const limit = Math.max(
+        1,
+        Math.min(requestedLimit, SESSION_SEARCH_MAX_RESULTS),
+      );
+      const includeCurrent = args.include_current === true;
+      const roleFilter = parseRoleFilter(args.role_filter);
+
+      const transcriptDir = safeJoin(SESSION_TRANSCRIPTS_DIR);
+      if (!fs.existsSync(transcriptDir)) {
         return JSON.stringify(
           {
             success: true,
             query,
-            count: results.length,
-            sessions_searched: candidates.length,
-            results,
+            count: 0,
+            results: [],
+            message: 'No historical transcripts found yet.',
           },
           null,
           2,
         );
       }
 
-      case 'web_fetch': {
-        const { webFetch } = await import('./web-fetch.js');
-        const result = await webFetch({
-          url: args.url,
-          extractMode: args.extractMode,
-          maxChars: args.maxChars,
-        });
-        const header = result.title ? `# ${result.title}\n\n` : '';
-        const meta = `[${result.extractor}] ${result.finalUrl} (${result.status}, ${result.tookMs}ms)`;
-        const lines = [meta];
-        if (result.escalationHint) {
-          lines.push(
-            `Escalation hint: ${result.escalationHint} (retry with browser_navigate for this URL).`,
-          );
-        }
-        if (result.warning) {
-          lines.push(`Warning: ${result.warning}`);
-        }
-        return `${lines.join('\n')}\n\n${header}${result.text}`;
-      }
+      const files = fs
+        .readdirSync(transcriptDir)
+        .filter((name) => name.endsWith('.jsonl'))
+        .slice(0, SESSION_SEARCH_MAX_FILES);
 
-      case 'web_search': {
-        const { webSearch } = await import('./web-search.js');
-        return await webSearch(
-          {
-            query: args.query,
-            count: args.count,
-            freshness: args.freshness,
-            country: args.country,
-            language: args.language,
-            provider: args.provider,
-          },
-          currentWebSearchConfig,
-        );
-      }
+      const candidates: SessionSearchCandidate[] = [];
+      for (const filename of files) {
+        const filePath = path.join(transcriptDir, filename);
+        const rows = collectTranscriptRows(filePath);
+        if (rows.length === 0) continue;
 
-      case 'vision_analyze':
-      case 'image': {
-        return await runVisionAnalyze(args);
-      }
-
-      case 'browser_navigate':
-      case 'browser_snapshot':
-      case 'browser_click':
-      case 'browser_type':
-      case 'browser_upload':
-      case 'browser_press':
-      case 'browser_scroll':
-      case 'browser_back':
-      case 'browser_screenshot':
-      case 'browser_pdf':
-      case 'browser_vision':
-      case 'browser_get_images':
-      case 'browser_console':
-      case 'browser_network':
-      case 'browser_close': {
-        return await executeBrowserTool(
-          name,
-          args,
-          currentSessionId || 'default',
-        );
-      }
-
-      case 'cron': {
-        const action = args.action;
-
-        if (action === 'list') {
-          if (injectedTasks.length === 0) return 'No scheduled tasks.';
-          const lines = injectedTasks.map((t) => {
-            let schedule: string;
-            if (t.runAt) schedule = `at ${t.runAt}`;
-            else if (t.everyMs) {
-              const secs = t.everyMs / 1000;
-              if (secs < 120) schedule = `every ${secs}s`;
-              else if (secs < 7200)
-                schedule = `every ${Math.round(secs / 60)}m`;
-              else schedule = `every ${Math.round(secs / 3600)}h`;
-            } else schedule = t.cronExpr;
-            const status = t.enabled ? 'enabled' : 'disabled';
-            return `#${t.id} [${status}] ${schedule} — ${t.prompt}`;
-          });
-          return lines.join('\n');
-        }
-
-        if (action === 'add') {
-          const promptInput =
-            readStringValue(args.prompt) ||
-            readStringValue(args.message) ||
-            readStringValue(args.text);
-          if (!promptInput) return 'Error: prompt is required';
-          const prompt = promptInput;
-          const atSeconds = readPositiveNumberValue(
-            args.at_seconds ?? args.atSeconds,
-          );
-          const relativeDelayMs =
-            atSeconds != null ? Math.round(atSeconds * 1000) : null;
-          const rawAt = readStringValue(args.at);
-
-          if (rawAt || relativeDelayMs != null) {
-            const runAt =
-              relativeDelayMs != null
-                ? new Date(Date.now() + relativeDelayMs)
-                : new Date(rawAt || '');
-            if (Number.isNaN(runAt.getTime()))
-              return `Error: invalid ISO-8601 timestamp: ${rawAt}`;
-            if (runAt.getTime() <= Date.now())
-              return `Error: timestamp must be in the future: ${rawAt || runAt.toISOString()}`;
-            pendingSchedules.push({
-              action: 'add',
-              runAt: runAt.toISOString(),
-              prompt,
-            });
-            return `Scheduled one-shot task at ${runAt.toISOString()}: ${prompt}`;
-          }
-
-          if (args.cron) {
-            pendingSchedules.push({
-              action: 'add',
-              cronExpr: args.cron,
-              prompt,
-            });
-            return `Scheduled recurring task with cron "${args.cron}": ${prompt}`;
-          }
-
-          if (args.every) {
-            const secs = Number(args.every);
-            if (Number.isNaN(secs) || secs < 10)
-              return 'Error: "every" must be a number of seconds >= 10';
-            const everyMs = Math.round(secs * 1000);
-            pendingSchedules.push({
-              action: 'add',
-              everyMs,
-              prompt,
-            });
-            return `Scheduled interval task every ${secs}s: ${prompt}`;
-          }
-
-          return 'Error: provide "at" (ISO-8601 timestamp), "at_seconds" (one-shot seconds from now), "cron" (cron expression), or "every" (seconds)';
-        }
-
-        if (action === 'remove') {
-          if (!args.taskId) return 'Error: taskId is required';
-          pendingSchedules.push({ action: 'remove', taskId: args.taskId });
-          return `Scheduled removal of task #${args.taskId}`;
-        }
-
-        return `Error: unknown cron action "${action}". Use "list", "add", or "remove".`;
-      }
-
-      case 'delegate': {
-        if (pendingDelegations.length >= MAX_PENDING_DELEGATIONS) {
-          return `Error: delegation limit reached for this turn (${MAX_PENDING_DELEGATIONS}).`;
-        }
-
-        const modeRaw =
-          typeof args.mode === 'string' ? args.mode.trim().toLowerCase() : '';
+        const sessionId = rows[0].sessionId || filename.replace(/\.jsonl$/, '');
         if (
-          modeRaw &&
-          modeRaw !== 'single' &&
-          modeRaw !== 'parallel' &&
-          modeRaw !== 'chain'
-        ) {
-          return 'Error: mode must be one of "single", "parallel", or "chain".';
-        }
+          !includeCurrent &&
+          currentSessionId &&
+          sessionId === currentSessionId
+        )
+          continue;
 
-        const label = typeof args.label === 'string' ? args.label.trim() : '';
-        const model = typeof args.model === 'string' ? args.model.trim() : '';
-        const prompt =
-          typeof args.prompt === 'string' ? args.prompt.trim() : '';
-        const tasksResult = normalizeDelegationTaskList({
-          raw: args.tasks,
-          fallbackModel: model || undefined,
-          fieldName: 'tasks',
+        const matchIndexes = findMatchIndexes(rows, query, roleFilter);
+        if (matchIndexes.length === 0) continue;
+
+        const stat = fs.statSync(filePath);
+        const score = scoreTranscript(rows, query, roleFilter);
+        candidates.push({
+          sessionId,
+          filePath,
+          rows,
+          matchIndexes,
+          score,
+          mtimeMs: stat.mtimeMs,
         });
-        if (tasksResult.error) return tasksResult.error;
-        const chainResult = normalizeDelegationTaskList({
-          raw: args.chain,
-          fallbackModel: model || undefined,
-          fieldName: 'chain',
-        });
-        if (chainResult.error) return chainResult.error;
-
-        const hasPrompt = prompt.length > 0;
-        const hasTasks = tasksResult.tasks.length > 0;
-        const hasChain = chainResult.tasks.length > 0;
-
-        let mode: 'single' | 'parallel' | 'chain';
-        if (modeRaw) {
-          mode = modeRaw;
-        } else if (hasChain) {
-          mode = 'chain';
-        } else if (hasTasks) {
-          mode = 'parallel';
-        } else {
-          mode = 'single';
-        }
-
-        if (
-          (hasTasks ? 1 : 0) + (hasChain ? 1 : 0) + (hasPrompt ? 1 : 0) > 1 &&
-          !modeRaw
-        ) {
-          return 'Error: provide one delegation mode payload: "prompt", "tasks", or "chain".';
-        }
-
-        let effect: DelegationSideEffect;
-        let summary: string;
-
-        if (mode === 'single') {
-          if (!hasPrompt) return 'Error: prompt is required for mode="single".';
-          effect = {
-            action: 'delegate',
-            mode,
-            prompt,
-            label: label || undefined,
-            model: model || undefined,
-          };
-          summary = label ? `${label}: ${prompt}` : prompt;
-        } else if (mode === 'parallel') {
-          if (!hasTasks)
-            return 'Error: tasks are required for mode="parallel".';
-          effect = {
-            action: 'delegate',
-            mode,
-            label: label || undefined,
-            model: model || undefined,
-            tasks: tasksResult.tasks,
-          };
-          summary = `${tasksResult.tasks.length} parallel task(s)`;
-        } else {
-          if (!hasChain) return 'Error: chain is required for mode="chain".';
-          effect = {
-            action: 'delegate',
-            mode,
-            label: label || undefined,
-            model: model || undefined,
-            chain: chainResult.tasks,
-          };
-          summary = `${chainResult.tasks.length}-step chain`;
-        }
-
-        pendingDelegations.push(effect);
-        const labelPrefix = label ? `${label}: ` : '';
-        return `Delegation accepted (${mode}, auto-announces on completion, do not poll): ${labelPrefix}${summary}`;
       }
 
-      default:
-        return `Unknown tool: ${name}`;
+      candidates.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return b.mtimeMs - a.mtimeMs;
+      });
+
+      const top = candidates.slice(0, limit);
+      const results = top.map((candidate) =>
+        summarizeSessionCandidate(candidate, query),
+      );
+
+      return JSON.stringify(
+        {
+          success: true,
+          query,
+          count: results.length,
+          sessions_searched: candidates.length,
+          results,
+        },
+        null,
+        2,
+      );
     }
-  } catch (err) {
-    return `Tool error: ${err instanceof Error ? err.message : String(err)}`;
+
+    case 'web_fetch': {
+      const { webFetch } = await import('./web-fetch.js');
+      const result = await webFetch({
+        url: args.url,
+        extractMode: args.extractMode,
+        maxChars: args.maxChars,
+      });
+      const header = result.title ? `# ${result.title}\n\n` : '';
+      const meta = `[${result.extractor}] ${result.finalUrl} (${result.status}, ${result.tookMs}ms)`;
+      const lines = [meta];
+      if (result.escalationHint) {
+        lines.push(
+          `Escalation hint: ${result.escalationHint} (retry with browser_navigate for this URL).`,
+        );
+      }
+      if (result.warning) {
+        lines.push(`Warning: ${result.warning}`);
+      }
+      return `${lines.join('\n')}\n\n${header}${result.text}`;
+    }
+
+    case 'web_search': {
+      const { webSearch } = await import('./web-search.js');
+      return await webSearch(
+        {
+          query: args.query,
+          count: args.count,
+          freshness: args.freshness,
+          country: args.country,
+          language: args.language,
+          provider: args.provider,
+        },
+        currentWebSearchConfig,
+      );
+    }
+
+    case 'vision_analyze':
+    case 'image': {
+      return await runVisionAnalyze(args);
+    }
+
+    case 'browser_navigate':
+    case 'browser_snapshot':
+    case 'browser_click':
+    case 'browser_type':
+    case 'browser_upload':
+    case 'browser_press':
+    case 'browser_scroll':
+    case 'browser_back':
+    case 'browser_screenshot':
+    case 'browser_pdf':
+    case 'browser_vision':
+    case 'browser_get_images':
+    case 'browser_console':
+    case 'browser_network':
+    case 'browser_close': {
+      const output = await executeBrowserTool(
+        name,
+        args,
+        currentSessionId || 'default',
+      );
+      const structured = parseStructuredToolOutput(output);
+      if (structured?.success === false) {
+        return failTool(output);
+      }
+      return output;
+    }
+
+    case 'cron': {
+      const action = args.action;
+
+      if (action === 'list') {
+        if (injectedTasks.length === 0) return 'No scheduled tasks.';
+        const lines = injectedTasks.map((t) => {
+          let schedule: string;
+          if (t.runAt) schedule = `at ${t.runAt}`;
+          else if (t.everyMs) {
+            const secs = t.everyMs / 1000;
+            if (secs < 120) schedule = `every ${secs}s`;
+            else if (secs < 7200) schedule = `every ${Math.round(secs / 60)}m`;
+            else schedule = `every ${Math.round(secs / 3600)}h`;
+          } else schedule = t.cronExpr;
+          const status = t.enabled ? 'enabled' : 'disabled';
+          return `#${t.id} [${status}] ${schedule} — ${t.prompt}`;
+        });
+        return lines.join('\n');
+      }
+
+      if (action === 'add') {
+        const promptInput =
+          readStringValue(args.prompt) ||
+          readStringValue(args.message) ||
+          readStringValue(args.text);
+        if (!promptInput) return failTool('Error: prompt is required');
+        const prompt = promptInput;
+        const atSeconds = readPositiveNumberValue(
+          args.at_seconds ?? args.atSeconds,
+        );
+        const relativeDelayMs =
+          atSeconds != null ? Math.round(atSeconds * 1000) : null;
+        const rawAt = readStringValue(args.at);
+
+        if (rawAt || relativeDelayMs != null) {
+          const runAt =
+            relativeDelayMs != null
+              ? new Date(Date.now() + relativeDelayMs)
+              : new Date(rawAt || '');
+          if (Number.isNaN(runAt.getTime()))
+            return failTool(`Error: invalid ISO-8601 timestamp: ${rawAt}`);
+          if (runAt.getTime() <= Date.now())
+            return failTool(
+              `Error: timestamp must be in the future: ${rawAt || runAt.toISOString()}`,
+            );
+          pendingSchedules.push({
+            action: 'add',
+            runAt: runAt.toISOString(),
+            prompt,
+          });
+          return `Scheduled one-shot task at ${runAt.toISOString()}: ${prompt}`;
+        }
+
+        if (args.cron) {
+          pendingSchedules.push({
+            action: 'add',
+            cronExpr: args.cron,
+            prompt,
+          });
+          return `Scheduled recurring task with cron "${args.cron}": ${prompt}`;
+        }
+
+        if (args.every) {
+          const secs = Number(args.every);
+          if (Number.isNaN(secs) || secs < 10)
+            return failTool('Error: "every" must be a number of seconds >= 10');
+          const everyMs = Math.round(secs * 1000);
+          pendingSchedules.push({
+            action: 'add',
+            everyMs,
+            prompt,
+          });
+          return `Scheduled interval task every ${secs}s: ${prompt}`;
+        }
+
+        return failTool(
+          'Error: provide "at" (ISO-8601 timestamp), "at_seconds" (one-shot seconds from now), "cron" (cron expression), or "every" (seconds)',
+        );
+      }
+
+      if (action === 'remove') {
+        if (!args.taskId) return failTool('Error: taskId is required');
+        pendingSchedules.push({ action: 'remove', taskId: args.taskId });
+        return `Scheduled removal of task #${args.taskId}`;
+      }
+
+      return failTool(
+        `Error: unknown cron action "${action}". Use "list", "add", or "remove".`,
+      );
+    }
+
+    case 'delegate': {
+      if (pendingDelegations.length >= MAX_PENDING_DELEGATIONS) {
+        return failTool(
+          `Error: delegation limit reached for this turn (${MAX_PENDING_DELEGATIONS}).`,
+        );
+      }
+
+      const modeRaw =
+        typeof args.mode === 'string' ? args.mode.trim().toLowerCase() : '';
+      if (
+        modeRaw &&
+        modeRaw !== 'single' &&
+        modeRaw !== 'parallel' &&
+        modeRaw !== 'chain'
+      ) {
+        return failTool(
+          'Error: mode must be one of "single", "parallel", or "chain".',
+        );
+      }
+
+      const label = typeof args.label === 'string' ? args.label.trim() : '';
+      const model = typeof args.model === 'string' ? args.model.trim() : '';
+      const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : '';
+      const tasksResult = normalizeDelegationTaskList({
+        raw: args.tasks,
+        fallbackModel: model || undefined,
+        fieldName: 'tasks',
+      });
+      if (tasksResult.error) return failTool(tasksResult.error);
+      const chainResult = normalizeDelegationTaskList({
+        raw: args.chain,
+        fallbackModel: model || undefined,
+        fieldName: 'chain',
+      });
+      if (chainResult.error) return failTool(chainResult.error);
+
+      const hasPrompt = prompt.length > 0;
+      const hasTasks = tasksResult.tasks.length > 0;
+      const hasChain = chainResult.tasks.length > 0;
+
+      let mode: 'single' | 'parallel' | 'chain';
+      if (modeRaw) {
+        mode = modeRaw;
+      } else if (hasChain) {
+        mode = 'chain';
+      } else if (hasTasks) {
+        mode = 'parallel';
+      } else {
+        mode = 'single';
+      }
+
+      if (
+        (hasTasks ? 1 : 0) + (hasChain ? 1 : 0) + (hasPrompt ? 1 : 0) > 1 &&
+        !modeRaw
+      ) {
+        return failTool(
+          'Error: provide one delegation mode payload: "prompt", "tasks", or "chain".',
+        );
+      }
+
+      let effect: DelegationSideEffect;
+      let summary: string;
+
+      if (mode === 'single') {
+        if (!hasPrompt)
+          return failTool('Error: prompt is required for mode="single".');
+        effect = {
+          action: 'delegate',
+          mode,
+          prompt,
+          label: label || undefined,
+          model: model || undefined,
+        };
+        summary = label ? `${label}: ${prompt}` : prompt;
+      } else if (mode === 'parallel') {
+        if (!hasTasks)
+          return failTool('Error: tasks are required for mode="parallel".');
+        effect = {
+          action: 'delegate',
+          mode,
+          label: label || undefined,
+          model: model || undefined,
+          tasks: tasksResult.tasks,
+        };
+        summary = `${tasksResult.tasks.length} parallel task(s)`;
+      } else {
+        if (!hasChain)
+          return failTool('Error: chain is required for mode="chain".');
+        effect = {
+          action: 'delegate',
+          mode,
+          label: label || undefined,
+          model: model || undefined,
+          chain: chainResult.tasks,
+        };
+        summary = `${chainResult.tasks.length}-step chain`;
+      }
+
+      pendingDelegations.push(effect);
+      const labelPrefix = label ? `${label}: ` : '';
+      return `Delegation accepted (${mode}, auto-announces on completion, do not poll): ${labelPrefix}${summary}`;
+    }
+
+    default:
+      return failTool(`Unknown tool: ${name}`);
   }
+}
+
+export async function executeToolWithMetadata(
+  name: string,
+  argsJson: string,
+): Promise<ToolRunResult> {
+  try {
+    return {
+      output: await executeToolInternal(name, argsJson),
+      isError: false,
+    };
+  } catch (err) {
+    if (err instanceof ToolExecutionFailure) {
+      return {
+        output: err.output,
+        isError: true,
+      };
+    }
+    return {
+      output: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
+      isError: true,
+    };
+  }
+}
+
+export async function executeTool(
+  name: string,
+  argsJson: string,
+): Promise<string> {
+  const result = await executeToolWithMetadata(name, argsJson);
+  return result.output;
 }
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [

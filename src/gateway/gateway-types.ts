@@ -1,9 +1,15 @@
+import type { BaseMessageOptions } from 'discord.js';
 import type { TokenUsageStats } from '../types.js';
+
+export type GatewayMessageComponents = NonNullable<
+  BaseMessageOptions['components']
+>;
 
 export interface GatewayCommandResult {
   kind: 'plain' | 'info' | 'error';
   title?: string;
   text: string;
+  components?: GatewayMessageComponents;
 }
 
 export interface GatewayChatResult {
@@ -37,6 +43,7 @@ export interface GatewayChatResult {
     approvalActionKey?: string;
     approvalReason?: string;
     approvalRequestId?: string;
+    approvalExpiresAt?: number;
   }>;
   tokenUsage?: TokenUsageStats;
   error?: string;
@@ -91,6 +98,7 @@ export interface GatewayCommandRequest {
   guildId: string | null;
   channelId: string;
   args: string[];
+  userId?: string | null;
 }
 
 export interface GatewayProactiveMessage {

@@ -12,26 +12,28 @@ describe.sequential('container MCP tool dispatch', () => {
     const { executeTool, setMcpClientManager } = await import(
       '../container/src/tools.js'
     );
-    const callTool = vi.fn();
+    const callToolDetailed = vi.fn();
     setMcpClientManager({
       isKnownTool: vi.fn().mockReturnValue(true),
-      callTool,
+      callToolDetailed,
     } as never);
 
     const result = await executeTool('demo__echo', '[]');
 
     expect(result).toBe('Error: MCP tool arguments must be a JSON object');
-    expect(callTool).not.toHaveBeenCalled();
+    expect(callToolDetailed).not.toHaveBeenCalled();
   });
 
   test('passes object JSON arguments through to the MCP manager', async () => {
     const { executeTool, setMcpClientManager } = await import(
       '../container/src/tools.js'
     );
-    const callTool = vi.fn().mockResolvedValue('ok');
+    const callToolDetailed = vi
+      .fn()
+      .mockResolvedValue({ output: 'ok', isError: false });
     setMcpClientManager({
       isKnownTool: vi.fn().mockReturnValue(true),
-      callTool,
+      callToolDetailed,
     } as never);
 
     const result = await executeTool(
@@ -40,6 +42,8 @@ describe.sequential('container MCP tool dispatch', () => {
     );
 
     expect(result).toBe('ok');
-    expect(callTool).toHaveBeenCalledWith('demo__echo', { value: 'hello' });
+    expect(callToolDetailed).toHaveBeenCalledWith('demo__echo', {
+      value: 'hello',
+    });
   });
 });

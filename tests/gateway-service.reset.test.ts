@@ -148,6 +148,42 @@ test('reset requires confirmation and reset no leaves session state intact', asy
   expect(missingPrompt.text).toContain('Run `reset` first');
 });
 
+test('reset includes Discord button components for Discord command requests', async () => {
+  const fixture = await seedSessionFixture();
+
+  const prompt = await fixture.handleGatewayCommand({
+    sessionId: fixture.sessionId,
+    guildId: '123456789012345678',
+    channelId: '234567890123456789',
+    userId: '345678901234567890',
+    args: ['reset'],
+  });
+
+  expect(prompt.kind).toBe('info');
+  if (prompt.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${prompt.kind}`);
+  }
+  expect(prompt.components).toEqual([
+    {
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: 4,
+          label: 'Reset Session',
+          custom_id: 'reset:yes:345678901234567890:session-reset',
+        },
+        {
+          type: 2,
+          style: 2,
+          label: 'Cancel',
+          custom_id: 'reset:no:345678901234567890:session-reset',
+        },
+      ],
+    },
+  ]);
+});
+
 test('reset yes clears history, resets session defaults, and removes the workspace', async () => {
   const fixture = await seedSessionFixture();
 

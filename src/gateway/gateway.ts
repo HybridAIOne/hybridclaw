@@ -60,7 +60,9 @@ import {
   stopScheduler,
 } from '../scheduler/scheduler.js';
 import type { ArtifactMetadata } from '../types.js';
+import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import {
+  type GatewayChatResult,
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
@@ -71,7 +73,6 @@ import { startHealthServer } from './health.js';
 import {
   cleanupExpiredPendingApprovals,
   clearPendingApproval,
-  extractApprovalId,
   getPendingApproval,
   type PendingApprovalPrompt,
   setPendingApproval,
@@ -166,37 +167,46 @@ function simplifyImageAttachmentNarration(
   return imageArtifacts.length === 1 ? 'Here it is.' : 'Here they are.';
 }
 
-function isApprovalPromptForPrivateDelivery(text: string): boolean {
-  const normalized = text.toLowerCase();
-  return (
-    normalized.includes('i need your approval before i') &&
-    normalized.includes('approval id:') &&
-    normalized.includes('reply `yes`')
-  );
-}
-
-function parseApprovalExpiryMs(prompt: string): number {
-  const match = prompt.match(/Approval expires in\s+(\d+)s\./i);
-  const seconds = match ? Number.parseInt(match[1], 10) : NaN;
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    return APPROVAL_PROMPT_DEFAULT_TTL_MS;
+function findPendingApprovalMetadata(
+  result: GatewayChatResult,
+): { approvalId: string; expiresAt: number | null } | null {
+  const executions = result.toolExecutions || [];
+  for (let i = executions.length - 1; i >= 0; i -= 1) {
+    const execution = executions[i];
+    if (execution.approvalDecision !== 'required') continue;
+    if (!execution.approvalRequestId) continue;
+    return {
+      approvalId: execution.approvalRequestId,
+      expiresAt:
+        typeof execution.approvalExpiresAt === 'number' &&
+        Number.isFinite(execution.approvalExpiresAt)
+          ? execution.approvalExpiresAt
+          : null,
+    };
   }
-  return Math.max(15_000, seconds * 1_000);
+  return null;
 }
 
 async function rememberPendingApproval(params: {
   sessionId: string;
+  approvalId: string;
   prompt: string;
   userId: string;
+  expiresAt?: number | null;
   disableButtons?: (() => Promise<void>) | null;
 }): Promise<void> {
   const createdAt = Date.now();
-  const expiresAt = createdAt + parseApprovalExpiryMs(params.prompt);
+  const expiresAt =
+    typeof params.expiresAt === 'number' && Number.isFinite(params.expiresAt)
+      ? Math.max(createdAt + 15_000, params.expiresAt)
+      : createdAt + APPROVAL_PROMPT_DEFAULT_TTL_MS;
   const entry: PendingApprovalPrompt = {
+    approvalId: params.approvalId,
     prompt: params.prompt,
     createdAt,
     expiresAt,
     userId: params.userId,
+    resolvedAt: null,
     disableButtons: params.disableButtons ?? null,
     disableTimeout: null,
   };
@@ -226,15 +236,23 @@ async function handleApprovalCommand(params: {
   const pending = getPendingApproval(sessionId);
   const action = (args[1] || 'view').trim().toLowerCase();
   const providedApprovalId = (args[2] || '').trim();
-  const currentApprovalId = pending ? extractApprovalId(pending.prompt) : '';
+  const currentApprovalId = pending?.approvalId || '';
   const approvalId = providedApprovalId || currentApprovalId;
+  const pendingComponents =
+    pending && isDiscordChannelId(channelId)
+      ? buildApprovalConfirmationComponents(pending.approvalId)
+      : undefined;
 
   if (action === 'view' || action === 'status' || action === 'show') {
     if (!pending || pending.userId !== userId) {
       await reply('No pending approval request for you in this session.');
       return true;
     }
-    await reply(formatInfo('Pending Approval', pending.prompt));
+    await reply(
+      formatInfo('Pending Approval', pending.prompt),
+      undefined,
+      pendingComponents,
+    );
     return true;
   }
 
@@ -295,13 +313,23 @@ async function handleApprovalCommand(params: {
     approvalResultText,
     approvalResult.toolsUsed,
   );
-  if (isApprovalPromptForPrivateDelivery(resultText)) {
+  const pendingApproval = findPendingApprovalMetadata(approvalResult);
+  if (pendingApproval) {
+    const components = isDiscordChannelId(channelId)
+      ? buildApprovalConfirmationComponents(pendingApproval.approvalId)
+      : undefined;
     await rememberPendingApproval({
       sessionId,
+      approvalId: pendingApproval.approvalId,
       prompt: resultText,
       userId,
+      expiresAt: pendingApproval.expiresAt,
     });
-    await reply(formatInfo('Pending Approval', resultText));
+    await reply(
+      formatInfo('Pending Approval', resultText),
+      undefined,
+      components,
+    );
     return true;
   }
 
@@ -570,13 +598,13 @@ async function startDiscordIntegration(): Promise<void> {
           context.mentionLookup,
         );
         const responseText = buildResponseText(renderedText, result.toolsUsed);
-        if (isApprovalPromptForPrivateDelivery(responseText)) {
+        const pendingApproval = findPendingApprovalMetadata(result);
+        if (pendingApproval) {
           let cleanup: { disableButtons: () => Promise<void> } | null = null;
-          const approvalId = extractApprovalId(responseText);
-          if (context.sendApprovalNotification && approvalId) {
+          if (context.sendApprovalNotification) {
             cleanup = await context.sendApprovalNotification({
               text: 'Approval required — use buttons below or `/approve` to respond.',
-              approvalId,
+              approvalId: pendingApproval.approvalId,
               userId,
             });
           } else {
@@ -586,8 +614,10 @@ async function startDiscordIntegration(): Promise<void> {
           }
           await rememberPendingApproval({
             sessionId,
+            approvalId: pendingApproval.approvalId,
             prompt: responseText,
             userId,
+            expiresAt: pendingApproval.expiresAt,
             disableButtons: cleanup?.disableButtons ?? null,
           });
           if (cleanup) {
@@ -635,13 +665,19 @@ async function startDiscordIntegration(): Promise<void> {
           guildId,
           channelId,
           args,
+          userId,
         });
         if (result.kind === 'error') {
           await reply(formatError(result.title || 'Error', result.text));
           return;
         }
         if (result.kind === 'info') {
-          await reply(formatInfo(result.title || 'Info', result.text));
+          const text = formatInfo(result.title || 'Info', result.text);
+          if (result.components !== undefined) {
+            await reply(text, undefined, result.components);
+          } else {
+            await reply(text);
+          }
           return;
         }
         await reply(renderGatewayCommand(result));

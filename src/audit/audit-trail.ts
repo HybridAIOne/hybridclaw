@@ -3,38 +3,12 @@ import fs from 'fs';
 import path from 'path';
 
 import { DATA_DIR } from '../config/config.js';
+import { redactSecretsDeep } from '../security/redact.js';
 
 export const AUDIT_PROTOCOL_VERSION = '2.0';
 const AUDIT_DIR_NAME = 'audit';
 const WIRE_FILE_NAME = 'wire.jsonl';
 const FALLBACK_PREV_HASH = 'GENESIS';
-
-const REDACTION_PATTERNS: Array<{ match: RegExp; replace: string }> = [
-  {
-    match: /(KEY|TOKEN|SECRET|PASSWORD)=\S+/gi,
-    replace: '$1=***REDACTED***',
-  },
-  {
-    match: /Bearer\s+\S+/gi,
-    replace: 'Bearer ***REDACTED***',
-  },
-  {
-    match: /ghp_[A-Za-z0-9_]+/g,
-    replace: 'ghp_***REDACTED***',
-  },
-  {
-    match: /sk-[A-Za-z0-9_]+/g,
-    replace: 'sk-***REDACTED***',
-  },
-  {
-    match: /(?:postgres|mysql|mongodb):\/\/[^\s"'`]+/gi,
-    replace: '***CONNECTION_STRING_REDACTED***',
-  },
-  {
-    match: /-----BEGIN[\s\S]*?-----END[\s\S]*?-----/g,
-    replace: '***PEM_REDACTED***',
-  },
-];
 
 export interface AuditEventPayload {
   type: string;
@@ -117,26 +91,6 @@ function stableStringify(value: unknown): string {
     parts.push(`${JSON.stringify(key)}:${stableStringify(raw)}`);
   }
   return `{${parts.join(',')}}`;
-}
-
-function redactString(value: string): string {
-  let next = value;
-  for (const pattern of REDACTION_PATTERNS) {
-    next = next.replace(pattern.match, pattern.replace);
-  }
-  return next;
-}
-
-function redactValue(value: unknown): unknown {
-  if (typeof value === 'string') return redactString(value);
-  if (Array.isArray(value)) return value.map((entry) => redactValue(entry));
-  if (!value || typeof value !== 'object') return value;
-
-  const redacted: Record<string, unknown> = {};
-  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-    redacted[key] = redactValue(raw);
-  }
-  return redacted;
 }
 
 function safeSessionDirName(sessionId: string): string {
@@ -278,7 +232,7 @@ export function createAuditRunId(prefix = 'run'): string {
 export function appendAuditEvent(input: AppendAuditEventInput): WireRecord {
   const state = getSessionState(input.sessionId);
   const seq = state.seq + 1;
-  const event = redactValue(input.event) as AuditEventPayload;
+  const event = redactSecretsDeep(input.event) as AuditEventPayload;
 
   const recordWithoutHash: Omit<WireRecord, '_hash'> = {
     version: AUDIT_PROTOCOL_VERSION,
