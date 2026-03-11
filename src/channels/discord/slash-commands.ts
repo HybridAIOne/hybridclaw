@@ -58,11 +58,21 @@ const RAG_MODE_CHOICES = [
   { name: 'off', value: 'off' },
 ] satisfies Array<{ name: string; value: string }>;
 
+const RESET_CONFIRM_CHOICES = [
+  { name: 'yes', value: 'yes' },
+  { name: 'no', value: 'no' },
+] satisfies Array<{ name: string; value: string }>;
+
 const USAGE_VIEW_CHOICES = [
   { name: 'summary', value: 'summary' },
   { name: 'daily', value: 'daily' },
   { name: 'monthly', value: 'monthly' },
   { name: 'model', value: 'model' },
+] satisfies Array<{ name: string; value: string }>;
+
+const USAGE_WINDOW_CHOICES = [
+  { name: 'daily', value: 'daily' },
+  { name: 'monthly', value: 'monthly' },
 ] satisfies Array<{ name: string; value: string }>;
 
 function tokenizeFreeformText(value: string): string[] {
@@ -147,7 +157,7 @@ export function buildSlashCommandDefinitions(
     },
     {
       name: 'model',
-      description: 'Inspect or set the default runtime model',
+      description: 'Inspect or set the runtime model',
       options: [
         {
           type: ApplicationCommandOptionType.Subcommand,
@@ -156,14 +166,32 @@ export function buildSlashCommandDefinitions(
         },
         {
           type: ApplicationCommandOptionType.Subcommand,
-          name: 'default',
-          description: 'Set default model for new sessions',
+          name: 'list',
+          description: 'List available runtime models',
+        },
+        {
+          type: ApplicationCommandOptionType.Subcommand,
+          name: 'set',
+          description: 'Set the model for this session',
           options: [
             {
               type: ApplicationCommandOptionType.String,
               name: 'name',
               description: 'Model name',
               required: true,
+              choices: modelChoices.length > 0 ? modelChoices : undefined,
+            },
+          ],
+        },
+        {
+          type: ApplicationCommandOptionType.Subcommand,
+          name: 'default',
+          description: 'Show or set the default model for new sessions',
+          options: [
+            {
+              type: ApplicationCommandOptionType.String,
+              name: 'name',
+              description: 'Model name',
               choices: modelChoices.length > 0 ? modelChoices : undefined,
             },
           ],
@@ -324,6 +352,19 @@ export function buildSlashCommandDefinitions(
       description: 'Clear session history',
     },
     {
+      name: 'reset',
+      description:
+        'Clear session history, reset session settings, and remove the current agent workspace',
+      options: [
+        {
+          type: ApplicationCommandOptionType.String,
+          name: 'confirm',
+          description: 'Confirm or cancel the reset',
+          choices: RESET_CONFIRM_CHOICES,
+        },
+      ],
+    },
+    {
       name: 'usage',
       description: 'Show usage and cost aggregates',
       options: [
@@ -332,6 +373,12 @@ export function buildSlashCommandDefinitions(
           name: 'view',
           description: 'Summary view to render',
           choices: USAGE_VIEW_CHOICES,
+        },
+        {
+          type: ApplicationCommandOptionType.String,
+          name: 'window',
+          description: 'Optional window for model view',
+          choices: USAGE_WINDOW_CHOICES,
         },
         {
           type: ApplicationCommandOptionType.String,
@@ -481,10 +528,17 @@ export function parseSlashInteractionArgs(
 
     case 'model': {
       const subcommand = normalizeSubcommand(interaction);
-      if (subcommand === 'info') return ['model', 'default'];
-      if (subcommand === 'default') {
+      if (subcommand === 'info') return ['model', 'info'];
+      if (subcommand === 'list') return ['model', 'list'];
+      if (subcommand === 'set') {
         const selectedModel = normalizeStringOption(interaction, 'name', true);
-        return selectedModel ? ['model', 'default', selectedModel] : null;
+        return selectedModel ? ['model', 'set', selectedModel] : null;
+      }
+      if (subcommand === 'default') {
+        const selectedModel = normalizeStringOption(interaction, 'name');
+        return selectedModel
+          ? ['model', 'default', selectedModel]
+          : ['model', 'default'];
       }
       return null;
     }
@@ -553,8 +607,19 @@ export function parseSlashInteractionArgs(
     case 'clear':
       return ['clear'];
 
+    case 'reset': {
+      const confirm = normalizeStringOption(interaction, 'confirm');
+      if (!confirm) return ['reset'];
+      if (confirm !== 'yes' && confirm !== 'no') return null;
+      return ['reset', confirm];
+    }
+
     case 'usage': {
       const view = normalizeStringOption(interaction, 'view')?.toLowerCase();
+      const window = normalizeStringOption(
+        interaction,
+        'window',
+      )?.toLowerCase();
       const agentId = normalizeStringOption(interaction, 'agent_id');
       if (!view) return ['usage'];
       if (
@@ -565,10 +630,18 @@ export function parseSlashInteractionArgs(
       ) {
         return null;
       }
-      if (view !== 'model' || !agentId) {
+      if (view !== 'model') {
         return ['usage', view];
       }
-      return ['usage', 'model', agentId];
+      if (window && window !== 'daily' && window !== 'monthly') {
+        return null;
+      }
+      return [
+        'usage',
+        'model',
+        ...(window ? [window] : []),
+        ...(agentId ? [agentId] : []),
+      ];
     }
 
     case 'export': {

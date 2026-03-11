@@ -164,6 +164,17 @@ export interface GatewayStatus {
   scheduler?: {
     jobs: GatewaySchedulerJobStatus[];
   };
+  localBackends?: Partial<
+    Record<
+      'ollama' | 'lmstudio' | 'vllm',
+      {
+        reachable: boolean;
+        latencyMs: number;
+        error?: string;
+        modelCount?: number;
+      }
+    >
+  >;
 }
 
 export function renderGatewayCommand(result: GatewayCommandResult): string {

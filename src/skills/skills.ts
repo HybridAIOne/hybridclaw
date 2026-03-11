@@ -1,6 +1,6 @@
 /**
  * Skills — CLAUDE/OpenClaw-compatible SKILL.md discovery.
- * The system prompt includes skill metadata + location, and inlines full
+ * The system prompt includes skill metadata + workspace-relative location, and inlines full
  * bodies for skills marked `always: true`.
  */
 
@@ -593,13 +593,13 @@ function pathWithin(root: string, target: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
-function asContainerPath(
+function asPromptLocation(
   workspaceDir: string,
   absolutePath: string,
 ): string | null {
   if (!pathWithin(workspaceDir, absolutePath)) return null;
   const rel = toPosixPath(path.relative(workspaceDir, absolutePath));
-  return rel ? `/workspace/${rel}` : '/workspace';
+  return rel || '.';
 }
 
 function resolveUserPath(raw: string): string {
@@ -1215,28 +1215,28 @@ export function loadSkills(agentId: string): Skill[] {
   const resolved: Skill[] = [];
   for (const skill of guarded) {
     try {
-      let containerSkillPath = asContainerPath(
+      let promptSkillPath = asPromptLocation(
         workspaceDir,
         path.resolve(skill.filePath),
       );
-      if (!containerSkillPath) {
+      if (!promptSkillPath) {
         const syncedSkillFile = syncSkillIntoWorkspace(skill, workspaceDir);
-        containerSkillPath = asContainerPath(
+        promptSkillPath = asPromptLocation(
           workspaceDir,
           path.resolve(syncedSkillFile),
         );
       }
-      if (!containerSkillPath) {
+      if (!promptSkillPath) {
         logger.warn(
           { skill: skill.name, path: skill.filePath },
-          'Could not resolve container-readable skill path',
+          'Could not resolve workspace-readable skill path',
         );
         continue;
       }
 
       resolved.push({
         ...skill,
-        location: containerSkillPath,
+        location: promptSkillPath,
       });
     } catch (err) {
       logger.warn(

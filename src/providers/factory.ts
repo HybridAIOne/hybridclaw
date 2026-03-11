@@ -1,6 +1,14 @@
-import { HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL } from '../config/config.js';
+import {
+  HYBRIDAI_ENABLE_RAG,
+  HYBRIDAI_MODEL,
+  LOCAL_LMSTUDIO_ENABLED,
+  LOCAL_OLLAMA_ENABLED,
+  LOCAL_VLLM_ENABLED,
+} from '../config/config.js';
 import { anthropicProvider } from './anthropic.js';
 import { hybridAIProvider } from './hybridai.js';
+import { ollamaProvider } from './local-ollama.js';
+import { lmstudioProvider, vllmProvider } from './local-openai-compat.js';
 import { openAIProvider } from './openai.js';
 import type {
   AIProvider,
@@ -9,21 +17,27 @@ import type {
   ResolveProviderRuntimeParams,
 } from './types.js';
 
-const PROVIDERS: AIProvider[] = [
-  openAIProvider,
-  anthropicProvider,
-  hybridAIProvider,
-];
+function getActiveProviders(): AIProvider[] {
+  return [
+    openAIProvider,
+    anthropicProvider,
+    ...(LOCAL_OLLAMA_ENABLED ? [ollamaProvider] : []),
+    ...(LOCAL_LMSTUDIO_ENABLED ? [lmstudioProvider] : []),
+    ...(LOCAL_VLLM_ENABLED ? [vllmProvider] : []),
+    hybridAIProvider,
+  ];
+}
 
 export function getAIProviders(): readonly AIProvider[] {
-  return PROVIDERS;
+  return getActiveProviders();
 }
 
 export function resolveProviderForModel(model: string): AIProvider {
   const normalizedModel = String(model || '').trim();
   return (
-    PROVIDERS.find((provider) => provider.matchesModel(normalizedModel)) ||
-    hybridAIProvider
+    getActiveProviders().find((provider) =>
+      provider.matchesModel(normalizedModel),
+    ) || hybridAIProvider
   );
 }
 

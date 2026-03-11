@@ -4,6 +4,7 @@ import {
   makeAuditRunId,
   recordAuditEvent,
 } from '../audit/audit-events.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { recordUsageEvent } from '../memory/db.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import {
@@ -43,6 +44,7 @@ export async function runIsolatedScheduledTask(params: {
   const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
   const startedAt = Date.now();
   const provider = resolveModelProvider(model);
+  const workspacePath = agentWorkspaceDir(agentId);
 
   recordAuditEvent({
     sessionId: cronSessionId,
@@ -51,7 +53,7 @@ export async function runIsolatedScheduledTask(params: {
       type: 'session.start',
       userId: 'scheduler',
       channel: channelId,
-      cwd: process.cwd(),
+      cwd: workspacePath,
       model,
       source: 'scheduler',
       taskId,

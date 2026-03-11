@@ -49,6 +49,16 @@ export interface ContextFile {
   content: string;
 }
 
+export interface EnsureBootstrapFilesResult {
+  workspacePath: string;
+  workspaceInitialized: boolean;
+}
+
+export interface ResetWorkspaceResult {
+  workspacePath: string;
+  removed: boolean;
+}
+
 interface WorkspaceOnboardingState {
   version: typeof WORKSPACE_STATE_VERSION;
   bootstrapSeededAt?: string;
@@ -57,6 +67,20 @@ interface WorkspaceOnboardingState {
 
 function resolveWorkspaceStatePath(wsDir: string): string {
   return path.join(wsDir, WORKSPACE_STATE_DIRNAME, WORKSPACE_STATE_FILENAME);
+}
+
+function isWorkspaceEffectivelyEmpty(wsDir: string): boolean {
+  try {
+    const entries = fs
+      .readdirSync(wsDir)
+      .filter((entry) => entry !== '.DS_Store' && entry !== 'Thumbs.db');
+    return entries.length === 0;
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT') return true;
+    logger.warn({ wsDir, error }, 'Failed to inspect workspace contents');
+    return false;
+  }
 }
 
 function readWorkspaceOnboardingState(
@@ -149,8 +173,12 @@ function looksLikeCompletedWorkspace(
 /**
  * Ensure workspace has bootstrap files, copying from templates if missing.
  */
-export function ensureBootstrapFiles(agentId: string): void {
+export function ensureBootstrapFiles(
+  agentId: string,
+): EnsureBootstrapFilesResult {
   const wsDir = agentWorkspaceDir(agentId);
+  const workspaceInitialized =
+    !fs.existsSync(wsDir) || isWorkspaceEffectivelyEmpty(wsDir);
   fs.mkdirSync(wsDir, { recursive: true });
   const statePath = resolveWorkspaceStatePath(wsDir);
   let state = readWorkspaceOnboardingState(statePath);
@@ -242,6 +270,21 @@ export function ensureBootstrapFiles(agentId: string): void {
       );
     }
   }
+
+  return {
+    workspacePath: wsDir,
+    workspaceInitialized,
+  };
+}
+
+export function resetWorkspace(agentId: string): ResetWorkspaceResult {
+  const workspacePath = agentWorkspaceDir(agentId);
+  const removed = fs.existsSync(workspacePath);
+  fs.rmSync(workspacePath, { recursive: true, force: true });
+  return {
+    workspacePath,
+    removed,
+  };
 }
 
 /**

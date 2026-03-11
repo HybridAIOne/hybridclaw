@@ -70,7 +70,7 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
     filePath: '/tmp/pdf/SKILL.md',
     baseDir: '/tmp/pdf',
     source: 'bundled',
-    location: '/workspace/skills/pdf/SKILL.md',
+    location: 'skills/pdf/SKILL.md',
     ...overrides,
   };
 }
@@ -85,11 +85,15 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   expect(prompt).toContain(
     'If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
   );
+  expect(prompt).toContain(
+    'Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',
+  );
+  expect(prompt).toContain(
+    'For normal user work, put generated scripts in workspace `scripts/` or the workspace root. Only write under `skills/` when the user explicitly asked to create or edit a skill.',
+  );
   expect(prompt).toContain('<available_skills>');
   expect(prompt).toContain('<name>pdf</name>');
-  expect(prompt).toContain(
-    '<location>/workspace/skills/pdf/SKILL.md</location>',
-  );
+  expect(prompt).toContain('<location>skills/pdf/SKILL.md</location>');
   expect(prompt).toContain(
     'Default: do not narrate routine, low-risk tool calls; just call the tool.',
   );
@@ -154,4 +158,26 @@ test('buildSystemPromptFromHooks omits mandatory routing instructions when no sk
 
   expect(prompt).not.toContain('## Skills (mandatory)');
   expect(prompt).not.toContain('<available_skills>');
+});
+
+test('buildSystemPromptFromHooks uses the provided workspace path in runtime metadata', () => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    runtimeInfo: {
+      workspacePath: '/tmp/hybridclaw-agent-workspace',
+    },
+  });
+
+  expect(prompt).toContain('Workspace: /tmp/hybridclaw-agent-workspace');
+});
+
+test('buildSystemPromptFromHooks does not fall back to the repo cwd', () => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+  });
+
+  expect(prompt).toContain('Workspace: current agent workspace');
+  expect(prompt).not.toContain(process.cwd());
 });

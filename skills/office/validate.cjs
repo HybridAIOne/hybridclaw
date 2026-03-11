@@ -11,30 +11,26 @@ const {
   parseXmlFile,
 } = require('./xml.cjs');
 
-const REL_NS =
-  'http://schemas.openxmlformats.org/package/2006/relationships';
+const REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const CONTENT_TYPES_NS =
   'http://schemas.openxmlformats.org/package/2006/content-types';
 
 const PACKAGE_SPECS = {
   docx: {
     mainPart: 'word/document.xml',
-    mainNs:
-      'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+    mainNs: 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
     contentType:
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml',
   },
   pptx: {
     mainPart: 'ppt/presentation.xml',
-    mainNs:
-      'http://schemas.openxmlformats.org/presentationml/2006/main',
+    mainNs: 'http://schemas.openxmlformats.org/presentationml/2006/main',
     contentType:
       'application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml',
   },
   xlsx: {
     mainPart: 'xl/workbook.xml',
-    mainNs:
-      'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+    mainNs: 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
     contentType:
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml',
   },
@@ -84,13 +80,19 @@ function resolveRelationshipTarget(sourcePart, target) {
     candidate = posixPath.normalize(normalized).replace(/^\/+/, '');
   } else {
     const baseDir = posixPath.dirname(sourcePart);
-    const joined = baseDir && baseDir !== '.'
-      ? posixPath.join(baseDir, normalized)
-      : normalized;
+    const joined =
+      baseDir && baseDir !== '.'
+        ? posixPath.join(baseDir, normalized)
+        : normalized;
     candidate = posixPath.normalize(joined);
   }
 
-  if (!candidate || candidate === '.' || candidate === '..' || candidate.startsWith('../')) {
+  if (
+    !candidate ||
+    candidate === '.' ||
+    candidate === '..' ||
+    candidate.startsWith('../')
+  ) {
     return null;
   }
   return candidate.replace(/^\/+/, '');
@@ -159,7 +161,9 @@ function validatePackage(rootDir, format = 'auto') {
     const document = parseXmlFile(contentTypesPath);
     const root = document.documentElement;
     if (declaredNamespace(root) !== CONTENT_TYPES_NS) {
-      issues.push('[Content_Types].xml does not use the OOXML content-types root namespace');
+      issues.push(
+        '[Content_Types].xml does not use the OOXML content-types root namespace',
+      );
     }
     const overrides = findElementsByLocalName(root, 'Override');
     const foundOverride = overrides.some(
@@ -185,7 +189,11 @@ function validatePackage(rootDir, format = 'auto') {
   } else {
     const document = parseXmlFile(mainPartPath);
     const root = document.documentElement;
-    if (!['document', 'presentation', 'workbook'].includes(localName(root.tagName))) {
+    if (
+      !['document', 'presentation', 'workbook'].includes(
+        localName(root.tagName),
+      )
+    ) {
       issues.push(`Unexpected main part root tag: ${root.tagName}`);
     }
     if (declaredNamespace(root) !== spec.mainNs) {
@@ -211,7 +219,10 @@ function validatePackage(rootDir, format = 'auto') {
 
     const document = parseXmlFile(relsPath);
     const root = document.documentElement;
-    if (localName(root.tagName) !== 'Relationships' || declaredNamespace(root) !== REL_NS) {
+    if (
+      localName(root.tagName) !== 'Relationships' ||
+      declaredNamespace(root) !== REL_NS
+    ) {
       issues.push(`${relPart} does not use the OOXML Relationships root`);
       continue;
     }
@@ -286,7 +297,10 @@ function main() {
     return 1;
   }
 
-  if (!fs.existsSync(options.rootDir) || !fs.statSync(options.rootDir).isDirectory()) {
+  if (
+    !fs.existsSync(options.rootDir) ||
+    !fs.statSync(options.rootDir).isDirectory()
+  ) {
     const payload = {
       success: false,
       issues: [`Directory does not exist: ${options.rootDir}`],

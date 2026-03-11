@@ -165,6 +165,22 @@ export let CONFIGURED_MODELS: string[] = dedupeStringList([
   ...HYBRIDAI_MODELS,
   ...CODEX_MODELS,
 ]);
+export let LOCAL_OLLAMA_ENABLED = true;
+export let LOCAL_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
+export let LOCAL_LMSTUDIO_ENABLED = false;
+export let LOCAL_LMSTUDIO_BASE_URL = 'http://127.0.0.1:1234/v1';
+export let LOCAL_VLLM_ENABLED = false;
+export let LOCAL_VLLM_BASE_URL = 'http://127.0.0.1:8000/v1';
+export let LOCAL_VLLM_API_KEY = '';
+export let LOCAL_DISCOVERY_ENABLED = true;
+export let LOCAL_DISCOVERY_INTERVAL_MS = 300_000;
+export let LOCAL_DISCOVERY_MAX_MODELS = 200;
+export let LOCAL_DISCOVERY_CONCURRENCY = 8;
+export let LOCAL_HEALTH_CHECK_ENABLED = true;
+export let LOCAL_HEALTH_CHECK_INTERVAL_MS = 60_000;
+export let LOCAL_HEALTH_CHECK_TIMEOUT_MS = 5_000;
+export let LOCAL_DEFAULT_CONTEXT_WINDOW = 128_000;
+export let LOCAL_DEFAULT_MAX_TOKENS = 8_192;
 
 export let CONTAINER_IMAGE = 'hybridclaw-agent';
 export let CONTAINER_MEMORY = '512m';
@@ -366,6 +382,22 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   CODEX_MODELS = [...config.codex.models];
   HYBRIDAI_MODELS = [...config.hybridai.models];
   CONFIGURED_MODELS = dedupeStringList([...HYBRIDAI_MODELS, ...CODEX_MODELS]);
+  LOCAL_OLLAMA_ENABLED = config.local.backends.ollama.enabled;
+  LOCAL_OLLAMA_BASE_URL = config.local.backends.ollama.baseUrl;
+  LOCAL_LMSTUDIO_ENABLED = config.local.backends.lmstudio.enabled;
+  LOCAL_LMSTUDIO_BASE_URL = config.local.backends.lmstudio.baseUrl;
+  LOCAL_VLLM_ENABLED = config.local.backends.vllm.enabled;
+  LOCAL_VLLM_BASE_URL = config.local.backends.vllm.baseUrl;
+  LOCAL_VLLM_API_KEY = config.local.backends.vllm.apiKey || '';
+  LOCAL_DISCOVERY_ENABLED = config.local.discovery.enabled;
+  LOCAL_DISCOVERY_INTERVAL_MS = config.local.discovery.intervalMs;
+  LOCAL_DISCOVERY_MAX_MODELS = config.local.discovery.maxModels;
+  LOCAL_DISCOVERY_CONCURRENCY = config.local.discovery.concurrency;
+  LOCAL_HEALTH_CHECK_ENABLED = config.local.healthCheck.enabled;
+  LOCAL_HEALTH_CHECK_INTERVAL_MS = config.local.healthCheck.intervalMs;
+  LOCAL_HEALTH_CHECK_TIMEOUT_MS = config.local.healthCheck.timeoutMs;
+  LOCAL_DEFAULT_CONTEXT_WINDOW = config.local.defaultContextWindow;
+  LOCAL_DEFAULT_MAX_TOKENS = config.local.defaultMaxTokens;
 
   CONTAINER_SANDBOX_MODE = resolveSandboxMode(config);
   CONTAINER_IMAGE = config.container.image;
@@ -378,7 +410,9 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   ADDITIONAL_MOUNTS = config.container.additionalMounts;
   CONTAINER_MAX_OUTPUT_SIZE = config.container.maxOutputBytes;
   MAX_CONCURRENT_CONTAINERS = Math.max(1, config.container.maxConcurrent);
-  MCP_SERVERS = JSON.parse(JSON.stringify(config.mcpServers || {})) as RuntimeConfig['mcpServers'];
+  MCP_SERVERS = JSON.parse(
+    JSON.stringify(config.mcpServers || {}),
+  ) as RuntimeConfig['mcpServers'];
   WEB_SEARCH_PROVIDER = config.web.search.provider;
   WEB_SEARCH_FALLBACK_PROVIDERS = [...config.web.search.fallbackProviders];
   WEB_SEARCH_DEFAULT_COUNT = Math.max(

@@ -44,6 +44,14 @@ import {
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { resolveAgentIdForModel } from '../providers/factory.js';
+import {
+  startDiscoveryLoop,
+  stopDiscoveryLoop,
+} from '../providers/local-discovery.js';
+import {
+  startHealthCheckLoop,
+  stopHealthCheckLoop,
+} from '../providers/local-health.js';
 import { startHeartbeat, stopHeartbeat } from '../scheduler/heartbeat.js';
 import {
   rearmScheduler,
@@ -668,6 +676,8 @@ function setupShutdown(): void {
     });
     stopHeartbeat();
     stopObservabilityIngest();
+    stopDiscoveryLoop();
+    stopHealthCheckLoop();
     stopAllExecutions();
     stopScheduler();
     stopMemoryConsolidationScheduler();
@@ -864,6 +874,8 @@ async function main(): Promise<void> {
 
   startOrRestartHeartbeat();
   startObservabilityIngest();
+  startDiscoveryLoop();
+  startHealthCheckLoop();
   detachConfigListener = onConfigChange((next, prev) => {
     const shouldRestart =
       next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId ||
@@ -907,6 +919,15 @@ async function main(): Promise<void> {
       JSON.stringify(next.observability) !==
         JSON.stringify(prev.observability) ||
       next.hybridai.defaultChatbotId !== prev.hybridai.defaultChatbotId;
+    const localConfigChanged =
+      JSON.stringify(next.local) !== JSON.stringify(prev.local);
+    if (localConfigChanged) {
+      logger.info(
+        'Config changed, restarting local discovery and health loops',
+      );
+      startDiscoveryLoop();
+      startHealthCheckLoop();
+    }
     if (!shouldRestartObservability) return;
 
     logger.info(

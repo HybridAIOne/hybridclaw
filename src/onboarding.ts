@@ -43,6 +43,14 @@ interface OnboardingOptions {
   preferredAuth?: 'hybridai' | 'openai-codex';
 }
 
+function isLocalProvider(
+  provider: ReturnType<typeof resolveModelProvider>,
+): boolean {
+  return (
+    provider === 'ollama' || provider === 'lmstudio' || provider === 'vllm'
+  );
+}
+
 function trustModelDocPath(): string {
   ensureRuntimeInstructionCopies();
   return resolveRuntimeInstructionPath('TRUST_MODEL.md');
@@ -773,14 +781,18 @@ export async function ensureRuntimeCredentials(
   const codexStatus = getCodexAuthStatus();
   const currentModel = runtimeConfig.hybridai.defaultModel.trim();
   const resolvedCurrentProvider = resolveModelProvider(currentModel);
+  const currentProviderIsLocal = isLocalProvider(resolvedCurrentProvider);
   const currentAuth =
     options.preferredAuth ||
     (resolvedCurrentProvider === 'openai-codex' ? 'openai-codex' : 'hybridai');
   const force = options.force === true;
   const securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
-  const hasRequiredCredentials =
-    currentAuth === 'openai-codex' ? codexStatus.authenticated : !!existingKey;
+  const hasRequiredCredentials = currentProviderIsLocal
+    ? true
+    : currentAuth === 'openai-codex'
+      ? codexStatus.authenticated
+      : !!existingKey;
   if (!needsSecurityAcceptance && hasRequiredCredentials) return;
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -818,6 +830,13 @@ export async function ensureRuntimeCredentials(
       );
     }
     await ensureSecurityTrustAcceptance(rl, commandLabel, force);
+
+    if (currentProviderIsLocal && !options.preferredAuth) {
+      printSuccess(
+        'Security trust model accepted and the active model provider is local. No remote credentials are required.',
+      );
+      return;
+    }
 
     if (hasRequiredCredentials && !force) {
       printSuccess(

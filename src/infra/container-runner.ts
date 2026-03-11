@@ -55,6 +55,7 @@ import type {
 import {
   agentWorkspaceDir,
   cleanupIpc,
+  createActivityTracker,
   ensureAgentDirs,
   ensureSessionDirs,
   getSessionPaths,
@@ -68,6 +69,7 @@ import {
   flushCollapsedStreamDebugSummary,
   type StreamDebugState,
 } from './stream-debug.js';
+import { computeWorkerSignature } from './worker-signature.js';
 
 const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
 
@@ -78,9 +80,10 @@ interface PoolEntry {
   startedAt: number;
   stderrBuffer: string;
   streamDebug: StreamDebugState;
-  authSignature: string;
+  workerSignature: string;
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
+  activity?: import('./ipc.js').ActivityTracker;
 }
 
 interface ContainerPathAliasMount {
@@ -95,16 +98,6 @@ const TOOL_RESULT_RE =
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
-
-function computeAuthSignature(
-  apiKey: string,
-  requestHeaders: Record<string, string> | undefined,
-): string {
-  const normalizedHeaders = Object.entries(requestHeaders || {})
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => [key, value]);
-  return JSON.stringify({ apiKey, requestHeaders: normalizedHeaders });
-}
 
 export function collectConfiguredDiscordChannelIds(
   currentChannelId: string,
@@ -439,7 +432,7 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     startedAt: Date.now(),
     stderrBuffer: '',
     streamDebug: createStreamDebugState(),
-    authSignature: '',
+    workerSignature: '',
   };
 
   proc.stderr.on('data', (data) => {
@@ -455,10 +448,12 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
           logger.debug({ container: containerName }, message);
         })
       ) {
+        entry.activity?.notify();
         continue;
       }
       logger.debug({ container: containerName }, line);
       emitToolProgress(entry, line);
+      entry.activity?.notify();
     }
   });
 
@@ -542,6 +537,9 @@ export async function runContainer(
     baseUrl: remapHostBaseUrlForContainer(modelRuntime.baseUrl),
     provider: modelRuntime.provider,
     requestHeaders: modelRuntime.requestHeaders,
+    isLocal: modelRuntime.isLocal,
+    contextWindow: modelRuntime.contextWindow,
+    thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_BASE_URL),
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     model,
@@ -571,16 +569,24 @@ export async function runContainer(
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     },
   };
-  const authSignature = computeAuthSignature(
-    input.apiKey,
-    input.requestHeaders,
-  );
+  const workerSignature = computeWorkerSignature({
+    agentId,
+    provider: input.provider,
+    baseUrl: input.baseUrl,
+    apiKey: input.apiKey,
+    requestHeaders: input.requestHeaders,
+  });
 
   const existingEntry = pool.get(sessionId);
-  if (existingEntry && existingEntry.authSignature !== authSignature) {
+  if (existingEntry && existingEntry.workerSignature !== workerSignature) {
     logger.info(
-      { sessionId, containerName: existingEntry.containerName },
-      'Model auth changed; restarting persistent container',
+      {
+        sessionId,
+        containerName: existingEntry.containerName,
+        agentId,
+        provider: input.provider,
+      },
+      'Worker routing changed; restarting persistent container',
     );
     stopContainer(existingEntry.containerName);
     pool.delete(sessionId);
@@ -602,9 +608,11 @@ export async function runContainer(
       error: `Container spawn error: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  entry.authSignature = authSignature;
+  const activity = createActivityTracker();
+  entry.workerSignature = workerSignature;
   entry.onTextDelta = onTextDelta;
   entry.onToolProgress = onToolProgress;
+  entry.activity = activity;
   const onAbort = () => {
     logger.info(
       { sessionId, containerName: entry.containerName },
@@ -631,6 +639,7 @@ export async function runContainer(
     // Wait for the container to produce output
     const output = await readOutput(sessionId, CONTAINER_TIMEOUT, {
       signal: abortSignal,
+      activity,
     });
     remapOutputArtifacts(output, workspacePath);
     const duration = Date.now() - startTime;
@@ -658,6 +667,7 @@ export async function runContainer(
     if (entry.onToolProgress === onToolProgress) {
       entry.onToolProgress = undefined;
     }
+    entry.activity = undefined;
   }
 }
 

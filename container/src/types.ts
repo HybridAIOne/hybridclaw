@@ -97,8 +97,11 @@ export interface ContainerInput {
   enableRag: boolean;
   apiKey: string;
   baseUrl: string;
-  provider?: 'hybridai' | 'openai-codex';
+  provider?: 'hybridai' | 'openai-codex' | 'ollama' | 'lmstudio' | 'vllm';
   requestHeaders?: Record<string, string>;
+  isLocal?: boolean;
+  contextWindow?: number;
+  thinkingFormat?: 'qwen';
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
   model: string;

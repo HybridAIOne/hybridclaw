@@ -58,6 +58,13 @@ test('shouldDebounceInbound skips media and control commands', () => {
       isPrefixedCommand: false,
     }),
   ).toBe(false);
+  expect(
+    shouldDebounceInbound({
+      content: '/reset',
+      hasAttachments: false,
+      isPrefixedCommand: false,
+    }),
+  ).toBe(false);
 });
 
 test('resolveInboundDebounceMs uses channel override when provided', () => {

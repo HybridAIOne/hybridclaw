@@ -135,6 +135,63 @@ Runtime diagnostics:
 
 - `GET /api/status` returns an `observability` status block.
 
+## Local LLM Providers
+
+HybridClaw can route agent turns to locally running LLM servers instead of
+(or alongside) cloud providers. Three backends are supported:
+
+- **Ollama** — default base URL `http://127.0.0.1:11434`
+- **LM Studio** — default base URL `http://127.0.0.1:1234/v1`
+- **vLLM** — default base URL `http://127.0.0.1:8000/v1`
+
+Enable and configure a backend with:
+
+```bash
+hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw local status
+```
+
+Runtime details:
+
+- Configuration is stored in `~/.hybridclaw/config.json` under `local.*`.
+- Each backend gets its own `enabled` flag and `baseUrl`.
+- Local models are prefixed with the backend name (e.g. `lmstudio/qwen/qwen3.5-9b`,
+  `ollama/llama3`).
+- The gateway discovers running backends at startup and exposes reachable
+  models in `gateway status` and the TUI/Discord model picker.
+- Each local provider gets its own agent workspace at
+  `~/.hybridclaw/data/agents/<agentId>/workspace/`. Agent IDs are derived
+  from the backend name (e.g. `lmstudio`, `ollama`).
+- Local backends should be used with `--sandbox=host` since there is no
+  need to route local traffic through Docker networking.
+
+Container-side adaptations for local models:
+
+- **Thinking extraction**: `<think>...</think>` blocks (used by Qwen and
+  similar reasoning models) are stripped from visible output and logged
+  separately.
+- **Tool-call normalization**: XML-style `<tool_call>` tags and malformed
+  JSON tool calls from smaller models are parsed, repaired, and normalized
+  into the standard OpenAI tool-call format.
+
+## Activity-Based Agent Timeout
+
+The IPC read timeout (default `CONTAINER_TIMEOUT = 300_000 ms`) now supports
+activity-based deadline extension:
+
+- An `ActivityTracker` is created per agent turn and passed to `readOutput()`.
+- The host runner (and container runner) call `activity.notify()` whenever
+  agent stderr shows progress — text deltas, tool execution output, or
+  stream debug lines.
+- Each `notify()` call resets the timeout deadline, so a slow model making
+  steady progress is never killed prematurely.
+- If the agent goes silent for the full timeout window, the turn is aborted
+  with a timeout error.
+
+This is particularly important for local models that may take 30+ seconds
+per iteration and easily exceed a fixed 5-minute wall clock over multiple
+tool-call rounds.
+
 ## Agent Tool And Runtime Internals
 
 Container-side sandboxed tool families:

@@ -56,6 +56,29 @@ async function importFreshCli(options?: {
   const runUpdateCommand = vi.fn();
   const ensureRuntimeCredentials = vi.fn();
   const ensureContainerImageReady = vi.fn();
+  const ensureRuntimeConfigFile = vi.fn(() => false);
+  const getRuntimeConfig = vi.fn(() => ({
+    hybridai: { defaultModel: 'gpt-5-nano' },
+    local: {
+      backends: {
+        ollama: { enabled: true, baseUrl: 'http://127.0.0.1:11434' },
+        lmstudio: { enabled: false, baseUrl: 'http://127.0.0.1:1234/v1' },
+        vllm: {
+          enabled: false,
+          baseUrl: 'http://127.0.0.1:8000/v1',
+          apiKey: '',
+        },
+      },
+    },
+  }));
+  const runtimeConfigPath = vi.fn(() => '/tmp/config.json');
+  const updateRuntimeConfig = vi.fn(
+    (mutator: (draft: Record<string, unknown>) => void) => {
+      const draft = getRuntimeConfig();
+      mutator(draft);
+      return draft;
+    },
+  );
   const gatewayHealth = vi.fn(async () => {
     if (!options?.gatewayReachable) {
       throw new Error('gateway unavailable');
@@ -103,6 +126,7 @@ async function importFreshCli(options?: {
     loginHybridAIInteractive,
   }));
   vi.doMock('../src/auth/codex-auth.ts', () => ({
+    CODEX_DEFAULT_BASE_URL: 'https://chatgpt.com/backend-api/codex',
     CodexAuthError,
     clearCodexCredentials: vi.fn(),
     getCodexAuthStatus: vi.fn(() => ({
@@ -131,6 +155,12 @@ async function importFreshCli(options?: {
     MissingRequiredEnvVarError,
     getResolvedSandboxMode: vi.fn(() => options?.sandboxMode || 'host'),
     setSandboxModeOverride: vi.fn(),
+  }));
+  vi.doMock('../src/config/runtime-config.ts', () => ({
+    ensureRuntimeConfigFile,
+    getRuntimeConfig,
+    runtimeConfigPath,
+    updateRuntimeConfig,
   }));
   vi.doMock('../src/gateway/gateway-client.ts', () => ({
     gatewayHealth,
@@ -176,6 +206,10 @@ async function importFreshCli(options?: {
     runUpdateCommand,
     ensureRuntimeCredentials,
     ensureContainerImageReady,
+    ensureRuntimeConfigFile,
+    getRuntimeConfig,
+    runtimeConfigPath,
+    updateRuntimeConfig,
     gatewayHealth,
     gatewayStatus,
     tuiModuleLoaded,
@@ -188,6 +222,7 @@ afterEach(() => {
   vi.doUnmock('../src/auth/codex-auth.ts');
   vi.doUnmock('../src/config/cli-flags.ts');
   vi.doUnmock('../src/config/config.ts');
+  vi.doUnmock('../src/config/runtime-config.ts');
   vi.doUnmock('../src/gateway/gateway-client.ts');
   vi.doUnmock('../src/infra/container-setup.ts');
   vi.doUnmock('../src/onboarding.ts');
@@ -379,10 +414,7 @@ describe('CLI hybridai commands', () => {
     fs.symlinkSync(cliPath, linkPath);
 
     expect(
-      cli.isDirectExecution(
-        linkPath,
-        pathToFileURL(cliPath).toString(),
-      ),
+      cli.isDirectExecution(linkPath, pathToFileURL(cliPath).toString()),
     ).toBe(true);
   });
 });

@@ -1,0 +1,63 @@
+import {
+  LOCAL_DEFAULT_CONTEXT_WINDOW,
+  LOCAL_OLLAMA_BASE_URL,
+} from '../config/config.js';
+import {
+  getLocalModelInfo,
+  resolveLocalModelThinkingFormat,
+  resolveOllamaApiBase,
+} from './local-discovery.js';
+import type {
+  AIProvider,
+  ResolvedModelRuntimeCredentials,
+  ResolveProviderRuntimeParams,
+} from './types.js';
+
+const OLLAMA_MODEL_PREFIX = 'ollama/';
+
+function normalizeOllamaModelName(model: string): string {
+  const trimmed = String(model || '').trim();
+  if (!trimmed.toLowerCase().startsWith(OLLAMA_MODEL_PREFIX)) return trimmed;
+  return trimmed.slice(OLLAMA_MODEL_PREFIX.length) || trimmed;
+}
+
+function resolveOllamaAgentId(): string {
+  return 'ollama';
+}
+
+async function resolveOllamaRuntimeCredentials(
+  params: ResolveProviderRuntimeParams,
+): Promise<ResolvedModelRuntimeCredentials> {
+  const modelName = normalizeOllamaModelName(params.model);
+  const modelInfo =
+    getLocalModelInfo(params.model) || getLocalModelInfo(modelName);
+  return {
+    provider: 'ollama',
+    apiKey: '',
+    baseUrl: resolveOllamaApiBase(LOCAL_OLLAMA_BASE_URL),
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: resolveOllamaAgentId(),
+    isLocal: true,
+    contextWindow: modelInfo?.contextWindow ?? LOCAL_DEFAULT_CONTEXT_WINDOW,
+    thinkingFormat:
+      modelInfo?.thinkingFormat ||
+      resolveLocalModelThinkingFormat(params.model) ||
+      resolveLocalModelThinkingFormat(modelName) ||
+      undefined,
+  };
+}
+
+export const ollamaProvider: AIProvider = {
+  id: 'ollama',
+  matchesModel(model: string): boolean {
+    const normalized = String(model || '').trim();
+    if (!normalized) return false;
+    if (normalized.toLowerCase().startsWith(OLLAMA_MODEL_PREFIX)) return true;
+    return getLocalModelInfo(normalized)?.backend === 'ollama';
+  },
+  requiresChatbotId: () => false,
+  resolveAgentId: resolveOllamaAgentId,
+  resolveRuntimeCredentials: resolveOllamaRuntimeCredentials,
+};

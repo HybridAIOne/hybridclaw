@@ -5,7 +5,11 @@ const { DOMParser } = require('linkedom');
 const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8"?>';
 
 function localName(tagName) {
-  return String(tagName || '').split(':').pop() || '';
+  return (
+    String(tagName || '')
+      .split(':')
+      .pop() || ''
+  );
 }
 
 function needsSpacePreserve(text) {
@@ -61,7 +65,9 @@ function escapeAttribute(value) {
 
 function serializeAttributes(node) {
   return Array.from(node.attributes || [])
-    .map((attribute) => ` ${attribute.name}="${escapeAttribute(attribute.value)}"`)
+    .map(
+      (attribute) => ` ${attribute.name}="${escapeAttribute(attribute.value)}"`,
+    )
     .join('');
 }
 
@@ -85,7 +91,10 @@ function serializePrettyNode(node, level = 0) {
   const hasElementChild = children.some((child) => child.nodeType === 1);
 
   // Preserve leaf text and mixed-content nodes exactly as parsed.
-  if (hasSignificantTextChild || (textChildren.length > 0 && !hasElementChild)) {
+  if (
+    hasSignificantTextChild ||
+    (textChildren.length > 0 && !hasElementChild)
+  ) {
     return `${indent}${node.toString()}`;
   }
 
@@ -120,7 +129,9 @@ function normalizeDeclaration(serialized) {
 }
 
 function parseXml(payload) {
-  const source = Buffer.isBuffer(payload) ? payload.toString('utf8') : String(payload);
+  const source = Buffer.isBuffer(payload)
+    ? payload.toString('utf8')
+    : String(payload);
   return new DOMParser().parseFromString(source, 'text/xml');
 }
 

@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Local LLM provider support**: Added Ollama, LM Studio, and vLLM as local
+  backends with auto-discovery of running instances, health monitoring, model
+  catalog management, thinking extraction, and tool-call normalization for
+  small local models.
+- **Activity-based agent timeout**: The IPC read timeout now resets on agent
+  activity (text deltas, tool progress) instead of using a fixed wall clock,
+  so slow local models making steady progress are not killed prematurely.
+
+### Fixed
+
+- **Host sandbox `/workspace` references**: System prompt skill locations and
+  tool guidance now use real filesystem paths when `sandbox=host` instead of
+  the container-only `/workspace` mount path that does not exist on the host.
+- **Misleading timeout error message**: Changed "Timeout waiting for container
+  output" to "Timeout waiting for agent output" since the same IPC mechanism
+  is used by both host and container runners.
+
 ## [0.5.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.5.0)
 
 ### Added

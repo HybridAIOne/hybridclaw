@@ -83,7 +83,9 @@ describe('buildAttachmentContext', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.context).toContain('[Attachments]');
-    expect(result.context).toContain('financials.xlsx: office attachment cached');
+    expect(result.context).toContain(
+      'financials.xlsx: office attachment cached',
+    );
     expect(result.media).toHaveLength(1);
     expect(result.media[0]).toMatchObject({
       filename: 'financials.xlsx',

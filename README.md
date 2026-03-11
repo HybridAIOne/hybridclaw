@@ -152,6 +152,76 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
 - For contributor workflow, see [CONTRIBUTING.md](./CONTRIBUTING.md). For deeper runtime, skills, release, and maintainer reference docs, see [docs/development/README.md](./docs/development/README.md).
 
+## LM Studio Quickstart
+
+If LM Studio is running locally and serving `qwen/qwen3.5-9b` on
+`http://127.0.0.1:1234`, use this setup:
+
+1. Configure HybridClaw for LM Studio:
+
+```bash
+hybridclaw local configure lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234
+```
+
+This enables local providers, enables the LM Studio backend, normalizes the
+URL to `http://127.0.0.1:1234/v1`, and sets the default model to
+`lmstudio/qwen/qwen3.5-9b`.
+
+2. Restart the gateway in host sandbox mode:
+
+```bash
+hybridclaw gateway restart --foreground --sandbox=host
+```
+
+If the gateway is not running yet, use:
+
+```bash
+hybridclaw gateway start --foreground --sandbox=host
+```
+
+3. Check that HybridClaw can see LM Studio:
+
+```bash
+hybridclaw gateway status
+```
+
+Look for `localBackends.lmstudio.reachable: true`.
+
+4. Start the TUI:
+
+```bash
+hybridclaw tui
+```
+
+In the TUI, run:
+
+```text
+/model list
+/model set lmstudio/qwen/qwen3.5-9b
+/model info
+```
+
+Then send a normal prompt.
+
+If you want to configure the backend without changing your global default model,
+use:
+
+```bash
+hybridclaw local configure lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234 --no-default
+```
+
+Notes:
+
+- LM Studio often shows its server as `http://127.0.0.1:1234`, but HybridClaw
+  should be configured with `http://127.0.0.1:1234/v1`.
+- Qwen models on LM Studio use the OpenAI-compatible `/v1` API with Qwen tool
+  and thinking compatibility enabled automatically.
+- For agent mode, load at least `16k` context in LM Studio. `32k` is the safer
+  default for longer sessions and tool use.
+- The TUI `/model` picker and Discord `/model` slash command choices are built
+  from the live gateway model list, so restart the gateway after enabling a new
+  local backend or loading a different local model.
+
 ## TUI MCP Quickstart
 
 For stdio MCP servers that use host binaries such as `docker`, `node`, or
@@ -237,6 +307,8 @@ CLI runtime commands:
 - `hybridclaw gateway compact` — Archive older session history into semantic memory while preserving a recent active context tail
 - `hybridclaw tui` — Start terminal client connected to gateway
 - `hybridclaw onboarding` — Run HybridAI account/API key onboarding
+- `hybridclaw local status` — Show current local backend config and default model
+- `hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]` — Enable and configure a local backend
 - `hybridclaw hybridai login [--device-code|--browser|--import]` — Store HybridAI API credentials via browser-assisted, headless/manual, or env-import flows
 - `hybridclaw hybridai status` — Show stored HybridAI auth state, token mask, and source
 - `hybridclaw hybridai logout` — Clear stored HybridAI credentials

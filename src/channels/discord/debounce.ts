@@ -1,4 +1,4 @@
-const CONTROL_COMMAND_RE = /^\/(stop|pause|clear|cancel|resume)\b/i;
+const CONTROL_COMMAND_RE = /^\/(stop|pause|clear|reset|cancel|resume)\b/i;
 
 export const DEFAULT_DEBOUNCE_MS = 2_500;
 export const DEFAULT_DEBOUNCE_MAX_BUFFER = 5;

@@ -176,6 +176,15 @@ test('parseCommand recognizes slash-text status command namespace', () => {
   });
 });
 
+test('parseCommand recognizes slash-text reset command namespace', () => {
+  const parsed = parseCommand('/reset yes', null, '!claw');
+  expect(parsed).toEqual({
+    isCommand: true,
+    command: 'reset',
+    args: ['yes'],
+  });
+});
+
 test('isTrigger commands-only allows slash-text commands', () => {
   const shouldTrigger = isTrigger({
     content: '/status',

@@ -102,11 +102,21 @@ describe('office bundled skills', () => {
     const workspaceDir = agentWorkspaceDir('office-agent');
 
     expect(skills.find((skill) => skill.name === 'pdf')?.location).toBe(
-      '/workspace/skills/pdf/SKILL.md',
+      'skills/pdf/SKILL.md',
     );
     expect(skills.find((skill) => skill.name === 'office')?.location).toBe(
-      '/workspace/skills/office/SKILL.md',
+      'skills/office/SKILL.md',
     );
+    expect(
+      fs
+        .readFileSync(
+          path.join(workspaceDir, 'skills', 'xlsx', 'SKILL.md'),
+          'utf8',
+        )
+        .includes(
+          'Put new helper scripts in workspace `scripts/` or the workspace root',
+        ),
+    ).toBe(true);
     expect(
       fs.existsSync(
         path.join(

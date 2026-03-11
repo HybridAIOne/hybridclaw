@@ -212,7 +212,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(second.tier).toBe('yellow');
   });
 
-  test('approval prompt lists options in 1/2/3/4 order for non-pinned actions', () => {
+  test('approval prompt lists text approval options in order for non-pinned actions', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
@@ -226,14 +226,14 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(evaluation.pinned).toBe(false);
 
     const prompt = runtime.formatApprovalRequest(evaluation);
-    const onceIdx = prompt.indexOf('Reply `yes` (or `1`) to approve once.');
+    const onceIdx = prompt.indexOf('Reply `yes` to approve once.');
     const sessionIdx = prompt.indexOf(
-      'Reply `yes for session` (or `2`) to trust this action for this session.',
+      'Reply `yes for session` to trust this action for this session.',
     );
     const agentIdx = prompt.indexOf(
-      'Reply `yes for agent` (or `3`) to trust it for this agent.',
+      'Reply `yes for agent` to trust it for this agent.',
     );
-    const denyIdx = prompt.indexOf('Reply `no` (or `4`) to deny.');
+    const denyIdx = prompt.indexOf('Reply `no` to deny.');
 
     expect(onceIdx).toBeGreaterThanOrEqual(0);
     expect(sessionIdx).toBeGreaterThan(onceIdx);
@@ -256,14 +256,14 @@ describe('TrustedCoworkerApprovalRuntime', () => {
 
     const prompt = runtime.formatApprovalRequest(evaluation);
     expect(prompt).toContain(
-      'Reply `yes for session` (or `2`) is unavailable for pinned-sensitive actions.',
+      'Reply `yes for session` is unavailable for pinned-sensitive actions.',
     );
     expect(prompt).toContain(
-      'Reply `yes for agent` (or `3`) is unavailable for pinned-sensitive actions.',
+      'Reply `yes for agent` is unavailable for pinned-sensitive actions.',
     );
   });
 
-  test('approval parser accepts wrapped Discord batch reply "Message 1: 3"', () => {
+  test('approval parser accepts wrapped Discord batch reply "Message 1: yes for agent"', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
@@ -282,7 +282,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
       '- Channel: #chat',
       '',
       'Message 1:',
-      '3',
+      'yes for agent',
     ].join('\n');
     const prelude = runtime.handleApprovalResponse([userMessage(wrappedReply)]);
     expect(prelude?.approvalMode).toBe('agent');
@@ -407,7 +407,9 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(first.decision).toBe('required');
     expect(first.pinned).toBe(true);
 
-    const prelude = runtime.handleApprovalResponse([userMessage('3')]);
+    const prelude = runtime.handleApprovalResponse([
+      userMessage('yes for agent'),
+    ]);
     expect(prelude?.approvalMode).toBe('once');
 
     const second = runtime.evaluateToolCall({

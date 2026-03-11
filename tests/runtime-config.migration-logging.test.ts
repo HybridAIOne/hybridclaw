@@ -83,7 +83,7 @@ describe('runtime config migration logging', () => {
 
     expect(
       infoSpy.mock.calls.some(([message]) =>
-        String(message).includes('normalized config schema v8'),
+        String(message).includes('normalized config schema v9'),
       ),
     ).toBe(false);
   });
@@ -99,7 +99,7 @@ describe('runtime config migration logging', () => {
 
     expect(
       infoSpy.mock.calls.some(([message]) =>
-        String(message).includes('normalized config schema v8'),
+        String(message).includes('normalized config schema v9'),
       ),
     ).toBe(true);
   });

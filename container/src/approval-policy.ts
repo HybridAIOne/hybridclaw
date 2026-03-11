@@ -152,7 +152,6 @@ const HOST_RE =
 const APPROVE_RE =
   /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|always|for\s+agent|agent))?$/i;
 const DENY_RE = /^(?:\/?(?:deny|reject|skip|no|n))(?:\s+([a-f0-9-]{6,64}))?$/i;
-const MENU_SELECTION_RE = /^([1-4])(?:\s+([a-f0-9-]{6,64}))?$/i;
 
 function normalizeText(value: unknown): string {
   return String(value || '')
@@ -693,19 +692,6 @@ function parseApprovalDirective(input: string): {
 
   for (const candidate of directiveCandidates) {
     if (!candidate) continue;
-    const menuMatch = candidate.match(MENU_SELECTION_RE);
-    if (menuMatch) {
-      const requestId = String(menuMatch[2] || '').trim();
-      const selection = menuMatch[1];
-      if (selection === '1')
-        return { kind: 'approve', mode: 'once', requestId };
-      if (selection === '2')
-        return { kind: 'approve', mode: 'session', requestId };
-      if (selection === '3')
-        return { kind: 'approve', mode: 'agent', requestId };
-      return { kind: 'deny', requestId };
-    }
-
     const approveMatch = candidate.match(APPROVE_RE);
     if (approveMatch) {
       return {
@@ -1122,16 +1108,16 @@ export class TrustedCoworkerApprovalRuntime {
       : '';
     const optionLines = evaluation.pinned
       ? [
-          'Reply `yes` (or `1`) to approve once.',
-          'Reply `yes for session` (or `2`) is unavailable for pinned-sensitive actions.',
-          'Reply `yes for agent` (or `3`) is unavailable for pinned-sensitive actions.',
-          'Reply `no` (or `4`) to deny.',
+          'Reply `yes` to approve once.',
+          'Reply `yes for session` is unavailable for pinned-sensitive actions.',
+          'Reply `yes for agent` is unavailable for pinned-sensitive actions.',
+          'Reply `no` to deny.',
         ]
       : [
-          'Reply `yes` (or `1`) to approve once.',
-          'Reply `yes for session` (or `2`) to trust this action for this session.',
-          'Reply `yes for agent` (or `3`) to trust it for this agent.',
-          'Reply `no` (or `4`) to deny.',
+          'Reply `yes` to approve once.',
+          'Reply `yes for session` to trust this action for this session.',
+          'Reply `yes for agent` to trust it for this agent.',
+          'Reply `no` to deny.',
         ];
     return [
       `I need your approval before I ${evaluation.intent.toLowerCase()}.`,

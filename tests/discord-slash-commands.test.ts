@@ -28,6 +28,9 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
     { name: 'gpt-5', value: 'gpt-5' },
   ]);
   const names = new Set(definitions.map((definition) => definition.name));
+  const modelDefinition = definitions.find(
+    (definition) => definition.name === 'model',
+  );
 
   expect(names).toEqual(
     new Set([
@@ -43,6 +46,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
       'ralph',
       'mcp',
       'clear',
+      'reset',
       'usage',
       'export',
       'sessions',
@@ -69,6 +73,11 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
         ]),
     ),
   ).toBe(true);
+  expect(
+    modelDefinition?.options
+      ?.map((option) => ('name' in option ? option.name : ''))
+      .filter(Boolean),
+  ).toEqual(['info', 'list', 'set', 'default']);
 });
 
 test('parseSlashInteractionArgs maps bot set interactions to command args', () => {
@@ -81,6 +90,40 @@ test('parseSlashInteractionArgs maps bot set interactions to command args', () =
   );
 
   expect(args).toEqual(['bot', 'set', 'mybot']);
+});
+
+test('parseSlashInteractionArgs maps model list, set, and default interactions', () => {
+  const listArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'model',
+      subcommand: 'list',
+    }) as never,
+  );
+  const setArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'model',
+      subcommand: 'set',
+      strings: { name: 'lmstudio/qwen/qwen3.5-9b' },
+    }) as never,
+  );
+  const defaultArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'model',
+      subcommand: 'default',
+      strings: {},
+    }) as never,
+  );
+  const infoArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'model',
+      subcommand: 'info',
+    }) as never,
+  );
+
+  expect(listArgs).toEqual(['model', 'list']);
+  expect(setArgs).toEqual(['model', 'set', 'lmstudio/qwen/qwen3.5-9b']);
+  expect(defaultArgs).toEqual(['model', 'default']);
+  expect(infoArgs).toEqual(['model', 'info']);
 });
 
 test('parseSlashInteractionArgs preserves quoted schedule add specs', () => {
@@ -113,6 +156,21 @@ test('parseSlashInteractionArgs maps usage model filters and export defaults', (
   expect(exportArgs).toEqual(['export', 'session']);
 });
 
+test('parseSlashInteractionArgs maps usage model window filters', () => {
+  const usageArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'usage',
+      strings: {
+        view: 'model',
+        window: 'daily',
+        agent_id: 'agent-42',
+      },
+    }) as never,
+  );
+
+  expect(usageArgs).toEqual(['usage', 'model', 'daily', 'agent-42']);
+});
+
 test('parseSlashInteractionArgs maps approval and mcp add interactions to command args', () => {
   const approveArgs = parseSlashInteractionArgs(
     makeInteraction({
@@ -139,6 +197,31 @@ test('parseSlashInteractionArgs maps approval and mcp add interactions to comman
     'github',
     '{"transport":"stdio","command":"docker","args":["run","-i","--rm","ghcr.io/github/github-mcp-server"]}',
   ]);
+});
+
+test('parseSlashInteractionArgs maps reset interactions to command args', () => {
+  const promptArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'reset',
+      strings: {},
+    }) as never,
+  );
+  const confirmArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'reset',
+      strings: { confirm: 'yes' },
+    }) as never,
+  );
+  const cancelArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'reset',
+      strings: { confirm: 'no' },
+    }) as never,
+  );
+
+  expect(promptArgs).toEqual(['reset']);
+  expect(confirmArgs).toEqual(['reset', 'yes']);
+  expect(cancelArgs).toEqual(['reset', 'no']);
 });
 
 test('slash commands parse in DMs and guilds the same way', () => {

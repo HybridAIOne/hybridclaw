@@ -3,6 +3,14 @@ import {
   callHybridAIProviderStream,
 } from './providers/hybridai.js';
 import {
+  callOllamaProvider,
+  callOllamaProviderStream,
+} from './providers/local-ollama.js';
+import {
+  callLocalOpenAICompatProvider,
+  callLocalOpenAICompatProviderStream,
+} from './providers/local-openai-compat.js';
+import {
   callOpenAICodexProvider,
   callOpenAICodexProviderStream,
 } from './providers/openai-codex.js';
@@ -25,6 +33,12 @@ export async function callHybridAI(
   if (args.provider === 'openai-codex') {
     return callOpenAICodexProvider(args);
   }
+  if (args.provider === 'ollama') {
+    return callOllamaProvider(args);
+  }
+  if (args.provider === 'lmstudio' || args.provider === 'vllm') {
+    return callLocalOpenAICompatProvider(args);
+  }
   return callHybridAIProvider(args);
 }
 
@@ -38,6 +52,12 @@ export async function callHybridAIStream(
   const args = normalizeStreamCallArgs(rawArgs);
   if (args.provider === 'openai-codex') {
     return callOpenAICodexProviderStream(args);
+  }
+  if (args.provider === 'ollama') {
+    return callOllamaProviderStream(args);
+  }
+  if (args.provider === 'lmstudio' || args.provider === 'vllm') {
+    return callLocalOpenAICompatProviderStream(args);
   }
   return callHybridAIProviderStream(args);
 }

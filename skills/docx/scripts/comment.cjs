@@ -12,10 +12,8 @@ const {
   writeXmlFile,
 } = require('../../office/xml.cjs');
 
-const WORD_NS =
-  'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
-const REL_NS =
-  'http://schemas.openxmlformats.org/package/2006/relationships';
+const WORD_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
 
 const COMMENTS_REL_TYPE =
   'http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments';
@@ -81,7 +79,9 @@ function ensureCommentsRelationship(docxDir) {
     (node) => node.tagName === 'Relationship',
   );
   if (
-    relationships.some((relationship) => relationship.getAttribute('Type') === COMMENTS_REL_TYPE)
+    relationships.some(
+      (relationship) => relationship.getAttribute('Type') === COMMENTS_REL_TYPE,
+    )
   ) {
     writeXmlFile(relsPath, document, { pretty: true });
     return;
@@ -92,7 +92,9 @@ function ensureCommentsRelationship(docxDir) {
       const currentId = String(relationship.getAttribute('Id') || '');
       if (!currentId.startsWith('rId')) return maxId;
       const numericPart = Number.parseInt(currentId.slice(3), 10);
-      return Number.isFinite(numericPart) ? Math.max(maxId, numericPart) : maxId;
+      return Number.isFinite(numericPart)
+        ? Math.max(maxId, numericPart)
+        : maxId;
     }, 0) + 1;
 
   const relationship = document.createElement('Relationship');
@@ -107,10 +109,15 @@ function ensureCommentsContentType(docxDir) {
   const contentTypesPath = path.join(docxDir, '[Content_Types].xml');
   const document = parseXmlFile(contentTypesPath);
   const root = document.documentElement;
-  const overrides = collectElements(root, (node) => node.tagName === 'Override');
+  const overrides = collectElements(
+    root,
+    (node) => node.tagName === 'Override',
+  );
 
   if (
-    overrides.some((override) => override.getAttribute('PartName') === '/word/comments.xml')
+    overrides.some(
+      (override) => override.getAttribute('PartName') === '/word/comments.xml',
+    )
   ) {
     writeXmlFile(contentTypesPath, document, { pretty: true });
     return;
@@ -125,13 +132,13 @@ function ensureCommentsContentType(docxDir) {
 
 function nextCommentId(commentsRoot) {
   return (
-    collectElements(commentsRoot, (node) => node.tagName === 'w:comment').reduce(
-      (maxId, node) => {
-        const value = Number.parseInt(node.getAttribute('w:id') || '', 10);
-        return Number.isFinite(value) ? Math.max(maxId, value) : maxId;
-      },
-      -1,
-    ) + 1
+    collectElements(
+      commentsRoot,
+      (node) => node.tagName === 'w:comment',
+    ).reduce((maxId, node) => {
+      const value = Number.parseInt(node.getAttribute('w:id') || '', 10);
+      return Number.isFinite(value) ? Math.max(maxId, value) : maxId;
+    }, -1) + 1
   );
 }
 
@@ -173,7 +180,10 @@ function buildReferenceRun(document, commentId) {
 
 function locateTextRun(documentRoot, matchText, occurrence) {
   let matchesSeen = 0;
-  const textNodes = collectElements(documentRoot, (node) => node.tagName === 'w:t');
+  const textNodes = collectElements(
+    documentRoot,
+    (node) => node.tagName === 'w:t',
+  );
   for (const textNode of textNodes) {
     const textValue = textNode.textContent || '';
     let start = textValue.indexOf(matchText);
@@ -275,7 +285,13 @@ function parseArgs(argv) {
       continue;
     }
     if (
-      ['--match', '--comment', '--occurrence', '--author', '--initials'].includes(arg) &&
+      [
+        '--match',
+        '--comment',
+        '--occurrence',
+        '--author',
+        '--initials',
+      ].includes(arg) &&
       args[index + 1]
     ) {
       const value = args[index + 1];
@@ -370,9 +386,13 @@ function main() {
     ensureCommentsRelationship(options.docxDir);
     ensureCommentsContentType(options.docxDir);
     writeXmlFile(documentPath, documentTree, { pretty: true });
-    writeXmlFile(path.join(options.docxDir, 'word', 'comments.xml'), commentsTree, {
-      pretty: true,
-    });
+    writeXmlFile(
+      path.join(options.docxDir, 'word', 'comments.xml'),
+      commentsTree,
+      {
+        pretty: true,
+      },
+    );
 
     emit(
       {

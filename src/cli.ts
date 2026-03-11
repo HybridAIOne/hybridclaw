@@ -29,7 +29,14 @@ import {
   MissingRequiredEnvVarError,
   setSandboxModeOverride,
 } from './config/config.js';
+import {
+  ensureRuntimeConfigFile,
+  getRuntimeConfig,
+  runtimeConfigPath,
+  updateRuntimeConfig,
+} from './config/runtime-config.js';
 import { ensureRuntimeCredentials } from './onboarding.js';
+import type { LocalBackendType } from './providers/local-types.js';
 import { runtimeSecretsPath } from './security/runtime-secrets.js';
 import { printUpdateUsage, runUpdateCommand } from './update.js';
 
@@ -265,6 +272,7 @@ function printMainUsage(): void {
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
+  local      Configure local model backends (Ollama, LM Studio, vLLM)
   hybridai   Manage HybridAI API-key login/logout/status
   codex      Manage OpenAI Codex OAuth login/logout/status
   skill      List skill dependency installers or run one
@@ -287,6 +295,7 @@ Commands:
   hybridclaw gateway status
   hybridclaw gateway sessions
   hybridclaw gateway bot info
+  hybridclaw gateway reset [yes|no]
   hybridclaw gateway <discord-style command ...>`);
 }
 
@@ -301,7 +310,7 @@ Interactive slash commands inside TUI:
   /model default [name]
   /rag [on|off]   /mcp list        /mcp add <name> <json>
   /mcp toggle <name> /mcp remove <name> /mcp reconnect <name>
-  /info            /compact   /clear
+  /info            /compact   /clear   /reset [yes|no]
   /stop           /exit`);
 }
 
@@ -313,6 +322,25 @@ Runs the HybridClaw onboarding flow:
   2) auth provider selection
   3) HybridAI API key setup or OpenAI Codex OAuth login
   4) default model/bot persistence`);
+}
+
+function printLocalUsage(): void {
+  console.log(`Usage: hybridclaw local <command>
+
+Commands:
+  hybridclaw local status
+  hybridclaw local configure <ollama|lmstudio|vllm> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]
+
+Examples:
+  hybridclaw local configure lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234
+  hybridclaw local configure ollama llama3.2
+  hybridclaw local configure vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
+
+Notes:
+  - LM Studio and vLLM URLs are normalized to include \`/v1\`.
+  - Ollama URLs are normalized to omit \`/v1\`.
+  - By default, \`configure\` also sets \`hybridai.defaultModel\` to the chosen local model.
+    Use \`--no-default\` to leave the global default model unchanged.`);
 }
 
 function printCodexUsage(): void {
@@ -370,6 +398,7 @@ Topics:
   gateway     Help for gateway lifecycle and passthrough commands
   tui         Help for terminal client
   onboarding  Help for onboarding flow
+  local       Help for local model configuration commands
   hybridai    Help for HybridAI API-key auth commands
   codex       Help for OpenAI Codex auth commands
   skill       Help for skill installer commands
@@ -394,6 +423,9 @@ function printHelpTopic(topic: string): boolean {
       return true;
     case 'onboarding':
       printOnboardingUsage();
+      return true;
+    case 'local':
+      printLocalUsage();
       return true;
     case 'hybridai':
       printHybridAIUsage();
@@ -991,6 +1023,207 @@ function parseHybridAILoginMethod(
   return requested[0] || 'auto';
 }
 
+function isLocalBackendType(value: string): value is LocalBackendType {
+  return value === 'ollama' || value === 'lmstudio' || value === 'vllm';
+}
+
+function normalizeLocalModelId(
+  backend: LocalBackendType,
+  rawModelId: string,
+): string {
+  const trimmed = rawModelId.trim();
+  const ownPrefix = `${backend}/`;
+  if (trimmed.toLowerCase().startsWith(ownPrefix)) {
+    return trimmed.slice(ownPrefix.length).trim();
+  }
+  if (/^(ollama|lmstudio|vllm)\//i.test(trimmed)) {
+    throw new Error(
+      `Model "${trimmed}" already includes a different local provider prefix.`,
+    );
+  }
+  return trimmed;
+}
+
+function normalizeLocalBaseUrl(
+  backend: LocalBackendType,
+  rawBaseUrl: string,
+): string {
+  const trimmed = rawBaseUrl.trim().replace(/\/+$/g, '');
+  if (!trimmed) {
+    if (backend === 'ollama') return 'http://127.0.0.1:11434';
+    if (backend === 'lmstudio') return 'http://127.0.0.1:1234/v1';
+    return 'http://127.0.0.1:8000/v1';
+  }
+  if (backend === 'ollama') {
+    return trimmed.replace(/\/v1$/i, '');
+  }
+  return /\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/v1`;
+}
+
+interface ParsedLocalConfigureArgs {
+  backend: LocalBackendType;
+  modelId: string;
+  baseUrl?: string;
+  apiKey?: string;
+  setDefault: boolean;
+}
+
+function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
+  const positional: string[] = [];
+  let baseUrl: string | undefined;
+  let apiKey: string | undefined;
+  let setDefault = true;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--no-default') {
+      setDefault = false;
+      continue;
+    }
+    if (arg === '--set-default') {
+      setDefault = true;
+      continue;
+    }
+    if (arg === '--base-url') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--base-url`.');
+      baseUrl = next;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--base-url=')) {
+      baseUrl = arg.slice('--base-url='.length);
+      continue;
+    }
+    if (arg === '--api-key') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--api-key`.');
+      apiKey = next;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--api-key=')) {
+      apiKey = arg.slice('--api-key='.length);
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    positional.push(arg);
+  }
+
+  if (positional.length < 2) {
+    throw new Error(
+      'Usage: `hybridclaw local configure <ollama|lmstudio|vllm> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]`',
+    );
+  }
+
+  const backendRaw = (positional[0] || '').trim().toLowerCase();
+  if (!isLocalBackendType(backendRaw)) {
+    throw new Error(
+      `Unknown local backend "${positional[0]}". Use \`ollama\`, \`lmstudio\`, or \`vllm\`.`,
+    );
+  }
+
+  if (backendRaw !== 'vllm' && apiKey !== undefined) {
+    throw new Error('`--api-key` is only supported for the `vllm` backend.');
+  }
+
+  const modelId = normalizeLocalModelId(
+    backendRaw,
+    positional.slice(1).join(' '),
+  );
+  if (!modelId) {
+    throw new Error('Model ID cannot be empty.');
+  }
+
+  return {
+    backend: backendRaw,
+    modelId,
+    baseUrl,
+    apiKey,
+    setDefault,
+  };
+}
+
+function printLocalStatus(): void {
+  ensureRuntimeConfigFile();
+  const config = getRuntimeConfig();
+  console.log(`Config: ${runtimeConfigPath()}`);
+  console.log(`Default model: ${config.hybridai.defaultModel}`);
+  for (const backend of ['ollama', 'lmstudio', 'vllm'] as const) {
+    const settings = config.local.backends[backend];
+    console.log(
+      `${backend}: ${settings.enabled ? 'enabled' : 'disabled'} (${settings.baseUrl})`,
+    );
+    if (backend === 'vllm') {
+      console.log(
+        `vllm api key: ${settings.apiKey ? 'configured' : 'not set'}`,
+      );
+    }
+  }
+}
+
+function configureLocalBackend(args: string[]): void {
+  ensureRuntimeConfigFile();
+  const parsed = parseLocalConfigureArgs(args);
+  const currentConfig = getRuntimeConfig();
+  const currentBackend = currentConfig.local.backends[parsed.backend];
+  const normalizedBaseUrl = normalizeLocalBaseUrl(
+    parsed.backend,
+    parsed.baseUrl || currentBackend.baseUrl,
+  );
+  const fullModelName = `${parsed.backend}/${parsed.modelId}`;
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.local.backends[parsed.backend].enabled = true;
+    draft.local.backends[parsed.backend].baseUrl = normalizedBaseUrl;
+    if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
+      draft.local.backends.vllm.apiKey = parsed.apiKey;
+    }
+    if (parsed.setDefault) {
+      draft.hybridai.defaultModel = fullModelName;
+    }
+  });
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(`Backend: ${parsed.backend}`);
+  console.log(`Base URL: ${nextConfig.local.backends[parsed.backend].baseUrl}`);
+  console.log(`Configured model: ${fullModelName}`);
+  if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
+    console.log('vllm api key: configured');
+  }
+  if (parsed.setDefault) {
+    console.log(`Default model: ${fullModelName}`);
+  } else {
+    console.log(`Default model unchanged: ${nextConfig.hybridai.defaultModel}`);
+  }
+  console.log('Next:');
+  console.log('  hybridclaw gateway restart --foreground --sandbox=host');
+  console.log('  hybridclaw gateway status');
+  console.log('  hybridclaw tui');
+  console.log(`  /model set ${fullModelName}`);
+}
+
+async function handleLocalCommand(args: string[]): Promise<void> {
+  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printLocalUsage();
+    return;
+  }
+
+  const sub = normalized[0].toLowerCase();
+  if (sub === 'status') {
+    printLocalStatus();
+    return;
+  }
+  if (sub === 'configure') {
+    configureLocalBackend(normalized.slice(1));
+    return;
+  }
+
+  throw new Error(`Unknown local subcommand: ${sub}`);
+}
+
 async function handleHybridAICommand(args: string[]): Promise<void> {
   const normalized = args.map((arg) => arg.trim()).filter(Boolean);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
@@ -1163,6 +1396,9 @@ export async function main(
         commandName: 'hybridclaw onboarding',
       });
       await ensureRuntimeContainer('hybridclaw onboarding', false);
+      break;
+    case 'local':
+      await handleLocalCommand(subargs);
       break;
     case 'hybridai':
       await handleHybridAICommand(subargs);

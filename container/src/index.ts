@@ -25,6 +25,10 @@ import {
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
 import {
+  collapseSystemMessages,
+  mergeSystemMessage,
+} from './system-messages.js';
+import {
   accumulateApiUsage,
   createTokenUsageStats,
   estimateMessageTokens,
@@ -328,22 +332,14 @@ function injectSkillCacheHint(messages: ChatMessage[]): ChatMessage[] {
     return messages;
   }
 
-  const latestUserIndex = (() => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      if (messages[i].role === 'user') return i;
-    }
-    return messages.length;
-  })();
-  const cloned = messages.map((message) => ({ ...message }));
-  cloned.splice(latestUserIndex, 0, {
-    role: 'system',
-    content: [
+  return mergeSystemMessage(
+    messages,
+    [
       '[SkillSelectionCache]',
       `You already selected skill guidance from \`${cachedSelectedSkillPath}\` earlier in this session.`,
       'Reuse that skill now and do not reread the SKILL.md unless the task scope changed or a missing detail requires it.',
     ].join('\n'),
-  });
-  return cloned;
+  );
 }
 
 /**
@@ -593,7 +589,7 @@ function collectRequestedArtifacts(params: {
 }
 
 async function callHybridAIWithRetry(params: {
-  provider?: 'hybridai' | 'openai-codex';
+  provider?: 'hybridai' | 'openai-codex' | 'ollama' | 'lmstudio' | 'vllm';
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -604,6 +600,9 @@ async function callHybridAIWithRetry(params: {
   tools: ToolDefinition[];
   onTextDelta?: (delta: string) => void;
   maxTokens?: number;
+  isLocal?: boolean;
+  contextWindow?: number;
+  thinkingFormat?: 'qwen';
 }): Promise<Awaited<ReturnType<typeof callHybridAI>>> {
   const {
     provider,
@@ -617,6 +616,9 @@ async function callHybridAIWithRetry(params: {
     tools,
     onTextDelta,
     maxTokens,
+    isLocal,
+    contextWindow,
+    thinkingFormat,
   } = params;
   let attempt = 0;
   let delayMs = RETRY_BASE_DELAY_MS;
@@ -644,6 +646,9 @@ async function callHybridAIWithRetry(params: {
             tools,
             onTextDelta,
             maxTokens,
+            isLocal,
+            contextWindow,
+            thinkingFormat,
           );
         } catch (streamErr) {
           const fallbackEligible = shouldDowngradeStreamToNonStreaming(
@@ -662,6 +667,9 @@ async function callHybridAIWithRetry(params: {
             history,
             tools,
             maxTokens,
+            isLocal,
+            contextWindow,
+            thinkingFormat,
           );
         }
       } else {
@@ -676,6 +684,9 @@ async function callHybridAIWithRetry(params: {
           history,
           tools,
           maxTokens,
+          isLocal,
+          contextWindow,
+          thinkingFormat,
         );
       }
       console.error(
@@ -715,7 +726,16 @@ async function processRequest(
   messages: ChatMessage[],
   apiKey: string,
   baseUrl: string,
-  provider: 'hybridai' | 'openai-codex' | undefined,
+  provider:
+    | 'hybridai'
+    | 'openai-codex'
+    | 'ollama'
+    | 'lmstudio'
+    | 'vllm'
+    | undefined,
+  isLocal: boolean | undefined,
+  contextWindow: number | undefined,
+  thinkingFormat: 'qwen' | undefined,
   model: string,
   chatbotId: string,
   enableRag: boolean,
@@ -729,7 +749,9 @@ async function processRequest(
     event: 'before_agent_start',
     messageCount: messages.length,
   });
-  const history: ChatMessage[] = injectRuntimeCapabilitiesMessage(messages);
+  const history: ChatMessage[] = collapseSystemMessages(
+    injectRuntimeCapabilitiesMessage(messages),
+  );
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
   const artifacts: ArtifactMetadata[] = [];
@@ -761,6 +783,9 @@ async function processRequest(
         tools,
         onTextDelta: emitStreamDelta,
         maxTokens,
+        isLocal,
+        contextWindow,
+        thinkingFormat,
       });
     } catch (err) {
       const failed: ContainerOutput = {
@@ -1176,6 +1201,9 @@ async function main(): Promise<void> {
       storedApiKey,
       firstInput.baseUrl,
       firstInput.provider,
+      firstInput.isLocal,
+      firstInput.contextWindow,
+      firstInput.thinkingFormat,
       firstInput.model,
       firstInput.chatbotId,
       firstInput.enableRag,
@@ -1202,6 +1230,9 @@ async function main(): Promise<void> {
         storedApiKey,
         firstInput.baseUrl,
         firstInput.provider,
+        firstInput.isLocal,
+        firstInput.contextWindow,
+        firstInput.thinkingFormat,
         firstInput.model,
         firstInput.chatbotId,
         firstInput.enableRag,
@@ -1296,6 +1327,9 @@ async function main(): Promise<void> {
       apiKey,
       input.baseUrl,
       input.provider,
+      input.isLocal,
+      input.contextWindow,
+      input.thinkingFormat,
       input.model,
       input.chatbotId,
       input.enableRag,
@@ -1321,6 +1355,9 @@ async function main(): Promise<void> {
         apiKey,
         input.baseUrl,
         input.provider,
+        input.isLocal,
+        input.contextWindow,
+        input.thinkingFormat,
         input.model,
         input.chatbotId,
         input.enableRag,

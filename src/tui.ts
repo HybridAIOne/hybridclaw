@@ -23,6 +23,10 @@ import {
   renderGatewayCommand,
 } from './gateway/gateway-client.js';
 import { logger } from './logger.js';
+import {
+  normalizeModelCandidates,
+  parseModelNamesFromListText,
+} from './model-selection.js';
 import { parseTuiSlashCommand } from './tui-slash-command.js';
 
 const RESET = '\x1b[0m';
@@ -280,6 +284,9 @@ function printHelp(): void {
     `  ${TEAL}/compact${RESET}          Archive and compact older session history`,
   );
   console.log(`  ${TEAL}/clear${RESET}            Clear session history`);
+  console.log(
+    `  ${TEAL}/reset [yes|no]${RESET}    Clear history, reset session settings, and remove the agent workspace`,
+  );
   console.log(`  ${TEAL}/stop${RESET}             Interrupt current request`);
   console.log(`  ${TEAL}/exit${RESET}             Quit`);
   console.log(`  ${TEAL}ESC${RESET}               Interrupt current request`);
@@ -402,16 +409,6 @@ function parseModelInfoFromInfo(
   };
 }
 
-function normalizeModelCandidates(models: string[]): string[] {
-  const deduped = new Set<string>();
-  for (const model of models) {
-    const candidate = model.trim();
-    if (!candidate) continue;
-    deduped.add(candidate);
-  }
-  return Array.from(deduped);
-}
-
 async function fetchCurrentSessionModel(): Promise<string | null> {
   try {
     const result = await gatewayCommand({
@@ -424,6 +421,23 @@ async function fetchCurrentSessionModel(): Promise<string | null> {
     return parseCurrentModelFromInfo(result);
   } catch {
     return null;
+  }
+}
+
+async function fetchSelectableModels(): Promise<string[]> {
+  const fallback = normalizeModelCandidates(CONFIGURED_MODELS);
+  try {
+    const result = await gatewayCommand({
+      sessionId: SESSION_ID,
+      guildId: null,
+      channelId: CHANNEL_ID,
+      args: ['model', 'list'],
+    });
+    if (result.kind === 'error') return fallback;
+    const models = parseModelNamesFromListText(result.text || '');
+    return models.length > 0 ? models : fallback;
+  } catch {
+    return fallback;
   }
 }
 
@@ -449,7 +463,7 @@ async function fetchSessionAndDefaultModel(): Promise<{
 async function promptModelSelection(
   rl: readline.Interface,
 ): Promise<string | null> {
-  const models = normalizeModelCandidates(CONFIGURED_MODELS);
+  const models = await fetchSelectableModels();
   if (models.length === 0) {
     printError('No models configured.');
     return null;
@@ -566,6 +580,13 @@ async function handleSlashCommand(
       return true;
     case 'clear':
       await runGatewayCommand(['clear']);
+      return true;
+    case 'reset':
+      if (parts.length > 1) {
+        await runGatewayCommand(['reset', ...parts.slice(1)]);
+      } else {
+        await runGatewayCommand(['reset']);
+      }
       return true;
     case 'stop':
     case 'abort':

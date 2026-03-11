@@ -23,7 +23,6 @@ import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import {
   APP_VERSION,
-  CONFIGURED_MODELS,
   DATA_DIR,
   DISCORD_COMMANDS_ONLY,
   DISCORD_FREE_RESPONSE_CHANNELS,
@@ -46,6 +45,7 @@ import {
   getRuntimeConfig,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
@@ -75,6 +75,9 @@ import {
 } from '../providers/factory.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
 import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
+import { resolveLocalModelContextWindow } from '../providers/local-discovery.js';
+import { getAllBackendHealth } from '../providers/local-health.js';
+import { getAvailableModelList } from '../providers/model-catalog.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
@@ -94,12 +97,13 @@ import type {
   McpServerConfig,
   MediaContextItem,
   ScheduledTask,
+  Session,
   StoredMessage,
   StructuredAuditEntry,
   TokenUsageStats,
   ToolProgressEvent,
 } from '../types.js';
-import { ensureBootstrapFiles } from '../workspace.js';
+import { ensureBootstrapFiles, resetWorkspace } from '../workspace.js';
 import {
   type GatewayChatRequestBody,
   type GatewayChatResult,
@@ -148,6 +152,7 @@ const ORCHESTRATOR_SUBAGENT_ALLOWED_TOOLS = [
 const MAX_DELEGATION_TASKS = 6;
 const MAX_DELEGATION_USER_CHARS = 500;
 const MAX_RALPH_ITERATIONS = 64;
+const RESET_CONFIRMATION_TTL_MS = 120_000;
 const DISCORD_CHANNEL_MODE_VALUES = new Set(['off', 'mention', 'free']);
 const DISCORD_GROUP_POLICY_VALUES = new Set(['open', 'allowlist', 'disabled']);
 const IMAGE_QUESTION_RE =
@@ -175,10 +180,19 @@ const PERMANENT_DELEGATION_ERROR_PATTERNS: RegExp[] = [
   /blocked by security hook/i,
 ];
 let cachedGitCommitShort: string | null | undefined;
+const pendingSessionResets = new Map<string, PendingSessionReset>();
 
 type DelegationMode = 'single' | 'parallel' | 'chain';
 type DelegationRunStatus = 'completed' | 'failed' | 'timeout';
 type DelegationErrorClass = 'transient' | 'permanent' | 'unknown';
+
+interface PendingSessionReset {
+  requestedAt: number;
+  agentId: string;
+  workspacePath: string;
+  model: string;
+  chatbotId: string;
+}
 
 interface NormalizedDelegationTask {
   prompt: string;
@@ -1040,6 +1054,36 @@ function restartNoteForMcpChange(sessionId: string): string {
     : ' Changes apply on the next turn.';
 }
 
+function resolveSessionRuntimeTarget(session: Session): {
+  model: string;
+  chatbotId: string;
+  agentId: string;
+  workspacePath: string;
+} {
+  const model = session.model ?? HYBRIDAI_MODEL;
+  const chatbotId = session.chatbot_id ?? HYBRIDAI_CHATBOT_ID ?? '';
+  const agentId = resolveAgentIdForModel(model, chatbotId);
+  return {
+    model,
+    chatbotId,
+    agentId,
+    workspacePath: path.resolve(agentWorkspaceDir(agentId)),
+  };
+}
+
+function prunePendingSessionResets(now = Date.now()): void {
+  for (const [sessionId, pending] of pendingSessionResets.entries()) {
+    if (now - pending.requestedAt > RESET_CONFIRMATION_TTL_MS) {
+      pendingSessionResets.delete(sessionId);
+    }
+  }
+}
+
+function getPendingSessionReset(sessionId: string): PendingSessionReset | null {
+  prunePendingSessionResets();
+  return pendingSessionResets.get(sessionId) ?? null;
+}
+
 function buildTokenUsageAuditPayload(
   messages: ChatMessage[],
   resultText: string | null | undefined,
@@ -1111,6 +1155,19 @@ function buildTokenUsageAuditPayload(
 export function getGatewayStatus(): GatewayStatus {
   const sandbox = getSandboxDiagnostics();
   const codex = getCodexAuthStatus();
+  const localBackends = Object.fromEntries(
+    [...getAllBackendHealth().entries()].map(([backend, status]) => [
+      backend,
+      {
+        reachable: status.reachable,
+        latencyMs: status.latencyMs,
+        ...(status.error ? { error: status.error } : {}),
+        ...(typeof status.modelCount === 'number'
+          ? { modelCount: status.modelCount }
+          : {}),
+      },
+    ]),
+  ) as GatewayStatus['localBackends'];
   return {
     status: 'ok',
     pid: process.pid,
@@ -1133,6 +1190,7 @@ export function getGatewayStatus(): GatewayStatus {
     scheduler: {
       jobs: getSchedulerStatus(),
     },
+    localBackends,
   };
 }
 
@@ -1774,7 +1832,7 @@ export async function handleGatewayMessage(
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
   const runId = makeAuditRunId('turn');
-  const session = memoryService.getOrCreateSession(
+  let session = memoryService.getOrCreateSession(
     req.sessionId,
     req.guildId,
     req.channelId,
@@ -1783,8 +1841,33 @@ export async function handleGatewayMessage(
   const enableRag = req.enableRag ?? session.enable_rag === 1;
   const model = req.model ?? session.model ?? HYBRIDAI_MODEL;
   const provider = resolveModelProvider(model);
-  const turnIndex = session.message_count + 1;
   const media = normalizeMediaContextItems(req.media);
+  const agentId = resolveAgentIdForModel(model, chatbotId);
+  const workspacePath = path.resolve(agentWorkspaceDir(agentId));
+  const workspaceBootstrap = ensureBootstrapFiles(agentId);
+  if (
+    workspaceBootstrap.workspaceInitialized &&
+    (session.message_count > 0 || Boolean(session.session_summary))
+  ) {
+    const clearedMessages = memoryService.clearSessionHistory(req.sessionId);
+    session =
+      memoryService.getSessionById(req.sessionId) ??
+      memoryService.getOrCreateSession(
+        req.sessionId,
+        req.guildId,
+        req.channelId,
+      );
+    logger.info(
+      {
+        sessionId: req.sessionId,
+        agentId,
+        workspacePath: workspaceBootstrap.workspacePath,
+        clearedMessages,
+      },
+      'Cleared session history after workspace reset',
+    );
+  }
+  const turnIndex = session.message_count + 1;
   const debugMeta = {
     sessionId: req.sessionId,
     guildId: req.guildId,
@@ -1807,7 +1890,7 @@ export async function handleGatewayMessage(
       type: 'session.start',
       userId: req.userId,
       channel: req.channelId,
-      cwd: process.cwd(),
+      cwd: workspacePath,
       model,
       source: 'gateway.chat',
     },
@@ -1879,9 +1962,6 @@ export async function handleGatewayMessage(
       error,
     };
   }
-
-  const agentId = resolveAgentIdForModel(model, chatbotId);
-  ensureBootstrapFiles(agentId);
 
   if (isVersionOnlyQuestion(req.content)) {
     const resultText = `HybridClaw v${APP_VERSION}`;
@@ -1965,6 +2045,7 @@ export async function handleGatewayMessage(
       channelType: 'discord',
       channelId: req.channelId,
       guildId: req.guildId,
+      workspacePath,
     },
     blockedTools: mediaPolicy.blockedTools,
   });
@@ -2402,13 +2483,16 @@ export async function handleGatewayCommand(
         '`mcp toggle <name>` — Enable or disable an MCP server',
         '`mcp reconnect <name>` — Restart current session runtime so the server reconnects next turn',
         '`clear` — Clear session history',
+        '`reset [yes|no]` — Clear history, reset session settings, and remove the current agent workspace',
         '`/compact` — Archive older history, summarize it, and retain recent context',
         '`/status` — Show runtime status (Discord slash command, private to caller)',
         '`/approve [view|yes|session|agent|no] [approval_id]` — View/respond to pending approvals privately',
         '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
         '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
-        '`/model info` — Show current default model and allowed list',
-        '`/model default <name>` — Set default model for new sessions',
+        '`/model list` — List available runtime models',
+        '`/model set <name>` — Set the model for this session',
+        '`/model info` — Show current and default model details',
+        '`/model default [name]` — Show or set the default model for new sessions',
         '`sessions` — List active sessions',
         '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
         '`export session [sessionId]` — Export session JSONL snapshot for debugging',
@@ -2485,7 +2569,7 @@ export async function handleGatewayCommand(
     }
 
     case 'model': {
-      const availableModels = CONFIGURED_MODELS;
+      const availableModels = getAvailableModelList();
       const sub = req.args[1]?.toLowerCase();
       if (sub === 'list') {
         const current = session.model || HYBRIDAI_MODEL;
@@ -2836,6 +2920,67 @@ export async function handleGatewayCommand(
       );
     }
 
+    case 'reset': {
+      const sub = req.args[1]?.toLowerCase();
+      if (sub && sub !== 'yes' && sub !== 'no') {
+        return badCommand('Usage', 'Usage: `reset [yes|no]`');
+      }
+
+      if (sub === 'no') {
+        pendingSessionResets.delete(req.sessionId);
+        return plainCommand(
+          'Reset cancelled. Session history and workspace were left unchanged.',
+        );
+      }
+
+      if (sub === 'yes') {
+        const pending = getPendingSessionReset(req.sessionId);
+        if (!pending) {
+          return badCommand(
+            'Confirmation Required',
+            'Run `reset` first, then confirm with `reset yes` or cancel with `reset no`.',
+          );
+        }
+
+        pendingSessionResets.delete(req.sessionId);
+        stopSessionExecution(req.sessionId);
+        const deleted = memoryService.clearSessionHistory(session.id);
+        updateSessionChatbot(session.id, null);
+        updateSessionModel(session.id, null);
+        updateSessionRag(session.id, HYBRIDAI_ENABLE_RAG);
+        const workspaceReset = resetWorkspace(pending.agentId);
+        const workspaceLine = workspaceReset.removed
+          ? `Removed workspace: ${workspaceReset.workspacePath}`
+          : `Workspace was already empty: ${workspaceReset.workspacePath}`;
+        return infoCommand(
+          'Session Reset',
+          [
+            `Deleted ${deleted} messages.`,
+            `Session model/chatbot settings reset to defaults. RAG default is now ${HYBRIDAI_ENABLE_RAG ? 'enabled' : 'disabled'}.`,
+            workspaceLine,
+          ].join('\n'),
+        );
+      }
+
+      const runtime = resolveSessionRuntimeTarget(session);
+      pendingSessionResets.set(req.sessionId, {
+        requestedAt: Date.now(),
+        agentId: runtime.agentId,
+        workspacePath: runtime.workspacePath,
+        model: runtime.model,
+        chatbotId: runtime.chatbotId,
+      });
+      return infoCommand(
+        'Confirm Reset',
+        [
+          `This will delete this session's history, reset per-session model/bot settings, and remove the current agent workspace.`,
+          `Model: ${runtime.model}`,
+          `Agent workspace: ${runtime.workspacePath}`,
+          'Reply with `reset yes` to continue or `reset no` to cancel.',
+        ].join('\n'),
+      );
+    }
+
     case 'compact': {
       try {
         const result = await memoryService.compactSession(session.id);
@@ -2870,6 +3015,7 @@ export async function handleGatewayCommand(
       const commitShort = resolveGitCommitShort();
       const sessionModel = session.model || HYBRIDAI_MODEL;
       const modelContextWindowTokens =
+        resolveLocalModelContextWindow(sessionModel) ??
         resolveModelContextWindowFallback(sessionModel);
       const metrics = readSessionStatusSnapshot(session.id, {
         modelContextWindowTokens,

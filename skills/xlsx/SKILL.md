@@ -33,6 +33,8 @@ Use this skill whenever the user asks to create, inspect, analyze, or edit an `.
 - Preserve existing worksheets, named ranges, freeze panes, filters, and formats unless the user asked for a redesign.
 - Prefer `.xlsx` as the final deliverable. Only fall back to CSV/TSV if the user explicitly wants a flat export.
 - Use number formats, explicit column widths, alignment, and header styling for user-facing workbooks.
+- Treat `skills/` as bundled tooling. Do not write generated task scripts under `skills/xlsx/` or `skills/office/` for normal workbook jobs.
+- Put new helper scripts in workspace `scripts/` or the workspace root, then run them from there. Use `skills/xlsx/scripts/...` and `skills/office/...` only as shipped helper commands.
 
 ## Useful Commands
 

@@ -38,6 +38,24 @@ afterEach(() => {
 });
 
 describe('workspace bootstrap lifecycle', () => {
+  test('reports when a workspace is freshly initialized', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    const initial = workspace.ensureBootstrapFiles('agent-test');
+    expect(initial.workspaceInitialized).toBe(true);
+    expect(initial.workspacePath).toBe(ipc.agentWorkspaceDir('agent-test'));
+
+    const second = workspace.ensureBootstrapFiles('agent-test');
+    expect(second.workspaceInitialized).toBe(false);
+    expect(second.workspacePath).toBe(initial.workspacePath);
+  });
+
   test('does not recreate BOOTSTRAP.md after onboarding deletes it', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');

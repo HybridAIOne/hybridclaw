@@ -3,7 +3,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { acceptAllChanges } = require('../../office/helpers/simplify_redlines.cjs');
+const {
+  acceptAllChanges,
+} = require('../../office/helpers/simplify_redlines.cjs');
 const { parseXmlFile, writeXmlFile } = require('../../office/xml.cjs');
 
 function candidateParts(docxDir) {

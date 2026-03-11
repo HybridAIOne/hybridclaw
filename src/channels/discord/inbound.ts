@@ -21,6 +21,7 @@ const KNOWN_SUBCOMMANDS = new Set([
   'ralph',
   'mcp',
   'clear',
+  'reset',
   'compact',
   'help',
 ]);

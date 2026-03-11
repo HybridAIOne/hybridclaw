@@ -11,6 +11,7 @@ import {
   SESSION_COMPACTION_THRESHOLD,
   SESSION_COMPACTION_TOKEN_BUDGET,
 } from '../config/config.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
 import { loadSkills } from '../skills/skills.js';
@@ -103,6 +104,9 @@ function buildSystemPrompt(
     purpose: 'memory-flush',
     promptMode: 'minimal',
     extraSafetyText: extra,
+    runtimeInfo: {
+      workspacePath: agentWorkspaceDir(agentId),
+    },
     allowedTools: ['memory'],
   });
 }
@@ -282,7 +286,12 @@ export async function maybeCompactSession(params: {
     })),
   );
   const summaryTokens = estimateTokenCountFromText(session.session_summary);
-  const totalTokens = msgTokens + summaryTokens;
+  const systemPrompt = buildSystemPrompt(
+    params.agentId,
+    session.session_summary,
+  );
+  const systemPromptTokens = estimateTokenCountFromText(systemPrompt);
+  const totalTokens = msgTokens + summaryTokens + systemPromptTokens;
   const shouldCompactForTokens = totalTokens >= budget;
   const shouldCompactForMessageCount = session.message_count >= threshold;
 
@@ -293,6 +302,7 @@ export async function maybeCompactSession(params: {
       loadedMessages: allMessages.length,
       msgTokens,
       summaryTokens,
+      systemPromptTokens,
       totalTokens,
       tokenBudget,
       budgetRatio,
@@ -355,6 +365,7 @@ export async function maybeCompactSession(params: {
       keepRecent,
       msgTokens,
       summaryTokens,
+      systemPromptTokens,
       totalTokens,
       tokenBudget,
       budgetRatio,
