@@ -71,7 +71,6 @@ import {
 } from './gateway-service.js';
 import { startHealthServer } from './health.js';
 import {
-  claimPendingApprovalByApprovalId,
   cleanupExpiredPendingApprovals,
   clearPendingApproval,
   getPendingApproval,
