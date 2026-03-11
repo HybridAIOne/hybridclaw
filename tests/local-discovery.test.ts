@@ -113,8 +113,14 @@ describe('local discovery', () => {
         return new Response(
           JSON.stringify({
             model_info: {
-              'llama.context_length':
-                body.model === 'deepseek-r1' ? 131_072 : 8_192,
+              ...(body.model === 'deepseek-r1'
+                ? {
+                    'llama.context_length': 8_192,
+                    'llama.rope.ctx_length': '131072',
+                  }
+                : {
+                    'llama.context_length': 8_192,
+                  }),
             },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },

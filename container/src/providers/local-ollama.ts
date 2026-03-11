@@ -181,6 +181,7 @@ function adaptOllamaPayload(
 ): ChatCompletionResponse {
   const content = finalizeContent(rawContent, thinkingText);
   const normalized = finalizeToolCalls(rawToolCalls, content);
+  const usage = buildUsage(payload);
   return {
     id: 'ollama',
     model: payload.model || '',
@@ -198,7 +199,7 @@ function adaptOllamaPayload(
           (normalized.toolCalls.length > 0 ? 'tool_calls' : 'stop'),
       },
     ],
-    ...(buildUsage(payload) ? { usage: buildUsage(payload) } : {}),
+    ...(usage ? { usage } : {}),
   };
 }
 

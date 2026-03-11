@@ -19,6 +19,7 @@ function restoreEnvVar(name: string, value: string | undefined): void {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
@@ -58,4 +59,33 @@ test('writeInput omits auth material from IPC files when requested', async () =>
   expect(written.requestHeaders).toEqual({});
   expect(input.apiKey).toBe('token_secret');
   expect(input.requestHeaders.Authorization).toBe('Bearer token_secret');
+});
+
+test('readOutput enforces a hard deadline despite repeated activity', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-03-11T00:00:00Z'));
+  vi.resetModules();
+
+  const { ensureSessionDirs, createActivityTracker, readOutput } = await import(
+    '../src/infra/ipc.ts'
+  );
+
+  ensureSessionDirs('session-1');
+  const activity = createActivityTracker();
+  const interval = setInterval(() => activity.notify(), 50);
+
+  const outputPromise = readOutput('session-1', 100, { activity });
+
+  await vi.advanceTimersByTimeAsync(400);
+  clearInterval(interval);
+
+  await expect(outputPromise).resolves.toEqual(
+    expect.objectContaining({
+      status: 'error',
+      error:
+        'Timeout waiting for agent output after 400ms total (100ms inactivity window)',
+    }),
+  );
 });

@@ -147,7 +147,7 @@ function readContextWindowFromShowResponse(
       candidates.push(Math.floor(parsed));
     }
   }
-  return candidates[0];
+  return candidates.length > 0 ? Math.max(...candidates) : undefined;
 }
 
 async function runWithConcurrency<TInput, TOutput>(

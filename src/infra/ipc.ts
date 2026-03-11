@@ -62,7 +62,8 @@ export function writeInput(
 }
 
 /**
- * Read output from the container agent. Polls until file appears or timeout.
+ * Read output from the container agent. Polls until file appears, the idle
+ * timeout expires, or a hard wall-clock deadline is reached.
  */
 function interruptedOutput(): ContainerOutput {
   return {
@@ -101,7 +102,8 @@ async function sleepWithAbort(
  * Shared activity tracker that callers can update to reset the read timeout.
  * Create one via {@link createActivityTracker} and pass it to {@link readOutput}.
  * Call {@link ActivityTracker.notify} whenever the agent shows progress
- * (text deltas, tool progress, etc.) so the deadline keeps extending.
+ * (text deltas, tool progress, etc.) so the idle deadline keeps extending.
+ * {@link readOutput} still enforces a hard wall-clock timeout.
  */
 export interface ActivityTracker {
   /** Millisecond timestamp of the most recent activity. */
@@ -120,10 +122,16 @@ export function createActivityTracker(): ActivityTracker {
   return tracker;
 }
 
+const ACTIVITY_HARD_TIMEOUT_MULTIPLIER = 4;
+
 export async function readOutput(
   sessionId: string,
   timeoutMs: number,
-  opts?: { signal?: AbortSignal; activity?: ActivityTracker },
+  opts?: {
+    signal?: AbortSignal;
+    activity?: ActivityTracker;
+    maxWallClockMs?: number;
+  },
 ): Promise<ContainerOutput> {
   const dir = ipcDir(sessionId);
   const outputPath = path.join(dir, 'output.json');
@@ -133,14 +141,31 @@ export async function readOutput(
   const start = Date.now();
   // Seed the tracker so the initial deadline starts now.
   if (activity) activity.lastActivityMs = start;
+  const hardTimeoutMs = Math.max(
+    timeoutMs,
+    Math.floor(
+      opts?.maxWallClockMs ??
+        timeoutMs *
+          (activity ? ACTIVITY_HARD_TIMEOUT_MULTIPLIER : 1),
+    ),
+  );
+  const hardDeadline = start + hardTimeoutMs;
   const pollInterval = 250;
 
   if (signal?.aborted) return interruptedOutput();
 
   while (true) {
     const now = Date.now();
-    const base = activity ? activity.lastActivityMs : start;
-    if (now - base >= timeoutMs) break;
+    const idleDeadline = (activity ? activity.lastActivityMs : start) + timeoutMs;
+    if (now >= hardDeadline) {
+      return {
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: `Timeout waiting for agent output after ${hardTimeoutMs}ms total (${timeoutMs}ms inactivity window)`,
+      };
+    }
+    if (now >= idleDeadline) break;
     if (signal?.aborted) return interruptedOutput();
 
     if (fs.existsSync(outputPath)) {
@@ -170,7 +195,11 @@ export async function readOutput(
         logger.debug({ sessionId, err }, 'Output file not ready, retrying');
       }
     }
-    const aborted = await sleepWithAbort(pollInterval, signal);
+    const sleepMs = Math.max(
+      1,
+      Math.min(pollInterval, idleDeadline - now, hardDeadline - now),
+    );
+    const aborted = await sleepWithAbort(sleepMs, signal);
     if (aborted) return interruptedOutput();
   }
 
