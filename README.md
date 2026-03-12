@@ -71,6 +71,14 @@ hybridclaw tui
 
 # Web chat UI (built into gateway)
 # open http://127.0.0.1:9090/chat
+
+# Agent command center docs page
+# open http://127.0.0.1:9090/agents
+
+# Embedded admin console
+# open http://127.0.0.1:9090/admin
+# Includes Dashboard, Sessions, Channels, Config, Models, Scheduler, MCP, Audit, Skills, and Tools
+# If WEB_API_TOKEN is unset, localhost access opens without a login prompt
 ```
 
 ## Authentication

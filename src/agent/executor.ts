@@ -50,6 +50,7 @@ export interface Executor {
   stopSession(sessionId: string): boolean;
   stopAll(): void;
   getActiveSessionCount(): number;
+  getActiveSessionIds(): string[];
 }
 
 export interface SandboxDiagnostics {
@@ -106,6 +107,16 @@ export function getActiveExecutorCount(): number {
   return executors.reduce(
     (sum, executor) => sum + executor.getActiveSessionCount(),
     0,
+  );
+}
+
+export function getActiveExecutorSessionIds(): string[] {
+  const executors = initializedExecutors();
+  const active = (executors.length === 0 ? [getExecutor()] : executors).flatMap(
+    (executor) => executor.getActiveSessionIds(),
+  );
+  return Array.from(new Set(active)).sort((left, right) =>
+    left.localeCompare(right),
   );
 }
 

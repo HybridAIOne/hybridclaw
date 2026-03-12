@@ -3,6 +3,9 @@
   "version": "0.6.0",
   "type": "module",
   "description": "Personal AI assistant bot for Discord, powered by HybridAI",
+  "workspaces": [
+    "console"
+  ],
   "engines": {
     "node": "22.x"
   },
@@ -14,6 +17,8 @@
   },
   "files": [
     "dist/",
+    "console/dist/",
+    "console/package.json",
     "container/dist/",
     "skills/",
     "templates/",
@@ -33,10 +38,11 @@
     "config.example.json"
   ],
   "scripts": {
-    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('container/dist',{recursive:true,force:true});\"",
+    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('console/dist',{recursive:true,force:true});fs.rmSync('container/dist',{recursive:true,force:true});\"",
+    "build:console": "npm --workspace console run build",
     "build": "npm --prefix container run build && tsc && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
-    "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
+    "typecheck": "tsc --noEmit && npm --workspace console run typecheck",
+    "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters && npm --workspace console run typecheck",
     "check": "biome check src",
     "format": "biome check --write src",
     "test": "npm run test:unit",
@@ -51,6 +57,7 @@
     "tui": "tsx src/cli.ts tui",
     "start": "node dist/cli.js gateway",
     "build:container": "node -e \"const cp=require('node:child_process');const image=process.env.HYBRIDCLAW_CONTAINER_IMAGE||'hybridclaw-agent';const r=cp.spawnSync('docker',['build','-t',image,'./container'],{stdio:'inherit'});if(r.error) throw r.error;process.exit(r.status ?? 1);\"",
+    "prebuild": "npm run build:console",
     "prepack": "npm run clean && npm run build && npm run release:check",
     "release:check": "node ./scripts/release-check.mjs",
     "publish:dry": "npm publish --access public --dry-run",

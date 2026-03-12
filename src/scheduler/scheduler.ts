@@ -274,6 +274,14 @@ function toIsoTimestamp(ms: number | null): string | null {
   return new Date(ms).toISOString();
 }
 
+export function getScheduledTaskNextRunAt(
+  task: ScheduledTask,
+  nowMs = Date.now(),
+): string | null {
+  if (!task.enabled) return null;
+  return toIsoTimestamp(nextFireMsForDbTask(task, nowMs));
+}
+
 function syncConfigJobNextRunAt(
   job: RuntimeSchedulerJob,
   nowMs: number,

@@ -1,0 +1,2003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HybridClaw Agents</title>
+  <style>
+    :root {
+      --page-bg: #ffffff;
+      --panel-bg: #ffffff;
+      --line: #ebeff5;
+      --text: #1f2937;
+      --muted: #8b98ab;
+      --brand-blue: #4a6cf7;
+      --brand-blue-2: #3657e9;
+      --success: #16a34a;
+      --success-soft: #ecfdf3;
+      --warning: #d97706;
+      --warning-soft: #fff7ed;
+      --error: #d94848;
+      --error-soft: #fef2f2;
+      --terminal-bg: #0f172a;
+      --terminal-line: #1e293b;
+      --nav-width: 260px;
+      --shadow: 0 2px 8px rgba(50, 80, 140, 0.06);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: system-ui, ui-sans-serif, -apple-system, BlinkMacSystemFont, Inter, NotoSansHans, sans-serif;
+      background: var(--page-bg);
+      color: var(--text);
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .layout {
+      position: relative;
+      z-index: 1;
+      height: 100vh;
+      display: grid;
+      grid-template-columns: var(--nav-width) 1fr;
+    }
+
+    .layout.is-sidebar-collapsed {
+      grid-template-columns: 84px 1fr;
+    }
+
+    .sidebar {
+      background: rgb(241, 245, 249);
+      padding: 14px 14px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      border-right: 1px solid #e3e8f0;
+    }
+
+    .sidebar-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 2px 0 6px;
+      gap: 8px;
+    }
+
+    .brand {
+      padding: 0;
+      border: none;
+      border-radius: 0;
+      background: transparent;
+    }
+
+    .brand-logo {
+      width: 46px;
+      max-width: 100%;
+      display: block;
+      height: auto;
+    }
+
+    .sidebar-toggle {
+      width: 34px;
+      height: 34px;
+      border: none;
+      border-radius: 0;
+      background: transparent;
+      color: #96a0af;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      padding: 0;
+      transition: color 0.2s ease;
+    }
+
+    .sidebar-toggle:hover {
+      color: #6f7a8c;
+    }
+
+    .sidebar-toggle svg {
+      width: 22px;
+      height: 22px;
+      display: block;
+    }
+
+    .sidebar-nav {
+      display: grid;
+      gap: 4px;
+      margin-top: 4px;
+    }
+
+    .sidebar-link {
+      width: 100%;
+      border: none;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font: inherit;
+      background: transparent;
+      color: #374151;
+      text-decoration: none;
+      transition: background 0.2s ease, color 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    .sidebar-link:hover {
+      background: rgba(255, 255, 255, 0.7);
+      color: #111827;
+    }
+
+    .sidebar-link.is-active {
+      background: #ffffff;
+      color: var(--brand-blue);
+      box-shadow: var(--shadow);
+    }
+
+    .sidebar-link-icon {
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      color: currentColor;
+      flex: 0 0 auto;
+    }
+
+    .sidebar-link-icon svg {
+      width: 18px;
+      height: 18px;
+      display: block;
+    }
+
+    .app-version {
+      font-size: 12px;
+      line-height: 1.2;
+      color: #8b98ab;
+      padding: 2px 2px 0;
+      user-select: none;
+    }
+
+    .layout.is-sidebar-collapsed .sidebar-link-label,
+    .layout.is-sidebar-collapsed .sidebar-status-text,
+    .layout.is-sidebar-collapsed .app-version {
+      display: none;
+    }
+
+    .layout.is-sidebar-collapsed .sidebar-link {
+      justify-content: center;
+      padding-left: 0;
+      padding-right: 0;
+    }
+
+    .layout.is-sidebar-collapsed .brand-logo {
+      width: 44px;
+    }
+
+    .sidebar-spacer {
+      flex: 1 1 auto;
+      min-height: 10px;
+    }
+
+    .sidebar-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      font-size: 14px;
+      background: rgba(255, 255, 255, 0.55);
+      color: #0f172a;
+    }
+
+    .sidebar-status.is-online {
+      border-color: #b7ebc6;
+      background: var(--success-soft);
+    }
+
+    .sidebar-status.is-offline {
+      border-color: #fecaca;
+      background: var(--error-soft);
+    }
+
+    .sidebar-status.is-connecting {
+      border-color: #dbe4ff;
+      background: #f5f7ff;
+    }
+
+    .status-pulse {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #94a3b8;
+      flex: 0 0 auto;
+    }
+
+    .sidebar-status.is-online .status-pulse {
+      background: var(--success);
+      box-shadow: 0 0 0 rgba(22, 163, 74, 0.35);
+      animation: pulse 1.8s infinite;
+    }
+
+    .sidebar-status.is-offline .status-pulse {
+      background: var(--error);
+    }
+
+    .sidebar-status.is-connecting .status-pulse {
+      background: var(--brand-blue);
+      animation: pulse 1.8s infinite;
+    }
+
+    .workspace {
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      padding: 24px;
+      background: #ffffff;
+    }
+
+    .workspace-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .page-header h1 {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 38px);
+      line-height: 1.08;
+      color: #172034;
+      letter-spacing: -0.02em;
+    }
+
+    .page-title-block {
+      display: grid;
+      gap: 0;
+      min-width: 0;
+    }
+
+    .page-title-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    .page-actions {
+      display: grid;
+      justify-items: end;
+      gap: 12px;
+    }
+
+    .page-actions-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+    }
+
+    .view-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #f8fafc;
+      box-shadow: var(--shadow);
+    }
+
+    .view-switch-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 14px;
+      border-radius: 999px;
+      color: #526277;
+      text-decoration: none;
+      font-weight: 600;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    .view-switch-link:hover {
+      color: #111827;
+    }
+
+    .view-switch-link.is-active {
+      background: #ffffff;
+      color: var(--brand-blue);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    }
+
+    .view-switch-link .sidebar-link-icon {
+      width: 18px;
+      height: 18px;
+    }
+
+    .view-switch-link .sidebar-link-icon svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .refresh-chip,
+    .button,
+    .filter-pill,
+    .status-badge,
+    .metric-accent {
+      border-radius: 999px;
+    }
+
+    .refresh-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid var(--line);
+      background: #ffffff;
+      color: #526277;
+      padding: 9px 12px;
+      box-shadow: var(--shadow);
+      font-size: 14px;
+    }
+
+    .refresh-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #dbe4ff;
+      border-top-color: var(--brand-blue);
+      border-radius: 999px;
+      animation: none;
+    }
+
+    .refresh-chip.is-spinning .refresh-spinner {
+      animation: spin 0.85s linear infinite;
+    }
+
+    .button {
+      border: 1px solid transparent;
+      cursor: pointer;
+      padding: 9px 13px;
+      background: #ffffff;
+      color: #1f2937;
+      transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+      box-shadow: var(--shadow);
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+    }
+
+    .button-primary {
+      background: linear-gradient(135deg, var(--brand-blue), var(--brand-blue-2));
+      color: #ffffff;
+    }
+
+    .button-secondary {
+      border-color: var(--line);
+    }
+
+    .button-danger {
+      border-color: #fecaca;
+      background: var(--error-soft);
+      color: var(--error);
+    }
+
+    .button-active {
+      background: #eef2ff;
+      border-color: #c7d2fe;
+      color: #2f4dd9;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--panel-bg);
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+
+    .card-title {
+      margin: 0;
+      font-size: 17px;
+      color: #172034;
+    }
+
+    .card-copy {
+      margin: 6px 0 0;
+      color: #607187;
+      line-height: 1.5;
+      font-size: 14px;
+    }
+
+    .notice {
+      display: none;
+      border: 1px solid #dbe4ff;
+      background: #f5f7ff;
+      color: #30446a;
+      padding: 12px 14px;
+      border-radius: 14px;
+      line-height: 1.45;
+    }
+
+    .notice.is-visible {
+      display: block;
+    }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .stat-card {
+      position: relative;
+      overflow: hidden;
+      animation: fade-up 0.45s ease both;
+    }
+
+    .metric-accent {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 14px;
+    }
+
+    .metric-accent.is-green {
+      background: linear-gradient(135deg, #16a34a, #15803d);
+    }
+
+    .metric-accent.is-blue {
+      background: linear-gradient(135deg, var(--brand-blue), var(--brand-blue-2));
+    }
+
+    .metric-accent.is-gold {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+    }
+
+    .metric-accent.is-slate {
+      background: linear-gradient(135deg, #475569, #334155);
+    }
+
+    .stat-value {
+      font-size: clamp(26px, 4vw, 34px);
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin: 0;
+      color: #15213a;
+    }
+
+    .stat-label {
+      margin: 8px 0 0;
+      font-size: 14px;
+      color: #607187;
+    }
+
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .filter-pill {
+      border: 1px solid var(--line);
+      background: #ffffff;
+      color: #405067;
+      cursor: pointer;
+      padding: 8px 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+    }
+
+    .filter-pill.is-active {
+      border-color: #c7d2fe;
+      background: #eef2ff;
+      color: #2f4dd9;
+    }
+
+    .filter-count {
+      min-width: 22px;
+      height: 22px;
+      padding: 0 7px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: rgba(74, 108, 247, 0.12);
+      font-size: 12px;
+      font-weight: 700;
+      color: inherit;
+    }
+
+    .agent-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .agent-card {
+      padding-top: 0;
+      overflow: hidden;
+      border-top-width: 4px;
+      animation: fade-up 0.45s ease both;
+    }
+
+    .agent-card.is-active {
+      border-top-color: var(--success);
+    }
+
+    .agent-card.is-idle {
+      border-top-color: var(--warning);
+    }
+
+    .agent-card.is-stopped {
+      border-top-color: var(--error);
+    }
+
+    .agent-card.is-fullauto {
+      border-top-color: var(--brand-blue);
+    }
+
+    .agent-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 16px;
+    }
+
+    .agent-card-header > div {
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 82px;
+      display: grid;
+      align-content: start;
+    }
+
+    .agent-name {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.2;
+      color: #172034;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      min-height: 38px;
+    }
+
+    .agent-preview {
+      margin-top: 8px;
+      display: grid;
+      gap: 4px;
+      min-height: 36px;
+    }
+
+    .agent-preview-row {
+      display: grid;
+      grid-template-columns: 16px minmax(0, 1fr);
+      align-items: start;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .agent-preview-label {
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.35;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .agent-preview-text,
+    .agent-task {
+      margin: 0;
+      color: #55667e;
+      line-height: 1.35;
+      font-size: 12px;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .agent-task {
+      margin-top: 8px;
+      min-height: 36px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 9px;
+      border: 1px solid var(--line);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+
+    .status-badge-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: currentColor;
+    }
+
+    .status-badge.is-active {
+      color: var(--success);
+      background: var(--success-soft);
+      border-color: #bbf7d0;
+    }
+
+    .status-badge.is-idle {
+      color: var(--warning);
+      background: var(--warning-soft);
+      border-color: #fed7aa;
+    }
+
+    .status-badge.is-stopped {
+      color: var(--error);
+      background: var(--error-soft);
+      border-color: #fecaca;
+    }
+
+    .status-badge.is-fullauto {
+      color: #2746ce;
+      background: #eef2ff;
+      border-color: #c7d2fe;
+    }
+
+    .fullauto-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #4a6cf7, #7c3aed);
+      box-shadow: 0 0 0 rgba(74, 108, 247, 0.35);
+      animation: glow 2s ease-in-out infinite;
+    }
+
+    .agent-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-auto-rows: 82px;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .agent-meta-block {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 9px 12px;
+      background: #fbfcff;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      align-content: start;
+      min-width: 0;
+    }
+
+    .agent-meta-label {
+      display: block;
+      margin: 0 0 4px;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .agent-meta-value {
+      margin: 0;
+      color: #1f304d;
+      font-size: 12.5px;
+      font-weight: 600;
+      line-height: 1.3;
+      min-width: 0;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .channel-meta {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: start;
+      gap: 8px;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    .channel-icon {
+      width: 18px;
+      height: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #607187;
+      flex: 0 0 auto;
+    }
+
+    .channel-icon svg {
+      width: 18px;
+      height: 18px;
+      display: block;
+    }
+
+    .channel-meta-text {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .channel-main-line {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      min-width: 0;
+      flex-wrap: nowrap;
+    }
+
+    .channel-kind {
+      color: #172034;
+      font-weight: 700;
+      flex: 0 0 auto;
+    }
+
+    .channel-name {
+      color: #1f304d;
+      font-weight: 600;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .channel-detail {
+      color: #607187;
+      font-size: 11px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .terminal {
+      margin-top: 16px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      border-radius: 14px;
+      overflow: hidden;
+      background: var(--terminal-bg);
+      border: 1px solid var(--terminal-line);
+      max-height: 220px;
+      transition: max-height 0.22s ease, margin-top 0.22s ease, opacity 0.22s ease;
+      opacity: 1;
+    }
+
+    .terminal.is-collapsed {
+      max-height: 0;
+      margin-top: 0;
+      opacity: 0;
+      border-width: 0;
+    }
+
+    .terminal-top {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--terminal-line);
+      background: rgba(15, 23, 42, 0.94);
+    }
+
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+    }
+
+    .terminal-dot.is-red { background: #fb7185; }
+    .terminal-dot.is-yellow { background: #fbbf24; }
+    .terminal-dot.is-green { background: #34d399; }
+
+    .terminal-head {
+      margin-left: 6px;
+      min-width: 0;
+      flex: 1 1 auto;
+      display: grid;
+      gap: 2px;
+    }
+
+    .terminal-label {
+      color: #94a3b8;
+      font-size: 11px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .terminal-meta {
+      color: #64748b;
+      font-size: 10px;
+      line-height: 1.25;
+    }
+
+    .terminal-body {
+      min-height: 0;
+      overflow-y: auto;
+      padding: 10px 12px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 11px;
+      line-height: 1.4;
+      display: grid;
+      gap: 4px;
+      scrollbar-gutter: stable;
+    }
+
+    .terminal-line {
+      color: #e2e8f0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .terminal-line.is-command { color: #93c5fd; }
+    .terminal-line.is-success { color: #6ee7b7; }
+    .terminal-line.is-warning { color: #fdba74; }
+    .terminal-line.is-error { color: #fca5a5; }
+
+    .agent-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .agent-action {
+      font-size: 12px;
+      padding: 7px 10px;
+    }
+
+    .agent-action.is-fullauto-on {
+      background: linear-gradient(135deg, #4a6cf7, #7c3aed);
+      color: #ffffff;
+    }
+
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 16px;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .section-head-copy {
+      margin: 6px 0 0;
+      color: #607187;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .watcher-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .watcher-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fbfcff;
+    }
+
+    .watcher-title {
+      margin: 0;
+      font-size: 14px;
+      color: #172034;
+      font-weight: 600;
+    }
+
+    .watcher-copy {
+      margin: 4px 0 0;
+      color: #607187;
+      font-size: 13px;
+    }
+
+    .watcher-state {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-radius: 999px;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      white-space: nowrap;
+    }
+
+    .watcher-state.is-active {
+      color: var(--success);
+      background: var(--success-soft);
+      border-color: #bbf7d0;
+    }
+
+    .watcher-state.is-idle {
+      color: var(--warning);
+      background: var(--warning-soft);
+      border-color: #fed7aa;
+    }
+
+    .watcher-state.is-stopped {
+      color: var(--error);
+      background: var(--error-soft);
+      border-color: #fecaca;
+    }
+
+    .quick-actions {
+      display: grid;
+      gap: 10px;
+    }
+
+    .quick-action-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .quick-action-note {
+      margin: 0;
+      color: #607187;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(74, 108, 247, 0.28); }
+      70% { box-shadow: 0 0 0 12px rgba(74, 108, 247, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(74, 108, 247, 0); }
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes glow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(74, 108, 247, 0.25); }
+      50% { box-shadow: 0 0 18px 0 rgba(124, 58, 237, 0.28); }
+    }
+
+    @keyframes fade-up {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 1260px) {
+      .agent-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 920px) {
+      .layout {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        border-right: none;
+        border-bottom: 1px solid #e3e8f0;
+      }
+
+      .stats-row,
+      .bottom-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .workspace {
+        padding: 16px;
+      }
+
+      .page-header {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .page-actions {
+        justify-items: stretch;
+      }
+
+      .agent-grid,
+      .stats-row,
+      .agent-meta {
+        grid-template-columns: 1fr;
+      }
+
+      .view-switch {
+        width: 100%;
+      }
+
+      .view-switch-link {
+        flex: 1 1 0;
+        justify-content: center;
+      }
+
+      .page-actions-row {
+        justify-content: flex-start;
+      }
+
+      .page-actions-row > * {
+        flex: 1 1 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="layout" class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <div class="brand">
+          <img
+            class="brand-logo"
+            src="hai_logo_free.png"
+            alt="HybridAI"
+          >
+        </div>
+        <button
+          id="sidebarToggle"
+          type="button"
+          class="sidebar-toggle"
+          aria-label="Toggle sidebar"
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <title>Toggle sidebar</title>
+            <rect x="3" y="4" width="18" height="16" rx="4"></rect>
+            <path d="M12 4v16"></path>
+          </svg>
+        </button>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Primary navigation">
+        <a class="sidebar-link is-active" href="/agents" aria-current="page">
+          <span class="sidebar-link-icon">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="2"></rect>
+              <rect x="14" y="3" width="7" height="7" rx="2"></rect>
+              <rect x="3" y="14" width="7" height="7" rx="2"></rect>
+              <rect x="14" y="14" width="7" height="7" rx="2"></rect>
+            </svg>
+          </span>
+          <span class="sidebar-link-label">Agents</span>
+        </a>
+        <a class="sidebar-link" href="/chat">
+          <span class="sidebar-link-icon">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+          </span>
+          <span class="sidebar-link-label">Chat</span>
+        </a>
+        <a class="sidebar-link" href="/admin">
+          <span class="sidebar-link-icon">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 3l7 4v10l-7 4-7-4V7l7-4z"></path>
+              <path d="M12 8v8"></path>
+              <path d="M8.5 10 12 8l3.5 2"></path>
+            </svg>
+          </span>
+          <span class="sidebar-link-label">Admin</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-spacer"></div>
+
+      <div id="sidebarStatus" class="sidebar-status is-connecting">
+        <span class="status-pulse" aria-hidden="true"></span>
+        <span id="sidebarStatusText" class="sidebar-status-text">Connecting to gateway...</span>
+      </div>
+      <div id="appVersion" class="app-version">HybridClaw v...</div>
+    </aside>
+
+    <main class="workspace">
+      <div class="workspace-inner">
+        <header class="page-header">
+          <div class="page-title-block">
+            <div class="page-title-row">
+              <h1>Agents</h1>
+              <div id="refreshChip" class="refresh-chip">
+                <span class="refresh-spinner" aria-hidden="true"></span>
+                <span id="refreshLabel">Auto-refresh every 15s</span>
+              </div>
+              <button id="refreshButton" type="button" class="button button-secondary">
+                Refresh now
+              </button>
+            </div>
+          </div>
+
+          <div class="page-actions">
+            <nav class="view-switch" aria-label="Switch view">
+              <a class="view-switch-link" href="/chat">
+                <span class="sidebar-link-icon">
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                </span>
+                <span>Chat</span>
+              </a>
+              <a class="view-switch-link is-active" href="/agents" aria-current="page">
+                <span class="sidebar-link-icon">
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="7" height="7" rx="2"></rect>
+                    <rect x="14" y="3" width="7" height="7" rx="2"></rect>
+                    <rect x="3" y="14" width="7" height="7" rx="2"></rect>
+                    <rect x="14" y="14" width="7" height="7" rx="2"></rect>
+                  </svg>
+                </span>
+                <span>Agents</span>
+              </a>
+              <a class="view-switch-link" href="/admin">
+                <span class="sidebar-link-icon">
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 3l7 4v10l-7 4-7-4V7l7-4z"></path>
+                    <path d="M12 8v8"></path>
+                    <path d="M8.5 10 12 8l3.5 2"></path>
+                  </svg>
+                </span>
+                <span>Admin</span>
+              </a>
+            </nav>
+          </div>
+        </header>
+
+        <div id="gatewayNotice" class="notice" role="status" aria-live="polite"></div>
+
+        <section id="statsRow" class="stats-row" aria-label="Gateway stats"></section>
+
+        <section class="card">
+          <div id="filterBar" class="filter-bar" role="tablist" aria-label="Agent filters"></div>
+        </section>
+
+        <section id="agentGrid" class="agent-grid" aria-label="Agent grid"></section>
+
+        <section class="bottom-grid">
+          <section class="card">
+            <div class="section-head">
+              <div>
+                <h2 class="card-title">Runtime Status</h2>
+                <p class="section-head-copy">Which persisted sessions currently have an attached runtime according to the active executor pool.</p>
+              </div>
+            </div>
+            <div id="watcherList" class="watcher-list"></div>
+          </section>
+
+          <section class="card">
+            <div class="section-head">
+              <div>
+                <h2 class="card-title">Quick Links</h2>
+                <p class="section-head-copy">Jump into the existing chat and admin surfaces for deeper inspection or edits.</p>
+              </div>
+            </div>
+            <div class="quick-actions">
+              <div class="quick-action-row">
+                <button id="openChatButton" type="button" class="button button-primary">Open Chat</button>
+                <button id="openSessionsButton" type="button" class="button button-secondary">Open Sessions</button>
+                <button id="openSchedulerButton" type="button" class="button button-secondary">Open Scheduler</button>
+              </div>
+              <p id="quickActionNote" class="quick-action-note">Loading runtime status...</p>
+            </div>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const layoutEl = document.getElementById('layout');
+    const appVersionEl = document.getElementById('appVersion');
+    const sidebarStatusEl = document.getElementById('sidebarStatus');
+    const sidebarStatusTextEl = document.getElementById('sidebarStatusText');
+    const gatewayNoticeEl = document.getElementById('gatewayNotice');
+    const refreshChipEl = document.getElementById('refreshChip');
+    const refreshLabelEl = document.getElementById('refreshLabel');
+    const statsRowEl = document.getElementById('statsRow');
+    const filterBarEl = document.getElementById('filterBar');
+    const agentGridEl = document.getElementById('agentGrid');
+    const watcherListEl = document.getElementById('watcherList');
+    const quickActionNoteEl = document.getElementById('quickActionNote');
+    const openChatButtonEl = document.getElementById('openChatButton');
+    const openSessionsButtonEl = document.getElementById('openSessionsButton');
+    const openSchedulerButtonEl = document.getElementById('openSchedulerButton');
+    const urlParams = new URLSearchParams(window.location.search);
+    const queryToken = urlParams.get('token') || '';
+    let apiToken = queryToken || localStorage.getItem('hybridclaw_token') || '';
+    const savedOutputState = loadOpenOutputState();
+
+    const FILTERS = [
+      { key: 'all', label: 'All' },
+      { key: 'active', label: 'Active' },
+      { key: 'idle', label: 'Idle' },
+      { key: 'stopped', label: 'Stopped' },
+    ];
+
+    const state = {
+      filter: localStorage.getItem('hybridclaw_agents_filter') || 'all',
+      agents: [],
+      snapshot: null,
+      isRefreshing: false,
+      refreshTimer: null,
+      lastRefreshAt: null,
+      openOutputIds: savedOutputState.ids,
+      hasStoredOutputState: savedOutputState.hasStored,
+    };
+
+    if (queryToken) {
+      localStorage.setItem('hybridclaw_token', queryToken);
+    }
+
+    function loadOpenOutputState() {
+      const raw = localStorage.getItem('hybridclaw_agents_output_open');
+      if (!raw) {
+        return { ids: new Set(), hasStored: false };
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          return { ids: new Set(), hasStored: false };
+        }
+        return {
+          ids: new Set(parsed.map((value) => String(value))),
+          hasStored: true,
+        };
+      } catch {
+        return { ids: new Set(), hasStored: false };
+      }
+    }
+
+    function persistUiState() {
+      localStorage.setItem('hybridclaw_agents_filter', state.filter);
+      localStorage.setItem(
+        'hybridclaw_agents_output_open',
+        JSON.stringify(Array.from(state.openOutputIds)),
+      );
+      state.hasStoredOutputState = true;
+    }
+
+    function setSidebarCollapsed(next) {
+      layoutEl.classList.toggle('is-sidebar-collapsed', next);
+      localStorage.setItem('hybridclaw_agents_sidebar_collapsed', next ? '1' : '0');
+    }
+
+    function apiHeaders() {
+      const headers = {};
+      if (apiToken) {
+        headers.Authorization = `Bearer ${apiToken}`;
+      }
+      return headers;
+    }
+
+    async function requestJson(url, options) {
+      const response = await fetch(url, options);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || `${response.status} ${response.statusText}`);
+      }
+      return payload;
+    }
+
+    function setAppVersion(version) {
+      if (!version) {
+        appVersionEl.textContent = 'HybridClaw v...';
+        return;
+      }
+      appVersionEl.textContent = `HybridClaw v${String(version).replace(/^v/i, '')}`;
+    }
+
+    function setConnectionState(mode, text) {
+      sidebarStatusEl.className = `sidebar-status ${mode}`;
+      sidebarStatusTextEl.textContent = text;
+    }
+
+    function showNotice(text) {
+      if (!text) {
+        gatewayNoticeEl.className = 'notice';
+        gatewayNoticeEl.textContent = '';
+        return;
+      }
+      gatewayNoticeEl.className = 'notice is-visible';
+      gatewayNoticeEl.textContent = text;
+    }
+
+    function formatNumber(value) {
+      return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Number(value || 0));
+    }
+
+    function formatCompact(value) {
+      return new Intl.NumberFormat('en-US', {
+        notation: 'compact',
+        maximumFractionDigits: 1,
+      }).format(Number(value || 0));
+    }
+
+    function formatUsd(value) {
+      const amount = Number(value || 0);
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        maximumFractionDigits: amount >= 10 ? 0 : 2,
+      }).format(amount);
+    }
+
+    function formatDateTime(value) {
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return 'Unknown';
+      return new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(parsed);
+    }
+
+    function formatRelativeTime(value) {
+      const timestamp = new Date(value).getTime();
+      if (Number.isNaN(timestamp)) return 'unknown';
+      const deltaMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+      if (deltaMinutes < 1) return 'just now';
+      if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
+      const deltaHours = Math.floor(deltaMinutes / 60);
+      if (deltaHours < 24) return `${deltaHours}h ago`;
+      const deltaDays = Math.floor(deltaHours / 24);
+      return `${deltaDays}d ago`;
+    }
+
+    function formatMinutes(value) {
+      const minutes = Math.max(0, Math.floor(Number(value || 0)));
+      if (!minutes) return '0m';
+      const hours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      if (!hours) return `${mins}m`;
+      if (!mins) return `${hours}h`;
+      return `${hours}h ${mins}m`;
+    }
+
+    function formatUptime(seconds) {
+      const totalMinutes = Math.max(0, Math.floor(Number(seconds || 0) / 60));
+      const days = Math.floor(totalMinutes / 1440);
+      const hours = Math.floor((totalMinutes % 1440) / 60);
+      const minutes = totalMinutes % 60;
+      if (days) return `${days}d ${hours}h`;
+      if (hours) return `${hours}h ${minutes}m`;
+      return `${minutes}m`;
+    }
+
+    function relativeRefreshLabel() {
+      if (!state.lastRefreshAt) return 'Auto-refresh every 15s';
+      return `Last refresh ${formatDateTime(state.lastRefreshAt)}`;
+    }
+
+    function visibleAgents() {
+      return state.agents.filter((agent) => {
+        if (state.filter === 'all') return true;
+        return agent.status === state.filter;
+      });
+    }
+
+    function counts() {
+      if (state.snapshot?.totals) {
+        return {
+          all: state.snapshot.totals.all || 0,
+          active: state.snapshot.totals.active || 0,
+          idle: state.snapshot.totals.idle || 0,
+          stopped: state.snapshot.totals.stopped || 0,
+        };
+      }
+      return {
+        all: state.agents.length,
+        active: state.agents.filter((agent) => agent.status === 'active').length,
+        idle: state.agents.filter((agent) => agent.status === 'idle').length,
+        stopped: state.agents.filter((agent) => agent.status === 'stopped').length,
+      };
+    }
+
+    function runningAgentsCount() {
+      return state.snapshot?.totals?.running || 0;
+    }
+
+    function totalTokens() {
+      return state.snapshot?.totals?.totalTokens || 0;
+    }
+
+    function totalCost() {
+      return state.snapshot?.totals?.totalCostUsd || 0;
+    }
+
+    function statusClass(agent) {
+      return agent.status;
+    }
+
+    function statusLabel(agent) {
+      if (agent.status === 'idle') return 'Idle';
+      if (agent.status === 'stopped') return 'Stopped';
+      return 'Active';
+    }
+
+    function escapeHtml(raw) {
+      return String(raw)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function lineClass(line) {
+      const text = String(line || '');
+      const lowered = text.toLowerCase();
+      if (text.startsWith('$')) return 'is-command';
+      if (lowered.includes('error') || lowered.includes('failed')) return 'is-error';
+      if (lowered.includes('idle') || lowered.includes('waiting')) return 'is-warning';
+      if (lowered.includes('healthy') || lowered.includes('success')) return 'is-success';
+      return '';
+    }
+
+    function formatTokenIo(agent) {
+      return `${formatCompact(agent.inputTokens)} in / ${formatCompact(agent.outputTokens)} out`;
+    }
+
+    function channelMeta(agent) {
+      const sessionId = String(agent.sessionId || '');
+      const channelId = String(agent.channelId || '').trim();
+      const channelName =
+        typeof agent.channelName === 'string' ? agent.channelName.trim() : '';
+
+      if (sessionId.startsWith('tui:') || channelId === 'local' || channelId === 'tui') {
+        return {
+          kind: 'TUI',
+          label: channelId || 'local',
+          detail: null,
+          icon: `
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="14" rx="2"></rect>
+              <path d="m7 15 3-3-3-3"></path>
+              <path d="M13 15h4"></path>
+            </svg>
+          `,
+        };
+      }
+
+      if (sessionId.startsWith('web:') || channelId === 'web' || channelId === 'direct/web') {
+        return {
+          kind: 'Web',
+          label: channelId || 'direct/web',
+          detail: null,
+          icon: `
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="M3 12h18"></path>
+              <path d="M12 3a15 15 0 0 1 0 18"></path>
+              <path d="M12 3a15 15 0 0 0 0 18"></path>
+            </svg>
+          `,
+        };
+      }
+
+      if (sessionId.startsWith('scheduler:')) {
+        return {
+          kind: 'Scheduler',
+          label: channelId || 'scheduled',
+          detail: null,
+          icon: `
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="13" r="8"></circle>
+              <path d="M12 9v4l3 2"></path>
+              <path d="M8 3v3"></path>
+              <path d="M16 3v3"></path>
+            </svg>
+          `,
+        };
+      }
+
+      if (sessionId.startsWith('heartbeat:')) {
+        return {
+          kind: 'Heartbeat',
+          label: channelId || 'internal',
+          detail: null,
+          icon: `
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 12h4l2-5 4 10 2-5h6"></path>
+            </svg>
+          `,
+        };
+      }
+
+      if (sessionId.startsWith('delegate:')) {
+        return {
+          kind: 'Delegate',
+          label: channelId || 'agent',
+          detail: null,
+          icon: `
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M7 7h10v10H7z"></path>
+              <path d="M10 10h7V3"></path>
+              <path d="m10 3 7 7"></path>
+            </svg>
+          `,
+        };
+      }
+
+      return {
+        kind: 'Discord',
+        label: channelName || channelId || 'unknown',
+        detail:
+          channelName && channelId && channelName !== channelId ? channelId : null,
+        icon: `
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M8.5 8.5c1.1-.8 2.3-1.2 3.5-1.2s2.4.4 3.5 1.2"></path>
+            <path d="M7 17c1.8 1 3.5 1.5 5 1.5s3.2-.5 5-1.5"></path>
+            <path d="M7.5 17.2 6 8.5c1.4-1 2.9-1.7 4.4-2l.8 1.5"></path>
+            <path d="M16.5 17.2 18 8.5c-1.4-1-2.9-1.7-4.4-2l-.8 1.5"></path>
+            <circle cx="9.5" cy="12" r="1"></circle>
+            <circle cx="14.5" cy="12" r="1"></circle>
+          </svg>
+        `,
+      };
+    }
+
+    function syncOpenOutputIds() {
+      const validIds = new Set(state.agents.map((agent) => agent.id));
+      const nextIds = new Set();
+      state.openOutputIds.forEach((id) => {
+        if (validIds.has(id)) {
+          nextIds.add(id);
+        }
+      });
+      if (!state.hasStoredOutputState && nextIds.size === 0 && state.agents.length > 0) {
+        nextIds.add(state.agents[0].id);
+      }
+      state.openOutputIds = nextIds;
+      persistUiState();
+    }
+
+    function renderStats() {
+      const cards = [
+        {
+          accent: 'is-green',
+          icon: 'A',
+          value: formatNumber(runningAgentsCount()),
+          label: 'Agents Running',
+        },
+        {
+          accent: 'is-blue',
+          icon: 'T',
+          value: formatCompact(totalTokens()),
+          label: 'Tokens Used',
+        },
+        {
+          accent: 'is-gold',
+          icon: '$',
+          value: formatUsd(totalCost()),
+          label: 'Total Cost',
+        },
+        {
+          accent: 'is-slate',
+          icon: 'U',
+          value: formatUptime(state.snapshot?.uptime),
+          label: 'Uptime',
+        },
+      ];
+
+      statsRowEl.innerHTML = cards.map((card, index) => `
+        <article class="card stat-card" style="animation-delay:${index * 70}ms">
+          <div class="metric-accent ${card.accent}" aria-hidden="true">${card.icon}</div>
+          <p class="stat-value">${card.value}</p>
+          <p class="stat-label">${card.label}</p>
+        </article>
+      `).join('');
+    }
+
+    function renderFilters() {
+      const totals = counts();
+      filterBarEl.innerHTML = FILTERS.map((filter) => `
+        <button
+          type="button"
+          class="filter-pill ${state.filter === filter.key ? 'is-active' : ''}"
+          data-filter="${filter.key}"
+          aria-pressed="${state.filter === filter.key ? 'true' : 'false'}"
+        >
+          <span>${filter.label}</span>
+          <span class="filter-count">${totals[filter.key]}</span>
+        </button>
+      `).join('');
+
+      filterBarEl.querySelectorAll('[data-filter]').forEach((button) => {
+        button.addEventListener('click', () => {
+          state.filter = button.getAttribute('data-filter') || 'all';
+          persistUiState();
+          renderAll();
+        });
+      });
+    }
+
+    function renderAgents() {
+      const cards = visibleAgents();
+      if (cards.length === 0) {
+        agentGridEl.innerHTML = `
+          <section class="card">
+            <h2 class="card-title">${state.snapshot ? 'No agents in this filter' : 'Waiting for runtime data'}</h2>
+            <p class="card-copy">${state.snapshot
+              ? 'Change the filter or open /chat to create another live session.'
+              : 'Fetching persisted sessions from /api/agents.'}</p>
+          </section>
+        `;
+        return;
+      }
+
+      agentGridEl.innerHTML = cards.map((agent, index) => {
+        const isOutputOpen = state.openOutputIds.has(agent.id);
+        const outputLines = Array.isArray(agent.output) && agent.output.length > 0
+          ? agent.output
+          : ['No recent activity captured for this session yet.'];
+        const channel = channelMeta(agent);
+
+        return `
+          <article class="card agent-card is-${statusClass(agent)}" id="${agent.id}" style="animation-delay:${index * 45}ms">
+            <div class="agent-card-header">
+              <div>
+                <h2 class="agent-name">${escapeHtml(agent.name)}</h2>
+                ${agent.lastQuestion || agent.lastAnswer
+                  ? `
+                    <div class="agent-preview">
+                      ${agent.lastQuestion
+                        ? `<div class="agent-preview-row">
+                            <span class="agent-preview-label">Q</span>
+                            <p class="agent-preview-text">${escapeHtml(agent.lastQuestion)}</p>
+                          </div>`
+                        : ''}
+                      ${agent.lastAnswer
+                        ? `<div class="agent-preview-row">
+                            <span class="agent-preview-label">A</span>
+                            <p class="agent-preview-text">${escapeHtml(agent.lastAnswer)}</p>
+                          </div>`
+                        : ''}
+                    </div>
+                  `
+                  : `<p class="agent-task">${escapeHtml(agent.task)}</p>`}
+              </div>
+              <span class="status-badge is-${statusClass(agent)}">
+                <span class="status-badge-dot" aria-hidden="true"></span>
+                ${statusLabel(agent)}
+              </span>
+            </div>
+
+            <div class="agent-meta">
+              <div class="agent-meta-block">
+                <span class="agent-meta-label">Model</span>
+                <p class="agent-meta-value">${escapeHtml(agent.model)}</p>
+              </div>
+              <div class="agent-meta-block">
+                <span class="agent-meta-label">Session ID</span>
+                <p class="agent-meta-value">${escapeHtml(agent.sessionId)}</p>
+              </div>
+              <div class="agent-meta-block">
+                <span class="agent-meta-label">Channel</span>
+                <p class="agent-meta-value channel-meta">
+                  <span class="channel-icon" aria-hidden="true">${channel.icon}</span>
+                  <span class="channel-meta-text">
+                    <span class="channel-main-line">
+                      <span class="channel-kind">${escapeHtml(channel.kind)}</span>
+                      <span class="channel-name">${escapeHtml(channel.label)}</span>
+                    </span>
+                    ${channel.detail ? `<span class="channel-detail">${escapeHtml(channel.detail)}</span>` : ''}
+                  </span>
+                </p>
+              </div>
+              <div class="agent-meta-block">
+                <span class="agent-meta-label">Runtime</span>
+                <p class="agent-meta-value">${formatMinutes(agent.runtimeMinutes)}</p>
+              </div>
+              <div class="agent-meta-block">
+                <span class="agent-meta-label">Token I/O</span>
+                <p class="agent-meta-value">${formatTokenIo(agent)}</p>
+              </div>
+              <div class="agent-meta-block">
+                <span class="agent-meta-label">MSG / TOOLS</span>
+                <p class="agent-meta-value">${formatNumber(agent.messageCount)} msgs / ${formatNumber(agent.toolCalls)} calls</p>
+              </div>
+              <div class="agent-meta-block">
+                <span class="agent-meta-label">Cost</span>
+                <p class="agent-meta-value">${formatUsd(agent.costUsd)}</p>
+              </div>
+              <div class="agent-meta-block">
+                <span class="agent-meta-label">Last Active</span>
+                <p class="agent-meta-value">${escapeHtml(formatDateTime(agent.lastActive))}</p>
+              </div>
+            </div>
+
+            <div class="terminal ${isOutputOpen ? '' : 'is-collapsed'}" data-terminal="${agent.id}">
+              <div class="terminal-top">
+                <span class="terminal-dot is-red"></span>
+                <span class="terminal-dot is-yellow"></span>
+                <span class="terminal-dot is-green"></span>
+                <div class="terminal-head">
+                  <span class="terminal-label">${escapeHtml(agent.previewTitle || 'Recent activity')}</span>
+                  <span class="terminal-meta">${escapeHtml(agent.previewMeta || '')}</span>
+                </div>
+              </div>
+              <div class="terminal-body">
+                ${outputLines.map((line) => `<div class="terminal-line ${lineClass(line)}">${escapeHtml(line)}</div>`).join('')}
+              </div>
+            </div>
+
+            <div class="agent-actions">
+              <button type="button" class="button button-primary agent-action" data-action="open-chat" data-agent-id="${agent.id}">Open Chat</button>
+              <button type="button" class="button button-secondary agent-action" data-action="open-admin" data-agent-id="${agent.id}">Open Sessions</button>
+              <button type="button" class="button button-secondary agent-action" data-action="toggle-output" data-agent-id="${agent.id}" aria-expanded="${isOutputOpen ? 'true' : 'false'}">
+                ${isOutputOpen ? 'Hide Output' : 'Show Output'}
+              </button>
+            </div>
+          </article>
+        `;
+      }).join('');
+
+      agentGridEl.querySelectorAll('[data-action]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const action = button.getAttribute('data-action');
+          const agentId = button.getAttribute('data-agent-id');
+          if (!action || !agentId) return;
+          void handleAgentAction(action, agentId);
+        });
+      });
+    }
+
+    function renderWatchers() {
+      if (state.agents.length === 0) {
+        watcherListEl.innerHTML = `
+          <div class="watcher-row">
+            <div>
+              <p class="watcher-title">No persisted sessions yet</p>
+              <p class="watcher-copy">Start a chat session and refresh this page to see attached runtimes here.</p>
+            </div>
+            <span class="watcher-state is-stopped">Empty</span>
+          </div>
+        `;
+        return;
+      }
+
+      watcherListEl.innerHTML = state.agents.map((agent) => {
+        let watcherState = 'is-active';
+        let watcherLabel = 'Watching';
+        if (agent.status === 'idle') {
+          watcherState = 'is-idle';
+          watcherLabel = 'Idle';
+        } else if (agent.status === 'stopped' || !agent.watcher) {
+          watcherState = 'is-stopped';
+          watcherLabel = 'Detached';
+        }
+
+        return `
+          <div class="watcher-row">
+            <div>
+              <p class="watcher-title">${escapeHtml(agent.name)}</p>
+              <p class="watcher-copy">${escapeHtml(agent.watcher || 'No runtime currently attached')} · last active ${escapeHtml(formatRelativeTime(agent.lastActive))}</p>
+            </div>
+            <span class="watcher-state ${watcherState}">${watcherLabel}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderQuickActions() {
+      if (!state.snapshot) {
+        quickActionNoteEl.textContent = 'Open Chat to create sessions. This page fills in once persisted sessions exist.';
+        return;
+      }
+
+      const running = `${formatNumber(state.snapshot.totals.running)} running across ${formatNumber(state.snapshot.totals.all)} persisted session(s).`;
+      const ralph = state.snapshot.ralph.enabled
+        ? `Ralph is enabled with a max of ${formatNumber(state.snapshot.ralph.maxIterations)} iteration(s).`
+        : 'Ralph is disabled.';
+      quickActionNoteEl.textContent = `${running} ${ralph}`;
+    }
+
+    function renderRefreshState() {
+      refreshChipEl.classList.toggle('is-spinning', state.isRefreshing);
+      refreshLabelEl.textContent = state.isRefreshing ? 'Refreshing now...' : relativeRefreshLabel();
+    }
+
+    function scrollOpenTerminalsToBottom() {
+      window.requestAnimationFrame(() => {
+        agentGridEl
+          .querySelectorAll('.terminal:not(.is-collapsed) .terminal-body')
+          .forEach((element) => {
+            element.scrollTop = element.scrollHeight;
+          });
+      });
+    }
+
+    function renderAll() {
+      renderStats();
+      renderFilters();
+      renderAgents();
+      scrollOpenTerminalsToBottom();
+      renderWatchers();
+      renderQuickActions();
+      renderRefreshState();
+    }
+
+    async function handleAgentAction(action, agentId) {
+      const agent = state.agents.find((entry) => entry.id === agentId);
+      if (!agent) return;
+
+      if (action === 'open-chat') {
+        localStorage.setItem('hybridclaw_session', agent.sessionId);
+        window.location.assign('/chat');
+        return;
+      }
+
+      if (action === 'open-admin') {
+        window.location.assign('/admin/sessions');
+        return;
+      }
+
+      if (action === 'toggle-output') {
+        if (state.openOutputIds.has(agentId)) {
+          state.openOutputIds.delete(agentId);
+        } else {
+          state.openOutputIds.add(agentId);
+        }
+        persistUiState();
+        renderAll();
+      }
+    }
+
+    async function fetchAgents() {
+      try {
+        const payload = await requestJson('/api/agents', {
+          method: 'GET',
+          headers: apiHeaders(),
+        });
+        state.snapshot = payload;
+        state.agents = Array.isArray(payload.agents) ? payload.agents : [];
+        syncOpenOutputIds();
+        setAppVersion(payload.version || '');
+        setConnectionState(
+          'is-online',
+          `${formatNumber(payload.totals?.running || 0)} running / ${formatNumber(payload.totals?.all || 0)} total`,
+        );
+        showNotice('');
+        state.lastRefreshAt = payload.generatedAt || new Date().toISOString();
+      } catch (error) {
+        state.snapshot = null;
+        state.agents = [];
+        setAppVersion('');
+        const message = error instanceof Error ? error.message : String(error);
+        if (/401|unauthorized/i.test(message)) {
+          localStorage.removeItem('hybridclaw_token');
+          apiToken = '';
+          setConnectionState('is-offline', 'Token required');
+          showNotice('Gateway requires WEB_API_TOKEN. Reuse the same token flow as /chat with ?token=... or localStorage.hybridclaw_token.');
+        } else {
+          setConnectionState('is-offline', 'Gateway unavailable');
+          showNotice(`Agent data unavailable: ${message}`);
+        }
+      }
+    }
+
+    async function refreshAll() {
+      state.isRefreshing = true;
+      renderRefreshState();
+      try {
+        await fetchAgents();
+      } finally {
+        renderAll();
+        window.setTimeout(() => {
+          state.isRefreshing = false;
+          renderRefreshState();
+        }, 700);
+      }
+    }
+
+    function startAutoRefresh() {
+      if (state.refreshTimer) {
+        window.clearInterval(state.refreshTimer);
+      }
+      state.refreshTimer = window.setInterval(() => {
+        void refreshAll();
+      }, 15000);
+    }
+
+    function connectAgentStream() {
+      // Future backend hook:
+      // const params = apiToken ? `?token=${encodeURIComponent(apiToken)}` : '';
+      // const stream = new EventSource(`/api/agents/stream${params}`);
+      // stream.addEventListener('agents', (event) => { ... });
+      // stream.addEventListener('status', (event) => { ... });
+      // return stream;
+      return null;
+    }
+
+    document.getElementById('sidebarToggle').addEventListener('click', () => {
+      const next = !layoutEl.classList.contains('is-sidebar-collapsed');
+      setSidebarCollapsed(next);
+    });
+
+    document.getElementById('refreshButton').addEventListener('click', () => {
+      void refreshAll();
+    });
+
+    openChatButtonEl.addEventListener('click', () => {
+      window.location.assign('/chat');
+    });
+
+    openSessionsButtonEl.addEventListener('click', () => {
+      window.location.assign('/admin/sessions');
+    });
+
+    openSchedulerButtonEl.addEventListener('click', () => {
+      window.location.assign('/admin/scheduler');
+    });
+
+    setSidebarCollapsed(localStorage.getItem('hybridclaw_agents_sidebar_collapsed') === '1');
+    connectAgentStream();
+    renderAll();
+    void refreshAll();
+    startAutoRefresh();
+  </script>
+</body>
+</html>

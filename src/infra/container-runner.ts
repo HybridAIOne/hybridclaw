@@ -189,6 +189,12 @@ export function getActiveContainerCount(): number {
   return pool.size;
 }
 
+export function getActiveContainerSessionIds(): string[] {
+  return Array.from(pool.keys()).sort((left, right) =>
+    left.localeCompare(right),
+  );
+}
+
 export function stopSessionContainer(sessionId: string): boolean {
   const entry = pool.get(sessionId);
   if (!entry) return false;
@@ -752,5 +758,9 @@ export class ContainerExecutor {
 
   getActiveSessionCount(): number {
     return getActiveContainerCount();
+  }
+
+  getActiveSessionIds(): string[] {
+    return getActiveContainerSessionIds();
   }
 }

@@ -24,6 +24,7 @@ import type {
   UsageAgentAggregate,
   UsageDailyAggregate,
   UsageModelAggregate,
+  UsageSessionAggregate,
   UsageTotals,
   UsageWindow,
 } from '../types.js';
@@ -1200,6 +1201,55 @@ export function listUsageByAgent(params?: {
   }));
 }
 
+export function listUsageBySession(params?: {
+  window?: UsageWindow;
+}): UsageSessionAggregate[] {
+  const whereClauses: string[] = [];
+  const args: unknown[] = [];
+  applyUsageFilters({
+    whereClauses,
+    args,
+    window: params?.window,
+  });
+  const where =
+    whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const rows = db
+    .prepare(
+      `SELECT
+         session_id,
+         COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+         COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+         COALESCE(SUM(total_tokens), 0) AS total_tokens,
+         COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+         COUNT(*) AS call_count,
+         COALESCE(SUM(tool_calls), 0) AS total_tool_calls
+       FROM usage_events
+       ${where}
+       GROUP BY session_id
+       ORDER BY total_cost_usd DESC, total_tokens DESC, call_count DESC`,
+    )
+    .all(...args) as Array<
+    UsageSessionAggregate & {
+      total_input_tokens: unknown;
+      total_output_tokens: unknown;
+      total_tokens: unknown;
+      total_cost_usd: unknown;
+      call_count: unknown;
+      total_tool_calls: unknown;
+    }
+  >;
+
+  return rows.map((row) => ({
+    session_id: row.session_id,
+    total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
+    total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
+    total_tokens: normalizeUsageNumber(row.total_tokens),
+    total_cost_usd: normalizeUsageCost(row.total_cost_usd),
+    call_count: normalizeUsageNumber(row.call_count),
+    total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
+  }));
+}
+
 export function listUsageDailyBreakdown(params?: {
   agentId?: string;
   days?: number;
@@ -1768,6 +1818,59 @@ export function clearSessionHistory(sessionId: string): number {
     'UPDATE sessions SET message_count = 0, session_summary = NULL, summary_updated_at = NULL, compaction_count = 0, memory_flush_at = NULL WHERE id = ?',
   ).run(sessionId);
   return result.changes;
+}
+
+export function deleteSessionData(sessionId: string): {
+  deleted: boolean;
+  sessionId: string;
+  deletedMessages: number;
+  deletedTasks: number;
+  deletedSemanticMemories: number;
+  deletedUsageEvents: number;
+  deletedAuditEntries: number;
+  deletedStructuredAuditEntries: number;
+  deletedApprovalEntries: number;
+} {
+  const transaction = db.transaction((value: string) => {
+    const deletedMessages = db
+      .prepare('DELETE FROM messages WHERE session_id = ?')
+      .run(value).changes;
+    const deletedSemanticMemories = db
+      .prepare('DELETE FROM semantic_memories WHERE session_id = ?')
+      .run(value).changes;
+    const deletedTasks = db
+      .prepare('DELETE FROM tasks WHERE session_id = ?')
+      .run(value).changes;
+    const deletedAuditEntries = db
+      .prepare('DELETE FROM audit_log WHERE session_id = ?')
+      .run(value).changes;
+    const deletedStructuredAuditEntries = db
+      .prepare('DELETE FROM audit_events WHERE session_id = ?')
+      .run(value).changes;
+    const deletedApprovalEntries = db
+      .prepare('DELETE FROM approvals WHERE session_id = ?')
+      .run(value).changes;
+    const deletedUsageEvents = db
+      .prepare('DELETE FROM usage_events WHERE session_id = ?')
+      .run(value).changes;
+    const deletedSession = db
+      .prepare('DELETE FROM sessions WHERE id = ?')
+      .run(value).changes;
+
+    return {
+      deleted: deletedSession > 0,
+      sessionId: value,
+      deletedMessages,
+      deletedTasks,
+      deletedSemanticMemories,
+      deletedUsageEvents,
+      deletedAuditEntries,
+      deletedStructuredAuditEntries,
+      deletedApprovalEntries,
+    };
+  });
+
+  return transaction(sessionId);
 }
 
 // --- Messages ---
@@ -2515,6 +2618,12 @@ export function getTasksForSession(sessionId: string): ScheduledTask[] {
     .all(sessionId) as ScheduledTask[];
 }
 
+export function getAllTasks(): ScheduledTask[] {
+  return db
+    .prepare('SELECT * FROM tasks ORDER BY created_at DESC')
+    .all() as ScheduledTask[];
+}
+
 export function getAllEnabledTasks(): ScheduledTask[] {
   return db
     .prepare('SELECT * FROM tasks WHERE enabled = 1')
@@ -2685,6 +2794,48 @@ export function getRecentStructuredAuditForSession(
       'SELECT * FROM audit_events WHERE session_id = ? ORDER BY seq DESC LIMIT ?',
     )
     .all(sessionId, bounded) as StructuredAuditEntry[];
+}
+
+export function listStructuredAuditEntries(params?: {
+  sessionId?: string;
+  eventType?: string;
+  query?: string;
+  limit?: number;
+}): StructuredAuditEntry[] {
+  const sessionId = String(params?.sessionId || '').trim();
+  const eventType = String(params?.eventType || '').trim();
+  const query = String(params?.query || '').trim();
+  const bounded = Math.max(1, Math.min(params?.limit ?? 50, 200));
+
+  const clauses: string[] = [];
+  const values: Array<string | number> = [];
+
+  if (sessionId) {
+    clauses.push('session_id = ?');
+    values.push(sessionId);
+  }
+  if (eventType) {
+    clauses.push('event_type = ?');
+    values.push(eventType);
+  }
+  if (query) {
+    const like = `%${query}%`;
+    clauses.push(
+      '(event_type LIKE ? OR payload LIKE ? OR session_id LIKE ? OR run_id LIKE ?)',
+    );
+    values.push(like, like, like, like);
+  }
+
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const sql = `
+    SELECT *
+    FROM audit_events
+    ${where}
+    ORDER BY id DESC
+    LIMIT ?
+  `;
+
+  return db.prepare(sql).all(...values, bounded) as StructuredAuditEntry[];
 }
 
 export function getStructuredAuditAfterId(
