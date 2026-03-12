@@ -28,6 +28,84 @@ function extractVisionAnalysisFromToolResult(raw: unknown): string | null {
   return analysis || null;
 }
 
+function normalizeToolErrorText(raw: string): string | null {
+  const normalized = raw.replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+  if (/executable doesn't exist at /i.test(normalized)) {
+    return 'browser runtime is not installed';
+  }
+  if (/econnrefused|connection refused/i.test(normalized)) {
+    return 'connection was refused';
+  }
+  if (/enotfound|getaddrinfo|could not resolve|could not be reached/i.test(normalized)) {
+    return 'host could not be reached';
+  }
+  if (/timed out|timeout|deadline exceeded/i.test(normalized)) {
+    return 'operation timed out';
+  }
+
+  const stripped = normalized
+    .replace(/^browser command failed:\s*/i, '')
+    .replace(/^error:\s*/i, '')
+    .trim();
+  if (!stripped || /^npm warn /i.test(stripped)) {
+    return 'tool execution failed';
+  }
+  return stripped.length > 160 ? `${stripped.slice(0, 159).trimEnd()}…` : stripped;
+}
+
+function extractToolFailureText(
+  execution: NonNullable<GatewayChatResult['toolExecutions']>[number],
+): string | null {
+  if (execution.blocked) {
+    return normalizeToolErrorText(
+      execution.blockedReason || 'blocked by security policy',
+    );
+  }
+
+  const parsed = parseJsonObject(execution.result);
+  if (parsed?.success === false && typeof parsed.error === 'string') {
+    return normalizeToolErrorText(parsed.error);
+  }
+
+  if (!execution.isError) return null;
+  return normalizeToolErrorText(String(execution.result || ''));
+}
+
+function summarizePlaceholderToolFailure(
+  result: GatewayChatResult,
+): string | null {
+  const executions = Array.isArray(result.toolExecutions)
+    ? result.toolExecutions
+    : [];
+  const failedExecutions = executions.filter((execution) => {
+    if (execution.blocked || execution.isError) return true;
+    const parsed = parseJsonObject(execution.result);
+    return parsed?.success === false;
+  });
+  if (failedExecutions.length === 0) return null;
+
+  const toolNames = [
+    ...new Set(
+      failedExecutions.map((execution) => {
+        const name = String(execution.name || '').trim();
+        return name || 'tool';
+      }),
+    ),
+  ];
+  const lastFailureText = extractToolFailureText(
+    failedExecutions[failedExecutions.length - 1],
+  );
+  if (toolNames.length === 1) {
+    return lastFailureText
+      ? `${toolNames[0]} failed: ${lastFailureText}.`
+      : `${toolNames[0]} failed.`;
+  }
+  return lastFailureText
+    ? `Tool calls failed: ${toolNames.join(', ')}. Last error: ${lastFailureText}.`
+    : `Tool calls failed: ${toolNames.join(', ')}.`;
+}
+
 export function filterChatResultForSession(
   sessionId: string,
   result: GatewayChatResult,
@@ -111,6 +189,13 @@ export function normalizePlaceholderToolReply(
     return {
       ...result,
       result: analysis,
+    };
+  }
+  const failureSummary = summarizePlaceholderToolFailure(result);
+  if (failureSummary) {
+    return {
+      ...result,
+      result: failureSummary,
     };
   }
   return result;

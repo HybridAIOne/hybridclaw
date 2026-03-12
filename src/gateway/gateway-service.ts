@@ -219,7 +219,6 @@ import {
   describeSessionShowMode,
   isSessionShowMode,
   normalizeSessionShowMode,
-  sessionShowModeShowsThinking,
   sessionShowModeShowsTools,
 } from './show-mode.js';
 
@@ -3038,7 +3037,6 @@ export async function handleGatewayMessage(
     );
   }
   const showMode = normalizeSessionShowMode(session.show_mode);
-  const shouldEmitThinking = sessionShowModeShowsThinking(showMode);
   const shouldEmitTools = sessionShowModeShowsTools(showMode);
   const enableRag = req.enableRag ?? session.enable_rag === 1;
   const provider = resolveModelProvider(model);
@@ -3357,7 +3355,6 @@ export async function handleGatewayMessage(
           'Gateway chat emitted first text delta',
         );
       }
-      if (!shouldEmitThinking) return;
       req.onTextDelta?.(delta);
     };
     const onToolProgress = (event: ToolProgressEvent): void => {

@@ -48,12 +48,19 @@ import {
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
 } from './tui-slash-command.js';
-import { appendThinkingPreview } from './tui-thinking.js';
+import {
+  countTerminalRows,
+  createTuiThinkingStreamState,
+  formatTuiStreamDelta,
+  indentTuiBlock,
+} from './tui-thinking.js';
 import type { SessionShowMode } from './types.js';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 const JELLYFISH = '🪼';
+const HIDE_CURSOR = '\x1b[?25l';
+const SHOW_CURSOR = '\x1b[?25h';
 
 type TuiTheme = 'dark' | 'light';
 
@@ -114,13 +121,110 @@ function resolveTuiTheme(): TuiTheme {
   return inferThemeFromColorFgBg() || 'dark';
 }
 
-const PALETTE = resolveTuiTheme() === 'light' ? LIGHT_PALETTE : DARK_PALETTE;
+const THEME = resolveTuiTheme();
+const PALETTE = THEME === 'light' ? LIGHT_PALETTE : DARK_PALETTE;
 const MUTED = PALETTE.muted;
 const TEAL = PALETTE.teal;
 const NAVY = PALETTE.navy;
 const GOLD = PALETTE.gold;
 const GREEN = PALETTE.green;
 const RED = PALETTE.red;
+const THINKING_PREVIEW_COLOR =
+  THEME === 'light'
+    ? '\x1b[38;2;145;154;170m'
+    : '\x1b[38;2;116;129;148m';
+const JELLYFISH_PULSE_FRAMES =
+  THEME === 'light'
+    ? ([
+        {
+          emojiColor: '\x1b[38;2;108;117;132m',
+          verbColor: '\x1b[38;2;124;133;148m',
+        },
+        {
+          emojiColor: '\x1b[38;2;124;133;148m',
+          verbColor: '\x1b[38;2;140;149;164m',
+        },
+        {
+          emojiColor: '\x1b[38;2;140;149;164m',
+          verbColor: '\x1b[38;2;156;165;180m',
+        },
+        {
+          emojiColor: '\x1b[38;2;124;133;148m',
+          verbColor: '\x1b[38;2;140;149;164m',
+        },
+      ] as const)
+    : ([
+        {
+          emojiColor: '\x1b[38;2;82;95;112m',
+          verbColor: '\x1b[38;2;96;109;126m',
+        },
+        {
+          emojiColor: '\x1b[38;2;102;115;132m',
+          verbColor: '\x1b[38;2;116;129;146m',
+        },
+        {
+          emojiColor: '\x1b[38;2;124;137;154m',
+          verbColor: '\x1b[38;2;138;151;168m',
+        },
+        {
+          emojiColor: '\x1b[38;2;102;115;132m',
+          verbColor: '\x1b[38;2;116;129;146m',
+        },
+      ] as const);
+const OCEAN_ACTIVITY_VERBS = [
+  'swimming',
+  'floating',
+  'drifting',
+  'gliding',
+  'bobbing',
+  'splashing',
+  'sloshing',
+  'surfing',
+  'diving',
+  'snorkeling',
+  'snapping',
+  'shoaling',
+  'spouting',
+  'whaling',
+  'krilling',
+  'squidging',
+  'eel-ing',
+  'coraling',
+  'reefing',
+  'kelping',
+  'tidalizing',
+  'currenting',
+  'undertowing',
+  'moonjell-ing',
+  'anemone-ing',
+  'barnacling',
+  'seahorsing',
+  'starfishing',
+  'clamming',
+  'musseling',
+  'oystering',
+  'crabbing',
+  'lobstering',
+  'shrimping',
+  'dolphining',
+  'dolphinking',
+  'ottering',
+  'orca-ing',
+  'narwhaling',
+  'submarinating',
+  'planktoning',
+  'bubbling',
+  'foaming',
+  'rippling',
+  'sloshsurfing',
+  'submarining',
+  'treasurediving',
+  'spongebobbing',
+  'seashelling',
+  'wavehopping',
+  'depthcharging',
+  'seaflooring',
+] as const;
 
 const SESSION_ID = 'tui:local';
 const CHANNEL_ID = 'tui';
@@ -135,7 +239,6 @@ const TUI_PROACTIVE_POLL_INTERVAL_MS = Math.max(
   parseInt(process.env.TUI_PROACTIVE_POLL_INTERVAL_MS || '2500', 10) || 2500,
 );
 const TOOL_PREVIEW_MAX_CHARS = 140;
-const THINKING_PREVIEW_MIN_CHARS = 48;
 
 let activeRunAbortController: AbortController | null = null;
 let proactivePollInFlight = false;
@@ -349,16 +452,29 @@ function printHelp(): void {
   console.log();
 }
 
-function printResponse(text: string): void {
-  console.log();
+function printResponse(
+  text: string,
+  options?: {
+    leadingBlank?: boolean;
+  },
+): void {
+  if (options?.leadingBlank !== false) {
+    console.log();
+  }
   for (const line of text.split('\n')) {
     console.log(`  ${line}`);
   }
   console.log();
 }
 
-function printError(text: string): void {
-  console.log(`\n  ${RED}Error: ${text}${RESET}\n`);
+function printError(
+  text: string,
+  options?: {
+    leadingBlank?: boolean;
+  },
+): void {
+  const prefix = options?.leadingBlank === false ? '' : '\n';
+  console.log(`${prefix}  ${RED}Error: ${text}${RESET}\n`);
 }
 
 function printInfo(text: string): void {
@@ -385,76 +501,144 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
   printInfo(renderGatewayCommand(result));
 }
 
+function pickOceanActivityVerb(): string {
+  const index = Math.floor(Math.random() * OCEAN_ACTIVITY_VERBS.length);
+  return OCEAN_ACTIVITY_VERBS[index] || 'floating';
+}
+
 function spinner(): {
   stop: () => void;
   addTool: (toolName: string, preview?: string) => void;
-  addTextDelta: (delta: string) => void;
+  addVisibleTextDelta: (delta: string) => void;
+  setThinkingPreview: (preview: string | null) => void;
+  clearThinkingPreview: () => void;
   clearTools: () => void;
 } {
-  const showThinking = sessionShowModeShowsThinking(tuiShowMode);
+  const showActivityPreview = sessionShowModeShowsThinking(tuiShowMode);
   const showTools = sessionShowModeShowsTools(tuiShowMode);
-  if (!showThinking && !showTools) {
-    return {
-      stop: () => {},
-      addTool: () => {},
-      addTextDelta: () => {},
-      clearTools: () => {},
-    };
-  }
+  const activityVerb = pickOceanActivityVerb();
 
-  const dots = ['   ', '.  ', '.. ', '...'];
   let i = 0;
+  let stopped = false;
+  let cursorHidden = false;
   let transientToolLines = 0;
-  let thinkingPreview = '';
+  let hasVisibleText = false;
+  let lineNeedsIndent = true;
+  let thinkingPreviewRows = 0;
   const clearLine = () => process.stdout.write('\r\x1b[2K');
-  const previewMaxChars = () =>
-    Math.max(THINKING_PREVIEW_MIN_CHARS, (process.stdout.columns || 120) - 18);
+  const hideCursor = () => {
+    if (cursorHidden || !process.stdout.isTTY) return;
+    process.stdout.write(HIDE_CURSOR);
+    cursorHidden = true;
+  };
+  const showCursor = () => {
+    if (!cursorHidden || !process.stdout.isTTY) return;
+    process.stdout.write(SHOW_CURSOR);
+    cursorHidden = false;
+  };
   const render = () => {
+    if (stopped) return;
+    if (!showActivityPreview) return;
+    if (hasVisibleText || thinkingPreviewRows > 0) return;
     clearLine();
-    const prefix = `${TEAL}thinking${dots[i % dots.length]}${RESET}`;
-    if (!thinkingPreview) {
-      process.stdout.write(`\r${prefix}`);
-    } else {
-      process.stdout.write(`\r${prefix} ${MUTED}${thinkingPreview}${RESET}`);
-    }
+    const frame = JELLYFISH_PULSE_FRAMES[i % JELLYFISH_PULSE_FRAMES.length];
+    process.stdout.write(
+      `\r  ${frame.emojiColor}${JELLYFISH}${RESET} ${frame.verbColor}${activityVerb}${RESET}`,
+    );
     i++;
   };
-  const interval = showThinking ? setInterval(render, 350) : null;
-  if (showThinking) render();
+
+  const clearTools = () => {
+    if (transientToolLines <= 0) return;
+    process.stdout.write(`\x1b[${transientToolLines}A`);
+    for (let i = 0; i < transientToolLines; i++) {
+      clearLine();
+      process.stdout.write('\x1b[M');
+    }
+    clearLine();
+    transientToolLines = 0;
+    if (
+      !stopped &&
+      showActivityPreview &&
+      !hasVisibleText &&
+      thinkingPreviewRows === 0
+    ) {
+      render();
+    }
+  };
+
+  const clearThinkingPreview = () => {
+    if (thinkingPreviewRows <= 0) return;
+    for (let row = 0; row < thinkingPreviewRows; row += 1) {
+      clearLine();
+      if (row < thinkingPreviewRows - 1) {
+        process.stdout.write('\x1b[1A');
+      }
+    }
+    thinkingPreviewRows = 0;
+    if (!stopped && showActivityPreview && !hasVisibleText) {
+      render();
+    }
+  };
+
+  const setThinkingPreview = (preview: string | null) => {
+    if (!showActivityPreview) return;
+    const normalizedPreview = String(preview || '');
+    if (!normalizedPreview) {
+      clearThinkingPreview();
+      return;
+    }
+    if (hasVisibleText) return;
+    if (transientToolLines > 0) return;
+    clearThinkingPreview();
+    clearLine();
+    const formatted = indentTuiBlock(normalizedPreview);
+    process.stdout.write(`\r${THINKING_PREVIEW_COLOR}${formatted}${RESET}`);
+    thinkingPreviewRows = countTerminalRows(
+      formatted,
+      process.stdout.columns || 120,
+    );
+  };
+
+  hideCursor();
+  const interval = showActivityPreview ? setInterval(render, 350) : null;
+  if (showActivityPreview) render();
   return {
     stop: () => {
+      stopped = true;
       if (interval) clearInterval(interval);
-      if (showThinking) clearLine();
+      if (showActivityPreview && !hasVisibleText && thinkingPreviewRows === 0) {
+        clearLine();
+      }
+      showCursor();
     },
     addTool: (toolName: string, preview?: string) => {
       if (!showTools) return;
+      if (hasVisibleText) return;
+      clearThinkingPreview();
       clearLine();
       const previewText = preview ? ` ${MUTED}${preview}${RESET}` : '';
       process.stdout.write(
         `  ${JELLYFISH} ${TEAL}${toolName}${RESET}${previewText}\n`,
       );
       transientToolLines++;
-      if (showThinking) render();
+      if (showActivityPreview) render();
     },
-    addTextDelta: (delta: string) => {
-      if (!showThinking) return;
-      thinkingPreview = appendThinkingPreview(
-        thinkingPreview,
-        delta,
-        previewMaxChars(),
-      );
-      render();
-    },
-    clearTools: () => {
-      if (transientToolLines <= 0) return;
-      process.stdout.write(`\x1b[${transientToolLines}A`);
-      for (let i = 0; i < transientToolLines; i++) {
+    addVisibleTextDelta: (delta: string) => {
+      if (!delta) return;
+      clearThinkingPreview();
+      if (!hasVisibleText) {
+        clearTools();
         clearLine();
-        process.stdout.write('\x1b[M');
+        hasVisibleText = true;
       }
-      clearLine();
-      transientToolLines = 0;
+      const formatted = formatTuiStreamDelta(delta, lineNeedsIndent);
+      lineNeedsIndent = formatted.lineNeedsIndent;
+      process.stdout.write(formatted.text);
     },
+    setThinkingPreview,
+    clearThinkingPreview,
+    clearTools,
   };
 }
 
@@ -816,13 +1000,17 @@ async function processMessage(
   }
 
   tuiShowMode = await fetchInitialShowMode();
+  process.stdout.write('\n');
   const s = spinner();
   const abortController = new AbortController();
   activeRunAbortController = abortController;
 
   try {
     const request = buildGatewayChatRequest(content);
+    const streamState = createTuiThinkingStreamState();
     const streamedToolNames = new Set<string>();
+    let sawStreamEvent = false;
+    let sawVisibleTextDelta = false;
     let result: GatewayChatResult;
 
     try {
@@ -833,7 +1021,14 @@ async function processMessage(
         },
         (event) => {
           if (event.type === 'text') {
-            s.addTextDelta(event.delta);
+            sawStreamEvent = true;
+            const streamed = streamState.push(event.delta);
+            if (streamed.visibleDelta) {
+              sawVisibleTextDelta = true;
+              s.addVisibleTextDelta(streamed.visibleDelta);
+            } else if (streamed.thinkingPreview) {
+              s.setThinkingPreview(streamed.thinkingPreview);
+            }
             return;
           }
           if (
@@ -842,6 +1037,7 @@ async function processMessage(
             !event.toolName
           )
             return;
+          sawStreamEvent = true;
           const preview = (event.preview || '').replace(/\s+/g, ' ').trim();
           const previewText =
             preview.length > TOOL_PREVIEW_MAX_CHARS
@@ -856,34 +1052,62 @@ async function processMessage(
       if (abortController.signal.aborted) {
         throw streamErr;
       }
+      if (sawStreamEvent) {
+        throw streamErr;
+      }
       result = await gatewayChat(request, abortController.signal);
     }
 
     const toolNames = [
       ...new Set([...streamedToolNames, ...collectToolNames(result)]),
     ];
+    const hasStreamedText = sawVisibleTextDelta;
+    const finalText = result.result || 'No response.';
 
     s.stop();
+    s.clearThinkingPreview();
     if (toolNames.length > 0) {
-      s.clearTools();
+      if (!hasStreamedText) {
+        s.clearTools();
+      } else {
+        process.stdout.write('\n');
+      }
       printToolUsage(toolNames);
     }
 
     if (isInterruptedResult(result)) {
+      if (hasStreamedText) {
+        console.log();
+      }
       return;
     }
 
     if (result.status === 'error') {
-      printError(result.error || 'Unknown error');
+      if (hasStreamedText) {
+        process.stdout.write('\n');
+      }
+      printError(result.error || 'Unknown error', {
+        leadingBlank: false,
+      });
       return;
     }
 
-    printResponse(result.result || 'No response.');
+    if (hasStreamedText) {
+      if (toolNames.length > 0) {
+        console.log();
+      } else {
+        process.stdout.write('\n\n');
+      }
+    } else {
+      printResponse(finalText, {
+        leadingBlank: toolNames.length > 0,
+      });
+    }
     const pendingApprovalId = findPendingApprovalRequestId(result);
     if (pendingApprovalId) {
       tuiPendingApproval = {
         requestId: pendingApprovalId,
-        prompt: result.result || `Approval required (${pendingApprovalId}).`,
+        prompt: finalText,
       };
       const approvalCommand = await promptApprovalSelection(
         rl,
@@ -898,8 +1122,13 @@ async function processMessage(
   } catch (err) {
     s.stop();
     if (abortController.signal.aborted) return;
-    printError(err instanceof Error ? err.message : String(err));
+    s.clearThinkingPreview();
+    process.stdout.write('\n');
+    printError(err instanceof Error ? err.message : String(err), {
+      leadingBlank: false,
+    });
   } finally {
+    s.clearThinkingPreview();
     s.clearTools();
     if (activeRunAbortController === abortController) {
       activeRunAbortController = null;

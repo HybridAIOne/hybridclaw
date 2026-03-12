@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   createThinkingDeltaFilter,
+  createThinkingStreamEmitter,
   extractThinkingBlocks,
 } from '../container/src/providers/thinking-extractor.js';
 
@@ -74,5 +75,18 @@ describe('thinking extractor', () => {
     expect(deltas).toEqual(['Hello', ' world']);
     expect(filter.getRawContent()).toBe('<think>plan</think>Hello world');
     expect(filter.getVisibleContent()).toBe('Hello world');
+  });
+
+  test('emits raw think tags for transient stream rendering', () => {
+    const deltas: string[] = [];
+    const emitter = createThinkingStreamEmitter((delta) => deltas.push(delta));
+
+    emitter.pushThinking('plan');
+    emitter.pushVisible('Hello');
+    emitter.pushVisible(' world');
+
+    expect(deltas).toEqual(['<think>', 'plan', '</think>', 'Hello', ' world']);
+    expect(emitter.getRawContent()).toBe('<think>plan</think>Hello world');
+    expect(emitter.getVisibleContent()).toBe('Hello world');
   });
 });

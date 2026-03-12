@@ -56,7 +56,7 @@ describe('normalizePlaceholderToolReply', () => {
     expect(normalizePlaceholderToolReply(result)).toBe(result);
   });
 
-  test('ignores failed or malformed vision tool results', () => {
+  test('uses failed vision tool results as a fallback instead of Done', () => {
     const result = makeResult({
       toolExecutions: [
         {
@@ -72,6 +72,43 @@ describe('normalizePlaceholderToolReply', () => {
       ],
     });
 
-    expect(normalizePlaceholderToolReply(result)).toBe(result);
+    expect(normalizePlaceholderToolReply(result)).toMatchObject({
+      result: 'vision_analyze failed: model failed.',
+    });
+  });
+
+  test('uses a concise tool failure summary instead of a Done placeholder', () => {
+    const result = makeResult({
+      toolsUsed: ['browser_navigate', 'browser_snapshot'],
+      toolExecutions: [
+        {
+          name: 'browser_navigate',
+          arguments: '{"url":"https://astroviewer.net/iss/"}',
+          result: JSON.stringify({
+            success: false,
+            error:
+              'browser command failed: npm warn deprecated glob@10.5.0: Old versions are not supported',
+          }),
+          durationMs: 8882,
+          isError: true,
+        },
+        {
+          name: 'browser_snapshot',
+          arguments: '{"mode":"full"}',
+          result: JSON.stringify({
+            success: false,
+            error:
+              "browserType.launchPersistentContext: Executable doesn't exist at /tmp/chromium",
+          }),
+          durationMs: 5789,
+          isError: true,
+        },
+      ],
+    });
+
+    expect(normalizePlaceholderToolReply(result)).toMatchObject({
+      result:
+        'Tool calls failed: browser_navigate, browser_snapshot. Last error: browser runtime is not installed.',
+    });
   });
 });

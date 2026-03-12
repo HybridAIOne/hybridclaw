@@ -114,3 +114,57 @@ export function createThinkingDeltaFilter(
     },
   };
 }
+
+export function createThinkingStreamEmitter(
+  onTextDelta: (delta: string) => void,
+): {
+  pushRaw: (delta: string) => void;
+  pushVisible: (delta: string) => void;
+  pushThinking: (delta: string) => void;
+  close: () => void;
+  getRawContent: () => string;
+  getVisibleContent: () => string;
+} {
+  let rawContent = '';
+  let syntheticThinkingOpen = false;
+
+  const emit = (delta: string): void => {
+    if (!delta) return;
+    rawContent += delta;
+    onTextDelta(delta);
+  };
+
+  return {
+    pushRaw(delta: string): void {
+      emit(delta);
+    },
+    pushVisible(delta: string): void {
+      if (!delta) return;
+      if (syntheticThinkingOpen) {
+        emit('</think>');
+        syntheticThinkingOpen = false;
+      }
+      emit(delta);
+    },
+    pushThinking(delta: string): void {
+      if (!delta) return;
+      if (!syntheticThinkingOpen) {
+        emit('<think>');
+        syntheticThinkingOpen = true;
+      }
+      emit(delta);
+    },
+    close(): void {
+      if (!syntheticThinkingOpen) return;
+      emit('</think>');
+      syntheticThinkingOpen = false;
+    },
+    getRawContent(): string {
+      return rawContent;
+    },
+    getVisibleContent(): string {
+      const extracted = extractThinkingBlocks(rawContent);
+      return extracted.thinkingOnly ? '' : extracted.content || '';
+    },
+  };
+}

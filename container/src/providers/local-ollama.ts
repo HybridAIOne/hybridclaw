@@ -10,7 +10,7 @@ import {
   type NormalizedStreamCallArgs,
 } from './shared.js';
 import {
-  createThinkingDeltaFilter,
+  createThinkingStreamEmitter,
   extractThinkingBlocks,
 } from './thinking-extractor.js';
 import {
@@ -272,7 +272,7 @@ export async function callOllamaProviderStream(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  const thinkingFilter = createThinkingDeltaFilter(args.onTextDelta);
+  const streamEmitter = createThinkingStreamEmitter(args.onTextDelta);
 
   let buffer = '';
   let sawPayload = false;
@@ -308,13 +308,18 @@ export async function callOllamaProviderStream(
           payload.message.content
         ) {
           rawContent += payload.message.content;
-          thinkingFilter.push(payload.message.content);
+          if (/[<]\/?think[>]/i.test(payload.message.content)) {
+            streamEmitter.pushRaw(payload.message.content);
+          } else {
+            streamEmitter.pushVisible(payload.message.content);
+          }
         }
         if (
           typeof payload.message?.thinking === 'string' &&
           payload.message.thinking
         ) {
           thinkingText += payload.message.thinking;
+          streamEmitter.pushThinking(payload.message.thinking);
         }
         if (
           Array.isArray(payload.message?.tool_calls) &&
@@ -340,13 +345,18 @@ export async function callOllamaProviderStream(
           payload.message.content
         ) {
           rawContent += payload.message.content;
-          thinkingFilter.push(payload.message.content);
+          if (/[<]\/?think[>]/i.test(payload.message.content)) {
+            streamEmitter.pushRaw(payload.message.content);
+          } else {
+            streamEmitter.pushVisible(payload.message.content);
+          }
         }
         if (
           typeof payload.message?.thinking === 'string' &&
           payload.message.thinking
         ) {
           thinkingText += payload.message.thinking;
+          streamEmitter.pushThinking(payload.message.thinking);
         }
         if (
           Array.isArray(payload.message?.tool_calls) &&
@@ -366,6 +376,8 @@ export async function callOllamaProviderStream(
   if (!sawPayload) {
     throw new Error('Streaming response ended without payload');
   }
+
+  streamEmitter.close();
 
   return adaptOllamaPayload(
     latestPayload,

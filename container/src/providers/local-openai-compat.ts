@@ -11,7 +11,7 @@ import {
   type NormalizedStreamCallArgs,
 } from './shared.js';
 import {
-  createThinkingDeltaFilter,
+  createThinkingStreamEmitter,
   extractThinkingBlocks,
 } from './thinking-extractor.js';
 import {
@@ -511,7 +511,7 @@ export async function callLocalOpenAICompatProviderStream(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  const thinkingFilter = createThinkingDeltaFilter(args.onTextDelta);
+  const streamEmitter = createThinkingStreamEmitter(args.onTextDelta);
 
   let buffer = '';
   let streamId = '';
@@ -564,10 +564,24 @@ export async function callLocalOpenAICompatProviderStream(
           ? nextRawContent.slice(rawTextContent.length)
           : nextRawContent;
         rawTextContent = nextRawContent;
-        if (delta) thinkingFilter.push(delta);
+        if (delta) {
+          if (/[<]\/?think[>]/i.test(delta)) {
+            streamEmitter.pushRaw(delta);
+          } else {
+            streamEmitter.pushVisible(delta);
+          }
+        }
       }
       const messageReasoning = extractStructuredReasoning(choice.message);
-      if (messageReasoning) rawReasoningContent = messageReasoning;
+      if (messageReasoning) {
+        const reasoningDelta = messageReasoning.startsWith(rawReasoningContent)
+          ? messageReasoning.slice(rawReasoningContent.length)
+          : messageReasoning;
+        rawReasoningContent = messageReasoning;
+        if (reasoningDelta) {
+          streamEmitter.pushThinking(reasoningDelta);
+        }
+      }
       if (
         Array.isArray(choice.message.tool_calls) &&
         choice.message.tool_calls.length > 0
@@ -592,11 +606,16 @@ export async function callLocalOpenAICompatProviderStream(
       }
       if (typeof choice.delta.content === 'string' && choice.delta.content) {
         rawTextContent += choice.delta.content;
-        thinkingFilter.push(choice.delta.content);
+        if (/[<]\/?think[>]/i.test(choice.delta.content)) {
+          streamEmitter.pushRaw(choice.delta.content);
+        } else {
+          streamEmitter.pushVisible(choice.delta.content);
+        }
       }
       const deltaReasoning = extractStructuredReasoning(choice.delta);
       if (deltaReasoning) {
         rawReasoningContent += deltaReasoning;
+        streamEmitter.pushThinking(deltaReasoning);
       }
       if (
         Array.isArray(choice.delta.tool_calls) &&
@@ -646,6 +665,8 @@ export async function callLocalOpenAICompatProviderStream(
   if (!sawPayload) {
     throw new Error('Streaming response ended without payload');
   }
+
+  streamEmitter.close();
 
   return adaptLocalOpenAICompatResponse(
     {

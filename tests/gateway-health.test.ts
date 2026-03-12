@@ -465,7 +465,7 @@ async function importFreshHealth(options?: {
     skills: [],
   }));
   const runMessageToolAction = vi.fn(async () => ({ ok: true }));
-  const normalizeMessageToolAction = vi.fn((value: string) =>
+  const normalizeDiscordToolAction = vi.fn((value: string) =>
     value === 'reply' ? 'send' : null,
   );
   const claimQueuedProactiveMessages = vi.fn(() => [
@@ -534,7 +534,9 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/channels/message/tool-actions.js', () => ({
     runMessageToolAction,
-    normalizeMessageToolAction,
+  }));
+  vi.doMock('../src/channels/discord/tool-actions.js', () => ({
+    normalizeDiscordToolAction,
   }));
 
   const health = await import('../src/gateway/health.js');
@@ -567,7 +569,7 @@ async function importFreshHealth(options?: {
     handleGatewayCommand,
     getSessionById,
     runMessageToolAction,
-    normalizeMessageToolAction,
+    normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
   };
 }
@@ -581,6 +583,7 @@ afterEach(() => {
   vi.doUnmock('../src/memory/db.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
   vi.doUnmock('../src/channels/message/tool-actions.js');
+  vi.doUnmock('../src/channels/discord/tool-actions.js');
   vi.resetModules();
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
@@ -970,6 +973,55 @@ describe('gateway health server', () => {
     });
   });
 
+  test('uses a tool failure summary when the final chat result is only Done', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Done.',
+      toolsUsed: ['browser_navigate', 'browser_snapshot'],
+      toolExecutions: [
+        {
+          name: 'browser_navigate',
+          arguments: '{"url":"https://astroviewer.net/iss/"}',
+          result: JSON.stringify({
+            success: false,
+            error:
+              'browser command failed: npm warn deprecated glob@10.5.0: Old versions are not supported',
+          }),
+          durationMs: 8882,
+          isError: true,
+        },
+        {
+          name: 'browser_snapshot',
+          arguments: '{"mode":"full"}',
+          result: JSON.stringify({
+            success: false,
+            error:
+              "browserType.launchPersistentContext: Executable doesn't exist at /tmp/chromium",
+          }),
+          durationMs: 5789,
+          isError: true,
+        },
+      ],
+      artifacts: [],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { content: 'Wann ist die ISS das nächste Mal über München?' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      result:
+        'Tool calls failed: browser_navigate, browser_snapshot. Last error: browser runtime is not installed.',
+    });
+  });
+
   test('normalizes message action payloads before dispatching tool actions', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -986,7 +1038,7 @@ describe('gateway health server', () => {
     state.handler(req as never, res as never);
     await settle();
 
-    expect(state.normalizeMessageToolAction).toHaveBeenCalledWith('reply');
+    expect(state.normalizeDiscordToolAction).toHaveBeenCalledWith('reply');
     expect(state.runMessageToolAction).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'send',
@@ -1014,7 +1066,7 @@ describe('gateway health server', () => {
     state.handler(req as never, res as never);
     await settle();
 
-    expect(state.normalizeMessageToolAction).toHaveBeenCalledWith('reply');
+    expect(state.normalizeDiscordToolAction).toHaveBeenCalledWith('reply');
     expect(state.runMessageToolAction).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'send',

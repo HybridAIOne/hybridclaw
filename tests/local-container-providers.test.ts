@@ -126,7 +126,7 @@ describe('local container providers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  test('Ollama provider parses NDJSON streams and strips think blocks', async () => {
+  test('Ollama provider preserves think blocks in NDJSON streams', async () => {
     const deltas: string[] = [];
     vi.stubGlobal(
       'fetch',
@@ -156,7 +156,7 @@ describe('local container providers', () => {
       contextWindow: 131_072,
     });
 
-    expect(deltas).toEqual(['Hello', ' world']);
+    expect(deltas).toEqual(['<think>plan', '</think>Hello', ' world']);
     expect(result.choices[0]?.message.content).toBe('Hello world');
     expect(result.usage?.total_tokens).toBe(14);
   });
@@ -559,7 +559,7 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBe('ok');
   });
 
-  test('OpenAI-compatible stream normalizes tool calls and strips think blocks', async () => {
+  test('OpenAI-compatible stream preserves think blocks and normalizes tool calls', async () => {
     const deltas: string[] = [];
     vi.stubGlobal(
       'fetch',
@@ -589,7 +589,7 @@ describe('local container providers', () => {
       contextWindow: 32_768,
     });
 
-    expect(deltas).toEqual(['Hello']);
+    expect(deltas).toEqual(['<think>plan</think>Hello ']);
     expect(result.choices[0]?.message.content).toBe('Hello');
     expect(result.choices[0]?.message.tool_calls).toEqual([
       {

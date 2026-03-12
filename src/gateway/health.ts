@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
+import { runMessageToolAction } from '../channels/message/tool-actions.js';
 import {
-  type MessageToolActionRequest,
-  normalizeMessageToolAction,
-  runMessageToolAction,
-} from '../channels/message/tool-actions.js';
+  type DiscordToolActionRequest,
+  normalizeDiscordToolAction,
+} from '../channels/discord/tool-actions.js';
 import {
   DATA_DIR,
   GATEWAY_API_TOKEN,
@@ -106,7 +106,7 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
 };
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
-type ApiMessageActionRequestBody = Partial<MessageToolActionRequest>;
+type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
 
 function isRuntimeDiscordChannelConfig(
   value: unknown,
@@ -456,7 +456,7 @@ async function handleApiMessageAction(
   const body = (await readJsonBody(req)) as ApiMessageActionRequestBody;
   const action =
     typeof body.action === 'string'
-      ? normalizeMessageToolAction(body.action)
+      ? normalizeDiscordToolAction(body.action)
       : null;
   if (!action) {
     sendJson(res, 400, {
@@ -466,7 +466,7 @@ async function handleApiMessageAction(
     return;
   }
 
-  const request: MessageToolActionRequest = {
+  const request: DiscordToolActionRequest = {
     action,
     sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
     channelId: typeof body.channelId === 'string' ? body.channelId : undefined,
