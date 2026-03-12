@@ -1,9 +1,19 @@
 import path from 'node:path';
 import { resolveAgentForRequest } from '../../agents/agent-registry.js';
 import { DATA_DIR } from '../../config/config.js';
-import { isDiscordChannelId, isSupportedProactiveChannelId } from '../../gateway/proactive-delivery.js';
+import {
+  isDiscordChannelId,
+  isSupportedProactiveChannelId,
+} from '../../gateway/proactive-delivery.js';
 import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { enqueueProactiveMessage, getSessionById } from '../../memory/db.js';
+import { runDiscordToolAction } from '../discord/runtime.js';
+import { resolveDiscordLocalFileForSend } from '../discord/send-files.js';
+import {
+  type DiscordToolAction,
+  type DiscordToolActionRequest,
+  normalizeDiscordToolAction,
+} from '../discord/tool-actions.js';
 import { getWhatsAppAuthStatus } from '../whatsapp/auth.js';
 import {
   canonicalizeWhatsAppUserJid,
@@ -11,14 +21,10 @@ import {
   normalizePhoneNumber,
   phoneToJid,
 } from '../whatsapp/phone.js';
-import { sendToWhatsAppChat, sendWhatsAppMediaToChat } from '../whatsapp/runtime.js';
-import { resolveDiscordLocalFileForSend } from '../discord/send-files.js';
 import {
-  normalizeDiscordToolAction,
-  type DiscordToolAction,
-  type DiscordToolActionRequest,
-} from '../discord/tool-actions.js';
-import { runDiscordToolAction } from '../discord/runtime.js';
+  sendToWhatsAppChat,
+  sendWhatsAppMediaToChat,
+} from '../whatsapp/runtime.js';
 
 export type MessageToolAction = DiscordToolAction;
 export type MessageToolActionRequest = DiscordToolActionRequest;
@@ -76,7 +82,9 @@ function normalizeWhatsAppMessageTarget(rawTarget: string): string | null {
   const trimmed = String(rawTarget || '').trim();
   if (!trimmed) return null;
 
-  const withoutPrefix = trimmed.replace(MESSAGE_TOOL_WHATSAPP_PREFIX_RE, '').trim();
+  const withoutPrefix = trimmed
+    .replace(MESSAGE_TOOL_WHATSAPP_PREFIX_RE, '')
+    .trim();
   if (!withoutPrefix) return null;
 
   const canonicalJid = canonicalizeWhatsAppUserJid(withoutPrefix);
@@ -96,9 +104,7 @@ function normalizeLocalMessageTarget(rawTarget: string): string | null {
   return isSupportedProactiveChannelId(trimmed) ? trimmed : null;
 }
 
-function hasMessageComponents(
-  request: MessageToolActionRequest,
-): boolean {
+function hasMessageComponents(request: MessageToolActionRequest): boolean {
   return (
     Array.isArray(request.components) ||
     (request.components !== null && typeof request.components === 'object')

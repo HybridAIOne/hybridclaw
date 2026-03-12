@@ -83,8 +83,6 @@ test('resolves WhatsApp hints from explicit WhatsApp context', () => {
     hints.some((entry) => entry.includes('`*bold*`, `_italic_`, `~strike~`')),
   ).toBe(true);
   expect(
-    hints.some((entry) =>
-      entry.includes('always provide an explicit target'),
-    ),
+    hints.some((entry) => entry.includes('always provide an explicit target')),
   ).toBe(true);
 });

@@ -3,9 +3,9 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import {
+  type MessageToolActionRequest,
   normalizeMessageToolAction,
   runMessageToolAction,
-  type MessageToolActionRequest,
 } from '../channels/message/tool-actions.js';
 import {
   DATA_DIR,
