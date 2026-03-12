@@ -1,5 +1,9 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
+  cleanupWhatsAppInboundMedia,
   evaluateWhatsAppAccessPolicy,
   processInboundWhatsAppMessage,
 } from '../src/channels/whatsapp/inbound.js';
@@ -108,5 +112,41 @@ describe('whatsapp inbound policy filtering', () => {
     });
 
     expect(result).toBeNull();
+  });
+
+  test('cleanupWhatsAppInboundMedia removes managed WhatsApp temp dirs only', async () => {
+    const managedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-wa-'));
+    const managedFile = path.join(managedDir, 'voice.ogg');
+    fs.writeFileSync(managedFile, 'audio');
+
+    const unmanagedDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-other-'),
+    );
+    const unmanagedFile = path.join(unmanagedDir, 'note.txt');
+    fs.writeFileSync(unmanagedFile, 'keep');
+
+    await cleanupWhatsAppInboundMedia([
+      {
+        path: managedFile,
+        url: `file://${managedFile}`,
+        originalUrl: `file://${managedFile}`,
+        mimeType: 'audio/ogg',
+        sizeBytes: 5,
+        filename: 'voice.ogg',
+      },
+      {
+        path: unmanagedFile,
+        url: `file://${unmanagedFile}`,
+        originalUrl: `file://${unmanagedFile}`,
+        mimeType: 'text/plain',
+        sizeBytes: 4,
+        filename: 'note.txt',
+      },
+    ]);
+
+    expect(fs.existsSync(managedDir)).toBe(false);
+    expect(fs.existsSync(unmanagedFile)).toBe(true);
+
+    fs.rmSync(unmanagedDir, { recursive: true, force: true });
   });
 });

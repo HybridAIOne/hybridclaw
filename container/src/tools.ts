@@ -799,14 +799,35 @@ function normalizeVisionBaseUrl(baseUrl: string): string {
     .replace(/\/+$/g, '');
 }
 
-function normalizeVisionLocalOpenAIModelName(
-  provider: 'lmstudio' | 'vllm',
+function normalizeVisionOllamaBaseUrl(baseUrl: string): string {
+  return String(baseUrl || '')
+    .trim()
+    .replace(/\/+$/g, '')
+    .replace(/\/v1$/i, '');
+}
+
+function normalizeVisionLocalModelName(
+  provider: 'ollama' | 'lmstudio' | 'vllm',
   model: string,
 ): string {
   const trimmed = String(model || '').trim();
   const prefix = `${provider}/`;
   if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
   return trimmed.slice(prefix.length) || trimmed;
+}
+
+function extractDataUriImagePayload(url: string): string | null {
+  const match = String(url || '').match(
+    /^data:[^;]+;base64,([A-Za-z0-9+/=]+)$/i,
+  );
+  return match?.[1] || null;
+}
+
+function resolveVisionChatCompletionsEndpoint(baseUrl: string): string {
+  const normalized = normalizeVisionBaseUrl(baseUrl);
+  return /\/v1$/i.test(normalized)
+    ? `${normalized}/chat/completions`
+    : `${normalized}/v1/chat/completions`;
 }
 
 function buildModelRequestHeaders(): Record<string, string> {
@@ -857,9 +878,11 @@ async function callVisionModel(
   const endpoint =
     currentModelProvider === 'openai-codex'
       ? `${normalizeVisionBaseUrl(currentModelBaseUrl)}/responses`
+      : currentModelProvider === 'ollama'
+        ? `${normalizeVisionOllamaBaseUrl(currentModelBaseUrl)}/api/chat`
       : currentModelProvider === 'hybridai'
         ? `${normalizeVisionBaseUrl(currentModelBaseUrl)}/v1/chat/completions`
-        : `${normalizeVisionBaseUrl(currentModelBaseUrl)}/chat/completions`;
+        : resolveVisionChatCompletionsEndpoint(currentModelBaseUrl);
   const body =
     currentModelProvider === 'openai-codex'
       ? {
@@ -875,6 +898,21 @@ async function callVisionModel(
             },
           ],
         }
+      : currentModelProvider === 'ollama'
+        ? {
+            model: normalizeVisionLocalModelName(
+              currentModelProvider,
+              currentModelName,
+            ),
+            stream: false,
+            messages: [
+              {
+                role: 'user',
+                content: question,
+                images: [extractDataUriImagePayload(imageDataUrl) || ''],
+              },
+            ],
+          }
       : currentModelProvider === 'hybridai'
         ? {
             model: currentModelName,
@@ -894,7 +932,7 @@ async function callVisionModel(
             model:
               currentModelProvider === 'lmstudio' ||
               currentModelProvider === 'vllm'
-                ? normalizeVisionLocalOpenAIModelName(
+                ? normalizeVisionLocalModelName(
                     currentModelProvider,
                     currentModelName,
                   )
@@ -940,6 +978,17 @@ async function callVisionModel(
     const analysis = extractCodexOutputText(record);
     if (!analysis) {
       throw new Error('vision API response did not include text output');
+    }
+    return {
+      model: currentModelName,
+      analysis,
+    };
+  }
+  if (currentModelProvider === 'ollama') {
+    const message = asRecord(record?.message);
+    const analysis = extractVisionTextContent(message?.content);
+    if (!analysis) {
+      throw new Error('vision API returned empty analysis');
     }
     return {
       model: currentModelName,

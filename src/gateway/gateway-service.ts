@@ -3597,7 +3597,12 @@ export async function handleGatewayMessage(
       Date.now() - startedAt,
     );
     logger.error(
-      { ...debugMeta, durationMs: Date.now() - startedAt, stage: agentStage, err },
+      {
+        ...debugMeta,
+        durationMs: Date.now() - startedAt,
+        stage: agentStage,
+        err,
+      },
       'Gateway message handling failed',
     );
     recordAuditEvent({

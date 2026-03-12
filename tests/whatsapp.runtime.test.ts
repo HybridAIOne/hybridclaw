@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 
 async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
@@ -65,6 +68,7 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
     isSelfChat,
     rawMessage: message,
   }));
+  const cleanupWhatsAppInboundMedia = vi.fn(async () => {});
 
   vi.doMock('../src/config/config.ts', () => ({
     WHATSAPP_TEXT_CHUNK_LIMIT: 4000,
@@ -118,12 +122,14 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
   });
 
   vi.doMock('../src/channels/whatsapp/inbound.ts', () => ({
+    cleanupWhatsAppInboundMedia,
     processInboundWhatsAppMessage,
   }));
 
   const runtime = await import('../src/channels/whatsapp/runtime.ts');
   return {
     manager,
+    cleanupWhatsAppInboundMedia,
     processInboundWhatsAppMessage,
     runtime,
     socket,
@@ -330,4 +336,71 @@ test('does not prefix non-self WhatsApp replies', async () => {
       text: 'hello from the bot',
     },
   );
+});
+
+test('cleans up inbound WhatsApp media after the turn completes', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-wa-'));
+  const tempFile = path.join(tempDir, 'voice.ogg');
+  fs.writeFileSync(tempFile, 'audio');
+
+  const {
+    cleanupWhatsAppInboundMedia,
+    processInboundWhatsAppMessage,
+    runtime,
+    upsertHandlers,
+  } = await importFreshRuntimeModule();
+  processInboundWhatsAppMessage.mockResolvedValue({
+    sessionId: 'wa:491703330161@s.whatsapp.net',
+    guildId: null,
+    channelId: '491703330161@s.whatsapp.net',
+    userId: '+491703330161',
+    username: '+491703330161',
+    content: 'voice note',
+    media: [
+      {
+        path: tempFile,
+        url: `file://${tempFile}`,
+        originalUrl: `file://${tempFile}`,
+        mimeType: 'audio/ogg',
+        sizeBytes: 5,
+        filename: 'voice.ogg',
+      },
+    ],
+    chatJid: '491703330161@s.whatsapp.net',
+    senderJid: '491703330161@s.whatsapp.net',
+    isGroup: false,
+    isSelfChat: true,
+    rawMessage: {},
+  });
+  const messageHandler = vi.fn(async () => {});
+
+  await runtime.initWhatsApp(messageHandler);
+  await upsertHandlers[0]?.({
+    type: 'notify',
+    messages: [
+      {
+        key: {
+          id: 'phone-5',
+          fromMe: false,
+          remoteJid: '491703330161@s.whatsapp.net',
+        },
+        message: {
+          conversation: 'voice note',
+        },
+      },
+    ],
+  });
+
+  await flushAsyncWork();
+
+  expect(messageHandler).toHaveBeenCalledTimes(1);
+  expect(cleanupWhatsAppInboundMedia).toHaveBeenCalledWith(
+    expect.arrayContaining([
+      expect.objectContaining({
+        path: tempFile,
+      }),
+    ]),
+  );
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
 });

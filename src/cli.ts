@@ -1400,13 +1400,6 @@ function parseDiscordSetupArgs(args: string[]): {
     );
   }
 
-  if (token === '') {
-    throw new Error('Discord token cannot be empty.');
-  }
-  if (prefix === '') {
-    throw new Error('Discord prefix cannot be empty.');
-  }
-
   return {
     token,
     allowUserIds: [...new Set(allowUserIds)],

@@ -335,6 +335,27 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('Discord mode: command-only');
   });
 
+  it('treats empty inline discord setup values as omitted', async () => {
+    const { cli, saveRuntimeSecrets, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'channels',
+      'discord',
+      'setup',
+      '--token=',
+      '--prefix=',
+    ]);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(saveRuntimeSecrets).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'Discord token unchanged. Secrets path: /tmp/credentials.json',
+    );
+    expect(logSpy).toHaveBeenCalledWith('Discord prefix: !claw');
+  });
+
   it('runs whatsapp channel setup and waits for pairing', async () => {
     const {
       cli,

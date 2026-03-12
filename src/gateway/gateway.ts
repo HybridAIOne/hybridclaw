@@ -191,7 +191,9 @@ function simplifyImageAttachmentNarration(
   return imageArtifacts.length === 1 ? 'Here it is.' : 'Here they are.';
 }
 
-function formatWhatsAppGatewayFailure(error: string | null | undefined): string {
+function formatWhatsAppGatewayFailure(
+  error: string | null | undefined,
+): string {
   const detail = String(error || '').trim();
   if (
     /interrupted by user|timed out|timeout waiting for agent output|terminated|abort/i.test(

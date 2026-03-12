@@ -19,6 +19,26 @@ import { isGroupJid, jidToPhone, normalizePhoneNumber } from './phone.js';
 const STATUS_BROADCAST_JID = 'status@broadcast';
 const WHATSAPP_MEDIA_TMP_PREFIX = 'hybridclaw-wa-';
 
+function normalizeWhatsAppMediaPath(filePath: string): string | null {
+  const trimmed = String(filePath || '').trim();
+  if (!trimmed) return null;
+  return path.resolve(trimmed);
+}
+
+function isManagedWhatsAppMediaPath(filePath: string): boolean {
+  const normalized = normalizeWhatsAppMediaPath(filePath);
+  if (!normalized) return false;
+  const tempRoot = path.resolve(os.tmpdir());
+  if (
+    normalized !== tempRoot &&
+    !normalized.startsWith(`${tempRoot}${path.sep}`)
+  ) {
+    return false;
+  }
+  const dirName = path.basename(path.dirname(normalized));
+  return dirName.startsWith(WHATSAPP_MEDIA_TMP_PREFIX);
+}
+
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]+/g, '_');
 }
@@ -256,6 +276,19 @@ async function downloadInboundMedia(params: {
       filename,
     },
   ];
+}
+
+export async function cleanupWhatsAppInboundMedia(
+  media: MediaContextItem[],
+): Promise<void> {
+  const tempDirs = new Set<string>();
+  for (const item of media) {
+    if (!item.path || !isManagedWhatsAppMediaPath(item.path)) continue;
+    tempDirs.add(path.dirname(path.resolve(item.path)));
+  }
+  for (const dir of tempDirs) {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 }
 
 export interface ProcessedWhatsAppInbound {

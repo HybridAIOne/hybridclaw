@@ -17,7 +17,10 @@ import {
   sendWhatsAppReaction,
   sendWhatsAppReadReceipt,
 } from './delivery.js';
-import { processInboundWhatsAppMessage } from './inbound.js';
+import {
+  cleanupWhatsAppInboundMedia,
+  processInboundWhatsAppMessage,
+} from './inbound.js';
 import { createWhatsAppSelfEchoCache } from './self-echo-cache.js';
 import { createWhatsAppTypingController } from './typing.js';
 
@@ -116,6 +119,16 @@ async function dispatchInboundBatch(
     );
   } finally {
     typingController.stop();
+    await cleanupWhatsAppInboundMedia(batch.media).catch((error) => {
+      logger.debug(
+        {
+          error,
+          sessionId: batch.sessionId,
+          channelId: batch.channelId,
+        },
+        'Failed to clean up WhatsApp inbound media',
+      );
+    });
   }
 }
 

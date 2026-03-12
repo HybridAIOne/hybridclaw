@@ -181,6 +181,7 @@ export function createWhatsAppConnectionManager(params?: {
     if (connectingPromise) return connectingPromise;
     connectingPromise = (async () => {
       const { state, saveCreds } = await loadWhatsAppAuthState();
+      if (stopped) return;
       const latestVersion = await fetchLatestBaileysVersion().catch((error) => {
         logWhatsAppMessage(
           childLogger,
@@ -190,6 +191,7 @@ export function createWhatsAppConnectionManager(params?: {
         );
         return null;
       });
+      if (stopped) return;
       const nextSocket = makeWASocket({
         auth: {
           creds: state.creds,
@@ -201,6 +203,14 @@ export function createWhatsAppConnectionManager(params?: {
         printQRInTerminal: false,
         version: latestVersion?.version,
       });
+      if (stopped) {
+        try {
+          nextSocket.end(undefined);
+        } catch (error) {
+          childLogger.debug({ error }, 'WhatsApp socket shutdown raised');
+        }
+        return;
+      }
 
       socket = nextSocket;
       params?.onSocketCreated?.(nextSocket);
@@ -315,15 +325,18 @@ export function createWhatsAppConnectionManager(params?: {
       if (started) return;
       started = true;
       stopped = false;
+      reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
       await connect();
     },
     async stop() {
       stopped = true;
+      started = false;
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
       const activeSocket = socket;
+      reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
       connectionOpen = false;
       socket = null;
       if (activeSocket && typeof activeSocket.end === 'function') {
@@ -336,6 +349,9 @@ export function createWhatsAppConnectionManager(params?: {
       rejectWaiters(new Error('WhatsApp runtime stopped'));
     },
     waitForSocket() {
+      if (stopped) {
+        return Promise.reject(new Error('WhatsApp runtime stopped'));
+      }
       if (socket && connectionOpen) return Promise.resolve(socket);
       return new Promise<WASocket>((resolve, reject) => {
         waiters.push({ resolve, reject });

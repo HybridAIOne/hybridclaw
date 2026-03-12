@@ -162,6 +162,44 @@ test('waitForSocket survives restartRequired and resolves after reconnect', asyn
   await expect(socketPromise).resolves.toBe(secondSocket);
 });
 
+test('waitForSocket rejects immediately after the manager is stopped', async () => {
+  const { createWhatsAppConnectionManager } =
+    await importFreshConnectionModule();
+
+  const manager = createWhatsAppConnectionManager();
+  await manager.start();
+  await manager.stop();
+
+  await expect(manager.waitForSocket()).rejects.toThrow(
+    'WhatsApp runtime stopped',
+  );
+});
+
+test('start can restart the manager after stop', async () => {
+  const { createWhatsAppConnectionManager, sockets } =
+    await importFreshConnectionModule();
+
+  const manager = createWhatsAppConnectionManager();
+  await manager.start();
+  expect(sockets).toHaveLength(1);
+
+  await manager.stop();
+  await manager.start();
+  expect(sockets).toHaveLength(2);
+
+  const secondSocket = sockets[1]?.socket;
+  secondSocket.user = { id: '491701234567:2@s.whatsapp.net' };
+  const socketPromise = manager.waitForSocket();
+  const secondUpdateHandlers = sockets[1]?.evHandlers.get('connection.update');
+  expect(secondUpdateHandlers).toHaveLength(1);
+
+  secondUpdateHandlers?.[0]?.({
+    connection: 'open',
+  });
+
+  await expect(socketPromise).resolves.toBe(secondSocket);
+});
+
 test('info-level WhatsApp logs omit structured metadata', async () => {
   const {
     createWhatsAppConnectionManager,
