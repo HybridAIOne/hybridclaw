@@ -280,7 +280,8 @@ const CACHED_ATTACHMENT_DESCRIPTORS = [
     buildFailureLine: (name) =>
       `- ${name}: image attachment (cache failed, using URL fallback)`,
     successLogMessage: 'Discord image attachment cached successfully',
-    failureLogMessage: 'Discord image attachment cache failed; using CDN fallback',
+    failureLogMessage:
+      'Discord image attachment cache failed; using CDN fallback',
     failureLogMimeType: (contentType) => contentType || null,
   },
   {
@@ -295,7 +296,8 @@ const CACHED_ATTACHMENT_DESCRIPTORS = [
     buildFailureLine: (name) =>
       `- ${name}: PDF attachment (cache failed, using URL fallback)`,
     successLogMessage: 'Discord PDF attachment cached successfully',
-    failureLogMessage: 'Discord PDF attachment cache failed; using CDN fallback',
+    failureLogMessage:
+      'Discord PDF attachment cache failed; using CDN fallback',
     failureLogMimeType: (contentType) => contentType || 'application/pdf',
     includeHostPathInSuccessLog: true,
   },
@@ -444,9 +446,10 @@ export async function buildAttachmentContext(
         name,
         contentType,
       );
-      const maxBytes = cachedDescriptor?.kind === 'audio'
-        ? MAX_AUDIO_ATTACHMENT_BYTES
-        : MAX_ATTACHMENT_BYTES;
+      const maxBytes =
+        cachedDescriptor?.kind === 'audio'
+          ? MAX_AUDIO_ATTACHMENT_BYTES
+          : MAX_ATTACHMENT_BYTES;
       if (size > maxBytes) {
         lines.push(
           `- ${name}: skipped (size ${size} bytes exceeds ${Math.floor(maxBytes / (1024 * 1024))}MB limit)`,

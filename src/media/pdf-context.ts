@@ -148,9 +148,20 @@ function escapeFileBlockContent(value: string): string {
     .replace(/<\s*file\b/gi, '&lt;file');
 }
 
-function clampText(value: string, maxChars: number): string {
+const TRUNCATION_SUFFIX = '\n...[truncated]';
+
+export function clampText(value: string, maxChars: number): string {
+  if (maxChars <= 0) return '';
   if (value.length <= maxChars) return value;
-  return `${value.slice(0, Math.max(1_000, maxChars - 16)).trimEnd()}\n...[truncated]`;
+  if (maxChars <= TRUNCATION_SUFFIX.length) {
+    return value.slice(0, maxChars);
+  }
+
+  const head = value.slice(0, maxChars - TRUNCATION_SUFFIX.length).trimEnd();
+  if (!head) {
+    return value.slice(0, maxChars);
+  }
+  return `${head}${TRUNCATION_SUFFIX}`;
 }
 
 function addPdfReference(

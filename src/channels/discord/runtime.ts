@@ -11,7 +11,6 @@ import {
 } from 'discord.js';
 import { resolveAgentForRequest } from '../../agents/agent-registry.js';
 import {
-  DATA_DIR,
   DISCORD_ACK_REACTION,
   DISCORD_ACK_REACTION_SCOPE,
   DISCORD_COMMAND_ALLOWED_USER_IDS,
@@ -99,7 +98,10 @@ import {
   type LifecyclePhase,
   LifecycleReactionController,
 } from './reactions.js';
-import { resolveDiscordLocalFileForSend } from './send-files.js';
+import {
+  DISCORD_SEND_MEDIA_ROOT_HOST_DIR,
+  resolveDiscordLocalFileForSend,
+} from './send-files.js';
 import { resolveSendAllowed } from './send-permissions.js';
 import {
   buildSlashCommandDefinitions,
@@ -566,10 +568,6 @@ async function requireDiscordClientReady(): Promise<Client> {
   throw new Error('Discord client is not ready yet.');
 }
 
-const DISCORD_MEDIA_CACHE_HOST_DIR = path.resolve(
-  path.join(DATA_DIR, 'discord-media-cache'),
-);
-
 function resolveDiscordToolSessionWorkspaceRoot(
   sessionId: string | undefined,
 ): string | null {
@@ -595,7 +593,7 @@ async function resolveDiscordToolSendAttachments(
   const resolvedPath = resolveDiscordLocalFileForSend({
     filePath: rawPath,
     sessionWorkspaceRoot: workspaceRoot,
-    mediaCacheRoot: DISCORD_MEDIA_CACHE_HOST_DIR,
+    mediaCacheRoot: DISCORD_SEND_MEDIA_ROOT_HOST_DIR,
   });
   if (!resolvedPath) {
     if (!workspaceRoot) {
