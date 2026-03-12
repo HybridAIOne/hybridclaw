@@ -30,6 +30,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/providers/model-catalog.js');
+  vi.doUnmock('../src/providers/local-discovery.js');
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
@@ -181,4 +182,62 @@ test('agent create warns when model validation is skipped because no models are 
     }),
     'Skipping agent model validation because no available models are configured',
   );
+});
+
+test('getGatewayAdminModels sorts catalog entries by monthly usage descending', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  vi.doMock('../src/providers/model-catalog.js', () => ({
+    getAvailableModelList: vi.fn(() => ['model-a', 'model-b', 'model-c']),
+  }));
+  vi.doMock('../src/providers/local-discovery.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/local-discovery.js')
+    >('../src/providers/local-discovery.js');
+    return {
+      ...actual,
+      discoverAllLocalModels: vi.fn(async () => []),
+      getLocalModelInfo: vi.fn(() => null),
+    };
+  });
+
+  const { initDatabase, recordUsageEvent } = await import('../src/memory/db.ts');
+  const { getGatewayAdminModels } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordUsageEvent({
+    sessionId: 's-b',
+    agentId: 'main',
+    model: 'model-b',
+    inputTokens: 600,
+    outputTokens: 400,
+    totalTokens: 1_000,
+    toolCalls: 1,
+    costUsd: 0.01,
+  });
+  recordUsageEvent({
+    sessionId: 's-c',
+    agentId: 'main',
+    model: 'model-c',
+    inputTokens: 300,
+    outputTokens: 200,
+    totalTokens: 500,
+    toolCalls: 1,
+    costUsd: 0.005,
+  });
+
+  const result = await getGatewayAdminModels();
+  const ids = result.models.map((model) => model.id);
+
+  expect(ids.indexOf('model-b')).toBeLessThan(ids.indexOf('model-c'));
+  expect(ids.indexOf('model-c')).toBeLessThan(ids.indexOf('model-a'));
+  expect(result.models.find((model) => model.id === 'model-b')?.usageMonthly)
+    .toMatchObject({
+      totalTokens: 1_000,
+      callCount: 1,
+    });
 });
