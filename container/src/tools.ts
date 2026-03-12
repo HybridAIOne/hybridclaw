@@ -880,9 +880,9 @@ async function callVisionModel(
       ? `${normalizeVisionBaseUrl(currentModelBaseUrl)}/responses`
       : currentModelProvider === 'ollama'
         ? `${normalizeVisionOllamaBaseUrl(currentModelBaseUrl)}/api/chat`
-      : currentModelProvider === 'hybridai'
-        ? `${normalizeVisionBaseUrl(currentModelBaseUrl)}/v1/chat/completions`
-        : resolveVisionChatCompletionsEndpoint(currentModelBaseUrl);
+        : currentModelProvider === 'hybridai'
+          ? `${normalizeVisionBaseUrl(currentModelBaseUrl)}/v1/chat/completions`
+          : resolveVisionChatCompletionsEndpoint(currentModelBaseUrl);
   const body =
     currentModelProvider === 'openai-codex'
       ? {
@@ -913,40 +913,40 @@ async function callVisionModel(
               },
             ],
           }
-      : currentModelProvider === 'hybridai'
-        ? {
-            model: currentModelName,
-            chatbot_id: currentChatbotId,
-            enable_rag: false,
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  { type: 'text', text: question },
-                  { type: 'image_url', image_url: { url: imageDataUrl } },
-                ],
-              },
-            ],
-          }
-        : {
-            model:
-              currentModelProvider === 'lmstudio' ||
-              currentModelProvider === 'vllm'
-                ? normalizeVisionLocalModelName(
-                    currentModelProvider,
-                    currentModelName,
-                  )
-                : currentModelName,
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  { type: 'text', text: question },
-                  { type: 'image_url', image_url: { url: imageDataUrl } },
-                ],
-              },
-            ],
-          };
+        : currentModelProvider === 'hybridai'
+          ? {
+              model: currentModelName,
+              chatbot_id: currentChatbotId,
+              enable_rag: false,
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: question },
+                    { type: 'image_url', image_url: { url: imageDataUrl } },
+                  ],
+                },
+              ],
+            }
+          : {
+              model:
+                currentModelProvider === 'lmstudio' ||
+                currentModelProvider === 'vllm'
+                  ? normalizeVisionLocalModelName(
+                      currentModelProvider,
+                      currentModelName,
+                    )
+                  : currentModelName,
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: question },
+                    { type: 'image_url', image_url: { url: imageDataUrl } },
+                  ],
+                },
+              ],
+            };
 
   const response = await fetch(endpoint, {
     method: 'POST',

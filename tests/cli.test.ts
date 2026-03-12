@@ -340,13 +340,7 @@ describe('CLI hybridai commands', () => {
       await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cli.main([
-      'channels',
-      'discord',
-      'setup',
-      '--token=',
-      '--prefix=',
-    ]);
+    await cli.main(['channels', 'discord', 'setup', '--token=', '--prefix=']);
 
     expect(updateRuntimeConfig).toHaveBeenCalled();
     expect(saveRuntimeSecrets).not.toHaveBeenCalled();
