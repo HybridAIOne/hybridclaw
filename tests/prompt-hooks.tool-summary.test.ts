@@ -107,7 +107,7 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output.',
   );
   expect(prompt).toContain(
-    'For local Discord uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',
+    'For local Discord or WhatsApp uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',
   );
   expect(prompt).toContain(
     'When the user asks you to create or generate a file and return/upload/post it, include the file immediately in the final delivery. Do not ask a follow-up question offering to upload it later.',
@@ -138,6 +138,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   );
   expect(prompt).toContain(
     'Tool call: `message` {"action":"send","filePath":"invoices/dashboard.html.png"}',
+  );
+  expect(prompt).toContain(
+    'User: "Send this to WhatsApp +491701234567: landed safely"',
   );
   expect(prompt).toContain(
     'User: "Pull the key fields from this attached invoice PDF."',

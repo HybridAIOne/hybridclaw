@@ -48,6 +48,9 @@ describe.sequential('container message tool normalization', () => {
 
     expect(result).toContain('"ok": true');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      'http://gateway.local/api/message/action',
+    );
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     const payload = JSON.parse(String(init.body || '{}')) as Record<
       string,
@@ -259,6 +262,7 @@ describe.sequential('container message tool normalization', () => {
     const description = getMessageToolDescription();
     expect(description).not.toContain('491234567890@s.whatsapp.net');
     expect(description).toContain('Supports actions:');
+    expect(description).toContain('WhatsApp');
   });
 
   test('message tool description enumerates other configured channels', () => {
@@ -269,7 +273,7 @@ describe.sequential('container message tool normalization', () => {
     ]);
 
     const description = getMessageToolDescription(CHANNEL_ID);
-    expect(description).toContain(`Current channel (${CHANNEL_ID})`);
+    expect(description).toContain(`Current Discord channel (${CHANNEL_ID})`);
     expect(description).toContain(
       `Other configured channels: ${otherChannelId} (`,
     );

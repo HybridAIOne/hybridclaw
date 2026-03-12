@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
-import { runDiscordToolAction } from '../channels/discord/runtime.js';
 import {
-  type DiscordToolActionRequest,
-  normalizeDiscordToolAction,
-} from '../channels/discord/tool-actions.js';
+  normalizeMessageToolAction,
+  runMessageToolAction,
+  type MessageToolActionRequest,
+} from '../channels/message/tool-actions.js';
 import {
   DATA_DIR,
   GATEWAY_API_TOKEN,
@@ -106,7 +106,7 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
 };
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
-type ApiDiscordActionRequestBody = Partial<DiscordToolActionRequest>;
+type ApiMessageActionRequestBody = Partial<MessageToolActionRequest>;
 
 function isRuntimeDiscordChannelConfig(
   value: unknown,
@@ -449,14 +449,14 @@ async function handleApiCommand(
   sendJson(res, result.kind === 'error' ? 400 : 200, result);
 }
 
-async function handleApiDiscordAction(
+async function handleApiMessageAction(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const body = (await readJsonBody(req)) as ApiDiscordActionRequestBody;
+  const body = (await readJsonBody(req)) as ApiMessageActionRequestBody;
   const action =
     typeof body.action === 'string'
-      ? normalizeDiscordToolAction(body.action)
+      ? normalizeMessageToolAction(body.action)
       : null;
   if (!action) {
     sendJson(res, 400, {
@@ -466,7 +466,7 @@ async function handleApiDiscordAction(
     return;
   }
 
-  const request: DiscordToolActionRequest = {
+  const request: MessageToolActionRequest = {
     action,
     sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
     channelId: typeof body.channelId === 'string' ? body.channelId : undefined,
@@ -503,7 +503,7 @@ async function handleApiDiscordAction(
         : undefined,
   };
 
-  const result = await runDiscordToolAction(request);
+  const result = await runMessageToolAction(request);
   sendJson(res, 200, result);
 }
 
@@ -1123,8 +1123,12 @@ export function startHealthServer(): void {
             await handleApiCommand(req, res);
             return;
           }
+          if (pathname === '/api/message/action' && method === 'POST') {
+            await handleApiMessageAction(req, res);
+            return;
+          }
           if (pathname === '/api/discord/action' && method === 'POST') {
-            await handleApiDiscordAction(req, res);
+            await handleApiMessageAction(req, res);
             return;
           }
           sendJson(res, 404, { error: 'Not Found' });

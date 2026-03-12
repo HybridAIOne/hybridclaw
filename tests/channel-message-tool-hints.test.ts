@@ -24,6 +24,9 @@ test('resolves Discord message tool hints when channelType is discord', () => {
     hints.some((entry) => entry.includes('Supported actions: `read`')),
   ).toBe(true);
   expect(hints.some((entry) => entry.includes('`filePath`'))).toBe(true);
+  expect(
+    hints.some((entry) => entry.includes('WhatsApp JID or phone number')),
+  ).toBe(true);
 });
 
 test('falls back to Discord adapter when ids look like Discord context', () => {
@@ -81,7 +84,7 @@ test('resolves WhatsApp hints from explicit WhatsApp context', () => {
   ).toBe(true);
   expect(
     hints.some((entry) =>
-      entry.includes('always provide an explicit Discord `channelId`'),
+      entry.includes('always provide an explicit target'),
     ),
   ).toBe(true);
 });

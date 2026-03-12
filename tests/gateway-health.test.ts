@@ -464,8 +464,8 @@ async function importFreshHealth(options?: {
     disabled: [],
     skills: [],
   }));
-  const runDiscordToolAction = vi.fn(async () => ({ ok: true }));
-  const normalizeDiscordToolAction = vi.fn((value: string) =>
+  const runMessageToolAction = vi.fn(async () => ({ ok: true }));
+  const normalizeMessageToolAction = vi.fn((value: string) =>
     value === 'reply' ? 'send' : null,
   );
   const claimQueuedProactiveMessages = vi.fn(() => [
@@ -532,11 +532,9 @@ async function importFreshHealth(options?: {
     upsertGatewayAdminMcpServer,
     upsertGatewayAdminSchedulerJob,
   }));
-  vi.doMock('../src/channels/discord/runtime.js', () => ({
-    runDiscordToolAction,
-  }));
-  vi.doMock('../src/channels/discord/tool-actions.js', () => ({
-    normalizeDiscordToolAction,
+  vi.doMock('../src/channels/message/tool-actions.js', () => ({
+    runMessageToolAction,
+    normalizeMessageToolAction,
   }));
 
   const health = await import('../src/gateway/health.js');
@@ -568,8 +566,8 @@ async function importFreshHealth(options?: {
     handleGatewayMessage,
     handleGatewayCommand,
     getSessionById,
-    runDiscordToolAction,
-    normalizeDiscordToolAction,
+    runMessageToolAction,
+    normalizeMessageToolAction,
     claimQueuedProactiveMessages,
   };
 }
@@ -582,8 +580,7 @@ afterEach(() => {
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/memory/db.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
-  vi.doUnmock('../src/channels/discord/runtime.js');
-  vi.doUnmock('../src/channels/discord/tool-actions.js');
+  vi.doUnmock('../src/channels/message/tool-actions.js');
   vi.resetModules();
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
@@ -973,7 +970,35 @@ describe('gateway health server', () => {
     });
   });
 
-  test('normalizes Discord action payloads before dispatching tool actions', async () => {
+  test('normalizes message action payloads before dispatching tool actions', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/message/action',
+      body: {
+        action: 'reply',
+        channelId: '123',
+        content: 'hello',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.normalizeMessageToolAction).toHaveBeenCalledWith('reply');
+    expect(state.runMessageToolAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'send',
+        channelId: '123',
+        content: 'hello',
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ ok: true });
+  });
+
+  test('keeps /api/discord/action as a compatibility alias for message actions', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
       method: 'POST',
@@ -989,8 +1014,8 @@ describe('gateway health server', () => {
     state.handler(req as never, res as never);
     await settle();
 
-    expect(state.normalizeDiscordToolAction).toHaveBeenCalledWith('reply');
-    expect(state.runDiscordToolAction).toHaveBeenCalledWith(
+    expect(state.normalizeMessageToolAction).toHaveBeenCalledWith('reply');
+    expect(state.runMessageToolAction).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'send',
         channelId: '123',
