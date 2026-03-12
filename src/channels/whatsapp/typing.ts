@@ -49,9 +49,7 @@ export function createWhatsAppTypingController(
     }
   };
 
-  const sendPresence = async (
-    state: 'composing' | 'paused',
-  ): Promise<void> => {
+  const sendPresence = async (state: 'composing' | 'paused'): Promise<void> => {
     const socket = getSocket();
     if (!socket) return;
     try {

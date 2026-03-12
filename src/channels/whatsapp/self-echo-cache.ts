@@ -47,7 +47,9 @@ class DefaultWhatsAppSelfEchoCache implements WhatsAppSelfEchoCache {
     const key = buildCacheKey(ref);
     if (!key) return false;
     const seenAt = this.cache.get(key);
-    return typeof seenAt === 'number' && Date.now() - seenAt <= SELF_ECHO_TTL_MS;
+    return (
+      typeof seenAt === 'number' && Date.now() - seenAt <= SELF_ECHO_TTL_MS
+    );
   }
 
   clear(): void {

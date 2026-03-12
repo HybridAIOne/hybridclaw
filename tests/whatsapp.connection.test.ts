@@ -72,37 +72,47 @@ async function importFreshConnectionModule(options?: {
         version: [2, 3000, 0],
       })),
       makeCacheableSignalKeyStore: vi.fn((keys: unknown) => keys),
-      makeWASocket: vi.fn((config: { logger: { info: (obj: unknown, msg?: string) => void } }) => {
-        config.logger.info(
-          {
-            browser: ['Ubuntu', 'Chrome', '22.04.4'],
-            helloMsg: { clientHello: { ephemeral: 'secret' } },
-          },
-          'connected to WA',
-        );
-        const evHandlers = new Map<string, Array<(payload: unknown) => void>>();
-        const wsHandlers = new Map<string, Array<(payload: unknown) => void>>();
-        const socket = {
-          ev: {
-            on(event: string, handler: (payload: unknown) => void) {
-              const handlers = evHandlers.get(event) ?? [];
-              handlers.push(handler);
-              evHandlers.set(event, handlers);
+      makeWASocket: vi.fn(
+        (config: {
+          logger: { info: (obj: unknown, msg?: string) => void };
+        }) => {
+          config.logger.info(
+            {
+              browser: ['Ubuntu', 'Chrome', '22.04.4'],
+              helloMsg: { clientHello: { ephemeral: 'secret' } },
             },
-          },
-          ws: {
-            on(event: string, handler: (payload: unknown) => void) {
-              const handlers = wsHandlers.get(event) ?? [];
-              handlers.push(handler);
-              wsHandlers.set(event, handlers);
+            'connected to WA',
+          );
+          const evHandlers = new Map<
+            string,
+            Array<(payload: unknown) => void>
+          >();
+          const wsHandlers = new Map<
+            string,
+            Array<(payload: unknown) => void>
+          >();
+          const socket = {
+            ev: {
+              on(event: string, handler: (payload: unknown) => void) {
+                const handlers = evHandlers.get(event) ?? [];
+                handlers.push(handler);
+                evHandlers.set(event, handlers);
+              },
             },
-          },
-          user: undefined,
-          end: vi.fn(),
-        };
-        sockets.push({ evHandlers, wsHandlers, socket });
-        return socket;
-      }),
+            ws: {
+              on(event: string, handler: (payload: unknown) => void) {
+                const handlers = wsHandlers.get(event) ?? [];
+                handlers.push(handler);
+                wsHandlers.set(event, handlers);
+              },
+            },
+            user: undefined,
+            end: vi.fn(),
+          };
+          sockets.push({ evHandlers, wsHandlers, socket });
+          return socket;
+        },
+      ),
     };
   });
 

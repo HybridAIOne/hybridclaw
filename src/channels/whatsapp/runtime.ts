@@ -55,7 +55,9 @@ function formatSelfChatReply(content: string): string {
     return content;
   }
   const trimmed = content.trim();
-  return trimmed ? `${SELF_CHAT_REPLY_PREFIX} ${trimmed}` : SELF_CHAT_REPLY_PREFIX;
+  return trimmed
+    ? `${SELF_CHAT_REPLY_PREFIX} ${trimmed}`
+    : SELF_CHAT_REPLY_PREFIX;
 }
 
 function ensureConnectionManager(

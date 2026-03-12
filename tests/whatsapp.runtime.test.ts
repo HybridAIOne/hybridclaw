@@ -12,9 +12,10 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
       on: vi.fn(
         (
           event: string,
-          handler: (
-            payload: { messages?: unknown[]; type?: string },
-          ) => void | Promise<void>,
+          handler: (payload: {
+            messages?: unknown[];
+            type?: string;
+          }) => void | Promise<void>,
         ) => {
           if (event === 'messages.upsert') {
             upsertHandlers.push(handler);
@@ -40,9 +41,7 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
     user: { id: '491703330161:1@s.whatsapp.net' },
   };
 
-  let onSocketCreated:
-    | ((socket: typeof socket) => void)
-    | undefined;
+  let onSocketCreated: ((socket: typeof socket) => void) | undefined;
   const manager = {
     getSocket: vi.fn(() => socket),
     start: vi.fn(async () => {
@@ -91,12 +90,12 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
   }));
 
   vi.doMock('../src/channels/whatsapp/connection.ts', () => ({
-    createWhatsAppConnectionManager: vi.fn((params?: {
-      onSocketCreated?: (socket: typeof socket) => void;
-    }) => {
-      onSocketCreated = params?.onSocketCreated;
-      return manager;
-    }),
+    createWhatsAppConnectionManager: vi.fn(
+      (params?: { onSocketCreated?: (socket: typeof socket) => void }) => {
+        onSocketCreated = params?.onSocketCreated;
+        return manager;
+      },
+    ),
   }));
 
   vi.doMock('../src/channels/whatsapp/debounce.ts', () => ({
@@ -108,7 +107,9 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
   }));
 
   vi.doMock('../src/channels/whatsapp/delivery.ts', async () => {
-    const actual = await vi.importActual('../src/channels/whatsapp/delivery.ts');
+    const actual = await vi.importActual(
+      '../src/channels/whatsapp/delivery.ts',
+    );
     return {
       ...actual,
       sendWhatsAppReaction: vi.fn(async () => true),
@@ -141,11 +142,8 @@ afterEach(() => {
 });
 
 test('ignores reflected self-chat messages sent by HybridClaw itself', async () => {
-  const {
-    processInboundWhatsAppMessage,
-    runtime,
-    upsertHandlers,
-  } = await importFreshRuntimeModule();
+  const { processInboundWhatsAppMessage, runtime, upsertHandlers } =
+    await importFreshRuntimeModule();
   const messageHandler = vi.fn(async () => {});
 
   await runtime.initWhatsApp(messageHandler);
@@ -216,14 +214,12 @@ test('shows WhatsApp composing presence while processing an inbound turn', async
   const handled = new Promise<void>((resolve) => {
     resolveHandled = resolve;
   });
-  const messageHandler = vi.fn(
-    async () => {
-      await new Promise<void>((resolve) => {
-        resolveTurn = resolve;
-      });
-      resolveHandled?.();
-    },
-  );
+  const messageHandler = vi.fn(async () => {
+    await new Promise<void>((resolve) => {
+      resolveTurn = resolve;
+    });
+    resolveHandled?.();
+  });
 
   await runtime.initWhatsApp(messageHandler);
   expect(upsertHandlers).toHaveLength(1);
@@ -290,9 +286,12 @@ test('prefixes self-chat replies with [hybridclaw]', async () => {
 
   await flushAsyncWork();
 
-  expect(socket.sendMessage).toHaveBeenCalledWith('491703330161@s.whatsapp.net', {
-    text: '[hybridclaw] hello from the bot',
-  });
+  expect(socket.sendMessage).toHaveBeenCalledWith(
+    '491703330161@s.whatsapp.net',
+    {
+      text: '[hybridclaw] hello from the bot',
+    },
+  );
 });
 
 test('does not prefix non-self WhatsApp replies', async () => {
@@ -325,7 +324,10 @@ test('does not prefix non-self WhatsApp replies', async () => {
 
   await flushAsyncWork();
 
-  expect(socket.sendMessage).toHaveBeenCalledWith('491703330161@s.whatsapp.net', {
-    text: 'hello from the bot',
-  });
+  expect(socket.sendMessage).toHaveBeenCalledWith(
+    '491703330161@s.whatsapp.net',
+    {
+      text: 'hello from the bot',
+    },
+  );
 });

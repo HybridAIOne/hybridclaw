@@ -73,22 +73,23 @@ describe.sequential('container tool runtime guards', () => {
     );
     fs.writeFileSync(tempImagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
-      new Response(
-        JSON.stringify({
-          choices: [
-            {
-              message: {
-                content: 'Detected test image.',
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: 'Detected test image.',
+                },
               },
-            },
-          ],
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      ),
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
     );
     vi.stubGlobal('fetch', fetchMock);
 

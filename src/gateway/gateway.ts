@@ -65,13 +65,13 @@ import {
   startScheduler,
   stopScheduler,
 } from '../scheduler/scheduler.js';
-import { normalizePlaceholderToolReply } from './chat-result.js';
 import {
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
 } from '../tui-slash-command.js';
 import type { ArtifactMetadata } from '../types.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
+import { normalizePlaceholderToolReply } from './chat-result.js';
 import {
   type GatewayChatResult,
   getGatewayStatus,

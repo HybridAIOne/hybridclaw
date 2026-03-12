@@ -1504,8 +1504,7 @@ export class TrustedCoworkerApprovalRuntime {
         tier: 'green',
         actionKey: lowerTool,
         intent: `run ${toolName}`,
-        consequenceIfDenied:
-          'I will continue without image analysis.',
+        consequenceIfDenied: 'I will continue without image analysis.',
         reason: 'this action is read-only analysis of the provided image',
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: [],

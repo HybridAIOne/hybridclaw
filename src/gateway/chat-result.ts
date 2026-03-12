@@ -102,7 +102,9 @@ export function normalizePlaceholderToolReply(
   for (let i = executions.length - 1; i >= 0; i -= 1) {
     const execution = executions[i];
     if (execution.isError) continue;
-    const toolName = String(execution.name || '').trim().toLowerCase();
+    const toolName = String(execution.name || '')
+      .trim()
+      .toLowerCase();
     if (toolName !== 'vision_analyze' && toolName !== 'image') continue;
     const analysis = extractVisionAnalysisFromToolResult(execution.result);
     if (!analysis) continue;

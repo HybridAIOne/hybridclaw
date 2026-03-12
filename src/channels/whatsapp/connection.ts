@@ -225,12 +225,9 @@ export function createWhatsAppConnectionManager(params?: {
 
       if (typeof nextSocket.ws?.on === 'function') {
         nextSocket.ws.on('error', (error: Error) => {
-          logWhatsAppMessage(
-            childLogger,
-            'warn',
-            'WhatsApp websocket error',
-            { error },
-          );
+          logWhatsAppMessage(childLogger, 'warn', 'WhatsApp websocket error', {
+            error,
+          });
         });
       }
     })()
