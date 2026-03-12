@@ -93,9 +93,6 @@ describe('local providers', () => {
 
     expect(factory.resolveModelProvider('ollama/llama3.2')).toBe('ollama');
     expect(factory.modelRequiresChatbotId('ollama/llama3.2')).toBe(false);
-    expect(factory.resolveAgentIdForModel('ollama/llama3.2', '')).toBe(
-      'ollama',
-    );
   });
 
   test('discovered bare model names resolve to the local backend', async () => {
@@ -157,8 +154,10 @@ describe('local providers', () => {
 
     const credentials = await factory.resolveModelRuntimeCredentials({
       model: 'ollama/some-model',
+      agentId: 'research',
     });
     expect(credentials.isLocal).toBe(true);
+    expect(credentials.agentId).toBe('research');
   });
 
   test('ollamaProvider.resolveRuntimeCredentials returns empty apiKey', async () => {

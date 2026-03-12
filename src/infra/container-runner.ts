@@ -6,6 +6,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ExecutorRequest } from '../agent/executor-types.js';
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
@@ -503,7 +504,7 @@ export async function runContainer(
     chatbotId,
     enableRag,
     model = HYBRIDAI_MODEL,
-    agentId = chatbotId,
+    agentId = DEFAULT_AGENT_ID,
     channelId = '',
     ralphMaxIterations,
     fullAutoEnabled,
@@ -521,6 +522,7 @@ export async function runContainer(
     model,
     chatbotId,
     enableRag,
+    agentId,
   });
   // Enforce concurrent container limit
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {

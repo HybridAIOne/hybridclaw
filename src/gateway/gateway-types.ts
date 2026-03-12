@@ -94,6 +94,7 @@ export interface GatewayChatRequestBody {
     sizeBytes: number;
     filename: string;
   }>;
+  agentId?: string | null;
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
@@ -215,6 +216,7 @@ export interface GatewayAdminSession {
   id: string;
   guildId: string | null;
   channelId: string;
+  agentId: string;
   chatbotId: string | null;
   effectiveChatbotId: string | null;
   model: string | null;

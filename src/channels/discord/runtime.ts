@@ -9,7 +9,7 @@ import {
   Partials,
   PermissionFlagsBits,
 } from 'discord.js';
-
+import { resolveAgentForRequest } from '../../agents/agent-registry.js';
 import {
   DATA_DIR,
   DISCORD_ACK_REACTION,
@@ -36,15 +36,12 @@ import {
   DISCORD_SUPPRESS_PATTERNS,
   DISCORD_TOKEN,
   DISCORD_TYPING_MODE,
-  HYBRIDAI_CHATBOT_ID,
-  HYBRIDAI_MODEL,
 } from '../../config/config.js';
 import { claimPendingApprovalByApprovalId } from '../../gateway/pending-approvals.js';
 import { parseResetConfirmationCustomId } from '../../gateway/reset-confirmation.js';
 import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { logger } from '../../logger.js';
 import { getSessionById } from '../../memory/db.js';
-import { resolveAgentIdForModel } from '../../providers/factory.js';
 import { getAvailableModelChoices } from '../../providers/model-catalog.js';
 import type { MediaContextItem } from '../../types.js';
 import {
@@ -563,12 +560,7 @@ function resolveDiscordToolSessionWorkspaceRoot(
   const session = getSessionById(normalizedSessionId);
   if (!session) return null;
 
-  const model =
-    String(session.model || HYBRIDAI_MODEL).trim() || HYBRIDAI_MODEL;
-  const chatbotId =
-    String(session.chatbot_id || HYBRIDAI_CHATBOT_ID).trim() ||
-    HYBRIDAI_CHATBOT_ID;
-  const agentId = resolveAgentIdForModel(model, chatbotId);
+  const { agentId } = resolveAgentForRequest({ session });
   return path.resolve(agentWorkspaceDir(agentId));
 }
 

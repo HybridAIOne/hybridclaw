@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { HYBRIDAI_BASE_URL, HYBRIDAI_ENABLE_RAG } from '../config/config.js';
 import type {
@@ -10,15 +11,11 @@ function normalizeChatbotId(chatbotId: string | undefined): string {
   return String(chatbotId || '').trim();
 }
 
-function resolveHybridAIAgentId(_model: string, chatbotId: string): string {
-  const trimmedChatbotId = normalizeChatbotId(chatbotId);
-  return trimmedChatbotId || 'default';
-}
-
 async function resolveHybridAIRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
   const chatbotId = normalizeChatbotId(params.chatbotId);
+  const agentId = normalizeChatbotId(params.agentId) || DEFAULT_AGENT_ID;
   const enableRag = params.enableRag ?? HYBRIDAI_ENABLE_RAG;
   return {
     provider: 'hybridai',
@@ -27,7 +24,7 @@ async function resolveHybridAIRuntimeCredentials(
     chatbotId,
     enableRag,
     requestHeaders: {},
-    agentId: resolveHybridAIAgentId(params.model, chatbotId),
+    agentId,
   };
 }
 
@@ -35,6 +32,5 @@ export const hybridAIProvider: AIProvider = {
   id: 'hybridai',
   matchesModel: () => true,
   requiresChatbotId: () => true,
-  resolveAgentId: resolveHybridAIAgentId,
   resolveRuntimeCredentials: resolveHybridAIRuntimeCredentials,
 };

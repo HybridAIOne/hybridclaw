@@ -6,6 +6,7 @@ import {
   proactiveWindowLabel,
 } from '../agent/proactive-policy.js';
 import { isSilentReply } from '../agent/silent-reply.js';
+import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import {
   FULLAUTO_COOLDOWN_MS,
   FULLAUTO_DEFAULT_PROMPT,
@@ -19,7 +20,6 @@ import {
   FULLAUTO_STALL_POLL_MS,
   FULLAUTO_STALL_RECOVERY_DELAY_MS,
   FULLAUTO_STALL_TIMEOUT_MS,
-  HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
   PROACTIVE_AUTO_RETRY_ENABLED,
@@ -36,7 +36,6 @@ import {
   updateSessionFullAuto,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
-import { resolveAgentIdForModel } from '../providers/factory.js';
 import type {
   ArtifactMetadata,
   ChatMessage,
@@ -266,9 +265,7 @@ function resolveFullAutoWorkspacePaths(session: Session): {
   learningsPath: string;
   runLogPath: string;
 } {
-  const effectiveModel = session.model || HYBRIDAI_MODEL;
-  const effectiveChatbotId = session.chatbot_id || HYBRIDAI_CHATBOT_ID || '';
-  const agentId = resolveAgentIdForModel(effectiveModel, effectiveChatbotId);
+  const { agentId } = resolveAgentForRequest({ session });
   const workspacePath = path.resolve(agentWorkspaceDir(agentId));
   const runId = resolveFullAutoRunId(session);
   const stateDirPath = path.join(workspacePath, FULLAUTO_STATE_DIRNAME);
@@ -685,9 +682,11 @@ async function generateFullAutoLearningState(params: {
   state: FullAutoRuntimeState;
 }): Promise<string | null> {
   const { sessionId, session, result, state } = params;
-  const chatbotId = session.chatbot_id ?? HYBRIDAI_CHATBOT_ID ?? '';
   const model = state.model ?? session.model ?? HYBRIDAI_MODEL;
-  const agentId = resolveAgentIdForModel(model, chatbotId);
+  const { agentId, chatbotId } = resolveAgentForRequest({
+    session,
+    model,
+  });
   const executionSessionId = buildFullAutoLearningSessionId(sessionId);
   const activeRequest = registerActiveGatewayRequest({
     sessionId,

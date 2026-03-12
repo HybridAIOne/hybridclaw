@@ -1,10 +1,9 @@
+import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { getDiscordChannelDisplayName } from '../channels/discord/runtime.js';
-import { HYBRIDAI_CHATBOT_ID, HYBRIDAI_MODEL } from '../config/config.js';
 import {
   getRecentMessages,
   getRecentStructuredAuditForSession,
 } from '../memory/db.js';
-import { resolveAgentIdForModel } from '../providers/factory.js';
 import type { Session, StoredMessage, StructuredAuditEntry } from '../types.js';
 import { isFullAutoEnabled } from './fullauto.js';
 import { formatRelativeTimeFromMs, parseTimestamp } from './gateway-time.js';
@@ -302,9 +301,9 @@ export function mapAgentCard(params: {
   sandboxMode: string;
 }): GatewayAgentsResponse['agents'][number] {
   const { session, activeSessionIds, usageBySession, sandboxMode } = params;
-  const effectiveModel = session.model || HYBRIDAI_MODEL;
-  const effectiveChatbotId = session.chatbot_id || HYBRIDAI_CHATBOT_ID || '';
-  const agentId = resolveAgentIdForModel(effectiveModel, effectiveChatbotId);
+  const { agentId, model: effectiveModel } = resolveAgentForRequest({
+    session,
+  });
   const startedAtMs =
     parseTimestamp(session.created_at)?.getTime() ?? Date.now();
   const lastActiveMs = parseTimestamp(session.last_active)?.getTime() ?? 0;

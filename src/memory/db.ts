@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import type { AgentConfig, AgentModelConfig } from '../agents/agent-types.js';
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import type { AuditEventPayload, WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import { logger } from '../logger.js';
@@ -31,8 +33,9 @@ import type {
 import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 
 let db: Database.Database;
+let databaseInitialized = false;
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 interface InitDatabaseOptions {
   quiet?: boolean;
@@ -41,6 +44,17 @@ interface InitDatabaseOptions {
 
 interface TableInfoRow {
   name: string;
+}
+
+interface AgentRow {
+  id: string;
+  name: string | null;
+  model: string | null;
+  chatbot_id: string | null;
+  enable_rag: number | null;
+  workspace: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 function getSchemaVersion(database: Database.Database): number {
@@ -499,6 +513,284 @@ function migrateV5(
   recordMigration(database, 5, 'Add per-session full-auto state columns');
 }
 
+const LEGACY_PROVIDER_AGENT_IDS = [
+  'ollama',
+  'vllm',
+  'lmstudio',
+  'default',
+  'anthropic',
+  'openai-codex',
+] as const;
+
+function compareMigrationTimestamps(left: string, right: string): number {
+  if (left === right) return 0;
+  if (!left) return -1;
+  if (!right) return 1;
+  return left.localeCompare(right);
+}
+
+function migrateLegacyKvStoreAgentIds(
+  database: Database.Database,
+  targetAgentId: string,
+): void {
+  if (!tableExists(database, 'kv_store') || !columnExists(database, 'kv_store', 'agent_id')) {
+    return;
+  }
+
+  const sourceAgentIds = [targetAgentId, ...LEGACY_PROVIDER_AGENT_IDS];
+  const placeholders = sourceAgentIds.map(() => '?').join(', ');
+  const rows = database
+    .prepare(
+      `SELECT agent_id, key, value, version, updated_at
+       FROM kv_store
+       WHERE agent_id IN (${placeholders})
+       ORDER BY key ASC, updated_at DESC, version DESC, agent_id ASC`,
+    )
+    .all(...sourceAgentIds) as MemoryKvRow[];
+
+  if (rows.length === 0) return;
+
+  const deleteStatement = database.prepare(
+    `DELETE FROM kv_store
+     WHERE agent_id = ?
+       AND key = ?`,
+  );
+  const insertStatement = database.prepare(
+    `INSERT INTO kv_store (agent_id, key, value, version, updated_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+
+  let index = 0;
+  while (index < rows.length) {
+    const key = rows[index]?.key || '';
+    const group: MemoryKvRow[] = [];
+    while (index < rows.length && rows[index]?.key === key) {
+      group.push(rows[index] as MemoryKvRow);
+      index += 1;
+    }
+    if (!key || group.length === 0) continue;
+
+    const winner = [...group].sort((left, right) => {
+      const updatedAtCompare = compareMigrationTimestamps(
+        right.updated_at,
+        left.updated_at,
+      );
+      if (updatedAtCompare !== 0) return updatedAtCompare;
+      if (right.version !== left.version) return right.version - left.version;
+      if (left.agent_id === targetAgentId && right.agent_id !== targetAgentId) {
+        return -1;
+      }
+      if (right.agent_id === targetAgentId && left.agent_id !== targetAgentId) {
+        return 1;
+      }
+      return left.agent_id.localeCompare(right.agent_id);
+    })[0] as MemoryKvRow;
+
+    for (const row of group) {
+      deleteStatement.run(row.agent_id, row.key);
+    }
+    insertStatement.run(
+      targetAgentId,
+      key,
+      winner.value,
+      Math.max(1, Math.floor(winner.version || 1)),
+      winner.updated_at || new Date().toISOString(),
+    );
+  }
+}
+
+function mergeCanonicalSummaries(rows: CanonicalSessionRow[]): string | null {
+  const chunks = rows
+    .map((row) => row.compacted_summary?.trim() || '')
+    .filter(Boolean);
+  if (chunks.length === 0) return null;
+  const merged = Array.from(new Set(chunks)).join('\n');
+  if (merged.length <= CANONICAL_SUMMARY_MAX_CHARS) return merged;
+  return merged.slice(Math.max(0, merged.length - CANONICAL_SUMMARY_MAX_CHARS));
+}
+
+function mergeCanonicalMessages(
+  rows: CanonicalSessionRow[],
+): CanonicalSessionMessage[] {
+  return rows
+    .flatMap((row) => parseCanonicalMessages(row.messages))
+    .sort((left, right) => {
+      const createdAtCompare = compareMigrationTimestamps(
+        left.created_at || '',
+        right.created_at || '',
+      );
+      if (createdAtCompare !== 0) return createdAtCompare;
+      if (left.session_id !== right.session_id) {
+        return left.session_id.localeCompare(right.session_id);
+      }
+      if (left.role !== right.role) return left.role.localeCompare(right.role);
+      return left.content.localeCompare(right.content);
+    });
+}
+
+function migrateLegacyCanonicalSessions(
+  database: Database.Database,
+  targetAgentId: string,
+): void {
+  if (
+    !tableExists(database, 'canonical_sessions') ||
+    !columnExists(database, 'canonical_sessions', 'agent_id')
+  ) {
+    return;
+  }
+
+  const sourceAgentIds = [targetAgentId, ...LEGACY_PROVIDER_AGENT_IDS];
+  const placeholders = sourceAgentIds.map(() => '?').join(', ');
+  const rows = database
+    .prepare(
+      `SELECT canonical_id, agent_id, user_id, messages, compaction_cursor, compacted_summary, message_count, created_at, updated_at
+       FROM canonical_sessions
+       WHERE agent_id IN (${placeholders})
+       ORDER BY user_id ASC, created_at ASC, updated_at ASC, canonical_id ASC`,
+    )
+    .all(...sourceAgentIds) as CanonicalSessionRow[];
+
+  if (rows.length === 0) return;
+
+  const deleteStatement = database.prepare(
+    `DELETE FROM canonical_sessions
+     WHERE canonical_id = ?`,
+  );
+  const insertStatement = database.prepare(
+    `INSERT INTO canonical_sessions (
+       canonical_id,
+       agent_id,
+       user_id,
+       messages,
+       compaction_cursor,
+       compacted_summary,
+       message_count,
+       created_at,
+       updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+
+  let index = 0;
+  while (index < rows.length) {
+    const userId = rows[index]?.user_id || '';
+    const group: CanonicalSessionRow[] = [];
+    while (index < rows.length && rows[index]?.user_id === userId) {
+      group.push(rows[index] as CanonicalSessionRow);
+      index += 1;
+    }
+    if (!userId || group.length === 0) continue;
+
+    const orderedGroup = [...group].sort((left, right) => {
+      const createdAtCompare = compareMigrationTimestamps(
+        left.created_at,
+        right.created_at,
+      );
+      if (createdAtCompare !== 0) return createdAtCompare;
+      const updatedAtCompare = compareMigrationTimestamps(
+        left.updated_at,
+        right.updated_at,
+      );
+      if (updatedAtCompare !== 0) return updatedAtCompare;
+      return left.canonical_id.localeCompare(right.canonical_id);
+    });
+    const mergedMessages = mergeCanonicalMessages(orderedGroup);
+    const earliestCreatedAt =
+      orderedGroup[0]?.created_at || new Date().toISOString();
+    const latestUpdatedAt =
+      [...orderedGroup]
+        .sort((left, right) =>
+          compareMigrationTimestamps(right.updated_at, left.updated_at),
+        )[0]?.updated_at || earliestCreatedAt;
+
+    for (const row of group) {
+      deleteStatement.run(row.canonical_id);
+    }
+
+    insertStatement.run(
+      canonicalSessionId(targetAgentId, userId),
+      targetAgentId,
+      userId,
+      serializeCanonicalMessages(mergedMessages),
+      0,
+      mergeCanonicalSummaries(orderedGroup),
+      Math.max(
+        mergedMessages.length,
+        orderedGroup.reduce(
+          (sum, row) => sum + Math.max(0, Math.floor(row.message_count || 0)),
+          0,
+        ),
+      ),
+      earliestCreatedAt,
+      latestUpdatedAt,
+    );
+  }
+}
+
+function migrateV6(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  database.transaction(() => {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS agents (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        model TEXT,
+        chatbot_id TEXT,
+        enable_rag INTEGER DEFAULT 1,
+        workspace TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+    `);
+    database
+      .prepare(
+        `INSERT OR IGNORE INTO agents (id, name) VALUES (?, ?)`,
+      )
+      .run(DEFAULT_AGENT_ID, 'Main Agent');
+
+    addColumnIfMissing({
+      database,
+      table: 'sessions',
+      column: 'agent_id',
+      ddl: `agent_id TEXT DEFAULT '${DEFAULT_AGENT_ID}'`,
+      quiet,
+    });
+    database
+      .exec('CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id)');
+    if (columnExists(database, 'sessions', 'agent_id')) {
+      database
+        .prepare(
+          `UPDATE sessions
+           SET agent_id = ?
+           WHERE agent_id IS NULL OR TRIM(agent_id) = ''`,
+        )
+        .run(DEFAULT_AGENT_ID);
+    }
+
+    migrateLegacyKvStoreAgentIds(database, DEFAULT_AGENT_ID);
+    migrateLegacyCanonicalSessions(database, DEFAULT_AGENT_ID);
+
+    if (tableExists(database, 'usage_events') && columnExists(database, 'usage_events', 'agent_id')) {
+      const placeholders = LEGACY_PROVIDER_AGENT_IDS.map(() => '?').join(', ');
+      database
+        .prepare(
+          `UPDATE usage_events
+           SET agent_id = ?
+           WHERE agent_id IN (${placeholders})`,
+        )
+        .run(DEFAULT_AGENT_ID, ...LEGACY_PROVIDER_AGENT_IDS);
+    }
+
+    recordMigration(
+      database,
+      6,
+      'Add agents registry table and bind sessions to logical agent ids',
+    );
+  })();
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -520,6 +812,7 @@ function runMigrations(
   if (currentVersion < 3) migrateV3(database);
   if (currentVersion < 4) migrateV4(database);
   if (currentVersion < 5) migrateV5(database, opts);
+  if (currentVersion < 6) migrateV6(database, opts);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -538,7 +831,116 @@ export function initDatabase(opts?: InitDatabaseOptions): void {
   db.pragma('journal_mode = WAL');
   db.pragma('busy_timeout = 5000');
   runMigrations(db, opts);
+  databaseInitialized = true;
   if (!quiet) logger.info({ path: dbPath }, 'Database initialized');
+}
+
+export function isDatabaseInitialized(): boolean {
+  return databaseInitialized;
+}
+
+function serializeAgentModelConfig(
+  model: AgentModelConfig | undefined,
+): string | null {
+  if (!model) return null;
+  if (typeof model === 'string') {
+    const normalized = model.trim();
+    return normalized || null;
+  }
+  const primary = model.primary.trim();
+  return primary || null;
+}
+
+function mapAgentRow(row: AgentRow): AgentConfig {
+  const name = row.name?.trim() || '';
+  const model = row.model?.trim() || '';
+  const chatbotId = row.chatbot_id?.trim() || '';
+  const workspace = row.workspace?.trim() || '';
+  return {
+    id: row.id,
+    ...(name ? { name } : {}),
+    ...(model ? { model } : {}),
+    ...(chatbotId ? { chatbotId } : {}),
+    ...(workspace ? { workspace } : {}),
+    ...(typeof row.enable_rag === 'number'
+      ? { enableRag: row.enable_rag !== 0 }
+      : {}),
+  };
+}
+
+export function getAgentById(agentId: string): AgentConfig | undefined {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) return undefined;
+  const row = db
+    .prepare(
+      `SELECT id, name, model, chatbot_id, enable_rag, workspace, created_at, updated_at
+       FROM agents
+       WHERE id = ?`,
+    )
+    .get(normalizedAgentId) as AgentRow | undefined;
+  return row ? mapAgentRow(row) : undefined;
+}
+
+export function listAgents(): AgentConfig[] {
+  const rows = db
+    .prepare(
+      `SELECT id, name, model, chatbot_id, enable_rag, workspace, created_at, updated_at
+       FROM agents
+       ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC`,
+    )
+    .all(DEFAULT_AGENT_ID) as AgentRow[];
+  return rows.map(mapAgentRow);
+}
+
+export function upsertAgent(agent: AgentConfig): AgentConfig {
+  const normalizedId = agent.id.trim();
+  if (!normalizedId) {
+    throw new Error('Agent id is required.');
+  }
+  const normalizedName = agent.name?.trim() || null;
+  const normalizedModel = serializeAgentModelConfig(agent.model);
+  const normalizedChatbotId = agent.chatbotId?.trim() || null;
+  const normalizedWorkspace = agent.workspace?.trim() || null;
+  const enableRag =
+    typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;
+  db.prepare(
+    `INSERT INTO agents (
+       id,
+       name,
+       model,
+       chatbot_id,
+       enable_rag,
+       workspace,
+       created_at,
+       updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       model = excluded.model,
+       chatbot_id = excluded.chatbot_id,
+       enable_rag = excluded.enable_rag,
+       workspace = excluded.workspace,
+       updated_at = datetime('now')`,
+  ).run(
+    normalizedId,
+    normalizedName,
+    normalizedModel,
+    normalizedChatbotId,
+    enableRag,
+    normalizedWorkspace,
+  );
+  return getAgentById(normalizedId) as AgentConfig;
+}
+
+export function deleteAgent(agentId: string): boolean {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId || normalizedAgentId === DEFAULT_AGENT_ID) {
+    return false;
+  }
+  return (
+    db.prepare('DELETE FROM agents WHERE id = ?').run(normalizedAgentId)
+      .changes > 0
+  );
 }
 
 // --- Structured Memory (KV) ---
@@ -1684,19 +2086,30 @@ export function getOrCreateSession(
   sessionId: string,
   guildId: string | null,
   channelId: string,
+  agentId?: string,
 ): Session {
   const existing = getSessionById(sessionId);
+  const normalizedAgentId = agentId?.trim() || null;
 
   if (existing) {
+    if (normalizedAgentId && existing.agent_id !== normalizedAgentId) {
+      db.prepare(
+        `UPDATE sessions
+         SET last_active = datetime('now'),
+             agent_id = ?
+         WHERE id = ?`,
+      ).run(normalizedAgentId, sessionId);
+      return getSessionById(sessionId) as Session;
+    }
     db.prepare(
       "UPDATE sessions SET last_active = datetime('now') WHERE id = ?",
     ).run(sessionId);
-    return existing;
+    return getSessionById(sessionId) as Session;
   }
 
   db.prepare(
-    'INSERT INTO sessions (id, guild_id, channel_id) VALUES (?, ?, ?)',
-  ).run(sessionId, guildId, channelId);
+    'INSERT INTO sessions (id, guild_id, channel_id, agent_id) VALUES (?, ?, ?, ?)',
+  ).run(sessionId, guildId, channelId, normalizedAgentId || DEFAULT_AGENT_ID);
 
   return getSessionById(sessionId) as Session;
 }
@@ -1713,6 +2126,14 @@ export function updateSessionChatbot(
 ): void {
   db.prepare('UPDATE sessions SET chatbot_id = ? WHERE id = ?').run(
     chatbotId,
+    sessionId,
+  );
+}
+
+export function updateSessionAgent(sessionId: string, agentId: string): void {
+  const normalizedAgentId = agentId.trim() || DEFAULT_AGENT_ID;
+  db.prepare('UPDATE sessions SET agent_id = ? WHERE id = ?').run(
+    normalizedAgentId,
     sessionId,
   );
 }

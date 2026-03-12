@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   LOCAL_DEFAULT_CONTEXT_WINDOW,
   LOCAL_LMSTUDIO_BASE_URL,
@@ -40,7 +41,6 @@ function createLocalOpenAICompatProvider(params: {
       return getLocalModelInfo(normalized)?.backend === backend;
     },
     requiresChatbotId: () => false,
-    resolveAgentId: () => backend,
     async resolveRuntimeCredentials(
       runtimeParams: ResolveProviderRuntimeParams,
     ): Promise<ResolvedModelRuntimeCredentials> {
@@ -51,6 +51,8 @@ function createLocalOpenAICompatProvider(params: {
       const modelInfo =
         getLocalModelInfo(runtimeParams.model) ||
         getLocalModelInfo(normalizedModel);
+      const agentId =
+        String(runtimeParams.agentId || '').trim() || DEFAULT_AGENT_ID;
       return {
         provider: backend,
         apiKey: apiKey?.() || '',
@@ -58,7 +60,7 @@ function createLocalOpenAICompatProvider(params: {
         chatbotId: '',
         enableRag: false,
         requestHeaders: {},
-        agentId: backend,
+        agentId,
         isLocal: true,
         contextWindow: modelInfo?.contextWindow ?? LOCAL_DEFAULT_CONTEXT_WINDOW,
         thinkingFormat:

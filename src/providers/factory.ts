@@ -60,22 +60,17 @@ export function modelRequiresChatbotId(model: string): boolean {
   return resolveProviderForModel(model).requiresChatbotId(model);
 }
 
-export function resolveAgentIdForModel(
-  model: string,
-  chatbotId: string,
-): string {
-  return resolveProviderForModel(model).resolveAgentId(model, chatbotId);
-}
-
 export async function resolveModelRuntimeCredentials(
   params?: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
   const model =
     String(params?.model || HYBRIDAI_MODEL).trim() || HYBRIDAI_MODEL;
   const provider = resolveProviderForModel(model);
-  return provider.resolveRuntimeCredentials({
+  const resolved = await provider.resolveRuntimeCredentials({
     model,
     chatbotId: params?.chatbotId,
     enableRag: params?.enableRag ?? HYBRIDAI_ENABLE_RAG,
+    agentId: params?.agentId,
   });
+  return resolved;
 }

@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   LOCAL_DEFAULT_CONTEXT_WINDOW,
   LOCAL_OLLAMA_BASE_URL,
@@ -21,16 +22,13 @@ function normalizeOllamaModelName(model: string): string {
   return trimmed.slice(OLLAMA_MODEL_PREFIX.length) || trimmed;
 }
 
-function resolveOllamaAgentId(): string {
-  return 'ollama';
-}
-
 async function resolveOllamaRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
   const modelName = normalizeOllamaModelName(params.model);
   const modelInfo =
     getLocalModelInfo(params.model) || getLocalModelInfo(modelName);
+  const agentId = String(params.agentId || '').trim() || DEFAULT_AGENT_ID;
   return {
     provider: 'ollama',
     apiKey: '',
@@ -38,7 +36,7 @@ async function resolveOllamaRuntimeCredentials(
     chatbotId: '',
     enableRag: false,
     requestHeaders: {},
-    agentId: resolveOllamaAgentId(),
+    agentId,
     isLocal: true,
     contextWindow: modelInfo?.contextWindow ?? LOCAL_DEFAULT_CONTEXT_WINDOW,
     thinkingFormat:
@@ -58,6 +56,5 @@ export const ollamaProvider: AIProvider = {
     return getLocalModelInfo(normalized)?.backend === 'ollama';
   },
   requiresChatbotId: () => false,
-  resolveAgentId: resolveOllamaAgentId,
   resolveRuntimeCredentials: resolveOllamaRuntimeCredentials,
 };

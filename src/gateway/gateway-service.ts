@@ -20,6 +20,17 @@ import {
   isKnownToolName,
 } from '../agent/tool-summary.js';
 import {
+  deleteRegisteredAgent,
+  findAgentConfig,
+  getAgentById,
+  listAgents,
+  resolveAgentConfig,
+  resolveAgentForRequest,
+  resolveAgentModel,
+  upsertRegisteredAgent,
+} from '../agents/agent-registry.js';
+import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
   recordAuditEvent,
@@ -79,6 +90,7 @@ import {
   pauseTask,
   recordUsageEvent,
   resumeTask,
+  updateSessionAgent,
   updateSessionChatbot,
   updateSessionModel,
   updateSessionRag,
@@ -86,7 +98,6 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import {
   modelRequiresChatbotId,
-  resolveAgentIdForModel,
   resolveModelProvider,
 } from '../providers/factory.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
@@ -307,6 +318,7 @@ export interface GatewayChatRequest {
   username: GatewayChatRequestBody['username'];
   content: GatewayChatRequestBody['content'];
   media?: GatewayChatRequestBody['media'];
+  agentId?: GatewayChatRequestBody['agentId'];
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];
   enableRag?: GatewayChatRequestBody['enableRag'];
@@ -337,6 +349,7 @@ let gatewayServiceInitialized = false;
 
 export function initGatewayService(): void {
   if (gatewayServiceInitialized) return;
+  listAgents();
   configureFullAutoRuntime({ handleGatewayMessage });
   gatewayServiceInitialized = true;
 }
@@ -369,6 +382,28 @@ function mapUsageSummary(value: {
     totalCostUsd: value.total_cost_usd,
     callCount: value.call_count,
     totalToolCalls: value.total_tool_calls,
+  };
+}
+
+function mapGatewayAdminAgent(agent: AgentConfig): {
+  id: string;
+  name: string | null;
+  model: string | null;
+  chatbotId: string | null;
+  enableRag: boolean | null;
+  workspace: string | null;
+  workspacePath: string;
+} {
+  const resolved = resolveAgentConfig(agent.id);
+  return {
+    id: resolved.id,
+    name: resolved.name || null,
+    model: resolveAgentModel(resolved) || null,
+    chatbotId: resolved.chatbotId || null,
+    enableRag:
+      typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
+    workspace: resolved.workspace || null,
+    workspacePath: path.resolve(agentWorkspaceDir(resolved.id)),
   };
 }
 
@@ -456,14 +491,16 @@ function mapModelUsageRow(
 }
 
 function mapAdminSession(session: Session): GatewayAdminSession {
+  const runtime = resolveAgentForRequest({ session });
   return {
     id: session.id,
     guildId: session.guild_id,
     channelId: session.channel_id,
+    agentId: runtime.agentId,
     chatbotId: session.chatbot_id,
-    effectiveChatbotId: session.chatbot_id || HYBRIDAI_CHATBOT_ID || null,
+    effectiveChatbotId: runtime.chatbotId || null,
     model: session.model,
-    effectiveModel: session.model || HYBRIDAI_MODEL,
+    effectiveModel: runtime.model,
     ragEnabled: session.enable_rag !== 0,
     messageCount: session.message_count,
     summary: session.session_summary,
@@ -685,12 +722,10 @@ function formatUsd(value: number | null): string {
   return `$${value.toFixed(6)}`;
 }
 
-function resolveSessionAgentId(session: {
-  chatbot_id: string | null;
-}): string | null {
-  const sessionAgent = session.chatbot_id?.trim();
+function resolveSessionAgentId(session: { agent_id: string }): string | null {
+  const sessionAgent = session.agent_id?.trim();
   if (sessionAgent) return sessionAgent;
-  const defaultAgent = HYBRIDAI_CHATBOT_ID?.trim();
+  const defaultAgent = DEFAULT_AGENT_ID.trim();
   if (defaultAgent) return defaultAgent;
   return null;
 }
@@ -1089,9 +1124,7 @@ function resolveSessionRuntimeTarget(session: Session): {
   agentId: string;
   workspacePath: string;
 } {
-  const model = session.model ?? HYBRIDAI_MODEL;
-  const chatbotId = session.chatbot_id ?? HYBRIDAI_CHATBOT_ID ?? '';
-  const agentId = resolveAgentIdForModel(model, chatbotId);
+  const { agentId, model, chatbotId } = resolveAgentForRequest({ session });
   return {
     model,
     chatbotId,
@@ -1246,6 +1279,91 @@ export function getGatewayAdminOverview(): GatewayAdminOverview {
         .slice(0, 6)
         .map(mapModelUsageRow),
     },
+  };
+}
+
+export function getGatewayAdminAgents(): {
+  agents: Array<ReturnType<typeof mapGatewayAdminAgent>>;
+} {
+  return {
+    agents: listAgents().map((agent) => mapGatewayAdminAgent(agent)),
+  };
+}
+
+export function createGatewayAdminAgent(params: {
+  id: string;
+  name?: string | null;
+  model?: string | null;
+  chatbotId?: string | null;
+  enableRag?: boolean | null;
+  workspace?: string | null;
+}): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
+  const saved = upsertRegisteredAgent({
+    id: params.id,
+    ...(params.name?.trim() ? { name: params.name.trim() } : {}),
+    ...(params.model?.trim() ? { model: params.model.trim() } : {}),
+    ...(params.chatbotId?.trim() ? { chatbotId: params.chatbotId.trim() } : {}),
+    ...(typeof params.enableRag === 'boolean'
+      ? { enableRag: params.enableRag }
+      : {}),
+    ...(params.workspace?.trim() ? { workspace: params.workspace.trim() } : {}),
+  });
+  return {
+    agent: mapGatewayAdminAgent(saved),
+  };
+}
+
+export function updateGatewayAdminAgent(
+  agentId: string,
+  params: {
+    name?: string | null;
+    model?: string | null;
+    chatbotId?: string | null;
+    enableRag?: boolean | null;
+    workspace?: string | null;
+  },
+): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
+  const existing = getAgentById(agentId);
+  if (!existing) {
+    throw new Error(`Agent "${agentId}" was not found.`);
+  }
+  const saved = upsertRegisteredAgent({
+    ...existing,
+    ...(params.name !== undefined
+      ? { name: params.name?.trim() || undefined }
+      : {}),
+    ...(params.model !== undefined
+      ? { model: params.model?.trim() || undefined }
+      : {}),
+    ...(params.chatbotId !== undefined
+      ? { chatbotId: params.chatbotId?.trim() || undefined }
+      : {}),
+    ...(params.workspace !== undefined
+      ? { workspace: params.workspace?.trim() || undefined }
+      : {}),
+    ...(typeof params.enableRag === 'boolean'
+      ? { enableRag: params.enableRag }
+      : {}),
+  });
+  return {
+    agent: mapGatewayAdminAgent(saved),
+  };
+}
+
+export function deleteGatewayAdminAgent(agentId: string): {
+  deleted: boolean;
+  agentId: string;
+} {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) {
+    throw new Error('Agent id is required.');
+  }
+  if (normalizedAgentId === DEFAULT_AGENT_ID) {
+    throw new Error('The main agent cannot be deleted.');
+  }
+  return {
+    deleted: deleteRegisteredAgent(normalizedAgentId),
+    agentId: normalizedAgentId,
   };
 }
 
@@ -2794,6 +2912,7 @@ export async function handleGatewayMessage(
     req.sessionId,
     req.guildId,
     req.channelId,
+    req.agentId ?? undefined,
   );
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
@@ -2810,12 +2929,24 @@ export async function handleGatewayMessage(
     sessionId: req.sessionId,
     abortSignal: req.abortSignal,
   });
-  const chatbotId = req.chatbotId ?? session.chatbot_id ?? HYBRIDAI_CHATBOT_ID;
+  const resolvedRequest = resolveAgentForRequest({
+    agentId: req.agentId,
+    session,
+    model: req.model,
+    chatbotId: req.chatbotId,
+  });
+  const { agentId, model, chatbotId } = resolvedRequest;
+  if (session.agent_id !== agentId) {
+    session = memoryService.getOrCreateSession(
+      req.sessionId,
+      req.guildId,
+      req.channelId,
+      agentId,
+    );
+  }
   const enableRag = req.enableRag ?? session.enable_rag === 1;
-  const model = req.model ?? session.model ?? HYBRIDAI_MODEL;
   const provider = resolveModelProvider(model);
   const media = normalizeMediaContextItems(req.media);
-  const agentId = resolveAgentIdForModel(model, chatbotId);
   const workspacePath = path.resolve(agentWorkspaceDir(agentId));
   const workspaceBootstrap = ensureBootstrapFiles(agentId);
   if (
@@ -2829,6 +2960,7 @@ export async function handleGatewayMessage(
         req.sessionId,
         req.guildId,
         req.channelId,
+        agentId,
       );
     logger.info(
       {
@@ -3420,8 +3552,7 @@ export async function runGatewayScheduledTask(
     null,
     channelId,
   );
-  const chatbotId = session.chatbot_id || HYBRIDAI_CHATBOT_ID;
-  const model = session.model || HYBRIDAI_MODEL;
+  const { agentId, chatbotId, model } = resolveAgentForRequest({ session });
   if (modelRequiresChatbotId(model) && !chatbotId) {
     logger.warn(
       {
@@ -3438,7 +3569,6 @@ export async function runGatewayScheduledTask(
     );
     return;
   }
-  const agentId = resolveAgentIdForModel(model, chatbotId);
 
   await runIsolatedScheduledTask({
     taskId,
@@ -3466,6 +3596,10 @@ export async function handleGatewayCommand(
   switch (cmd) {
     case 'help': {
       const help = [
+        '`agent` — Show current session agent',
+        '`agent list` — List available agents',
+        '`agent switch <id>` — Bind this session to an existing agent',
+        '`agent create <id> [--model <model>]` — Create a new agent',
         '`bot list` — List available bots',
         '`bot set <id|name>` — Set chatbot for this session',
         '`bot info` — Show current chatbot settings',
@@ -3509,6 +3643,127 @@ export async function handleGatewayCommand(
       return infoCommand('HybridClaw Commands', help.join('\n'));
     }
 
+    case 'agent': {
+      const sub = (req.args[1] || '').toLowerCase();
+      if (!sub || sub === 'info' || sub === 'current') {
+        const agent = resolveAgentConfig(session.agent_id);
+        const runtime = resolveAgentForRequest({ session });
+        return infoCommand(
+          'Agent',
+          [
+            `Current agent: ${agent.id}`,
+            ...(agent.name ? [`Name: ${agent.name}`] : []),
+            `Model: ${runtime.model}`,
+            `Chatbot: ${runtime.chatbotId || '(none)'}`,
+            `Workspace: ${path.resolve(agentWorkspaceDir(agent.id))}`,
+          ].join('\n'),
+        );
+      }
+
+      if (sub === 'list') {
+        const currentAgentId =
+          resolveSessionAgentId(session) || DEFAULT_AGENT_ID;
+        const entries = listAgents();
+        const lines = entries.map((agent) => {
+          const label =
+            agent.id === currentAgentId ? `${agent.id} (current)` : agent.id;
+          const model = resolveAgentModel(agent) || HYBRIDAI_MODEL;
+          return agent.name
+            ? `${label} — ${agent.name} · ${model}`
+            : `${label} — ${model}`;
+        });
+        return infoCommand(
+          'Agents',
+          lines.length > 0 ? lines.join('\n') : 'No agents configured.',
+        );
+      }
+
+      if (sub === 'switch') {
+        const targetAgentId = String(req.args[2] || '').trim();
+        if (!targetAgentId) {
+          return badCommand('Usage', 'Usage: `agent switch <id>`');
+        }
+        const targetAgent = findAgentConfig(targetAgentId);
+        if (!targetAgent) {
+          return badCommand(
+            'Not Found',
+            `Agent \`${targetAgentId}\` was not found.`,
+          );
+        }
+        updateSessionAgent(session.id, targetAgent.id);
+        const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
+        return plainCommand(
+          `Session agent set to \`${targetAgent.id}\` (model: \`${model}\`).`,
+        );
+      }
+
+      if (sub === 'create') {
+        const newAgentId = String(req.args[2] || '').trim();
+        if (!newAgentId) {
+          return badCommand(
+            'Usage',
+            'Usage: `agent create <id> [--model <model>]`',
+          );
+        }
+        if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(newAgentId)) {
+          return badCommand(
+            'Invalid Agent Id',
+            'Agent ids must start with a letter or number and only use letters, numbers, `_`, or `-`.',
+          );
+        }
+        if (findAgentConfig(newAgentId)) {
+          return badCommand(
+            'Already Exists',
+            `Agent \`${newAgentId}\` already exists.`,
+          );
+        }
+
+        let modelName: string | undefined;
+        const trailingArgs = req.args.slice(3);
+        if (trailingArgs.length > 0) {
+          if (
+            trailingArgs.length !== 2 ||
+            trailingArgs[0] !== '--model' ||
+            !String(trailingArgs[1] || '').trim()
+          ) {
+            return badCommand(
+              'Usage',
+              'Usage: `agent create <id> [--model <model>]`',
+            );
+          }
+          modelName = String(trailingArgs[1]).trim();
+          const availableModels = getAvailableModelList();
+          if (
+            availableModels.length > 0 &&
+            !availableModels.includes(modelName)
+          ) {
+            return badCommand(
+              'Unknown Model',
+              `\`${modelName}\` is not in the available models list.`,
+            );
+          }
+        }
+
+        const created = upsertRegisteredAgent({
+          id: newAgentId,
+          ...(modelName ? { model: modelName } : {}),
+        });
+        return infoCommand(
+          'Agent Created',
+          [
+            `Agent: ${created.id}`,
+            `Model: ${resolveAgentModel(created) || HYBRIDAI_MODEL}`,
+            `Workspace: ${path.resolve(agentWorkspaceDir(created.id))}`,
+          ].join('\n'),
+        );
+      }
+
+      return badCommand(
+        'Usage',
+        'Usage: `agent|agent list|agent switch <id>|agent create <id> [--model <model>]`',
+      );
+    }
+
     case 'bot': {
       const sub = req.args[1]?.toLowerCase();
       if (sub === 'list') {
@@ -3550,7 +3805,8 @@ export async function handleGatewayCommand(
       }
 
       if (sub === 'info') {
-        const botId = session.chatbot_id || HYBRIDAI_CHATBOT_ID || 'Not set';
+        const runtime = resolveAgentForRequest({ session });
+        const botId = runtime.chatbotId || 'Not set';
         let botLabel = botId;
         try {
           const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
@@ -3559,11 +3815,10 @@ export async function handleGatewayCommand(
         } catch {
           // keep ID fallback
         }
-        const model = session.model || HYBRIDAI_MODEL;
         const ragStatus = session.enable_rag ? 'Enabled' : 'Disabled';
         return infoCommand(
           'Bot Info',
-          `Chatbot: ${botLabel}\nModel: ${model}\nRAG: ${ragStatus}`,
+          `Chatbot: ${botLabel}\nModel: ${runtime.model}\nRAG: ${ragStatus}`,
         );
       }
 
@@ -3572,9 +3827,10 @@ export async function handleGatewayCommand(
 
     case 'model': {
       const availableModels = getAvailableModelList();
+      const runtime = resolveAgentForRequest({ session });
       const sub = req.args[1]?.toLowerCase();
       if (sub === 'list') {
-        const current = session.model || HYBRIDAI_MODEL;
+        const current = runtime.model;
         const list = availableModels
           .map((m) => (m === current ? `${m} (current)` : m))
           .join('\n');
@@ -3627,10 +3883,9 @@ export async function handleGatewayCommand(
       }
 
       if (sub === 'info') {
-        const current = session.model || HYBRIDAI_MODEL;
         return infoCommand(
           'Model Info',
-          `Current model: ${current}\nDefault model: ${HYBRIDAI_MODEL}`,
+          `Current model: ${runtime.model}\nDefault model: ${HYBRIDAI_MODEL}`,
         );
       }
 
@@ -4085,7 +4340,8 @@ export async function handleGatewayCommand(
       const status = getGatewayStatus();
       const delegationStatus = delegationQueueStatus();
       const commitShort = resolveGitCommitShort();
-      const sessionModel = session.model || HYBRIDAI_MODEL;
+      const runtime = resolveAgentForRequest({ session });
+      const sessionModel = runtime.model;
       const modelContextWindowTokens =
         resolveLocalModelContextWindow(sessionModel) ??
         resolveModelContextWindowFallback(sessionModel);

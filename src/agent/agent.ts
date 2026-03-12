@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { DATA_DIR, HYBRIDAI_MODEL } from '../config/config.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
 import type {
@@ -45,7 +46,7 @@ export async function runAgent(
   const sessionId = params.sessionId;
   const chatbotId = params.chatbotId;
   const model = params.model || HYBRIDAI_MODEL;
-  const agentId = params.agentId || chatbotId;
+  const agentId = params.agentId || DEFAULT_AGENT_ID;
   const channelId = params.channelId || '';
   const media = params.media;
   const allowedTools = params.allowedTools;

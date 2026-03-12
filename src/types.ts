@@ -217,6 +217,7 @@ export interface Session {
   id: string;
   guild_id: string | null;
   channel_id: string;
+  agent_id: string;
   chatbot_id: string | null;
   model: string | null;
   enable_rag: number;

@@ -51,14 +51,6 @@ test('provider factory resolves adapters by model family', async () => {
   expect(factory.modelRequiresChatbotId('anthropic/claude-3-7-sonnet')).toBe(
     false,
   );
-
-  expect(factory.resolveAgentIdForModel('gpt-5-nano', '')).toBe('default');
-  expect(factory.resolveAgentIdForModel('openai-codex/gpt-5-codex', '')).toBe(
-    'openai-codex',
-  );
-  expect(
-    factory.resolveAgentIdForModel('anthropic/claude-3-7-sonnet', ''),
-  ).toBe('anthropic');
 });
 
 test('provider factory resolves HybridAI runtime credentials', async () => {
@@ -70,6 +62,7 @@ test('provider factory resolves HybridAI runtime credentials', async () => {
     model: 'gpt-5-nano',
     chatbotId: 'bot_123',
     enableRag: false,
+    agentId: 'main',
   });
 
   expect(credentials).toMatchObject({
@@ -78,7 +71,7 @@ test('provider factory resolves HybridAI runtime credentials', async () => {
     chatbotId: 'bot_123',
     enableRag: false,
     requestHeaders: {},
-    agentId: 'bot_123',
+    agentId: 'main',
   });
 });
 

@@ -49,6 +49,7 @@ function makeSession(partial?: Partial<Session>): Session {
     id: 'session:test',
     guild_id: null,
     channel_id: 'channel:test',
+    agent_id: 'main',
     chatbot_id: null,
     model: null,
     enable_rag: 1,
@@ -308,7 +309,7 @@ describe.sequential('schema migrations', () => {
     inspect.close();
 
     expect(String(journalMode).toLowerCase()).toBe('wal');
-    expect(Number(schemaVersion)).toBe(5);
+    expect(Number(schemaVersion)).toBe(6);
   });
 
   test('migrates legacy memory_kv rows and creates knowledge graph tables', () => {
@@ -392,7 +393,7 @@ describe.sequential('schema migrations', () => {
       .get() as { name: string } | undefined;
     inspect.close();
 
-    expect(Number(schemaVersion)).toBe(5);
+    expect(Number(schemaVersion)).toBe(6);
     expect(hasEntities?.name).toBe('entities');
     expect(hasRelations?.name).toBe('relations');
     expect(hasCanonical?.name).toBe('canonical_sessions');

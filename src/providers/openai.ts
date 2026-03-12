@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveCodexCredentials } from '../auth/codex-auth.js';
 import { CODEX_BASE_URL } from '../config/config.js';
 import type {
@@ -15,15 +16,11 @@ export function isOpenAICodexModel(model: string): boolean {
     .startsWith(OPENAI_CODEX_MODEL_PREFIX);
 }
 
-function resolveOpenAIAgentId(_model: string, chatbotId: string): string {
-  const trimmedChatbotId = String(chatbotId || '').trim();
-  return trimmedChatbotId || 'openai-codex';
-}
-
 async function resolveOpenAIRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
   const codex = await resolveCodexCredentials();
+  const agentId = String(params.agentId || '').trim() || DEFAULT_AGENT_ID;
   return {
     provider: 'openai-codex',
     apiKey: codex.apiKey,
@@ -37,7 +34,7 @@ async function resolveOpenAIRuntimeCredentials(
     chatbotId: '',
     enableRag: false,
     requestHeaders: { ...codex.headers },
-    agentId: resolveOpenAIAgentId(params.model, String(params.chatbotId || '')),
+    agentId,
     accountId: codex.accountId,
   };
 }
@@ -46,6 +43,5 @@ export const openAIProvider: AIProvider = {
   id: 'openai-codex',
   matchesModel: isOpenAICodexModel,
   requiresChatbotId: () => false,
-  resolveAgentId: resolveOpenAIAgentId,
   resolveRuntimeCredentials: resolveOpenAIRuntimeCredentials,
 };

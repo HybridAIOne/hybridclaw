@@ -32,13 +32,13 @@ export interface ResolveProviderRuntimeParams {
   model: string;
   chatbotId?: string;
   enableRag?: boolean;
+  agentId?: string;
 }
 
 export interface AIProvider {
   readonly id: AIProviderId;
   matchesModel(model: string): boolean;
   requiresChatbotId(model: string): boolean;
-  resolveAgentId(model: string, chatbotId: string): string;
   resolveRuntimeCredentials(
     params: ResolveProviderRuntimeParams,
   ): Promise<ResolvedModelRuntimeCredentials>;

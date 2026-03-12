@@ -7,6 +7,7 @@ import {
 } from '../agent/proactive-policy.js';
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
+import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import {
   startObservabilityIngest,
   stopObservabilityIngest,
@@ -28,8 +29,6 @@ import {
   getConfigSnapshot,
   HEARTBEAT_CHANNEL,
   HEARTBEAT_INTERVAL,
-  HYBRIDAI_CHATBOT_ID,
-  HYBRIDAI_MODEL,
   onConfigChange,
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
 } from '../config/config.js';
@@ -43,7 +42,6 @@ import {
   listQueuedProactiveMessages,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
-import { resolveAgentIdForModel } from '../providers/factory.js';
 import {
   startDiscoveryLoop,
   stopDiscoveryLoop,
@@ -846,7 +844,7 @@ async function runScheduledTask(
 
 function startOrRestartHeartbeat(): void {
   stopHeartbeat();
-  const agentId = resolveAgentIdForModel(HYBRIDAI_MODEL, HYBRIDAI_CHATBOT_ID);
+  const { agentId } = resolveAgentForRequest({});
   startHeartbeat(agentId, HEARTBEAT_INTERVAL, (text) => {
     const channelId = resolveHeartbeatDeliveryChannelId({
       explicitChannelId: HEARTBEAT_CHANNEL,

@@ -252,6 +252,19 @@ async function importFreshHealth(options?: {
     providerStatus: {},
     models: [],
   }));
+  const getGatewayAdminAgents = vi.fn(() => ({
+    agents: [
+      {
+        id: 'main',
+        name: 'Main Agent',
+        model: 'gpt-5',
+        chatbotId: null,
+        enableRag: true,
+        workspace: null,
+        workspacePath: '/tmp/main/workspace',
+      },
+    ],
+  }));
   const getGatewayAdminSessions = vi.fn(() => []);
   const getGatewayAdminScheduler = vi.fn(() => ({
     jobs: [],
@@ -330,6 +343,54 @@ async function importFreshHealth(options?: {
     deletedStructuredAuditEntries: 0,
     deletedApprovalEntries: 0,
   }));
+  const createGatewayAdminAgent = vi.fn(
+    (payload: {
+      id?: string;
+      name?: string | null;
+      model?: string | null;
+      chatbotId?: string | null;
+      enableRag?: boolean | null;
+      workspace?: string | null;
+    }) => ({
+      agent: {
+        id: payload.id || 'main',
+        name: payload.name || null,
+        model: payload.model || null,
+        chatbotId: payload.chatbotId || null,
+      enableRag:
+        typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
+        workspace: payload.workspace || null,
+        workspacePath: '/tmp/main/workspace',
+      },
+    }),
+  );
+  const updateGatewayAdminAgent = vi.fn(
+    (
+      agentId: string,
+      payload: {
+        name?: string | null;
+        model?: string | null;
+        chatbotId?: string | null;
+        enableRag?: boolean | null;
+        workspace?: string | null;
+      },
+    ) => ({
+      agent: {
+        id: agentId,
+        name: payload.name || null,
+        model: payload.model || null,
+        chatbotId: payload.chatbotId || null,
+      enableRag:
+        typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
+        workspace: payload.workspace || null,
+        workspacePath: `/tmp/${agentId}/workspace`,
+      },
+    }),
+  );
+  const deleteGatewayAdminAgent = vi.fn((agentId: string) => ({
+    deleted: true,
+    agentId,
+  }));
   const removeGatewayAdminChannel = vi.fn(() => ({
     channels: [],
   }));
@@ -400,8 +461,11 @@ async function importFreshHealth(options?: {
     claimQueuedProactiveMessages,
   }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
+    createGatewayAdminAgent,
+    deleteGatewayAdminAgent,
     deleteGatewayAdminSession,
     getGatewayAgents,
+    getGatewayAdminAgents,
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
@@ -423,6 +487,7 @@ async function importFreshHealth(options?: {
     saveGatewayAdminModels,
     setGatewayAdminSchedulerJobPaused,
     setGatewayAdminSkillEnabled,
+    updateGatewayAdminAgent,
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
     upsertGatewayAdminSchedulerJob,
@@ -449,12 +514,16 @@ async function importFreshHealth(options?: {
     getGatewayHistory,
     getGatewayAdminOverview,
     getGatewayAgents,
+    getGatewayAdminAgents,
     getGatewayAdminModels,
     getGatewayAdminScheduler,
     getGatewayAdminMcp,
     getGatewayAdminAudit,
     getGatewayAdminSkills,
     getGatewayAdminTools,
+    createGatewayAdminAgent,
+    updateGatewayAdminAgent,
+    deleteGatewayAdminAgent,
     setGatewayAdminSkillEnabled,
     handleGatewayMessage,
     handleGatewayCommand,
@@ -580,6 +649,31 @@ describe('gateway health server', () => {
     expect(JSON.parse(res.body)).toMatchObject({
       configPath: '/tmp/config.json',
       status: { status: 'ok', sessions: 2 },
+    });
+  });
+
+  test('returns admin agents for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/agents' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAgents).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agents: [
+        {
+          id: 'main',
+          name: 'Main Agent',
+          model: 'gpt-5',
+          chatbotId: null,
+          enableRag: true,
+          workspace: null,
+          workspacePath: '/tmp/main/workspace',
+        },
+      ],
     });
   });
 

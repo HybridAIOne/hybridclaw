@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ExecutorRequest } from '../agent/executor-types.js';
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   CONTAINER_TIMEOUT,
   GATEWAY_API_TOKEN,
@@ -355,7 +356,7 @@ export async function runHostProcess(
     chatbotId,
     enableRag,
     model = HYBRIDAI_MODEL,
-    agentId = chatbotId,
+    agentId = DEFAULT_AGENT_ID,
     channelId = '',
     ralphMaxIterations,
     fullAutoEnabled,
@@ -374,6 +375,7 @@ export async function runHostProcess(
     model,
     chatbotId,
     enableRag,
+    agentId,
   });
 
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {

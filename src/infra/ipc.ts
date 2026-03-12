@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { resolveAgentWorkspaceId } from '../agents/agent-registry.js';
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
 import type { ContainerInput, ContainerOutput } from '../types.js';
@@ -19,7 +20,8 @@ function ipcDir(sessionId: string): string {
 }
 
 function agentDir(agentId: string): string {
-  const safe = agentId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const workspaceId = resolveAgentWorkspaceId(agentId);
+  const safe = workspaceId.replace(/[^a-zA-Z0-9_-]/g, '_');
   return path.join(DATA_DIR, 'agents', safe);
 }
 

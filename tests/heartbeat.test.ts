@@ -27,13 +27,21 @@ const mocks = vi.hoisted(() => ({
   processSideEffects: vi.fn(),
   proactiveWindowLabel: vi.fn(() => 'always-on'),
   recordAuditEvent: vi.fn(),
-  resolveAgentIdForModel: vi.fn(() => 'vllm'),
+  resolveAgentForRequest: vi.fn(() => ({
+    agentId: 'vllm',
+    model: 'vllm/mistralai/Mistral-Small-3.2-24B-Instruct-2506',
+    chatbotId: '',
+  })),
   resolveModelProvider: vi.fn(() => 'vllm'),
   runAgent: vi.fn(),
 }));
 
 vi.mock('../src/agent/agent.js', () => ({
   runAgent: mocks.runAgent,
+}));
+
+vi.mock('../src/agents/agent-registry.js', () => ({
+  resolveAgentForRequest: mocks.resolveAgentForRequest,
 }));
 
 vi.mock('../src/agent/conversation.js', () => ({
@@ -81,7 +89,6 @@ vi.mock('../src/memory/memory-service.js', () => ({
 
 vi.mock('../src/providers/factory.js', () => ({
   modelRequiresChatbotId: mocks.modelRequiresChatbotId,
-  resolveAgentIdForModel: mocks.resolveAgentIdForModel,
   resolveModelProvider: mocks.resolveModelProvider,
 }));
 

@@ -15,6 +15,7 @@ function makeSession(partial?: Partial<Session>): Session {
     id: 'session:compact',
     guild_id: null,
     channel_id: 'channel:compact',
+    agent_id: 'main',
     chatbot_id: 'bot-1',
     model: 'gpt-5-nano',
     enable_rag: 1,

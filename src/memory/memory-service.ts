@@ -1,10 +1,6 @@
 import { runAgent } from '../agent/agent.js';
-import {
-  HYBRIDAI_CHATBOT_ID,
-  HYBRIDAI_MODEL,
-  SESSION_COMPACTION_SUMMARY_MAX_CHARS,
-} from '../config/config.js';
-import { resolveAgentIdForModel } from '../providers/factory.js';
+import { resolveAgentForRequest } from '../agents/agent-registry.js';
+import { SESSION_COMPACTION_SUMMARY_MAX_CHARS } from '../config/config.js';
 import type {
   CanonicalSession,
   CanonicalSessionContext,
@@ -62,6 +58,7 @@ export interface MemoryBackend {
     sessionId: string,
     guildId: string | null,
     channelId: string,
+    agentId?: string,
   ) => Session;
   getSessionById: (sessionId: string) => Session | undefined;
   getConversationHistory: (
@@ -359,8 +356,14 @@ export class MemoryService {
     sessionId: string,
     guildId: string | null,
     channelId: string,
+    agentId?: string,
   ): Session {
-    return this.backend.getOrCreateSession(sessionId, guildId, channelId);
+    return this.backend.getOrCreateSession(
+      sessionId,
+      guildId,
+      channelId,
+      agentId,
+    );
   }
 
   getSessionById(sessionId: string): Session | undefined {
@@ -676,9 +679,9 @@ export class MemoryService {
     stageIndex: number;
     stageTotal: number;
   }): Promise<string> {
-    const model = params.session.model || HYBRIDAI_MODEL;
-    const chatbotId = params.session.chatbot_id || HYBRIDAI_CHATBOT_ID;
-    const agentId = resolveAgentIdForModel(model, chatbotId);
+    const { agentId, model, chatbotId } = resolveAgentForRequest({
+      session: params.session,
+    });
     const output = await runAgent({
       sessionId: `compact:${params.stageKind}:${params.session.id}:${params.stageIndex + 1}-of-${params.stageTotal}:${Date.now()}`,
       messages: [

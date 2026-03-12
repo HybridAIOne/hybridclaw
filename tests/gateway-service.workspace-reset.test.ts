@@ -78,7 +78,7 @@ test('handleGatewayMessage clears session history when the agent workspace is re
     content: 'old assistant message',
   });
 
-  const workspaceDir = agentWorkspaceDir('openai-codex');
+  const workspaceDir = agentWorkspaceDir('main');
   fs.mkdirSync(workspaceDir, { recursive: true });
   fs.writeFileSync(path.join(workspaceDir, 'stale.txt'), 'stale\n', 'utf-8');
   fs.rmSync(workspaceDir, { recursive: true, force: true });

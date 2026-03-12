@@ -10,6 +10,7 @@ import {
   proactiveWindowLabel,
 } from '../agent/proactive-policy.js';
 import { processSideEffects } from '../agent/side-effects.js';
+import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
@@ -19,8 +20,6 @@ import {
   HEARTBEAT_CHANNEL,
   HEARTBEAT_ENABLED,
   HYBRIDAI_CHATBOT_ID,
-  HYBRIDAI_ENABLE_RAG,
-  HYBRIDAI_MODEL,
 } from '../config/config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -28,7 +27,6 @@ import { getTasksForSession } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
   modelRequiresChatbotId,
-  resolveAgentIdForModel,
   resolveModelProvider,
 } from '../providers/factory.js';
 import { maybeCompactSession } from '../session/session-maintenance.js';
@@ -122,6 +120,7 @@ export function startHeartbeat(
         sessionId,
         null,
         channelId,
+        agentId,
       );
       turnIndex = session.message_count + 1;
 
@@ -133,10 +132,16 @@ export function startHeartbeat(
         session,
         query: HEARTBEAT_PROMPT,
       });
-      const chatbotId = modelRequiresChatbotId(HYBRIDAI_MODEL)
-        ? HYBRIDAI_CHATBOT_ID || agentId
-        : '';
-      const resolvedAgentId = resolveAgentIdForModel(HYBRIDAI_MODEL, chatbotId);
+      const resolvedRuntime = resolveAgentForRequest({
+        agentId,
+        session,
+      });
+      const model = resolvedRuntime.model;
+      const chatbotId = modelRequiresChatbotId(model)
+        ? resolvedRuntime.chatbotId || HYBRIDAI_CHATBOT_ID || agentId
+        : resolvedRuntime.chatbotId;
+      const resolvedAgentId = resolvedRuntime.agentId;
+      const enableRag = session.enable_rag !== 0;
       const workspacePath = agentWorkspaceDir(resolvedAgentId);
       const { messages } = buildConversationContext({
         agentId: resolvedAgentId,
@@ -144,8 +149,8 @@ export function startHeartbeat(
         history,
         runtimeInfo: {
           chatbotId,
-          model: HYBRIDAI_MODEL,
-          defaultModel: HYBRIDAI_MODEL,
+          model,
+          defaultModel: model,
           channelType: 'heartbeat',
           channelId,
           guildId: null,
@@ -155,7 +160,7 @@ export function startHeartbeat(
       });
       messages.push({ role: 'user', content: HEARTBEAT_PROMPT });
 
-      const provider = resolveModelProvider(HYBRIDAI_MODEL);
+      const provider = resolveModelProvider(model);
       const heartbeatChannelId = HEARTBEAT_CHANNEL || 'heartbeat';
       recordAuditEvent({
         sessionId,
@@ -165,7 +170,7 @@ export function startHeartbeat(
           userId: 'heartbeat',
           channel: heartbeatChannelId,
           cwd: workspacePath,
-          model: HYBRIDAI_MODEL,
+          model,
           source: 'heartbeat',
         },
       });
@@ -185,8 +190,8 @@ export function startHeartbeat(
         sessionId,
         messages,
         chatbotId,
-        enableRag: HYBRIDAI_ENABLE_RAG,
-        model: HYBRIDAI_MODEL,
+        enableRag,
+        model,
         agentId: resolvedAgentId,
         channelId: heartbeatChannelId,
         scheduledTasks,
@@ -222,7 +227,7 @@ export function startHeartbeat(
         event: {
           type: 'model.usage',
           provider,
-          model: HYBRIDAI_MODEL,
+          model,
           durationMs: Date.now() - startedAt,
           toolCallCount: (output.toolExecutions || []).length,
           modelCalls: tokenUsage ? Math.max(1, tokenUsage.modelCalls) : 0,
@@ -339,7 +344,7 @@ export function startHeartbeat(
           content: result,
         },
       });
-      appendSessionTranscript(agentId, {
+      appendSessionTranscript(resolvedAgentId, {
         sessionId,
         channelId: heartbeatChannelId,
         role: 'user',
@@ -347,7 +352,7 @@ export function startHeartbeat(
         username: 'heartbeat',
         content: HEARTBEAT_PROMPT,
       });
-      appendSessionTranscript(agentId, {
+      appendSessionTranscript(resolvedAgentId, {
         sessionId,
         channelId: heartbeatChannelId,
         role: 'assistant',
@@ -359,8 +364,8 @@ export function startHeartbeat(
         sessionId,
         agentId: resolvedAgentId,
         chatbotId,
-        enableRag: HYBRIDAI_ENABLE_RAG,
-        model: HYBRIDAI_MODEL,
+        enableRag,
+        model,
         channelId: heartbeatChannelId,
       });
       logger.info(

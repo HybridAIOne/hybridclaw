@@ -13,11 +13,6 @@ export function isAnthropicModel(model: string): boolean {
     .startsWith(ANTHROPIC_MODEL_PREFIX);
 }
 
-function resolveAnthropicAgentId(_model: string, chatbotId: string): string {
-  const trimmedChatbotId = String(chatbotId || '').trim();
-  return trimmedChatbotId || 'anthropic';
-}
-
 async function resolveAnthropicRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
@@ -30,6 +25,5 @@ export const anthropicProvider: AIProvider = {
   id: 'anthropic',
   matchesModel: isAnthropicModel,
   requiresChatbotId: () => false,
-  resolveAgentId: resolveAnthropicAgentId,
   resolveRuntimeCredentials: resolveAnthropicRuntimeCredentials,
 };

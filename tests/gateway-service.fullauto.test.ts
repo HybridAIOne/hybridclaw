@@ -184,10 +184,7 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
   const { initDatabase, listQueuedProactiveMessages, updateSessionChatbot } =
     await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
-  const { HYBRIDAI_MODEL } = await import('../src/config/config.ts');
-  const { resolveAgentIdForModel } = await import(
-    '../src/providers/factory.ts'
-  );
+  const { DEFAULT_AGENT_ID } = await import('../src/agents/agent-types.ts');
   const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
   const { getGatewayAgents, handleGatewayCommand, initGatewayService } =
     await import('../src/gateway/gateway-service.ts');
@@ -266,10 +263,7 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
     'Developers and tinkerers respond to tactile, builder-oriented language',
   );
 
-  const effectiveModel =
-    memoryService.getSessionById(sessionId)?.model || HYBRIDAI_MODEL;
-  const agentId = resolveAgentIdForModel(effectiveModel, 'bot-1');
-  const fullAutoDir = path.join(agentWorkspaceDir(agentId), 'fullauto');
+  const fullAutoDir = path.join(agentWorkspaceDir(DEFAULT_AGENT_ID), 'fullauto');
   const fullAutoFiles = fs.readdirSync(fullAutoDir);
   const goalFilename = fullAutoFiles.find((entry) =>
     /^GOAL_.+\.md$/.test(entry),

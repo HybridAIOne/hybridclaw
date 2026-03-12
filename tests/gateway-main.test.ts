@@ -65,7 +65,11 @@ async function importFreshGatewayMain() {
       (result: { text: string }) => `rendered:${result.text}`,
     ),
     resumeEnabledFullAutoSessions: vi.fn(() => 0),
-    resolveAgentIdForModel: vi.fn(() => 'agent-resolved'),
+    resolveAgentForRequest: vi.fn(() => ({
+      agentId: 'agent-resolved',
+      model: 'gpt-5-nano',
+      chatbotId: 'bot-1',
+    })),
     rewriteUserMentionsForMessage: vi.fn(async (text: string) => text),
     setInterval: vi.fn(() => ({ timer: true })),
     startHealthServer: vi.fn(),
@@ -166,8 +170,8 @@ async function importFreshGatewayMain() {
       consolidateMemories: state.memoryServiceConsolidate,
     },
   }));
-  vi.doMock('../src/providers/factory.js', () => ({
-    resolveAgentIdForModel: state.resolveAgentIdForModel,
+  vi.doMock('../src/agents/agent-registry.js', () => ({
+    resolveAgentForRequest: state.resolveAgentForRequest,
   }));
   vi.doMock('../src/providers/local-discovery.js', () => ({
     startDiscoveryLoop: state.startDiscoveryLoop,
@@ -233,7 +237,7 @@ afterEach(() => {
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/memory/db.js');
   vi.doUnmock('../src/memory/memory-service.js');
-  vi.doUnmock('../src/providers/factory.js');
+  vi.doUnmock('../src/agents/agent-registry.js');
   vi.doUnmock('../src/providers/local-discovery.js');
   vi.doUnmock('../src/providers/local-health.js');
   vi.doUnmock('../src/scheduler/heartbeat.js');

@@ -46,10 +46,8 @@ async function seedSessionFixture() {
     updateSessionRag,
   } = await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { DEFAULT_AGENT_ID } = await import('../src/agents/agent-types.ts');
   const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
-  const { resolveAgentIdForModel } = await import(
-    '../src/providers/factory.ts'
-  );
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -76,10 +74,7 @@ async function seedSessionFixture() {
     content: 'old assistant message',
   });
 
-  const agentId = resolveAgentIdForModel(
-    'openai-codex/gpt-5-codex',
-    'bot-reset',
-  );
+  const agentId = DEFAULT_AGENT_ID;
   const workspacePath = agentWorkspaceDir(agentId);
   fs.mkdirSync(path.join(workspacePath, 'scripts'), { recursive: true });
   fs.writeFileSync(

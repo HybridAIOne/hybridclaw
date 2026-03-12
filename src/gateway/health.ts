@@ -24,9 +24,12 @@ import { logger } from '../logger.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
 import type { ToolProgressEvent } from '../types.js';
 import {
+  createGatewayAdminAgent,
+  deleteGatewayAdminAgent,
   deleteGatewayAdminSession,
   type GatewayChatRequest,
   type GatewayCommandRequest,
+  getGatewayAdminAgents,
   getGatewayAdminAudit,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
@@ -49,6 +52,7 @@ import {
   saveGatewayAdminModels,
   setGatewayAdminSchedulerJobPaused,
   setGatewayAdminSkillEnabled,
+  updateGatewayAdminAgent,
   upsertGatewayAdminChannel,
   upsertGatewayAdminMcpServer,
   upsertGatewayAdminSchedulerJob,
@@ -383,6 +387,7 @@ async function handleApiChat(
     userId: body.userId || 'web-user',
     username: body.username ?? 'web',
     content,
+    agentId: body.agentId,
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
     model: body.model,
@@ -619,6 +624,97 @@ function handleApiShutdown(res: ServerResponse): void {
 
 function handleApiAdminOverview(res: ServerResponse): void {
   sendJson(res, 200, getGatewayAdminOverview());
+}
+
+async function handleApiAdminAgents(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const method = req.method || 'GET';
+  if (method === 'GET') {
+    sendJson(res, 200, getGatewayAdminAgents());
+    return;
+  }
+
+  if (method === 'DELETE') {
+    const pathname = url.pathname;
+    const agentId = pathname.split('/').pop()?.trim() || '';
+    if (!agentId || agentId === 'agents') {
+      sendJson(res, 400, { error: 'Missing agent id in request path.' });
+      return;
+    }
+    try {
+      sendJson(res, 200, deleteGatewayAdminAgent(agentId));
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as {
+    id?: unknown;
+    name?: unknown;
+    model?: unknown;
+    chatbotId?: unknown;
+    enableRag?: unknown;
+    workspace?: unknown;
+  };
+
+  const payload = {
+    id: String(body.id || '').trim(),
+    name: typeof body.name === 'string' ? body.name : undefined,
+    model: typeof body.model === 'string' ? body.model : undefined,
+    chatbotId: typeof body.chatbotId === 'string' ? body.chatbotId : undefined,
+    enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
+    workspace: typeof body.workspace === 'string' ? body.workspace : undefined,
+  };
+
+  if (method === 'POST') {
+    if (!payload.id) {
+      sendJson(res, 400, { error: 'Expected non-empty `id` in request body.' });
+      return;
+    }
+    try {
+      sendJson(res, 200, createGatewayAdminAgent(payload));
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+
+  if (method === 'PUT') {
+    const agentId = url.pathname.split('/').pop()?.trim() || '';
+    if (!agentId || agentId === 'agents') {
+      sendJson(res, 400, { error: 'Missing agent id in request path.' });
+      return;
+    }
+    try {
+      sendJson(
+        res,
+        200,
+        updateGatewayAdminAgent(agentId, {
+          name: payload.name,
+          model: payload.model,
+          chatbotId: payload.chatbotId,
+          enableRag: payload.enableRag,
+          workspace: payload.workspace,
+        }),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      sendJson(res, /not found/i.test(message) ? 404 : 400, {
+        error: message,
+      });
+    }
+    return;
+  }
+
+  sendJson(res, 405, { error: 'Method Not Allowed' });
 }
 
 function handleApiAdminSessions(res: ServerResponse): void {
@@ -1012,6 +1108,15 @@ export function startHealthServer(): void {
           }
           if (pathname === '/api/admin/overview' && method === 'GET') {
             handleApiAdminOverview(res);
+            return;
+          }
+          if (
+            (pathname === '/api/admin/agents' &&
+              (method === 'GET' || method === 'POST')) ||
+            (pathname.startsWith('/api/admin/agents/') &&
+              (method === 'PUT' || method === 'DELETE'))
+          ) {
+            await handleApiAdminAgents(req, res, url);
             return;
           }
           if (
