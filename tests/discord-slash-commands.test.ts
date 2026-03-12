@@ -40,6 +40,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
       'channel-mode',
       'channel-policy',
       'model',
+      'agent',
       'help',
       'bot',
       'rag',
@@ -78,6 +79,39 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
       ?.map((option) => ('name' in option ? option.name : ''))
       .filter(Boolean),
   ).toEqual(['info', 'list', 'set', 'default']);
+});
+
+test('parseSlashInteractionArgs maps agent interactions to command args', () => {
+  const listArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'agent',
+      subcommand: 'list',
+    }) as never,
+  );
+  const switchArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'agent',
+      subcommand: 'switch',
+      strings: { id: 'research' },
+    }) as never,
+  );
+  const createArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'agent',
+      subcommand: 'create',
+      strings: { id: 'research', model: 'gpt-5' },
+    }) as never,
+  );
+
+  expect(listArgs).toEqual(['agent', 'list']);
+  expect(switchArgs).toEqual(['agent', 'switch', 'research']);
+  expect(createArgs).toEqual([
+    'agent',
+    'create',
+    'research',
+    '--model',
+    'gpt-5',
+  ]);
 });
 
 test('parseSlashInteractionArgs maps bot set interactions to command args', () => {

@@ -199,6 +199,54 @@ export function buildSlashCommandDefinitions(
       ],
     },
     {
+      name: 'agent',
+      description: 'Inspect, list, switch, or create agents',
+      options: [
+        {
+          type: ApplicationCommandOptionType.Subcommand,
+          name: 'info',
+          description: 'Show the current session agent',
+        },
+        {
+          type: ApplicationCommandOptionType.Subcommand,
+          name: 'list',
+          description: 'List available agents',
+        },
+        {
+          type: ApplicationCommandOptionType.Subcommand,
+          name: 'switch',
+          description: 'Switch this session to another agent',
+          options: [
+            {
+              type: ApplicationCommandOptionType.String,
+              name: 'id',
+              description: 'Existing agent id',
+              required: true,
+            },
+          ],
+        },
+        {
+          type: ApplicationCommandOptionType.Subcommand,
+          name: 'create',
+          description: 'Create a new agent',
+          options: [
+            {
+              type: ApplicationCommandOptionType.String,
+              name: 'id',
+              description: 'New agent id',
+              required: true,
+            },
+            {
+              type: ApplicationCommandOptionType.String,
+              name: 'model',
+              description: 'Optional model name',
+              choices: modelChoices.length > 0 ? modelChoices : undefined,
+            },
+          ],
+        },
+      ],
+    },
+    {
       name: 'help',
       description: 'Show available HybridClaw commands',
     },
@@ -539,6 +587,25 @@ export function parseSlashInteractionArgs(
         return selectedModel
           ? ['model', 'default', selectedModel]
           : ['model', 'default'];
+      }
+      return null;
+    }
+
+    case 'agent': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (!subcommand || subcommand === 'info') return ['agent'];
+      if (subcommand === 'list') return ['agent', 'list'];
+      if (subcommand === 'switch') {
+        const agentId = normalizeStringOption(interaction, 'id', true);
+        return agentId ? ['agent', 'switch', agentId] : null;
+      }
+      if (subcommand === 'create') {
+        const agentId = normalizeStringOption(interaction, 'id', true);
+        if (!agentId) return null;
+        const model = normalizeStringOption(interaction, 'model');
+        return model
+          ? ['agent', 'create', agentId, '--model', model]
+          : ['agent', 'create', agentId];
       }
       return null;
     }

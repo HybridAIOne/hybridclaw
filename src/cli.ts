@@ -306,12 +306,17 @@ Starts the terminal adapter and connects to the running gateway.
 If gateway is not running, it is started in backend mode automatically.
 
 Interactive slash commands inside TUI:
-  /help   /bots   /bot <id|name>   /model [name]
-  /model default [name]
-  /rag [on|off]   /mcp list        /mcp add <name> <json>
+  /help   /status   /approve [view|yes|session|agent|no] [approval_id]
+  /agent [list|switch|create]   /bots   /bot [info|list|set <id|name>]
+  /model [name]   /model info|list|default [name]
+  /channel-mode <off|mention|free>   /channel-policy <open|allowlist|disabled>
+  /rag [on|off]   /ralph [info|on|off|set n]   /mcp list
+  /mcp add <name> <json>
   /mcp toggle <name> /mcp remove <name> /mcp reconnect <name>
-  /info            /compact   /clear   /reset [yes|no]
-  /stop           /exit`);
+  /usage [summary|daily|monthly|model [daily|monthly] [agentId]]
+  /export [sessionId]   /sessions   /audit [sessionId]
+  /schedule add "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
+  /info   /compact   /clear   /reset [yes|no]   /stop   /exit`);
 }
 
 function printOnboardingUsage(): void {

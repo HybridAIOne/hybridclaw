@@ -185,9 +185,32 @@ test('parseCommand recognizes slash-text reset command namespace', () => {
   });
 });
 
+test('parseCommand recognizes slash-text agent command namespace', () => {
+  const parsed = parseCommand('/agent switch research', null, '!claw');
+  expect(parsed).toEqual({
+    isCommand: true,
+    command: 'agent',
+    args: ['switch', 'research'],
+  });
+});
+
 test('isTrigger commands-only allows slash-text commands', () => {
   const shouldTrigger = isTrigger({
     content: '/status',
+    isDm: false,
+    commandsOnly: true,
+    respondToAllMessages: false,
+    guildMessageMode: 'off',
+    prefix: '!claw',
+    botMentionRegex: null,
+    hasBotMention: false,
+  });
+  expect(shouldTrigger).toBe(true);
+});
+
+test('isTrigger commands-only allows slash-text agent commands', () => {
+  const shouldTrigger = isTrigger({
+    content: '/agent list',
     isDm: false,
     commandsOnly: true,
     respondToAllMessages: false,

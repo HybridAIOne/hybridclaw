@@ -7,6 +7,7 @@ export interface ParsedCommand {
 export type DiscordGuildMessageMode = 'off' | 'mention' | 'free';
 export type DiscordCommandAccessMode = 'public' | 'restricted';
 const KNOWN_SUBCOMMANDS = new Set([
+  'agent',
   'bot',
   'rag',
   'model',

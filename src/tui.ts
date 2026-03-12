@@ -36,7 +36,10 @@ import {
   type TuiFullAutoState,
 } from './tui-fullauto.js';
 import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
-import { parseTuiSlashCommand } from './tui-slash-command.js';
+import {
+  mapTuiSlashCommandToGatewayArgs,
+  parseTuiSlashCommand,
+} from './tui-slash-command.js';
 import { appendThinkingPreview } from './tui-thinking.js';
 
 const RESET = '\x1b[0m';
@@ -129,6 +132,7 @@ let activeRunAbortController: AbortController | null = null;
 let proactivePollInFlight = false;
 let tuiFullAutoState: TuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;
 let fullAutoSteeringInFlight = false;
+let tuiPendingApproval: { requestId: string; prompt: string } | null = null;
 
 function findPendingApprovalRequestId(
   result: GatewayChatResult,
@@ -183,6 +187,25 @@ function mapApprovalSelectionToCommand(
     return `skip ${requestId}`;
   }
   return null;
+}
+
+function isApprovalResponseContent(content: string): boolean {
+  const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
+  return /^(yes|skip)\s+\S+(?:\s+for\s+(session|agent))?$/.test(normalized);
+}
+
+function mapTuiApproveSlashToMessage(parts: string[]): string | null {
+  const action = (parts[1] || 'view').trim().toLowerCase();
+  const approvalId = (parts[2] || tuiPendingApproval?.requestId || '').trim();
+  if (action === 'view' || action === 'status' || action === 'show') {
+    return null;
+  }
+  if (!approvalId) return '';
+  if (action === 'yes') return `yes ${approvalId}`;
+  if (action === 'session') return `yes ${approvalId} for session`;
+  if (action === 'agent') return `yes ${approvalId} for agent`;
+  if (action === 'no') return `skip ${approvalId}`;
+  return '';
 }
 
 async function promptApprovalSelection(
@@ -272,6 +295,12 @@ function printHelp(): void {
   console.log();
   console.log(`  ${BOLD}${GOLD}Commands${RESET}`);
   console.log(`  ${TEAL}/help${RESET}             Show this help`);
+  console.log(`  ${TEAL}/agent${RESET}            Show current session agent`);
+  console.log(`  ${TEAL}/agent list${RESET}       List available agents`);
+  console.log(`  ${TEAL}/agent switch <id>${RESET} Switch this session to an agent`);
+  console.log(
+    `  ${TEAL}/agent create <id> [--model <model>]${RESET} Create a new agent`,
+  );
   console.log(`  ${TEAL}/bots${RESET}             List available bots`);
   console.log(`  ${TEAL}/bot <id|name>${RESET}    Switch bot for this session`);
   console.log(`  ${TEAL}/model${RESET}            Pick model from selector`);
@@ -281,6 +310,16 @@ function printHelp(): void {
   );
   console.log(`  ${TEAL}/rag [on|off]${RESET}     Toggle or set RAG`);
   console.log(`  ${TEAL}/ralph [on|off|set n]${RESET} Configure Ralph loop`);
+  console.log(`  ${TEAL}/status${RESET}           Show runtime status`);
+  console.log(
+    `  ${TEAL}/approve [view|yes|session|agent|no] [approval_id]${RESET} View/respond to pending approvals`,
+  );
+  console.log(
+    `  ${TEAL}/channel-mode <off|mention|free>${RESET} Set Discord channel mode`,
+  );
+  console.log(
+    `  ${TEAL}/channel-policy <open|allowlist|disabled>${RESET} Set Discord guild policy`,
+  );
   console.log(
     `  ${TEAL}/fullauto [status|off|on [prompt]|prompt]${RESET} Enable or inspect session full-auto mode`,
   );
@@ -298,6 +337,19 @@ function printHelp(): void {
     `  ${TEAL}/mcp reconnect <name>${RESET} Restart MCP for the current session`,
   );
   console.log(`  ${TEAL}/info${RESET}             Show current settings`);
+  console.log(
+    `  ${TEAL}/usage [summary|daily|monthly|model [daily|monthly] [agentId]]${RESET} Show usage`,
+  );
+  console.log(
+    `  ${TEAL}/export [sessionId]${RESET} Export current or specified session JSONL`,
+  );
+  console.log(`  ${TEAL}/sessions${RESET}         List active sessions`);
+  console.log(
+    `  ${TEAL}/audit [sessionId]${RESET} Show recent structured audit events`,
+  );
+  console.log(
+    `  ${TEAL}/schedule add "<cron>" <prompt>${RESET} Add a scheduled task`,
+  );
   console.log(
     `  ${TEAL}/compact${RESET}          Archive and compact older session history`,
   );
@@ -653,16 +705,6 @@ async function handleSlashCommand(
       rl.close();
       process.exit(0);
       return true;
-    case 'bots':
-      await runGatewayCommand(['bot', 'list'], rl);
-      return true;
-    case 'bot':
-      if (parts.length > 1) {
-        await runGatewayCommand(['bot', 'set', ...parts.slice(1)], rl);
-      } else {
-        await runGatewayCommand(['bot', 'info'], rl);
-      }
-      return true;
     case 'model':
       if (parts.length === 1 || parts[1] === 'select') {
         const selectedModel = await promptModelSelection(rl);
@@ -685,51 +727,42 @@ async function handleSlashCommand(
       }
       await runGatewayCommand(['model', 'set', ...parts.slice(1)], rl);
       return true;
-    case 'rag':
-      if (parts.length > 1 && (parts[1] === 'on' || parts[1] === 'off')) {
-        await runGatewayCommand(['rag', parts[1]], rl);
-      } else {
-        await runGatewayCommand(['rag'], rl);
+    case 'approve': {
+      const action = (parts[1] || 'view').trim().toLowerCase();
+      if (action === 'view' || action === 'status' || action === 'show') {
+        if (!tuiPendingApproval) {
+          printInfo('No pending approval request cached in this TUI session.');
+          return true;
+        }
+        const requestedId = (parts[2] || '').trim();
+        if (requestedId && requestedId !== tuiPendingApproval.requestId) {
+          printInfo(
+            `No cached approval prompt for request ${requestedId}. Current pending request: ${tuiPendingApproval.requestId}`,
+          );
+          return true;
+        }
+        printInfo(tuiPendingApproval.prompt);
+        return true;
       }
-      return true;
-    case 'ralph':
-      if (parts.length > 1) {
-        await runGatewayCommand(['ralph', ...parts.slice(1)], rl);
-      } else {
-        await runGatewayCommand(['ralph', 'info'], rl);
+
+      const approvalMessage = mapTuiApproveSlashToMessage(parts);
+      if (approvalMessage === '') {
+        printInfo(
+          'Usage: /approve [view|yes|session|agent|no] [approval_id]',
+        );
+        return true;
       }
-      return true;
-    case 'mcp':
-      if (parts.length > 1) {
-        await runGatewayCommand(['mcp', ...parts.slice(1)], rl);
-      } else {
-        await runGatewayCommand(['mcp', 'list'], rl);
+      if (!approvalMessage) {
+        printInfo('No pending approval request is available to approve.');
+        return true;
       }
+      await processMessage(approvalMessage, rl);
       return true;
-    case 'fullauto':
-      if (parts.length > 1) {
-        await runGatewayCommand(['fullauto', ...parts.slice(1)], rl);
-      } else {
-        await runGatewayCommand(['fullauto'], rl);
-      }
-      return true;
+    }
     case 'info':
       await runGatewayCommand(['bot', 'info'], rl);
       await runGatewayCommand(['model', 'info'], rl);
       await runGatewayCommand(['status'], rl);
-      return true;
-    case 'compact':
-      await runGatewayCommand(['compact'], rl);
-      return true;
-    case 'clear':
-      await runGatewayCommand(['clear'], rl);
-      return true;
-    case 'reset':
-      if (parts.length > 1) {
-        await runGatewayCommand(['reset', ...parts.slice(1)], rl);
-      } else {
-        await runGatewayCommand(['reset'], rl);
-      }
       return true;
     case 'stop':
     case 'abort':
@@ -745,8 +778,13 @@ async function handleSlashCommand(
       await runGatewayCommand(['stop'], rl);
       return true;
     default:
-      return false;
+      break;
   }
+
+  const gatewayArgs = mapTuiSlashCommandToGatewayArgs(parts);
+  if (!gatewayArgs) return false;
+  await runGatewayCommand(gatewayArgs, rl);
+  return true;
 }
 
 async function processMessage(
@@ -823,6 +861,10 @@ async function processMessage(
     printResponse(result.result || 'No response.');
     const pendingApprovalId = findPendingApprovalRequestId(result);
     if (pendingApprovalId) {
+      tuiPendingApproval = {
+        requestId: pendingApprovalId,
+        prompt: result.result || `Approval required (${pendingApprovalId}).`,
+      };
       const approvalCommand = await promptApprovalSelection(
         rl,
         pendingApprovalId,
@@ -830,6 +872,8 @@ async function processMessage(
       if (approvalCommand) {
         await processMessage(approvalCommand, rl);
       }
+    } else if (isApprovalResponseContent(content)) {
+      tuiPendingApproval = null;
     }
   } catch (err) {
     s.stop();
