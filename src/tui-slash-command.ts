@@ -154,13 +154,15 @@ export function mapTuiApproveSlashToMessage(
   const action = (parts[1] || 'view').trim().toLowerCase();
   const approvalId = (parts[2] || pendingApprovalId || '').trim();
   if (!approvalId) return { kind: 'missing-approval' };
-  if (action === 'yes') return { kind: 'message', message: `yes ${approvalId}` };
+  if (action === 'yes')
+    return { kind: 'message', message: `yes ${approvalId}` };
   if (action === 'session') {
     return { kind: 'message', message: `yes ${approvalId} for session` };
   }
   if (action === 'agent') {
     return { kind: 'message', message: `yes ${approvalId} for agent` };
   }
-  if (action === 'no') return { kind: 'message', message: `skip ${approvalId}` };
+  if (action === 'no')
+    return { kind: 'message', message: `skip ${approvalId}` };
   return { kind: 'usage' };
 }
