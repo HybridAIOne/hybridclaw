@@ -9,6 +9,11 @@ import type { RuntimeConfig } from '../src/config/runtime-config.ts';
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_CWD = process.cwd();
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
+const ORIGINAL_OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const ORIGINAL_GROQ_API_KEY = process.env.GROQ_API_KEY;
+const ORIGINAL_DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
+const ORIGINAL_GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const ORIGINAL_GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 const ORIGINAL_DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const WORKSPACE_ROOT = path.resolve(TEST_DIR, '..');
@@ -43,6 +48,11 @@ afterEach(() => {
   process.chdir(ORIGINAL_CWD);
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
+  restoreEnvVar('OPENAI_API_KEY', ORIGINAL_OPENAI_API_KEY);
+  restoreEnvVar('GROQ_API_KEY', ORIGINAL_GROQ_API_KEY);
+  restoreEnvVar('DEEPGRAM_API_KEY', ORIGINAL_DEEPGRAM_API_KEY);
+  restoreEnvVar('GEMINI_API_KEY', ORIGINAL_GEMINI_API_KEY);
+  restoreEnvVar('GOOGLE_API_KEY', ORIGINAL_GOOGLE_API_KEY);
   restoreEnvVar('DISCORD_TOKEN', ORIGINAL_DISCORD_TOKEN);
 });
 
@@ -60,6 +70,11 @@ describe('runtime secrets', () => {
       `${JSON.stringify(
         {
           HYBRIDAI_API_KEY: 'hai-1234567890abcdef',
+          OPENAI_API_KEY: 'sk-test-openai-key',
+          GROQ_API_KEY: 'gsk_test_groq',
+          DEEPGRAM_API_KEY: 'deepgram-test-key',
+          GEMINI_API_KEY: 'gemini-test-key',
+          GOOGLE_API_KEY: 'google-test-key',
           DISCORD_TOKEN: 'discord-token',
         },
         null,
@@ -68,6 +83,11 @@ describe('runtime secrets', () => {
       'utf-8',
     );
     delete process.env.HYBRIDAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.GROQ_API_KEY;
+    delete process.env.DEEPGRAM_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GOOGLE_API_KEY;
     delete process.env.DISCORD_TOKEN;
 
     const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
@@ -75,6 +95,11 @@ describe('runtime secrets', () => {
 
     expect(runtimeSecrets.runtimeSecretsPath()).toBe(credentialsPath);
     expect(process.env.HYBRIDAI_API_KEY).toBe('hai-1234567890abcdef');
+    expect(process.env.OPENAI_API_KEY).toBe('sk-test-openai-key');
+    expect(process.env.GROQ_API_KEY).toBe('gsk_test_groq');
+    expect(process.env.DEEPGRAM_API_KEY).toBe('deepgram-test-key');
+    expect(process.env.GEMINI_API_KEY).toBe('gemini-test-key');
+    expect(process.env.GOOGLE_API_KEY).toBe('google-test-key');
     expect(process.env.DISCORD_TOKEN).toBe('discord-token');
   });
 
@@ -89,6 +114,11 @@ describe('runtime secrets', () => {
 
     const writtenPath = runtimeSecrets.saveRuntimeSecrets({
       HYBRIDAI_API_KEY: 'hai-fedcba0987654321',
+      OPENAI_API_KEY: 'sk-saved-openai-key',
+      GROQ_API_KEY: 'gsk_saved_groq',
+      DEEPGRAM_API_KEY: 'deepgram-saved-key',
+      GEMINI_API_KEY: 'gemini-saved-key',
+      GOOGLE_API_KEY: 'google-saved-key',
       DISCORD_TOKEN: 'discord-token',
     });
 
@@ -100,6 +130,11 @@ describe('runtime secrets', () => {
       >,
     ).toEqual({
       HYBRIDAI_API_KEY: 'hai-fedcba0987654321',
+      OPENAI_API_KEY: 'sk-saved-openai-key',
+      GROQ_API_KEY: 'gsk_saved_groq',
+      DEEPGRAM_API_KEY: 'deepgram-saved-key',
+      GEMINI_API_KEY: 'gemini-saved-key',
+      GOOGLE_API_KEY: 'google-saved-key',
       DISCORD_TOKEN: 'discord-token',
     });
   });
@@ -119,6 +154,11 @@ describe('runtime secrets', () => {
       envPath,
       [
         'HYBRIDAI_API_KEY=hai-from-dot-env',
+        'OPENAI_API_KEY=sk-from-dot-env',
+        'GROQ_API_KEY=gsk-from-dot-env',
+        'DEEPGRAM_API_KEY=deepgram-from-dot-env',
+        'GEMINI_API_KEY=gemini-from-dot-env',
+        'GOOGLE_API_KEY=google-from-dot-env',
         'DISCORD_TOKEN=discord-from-dot-env',
         'UNRELATED=value',
         '',
@@ -126,6 +166,11 @@ describe('runtime secrets', () => {
       'utf-8',
     );
     delete process.env.HYBRIDAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.GROQ_API_KEY;
+    delete process.env.DEEPGRAM_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GOOGLE_API_KEY;
     delete process.env.DISCORD_TOKEN;
     process.chdir(cwdDir);
 
@@ -142,9 +187,19 @@ describe('runtime secrets', () => {
       >,
     ).toEqual({
       HYBRIDAI_API_KEY: 'hai-from-dot-env',
+      OPENAI_API_KEY: 'sk-from-dot-env',
+      GROQ_API_KEY: 'gsk-from-dot-env',
+      DEEPGRAM_API_KEY: 'deepgram-from-dot-env',
+      GEMINI_API_KEY: 'gemini-from-dot-env',
+      GOOGLE_API_KEY: 'google-from-dot-env',
       DISCORD_TOKEN: 'discord-from-dot-env',
     });
     expect(process.env.HYBRIDAI_API_KEY).toBe('hai-from-dot-env');
+    expect(process.env.OPENAI_API_KEY).toBe('sk-from-dot-env');
+    expect(process.env.GROQ_API_KEY).toBe('gsk-from-dot-env');
+    expect(process.env.DEEPGRAM_API_KEY).toBe('deepgram-from-dot-env');
+    expect(process.env.GEMINI_API_KEY).toBe('gemini-from-dot-env');
+    expect(process.env.GOOGLE_API_KEY).toBe('google-from-dot-env');
     expect(process.env.DISCORD_TOKEN).toBe('discord-from-dot-env');
     expect(fs.readFileSync(envPath, 'utf-8')).toContain(
       'HYBRIDAI_API_KEY=hai-from-dot-env',

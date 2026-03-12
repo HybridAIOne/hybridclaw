@@ -172,6 +172,19 @@
       "tavilySearchDepth": "advanced"
     }
   },
+  "media": {
+    "audio": {
+      "enabled": true,
+      "maxBytes": 20971520,
+      "maxFiles": 4,
+      "maxCharsPerTranscript": 8000,
+      "maxTotalChars": 16000,
+      "timeoutMs": 60000,
+      "prompt": "Transcribe the audio.",
+      "language": "",
+      "models": []
+    }
+  },
   "heartbeat": {
     "enabled": true,
     "intervalMs": 1800000,

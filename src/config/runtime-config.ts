@@ -91,6 +91,49 @@ export type RuntimeWebSearchConcreteProvider = Exclude<
 >;
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type RuntimeAudioTranscriptionProvider =
+  | 'openai'
+  | 'groq'
+  | 'deepgram'
+  | 'google';
+
+export interface RuntimeAudioProviderModelConfig {
+  type: 'provider';
+  provider: RuntimeAudioTranscriptionProvider;
+  model?: string;
+  baseUrl?: string;
+  headers?: Record<string, string>;
+  query?: Record<string, string>;
+  prompt?: string;
+  language?: string;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export interface RuntimeAudioCliModelConfig {
+  type: 'cli';
+  command: string;
+  args: string[];
+  prompt?: string;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export type RuntimeAudioTranscriptionModelConfig =
+  | RuntimeAudioProviderModelConfig
+  | RuntimeAudioCliModelConfig;
+
+export interface RuntimeMediaAudioConfig {
+  enabled: boolean;
+  maxBytes: number;
+  maxFiles: number;
+  maxCharsPerTranscript: number;
+  maxTotalChars: number;
+  timeoutMs: number;
+  prompt: string;
+  language: string;
+  models: RuntimeAudioTranscriptionModelConfig[];
+}
 
 export interface RuntimeDiscordHumanDelayConfig {
   mode: DiscordHumanDelayMode;
@@ -252,6 +295,9 @@ export interface RuntimeConfig {
       searxngBaseUrl: string;
       tavilySearchDepth: 'basic' | 'advanced';
     };
+  };
+  media: {
+    audio: RuntimeMediaAudioConfig;
   };
   heartbeat: {
     enabled: boolean;
@@ -489,6 +535,19 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       cacheTtlMinutes: 5,
       searxngBaseUrl: '',
       tavilySearchDepth: 'advanced',
+    },
+  },
+  media: {
+    audio: {
+      enabled: true,
+      maxBytes: 20 * 1024 * 1024,
+      maxFiles: 4,
+      maxCharsPerTranscript: 8_000,
+      maxTotalChars: 16_000,
+      timeoutMs: 60_000,
+      prompt: 'Transcribe the audio.',
+      language: '',
+      models: [],
     },
   },
   heartbeat: {
@@ -1613,6 +1672,145 @@ function normalizeWebSearchFallbackProviders(
   return providers;
 }
 
+function normalizeAudioTranscriptionProvider(
+  value: unknown,
+): RuntimeAudioTranscriptionProvider | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'openai') return 'openai';
+  if (normalized === 'groq') return 'groq';
+  if (normalized === 'deepgram') return 'deepgram';
+  if (normalized === 'google') return 'google';
+  return null;
+}
+
+function normalizeAudioModelEntry(
+  value: unknown,
+): RuntimeAudioTranscriptionModelConfig | null {
+  if (!isRecord(value)) return null;
+  const rawType = normalizeString(value.type, '', {
+    allowEmpty: true,
+  }).toLowerCase();
+
+  if (rawType === 'cli' || (!rawType && typeof value.command === 'string')) {
+    const command = normalizeString(value.command, '', {
+      allowEmpty: false,
+    });
+    if (!command) return null;
+    const args = normalizeStringArray(value.args, []);
+    const prompt = normalizeString(value.prompt, '', {
+      allowEmpty: true,
+    });
+    const timeoutMs = normalizeInteger(value.timeoutMs, 0, { min: 0 });
+    const maxBytes = normalizeInteger(value.maxBytes, 0, { min: 0 });
+    return {
+      type: 'cli',
+      command,
+      args,
+      ...(prompt ? { prompt } : {}),
+      ...(timeoutMs > 0 ? { timeoutMs } : {}),
+      ...(maxBytes > 0 ? { maxBytes } : {}),
+    };
+  }
+
+  const provider = normalizeAudioTranscriptionProvider(value.provider);
+  if (!provider) return null;
+  const model = normalizeString(value.model, '', {
+    allowEmpty: true,
+  });
+  const baseUrl = normalizeString(value.baseUrl, '', {
+    allowEmpty: true,
+  });
+  const prompt = normalizeString(value.prompt, '', {
+    allowEmpty: true,
+  });
+  const language = normalizeString(value.language, '', {
+    allowEmpty: true,
+  });
+  const timeoutMs = normalizeInteger(value.timeoutMs, 0, { min: 0 });
+  const maxBytes = normalizeInteger(value.maxBytes, 0, { min: 0 });
+  const headers = normalizeStringRecord(value.headers);
+  const query = normalizeStringRecord(value.query);
+  return {
+    type: 'provider',
+    provider,
+    ...(model ? { model } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    ...(Object.keys(query).length > 0 ? { query } : {}),
+    ...(prompt ? { prompt } : {}),
+    ...(language ? { language } : {}),
+    ...(timeoutMs > 0 ? { timeoutMs } : {}),
+    ...(maxBytes > 0 ? { maxBytes } : {}),
+  };
+}
+
+function normalizeAudioModelEntries(
+  value: unknown,
+  fallback: RuntimeAudioTranscriptionModelConfig[],
+): RuntimeAudioTranscriptionModelConfig[] {
+  if (!Array.isArray(value)) return [...fallback];
+  return value
+    .map((entry) => normalizeAudioModelEntry(entry))
+    .filter((entry): entry is RuntimeAudioTranscriptionModelConfig =>
+      Boolean(entry),
+    );
+}
+
+function normalizeMediaAudioConfig(
+  value: unknown,
+  fallback: RuntimeMediaAudioConfig,
+): RuntimeMediaAudioConfig {
+  if (!isRecord(value)) {
+    return {
+      ...fallback,
+      models: [...fallback.models],
+    };
+  }
+  return {
+    enabled: normalizeBoolean(value.enabled, fallback.enabled),
+    maxBytes: normalizeInteger(value.maxBytes, fallback.maxBytes, {
+      min: 1_024,
+      max: 25 * 1024 * 1024,
+    }),
+    maxFiles: normalizeInteger(value.maxFiles, fallback.maxFiles, {
+      min: 1,
+      max: 8,
+    }),
+    maxCharsPerTranscript: normalizeInteger(
+      value.maxCharsPerTranscript,
+      fallback.maxCharsPerTranscript,
+      { min: 256, max: 32_000 },
+    ),
+    maxTotalChars: normalizeInteger(
+      value.maxTotalChars,
+      fallback.maxTotalChars,
+      { min: 256, max: 64_000 },
+    ),
+    timeoutMs: normalizeInteger(value.timeoutMs, fallback.timeoutMs, {
+      min: 1_000,
+      max: 300_000,
+    }),
+    prompt: normalizeString(value.prompt, fallback.prompt, {
+      allowEmpty: false,
+    }),
+    language: normalizeString(value.language, fallback.language, {
+      allowEmpty: true,
+    }),
+    models: normalizeAudioModelEntries(value.models, fallback.models),
+  };
+}
+
+function normalizeMediaConfig(
+  value: unknown,
+  fallback: RuntimeConfig['media'],
+): RuntimeConfig['media'] {
+  const raw = isRecord(value) ? value : {};
+  return {
+    audio: normalizeMediaAudioConfig(raw.audio, fallback.audio),
+  };
+}
+
 function normalizeTavilySearchDepth(
   value: unknown,
   fallback: 'basic' | 'advanced',
@@ -1661,6 +1859,7 @@ function normalizeRuntimeConfig(
   const rawMcpServers = isRecord(raw.mcpServers) ? raw.mcpServers : {};
   const rawWeb = isRecord(raw.web) ? raw.web : {};
   const rawWebSearch = isRecord(rawWeb.search) ? rawWeb.search : {};
+  const rawMedia = isRecord(raw.media) ? raw.media : {};
   const rawHeartbeat = isRecord(raw.heartbeat) ? raw.heartbeat : {};
   const rawMemory = isRecord(raw.memory) ? raw.memory : {};
   const rawOps = isRecord(raw.ops) ? raw.ops : {};
@@ -2095,6 +2294,7 @@ function normalizeRuntimeConfig(
         ),
       },
     },
+    media: normalizeMediaConfig(rawMedia, DEFAULT_RUNTIME_CONFIG.media),
     heartbeat: {
       enabled: normalizeBoolean(
         rawHeartbeat.enabled,

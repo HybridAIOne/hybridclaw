@@ -11,6 +11,7 @@ import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types.js';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_ATTACHMENT_CONTEXT_CHARS = 16_000;
 const MAX_SINGLE_ATTACHMENT_CHARS = 8_000;
 const DISCORD_MEDIA_CACHE_DIR = path.resolve(
@@ -54,6 +55,13 @@ function looksLikeImageAttachment(name: string, contentType: string): boolean {
 function looksLikePdfAttachment(name: string, contentType: string): boolean {
   if (contentType === 'application/pdf') return true;
   return /\.pdf$/i.test(name);
+}
+
+function looksLikeAudioAttachment(name: string, contentType: string): boolean {
+  if (contentType.startsWith('audio/')) return true;
+  return /\.(aac|aif|aiff|alac|flac|m4a|mp3|mp4|mpeg|mpga|oga|ogg|opus|wav|webm|wma)$/i.test(
+    name,
+  );
 }
 
 function looksLikeOfficeAttachment(name: string, contentType: string): boolean {
@@ -136,9 +144,17 @@ async function cacheDiscordAttachment(params: {
   messageId: string;
   order: number;
   fallbackMimeType: string | null;
+  maxBytes?: number;
   acceptMime: (mimeType: string, attachmentName: string) => boolean;
 }): Promise<CachedDiscordImageResult> {
-  const { attachment, messageId, order, fallbackMimeType, acceptMime } = params;
+  const {
+    attachment,
+    messageId,
+    order,
+    fallbackMimeType,
+    maxBytes = MAX_ATTACHMENT_BYTES,
+    acceptMime,
+  } = params;
   const attachmentName = attachment.name || 'image';
   const sourceCandidates = [attachment.url, attachment.proxyURL]
     .map((value) => String(value || '').trim())
@@ -182,16 +198,13 @@ async function cacheDiscordAttachment(params: {
         response.headers.get('content-length') || '',
         10,
       );
-      if (
-        Number.isFinite(contentLength) &&
-        contentLength > MAX_ATTACHMENT_BYTES
-      ) {
+      if (Number.isFinite(contentLength) && contentLength > maxBytes) {
         fetchErrors.push(`too_large_header:${contentLength}@${candidateUrl}`);
         continue;
       }
 
       const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.length > MAX_ATTACHMENT_BYTES) {
+      if (buffer.length > maxBytes) {
         fetchErrors.push(`too_large_body:${buffer.length}@${candidateUrl}`);
         continue;
       }
@@ -249,11 +262,18 @@ export async function buildAttachmentContext(
       const name = attachment.name || 'unnamed';
       const size = attachment.size || 0;
       const contentType = (attachment.contentType || '').toLowerCase();
-      if (size > MAX_ATTACHMENT_BYTES) {
+      const isImage = looksLikeImageAttachment(name, contentType);
+      const isPdf = looksLikePdfAttachment(name, contentType);
+      const isOffice = looksLikeOfficeAttachment(name, contentType);
+      const isAudio = looksLikeAudioAttachment(name, contentType);
+      const maxBytes = isAudio
+        ? MAX_AUDIO_ATTACHMENT_BYTES
+        : MAX_ATTACHMENT_BYTES;
+      if (size > maxBytes) {
         lines.push(
-          `- ${name}: skipped (size ${size} bytes exceeds 10MB limit)`,
+          `- ${name}: skipped (size ${size} bytes exceeds ${Math.floor(maxBytes / (1024 * 1024))}MB limit)`,
         );
-        if (looksLikeImageAttachment(name, contentType)) {
+        if (isImage || isPdf || isOffice || isAudio) {
           mediaOrder += 1;
           media.push({
             path: null,
@@ -269,20 +289,28 @@ export async function buildAttachmentContext(
               attachmentId: attachment.id,
               name,
               sizeBytes: size,
+              attachmentType: isAudio
+                ? 'audio'
+                : isPdf
+                  ? 'pdf'
+                  : isOffice
+                    ? 'office'
+                    : 'image',
             },
-            'Discord image attachment skipped by size limit',
+            'Discord attachment skipped by size limit',
           );
         }
         continue;
       }
 
-      if (looksLikeImageAttachment(name, contentType)) {
+      if (isImage) {
         mediaOrder += 1;
         const cached = await cacheDiscordAttachment({
           attachment,
           messageId: msg.id,
           order: mediaOrder,
           fallbackMimeType: contentType || null,
+          maxBytes,
           acceptMime: (mimeType) => mimeType.startsWith('image/'),
         });
         media.push({
@@ -327,13 +355,14 @@ export async function buildAttachmentContext(
         continue;
       }
 
-      if (looksLikePdfAttachment(name, contentType)) {
+      if (isPdf) {
         mediaOrder += 1;
         const cached = await cacheDiscordAttachment({
           attachment,
           messageId: msg.id,
           order: mediaOrder,
           fallbackMimeType: contentType || null,
+          maxBytes,
           acceptMime: (mimeType, attachmentName) =>
             mimeType === 'application/pdf' || /\.pdf$/i.test(attachmentName),
         });
@@ -380,13 +409,14 @@ export async function buildAttachmentContext(
         continue;
       }
 
-      if (looksLikeOfficeAttachment(name, contentType)) {
+      if (isOffice) {
         mediaOrder += 1;
         const cached = await cacheDiscordAttachment({
           attachment,
           messageId: msg.id,
           order: mediaOrder,
           fallbackMimeType: contentType || null,
+          maxBytes,
           acceptMime: (mimeType, attachmentName) =>
             looksLikeOfficeAttachment(attachmentName, mimeType),
         });
@@ -428,6 +458,61 @@ export async function buildAttachmentContext(
               cacheError: cached.cacheError || 'unknown',
             },
             'Discord office attachment cache failed; using CDN fallback',
+          );
+        }
+        continue;
+      }
+
+      if (isAudio) {
+        mediaOrder += 1;
+        const cached = await cacheDiscordAttachment({
+          attachment,
+          messageId: msg.id,
+          order: mediaOrder,
+          fallbackMimeType: contentType || null,
+          maxBytes,
+          acceptMime: (mimeType, attachmentName) =>
+            mimeType.startsWith('audio/') ||
+            looksLikeAudioAttachment(attachmentName, mimeType),
+        });
+        media.push({
+          path: cached.path,
+          url: cached.sourceUrl || attachment.url,
+          originalUrl: attachment.url,
+          mimeType: cached.mimeType || contentType || null,
+          sizeBytes: size,
+          filename: name,
+        });
+        if (cached.path) {
+          lines.push(
+            `- ${name}: audio attachment cached (${size} bytes, ${cached.mimeType || contentType || 'unknown type'})`,
+          );
+          logger.info(
+            {
+              messageId: msg.id,
+              attachmentId: attachment.id,
+              name,
+              sizeBytes: size,
+              mimeType: cached.mimeType || contentType || null,
+              localPath: cached.path,
+              hostPath: cached.hostPath,
+            },
+            'Discord audio attachment cached successfully',
+          );
+        } else {
+          lines.push(
+            `- ${name}: audio attachment (cache failed, using URL fallback)`,
+          );
+          logger.warn(
+            {
+              messageId: msg.id,
+              attachmentId: attachment.id,
+              name,
+              sizeBytes: size,
+              mimeType: contentType || 'unknown',
+              cacheError: cached.cacheError || 'unknown',
+            },
+            'Discord audio attachment cache failed; using CDN fallback',
           );
         }
         continue;
