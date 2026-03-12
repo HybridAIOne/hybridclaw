@@ -204,8 +204,8 @@ npm run tui                          # tsx src/cli.ts tui
 - **Single quotes** for strings (configured in `biome.json`).
 - **No `any`** without strong justification. No `@ts-nocheck`.
 - **File size:** aim for ~500 LOC; split when it improves clarity or
-  testability. `src/skills/skills-guard.ts` (~44K) and `src/skills/skills.ts`
-  (~38K) are known exceptions — do not grow them further.
+  testability. `src/skills/skills-guard.ts` and `src/skills/skills.ts` are
+  current large exceptions — do not grow them further without splitting.
 - **Comments:** brief comments for tricky or non-obvious logic only. Do not add
   comments, docstrings, or type annotations to code you did not change.
 - **Imports:** let Biome organize imports. Do not mix dynamic
