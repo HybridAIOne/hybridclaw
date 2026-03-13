@@ -818,13 +818,18 @@
   <div class="section-center">
     <div class="section-label">What it does</div>
     <h2 class="section-title">High-impact work, handled end-to-end</h2>
-    <p class="section-desc">Core actions are grouped into six outcomes so teams can scan value quickly without feature overload.</p>
+    <p class="section-desc">Core actions are grouped into a short set of outcomes so teams can scan value quickly without feature overload.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
       <div class="feature-icon">&#x1f4da;</div>
       <h3>Answer with context</h3>
       <p>Blend workspace memory, semantic recall, typed knowledge-graph relations, document context, image understanding, and audio transcripts with model grounding to produce actionable answers.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f4c8;</div>
+      <h3>Ship Office deliverables</h3>
+      <p>Use bundled Word, Excel, and PowerPoint skills to create or refine <code>.docx</code>, <code>.xlsx</code>, and <code>.pptx</code> files with formula-safe spreadsheet edits, document cleanup, and presentation QA workflows.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f512;</div>
@@ -890,39 +895,84 @@
           </td>
         </tr>
         <tr>
-          <td>Security &amp; Trust</td>
+          <td>Channels &amp; Interfaces</td>
           <td>
-            <span class="compare-text">Trust-first policy posture</span>
+            <span class="compare-text">Discord, WhatsApp, web, and terminal from one runtime</span>
           </td>
           <td>
-            <span class="compare-text">Solid baseline controls</span>
+            <span class="compare-text">Usually centered on one primary surface</span>
           </td>
           <td>
-            <span class="compare-text">Lean safeguards</span>
+            <span class="compare-text">Selective multi-surface support</span>
           </td>
           <td>
-            <span class="compare-text">Minimal guardrails</span>
+            <span class="compare-text">Mostly one lightweight interface</span>
           </td>
         </tr>
         <tr>
-          <td>Runtime Control</td>
+          <td>Model Flexibility</td>
           <td>
-            <span class="compare-text">Live config updates</span>
+            <span class="compare-text">HybridAI, Codex, and local Ollama/LM Studio/vLLM backends</span>
           </td>
           <td>
-            <span class="compare-text">Setup-dependent tuning</span>
+            <span class="compare-text">Strong hosted-first model story</span>
           </td>
           <td>
-            <span class="compare-text">Simple control surface</span>
+            <span class="compare-text">Usually one compact backend path</span>
           </td>
           <td>
-            <span class="compare-text">Minimal controls</span>
+            <span class="compare-text">Minimal backend surface</span>
+          </td>
+        </tr>
+        <tr>
+          <td>Admin &amp; Agent Visibility</td>
+          <td>
+            <span class="compare-text">Dedicated <code>/admin</code> and <code>/agents</code> pages plus status, usage, audit, scheduler, MCP, and session views</span>
+          </td>
+          <td>
+            <span class="compare-text">Strong core visibility, often extended per deployment</span>
+          </td>
+          <td>
+            <span class="compare-text">Lean operator surface</span>
+          </td>
+          <td>
+            <span class="compare-text">Minimal runtime dashboards</span>
+          </td>
+        </tr>
+        <tr>
+          <td>Media Understanding</td>
+          <td>
+            <span class="compare-text">Documents, images, and layered audio-transcription fallback in one workflow</span>
+          </td>
+          <td>
+            <span class="compare-text">Strong core multimodal support</span>
+          </td>
+          <td>
+            <span class="compare-text">Focused media handling with fewer integrated paths</span>
+          </td>
+          <td>
+            <span class="compare-text">Basic or add-on media support</span>
+          </td>
+        </tr>
+        <tr>
+          <td>Office Workflows</td>
+          <td>
+            <span class="compare-text">Bundled Word, Excel, PowerPoint, and office-workflow skills</span>
+          </td>
+          <td>
+            <span class="compare-text">Usually extension- or team-specific</span>
+          </td>
+          <td>
+            <span class="compare-text">Often external-tool dependent</span>
+          </td>
+          <td>
+            <span class="compare-text">Rarely a core focus</span>
           </td>
         </tr>
         <tr>
           <td>Digital Coworker Feel</td>
           <td>
-            <span class="compare-text">Memory + proactive follow-up</span>
+            <span class="compare-text">Memory, agents, proactive follow-up, and full-auto loops</span>
           </td>
           <td>
             <span class="compare-text">Strong continuity model</span>
@@ -935,33 +985,18 @@
           </td>
         </tr>
         <tr>
-          <td>Enterprise Readiness</td>
+          <td>Security &amp; Trust</td>
           <td>
-            <span class="compare-text">Hash-chained audit plus local instruction integrity controls</span>
+            <span class="compare-text">Trust-first policy posture with hash-chained audit and instruction integrity controls</span>
           </td>
           <td>
-            <span class="compare-text">Strong base, extended per team</span>
+            <span class="compare-text">Solid baseline controls</span>
           </td>
           <td>
-            <span class="compare-text">Lean core + add-ons</span>
+            <span class="compare-text">Lean safeguards</span>
           </td>
           <td>
-            <span class="compare-text">Minimal footprint strategy</span>
-          </td>
-        </tr>
-        <tr>
-          <td>Cross-Channel Consistency</td>
-          <td>
-            <span class="compare-text">One assistant brain across channels</span>
-          </td>
-          <td>
-            <span class="compare-text">Often one primary channel</span>
-          </td>
-          <td>
-            <span class="compare-text">Light multi-channel support</span>
-          </td>
-          <td>
-            <span class="compare-text">Mostly single-channel simplicity</span>
+            <span class="compare-text">Minimal guardrails</span>
           </td>
         </tr>
       </tbody>
@@ -1077,7 +1112,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Skills Engine</h3>
-      <p>OpenClaw/CLAUDE-compatible <code>SKILL.md</code> support with multi-tier discovery, prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning.</p>
+      <p>OpenClaw/CLAUDE-compatible <code>SKILL.md</code> support with multi-tier discovery, prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, trust-aware security scanning, and bundled <code>docx</code>, <code>xlsx</code>, <code>pptx</code>, and <code>office-workflows</code> skills.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Personality Switcher</h3>
