@@ -237,6 +237,41 @@ Operational surfaces:
 - `status` now includes the current session agent
 - `/agents` shows both logical agents and per-session runtime cards
 
+## Session Visibility Modes
+
+Session `show` mode is now persisted per session and affects how much transient
+runtime state is surfaced to clients:
+
+- `show all` displays both thinking previews and tool activity
+- `show thinking` keeps reasoning previews visible while suppressing tool chatter
+- `show tools` keeps tool activity visible while suppressing thinking previews
+- `show none` hides both transient surfaces while preserving normal assistant
+  replies
+
+Operational surfaces:
+
+- gateway/TUI command: `show [all|thinking|tools|none]`
+- Discord text/slash command surfaces: `!claw show ...` and `/show ...`
+- stream filtering applies only to transient thinking/tool events; final chat
+  results still flow normally through the gateway response path
+
+## Full-Auto Session Mode
+
+Full-auto mode lets a session continue supervised background work between human
+messages:
+
+- enable with `fullauto on <prompt>` or `fullauto <prompt>`
+- inspect current state with `fullauto` or `fullauto status`
+- stop with `fullauto off` or `stop`
+
+Runtime details:
+
+- state is stored under the session agent workspace in `fullauto/`
+- each run keeps goal, learning, and run-log files for continuity
+- the gateway resumes enabled full-auto sessions on startup
+- supervised human interventions preempt the active background turn, respond to
+  the user directly, then can continue the broader loop unless it is disabled
+
 ## Agent Tool And Runtime Internals
 
 Container-side sandboxed tool families:

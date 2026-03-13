@@ -22,6 +22,21 @@ hybridclaw onboarding
 Prerequisites: Node.js 22. Docker is recommended when you want the default
 container sandbox.
 
+## New In 0.7.0
+
+- **Agents are first-class**: sessions can bind to durable named agents with
+  their own workspaces, defaults, and memory, and the web UI now exposes both
+  `/agents` and `/admin` for runtime visibility.
+- **Session controls are broader**: use `show all|thinking|tools|none` to tune
+  visible reasoning/tool activity per session and `fullauto ...` to keep a
+  supervised background loop running until you stop it.
+- **More channels, better delivery**: WhatsApp is now a supported runtime
+  channel, and the shared `message` send path handles Discord, WhatsApp, local
+  proactive messages, workspace files, and `/discord-media-cache` consistently.
+- **Audio and TUI behavior improved**: inbound audio now has layered
+  transcription fallbacks, and the TUI streams normal assistant output live
+  while keeping thinking previews and tool activity transient.
+
 ## HybridAI Advantage
 
 - Security-focused foundation
@@ -33,7 +48,7 @@ container sandbox.
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, and optional Discord integration
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, and optional Discord and WhatsApp integration
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`)
 - **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, and preinstalled browser automation runtime
 - Communication via file-based IPC (input.json / output.json)
@@ -334,6 +349,8 @@ CLI runtime commands:
 - `hybridclaw gateway status` — Show lifecycle/API status
 - `hybridclaw gateway <command...>` — Send a command to a running gateway (for example `sessions`, `bot info`)
 - `hybridclaw gateway agent [list|switch <id>|create <id> [--model <model>]]` — Inspect or change the current session-to-agent binding
+- `hybridclaw gateway show [all|thinking|tools|none]` — Control visible thinking/tool activity for the current session
+- `hybridclaw gateway fullauto [status|off|on [prompt]|<prompt>]` — Enable, inspect, or disable session full-auto mode
 - `hybridclaw gateway compact` — Archive older session history into semantic memory while preserving a recent active context tail
 - `hybridclaw gateway reset [yes|no]` — Clear session history, reset per-session model/chatbot/RAG settings, and remove the current agent workspace (confirmation required)
 - `hybridclaw tui` — Start terminal client connected to gateway
@@ -364,6 +381,8 @@ In Discord, use `!claw help` or the slash commands. Key ones:
 - `!claw bot set <id>` — Set chatbot for this channel
 - `!claw model set <name>` — Set model for this channel
 - `!claw rag on/off` — Toggle RAG
+- `/show <all|thinking|tools|none>` or `!claw show <all|thinking|tools|none>` — Control visible thinking/tool activity for this session
+- `!claw fullauto [status|off|on [prompt]|<prompt>]` — Enable, inspect, or disable session full-auto mode
 - `!claw compact` — Archive older history into session memory and keep a recent working tail
 - `/reset` or `!claw reset` — Clear history, reset per-session model/bot settings, and remove the current agent workspace (confirmation required)
 - `!claw clear` — Clear conversation history
@@ -381,6 +400,7 @@ In Discord, use `!claw help` or the slash commands. Key ones:
 
 In the TUI, use `/agent`, `/agent list`, `/agent switch <id>`, and
 `/agent create <id> [--model <model>]` for agent control; `/status` shows both
-the current session and agent; `/compact` handles session compaction; `/reset`
-runs the confirmed workspace reset flow; and `/mcp ...` manages runtime MCP
-servers.
+the current session and agent; `/show [all|thinking|tools|none]` controls
+visible thinking/tool activity; `/fullauto [status|off|on [prompt]|prompt]`
+manages full-auto mode; `/compact` handles session compaction; `/reset` runs
+the confirmed workspace reset flow; and `/mcp ...` manages runtime MCP servers.

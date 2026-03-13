@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.7.0)
+
 ### Added
 
 - **First-class agents and agent commands**: Agents now own workspaces
@@ -11,6 +13,18 @@
 - **Agent/session dashboard split**: The `/agents` page and `/api/agents`
   response now distinguish logical agents from bound sessions so operators can
   see both workspace-level state and per-session runtime state.
+- **Embedded admin console and full-auto sessions**: Added the `/admin` web
+  console plus `fullauto [status|off|on [prompt]|<prompt>]` so operators can
+  inspect runtime state in the browser and arm persistent background session
+  loops from gateway and TUI control surfaces.
+- **WhatsApp channel integration and shared message routing**: Added WhatsApp
+  channel setup/linking plus shared `message` send routing across Discord,
+  WhatsApp, and local proactive channels, including local-file delivery from
+  workspaces and `/discord-media-cache`.
+- **Inbound audio transcription**: Added multi-backend audio
+  transcription with local CLI auto-detect, provider fallbacks, and native
+  current-turn audio injection for supported local-model sessions when no
+  transcript backend is available.
 
 ### Changed
 
@@ -25,6 +39,13 @@
 - **Runtime status visibility**: Shared `status` output in TUI and Discord now
   includes the current session agent alongside the effective model and sandbox
   state.
+- **TUI streaming and thinking presentation**: TUI replies now stream as
+  multiline assistant output, transient thinking previews are rendered
+  separately from final answers, tool activity stays live during streaming, and
+  the thinking indicator uses the new pulsing jellyfish status line.
+- **Audio/media and channel delivery flow**: Audio attachments, local media
+  sends, and PDF context truncation now share tighter path handling and more
+  consistent fallback behavior across Discord, WhatsApp, and TUI-driven turns.
 - **Discord activation config cleanup**: Removed the obsolete
   `discord.respondToAllMessages` config path. Guild activation now follows
   `channel mode`, guild policy, and explicit free-response channel settings.
@@ -35,6 +56,15 @@
   the IPC inactivity deadline even when providers emit tool-call or reasoning
   chunks without visible text, preventing false heartbeat timeouts on long
   local-model turns.
+- **WhatsApp follow-up reliability**: Timeout, follow-up, and internal channel
+  handling edge cases no longer leave WhatsApp turns hanging or silently losing
+  queued replies.
+- **Tool placeholder replies**: Placeholder `Done.` replies after failed tool
+  turns are now replaced with useful fallback content such as concise tool
+  failure summaries or derived tool results.
+- **Approval/runtime hardening and redaction**: Tool-output secret redaction and
+  approval/runtime guards were tightened to reduce accidental leakage and make
+  blocked or failed actions surface more clearly.
 
 ## [0.6.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.6.0)
 
