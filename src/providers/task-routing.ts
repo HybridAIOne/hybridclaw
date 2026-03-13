@@ -106,11 +106,7 @@ export function detectRuntimeProviderPrefix(
 }
 
 function selectFirstNonEmpty(values: string[]): string | undefined {
-  for (const value of values) {
-    const trimmed = String(value || '').trim();
-    if (trimmed) return trimmed;
-  }
-  return undefined;
+  return values.find((value) => value.trim())?.trim();
 }
 
 export function resolveDefaultAuxiliaryModelForProvider(
