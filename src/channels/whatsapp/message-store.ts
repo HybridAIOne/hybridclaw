@@ -18,7 +18,6 @@ interface StoredWhatsAppMessage {
 }
 
 interface StoredWhatsAppMessageFile {
-  version: 1;
   messages: StoredWhatsAppMessage[];
 }
 
@@ -91,7 +90,7 @@ async function readStoreFile(
   try {
     const raw = await fs.readFile(filePath, 'utf-8');
     const parsed = JSON.parse(raw) as StoredWhatsAppMessageFile;
-    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.messages)) {
+    if (!parsed || !Array.isArray(parsed.messages)) {
       return [];
     }
     return sanitizeEntries(parsed.messages);
@@ -112,7 +111,6 @@ async function writeStoreFile(
   messages: StoredWhatsAppMessage[],
 ): Promise<void> {
   const payload: StoredWhatsAppMessageFile = {
-    version: 1,
     messages,
   };
   await fs.mkdir(path.dirname(filePath), { recursive: true });
