@@ -294,6 +294,84 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
   });
 });
 
+test('host auxiliary caller does not retry max_completion_tokens for unrelated unsupported parameters', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'openrouter' as const,
+    apiKey: 'openrouter-key',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    thinkingFormat: undefined,
+  }));
+  vi.doMock('../src/providers/task-routing.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/task-routing.js')
+    >('../src/providers/task-routing.js');
+    return {
+      ...actual,
+      resolveTaskModelPolicy,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.max_tokens).toBe(77);
+      expect(body.max_completion_tokens).toBeUndefined();
+      return new Response('unsupported_parameter: tools', { status: 400 });
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+
+  await expect(
+    callAuxiliaryModel({
+      task: 'compression',
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4',
+      maxTokens: 77,
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'emit_summary',
+            description: 'Emit a summary.',
+            parameters: {
+              type: 'object',
+              properties: {},
+              required: [],
+            },
+          },
+        },
+      ],
+      messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+    }),
+  ).rejects.toThrow(
+    'Auxiliary provider call failed with 400: unsupported_parameter: tools',
+  );
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 test('host auxiliary caller falls back to openrouter when task resolution fails', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => ({
     model: 'anthropic/claude-3-7-sonnet',

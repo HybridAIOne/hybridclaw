@@ -568,8 +568,11 @@ function shouldRetryWithMaxCompletionTokens(
   maxTokens: number | undefined,
 ): boolean {
   if (!maxTokens) return false;
-  return /max_tokens|max completion tokens|max_completion_tokens|unsupported_parameter/i.test(
-    responseText,
+  const normalized = responseText.toLowerCase();
+  return (
+    normalized.includes('max_tokens') ||
+    normalized.includes('max completion tokens') ||
+    normalized.includes('max_completion_tokens')
   );
 }
 
