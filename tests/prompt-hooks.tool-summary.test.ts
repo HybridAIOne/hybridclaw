@@ -109,6 +109,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output.',
   );
   expect(prompt).toContain(
+    'For channel catch-up or recap requests with partial scope, infer a reasonable recent scope from available context, do a best-effort read first, and note assumptions after the summary instead of blocking on a clarification.',
+  );
+  expect(prompt).toContain(
     'For local Discord, WhatsApp, or email uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',
   );
   expect(prompt).toContain(
@@ -185,4 +188,24 @@ test('buildSystemPromptFromHooks does not fall back to the repo cwd', () => {
 
   expect(prompt).toContain('Workspace: current agent workspace');
   expect(prompt).not.toContain(process.cwd());
+});
+
+test('buildSystemPromptFromHooks includes email signature guidance for email context', () => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    runtimeInfo: {
+      channelType: 'email',
+      channelId: 'peer@example.com',
+    },
+  });
+
+  expect(prompt).toContain('Current email peer: `peer@example.com`');
+  expect(prompt).toContain(
+    'append a polished corporate signature block derived from the identity details already loaded from `IDENTITY.md`',
+  );
+  expect(prompt).toContain('do not use emoji or mascot-style sign-offs');
+  expect(prompt).toContain(
+    'make a reasonable best-effort assumption, do the useful work first, and mention the assumption after the answer',
+  );
 });

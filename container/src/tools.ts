@@ -159,7 +159,7 @@ function parseStructuredToolOutput(
 const MESSAGE_TOOL_ACTION_LIST =
   'read, member-info, channel-info, send, react, quote-reply, edit, delete, pin, unpin, thread-create, thread-reply';
 const MESSAGE_TOOL_DESCRIPTION_BASE =
-  'Send messages and uploads across supported channels (Discord, WhatsApp, local TUI), plus read channel history and look up member info on Discord. Use this when asked to send/post/DM/notify someone, post a local file/image, read Discord messages, or look up Discord users.';
+  'Send messages and uploads across supported channels (Discord, WhatsApp, email, local TUI), plus read Discord channel history, read ingested email thread history, and look up member info on Discord. Use this when asked to send/post/DM/notify someone, post a local file/image, read Discord messages or ingested email threads, or look up Discord users.';
 let gatewayConfiguredChannels: string[] = [];
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 

@@ -1,5 +1,5 @@
 {
-  "version": 11,
+  "version": 12,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -75,8 +75,10 @@
     "enabled": false,
     "imapHost": "",
     "imapPort": 993,
+    "imapSecure": true,
     "smtpHost": "",
     "smtpPort": 587,
+    "smtpSecure": true,
     "address": "",
     "pollIntervalMs": 15000,
     "folders": ["INBOX"],

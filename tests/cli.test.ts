@@ -164,8 +164,10 @@ async function importFreshCli(options?: {
       enabled: false,
       imapHost: '',
       imapPort: 993,
+      imapSecure: true,
       smtpHost: '',
       smtpPort: 587,
+      smtpSecure: true,
       address: '',
       pollIntervalMs: 15000,
       folders: ['INBOX'],
@@ -542,8 +544,10 @@ describe('CLI hybridai commands', () => {
         'agent@example.com',
         'imap.example.com',
         '993',
+        '',
         'smtp.example.com',
         '587',
+        '',
         'app-password-123',
         'boss@example.com, *@example.com',
       ],
@@ -562,13 +566,17 @@ describe('CLI hybridai commands', () => {
         allowFrom: string[];
         enabled: boolean;
         imapHost: string;
+        imapSecure: boolean;
         smtpHost: string;
+        smtpSecure: boolean;
       };
     };
     expect(nextConfig.email.enabled).toBe(true);
     expect(nextConfig.email.address).toBe('agent@example.com');
     expect(nextConfig.email.imapHost).toBe('imap.example.com');
+    expect(nextConfig.email.imapSecure).toBe(true);
     expect(nextConfig.email.smtpHost).toBe('smtp.example.com');
+    expect(nextConfig.email.smtpSecure).toBe(true);
     expect(nextConfig.email.allowFrom).toEqual([
       'boss@example.com',
       '*@example.com',

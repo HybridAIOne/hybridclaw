@@ -151,6 +151,8 @@ function buildSafetyHook(context: PromptHookContext): string {
     'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output. Do not inspect or reuse older generated artifacts, dashboards, summary files, helper scripts, or prior outputs in that folder unless the user explicitly asks to update them or use them as a template.',
     'When Discord context is needed, use the `message` tool actions (`read`, `member-info`, `channel-info`, `send`) instead of guessing channel members.',
     'For questions like "what did X say", "who said", or channel recap requests, call `message` with `action="read"` first before answering.',
+    'For channel catch-up or recap requests with partial scope, infer a reasonable recent scope from available context, do a best-effort read first, and note assumptions after the summary instead of blocking on a clarification.',
+    'For ingested email conversations, `message` with `action="read"` can inspect stored thread history for the current email session or an explicit email address target. It does not query arbitrary mailbox-wide unseen mail.',
     'For send intents like "send message", "post in", "DM", "tell X", "notify X", or "message X", call `message` with `action="send"`.',
     'For `message` with `action="send"`, include target as `channelId` (aliases: `to`, `target`) and text as `content` (aliases: `message`, `text`). `send` supports Discord targets, WhatsApp JIDs/phone numbers, email addresses, and local channels like `tui`.',
     'For local Discord, WhatsApp, or email uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',

@@ -3,7 +3,7 @@ import { EMAIL_PASSWORD, getConfigSnapshot } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types.js';
 import { createEmailConnectionManager } from './connection.js';
-import { sendEmailReply, sendEmailWithAttachment } from './delivery.js';
+import { sendEmail } from './delivery.js';
 import { cleanupEmailInboundMedia, processInboundEmail } from './inbound.js';
 import { createThreadTracker, type ThreadContext } from './threading.js';
 
@@ -45,6 +45,10 @@ export interface EmailRuntime {
   shutdownEmail: () => Promise<void>;
 }
 
+function createEmailShutdownAbortError(): Error {
+  return new Error('Email runtime shutting down.');
+}
+
 function resolveRuntimeConfig(): {
   address: string;
   config: ReturnType<typeof getConfigSnapshot>['email'];
@@ -76,27 +80,44 @@ function resolveRuntimeConfig(): {
 }
 
 export function createEmailRuntime(): EmailRuntime {
+  type ResolvedRuntimeConfig = ReturnType<typeof resolveRuntimeConfig>;
+
   let connectionManager: ReturnType<
     typeof createEmailConnectionManager
   > | null = null;
+  let shuttingDown = false;
+  let runtimeConfig: ResolvedRuntimeConfig | null = null;
   let transport: Transporter | null = null;
   let threadTracker: ReturnType<typeof createThreadTracker> | null = null;
   let runtimeInitialized = false;
+  const inFlightControllers = new Set<AbortController>();
+
+  const ensureRuntimeConfig = (): ResolvedRuntimeConfig => {
+    runtimeConfig ??= resolveRuntimeConfig();
+    return runtimeConfig;
+  };
 
   const ensureThreadTracker = (): ReturnType<typeof createThreadTracker> => {
     threadTracker ??= createThreadTracker();
     return threadTracker;
   };
 
+  const abortInFlightHandlers = (): void => {
+    for (const controller of inFlightControllers) {
+      if (controller.signal.aborted) continue;
+      controller.abort(createEmailShutdownAbortError());
+    }
+  };
+
   const ensureTransport = async (): Promise<Transporter> => {
     if (transport) return transport;
 
-    const { address, config, password } = resolveRuntimeConfig();
+    const { address, config, password } = ensureRuntimeConfig();
     transport = nodemailer.createTransport({
       pool: true,
       host: config.smtpHost,
       port: config.smtpPort,
-      secure: config.smtpPort === 465,
+      secure: config.smtpSecure,
       auth: {
         user: address,
         pass: password,
@@ -109,14 +130,14 @@ export function createEmailRuntime(): EmailRuntime {
   const sendTextToAddress = async (to: string, text: string): Promise<void> => {
     const tracker = ensureThreadTracker();
     const transport = await ensureTransport();
-    const { address } = resolveRuntimeConfig();
-    const result = await sendEmailReply(
+    const { address } = ensureRuntimeConfig();
+    const result = await sendEmail({
       transport,
       to,
-      text,
-      address,
-      tracker.get(to),
-    );
+      body: text,
+      selfAddress: address,
+      threadContext: tracker.get(to),
+    });
     if (result.threadContext) {
       tracker.remember(to, result.threadContext);
     }
@@ -127,19 +148,19 @@ export function createEmailRuntime(): EmailRuntime {
   ): Promise<void> => {
     const tracker = ensureThreadTracker();
     const transport = await ensureTransport();
-    const { address } = resolveRuntimeConfig();
-    const result = await sendEmailWithAttachment(
+    const { address } = ensureRuntimeConfig();
+    const result = await sendEmail({
       transport,
-      params.to,
-      params.body || '',
-      address,
-      params.filePath,
-      tracker.get(params.to),
-      {
+      to: params.to,
+      body: params.body || '',
+      selfAddress: address,
+      threadContext: tracker.get(params.to),
+      attachment: {
+        filePath: params.filePath,
         filename: params.filename || null,
         mimeType: params.mimeType || null,
       },
-    );
+    });
     if (result.threadContext) {
       tracker.remember(params.to, result.threadContext);
     }
@@ -150,17 +171,18 @@ export function createEmailRuntime(): EmailRuntime {
   ): ReturnType<typeof createEmailConnectionManager> => {
     if (connectionManager) return connectionManager;
 
-    const { address, config, password } = resolveRuntimeConfig();
+    const { address, config, password } = ensureRuntimeConfig();
     const tracker = ensureThreadTracker();
     connectionManager = createEmailConnectionManager(
       config,
       password,
       async (messages) => {
-        if (!messageHandler) return;
+        if (!messageHandler || shuttingDown) return;
         for (const message of messages) {
+          if (shuttingDown) break;
           const inbound = await processInboundEmail(
             message.raw,
-            getConfigSnapshot().email,
+            config,
             address,
           );
           if (!inbound) continue;
@@ -170,7 +192,17 @@ export function createEmailRuntime(): EmailRuntime {
           }
 
           const controller = new AbortController();
+          inFlightControllers.add(controller);
+          if (shuttingDown && !controller.signal.aborted) {
+            controller.abort(createEmailShutdownAbortError());
+          }
           const reply: EmailReplyFn = async (content) => {
+            if (controller.signal.aborted) {
+              const reason = controller.signal.reason;
+              throw reason instanceof Error
+                ? reason
+                : createEmailShutdownAbortError();
+            }
             await sendTextToAddress(inbound.channelId, content);
           };
 
@@ -194,6 +226,7 @@ export function createEmailRuntime(): EmailRuntime {
               },
             );
           } finally {
+            inFlightControllers.delete(controller);
             await cleanupEmailInboundMedia(inbound.media).catch((error) => {
               logger.debug(
                 {
@@ -227,13 +260,17 @@ export function createEmailRuntime(): EmailRuntime {
       await sendAttachmentToAddress(params);
     },
     async shutdownEmail(): Promise<void> {
+      shuttingDown = true;
+      abortInFlightHandlers();
       await connectionManager?.stop();
       await transport?.close();
       connectionManager = null;
+      runtimeConfig = null;
       transport = null;
       threadTracker?.clear();
       threadTracker = null;
       runtimeInitialized = false;
+      shuttingDown = false;
     },
   };
 }

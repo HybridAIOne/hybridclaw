@@ -13,7 +13,7 @@ import type { LocalProviderConfig } from '../providers/local-types.js';
 import type { McpServerConfig } from '../types.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 11;
+export const CONFIG_VERSION = 12;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
@@ -217,8 +217,10 @@ export interface RuntimeEmailConfig {
   enabled: boolean;
   imapHost: string;
   imapPort: number;
+  imapSecure: boolean;
   smtpHost: string;
   smtpPort: number;
+  smtpSecure: boolean;
   address: string;
   pollIntervalMs: number;
   folders: string[];
@@ -522,8 +524,10 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     enabled: false,
     imapHost: '',
     imapPort: 993,
+    imapSecure: true,
     smtpHost: '',
     smtpPort: 587,
+    smtpSecure: true,
     address: '',
     pollIntervalMs: 15_000,
     folders: ['INBOX'],
@@ -1204,6 +1208,7 @@ function normalizeEmailConfig(
       min: 1,
       max: 65_535,
     }),
+    imapSecure: normalizeBoolean(raw.imapSecure, fallback.imapSecure),
     smtpHost: normalizeString(raw.smtpHost, fallback.smtpHost, {
       allowEmpty: true,
     }),
@@ -1211,6 +1216,7 @@ function normalizeEmailConfig(
       min: 1,
       max: 65_535,
     }),
+    smtpSecure: normalizeBoolean(raw.smtpSecure, fallback.smtpSecure),
     address: normalizeString(raw.address, fallback.address, {
       allowEmpty: true,
     }),

@@ -5,7 +5,11 @@ import {
   isSupportedProactiveChannelId,
 } from '../../gateway/proactive-delivery.js';
 import { agentWorkspaceDir } from '../../infra/ipc.js';
-import { enqueueProactiveMessage, getSessionById } from '../../memory/db.js';
+import {
+  enqueueProactiveMessage,
+  getRecentMessages,
+  getSessionById,
+} from '../../memory/db.js';
 import { runDiscordToolAction } from '../discord/runtime.js';
 import {
   DISCORD_SEND_MEDIA_ROOT_HOST_DIR,
@@ -27,6 +31,9 @@ import {
 } from '../whatsapp/runtime.js';
 
 const LOCAL_MESSAGE_QUEUE_LIMIT = 100;
+const MESSAGE_TOOL_READ_DEFAULT_LIMIT = 20;
+const MESSAGE_TOOL_READ_MAX_LIMIT = 100;
+const MESSAGE_TOOL_EMAIL_SESSION_PREFIX = 'email:';
 const MESSAGE_TOOL_EMAIL_PREFIX_RE = /^email:/i;
 const MESSAGE_TOOL_WHATSAPP_PREFIX_RE = /^whatsapp:/i;
 const MESSAGE_TOOL_LOCAL_SOURCE = 'message-tool';
@@ -105,6 +112,58 @@ function normalizeEmailMessageTarget(rawTarget: string): string | null {
     .replace(MESSAGE_TOOL_EMAIL_PREFIX_RE, '')
     .trim();
   return normalizeEmailAddress(withoutPrefix);
+}
+
+function resolveMessageToolReadLimit(limit: number | undefined): number {
+  const requested =
+    typeof limit === 'number' && Number.isFinite(limit)
+      ? Math.floor(limit)
+      : MESSAGE_TOOL_READ_DEFAULT_LIMIT;
+  return Math.max(1, Math.min(MESSAGE_TOOL_READ_MAX_LIMIT, requested));
+}
+
+function normalizeStoredMessageTimestamp(raw: string): string {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
+    const parsed = Date.parse(`${value.replace(' ', 'T')}Z`);
+    if (!Number.isNaN(parsed)) {
+      return new Date(parsed).toISOString();
+    }
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? value : new Date(parsed).toISOString();
+}
+
+function resolveEmailReadTarget(request: DiscordToolActionRequest): {
+  channelId: string;
+  sessionId: string;
+} | null {
+  const rawChannelId = String(request.channelId || '').trim();
+  if (rawChannelId) {
+    const explicitChannelId = normalizeEmailMessageTarget(rawChannelId);
+    if (!explicitChannelId) {
+      return null;
+    }
+    return {
+      channelId: explicitChannelId,
+      sessionId: `${MESSAGE_TOOL_EMAIL_SESSION_PREFIX}${explicitChannelId}`,
+    };
+  }
+
+  const normalizedSessionId = String(request.sessionId || '').trim();
+  if (!normalizedSessionId) return null;
+
+  const session = getSessionById(normalizedSessionId);
+  if (!session) return null;
+
+  const channelId = normalizeEmailAddress(session.channel_id);
+  if (!channelId) return null;
+
+  return {
+    channelId,
+    sessionId: session.id,
+  };
 }
 
 function hasMessageComponents(request: DiscordToolActionRequest): boolean {
@@ -203,6 +262,61 @@ async function runEmailMessageSendAction(
   };
 }
 
+async function runEmailReadAction(
+  request: DiscordToolActionRequest,
+  params: {
+    channelId: string;
+    sessionId: string;
+  },
+): Promise<Record<string, unknown>> {
+  if (
+    String(request.before || '').trim() ||
+    String(request.after || '').trim() ||
+    String(request.around || '').trim()
+  ) {
+    throw new Error(
+      'before, after, and around are not supported for email reads.',
+    );
+  }
+
+  const session = getSessionById(params.sessionId);
+  if (!session) {
+    throw new Error(
+      `No ingested email thread found for ${params.channelId}. Only emails already received by the gateway can be read.`,
+    );
+  }
+
+  const limit = resolveMessageToolReadLimit(request.limit);
+  const messages = getRecentMessages(params.sessionId, limit).map((message) => {
+    const emailAddress = normalizeEmailAddress(message.user_id);
+    const isAssistant = message.role === 'assistant';
+    return {
+      id: message.id,
+      sessionId: message.session_id,
+      channelId: params.channelId,
+      content: message.content,
+      createdAt: normalizeStoredMessageTimestamp(message.created_at),
+      role: message.role,
+      author: {
+        id: message.user_id,
+        username: message.username || (emailAddress ?? message.user_id),
+        address: emailAddress,
+        assistant: isAssistant,
+      },
+    };
+  });
+
+  return {
+    ok: true,
+    action: 'read',
+    channelId: params.channelId,
+    sessionId: params.sessionId,
+    transport: 'email',
+    count: messages.length,
+    messages,
+  };
+}
+
 async function runLocalMessageSendAction(
   request: DiscordToolActionRequest,
   channelId: string,
@@ -239,6 +353,14 @@ async function runLocalMessageSendAction(
 export async function runMessageToolAction(
   request: DiscordToolActionRequest,
 ): Promise<Record<string, unknown>> {
+  if (request.action === 'read') {
+    const emailReadTarget = resolveEmailReadTarget(request);
+    if (emailReadTarget) {
+      return await runEmailReadAction(request, emailReadTarget);
+    }
+    return await runDiscordToolAction(request);
+  }
+
   if (request.action !== 'send') {
     return await runDiscordToolAction(request);
   }

@@ -104,3 +104,43 @@ test('prefers WhatsApp hints over email hints for raw WhatsApp jids', () => {
     false,
   );
 });
+
+test('resolves email hints with read support from explicit email context', () => {
+  const hints = resolveChannelMessageToolHints({
+    runtimeInfo: {
+      channelType: 'email',
+      channelId: 'peer@example.com',
+    },
+  });
+
+  expect(hints.length).toBeGreaterThan(0);
+  expect(hints.some((entry) => entry.includes('Current email peer'))).toBe(
+    true,
+  );
+  expect(
+    hints.some((entry) =>
+      entry.includes('Supported `message` actions here: `read`'),
+    ),
+  ).toBe(true);
+  expect(
+    hints.some((entry) =>
+      entry.includes('does not do arbitrary mailbox-wide unread searches'),
+    ),
+  ).toBe(true);
+  expect(
+    hints.some((entry) =>
+      entry.includes('append a polished corporate signature block'),
+    ),
+  ).toBe(true);
+  expect(
+    hints.some((entry) =>
+      entry.includes('do not use emoji or mascot-style sign-offs'),
+    ),
+  ).toBe(true);
+  expect(
+    hints.some((entry) =>
+      entry.includes('make a reasonable best-effort assumption'),
+    ),
+  ).toBe(true);
+  expect(hints.some((entry) => entry.includes('`IDENTITY.md`'))).toBe(true);
+});
