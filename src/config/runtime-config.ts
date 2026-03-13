@@ -527,7 +527,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     imapSecure: true,
     smtpHost: '',
     smtpPort: 587,
-    smtpSecure: true,
+    smtpSecure: false,
     address: '',
     pollIntervalMs: 15_000,
     folders: ['INBOX'],

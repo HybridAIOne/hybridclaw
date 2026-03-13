@@ -3,7 +3,7 @@ import { EMAIL_PASSWORD, getConfigSnapshot } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types.js';
 import { createEmailConnectionManager } from './connection.js';
-import { sendEmail } from './delivery.js';
+import { type EmailSendParams, sendEmail } from './delivery.js';
 import { cleanupEmailInboundMedia, processInboundEmail } from './inbound.js';
 import { createThreadTracker, type ThreadContext } from './threading.js';
 
@@ -92,6 +92,12 @@ export function createEmailRuntime(): EmailRuntime {
   let runtimeInitialized = false;
   const inFlightControllers = new Set<AbortController>();
 
+  const ensureRuntimeActive = (): void => {
+    if (shuttingDown) {
+      throw createEmailShutdownAbortError();
+    }
+  };
+
   const ensureRuntimeConfig = (): ResolvedRuntimeConfig => {
     runtimeConfig ??= resolveRuntimeConfig();
     return runtimeConfig;
@@ -110,6 +116,7 @@ export function createEmailRuntime(): EmailRuntime {
   };
 
   const ensureTransport = async (): Promise<Transporter> => {
+    ensureRuntimeActive();
     if (transport) return transport;
 
     const { address, config, password } = ensureRuntimeConfig();
@@ -127,43 +134,46 @@ export function createEmailRuntime(): EmailRuntime {
     return transport;
   };
 
-  const sendTextToAddress = async (to: string, text: string): Promise<void> => {
+  const sendWithTracking = async (
+    params: Omit<
+      EmailSendParams,
+      'selfAddress' | 'threadContext' | 'transport'
+    >,
+  ): Promise<void> => {
+    ensureRuntimeActive();
     const tracker = ensureThreadTracker();
     const transport = await ensureTransport();
     const { address } = ensureRuntimeConfig();
     const result = await sendEmail({
+      ...params,
       transport,
-      to,
-      body: text,
       selfAddress: address,
-      threadContext: tracker.get(to),
+      threadContext: tracker.get(params.to),
     });
     if (result.threadContext) {
-      tracker.remember(to, result.threadContext);
+      tracker.remember(params.to, result.threadContext);
     }
+  };
+
+  const sendTextToAddress = async (to: string, text: string): Promise<void> => {
+    await sendWithTracking({
+      to,
+      body: text,
+    });
   };
 
   const sendAttachmentToAddress = async (
     params: EmailAttachmentSendParams,
   ): Promise<void> => {
-    const tracker = ensureThreadTracker();
-    const transport = await ensureTransport();
-    const { address } = ensureRuntimeConfig();
-    const result = await sendEmail({
-      transport,
+    await sendWithTracking({
       to: params.to,
       body: params.body || '',
-      selfAddress: address,
-      threadContext: tracker.get(params.to),
       attachment: {
         filePath: params.filePath,
         filename: params.filename || null,
         mimeType: params.mimeType || null,
       },
     });
-    if (result.threadContext) {
-      tracker.remember(params.to, result.threadContext);
-    }
   };
 
   const ensureConnectionManager = (
@@ -246,6 +256,7 @@ export function createEmailRuntime(): EmailRuntime {
 
   return {
     async initEmail(messageHandler: EmailMessageHandler): Promise<void> {
+      ensureRuntimeActive();
       if (runtimeInitialized) return;
       runtimeInitialized = true;
       await ensureTransport();
@@ -270,7 +281,6 @@ export function createEmailRuntime(): EmailRuntime {
       threadTracker?.clear();
       threadTracker = null;
       runtimeInitialized = false;
-      shuttingDown = false;
     },
   };
 }

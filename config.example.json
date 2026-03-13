@@ -78,7 +78,7 @@
     "imapSecure": true,
     "smtpHost": "",
     "smtpPort": 587,
-    "smtpSecure": true,
+    "smtpSecure": false,
     "address": "",
     "pollIntervalMs": 15000,
     "folders": ["INBOX"],

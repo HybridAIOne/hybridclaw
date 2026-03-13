@@ -167,7 +167,7 @@ async function importFreshCli(options?: {
       imapSecure: true,
       smtpHost: '',
       smtpPort: 587,
-      smtpSecure: true,
+      smtpSecure: false,
       address: '',
       pollIntervalMs: 15000,
       folders: ['INBOX'],
@@ -576,7 +576,7 @@ describe('CLI hybridai commands', () => {
     expect(nextConfig.email.imapHost).toBe('imap.example.com');
     expect(nextConfig.email.imapSecure).toBe(true);
     expect(nextConfig.email.smtpHost).toBe('smtp.example.com');
-    expect(nextConfig.email.smtpSecure).toBe(true);
+    expect(nextConfig.email.smtpSecure).toBe(false);
     expect(nextConfig.email.allowFrom).toEqual([
       'boss@example.com',
       '*@example.com',

@@ -208,7 +208,7 @@ test('channels email setup writes config and stores EMAIL_PASSWORD', async () =>
   expect(config.email.imapHost).toBe('imap.example.com');
   expect(config.email.imapSecure).toBe(true);
   expect(config.email.smtpHost).toBe('smtp.example.com');
-  expect(config.email.smtpSecure).toBe(true);
+  expect(config.email.smtpSecure).toBe(false);
   expect(config.email.folders).toEqual(['INBOX', 'Support']);
   expect(config.email.allowFrom).toEqual(['boss@example.com', '*@example.com']);
   expect(secrets.EMAIL_PASSWORD).toBe('email-app-password');

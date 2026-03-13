@@ -1,5 +1,7 @@
 import path from 'node:path';
+import { marked } from 'marked';
 import type { Transporter } from 'nodemailer';
+import sanitizeHtml from 'sanitize-html';
 import { EMAIL_TEXT_CHUNK_LIMIT } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import { chunkMessage } from '../../memory/chunk.js';
@@ -13,8 +15,30 @@ import {
 
 const OUTBOUND_DELAY_MS = 350;
 const SUBJECT_PREFIX_RE = /^\[subject:\s*([^\]\n]+)\]\s*(?:\n+)?/i;
-const FENCE_PLACEHOLDER = '\u0000EMAIL_FENCE_';
-const INLINE_CODE_PLACEHOLDER = '\u0000EMAIL_CODE_';
+const SINGLE_ASTERISK_BOLD_RE =
+  /(^|[^\w*])\*(\S(?:[^*\n]*?\S)?)\*(?=($|[^\w*]))/g;
+const EMAIL_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: [
+    'a',
+    'blockquote',
+    'br',
+    'code',
+    'del',
+    'em',
+    'hr',
+    'li',
+    'ol',
+    'p',
+    'pre',
+    'strong',
+    'ul',
+  ],
+  allowedAttributes: {
+    a: ['href', 'title'],
+  },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  allowProtocolRelative: false,
+};
 
 type MailTransport = Pick<Transporter, 'sendMail'>;
 type MailSendInfo = {
@@ -50,96 +74,33 @@ function clampTextChunkLimit(limit: number): number {
   return Math.max(500, Math.min(200_000, Math.floor(limit)));
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+function normalizeSingleAsteriskBold(text: string): string {
+  return text
+    .split(/(`[^`\n]+`)/g)
+    .map((segment) =>
+      segment.startsWith('`') && segment.endsWith('`')
+        ? segment
+        : segment.replace(SINGLE_ASTERISK_BOLD_RE, '$1**$2**'),
+    )
+    .join('');
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function restorePlaceholders(
-  text: string,
-  placeholder: string,
-  segments: string[],
-): string {
-  return text.replace(
-    new RegExp(`${escapeRegExp(placeholder)}(\\d+)`, 'g'),
-    (_match, index: string) => segments[Number(index)] ?? '',
-  );
-}
-
-function formatInlineEmailHtml(text: string, fencedBlocks?: string[]): string {
-  let result = text;
-  const inlineCodeSegments: string[] = [];
-  result = result.replace(/`([^`\n]+)`/g, (_match, content: string) => {
-    inlineCodeSegments.push(`<code>${escapeHtml(content)}</code>`);
-    return `${INLINE_CODE_PLACEHOLDER}${inlineCodeSegments.length - 1}`;
-  });
-
-  result = escapeHtml(result);
-  result = result.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  result = result.replace(/__(.+?)__/g, '<strong>$1</strong>');
-  result = result.replace(
-    /(^|[^\w*])\*(\S(?:[^*\n]*?\S)?)\*(?=($|[^\w*]))/g,
-    '$1<strong>$2</strong>',
-  );
-  result = result.replace(
-    /(^|[^\w_])_(\S(?:[^_\n]*?\S)?)_(?=($|[^\w_]))/g,
-    '$1<em>$2</em>',
-  );
-  result = result.replace(/~~(.+?)~~/g, '<del>$1</del>');
-
-  result = restorePlaceholders(
-    result,
-    INLINE_CODE_PLACEHOLDER,
-    inlineCodeSegments,
-  );
-  if (fencedBlocks) {
-    result = restorePlaceholders(result, FENCE_PLACEHOLDER, fencedBlocks);
-  }
-  return result;
-}
-
-function renderBlockEmailHtml(block: string, fencedBlocks: string[]): string {
-  const trimmed = block.trim();
-  if (!trimmed) return '';
-
-  if (/^--\s*$/.test(trimmed)) {
-    return '<hr>';
-  }
-
-  if (new RegExp(`^${escapeRegExp(FENCE_PLACEHOLDER)}\\d+$`).test(trimmed)) {
-    return restorePlaceholders(trimmed, FENCE_PLACEHOLDER, fencedBlocks);
-  }
-
-  const lines = trimmed.split('\n');
-  if (lines.every((line) => /^\s*[-*]\s+/.test(line))) {
-    const items = lines
-      .map((line) => line.replace(/^\s*[-*]\s+/, '').trim())
-      .filter(Boolean)
-      .map((line) => `<li>${formatInlineEmailHtml(line, fencedBlocks)}</li>`)
-      .join('');
-    return `<ul>${items}</ul>`;
-  }
-
-  if (lines.every((line) => /^\s*\d+\.\s+/.test(line))) {
-    const items = lines
-      .map((line) => line.replace(/^\s*\d+\.\s+/, '').trim())
-      .filter(Boolean)
-      .map((line) => `<li>${formatInlineEmailHtml(line, fencedBlocks)}</li>`)
-      .join('');
-    return `<ol>${items}</ol>`;
-  }
-
-  return `<p>${lines
-    .map((line) => formatInlineEmailHtml(line.trim(), fencedBlocks))
-    .join('<br>')}</p>`;
+function normalizeEmailMarkdown(text: string): string {
+  let inFence = false;
+  return text
+    .split('\n')
+    .map((line) => {
+      if (/^```/.test(line.trim())) {
+        inFence = !inFence;
+        return line;
+      }
+      if (inFence) return line;
+      if (/^--\s*$/.test(line.trim())) {
+        return '---';
+      }
+      return normalizeSingleAsteriskBold(line);
+    })
+    .join('\n');
 }
 
 export function renderEmailHtml(text: string): string | undefined {
@@ -148,27 +109,22 @@ export function renderEmailHtml(text: string): string | undefined {
     .trim();
   if (!normalized) return undefined;
 
-  const fencedBlocks: string[] = [];
-  const prepared = normalized.replace(
-    /```(?:[^\n`]*\n)?([\s\S]*?)```/g,
-    (_match, content: string) => {
-      fencedBlocks.push(
-        `<pre><code>${escapeHtml(content.replace(/\n$/, ''))}</code></pre>`,
-      );
-      return `${FENCE_PLACEHOLDER}${fencedBlocks.length - 1}`;
-    },
-  );
-  const blocks = prepared
-    .split(/\n{2,}/)
-    .map((block) => renderBlockEmailHtml(block, fencedBlocks))
-    .filter(Boolean)
-    .join('\n');
+  const rendered = marked.parse(normalizeEmailMarkdown(normalized), {
+    async: false,
+    breaks: true,
+    gfm: true,
+  });
+  const sanitized = sanitizeHtml(
+    typeof rendered === 'string' ? rendered : String(rendered || ''),
+    EMAIL_HTML_SANITIZE_OPTIONS,
+  ).trim();
+  if (!sanitized) return undefined;
 
   return [
     '<!doctype html>',
     '<html>',
     '<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;line-height:1.5;color:#111827;">',
-    blocks,
+    sanitized,
     '</body>',
     '</html>',
   ].join('');
@@ -260,8 +216,9 @@ export async function sendEmail(
     allowEmpty: Boolean(params.attachment),
   });
 
-  const effectiveChunks =
-    chunks.length > 0 ? chunks : params.attachment ? [''] : ['(no content)'];
+  // Attachment-only sends still need a single outbound message when the body
+  // is intentionally empty.
+  const effectiveChunks = chunks.length > 0 ? chunks : [''];
 
   const messageIds: string[] = [];
   let nextThreadContext = params.threadContext;
@@ -297,26 +254,33 @@ export async function sendEmail(
     const accepted = normalizeRecipientList(info.accepted);
     const rejected = normalizeRecipientList(info.rejected);
     const pending = normalizeRecipientList(info.pending);
+    const response = String(info.response || '').trim() || null;
+    const deliveryLog = {
+      channel: 'email',
+      to: params.to,
+      subject: resolved.subject,
+      messageId: messageId || null,
+      chunkIndex: index + 1,
+      chunkCount: effectiveChunks.length,
+      hasAttachment: Boolean(params.attachment && index === 0),
+      response,
+    };
 
-    logger.info(
-      {
-        channel: 'email',
-        to: params.to,
-        subject: resolved.subject,
-        messageId: messageId || null,
-        chunkIndex: index + 1,
-        chunkCount: effectiveChunks.length,
-        hasAttachment: Boolean(params.attachment && index === 0),
-        accepted,
-        acceptedCount: accepted.length,
-        rejected,
-        rejectedCount: rejected.length,
-        pending,
-        pendingCount: pending.length,
-        response: String(info.response || '').trim() || null,
-      },
-      'Email send completed',
-    );
+    logger.info(deliveryLog, 'Email send completed');
+    if (rejected.length > 0 || pending.length > 0) {
+      logger.warn(
+        {
+          ...deliveryLog,
+          accepted: accepted.length > 0 ? accepted : undefined,
+          acceptedCount: accepted.length,
+          rejected: rejected.length > 0 ? rejected : undefined,
+          rejectedCount: rejected.length,
+          pending: pending.length > 0 ? pending : undefined,
+          pendingCount: pending.length,
+        },
+        'Email send reported recipient delivery issues',
+      );
+    }
     if (messageId) {
       messageIds.push(messageId);
       nextThreadContext =

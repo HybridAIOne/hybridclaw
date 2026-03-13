@@ -426,7 +426,9 @@ Notes:
   - With one or more \`--allow-from\` values, setup enables only those DMs.
   - Groups stay disabled by default.
   - Email setup saves \`EMAIL_PASSWORD\` only when \`--password\` is provided or pasted interactively.
-  - Email IMAP/SMTP secure mode defaults to \`true\`; use \`--no-imap-secure\` or \`--no-smtp-secure\` only when your provider requires plaintext or opportunistic STARTTLS.
+  - Email IMAP secure mode defaults to \`true\`.
+  - Email SMTP secure mode defaults to \`false\` on port \`587\`; use \`--smtp-secure\` for implicit TLS on port \`465\`.
+  - \`--no-smtp-secure\` is the correct setting for encrypted STARTTLS on port \`587\`; it does not force plaintext by itself.
   - Email inbound is explicit-opt-in: when email \`allowFrom\` is empty, inbound email is ignored.
   - Discord activates automatically when \`DISCORD_TOKEN\` is configured.
   - Email activates automatically when \`email.enabled=true\` and \`EMAIL_PASSWORD\` is configured.
