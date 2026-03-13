@@ -212,6 +212,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     '',
     '## Web Retrieval Routing (web_search/web_fetch vs browser_*)',
     'Decision rule: use `web_search` to discover relevant URLs when the target page is not already known, then use `web_fetch` for read-only content retrieval.',
+    'Use `web_extract` when you want the fetched page condensed into a model-processed markdown summary; it is higher cost than `web_fetch` because it runs an auxiliary model after extraction.',
     'Use browser tools only when at least one of these is true: (1) known app-like/auth-gated URL, (2) interaction is required (click/type/login/scroll), (3) `web_fetch` returned escalation hints, (4) user explicitly requested browser use.',
     'Prefer browser for: SPAs/client-rendered apps (React/Vue/Angular/Next client routes), dashboards/web apps, social feeds, login/OAuth/cookie-consent/CAPTCHA flows, or API-driven pages that populate after initial render.',
     'Prefer web_fetch for: docs/wikis/READMEs/articles/reference pages, direct JSON/XML/text/CSV/PDF endpoints, and simple read-only extraction.',

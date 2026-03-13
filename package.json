@@ -28,6 +28,7 @@
     "container/package.json",
     "container/package-lock.json",
     "container/tsconfig.json",
+    "container/shared/",
     "container/src/",
     "README.md",
     "CHANGELOG.md",

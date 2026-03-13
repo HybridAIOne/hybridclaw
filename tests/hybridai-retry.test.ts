@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import { HybridAIRequestError } from '../container/src/model-client.js';
 import {
   isRetryableModelError,
   shouldDowngradeStreamToNonStreaming,
   shouldFallbackFromStreamError,
 } from '../container/src/model-retry.js';
+import { HybridAIRequestError } from '../container/src/providers/shared.js';
 
 describe('shouldFallbackFromStreamError', () => {
   test('allows fallback for 500 stream errors', () => {

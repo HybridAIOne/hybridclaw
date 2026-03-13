@@ -1473,7 +1473,11 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
-    if (lowerTool === 'web_fetch' || lowerTool === 'browser_navigate') {
+    if (
+      lowerTool === 'web_fetch' ||
+      lowerTool === 'web_extract' ||
+      lowerTool === 'browser_navigate'
+    ) {
       const rawUrl = normalizeText(args.url);
       const hostScopes = extractHostScopes(extractHostsFromUrlLikeText(rawUrl));
       const primaryHost = hostScopes[0] || 'unknown-host';

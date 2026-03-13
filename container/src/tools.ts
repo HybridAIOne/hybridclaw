@@ -6,10 +6,11 @@ import {
   BROWSER_TOOL_DEFINITIONS,
   executeBrowserTool,
   setBrowserModelContext,
+  setBrowserTaskModelPolicies,
 } from './browser-tools.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import type { McpClientManager } from './mcp/client-manager.js';
-import { normalizeOpenRouterRuntimeModelName } from './providers/shared.js';
+import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -21,13 +22,16 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
-import type {
-  DelegationSideEffect,
-  DelegationTaskSpec,
-  MediaContextItem,
-  ScheduleSideEffect,
-  ToolDefinition,
-  ToolRunResult,
+import {
+  type DelegationSideEffect,
+  type DelegationTaskSpec,
+  type MediaContextItem,
+  type ScheduleSideEffect,
+  TASK_MODEL_KEYS,
+  type TaskModelKey,
+  type TaskModelPolicies,
+  type ToolDefinition,
+  type ToolRunResult,
 } from './types.js';
 import type { WebSearchRuntimeConfig } from './web-search.js';
 
@@ -98,13 +102,12 @@ let currentChatbotId = '';
 let currentModelHeaders: Record<string, string> = {};
 let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
+let currentTaskModelPolicies: TaskModelPolicies | undefined;
 let mcpClientManager: McpClientManager | null = null;
 const MAX_PENDING_DELEGATIONS = 3;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
 const VISION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const VISION_FETCH_TIMEOUT_MS = 12_000;
-const CODEX_VISION_INSTRUCTIONS =
-  'You are Codex, a coding assistant. Analyze the provided image and answer the user question using only visible evidence. If text is unreadable or missing, say so.';
 const VISION_LOCAL_SCRATCH_ROOTS = Array.from(
   new Set(
     ['/tmp', '/private/tmp', os.tmpdir()].map((entry) => path.resolve(entry)),
@@ -207,6 +210,23 @@ export function getMessageToolDescription(channelId?: string): string {
   return `${MESSAGE_TOOL_DESCRIPTION_BASE} Supports actions: ${MESSAGE_TOOL_ACTION_LIST}.${withOthers}`;
 }
 
+function cloneTaskModelPolicies(
+  taskModels?: TaskModelPolicies,
+): TaskModelPolicies | undefined {
+  const cloned: TaskModelPolicies = {};
+  for (const key of TASK_MODEL_KEYS) {
+    const taskModel = taskModels?.[key];
+    if (!taskModel) continue;
+    cloned[key] = {
+      ...taskModel,
+      requestHeaders: taskModel.requestHeaders
+        ? { ...taskModel.requestHeaders }
+        : undefined,
+    };
+  }
+  return Object.keys(cloned).length > 0 ? cloned : undefined;
+}
+
 export function resetSideEffects(): void {
   pendingSchedules = [];
   pendingDelegations = [];
@@ -278,6 +298,11 @@ export function setModelContext(
     chatbotId,
     requestHeaders,
   );
+}
+
+export function setTaskModelPolicies(taskModels?: TaskModelPolicies): void {
+  currentTaskModelPolicies = cloneTaskModelPolicies(taskModels);
+  setBrowserTaskModelPolicies(currentTaskModelPolicies);
 }
 
 export function setMediaContext(media?: MediaContextItem[]): void {
@@ -590,28 +615,6 @@ function normalizeDelegationTaskList(params: {
   return { tasks };
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-function extractVisionTextContent(content: unknown): string {
-  if (typeof content === 'string') return content.trim();
-  if (!Array.isArray(content)) return '';
-  const chunks: string[] = [];
-  for (const part of content) {
-    if (typeof part === 'string') {
-      if (part.trim()) chunks.push(part.trim());
-      continue;
-    }
-    const obj = asRecord(part);
-    if (!obj) continue;
-    const text = typeof obj.text === 'string' ? obj.text : '';
-    if (text.trim()) chunks.push(text.trim());
-  }
-  return chunks.join('\n').trim();
-}
-
 function normalizeVisionLocalPath(rawPath: string): string | null {
   const normalized = String(rawPath || '').trim();
   if (!normalized) return null;
@@ -764,253 +767,28 @@ async function readVisionImageFromUrl(
   }
 }
 
-function visionModelContextError(): string | null {
-  if (!currentModelBaseUrl)
-    return 'vision_analyze is not configured: missing base URL context.';
-  if (!currentModelName)
-    return 'vision_analyze is not configured: missing model context.';
-  if (
-    (currentModelProvider === 'hybridai' ||
-      currentModelProvider === 'openai-codex' ||
-      currentModelProvider === 'openrouter') &&
-    !currentModelApiKey
-  ) {
-    return 'vision_analyze is not configured: missing API key context.';
-  }
-  if (currentModelProvider === 'hybridai' && !currentChatbotId)
-    return 'vision_analyze is not configured: missing chatbot_id context.';
-  return null;
-}
-
-function normalizeCodexModelName(model: string): string {
-  const trimmed = String(model || '').trim();
-  if (!trimmed.toLowerCase().startsWith('openai-codex/')) return trimmed;
-  return trimmed.slice('openai-codex/'.length) || trimmed;
-}
-
-function normalizeVisionBaseUrl(baseUrl: string): string {
-  return String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '');
-}
-
-function normalizeVisionOllamaBaseUrl(baseUrl: string): string {
-  return String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '')
-    .replace(/\/v1$/i, '');
-}
-
-function normalizeVisionLocalModelName(
-  provider: 'openrouter' | 'ollama' | 'lmstudio' | 'vllm',
-  model: string,
-): string {
-  const trimmed = String(model || '').trim();
-  if (provider === 'openrouter') {
-    return normalizeOpenRouterRuntimeModelName(trimmed);
-  }
-  const prefix = `${provider}/`;
-  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-  return trimmed.slice(prefix.length) || trimmed;
-}
-
-function extractDataUriImagePayload(url: string): string | null {
-  const match = String(url || '').match(
-    /^data:[^;]+;base64,([A-Za-z0-9+/=]+)$/i,
-  );
-  return match?.[1] || null;
-}
-
-function resolveVisionChatCompletionsEndpoint(baseUrl: string): string {
-  const normalized = normalizeVisionBaseUrl(baseUrl);
-  return /\/v1$/i.test(normalized)
-    ? `${normalized}/chat/completions`
-    : `${normalized}/v1/chat/completions`;
-}
-
-function buildModelRequestHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...currentModelHeaders,
-  };
-  if (currentModelApiKey) {
-    headers.Authorization = `Bearer ${currentModelApiKey}`;
-  }
-  return headers;
-}
-
-function extractCodexOutputText(payload: Record<string, unknown>): string {
-  const output = Array.isArray(payload.output) ? payload.output : [];
-  const chunks: string[] = [];
-  for (const item of output) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-    const record = item as Record<string, unknown>;
-    if (record.type !== 'message' || !Array.isArray(record.content)) continue;
-    for (const contentItem of record.content) {
-      if (
-        contentItem &&
-        typeof contentItem === 'object' &&
-        !Array.isArray(contentItem)
-      ) {
-        const contentRecord = contentItem as Record<string, unknown>;
-        const text =
-          typeof contentRecord.text === 'string'
-            ? contentRecord.text
-            : typeof contentRecord.output_text === 'string'
-              ? contentRecord.output_text
-              : '';
-        if (text) chunks.push(text);
-      }
-    }
-  }
-  return chunks.join('\n').trim();
-}
-
 async function callVisionModel(
+  runtimeContext: AuxiliaryRuntimeContext,
   question: string,
   imageDataUrl: string,
 ): Promise<{ model: string; analysis: string }> {
-  const contextError = visionModelContextError();
-  if (contextError) throw new Error(contextError);
-
-  const endpoint =
-    currentModelProvider === 'openai-codex'
-      ? `${normalizeVisionBaseUrl(currentModelBaseUrl)}/responses`
-      : currentModelProvider === 'ollama'
-        ? `${normalizeVisionOllamaBaseUrl(currentModelBaseUrl)}/api/chat`
-        : currentModelProvider === 'hybridai'
-          ? `${normalizeVisionBaseUrl(currentModelBaseUrl)}/v1/chat/completions`
-          : resolveVisionChatCompletionsEndpoint(currentModelBaseUrl);
-  const body =
-    currentModelProvider === 'openai-codex'
-      ? {
-          model: normalizeCodexModelName(currentModelName),
-          instructions: CODEX_VISION_INSTRUCTIONS,
-          input: [
-            {
-              role: 'user',
-              content: [
-                { type: 'input_text', text: question },
-                { type: 'input_image', image_url: imageDataUrl },
-              ],
-            },
-          ],
-        }
-      : currentModelProvider === 'ollama'
-        ? {
-            model: normalizeVisionLocalModelName(
-              currentModelProvider,
-              currentModelName,
-            ),
-            stream: false,
-            messages: [
-              {
-                role: 'user',
-                content: question,
-                images: [extractDataUriImagePayload(imageDataUrl) || ''],
-              },
-            ],
-          }
-        : currentModelProvider === 'hybridai'
-          ? {
-              model: currentModelName,
-              chatbot_id: currentChatbotId,
-              enable_rag: false,
-              messages: [
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'text', text: question },
-                    { type: 'image_url', image_url: { url: imageDataUrl } },
-                  ],
-                },
-              ],
-            }
-          : {
-              model:
-                currentModelProvider === 'openrouter' ||
-                currentModelProvider === 'lmstudio' ||
-                currentModelProvider === 'vllm'
-                  ? normalizeVisionLocalModelName(
-                      currentModelProvider,
-                      currentModelName,
-                    )
-                  : currentModelName,
-              messages: [
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'text', text: question },
-                    { type: 'image_url', image_url: { url: imageDataUrl } },
-                  ],
-                },
-              ],
-            };
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: buildModelRequestHeaders(),
-    body: JSON.stringify(body),
+  const vision = await callAuxiliaryModel({
+    task: 'vision',
+    taskModels: runtimeContext.taskModels,
+    fallbackContext: runtimeContext.fallbackContext,
+    question,
+    imageDataUrl,
+    toolName: 'vision_analyze',
   });
-
-  const rawText = await response.text();
-  if (!response.ok) {
-    const detail =
-      rawText.length > 600 ? `${rawText.slice(0, 600)}...` : rawText;
-    throw new Error(
-      `vision API request failed (${response.status}): ${detail}`,
-    );
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawText);
-  } catch {
-    throw new Error('vision API returned non-JSON response');
-  }
-  const record = asRecord(parsed);
-  const choices = record?.choices;
-  if (currentModelProvider === 'openai-codex') {
-    if (!record) {
-      throw new Error('vision API response did not include a JSON object');
-    }
-    const analysis = extractCodexOutputText(record);
-    if (!analysis) {
-      throw new Error('vision API response did not include text output');
-    }
-    return {
-      model: currentModelName,
-      analysis,
-    };
-  }
-  if (currentModelProvider === 'ollama') {
-    const message = asRecord(record?.message);
-    const analysis = extractVisionTextContent(message?.content);
-    if (!analysis) {
-      throw new Error('vision API returned empty analysis');
-    }
-    return {
-      model: currentModelName,
-      analysis,
-    };
-  }
-  if (!Array.isArray(choices) || choices.length === 0) {
-    throw new Error('vision API response did not include choices');
-  }
-  const firstChoice = asRecord(choices[0]);
-  const message = asRecord(firstChoice?.message);
-  const analysis = extractVisionTextContent(message?.content);
-  if (!analysis) {
-    throw new Error('vision API returned empty analysis');
-  }
   return {
-    model: currentModelName,
-    analysis,
+    model: vision.model,
+    analysis: vision.analysis,
   };
 }
 
 async function runVisionAnalyze(
   args: Record<string, unknown>,
+  runtimeContext: AuxiliaryRuntimeContext,
 ): Promise<string> {
   const question = readStringValue(args.question);
   if (!question) return failTool('Error: question is required');
@@ -1036,7 +814,7 @@ async function runVisionAnalyze(
         ? await readVisionImageFromUrl(candidate)
         : await readVisionImageFromLocalPath(candidate);
       const dataUrl = `data:${image.mimeType};base64,${image.buffer.toString('base64')}`;
-      const vision = await callVisionModel(question, dataUrl);
+      const vision = await callVisionModel(runtimeContext, question, dataUrl);
       return JSON.stringify(
         {
           success: true,
@@ -1362,6 +1140,11 @@ const SESSION_SEARCH_MAX_RESULTS = 5;
 const SESSION_SEARCH_MAX_ROWS_PER_SESSION = 2_000;
 const SESSION_SEARCH_SNIPPET_CONTEXT = 1;
 const SESSION_SEARCH_MAX_SNIPPETS = 8;
+const SESSION_SEARCH_MAX_LLM_CONTEXT_CHARS = 16_000;
+const SESSION_SEARCH_LLM_MAX_TOKENS = 1_200;
+const WEB_EXTRACT_CHUNK_CHARS = 12_000;
+const WEB_EXTRACT_MAX_SYNTHESIS_CHARS = 40_000;
+const WEB_EXTRACT_LLM_MAX_TOKENS = 2_000;
 
 function parseRoleFilter(value: unknown): Set<string> | null {
   if (typeof value !== 'string' || value.trim() === '') return null;
@@ -1525,11 +1308,261 @@ function summarizeSessionCandidate(
   };
 }
 
+function currentAuxiliaryFallbackContext() {
+  return {
+    provider: currentModelProvider,
+    baseUrl: currentModelBaseUrl,
+    apiKey: currentModelApiKey,
+    model: currentModelName,
+    chatbotId: currentChatbotId,
+    requestHeaders: { ...currentModelHeaders },
+  };
+}
+
+type AuxiliaryRuntimeContext = {
+  fallbackContext: ReturnType<typeof currentAuxiliaryFallbackContext>;
+  taskModels?: TaskModelPolicies;
+};
+
+function captureAuxiliaryRuntimeContext(): AuxiliaryRuntimeContext {
+  return {
+    fallbackContext: currentAuxiliaryFallbackContext(),
+    taskModels: cloneTaskModelPolicies(currentTaskModelPolicies),
+  };
+}
+
+async function callTextAuxiliaryTask(params: {
+  runtimeContext: AuxiliaryRuntimeContext;
+  task: Exclude<TaskModelKey, 'vision'>;
+  messages: Array<{
+    role: 'system' | 'user' | 'assistant' | 'tool';
+    content: string;
+  }>;
+  maxTokens?: number;
+  toolName: string;
+}): Promise<string> {
+  const response = await callAuxiliaryModel({
+    task: params.task,
+    taskModels: params.runtimeContext.taskModels,
+    fallbackContext: params.runtimeContext.fallbackContext,
+    messages: params.messages,
+    maxTokens: params.maxTokens,
+    toolName: params.toolName,
+  });
+  return response.content;
+}
+
+function buildSessionSearchContext(
+  candidate: SessionSearchCandidate,
+  maxChars = SESSION_SEARCH_MAX_LLM_CONTEXT_CHARS,
+): string {
+  const seen = new Set<number>();
+  const lines: string[] = [];
+  let usedChars = 0;
+
+  for (const idx of candidate.matchIndexes) {
+    const from = Math.max(0, idx - SESSION_SEARCH_SNIPPET_CONTEXT - 1);
+    const to = Math.min(
+      candidate.rows.length - 1,
+      idx + SESSION_SEARCH_SNIPPET_CONTEXT + 1,
+    );
+    for (let i = from; i <= to; i += 1) {
+      if (seen.has(i)) continue;
+      seen.add(i);
+      const row = candidate.rows[i];
+      const username = row.username?.trim()
+        ? ` username=${JSON.stringify(row.username)}`
+        : '';
+      const createdAt = row.createdAt ? ` created_at=${row.createdAt}` : '';
+      const entry = [
+        '---',
+        `role=${row.role}${createdAt}${username}`,
+        row.content.trim() || '(empty)',
+      ].join('\n');
+      if (usedChars + entry.length + 2 > maxChars) {
+        return lines.join('\n\n');
+      }
+      lines.push(entry);
+      usedChars += entry.length + 2;
+    }
+  }
+
+  return lines.join('\n\n');
+}
+
+async function summarizeSessionCandidateWithAuxiliary(
+  runtimeContext: AuxiliaryRuntimeContext,
+  candidate: SessionSearchCandidate,
+  query: string,
+): Promise<string | null> {
+  const transcript = buildSessionSearchContext(candidate);
+  if (!transcript) return null;
+
+  const summary = await callTextAuxiliaryTask({
+    runtimeContext,
+    task: 'session_search',
+    toolName: 'session_search',
+    maxTokens: SESSION_SEARCH_LLM_MAX_TOKENS,
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You are reviewing a past conversation transcript to help recall what happened. Summarize the conversation with focus on the search topic. Include what the user wanted, what actions were taken, important files/commands/URLs/errors, the outcome, and anything unresolved. Be concise but specific.',
+      },
+      {
+        role: 'user',
+        content: [
+          `Search topic: ${query}`,
+          `Session ID: ${candidate.sessionId}`,
+          '',
+          'Conversation excerpt:',
+          transcript,
+        ].join('\n'),
+      },
+    ],
+  });
+  const normalized = String(summary || '').trim();
+  return normalized || null;
+}
+
+function splitTextIntoChunks(text: string, maxChars: number): string[] {
+  const normalized = String(text || '').trim();
+  if (!normalized) return [];
+  if (normalized.length <= maxChars) return [normalized];
+
+  const paragraphs = normalized.split(/\n{2,}/);
+  const chunks: string[] = [];
+  let current = '';
+
+  const pushCurrent = () => {
+    const trimmed = current.trim();
+    if (trimmed) chunks.push(trimmed);
+    current = '';
+  };
+
+  for (const paragraph of paragraphs) {
+    const trimmed = paragraph.trim();
+    if (!trimmed) continue;
+    if (!current) {
+      current = trimmed;
+      continue;
+    }
+    if (current.length + trimmed.length + 2 <= maxChars) {
+      current = `${current}\n\n${trimmed}`;
+      continue;
+    }
+    pushCurrent();
+    if (trimmed.length <= maxChars) {
+      current = trimmed;
+      continue;
+    }
+    for (let start = 0; start < trimmed.length; start += maxChars) {
+      chunks.push(trimmed.slice(start, start + maxChars).trim());
+    }
+  }
+
+  pushCurrent();
+  return chunks;
+}
+
+async function processWebExtractWithAuxiliary(params: {
+  runtimeContext: AuxiliaryRuntimeContext;
+  url: string;
+  title?: string;
+  extractedText: string;
+  maxOutputChars: number;
+}): Promise<string> {
+  const contextPrefix = params.title
+    ? `Title: ${params.title}\nURL: ${params.url}`
+    : `URL: ${params.url}`;
+  const chunks = splitTextIntoChunks(
+    params.extractedText,
+    WEB_EXTRACT_CHUNK_CHARS,
+  );
+
+  const summarizeChunk = async (
+    chunk: string,
+    index: number,
+    total: number,
+  ): Promise<string> =>
+    await callTextAuxiliaryTask({
+      runtimeContext: params.runtimeContext,
+      task: 'web_extract',
+      toolName: 'web_extract',
+      maxTokens: WEB_EXTRACT_LLM_MAX_TOKENS,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are an expert content analyst. Create a comprehensive but concise markdown summary that preserves important facts, code snippets, commands, URLs, and actionable details while reducing bulk.',
+        },
+        {
+          role: 'user',
+          content: [
+            contextPrefix,
+            total > 1 ? `Chunk ${index + 1} of ${total}` : '',
+            '',
+            'Content to summarize:',
+            chunk,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        },
+      ],
+    });
+
+  if (chunks.length === 1) {
+    return (await summarizeChunk(chunks[0], 0, 1)).slice(
+      0,
+      params.maxOutputChars,
+    );
+  }
+
+  const summaries: string[] = [];
+  for (let index = 0; index < chunks.length; index += 1) {
+    const summary = await summarizeChunk(chunks[index], index, chunks.length);
+    if (summary.trim()) {
+      summaries.push(`## Section ${index + 1}\n${summary.trim()}`);
+    }
+  }
+  if (summaries.length === 0) {
+    throw new Error('web_extract returned no chunk summaries');
+  }
+  if (summaries.length === 1) {
+    return summaries[0].slice(0, params.maxOutputChars);
+  }
+
+  const synthesized = await callTextAuxiliaryTask({
+    runtimeContext: params.runtimeContext,
+    task: 'web_extract',
+    toolName: 'web_extract',
+    maxTokens: WEB_EXTRACT_LLM_MAX_TOKENS,
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You combine section summaries into one cohesive markdown summary. Remove redundancy, preserve key facts and details, and keep the result scannable.',
+      },
+      {
+        role: 'user',
+        content: [
+          contextPrefix,
+          '',
+          `Combine these section summaries into one markdown summary under ${Math.min(params.maxOutputChars, WEB_EXTRACT_MAX_SYNTHESIS_CHARS)} characters:`,
+          summaries.join('\n\n---\n\n'),
+        ].join('\n'),
+      },
+    ],
+  });
+  return synthesized.slice(0, params.maxOutputChars);
+}
+
 async function executeToolInternal(
   name: string,
   argsJson: string,
 ): Promise<string> {
   const args = JSON.parse(argsJson);
+  const auxiliaryRuntimeContext = captureAuxiliaryRuntimeContext();
 
   if (mcpClientManager?.isKnownTool(name)) {
     if (!args || typeof args !== 'object' || Array.isArray(args)) {
@@ -2222,9 +2255,31 @@ async function executeToolInternal(
       });
 
       const top = candidates.slice(0, limit);
-      const results = top.map((candidate) =>
-        summarizeSessionCandidate(candidate, query),
-      );
+      const useLlmSummary =
+        args.useLlmSummary === true ||
+        args.llmSummary === true ||
+        (args.useLlmSummary !== false &&
+          args.llmSummary !== false &&
+          Boolean(auxiliaryRuntimeContext.taskModels?.session_search));
+      const results: Record<string, unknown>[] = [];
+      for (const candidate of top) {
+        const summaryResult = summarizeSessionCandidate(candidate, query);
+        if (useLlmSummary) {
+          try {
+            const llmSummary = await summarizeSessionCandidateWithAuxiliary(
+              auxiliaryRuntimeContext,
+              candidate,
+              query,
+            );
+            if (llmSummary) {
+              summaryResult.summary = llmSummary;
+            }
+          } catch {
+            // Keep deterministic fallback summary.
+          }
+        }
+        results.push(summaryResult);
+      }
 
       return JSON.stringify(
         {
@@ -2239,13 +2294,20 @@ async function executeToolInternal(
       );
     }
 
-    case 'web_fetch': {
+    case 'web_fetch':
+    case 'web_extract': {
       const { webFetch } = await import('./web-fetch.js');
       const result = await webFetch({
         url: args.url,
         extractMode: args.extractMode,
         maxChars: args.maxChars,
       });
+      const useLlmProcessing =
+        args.llmProcess === true ||
+        args.useLlmProcessing === true ||
+        (name === 'web_extract' &&
+          args.llmProcess !== false &&
+          args.useLlmProcessing !== false);
       const header = result.title ? `# ${result.title}\n\n` : '';
       const meta = `[${result.extractor}] ${result.finalUrl} (${result.status}, ${result.tookMs}ms)`;
       const lines = [meta];
@@ -2257,7 +2319,34 @@ async function executeToolInternal(
       if (result.warning) {
         lines.push(`Warning: ${result.warning}`);
       }
-      return `${lines.join('\n')}\n\n${header}${result.text}`;
+      let outputText = result.text;
+      if (useLlmProcessing && result.text.trim()) {
+        try {
+          outputText = await processWebExtractWithAuxiliary({
+            runtimeContext: auxiliaryRuntimeContext,
+            url: result.finalUrl,
+            title: result.title,
+            extractedText: result.text,
+            maxOutputChars:
+              typeof args.maxChars === 'number' &&
+              Number.isFinite(args.maxChars)
+                ? Math.max(
+                    1_000,
+                    Math.min(
+                      Math.floor(args.maxChars),
+                      WEB_EXTRACT_MAX_SYNTHESIS_CHARS,
+                    ),
+                  )
+                : WEB_EXTRACT_MAX_SYNTHESIS_CHARS,
+          });
+          lines.push('LLM processing: applied');
+        } catch (err) {
+          lines.push(
+            `LLM processing failed; returning raw extraction. ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      return `${lines.join('\n')}\n\n${header}${outputText}`;
     }
 
     case 'web_search': {
@@ -2277,7 +2366,7 @@ async function executeToolInternal(
 
     case 'vision_analyze':
     case 'image': {
-      return await runVisionAnalyze(args);
+      return await runVisionAnalyze(args, auxiliaryRuntimeContext);
     }
 
     case 'browser_navigate':
@@ -2924,6 +3013,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'Include the current session in results (default false)',
           },
+          useLlmSummary: {
+            type: 'boolean',
+            description:
+              'When true, summarize matches with the auxiliary session_search model. If omitted, this auto-enables when auxiliaryModels.session_search is configured.',
+          },
         },
         required: ['query'],
       },
@@ -2947,6 +3041,40 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'number',
             description:
               'Maximum characters to return (default 50000, max 50000)',
+          },
+          llmProcess: {
+            type: 'boolean',
+            description:
+              'When true, run the extracted content through the auxiliary web_extract model for a denser markdown summary.',
+          },
+        },
+        required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'web_extract',
+      description:
+        'Fetch a URL and return a processed markdown summary of the readable content. This is the higher-cost, Hermes-style companion to web_fetch: it first extracts readable content, then routes that content through the auxiliary web_extract model by default. Use web_fetch instead when you want the raw extracted page text without model post-processing.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'HTTP or HTTPS URL to fetch' },
+          extractMode: {
+            type: 'string',
+            description: 'Extraction mode: "markdown" (default) or "text"',
+          },
+          maxChars: {
+            type: 'number',
+            description:
+              'Maximum characters to return after model processing (default 40000, max 50000)',
+          },
+          llmProcess: {
+            type: 'boolean',
+            description:
+              'Whether to run auxiliary LLM processing. Defaults to true for web_extract.',
           },
         },
         required: ['url'],

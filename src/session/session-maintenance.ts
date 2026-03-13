@@ -14,6 +14,8 @@ import {
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
+import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import { resolveTaskModelPolicy } from '../providers/task-routing.js';
 import { loadSkills } from '../skills/skills.js';
 import type { ChatMessage, StoredMessage } from '../types.js';
 import { exportCompactedSessionJsonl } from './session-export.js';
@@ -158,13 +160,36 @@ async function runPreCompactionMemoryFlush(params: {
   }
   messages.push({ role: 'user', content: flushPrompt });
 
+  let model = params.model;
+  let chatbotId = params.chatbotId;
+  try {
+    const taskModel = await resolveTaskModelPolicy('flush_memories', {
+      agentId: params.agentId,
+      chatbotId: params.chatbotId,
+    });
+    if (taskModel?.error) {
+      logger.warn(
+        { sessionId: params.sessionId, error: taskModel.error },
+        'Pre-compaction memory flush auxiliary model is misconfigured; falling back to the active model',
+      );
+    } else if (taskModel?.model) {
+      model = taskModel.model;
+      chatbotId = String(taskModel.chatbotId || '').trim() || params.chatbotId;
+    }
+  } catch (err) {
+    logger.warn(
+      { sessionId: params.sessionId, err },
+      'Failed to resolve pre-compaction memory flush task model; falling back to the active model',
+    );
+  }
+
   try {
     const output = await runAgent({
       sessionId: `memory-flush:${params.sessionId}:${Date.now()}`,
       messages,
-      chatbotId: params.chatbotId,
+      chatbotId,
       enableRag: params.enableRag,
-      model: params.model,
+      model,
       agentId: params.agentId,
       channelId: params.channelId,
       allowedTools: ['memory'],
@@ -221,31 +246,30 @@ async function generateCompactionSummary(params: {
     'Return a single merged summary that should replace the existing summary.',
   ].join('\n');
 
-  const output = await runAgent({
-    sessionId: `compact:${params.sessionId}:${Date.now()}`,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    chatbotId: params.chatbotId,
-    enableRag: params.enableRag,
-    model: params.model,
-    agentId: params.agentId,
-    channelId: params.channelId,
-    allowedTools: [],
-  });
-
-  if (output.status === 'error' || !output.result) {
+  try {
+    const result = await callAuxiliaryModel({
+      task: 'compression',
+      agentId: params.agentId,
+      fallbackModel: params.model,
+      fallbackChatbotId: params.chatbotId,
+      fallbackEnableRag: params.enableRag,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+    });
+    const normalized = normalizeSummary(result.content);
+    return normalized || null;
+  } catch (err) {
     logger.warn(
-      { sessionId: params.sessionId, error: output.error },
+      {
+        sessionId: params.sessionId,
+        err,
+      },
       'Session compaction summary failed',
     );
     return null;
   }
-
-  const normalized = normalizeSummary(output.result);
-  if (!normalized) return null;
-  return normalized;
 }
 
 export async function maybeCompactSession(params: {

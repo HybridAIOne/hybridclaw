@@ -1,5 +1,5 @@
-import { HybridAIRequestError } from './model-client.js';
 import type { RuntimeProvider } from './providers/shared.js';
+import { HybridAIRequestError } from './providers/shared.js';
 
 const TRANSIENT_NETWORK_ERROR_RE =
   /fetch failed|network|socket|timeout|timed out|ECONNRESET|ECONNREFUSED|EAI_AGAIN/i;

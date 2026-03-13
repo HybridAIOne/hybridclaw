@@ -244,6 +244,7 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'session_search',
   'web_search',
   'web_fetch',
+  'web_extract',
   'message',
   'browser_navigate',
   'browser_snapshot',

@@ -1,9 +1,9 @@
 import { afterEach, expect, test, vi } from 'vitest';
 
 import {
-  callHybridAI,
-  callHybridAIStream,
-} from '../container/src/model-client.js';
+  callRoutedModel,
+  callRoutedModelStream,
+} from '../container/src/providers/router.js';
 
 const okResponse = {
   id: 'resp_1',
@@ -39,7 +39,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test('callHybridAI forwards max_tokens when provided', async () => {
+test('callRoutedModel forwards max_tokens when provided', async () => {
   const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body || '{}')) as Record<
       string,
@@ -53,22 +53,23 @@ test('callHybridAI forwards max_tokens when provided', async () => {
   });
   vi.stubGlobal('fetch', fetchMock);
 
-  const result = await callHybridAI(
-    'https://hybridai.one',
-    'test-key',
-    'gpt-5-nano',
-    'bot_1',
-    true,
-    [{ role: 'user', content: 'hello' }],
-    [],
-    4096,
-  );
+  const result = await callRoutedModel({
+    provider: undefined,
+    baseUrl: 'https://hybridai.one',
+    apiKey: 'test-key',
+    model: 'gpt-5-nano',
+    chatbotId: 'bot_1',
+    enableRag: true,
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    maxTokens: 4096,
+  });
 
   expect(result.choices[0]?.message.content).toBe('ok');
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
-test('callHybridAI omits max_tokens when not provided', async () => {
+test('callRoutedModel omits max_tokens when not provided', async () => {
   const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body || '{}')) as Record<
       string,
@@ -82,20 +83,21 @@ test('callHybridAI omits max_tokens when not provided', async () => {
   });
   vi.stubGlobal('fetch', fetchMock);
 
-  await callHybridAI(
-    'https://hybridai.one',
-    'test-key',
-    'gpt-5-nano',
-    'bot_1',
-    true,
-    [{ role: 'user', content: 'hello' }],
-    [],
-  );
+  await callRoutedModel({
+    provider: undefined,
+    baseUrl: 'https://hybridai.one',
+    apiKey: 'test-key',
+    model: 'gpt-5-nano',
+    chatbotId: 'bot_1',
+    enableRag: true,
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+  });
 
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
-test('callHybridAI routes OpenRouter requests through the OpenAI-compatible transport', async () => {
+test('callRoutedModel routes OpenRouter requests through the OpenAI-compatible transport', async () => {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions');
     expect(init?.headers).toMatchObject({
@@ -116,27 +118,27 @@ test('callHybridAI routes OpenRouter requests through the OpenAI-compatible tran
   });
   vi.stubGlobal('fetch', fetchMock);
 
-  const result = await callHybridAI(
-    'openrouter',
-    'https://openrouter.ai/api/v1',
-    'or-test-key',
-    'openrouter/anthropic/claude-sonnet-4',
-    '',
-    false,
-    {
+  const result = await callRoutedModel({
+    provider: 'openrouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    apiKey: 'or-test-key',
+    model: 'openrouter/anthropic/claude-sonnet-4',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {
       'HTTP-Referer': 'https://github.com/hybridaione/hybridclaw',
       'X-Title': 'HybridClaw',
     },
-    [{ role: 'user', content: 'hello' }],
-    [],
-    512,
-  );
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    maxTokens: 512,
+  });
 
   expect(result.choices[0]?.message.content).toBe('ok');
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
-test('callHybridAIStream forwards stream and max_tokens', async () => {
+test('callRoutedModelStream forwards stream and max_tokens', async () => {
   const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body || '{}')) as Record<
       string,
@@ -152,23 +154,24 @@ test('callHybridAIStream forwards stream and max_tokens', async () => {
   });
   vi.stubGlobal('fetch', fetchMock);
 
-  const result = await callHybridAIStream(
-    'https://hybridai.one',
-    'test-key',
-    'gpt-5-nano',
-    'bot_1',
-    true,
-    [{ role: 'user', content: 'hello' }],
-    [],
-    () => {},
-    1024,
-  );
+  const result = await callRoutedModelStream({
+    provider: undefined,
+    baseUrl: 'https://hybridai.one',
+    apiKey: 'test-key',
+    model: 'gpt-5-nano',
+    chatbotId: 'bot_1',
+    enableRag: true,
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    onTextDelta: () => {},
+    maxTokens: 1024,
+  });
 
   expect(result.choices[0]?.message.content).toBe('ok');
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
-test('callHybridAIStream parses Codex SSE text deltas and tool calls', async () => {
+test('callRoutedModelStream parses Codex SSE text deltas and tool calls', async () => {
   const deltas: string[] = [];
   const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body || '{}')) as Record<
@@ -210,25 +213,25 @@ test('callHybridAIStream parses Codex SSE text deltas and tool calls', async () 
   });
   vi.stubGlobal('fetch', fetchMock);
 
-  const result = await callHybridAIStream(
-    'openai-codex',
-    'https://chatgpt.com/backend-api/codex',
-    'test-key',
-    'openai-codex/gpt-5-codex',
-    '',
-    false,
-    {
+  const result = await callRoutedModelStream({
+    provider: 'openai-codex',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    apiKey: 'test-key',
+    model: 'openai-codex/gpt-5-codex',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {
       'Chatgpt-Account-Id': 'acct_123',
       'OpenAI-Beta': 'responses=experimental',
     },
-    [
+    messages: [
       { role: 'system', content: 'You are a focused coding assistant.' },
       { role: 'user', content: 'hello' },
     ],
-    [],
-    (delta) => deltas.push(delta),
-    2048,
-  );
+    tools: [],
+    onTextDelta: (delta) => deltas.push(delta),
+    maxTokens: 2048,
+  });
 
   expect(deltas).toEqual(['Hel', 'lo']);
   expect(result.model).toBe('gpt-5-codex');
@@ -248,7 +251,7 @@ test('callHybridAIStream parses Codex SSE text deltas and tool calls', async () 
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
-test('callHybridAI sends Codex instructions and omits system messages from input', async () => {
+test('callRoutedModel sends Codex instructions and omits system messages from input', async () => {
   const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body || '{}')) as Record<
       string,
@@ -283,20 +286,20 @@ test('callHybridAI sends Codex instructions and omits system messages from input
   });
   vi.stubGlobal('fetch', fetchMock);
 
-  const result = await callHybridAI(
-    'openai-codex',
-    'https://chatgpt.com/backend-api/codex',
-    'test-key',
-    'openai-codex/gpt-5-codex',
-    '',
-    false,
-    {},
-    [
+  const result = await callRoutedModel({
+    provider: 'openai-codex',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    apiKey: 'test-key',
+    model: 'openai-codex/gpt-5-codex',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    messages: [
       { role: 'system', content: 'Follow repository conventions exactly.' },
       { role: 'user', content: 'hello' },
     ],
-    [],
-  );
+    tools: [],
+  });
 
   expect(result.choices[0]?.message.content).toBe('ok');
   expect(fetchMock).toHaveBeenCalledTimes(1);

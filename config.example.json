@@ -1,5 +1,5 @@
 {
-  "version": 10,
+  "version": 11,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -126,6 +126,43 @@
     },
     "defaultContextWindow": 128000,
     "defaultMaxTokens": 8192
+  },
+  "auxiliaryModels": {
+    "vision": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
+    },
+    "compression": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
+    },
+    "web_extract": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
+    },
+    "session_search": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
+    },
+    "skills_hub": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
+    },
+    "mcp": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
+    },
+    "flush_memories": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
+    }
   },
   "container": {
     "sandboxMode": "container",

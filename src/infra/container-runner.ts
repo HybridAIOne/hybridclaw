@@ -41,6 +41,7 @@ import {
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
+import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
 import { redactSecrets } from '../security/redact.js';
@@ -541,6 +542,10 @@ export async function runContainer(
     enableRag,
     agentId,
   });
+  const taskModels = await resolveTaskModelPolicies({
+    agentId,
+    chatbotId: modelRuntime.chatbotId,
+  });
   // Enforce concurrent container limit
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
     return {
@@ -593,6 +598,7 @@ export async function runContainer(
     media,
     audioTranscriptsPrepended,
     mcpServers: MCP_SERVERS,
+    taskModels,
     webSearch: {
       provider: WEB_SEARCH_PROVIDER,
       fallbackProviders: [...WEB_SEARCH_FALLBACK_PROVIDERS],
@@ -608,6 +614,7 @@ export async function runContainer(
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
+    taskModels: input.taskModels,
   });
 
   const existingEntry = pool.get(sessionId);

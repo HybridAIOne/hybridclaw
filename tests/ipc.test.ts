@@ -46,6 +46,19 @@ test('writeInput omits auth material from IPC files when requested', async () =>
     },
     model: 'openai-codex/gpt-5-codex',
     channelId: 'channel-1',
+    taskModels: {
+      compression: {
+        provider: 'openrouter' as const,
+        baseUrl: 'https://openrouter.ai/api/v1',
+        apiKey: 'or-secret',
+        requestHeaders: {
+          'HTTP-Referer': 'https://example.com',
+        },
+        model: 'openrouter/openai/gpt-5-nano',
+        chatbotId: '',
+        maxTokens: 123,
+      },
+    },
   };
 
   ensureSessionDirs('session-1');
@@ -57,8 +70,20 @@ test('writeInput omits auth material from IPC files when requested', async () =>
 
   expect(written.apiKey).toBe('');
   expect(written.requestHeaders).toEqual({});
+  expect(written.taskModels).toEqual({
+    compression: {
+      provider: 'openrouter',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiKey: '',
+      requestHeaders: {},
+      model: 'openrouter/openai/gpt-5-nano',
+      chatbotId: '',
+      maxTokens: 123,
+    },
+  });
   expect(input.apiKey).toBe('token_secret');
   expect(input.requestHeaders.Authorization).toBe('Bearer token_secret');
+  expect(input.taskModels.compression.apiKey).toBe('or-secret');
 });
 
 test('readOutput enforces a hard deadline despite repeated activity', async () => {

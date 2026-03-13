@@ -69,6 +69,48 @@ export interface McpServerConfig {
   enabled?: boolean;
 }
 
+export interface TaskModelPolicy {
+  provider?:
+    | 'hybridai'
+    | 'openai-codex'
+    | 'openrouter'
+    | 'ollama'
+    | 'lmstudio'
+    | 'vllm';
+  baseUrl?: string;
+  apiKey?: string;
+  requestHeaders?: Record<string, string>;
+  isLocal?: boolean;
+  contextWindow?: number;
+  thinkingFormat?: 'qwen';
+  model: string;
+  chatbotId?: string;
+  maxTokens?: number;
+  error?: string;
+}
+
+export const TASK_MODEL_KEYS = [
+  'vision',
+  'compression',
+  'web_extract',
+  'session_search',
+  'skills_hub',
+  'mcp',
+  'flush_memories',
+] as const;
+
+export type TaskModelKey = (typeof TASK_MODEL_KEYS)[number];
+
+export interface TaskModelPolicies {
+  vision?: TaskModelPolicy;
+  compression?: TaskModelPolicy;
+  web_extract?: TaskModelPolicy;
+  session_search?: TaskModelPolicy;
+  skills_hub?: TaskModelPolicy;
+  mcp?: TaskModelPolicy;
+  flush_memories?: TaskModelPolicy;
+}
+
 export interface ContainerInput {
   sessionId: string;
   messages: ChatMessage[];
@@ -111,6 +153,7 @@ export interface ContainerInput {
   media?: MediaContextItem[];
   audioTranscriptsPrepended?: boolean;
   mcpServers?: Record<string, McpServerConfig>;
+  taskModels?: TaskModelPolicies;
   webSearch?: {
     provider:
       | 'auto'

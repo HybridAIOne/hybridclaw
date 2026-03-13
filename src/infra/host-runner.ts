@@ -27,6 +27,7 @@ import {
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
+import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { redactSecrets } from '../security/redact.js';
 import type {
   ContainerInput,
@@ -394,6 +395,10 @@ export async function runHostProcess(
     enableRag,
     agentId,
   });
+  const taskModels = await resolveTaskModelPolicies({
+    agentId,
+    chatbotId: modelRuntime.chatbotId,
+  });
 
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
     return {
@@ -443,6 +448,7 @@ export async function runHostProcess(
     media,
     audioTranscriptsPrepended,
     mcpServers: MCP_SERVERS,
+    taskModels,
     webSearch: {
       provider: WEB_SEARCH_PROVIDER,
       fallbackProviders: [...WEB_SEARCH_FALLBACK_PROVIDERS],
@@ -458,6 +464,7 @@ export async function runHostProcess(
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
+    taskModels: input.taskModels,
   });
   const existingEntry = pool.get(sessionId);
   if (existingEntry && existingEntry.workerSignature !== workerSignature) {

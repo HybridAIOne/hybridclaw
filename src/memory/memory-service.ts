@@ -1,6 +1,6 @@
-import { runAgent } from '../agent/agent.js';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { SESSION_COMPACTION_SUMMARY_MAX_CHARS } from '../config/config.js';
+import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import type {
   CanonicalSession,
   CanonicalSessionContext,
@@ -682,24 +682,22 @@ export class MemoryService {
     const { agentId, model, chatbotId } = resolveAgentForRequest({
       session: params.session,
     });
-    const output = await runAgent({
-      sessionId: `compact:${params.stageKind}:${params.session.id}:${params.stageIndex + 1}-of-${params.stageTotal}:${Date.now()}`,
+    const result = await callAuxiliaryModel({
+      task: 'compression',
+      agentId,
+      fallbackModel: model,
+      fallbackChatbotId: chatbotId,
+      fallbackEnableRag: params.session.enable_rag !== 0,
       messages: [
         { role: 'system', content: params.systemPrompt },
         { role: 'user', content: params.userPrompt },
       ],
-      chatbotId,
-      enableRag: params.session.enable_rag !== 0,
-      model,
-      agentId,
-      channelId: params.session.channel_id,
-      allowedTools: [],
     });
 
-    if (output.status === 'error' || !output.result?.trim()) {
-      throw new Error(output.error || 'Compaction prompt returned no summary.');
+    if (!result.content.trim()) {
+      throw new Error('Compaction prompt returned no summary.');
     }
-    return output.result;
+    return result.content;
   }
 }
 

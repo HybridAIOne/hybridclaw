@@ -13,7 +13,7 @@ import type { LocalProviderConfig } from '../providers/local-types.js';
 import type { McpServerConfig } from '../types.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 10;
+export const CONFIG_VERSION = 11;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
@@ -122,6 +122,21 @@ export interface RuntimeAudioCliModelConfig {
 export type RuntimeAudioTranscriptionModelConfig =
   | RuntimeAudioProviderModelConfig
   | RuntimeAudioCliModelConfig;
+
+export type RuntimeAuxiliaryProviderSelection =
+  | 'auto'
+  | 'hybridai'
+  | 'openai-codex'
+  | 'openrouter'
+  | 'ollama'
+  | 'lmstudio'
+  | 'vllm';
+
+export interface RuntimeAuxiliaryModelPolicyConfig {
+  provider: RuntimeAuxiliaryProviderSelection;
+  model: string;
+  maxTokens: number;
+}
 
 export interface RuntimeMediaAudioConfig {
   enabled: boolean;
@@ -277,6 +292,15 @@ export interface RuntimeConfig {
     models: string[];
   };
   local: LocalProviderConfig;
+  auxiliaryModels: {
+    vision: RuntimeAuxiliaryModelPolicyConfig;
+    compression: RuntimeAuxiliaryModelPolicyConfig;
+    web_extract: RuntimeAuxiliaryModelPolicyConfig;
+    session_search: RuntimeAuxiliaryModelPolicyConfig;
+    skills_hub: RuntimeAuxiliaryModelPolicyConfig;
+    mcp: RuntimeAuxiliaryModelPolicyConfig;
+    flush_memories: RuntimeAuxiliaryModelPolicyConfig;
+  };
   container: {
     sandboxMode: ContainerSandboxMode;
     image: string;
@@ -525,6 +549,43 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
     defaultContextWindow: 128_000,
     defaultMaxTokens: 8_192,
+  },
+  auxiliaryModels: {
+    vision: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    compression: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    web_extract: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    session_search: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    skills_hub: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    mcp: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    flush_memories: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
   },
   container: {
     sandboxMode: 'container',
@@ -1650,6 +1711,26 @@ function normalizeContainerSandboxMode(
   return normalized === 'host' ? 'host' : 'container';
 }
 
+function normalizeAuxiliaryProviderSelection(
+  value: unknown,
+  fallback: RuntimeAuxiliaryProviderSelection,
+): RuntimeAuxiliaryProviderSelection {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'auto' ||
+    normalized === 'hybridai' ||
+    normalized === 'openai-codex' ||
+    normalized === 'openrouter' ||
+    normalized === 'ollama' ||
+    normalized === 'lmstudio' ||
+    normalized === 'vllm'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
 function normalizeWebSearchProvider(
   value: unknown,
   fallback: RuntimeWebSearchProvider,
@@ -1853,6 +1934,34 @@ function normalizeRuntimeConfig(
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
   const rawOpenRouter = isRecord(raw.openrouter) ? raw.openrouter : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
+  const rawAuxiliaryModels = isRecord(raw.auxiliaryModels)
+    ? raw.auxiliaryModels
+    : {};
+  const rawVisionAuxiliaryModel = isRecord(rawAuxiliaryModels.vision)
+    ? rawAuxiliaryModels.vision
+    : {};
+  const rawCompressionAuxiliaryModel = isRecord(rawAuxiliaryModels.compression)
+    ? rawAuxiliaryModels.compression
+    : {};
+  const rawWebExtractAuxiliaryModel = isRecord(rawAuxiliaryModels.web_extract)
+    ? rawAuxiliaryModels.web_extract
+    : {};
+  const rawSessionSearchAuxiliaryModel = isRecord(
+    rawAuxiliaryModels.session_search,
+  )
+    ? rawAuxiliaryModels.session_search
+    : {};
+  const rawSkillsHubAuxiliaryModel = isRecord(rawAuxiliaryModels.skills_hub)
+    ? rawAuxiliaryModels.skills_hub
+    : {};
+  const rawMcpAuxiliaryModel = isRecord(rawAuxiliaryModels.mcp)
+    ? rawAuxiliaryModels.mcp
+    : {};
+  const rawFlushMemoriesAuxiliaryModel = isRecord(
+    rawAuxiliaryModels.flush_memories,
+  )
+    ? rawAuxiliaryModels.flush_memories
+    : {};
   const rawLocalBackends = isRecord(rawLocal.backends) ? rawLocal.backends : {};
   const rawOllamaBackend = isRecord(rawLocalBackends.ollama)
     ? rawLocalBackends.ollama
@@ -2235,6 +2344,120 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.local.defaultMaxTokens,
         { min: 64, max: 1_000_000 },
       ),
+    },
+    auxiliaryModels: {
+      vision: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawVisionAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.vision.provider,
+        ),
+        model: normalizeString(
+          rawVisionAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.vision.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawVisionAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.vision.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      compression: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawCompressionAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.compression.provider,
+        ),
+        model: normalizeString(
+          rawCompressionAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.compression.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawCompressionAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.compression.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      web_extract: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawWebExtractAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.web_extract.provider,
+        ),
+        model: normalizeString(
+          rawWebExtractAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.web_extract.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawWebExtractAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.web_extract.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      session_search: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawSessionSearchAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_search.provider,
+        ),
+        model: normalizeString(
+          rawSessionSearchAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_search.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawSessionSearchAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_search.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      skills_hub: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawSkillsHubAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.skills_hub.provider,
+        ),
+        model: normalizeString(
+          rawSkillsHubAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.skills_hub.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawSkillsHubAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.skills_hub.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      mcp: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawMcpAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.mcp.provider,
+        ),
+        model: normalizeString(
+          rawMcpAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.mcp.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawMcpAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.mcp.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      flush_memories: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawFlushMemoriesAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.flush_memories.provider,
+        ),
+        model: normalizeString(
+          rawFlushMemoriesAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.flush_memories.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawFlushMemoriesAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.flush_memories.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
     },
     container: {
       sandboxMode: normalizeContainerSandboxMode(

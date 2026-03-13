@@ -6,7 +6,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { normalizeOpenRouterRuntimeModelName } from './providers/shared.js';
+import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   resolveMediaPath,
@@ -15,7 +15,11 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
-import type { ToolDefinition } from './types.js';
+import {
+  TASK_MODEL_KEYS,
+  type TaskModelPolicies,
+  type ToolDefinition,
+} from './types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -31,8 +35,6 @@ const BROWSER_PLAYWRIGHT_CACHE = path.join(
   BROWSER_RUNTIME_ROOT,
   'ms-playwright',
 );
-const CODEX_VISION_INSTRUCTIONS =
-  'You are Codex, a coding assistant. Analyze the provided image and answer the user question using only visible evidence. If text is unreadable or missing, say so.';
 const BROWSER_PROFILE_ROOT = path.join(
   BROWSER_RUNTIME_ROOT,
   'browser-profiles',
@@ -186,6 +188,13 @@ type BrowserSession = {
   lastUsedAt: number;
 };
 
+type BrowserVisionContext = BrowserModelContext & {
+  isLocal?: boolean;
+  contextWindow?: number;
+  thinkingFormat?: 'qwen';
+  maxTokens?: number;
+};
+
 const activeSessions = new Map<string, BrowserSession>();
 let cachedRunner: BrowserRunner | null | undefined;
 let currentBrowserModelContext: BrowserModelContext = {
@@ -196,6 +205,24 @@ let currentBrowserModelContext: BrowserModelContext = {
   chatbotId: '',
   requestHeaders: {},
 };
+let currentBrowserTaskModels: TaskModelPolicies | undefined;
+
+function cloneTaskModelPolicies(
+  taskModels?: TaskModelPolicies,
+): TaskModelPolicies | undefined {
+  const cloned: TaskModelPolicies = {};
+  for (const key of TASK_MODEL_KEYS) {
+    const taskModel = taskModels?.[key];
+    if (!taskModel) continue;
+    cloned[key] = {
+      ...taskModel,
+      requestHeaders: taskModel.requestHeaders
+        ? { ...taskModel.requestHeaders }
+        : undefined,
+    };
+  }
+  return Object.keys(cloned).length > 0 ? cloned : undefined;
+}
 
 export function setBrowserModelContext(
   provider:
@@ -224,54 +251,10 @@ export function setBrowserModelContext(
   };
 }
 
-function normalizeCodexModelName(model: string): string {
-  const trimmed = String(model || '').trim();
-  if (!trimmed.toLowerCase().startsWith('openai-codex/')) return trimmed;
-  return trimmed.slice('openai-codex/'.length) || trimmed;
-}
-
-function normalizeLocalModelName(provider: string, model: string): string {
-  const trimmed = String(model || '').trim();
-  if (provider === 'openrouter') {
-    return normalizeOpenRouterRuntimeModelName(trimmed);
-  }
-  const prefix = `${provider}/`;
-  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-  return trimmed.slice(prefix.length) || trimmed;
-}
-
-function normalizeOllamaBaseUrl(baseUrl: string): string {
-  return String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '')
-    .replace(/\/v1$/i, '');
-}
-
-function extractCodexOutputText(payload: Record<string, unknown>): string {
-  const output = Array.isArray(payload.output) ? payload.output : [];
-  const chunks: string[] = [];
-  for (const item of output) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-    const record = item as Record<string, unknown>;
-    if (record.type !== 'message' || !Array.isArray(record.content)) continue;
-    for (const contentItem of record.content) {
-      if (
-        contentItem &&
-        typeof contentItem === 'object' &&
-        !Array.isArray(contentItem)
-      ) {
-        const contentRecord = contentItem as Record<string, unknown>;
-        const text =
-          typeof contentRecord.text === 'string'
-            ? contentRecord.text
-            : typeof contentRecord.output_text === 'string'
-              ? contentRecord.output_text
-              : '';
-        if (text) chunks.push(text);
-      }
-    }
-  }
-  return chunks.join('\n').trim();
+export function setBrowserTaskModelPolicies(
+  taskModels?: TaskModelPolicies,
+): void {
+  currentBrowserTaskModels = cloneTaskModelPolicies(taskModels);
 }
 
 function normalizeSessionKey(sessionId: string): string {
@@ -878,183 +861,26 @@ function buildReadExtractionHint(params: {
   return `${base} Avoid browser_pdf for text extraction; PDF export is for artifact output.`;
 }
 
-function extractVisionTextContent(content: unknown): string {
-  if (typeof content === 'string') return content.trim();
-  if (!Array.isArray(content)) return '';
-  const chunks: string[] = [];
-  for (const part of content) {
-    if (typeof part === 'string') {
-      if (part.trim()) chunks.push(part.trim());
-      continue;
-    }
-    const obj = asRecord(part);
-    if (!obj) continue;
-    const text = typeof obj.text === 'string' ? obj.text : '';
-    if (text.trim()) chunks.push(text.trim());
-  }
-  return chunks.join('\n').trim();
-}
-
 async function callVisionModel(
   question: string,
   imageBase64: string,
 ): Promise<{ model: string; analysis: string }> {
-  const apiKey = currentBrowserModelContext.apiKey;
-  const baseUrl = currentBrowserModelContext.baseUrl;
-  const model = currentBrowserModelContext.model;
-  const chatbotId = currentBrowserModelContext.chatbotId;
-  const provider = currentBrowserModelContext.provider;
-  if (
-    !apiKey &&
-    provider !== 'ollama' &&
-    provider !== 'lmstudio' &&
-    provider !== 'vllm'
-  ) {
-    throw new Error(
-      'browser_vision is not configured: missing active request API key context.',
-    );
-  }
-  if (!baseUrl) {
-    throw new Error(
-      'browser_vision is not configured: missing active request base URL context.',
-    );
-  }
-  if (!model) {
-    throw new Error(
-      'browser_vision is not configured: missing active request model context.',
-    );
-  }
-  if (
-    provider !== 'openai-codex' &&
-    provider !== 'openrouter' &&
-    provider !== 'ollama' &&
-    provider !== 'lmstudio' &&
-    provider !== 'vllm' &&
-    !chatbotId
-  ) {
-    throw new Error(
-      'browser_vision is not configured: missing active request chatbot_id context.',
-    );
-  }
-  const endpoint =
-    provider === 'openai-codex'
-      ? `${baseUrl}/responses`
-      : provider === 'ollama'
-        ? `${normalizeOllamaBaseUrl(baseUrl)}/api/chat`
-        : provider === 'openrouter' ||
-            provider === 'lmstudio' ||
-            provider === 'vllm'
-          ? `${baseUrl}/chat/completions`
-          : `${baseUrl}/v1/chat/completions`;
-  const payload =
-    provider === 'openai-codex'
-      ? {
-          model: normalizeCodexModelName(model),
-          instructions: CODEX_VISION_INSTRUCTIONS,
-          input: [
-            {
-              role: 'user',
-              content: [
-                { type: 'input_text', text: question },
-                {
-                  type: 'input_image',
-                  image_url: `data:image/png;base64,${imageBase64}`,
-                },
-              ],
-            },
-          ],
-        }
-      : provider === 'ollama'
-        ? {
-            model: normalizeLocalModelName(provider, model),
-            stream: false,
-            messages: [
-              {
-                role: 'user',
-                content: question,
-                images: [imageBase64],
-              },
-            ],
-          }
-        : {
-            model: normalizeLocalModelName(provider, model),
-            ...(provider === 'hybridai'
-              ? {
-                  chatbot_id: chatbotId,
-                  enable_rag: false,
-                }
-              : {}),
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  { type: 'text', text: question },
-                  {
-                    type: 'image_url',
-                    image_url: { url: `data:image/png;base64,${imageBase64}` },
-                  },
-                ],
-              },
-            ],
-          };
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      ...currentBrowserModelContext.requestHeaders,
-    },
-    body: JSON.stringify(payload),
+  const fallbackContext: BrowserVisionContext = {
+    ...currentBrowserModelContext,
+  };
+  const vision = await callAuxiliaryModel({
+    task: 'vision',
+    taskModels: currentBrowserTaskModels,
+    fallbackContext,
+    question,
+    imageDataUrl: `data:image/png;base64,${imageBase64}`,
+    toolName: 'browser_vision',
+    missingContextSource: 'active request',
   });
-
-  const bodyText = await response.text();
-  if (!response.ok) {
-    const details =
-      bodyText.length > 600 ? `${bodyText.slice(0, 600)}...` : bodyText;
-    throw new Error(
-      `vision API request failed (${response.status}): ${details}`,
-    );
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(bodyText);
-  } catch {
-    throw new Error('vision API returned a non-JSON response');
-  }
-
-  const record = asRecord(parsed);
-  if (provider === 'openai-codex') {
-    if (!record) {
-      throw new Error('vision API response did not include a JSON object');
-    }
-    const analysis = extractCodexOutputText(record);
-    if (!analysis) {
-      throw new Error('vision API response did not include text output');
-    }
-    return { model, analysis };
-  }
-  if (provider === 'ollama') {
-    const message = asRecord(record?.message);
-    const analysis = extractVisionTextContent(message?.content);
-    if (!analysis) {
-      throw new Error('vision API returned an empty analysis');
-    }
-    return { model, analysis };
-  }
-  const choices = record?.choices;
-  if (!Array.isArray(choices) || choices.length === 0) {
-    throw new Error('vision API response did not include choices');
-  }
-  const choice = asRecord(choices[0]);
-  const message = asRecord(choice?.message);
-  const analysis = extractVisionTextContent(message?.content);
-  if (!analysis) {
-    throw new Error('vision API returned an empty analysis');
-  }
-
-  return { model, analysis };
+  return {
+    model: vision.model,
+    analysis: vision.analysis,
+  };
 }
 
 async function runAgentBrowser(

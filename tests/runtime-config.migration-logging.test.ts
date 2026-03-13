@@ -83,7 +83,7 @@ describe('runtime config migration logging', () => {
 
     expect(
       infoSpy.mock.calls.some(([message]) =>
-        String(message).includes('normalized config schema v10'),
+        String(message).includes('[runtime-config] normalized config schema'),
       ),
     ).toBe(false);
   });
@@ -97,10 +97,22 @@ describe('runtime config migration logging', () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
 
     await importFreshRuntimeConfig(homeDir);
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
+    ) as RuntimeConfig;
 
     expect(
-      infoSpy.mock.calls.some(([message]) =>
-        String(message).includes('normalized config schema v10'),
+      infoSpy.mock.calls.some(
+        ([message]) =>
+          String(message).includes(
+            `[runtime-config] migrated config schema from v10 to v${stored.version}`,
+          ) ||
+          String(message).includes(
+            `[runtime-config] normalized config schema v${stored.version}`,
+          ),
       ),
     ).toBe(true);
   });

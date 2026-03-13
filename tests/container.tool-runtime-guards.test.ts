@@ -268,6 +268,79 @@ describe.sequential('container tool runtime guards', () => {
     expect(result.output).toContain('Detected test image via LM Studio.');
   });
 
+  test('vision_analyze prefers the configured vision task model policy', async () => {
+    tempImagePath = path.join(
+      os.tmpdir(),
+      `hybridclaw-vision-${Date.now()}.jpg`,
+    );
+    fs.writeFileSync(tempImagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: 'Detected via task model policy.',
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { executeToolWithMetadata, setModelContext, setTaskModelPolicies } =
+      await import('../container/src/tools.js');
+    setModelContext(
+      'hybridai',
+      'https://hybridai.one',
+      'main-model-key',
+      'gpt-5-nano',
+      'bot_123',
+    );
+    setTaskModelPolicies({
+      vision: {
+        provider: 'lmstudio',
+        baseUrl: 'http://127.0.0.1:1234',
+        apiKey: '',
+        model: 'lmstudio/qwen/qwen2.5-vl',
+        chatbotId: '',
+        requestHeaders: {},
+        isLocal: true,
+        maxTokens: 321,
+      },
+    });
+
+    const result = await executeToolWithMetadata(
+      'vision_analyze',
+      JSON.stringify({
+        image_url: tempImagePath,
+        question: 'What is in this image?',
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:1234/v1/chat/completions',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(requestBody).toMatchObject({
+      model: 'qwen/qwen2.5-vl',
+      max_tokens: 321,
+    });
+    expect(result.output).toContain('Detected via task model policy.');
+  });
+
   test('blocks repeated identical discovery calls with identical outcomes', () => {
     const history = [];
     const argsJson = JSON.stringify({ path: 'same.md' });

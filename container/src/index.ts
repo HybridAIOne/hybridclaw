@@ -10,7 +10,6 @@ import {
 import { waitForInput, writeOutput } from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
-import { callHybridAI, callHybridAIStream } from './model-client.js';
 import {
   isRetryableModelError,
   shouldDowngradeStreamToNonStreaming,
@@ -20,6 +19,7 @@ import {
   injectNativeVisionContent,
   shouldRetryWithoutNativeMedia,
 } from './native-media.js';
+import { callRoutedModel, callRoutedModelStream } from './providers/router.js';
 import {
   buildRalphPrompt,
   normalizeMessageContentToText,
@@ -63,16 +63,19 @@ import {
   setModelContext,
   setScheduledTasks,
   setSessionContext,
+  setTaskModelPolicies,
   setWebSearchConfig,
   TOOL_DEFINITIONS,
 } from './tools.js';
-import type {
-  ArtifactMetadata,
-  ChatMessage,
-  ContainerInput,
-  ContainerOutput,
-  ToolDefinition,
-  ToolExecution,
+import {
+  type ArtifactMetadata,
+  type ChatCompletionResponse,
+  type ChatMessage,
+  type ContainerInput,
+  type ContainerOutput,
+  TASK_MODEL_KEYS,
+  type ToolDefinition,
+  type ToolExecution,
 } from './types.js';
 
 const IDLE_TIMEOUT_MS = parseInt(
@@ -109,8 +112,77 @@ let cachedSelectedSkillPath: string | null = null;
 /** Auth material received once via stdin, held in memory for the agent lifetime. */
 let storedApiKey = '';
 let storedRequestHeaders: Record<string, string> = {};
+let storedTaskModels: ContainerInput['taskModels'];
 let mcpClientManager: McpClientManager | null = null;
 let mcpConfigWatcher: McpConfigWatcher | null = null;
+
+function cloneTaskModels(
+  taskModels: ContainerInput['taskModels'],
+): ContainerInput['taskModels'] | undefined {
+  const cloned: NonNullable<ContainerInput['taskModels']> = {};
+  for (const key of TASK_MODEL_KEYS) {
+    const taskModel = taskModels?.[key];
+    if (!taskModel) continue;
+    cloned[key] = {
+      ...taskModel,
+      requestHeaders: taskModel.requestHeaders
+        ? { ...taskModel.requestHeaders }
+        : undefined,
+    };
+  }
+  return Object.keys(cloned).length > 0 ? cloned : undefined;
+}
+
+function normalizeTaskModelBaseUrl(baseUrl: string | undefined): string {
+  return String(baseUrl || '')
+    .trim()
+    .replace(/\/+$/g, '');
+}
+
+function resolveTaskModelsForRequest(
+  taskModels: ContainerInput['taskModels'],
+): ContainerInput['taskModels'] | undefined {
+  if (!taskModels) {
+    storedTaskModels = undefined;
+    return undefined;
+  }
+
+  const merged: NonNullable<ContainerInput['taskModels']> = {};
+  for (const key of TASK_MODEL_KEYS) {
+    const incomingTaskModel = taskModels[key];
+    if (!incomingTaskModel) continue;
+
+    const storedTaskModel = storedTaskModels?.[key];
+    const sameRouting =
+      !incomingTaskModel.error &&
+      String(incomingTaskModel.provider || '') ===
+        String(storedTaskModel?.provider || '') &&
+      normalizeTaskModelBaseUrl(incomingTaskModel.baseUrl) ===
+        normalizeTaskModelBaseUrl(storedTaskModel?.baseUrl) &&
+      String(incomingTaskModel.model || '').trim() ===
+        String(storedTaskModel?.model || '').trim();
+
+    merged[key] = {
+      ...incomingTaskModel,
+      apiKey:
+        String(incomingTaskModel.apiKey || '').trim() ||
+        (sameRouting ? String(storedTaskModel?.apiKey || '').trim() : ''),
+      requestHeaders:
+        incomingTaskModel.requestHeaders &&
+        Object.keys(incomingTaskModel.requestHeaders).length > 0
+          ? { ...incomingTaskModel.requestHeaders }
+          : sameRouting && storedTaskModel?.requestHeaders
+            ? { ...storedTaskModel.requestHeaders }
+            : undefined,
+    };
+  }
+  if (Object.keys(merged).length === 0) {
+    storedTaskModels = undefined;
+    return undefined;
+  }
+  storedTaskModels = cloneTaskModels(merged);
+  return merged;
+}
 
 async function syncMcpConfig(
   servers: ContainerInput['mcpServers'],
@@ -412,7 +484,7 @@ async function callHybridAIWithRetry(params: {
   isLocal?: boolean;
   contextWindow?: number;
   thinkingFormat?: 'qwen';
-}): Promise<Awaited<ReturnType<typeof callHybridAI>>> {
+}): Promise<ChatCompletionResponse> {
   const {
     provider,
     baseUrl,
@@ -441,10 +513,10 @@ async function callHybridAIWithRetry(params: {
     );
     await emitRuntimeEvent({ event: 'before_model_call', attempt });
     try {
-      let response: Awaited<ReturnType<typeof callHybridAI>>;
+      let response: ChatCompletionResponse;
       if (onTextDelta) {
         try {
-          response = await callHybridAIStream(
+          response = await callRoutedModelStream({
             provider,
             baseUrl,
             apiKey,
@@ -452,7 +524,7 @@ async function callHybridAIWithRetry(params: {
             chatbotId,
             enableRag,
             requestHeaders,
-            history,
+            messages: history,
             tools,
             onTextDelta,
             onActivity,
@@ -460,14 +532,14 @@ async function callHybridAIWithRetry(params: {
             isLocal,
             contextWindow,
             thinkingFormat,
-          );
+          });
         } catch (streamErr) {
           const fallbackEligible = shouldDowngradeStreamToNonStreaming(
             provider,
             streamErr,
           );
           if (!fallbackEligible) throw streamErr;
-          response = await callHybridAI(
+          response = await callRoutedModel({
             provider,
             baseUrl,
             apiKey,
@@ -475,16 +547,16 @@ async function callHybridAIWithRetry(params: {
             chatbotId,
             enableRag,
             requestHeaders,
-            history,
+            messages: history,
             tools,
             maxTokens,
             isLocal,
             contextWindow,
             thinkingFormat,
-          );
+          });
         }
       } else {
-        response = await callHybridAI(
+        response = await callRoutedModel({
           provider,
           baseUrl,
           apiKey,
@@ -492,13 +564,13 @@ async function callHybridAIWithRetry(params: {
           chatbotId,
           enableRag,
           requestHeaders,
-          history,
+          messages: history,
           tools,
           maxTokens,
           isLocal,
           contextWindow,
           thinkingFormat,
-        );
+        });
       }
       console.error(
         `[model] call success provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} toolCalls=${response.choices[0]?.message?.tool_calls?.length || 0}`,
@@ -979,6 +1051,7 @@ async function main(): Promise<void> {
   const firstInput: ContainerInput = JSON.parse(stdinData);
   storedApiKey = firstInput.apiKey;
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
+  const firstTaskModels = resolveTaskModelsForRequest(firstInput.taskModels);
 
   console.error(
     `[hybridclaw-agent] processing first request (${firstInput.messages.length} messages)`,
@@ -1003,6 +1076,7 @@ async function main(): Promise<void> {
     firstInput.chatbotId,
     storedRequestHeaders,
   );
+  setTaskModelPolicies(firstTaskModels);
   setMediaContext(firstInput.media);
   const firstVisionMessages = await injectNativeVisionContent({
     messages: firstInput.messages,
@@ -1113,6 +1187,7 @@ async function main(): Promise<void> {
     if (input.requestHeaders && Object.keys(input.requestHeaders).length > 0) {
       storedRequestHeaders = { ...input.requestHeaders };
     }
+    const taskModels = resolveTaskModelsForRequest(input.taskModels);
 
     console.error(
       `[hybridclaw-agent] processing request (${input.messages.length} messages)`,
@@ -1137,6 +1212,7 @@ async function main(): Promise<void> {
       input.chatbotId,
       requestHeaders,
     );
+    setTaskModelPolicies(taskModels);
     setMediaContext(input.media);
     const visionPreparedMessages = await injectNativeVisionContent({
       messages: input.messages,

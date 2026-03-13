@@ -66,3 +66,45 @@ test('computeWorkerSignature changes when provider routing changes', () => {
     }),
   ).not.toBe(baseline);
 });
+
+test('computeWorkerSignature changes when auxiliary task routing changes', () => {
+  const baseline = computeWorkerSignature({
+    agentId: 'main',
+    provider: 'hybridai',
+    baseUrl: 'https://hybridai.one',
+    apiKey: 'main-secret',
+    requestHeaders: {},
+    taskModels: {
+      compression: {
+        provider: 'lmstudio',
+        baseUrl: 'http://127.0.0.1:1234/v1',
+        apiKey: '',
+        requestHeaders: {},
+        model: 'lmstudio/qwen/qwen2.5-instruct',
+        chatbotId: '',
+        maxTokens: 222,
+      },
+    },
+  });
+
+  expect(
+    computeWorkerSignature({
+      agentId: 'main',
+      provider: 'hybridai',
+      baseUrl: 'https://hybridai.one',
+      apiKey: 'main-secret',
+      requestHeaders: {},
+      taskModels: {
+        compression: {
+          provider: 'vllm',
+          baseUrl: 'http://127.0.0.1:8000/v1',
+          apiKey: '',
+          requestHeaders: {},
+          model: 'vllm/mistral-small',
+          chatbotId: '',
+          maxTokens: 222,
+        },
+      },
+    }),
+  ).not.toBe(baseline);
+});
