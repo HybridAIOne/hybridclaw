@@ -297,12 +297,11 @@ async function withOpenRouterFallback(
   throw primaryError;
 }
 
-async function resolveTextCallContext(
+async function resolveExplicitTextCallContextWithFallback(
   params: AuxiliaryModelCallParams,
-): Promise<AuxiliaryTextCallContext> {
+): Promise<AuxiliaryTextCallContext | null> {
   try {
-    const explicit = await resolveExplicitTextCallContext(params);
-    if (explicit) return explicit;
+    return await resolveExplicitTextCallContext(params);
   } catch (error) {
     return withOpenRouterFallback(
       params,
@@ -311,12 +310,17 @@ async function resolveTextCallContext(
       params.provider === 'auto' ? undefined : params.provider,
     );
   }
+}
 
-  const requestedMaxTokens = normalizeMaxTokens(params.maxTokens);
+async function resolveTaskOverrideTextCallContext(
+  params: AuxiliaryModelCallParams,
+  requestedMaxTokens: number | undefined,
+): Promise<AuxiliaryTextCallContext | null> {
   const taskOverride = await resolveTaskModelPolicy(params.task, {
     agentId: params.agentId,
     chatbotId: params.fallbackChatbotId,
   });
+  if (!taskOverride) return null;
   if (taskOverride?.error) {
     return withOpenRouterFallback(
       params,
@@ -325,20 +329,24 @@ async function resolveTextCallContext(
       taskOverride.provider,
     );
   }
-  if (taskOverride?.provider) {
-    return buildResolvedContext({
-      task: params.task,
-      provider: taskOverride.provider,
-      baseUrl: taskOverride.baseUrl?.trim() ?? '',
-      apiKey: taskOverride.apiKey?.trim() ?? '',
-      model: taskOverride.model.trim(),
-      chatbotId: taskOverride.chatbotId?.trim() ?? '',
-      enableRag: false,
-      requestHeaders: taskOverride.requestHeaders,
-      maxTokens: requestedMaxTokens ?? taskOverride.maxTokens,
-    });
-  }
+  if (!taskOverride.provider) return null;
+  return buildResolvedContext({
+    task: params.task,
+    provider: taskOverride.provider,
+    baseUrl: taskOverride.baseUrl?.trim() ?? '',
+    apiKey: taskOverride.apiKey?.trim() ?? '',
+    model: taskOverride.model.trim(),
+    chatbotId: taskOverride.chatbotId?.trim() ?? '',
+    enableRag: false,
+    requestHeaders: taskOverride.requestHeaders,
+    maxTokens: requestedMaxTokens ?? taskOverride.maxTokens,
+  });
+}
 
+async function resolveFallbackModelTextCallContext(
+  params: AuxiliaryModelCallParams,
+  requestedMaxTokens: number | undefined,
+): Promise<AuxiliaryTextCallContext> {
   const fallbackModel = params.fallbackModel?.trim() ?? '';
   try {
     return await resolveContextFromModel({
@@ -358,6 +366,26 @@ async function resolveTextCallContext(
       detectRuntimeProviderPrefix(fallbackModel),
     );
   }
+}
+
+async function resolveTextCallContext(
+  params: AuxiliaryModelCallParams,
+): Promise<AuxiliaryTextCallContext> {
+  const requestedMaxTokens = normalizeMaxTokens(params.maxTokens);
+
+  // 1. Respect explicit provider/model overrides first.
+  const explicit = await resolveExplicitTextCallContextWithFallback(params);
+  if (explicit) return explicit;
+
+  // 2. Then prefer the configured auxiliary task model, if any.
+  const taskOverride = await resolveTaskOverrideTextCallContext(
+    params,
+    requestedMaxTokens,
+  );
+  if (taskOverride) return taskOverride;
+
+  // 3. Finally fall back to the session model, with OpenRouter as recovery.
+  return resolveFallbackModelTextCallContext(params, requestedMaxTokens);
 }
 
 function buildJsonHeaders(params: {
