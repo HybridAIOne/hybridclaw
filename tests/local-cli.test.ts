@@ -314,7 +314,7 @@ test('channels whatsapp setup preserves an existing custom ack reaction', async 
           },
           discovery: {
             enabled: true,
-            intervalMs: 300000,
+            intervalMs: 3600000,
             maxModels: 200,
             concurrency: 8,
           },
@@ -384,4 +384,18 @@ test('channels whatsapp setup --reset clears stale auth files before pairing', a
   await cli.main(['channels', 'whatsapp', 'setup', '--reset']);
 
   expect(fs.existsSync(path.join(authDir, 'creds.json'))).toBe(false);
+});
+
+test('auth whatsapp reset clears stale auth files without pairing', async () => {
+  const homeDir = makeTempHome();
+  const authDir = path.join(homeDir, '.hybridclaw', 'credentials', 'whatsapp');
+  fs.mkdirSync(authDir, { recursive: true });
+  fs.writeFileSync(path.join(authDir, 'creds.json'), '{"stale":true}', 'utf-8');
+
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main(['auth', 'whatsapp', 'reset']);
+
+  expect(fs.existsSync(path.join(authDir, 'creds.json'))).toBe(false);
+  expect(fs.existsSync(authDir)).toBe(true);
 });

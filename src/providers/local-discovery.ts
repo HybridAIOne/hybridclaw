@@ -18,6 +18,7 @@ import type {
   LocalModelInfo,
   LocalThinkingFormat,
 } from './local-types.js';
+import { isRecord, normalizeBaseUrl } from './utils.js';
 
 const DISCOVERY_ORDER: LocalBackendType[] = ['ollama', 'lmstudio', 'vllm'];
 const ZERO_COST = {
@@ -27,30 +28,12 @@ const ZERO_COST = {
   cacheWrite: 0,
 } as const;
 
-let discoveryTimer: ReturnType<typeof setInterval> | null = null;
-let discoveryInFlight: Promise<LocalModelInfo[]> | null = null;
-const discoveredByBackend = new Map<
-  LocalBackendType,
-  Map<string, LocalModelInfo>
->();
-const discoveredById = new Map<string, LocalModelInfo>();
-
 function hasEnabledLocalBackend(): boolean {
   return LOCAL_OLLAMA_ENABLED || LOCAL_LMSTUDIO_ENABLED || LOCAL_VLLM_ENABLED;
 }
 
 function normalizeModelId(modelId: string): string {
   return String(modelId || '').trim();
-}
-
-function normalizeBaseUrl(baseUrl: string): string {
-  return String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '');
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function isReasoningModel(modelId: string): boolean {
@@ -184,6 +167,33 @@ function resolveOpenAICompatBaseUrl(configuredBaseUrl: string): string {
   return normalizeBaseUrl(configuredBaseUrl);
 }
 
+async function fetchOpenAICompatModels(
+  backend: Extract<LocalBackendType, 'lmstudio' | 'vllm'>,
+  baseUrl: string,
+  apiKey?: string,
+): Promise<LocalModelInfo[]> {
+  const headers: Record<string, string> = {};
+  if (String(apiKey || '').trim()) {
+    headers.Authorization = `Bearer ${String(apiKey).trim()}`;
+  }
+
+  const apiBase = resolveOpenAICompatBaseUrl(baseUrl);
+  const payload = await fetchJson(`${apiBase}/models`, { headers }, 5_000);
+  const data =
+    isRecord(payload) && Array.isArray(payload.data) ? payload.data : [];
+
+  return data
+    .filter((entry) => isRecord(entry) && typeof entry.id === 'string')
+    .slice(0, LOCAL_DISCOVERY_MAX_MODELS)
+    .map((entry) =>
+      createLocalModelInfo(
+        backend,
+        String((entry as Record<string, unknown>).id || '').trim(),
+      ),
+    )
+    .filter((model) => Boolean(model.id));
+}
+
 export async function discoverOllamaModels(
   baseUrl = LOCAL_OLLAMA_BASE_URL,
   opts?: { maxModels?: number; concurrency?: number },
@@ -250,149 +260,205 @@ export async function discoverOllamaModels(
 export async function discoverLmStudioModels(
   baseUrl = LOCAL_LMSTUDIO_BASE_URL,
 ): Promise<LocalModelInfo[]> {
-  const apiBase = resolveOpenAICompatBaseUrl(baseUrl);
-  const payload = await fetchJson(`${apiBase}/models`, {}, 5_000);
-  const data =
-    isRecord(payload) && Array.isArray(payload.data) ? payload.data : [];
-  return data
-    .filter((entry) => isRecord(entry) && typeof entry.id === 'string')
-    .slice(0, LOCAL_DISCOVERY_MAX_MODELS)
-    .map((entry) => {
-      const record = entry as Record<string, unknown>;
-      return createLocalModelInfo('lmstudio', String(record.id || '').trim());
-    })
-    .filter((model) => Boolean(model.id));
+  return fetchOpenAICompatModels('lmstudio', baseUrl);
 }
 
 export async function discoverVllmModels(
   baseUrl = LOCAL_VLLM_BASE_URL,
   apiKey = LOCAL_VLLM_API_KEY,
 ): Promise<LocalModelInfo[]> {
-  const headers: Record<string, string> = {};
-  if (String(apiKey || '').trim()) {
-    headers.Authorization = `Bearer ${String(apiKey).trim()}`;
-  }
-  const apiBase = resolveOpenAICompatBaseUrl(baseUrl);
-  const payload = await fetchJson(`${apiBase}/models`, { headers }, 5_000);
-  const data =
-    isRecord(payload) && Array.isArray(payload.data) ? payload.data : [];
-  return data
-    .filter((entry) => isRecord(entry) && typeof entry.id === 'string')
-    .slice(0, LOCAL_DISCOVERY_MAX_MODELS)
-    .map((entry) =>
-      createLocalModelInfo(
-        'vllm',
-        String((entry as Record<string, unknown>).id || '').trim(),
-      ),
-    )
-    .filter((model) => Boolean(model.id));
+  return fetchOpenAICompatModels('vllm', baseUrl, apiKey);
 }
 
-function replaceDiscoveryCache(models: LocalModelInfo[]): void {
-  discoveredByBackend.clear();
-  discoveredById.clear();
-
-  for (const backend of DISCOVERY_ORDER) {
-    discoveredByBackend.set(backend, new Map());
-  }
-
-  for (const model of models) {
-    const backendMap = discoveredByBackend.get(model.backend);
-    if (!backendMap) continue;
-    backendMap.set(model.id, model);
-    if (!discoveredById.has(model.id)) {
-      discoveredById.set(model.id, model);
-    }
-  }
+export interface LocalDiscoveryStore {
+  discoverAllModels: (opts?: { force?: boolean }) => Promise<LocalModelInfo[]>;
+  getDiscoveredModels: () => LocalModelInfo[];
+  getDiscoveredModelNames: () => string[];
+  getModelInfo: (model: string) => LocalModelInfo | null;
+  startLoop: () => void;
+  stopLoop: () => void;
 }
 
-export async function discoverAllLocalModels(): Promise<LocalModelInfo[]> {
-  if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
-    replaceDiscoveryCache([]);
-    return [];
-  }
+export function createLocalDiscoveryStore(): LocalDiscoveryStore {
+  let discoveryTimer: ReturnType<typeof setInterval> | null = null;
+  let discoveryInFlight: Promise<LocalModelInfo[]> | null = null;
+  let lastDiscoveryAtMs = 0;
+  const discoveredByBackend = new Map<
+    LocalBackendType,
+    Map<string, LocalModelInfo>
+  >();
+  const discoveredById = new Map<string, LocalModelInfo>();
 
-  if (discoveryInFlight) return discoveryInFlight;
+  function replaceDiscoveryCache(models: LocalModelInfo[]): void {
+    discoveredByBackend.clear();
+    discoveredById.clear();
 
-  discoveryInFlight = (async () => {
-    const tasks: Array<Promise<LocalModelInfo[]>> = [];
-    if (LOCAL_OLLAMA_ENABLED) {
-      tasks.push(
-        discoverOllamaModels(LOCAL_OLLAMA_BASE_URL, {
-          maxModels: LOCAL_DISCOVERY_MAX_MODELS,
-          concurrency: LOCAL_DISCOVERY_CONCURRENCY,
-        }).catch(() => []),
-      );
-    }
-    if (LOCAL_LMSTUDIO_ENABLED) {
-      tasks.push(
-        discoverLmStudioModels(LOCAL_LMSTUDIO_BASE_URL).catch(() => []),
-      );
-    }
-    if (LOCAL_VLLM_ENABLED) {
-      tasks.push(
-        discoverVllmModels(LOCAL_VLLM_BASE_URL, LOCAL_VLLM_API_KEY).catch(
-          () => [],
-        ),
-      );
-    }
-
-    const discovered = (await Promise.all(tasks)).flat();
-    const deduped: LocalModelInfo[] = [];
-    const seen = new Set<string>();
     for (const backend of DISCOVERY_ORDER) {
-      for (const model of discovered.filter(
-        (entry) => entry.backend === backend,
-      )) {
-        const cacheKey = `${model.backend}:${model.id}`;
-        if (seen.has(cacheKey)) continue;
-        seen.add(cacheKey);
-        deduped.push(model);
+      discoveredByBackend.set(backend, new Map());
+    }
+
+    for (const model of models) {
+      const backendMap = discoveredByBackend.get(model.backend);
+      if (!backendMap) continue;
+      backendMap.set(model.id, model);
+      if (!discoveredById.has(model.id)) {
+        discoveredById.set(model.id, model);
       }
     }
-
-    replaceDiscoveryCache(deduped);
-    return deduped;
-  })();
-
-  try {
-    return await discoveryInFlight;
-  } finally {
-    discoveryInFlight = null;
   }
+
+  function getDiscoveredModels(): LocalModelInfo[] {
+    const models: LocalModelInfo[] = [];
+    for (const backend of DISCOVERY_ORDER) {
+      const backendMap = discoveredByBackend.get(backend);
+      if (!backendMap) continue;
+      models.push(...backendMap.values());
+    }
+    return models;
+  }
+
+  function getDiscoveredModelNames(): string[] {
+    const names = new Set<string>();
+    for (const model of getDiscoveredModels()) {
+      names.add(`${model.backend}/${model.id}`);
+    }
+    return [...names];
+  }
+
+  function getModelInfo(model: string): LocalModelInfo | null {
+    const normalized = normalizeModelId(model);
+    if (!normalized) return null;
+
+    const slashIndex = normalized.indexOf('/');
+    if (slashIndex > 0) {
+      const backend = normalized.slice(0, slashIndex) as LocalBackendType;
+      const modelId = normalized.slice(slashIndex + 1);
+      const backendMap = discoveredByBackend.get(backend);
+      return backendMap?.get(modelId) || null;
+    }
+
+    return discoveredById.get(normalized) || null;
+  }
+
+  async function discoverAllModels(opts?: {
+    force?: boolean;
+  }): Promise<LocalModelInfo[]> {
+    if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
+      lastDiscoveryAtMs = 0;
+      replaceDiscoveryCache([]);
+      return [];
+    }
+
+    const cacheTtlMs = Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS);
+    if (
+      !opts?.force &&
+      lastDiscoveryAtMs > 0 &&
+      Date.now() - lastDiscoveryAtMs < cacheTtlMs
+    ) {
+      return getDiscoveredModels();
+    }
+
+    if (discoveryInFlight) return discoveryInFlight;
+
+    discoveryInFlight = (async () => {
+      try {
+        const tasks: Array<Promise<LocalModelInfo[]>> = [];
+        if (LOCAL_OLLAMA_ENABLED) {
+          tasks.push(
+            discoverOllamaModels(LOCAL_OLLAMA_BASE_URL, {
+              maxModels: LOCAL_DISCOVERY_MAX_MODELS,
+              concurrency: LOCAL_DISCOVERY_CONCURRENCY,
+            }).catch(() => []),
+          );
+        }
+        if (LOCAL_LMSTUDIO_ENABLED) {
+          tasks.push(
+            discoverLmStudioModels(LOCAL_LMSTUDIO_BASE_URL).catch(() => []),
+          );
+        }
+        if (LOCAL_VLLM_ENABLED) {
+          tasks.push(
+            discoverVllmModels(LOCAL_VLLM_BASE_URL, LOCAL_VLLM_API_KEY).catch(
+              () => [],
+            ),
+          );
+        }
+
+        const discovered = (await Promise.all(tasks)).flat();
+        const deduped: LocalModelInfo[] = [];
+        const seen = new Set<string>();
+        for (const backend of DISCOVERY_ORDER) {
+          for (const model of discovered.filter(
+            (entry) => entry.backend === backend,
+          )) {
+            const cacheKey = `${model.backend}:${model.id}`;
+            if (seen.has(cacheKey)) continue;
+            seen.add(cacheKey);
+            deduped.push(model);
+          }
+        }
+
+        replaceDiscoveryCache(deduped);
+        lastDiscoveryAtMs = Date.now();
+        return deduped;
+      } finally {
+        discoveryInFlight = null;
+      }
+    })();
+
+    return discoveryInFlight;
+  }
+
+  function stopLoop(): void {
+    if (!discoveryTimer) return;
+    clearInterval(discoveryTimer);
+    discoveryTimer = null;
+  }
+
+  function startLoop(): void {
+    stopLoop();
+    if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
+      lastDiscoveryAtMs = 0;
+      replaceDiscoveryCache([]);
+      return;
+    }
+    void discoverAllModels({ force: true });
+    discoveryTimer = setInterval(
+      () => {
+        void discoverAllModels({ force: true });
+      },
+      Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS),
+    );
+  }
+
+  return {
+    discoverAllModels,
+    getDiscoveredModels,
+    getDiscoveredModelNames,
+    getModelInfo,
+    startLoop,
+    stopLoop,
+  };
+}
+
+const defaultLocalDiscoveryStore = createLocalDiscoveryStore();
+
+export async function discoverAllLocalModels(opts?: {
+  force?: boolean;
+}): Promise<LocalModelInfo[]> {
+  return defaultLocalDiscoveryStore.discoverAllModels(opts);
 }
 
 export function getDiscoveredLocalModels(): LocalModelInfo[] {
-  const models: LocalModelInfo[] = [];
-  for (const backend of DISCOVERY_ORDER) {
-    const backendMap = discoveredByBackend.get(backend);
-    if (!backendMap) continue;
-    models.push(...backendMap.values());
-  }
-  return models;
+  return defaultLocalDiscoveryStore.getDiscoveredModels();
 }
 
 export function getDiscoveredLocalModelNames(): string[] {
-  const names = new Set<string>();
-  for (const model of getDiscoveredLocalModels()) {
-    names.add(`${model.backend}/${model.id}`);
-  }
-  return [...names];
+  return defaultLocalDiscoveryStore.getDiscoveredModelNames();
 }
 
 export function getLocalModelInfo(model: string): LocalModelInfo | null {
-  const normalized = normalizeModelId(model);
-  if (!normalized) return null;
-
-  const slashIndex = normalized.indexOf('/');
-  if (slashIndex > 0) {
-    const backend = normalized.slice(0, slashIndex) as LocalBackendType;
-    const modelId = normalized.slice(slashIndex + 1);
-    const backendMap = discoveredByBackend.get(backend);
-    return backendMap?.get(modelId) || null;
-  }
-
-  return discoveredById.get(normalized) || null;
+  return defaultLocalDiscoveryStore.getModelInfo(model);
 }
 
 export function resolveLocalModelContextWindow(model: string): number | null {
@@ -410,28 +476,9 @@ export function resolveLocalModelThinkingFormat(
 }
 
 export function startDiscoveryLoop(): void {
-  stopDiscoveryLoop();
-  if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
-    replaceDiscoveryCache([]);
-    return;
-  }
-  void discoverAllLocalModels();
-  discoveryTimer = setInterval(
-    () => {
-      void discoverAllLocalModels();
-    },
-    Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS),
-  );
+  defaultLocalDiscoveryStore.startLoop();
 }
 
 export function stopDiscoveryLoop(): void {
-  if (!discoveryTimer) return;
-  clearInterval(discoveryTimer);
-  discoveryTimer = null;
-}
-
-export function resetLocalDiscoveryState(): void {
-  stopDiscoveryLoop();
-  discoveryInFlight = null;
-  replaceDiscoveryCache([]);
+  defaultLocalDiscoveryStore.stopLoop();
 }

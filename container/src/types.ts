@@ -112,7 +112,13 @@ export interface ContainerInput {
   enableRag: boolean;
   apiKey: string;
   baseUrl: string;
-  provider?: 'hybridai' | 'openai-codex' | 'ollama' | 'lmstudio' | 'vllm';
+  provider?:
+    | 'hybridai'
+    | 'openai-codex'
+    | 'openrouter'
+    | 'ollama'
+    | 'lmstudio'
+    | 'vllm';
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;

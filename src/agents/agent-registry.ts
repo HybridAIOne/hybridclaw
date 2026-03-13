@@ -384,6 +384,17 @@ export function getAgentById(agentId: string): AgentConfig | null {
   return findAgentConfig(normalizedId);
 }
 
+export function getStoredAgentConfig(
+  agentId?: string | null,
+): AgentConfig | null {
+  const normalizedId = normalizeString(agentId) || DEFAULT_AGENT_ID;
+  ensureRegistryCurrent();
+  if (isDatabaseInitialized()) {
+    return dbGetAgentById(normalizedId);
+  }
+  return registry.get(normalizedId) || null;
+}
+
 export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
   if (!isDatabaseInitialized()) {
     throw new Error('Database is not initialized.');

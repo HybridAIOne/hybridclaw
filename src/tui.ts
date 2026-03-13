@@ -32,6 +32,7 @@ import {
 import { logger } from './logger.js';
 import {
   normalizeModelCandidates,
+  parseModelInfoSummaryFromText,
   parseModelNamesFromListText,
 } from './model-selection.js';
 import {
@@ -393,12 +394,12 @@ function printHelp(): void {
   console.log(`  ${BOLD}${GOLD}Commands${RESET}`);
   console.log(`  ${TEAL}/help${RESET}             Show this help`);
   console.log(
-    `  ${TEAL}/agent [info|list|switch|create] [id] [--model <model>]${RESET} Inspect or manage agents`,
+    `  ${TEAL}/agent [info|list|switch|create|model] [id] [--model <model>]${RESET} Inspect or manage agents`,
   );
   console.log(`  ${TEAL}/bots${RESET}             List available bots`);
   console.log(`  ${TEAL}/bot <id|name>${RESET}    Switch bot for this session`);
   console.log(
-    `  ${TEAL}/model [<name>|default [name]]${RESET} Pick from selector or set session/default model`,
+    `  ${TEAL}/model [<name>|info|list [provider]|set <name>|clear|default [name]]${RESET} Inspect or set session/default model`,
   );
   console.log(`  ${TEAL}/rag [on|off]${RESET}     Toggle or set RAG`);
   console.log(`  ${TEAL}/ralph [on|off|set n]${RESET} Configure Ralph loop`);
@@ -483,6 +484,30 @@ function printInfo(text: string): void {
   console.log();
 }
 
+function isModelCatalogCommandResult(result: GatewayCommandResult): boolean {
+  const title = String(result.title || '').trim();
+  return title.startsWith('Available Models') || title === 'Default Model';
+}
+
+function printModelCatalogCommandResult(result: GatewayCommandResult): void {
+  console.log();
+  if (result.title) {
+    console.log(`  ${GOLD}${result.title}${RESET}`);
+  }
+  if (Array.isArray(result.modelCatalog) && result.modelCatalog.length > 0) {
+    for (const entry of result.modelCatalog) {
+      const color = entry.isFree ? GREEN : GOLD;
+      console.log(`  ${color}${entry.label}${RESET}`);
+    }
+    console.log();
+    return;
+  }
+  for (const line of result.text.split('\n')) {
+    console.log(`  ${GOLD}${line}${RESET}`);
+  }
+  console.log();
+}
+
 function printToolUsage(tools: string[]): void {
   if (tools.length === 0) return;
   console.log(
@@ -494,6 +519,10 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
   if (result.kind === 'error') {
     const prefix = result.title ? `${result.title}: ` : '';
     printError(`${prefix}${result.text}`);
+    return;
+  }
+  if (isModelCatalogCommandResult(result)) {
+    printModelCatalogCommandResult(result);
     return;
   }
   printInfo(renderGatewayCommand(result));
@@ -799,16 +828,11 @@ function parseCurrentModelFromInfo(
 function parseModelInfoFromInfo(
   result: GatewayCommandResult,
 ): { current: string; defaultModel: string } | null {
-  const text = (result.text || '').trim();
-  if (!text) return null;
-  const currentMatch = text.match(/Current model:\s*([^\n\r]+)/i);
-  const defaultMatch = text.match(/Default model:\s*([^\n\r]+)/i);
-  const current = (currentMatch?.[1] || '').trim();
-  const defaultModel = (defaultMatch?.[1] || '').trim();
-  if (!current && !defaultModel) return null;
+  const parsed = parseModelInfoSummaryFromText(result.text || '');
+  if (!parsed) return null;
   return {
-    current: current || defaultModel || HYBRIDAI_MODEL,
-    defaultModel: defaultModel || current || HYBRIDAI_MODEL,
+    current: parsed.current || parsed.defaultModel || HYBRIDAI_MODEL,
+    defaultModel: parsed.defaultModel || parsed.current || HYBRIDAI_MODEL,
   };
 }
 
@@ -822,13 +846,34 @@ async function fetchCurrentSessionModel(): Promise<string | null> {
   }
 }
 
-async function fetchSelectableModels(): Promise<string[]> {
-  const fallback = normalizeModelCandidates(CONFIGURED_MODELS);
+async function fetchSelectableModels(): Promise<
+  Array<{ name: string; isFree: boolean }>
+> {
+  const fallback = normalizeModelCandidates(CONFIGURED_MODELS).map((model) => ({
+    name: model,
+    isFree: false,
+  }));
   try {
     const result = await requestGatewayCommand(['model', 'list']);
     if (result.kind === 'error') return fallback;
+    if (Array.isArray(result.modelCatalog) && result.modelCatalog.length > 0) {
+      const seen = new Set<string>();
+      const models: Array<{ name: string; isFree: boolean }> = [];
+      for (const entry of result.modelCatalog) {
+        const name = String(entry.value || '').trim();
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        models.push({
+          name,
+          isFree: entry.isFree === true,
+        });
+      }
+      return models.length > 0 ? models : fallback;
+    }
     const models = parseModelNamesFromListText(result.text || '');
-    return models.length > 0 ? models : fallback;
+    return models.length > 0
+      ? models.map((model) => ({ name: model, isFree: false }))
+      : fallback;
   } catch {
     return fallback;
   }
@@ -860,11 +905,21 @@ async function promptModelSelection(
   const currentModel = await fetchCurrentSessionModel();
   console.log(`  ${BOLD}${GOLD}Model selector${RESET}`);
   if (currentModel) {
-    console.log(`  ${MUTED}Current:${RESET} ${TEAL}${currentModel}${RESET}`);
+    const currentColor =
+      models.find((entry) => entry.name === currentModel)?.isFree === true
+        ? GREEN
+        : TEAL;
+    console.log(
+      `  ${MUTED}Current:${RESET} ${currentColor}${currentModel}${RESET}`,
+    );
   }
-  for (const [index, model] of models.entries()) {
-    const suffix = currentModel === model ? ` ${MUTED}(current)${RESET}` : '';
-    console.log(`  ${TEAL}${index + 1}${RESET} ${model}${suffix}`);
+  for (const [index, entry] of models.entries()) {
+    const suffix =
+      currentModel === entry.name ? ` ${MUTED}(current)${RESET}` : '';
+    const modelColor = entry.isFree ? GREEN : RESET;
+    console.log(
+      `  ${TEAL}${index + 1}${RESET} ${modelColor}${entry.name}${RESET}${suffix}`,
+    );
   }
 
   const answer = await new Promise<string>((resolve) => {
@@ -878,9 +933,9 @@ async function promptModelSelection(
 
   const asNumber = Number.parseInt(trimmed, 10);
   if (Number.isFinite(asNumber) && asNumber >= 1 && asNumber <= models.length) {
-    return models[asNumber - 1];
+    return models[asNumber - 1]?.name || null;
   }
-  if (models.includes(trimmed)) return trimmed;
+  if (models.some((entry) => entry.name === trimmed)) return trimmed;
 
   printInfo('Invalid model selection.');
   return null;
@@ -913,19 +968,17 @@ async function handleSlashCommand(
         }
         return true;
       }
-      if (parts[1] === 'default') {
-        if (parts.length > 2) {
-          await runGatewayCommand(['model', 'default', ...parts.slice(2)], rl);
-        } else {
-          await runGatewayCommand(['model', 'default'], rl);
+      {
+        const gatewayArgs = mapTuiSlashCommandToGatewayArgs(parts);
+        if (gatewayArgs) {
+          await runGatewayCommand(gatewayArgs, rl);
+          return true;
         }
+      }
+      if (parts.length > 1) {
+        await runGatewayCommand(['model', 'set', ...parts.slice(1)], rl);
         return true;
       }
-      if (parts[1] === 'info' || parts[1] === 'list') {
-        await runGatewayCommand(['model', parts[1]], rl);
-        return true;
-      }
-      await runGatewayCommand(['model', 'set', ...parts.slice(1)], rl);
       return true;
     case 'approve': {
       const action = (parts[1] || 'view').trim().toLowerCase();

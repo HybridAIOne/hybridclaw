@@ -71,12 +71,14 @@ export const APP_VERSION = resolveAppVersion();
 function syncRuntimeSecretExports(): void {
   DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';
   HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY || '';
+  OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
 }
 
 // Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
 export let DISCORD_TOKEN = '';
 // Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
 export let HYBRIDAI_API_KEY = '';
+export let OPENROUTER_API_KEY = '';
 syncRuntimeSecretExports();
 
 export function refreshRuntimeSecretsFromEnv(): void {
@@ -171,9 +173,15 @@ export let CODEX_MODELS: string[] = [
   'openai-codex/gpt-5.2',
   'openai-codex/gpt-5.1-codex-mini',
 ];
+export let OPENROUTER_ENABLED = false;
+export let OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+export let OPENROUTER_MODELS: string[] = [
+  'openrouter/anthropic/claude-sonnet-4',
+];
 export let CONFIGURED_MODELS: string[] = dedupeStringList([
   ...HYBRIDAI_MODELS,
   ...CODEX_MODELS,
+  ...(OPENROUTER_ENABLED ? OPENROUTER_MODELS : []),
 ]);
 export let LOCAL_OLLAMA_ENABLED = true;
 export let LOCAL_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
@@ -183,7 +191,7 @@ export let LOCAL_VLLM_ENABLED = false;
 export let LOCAL_VLLM_BASE_URL = 'http://127.0.0.1:8000/v1';
 export let LOCAL_VLLM_API_KEY = '';
 export let LOCAL_DISCOVERY_ENABLED = true;
-export let LOCAL_DISCOVERY_INTERVAL_MS = 300_000;
+export let LOCAL_DISCOVERY_INTERVAL_MS = 3_600_000;
 export let LOCAL_DISCOVERY_MAX_MODELS = 200;
 export let LOCAL_DISCOVERY_CONCURRENCY = 8;
 export let LOCAL_HEALTH_CHECK_ENABLED = true;
@@ -413,8 +421,15 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   CODEX_BASE_URL = config.codex.baseUrl;
   CODEX_MODELS = [...config.codex.models];
+  OPENROUTER_ENABLED = config.openrouter.enabled;
+  OPENROUTER_BASE_URL = config.openrouter.baseUrl;
+  OPENROUTER_MODELS = [...config.openrouter.models];
   HYBRIDAI_MODELS = [...config.hybridai.models];
-  CONFIGURED_MODELS = dedupeStringList([...HYBRIDAI_MODELS, ...CODEX_MODELS]);
+  CONFIGURED_MODELS = dedupeStringList([
+    ...HYBRIDAI_MODELS,
+    ...CODEX_MODELS,
+    ...(OPENROUTER_ENABLED ? OPENROUTER_MODELS : []),
+  ]);
   LOCAL_OLLAMA_ENABLED = config.local.backends.ollama.enabled;
   LOCAL_OLLAMA_BASE_URL = config.local.backends.ollama.baseUrl;
   LOCAL_LMSTUDIO_ENABLED = config.local.backends.lmstudio.enabled;

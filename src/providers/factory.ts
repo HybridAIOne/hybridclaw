@@ -4,12 +4,14 @@ import {
   LOCAL_LMSTUDIO_ENABLED,
   LOCAL_OLLAMA_ENABLED,
   LOCAL_VLLM_ENABLED,
+  OPENROUTER_ENABLED,
 } from '../config/config.js';
 import { anthropicProvider } from './anthropic.js';
 import { hybridAIProvider } from './hybridai.js';
 import { ollamaProvider } from './local-ollama.js';
 import { lmstudioProvider, vllmProvider } from './local-openai-compat.js';
 import { openAIProvider } from './openai.js';
+import { openrouterProvider } from './openrouter.js';
 import type {
   AIProvider,
   AIProviderId,
@@ -21,6 +23,7 @@ function getActiveProviders(): AIProvider[] {
   return [
     openAIProvider,
     anthropicProvider,
+    ...(OPENROUTER_ENABLED ? [openrouterProvider] : []),
     ...(LOCAL_OLLAMA_ENABLED ? [ollamaProvider] : []),
     ...(LOCAL_LMSTUDIO_ENABLED ? [lmstudioProvider] : []),
     ...(LOCAL_VLLM_ENABLED ? [vllmProvider] : []),

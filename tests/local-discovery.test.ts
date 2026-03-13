@@ -43,6 +43,7 @@ async function importFreshDiscovery(homeDir: string) {
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
     delete process.env.HOME;
@@ -55,8 +56,6 @@ afterEach(async () => {
     process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
       ORIGINAL_DISABLE_CONFIG_WATCHER;
   }
-  const discovery = await import('../src/providers/local-discovery.js');
-  discovery.resetLocalDiscoveryState();
 });
 
 describe('local discovery', () => {
@@ -211,6 +210,50 @@ describe('local discovery', () => {
       },
     );
     expect((fetchMock.mock.calls[1]?.[1] as RequestInit).headers).toEqual({});
+  });
+
+  test('discoverAllLocalModels reloads vLLM discovery after the cache expires', async () => {
+    const homeDir = makeTempHome();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-13T10:00:00Z'));
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = false;
+      config.local.backends.lmstudio.enabled = false;
+      config.local.backends.vllm.enabled = true;
+      config.local.backends.vllm.baseUrl = 'http://127.0.0.1:8000/v1';
+      config.local.backends.vllm.apiKey = 'secret';
+    });
+    const discovery = await importFreshDiscovery(homeDir);
+
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [{ id: 'granite-3.2' }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = await discovery.discoverAllLocalModels();
+    const second = await discovery.discoverAllLocalModels();
+    vi.setSystemTime(new Date('2026-03-13T10:59:59Z'));
+    const third = await discovery.discoverAllLocalModels();
+    vi.setSystemTime(new Date('2026-03-13T11:00:01Z'));
+    const fourth = await discovery.discoverAllLocalModels();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(first.map((model) => [model.backend, model.id])).toEqual([
+      ['vllm', 'granite-3.2'],
+    ]);
+    expect(second.map((model) => [model.backend, model.id])).toEqual([
+      ['vllm', 'granite-3.2'],
+    ]);
+    expect(third.map((model) => [model.backend, model.id])).toEqual([
+      ['vllm', 'granite-3.2'],
+    ]);
+    expect(fourth.map((model) => [model.backend, model.id])).toEqual([
+      ['vllm', 'granite-3.2'],
+    ]);
   });
 
   test('resolveOllamaApiBase with trailing slash strips it', async () => {

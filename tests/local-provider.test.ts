@@ -68,8 +68,6 @@ afterEach(async () => {
   } else {
     process.env.HYBRIDAI_API_KEY = ORIGINAL_HYBRIDAI_API_KEY;
   }
-  const discovery = await import('../src/providers/local-discovery.js');
-  discovery.resetLocalDiscoveryState();
 });
 
 describe('local providers', () => {

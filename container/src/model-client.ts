@@ -36,7 +36,11 @@ export async function callHybridAI(
   if (args.provider === 'ollama') {
     return callOllamaProvider(args);
   }
-  if (args.provider === 'lmstudio' || args.provider === 'vllm') {
+  if (
+    args.provider === 'openrouter' ||
+    args.provider === 'lmstudio' ||
+    args.provider === 'vllm'
+  ) {
     return callLocalOpenAICompatProvider(args);
   }
   return callHybridAIProvider(args);
@@ -56,7 +60,11 @@ export async function callHybridAIStream(
   if (args.provider === 'ollama') {
     return callOllamaProviderStream(args);
   }
-  if (args.provider === 'lmstudio' || args.provider === 'vllm') {
+  if (
+    args.provider === 'openrouter' ||
+    args.provider === 'lmstudio' ||
+    args.provider === 'vllm'
+  ) {
     return callLocalOpenAICompatProviderStream(args);
   }
   return callHybridAIProviderStream(args);

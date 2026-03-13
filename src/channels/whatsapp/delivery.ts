@@ -15,6 +15,9 @@ import type { WhatsAppOutboundMessageRef } from './self-echo-cache.js';
 
 const OUTBOUND_DELAY_MS = 350;
 type SentWhatsAppMessage = proto.WebMessageInfo | undefined;
+type SentMessageHandler = (
+  message: SentWhatsAppMessage,
+) => Promise<void> | void;
 
 function clampTextChunkLimit(limit: number): number {
   return Math.max(200, Math.min(4_000, Math.floor(limit)));
@@ -46,11 +49,13 @@ export async function sendChunkedWhatsAppText(
   sock: Pick<WASocket, 'sendMessage'>,
   jid: string,
   text: string,
+  onSentMessage?: SentMessageHandler,
 ): Promise<WhatsAppOutboundMessageRef[]> {
   const chunks = prepareWhatsAppTextChunks(text);
   const refs: WhatsAppOutboundMessageRef[] = [];
   for (let index = 0; index < chunks.length; index += 1) {
     const sent = await sock.sendMessage(jid, { text: chunks[index] });
+    await onSentMessage?.(sent);
     const ref = toOutboundMessageRef(sent, jid);
     if (ref) refs.push(ref);
     if (index < chunks.length - 1) {
@@ -67,6 +72,7 @@ export async function sendWhatsAppMedia(params: {
   mimeType?: string | null;
   filename?: string | null;
   caption?: string;
+  onSentMessage?: SentMessageHandler;
 }): Promise<WhatsAppOutboundMessageRef | null> {
   const mimeType =
     String(params.mimeType || '')
@@ -93,6 +99,7 @@ export async function sendWhatsAppMedia(params: {
   }
 
   const sent = await params.sock.sendMessage(params.jid, content);
+  await params.onSentMessage?.(sent);
   return toOutboundMessageRef(sent, params.jid);
 }
 

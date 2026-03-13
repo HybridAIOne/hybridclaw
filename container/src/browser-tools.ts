@@ -6,6 +6,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { normalizeOpenRouterRuntimeModelName } from './providers/shared.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   resolveMediaPath,
@@ -157,7 +158,13 @@ type UploadTarget = {
   source: 'ref' | 'selector';
 };
 type BrowserModelContext = {
-  provider: 'hybridai' | 'openai-codex' | 'ollama' | 'lmstudio' | 'vllm';
+  provider:
+    | 'hybridai'
+    | 'openai-codex'
+    | 'openrouter'
+    | 'ollama'
+    | 'lmstudio'
+    | 'vllm';
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -194,6 +201,7 @@ export function setBrowserModelContext(
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'openrouter'
     | 'ollama'
     | 'lmstudio'
     | 'vllm'
@@ -224,6 +232,9 @@ function normalizeCodexModelName(model: string): string {
 
 function normalizeLocalModelName(provider: string, model: string): string {
   const trimmed = String(model || '').trim();
+  if (provider === 'openrouter') {
+    return normalizeOpenRouterRuntimeModelName(trimmed);
+  }
   const prefix = `${provider}/`;
   if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
   return trimmed.slice(prefix.length) || trimmed;
@@ -915,6 +926,7 @@ async function callVisionModel(
   }
   if (
     provider !== 'openai-codex' &&
+    provider !== 'openrouter' &&
     provider !== 'ollama' &&
     provider !== 'lmstudio' &&
     provider !== 'vllm' &&
@@ -929,7 +941,9 @@ async function callVisionModel(
       ? `${baseUrl}/responses`
       : provider === 'ollama'
         ? `${normalizeOllamaBaseUrl(baseUrl)}/api/chat`
-        : provider === 'lmstudio' || provider === 'vllm'
+        : provider === 'openrouter' ||
+            provider === 'lmstudio' ||
+            provider === 'vllm'
           ? `${baseUrl}/chat/completions`
           : `${baseUrl}/v1/chat/completions`;
   const payload =

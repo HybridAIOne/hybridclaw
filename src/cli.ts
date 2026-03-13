@@ -17,8 +17,10 @@ import {
   loginHybridAIInteractive,
 } from './auth/hybridai-auth.js';
 import {
+  getWhatsAppAuthStatus,
   resetWhatsAppAuthState,
   WHATSAPP_AUTH_DIR,
+  WhatsAppAuthLockError,
 } from './channels/whatsapp/auth.js';
 import { createWhatsAppConnectionManager } from './channels/whatsapp/connection.js';
 import { normalizePhoneNumber } from './channels/whatsapp/phone.js';
@@ -285,13 +287,14 @@ function printMainUsage(): void {
   console.log(`Usage: hybridclaw <command>
 
   Commands:
+  auth       Unified provider login/logout/status
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, WhatsApp)
-  local      Configure local model backends (Ollama, LM Studio, vLLM)
-  hybridai   Manage HybridAI API-key login/logout/status
-  codex      Manage OpenAI Codex OAuth login/logout/status
+  local      Deprecated alias for local provider setup/status
+  hybridai   Deprecated alias for HybridAI provider auth
+  codex      Deprecated alias for Codex provider auth
   skill      List skill dependency installers or run one
   update     Check and apply HybridClaw CLI updates
   audit      Inspect/verify structured audit trail
@@ -326,8 +329,8 @@ If gateway is not running, it is started in backend mode automatically.
 Interactive slash commands inside TUI:
   /help   /status   /approve [view|yes|session|agent|no] [approval_id]
   /show [all|thinking|tools|none]
-  /agent [list|switch|create]   /bots   /bot [info|list|set <id|name>]
-  /model [name]   /model info|list|default [name]
+  /agent [list|switch|create|model]   /bots   /bot [info|list|set <id|name>]
+  /model [name]   /model info|list [provider]|set <name>|clear|default [name]
   /channel-mode <off|mention|free>   /channel-policy <open|allowlist|disabled>
   /rag [on|off]   /ralph [info|on|off|set n]   /mcp list
   /mcp add <name> <json>
@@ -344,16 +347,21 @@ function printOnboardingUsage(): void {
 Runs the HybridClaw onboarding flow:
   1) trust-model acceptance
   2) auth provider selection
-  3) HybridAI API key setup or OpenAI Codex OAuth login
+  3) HybridAI API key setup, OpenAI Codex OAuth login, or OpenRouter API key setup
   4) default model/bot persistence`);
 }
 
 function printLocalUsage(): void {
-  console.log(`Usage: hybridclaw local <command>
+  console.log(`Usage: hybridclaw local <command> (deprecated)
 
 Commands:
   hybridclaw local status
   hybridclaw local configure <ollama|lmstudio|vllm> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]
+
+Use Instead:
+  hybridclaw auth login local <ollama|lmstudio|vllm> <model-id> ...
+  hybridclaw auth status local
+  hybridclaw auth logout local
 
 Examples:
   hybridclaw local configure lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234
@@ -361,10 +369,39 @@ Examples:
   hybridclaw local configure vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
 
 Notes:
+  - \`hybridclaw local ...\` is deprecated and will be removed in a future release.
   - LM Studio and vLLM URLs are normalized to include \`/v1\`.
   - Ollama URLs are normalized to omit \`/v1\`.
   - By default, \`configure\` also sets \`hybridai.defaultModel\` to the chosen local model.
     Use \`--no-default\` to leave the global default model unchanged.`);
+}
+
+function printAuthUsage(): void {
+  console.log(`Usage: hybridclaw auth <command> [provider] [options]
+
+Commands:
+  hybridclaw auth login
+  hybridclaw auth login <hybridai|codex|openrouter|local> ...
+  hybridclaw auth status <hybridai|codex|openrouter|local>
+  hybridclaw auth logout <hybridai|codex|openrouter|local>
+  hybridclaw auth whatsapp reset
+
+Examples:
+  hybridclaw auth login
+  hybridclaw auth login hybridai --browser
+  hybridclaw auth login codex --import
+  hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
+  hybridclaw auth login local ollama llama3.2
+  hybridclaw auth whatsapp reset
+  hybridclaw auth status openrouter
+  hybridclaw auth logout codex
+
+Notes:
+  - \`auth login\` without a provider runs the normal interactive onboarding flow.
+  - \`local logout\` disables configured local backends and clears any saved vLLM API key.
+  - \`auth whatsapp reset\` clears linked WhatsApp Web auth so you can re-pair cleanly.
+  - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
+  - The older \`hybridclaw hybridai ...\`, \`hybridclaw codex ...\`, and \`hybridclaw local ...\` aliases are deprecated.`);
 }
 
 function printChannelsUsage(): void {
@@ -379,6 +416,7 @@ Notes:
   - Discord setup configures command-only mode and keeps guild access restricted by default.
   - WhatsApp setup starts a temporary pairing session and prints the QR code here when needed.
   - Use \`--reset\` to wipe stale WhatsApp auth files and force a fresh QR.
+  - \`hybridclaw auth whatsapp reset\` clears linked WhatsApp auth without starting a new pairing session.
   - Without \`--allow-from\`, setup configures WhatsApp for self-chat only.
   - With one or more \`--allow-from\` values, setup enables only those DMs.
   - Groups stay disabled by default.
@@ -386,8 +424,19 @@ Notes:
   - WhatsApp activates automatically once linked auth exists.`);
 }
 
+function printWhatsAppUsage(): void {
+  console.log(`Usage:
+  hybridclaw auth whatsapp reset
+  hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
+
+Notes:
+  - Only one running HybridClaw process may own the WhatsApp auth state at a time.
+  - Use \`auth whatsapp reset\` to clear stale linked-device auth before re-pairing.
+  - Use \`channels whatsapp setup\` to configure policy and open a fresh QR pairing session.`);
+}
+
 function printCodexUsage(): void {
-  console.log(`Usage: hybridclaw codex <command>
+  console.log(`Usage: hybridclaw codex <command> (deprecated)
 
 Commands:
   hybridclaw codex login
@@ -395,11 +444,19 @@ Commands:
   hybridclaw codex login --browser
   hybridclaw codex login --import
   hybridclaw codex logout
-  hybridclaw codex status`);
+  hybridclaw codex status
+
+Use Instead:
+  hybridclaw auth login codex ...
+  hybridclaw auth logout codex
+  hybridclaw auth status codex
+
+Notes:
+  - \`hybridclaw codex ...\` is deprecated and will be removed in a future release.`);
 }
 
 function printHybridAIUsage(): void {
-  console.log(`Usage: hybridclaw hybridai <command>
+  console.log(`Usage: hybridclaw hybridai <command> (deprecated)
 
 Commands:
   hybridclaw hybridai login
@@ -407,7 +464,28 @@ Commands:
   hybridclaw hybridai login --browser
   hybridclaw hybridai login --import
   hybridclaw hybridai logout
-  hybridclaw hybridai status`);
+  hybridclaw hybridai status
+
+Use Instead:
+  hybridclaw auth login hybridai ...
+  hybridclaw auth logout hybridai
+  hybridclaw auth status hybridai
+
+Notes:
+  - \`hybridclaw hybridai ...\` is deprecated and will be removed in a future release.`);
+}
+
+function printOpenRouterUsage(): void {
+  console.log(`Usage:
+  hybridclaw auth login openrouter [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+  hybridclaw auth status openrouter
+  hybridclaw auth logout openrouter
+
+Notes:
+  - Model IDs use the \`openrouter/\` prefix in HybridClaw, for example \`openrouter/anthropic/claude-sonnet-4\`.
+  - If \`--api-key\` is omitted and \`OPENROUTER_API_KEY\` is unset, HybridClaw prompts you to paste the API key.
+  - \`auth login openrouter\` stores \`OPENROUTER_API_KEY\`, enables the provider, and can set the global default model.
+  - \`auth logout openrouter\` clears the stored API key but leaves runtime config unchanged.`);
 }
 
 function printAuditUsage(): void {
@@ -438,17 +516,50 @@ function printHelpUsage(): void {
   console.log(`Usage: hybridclaw help <topic>
 
 Topics:
+  auth        Help for unified provider login/logout/status
   gateway     Help for gateway lifecycle and passthrough commands
   tui         Help for terminal client
   onboarding  Help for onboarding flow
   channels    Help for channel setup helpers
-  local       Help for local model configuration commands
-  hybridai    Help for HybridAI API-key auth commands
-  codex       Help for OpenAI Codex auth commands
+  local       Help for deprecated local provider alias
+  hybridai    Help for deprecated HybridAI provider alias
+  codex       Help for deprecated Codex provider alias
+  openrouter  Help for OpenRouter setup/status/logout commands
+  whatsapp    Help for WhatsApp setup/reset commands
   skill       Help for skill installer commands
   update      Help for checking/applying CLI updates
   audit       Help for audit commands
   help        This help`);
+}
+
+function printDeprecatedProviderAliasWarning(
+  provider: 'hybridai' | 'codex' | 'local',
+  args: string[],
+): void {
+  const sub = (args[0] || '').trim().toLowerCase();
+  let replacement = '';
+
+  if (provider === 'local') {
+    replacement =
+      sub === 'status'
+        ? 'hybridclaw auth status local'
+        : sub === 'help' || sub === '--help' || sub === '-h'
+          ? 'hybridclaw help local'
+          : 'hybridclaw auth login local ...';
+  } else {
+    replacement =
+      sub === 'status'
+        ? `hybridclaw auth status ${provider}`
+        : sub === 'logout'
+          ? `hybridclaw auth logout ${provider}`
+          : sub === 'help' || sub === '--help' || sub === '-h'
+            ? `hybridclaw help ${provider}`
+            : `hybridclaw auth login ${provider} ...`;
+  }
+
+  console.warn(
+    `[deprecated] \`hybridclaw ${provider} ...\` is deprecated and will be removed in a future release. Use \`${replacement}\` instead.`,
+  );
 }
 
 function isHelpRequest(args: string[]): boolean {
@@ -459,6 +570,9 @@ function isHelpRequest(args: string[]): boolean {
 
 function printHelpTopic(topic: string): boolean {
   switch (topic.trim().toLowerCase()) {
+    case 'auth':
+      printAuthUsage();
+      return true;
     case 'gateway':
       printGatewayUsage();
       return true;
@@ -479,6 +593,12 @@ function printHelpTopic(topic: string): boolean {
       return true;
     case 'codex':
       printCodexUsage();
+      return true;
+    case 'openrouter':
+      printOpenRouterUsage();
+      return true;
+    case 'whatsapp':
+      printWhatsAppUsage();
       return true;
     case 'skill':
       printSkillUsage();
@@ -940,7 +1060,7 @@ async function runGatewayApiCommand(args: string[]): Promise<void> {
 }
 
 async function handleGatewayCommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0) {
     await startGatewayBackend('hybridclaw gateway');
     return;
@@ -1070,6 +1190,354 @@ function parseHybridAILoginMethod(
     );
   }
   return requested[0] || 'auto';
+}
+
+interface ParsedOpenRouterLoginArgs {
+  modelId?: string;
+  baseUrl?: string;
+  apiKey?: string;
+  setDefault: boolean;
+}
+
+function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
+  const positional: string[] = [];
+  let baseUrl: string | undefined;
+  let apiKey: string | undefined;
+  let setDefault = true;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--no-default') {
+      setDefault = false;
+      continue;
+    }
+    if (arg === '--set-default') {
+      setDefault = true;
+      continue;
+    }
+    if (arg === '--base-url') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--base-url`.');
+      baseUrl = next;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--base-url=')) {
+      baseUrl = arg.slice('--base-url='.length);
+      continue;
+    }
+    if (arg === '--api-key') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--api-key`.');
+      apiKey = next;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--api-key=')) {
+      apiKey = arg.slice('--api-key='.length);
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    positional.push(arg);
+  }
+
+  return {
+    modelId: positional.length > 0 ? positional.join(' ') : undefined,
+    baseUrl,
+    apiKey,
+    setDefault,
+  };
+}
+
+function normalizeOpenRouterModelId(rawModelId: string): string {
+  const trimmed = rawModelId.trim();
+  if (!trimmed) return '';
+  if (trimmed.toLowerCase().startsWith('openrouter/')) {
+    return trimmed;
+  }
+  return `openrouter/${trimmed}`;
+}
+
+function normalizeOpenRouterBaseUrl(rawBaseUrl: string): string {
+  const trimmed = rawBaseUrl.trim().replace(/\/+$/g, '');
+  if (!trimmed) return 'https://openrouter.ai/api/v1';
+  return /\/api\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/api/v1`;
+}
+
+async function promptForOpenRouterApiKey(): Promise<string> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      'Missing OpenRouter API key. Pass `--api-key <key>`, set `OPENROUTER_API_KEY`, or run this command in an interactive terminal to paste it.',
+    );
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    return (await rl.question('Paste OpenRouter API key: ')).trim();
+  } finally {
+    rl.close();
+  }
+}
+
+async function resolveOpenRouterApiKey(
+  explicitApiKey: string | undefined,
+): Promise<string> {
+  const configuredApiKey =
+    explicitApiKey?.trim() || process.env.OPENROUTER_API_KEY?.trim() || '';
+  if (configuredApiKey) return configuredApiKey;
+
+  const promptedApiKey = await promptForOpenRouterApiKey();
+  if (promptedApiKey) return promptedApiKey;
+
+  throw new Error(
+    'OpenRouter API key cannot be empty. Pass `--api-key <key>`, set `OPENROUTER_API_KEY`, or paste it when prompted.',
+  );
+}
+
+async function configureOpenRouter(args: string[]): Promise<void> {
+  ensureRuntimeConfigFile();
+  const parsed = parseOpenRouterLoginArgs(args);
+  const currentConfig = getRuntimeConfig();
+  const configuredModel =
+    parsed.modelId ||
+    currentConfig.openrouter.models[0] ||
+    'openrouter/anthropic/claude-sonnet-4';
+  const fullModelName = normalizeOpenRouterModelId(configuredModel);
+  if (!fullModelName) {
+    throw new Error('OpenRouter model ID cannot be empty.');
+  }
+
+  const apiKey = await resolveOpenRouterApiKey(parsed.apiKey);
+
+  const normalizedBaseUrl = normalizeOpenRouterBaseUrl(
+    parsed.baseUrl || currentConfig.openrouter.baseUrl,
+  );
+  const secretsPath = saveRuntimeSecrets({ OPENROUTER_API_KEY: apiKey });
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.openrouter.enabled = true;
+    draft.openrouter.baseUrl = normalizedBaseUrl;
+    draft.openrouter.models = Array.from(
+      new Set([fullModelName, ...draft.openrouter.models]),
+    );
+    if (parsed.setDefault) {
+      draft.hybridai.defaultModel = fullModelName;
+    }
+  });
+
+  process.env.OPENROUTER_API_KEY = apiKey;
+  console.log(`Saved OpenRouter credentials to ${secretsPath}.`);
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(`Provider: openrouter`);
+  console.log(`Base URL: ${nextConfig.openrouter.baseUrl}`);
+  console.log(`Configured model: ${fullModelName}`);
+  if (parsed.setDefault) {
+    console.log(`Default model: ${fullModelName}`);
+  } else {
+    console.log(`Default model unchanged: ${nextConfig.hybridai.defaultModel}`);
+  }
+  console.log('Next:');
+  console.log('  hybridclaw gateway restart --foreground');
+  console.log('  hybridclaw gateway status');
+  console.log('  hybridclaw tui');
+  console.log(`  /model set ${fullModelName}`);
+}
+
+type UnifiedProvider = 'hybridai' | 'codex' | 'openrouter' | 'local';
+
+function normalizeUnifiedProvider(
+  rawProvider: string | undefined,
+): UnifiedProvider | null {
+  const normalized = String(rawProvider || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return null;
+  if (
+    normalized === 'hybridai' ||
+    normalized === 'hybrid-ai' ||
+    normalized === 'hybrid'
+  ) {
+    return 'hybridai';
+  }
+  if (normalized === 'codex' || normalized === 'openai-codex') {
+    return 'codex';
+  }
+  if (normalized === 'openrouter' || normalized === 'or') {
+    return 'openrouter';
+  }
+  if (normalized === 'local') {
+    return 'local';
+  }
+  return null;
+}
+
+function normalizeArgs(args: string[]): string[] {
+  return args.map((arg) => arg.trim()).filter(Boolean);
+}
+
+function parseUnifiedProviderArgs(args: string[]): {
+  provider: UnifiedProvider | null;
+  remaining: string[];
+} {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0) {
+    return {
+      provider: null,
+      remaining: [],
+    };
+  }
+
+  const first = normalized[0] || '';
+  if (first === '--provider') {
+    const rawProvider = normalized[1];
+    if (!rawProvider) {
+      throw new Error('Missing value for `--provider`.');
+    }
+    const provider = normalizeUnifiedProvider(rawProvider);
+    if (!provider) {
+      throw new Error(
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, or \`local\`.`,
+      );
+    }
+    return {
+      provider,
+      remaining: normalized.slice(2),
+    };
+  }
+
+  if (first.startsWith('--provider=')) {
+    const rawProvider = first.slice('--provider='.length);
+    const provider = normalizeUnifiedProvider(rawProvider);
+    if (!provider) {
+      throw new Error(
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, or \`local\`.`,
+      );
+    }
+    return {
+      provider,
+      remaining: normalized.slice(1),
+    };
+  }
+
+  return {
+    provider: normalizeUnifiedProvider(first),
+    remaining:
+      normalizeUnifiedProvider(first) == null
+        ? normalized
+        : normalized.slice(1),
+  };
+}
+
+function readStoredRuntimeSecret(
+  secretKey: 'OPENROUTER_API_KEY',
+): string | null {
+  const filePath = runtimeSecretsPath();
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const value = parsed[secretKey];
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim();
+    return normalized || null;
+  } catch {
+    return null;
+  }
+}
+
+function maskSecret(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) return '';
+  if (normalized.length <= 8) {
+    return `${normalized.slice(0, 2)}…${normalized.slice(-1)}`;
+  }
+  return `${normalized.slice(0, 4)}…${normalized.slice(-4)}`;
+}
+
+function isLocalProviderModel(modelName: string): boolean {
+  return /^(ollama|lmstudio|vllm)\//i.test(modelName.trim());
+}
+
+function printOpenRouterStatus(): void {
+  ensureRuntimeConfigFile();
+  const config = getRuntimeConfig();
+  const storedApiKey = readStoredRuntimeSecret('OPENROUTER_API_KEY');
+  const envApiKey = process.env.OPENROUTER_API_KEY?.trim() || '';
+  const source = envApiKey
+    ? storedApiKey && envApiKey === storedApiKey
+      ? 'runtime-secrets'
+      : 'env'
+    : storedApiKey
+      ? 'runtime-secrets'
+      : null;
+  const apiKey = envApiKey || storedApiKey || '';
+
+  console.log(`Path: ${runtimeSecretsPath()}`);
+  console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
+  if (source) {
+    console.log(`Source: ${source}`);
+  }
+  if (apiKey) {
+    console.log(`API key: ${maskSecret(apiKey)}`);
+  }
+  console.log(`Config: ${runtimeConfigPath()}`);
+  console.log(`Enabled: ${config.openrouter.enabled ? 'yes' : 'no'}`);
+  console.log(`Base URL: ${config.openrouter.baseUrl}`);
+  console.log(`Default model: ${config.hybridai.defaultModel}`);
+  console.log(
+    `Models: ${config.openrouter.models.length > 0 ? config.openrouter.models.join(', ') : '(none configured)'}`,
+  );
+}
+
+function clearOpenRouterCredentials(): void {
+  const filePath = saveRuntimeSecrets({ OPENROUTER_API_KEY: null });
+  delete process.env.OPENROUTER_API_KEY;
+  console.log(`Cleared OpenRouter credentials in ${filePath}.`);
+  console.log(
+    'If OPENROUTER_API_KEY is still exported in your shell, unset it separately.',
+  );
+}
+
+function clearLocalBackends(): void {
+  ensureRuntimeConfigFile();
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.local.backends.ollama.enabled = false;
+    draft.local.backends.lmstudio.enabled = false;
+    draft.local.backends.vllm.enabled = false;
+    draft.local.backends.vllm.apiKey = '';
+  });
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log('Disabled local backends: ollama, lmstudio, vllm.');
+  if (isLocalProviderModel(nextConfig.hybridai.defaultModel)) {
+    console.log(`Default model unchanged: ${nextConfig.hybridai.defaultModel}`);
+    console.log(
+      'Hint: default model still points at a local backend. Configure another provider before starting new sessions.',
+    );
+  } else {
+    console.log(`Default model: ${nextConfig.hybridai.defaultModel}`);
+  }
+}
+
+function printUnifiedProviderUsage(provider: UnifiedProvider): void {
+  if (provider === 'hybridai') {
+    printHybridAIUsage();
+    return;
+  }
+  if (provider === 'codex') {
+    printCodexUsage();
+    return;
+  }
+  if (provider === 'openrouter') {
+    printOpenRouterUsage();
+    return;
+  }
+  printLocalUsage();
 }
 
 function isLocalBackendType(value: string): value is LocalBackendType {
@@ -1254,7 +1722,7 @@ function configureLocalBackend(args: string[]): void {
 }
 
 async function handleLocalCommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printLocalUsage();
     return;
@@ -1271,6 +1739,193 @@ async function handleLocalCommand(args: string[]): Promise<void> {
   }
 
   throw new Error(`Unknown local subcommand: ${sub}`);
+}
+
+async function handleAuthLoginCommand(args: string[]): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0) {
+    await ensureRuntimeCredentials({
+      commandName: 'hybridclaw auth login',
+    });
+    return;
+  }
+  if (isHelpRequest(normalized)) {
+    printAuthUsage();
+    return;
+  }
+
+  const parsed = parseUnifiedProviderArgs(normalized);
+  if (!parsed.provider) {
+    throw new Error(
+      `Unknown auth login provider "${normalized[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, or \`local\`.`,
+    );
+  }
+  if (isHelpRequest(parsed.remaining)) {
+    printUnifiedProviderUsage(parsed.provider);
+    return;
+  }
+
+  if (parsed.provider === 'hybridai') {
+    await handleHybridAICommand(['login', ...parsed.remaining]);
+    return;
+  }
+  if (parsed.provider === 'codex') {
+    await handleCodexCommand(['login', ...parsed.remaining]);
+    return;
+  }
+  if (parsed.provider === 'openrouter') {
+    await configureOpenRouter(parsed.remaining);
+    return;
+  }
+  configureLocalBackend(parsed.remaining);
+}
+
+async function handleAuthCommand(args: string[]): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0) {
+    printAuthUsage();
+    return;
+  }
+
+  const sub = normalized[0].toLowerCase();
+  if (sub === 'help' || sub === '--help' || sub === '-h') {
+    printAuthUsage();
+    return;
+  }
+  if (sub === 'whatsapp') {
+    await handleAuthWhatsAppCommand(normalized.slice(1));
+    return;
+  }
+  if (sub === 'login') {
+    if (normalized.length === 1) {
+      await ensureRuntimeCredentials({
+        commandName: 'hybridclaw auth login',
+      });
+      return;
+    }
+    await handleAuthLoginCommand(normalized.slice(1));
+    return;
+  }
+
+  if (sub === 'status') {
+    await handleProviderStatusCommand(
+      normalized.slice(1),
+      'hybridclaw auth status',
+    );
+    return;
+  }
+
+  if (sub === 'logout') {
+    await handleProviderLogoutCommand(
+      normalized.slice(1),
+      'hybridclaw auth logout',
+    );
+    return;
+  }
+
+  throw new Error(
+    `Unknown auth subcommand: ${sub}. Use \`login\`, \`status\`, \`logout\`, or \`whatsapp\`.`,
+  );
+}
+
+async function handleAuthWhatsAppCommand(args: string[]): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printWhatsAppUsage();
+    return;
+  }
+
+  const sub = normalized[0].toLowerCase();
+  if (sub !== 'reset') {
+    throw new Error(
+      `Unknown auth whatsapp subcommand: ${sub}. Use \`hybridclaw auth whatsapp reset\`.`,
+    );
+  }
+  if (normalized.length > 1) {
+    throw new Error(
+      'Unexpected arguments for `hybridclaw auth whatsapp reset`.',
+    );
+  }
+
+  const status = await getWhatsAppAuthStatus();
+  await resetWhatsAppAuthState();
+  console.log(`Reset WhatsApp auth state at ${WHATSAPP_AUTH_DIR}.`);
+  console.log(
+    status.linked
+      ? 'Linked device state cleared. Re-run `hybridclaw channels whatsapp setup` to pair again.'
+      : 'No linked auth was present. You can run `hybridclaw channels whatsapp setup` when you are ready to pair.',
+  );
+}
+
+type ProviderAction = 'status' | 'logout';
+
+async function dispatchProviderAction(
+  provider: UnifiedProvider,
+  action: ProviderAction,
+): Promise<void> {
+  if (provider === 'hybridai') {
+    await handleHybridAICommand([action]);
+    return;
+  }
+  if (provider === 'codex') {
+    await handleCodexCommand([action]);
+    return;
+  }
+  if (provider === 'openrouter') {
+    if (action === 'status') {
+      printOpenRouterStatus();
+      return;
+    }
+    clearOpenRouterCredentials();
+    return;
+  }
+  if (action === 'status') {
+    printLocalStatus();
+    return;
+  }
+  clearLocalBackends();
+}
+
+async function handleProviderActionCommand(
+  args: string[],
+  commandName: string,
+  action: ProviderAction,
+): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printAuthUsage();
+    return;
+  }
+
+  const parsed = parseUnifiedProviderArgs(normalized);
+  if (!parsed.provider) {
+    throw new Error(
+      `Unknown ${action} provider "${normalized[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, or \`local\`.`,
+    );
+  }
+  if (parsed.remaining.length > 0) {
+    if (isHelpRequest(parsed.remaining)) {
+      printUnifiedProviderUsage(parsed.provider);
+      return;
+    }
+    throw new Error(`Unexpected arguments for \`${commandName}\`.`);
+  }
+
+  await dispatchProviderAction(parsed.provider, action);
+}
+
+async function handleProviderStatusCommand(
+  args: string[],
+  commandName: string,
+): Promise<void> {
+  await handleProviderActionCommand(args, commandName, 'status');
+}
+
+async function handleProviderLogoutCommand(
+  args: string[],
+  commandName: string,
+): Promise<void> {
+  await handleProviderActionCommand(args, commandName, 'logout');
 }
 
 function parseWhatsAppSetupArgs(args: string[]): {
@@ -1521,7 +2176,7 @@ async function configureWhatsAppChannel(args: string[]): Promise<void> {
 }
 
 async function handleChannelsCommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printChannelsUsage();
     return;
@@ -1554,7 +2209,7 @@ async function handleChannelsCommand(args: string[]): Promise<void> {
 }
 
 async function handleHybridAICommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printHybridAIUsage();
     return;
@@ -1595,7 +2250,7 @@ async function handleHybridAICommand(args: string[]): Promise<void> {
 }
 
 async function handleCodexCommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printCodexUsage();
     return;
@@ -1640,7 +2295,7 @@ async function handleCodexCommand(args: string[]): Promise<void> {
 }
 
 async function handleSkillCommand(args: string[]): Promise<void> {
-  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printSkillUsage();
     return;
@@ -1703,6 +2358,9 @@ export async function main(
     case '-v':
       console.log(APP_VERSION);
       break;
+    case 'auth':
+      await handleAuthCommand(subargs);
+      break;
     case 'gateway':
       await handleGatewayCommand(subargs);
       break;
@@ -1730,12 +2388,15 @@ export async function main(
       await handleChannelsCommand(subargs);
       break;
     case 'local':
+      printDeprecatedProviderAliasWarning('local', subargs);
       await handleLocalCommand(subargs);
       break;
     case 'hybridai':
+      printDeprecatedProviderAliasWarning('hybridai', subargs);
       await handleHybridAICommand(subargs);
       break;
     case 'codex':
+      printDeprecatedProviderAliasWarning('codex', subargs);
       await handleCodexCommand(subargs);
       break;
     case 'skill':
@@ -1785,6 +2446,7 @@ export async function main(
 function printMissingEnvVarError(message: string, envVar?: string): void {
   const envVarHint: Record<string, string> = {
     HYBRIDAI_API_KEY: `Set HYBRIDAI_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again. You can also run \`hybridclaw onboarding\` to set it interactively.`,
+    OPENROUTER_API_KEY: `Set OPENROUTER_API_KEY in ${runtimeSecretsPath()} or your shell, ensure \`openrouter.enabled\` is true in ${runtimeConfigPath()}, then run the command again.`,
   };
   const hint = envVar
     ? envVarHint[envVar]
@@ -1817,9 +2479,14 @@ if (isDirectExecution()) {
       console.error(`hybridclaw error: ${err.message}`);
       if (err.reloginRequired) {
         console.error(
-          'Hint: Run `hybridclaw codex login` or `hybridclaw onboarding` to refresh OpenAI Codex credentials.',
+          'Hint: Run `hybridclaw auth login codex` or `hybridclaw onboarding` to refresh OpenAI Codex credentials.',
         );
       }
+    } else if (err instanceof WhatsAppAuthLockError) {
+      console.error(`hybridclaw error: ${err.message}`);
+      console.error(
+        'Hint: Stop the other HybridClaw process that owns WhatsApp, unlink the stale Linked Device if needed, then rerun `hybridclaw auth whatsapp reset` or `hybridclaw channels whatsapp setup`.',
+      );
     } else {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`hybridclaw error: ${message}`);

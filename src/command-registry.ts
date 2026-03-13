@@ -93,6 +93,16 @@ const USAGE_WINDOW_CHOICES = [
   { name: 'monthly', value: 'monthly' },
 ] satisfies Array<{ name: string; value: string }>;
 
+const MODEL_PROVIDER_CHOICES = [
+  { name: 'hybridai', value: 'hybridai' },
+  { name: 'codex', value: 'codex' },
+  { name: 'openrouter', value: 'openrouter' },
+  { name: 'local', value: 'local' },
+  { name: 'ollama', value: 'ollama' },
+  { name: 'lmstudio', value: 'lmstudio' },
+  { name: 'vllm', value: 'vllm' },
+] satisfies Array<{ name: string; value: string }>;
+
 function tokenizeFreeformText(value: string): string[] {
   return value.match(/"[^"]*"|\S+/g) ?? [];
 }
@@ -137,7 +147,9 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'model': {
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub || sub === 'select') return ['model', 'info'];
-      if (sub === 'info' || sub === 'list') return ['model', sub];
+      if (sub === 'info') return ['model', 'info'];
+      if (sub === 'list') return ['model', 'list', ...parts.slice(2)];
+      if (sub === 'clear' || sub === 'auto') return ['model', 'clear'];
       if (sub === 'default') {
         return parts.length > 2
           ? ['model', 'default', ...parts.slice(2)]
@@ -153,6 +165,7 @@ export function mapCanonicalCommandToGatewayArgs(
       if (!sub || sub === 'info') return ['agent'];
       if (sub === 'list') return ['agent', 'list'];
       if (sub === 'switch') return ['agent', 'switch', ...parts.slice(2)];
+      if (sub === 'model') return ['agent', 'model', ...parts.slice(2)];
       if (sub === 'create') {
         const agentId = (parts[2] || '').trim();
         if (!agentId) return ['agent', 'create'];
@@ -313,17 +326,26 @@ export function buildCanonicalSlashCommandDefinitions(
     },
     {
       name: 'model',
-      description: 'Inspect or set the runtime model',
+      description: 'Inspect or set session/default runtime models',
       options: [
         {
           kind: 'subcommand',
           name: 'info',
-          description: 'Show current default model and available models',
+          description:
+            'Show effective, session, agent, and default model scopes',
         },
         {
           kind: 'subcommand',
           name: 'list',
           description: 'List available runtime models',
+          options: [
+            {
+              kind: 'string',
+              name: 'provider',
+              description: 'Optional provider filter',
+              choices: MODEL_PROVIDER_CHOICES,
+            },
+          ],
         },
         {
           kind: 'subcommand',
@@ -338,6 +360,11 @@ export function buildCanonicalSlashCommandDefinitions(
               choices: modelChoices.length > 0 ? modelChoices : undefined,
             },
           ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'clear',
+          description: 'Clear the session model override',
         },
         {
           kind: 'subcommand',
@@ -356,7 +383,7 @@ export function buildCanonicalSlashCommandDefinitions(
     },
     {
       name: 'agent',
-      description: 'Inspect, list, switch, or create agents',
+      description: 'Inspect, list, switch, create, or configure agents',
       options: [
         {
           kind: 'subcommand',
@@ -396,6 +423,19 @@ export function buildCanonicalSlashCommandDefinitions(
               kind: 'string',
               name: 'model',
               description: 'Optional model name',
+              choices: modelChoices.length > 0 ? modelChoices : undefined,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'model',
+          description: 'Show or set the current agent model',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Persistent model for the current agent',
               choices: modelChoices.length > 0 ? modelChoices : undefined,
             },
           ],
@@ -733,11 +773,15 @@ export function parseCanonicalSlashCommandArgs(
     case 'model': {
       const subcommand = normalizeSubcommand(interaction);
       if (subcommand === 'info') return ['model', 'info'];
-      if (subcommand === 'list') return ['model', 'list'];
+      if (subcommand === 'list') {
+        const provider = normalizeStringOption(interaction, 'provider');
+        return provider ? ['model', 'list', provider] : ['model', 'list'];
+      }
       if (subcommand === 'set') {
         const selectedModel = normalizeStringOption(interaction, 'name', true);
         return selectedModel ? ['model', 'set', selectedModel] : null;
       }
+      if (subcommand === 'clear') return ['model', 'clear'];
       if (subcommand === 'default') {
         const selectedModel = normalizeStringOption(interaction, 'name');
         return selectedModel
@@ -754,6 +798,10 @@ export function parseCanonicalSlashCommandArgs(
       if (subcommand === 'switch') {
         const agentId = normalizeStringOption(interaction, 'id', true);
         return agentId ? ['agent', 'switch', agentId] : null;
+      }
+      if (subcommand === 'model') {
+        const model = normalizeStringOption(interaction, 'name');
+        return model ? ['agent', 'model', model] : ['agent', 'model'];
       }
       if (subcommand === 'create') {
         const agentId = normalizeStringOption(interaction, 'id', true);

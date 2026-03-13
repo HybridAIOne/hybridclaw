@@ -51,6 +51,7 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
   let onSocketCreated: ((socket: typeof socket) => void) | undefined;
   const manager = {
     getSocket: vi.fn(() => socket),
+    rememberSentMessage: vi.fn(async () => {}),
     start: vi.fn(async () => {
       onSocketCreated?.(socket);
     }),
@@ -291,9 +292,10 @@ test('shows WhatsApp composing presence while processing an inbound turn', async
 });
 
 test('prefixes self-chat replies with [hybridclaw]', async () => {
-  const { runtime, socket, upsertHandlers } = await importFreshRuntimeModule({
-    isSelfChat: true,
-  });
+  const { manager, runtime, socket, upsertHandlers } =
+    await importFreshRuntimeModule({
+      isSelfChat: true,
+    });
   const messageHandler = vi.fn(async (...args: unknown[]) => {
     const reply = args[7] as (content: string) => Promise<void>;
     await reply('hello from the bot');
@@ -325,6 +327,14 @@ test('prefixes self-chat replies with [hybridclaw]', async () => {
     {
       text: '[hybridclaw] hello from the bot',
     },
+  );
+  expect(manager.rememberSentMessage).toHaveBeenCalledWith(
+    expect.objectContaining({
+      key: expect.objectContaining({
+        id: 'bot-1',
+        remoteJid: '491703330161@s.whatsapp.net',
+      }),
+    }),
   );
 });
 

@@ -16,22 +16,13 @@ import type {
   LocalBackendType,
   ModelHealthCheckResult,
 } from './local-types.js';
+import { isRecord, normalizeBaseUrl } from './utils.js';
 
 let healthTimer: ReturnType<typeof setInterval> | null = null;
 const backendHealth = new Map<LocalBackendType, HealthCheckResult>();
 
 function hasEnabledLocalBackend(): boolean {
   return LOCAL_OLLAMA_ENABLED || LOCAL_LMSTUDIO_ENABLED || LOCAL_VLLM_ENABLED;
-}
-
-function normalizeBaseUrl(baseUrl: string): string {
-  return String(baseUrl || '')
-    .trim()
-    .replace(/\/+$/g, '');
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function buildOpenAICompatHeaders(apiKey?: string): Record<string, string> {

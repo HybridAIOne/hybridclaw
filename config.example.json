@@ -92,6 +92,11 @@
       "openai-codex/gpt-5.1-codex-mini"
     ]
   },
+  "openrouter": {
+    "enabled": false,
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "models": ["openrouter/anthropic/claude-sonnet-4"]
+  },
   "local": {
     "backends": {
       "ollama": {
@@ -110,7 +115,7 @@
     },
     "discovery": {
       "enabled": true,
-      "intervalMs": 300000,
+      "intervalMs": 3600000,
       "maxModels": 200,
       "concurrency": 8
     },

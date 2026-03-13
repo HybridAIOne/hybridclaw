@@ -40,7 +40,7 @@ interface ApiKeyValidationResult {
 interface OnboardingOptions {
   force?: boolean;
   commandName?: string;
-  preferredAuth?: 'hybridai' | 'openai-codex';
+  preferredAuth?: 'hybridai' | 'openai-codex' | 'openrouter';
 }
 
 function isLocalProvider(
@@ -317,8 +317,10 @@ function saveDefaultModel(model: string): void {
 function defaultHybridAIModel(): string {
   const config = getRuntimeConfig();
   const current = config.hybridai.defaultModel.trim();
-  if (current && !isCodexModel(current)) return current;
-  const first = config.hybridai.models.find((model) => !isCodexModel(model));
+  if (current && resolveModelProvider(current) === 'hybridai') return current;
+  const first = config.hybridai.models.find(
+    (model) => resolveModelProvider(model) === 'hybridai',
+  );
   return (first || 'gpt-5-nano').trim();
 }
 
@@ -328,6 +330,16 @@ function defaultCodexModel(): string {
   if (current && isCodexModel(current)) return current;
   const first = config.codex.models.find((model) => isCodexModel(model));
   return (first || 'openai-codex/gpt-5-codex').trim();
+}
+
+function defaultOpenRouterModel(): string {
+  const config = getRuntimeConfig();
+  const current = config.hybridai.defaultModel.trim();
+  if (current && resolveModelProvider(current) === 'openrouter') return current;
+  const first = config.openrouter.models.find(
+    (model) => resolveModelProvider(model) === 'openrouter',
+  );
+  return (first || '').trim();
 }
 
 function formatAcceptanceMeta(): string {
@@ -457,13 +469,19 @@ async function chooseDefaultBot(
 async function promptAuthMethod(
   rl: readline.Interface,
   currentModel: string,
-): Promise<'hybridai' | 'openai-codex'> {
+): Promise<'hybridai' | 'openai-codex' | 'openrouter'> {
   const currentProvider = resolveModelProvider(currentModel);
-  const defaultChoice = currentProvider === 'openai-codex' ? '2' : '1';
+  const defaultChoice =
+    currentProvider === 'openai-codex'
+      ? '2'
+      : currentProvider === 'openrouter'
+        ? '3'
+        : '1';
 
   console.log(`${TEAL}${ICON_TITLE}${RESET} Auth methods:`);
   console.log(`  ${TEAL}1.${RESET} HybridAI API key`);
   console.log(`  ${TEAL}2.${RESET} OpenAI Codex (OAuth login)`);
+  console.log(`  ${TEAL}3.${RESET} OpenRouter API key`);
 
   while (true) {
     const choice = await promptOptional(
@@ -480,7 +498,10 @@ async function promptAuthMethod(
     ) {
       return 'openai-codex';
     }
-    printWarn('Enter 1 for HybridAI or 2 for OpenAI Codex.');
+    if (normalized === '3' || normalized === 'openrouter') {
+      return 'openrouter';
+    }
+    printWarn('Enter 1 for HybridAI, 2 for OpenAI Codex, or 3 for OpenRouter.');
   }
 }
 
@@ -761,6 +782,59 @@ async function runCodexOnboarding(params: {
   console.log();
 }
 
+async function runOpenRouterOnboarding(params: {
+  rl: readline.Interface;
+  commandLabel: string;
+  existingKey: string;
+}): Promise<void> {
+  const { rl, commandLabel, existingKey } = params;
+  const runtimeConfig = getRuntimeConfig();
+  printMeta('OPENROUTER_BASE_URL', runtimeConfig.openrouter.baseUrl);
+  if (existingKey) {
+    printSetup('Reconfiguring OpenRouter credentials.');
+  } else {
+    printInfo(
+      `No OPENROUTER_API_KEY found. ${commandLabel} needs OpenRouter credentials before it can start.`,
+    );
+  }
+  console.log();
+
+  const entered = await promptOptional(
+    rl,
+    existingKey
+      ? 'OpenRouter API key (Enter to keep current): '
+      : 'OpenRouter API key: ',
+    ICON_KEY,
+  );
+  const apiKey = (entered || existingKey).trim();
+  if (!apiKey) {
+    throw new Error('OpenRouter onboarding requires a non-empty API key.');
+  }
+
+  const secretsPath = saveRuntimeSecrets({ OPENROUTER_API_KEY: apiKey });
+  process.env.OPENROUTER_API_KEY = apiKey;
+  refreshRuntimeSecretsFromEnv();
+
+  const nextOpenRouterModel = defaultOpenRouterModel();
+  const switchedModel = await maybeSwitchDefaultModel(
+    rl,
+    nextOpenRouterModel,
+    'OpenRouter auth works only with OpenRouter models.',
+  );
+
+  console.log();
+  printSuccess(`Saved credentials to ${secretsPath}.`);
+  printSuccess(`Saved runtime settings to ${runtimeConfigPath()}.`);
+  if (switchedModel) {
+    printSuccess(`Default model set to: ${nextOpenRouterModel}`);
+  } else if (!nextOpenRouterModel) {
+    printInfo(
+      `No OpenRouter default model is configured. Set hybridai.defaultModel to an openrouter/... model in ${runtimeConfigPath()} if needed.`,
+    );
+  }
+  console.log();
+}
+
 export async function ensureRuntimeCredentials(
   options: OnboardingOptions = {},
 ): Promise<void> {
@@ -769,13 +843,18 @@ export async function ensureRuntimeCredentials(
 
   const runtimeConfig = getRuntimeConfig();
   const existingKey = (process.env.HYBRIDAI_API_KEY || '').trim();
+  const existingOpenRouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
   const codexStatus = getCodexAuthStatus();
   const currentModel = runtimeConfig.hybridai.defaultModel.trim();
   const resolvedCurrentProvider = resolveModelProvider(currentModel);
   const currentProviderIsLocal = isLocalProvider(resolvedCurrentProvider);
   const currentAuth =
     options.preferredAuth ||
-    (resolvedCurrentProvider === 'openai-codex' ? 'openai-codex' : 'hybridai');
+    (resolvedCurrentProvider === 'openai-codex'
+      ? 'openai-codex'
+      : resolvedCurrentProvider === 'openrouter'
+        ? 'openrouter'
+        : 'hybridai');
   const force = options.force === true;
   const securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
@@ -783,7 +862,9 @@ export async function ensureRuntimeCredentials(
     ? true
     : currentAuth === 'openai-codex'
       ? codexStatus.authenticated
-      : !!existingKey;
+      : currentAuth === 'openrouter'
+        ? !!existingOpenRouterKey
+        : !!existingKey;
   if (!needsSecurityAcceptance && hasRequiredCredentials) return;
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -795,6 +876,11 @@ export async function ensureRuntimeCredentials(
     if (currentAuth === 'openai-codex') {
       throw new Error(
         'OpenAI Codex credentials are missing. Run `hybridclaw codex login` or `hybridclaw onboarding` in an interactive terminal.',
+      );
+    }
+    if (currentAuth === 'openrouter') {
+      throw new Error(
+        `OPENROUTER_API_KEY is missing. Run \`hybridclaw onboarding\` in an interactive terminal or store it in ${runtimeSecretsPath()}.`,
       );
     }
     throw new Error(
@@ -840,6 +926,14 @@ export async function ensureRuntimeCredentials(
       options.preferredAuth || (await promptAuthMethod(rl, currentModel));
     if (authMethod === 'openai-codex') {
       await runCodexOnboarding({ rl });
+      return;
+    }
+    if (authMethod === 'openrouter') {
+      await runOpenRouterOnboarding({
+        rl,
+        commandLabel,
+        existingKey: existingOpenRouterKey,
+      });
       return;
     }
 

@@ -9,6 +9,7 @@ import {
 } from './browser-tools.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import type { McpClientManager } from './mcp/client-manager.js';
+import { normalizeOpenRouterRuntimeModelName } from './providers/shared.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -86,6 +87,7 @@ let gatewayChannelId = '';
 let currentModelProvider:
   | 'hybridai'
   | 'openai-codex'
+  | 'openrouter'
   | 'ollama'
   | 'lmstudio'
   | 'vllm' = 'hybridai';
@@ -251,6 +253,7 @@ export function setModelContext(
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'openrouter'
     | 'ollama'
     | 'lmstudio'
     | 'vllm'
@@ -768,7 +771,8 @@ function visionModelContextError(): string | null {
     return 'vision_analyze is not configured: missing model context.';
   if (
     (currentModelProvider === 'hybridai' ||
-      currentModelProvider === 'openai-codex') &&
+      currentModelProvider === 'openai-codex' ||
+      currentModelProvider === 'openrouter') &&
     !currentModelApiKey
   ) {
     return 'vision_analyze is not configured: missing API key context.';
@@ -798,10 +802,13 @@ function normalizeVisionOllamaBaseUrl(baseUrl: string): string {
 }
 
 function normalizeVisionLocalModelName(
-  provider: 'ollama' | 'lmstudio' | 'vllm',
+  provider: 'openrouter' | 'ollama' | 'lmstudio' | 'vllm',
   model: string,
 ): string {
   const trimmed = String(model || '').trim();
+  if (provider === 'openrouter') {
+    return normalizeOpenRouterRuntimeModelName(trimmed);
+  }
   const prefix = `${provider}/`;
   if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
   return trimmed.slice(prefix.length) || trimmed;
@@ -921,6 +928,7 @@ async function callVisionModel(
             }
           : {
               model:
+                currentModelProvider === 'openrouter' ||
                 currentModelProvider === 'lmstudio' ||
                 currentModelProvider === 'vllm'
                   ? normalizeVisionLocalModelName(

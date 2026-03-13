@@ -3,6 +3,7 @@ import type { LocalThinkingFormat } from './local-types.js';
 export type AIProviderId =
   | 'hybridai'
   | 'openai-codex'
+  | 'openrouter'
   | 'anthropic'
   | 'ollama'
   | 'lmstudio'
@@ -10,6 +11,7 @@ export type AIProviderId =
 export type RuntimeProviderId =
   | 'hybridai'
   | 'openai-codex'
+  | 'openrouter'
   | 'ollama'
   | 'lmstudio'
   | 'vllm';

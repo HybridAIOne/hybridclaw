@@ -3,6 +3,7 @@ import type { ChatMessage, ToolDefinition } from '../types.js';
 export type RuntimeProvider =
   | 'hybridai'
   | 'openai-codex'
+  | 'openrouter'
   | 'ollama'
   | 'lmstudio'
   | 'vllm';
@@ -44,6 +45,7 @@ function isProvider(value: unknown): value is RuntimeProvider {
   return (
     value === 'hybridai' ||
     value === 'openai-codex' ||
+    value === 'openrouter' ||
     value === 'ollama' ||
     value === 'lmstudio' ||
     value === 'vllm'
@@ -67,6 +69,17 @@ export function buildRequestHeaders(
     Authorization: `Bearer ${apiKey}`,
     ...(requestHeaders || {}),
   };
+}
+
+export function normalizeOpenRouterRuntimeModelName(model: string): string {
+  const trimmed = String(model || '').trim();
+  const prefix = 'openrouter/';
+  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
+  const upstreamModel = trimmed.slice(prefix.length).trim();
+  if (!upstreamModel) return trimmed;
+  // OpenRouter-native ids like `openrouter/free` and `openrouter/hunter-alpha`
+  // keep their namespace. Vendor-scoped ids use the upstream path.
+  return upstreamModel.includes('/') ? upstreamModel : trimmed;
 }
 
 export function normalizeCallArgs(rawArgs: unknown[]): NormalizedCallArgs {

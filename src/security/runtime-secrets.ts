@@ -6,6 +6,7 @@ const RUNTIME_SECRETS_FILE = 'credentials.json';
 
 const SECRET_KEYS = [
   'HYBRIDAI_API_KEY',
+  'OPENROUTER_API_KEY',
   'OPENAI_API_KEY',
   'GROQ_API_KEY',
   'DEEPGRAM_API_KEY',

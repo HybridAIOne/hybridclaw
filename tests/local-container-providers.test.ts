@@ -7,6 +7,7 @@ import {
   callLocalOpenAICompatProvider,
   callLocalOpenAICompatProviderStream,
 } from '../container/src/providers/local-openai-compat.js';
+import { normalizeOpenRouterRuntimeModelName } from '../container/src/providers/shared.js';
 import type { ChatMessage, ToolDefinition } from '../container/src/types.js';
 
 function makeEventStreamResponse(chunks: string[]): Response {
@@ -272,6 +273,73 @@ describe('local container providers', () => {
       tools: [],
       maxTokens: 128,
       isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(result.choices[0]?.message.content).toBe('ok');
+  });
+
+  test('OpenRouter keeps native router ids and strips vendor-prefixed ids', () => {
+    expect(
+      normalizeOpenRouterRuntimeModelName(
+        'openrouter/anthropic/claude-sonnet-4',
+      ),
+    ).toBe('anthropic/claude-sonnet-4');
+    expect(normalizeOpenRouterRuntimeModelName('openrouter/hunter-alpha')).toBe(
+      'openrouter/hunter-alpha',
+    );
+    expect(normalizeOpenRouterRuntimeModelName('openrouter/healer-alpha')).toBe(
+      'openrouter/healer-alpha',
+    );
+    expect(normalizeOpenRouterRuntimeModelName('openrouter/free')).toBe(
+      'openrouter/free',
+    );
+  });
+
+  test('OpenRouter transport preserves router-native model ids in requests', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('openrouter/hunter-alpha');
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'openrouter/hunter-alpha',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'ok',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callLocalOpenAICompatProvider({
+      provider: 'openrouter',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiKey: 'test-key',
+      model: 'openrouter/hunter-alpha',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: {
+        'HTTP-Referer': 'https://github.com/hybridaione/hybridclaw',
+        'X-Title': 'HybridClaw',
+      },
+      messages: baseMessages,
+      tools: [],
+      maxTokens: 128,
+      isLocal: false,
       contextWindow: 32_768,
     });
 
