@@ -166,7 +166,10 @@ class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
   private readonly filePath: string;
   private loaded = false;
   private messages: StoredWhatsAppMessage[] = [];
-  private readonly messagesByExactKey = new Map<string, StoredWhatsAppMessage>();
+  private readonly messagesByExactKey = new Map<
+    string,
+    StoredWhatsAppMessage
+  >();
   private readonly messagesByRemoteJidAndId = new Map<
     string,
     StoredWhatsAppMessage
