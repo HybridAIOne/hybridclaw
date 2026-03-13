@@ -363,8 +363,8 @@ function resolveChannelType(
   if (source === 'discord' || source === 'whatsapp' || source === 'email') {
     return source;
   }
-  if (isEmailAddress(req.channelId)) return 'email';
   if (isWhatsAppJid(req.channelId)) return 'whatsapp';
+  if (isEmailAddress(req.channelId)) return 'email';
   if (isDiscordChannelId(req.channelId)) return 'discord';
   return source || undefined;
 }

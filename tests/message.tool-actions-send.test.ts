@@ -74,6 +74,7 @@ test('send action routes WhatsApp jid targets through WhatsApp transport', async
     '491234567890@s.whatsapp.net',
     'hello whatsapp',
   );
+  expect(state.sendToEmail).not.toHaveBeenCalled();
   expect(state.runDiscordToolAction).not.toHaveBeenCalled();
   expect(result).toMatchObject({
     ok: true,

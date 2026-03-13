@@ -88,3 +88,19 @@ test('resolves WhatsApp hints from explicit WhatsApp context', () => {
     hints.some((entry) => entry.includes('always provide an explicit target')),
   ).toBe(true);
 });
+
+test('prefers WhatsApp hints over email hints for raw WhatsApp jids', () => {
+  const hints = resolveChannelMessageToolHints({
+    runtimeInfo: {
+      channelId: '491234567890@s.whatsapp.net',
+    },
+  });
+
+  expect(hints.length).toBeGreaterThan(0);
+  expect(hints.some((entry) => entry.includes('Current WhatsApp chat'))).toBe(
+    true,
+  );
+  expect(hints.some((entry) => entry.includes('Current email peer'))).toBe(
+    false,
+  );
+});

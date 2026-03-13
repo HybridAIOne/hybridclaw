@@ -57,8 +57,8 @@ function isEmailContext(runtimeInfo?: ChannelPromptRuntimeInfo): boolean {
 function resolveChannelAgentPromptAdapter(params: {
   runtimeInfo?: ChannelPromptRuntimeInfo;
 }): ChannelAgentPromptAdapter | null {
-  if (isEmailContext(params.runtimeInfo)) return emailAgentPromptAdapter;
   if (isWhatsAppContext(params.runtimeInfo)) return whatsappAgentPromptAdapter;
+  if (isEmailContext(params.runtimeInfo)) return emailAgentPromptAdapter;
   if (isDiscordContext(params.runtimeInfo)) return discordAgentPromptAdapter;
   return null;
 }

@@ -17,8 +17,8 @@ export function isSupportedProactiveChannelId(channelId: string): boolean {
   const trimmed = channelId.trim();
   if (!trimmed) return false;
   if (isDiscordChannelId(trimmed)) return true;
-  if (isEmailAddress(trimmed)) return true;
   if (isWhatsAppJid(trimmed)) return true;
+  if (isEmailAddress(trimmed)) return true;
   return LOCAL_PROACTIVE_PULL_CHANNEL_IDS.has(trimmed);
 }
 

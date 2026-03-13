@@ -526,6 +526,33 @@ async function sendProactiveMessageNow(
   artifacts?: ArtifactMetadata[],
 ): Promise<void> {
   const attachments = buildArtifactAttachments(artifacts);
+  if (isWhatsAppJid(channelId)) {
+    const whatsappAuth = await getWhatsAppAuthStatus();
+    if (!whatsappAuth.linked) {
+      logger.info(
+        { source, channelId, text },
+        'Proactive WhatsApp message suppressed: WhatsApp not linked',
+      );
+      return;
+    }
+    if (attachments.length > 0) {
+      logger.warn(
+        { source, channelId, artifactCount: attachments.length },
+        'Proactive WhatsApp delivery currently sends text only',
+      );
+    }
+    try {
+      await sendToWhatsAppChat(channelId, text);
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error },
+        'Failed to send proactive message to WhatsApp chat',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
   if (isEmailAddress(channelId)) {
     if (
       !getConfigSnapshot().email.enabled ||
@@ -563,33 +590,6 @@ async function sendProactiveMessageNow(
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to email recipient',
-      );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
-    }
-    return;
-  }
-
-  if (isWhatsAppJid(channelId)) {
-    const whatsappAuth = await getWhatsAppAuthStatus();
-    if (!whatsappAuth.linked) {
-      logger.info(
-        { source, channelId, text },
-        'Proactive WhatsApp message suppressed: WhatsApp not linked',
-      );
-      return;
-    }
-    if (attachments.length > 0) {
-      logger.warn(
-        { source, channelId, artifactCount: attachments.length },
-        'Proactive WhatsApp delivery currently sends text only',
-      );
-    }
-    try {
-      await sendToWhatsAppChat(channelId, text);
-    } catch (error) {
-      logger.warn(
-        { source, channelId, error },
-        'Failed to send proactive message to WhatsApp chat',
       );
       logger.info({ source, channelId, text }, 'Proactive message fallback');
     }

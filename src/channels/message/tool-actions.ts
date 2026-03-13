@@ -93,8 +93,8 @@ function normalizeLocalMessageTarget(rawTarget: string): string | null {
   const trimmed = String(rawTarget || '').trim();
   if (!trimmed) return null;
   if (isDiscordChannelId(trimmed)) return null;
-  if (isEmailAddress(trimmed)) return null;
   if (isWhatsAppJid(trimmed)) return null;
+  if (isEmailAddress(trimmed)) return null;
   return isSupportedProactiveChannelId(trimmed) ? trimmed : null;
 }
 
