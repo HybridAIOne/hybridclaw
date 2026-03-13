@@ -19,7 +19,6 @@ type ModelCatalogProviderFilter =
   | 'vllm'
   | 'local';
 
-const LOCAL_PROVIDER_FILTERS = new Set(['ollama', 'lmstudio', 'vllm']);
 const OPENAI_CODEX_MODEL_PREFIX = 'openai-codex/';
 const OPENROUTER_MODEL_PREFIX = 'openrouter/';
 const OLLAMA_MODEL_PREFIX = 'ollama/';

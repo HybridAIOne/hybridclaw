@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 import {
   acquireWhatsAppAuthLock,
@@ -12,8 +12,24 @@ import {
 } from '../src/channels/whatsapp/auth.ts';
 
 function makeTempAuthDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-whatsapp-auth-'));
+  const rootDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-whatsapp-auth-'),
+  );
+  const authDir = path.join(rootDir, 'auth');
+  fs.mkdirSync(authDir, { recursive: true });
+  fs.rmSync(whatsappAuthLockPath(authDir), { force: true });
+  return authDir;
 }
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 test('treats me.id as linked even when registered is false', async () => {
   const authDir = makeTempAuthDir();

@@ -32,6 +32,7 @@ import {
 import { logger } from './logger.js';
 import {
   normalizeModelCandidates,
+  parseModelInfoSummaryFromText,
   parseModelNamesFromListText,
 } from './model-selection.js';
 import {
@@ -827,16 +828,11 @@ function parseCurrentModelFromInfo(
 function parseModelInfoFromInfo(
   result: GatewayCommandResult,
 ): { current: string; defaultModel: string } | null {
-  const text = (result.text || '').trim();
-  if (!text) return null;
-  const currentMatch = text.match(/Current model:\s*([^\n\r]+)/i);
-  const defaultMatch = text.match(/Default model:\s*([^\n\r]+)/i);
-  const current = (currentMatch?.[1] || '').trim();
-  const defaultModel = (defaultMatch?.[1] || '').trim();
-  if (!current && !defaultModel) return null;
+  const parsed = parseModelInfoSummaryFromText(result.text || '');
+  if (!parsed) return null;
   return {
-    current: current || defaultModel || HYBRIDAI_MODEL,
-    defaultModel: defaultModel || current || HYBRIDAI_MODEL,
+    current: parsed.current || parsed.defaultModel || HYBRIDAI_MODEL,
+    defaultModel: parsed.defaultModel || parsed.current || HYBRIDAI_MODEL,
   };
 }
 

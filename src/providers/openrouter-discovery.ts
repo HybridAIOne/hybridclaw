@@ -177,7 +177,7 @@ export async function discoverOpenRouterModels(opts?: {
 
   discoveryInFlight = (async () => {
     try {
-      const discovered = await fetchOpenRouterModels(apiKey);
+      await fetchOpenRouterModels(apiKey);
       return [...discoveredModelNames];
     } catch {
       return stale;
