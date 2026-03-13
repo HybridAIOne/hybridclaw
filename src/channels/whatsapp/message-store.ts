@@ -22,6 +22,12 @@ interface StoredWhatsAppMessageFile {
   messages: StoredWhatsAppMessage[];
 }
 
+interface StoredWhatsAppMessageIndexes {
+  byExactKey: Map<string, StoredWhatsAppMessage>;
+  byRemoteJidAndId: Map<string, StoredWhatsAppMessage>;
+  uniqueById: Map<string, StoredWhatsAppMessage | null>;
+}
+
 export interface WhatsAppMessageStore {
   getMessage: (key: WAMessageKey) => Promise<proto.IMessage | undefined>;
   rememberSentMessage: (
@@ -117,10 +123,58 @@ async function writeStoreFile(
   );
 }
 
+function buildMessageIndexes(
+  messages: StoredWhatsAppMessage[],
+): StoredWhatsAppMessageIndexes {
+  const byExactKey = new Map<string, StoredWhatsAppMessage>();
+  const byRemoteJidAndId = new Map<string, StoredWhatsAppMessage>();
+  const uniqueById = new Map<string, StoredWhatsAppMessage | null>();
+
+  for (const entry of messages) {
+    const exactKey = buildLookupKey({
+      remoteJid: entry.remoteJid,
+      id: entry.id,
+      participant: entry.participant,
+    });
+    if (exactKey) {
+      byExactKey.set(exactKey, entry);
+    }
+
+    const broadKey = buildLookupKey({
+      remoteJid: entry.remoteJid,
+      id: entry.id,
+    });
+    if (broadKey && !byRemoteJidAndId.has(broadKey)) {
+      byRemoteJidAndId.set(broadKey, entry);
+    }
+
+    if (!uniqueById.has(entry.id)) {
+      uniqueById.set(entry.id, entry);
+      continue;
+    }
+    uniqueById.set(entry.id, null);
+  }
+
+  return {
+    byExactKey,
+    byRemoteJidAndId,
+    uniqueById,
+  };
+}
+
 class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
   private readonly filePath: string;
   private loaded = false;
   private messages: StoredWhatsAppMessage[] = [];
+  private readonly messagesByExactKey = new Map<string, StoredWhatsAppMessage>();
+  private readonly messagesByRemoteJidAndId = new Map<
+    string,
+    StoredWhatsAppMessage
+  >();
+  private readonly uniqueMessagesById = new Map<
+    string,
+    StoredWhatsAppMessage | null
+  >();
   private persistQueue: Promise<void> = Promise.resolve();
 
   constructor(filePath: string) {
@@ -138,29 +192,14 @@ class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
     const withoutParticipantKey = buildLookupKey({ remoteJid, id });
 
     const exactMatch =
-      (exactKey
-        ? this.messages.find(
-            (entry) =>
-              buildLookupKey({
-                remoteJid: entry.remoteJid,
-                id: entry.id,
-                participant: entry.participant,
-              }) === exactKey,
-          )
-        : undefined) ||
+      (exactKey ? this.messagesByExactKey.get(exactKey) : undefined) ||
       (withoutParticipantKey
-        ? this.messages.find(
-            (entry) =>
-              buildLookupKey({
-                remoteJid: entry.remoteJid,
-                id: entry.id,
-              }) === withoutParticipantKey,
-          )
+        ? this.messagesByRemoteJidAndId.get(withoutParticipantKey)
         : undefined);
     if (exactMatch) return this.decodeStoredMessage(exactMatch);
 
-    const idMatches = this.messages.filter((entry) => entry.id === id);
-    if (idMatches.length === 1) return this.decodeStoredMessage(idMatches[0]);
+    const uniqueIdMatch = this.uniqueMessagesById.get(id);
+    if (uniqueIdMatch) return this.decodeStoredMessage(uniqueIdMatch);
 
     return undefined;
   }
@@ -186,13 +225,13 @@ class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
       encodedMessage: encoded,
       storedAt: Date.now(),
     };
-    this.messages = sanitizeEntries([...this.messages, nextEntry]);
+    this.replaceMessages(sanitizeEntries([...this.messages, nextEntry]));
     await this.enqueuePersist();
   }
 
   async clear(): Promise<void> {
     this.loaded = true;
-    this.messages = [];
+    this.replaceMessages([]);
     await this.runAfterPersistQueue(() =>
       fs.rm(this.filePath, { force: true }),
     );
@@ -202,7 +241,7 @@ class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
     if (this.loaded) return;
     this.loaded = true;
     await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    this.messages = await readStoreFile(this.filePath);
+    this.replaceMessages(await readStoreFile(this.filePath));
   }
 
   private async enqueuePersist(): Promise<void> {
@@ -216,6 +255,26 @@ class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
   ): Promise<void> {
     this.persistQueue = this.persistQueue.catch(() => undefined).then(action);
     await this.persistQueue;
+  }
+
+  private replaceMessages(messages: StoredWhatsAppMessage[]): void {
+    this.messages = messages;
+    const indexes = buildMessageIndexes(messages);
+
+    this.messagesByExactKey.clear();
+    for (const [key, entry] of indexes.byExactKey) {
+      this.messagesByExactKey.set(key, entry);
+    }
+
+    this.messagesByRemoteJidAndId.clear();
+    for (const [key, entry] of indexes.byRemoteJidAndId) {
+      this.messagesByRemoteJidAndId.set(key, entry);
+    }
+
+    this.uniqueMessagesById.clear();
+    for (const [key, entry] of indexes.uniqueById) {
+      this.uniqueMessagesById.set(key, entry);
+    }
   }
 
   private decodeStoredMessage(

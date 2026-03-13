@@ -93,3 +93,37 @@ test('clear removes persisted replay entries', async () => {
 
   expect(replay).toBeUndefined();
 });
+
+test('does not fall back by id when multiple stored messages share the same id', async () => {
+  const authDir = await createTempAuthDir();
+  const store = createWhatsAppMessageStore(authDir);
+
+  await store.rememberSentMessage({
+    key: {
+      id: 'msg-duplicate',
+      remoteJid: '491701234567@s.whatsapp.net',
+      fromMe: true,
+    },
+    message: {
+      conversation: 'first',
+    },
+  });
+
+  await store.rememberSentMessage({
+    key: {
+      id: 'msg-duplicate',
+      remoteJid: '491709876543@s.whatsapp.net',
+      fromMe: true,
+    },
+    message: {
+      conversation: 'second',
+    },
+  });
+
+  const replay = await store.getMessage({
+    id: 'msg-duplicate',
+    remoteJid: '1061007917075@lid',
+  });
+
+  expect(replay).toBeUndefined();
+});
