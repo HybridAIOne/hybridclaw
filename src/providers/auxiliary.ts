@@ -536,7 +536,7 @@ async function callHybridAITextModel(
     body: JSON.stringify(body),
     signal: createTimeoutSignal(options.timeoutMs),
   });
-  if (!response.ok) return parseError(response);
+  if (!response.ok) await parseError(response);
 
   const payload = (await response.json()) as {
     choices?: Array<{
@@ -600,7 +600,7 @@ async function callOpenAICompatTextModel(
         body: JSON.stringify(body),
         signal: createTimeoutSignal(options.timeoutMs),
       });
-      if (!response.ok) return parseError(response);
+      if (!response.ok) await parseError(response);
     } else {
       throw new Error(
         `Auxiliary provider call failed with ${response.status}: ${responseText}`,
@@ -697,7 +697,7 @@ async function callCodexTextModel(
     body: JSON.stringify(body),
     signal: createTimeoutSignal(options.timeoutMs),
   });
-  if (!response.ok) return parseError(response);
+  if (!response.ok) await parseError(response);
 
   const payload = (await response.json()) as {
     output?: Array<{
@@ -769,7 +769,7 @@ async function callOllamaTextModel(
       signal: createTimeoutSignal(options.timeoutMs),
     },
   );
-  if (!response.ok) return parseError(response);
+  if (!response.ok) await parseError(response);
 
   const payload = (await response.json()) as {
     message?: {
