@@ -35,13 +35,15 @@ afterEach(() => {
   }
 });
 
-function buildParams(overrides: Partial<{
-  rawPath: string;
-  workspaceRoot: string;
-  mediaCacheRoot: string;
-  mountAliases: ValidatedMountAlias[];
-  allowHostAbsolutePaths: boolean;
-}> = {}) {
+function buildParams(
+  overrides: Partial<{
+    rawPath: string;
+    workspaceRoot: string;
+    mediaCacheRoot: string;
+    mountAliases: ValidatedMountAlias[];
+    allowHostAbsolutePaths: boolean;
+  }> = {},
+) {
   const workspaceRoot = overrides.workspaceRoot || makeTempDir('hc-workspace-');
   const mediaCacheRoot =
     overrides.mediaCacheRoot || makeTempDir('hc-discord-cache-');

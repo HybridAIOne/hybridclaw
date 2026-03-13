@@ -60,10 +60,7 @@ function resolveUnderPrefix(
   prefix: string,
   root: string,
 ): string | null {
-  if (
-    normalizedPath !== prefix &&
-    !normalizedPath.startsWith(`${prefix}/`)
-  ) {
+  if (normalizedPath !== prefix && !normalizedPath.startsWith(`${prefix}/`)) {
     return null;
   }
 
@@ -105,11 +102,7 @@ function resolveDisplayPathToHost(params: {
   );
   if (workspaceResolved) return workspaceResolved;
 
-  return resolveUnderPrefix(
-    normalized,
-    mediaCacheRootDisplay,
-    mediaCacheRoot,
-  );
+  return resolveUnderPrefix(normalized, mediaCacheRootDisplay, mediaCacheRoot);
 }
 
 export function buildValidatedMountAliases(params: {

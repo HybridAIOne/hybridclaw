@@ -1,7 +1,12 @@
 import path from 'node:path';
 
+import { DATA_DIR } from '../../config/config.js';
+
 export const DISCORD_SEND_WORKSPACE_ROOT_DISPLAY = '/workspace';
 export const DISCORD_SEND_MEDIA_ROOT_DISPLAY = '/discord-media-cache';
+export const DISCORD_SEND_MEDIA_ROOT_HOST_DIR = path.resolve(
+  path.join(DATA_DIR, 'discord-media-cache'),
+);
 
 function normalizeSlashes(value: string): string {
   return value.replace(/\\/g, '/');

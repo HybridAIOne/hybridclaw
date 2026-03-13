@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { resolveAgentForRequest } from '../../agents/agent-registry.js';
-import { DATA_DIR } from '../../config/config.js';
 import {
   isDiscordChannelId,
   isSupportedProactiveChannelId,
@@ -8,12 +7,11 @@ import {
 import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { enqueueProactiveMessage, getSessionById } from '../../memory/db.js';
 import { runDiscordToolAction } from '../discord/runtime.js';
-import { resolveDiscordLocalFileForSend } from '../discord/send-files.js';
 import {
-  type DiscordToolAction,
-  type DiscordToolActionRequest,
-  normalizeDiscordToolAction,
-} from '../discord/tool-actions.js';
+  DISCORD_SEND_MEDIA_ROOT_HOST_DIR,
+  resolveDiscordLocalFileForSend,
+} from '../discord/send-files.js';
+import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { getWhatsAppAuthStatus } from '../whatsapp/auth.js';
 import {
   canonicalizeWhatsAppUserJid,
@@ -26,17 +24,9 @@ import {
   sendWhatsAppMediaToChat,
 } from '../whatsapp/runtime.js';
 
-export type MessageToolAction = DiscordToolAction;
-export type MessageToolActionRequest = DiscordToolActionRequest;
-
 const LOCAL_MESSAGE_QUEUE_LIMIT = 100;
 const MESSAGE_TOOL_WHATSAPP_PREFIX_RE = /^whatsapp:/i;
 const MESSAGE_TOOL_LOCAL_SOURCE = 'message-tool';
-const MESSAGE_MEDIA_CACHE_HOST_DIR = path.resolve(
-  path.join(DATA_DIR, 'discord-media-cache'),
-);
-
-export const normalizeMessageToolAction = normalizeDiscordToolAction;
 
 function resolveMessageToolSessionWorkspaceRoot(
   sessionId: string | undefined,
@@ -52,7 +42,7 @@ function resolveMessageToolSessionWorkspaceRoot(
 }
 
 function resolveMessageToolSendFilePath(
-  request: MessageToolActionRequest,
+  request: DiscordToolActionRequest,
 ): string | null {
   const rawPath = String(request.filePath || '').trim();
   if (!rawPath) return null;
@@ -63,7 +53,7 @@ function resolveMessageToolSendFilePath(
   const resolvedPath = resolveDiscordLocalFileForSend({
     filePath: rawPath,
     sessionWorkspaceRoot: workspaceRoot,
-    mediaCacheRoot: MESSAGE_MEDIA_CACHE_HOST_DIR,
+    mediaCacheRoot: DISCORD_SEND_MEDIA_ROOT_HOST_DIR,
   });
   if (!resolvedPath) {
     if (!workspaceRoot) {
@@ -104,7 +94,7 @@ function normalizeLocalMessageTarget(rawTarget: string): string | null {
   return isSupportedProactiveChannelId(trimmed) ? trimmed : null;
 }
 
-function hasMessageComponents(request: MessageToolActionRequest): boolean {
+function hasMessageComponents(request: DiscordToolActionRequest): boolean {
   return (
     Array.isArray(request.components) ||
     (request.components !== null && typeof request.components === 'object')
@@ -112,7 +102,7 @@ function hasMessageComponents(request: MessageToolActionRequest): boolean {
 }
 
 async function runWhatsAppMessageSendAction(
-  request: MessageToolActionRequest,
+  request: DiscordToolActionRequest,
   channelId: string,
 ): Promise<Record<string, unknown>> {
   const content = String(request.content || '').trim();
@@ -159,7 +149,7 @@ async function runWhatsAppMessageSendAction(
 }
 
 async function runLocalMessageSendAction(
-  request: MessageToolActionRequest,
+  request: DiscordToolActionRequest,
   channelId: string,
 ): Promise<Record<string, unknown>> {
   const content = String(request.content || '').trim();
@@ -192,7 +182,7 @@ async function runLocalMessageSendAction(
 }
 
 export async function runMessageToolAction(
-  request: MessageToolActionRequest,
+  request: DiscordToolActionRequest,
 ): Promise<Record<string, unknown>> {
   if (request.action !== 'send') {
     return await runDiscordToolAction(request);

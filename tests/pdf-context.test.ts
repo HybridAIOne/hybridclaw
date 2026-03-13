@@ -6,7 +6,10 @@ import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { afterEach, describe, expect, test } from 'vitest';
 
 import { setSandboxModeOverride } from '../src/config/config.js';
-import { injectPdfContextMessages } from '../src/media/pdf-context.js';
+import {
+  clampText,
+  injectPdfContextMessages,
+} from '../src/media/pdf-context.js';
 import type { ChatMessage } from '../src/types.js';
 
 async function createPdf(filePath: string, text: string): Promise<void> {
@@ -29,6 +32,19 @@ function latestSystemMessage(messages: ChatMessage[]): ChatMessage | undefined {
 describe('injectPdfContextMessages', () => {
   afterEach(() => {
     setSandboxModeOverride(null);
+  });
+
+  test('clampText respects small caps including the truncation suffix', () => {
+    const clamped = clampText('x'.repeat(2_000), 80);
+
+    expect(clamped.length).toBeLessThanOrEqual(80);
+    expect(clamped.endsWith('...[truncated]')).toBe(true);
+  });
+
+  test('clampText does not exceed tiny caps', () => {
+    const clamped = clampText('x'.repeat(2_000), 10);
+
+    expect(clamped).toHaveLength(10);
   });
 
   test('injects current-turn PDF text for an explicit local file path', async () => {
