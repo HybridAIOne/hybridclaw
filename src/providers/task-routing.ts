@@ -181,12 +181,12 @@ function buildProviderUnavailableError(
   );
 }
 
-async function resolveConfiguredTaskModelPolicy(
+export async function resolveTaskModelPolicy(
   task: AuxiliaryTask,
   params: {
     agentId?: string;
     chatbotId?: string;
-  },
+  } = {},
 ): Promise<TaskModelPolicy | undefined> {
   const configured = getConfiguredTaskSelection(task);
   const providerSelection = getSelectedTaskProvider(task);
@@ -245,16 +245,6 @@ async function resolveConfiguredTaskModelPolicy(
       error: err instanceof Error ? err.message : String(err),
     };
   }
-}
-
-export async function resolveTaskModelPolicy(
-  task: AuxiliaryTask,
-  params: {
-    agentId?: string;
-    chatbotId?: string;
-  } = {},
-): Promise<TaskModelPolicy | undefined> {
-  return resolveConfiguredTaskModelPolicy(task, params);
 }
 
 export async function resolveTaskModelPolicies(
