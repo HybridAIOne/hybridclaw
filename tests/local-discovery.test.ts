@@ -56,8 +56,6 @@ afterEach(async () => {
     process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
       ORIGINAL_DISABLE_CONFIG_WATCHER;
   }
-  const discovery = await import('../src/providers/local-discovery.js');
-  discovery.resetLocalDiscoveryState();
 });
 
 describe('local discovery', () => {

@@ -19,12 +19,6 @@ const OPENROUTER_PRICING_KEYS = [
   'input_cache_write',
 ] as const;
 
-let discoveredModelNames: string[] = [];
-let freeModelNames = new Set<string>();
-let contextWindowByModel = new Map<string, number>();
-let discoveredAtMs = 0;
-let discoveryInFlight: Promise<string[]> | null = null;
-
 function normalizeOpenRouterModelName(modelId: string): string {
   const normalized = String(modelId || '').trim();
   if (!normalized) return '';
@@ -79,117 +73,140 @@ function isFreeOpenRouterModel(entry: Record<string, unknown>): boolean {
   return sawPrice;
 }
 
-function replaceDiscoveryCache(
-  modelNames: string[],
-  nextFreeModelNames: Iterable<string> = [],
-  nextContextWindows: Iterable<[string, number]> = [],
-  opts?: { cacheResult?: boolean },
-): void {
-  discoveredModelNames = [...modelNames];
-  freeModelNames = new Set(nextFreeModelNames);
-  contextWindowByModel = new Map(nextContextWindows);
-  discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
+export interface OpenRouterDiscoveryStore {
+  discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
+  getModelNames: () => string[];
+  isModelFree: (model: string) => boolean;
+  getModelContextWindow: (model: string) => number | null;
 }
 
-async function fetchOpenRouterModels(apiKey: string): Promise<string[]> {
-  const response = await fetch(
-    `${normalizeBaseUrl(OPENROUTER_BASE_URL)}/models`,
-    {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': OPENROUTER_REFERER,
-        'X-Title': OPENROUTER_TITLE,
-      },
-      signal: AbortSignal.timeout(5_000),
-    },
-  );
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
+  let discoveredModelNames: string[] = [];
+  let freeModelNames = new Set<string>();
+  let contextWindowByModel = new Map<string, number>();
+  let discoveredAtMs = 0;
+  let discoveryInFlight: Promise<string[]> | null = null;
+
+  function replaceDiscoveryCache(
+    modelNames: string[],
+    nextFreeModelNames: Iterable<string> = [],
+    nextContextWindows: Iterable<[string, number]> = [],
+    opts?: { cacheResult?: boolean },
+  ): void {
+    discoveredModelNames = [...modelNames];
+    freeModelNames = new Set(nextFreeModelNames);
+    contextWindowByModel = new Map(nextContextWindows);
+    discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
   }
 
-  const payload = (await response.json()) as unknown;
-  const data =
-    isRecord(payload) && Array.isArray(payload.data) ? payload.data : [];
-  const discovered = new Set<string>();
-  const freeDiscovered = new Set<string>();
-  const contextWindows = new Map<string, number>();
-  for (const entry of data) {
-    if (!isRecord(entry) || typeof entry.id !== 'string') continue;
-    const normalized = normalizeOpenRouterModelName(entry.id);
-    if (normalized) {
-      discovered.add(normalized);
-      const contextWindow = readOpenRouterContextWindow(entry);
-      if (contextWindow != null) {
-        contextWindows.set(normalized, contextWindow);
-      }
-      if (isFreeOpenRouterModel(entry)) {
-        freeDiscovered.add(normalized);
+  async function fetchOpenRouterModels(apiKey: string): Promise<string[]> {
+    const response = await fetch(
+      `${normalizeBaseUrl(OPENROUTER_BASE_URL)}/models`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'HTTP-Referer': OPENROUTER_REFERER,
+          'X-Title': OPENROUTER_TITLE,
+        },
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const payload = (await response.json()) as unknown;
+    const data =
+      isRecord(payload) && Array.isArray(payload.data) ? payload.data : [];
+    const discovered = new Set<string>();
+    const freeDiscovered = new Set<string>();
+    const contextWindows = new Map<string, number>();
+    for (const entry of data) {
+      if (!isRecord(entry) || typeof entry.id !== 'string') continue;
+      const normalized = normalizeOpenRouterModelName(entry.id);
+      if (normalized) {
+        discovered.add(normalized);
+        const contextWindow = readOpenRouterContextWindow(entry);
+        if (contextWindow != null) {
+          contextWindows.set(normalized, contextWindow);
+        }
+        if (isFreeOpenRouterModel(entry)) {
+          freeDiscovered.add(normalized);
+        }
       }
     }
+    replaceDiscoveryCache([...discovered], freeDiscovered, contextWindows);
+    return [...discovered];
   }
-  replaceDiscoveryCache([...discovered], freeDiscovered, contextWindows);
-  return [...discovered];
+
+  async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
+    if (!OPENROUTER_ENABLED) {
+      replaceDiscoveryCache([], [], [], { cacheResult: false });
+      return [];
+    }
+
+    const apiKey = readOpenRouterApiKey({ required: false });
+    if (!apiKey) {
+      replaceDiscoveryCache([], [], [], { cacheResult: false });
+      return [];
+    }
+
+    const cacheAgeMs = Date.now() - discoveredAtMs;
+    if (
+      !opts?.force &&
+      discoveredAtMs > 0 &&
+      cacheAgeMs < OPENROUTER_DISCOVERY_TTL_MS
+    ) {
+      return [...discoveredModelNames];
+    }
+
+    if (discoveryInFlight) return discoveryInFlight;
+    const stale = [...discoveredModelNames];
+
+    discoveryInFlight = (async () => {
+      try {
+        await fetchOpenRouterModels(apiKey);
+        return [...discoveredModelNames];
+      } catch {
+        return stale;
+      } finally {
+        discoveryInFlight = null;
+      }
+    })();
+
+    return discoveryInFlight;
+  }
+
+  return {
+    discoverModels,
+    getModelNames: () => [...discoveredModelNames],
+    isModelFree: (model: string) =>
+      freeModelNames.has(String(model || '').trim()),
+    getModelContextWindow: (model: string) => {
+      const normalized = normalizeOpenRouterModelName(model);
+      return contextWindowByModel.get(normalized) ?? null;
+    },
+  };
 }
+
+const defaultOpenRouterDiscoveryStore = createOpenRouterDiscoveryStore();
 
 export async function discoverOpenRouterModels(opts?: {
   force?: boolean;
 }): Promise<string[]> {
-  if (!OPENROUTER_ENABLED) {
-    replaceDiscoveryCache([], [], [], { cacheResult: false });
-    return [];
-  }
-
-  const apiKey = readOpenRouterApiKey({ required: false });
-  if (!apiKey) {
-    replaceDiscoveryCache([], [], [], { cacheResult: false });
-    return [];
-  }
-
-  const cacheAgeMs = Date.now() - discoveredAtMs;
-  if (
-    !opts?.force &&
-    discoveredAtMs > 0 &&
-    cacheAgeMs < OPENROUTER_DISCOVERY_TTL_MS
-  ) {
-    return [...discoveredModelNames];
-  }
-
-  if (discoveryInFlight) return discoveryInFlight;
-  const stale = [...discoveredModelNames];
-
-  discoveryInFlight = (async () => {
-    try {
-      await fetchOpenRouterModels(apiKey);
-      return [...discoveredModelNames];
-    } catch {
-      return stale;
-    } finally {
-      discoveryInFlight = null;
-    }
-  })();
-
-  return discoveryInFlight;
+  return defaultOpenRouterDiscoveryStore.discoverModels(opts);
 }
 
 export function getDiscoveredOpenRouterModelNames(): string[] {
-  return [...discoveredModelNames];
+  return defaultOpenRouterDiscoveryStore.getModelNames();
 }
 
 export function isDiscoveredOpenRouterModelFree(model: string): boolean {
-  return freeModelNames.has(String(model || '').trim());
+  return defaultOpenRouterDiscoveryStore.isModelFree(model);
 }
 
 export function getDiscoveredOpenRouterModelContextWindow(
   model: string,
 ): number | null {
-  const normalized = normalizeOpenRouterModelName(model);
-  return contextWindowByModel.get(normalized) ?? null;
-}
-
-export function resetOpenRouterDiscoveryState(): void {
-  discoveredModelNames = [];
-  freeModelNames = new Set();
-  contextWindowByModel = new Map();
-  discoveredAtMs = 0;
-  discoveryInFlight = null;
+  return defaultOpenRouterDiscoveryStore.getModelContextWindow(model);
 }

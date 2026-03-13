@@ -64,12 +64,6 @@ afterEach(async () => {
   } else {
     process.env.OPENROUTER_API_KEY = ORIGINAL_OPENROUTER_API_KEY;
   }
-  const discovery = await import('../src/providers/local-discovery.js');
-  discovery.resetLocalDiscoveryState();
-  const openrouterDiscovery = await import(
-    '../src/providers/openrouter-discovery.js'
-  );
-  openrouterDiscovery.resetOpenRouterDiscoveryState();
 });
 
 test('available model catalog merges configured and discovered local models', async () => {

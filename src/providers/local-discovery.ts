@@ -28,15 +28,6 @@ const ZERO_COST = {
   cacheWrite: 0,
 } as const;
 
-let discoveryTimer: ReturnType<typeof setInterval> | null = null;
-let discoveryInFlight: Promise<LocalModelInfo[]> | null = null;
-let lastDiscoveryAtMs = 0;
-const discoveredByBackend = new Map<
-  LocalBackendType,
-  Map<string, LocalModelInfo>
->();
-const discoveredById = new Map<string, LocalModelInfo>();
-
 function hasEnabledLocalBackend(): boolean {
   return LOCAL_OLLAMA_ENABLED || LOCAL_LMSTUDIO_ENABLED || LOCAL_VLLM_ENABLED;
 }
@@ -279,124 +270,195 @@ export async function discoverVllmModels(
   return fetchOpenAICompatModels('vllm', baseUrl, apiKey);
 }
 
-function replaceDiscoveryCache(models: LocalModelInfo[]): void {
-  discoveredByBackend.clear();
-  discoveredById.clear();
+export interface LocalDiscoveryStore {
+  discoverAllModels: (opts?: { force?: boolean }) => Promise<LocalModelInfo[]>;
+  getDiscoveredModels: () => LocalModelInfo[];
+  getDiscoveredModelNames: () => string[];
+  getModelInfo: (model: string) => LocalModelInfo | null;
+  startLoop: () => void;
+  stopLoop: () => void;
+}
 
-  for (const backend of DISCOVERY_ORDER) {
-    discoveredByBackend.set(backend, new Map());
-  }
+export function createLocalDiscoveryStore(): LocalDiscoveryStore {
+  let discoveryTimer: ReturnType<typeof setInterval> | null = null;
+  let discoveryInFlight: Promise<LocalModelInfo[]> | null = null;
+  let lastDiscoveryAtMs = 0;
+  const discoveredByBackend = new Map<
+    LocalBackendType,
+    Map<string, LocalModelInfo>
+  >();
+  const discoveredById = new Map<string, LocalModelInfo>();
 
-  for (const model of models) {
-    const backendMap = discoveredByBackend.get(model.backend);
-    if (!backendMap) continue;
-    backendMap.set(model.id, model);
-    if (!discoveredById.has(model.id)) {
-      discoveredById.set(model.id, model);
+  function replaceDiscoveryCache(models: LocalModelInfo[]): void {
+    discoveredByBackend.clear();
+    discoveredById.clear();
+
+    for (const backend of DISCOVERY_ORDER) {
+      discoveredByBackend.set(backend, new Map());
+    }
+
+    for (const model of models) {
+      const backendMap = discoveredByBackend.get(model.backend);
+      if (!backendMap) continue;
+      backendMap.set(model.id, model);
+      if (!discoveredById.has(model.id)) {
+        discoveredById.set(model.id, model);
+      }
     }
   }
+
+  function getDiscoveredModels(): LocalModelInfo[] {
+    const models: LocalModelInfo[] = [];
+    for (const backend of DISCOVERY_ORDER) {
+      const backendMap = discoveredByBackend.get(backend);
+      if (!backendMap) continue;
+      models.push(...backendMap.values());
+    }
+    return models;
+  }
+
+  function getDiscoveredModelNames(): string[] {
+    const names = new Set<string>();
+    for (const model of getDiscoveredModels()) {
+      names.add(`${model.backend}/${model.id}`);
+    }
+    return [...names];
+  }
+
+  function getModelInfo(model: string): LocalModelInfo | null {
+    const normalized = normalizeModelId(model);
+    if (!normalized) return null;
+
+    const slashIndex = normalized.indexOf('/');
+    if (slashIndex > 0) {
+      const backend = normalized.slice(0, slashIndex) as LocalBackendType;
+      const modelId = normalized.slice(slashIndex + 1);
+      const backendMap = discoveredByBackend.get(backend);
+      return backendMap?.get(modelId) || null;
+    }
+
+    return discoveredById.get(normalized) || null;
+  }
+
+  async function discoverAllModels(opts?: {
+    force?: boolean;
+  }): Promise<LocalModelInfo[]> {
+    if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
+      lastDiscoveryAtMs = 0;
+      replaceDiscoveryCache([]);
+      return [];
+    }
+
+    const cacheTtlMs = Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS);
+    if (
+      !opts?.force &&
+      lastDiscoveryAtMs > 0 &&
+      Date.now() - lastDiscoveryAtMs < cacheTtlMs
+    ) {
+      return getDiscoveredModels();
+    }
+
+    if (discoveryInFlight) return discoveryInFlight;
+
+    discoveryInFlight = (async () => {
+      const tasks: Array<Promise<LocalModelInfo[]>> = [];
+      if (LOCAL_OLLAMA_ENABLED) {
+        tasks.push(
+          discoverOllamaModels(LOCAL_OLLAMA_BASE_URL, {
+            maxModels: LOCAL_DISCOVERY_MAX_MODELS,
+            concurrency: LOCAL_DISCOVERY_CONCURRENCY,
+          }).catch(() => []),
+        );
+      }
+      if (LOCAL_LMSTUDIO_ENABLED) {
+        tasks.push(
+          discoverLmStudioModels(LOCAL_LMSTUDIO_BASE_URL).catch(() => []),
+        );
+      }
+      if (LOCAL_VLLM_ENABLED) {
+        tasks.push(
+          discoverVllmModels(LOCAL_VLLM_BASE_URL, LOCAL_VLLM_API_KEY).catch(
+            () => [],
+          ),
+        );
+      }
+
+      const discovered = (await Promise.all(tasks)).flat();
+      const deduped: LocalModelInfo[] = [];
+      const seen = new Set<string>();
+      for (const backend of DISCOVERY_ORDER) {
+        for (const model of discovered.filter(
+          (entry) => entry.backend === backend,
+        )) {
+          const cacheKey = `${model.backend}:${model.id}`;
+          if (seen.has(cacheKey)) continue;
+          seen.add(cacheKey);
+          deduped.push(model);
+        }
+      }
+
+      replaceDiscoveryCache(deduped);
+      lastDiscoveryAtMs = Date.now();
+      return deduped;
+    })();
+
+    try {
+      return await discoveryInFlight;
+    } finally {
+      discoveryInFlight = null;
+    }
+  }
+
+  function stopLoop(): void {
+    if (!discoveryTimer) return;
+    clearInterval(discoveryTimer);
+    discoveryTimer = null;
+  }
+
+  function startLoop(): void {
+    stopLoop();
+    if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
+      lastDiscoveryAtMs = 0;
+      replaceDiscoveryCache([]);
+      return;
+    }
+    void discoverAllModels({ force: true });
+    discoveryTimer = setInterval(
+      () => {
+        void discoverAllModels({ force: true });
+      },
+      Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS),
+    );
+  }
+
+  return {
+    discoverAllModels,
+    getDiscoveredModels,
+    getDiscoveredModelNames,
+    getModelInfo,
+    startLoop,
+    stopLoop,
+  };
 }
+
+const defaultLocalDiscoveryStore = createLocalDiscoveryStore();
 
 export async function discoverAllLocalModels(opts?: {
   force?: boolean;
 }): Promise<LocalModelInfo[]> {
-  if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
-    lastDiscoveryAtMs = 0;
-    replaceDiscoveryCache([]);
-    return [];
-  }
-
-  const cacheTtlMs = Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS);
-  if (
-    !opts?.force &&
-    lastDiscoveryAtMs > 0 &&
-    Date.now() - lastDiscoveryAtMs < cacheTtlMs
-  ) {
-    return getDiscoveredLocalModels();
-  }
-
-  if (discoveryInFlight) return discoveryInFlight;
-
-  discoveryInFlight = (async () => {
-    const tasks: Array<Promise<LocalModelInfo[]>> = [];
-    if (LOCAL_OLLAMA_ENABLED) {
-      tasks.push(
-        discoverOllamaModels(LOCAL_OLLAMA_BASE_URL, {
-          maxModels: LOCAL_DISCOVERY_MAX_MODELS,
-          concurrency: LOCAL_DISCOVERY_CONCURRENCY,
-        }).catch(() => []),
-      );
-    }
-    if (LOCAL_LMSTUDIO_ENABLED) {
-      tasks.push(
-        discoverLmStudioModels(LOCAL_LMSTUDIO_BASE_URL).catch(() => []),
-      );
-    }
-    if (LOCAL_VLLM_ENABLED) {
-      tasks.push(
-        discoverVllmModels(LOCAL_VLLM_BASE_URL, LOCAL_VLLM_API_KEY).catch(
-          () => [],
-        ),
-      );
-    }
-
-    const discovered = (await Promise.all(tasks)).flat();
-    const deduped: LocalModelInfo[] = [];
-    const seen = new Set<string>();
-    for (const backend of DISCOVERY_ORDER) {
-      for (const model of discovered.filter(
-        (entry) => entry.backend === backend,
-      )) {
-        const cacheKey = `${model.backend}:${model.id}`;
-        if (seen.has(cacheKey)) continue;
-        seen.add(cacheKey);
-        deduped.push(model);
-      }
-    }
-
-    replaceDiscoveryCache(deduped);
-    lastDiscoveryAtMs = Date.now();
-    return deduped;
-  })();
-
-  try {
-    return await discoveryInFlight;
-  } finally {
-    discoveryInFlight = null;
-  }
+  return defaultLocalDiscoveryStore.discoverAllModels(opts);
 }
 
 export function getDiscoveredLocalModels(): LocalModelInfo[] {
-  const models: LocalModelInfo[] = [];
-  for (const backend of DISCOVERY_ORDER) {
-    const backendMap = discoveredByBackend.get(backend);
-    if (!backendMap) continue;
-    models.push(...backendMap.values());
-  }
-  return models;
+  return defaultLocalDiscoveryStore.getDiscoveredModels();
 }
 
 export function getDiscoveredLocalModelNames(): string[] {
-  const names = new Set<string>();
-  for (const model of getDiscoveredLocalModels()) {
-    names.add(`${model.backend}/${model.id}`);
-  }
-  return [...names];
+  return defaultLocalDiscoveryStore.getDiscoveredModelNames();
 }
 
 export function getLocalModelInfo(model: string): LocalModelInfo | null {
-  const normalized = normalizeModelId(model);
-  if (!normalized) return null;
-
-  const slashIndex = normalized.indexOf('/');
-  if (slashIndex > 0) {
-    const backend = normalized.slice(0, slashIndex) as LocalBackendType;
-    const modelId = normalized.slice(slashIndex + 1);
-    const backendMap = discoveredByBackend.get(backend);
-    return backendMap?.get(modelId) || null;
-  }
-
-  return discoveredById.get(normalized) || null;
+  return defaultLocalDiscoveryStore.getModelInfo(model);
 }
 
 export function resolveLocalModelContextWindow(model: string): number | null {
@@ -414,30 +476,9 @@ export function resolveLocalModelThinkingFormat(
 }
 
 export function startDiscoveryLoop(): void {
-  stopDiscoveryLoop();
-  if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
-    lastDiscoveryAtMs = 0;
-    replaceDiscoveryCache([]);
-    return;
-  }
-  void discoverAllLocalModels({ force: true });
-  discoveryTimer = setInterval(
-    () => {
-      void discoverAllLocalModels({ force: true });
-    },
-    Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS),
-  );
+  defaultLocalDiscoveryStore.startLoop();
 }
 
 export function stopDiscoveryLoop(): void {
-  if (!discoveryTimer) return;
-  clearInterval(discoveryTimer);
-  discoveryTimer = null;
-}
-
-export function resetLocalDiscoveryState(): void {
-  stopDiscoveryLoop();
-  discoveryInFlight = null;
-  lastDiscoveryAtMs = 0;
-  replaceDiscoveryCache([]);
+  defaultLocalDiscoveryStore.stopLoop();
 }
