@@ -1782,12 +1782,16 @@ async function handleAuthLoginCommand(args: string[]): Promise<void> {
 
 async function handleAuthCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
+  if (normalized.length === 0) {
     printAuthUsage();
     return;
   }
 
   const sub = normalized[0].toLowerCase();
+  if (sub === 'help' || sub === '--help' || sub === '-h') {
+    printAuthUsage();
+    return;
+  }
   if (sub === 'whatsapp') {
     await handleAuthWhatsAppCommand(normalized.slice(1));
     return;
