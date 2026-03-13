@@ -39,6 +39,7 @@ import {
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
+import { isEmailAddress } from '../channels/email/allowlist.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import {
   APP_VERSION,
@@ -359,8 +360,11 @@ function resolveChannelType(
   const source = String(req.source || '')
     .trim()
     .toLowerCase();
-  if (source === 'discord' || source === 'whatsapp') return source;
+  if (source === 'discord' || source === 'whatsapp' || source === 'email') {
+    return source;
+  }
   if (isWhatsAppJid(req.channelId)) return 'whatsapp';
+  if (isEmailAddress(req.channelId)) return 'email';
   if (isDiscordChannelId(req.channelId)) return 'discord';
   return source || undefined;
 }

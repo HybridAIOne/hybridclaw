@@ -14,7 +14,7 @@ export const whatsappAgentPromptAdapter: ChannelAgentPromptAdapter = {
       '- WhatsApp formatting uses `*bold*`, `_italic_`, `~strike~`, and triple-backtick code fences.',
       '- Keep each WhatsApp message chunk concise and under roughly 4,000 characters.',
       '- Avoid Discord-specific syntax like `<@userId>` or `<#channelId>` in WhatsApp replies.',
-      '- For `message` sends from WhatsApp, always provide an explicit target when sending to another channel. Use Discord ids/#channel for Discord, or a WhatsApp JID/phone number for WhatsApp.',
+      '- For `message` sends from WhatsApp, always provide an explicit target when sending to another channel. Use Discord ids/#channel for Discord, a WhatsApp JID/phone number for WhatsApp, or an email address for email.',
     ];
 
     if (channelId) {

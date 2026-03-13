@@ -25,7 +25,9 @@ test('resolves Discord message tool hints when channelType is discord', () => {
   ).toBe(true);
   expect(hints.some((entry) => entry.includes('`filePath`'))).toBe(true);
   expect(
-    hints.some((entry) => entry.includes('WhatsApp JID or phone number')),
+    hints.some((entry) =>
+      entry.includes('WhatsApp JID/phone number or an email address instead'),
+    ),
   ).toBe(true);
 });
 
@@ -85,4 +87,20 @@ test('resolves WhatsApp hints from explicit WhatsApp context', () => {
   expect(
     hints.some((entry) => entry.includes('always provide an explicit target')),
   ).toBe(true);
+});
+
+test('prefers WhatsApp hints over email hints for raw WhatsApp jids', () => {
+  const hints = resolveChannelMessageToolHints({
+    runtimeInfo: {
+      channelId: '491234567890@s.whatsapp.net',
+    },
+  });
+
+  expect(hints.length).toBeGreaterThan(0);
+  expect(hints.some((entry) => entry.includes('Current WhatsApp chat'))).toBe(
+    true,
+  );
+  expect(hints.some((entry) => entry.includes('Current email peer'))).toBe(
+    false,
+  );
 });

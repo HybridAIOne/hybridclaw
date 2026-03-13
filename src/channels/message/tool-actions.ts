@@ -12,6 +12,8 @@ import {
   resolveDiscordLocalFileForSend,
 } from '../discord/send-files.js';
 import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
+import { isEmailAddress, normalizeEmailAddress } from '../email/allowlist.js';
+import { sendEmailAttachmentTo, sendToEmail } from '../email/runtime.js';
 import { getWhatsAppAuthStatus } from '../whatsapp/auth.js';
 import {
   canonicalizeWhatsAppUserJid,
@@ -25,6 +27,7 @@ import {
 } from '../whatsapp/runtime.js';
 
 const LOCAL_MESSAGE_QUEUE_LIMIT = 100;
+const MESSAGE_TOOL_EMAIL_PREFIX_RE = /^email:/i;
 const MESSAGE_TOOL_WHATSAPP_PREFIX_RE = /^whatsapp:/i;
 const MESSAGE_TOOL_LOCAL_SOURCE = 'message-tool';
 
@@ -91,7 +94,17 @@ function normalizeLocalMessageTarget(rawTarget: string): string | null {
   if (!trimmed) return null;
   if (isDiscordChannelId(trimmed)) return null;
   if (isWhatsAppJid(trimmed)) return null;
+  if (isEmailAddress(trimmed)) return null;
   return isSupportedProactiveChannelId(trimmed) ? trimmed : null;
+}
+
+function normalizeEmailMessageTarget(rawTarget: string): string | null {
+  const trimmed = String(rawTarget || '').trim();
+  if (!trimmed) return null;
+  const withoutPrefix = trimmed
+    .replace(MESSAGE_TOOL_EMAIL_PREFIX_RE, '')
+    .trim();
+  return normalizeEmailAddress(withoutPrefix);
 }
 
 function hasMessageComponents(request: DiscordToolActionRequest): boolean {
@@ -148,6 +161,48 @@ async function runWhatsAppMessageSendAction(
   };
 }
 
+async function runEmailMessageSendAction(
+  request: DiscordToolActionRequest,
+  channelId: string,
+): Promise<Record<string, unknown>> {
+  const content = String(request.content || '').trim();
+  const filePath = resolveMessageToolSendFilePath(request);
+  const hasComponents = hasMessageComponents(request);
+  if (!content && !filePath) {
+    throw new Error(
+      'content is required for email send unless filePath is provided.',
+    );
+  }
+  if (hasComponents) {
+    throw new Error('components are not supported for email sends.');
+  }
+
+  if (filePath) {
+    await sendEmailAttachmentTo({
+      to: channelId,
+      filePath,
+      body: content || '',
+    });
+    return {
+      ok: true,
+      action: 'send',
+      channelId,
+      transport: 'email',
+      attachmentCount: 1,
+      contentLength: content.length,
+    };
+  }
+
+  await sendToEmail(channelId, content);
+  return {
+    ok: true,
+    action: 'send',
+    channelId,
+    transport: 'email',
+    contentLength: content.length,
+  };
+}
+
 async function runLocalMessageSendAction(
   request: DiscordToolActionRequest,
   channelId: string,
@@ -192,6 +247,11 @@ export async function runMessageToolAction(
   const whatsappChannelId = normalizeWhatsAppMessageTarget(rawChannelId);
   if (whatsappChannelId) {
     return await runWhatsAppMessageSendAction(request, whatsappChannelId);
+  }
+
+  const emailChannelId = normalizeEmailMessageTarget(rawChannelId);
+  if (emailChannelId) {
+    return await runEmailMessageSendAction(request, emailChannelId);
   }
 
   const localChannelId = normalizeLocalMessageTarget(rawChannelId);

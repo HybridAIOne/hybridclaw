@@ -23,6 +23,13 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
     currentConfig: {
       heartbeat: { enabled: true, intervalMs: 1_000 },
       hybridai: { defaultChatbotId: 'bot-default' },
+      email: {
+        enabled: false,
+        address: '',
+        imapHost: '',
+        smtpHost: '',
+      },
+      local: { enabled: false },
       memory: { consolidationIntervalHours: 0, decayRate: 0.25 },
       observability: { enabled: false, botId: '', agentId: '' },
       scheduler: { jobs: [] as unknown[] },
@@ -149,6 +156,12 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
     sendToChannel: vi.fn(),
     setDiscordMaintenancePresence: vi.fn(async () => {}),
   }));
+  vi.doMock('../src/channels/email/runtime.js', () => ({
+    initEmail: vi.fn(async () => {}),
+    sendEmailAttachmentTo: vi.fn(async () => {}),
+    sendToEmail: vi.fn(async () => {}),
+    shutdownEmail: vi.fn(async () => {}),
+  }));
   vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
     initWhatsApp: state.initWhatsApp,
     sendToWhatsAppChat: vi.fn(async () => {}),
@@ -163,6 +176,7 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
   }));
   vi.doMock('../src/config/config.js', () => ({
     DISCORD_TOKEN: 'discord-token',
+    EMAIL_PASSWORD: '',
     getConfigSnapshot: state.getConfigSnapshot,
     HEARTBEAT_CHANNEL: '',
     HEARTBEAT_INTERVAL: 1_000,
@@ -229,6 +243,7 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
   vi.doMock('../src/gateway/proactive-delivery.js', () => ({
     hasQueuedProactiveDeliveryPath: vi.fn(() => true),
     isDiscordChannelId: vi.fn(() => true),
+    isEmailAddress: vi.fn(() => false),
     isSupportedProactiveChannelId: vi.fn(() => true),
     resolveHeartbeatDeliveryChannelId: vi.fn(() => '123456789012345678'),
     shouldDropQueuedProactiveMessage: vi.fn(() => false),
@@ -259,6 +274,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/discord/delivery.js');
   vi.doUnmock('../src/channels/discord/mentions.js');
   vi.doUnmock('../src/channels/discord/runtime.js');
+  vi.doUnmock('../src/channels/email/runtime.js');
   vi.doUnmock('../src/channels/whatsapp/runtime.js');
   vi.doUnmock('../src/channels/whatsapp/auth.js');
   vi.doUnmock('../src/config/config.js');
@@ -609,6 +625,13 @@ describe('gateway bootstrap', () => {
     const nextConfig = {
       heartbeat: { enabled: false, intervalMs: 2_000 },
       hybridai: { defaultChatbotId: 'bot-next' },
+      email: {
+        enabled: false,
+        address: '',
+        imapHost: '',
+        smtpHost: '',
+      },
+      local: { enabled: true },
       memory: { consolidationIntervalHours: 2, decayRate: 0.5 },
       observability: { enabled: true, botId: 'bot-obs', agentId: 'agent-obs' },
       scheduler: { jobs: [{ id: 'job-1' }] },

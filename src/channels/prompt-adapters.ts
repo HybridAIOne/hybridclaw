@@ -1,4 +1,6 @@
 import { discordAgentPromptAdapter } from './discord/prompt-adapter.js';
+import { isEmailAddress } from './email/allowlist.js';
+import { emailAgentPromptAdapter } from './email/prompt-adapter.js';
 import { isWhatsAppJid } from './whatsapp/phone.js';
 import { whatsappAgentPromptAdapter } from './whatsapp/prompt-adapter.js';
 
@@ -44,10 +46,19 @@ function isDiscordContext(runtimeInfo?: ChannelPromptRuntimeInfo): boolean {
   return DISCORD_SNOWFLAKE_RE.test(guildId);
 }
 
+function isEmailContext(runtimeInfo?: ChannelPromptRuntimeInfo): boolean {
+  const channelType = normalizeLower(runtimeInfo?.channelType);
+  if (channelType) return channelType === 'email';
+
+  const channelId = normalizeValue(runtimeInfo?.channelId);
+  return isEmailAddress(channelId);
+}
+
 function resolveChannelAgentPromptAdapter(params: {
   runtimeInfo?: ChannelPromptRuntimeInfo;
 }): ChannelAgentPromptAdapter | null {
   if (isWhatsAppContext(params.runtimeInfo)) return whatsappAgentPromptAdapter;
+  if (isEmailContext(params.runtimeInfo)) return emailAgentPromptAdapter;
   if (isDiscordContext(params.runtimeInfo)) return discordAgentPromptAdapter;
   return null;
 }

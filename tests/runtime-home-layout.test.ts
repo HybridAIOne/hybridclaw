@@ -16,6 +16,7 @@ const ORIGINAL_DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
 const ORIGINAL_GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const ORIGINAL_GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 const ORIGINAL_DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const ORIGINAL_EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const WORKSPACE_ROOT = path.resolve(TEST_DIR, '..');
 
@@ -56,6 +57,7 @@ afterEach(() => {
   restoreEnvVar('GEMINI_API_KEY', ORIGINAL_GEMINI_API_KEY);
   restoreEnvVar('GOOGLE_API_KEY', ORIGINAL_GOOGLE_API_KEY);
   restoreEnvVar('DISCORD_TOKEN', ORIGINAL_DISCORD_TOKEN);
+  restoreEnvVar('EMAIL_PASSWORD', ORIGINAL_EMAIL_PASSWORD);
 });
 
 describe('runtime secrets', () => {
@@ -79,6 +81,7 @@ describe('runtime secrets', () => {
           GEMINI_API_KEY: 'gemini-test-key',
           GOOGLE_API_KEY: 'google-test-key',
           DISCORD_TOKEN: 'discord-token',
+          EMAIL_PASSWORD: 'email-password',
         },
         null,
         2,
@@ -93,6 +96,7 @@ describe('runtime secrets', () => {
     delete process.env.GEMINI_API_KEY;
     delete process.env.GOOGLE_API_KEY;
     delete process.env.DISCORD_TOKEN;
+    delete process.env.EMAIL_PASSWORD;
 
     const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
     runtimeSecrets.loadRuntimeSecrets();
@@ -106,6 +110,7 @@ describe('runtime secrets', () => {
     expect(process.env.GEMINI_API_KEY).toBe('gemini-test-key');
     expect(process.env.GOOGLE_API_KEY).toBe('google-test-key');
     expect(process.env.DISCORD_TOKEN).toBe('discord-token');
+    expect(process.env.EMAIL_PASSWORD).toBe('email-password');
   });
 
   it('saves credentials under ~/.hybridclaw/credentials.json', async () => {
@@ -126,6 +131,7 @@ describe('runtime secrets', () => {
       GEMINI_API_KEY: 'gemini-saved-key',
       GOOGLE_API_KEY: 'google-saved-key',
       DISCORD_TOKEN: 'discord-token',
+      EMAIL_PASSWORD: 'email-password',
     });
 
     expect(writtenPath).toBe(credentialsPath);
@@ -143,6 +149,7 @@ describe('runtime secrets', () => {
       GEMINI_API_KEY: 'gemini-saved-key',
       GOOGLE_API_KEY: 'google-saved-key',
       DISCORD_TOKEN: 'discord-token',
+      EMAIL_PASSWORD: 'email-password',
     });
   });
 
@@ -168,6 +175,7 @@ describe('runtime secrets', () => {
         'GEMINI_API_KEY=gemini-from-dot-env',
         'GOOGLE_API_KEY=google-from-dot-env',
         'DISCORD_TOKEN=discord-from-dot-env',
+        'EMAIL_PASSWORD=email-password-from-dot-env',
         'UNRELATED=value',
         '',
       ].join('\n'),
@@ -181,6 +189,7 @@ describe('runtime secrets', () => {
     delete process.env.GEMINI_API_KEY;
     delete process.env.GOOGLE_API_KEY;
     delete process.env.DISCORD_TOKEN;
+    delete process.env.EMAIL_PASSWORD;
     process.chdir(cwdDir);
 
     const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
@@ -203,6 +212,7 @@ describe('runtime secrets', () => {
       GEMINI_API_KEY: 'gemini-from-dot-env',
       GOOGLE_API_KEY: 'google-from-dot-env',
       DISCORD_TOKEN: 'discord-from-dot-env',
+      EMAIL_PASSWORD: 'email-password-from-dot-env',
     });
     expect(process.env.HYBRIDAI_API_KEY).toBe('hai-from-dot-env');
     expect(process.env.OPENROUTER_API_KEY).toBe('or-from-dot-env');
@@ -212,6 +222,7 @@ describe('runtime secrets', () => {
     expect(process.env.GEMINI_API_KEY).toBe('gemini-from-dot-env');
     expect(process.env.GOOGLE_API_KEY).toBe('google-from-dot-env');
     expect(process.env.DISCORD_TOKEN).toBe('discord-from-dot-env');
+    expect(process.env.EMAIL_PASSWORD).toBe('email-password-from-dot-env');
     expect(fs.readFileSync(envPath, 'utf-8')).toContain(
       'HYBRIDAI_API_KEY=hai-from-dot-env',
     );

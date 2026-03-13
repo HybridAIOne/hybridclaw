@@ -1,3 +1,4 @@
+import { isEmailAddress as isNormalizedEmailAddress } from '../channels/email/allowlist.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import type { QueuedProactiveMessage } from '../memory/db.js';
 
@@ -8,11 +9,16 @@ export function isDiscordChannelId(channelId: string): boolean {
   return DISCORD_CHANNEL_ID_RE.test(channelId);
 }
 
+export function isEmailAddress(channelId: string): boolean {
+  return isNormalizedEmailAddress(channelId.trim());
+}
+
 export function isSupportedProactiveChannelId(channelId: string): boolean {
   const trimmed = channelId.trim();
   if (!trimmed) return false;
   if (isDiscordChannelId(trimmed)) return true;
   if (isWhatsAppJid(trimmed)) return true;
+  if (isEmailAddress(trimmed)) return true;
   return LOCAL_PROACTIVE_PULL_CHANNEL_IDS.has(trimmed);
 }
 

@@ -71,6 +71,19 @@
     "ackReaction": "👀",
     "mediaMaxMb": 20
   },
+  "email": {
+    "enabled": false,
+    "imapHost": "",
+    "imapPort": 993,
+    "smtpHost": "",
+    "smtpPort": 587,
+    "address": "",
+    "pollIntervalMs": 15000,
+    "folders": ["INBOX"],
+    "allowFrom": [],
+    "textChunkLimit": 50000,
+    "mediaMaxMb": 20
+  },
   "hybridai": {
     "baseUrl": "https://hybridai.one",
     "defaultModel": "gpt-5-nano",

@@ -8,7 +8,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const tempDirs: string[] = [];
 const ORIGINAL_WHATSAPP_SETUP_SETTLE_MS =
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS;
+const ORIGINAL_EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
+const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
 
 function createTempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-cli-'));
@@ -53,6 +56,14 @@ async function importFreshCli(options?: {
 }) {
   vi.resetModules();
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
+  Object.defineProperty(process.stdin, 'isTTY', {
+    configurable: true,
+    value: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    configurable: true,
+    value: true,
+  });
   const promptResponses = [...(options?.promptResponses || [])];
 
   const clearHybridAICredentials = vi.fn(() => '/tmp/credentials.json');
@@ -147,6 +158,19 @@ async function importFreshCli(options?: {
       debounceMs: 2500,
       sendReadReceipts: true,
       ackReaction: '',
+      mediaMaxMb: 20,
+    },
+    email: {
+      enabled: false,
+      imapHost: '',
+      imapPort: 993,
+      smtpHost: '',
+      smtpPort: 587,
+      address: '',
+      pollIntervalMs: 15000,
+      folders: ['INBOX'],
+      allowFrom: [],
+      textChunkLimit: 50000,
       mediaMaxMb: 20,
     },
     local: {
@@ -361,6 +385,19 @@ afterEach(() => {
   } else {
     process.env.OPENROUTER_API_KEY = ORIGINAL_OPENROUTER_API_KEY;
   }
+  if (ORIGINAL_EMAIL_PASSWORD === undefined) {
+    delete process.env.EMAIL_PASSWORD;
+  } else {
+    process.env.EMAIL_PASSWORD = ORIGINAL_EMAIL_PASSWORD;
+  }
+  Object.defineProperty(process.stdin, 'isTTY', {
+    configurable: true,
+    value: ORIGINAL_STDIN_IS_TTY,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    configurable: true,
+    value: ORIGINAL_STDOUT_IS_TTY,
+  });
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (!dir) continue;
@@ -492,6 +529,51 @@ describe('CLI hybridai commands', () => {
     expect(whatsappWaitForSocket).toHaveBeenCalled();
     expect(whatsappStop).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith('Opening WhatsApp pairing session...');
+  });
+
+  it('prompts for missing email setup fields and saves EMAIL_PASSWORD', async () => {
+    const {
+      cli,
+      readlineCreateInterface,
+      saveRuntimeSecrets,
+      updateRuntimeConfig,
+    } = await importFreshCli({
+      promptResponses: [
+        'agent@example.com',
+        'imap.example.com',
+        '993',
+        'smtp.example.com',
+        '587',
+        'app-password-123',
+        'boss@example.com, *@example.com',
+      ],
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['channels', 'email', 'setup']);
+
+    expect(readlineCreateInterface).toHaveBeenCalled();
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      EMAIL_PASSWORD: 'app-password-123',
+    });
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      email: {
+        address: string;
+        allowFrom: string[];
+        enabled: boolean;
+        imapHost: string;
+        smtpHost: string;
+      };
+    };
+    expect(nextConfig.email.enabled).toBe(true);
+    expect(nextConfig.email.address).toBe('agent@example.com');
+    expect(nextConfig.email.imapHost).toBe('imap.example.com');
+    expect(nextConfig.email.smtpHost).toBe('smtp.example.com');
+    expect(nextConfig.email.allowFrom).toEqual([
+      'boss@example.com',
+      '*@example.com',
+    ]);
+    expect(logSpy).toHaveBeenCalledWith('Email mode: enabled');
   });
 
   it('runs auth whatsapp reset through the reset flow', async () => {

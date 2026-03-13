@@ -70,12 +70,14 @@ export const APP_VERSION = resolveAppVersion();
 
 function syncRuntimeSecretExports(): void {
   DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';
+  EMAIL_PASSWORD = process.env.EMAIL_PASSWORD || '';
   HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY || '';
   OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
 }
 
 // Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
 export let DISCORD_TOKEN = '';
+export let EMAIL_PASSWORD = '';
 // Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
 export let HYBRIDAI_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
@@ -155,6 +157,17 @@ export let WHATSAPP_DEBOUNCE_MS = 2_500;
 export let WHATSAPP_SEND_READ_RECEIPTS = true;
 export let WHATSAPP_ACK_REACTION = '';
 export let WHATSAPP_MEDIA_MAX_MB = 20;
+export let EMAIL_ENABLED = false;
+export let EMAIL_IMAP_HOST = '';
+export let EMAIL_IMAP_PORT = 993;
+export let EMAIL_SMTP_HOST = '';
+export let EMAIL_SMTP_PORT = 587;
+export let EMAIL_ADDRESS = '';
+export let EMAIL_POLL_INTERVAL_MS = 15_000;
+export let EMAIL_FOLDERS: string[] = ['INBOX'];
+export let EMAIL_ALLOW_FROM: string[] = [];
+export let EMAIL_TEXT_CHUNK_LIMIT = 50_000;
+export let EMAIL_MEDIA_MAX_MB = 20;
 
 export let HYBRIDAI_BASE_URL = 'https://hybridai.one';
 export let HYBRIDAI_MODEL = 'gpt-5-nano';
@@ -408,6 +421,20 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   WHATSAPP_SEND_READ_RECEIPTS = config.whatsapp.sendReadReceipts;
   WHATSAPP_ACK_REACTION = config.whatsapp.ackReaction;
   WHATSAPP_MEDIA_MAX_MB = Math.max(1, config.whatsapp.mediaMaxMb);
+  EMAIL_ENABLED = config.email.enabled;
+  EMAIL_IMAP_HOST = config.email.imapHost;
+  EMAIL_IMAP_PORT = Math.max(1, Math.min(65_535, config.email.imapPort));
+  EMAIL_SMTP_HOST = config.email.smtpHost;
+  EMAIL_SMTP_PORT = Math.max(1, Math.min(65_535, config.email.smtpPort));
+  EMAIL_ADDRESS = config.email.address;
+  EMAIL_POLL_INTERVAL_MS = Math.max(1_000, config.email.pollIntervalMs);
+  EMAIL_FOLDERS = [...config.email.folders];
+  EMAIL_ALLOW_FROM = [...config.email.allowFrom];
+  EMAIL_TEXT_CHUNK_LIMIT = Math.max(
+    500,
+    Math.min(200_000, config.email.textChunkLimit),
+  );
+  EMAIL_MEDIA_MAX_MB = Math.max(1, config.email.mediaMaxMb);
 
   HYBRIDAI_BASE_URL = config.hybridai.baseUrl;
   HYBRIDAI_MODEL = config.hybridai.defaultModel;

@@ -3,6 +3,8 @@ import { expect, test, vi } from 'vitest';
 async function importFreshMessageToolActions() {
   vi.resetModules();
 
+  const sendEmailAttachmentTo = vi.fn(async () => {});
+  const sendToEmail = vi.fn(async () => {});
   const getWhatsAppAuthStatus = vi.fn(async () => ({ linked: true }));
   const sendToWhatsAppChat = vi.fn(async () => {});
   const sendWhatsAppMediaToChat = vi.fn(async () => {});
@@ -23,6 +25,10 @@ async function importFreshMessageToolActions() {
 
   vi.doMock('../src/channels/whatsapp/auth.js', () => ({
     getWhatsAppAuthStatus,
+  }));
+  vi.doMock('../src/channels/email/runtime.js', () => ({
+    sendEmailAttachmentTo,
+    sendToEmail,
   }));
   vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
     sendToWhatsAppChat,
@@ -45,6 +51,8 @@ async function importFreshMessageToolActions() {
   const module = await import('../src/channels/message/tool-actions.js');
   return {
     ...module,
+    sendEmailAttachmentTo,
+    sendToEmail,
     getWhatsAppAuthStatus,
     sendToWhatsAppChat,
     sendWhatsAppMediaToChat,
@@ -66,6 +74,7 @@ test('send action routes WhatsApp jid targets through WhatsApp transport', async
     '491234567890@s.whatsapp.net',
     'hello whatsapp',
   );
+  expect(state.sendToEmail).not.toHaveBeenCalled();
   expect(state.runDiscordToolAction).not.toHaveBeenCalled();
   expect(result).toMatchObject({
     ok: true,
@@ -144,6 +153,52 @@ test('send action queues local targets like tui', async () => {
     channelId: 'tui',
     transport: 'local',
     note: 'Queued local delivery.',
+  });
+});
+
+test('send action routes email targets through email transport', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: 'ops@example.com',
+    content: '[Subject: Deploy complete]\n\nDeployment is complete.',
+  });
+
+  expect(state.sendToEmail).toHaveBeenCalledWith(
+    'ops@example.com',
+    '[Subject: Deploy complete]\n\nDeployment is complete.',
+  );
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'ops@example.com',
+    transport: 'email',
+  });
+});
+
+test('send action routes email attachments through email delivery', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    sessionId: 'wa:test',
+    channelId: 'email:ops@example.com',
+    content: 'attached report',
+    filePath: 'notes/report.pdf',
+  });
+
+  expect(state.sendEmailAttachmentTo).toHaveBeenCalledWith({
+    to: 'ops@example.com',
+    filePath: '/tmp/hybridclaw-agent-workspace/notes/report.pdf',
+    body: 'attached report',
+  });
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'ops@example.com',
+    transport: 'email',
+    attachmentCount: 1,
   });
 });
 

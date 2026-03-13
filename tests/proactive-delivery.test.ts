@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import {
   hasQueuedProactiveDeliveryPath,
   isDiscordChannelId,
+  isEmailAddress,
   isSupportedProactiveChannelId,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
@@ -42,9 +43,15 @@ describe('proactive delivery helpers', () => {
     expect(isSupportedProactiveChannelId('491234567890@s.whatsapp.net')).toBe(
       true,
     );
+    expect(isSupportedProactiveChannelId('ops@example.com')).toBe(true);
     expect(isSupportedProactiveChannelId('120363401234567890@g.us')).toBe(true);
     expect(isSupportedProactiveChannelId('tui')).toBe(true);
     expect(isSupportedProactiveChannelId('smoke')).toBe(false);
+  });
+
+  test('recognizes email proactive delivery ids', () => {
+    expect(isEmailAddress('ops@example.com')).toBe(true);
+    expect(isEmailAddress('not-an-email')).toBe(false);
   });
 
   test('recognizes supported queued proactive delivery paths', () => {
@@ -63,6 +70,12 @@ describe('proactive delivery helpers', () => {
     expect(
       hasQueuedProactiveDeliveryPath({
         channel_id: '491234567890@s.whatsapp.net',
+      }),
+    ).toBe(true);
+
+    expect(
+      hasQueuedProactiveDeliveryPath({
+        channel_id: 'ops@example.com',
       }),
     ).toBe(true);
 

@@ -213,6 +213,20 @@ export interface RuntimeWhatsAppConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeEmailConfig {
+  enabled: boolean;
+  imapHost: string;
+  imapPort: number;
+  smtpHost: string;
+  smtpPort: number;
+  address: string;
+  pollIntervalMs: number;
+  folders: string[];
+  allowFrom: string[];
+  textChunkLimit: number;
+  mediaMaxMb: number;
+}
+
 export interface RuntimeSchedulerJob {
   id: string;
   name?: string;
@@ -274,6 +288,7 @@ export interface RuntimeConfig {
     guilds: Record<string, RuntimeDiscordGuildConfig>;
   };
   whatsapp: RuntimeWhatsAppConfig;
+  email: RuntimeEmailConfig;
   hybridai: {
     baseUrl: string;
     defaultModel: string;
@@ -501,6 +516,19 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     debounceMs: 2_500,
     sendReadReceipts: true,
     ackReaction: '👀',
+    mediaMaxMb: 20,
+  },
+  email: {
+    enabled: false,
+    imapHost: '',
+    imapPort: 993,
+    smtpHost: '',
+    smtpPort: 587,
+    address: '',
+    pollIntervalMs: 15_000,
+    folders: ['INBOX'],
+    allowFrom: [],
+    textChunkLimit: 50_000,
     mediaMaxMb: 20,
   },
   hybridai: {
@@ -1155,6 +1183,55 @@ function normalizeWhatsAppConfig(
     ackReaction: normalizeString(raw.ackReaction, fallback.ackReaction, {
       allowEmpty: true,
     }),
+    mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
+      min: 1,
+      max: 100,
+    }),
+  };
+}
+
+function normalizeEmailConfig(
+  value: unknown,
+  fallback: RuntimeEmailConfig,
+): RuntimeEmailConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    imapHost: normalizeString(raw.imapHost, fallback.imapHost, {
+      allowEmpty: true,
+    }),
+    imapPort: normalizeInteger(raw.imapPort, fallback.imapPort, {
+      min: 1,
+      max: 65_535,
+    }),
+    smtpHost: normalizeString(raw.smtpHost, fallback.smtpHost, {
+      allowEmpty: true,
+    }),
+    smtpPort: normalizeInteger(raw.smtpPort, fallback.smtpPort, {
+      min: 1,
+      max: 65_535,
+    }),
+    address: normalizeString(raw.address, fallback.address, {
+      allowEmpty: true,
+    }),
+    pollIntervalMs: normalizeInteger(
+      raw.pollIntervalMs,
+      fallback.pollIntervalMs,
+      {
+        min: 1_000,
+        max: 3_600_000,
+      },
+    ),
+    folders: normalizeStringArray(raw.folders, fallback.folders),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 500,
+        max: 200_000,
+      },
+    ),
     mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
       min: 1,
       max: 100,
@@ -1930,6 +2007,7 @@ function normalizeRuntimeConfig(
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
+  const rawEmail = isRecord(raw.email) ? raw.email : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
   const rawOpenRouter = isRecord(raw.openrouter) ? raw.openrouter : {};
@@ -2222,6 +2300,7 @@ function normalizeRuntimeConfig(
       rawWhatsApp,
       DEFAULT_RUNTIME_CONFIG.whatsapp,
     ),
+    email: normalizeEmailConfig(rawEmail, DEFAULT_RUNTIME_CONFIG.email),
     hybridai: {
       baseUrl: hybridBaseUrl,
       defaultModel: normalizeString(

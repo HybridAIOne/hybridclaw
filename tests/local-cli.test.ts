@@ -175,6 +175,43 @@ test('channels discord setup stores the token and allowlisted guild users', asyn
   expect(secrets.DISCORD_TOKEN).toBe('discord-token-123');
 });
 
+test('channels email setup writes config and stores EMAIL_PASSWORD', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'channels',
+    'email',
+    'setup',
+    '--address',
+    'agent@example.com',
+    '--password',
+    'email-app-password',
+    '--imap-host',
+    'imap.example.com',
+    '--smtp-host',
+    'smtp.example.com',
+    '--allow-from',
+    'boss@example.com',
+    '--allow-from',
+    '*@example.com',
+    '--folder',
+    'INBOX',
+    '--folder',
+    'Support',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  const secrets = readRuntimeSecrets(homeDir);
+  expect(config.email.enabled).toBe(true);
+  expect(config.email.address).toBe('agent@example.com');
+  expect(config.email.imapHost).toBe('imap.example.com');
+  expect(config.email.smtpHost).toBe('smtp.example.com');
+  expect(config.email.folders).toEqual(['INBOX', 'Support']);
+  expect(config.email.allowFrom).toEqual(['boss@example.com', '*@example.com']);
+  expect(secrets.EMAIL_PASSWORD).toBe('email-app-password');
+});
+
 test('channels whatsapp setup configures self-chat-only mode by default', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);

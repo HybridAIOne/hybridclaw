@@ -109,7 +109,7 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output.',
   );
   expect(prompt).toContain(
-    'For local Discord or WhatsApp uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',
+    'For local Discord, WhatsApp, or email uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',
   );
   expect(prompt).toContain(
     'When the user asks you to create or generate a file and return/upload/post it, include the file immediately in the final delivery. Do not ask a follow-up question offering to upload it later.',

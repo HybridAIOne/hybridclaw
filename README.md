@@ -65,6 +65,7 @@ hybridclaw gateway start --foreground
 hybridclaw gateway start --foreground --sandbox=host
 
 # If DISCORD_TOKEN is set, gateway auto-connects to Discord.
+# If email.enabled=true and EMAIL_PASSWORD is configured, gateway auto-connects to Email.
 # If linked WhatsApp auth exists, gateway auto-connects to WhatsApp.
 
 # Start terminal adapter (optional, in a second terminal)
@@ -117,7 +118,7 @@ hybridclaw local configure ollama llama3.2
 - `hybridclaw auth login local` configures Ollama, LM Studio, or vLLM in `~/.hybridclaw/config.json`.
 - `hybridclaw auth logout local` disables configured local backends and clears any saved vLLM API key.
 - `hybridclaw auth whatsapp reset` clears linked WhatsApp Web auth without starting a new pairing session.
-- HybridAI and OpenRouter secrets are stored in `~/.hybridclaw/credentials.json`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
+- HybridAI, OpenRouter, Discord, and email secrets are stored in `~/.hybridclaw/credentials.json`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
 - Only one running HybridClaw process should own `~/.hybridclaw/credentials/whatsapp` at a time. If WhatsApp Web shows duplicate Chrome/Ubuntu linked devices or reconnect/auth drift starts, stop the extra process, run `hybridclaw auth whatsapp reset`, then pair again with `hybridclaw channels whatsapp setup`.
 - Use `hybridclaw help`, `hybridclaw help auth`, `hybridclaw help openrouter`, or `hybridclaw help local` for CLI-specific reference output.
 
@@ -154,6 +155,7 @@ Runtime model:
 
 - `hybridclaw gateway` is the core process and should run first.
 - If `DISCORD_TOKEN` is set, Discord runs inside gateway automatically.
+- If `email.enabled` is true and `EMAIL_PASSWORD` is configured, Email runs inside gateway automatically.
 - If linked WhatsApp auth exists under `~/.hybridclaw/credentials/whatsapp`, WhatsApp runs inside gateway automatically.
 - `hybridclaw tui` is a thin client that connects to the gateway.
 - `hybridclaw gateway` and `hybridclaw tui` validate the container image at startup.
@@ -176,7 +178,7 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - `media.audio` controls shared inbound audio transcription. By default it auto-detects local CLIs first (`sherpa-onnx-offline`, `whisper-cli`, `whisper`), then `gemini`, then provider keys (`openai`, `groq`, `deepgram`, `google`).
 - `whisper-cli` auto-detect also needs a whisper.cpp model file. If the binary exists but HybridClaw still skips local transcription, set `WHISPER_CPP_MODEL` to a local `ggml-*.bin` model path.
 - If no transcript backend is available, the container tries native model audio input before tool-use fallback for supported local providers. Today that fallback is enabled for `vllm` sessions and uses the original current-turn audio attachment.
-- Keep runtime secrets in `~/.hybridclaw/credentials.json` (`HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`). Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
+- Keep runtime secrets in `~/.hybridclaw/credentials.json` (`HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`, `EMAIL_PASSWORD`). Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 - Trust-model acceptance is stored in `~/.hybridclaw/config.json` under `security.*` and is required before runtime starts.
 - See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
 - For contributor workflow, see [CONTRIBUTING.md](./CONTRIBUTING.md). For deeper runtime, skills, release, voice/TTS, and maintainer reference docs, see [docs/development/README.md](./docs/development/README.md).
@@ -361,6 +363,7 @@ CLI runtime commands:
 - `hybridclaw auth logout <provider>` — Clear provider credentials or disable local backends
 - `hybridclaw auth whatsapp reset` — Clear linked WhatsApp auth so the account can be re-paired cleanly
 - `hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]` — Prepare restricted command-only Discord config and print bot/token next steps
+- `hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--smtp-host <host>] [--smtp-port <port>] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]` — Configure IMAP/SMTP email delivery, optionally prompt for missing credentials, and save `EMAIL_PASSWORD`
 - `hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...` — Prepare private-by-default WhatsApp config, enable the default `👀` ack reaction, optionally wipe stale auth, open a temporary pairing session, and print the QR code
 - `hybridclaw local status` — Show current local backend config and default model
 - `hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]` — Enable and configure a local backend

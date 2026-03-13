@@ -24,6 +24,12 @@ import {
   sendToChannel,
   setDiscordMaintenancePresence,
 } from '../channels/discord/runtime.js';
+import {
+  initEmail,
+  sendEmailAttachmentTo,
+  sendToEmail,
+  shutdownEmail,
+} from '../channels/email/runtime.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import {
@@ -34,6 +40,7 @@ import {
 } from '../channels/whatsapp/runtime.js';
 import {
   DISCORD_TOKEN,
+  EMAIL_PASSWORD,
   getConfigSnapshot,
   HEARTBEAT_CHANNEL,
   HEARTBEAT_INTERVAL,
@@ -94,6 +101,7 @@ import {
 import {
   hasQueuedProactiveDeliveryPath,
   isDiscordChannelId,
+  isEmailAddress,
   isSupportedProactiveChannelId,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
@@ -112,6 +120,10 @@ const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
 const WHATSAPP_INTERRUPTED_REPLY =
   'The request was interrupted before I could reply. Please send it again.';
 const WHATSAPP_TRANSIENT_FAILURE_REPLY =
+  'The model request failed before I could reply. Please try again.';
+const EMAIL_INTERRUPTED_REPLY =
+  'The request was interrupted before I could reply. Please send it again.';
+const EMAIL_TRANSIENT_FAILURE_REPLY =
   'The model request failed before I could reply. Please try again.';
 
 function buildArtifactAttachments(
@@ -207,6 +219,21 @@ function formatWhatsAppGatewayFailure(
   }
   if (detail && classifyGatewayError(detail) === 'transient') {
     return WHATSAPP_TRANSIENT_FAILURE_REPLY;
+  }
+  return formatError('Agent Error', detail || 'Unknown error');
+}
+
+function formatEmailGatewayFailure(error: string | null | undefined): string {
+  const detail = String(error || '').trim();
+  if (
+    /interrupted by user|timed out|timeout waiting for agent output|terminated|abort/i.test(
+      detail,
+    )
+  ) {
+    return EMAIL_INTERRUPTED_REPLY;
+  }
+  if (detail && classifyGatewayError(detail) === 'transient') {
+    return EMAIL_TRANSIENT_FAILURE_REPLY;
   }
   return formatError('Agent Error', detail || 'Unknown error');
 }
@@ -520,6 +547,49 @@ async function sendProactiveMessageNow(
       logger.warn(
         { source, channelId, error },
         'Failed to send proactive message to WhatsApp chat',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
+  if (isEmailAddress(channelId)) {
+    if (
+      !getConfigSnapshot().email.enabled ||
+      !String(EMAIL_PASSWORD || '').trim()
+    ) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive email message suppressed: email channel is not configured',
+      );
+      return;
+    }
+
+    try {
+      if (artifacts && artifacts.length > 0) {
+        await sendEmailAttachmentTo({
+          to: channelId,
+          filePath: artifacts[0].path,
+          body: text,
+          mimeType: artifacts[0].mimeType,
+          filename: artifacts[0].filename,
+        });
+        for (let index = 1; index < artifacts.length; index += 1) {
+          await sendEmailAttachmentTo({
+            to: channelId,
+            filePath: artifacts[index].path,
+            mimeType: artifacts[index].mimeType,
+            filename: artifacts[index].filename,
+          });
+        }
+        return;
+      }
+
+      await sendToEmail(channelId, text);
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to email recipient',
       );
       logger.info({ source, channelId, text }, 'Proactive message fallback');
     }
@@ -929,6 +999,124 @@ async function startWhatsAppIntegration(): Promise<boolean> {
   return true;
 }
 
+async function startEmailIntegration(): Promise<boolean> {
+  const emailConfig = getConfigSnapshot().email;
+  if (!emailConfig.enabled) {
+    logger.info('Email integration disabled: email.enabled=false');
+    return false;
+  }
+  if (!emailConfig.address.trim()) {
+    logger.info('Email integration disabled: no email address configured');
+    return false;
+  }
+  if (!emailConfig.imapHost.trim() || !emailConfig.smtpHost.trim()) {
+    logger.info(
+      'Email integration disabled: IMAP/SMTP host configuration incomplete',
+    );
+    return false;
+  }
+  if (!String(EMAIL_PASSWORD || '').trim()) {
+    logger.info('Email integration disabled: EMAIL_PASSWORD not configured');
+    return false;
+  }
+
+  try {
+    await initEmail(
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content,
+        media,
+        reply,
+        context,
+      ) => {
+        try {
+          const result = normalizePlaceholderToolReply(
+            await handleGatewayMessage({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              content,
+              media,
+              onProactiveMessage: async (message) => {
+                await deliverProactiveMessage(
+                  channelId,
+                  message.text,
+                  'delegate',
+                  message.artifacts,
+                );
+              },
+              abortSignal: context.abortSignal,
+              source: 'email',
+            }),
+          );
+          if (result.status === 'error') {
+            await reply(formatEmailGatewayFailure(result.error));
+            return;
+          }
+
+          const cleanedResultText = stripSilentToken(
+            String(result.result || ''),
+          );
+          const artifacts = result.artifacts || [];
+          if (isSilentReply(result.result)) {
+            return;
+          }
+          if (!cleanedResultText.trim() && artifacts.length === 0) {
+            return;
+          }
+
+          const showMode = normalizeSessionShowMode(
+            memoryService.getSessionById(sessionId)?.show_mode,
+          );
+          if (cleanedResultText.trim()) {
+            const responseText = buildResponseText(
+              cleanedResultText,
+              sessionShowModeShowsTools(showMode)
+                ? result.toolsUsed
+                : undefined,
+            );
+            await reply(responseText);
+          }
+          for (const artifact of artifacts) {
+            try {
+              await sendEmailAttachmentTo({
+                to: channelId,
+                filePath: artifact.path,
+                mimeType: artifact.mimeType,
+                filename: artifact.filename,
+              });
+            } catch (error) {
+              logger.warn(
+                { error, channelId, artifactPath: artifact.path },
+                'Failed to send email artifact',
+              );
+            }
+          }
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          logger.error(
+            { error, sessionId, channelId },
+            'Email message handling failed',
+          );
+          await reply(formatEmailGatewayFailure(text));
+        }
+      },
+    );
+  } catch (error) {
+    logger.warn({ error }, 'Email integration failed to start');
+    return false;
+  }
+
+  logger.info('Email integration started inside gateway');
+  return true;
+}
+
 function setupShutdown(): void {
   let shuttingDown = false;
   const shutdown = async () => {
@@ -944,6 +1132,9 @@ function setupShutdown(): void {
         { error },
         'Failed to set Discord maintenance presence during shutdown',
       );
+    });
+    await shutdownEmail().catch((error) => {
+      logger.debug({ error }, 'Failed to stop email runtime during shutdown');
     });
     await shutdownWhatsApp().catch((error) => {
       logger.debug(
@@ -1152,6 +1343,7 @@ async function main(): Promise<void> {
   startHealthServer();
   setupShutdown();
   await startDiscordIntegration();
+  const emailActive = await startEmailIntegration();
   const whatsappActive = await startWhatsAppIntegration();
 
   startOrRestartHeartbeat();
@@ -1237,6 +1429,7 @@ async function main(): Promise<void> {
     {
       ...getGatewayStatus(),
       discord: !!DISCORD_TOKEN,
+      email: emailActive,
       whatsapp: whatsappActive,
     },
     'HybridClaw gateway started',
