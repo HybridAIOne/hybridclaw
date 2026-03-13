@@ -17,6 +17,7 @@ function makeTempDataDir(): string {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.doUnmock('../src/channels/discord/discord-cdn-fetch.js');
   vi.doUnmock('../src/config/config.ts');
   vi.doUnmock('../src/logger.js');
   vi.resetModules();
@@ -32,22 +33,18 @@ describe('buildAttachmentContext', () => {
   test('caches PDF attachments into the media context', async () => {
     const dataDir = makeTempDataDir();
     const fetchBody = Buffer.from('%PDF-1.7\n', 'utf8');
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      headers: {
-        get(name: string) {
-          if (name === 'content-type') {
-            return 'application/pdf';
-          }
-          if (name === 'content-length') return String(fetchBody.length);
-          return null;
-        },
-      },
-      arrayBuffer: async () => fetchBody,
-      text: async () => fetchBody.toString('utf8'),
+    const fetchDiscordCdnBufferMock = vi.fn(async () => ({
+      body: fetchBody,
+      contentLength: fetchBody.length,
+      contentType: 'application/pdf',
+      url: 'https://cdn.discordapp.com/attachments/1/2/spec.pdf',
     }));
 
-    vi.stubGlobal('fetch', fetchMock);
+    vi.doMock('../src/channels/discord/discord-cdn-fetch.js', () => ({
+      fetchDiscordCdnBuffer: fetchDiscordCdnBufferMock,
+      fetchDiscordCdnText: vi.fn(),
+      isSafeDiscordCdnUrl: vi.fn(() => true),
+    }));
     vi.doMock('../src/config/config.ts', () => ({
       CONTAINER_SANDBOX_MODE: 'container',
       DATA_DIR: dataDir,
@@ -80,7 +77,7 @@ describe('buildAttachmentContext', () => {
 
     const result = await buildAttachmentContext([message as never]);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchDiscordCdnBufferMock).toHaveBeenCalledTimes(1);
     expect(result.context).toContain('[Attachments]');
     expect(result.context).toContain('spec.pdf: PDF attachment cached');
     expect(result.media).toHaveLength(1);
@@ -95,22 +92,19 @@ describe('buildAttachmentContext', () => {
   test('caches office attachments into the media context', async () => {
     const dataDir = makeTempDataDir();
     const fetchBody = Buffer.from('xlsx-payload', 'utf8');
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      headers: {
-        get(name: string) {
-          if (name === 'content-type') {
-            return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-          }
-          if (name === 'content-length') return String(fetchBody.length);
-          return null;
-        },
-      },
-      arrayBuffer: async () => fetchBody,
-      text: async () => fetchBody.toString('utf8'),
+    const fetchDiscordCdnBufferMock = vi.fn(async () => ({
+      body: fetchBody,
+      contentLength: fetchBody.length,
+      contentType:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      url: 'https://cdn.discordapp.com/attachments/1/2/financials.xlsx',
     }));
 
-    vi.stubGlobal('fetch', fetchMock);
+    vi.doMock('../src/channels/discord/discord-cdn-fetch.js', () => ({
+      fetchDiscordCdnBuffer: fetchDiscordCdnBufferMock,
+      fetchDiscordCdnText: vi.fn(),
+      isSafeDiscordCdnUrl: vi.fn(() => true),
+    }));
     vi.doMock('../src/config/config.ts', () => ({
       CONTAINER_SANDBOX_MODE: 'container',
       DATA_DIR: dataDir,
@@ -144,7 +138,7 @@ describe('buildAttachmentContext', () => {
 
     const result = await buildAttachmentContext([message as never]);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchDiscordCdnBufferMock).toHaveBeenCalledTimes(1);
     expect(result.context).toContain('[Attachments]');
     expect(result.context).toContain(
       'financials.xlsx: office attachment cached',
@@ -168,22 +162,18 @@ describe('buildAttachmentContext', () => {
   test('caches audio attachments into the media context', async () => {
     const dataDir = makeTempDataDir();
     const fetchBody = Buffer.from('ogg-payload', 'utf8');
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      headers: {
-        get(name: string) {
-          if (name === 'content-type') {
-            return 'audio/ogg; codecs=opus';
-          }
-          if (name === 'content-length') return String(fetchBody.length);
-          return null;
-        },
-      },
-      arrayBuffer: async () => fetchBody,
-      text: async () => fetchBody.toString('utf8'),
+    const fetchDiscordCdnBufferMock = vi.fn(async () => ({
+      body: fetchBody,
+      contentLength: fetchBody.length,
+      contentType: 'audio/ogg; codecs=opus',
+      url: 'https://cdn.discordapp.com/attachments/1/2/voice-note.ogg',
     }));
 
-    vi.stubGlobal('fetch', fetchMock);
+    vi.doMock('../src/channels/discord/discord-cdn-fetch.js', () => ({
+      fetchDiscordCdnBuffer: fetchDiscordCdnBufferMock,
+      fetchDiscordCdnText: vi.fn(),
+      isSafeDiscordCdnUrl: vi.fn(() => true),
+    }));
     vi.doMock('../src/config/config.ts', () => ({
       CONTAINER_SANDBOX_MODE: 'container',
       DATA_DIR: dataDir,
@@ -216,7 +206,7 @@ describe('buildAttachmentContext', () => {
 
     const result = await buildAttachmentContext([message as never]);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchDiscordCdnBufferMock).toHaveBeenCalledTimes(1);
     expect(result.context).toContain('[Attachments]');
     expect(result.context).toContain('voice-note.ogg: audio attachment cached');
     expect(result.media).toHaveLength(1);
@@ -226,5 +216,58 @@ describe('buildAttachmentContext', () => {
       path: expect.stringMatching(/^\/discord-media-cache\//),
       sizeBytes: fetchBody.length,
     });
+  });
+
+  test('applies the tighter image size limit before fetching', async () => {
+    const dataDir = makeTempDataDir();
+    const fetchDiscordCdnBufferMock = vi.fn();
+
+    vi.doMock('../src/channels/discord/discord-cdn-fetch.js', () => ({
+      fetchDiscordCdnBuffer: fetchDiscordCdnBufferMock,
+      fetchDiscordCdnText: vi.fn(),
+      isSafeDiscordCdnUrl: vi.fn(() => true),
+    }));
+    vi.doMock('../src/config/config.ts', () => ({
+      CONTAINER_SANDBOX_MODE: 'container',
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('../src/logger.js', () => ({
+      logger: {
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+      },
+    }));
+
+    const { buildAttachmentContext } = await import(
+      '../src/channels/discord/attachments.js'
+    );
+
+    const attachment = {
+      contentType: 'image/png',
+      id: 'att-image-1',
+      name: 'diagram.png',
+      proxyURL: 'https://media.discordapp.net/attachments/1/2/diagram.png',
+      size: 7 * 1024 * 1024,
+      url: 'https://cdn.discordapp.com/attachments/1/2/diagram.png',
+    };
+    const message = {
+      attachments: new Map([[attachment.id, attachment]]),
+      id: 'msg-image-1',
+    };
+
+    const result = await buildAttachmentContext([message as never]);
+
+    expect(fetchDiscordCdnBufferMock).not.toHaveBeenCalled();
+    expect(result.context).toContain('diagram.png: skipped');
+    expect(result.context).toContain('exceeds 6MB limit');
+    expect(result.media).toEqual([
+      expect.objectContaining({
+        filename: 'diagram.png',
+        path: null,
+        sizeBytes: 7 * 1024 * 1024,
+      }),
+    ]);
   });
 });

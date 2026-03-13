@@ -1,31 +1,27 @@
-import { randomUUID } from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import type {
   Attachment as DiscordAttachment,
   Message as DiscordMessage,
 } from 'discord.js';
 
-import { CONTAINER_SANDBOX_MODE, DATA_DIR } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import { AUDIO_FILE_EXTENSION_RE } from '../../media/mime-utils.js';
 import type { MediaContextItem } from '../../types.js';
+import {
+  fetchDiscordCdnBuffer,
+  fetchDiscordCdnText,
+  isSafeDiscordCdnUrl,
+} from './discord-cdn-fetch.js';
+import {
+  scheduleDiscordMediaCacheCleanup,
+  writeDiscordMediaCacheFile,
+} from './media-cache.js';
 
-const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_ATTACHMENT_BYTES = 6 * 1024 * 1024;
+const MAX_DOCUMENT_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_ATTACHMENT_CONTEXT_CHARS = 16_000;
 const MAX_SINGLE_ATTACHMENT_CHARS = 8_000;
-const DISCORD_MEDIA_CACHE_DIR = path.resolve(
-  path.join(DATA_DIR, 'discord-media-cache'),
-);
-const CONTAINER_DISCORD_MEDIA_CACHE_DIR = '/discord-media-cache';
 const DISCORD_ATTACHMENT_FETCH_TIMEOUT_MS = 12_000;
-const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
-  /^cdn\.discordapp\.com$/i,
-  /^media\.discordapp\.net$/i,
-  /^cdn\.discordapp\.net$/i,
-  /^images-ext-\d+\.discordapp\.net$/i,
-];
 
 export interface AttachmentContextResult {
   context: string;
@@ -77,57 +73,21 @@ function looksLikeOfficeAttachment(name: string, contentType: string): boolean {
   return /\.(docx|xlsx|pptx)$/i.test(name);
 }
 
-function sanitizeAttachmentFilename(name: string): string {
-  const base = name
-    .trim()
-    .replace(/[^\w.-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  const bounded = base.slice(0, 96);
-  return bounded || 'attachment';
-}
-
-function normalizeAttachmentPathForContainer(hostPath: string): string | null {
-  const relative = path.relative(DISCORD_MEDIA_CACHE_DIR, hostPath);
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative))
-    return null;
-  return `${CONTAINER_DISCORD_MEDIA_CACHE_DIR}/${relative.replace(/\\/g, '/')}`;
-}
-
-function normalizeAttachmentPathForRuntime(hostPath: string): string | null {
-  if (CONTAINER_SANDBOX_MODE === 'host') {
-    return hostPath;
-  }
-  return normalizeAttachmentPathForContainer(hostPath);
-}
-
-function isAllowedDiscordAttachmentUrl(rawUrl: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'https:') return false;
-  return DISCORD_CDN_HOST_PATTERNS.some((pattern) =>
-    pattern.test(parsed.hostname),
-  );
-}
-
 async function fetchAttachmentText(
-  url: string,
+  sourceCandidates: string[],
   maxChars: number,
 ): Promise<string | null> {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    const text = await response.text();
-    if (!text) return null;
-    if (text.length <= maxChars) return text;
-    return `${text.slice(0, Math.max(1_000, maxChars - 32))}\n...[truncated]`;
-  } catch {
-    return null;
+  for (const candidateUrl of sourceCandidates) {
+    if (!isSafeDiscordCdnUrl(candidateUrl)) continue;
+    try {
+      const text = await fetchDiscordCdnText(candidateUrl, {
+        maxChars,
+        timeoutMs: DISCORD_ATTACHMENT_FETCH_TIMEOUT_MS,
+      });
+      if (text) return text;
+    } catch {}
   }
+  return null;
 }
 
 interface CachedDiscordAttachmentResult {
@@ -151,7 +111,7 @@ async function cacheDiscordAttachment(params: {
     messageId,
     order,
     fallbackMimeType,
-    maxBytes = MAX_ATTACHMENT_BYTES,
+    maxBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
     acceptMime,
   } = params;
   const attachmentName = attachment.name || 'image';
@@ -159,29 +119,20 @@ async function cacheDiscordAttachment(params: {
     .map((value) => String(value || '').trim())
     .filter(Boolean);
 
-  await fs.promises.mkdir(DISCORD_MEDIA_CACHE_DIR, { recursive: true });
-
   const fetchErrors: string[] = [];
   for (const candidateUrl of sourceCandidates) {
-    if (!isAllowedDiscordAttachmentUrl(candidateUrl)) {
+    if (!isSafeDiscordCdnUrl(candidateUrl)) {
       fetchErrors.push(`blocked_url:${candidateUrl}`);
       continue;
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(
-      () => controller.abort(),
-      DISCORD_ATTACHMENT_FETCH_TIMEOUT_MS,
-    );
     try {
-      const response = await fetch(candidateUrl, { signal: controller.signal });
-      if (!response.ok) {
-        fetchErrors.push(`http_${response.status}@${candidateUrl}`);
-        continue;
-      }
-
+      const response = await fetchDiscordCdnBuffer(candidateUrl, {
+        maxBytes,
+        timeoutMs: DISCORD_ATTACHMENT_FETCH_TIMEOUT_MS,
+      });
       const resolvedMime = String(
-        response.headers.get('content-type') || fallbackMimeType || '',
+        response.contentType || fallbackMimeType || '',
       )
         .split(';')[0]
         .trim()
@@ -193,32 +144,12 @@ async function cacheDiscordAttachment(params: {
         continue;
       }
 
-      const contentLength = Number.parseInt(
-        response.headers.get('content-length') || '',
-        10,
-      );
-      if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-        fetchErrors.push(`too_large_header:${contentLength}@${candidateUrl}`);
-        continue;
-      }
-
-      const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.length > maxBytes) {
-        fetchErrors.push(`too_large_body:${buffer.length}@${candidateUrl}`);
-        continue;
-      }
-
-      const unique = randomUUID().slice(0, 8);
-      const datePrefix = new Date().toISOString().slice(0, 10);
-      const fileName = `${Date.now()}-${messageId}-${String(order).padStart(3, '0')}-${unique}-${sanitizeAttachmentFilename(attachmentName)}`;
-      const hostPath = path.join(DISCORD_MEDIA_CACHE_DIR, datePrefix, fileName);
-      await fs.promises.mkdir(path.dirname(hostPath), { recursive: true });
-      await fs.promises.writeFile(hostPath, buffer);
-      const runtimePath = normalizeAttachmentPathForRuntime(hostPath);
-      if (!runtimePath) {
-        fetchErrors.push(`cache_path_error:${hostPath}`);
-        continue;
-      }
+      const { hostPath, runtimePath } = await writeDiscordMediaCacheFile({
+        attachmentName,
+        buffer: response.body,
+        messageId,
+        order,
+      });
       return {
         path: runtimePath,
         hostPath,
@@ -227,14 +158,12 @@ async function cacheDiscordAttachment(params: {
       };
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      fetchErrors.push(`fetch_error:${detail}@${candidateUrl}`);
-    } finally {
-      clearTimeout(timer);
+      fetchErrors.push(`${detail}@${candidateUrl}`);
     }
   }
 
   const fallbackUrl =
-    sourceCandidates.find((url) => isAllowedDiscordAttachmentUrl(url)) ||
+    sourceCandidates.find((url) => isSafeDiscordCdnUrl(url)) ||
     sourceCandidates[0] ||
     '';
   return {
@@ -251,6 +180,7 @@ interface CachedAttachmentDescriptor {
   kind: 'image' | 'pdf' | 'office' | 'audio';
   matches: (name: string, contentType: string) => boolean;
   acceptMime: (mimeType: string, attachmentName: string) => boolean;
+  maxBytes: number;
   resolveMimeType: (
     cachedMimeType: string | null,
     contentType: string,
@@ -273,6 +203,7 @@ const CACHED_ATTACHMENT_DESCRIPTORS = [
     kind: 'image',
     matches: looksLikeImageAttachment,
     acceptMime: (mimeType) => mimeType.startsWith('image/'),
+    maxBytes: MAX_IMAGE_ATTACHMENT_BYTES,
     resolveMimeType: (cachedMimeType, contentType) =>
       cachedMimeType || contentType || null,
     buildSuccessLine: ({ name, size, mimeType }) =>
@@ -289,6 +220,7 @@ const CACHED_ATTACHMENT_DESCRIPTORS = [
     matches: looksLikePdfAttachment,
     acceptMime: (mimeType, attachmentName) =>
       mimeType === 'application/pdf' || /\.pdf$/i.test(attachmentName),
+    maxBytes: MAX_DOCUMENT_ATTACHMENT_BYTES,
     resolveMimeType: (cachedMimeType, contentType) =>
       cachedMimeType || contentType || 'application/pdf',
     buildSuccessLine: ({ name, size, mimeType }) =>
@@ -306,6 +238,7 @@ const CACHED_ATTACHMENT_DESCRIPTORS = [
     matches: looksLikeOfficeAttachment,
     acceptMime: (mimeType, attachmentName) =>
       looksLikeOfficeAttachment(attachmentName, mimeType),
+    maxBytes: MAX_DOCUMENT_ATTACHMENT_BYTES,
     resolveMimeType: (cachedMimeType, contentType) =>
       cachedMimeType || contentType || null,
     buildSuccessLine: ({ name, size, mimeType, path }) =>
@@ -324,6 +257,7 @@ const CACHED_ATTACHMENT_DESCRIPTORS = [
     acceptMime: (mimeType, attachmentName) =>
       mimeType.startsWith('audio/') ||
       looksLikeAudioAttachment(attachmentName, mimeType),
+    maxBytes: MAX_AUDIO_ATTACHMENT_BYTES,
     resolveMimeType: (cachedMimeType, contentType) =>
       cachedMimeType || contentType || null,
     buildSuccessLine: ({ name, size, mimeType }) =>
@@ -435,9 +369,14 @@ export async function buildAttachmentContext(
   const media: MediaContextItem[] = [];
   let remainingChars = MAX_ATTACHMENT_CONTEXT_CHARS;
   let mediaOrder = 0;
+  let cleanupScheduled = false;
 
   for (const msg of messages) {
     if (!msg.attachments || msg.attachments.size === 0) continue;
+    if (!cleanupScheduled) {
+      scheduleDiscordMediaCacheCleanup();
+      cleanupScheduled = true;
+    }
     for (const attachment of msg.attachments.values()) {
       const name = attachment.name || 'unnamed';
       const size = attachment.size || 0;
@@ -447,9 +386,7 @@ export async function buildAttachmentContext(
         contentType,
       );
       const maxBytes =
-        cachedDescriptor?.kind === 'audio'
-          ? MAX_AUDIO_ATTACHMENT_BYTES
-          : MAX_ATTACHMENT_BYTES;
+        cachedDescriptor?.maxBytes ?? MAX_DOCUMENT_ATTACHMENT_BYTES;
       if (size > maxBytes) {
         lines.push(
           `- ${name}: skipped (size ${size} bytes exceeds ${Math.floor(maxBytes / (1024 * 1024))}MB limit)`,
@@ -500,7 +437,12 @@ export async function buildAttachmentContext(
           MAX_SINGLE_ATTACHMENT_CHARS,
           Math.max(500, remainingChars),
         );
-        const text = await fetchAttachmentText(attachment.url, maxChars);
+        const text = await fetchAttachmentText(
+          [attachment.url, attachment.proxyURL]
+            .map((value) => String(value || '').trim())
+            .filter(Boolean),
+          maxChars,
+        );
         if (!text) {
           lines.push(`- ${name}: text attachment (failed to read content)`);
           continue;
