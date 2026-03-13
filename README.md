@@ -147,7 +147,7 @@ Examples:
 - `/model set <name>` is a session-only override.
 - `/model clear` removes the session override and falls back to the current agent model or the global default.
 - `/agent model <name>` sets the persistent model for the current session agent.
-- `/model info` shows the effective model, session override, agent model, and global default.
+- `/model info` shows the current model configuration by scope (global default, agent model, and any session override).
 - Use `HYBRIDCLAW_CODEX_BASE_URL` to override the default Codex backend base URL (`https://chatgpt.com/backend-api/codex`).
 
 Runtime model:
