@@ -1,5 +1,6 @@
 import { getProviderContextError } from '../../container/shared/provider-context.js';
 import { extractResponseTextContent } from '../../container/shared/response-text.js';
+import { logger } from '../logger.js';
 import type { ChatMessage } from '../types.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
 import {
@@ -287,7 +288,19 @@ async function withOpenRouterFallback(
         normalizeMaxTokens(params.fallbackMaxTokens),
       modelHint,
     });
-    if (fallback) return fallback;
+    if (fallback) {
+      logger.warn(
+        {
+          task: params.task,
+          primaryProvider: primaryProvider || params.provider || 'auto',
+          fallbackProvider: 'openrouter',
+          modelHint: modelHint?.trim() || undefined,
+          primaryError,
+        },
+        'Auxiliary provider resolution failed; using OpenRouter fallback',
+      );
+      return fallback;
+    }
   } catch (fallbackError) {
     throw new Error(
       `${errorMessage(primaryError)} OpenRouter fallback also failed: ${errorMessage(fallbackError)}`,

@@ -4,6 +4,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
   vi.unstubAllGlobals();
+  vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/providers/task-routing.js');
   vi.doUnmock('../src/providers/factory.js');
 });
@@ -328,6 +329,12 @@ test('host auxiliary caller falls back to openrouter when task resolution fails'
       resolveModelRuntimeCredentials,
     };
   });
+  const warn = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn,
+    },
+  }));
 
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -369,4 +376,14 @@ test('host auxiliary caller falls back to openrouter when task resolution fails'
     model: 'openrouter/anthropic/claude-3-7-sonnet',
     content: 'Recovered through OpenRouter fallback.',
   });
+  expect(warn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      task: 'compression',
+      primaryProvider: 'auto',
+      fallbackProvider: 'openrouter',
+      modelHint: 'anthropic/claude-3-7-sonnet',
+      primaryError: expect.any(Error),
+    }),
+    'Auxiliary provider resolution failed; using OpenRouter fallback',
+  );
 });
