@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "files": [
     "dist/",
+    "shared/",
     "Dockerfile"
   ],
   "scripts": {

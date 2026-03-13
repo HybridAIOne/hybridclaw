@@ -3,6 +3,8 @@ import type {
   ChatMessage,
   ToolDefinition,
 } from '../types.js';
+import { extractResponseTextContent } from '../../shared/response-text.js';
+export { extractResponseTextContent } from '../../shared/response-text.js';
 import {
   callHybridAIProvider,
   callHybridAIProviderStream,
@@ -203,29 +205,6 @@ export function getVisionModelContextError(
     return 'vision_analyze is not configured: missing chatbot_id context.';
   }
   return null;
-}
-
-export function extractResponseTextContent(content: unknown): string {
-  if (typeof content === 'string') return content.trim();
-  if (!Array.isArray(content)) return '';
-
-  const chunks: string[] = [];
-  for (const part of content) {
-    if (typeof part === 'string') {
-      if (part.trim()) chunks.push(part.trim());
-      continue;
-    }
-    if (!part || typeof part !== 'object' || Array.isArray(part)) continue;
-    const record = part as Record<string, unknown>;
-    const text =
-      typeof record.text === 'string'
-        ? record.text
-        : typeof record.output_text === 'string'
-          ? record.output_text
-          : '';
-    if (text.trim()) chunks.push(text.trim());
-  }
-  return chunks.join('\n').trim();
 }
 
 export async function callVisionProviderModel(

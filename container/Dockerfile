@@ -29,6 +29,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN npx playwright install --with-deps chromium
 RUN npx playwright install --with-deps --only-shell chromium
 
+COPY shared/ shared/
 COPY src/ src/
 RUN npx tsc
 
