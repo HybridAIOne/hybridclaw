@@ -271,6 +271,11 @@ export interface RuntimeConfig {
     baseUrl: string;
     models: string[];
   };
+  openrouter: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
   local: LocalProviderConfig;
   container: {
     sandboxMode: ContainerSandboxMode;
@@ -393,6 +398,9 @@ const DEFAULT_CODEX_MODEL_LIST = [
   'openai-codex/gpt-5.2',
   'openai-codex/gpt-5.1-codex-mini',
 ] as const;
+const DEFAULT_OPENROUTER_MODEL_LIST = [
+  'openrouter/anthropic/claude-sonnet-4',
+] as const;
 
 const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
@@ -483,6 +491,11 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     baseUrl: CODEX_DEFAULT_BASE_URL,
     models: [...DEFAULT_CODEX_MODEL_LIST],
   },
+  openrouter: {
+    enabled: false,
+    baseUrl: 'https://openrouter.ai/api/v1',
+    models: [...DEFAULT_OPENROUTER_MODEL_LIST],
+  },
   local: {
     backends: {
       ollama: {
@@ -501,7 +514,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
     discovery: {
       enabled: true,
-      intervalMs: 300_000,
+      intervalMs: 3_600_000,
       maxModels: 200,
       concurrency: 8,
     },
@@ -1838,6 +1851,7 @@ function normalizeRuntimeConfig(
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
+  const rawOpenRouter = isRecord(raw.openrouter) ? raw.openrouter : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
   const rawLocalBackends = isRecord(rawLocal.backends) ? rawLocal.backends : {};
   const rawOllamaBackend = isRecord(rawLocalBackends.ollama)
@@ -1935,6 +1949,10 @@ function normalizeRuntimeConfig(
   const codexModelList = normalizeCodexModelArray(
     rawCodex.models,
     DEFAULT_RUNTIME_CONFIG.codex.models,
+  );
+  const openRouterModelList = normalizeStringArray(
+    rawOpenRouter.models,
+    DEFAULT_RUNTIME_CONFIG.openrouter.models,
   );
   const normalizedCommandUserId = normalizeString(
     rawDiscord.commandUserId,
@@ -2120,6 +2138,17 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.codex.baseUrl,
       ),
       models: codexModelList,
+    },
+    openrouter: {
+      enabled: normalizeBoolean(
+        rawOpenRouter.enabled,
+        DEFAULT_RUNTIME_CONFIG.openrouter.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawOpenRouter.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.openrouter.baseUrl,
+      ),
+      models: openRouterModelList,
     },
     local: {
       backends: {

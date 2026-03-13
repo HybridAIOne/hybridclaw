@@ -29,6 +29,7 @@ const ZERO_COST = {
 
 let discoveryTimer: ReturnType<typeof setInterval> | null = null;
 let discoveryInFlight: Promise<LocalModelInfo[]> | null = null;
+let lastDiscoveryAtMs = 0;
 const discoveredByBackend = new Map<
   LocalBackendType,
   Map<string, LocalModelInfo>
@@ -306,10 +307,22 @@ function replaceDiscoveryCache(models: LocalModelInfo[]): void {
   }
 }
 
-export async function discoverAllLocalModels(): Promise<LocalModelInfo[]> {
+export async function discoverAllLocalModels(opts?: {
+  force?: boolean;
+}): Promise<LocalModelInfo[]> {
   if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
+    lastDiscoveryAtMs = 0;
     replaceDiscoveryCache([]);
     return [];
+  }
+
+  const cacheTtlMs = Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS);
+  if (
+    !opts?.force &&
+    lastDiscoveryAtMs > 0 &&
+    Date.now() - lastDiscoveryAtMs < cacheTtlMs
+  ) {
+    return getDiscoveredLocalModels();
   }
 
   if (discoveryInFlight) return discoveryInFlight;
@@ -352,6 +365,7 @@ export async function discoverAllLocalModels(): Promise<LocalModelInfo[]> {
     }
 
     replaceDiscoveryCache(deduped);
+    lastDiscoveryAtMs = Date.now();
     return deduped;
   })();
 
@@ -412,13 +426,14 @@ export function resolveLocalModelThinkingFormat(
 export function startDiscoveryLoop(): void {
   stopDiscoveryLoop();
   if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
+    lastDiscoveryAtMs = 0;
     replaceDiscoveryCache([]);
     return;
   }
-  void discoverAllLocalModels();
+  void discoverAllLocalModels({ force: true });
   discoveryTimer = setInterval(
     () => {
-      void discoverAllLocalModels();
+      void discoverAllLocalModels({ force: true });
     },
     Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS),
   );
@@ -433,5 +448,6 @@ export function stopDiscoveryLoop(): void {
 export function resetLocalDiscoveryState(): void {
   stopDiscoveryLoop();
   discoveryInFlight = null;
+  lastDiscoveryAtMs = 0;
   replaceDiscoveryCache([]);
 }

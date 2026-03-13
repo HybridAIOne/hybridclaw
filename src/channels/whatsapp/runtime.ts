@@ -87,15 +87,22 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
   let runtimeInitialized = false;
 
   const sendTextToChat = async (jid: string, text: string): Promise<void> => {
-    const socket = await ensureConnectionManager().waitForSocket();
-    const refs = await sendChunkedWhatsAppText(socket, jid, text);
+    const manager = ensureConnectionManager();
+    const socket = await manager.waitForSocket();
+    const refs = await sendChunkedWhatsAppText(
+      socket,
+      jid,
+      text,
+      manager.rememberSentMessage,
+    );
     selfEchoCache?.remember(refs);
   };
 
   const sendMediaToChat = async (
     params: WhatsAppMediaSendParams,
   ): Promise<void> => {
-    const socket = await ensureConnectionManager().waitForSocket();
+    const manager = ensureConnectionManager();
+    const socket = await manager.waitForSocket();
     const ref = await sendWhatsAppMedia({
       sock: socket,
       jid: params.jid,
@@ -103,6 +110,7 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
       mimeType: params.mimeType,
       filename: params.filename,
       caption: params.caption,
+      onSentMessage: manager.rememberSentMessage,
     });
     if (ref) {
       selfEchoCache?.remember(ref);

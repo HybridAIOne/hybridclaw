@@ -9,6 +9,7 @@ import {
   HybridAIRequestError,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
+  normalizeOpenRouterRuntimeModelName,
 } from './shared.js';
 import {
   createThinkingStreamEmitter,
@@ -84,6 +85,9 @@ function normalizeLocalModelName(
   const trimmed = String(model || '').trim();
   if (!provider || provider === 'hybridai' || provider === 'openai-codex') {
     return trimmed;
+  }
+  if (provider === 'openrouter') {
+    return normalizeOpenRouterRuntimeModelName(trimmed);
   }
   const prefix = `${provider}/`;
   if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;

@@ -1,6 +1,5 @@
 import type { ConnectionState, WASocket } from '@whiskeysockets/baileys';
 import {
-  Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
@@ -10,11 +9,20 @@ import qrcode from 'qrcode-terminal';
 import { APP_VERSION } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import { sleep } from '../../utils/sleep.js';
-import { loadWhatsAppAuthState } from './auth.js';
+import { acquireWhatsAppAuthLock, loadWhatsAppAuthState } from './auth.js';
+import {
+  createWhatsAppMessageStore,
+  type WhatsAppMessageStore,
+} from './message-store.js';
 
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
 const VERBOSE_WHATSAPP_LOG_LEVELS = new Set(['debug', 'trace']);
+const WHATSAPP_BROWSER_IDENTITY = [
+  'HybridClaw',
+  'Gateway',
+  APP_VERSION,
+] as const;
 
 type WhatsAppLogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
 
@@ -113,6 +121,7 @@ export interface WhatsAppConnectionManager {
   start: () => Promise<void>;
   stop: () => Promise<void>;
   waitForSocket: () => Promise<WASocket>;
+  rememberSentMessage: WhatsAppMessageStore['rememberSentMessage'];
 }
 
 export function createWhatsAppConnectionManager(params?: {
@@ -120,7 +129,9 @@ export function createWhatsAppConnectionManager(params?: {
 }): WhatsAppConnectionManager {
   const childLogger = logger.child({ channel: 'whatsapp' }) as WhatsAppLogger;
   const baileysLogger = createBaileysLogger(childLogger);
+  const messageStore = createWhatsAppMessageStore();
   let socket: WASocket | null = null;
+  let releaseAuthLock: (() => void) | null = null;
   let started = false;
   let stopped = false;
   let stopGeneration = 0;
@@ -180,7 +191,8 @@ export function createWhatsAppConnectionManager(params?: {
           creds: state.creds,
           keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
         },
-        browser: Browsers.ubuntu('Chrome'),
+        browser: [...WHATSAPP_BROWSER_IDENTITY],
+        getMessage: (key) => messageStore.getMessage(key),
         logger: baileysLogger,
         markOnlineOnConnect: false,
         printQRInTerminal: false,
@@ -263,9 +275,19 @@ export function createWhatsAppConnectionManager(params?: {
       return;
     }
     if (started) return;
+    releaseAuthLock ??= await acquireWhatsAppAuthLock(undefined, {
+      purpose: 'runtime',
+    });
     started = true;
     reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
-    await connect();
+    try {
+      await connect();
+    } catch (error) {
+      started = false;
+      releaseAuthLock?.();
+      releaseAuthLock = null;
+      throw error;
+    }
   };
 
   const handleConnectionUpdate = async (
@@ -353,6 +375,8 @@ export function createWhatsAppConnectionManager(params?: {
           childLogger.debug({ error }, 'WhatsApp socket shutdown raised');
         }
       }
+      releaseAuthLock?.();
+      releaseAuthLock = null;
       rejectWaiters(new Error('WhatsApp runtime stopped'));
     },
     waitForSocket() {
@@ -366,6 +390,14 @@ export function createWhatsAppConnectionManager(params?: {
         if (!started) {
           void startConnectionManager({ expectedStopGeneration }).catch(reject);
         }
+      });
+    },
+    async rememberSentMessage(message) {
+      await messageStore.rememberSentMessage(message).catch((error) => {
+        childLogger.warn(
+          { error, messageId: message?.key?.id || null },
+          'Failed to persist WhatsApp message for retry replay',
+        );
       });
     },
   };

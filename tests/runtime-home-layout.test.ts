@@ -9,6 +9,7 @@ import type { RuntimeConfig } from '../src/config/runtime-config.ts';
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_CWD = process.cwd();
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
+const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ORIGINAL_OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ORIGINAL_GROQ_API_KEY = process.env.GROQ_API_KEY;
 const ORIGINAL_DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
@@ -48,6 +49,7 @@ afterEach(() => {
   process.chdir(ORIGINAL_CWD);
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
+  restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
   restoreEnvVar('OPENAI_API_KEY', ORIGINAL_OPENAI_API_KEY);
   restoreEnvVar('GROQ_API_KEY', ORIGINAL_GROQ_API_KEY);
   restoreEnvVar('DEEPGRAM_API_KEY', ORIGINAL_DEEPGRAM_API_KEY);
@@ -70,6 +72,7 @@ describe('runtime secrets', () => {
       `${JSON.stringify(
         {
           HYBRIDAI_API_KEY: 'hai-1234567890abcdef',
+          OPENROUTER_API_KEY: 'or-1234567890abcdef',
           OPENAI_API_KEY: 'sk-test-openai-key',
           GROQ_API_KEY: 'gsk_test_groq',
           DEEPGRAM_API_KEY: 'deepgram-test-key',
@@ -83,6 +86,7 @@ describe('runtime secrets', () => {
       'utf-8',
     );
     delete process.env.HYBRIDAI_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
     delete process.env.OPENAI_API_KEY;
     delete process.env.GROQ_API_KEY;
     delete process.env.DEEPGRAM_API_KEY;
@@ -95,6 +99,7 @@ describe('runtime secrets', () => {
 
     expect(runtimeSecrets.runtimeSecretsPath()).toBe(credentialsPath);
     expect(process.env.HYBRIDAI_API_KEY).toBe('hai-1234567890abcdef');
+    expect(process.env.OPENROUTER_API_KEY).toBe('or-1234567890abcdef');
     expect(process.env.OPENAI_API_KEY).toBe('sk-test-openai-key');
     expect(process.env.GROQ_API_KEY).toBe('gsk_test_groq');
     expect(process.env.DEEPGRAM_API_KEY).toBe('deepgram-test-key');
@@ -114,6 +119,7 @@ describe('runtime secrets', () => {
 
     const writtenPath = runtimeSecrets.saveRuntimeSecrets({
       HYBRIDAI_API_KEY: 'hai-fedcba0987654321',
+      OPENROUTER_API_KEY: 'or-fedcba0987654321',
       OPENAI_API_KEY: 'sk-saved-openai-key',
       GROQ_API_KEY: 'gsk_saved_groq',
       DEEPGRAM_API_KEY: 'deepgram-saved-key',
@@ -130,6 +136,7 @@ describe('runtime secrets', () => {
       >,
     ).toEqual({
       HYBRIDAI_API_KEY: 'hai-fedcba0987654321',
+      OPENROUTER_API_KEY: 'or-fedcba0987654321',
       OPENAI_API_KEY: 'sk-saved-openai-key',
       GROQ_API_KEY: 'gsk_saved_groq',
       DEEPGRAM_API_KEY: 'deepgram-saved-key',
@@ -154,6 +161,7 @@ describe('runtime secrets', () => {
       envPath,
       [
         'HYBRIDAI_API_KEY=hai-from-dot-env',
+        'OPENROUTER_API_KEY=or-from-dot-env',
         'OPENAI_API_KEY=sk-from-dot-env',
         'GROQ_API_KEY=gsk-from-dot-env',
         'DEEPGRAM_API_KEY=deepgram-from-dot-env',
@@ -166,6 +174,7 @@ describe('runtime secrets', () => {
       'utf-8',
     );
     delete process.env.HYBRIDAI_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
     delete process.env.OPENAI_API_KEY;
     delete process.env.GROQ_API_KEY;
     delete process.env.DEEPGRAM_API_KEY;
@@ -187,6 +196,7 @@ describe('runtime secrets', () => {
       >,
     ).toEqual({
       HYBRIDAI_API_KEY: 'hai-from-dot-env',
+      OPENROUTER_API_KEY: 'or-from-dot-env',
       OPENAI_API_KEY: 'sk-from-dot-env',
       GROQ_API_KEY: 'gsk-from-dot-env',
       DEEPGRAM_API_KEY: 'deepgram-from-dot-env',
@@ -195,6 +205,7 @@ describe('runtime secrets', () => {
       DISCORD_TOKEN: 'discord-from-dot-env',
     });
     expect(process.env.HYBRIDAI_API_KEY).toBe('hai-from-dot-env');
+    expect(process.env.OPENROUTER_API_KEY).toBe('or-from-dot-env');
     expect(process.env.OPENAI_API_KEY).toBe('sk-from-dot-env');
     expect(process.env.GROQ_API_KEY).toBe('gsk-from-dot-env');
     expect(process.env.DEEPGRAM_API_KEY).toBe('deepgram-from-dot-env');

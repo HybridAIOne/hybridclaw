@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const tempDirs: string[] = [];
 const ORIGINAL_WHATSAPP_SETUP_SETTLE_MS =
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS;
+const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 function createTempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-cli-'));
@@ -29,11 +30,30 @@ async function importFreshCli(options?: {
     method: 'browser' | 'device-code' | 'env-import';
     validated: boolean;
   };
+  codexStatus?: {
+    authenticated: boolean;
+    path: string;
+    source: 'device-code' | 'browser-pkce' | 'codex-cli-import' | null;
+    accountId: string | null;
+    expiresAt: number | null;
+    maskedAccessToken: string | null;
+    reloginRequired: boolean;
+  };
+  codexLoginResult?: {
+    path: string;
+    method: 'device-code' | 'browser-pkce' | 'codex-cli-import';
+    credentials: {
+      accountId: string;
+      expiresAt: number;
+    };
+  };
   gatewayReachable?: boolean;
   sandboxMode?: 'host' | 'container';
+  promptResponses?: string[];
 }) {
   vi.resetModules();
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
+  const promptResponses = [...(options?.promptResponses || [])];
 
   const clearHybridAICredentials = vi.fn(() => '/tmp/credentials.json');
   const getHybridAIAuthStatus = vi.fn(
@@ -55,11 +75,40 @@ async function importFreshCli(options?: {
         validated: true,
       },
   );
+  const clearCodexCredentials = vi.fn(() => '/tmp/codex-auth.json');
+  const getCodexAuthStatus = vi.fn(
+    () =>
+      options?.codexStatus || {
+        authenticated: false,
+        path: '/tmp/codex-auth.json',
+        source: null,
+        accountId: null,
+        expiresAt: null,
+        maskedAccessToken: null,
+        reloginRequired: true,
+      },
+  );
+  const loginCodexInteractive = vi.fn(
+    async () =>
+      options?.codexLoginResult || {
+        path: '/tmp/codex-auth.json',
+        method: 'browser-pkce' as const,
+        credentials: {
+          accountId: 'acct_default',
+          expiresAt: Date.parse('2026-03-13T12:00:00.000Z'),
+        },
+      },
+  );
   const printUpdateUsage = vi.fn();
   const runUpdateCommand = vi.fn();
   const ensureRuntimeCredentials = vi.fn();
   const ensureContainerImageReady = vi.fn();
   const saveRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
+  const getWhatsAppAuthStatus = vi.fn(async () => ({
+    linked: false,
+    jid: null,
+  }));
+  const resetWhatsAppAuthState = vi.fn(async () => '/tmp/whatsapp-auth');
   const whatsappStart = vi.fn(async () => {});
   const whatsappStop = vi.fn(async () => {});
   const whatsappWaitForSocket = vi.fn(async () => ({
@@ -84,6 +133,11 @@ async function importFreshCli(options?: {
       guilds: {},
     },
     hybridai: { defaultModel: 'gpt-5-nano' },
+    openrouter: {
+      enabled: false,
+      baseUrl: 'https://openrouter.ai/api/v1',
+      models: ['openrouter/anthropic/claude-sonnet-4'],
+    },
     whatsapp: {
       dmPolicy: 'pairing',
       groupPolicy: 'disabled',
@@ -135,6 +189,12 @@ async function importFreshCli(options?: {
     timestamp: new Date().toISOString(),
   }));
   const tuiModuleLoaded = vi.fn();
+  const readlineQuestion = vi.fn(async () => promptResponses.shift() ?? '');
+  const readlineClose = vi.fn();
+  const readlineCreateInterface = vi.fn(() => ({
+    question: readlineQuestion,
+    close: readlineClose,
+  }));
 
   class MissingRequiredEnvVarError extends Error {
     constructor(public readonly envVar: string) {
@@ -164,17 +224,9 @@ async function importFreshCli(options?: {
   vi.doMock('../src/auth/codex-auth.ts', () => ({
     CODEX_DEFAULT_BASE_URL: 'https://chatgpt.com/backend-api/codex',
     CodexAuthError,
-    clearCodexCredentials: vi.fn(),
-    getCodexAuthStatus: vi.fn(() => ({
-      authenticated: false,
-      path: '/tmp/codex-auth.json',
-      source: null,
-      accountId: null,
-      expiresAt: null,
-      maskedAccessToken: null,
-      reloginRequired: true,
-    })),
-    loginCodexInteractive: vi.fn(),
+    clearCodexCredentials,
+    getCodexAuthStatus,
+    loginCodexInteractive,
   }));
   vi.doMock('../src/config/cli-flags.ts', () => ({
     findUnsupportedGatewayLifecycleFlag: vi.fn(() => null),
@@ -205,8 +257,19 @@ async function importFreshCli(options?: {
   vi.doMock('../src/infra/container-setup.ts', () => ({
     ensureContainerImageReady,
   }));
+  vi.doMock('../src/channels/whatsapp/auth.ts', () => ({
+    getWhatsAppAuthStatus,
+    resetWhatsAppAuthState,
+    WHATSAPP_AUTH_DIR: '/tmp/whatsapp-auth',
+    WhatsAppAuthLockError: class WhatsAppAuthLockError extends Error {},
+  }));
   vi.doMock('../src/channels/whatsapp/connection.ts', () => ({
     createWhatsAppConnectionManager,
+  }));
+  vi.doMock('node:readline/promises', () => ({
+    default: {
+      createInterface: readlineCreateInterface,
+    },
   }));
   vi.doMock('../src/onboarding.ts', () => ({
     ensureRuntimeCredentials,
@@ -240,12 +303,17 @@ async function importFreshCli(options?: {
   return {
     cli,
     clearHybridAICredentials,
+    clearCodexCredentials,
+    getCodexAuthStatus,
     getHybridAIAuthStatus,
+    loginCodexInteractive,
     loginHybridAIInteractive,
     printUpdateUsage,
     runUpdateCommand,
     ensureRuntimeCredentials,
     ensureContainerImageReady,
+    getWhatsAppAuthStatus,
+    resetWhatsAppAuthState,
     createWhatsAppConnectionManager,
     whatsappStart,
     whatsappStop,
@@ -257,6 +325,9 @@ async function importFreshCli(options?: {
     updateRuntimeConfig,
     gatewayHealth,
     gatewayStatus,
+    readlineCreateInterface,
+    readlineQuestion,
+    readlineClose,
     tuiModuleLoaded,
   };
 }
@@ -270,6 +341,8 @@ afterEach(() => {
   vi.doUnmock('../src/config/runtime-config.ts');
   vi.doUnmock('../src/gateway/gateway-client.ts');
   vi.doUnmock('../src/infra/container-setup.ts');
+  vi.doUnmock('../src/channels/whatsapp/auth.ts');
+  vi.doUnmock('node:readline/promises');
   vi.doUnmock('../src/onboarding.ts');
   vi.doUnmock('../src/security/instruction-approval-audit.ts');
   vi.doUnmock('../src/security/instruction-integrity.ts');
@@ -283,6 +356,11 @@ afterEach(() => {
     process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS =
       ORIGINAL_WHATSAPP_SETUP_SETTLE_MS;
   }
+  if (ORIGINAL_OPENROUTER_API_KEY === undefined) {
+    delete process.env.OPENROUTER_API_KEY;
+  } else {
+    process.env.OPENROUTER_API_KEY = ORIGINAL_OPENROUTER_API_KEY;
+  }
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (!dir) continue;
@@ -291,6 +369,29 @@ afterEach(() => {
 });
 
 describe('CLI hybridai commands', () => {
+  it('prints unified auth help', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['help', 'auth']);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Usage: hybridclaw auth <command> [provider] [options]',
+      ),
+    );
+  });
+
+  it('runs bare auth login through onboarding', async () => {
+    const { cli, ensureRuntimeCredentials } = await importFreshCli();
+
+    await cli.main(['auth', 'login']);
+
+    expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
+      commandName: 'hybridclaw auth login',
+    });
+  });
+
   it('prints hybridai help', async () => {
     const { cli } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -298,7 +399,20 @@ describe('CLI hybridai commands', () => {
     await cli.main(['help', 'hybridai']);
 
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Usage: hybridclaw hybridai <command>'),
+      expect.stringContaining(
+        'Usage: hybridclaw hybridai <command> (deprecated)',
+      ),
+    );
+  });
+
+  it('marks local help as deprecated', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['help', 'local']);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Usage: hybridclaw local <command> (deprecated)'),
     );
   });
 
@@ -310,6 +424,17 @@ describe('CLI hybridai commands', () => {
 
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Usage: hybridclaw channels <channel> <command>'),
+    );
+  });
+
+  it('prints whatsapp help', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['help', 'whatsapp']);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('hybridclaw auth whatsapp reset'),
     );
   });
 
@@ -369,12 +494,38 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('Opening WhatsApp pairing session...');
   });
 
+  it('runs auth whatsapp reset through the reset flow', async () => {
+    const { cli, getWhatsAppAuthStatus, resetWhatsAppAuthState } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    getWhatsAppAuthStatus.mockResolvedValueOnce({
+      linked: true,
+      jid: '12345@s.whatsapp.net',
+    });
+
+    await cli.main(['auth', 'whatsapp', 'reset']);
+
+    expect(getWhatsAppAuthStatus).toHaveBeenCalled();
+    expect(resetWhatsAppAuthState).toHaveBeenCalledWith();
+    expect(logSpy).toHaveBeenCalledWith(
+      'Reset WhatsApp auth state at /tmp/whatsapp-auth.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Linked device state cleared. Re-run `hybridclaw channels whatsapp setup` to pair again.',
+    );
+  });
+
   it('prints hybridai usage for bare hybridai', async () => {
     const { cli } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     await cli.main(['hybridai']);
 
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('`hybridclaw hybridai ...` is deprecated'),
+    );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('hybridclaw hybridai login --import'),
     );
@@ -390,13 +541,28 @@ describe('CLI hybridai commands', () => {
       },
     });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     await cli.main(['hybridai', 'status']);
 
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Use `hybridclaw auth status hybridai` instead.'),
+    );
     expect(getHybridAIAuthStatus).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
     expect(logSpy).toHaveBeenCalledWith('Source: runtime-secrets');
     expect(logSpy).toHaveBeenCalledWith('API key: hai-…1234');
+  });
+
+  it('warns when using the deprecated local alias', async () => {
+    const { cli } = await importFreshCli();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await cli.main(['local', 'status']);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Use `hybridclaw auth status local` instead.'),
+    );
   });
 
   it('prints unauthenticated hybridai status without source details', async () => {
@@ -441,6 +607,245 @@ describe('CLI hybridai commands', () => {
     expect(loginHybridAIInteractive).toHaveBeenCalledWith({
       method: 'auto',
     });
+  });
+
+  it('routes auth login hybridai to the HybridAI auth flow', async () => {
+    const { cli, loginHybridAIInteractive } = await importFreshCli();
+
+    await cli.main(['auth', 'login', 'hybridai', '--browser']);
+
+    expect(loginHybridAIInteractive).toHaveBeenCalledWith({
+      method: 'browser',
+    });
+  });
+
+  it('routes auth login codex with import to the Codex auth flow', async () => {
+    const { cli, loginCodexInteractive } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'login', 'codex', '--import']);
+
+    expect(loginCodexInteractive).toHaveBeenCalledWith({
+      method: 'codex-cli-import',
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      'Saved Codex credentials to /tmp/codex-auth.json.',
+    );
+  });
+
+  it('routes auth login codex to the Codex auth flow', async () => {
+    const { cli, loginCodexInteractive } = await importFreshCli();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await cli.main(['auth', 'login', 'codex', '--browser']);
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(loginCodexInteractive).toHaveBeenCalledWith({
+      method: 'browser-pkce',
+    });
+  });
+
+  it('routes auth login local to local backend configuration', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'login', 'local', 'ollama', 'llama3.2']);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Backend: ollama');
+    expect(logSpy).toHaveBeenCalledWith('Configured model: ollama/llama3.2');
+  });
+
+  it('configures OpenRouter from auth login with --api-key', async () => {
+    const {
+      cli,
+      saveRuntimeSecrets,
+      updateRuntimeConfig,
+      readlineCreateInterface,
+    } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'auth',
+      'login',
+      'openrouter',
+      'anthropic/claude-sonnet-4',
+      '--api-key',
+      'or-secret-key',
+    ]);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      OPENROUTER_API_KEY: 'or-secret-key',
+    });
+    expect(readlineCreateInterface).not.toHaveBeenCalled();
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Provider: openrouter');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Configured model: openrouter/anthropic/claude-sonnet-4',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Default model: openrouter/anthropic/claude-sonnet-4',
+    );
+  });
+
+  it('prompts for the OpenRouter API key when flag and env are absent', async () => {
+    const originalStdinTty = process.stdin.isTTY;
+    const originalStdoutTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    try {
+      const {
+        cli,
+        saveRuntimeSecrets,
+        readlineCreateInterface,
+        readlineQuestion,
+        readlineClose,
+      } = await importFreshCli({
+        promptResponses: ['or-pasted-key'],
+      });
+
+      await cli.main([
+        'auth',
+        'login',
+        'openrouter',
+        'anthropic/claude-sonnet-4',
+      ]);
+
+      expect(readlineCreateInterface).toHaveBeenCalled();
+      expect(readlineQuestion).toHaveBeenCalledWith(
+        'Paste OpenRouter API key: ',
+      );
+      expect(readlineClose).toHaveBeenCalled();
+      expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+        OPENROUTER_API_KEY: 'or-pasted-key',
+      });
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: originalStdinTty,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutTty,
+        configurable: true,
+      });
+    }
+  });
+
+  it('uses OPENROUTER_API_KEY without prompting when env is set', async () => {
+    process.env.OPENROUTER_API_KEY = 'or-from-env';
+    try {
+      const { cli, saveRuntimeSecrets, readlineCreateInterface } =
+        await importFreshCli();
+
+      await cli.main([
+        'auth',
+        'login',
+        'openrouter',
+        'anthropic/claude-sonnet-4',
+      ]);
+
+      expect(readlineCreateInterface).not.toHaveBeenCalled();
+      expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+        OPENROUTER_API_KEY: 'or-from-env',
+      });
+    } finally {
+      delete process.env.OPENROUTER_API_KEY;
+    }
+  });
+
+  it('prints OpenRouter status through auth status', async () => {
+    process.env.OPENROUTER_API_KEY = 'or-secret-key';
+    try {
+      const { cli } = await importFreshCli();
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      await cli.main(['auth', 'status', 'openrouter']);
+
+      expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('Enabled: no');
+      expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
+    } finally {
+      delete process.env.OPENROUTER_API_KEY;
+    }
+  });
+
+  it('clears OpenRouter credentials through auth logout', async () => {
+    const { cli, saveRuntimeSecrets } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'logout', 'openrouter']);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      OPENROUTER_API_KEY: null,
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      'Cleared OpenRouter credentials in /tmp/credentials.json.',
+    );
+  });
+
+  it('disables local backends through auth logout local', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'logout', 'local']);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'Disabled local backends: ollama, lmstudio, vllm.',
+    );
+    expect(logSpy).toHaveBeenCalledWith('Default model: gpt-5-nano');
+  });
+
+  it('treats top-level login as an unknown command', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+
+    await cli.main(['login']);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Usage: hybridclaw <command>'),
+    );
+  });
+
+  it('treats top-level status as an unknown command', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+
+    await cli.main(['status', 'openrouter']);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Usage: hybridclaw <command>'),
+    );
+  });
+
+  it('treats top-level logout as an unknown command', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+
+    await cli.main(['logout', 'openrouter']);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Usage: hybridclaw <command>'),
+    );
   });
 
   it('runs hybridai logout', async () => {

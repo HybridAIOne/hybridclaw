@@ -84,54 +84,70 @@ hybridclaw tui
 
 ## Authentication
 
-HybridClaw supports two auth paths:
-
-- `HybridAI API key` via `hybridclaw hybridai ...` or `hybridclaw onboarding`
-- `OpenAI Codex OAuth` via `hybridclaw codex ...`
-
-HybridAI commands:
+HybridClaw uses a unified provider setup surface:
 
 ```bash
-hybridclaw hybridai login
-hybridclaw hybridai login --device-code
+hybridclaw auth login hybridai --browser
+hybridclaw auth login codex --import
+hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
+hybridclaw auth login local ollama llama3.2
+hybridclaw auth status hybridai
+hybridclaw auth status codex
+hybridclaw auth status openrouter
+hybridclaw auth status local
+hybridclaw auth logout hybridai
+hybridclaw auth logout codex
+hybridclaw auth logout openrouter
+hybridclaw auth logout local
+hybridclaw auth whatsapp reset
+```
+
+Legacy aliases are also supported:
+
+```bash
 hybridclaw hybridai login --browser
-hybridclaw hybridai login --import
-hybridclaw hybridai status
-hybridclaw hybridai logout
-```
-
-- `hybridclaw hybridai login` auto-selects browser login on local GUI machines and a manual/headless API-key flow on SSH, CI, and container shells.
-- `hybridclaw hybridai login --import` copies the current `HYBRIDAI_API_KEY` from your shell into `~/.hybridclaw/credentials.json`.
-- HybridAI secrets are stored in `~/.hybridclaw/credentials.json`.
-
-Codex commands:
-
-```bash
-hybridclaw codex login
-hybridclaw codex login --device-code
-hybridclaw codex login --browser
-hybridclaw codex login --import
 hybridclaw codex status
-hybridclaw codex logout
+hybridclaw local configure ollama llama3.2
 ```
 
-- `hybridclaw codex login` auto-selects browser PKCE on local GUI machines and device code on headless or remote shells.
-- Codex credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
+- `hybridclaw auth login` without a provider runs the normal onboarding flow.
+- `hybridclaw auth login hybridai` auto-selects browser login on local GUI machines and a manual/headless API-key flow on SSH, CI, and container shells. `--import` copies the current `HYBRIDAI_API_KEY` from your shell into `~/.hybridclaw/credentials.json`.
+- `hybridclaw auth login codex` auto-selects browser PKCE on local GUI machines and device code on headless or remote shells.
+- `hybridclaw auth login openrouter` accepts `--api-key`, falls back to `OPENROUTER_API_KEY`, or prompts you to paste the key, then enables the provider and can set the global default model.
+- `hybridclaw auth login local` configures Ollama, LM Studio, or vLLM in `~/.hybridclaw/config.json`.
+- `hybridclaw auth logout local` disables configured local backends and clears any saved vLLM API key.
+- `hybridclaw auth whatsapp reset` clears linked WhatsApp Web auth without starting a new pairing session.
+- HybridAI and OpenRouter secrets are stored in `~/.hybridclaw/credentials.json`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
+- Only one running HybridClaw process should own `~/.hybridclaw/credentials/whatsapp` at a time. If WhatsApp Web shows duplicate Chrome/Ubuntu linked devices or reconnect/auth drift starts, stop the extra process, run `hybridclaw auth whatsapp reset`, then pair again with `hybridclaw channels whatsapp setup`.
+- Use `hybridclaw help`, `hybridclaw help auth`, `hybridclaw help openrouter`, or `hybridclaw help local` for CLI-specific reference output.
 
 ## Model Selection
 
-Codex models use the `openai-codex/` prefix. The default shipped Codex model is `openai-codex/gpt-5-codex`.
+Codex models use the `openai-codex/` prefix. OpenRouter models use the `openrouter/` prefix. The default shipped Codex model is `openai-codex/gpt-5-codex`.
 
 Examples:
 
 ```text
-/model openai-codex/gpt-5-codex
+/model set openai-codex/gpt-5-codex
+/model list codex
 /model default openai-codex/gpt-5-codex
+/model list openrouter
+/model set openrouter/anthropic/claude-sonnet-4
+/model clear
+/agent model openrouter/anthropic/claude-sonnet-4
+/model info
+/model default openrouter/anthropic/claude-sonnet-4
 ```
 
-- `hybridai.defaultModel` in `~/.hybridclaw/config.json` can point at either a HybridAI model or an `openai-codex/...` model.
+- `hybridai.defaultModel` in `~/.hybridclaw/config.json` can point at a HybridAI model, an `openai-codex/...` model, an `openrouter/...` model, or a local backend model such as `ollama/...`.
 - `codex.models` in runtime config controls the allowed Codex model list shown in selectors and status output.
+- `openrouter.models` in runtime config controls the allowed OpenRouter model list shown in selectors and status output.
 - When the selected model starts with `openai-codex/`, HybridClaw resolves OAuth credentials through the Codex provider instead of `HYBRIDAI_API_KEY`.
+- When the selected model starts with `openrouter/`, HybridClaw resolves credentials through `OPENROUTER_API_KEY`.
+- `/model set <name>` is a session-only override.
+- `/model clear` removes the session override and falls back to the current agent model or the global default.
+- `/agent model <name>` sets the persistent model for the current session agent.
+- `/model info` shows the effective model, session override, agent model, and global default.
 - Use `HYBRIDCLAW_CODEX_BASE_URL` to override the default Codex backend base URL (`https://chatgpt.com/backend-api/codex`).
 
 Runtime model:
@@ -159,8 +175,8 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently written to `~/.hybridclaw/config.json` as plain text. Use low-privilege tokens only, set `chmod 700 ~/.hybridclaw && chmod 600 ~/.hybridclaw/config.json`, and prefer `host` sandbox mode for stdio MCP servers that depend on host-installed tools.
 - `media.audio` controls shared inbound audio transcription. By default it auto-detects local CLIs first (`sherpa-onnx-offline`, `whisper-cli`, `whisper`), then `gemini`, then provider keys (`openai`, `groq`, `deepgram`, `google`).
 - `whisper-cli` auto-detect also needs a whisper.cpp model file. If the binary exists but HybridClaw still skips local transcription, set `WHISPER_CPP_MODEL` to a local `ggml-*.bin` model path.
-- If no transcript backend is available, the container will now try native model audio input before tool-use fallback for supported local providers. Today that fallback is enabled for `vllm` sessions and uses the original current-turn audio attachment.
-- Keep runtime secrets in `~/.hybridclaw/credentials.json` (`HYBRIDAI_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`). Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
+- If no transcript backend is available, the container tries native model audio input before tool-use fallback for supported local providers. Today that fallback is enabled for `vllm` sessions and uses the original current-turn audio attachment.
+- Keep runtime secrets in `~/.hybridclaw/credentials.json` (`HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`). Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 - Trust-model acceptance is stored in `~/.hybridclaw/config.json` under `security.*` and is required before runtime starts.
 - See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
 - For contributor workflow, see [CONTRIBUTING.md](./CONTRIBUTING.md). For deeper runtime, skills, release, voice/TTS, and maintainer reference docs, see [docs/development/README.md](./docs/development/README.md).
@@ -173,7 +189,7 @@ If LM Studio is running locally and serving `qwen/qwen3.5-9b` on
 1. Configure HybridClaw for LM Studio:
 
 ```bash
-hybridclaw local configure lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234
+hybridclaw auth login local lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234
 ```
 
 This enables local providers, enables the LM Studio backend, normalizes the
@@ -203,7 +219,7 @@ Look for `localBackends.lmstudio.reachable: true`.
 You can also inspect the saved local backend config directly:
 
 ```bash
-hybridclaw local status
+hybridclaw auth status local
 ```
 
 4. Start the TUI:
@@ -216,7 +232,9 @@ In the TUI, run:
 
 ```text
 /model list
+/model list openrouter
 /model set lmstudio/qwen/qwen3.5-9b
+/model clear
 /model info
 ```
 
@@ -226,14 +244,14 @@ If you want to configure the backend without changing your global default model,
 use:
 
 ```bash
-hybridclaw local configure lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234 --no-default
+hybridclaw auth login local lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234 --no-default
 ```
 
 Other backends use the same flow:
 
 ```bash
-hybridclaw local configure ollama llama3.2
-hybridclaw local configure vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
+hybridclaw auth login local ollama llama3.2
+hybridclaw auth login local vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
 ```
 
 Restart the gateway in `--sandbox=host`, then confirm reachability with
@@ -333,21 +351,21 @@ CLI runtime commands:
 - `hybridclaw gateway stop` — Stop managed gateway backend process
 - `hybridclaw gateway status` — Show lifecycle/API status
 - `hybridclaw gateway <command...>` — Send a command to a running gateway (for example `sessions`, `bot info`)
-- `hybridclaw gateway agent [list|switch <id>|create <id> [--model <model>]]` — Inspect or change the current session-to-agent binding
+- `hybridclaw gateway agent [list|switch <id>|create <id> [--model <model>]|model [name]]` — Inspect or change the current session-to-agent binding and persistent agent model
 - `hybridclaw gateway compact` — Archive older session history into semantic memory while preserving a recent active context tail
 - `hybridclaw gateway reset [yes|no]` — Clear session history, reset per-session model/chatbot/RAG settings, and remove the current agent workspace (confirmation required)
 - `hybridclaw tui` — Start terminal client connected to gateway
-- `hybridclaw onboarding` — Run HybridAI account/API key onboarding
+- `hybridclaw onboarding` — Run trust-model acceptance plus interactive provider onboarding
+- `hybridclaw auth login [provider] ...` — Namespaced provider setup/login entrypoint
+- `hybridclaw auth status <provider>` — Show provider status for `hybridai`, `codex`, `openrouter`, or `local`
+- `hybridclaw auth logout <provider>` — Clear provider credentials or disable local backends
+- `hybridclaw auth whatsapp reset` — Clear linked WhatsApp auth so the account can be re-paired cleanly
 - `hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]` — Prepare restricted command-only Discord config and print bot/token next steps
 - `hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...` — Prepare private-by-default WhatsApp config, enable the default `👀` ack reaction, optionally wipe stale auth, open a temporary pairing session, and print the QR code
 - `hybridclaw local status` — Show current local backend config and default model
 - `hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]` — Enable and configure a local backend
-- `hybridclaw hybridai login [--device-code|--browser|--import]` — Store HybridAI API credentials via browser-assisted, headless/manual, or env-import flows
-- `hybridclaw hybridai status` — Show stored HybridAI auth state, token mask, and source
-- `hybridclaw hybridai logout` — Clear stored HybridAI credentials
-- `hybridclaw codex login [--device-code|--browser|--import]` — Authenticate OpenAI Codex via OAuth or one-time Codex CLI import
-- `hybridclaw codex status` — Show stored Codex auth state, token mask, expiry, and source
-- `hybridclaw codex logout` — Clear stored Codex credentials
+- `hybridclaw hybridai ...`, `hybridclaw codex ...`, and `hybridclaw local ...` — Legacy aliases for the older provider-specific command surface
+- `hybridclaw help` / `hybridclaw help auth` / `hybridclaw help openrouter` — Print CLI reference for the unified provider commands
 - `hybridclaw skill list` — Show skills and any declared installer options
 - `hybridclaw skill install <skill> [install-id]` — Run a declared skill dependency installer
 - `hybridclaw update [status|--check] [--yes]` — Check for updates and upgrade global npm installs (source checkouts get git-based update instructions)
@@ -361,8 +379,11 @@ In Discord, use `!claw help` or the slash commands. Key ones:
 - `/agent list` or `!claw agent list` — List configured agents
 - `/agent switch <id>` or `!claw agent switch <id>` — Rebind this session to another agent workspace
 - `/agent create <id> [--model <model>]` or `!claw agent create <id> [--model <model>]` — Create a new agent with its own workspace
+- `/agent model [name]` or `!claw agent model [name]` — Show or set the persistent model for the current agent
 - `!claw bot set <id>` — Set chatbot for this channel
-- `!claw model set <name>` — Set model for this channel
+- `!claw model set <name>` — Set the session model override for this channel
+- `!claw model clear` — Clear the session model override and fall back to the current agent model or global default
+- `!claw model info` — Show the effective model, session override, agent model, and global default
 - `!claw rag on/off` — Toggle RAG
 - `!claw compact` — Archive older history into session memory and keep a recent working tail
 - `/reset` or `!claw reset` — Clear history, reset per-session model/bot settings, and remove the current agent workspace (confirmation required)
@@ -379,8 +400,10 @@ In Discord, use `!claw help` or the slash commands. Key ones:
 - `!claw schedule add at "<ISO time>" <prompt>` — Add one-shot task
 - `!claw schedule add every <ms> <prompt>` — Add interval task
 
-In the TUI, use `/agent`, `/agent list`, `/agent switch <id>`, and
-`/agent create <id> [--model <model>]` for agent control; `/status` shows both
-the current session and agent; `/compact` handles session compaction; `/reset`
-runs the confirmed workspace reset flow; and `/mcp ...` manages runtime MCP
-servers.
+In the TUI, use `/agent`, `/agent list`, `/agent switch <id>`, `/agent create
+<id> [--model <model>]`, and `/agent model [name]` for agent control. Use
+`/model set <name>` for a session-only override, `/model clear` to fall back to
+the agent/default model chain, and `/model info` to inspect the active scope.
+`/status` shows both the current session and agent; `/compact` handles session
+compaction; `/reset` runs the confirmed workspace reset flow; and `/mcp ...`
+manages runtime MCP servers.

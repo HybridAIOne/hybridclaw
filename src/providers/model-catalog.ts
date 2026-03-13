@@ -1,8 +1,126 @@
 import { CONFIGURED_MODELS } from '../config/config.js';
+import { resolveModelProvider } from './factory.js';
 import {
   discoverAllLocalModels,
   getDiscoveredLocalModelNames,
 } from './local-discovery.js';
+import {
+  discoverOpenRouterModels,
+  getDiscoveredOpenRouterModelNames,
+  isDiscoveredOpenRouterModelFree,
+} from './openrouter-discovery.js';
+
+type ModelCatalogProviderFilter =
+  | 'hybridai'
+  | 'openai-codex'
+  | 'openrouter'
+  | 'ollama'
+  | 'lmstudio'
+  | 'vllm'
+  | 'local';
+
+const LOCAL_PROVIDER_FILTERS = new Set(['ollama', 'lmstudio', 'vllm']);
+const OPENAI_CODEX_MODEL_PREFIX = 'openai-codex/';
+const OPENROUTER_MODEL_PREFIX = 'openrouter/';
+const OLLAMA_MODEL_PREFIX = 'ollama/';
+const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
+const VLLM_MODEL_PREFIX = 'vllm/';
+
+function compareModelNames(
+  left: string,
+  right: string,
+  providerFilter?: ModelCatalogProviderFilter | null,
+): number {
+  if (providerFilter === 'openrouter') {
+    const leftIsFree = isAvailableModelFree(left);
+    const rightIsFree = isAvailableModelFree(right);
+    if (leftIsFree !== rightIsFree) {
+      return leftIsFree ? -1 : 1;
+    }
+  }
+  return left.localeCompare(right, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
+}
+
+export function isAvailableModelFree(model: string): boolean {
+  const normalized = String(model || '').trim();
+  return (
+    normalized.toLowerCase().startsWith(OPENROUTER_MODEL_PREFIX) &&
+    isDiscoveredOpenRouterModelFree(normalized)
+  );
+}
+
+function hasModelPrefix(model: string, prefix: string): boolean {
+  return String(model || '')
+    .trim()
+    .toLowerCase()
+    .startsWith(prefix);
+}
+
+function isLocalPrefixedModel(model: string): boolean {
+  return (
+    hasModelPrefix(model, OLLAMA_MODEL_PREFIX) ||
+    hasModelPrefix(model, LMSTUDIO_MODEL_PREFIX) ||
+    hasModelPrefix(model, VLLM_MODEL_PREFIX)
+  );
+}
+
+export function normalizeModelCatalogProviderFilter(
+  value: string | undefined,
+): ModelCatalogProviderFilter | null {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return null;
+  if (normalized === 'codex') return 'openai-codex';
+  if (
+    normalized === 'hybridai' ||
+    normalized === 'openai-codex' ||
+    normalized === 'openrouter' ||
+    normalized === 'ollama' ||
+    normalized === 'lmstudio' ||
+    normalized === 'vllm' ||
+    normalized === 'local'
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function matchesProviderFilter(
+  model: string,
+  providerFilter: ModelCatalogProviderFilter,
+): boolean {
+  const normalized = String(model || '').trim();
+  if (!normalized) return false;
+
+  if (providerFilter === 'openrouter') {
+    return hasModelPrefix(normalized, OPENROUTER_MODEL_PREFIX);
+  }
+  if (providerFilter === 'openai-codex') {
+    return hasModelPrefix(normalized, OPENAI_CODEX_MODEL_PREFIX);
+  }
+  if (providerFilter === 'ollama') {
+    return hasModelPrefix(normalized, OLLAMA_MODEL_PREFIX);
+  }
+  if (providerFilter === 'lmstudio') {
+    return hasModelPrefix(normalized, LMSTUDIO_MODEL_PREFIX);
+  }
+  if (providerFilter === 'vllm') {
+    return hasModelPrefix(normalized, VLLM_MODEL_PREFIX);
+  }
+  if (providerFilter === 'local') {
+    return isLocalPrefixedModel(normalized);
+  }
+
+  const provider = resolveModelProvider(normalized);
+  if (providerFilter === 'hybridai') {
+    return provider === 'hybridai' && !isLocalPrefixedModel(normalized);
+  }
+  return provider === providerFilter;
+}
 
 function dedupeModelList(models: string[]): string[] {
   const seen = new Set<string>();
@@ -16,26 +134,42 @@ function dedupeModelList(models: string[]): string[] {
   return deduped;
 }
 
-export function getAvailableModelList(): string[] {
-  return dedupeModelList([
+export function getAvailableModelList(provider?: string): string[] {
+  const models = dedupeModelList([
     ...CONFIGURED_MODELS,
     ...getDiscoveredLocalModelNames(),
+    ...getDiscoveredOpenRouterModelNames(),
   ]);
+  const normalizedProvider = normalizeModelCatalogProviderFilter(provider);
+  if (!provider) {
+    return models.sort((left, right) => compareModelNames(left, right));
+  }
+  if (normalizedProvider === null) return [];
+  return models
+    .filter((model) => matchesProviderFilter(model, normalizedProvider))
+    .sort((left, right) => compareModelNames(left, right, normalizedProvider));
+}
+
+export async function refreshAvailableModelCatalogs(): Promise<void> {
+  await Promise.allSettled([
+    discoverAllLocalModels(),
+    discoverOpenRouterModels(),
+  ]);
+}
+
+export function formatAvailableModelLabel(model: string): string {
+  const normalized = String(model || '').trim();
+  return normalized;
 }
 
 export async function getAvailableModelChoices(
   limit = 25,
 ): Promise<Array<{ name: string; value: string }>> {
-  try {
-    await discoverAllLocalModels();
-  } catch {
-    // Best-effort enrichment only.
-  }
-
+  await refreshAvailableModelCatalogs();
   return getAvailableModelList()
     .slice(0, Math.max(0, limit))
     .map((model) => ({
-      name: model,
+      name: formatAvailableModelLabel(model),
       value: model,
     }));
 }

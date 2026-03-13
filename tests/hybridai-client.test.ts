@@ -95,6 +95,47 @@ test('callHybridAI omits max_tokens when not provided', async () => {
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
+test('callHybridAI routes OpenRouter requests through the OpenAI-compatible transport', async () => {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    expect(url).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(init?.headers).toMatchObject({
+      Authorization: 'Bearer or-test-key',
+      'HTTP-Referer': 'https://github.com/hybridaione/hybridclaw',
+      'X-Title': 'HybridClaw',
+    });
+    const body = JSON.parse(String(init?.body || '{}')) as Record<
+      string,
+      unknown
+    >;
+    expect(body.model).toBe('anthropic/claude-sonnet-4');
+    expect(body.max_tokens).toBe(512);
+    return new Response(JSON.stringify(okResponse), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const result = await callHybridAI(
+    'openrouter',
+    'https://openrouter.ai/api/v1',
+    'or-test-key',
+    'openrouter/anthropic/claude-sonnet-4',
+    '',
+    false,
+    {
+      'HTTP-Referer': 'https://github.com/hybridaione/hybridclaw',
+      'X-Title': 'HybridClaw',
+    },
+    [{ role: 'user', content: 'hello' }],
+    [],
+    512,
+  );
+
+  expect(result.choices[0]?.message.content).toBe('ok');
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 test('callHybridAIStream forwards stream and max_tokens', async () => {
   const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body || '{}')) as Record<

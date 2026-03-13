@@ -23,6 +23,7 @@ import {
   deleteRegisteredAgent,
   findAgentConfig,
   getAgentById,
+  getStoredAgentConfig,
   listAgents,
   resolveAgentConfig,
   resolveAgentForRequest,
@@ -108,12 +109,21 @@ import {
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
 import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
 import {
-  discoverAllLocalModels,
   getLocalModelInfo,
   resolveLocalModelContextWindow,
 } from '../providers/local-discovery.js';
 import { getAllBackendHealth } from '../providers/local-health.js';
-import { getAvailableModelList } from '../providers/model-catalog.js';
+import {
+  formatAvailableModelLabel,
+  getAvailableModelList,
+  isAvailableModelFree,
+  normalizeModelCatalogProviderFilter,
+  refreshAvailableModelCatalogs,
+} from '../providers/model-catalog.js';
+import {
+  discoverOpenRouterModels,
+  getDiscoveredOpenRouterModelContextWindow,
+} from '../providers/openrouter-discovery.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
 import {
   getScheduledTaskNextRunAt,
@@ -1026,17 +1036,30 @@ function infoCommand(
   title: string,
   text: string,
   components?: GatewayCommandResult['components'],
+  extra?: Partial<GatewayCommandResult>,
 ): GatewayCommandResult {
   return {
     kind: 'info',
     title,
     text,
     ...(components === undefined ? {} : { components }),
+    ...(extra || {}),
   };
 }
 
 function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
+}
+
+function formatSessionModelOverride(model: string | null | undefined): string {
+  const normalized = String(model || '').trim();
+  return normalized || '(none)';
+}
+
+function formatConfiguredAgentModel(
+  agent: AgentConfig | null | undefined,
+): string {
+  return resolveAgentModel(agent) || '(none)';
 }
 
 function enableFullAutoCommand(params: {
@@ -1943,11 +1966,7 @@ export function getGatewayAdminTools(): GatewayAdminToolsResponse {
 }
 
 export async function getGatewayAdminModels(): Promise<GatewayAdminModelsResponse> {
-  try {
-    await discoverAllLocalModels();
-  } catch {
-    // Best-effort enrichment only.
-  }
+  await refreshAvailableModelCatalogs();
 
   const runtimeConfig = getRuntimeConfig();
   const hybridaiModels = dedupeStrings(runtimeConfig.hybridai.models);
@@ -3730,13 +3749,15 @@ export async function handleGatewayCommand(
         '`agent list` — List available agents',
         '`agent switch <id>` — Bind this session to an existing agent',
         '`agent create <id> [--model <model>]` — Create a new agent',
+        '`agent model [name]` — Show or set the persistent model for the current agent',
         '`bot list` — List available bots',
         '`bot set <id|name>` — Set chatbot for this session',
         '`bot info` — Show current chatbot settings',
-        '`model list` — List available models',
+        '`model list [provider]` — List available models',
         '`model set <name>` — Set model for this session',
+        '`model clear` — Clear the session model override',
         '`model default [name]` — Show or set default model for new sessions',
-        '`model info` — Show current model',
+        '`model info` — Show effective, session, agent, and default models',
         '`rag [on|off]` — Toggle or set RAG mode',
         '`channel mode [off|mention|free]` — Set or inspect this Discord channel response mode',
         '`channel policy [open|allowlist|disabled]` — Set or inspect guild channel policy',
@@ -3757,9 +3778,10 @@ export async function handleGatewayCommand(
         '`stop` — Abort the current session run and disable full-auto mode',
         '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
         '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
-        '`/model list` — List available runtime models',
+        '`/model list [provider]` — List available runtime models',
         '`/model set <name>` — Set the model for this session',
-        '`/model info` — Show current and default model details',
+        '`/model clear` — Clear the model override for this session',
+        '`/model info` — Show effective, session, agent, and default model details',
         '`/model default [name]` — Show or set the default model for new sessions',
         '`sessions` — List active sessions',
         '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
@@ -3778,14 +3800,18 @@ export async function handleGatewayCommand(
     case 'agent': {
       const sub = (req.args[1] || '').toLowerCase();
       if (!sub || sub === 'info' || sub === 'current') {
-        const agent = resolveAgentConfig(session.agent_id);
+        const currentAgentId = resolveSessionAgentId(session);
+        const agent = resolveAgentConfig(currentAgentId);
+        const storedAgent = getStoredAgentConfig(currentAgentId);
         const runtime = resolveAgentForRequest({ session });
         return infoCommand(
           'Agent',
           [
             `Current agent: ${agent.id}`,
             ...(agent.name ? [`Name: ${agent.name}`] : []),
-            `Model: ${runtime.model}`,
+            `Global model: ${HYBRIDAI_MODEL}`,
+            `Agent model: ${formatConfiguredAgentModel(storedAgent)}`,
+            `Session model: ${formatSessionModelOverride(session.model)}`,
             `Chatbot: ${runtime.chatbotId || '(none)'}`,
             `Workspace: ${path.resolve(agentWorkspaceDir(agent.id))}`,
           ].join('\n'),
@@ -3828,6 +3854,60 @@ export async function handleGatewayCommand(
         );
       }
 
+      if (sub === 'model') {
+        const currentAgentId = resolveSessionAgentId(session);
+        const storedAgent =
+          getStoredAgentConfig(currentAgentId) ??
+          ({ id: currentAgentId } satisfies AgentConfig);
+        const resolvedAgent = resolveAgentConfig(currentAgentId);
+        const sessionOverride = formatSessionModelOverride(session.model);
+        const modelName = String(req.args[2] || '').trim();
+
+        if (!modelName) {
+          return infoCommand(
+            'Agent Model',
+            [
+              `Current agent: ${resolvedAgent.id}`,
+              `Global model: ${HYBRIDAI_MODEL}`,
+              `Agent model: ${formatConfiguredAgentModel(storedAgent)}`,
+              `Session model: ${sessionOverride}`,
+            ].join('\n'),
+          );
+        }
+
+        await refreshAvailableModelCatalogs();
+        const availableModels = getAvailableModelList();
+        if (
+          availableModels.length > 0 &&
+          !availableModels.includes(modelName)
+        ) {
+          return badCommand(
+            'Unknown Model',
+            `\`${modelName}\` is not in the available models list.`,
+          );
+        }
+
+        const updated = upsertRegisteredAgent({
+          ...storedAgent,
+          model: modelName,
+        });
+        const hasSessionOverride = sessionOverride !== '(none)';
+        return infoCommand(
+          'Agent Model Updated',
+          [
+            `Current agent: ${updated.id}`,
+            `Global model: ${HYBRIDAI_MODEL}`,
+            `Agent model: ${resolveAgentModel(updated) || '(none)'}`,
+            `Session model: ${sessionOverride}`,
+            ...(hasSessionOverride
+              ? [
+                  'Run `model clear` to use the updated agent model in this session.',
+                ]
+              : []),
+          ].join('\n'),
+        );
+      }
+
       if (sub === 'create') {
         const newAgentId = String(req.args[2] || '').trim();
         if (!newAgentId) {
@@ -3863,6 +3943,7 @@ export async function handleGatewayCommand(
             );
           }
           modelName = String(trailingArgs[1]).trim();
+          await refreshAvailableModelCatalogs();
           const availableModels = getAvailableModelList();
           if (availableModels.length === 0) {
             logger.warn(
@@ -3897,7 +3978,7 @@ export async function handleGatewayCommand(
 
       return badCommand(
         'Usage',
-        'Usage: `agent|agent list|agent switch <id>|agent create <id> [--model <model>]`',
+        'Usage: `agent|agent list|agent switch <id>|agent model [name]|agent create <id> [--model <model>]`',
       );
     }
 
@@ -3963,15 +4044,52 @@ export async function handleGatewayCommand(
     }
 
     case 'model': {
+      await refreshAvailableModelCatalogs();
       const availableModels = getAvailableModelList();
       const runtime = resolveAgentForRequest({ session });
+      const currentAgentId = resolveSessionAgentId(session);
+      const resolvedAgent = resolveAgentConfig(currentAgentId);
+      const sessionOverride = formatSessionModelOverride(session.model);
+      const fallbackModel = resolveAgentModel(resolvedAgent) || HYBRIDAI_MODEL;
       const sub = req.args[1]?.toLowerCase();
       if (sub === 'list') {
+        const providerFilterArg = req.args[2];
+        if (
+          providerFilterArg &&
+          !normalizeModelCatalogProviderFilter(providerFilterArg)
+        ) {
+          return badCommand(
+            'Unknown Provider',
+            'Usage: `model list [hybridai|codex|openrouter|local|ollama|lmstudio|vllm]`',
+          );
+        }
+        const listedModels = getAvailableModelList(providerFilterArg);
         const current = runtime.model;
-        const list = availableModels
-          .map((m) => (m === current ? `${m} (current)` : m))
-          .join('\n');
-        return infoCommand('Available Models', list);
+        const modelCatalog = listedModels.map((model) => {
+          const label = formatAvailableModelLabel(model);
+          return {
+            value: model,
+            label: model === current ? `${label} (current)` : label,
+            isFree: isAvailableModelFree(model),
+          };
+        });
+        const list = modelCatalog.map((entry) => entry.label).join('\n');
+        if (!list) {
+          return infoCommand(
+            'Available Models',
+            providerFilterArg
+              ? `No models available for provider \`${providerFilterArg}\`.`
+              : 'No models available.',
+          );
+        }
+        return infoCommand(
+          providerFilterArg
+            ? `Available Models (${providerFilterArg})`
+            : 'Available Models',
+          list,
+          undefined,
+          { modelCatalog },
+        );
       }
 
       if (sub === 'default') {
@@ -4019,16 +4137,29 @@ export async function handleGatewayCommand(
         return plainCommand(`Model set to \`${modelName}\` for this session.`);
       }
 
+      if (sub === 'clear' || sub === 'auto') {
+        updateSessionModel(session.id, null);
+        return plainCommand(
+          sessionOverride === '(none)'
+            ? `Session model override is already clear. Effective model: \`${fallbackModel}\`.`
+            : `Session model override cleared. Effective model: \`${fallbackModel}\`.`,
+        );
+      }
+
       if (sub === 'info') {
         return infoCommand(
           'Model Info',
-          `Current model: ${runtime.model}\nDefault model: ${HYBRIDAI_MODEL}`,
+          [
+            `Global model: ${HYBRIDAI_MODEL}`,
+            `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
+            `Session model: ${sessionOverride}`,
+          ].join('\n'),
         );
       }
 
       return badCommand(
         'Usage',
-        'Usage: `model list|set <name>|default [name]|info`',
+        'Usage: `model list [provider]|set <name>|clear|default [name]|info`',
       );
     }
 
@@ -4506,8 +4637,12 @@ export async function handleGatewayCommand(
       const commitShort = resolveGitCommitShort();
       const runtime = resolveAgentForRequest({ session });
       const sessionModel = runtime.model;
+      if (sessionModel.trim().toLowerCase().startsWith('openrouter/')) {
+        await discoverOpenRouterModels();
+      }
       const modelContextWindowTokens =
         resolveLocalModelContextWindow(sessionModel) ??
+        getDiscoveredOpenRouterModelContextWindow(sessionModel) ??
         resolveModelContextWindowFallback(sessionModel);
       const metrics = readSessionStatusSnapshot(session.id, {
         modelContextWindowTokens,

@@ -79,7 +79,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
     modelDefinition?.options
       ?.map((option) => ('name' in option ? option.name : ''))
       .filter(Boolean),
-  ).toEqual(['info', 'list', 'set', 'default']);
+  ).toEqual(['info', 'list', 'set', 'clear', 'default']);
 });
 
 test('parseSlashInteractionArgs maps agent interactions to command args', () => {
@@ -103,6 +103,13 @@ test('parseSlashInteractionArgs maps agent interactions to command args', () => 
       strings: { id: 'research', model: 'gpt-5' },
     }) as never,
   );
+  const modelArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'agent',
+      subcommand: 'model',
+      strings: { name: 'gpt-5-mini' },
+    }) as never,
+  );
 
   expect(listArgs).toEqual(['agent', 'list']);
   expect(switchArgs).toEqual(['agent', 'switch', 'research']);
@@ -113,6 +120,7 @@ test('parseSlashInteractionArgs maps agent interactions to command args', () => 
     '--model',
     'gpt-5',
   ]);
+  expect(modelArgs).toEqual(['agent', 'model', 'gpt-5-mini']);
 });
 
 test('parseSlashInteractionArgs maps bot set interactions to command args', () => {
@@ -127,11 +135,12 @@ test('parseSlashInteractionArgs maps bot set interactions to command args', () =
   expect(args).toEqual(['bot', 'set', 'mybot']);
 });
 
-test('parseSlashInteractionArgs maps model list, set, and default interactions', () => {
+test('parseSlashInteractionArgs maps model list, set, clear, and default interactions', () => {
   const listArgs = parseSlashInteractionArgs(
     makeInteraction({
       commandName: 'model',
       subcommand: 'list',
+      strings: { provider: 'openrouter' },
     }) as never,
   );
   const setArgs = parseSlashInteractionArgs(
@@ -154,11 +163,38 @@ test('parseSlashInteractionArgs maps model list, set, and default interactions',
       subcommand: 'info',
     }) as never,
   );
+  const clearArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'model',
+      subcommand: 'clear',
+    }) as never,
+  );
 
-  expect(listArgs).toEqual(['model', 'list']);
+  expect(listArgs).toEqual(['model', 'list', 'openrouter']);
   expect(setArgs).toEqual(['model', 'set', 'lmstudio/qwen/qwen3.5-9b']);
+  expect(clearArgs).toEqual(['model', 'clear']);
   expect(defaultArgs).toEqual(['model', 'default']);
   expect(infoArgs).toEqual(['model', 'info']);
+});
+
+test('buildSlashCommandDefinitions adds provider filter to model list', () => {
+  const definitions = buildSlashCommandDefinitions([
+    { name: 'gpt-5', value: 'gpt-5' },
+  ]);
+  const modelDefinition = definitions.find(
+    (definition) => definition.name === 'model',
+  );
+  const listOption = modelDefinition?.options?.find(
+    (option) => 'name' in option && option.name === 'list',
+  );
+
+  expect(
+    listOption && 'options' in listOption ? listOption.options : [],
+  ).toEqual([
+    expect.objectContaining({
+      name: 'provider',
+    }),
+  ]);
 });
 
 test('parseSlashInteractionArgs maps show interactions to command args', () => {

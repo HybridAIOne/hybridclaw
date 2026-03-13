@@ -10,11 +10,18 @@ export type GatewayMessageComponents = NonNullable<
   BaseMessageOptions['components']
 >;
 
+export interface GatewayModelCatalogEntry {
+  value: string;
+  label: string;
+  isFree: boolean;
+}
+
 export interface GatewayCommandResult {
   kind: 'plain' | 'info' | 'error';
   title?: string;
   text: string;
   components?: GatewayMessageComponents;
+  modelCatalog?: GatewayModelCatalogEntry[];
 }
 
 export interface GatewayChatResult {

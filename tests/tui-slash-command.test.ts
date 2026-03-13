@@ -51,6 +51,13 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(mapTuiSlashCommandToGatewayArgs(['help'])).toEqual(['help']);
   expect(mapTuiSlashCommandToGatewayArgs(['status'])).toEqual(['status']);
   expect(mapTuiSlashCommandToGatewayArgs(['model'])).toEqual(['model', 'info']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['model', 'list', 'openrouter']),
+  ).toEqual(['model', 'list', 'openrouter']);
+  expect(mapTuiSlashCommandToGatewayArgs(['model', 'auto'])).toEqual([
+    'model',
+    'clear',
+  ]);
   expect(mapTuiSlashCommandToGatewayArgs(['show', 'tools'])).toEqual([
     'show',
     'tools',
@@ -68,6 +75,9 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(
     mapTuiSlashCommandToGatewayArgs(['agent', 'create', 'research', 'gpt-5']),
   ).toEqual(['agent', 'create', 'research', '--model', 'gpt-5']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['agent', 'model', 'gpt-5-mini']),
+  ).toEqual(['agent', 'model', 'gpt-5-mini']);
   expect(mapTuiSlashCommandToGatewayArgs(['bot', 'list'])).toEqual([
     'bot',
     'list',

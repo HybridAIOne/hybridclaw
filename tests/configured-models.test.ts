@@ -56,11 +56,16 @@ afterEach(() => {
 });
 
 describe('configured model catalog', () => {
-  it('builds a deduplicated shared model list from hybridai and codex config', async () => {
+  it('builds a deduplicated shared model list from hybridai, codex, and openrouter config', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
       config.hybridai.models = ['gpt-5-nano', 'shared-model', 'gpt-5'];
       config.codex.models = ['shared-model', 'openai-codex/gpt-5.4'];
+      config.openrouter.enabled = true;
+      config.openrouter.models = [
+        'shared-model',
+        'openrouter/anthropic/claude-sonnet-4',
+      ];
     });
 
     const config = await importFreshConfig(homeDir);
@@ -74,11 +79,17 @@ describe('configured model catalog', () => {
       'shared-model',
       'openai-codex/gpt-5.4',
     ]);
+    expect(config.OPENROUTER_ENABLED).toBe(true);
+    expect(config.OPENROUTER_MODELS).toEqual([
+      'shared-model',
+      'openrouter/anthropic/claude-sonnet-4',
+    ]);
     expect(config.CONFIGURED_MODELS).toEqual([
       'gpt-5-nano',
       'shared-model',
       'gpt-5',
       'openai-codex/gpt-5.4',
+      'openrouter/anthropic/claude-sonnet-4',
     ]);
   });
 });

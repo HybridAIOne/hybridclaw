@@ -24,6 +24,11 @@ async function importFreshConnectionModule(options?: {
   vi.resetModules();
 
   const sockets: Array<{
+    config: {
+      browser?: unknown[];
+      getMessage?: (key: unknown) => Promise<unknown>;
+      logger: { info: (obj: unknown, msg?: string) => void };
+    };
     evHandlers: Map<string, Array<(payload: unknown) => void>>;
     wsHandlers: Map<string, Array<(payload: unknown) => void>>;
     socket: {
@@ -53,8 +58,16 @@ async function importFreshConnectionModule(options?: {
     child: vi.fn(() => whatsappLogger),
   };
   const authStateGate = createDeferred<void>();
+  const messageStore = {
+    getMessage: vi.fn(async () => undefined),
+    rememberSentMessage: vi.fn(async () => {}),
+    clear: vi.fn(async () => {}),
+  };
+  const releaseAuthLock = vi.fn();
+  const acquireWhatsAppAuthLock = vi.fn(async () => releaseAuthLock);
 
   vi.doMock('../src/channels/whatsapp/auth.ts', () => ({
+    acquireWhatsAppAuthLock,
     loadWhatsAppAuthState: vi.fn(async () => {
       if (options?.deferAuthState) await authStateGate.promise;
       return {
@@ -68,6 +81,10 @@ async function importFreshConnectionModule(options?: {
     logger: rootLogger,
   }));
 
+  vi.doMock('../src/channels/whatsapp/message-store.ts', () => ({
+    createWhatsAppMessageStore: vi.fn(() => messageStore),
+  }));
+
   vi.doMock('qrcode-terminal', () => ({
     default: { generate: qrcodeGenerate },
   }));
@@ -79,9 +96,6 @@ async function importFreshConnectionModule(options?: {
     };
 
     return {
-      Browsers: {
-        ubuntu: (name: string) => ['Ubuntu', name, '22.04.4'],
-      },
       DisconnectReason,
       fetchLatestBaileysVersion: vi.fn(async () => ({
         version: [2, 3000, 0],
@@ -89,6 +103,7 @@ async function importFreshConnectionModule(options?: {
       makeCacheableSignalKeyStore: vi.fn((keys: unknown) => keys),
       makeWASocket: vi.fn(
         (config: {
+          getMessage?: (key: unknown) => Promise<unknown>;
           logger: { info: (obj: unknown, msg?: string) => void };
         }) => {
           config.logger.info(
@@ -124,7 +139,7 @@ async function importFreshConnectionModule(options?: {
             user: undefined,
             end: vi.fn(),
           };
-          sockets.push({ evHandlers, wsHandlers, socket });
+          sockets.push({ evHandlers, wsHandlers, socket, config });
           return socket;
         },
       ),
@@ -137,6 +152,9 @@ async function importFreshConnectionModule(options?: {
     qrcodeGenerate,
     sockets,
     whatsappLogger,
+    messageStore,
+    acquireWhatsAppAuthLock,
+    releaseAuthLock,
     releaseAuthState: () => authStateGate.resolve(),
   };
 }
@@ -310,4 +328,47 @@ test('forced root debug level keeps structured metadata even if child logger lev
     },
     'connected to WA',
   );
+});
+
+test('provides WhatsApp retry replay lookup to Baileys and persists sent messages', async () => {
+  const {
+    acquireWhatsAppAuthLock,
+    createWhatsAppConnectionManager,
+    releaseAuthLock,
+    sockets,
+    messageStore,
+  } = await importFreshConnectionModule();
+
+  const manager = createWhatsAppConnectionManager();
+  await manager.start();
+
+  expect(acquireWhatsAppAuthLock).toHaveBeenCalledWith(undefined, {
+    purpose: 'runtime',
+  });
+  expect(sockets[0]?.config.browser).toEqual([
+    'HybridClaw',
+    'Gateway',
+    '0.6.0',
+  ]);
+  expect(typeof sockets[0]?.config.getMessage).toBe('function');
+
+  const key = { id: 'abc', remoteJid: '491701234567@s.whatsapp.net' };
+  await sockets[0]?.config.getMessage?.(key);
+  expect(messageStore.getMessage).toHaveBeenCalledWith(key);
+
+  const sentMessage = {
+    key: {
+      id: 'bot-1',
+      remoteJid: '491701234567@s.whatsapp.net',
+      fromMe: true,
+    },
+    message: {
+      conversation: 'hello',
+    },
+  };
+  await manager.rememberSentMessage(sentMessage);
+  expect(messageStore.rememberSentMessage).toHaveBeenCalledWith(sentMessage);
+
+  await manager.stop();
+  expect(releaseAuthLock).toHaveBeenCalledTimes(1);
 });
