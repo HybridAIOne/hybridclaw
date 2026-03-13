@@ -5,6 +5,42 @@ async function importFreshMessageToolActions() {
 
   const sendEmailAttachmentTo = vi.fn(async () => {});
   const sendToEmail = vi.fn(async () => {});
+  const getRecentMessages = vi.fn((sessionId: string, _limit?: number) =>
+    sessionId === 'email:ops@example.com'
+      ? [
+          {
+            id: 101,
+            session_id: sessionId,
+            user_id: 'ops@example.com',
+            username: 'Ops',
+            role: 'user',
+            content: 'Can you confirm the deploy status?',
+            created_at: '2026-03-13 18:00:00',
+          },
+          {
+            id: 102,
+            session_id: sessionId,
+            user_id: 'assistant',
+            username: null,
+            role: 'assistant',
+            content: 'Deployment completed successfully.',
+            created_at: '2026-03-13 18:01:00',
+          },
+        ]
+      : sessionId === 'email:peer@example.com'
+        ? [
+            {
+              id: 201,
+              session_id: sessionId,
+              user_id: 'peer@example.com',
+              username: 'Peer',
+              role: 'user',
+              content: 'Checking in.',
+              created_at: '2026-03-13 19:00:00',
+            },
+          ]
+        : [],
+  );
   const getWhatsAppAuthStatus = vi.fn(async () => ({ linked: true }));
   const sendToWhatsAppChat = vi.fn(async () => {});
   const sendWhatsAppMediaToChat = vi.fn(async () => {});
@@ -18,7 +54,11 @@ async function importFreshMessageToolActions() {
   const getSessionById = vi.fn((sessionId: string) =>
     sessionId === 'wa:test'
       ? { id: sessionId, channel_id: '491234567890@s.whatsapp.net' }
-      : null,
+      : sessionId === 'email:ops@example.com'
+        ? { id: sessionId, channel_id: 'ops@example.com' }
+        : sessionId === 'email:peer@example.com'
+          ? { id: sessionId, channel_id: 'peer@example.com' }
+          : null,
   );
   const resolveAgentForRequest = vi.fn(() => ({ agentId: 'main' }));
   const agentWorkspaceDir = vi.fn(() => '/tmp/hybridclaw-agent-workspace');
@@ -39,6 +79,7 @@ async function importFreshMessageToolActions() {
   }));
   vi.doMock('../src/memory/db.js', () => ({
     enqueueProactiveMessage,
+    getRecentMessages,
     getSessionById,
   }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
@@ -53,6 +94,7 @@ async function importFreshMessageToolActions() {
     ...module,
     sendEmailAttachmentTo,
     sendToEmail,
+    getRecentMessages,
     getWhatsAppAuthStatus,
     sendToWhatsAppChat,
     sendWhatsAppMediaToChat,
@@ -199,6 +241,97 @@ test('send action routes email attachments through email delivery', async () => 
     channelId: 'ops@example.com',
     transport: 'email',
     attachmentCount: 1,
+  });
+});
+
+test('read action routes explicit email targets through stored email history', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'read',
+    channelId: 'email:ops@example.com',
+    limit: 10,
+  });
+
+  expect(state.getRecentMessages).toHaveBeenCalledWith(
+    'email:ops@example.com',
+    10,
+  );
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'read',
+    channelId: 'ops@example.com',
+    sessionId: 'email:ops@example.com',
+    transport: 'email',
+    count: 2,
+  });
+  expect(result.messages).toEqual([
+    expect.objectContaining({
+      id: 101,
+      role: 'user',
+      author: expect.objectContaining({
+        address: 'ops@example.com',
+        assistant: false,
+      }),
+    }),
+    expect.objectContaining({
+      id: 102,
+      role: 'assistant',
+      author: expect.objectContaining({
+        address: null,
+        assistant: true,
+      }),
+    }),
+  ]);
+});
+
+test('read action uses current email session when channelId is omitted', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'read',
+    sessionId: 'email:peer@example.com',
+    limit: 5,
+  });
+
+  expect(state.getRecentMessages).toHaveBeenCalledWith(
+    'email:peer@example.com',
+    5,
+  );
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'read',
+    channelId: 'peer@example.com',
+    sessionId: 'email:peer@example.com',
+    transport: 'email',
+    count: 1,
+  });
+});
+
+test('read action does not fall back to current email thread for discord channel targets', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'read',
+    sessionId: 'email:peer@example.com',
+    channelId: '#dev',
+    guildId: '1412305846125203539',
+    limit: 50,
+  });
+
+  expect(state.getRecentMessages).not.toHaveBeenCalled();
+  expect(state.runDiscordToolAction).toHaveBeenCalledWith({
+    action: 'read',
+    sessionId: 'email:peer@example.com',
+    channelId: '#dev',
+    guildId: '1412305846125203539',
+    limit: 50,
+  });
+  expect(result).toMatchObject({
+    ok: true,
+    transport: 'discord',
   });
 });
 

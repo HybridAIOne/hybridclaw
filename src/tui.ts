@@ -26,6 +26,7 @@ import {
   DEFAULT_SESSION_SHOW_MODE,
   isSessionShowMode,
   normalizeSessionShowMode,
+  sessionShowModeShowsActivity,
   sessionShowModeShowsThinking,
   sessionShowModeShowsTools,
 } from './gateway/show-mode.js';
@@ -541,7 +542,8 @@ function spinner(): {
   clearThinkingPreview: () => void;
   clearTools: () => void;
 } {
-  const showActivityPreview = sessionShowModeShowsThinking(tuiShowMode);
+  const showActivityPreview = sessionShowModeShowsActivity(tuiShowMode);
+  const showThinkingPreview = sessionShowModeShowsThinking(tuiShowMode);
   const showTools = sessionShowModeShowsTools(tuiShowMode);
   const activityVerb = pickOceanActivityVerb();
 
@@ -609,7 +611,7 @@ function spinner(): {
   };
 
   const setThinkingPreview = (preview: string | null) => {
-    if (!showActivityPreview) return;
+    if (!showThinkingPreview) return;
     const normalizedPreview = String(preview || '');
     if (!normalizedPreview) {
       clearThinkingPreview();

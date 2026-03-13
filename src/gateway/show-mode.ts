@@ -25,6 +25,10 @@ export function sessionShowModeShowsThinking(mode: SessionShowMode): boolean {
   return mode === 'all' || mode === 'thinking';
 }
 
+export function sessionShowModeShowsActivity(mode: SessionShowMode): boolean {
+  return mode !== 'none';
+}
+
 export function sessionShowModeShowsTools(mode: SessionShowMode): boolean {
   return mode === 'all' || mode === 'tools';
 }
@@ -37,7 +41,6 @@ export function describeSessionShowMode(mode: SessionShowMode): string {
       return 'Show tool activity only.';
     case 'none':
       return 'Hide thinking and tool activity.';
-    case 'all':
     default:
       return 'Show thinking and tool activity.';
   }

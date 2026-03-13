@@ -1,4 +1,5 @@
 import { normalizeEmailAddress } from './allowlist.js';
+import { DEFAULT_EMAIL_SUBJECT } from './constants.js';
 
 const REPLY_SUBJECT_RE = /^re(?:\[\d+\])?:\s*/i;
 
@@ -49,7 +50,7 @@ export function hasReplySubjectPrefix(subject: string): boolean {
 }
 
 export function ensureReplySubject(subject: string): string {
-  const trimmed = String(subject || '').trim() || 'HybridClaw';
+  const trimmed = String(subject || '').trim() || DEFAULT_EMAIL_SUBJECT;
   return hasReplySubjectPrefix(trimmed) ? trimmed : `Re: ${trimmed}`;
 }
 

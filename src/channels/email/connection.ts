@@ -206,7 +206,7 @@ export function createEmailConnectionManager(
       const nextClient = new ImapFlow({
         host: config.imapHost,
         port: config.imapPort,
-        secure: config.imapPort === 993,
+        secure: config.imapSecure,
         auth: {
           user: config.address,
           pass: password,

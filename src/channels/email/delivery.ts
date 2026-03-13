@@ -1,8 +1,12 @@
 import path from 'node:path';
+import { marked } from 'marked';
 import type { Transporter } from 'nodemailer';
+import sanitizeHtml from 'sanitize-html';
 import { EMAIL_TEXT_CHUNK_LIMIT } from '../../config/config.js';
+import { logger } from '../../logger.js';
 import { chunkMessage } from '../../memory/chunk.js';
 import { sleep } from '../../utils/sleep.js';
+import { DEFAULT_EMAIL_SUBJECT } from './constants.js';
 import {
   createOutboundThreadContext,
   ensureReplySubject,
@@ -11,8 +15,39 @@ import {
 
 const OUTBOUND_DELAY_MS = 350;
 const SUBJECT_PREFIX_RE = /^\[subject:\s*([^\]\n]+)\]\s*(?:\n+)?/i;
+const SINGLE_ASTERISK_BOLD_RE =
+  /(^|[^\w*])\*(\S(?:[^*\n]*?\S)?)\*(?=($|[^\w*]))/g;
+const EMAIL_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: [
+    'a',
+    'blockquote',
+    'br',
+    'code',
+    'del',
+    'em',
+    'hr',
+    'li',
+    'ol',
+    'p',
+    'pre',
+    'strong',
+    'ul',
+  ],
+  allowedAttributes: {
+    a: ['href', 'title'],
+  },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  allowProtocolRelative: false,
+};
 
 type MailTransport = Pick<Transporter, 'sendMail'>;
+type MailSendInfo = {
+  accepted?: unknown;
+  rejected?: unknown;
+  pending?: unknown;
+  response?: string | null;
+  messageId?: string | null;
+};
 
 export interface EmailSendResult {
   messageIds: string[];
@@ -20,8 +55,79 @@ export interface EmailSendResult {
   threadContext: ThreadContext | null;
 }
 
+export interface EmailSendParams {
+  transport: MailTransport;
+  to: string;
+  body: string;
+  selfAddress: string;
+  threadContext: ThreadContext | null;
+  attachment?:
+    | {
+        filePath: string;
+        filename?: string | null;
+        mimeType?: string | null;
+      }
+    | undefined;
+}
+
 function clampTextChunkLimit(limit: number): number {
   return Math.max(500, Math.min(200_000, Math.floor(limit)));
+}
+
+function normalizeSingleAsteriskBold(text: string): string {
+  return text
+    .split(/(`[^`\n]+`)/g)
+    .map((segment) =>
+      segment.startsWith('`') && segment.endsWith('`')
+        ? segment
+        : segment.replace(SINGLE_ASTERISK_BOLD_RE, '$1**$2**'),
+    )
+    .join('');
+}
+
+function normalizeEmailMarkdown(text: string): string {
+  let inFence = false;
+  return text
+    .split('\n')
+    .map((line) => {
+      if (/^```/.test(line.trim())) {
+        inFence = !inFence;
+        return line;
+      }
+      if (inFence) return line;
+      if (/^--\s*$/.test(line.trim())) {
+        return '---';
+      }
+      return normalizeSingleAsteriskBold(line);
+    })
+    .join('\n');
+}
+
+export function renderEmailHtml(text: string): string | undefined {
+  const normalized = String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .trim();
+  if (!normalized) return undefined;
+
+  const rendered = marked.parse(normalizeEmailMarkdown(normalized), {
+    async: false,
+    breaks: true,
+    gfm: true,
+  });
+  const sanitized = sanitizeHtml(
+    typeof rendered === 'string' ? rendered : String(rendered || ''),
+    EMAIL_HTML_SANITIZE_OPTIONS,
+  ).trim();
+  if (!sanitized) return undefined;
+
+  return [
+    '<!doctype html>',
+    '<html>',
+    '<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;line-height:1.5;color:#111827;">',
+    sanitized,
+    '</body>',
+    '</html>',
+  ].join('');
 }
 
 function extractInlineSubject(text: string): {
@@ -73,9 +179,20 @@ function resolveSubjectAndBody(
     };
   }
   return {
-    subject: extracted.subject || 'HybridClaw',
+    subject: extracted.subject || DEFAULT_EMAIL_SUBJECT,
     body: extracted.body,
   };
+}
+
+function normalizeRecipientList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const normalized: string[] = [];
+  for (const value of raw) {
+    const candidate = String(value || '').trim();
+    if (!candidate) continue;
+    normalized.push(candidate);
+  }
+  return normalized;
 }
 
 export function prepareEmailTextChunks(
@@ -91,27 +208,17 @@ export function prepareEmailTextChunks(
   return options?.allowEmpty ? [] : ['(no content)'];
 }
 
-async function sendChunkedEmail(params: {
-  transport: MailTransport;
-  to: string;
-  body: string;
-  selfAddress: string;
-  threadContext: ThreadContext | null;
-  attachment?:
-    | {
-        filePath: string;
-        filename?: string | null;
-        mimeType?: string | null;
-      }
-    | undefined;
-}): Promise<EmailSendResult> {
+export async function sendEmail(
+  params: EmailSendParams,
+): Promise<EmailSendResult> {
   const resolved = resolveSubjectAndBody(params.body, params.threadContext);
   const chunks = prepareEmailTextChunks(resolved.body, {
     allowEmpty: Boolean(params.attachment),
   });
 
-  const effectiveChunks =
-    chunks.length > 0 ? chunks : params.attachment ? [''] : ['(no content)'];
+  // Attachment-only sends still need a single outbound message when the body
+  // is intentionally empty.
+  const effectiveChunks = chunks.length > 0 ? chunks : [''];
 
   const messageIds: string[] = [];
   let nextThreadContext = params.threadContext;
@@ -121,11 +228,13 @@ async function sendChunkedEmail(params: {
         ? `[Part ${index + 1}/${effectiveChunks.length}]\n\n`
         : '';
     const text = `${partPrefix}${effectiveChunks[index]}`.trim();
-    const info = await params.transport.sendMail({
+    const html = renderEmailHtml(text);
+    const info = (await params.transport.sendMail({
       from: params.selfAddress,
       to: params.to,
       subject: resolved.subject,
       text: text || undefined,
+      html,
       ...buildThreadHeaders(nextThreadContext),
       attachments:
         params.attachment && index === 0
@@ -139,11 +248,39 @@ async function sendChunkedEmail(params: {
               },
             ]
           : undefined,
-    });
+    })) as MailSendInfo;
 
-    const messageId = String(
-      (info as { messageId?: string | null }).messageId || '',
-    ).trim();
+    const messageId = String(info.messageId || '').trim();
+    const accepted = normalizeRecipientList(info.accepted);
+    const rejected = normalizeRecipientList(info.rejected);
+    const pending = normalizeRecipientList(info.pending);
+    const response = String(info.response || '').trim() || null;
+    const deliveryLog = {
+      channel: 'email',
+      to: params.to,
+      subject: resolved.subject,
+      messageId: messageId || null,
+      chunkIndex: index + 1,
+      chunkCount: effectiveChunks.length,
+      hasAttachment: Boolean(params.attachment && index === 0),
+      response,
+    };
+
+    logger.info(deliveryLog, 'Email send completed');
+    if (rejected.length > 0 || pending.length > 0) {
+      logger.warn(
+        {
+          ...deliveryLog,
+          accepted: accepted.length > 0 ? accepted : undefined,
+          acceptedCount: accepted.length,
+          rejected: rejected.length > 0 ? rejected : undefined,
+          rejectedCount: rejected.length,
+          pending: pending.length > 0 ? pending : undefined,
+          pendingCount: pending.length,
+        },
+        'Email send reported recipient delivery issues',
+      );
+    }
     if (messageId) {
       messageIds.push(messageId);
       nextThreadContext =
@@ -164,46 +301,4 @@ async function sendChunkedEmail(params: {
     subject: resolved.subject,
     threadContext: nextThreadContext,
   };
-}
-
-export async function sendEmailReply(
-  transport: MailTransport,
-  to: string,
-  body: string,
-  selfAddress: string,
-  threadContext: ThreadContext | null,
-): Promise<EmailSendResult> {
-  return await sendChunkedEmail({
-    transport,
-    to,
-    body,
-    selfAddress,
-    threadContext,
-  });
-}
-
-export async function sendEmailWithAttachment(
-  transport: MailTransport,
-  to: string,
-  body: string,
-  selfAddress: string,
-  filePath: string,
-  threadContext: ThreadContext | null,
-  params?: {
-    filename?: string | null;
-    mimeType?: string | null;
-  },
-): Promise<EmailSendResult> {
-  return await sendChunkedEmail({
-    transport,
-    to,
-    body,
-    selfAddress,
-    threadContext,
-    attachment: {
-      filePath,
-      filename: params?.filename || null,
-      mimeType: params?.mimeType || null,
-    },
-  });
 }

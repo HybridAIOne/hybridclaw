@@ -263,6 +263,7 @@ describe.sequential('container message tool normalization', () => {
     expect(description).not.toContain('491234567890@s.whatsapp.net');
     expect(description).toContain('Supports actions:');
     expect(description).toContain('WhatsApp');
+    expect(description).toContain('ingested email thread history');
   });
 
   test('message tool description enumerates other configured channels', () => {

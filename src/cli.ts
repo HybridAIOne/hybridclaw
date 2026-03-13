@@ -414,7 +414,7 @@ function printChannelsUsage(): void {
 Commands:
   hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
   hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
-  hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--smtp-host <host>] [--smtp-port <port>] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
+  hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
 
 Notes:
   - Discord setup stores a bot token only when \`--token\` is provided.
@@ -426,6 +426,9 @@ Notes:
   - With one or more \`--allow-from\` values, setup enables only those DMs.
   - Groups stay disabled by default.
   - Email setup saves \`EMAIL_PASSWORD\` only when \`--password\` is provided or pasted interactively.
+  - Email IMAP secure mode defaults to \`true\`.
+  - Email SMTP secure mode defaults to \`false\` on port \`587\`; use \`--smtp-secure\` for implicit TLS on port \`465\`.
+  - \`--no-smtp-secure\` is the correct setting for encrypted STARTTLS on port \`587\`; it does not force plaintext by itself.
   - Email inbound is explicit-opt-in: when email \`allowFrom\` is empty, inbound email is ignored.
   - Discord activates automatically when \`DISCORD_TOKEN\` is configured.
   - Email activates automatically when \`email.enabled=true\` and \`EMAIL_PASSWORD\` is configured.
@@ -2009,13 +2012,35 @@ function parseIntegerFlagValue(
   return integer;
 }
 
+function parseBooleanFlagValue(flagName: string, raw: string): boolean {
+  const normalized = raw.trim().toLowerCase();
+  switch (normalized) {
+    case '1':
+    case 'true':
+    case 'yes':
+    case 'y':
+    case 'on':
+      return true;
+    case '0':
+    case 'false':
+    case 'no':
+    case 'n':
+    case 'off':
+      return false;
+    default:
+      throw new Error(`Invalid value for \`${flagName}\`: ${raw}`);
+  }
+}
+
 function parseEmailSetupArgs(args: string[]): {
   address: string | null;
   password: string | null;
   imapHost: string | null;
   imapPort: number | null;
+  imapSecure: boolean | null;
   smtpHost: string | null;
   smtpPort: number | null;
+  smtpSecure: boolean | null;
   pollIntervalMs: number | null;
   folders: string[];
   allowFrom: string[];
@@ -2026,8 +2051,10 @@ function parseEmailSetupArgs(args: string[]): {
   let password: string | null = null;
   let imapHost: string | null = null;
   let imapPort: number | null = null;
+  let imapSecure: boolean | null = null;
   let smtpHost: string | null = null;
   let smtpPort: number | null = null;
+  let smtpSecure: boolean | null = null;
   let pollIntervalMs: number | null = null;
   let textChunkLimit: number | null = null;
   let mediaMaxMb: number | null = null;
@@ -2038,7 +2065,7 @@ function parseEmailSetupArgs(args: string[]): {
     const normalized = normalizeEmailAllowEntry(raw);
     if (!normalized) {
       throw new Error(
-        `Invalid email allowlist entry: ${raw}. Use an email address, *@example.com, or *.`,
+        `Invalid email allowlist entry: ${raw}. Use an email address, *@example.com, or *`,
       );
     }
     return normalized;
@@ -2109,6 +2136,21 @@ function parseEmailSetupArgs(args: string[]): {
       );
       continue;
     }
+    if (arg === '--imap-secure') {
+      imapSecure = true;
+      continue;
+    }
+    if (arg === '--no-imap-secure') {
+      imapSecure = false;
+      continue;
+    }
+    if (arg.startsWith('--imap-secure=')) {
+      imapSecure = parseBooleanFlagValue(
+        '--imap-secure',
+        arg.slice('--imap-secure='.length),
+      );
+      continue;
+    }
     if (arg === '--smtp-host') {
       const next = args[index + 1];
       if (!next) throw new Error('Missing value for `--smtp-host`.');
@@ -2138,6 +2180,21 @@ function parseEmailSetupArgs(args: string[]): {
           min: 1,
           max: 65_535,
         },
+      );
+      continue;
+    }
+    if (arg === '--smtp-secure') {
+      smtpSecure = true;
+      continue;
+    }
+    if (arg === '--no-smtp-secure') {
+      smtpSecure = false;
+      continue;
+    }
+    if (arg.startsWith('--smtp-secure=')) {
+      smtpSecure = parseBooleanFlagValue(
+        '--smtp-secure',
+        arg.slice('--smtp-secure='.length),
       );
       continue;
     }
@@ -2239,8 +2296,10 @@ function parseEmailSetupArgs(args: string[]): {
     password,
     imapHost,
     imapPort,
+    imapSecure,
     smtpHost,
     smtpPort,
+    smtpSecure,
     pollIntervalMs,
     folders: [...new Set(folders.filter(Boolean))],
     allowFrom: [...new Set(allowFrom)],
@@ -2353,18 +2412,22 @@ async function resolveInteractiveEmailSetup(params: {
   allowFrom: string[];
   imapHost: string;
   imapPort: number;
+  imapSecure: boolean;
   password: string;
   smtpHost: string;
   smtpPort: number;
+  smtpSecure: boolean;
 }): Promise<{
   address: string;
   allowFrom: string[];
   imapHost: string;
   imapPort: number;
+  imapSecure: boolean;
   password: string;
   passwordSource: 'explicit' | 'prompt' | 'env';
   smtpHost: string;
   smtpPort: number;
+  smtpSecure: boolean;
 }> {
   let address = params.address;
   let imapHost = params.imapHost;
@@ -2384,10 +2447,12 @@ async function resolveInteractiveEmailSetup(params: {
       allowFrom,
       imapHost,
       imapPort: params.imapPort,
+      imapSecure: params.imapSecure,
       password,
       passwordSource,
       smtpHost,
       smtpPort: params.smtpPort,
+      smtpSecure: params.smtpSecure,
     };
   }
 
@@ -2433,6 +2498,19 @@ async function resolveInteractiveEmailSetup(params: {
       },
       errorMessage: 'Enter a valid IMAP port.',
     });
+    const imapSecureRaw = await promptWithDefault({
+      rl,
+      question: 'IMAP secure (TLS on connect)',
+      defaultValue: String(params.imapSecure),
+      validate: (value) => {
+        try {
+          return String(parseBooleanFlagValue('--imap-secure', value));
+        } catch {
+          return null;
+        }
+      },
+      errorMessage: 'Enter true or false for IMAP secure.',
+    });
     smtpHost = await promptWithDefault({
       rl,
       question: 'SMTP host',
@@ -2455,6 +2533,19 @@ async function resolveInteractiveEmailSetup(params: {
         }
       },
       errorMessage: 'Enter a valid SMTP port.',
+    });
+    const smtpSecureRaw = await promptWithDefault({
+      rl,
+      question: 'SMTP secure (TLS on connect)',
+      defaultValue: String(params.smtpSecure),
+      validate: (value) => {
+        try {
+          return String(parseBooleanFlagValue('--smtp-secure', value));
+        } catch {
+          return null;
+        }
+      },
+      errorMessage: 'Enter true or false for SMTP secure.',
     });
 
     if (!password) {
@@ -2484,10 +2575,12 @@ async function resolveInteractiveEmailSetup(params: {
       allowFrom: [...new Set(allowFrom)],
       imapHost,
       imapPort: Number(imapPortRaw),
+      imapSecure: parseBooleanFlagValue('--imap-secure', imapSecureRaw),
       password,
       passwordSource,
       smtpHost,
       smtpPort: Number(smtpPortRaw),
+      smtpSecure: parseBooleanFlagValue('--smtp-secure', smtpSecureRaw),
     };
   } finally {
     rl.close();
@@ -2563,10 +2656,12 @@ async function configureEmailChannel(args: string[]): Promise<void> {
       parsed.allowFrom.length > 0 ? parsed.allowFrom : currentConfig.allowFrom,
     imapHost: parsed.imapHost || currentConfig.imapHost,
     imapPort: parsed.imapPort || currentConfig.imapPort,
+    imapSecure: parsed.imapSecure ?? currentConfig.imapSecure,
     password:
       parsed.password?.trim() || process.env.EMAIL_PASSWORD?.trim() || '',
     smtpHost: parsed.smtpHost || currentConfig.smtpHost,
     smtpPort: parsed.smtpPort || currentConfig.smtpPort,
+    smtpSecure: parsed.smtpSecure ?? currentConfig.smtpSecure,
   });
 
   const nextConfig = updateRuntimeConfig((draft) => {
@@ -2574,8 +2669,10 @@ async function configureEmailChannel(args: string[]): Promise<void> {
     draft.email.address = resolved.address;
     draft.email.imapHost = resolved.imapHost;
     draft.email.imapPort = resolved.imapPort;
+    draft.email.imapSecure = resolved.imapSecure;
     draft.email.smtpHost = resolved.smtpHost;
     draft.email.smtpPort = resolved.smtpPort;
+    draft.email.smtpSecure = resolved.smtpSecure;
     draft.email.pollIntervalMs =
       parsed.pollIntervalMs || draft.email.pollIntervalMs;
     draft.email.folders =
@@ -2603,9 +2700,11 @@ async function configureEmailChannel(args: string[]): Promise<void> {
   console.log(
     `IMAP: ${nextConfig.email.imapHost}:${nextConfig.email.imapPort}`,
   );
+  console.log(`IMAP secure: ${nextConfig.email.imapSecure}`);
   console.log(
     `SMTP: ${nextConfig.email.smtpHost}:${nextConfig.email.smtpPort}`,
   );
+  console.log(`SMTP secure: ${nextConfig.email.smtpSecure}`);
   console.log(`Folders: ${nextConfig.email.folders.join(', ')}`);
   if (nextConfig.email.allowFrom.length > 0) {
     console.log(`Allowed senders: ${nextConfig.email.allowFrom.join(', ')}`);

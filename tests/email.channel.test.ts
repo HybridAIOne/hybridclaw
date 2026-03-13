@@ -22,8 +22,10 @@ const BASE_EMAIL_CONFIG = {
   enabled: true,
   imapHost: 'imap.example.com',
   imapPort: 993,
+  imapSecure: true,
   smtpHost: 'smtp.example.com',
   smtpPort: 587,
+  smtpSecure: false,
   address: 'agent@example.com',
   pollIntervalMs: 15000,
   folders: ['INBOX'],
@@ -203,30 +205,222 @@ describe('email inbound parsing', () => {
 });
 
 describe('email delivery helpers', () => {
+  test('renders multipart html from lightweight email formatting', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-html@example.com>',
+      })),
+    };
+
+    await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: [
+        'Executive summary:',
+        '',
+        '- *HybridAI GmbH* registration updated',
+        '- `message` reads now route correctly',
+        '',
+        '-- ',
+        '',
+        '*Hybot*',
+        'Personal Assistant',
+      ].join('\n'),
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+    });
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: [
+          'Executive summary:',
+          '',
+          '- *HybridAI GmbH* registration updated',
+          '- `message` reads now route correctly',
+          '',
+          '-- ',
+          '',
+          '*Hybot*',
+          'Personal Assistant',
+        ].join('\n'),
+        html: expect.stringContaining('<strong>HybridAI GmbH</strong>'),
+      }),
+    );
+    const html = String(transport.sendMail.mock.calls[0]?.[0]?.html || '');
+    expect(html).toContain('<ul>');
+    expect(html).toContain('<code>message</code>');
+    expect(html).toMatch(/<hr\s*\/?>/);
+    expect(html).toContain('<strong>Hybot</strong>');
+  });
+
+  test('sanitizes raw html from outbound email bodies', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-sanitized@example.com>',
+      })),
+    };
+
+    await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: [
+        'Executive summary',
+        '',
+        '<script>alert("xss")</script>',
+        '<img src=x onerror=alert(1)>',
+        '',
+        '- *Safe item*',
+      ].join('\n'),
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+    });
+
+    const html = String(transport.sendMail.mock.calls[0]?.[0]?.html || '');
+    expect(html).toContain('<p>Executive summary</p>');
+    expect(html).toContain('<strong>Safe item</strong>');
+    expect(html).not.toContain('<script');
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('onerror=');
+  });
+
+  test('logs outbound email delivery metadata without body content', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const loggerInfo = vi.fn();
+    const loggerWarn = vi.fn();
+    vi.doMock('../src/logger.js', () => ({
+      logger: {
+        info: loggerInfo,
+        warn: loggerWarn,
+      },
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-logged@example.com>',
+        accepted: ['boss@example.com'],
+        rejected: [],
+        pending: [],
+        response: '250 2.0.0 queued as ABC123',
+      })),
+    };
+
+    await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: 'Sensitive body should not appear in logs.',
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+    });
+
+    expect(loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'email',
+        to: 'boss@example.com',
+        subject: 'HybridClaw',
+        messageId: '<sent-logged@example.com>',
+        chunkIndex: 1,
+        chunkCount: 1,
+        hasAttachment: false,
+        response: '250 2.0.0 queued as ABC123',
+      }),
+      'Email send completed',
+    );
+    expect(loggerInfo.mock.calls[0]?.[0]).not.toHaveProperty('body');
+    expect(loggerInfo.mock.calls[0]?.[0]).not.toHaveProperty('text');
+    expect(loggerWarn).not.toHaveBeenCalled();
+  });
+
+  test('warns when SMTP reports rejected or pending recipients', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const loggerInfo = vi.fn();
+    const loggerWarn = vi.fn();
+    vi.doMock('../src/logger.js', () => ({
+      logger: {
+        info: loggerInfo,
+        warn: loggerWarn,
+      },
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-warning@example.com>',
+        accepted: ['boss@example.com'],
+        rejected: ['blocked@example.com'],
+        pending: ['slow@example.com'],
+        response: '250 queued with warnings',
+      })),
+    };
+
+    await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: 'Sensitive body should not appear in logs.',
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+    });
+
+    expect(loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'email',
+        to: 'boss@example.com',
+        subject: 'HybridClaw',
+        messageId: '<sent-warning@example.com>',
+        response: '250 queued with warnings',
+      }),
+      'Email send completed',
+    );
+    expect(loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'email',
+        to: 'boss@example.com',
+        subject: 'HybridClaw',
+        messageId: '<sent-warning@example.com>',
+        accepted: ['boss@example.com'],
+        acceptedCount: 1,
+        rejected: ['blocked@example.com'],
+        rejectedCount: 1,
+        pending: ['slow@example.com'],
+        pendingCount: 1,
+        response: '250 queued with warnings',
+      }),
+      'Email send reported recipient delivery issues',
+    );
+  });
+
   test('adds reply subject and threading headers on outbound send', async () => {
     vi.doMock('../src/config/config.ts', () => ({
       EMAIL_TEXT_CHUNK_LIMIT: 50000,
     }));
-    const { sendEmailReply } = await import(
-      '../src/channels/email/delivery.js'
-    );
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
     const transport = {
       sendMail: vi.fn(async () => ({
         messageId: '<sent-1@example.com>',
       })),
     };
 
-    const result = await sendEmailReply(
+    const result = await sendEmail({
       transport,
-      'boss@example.com',
-      'Here is the update.',
-      'agent@example.com',
-      {
+      to: 'boss@example.com',
+      body: 'Here is the update.',
+      selfAddress: 'agent@example.com',
+      threadContext: {
         subject: 'Quarterly plan',
         messageId: '<msg-1@example.com>',
         references: ['<ref-1@example.com>'],
       },
-    );
+    });
 
     expect(transport.sendMail).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -236,6 +430,7 @@ describe('email delivery helpers', () => {
         inReplyTo: '<msg-1@example.com>',
         references: '<ref-1@example.com> <msg-1@example.com>',
         text: 'Here is the update.',
+        html: expect.stringContaining('<p>Here is the update.</p>'),
       }),
     );
     expect(result.threadContext).toEqual({
@@ -249,9 +444,7 @@ describe('email delivery helpers', () => {
     vi.doMock('../src/config/config.ts', () => ({
       EMAIL_TEXT_CHUNK_LIMIT: 50000,
     }));
-    const { sendEmailWithAttachment } = await import(
-      '../src/channels/email/delivery.js'
-    );
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-email-'));
     const filePath = path.join(tempDir, 'report.txt');
     fs.writeFileSync(filePath, 'report');
@@ -262,19 +455,64 @@ describe('email delivery helpers', () => {
       })),
     };
 
-    await sendEmailWithAttachment(
+    await sendEmail({
       transport,
-      'ops@example.com',
-      '[Subject: Deployment complete]\n\nAttached is the report.',
-      'agent@example.com',
-      filePath,
-      null,
-    );
+      to: 'ops@example.com',
+      body: '[Subject: Deployment complete]\n\nAttached is the report.',
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+      attachment: {
+        filePath,
+      },
+    });
 
     expect(transport.sendMail).toHaveBeenCalledWith(
       expect.objectContaining({
         subject: 'Deployment complete',
         text: 'Attached is the report.',
+        html: expect.stringContaining('<p>Attached is the report.</p>'),
+        attachments: [
+          expect.objectContaining({
+            path: filePath,
+            filename: 'report.txt',
+          }),
+        ],
+      }),
+    );
+
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test('sends attachment-only email without inserting placeholder body text', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-email-'));
+    const filePath = path.join(tempDir, 'report.txt');
+    fs.writeFileSync(filePath, 'report');
+
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-attachment-only@example.com>',
+      })),
+    };
+
+    await sendEmail({
+      transport,
+      to: 'ops@example.com',
+      body: '',
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+      attachment: {
+        filePath,
+      },
+    });
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: undefined,
+        html: undefined,
         attachments: [
           expect.objectContaining({
             path: filePath,
@@ -296,5 +534,217 @@ describe('email delivery helpers', () => {
     );
 
     expect(prepareEmailTextChunks('x'.repeat(1200))).toHaveLength(3);
+  });
+});
+
+describe('email runtime', () => {
+  test('aborts in-flight handlers during shutdown', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      EMAIL_PASSWORD: 'email-app-password',
+      getConfigSnapshot: () => ({
+        email: BASE_EMAIL_CONFIG,
+      }),
+    }));
+
+    const transportClose = vi.fn(async () => {});
+    const transportVerify = vi.fn(async () => {});
+    const createTransport = vi.fn(() => ({
+      close: transportClose,
+      verify: transportVerify,
+    }));
+    let onNewMessages:
+      | ((
+          messages: Array<{ folder: string; raw: Buffer; uid: number }>,
+        ) => Promise<void>)
+      | null = null;
+    const managerStart = vi.fn(async () => {});
+    const managerStop = vi.fn(async () => {});
+    const cleanupEmailInboundMedia = vi.fn(async () => {});
+
+    vi.doMock('nodemailer', () => ({
+      default: {
+        createTransport,
+      },
+    }));
+    vi.doMock('../src/channels/email/connection.ts', () => ({
+      createEmailConnectionManager: vi.fn(
+        (
+          _config: unknown,
+          _password: string,
+          callback: (
+            messages: Array<{ folder: string; raw: Buffer; uid: number }>,
+          ) => Promise<void>,
+        ) => {
+          onNewMessages = callback;
+          return {
+            start: managerStart,
+            stop: managerStop,
+          };
+        },
+      ),
+    }));
+    vi.doMock('../src/channels/email/inbound.ts', () => ({
+      cleanupEmailInboundMedia,
+      processInboundEmail: vi.fn(async () => ({
+        sessionId: 'email:boss@example.com',
+        guildId: null,
+        channelId: 'boss@example.com',
+        userId: 'boss@example.com',
+        username: 'Boss',
+        content: 'hello',
+        media: [],
+        senderAddress: 'boss@example.com',
+        senderName: 'Boss',
+        subject: 'Hello',
+        threadContext: null,
+      })),
+    }));
+
+    const { createEmailRuntime } = await import(
+      '../src/channels/email/runtime.js'
+    );
+    const runtime = createEmailRuntime();
+    let aborted = false;
+    const handlerCompleted = vi.fn();
+
+    await runtime.initEmail(async (...args) => {
+      const context = args[8];
+      await new Promise<void>((resolve) => {
+        const onAbort = () => {
+          aborted = true;
+          resolve();
+        };
+        if (context.abortSignal.aborted) {
+          onAbort();
+          return;
+        }
+        context.abortSignal.addEventListener('abort', onAbort, { once: true });
+      });
+      handlerCompleted();
+    });
+
+    expect(onNewMessages).not.toBeNull();
+    const inboundPromise = onNewMessages?.([
+      {
+        folder: 'INBOX',
+        raw: Buffer.from('raw'),
+        uid: 1,
+      },
+    ]);
+
+    await Promise.resolve();
+    await runtime.shutdownEmail();
+    await inboundPromise;
+
+    expect(aborted).toBe(true);
+    expect(handlerCompleted).toHaveBeenCalledTimes(1);
+    expect(managerStop).toHaveBeenCalledTimes(1);
+    expect(transportClose).toHaveBeenCalledTimes(1);
+    expect(cleanupEmailInboundMedia).toHaveBeenCalledTimes(1);
+    await expect(
+      runtime.sendToEmail('boss@example.com', 'after shutdown'),
+    ).rejects.toThrow('Email runtime shutting down.');
+  });
+
+  test('does not resume processing later messages after shutdown completes', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      EMAIL_PASSWORD: 'email-app-password',
+      getConfigSnapshot: () => ({
+        email: BASE_EMAIL_CONFIG,
+      }),
+    }));
+
+    const createTransport = vi.fn(() => ({
+      close: vi.fn(async () => {}),
+      verify: vi.fn(async () => {}),
+    }));
+    let onNewMessages:
+      | ((
+          messages: Array<{ folder: string; raw: Buffer; uid: number }>,
+        ) => Promise<void>)
+      | null = null;
+
+    vi.doMock('nodemailer', () => ({
+      default: {
+        createTransport,
+      },
+    }));
+    vi.doMock('../src/channels/email/connection.ts', () => ({
+      createEmailConnectionManager: vi.fn(
+        (
+          _config: unknown,
+          _password: string,
+          callback: (
+            messages: Array<{ folder: string; raw: Buffer; uid: number }>,
+          ) => Promise<void>,
+        ) => {
+          onNewMessages = callback;
+          return {
+            start: vi.fn(async () => {}),
+            stop: vi.fn(async () => {}),
+          };
+        },
+      ),
+    }));
+    vi.doMock('../src/channels/email/inbound.ts', () => ({
+      cleanupEmailInboundMedia: vi.fn(async () => {}),
+      processInboundEmail: vi.fn(async (raw: Buffer) => {
+        const id = raw.toString('utf8');
+        return {
+          sessionId: 'email:boss@example.com',
+          guildId: null,
+          channelId: 'boss@example.com',
+          userId: 'boss@example.com',
+          username: 'Boss',
+          content: `hello ${id}`,
+          media: [],
+          senderAddress: 'boss@example.com',
+          senderName: 'Boss',
+          subject: 'Hello',
+          threadContext: null,
+        };
+      }),
+    }));
+
+    const { createEmailRuntime } = await import(
+      '../src/channels/email/runtime.js'
+    );
+    const runtime = createEmailRuntime();
+    const handledContents: string[] = [];
+
+    await runtime.initEmail(async (...args) => {
+      const content = args[5];
+      const context = args[8];
+      handledContents.push(content);
+      if (content !== 'hello first') return;
+      await new Promise<void>((resolve) => {
+        const onAbort = () => resolve();
+        if (context.abortSignal.aborted) {
+          onAbort();
+          return;
+        }
+        context.abortSignal.addEventListener('abort', onAbort, { once: true });
+      });
+    });
+
+    expect(onNewMessages).not.toBeNull();
+    const inboundPromise = onNewMessages?.([
+      {
+        folder: 'INBOX',
+        raw: Buffer.from('first'),
+        uid: 1,
+      },
+      {
+        folder: 'INBOX',
+        raw: Buffer.from('second'),
+        uid: 2,
+      },
+    ]);
+
+    await Promise.resolve();
+    await runtime.shutdownEmail();
+    await inboundPromise;
+
+    expect(handledContents).toEqual(['hello first']);
   });
 });

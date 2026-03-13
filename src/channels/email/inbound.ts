@@ -5,6 +5,7 @@ import { type Attachment, type ParsedMail, simpleParser } from 'mailparser';
 import type { RuntimeEmailConfig } from '../../config/runtime-config.js';
 import type { MediaContextItem } from '../../types.js';
 import { matchesEmailAllowList, normalizeEmailAddress } from './allowlist.js';
+import { DEFAULT_EMAIL_SUBJECT } from './constants.js';
 import { hasReplySubjectPrefix, type ThreadContext } from './threading.js';
 
 const EMAIL_MEDIA_TMP_PREFIX = 'hybridclaw-email-';
@@ -64,7 +65,7 @@ function resolveSender(mail: ParsedMail): {
 }
 
 function buildThreadContext(mail: ParsedMail): ThreadContext | null {
-  const subject = String(mail.subject || '').trim() || 'HybridClaw';
+  const subject = String(mail.subject || '').trim() || DEFAULT_EMAIL_SUBJECT;
   const messageId = String(mail.messageId || '').trim();
   if (!messageId) return null;
 
@@ -205,7 +206,7 @@ export async function processInboundEmail(
     media,
     senderAddress: sender.address,
     senderName: sender.name,
-    subject: subject || 'HybridClaw',
+    subject: subject || DEFAULT_EMAIL_SUBJECT,
     threadContext: buildThreadContext(mail),
   };
 }
