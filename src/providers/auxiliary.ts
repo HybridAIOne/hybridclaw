@@ -1,5 +1,6 @@
-import type { ChatMessage } from '../types.js';
+import { getProviderContextError } from '../../container/shared/provider-context.js';
 import { extractResponseTextContent } from '../../container/shared/response-text.js';
+import type { ChatMessage } from '../types.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
 import {
   type AuxiliaryTask,
@@ -114,37 +115,19 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function buildMissingContextError(
-  task: AuxiliaryTextTask,
-  field: 'API key' | 'base URL' | 'model' | 'chatbot_id',
-): string {
-  return `${task} is not configured: missing ${field} context.`;
-}
-
 function validateContext(
   task: AuxiliaryTextTask,
   context: Partial<AuxiliaryTextCallContext>,
 ): asserts context is AuxiliaryTextCallContext {
-  if (!String(context.baseUrl || '').trim()) {
-    throw new Error(buildMissingContextError(task, 'base URL'));
-  }
-  if (!String(context.model || '').trim()) {
-    throw new Error(buildMissingContextError(task, 'model'));
-  }
-  if (
-    (context.provider === 'hybridai' ||
-      context.provider === 'openai-codex' ||
-      context.provider === 'openrouter') &&
-    !String(context.apiKey || '').trim()
-  ) {
-    throw new Error(buildMissingContextError(task, 'API key'));
-  }
-  if (
-    context.provider === 'hybridai' &&
-    !String(context.chatbotId || '').trim()
-  ) {
-    throw new Error(buildMissingContextError(task, 'chatbot_id'));
-  }
+  const contextError = getProviderContextError({
+    provider: context.provider,
+    baseUrl: context.baseUrl,
+    apiKey: context.apiKey,
+    model: context.model,
+    chatbotId: context.chatbotId,
+    toolName: task,
+  });
+  if (contextError) throw new Error(contextError);
 }
 
 function buildResolvedContext(params: {
@@ -183,7 +166,7 @@ async function resolveContextFromModel(params: {
 }): Promise<AuxiliaryTextCallContext> {
   const model = String(params.model || '').trim();
   if (!model) {
-    throw new Error(buildMissingContextError(params.task, 'model'));
+    throw new Error(`${params.task} is not configured: missing model context.`);
   }
   const resolved = await resolveModelRuntimeCredentials({
     model,

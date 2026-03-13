@@ -1,3 +1,4 @@
+import { getProviderContextError } from '../../shared/provider-context.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -60,58 +61,20 @@ function resolveTaskOverride(
   return taskModels?.[task];
 }
 
-function buildMissingContextError(params: {
-  toolName: string;
-  field: 'API key' | 'base URL' | 'model' | 'chatbot_id';
-  source?: 'active request';
-}): string {
-  const source = params.source ? `${params.source} ` : '';
-  return `${params.toolName} is not configured: missing ${source}${params.field} context.`;
-}
-
 function getAuxiliaryContextError(params: {
   context: AuxiliaryTaskContext;
   toolName: string;
   missingContextSource?: 'active request';
 }): string | null {
-  const provider = params.context.provider || 'hybridai';
-  if (!String(params.context.baseUrl || '').trim()) {
-    return buildMissingContextError({
-      toolName: params.toolName,
-      field: 'base URL',
-      source: params.missingContextSource,
-    });
-  }
-  if (!String(params.context.model || '').trim()) {
-    return buildMissingContextError({
-      toolName: params.toolName,
-      field: 'model',
-      source: params.missingContextSource,
-    });
-  }
-  if (
-    (provider === 'hybridai' ||
-      provider === 'openai-codex' ||
-      provider === 'openrouter') &&
-    !String(params.context.apiKey || '').trim()
-  ) {
-    return buildMissingContextError({
-      toolName: params.toolName,
-      field: 'API key',
-      source: params.missingContextSource,
-    });
-  }
-  if (
-    provider === 'hybridai' &&
-    !String(params.context.chatbotId || '').trim()
-  ) {
-    return buildMissingContextError({
-      toolName: params.toolName,
-      field: 'chatbot_id',
-      source: params.missingContextSource,
-    });
-  }
-  return null;
+  return getProviderContextError({
+    provider: params.context.provider,
+    baseUrl: params.context.baseUrl,
+    apiKey: params.context.apiKey,
+    model: params.context.model,
+    chatbotId: params.context.chatbotId,
+    toolName: params.toolName,
+    missingContextSource: params.missingContextSource,
+  });
 }
 
 export function resolveAuxiliaryTaskContext(params: {

@@ -1,10 +1,13 @@
+import { getProviderContextError } from '../../shared/provider-context.js';
+import { extractResponseTextContent } from '../../shared/response-text.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
   ToolDefinition,
 } from '../types.js';
-import { extractResponseTextContent } from '../../shared/response-text.js';
+
 export { extractResponseTextContent } from '../../shared/response-text.js';
+
 import {
   callHybridAIProvider,
   callHybridAIProviderStream,
@@ -186,25 +189,14 @@ function buildVisionMessages(params: RoutedVisionCallParams): ChatMessage[] {
 export function getVisionModelContextError(
   params: RoutedModelContext,
 ): string | null {
-  const provider = params.provider || 'hybridai';
-  if (!String(params.baseUrl || '').trim()) {
-    return 'vision_analyze is not configured: missing base URL context.';
-  }
-  if (!String(params.model || '').trim()) {
-    return 'vision_analyze is not configured: missing model context.';
-  }
-  if (
-    (provider === 'hybridai' ||
-      provider === 'openai-codex' ||
-      provider === 'openrouter') &&
-    !String(params.apiKey || '').trim()
-  ) {
-    return 'vision_analyze is not configured: missing API key context.';
-  }
-  if (provider === 'hybridai' && !String(params.chatbotId || '').trim()) {
-    return 'vision_analyze is not configured: missing chatbot_id context.';
-  }
-  return null;
+  return getProviderContextError({
+    provider: params.provider,
+    baseUrl: params.baseUrl,
+    apiKey: params.apiKey,
+    model: params.model,
+    chatbotId: params.chatbotId,
+    toolName: 'vision_analyze',
+  });
 }
 
 export async function callVisionProviderModel(
