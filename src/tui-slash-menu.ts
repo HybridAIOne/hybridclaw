@@ -390,6 +390,8 @@ export function resolveTuiSlashMenuQuery(
   line: string,
   cursor: number,
 ): string | null {
+  // Keep the menu scoped to tail completions so moving the cursor through an
+  // existing command line does not leave stale suggestions on screen.
   if (cursor !== line.length) return null;
   if (!line.startsWith('/')) return null;
   if (line.includes('\n')) return null;
