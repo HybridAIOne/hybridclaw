@@ -151,6 +151,10 @@ function createMenuEntry(params: {
   };
 }
 
+function defaultInsertText(prefix: string, hasSuffixInput: boolean): string {
+  return hasSuffixInput ? `${prefix} ` : prefix;
+}
+
 function buildGenericRootEntry(
   definition: CanonicalSlashCommandDefinition,
   sortIndex: number,
@@ -160,9 +164,10 @@ function buildGenericRootEntry(
   const label = definition.tuiMenu?.label ?? `/${definition.name}`;
   const insertText =
     definition.tuiMenu?.insertText ??
-    (subcommands.length > 0 || stringOptions.length > 0
-      ? `/${definition.name} `
-      : `/${definition.name}`);
+    defaultInsertText(
+      `/${definition.name}`,
+      subcommands.length > 0 || stringOptions.length > 0,
+    );
   return createMenuEntry({
     id: definition.name,
     label,
@@ -190,9 +195,10 @@ function buildGenericSubcommandEntry(
     label,
     insertText:
       subcommand.tuiMenu?.insertText ??
-      (subcommand.options?.length
-        ? `/${commandName} ${subcommand.name} `
-        : `/${commandName} ${subcommand.name}`),
+      defaultInsertText(
+        `/${commandName} ${subcommand.name}`,
+        (subcommand.options?.length ?? 0) > 0,
+      ),
     description: subcommand.description,
     aliases: subcommand.tuiMenu?.aliases,
     depth: 2,
