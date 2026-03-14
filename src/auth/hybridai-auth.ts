@@ -37,7 +37,7 @@ interface ApiKeyValidationResult {
 }
 
 const DEFAULT_BASE_URL = 'https://hybridai.one';
-const DEFAULT_LOGIN_PATH = '/login?next=/admin_api_keys';
+const DEFAULT_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 const BOT_LIST_PATH = '/api/v1/bot-management/bots';
 const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
 
