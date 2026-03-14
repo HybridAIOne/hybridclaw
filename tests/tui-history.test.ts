@@ -120,4 +120,5 @@ test('over-fetches history to compensate for assistant turns', () => {
   expect(resolveTuiHistoryFetchLimit(1)).toBe(2);
   expect(resolveTuiHistoryFetchLimit(100)).toBe(200);
   expect(resolveTuiHistoryFetchLimit(150)).toBe(300);
+  expect(resolveTuiHistoryFetchLimit(2000)).toBe(400);
 });
