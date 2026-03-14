@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-
+import { isLoopGuardedToolName } from '../container/src/tool-loop-detection.js';
 import {
   getToolExecutionMode,
   mapConcurrentInOrder,
@@ -7,20 +7,15 @@ import {
 
 describe('getToolExecutionMode', () => {
   test.each([
+    ['read', '{"path":"src/index.ts"}'],
+    ['glob', '{"pattern":"src/**/*.ts"}'],
+    ['grep', '{"pattern":"TODO"}'],
     ['session_search', '{"query":"parallel tools"}'],
     ['vision_analyze', '{"image_url":"x.png","question":"what is this?"}'],
     ['image', '{"image_url":"x.png","question":"what is this?"}'],
     ['message', '{"action":"read","channelId":"123"}'],
     ['message', '{"action":"member-info","userId":"123","guildId":"456"}'],
     ['message', '{"action":"channel-info","channelId":"123"}'],
-  ])('marks %s as parallel-safe when read-only', (toolName, argsJson) => {
-    expect(getToolExecutionMode(toolName, argsJson)).toBe('parallel');
-  });
-
-  test.each([
-    ['read', '{"path":"src/index.ts"}'],
-    ['glob', '{"pattern":"src/**/*.ts"}'],
-    ['grep', '{"pattern":"TODO"}'],
     ['message', '{"action":"send","content":"hi"}'],
     ['web_fetch', '{"url":"https://example.com"}'],
     ['web_search', '{"query":"hybridclaw"}'],
@@ -29,8 +24,34 @@ describe('getToolExecutionMode', () => {
     ['bash', '{"command":"git status"}'],
     ['browser_navigate', '{"url":"https://example.com"}'],
     ['delegate', '{"prompt":"check the logs"}'],
-  ])('keeps %s on the sequential path when it may affect state or depends on loop-guard history', (toolName, argsJson) => {
-    expect(getToolExecutionMode(toolName, argsJson)).toBe('sequential');
+  ])('defaults %s to the concurrent path when it is not explicitly never-parallel', (toolName, argsJson) => {
+    expect(getToolExecutionMode(toolName, argsJson)).toBe('parallel');
+  });
+
+  test('keeps clarify on the sequential path', () => {
+    expect(getToolExecutionMode('clarify', '{"question":"ok?"}')).toBe(
+      'sequential',
+    );
+  });
+});
+
+describe('isLoopGuardedToolName', () => {
+  test.each([
+    'read',
+    'glob',
+    'grep',
+    'bash',
+  ])('marks %s as loop-guarded', (toolName) => {
+    expect(isLoopGuardedToolName(toolName)).toBe(true);
+  });
+
+  test.each([
+    'session_search',
+    'vision_analyze',
+    'message',
+    'web_fetch',
+  ])('does not mark %s as loop-guarded', (toolName) => {
+    expect(isLoopGuardedToolName(toolName)).toBe(false);
   });
 });
 

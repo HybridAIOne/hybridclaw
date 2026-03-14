@@ -53,6 +53,7 @@ import {
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
   detectToolCallLoop,
+  isLoopGuardedToolName,
   recordToolCallOutcome,
 } from './tool-loop-detection.js';
 import {
@@ -954,13 +955,19 @@ async function processRequest(
     }
 
     let successfulToolCallsThisTurn = 0;
+    const allowConcurrentBatching =
+      toolCalls.length > 1 &&
+      toolCalls.every(
+        (entry) =>
+          getToolExecutionMode(
+            entry.function.name,
+            entry.function.arguments,
+          ) === 'parallel',
+      );
     for (let callIndex = 0; callIndex < toolCalls.length; ) {
       const call = toolCalls[callIndex];
       const toolName = call.function.name;
-      const executionMode = getToolExecutionMode(
-        toolName,
-        call.function.arguments,
-      );
+      const executionMode = allowConcurrentBatching ? 'parallel' : 'sequential';
 
       if (executionMode === 'parallel') {
         const candidateCalls: ToolCall[] = [];
@@ -986,8 +993,7 @@ async function processRequest(
           });
           if (
             candidateApproval.decision === 'required' ||
-            candidateApproval.decision === 'denied' ||
-            candidateApproval.tier !== 'green'
+            candidateApproval.decision === 'denied'
           ) {
             break;
           }
@@ -1004,12 +1010,45 @@ async function processRequest(
         }
 
         if (preparedBatch.length > 1) {
+          const draftToolCallHistory = toolCallHistory.map((entry) => ({
+            ...entry,
+          }));
+          let guardedSequence = Promise.resolve();
           console.error(
-            `[tool] running ${preparedBatch.length} read-only tool calls concurrently`,
+            `[tool] running ${preparedBatch.length} tool calls concurrently`,
           );
           const completedBatch = await mapConcurrentInOrder(
             preparedBatch,
-            (prepared) => executePreparedToolCall(prepared, toolCallHistory),
+            async (prepared) => {
+              const batchToolName = prepared.call.function.name;
+              if (!isLoopGuardedToolName(batchToolName)) {
+                return executePreparedToolCall(prepared, toolCallHistory);
+              }
+
+              const priorGuarded = guardedSequence;
+              let releaseGuarded = (): void => {};
+              guardedSequence = new Promise<void>((resolve) => {
+                releaseGuarded = resolve;
+              });
+
+              await priorGuarded;
+              try {
+                const completed = await executePreparedToolCall(
+                  prepared,
+                  draftToolCallHistory,
+                );
+                recordToolCallOutcome(
+                  draftToolCallHistory,
+                  completed.toolName,
+                  completed.argsJson,
+                  completed.result,
+                  completed.isError,
+                );
+                return completed;
+              } finally {
+                releaseGuarded();
+              }
+            },
           );
           for (const completed of completedBatch) {
             if (completed.succeeded) {

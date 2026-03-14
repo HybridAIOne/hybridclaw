@@ -13,6 +13,14 @@ export interface ToolCallHistoryEntry {
   timestamp: number;
 }
 
+export function isLoopGuardedToolName(toolName: string): boolean {
+  return GUARDED_TOOL_NAMES.has(
+    String(toolName || '')
+      .trim()
+      .toLowerCase(),
+  );
+}
+
 export type ToolLoopDetectionResult =
   | { stuck: false }
   | {
@@ -207,7 +215,7 @@ export function detectToolCallLoop(
   toolName: string,
   rawArgs: string,
 ): ToolLoopDetectionResult {
-  if (!GUARDED_TOOL_NAMES.has(toolName)) {
+  if (!isLoopGuardedToolName(toolName)) {
     return { stuck: false };
   }
 
