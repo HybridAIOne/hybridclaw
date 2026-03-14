@@ -1019,14 +1019,16 @@ async function processRequest(
           });
         }
 
-        if (preparedBatch.length > 1) {
+        if (preparedBatch.length >= 1) {
           const draftToolCallHistory = toolCallHistory.map((entry) => ({
             ...entry,
           }));
           let guardedSequence = Promise.resolve();
-          console.error(
-            `[tool] running ${preparedBatch.length} tool calls concurrently`,
-          );
+          if (preparedBatch.length > 1) {
+            console.error(
+              `[tool] running ${preparedBatch.length} tool calls concurrently`,
+            );
+          }
           const completedBatch = await mapConcurrentInOrder(
             preparedBatch,
             async (prepared) => {
@@ -1075,27 +1077,6 @@ async function processRequest(
             });
           }
           callIndex += preparedBatch.length;
-          continue;
-        }
-
-        if (preparedBatch.length === 1) {
-          const completed = await executePreparedToolCall(
-            preparedBatch[0],
-            toolCallHistory,
-          );
-          if (completed.succeeded) {
-            successfulToolCallsThisTurn += 1;
-          }
-          appendCompletedToolCall({
-            completed,
-            toolsUsed,
-            toolExecutions,
-            history,
-            toolCallHistory,
-            artifacts,
-            artifactPaths,
-          });
-          callIndex += 1;
           continue;
         }
       }
