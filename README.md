@@ -313,6 +313,8 @@ such as `filesystem__read_file` or `github__list_issues`.
 - `himalaya` is bundled for host-side IMAP/SMTP email workflows through the Himalaya CLI.
 - `google-workspace` is bundled for Gmail, Calendar, Drive, Docs, and Sheets setup guidance plus browser/API workflow coordination.
 - `1password` is bundled for secure `op`-based secret lookup and command injection workflows.
+- `stripe` is bundled for Stripe CLI, Dashboard, checkout, billing, and webhook-debugging workflows with a test-mode-first default.
+- `wordpress` is bundled for WP-CLI, wp-admin, and draft-first content publishing workflows on WordPress sites.
 - `apple-calendar` is bundled for Apple Calendar or iCal workflows, especially `.ics` drafting/import and macOS calendar coordination.
 - `apple-passwords` is bundled for Passwords.app and Keychain-backed credential lookup on macOS.
 - `apple-music` is bundled for macOS Music app playback control, now-playing checks, and Apple Music URL workflows.
