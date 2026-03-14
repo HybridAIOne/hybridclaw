@@ -13,6 +13,8 @@ vi.mock('../src/agent/agent.js', () => ({
 }));
 
 const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_DISABLE_CONFIG_WATCHER =
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-gateway-audit-'));
@@ -30,13 +32,19 @@ afterEach(() => {
   runAgentMock.mockReset();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.doUnmock('../src/providers/hybridai-bots.ts');
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
+  restoreEnvVar(
+    'HYBRIDCLAW_DISABLE_CONFIG_WATCHER',
+    ORIGINAL_DISABLE_CONFIG_WATCHER,
+  );
 });
 
 test('audit command shows recent structured audit events for the current session', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   vi.resetModules();
 
   const { initDatabase } = await import('../src/memory/db.ts');
@@ -78,6 +86,7 @@ test('audit command shows recent structured audit events for the current session
 test('admin tools exposes recent tool error summaries', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   vi.resetModules();
 
   const { initDatabase } = await import('../src/memory/db.ts');
@@ -121,9 +130,68 @@ test('admin tools exposes recent tool error summaries', async () => {
   });
 });
 
+test('bot set records a structured audit event for observability export', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  vi.resetModules();
+
+  const { initDatabase, getRecentStructuredAuditForSession, getSessionById } =
+    await import('../src/memory/db.ts');
+  initDatabase({ quiet: true });
+
+  vi.doMock('../src/providers/hybridai-bots.ts', () => ({
+    fetchHybridAIBots: vi.fn(async () => [
+      {
+        id: 'bot-research',
+        name: 'Research Bot',
+        description: 'Answers with research context',
+      },
+    ]),
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-bot-set-audit',
+    guildId: null,
+    channelId: 'channel-bot-set-audit',
+    userId: 'user-1',
+    username: 'alice',
+    args: ['bot', 'set', 'Research Bot'],
+  });
+
+  expect(result).toMatchObject({
+    kind: 'plain',
+    text: 'Chatbot set to `bot-research` for this session.',
+  });
+
+  const events = getRecentStructuredAuditForSession(
+    'session-bot-set-audit',
+    10,
+  );
+  expect(events).toHaveLength(1);
+  expect(events[0]?.event_type).toBe('bot.set');
+  expect(JSON.parse(events[0]?.payload || '{}')).toMatchObject({
+    type: 'bot.set',
+    source: 'command',
+    requestedBot: 'Research Bot',
+    previousBotId: null,
+    resolvedBotId: 'bot-research',
+    changed: true,
+    userId: 'user-1',
+    username: 'alice',
+  });
+  expect(getSessionById('session-bot-set-audit')?.chatbot_id).toBe(
+    'bot-research',
+  );
+});
+
 test('handleGatewayMessage records agent handoff before agent-side timeouts', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   vi.resetModules();
 
   runAgentMock.mockResolvedValue({

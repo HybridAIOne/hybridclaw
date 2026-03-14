@@ -4148,6 +4148,10 @@ export async function handleGatewayCommand(
     }
 
     case 'bot': {
+      const runtime = resolveAgentForRequest({ session });
+      if (resolveModelProvider(runtime.model) !== 'hybridai') {
+        return plainCommand('Only for hybridai provider');
+      }
       const sub = req.args[1]?.toLowerCase();
       if (sub === 'list') {
         try {
@@ -4169,6 +4173,7 @@ export async function handleGatewayCommand(
         const requested = req.args.slice(2).join(' ').trim();
         if (!requested)
           return badCommand('Usage', 'Usage: `bot set <id|name>`');
+        const previousBotId = session.chatbot_id;
         let resolvedBotId = requested;
         try {
           const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
@@ -4182,13 +4187,26 @@ export async function handleGatewayCommand(
           // keep user-supplied value when lookup fails
         }
         updateSessionChatbot(session.id, resolvedBotId);
+        recordAuditEvent({
+          sessionId: session.id,
+          runId: makeAuditRunId('cmd'),
+          event: {
+            type: 'bot.set',
+            source: 'command',
+            requestedBot: requested,
+            previousBotId,
+            resolvedBotId,
+            changed: previousBotId !== resolvedBotId,
+            userId: req.userId,
+            username: req.username,
+          },
+        });
         return plainCommand(
           `Chatbot set to \`${resolvedBotId}\` for this session.`,
         );
       }
 
       if (sub === 'info') {
-        const runtime = resolveAgentForRequest({ session });
         const botId = runtime.chatbotId || 'Not set';
         let botLabel = botId;
         try {
