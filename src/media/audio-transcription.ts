@@ -17,6 +17,7 @@ import {
   resolveAudioTranscriptionModels,
   transcribeAudioWithFallback,
 } from './audio-transcription-backends.js';
+import { MANAGED_TEMP_MEDIA_DIR_PREFIXES } from './managed-temp-media.js';
 import { AUDIO_FILE_EXTENSION_RE, normalizeMimeType } from './mime-utils.js';
 
 const WORKSPACE_ROOT_DISPLAY = '/workspace';
@@ -24,7 +25,6 @@ const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 const DISCORD_MEDIA_CACHE_ROOT = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );
-const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-'] as const;
 
 export interface AudioTranscriptItem {
   filename: string;

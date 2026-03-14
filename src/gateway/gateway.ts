@@ -94,6 +94,7 @@ import {
   runGatewayScheduledTask,
 } from './gateway-service.js';
 import { startHealthServer } from './health.js';
+import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
   cleanupExpiredPendingApprovals,
   clearPendingApproval,
@@ -1131,6 +1132,7 @@ function setupShutdown(): void {
         'Failed to stop WhatsApp runtime during shutdown',
       );
     });
+    await runManagedMediaCleanup('shutdown');
     stopHeartbeat();
     stopObservabilityIngest();
     stopDiscoveryLoop();
@@ -1329,6 +1331,9 @@ async function main(): Promise<void> {
   initDatabase();
   initGatewayService();
   resumeEnabledFullAutoSessions();
+  void runManagedMediaCleanup('startup').catch((error) => {
+    logger.warn({ error }, 'Managed media cleanup failed during startup');
+  });
   startHealthServer();
   setupShutdown();
   await startDiscordIntegration();

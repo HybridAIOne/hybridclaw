@@ -2,12 +2,9 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { CONTAINER_SANDBOX_MODE, DATA_DIR } from '../../config/config.js';
+import * as config from '../../config/config.js';
 import { logger } from '../../logger.js';
 
-const DISCORD_MEDIA_CACHE_DIR = path.resolve(
-  path.join(DATA_DIR, 'discord-media-cache'),
-);
 const CONTAINER_DISCORD_MEDIA_CACHE_DIR = '/discord-media-cache';
 const DISCORD_MEDIA_CACHE_DIR_MODE = 0o700;
 const DISCORD_MEDIA_CACHE_FILE_MODE = 0o644;
@@ -20,8 +17,17 @@ const TRIM_FILENAME_PUNCTUATION_RE = /^[-_.]+|[-_.]+$/g;
 let cleanupPromise: Promise<void> | null = null;
 let lastCleanupStartedAt = 0;
 
+function getDiscordMediaCacheDir(): string | null {
+  const dataDir =
+    typeof config.DATA_DIR === 'string' ? config.DATA_DIR.trim() : '';
+  if (!dataDir) return null;
+  return path.resolve(path.join(dataDir, 'discord-media-cache'));
+}
+
 function normalizeAttachmentPathForContainer(hostPath: string): string | null {
-  const relative = path.relative(DISCORD_MEDIA_CACHE_DIR, hostPath);
+  const cacheDir = getDiscordMediaCacheDir();
+  if (!cacheDir) return null;
+  const relative = path.relative(cacheDir, hostPath);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative))
     return null;
   return `${CONTAINER_DISCORD_MEDIA_CACHE_DIR}/${relative.replace(/\\/g, '/')}`;
@@ -30,7 +36,7 @@ function normalizeAttachmentPathForContainer(hostPath: string): string | null {
 export function normalizeAttachmentPathForRuntime(
   hostPath: string,
 ): string | null {
-  if (CONTAINER_SANDBOX_MODE === 'host') {
+  if (config.CONTAINER_SANDBOX_MODE === 'host') {
     return hostPath;
   }
   return normalizeAttachmentPathForContainer(hostPath);
@@ -155,7 +161,8 @@ export async function cleanupDiscordMediaCache(params?: {
 }): Promise<void> {
   const rootDir = params?.rootDir
     ? path.resolve(params.rootDir)
-    : DISCORD_MEDIA_CACHE_DIR;
+    : getDiscordMediaCacheDir();
+  if (!rootDir) return;
   const ttlMs =
     typeof params?.ttlMs === 'number' && Number.isFinite(params.ttlMs)
       ? Math.max(1, Math.floor(params.ttlMs))
@@ -185,21 +192,30 @@ export async function cleanupDiscordMediaCache(params?: {
   }
 }
 
-export function scheduleDiscordMediaCacheCleanup(): void {
-  const now = Date.now();
+function startDiscordMediaCacheCleanup(params?: {
+  force?: boolean;
+  nowMs?: number;
+  rootDir?: string;
+  ttlMs?: number;
+}): Promise<void> | null {
+  const now = params?.nowMs ?? Date.now();
+  if (cleanupPromise) {
+    return cleanupPromise;
+  }
   if (
-    cleanupPromise ||
+    !params?.force &&
+    lastCleanupStartedAt > 0 &&
     now - lastCleanupStartedAt < DISCORD_MEDIA_CACHE_CLEANUP_MIN_INTERVAL_MS
   ) {
-    return;
+    return null;
   }
 
   lastCleanupStartedAt = now;
-  cleanupPromise = cleanupDiscordMediaCache()
+  cleanupPromise = cleanupDiscordMediaCache(params)
     .catch((error) => {
       logger.warn(
         {
-          cacheDir: DISCORD_MEDIA_CACHE_DIR,
+          cacheDir: params?.rootDir ?? getDiscordMediaCacheDir(),
           error,
         },
         'Discord media cache cleanup failed',
@@ -208,6 +224,16 @@ export function scheduleDiscordMediaCacheCleanup(): void {
     .finally(() => {
       cleanupPromise = null;
     });
+  return cleanupPromise;
+}
+
+export function triggerDiscordMediaCacheCleanup(params?: {
+  force?: boolean;
+  nowMs?: number;
+  rootDir?: string;
+  ttlMs?: number;
+}): Promise<void> | null {
+  return startDiscordMediaCacheCleanup(params);
 }
 
 export async function writeDiscordMediaCacheFile(params: {
@@ -216,13 +242,17 @@ export async function writeDiscordMediaCacheFile(params: {
   messageId: string;
   order: number;
 }): Promise<{ hostPath: string; runtimePath: string }> {
+  const cacheDir = getDiscordMediaCacheDir();
+  if (!cacheDir) {
+    throw new Error('discord_media_cache_dir_unavailable');
+  }
   const datePrefix = new Date().toISOString().slice(0, 10);
   const unique = randomUUID().slice(0, 8);
   const fileName = `${Date.now()}-${params.messageId}-${String(params.order).padStart(3, '0')}-${unique}-${sanitizeAttachmentFilename(params.attachmentName)}`;
-  const dayDir = path.join(DISCORD_MEDIA_CACHE_DIR, datePrefix);
+  const dayDir = path.join(cacheDir, datePrefix);
   const hostPath = path.join(dayDir, fileName);
 
-  await ensureCacheDirectory(DISCORD_MEDIA_CACHE_DIR);
+  await ensureCacheDirectory(cacheDir);
   await ensureCacheDirectory(dayDir);
   await fs.promises.writeFile(hostPath, params.buffer, {
     mode: DISCORD_MEDIA_CACHE_FILE_MODE,

@@ -15,6 +15,7 @@ export const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
 
 interface DiscordCdnFetchOptions {
   timeoutMs?: number;
+  readIdleTimeoutMs?: number;
   maxBytes?: number | null;
 }
 
@@ -174,6 +175,10 @@ export async function fetchDiscordCdnBuffer(
   await lookupPublicHostAddresses(parsed.hostname);
 
   const timeoutMs = Math.max(1, Math.floor(options.timeoutMs ?? 12_000));
+  const readIdleTimeoutMs = Math.max(
+    1,
+    Math.floor(options.readIdleTimeoutMs ?? timeoutMs),
+  );
   const maxBytes =
     typeof options.maxBytes === 'number' && Number.isFinite(options.maxBytes)
       ? Math.max(1, Math.floor(options.maxBytes))
@@ -181,14 +186,24 @@ export async function fetchDiscordCdnBuffer(
 
   return await new Promise<DiscordCdnFetchResult>((resolve, reject) => {
     let settled = false;
+    let readIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearReadIdleTimeout = () => {
+      if (readIdleTimer === null) return;
+      clearTimeout(readIdleTimer);
+      readIdleTimer = null;
+    };
+
     const resolveOnce = (result: DiscordCdnFetchResult) => {
       if (settled) return;
       settled = true;
+      clearReadIdleTimeout();
       resolve(result);
     };
     const rejectOnce = (error: unknown) => {
       if (settled) return;
       settled = true;
+      clearReadIdleTimeout();
       reject(error instanceof Error ? error : new Error(String(error)));
     };
 
@@ -219,8 +234,17 @@ export async function fetchDiscordCdnBuffer(
 
         const chunks: Buffer[] = [];
         let totalBytes = 0;
+        const armReadIdleTimeout = () => {
+          clearReadIdleTimeout();
+          readIdleTimer = setTimeout(() => {
+            readIdleTimer = null;
+            response.destroy(new Error('read_idle_timeout'));
+          }, readIdleTimeoutMs);
+        };
 
+        armReadIdleTimeout();
         response.on('data', (chunk) => {
+          armReadIdleTimeout();
           const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
           totalBytes += buffer.length;
           if (maxBytes !== null && totalBytes > maxBytes) {
@@ -228,6 +252,10 @@ export async function fetchDiscordCdnBuffer(
             return;
           }
           chunks.push(buffer);
+        });
+        response.on('close', () => {
+          clearReadIdleTimeout();
+          rejectOnce(new Error('response_closed_prematurely'));
         });
         response.on('error', rejectOnce);
         response.on('end', () => {
@@ -242,8 +270,10 @@ export async function fetchDiscordCdnBuffer(
     );
 
     request.setTimeout(timeoutMs, () => {
+      clearReadIdleTimeout();
       request.destroy(new Error('timeout'));
     });
+    request.on('close', clearReadIdleTimeout);
     request.on('error', rejectOnce);
     request.end();
   });
@@ -255,10 +285,12 @@ export async function fetchDiscordCdnText(
     maxChars: number;
     maxBytes?: number;
     timeoutMs?: number;
+    readIdleTimeoutMs?: number;
   },
 ): Promise<string> {
   const result = await fetchDiscordCdnBuffer(rawUrl, {
     maxBytes: options.maxBytes ?? Math.max(65_536, options.maxChars * 4),
+    readIdleTimeoutMs: options.readIdleTimeoutMs,
     timeoutMs: options.timeoutMs,
   });
   const text = result.body.toString('utf8');

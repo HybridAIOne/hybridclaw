@@ -13,6 +13,10 @@ import type {
   WhatsAppDmPolicy,
   WhatsAppGroupPolicy,
 } from '../../config/runtime-config.js';
+import {
+  resolveManagedTempMediaDir,
+  WHATSAPP_MEDIA_TMP_PREFIX,
+} from '../../media/managed-temp-media.js';
 import type { MediaContextItem } from '../../types.js';
 import { guessWhatsAppExtensionFromMimeType } from './mime-utils.js';
 import {
@@ -24,28 +28,7 @@ import {
 } from './phone.js';
 
 const STATUS_BROADCAST_JID = 'status@broadcast';
-const WHATSAPP_MEDIA_TMP_PREFIX = 'hybridclaw-wa-';
 const normalizedAllowListCache = new WeakMap<string[], string[]>();
-
-function normalizeWhatsAppMediaPath(filePath: string): string | null {
-  const trimmed = String(filePath || '').trim();
-  if (!trimmed) return null;
-  return path.resolve(trimmed);
-}
-
-function isManagedWhatsAppMediaPath(filePath: string): boolean {
-  const normalized = normalizeWhatsAppMediaPath(filePath);
-  if (!normalized) return false;
-  const tempRoot = path.resolve(os.tmpdir());
-  if (
-    normalized !== tempRoot &&
-    !normalized.startsWith(`${tempRoot}${path.sep}`)
-  ) {
-    return false;
-  }
-  const dirName = path.basename(path.dirname(normalized));
-  return dirName.startsWith(WHATSAPP_MEDIA_TMP_PREFIX);
-}
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]+/g, '_');
@@ -295,8 +278,10 @@ export async function cleanupWhatsAppInboundMedia(
 ): Promise<void> {
   const tempDirs = new Set<string>();
   for (const item of media) {
-    if (!item.path || !isManagedWhatsAppMediaPath(item.path)) continue;
-    tempDirs.add(path.dirname(path.resolve(item.path)));
+    if (!item.path) continue;
+    const managedDir = resolveManagedTempMediaDir({ filePath: item.path });
+    if (!managedDir) continue;
+    tempDirs.add(managedDir);
   }
   for (const dir of tempDirs) {
     await fs.rm(dir, { recursive: true, force: true });

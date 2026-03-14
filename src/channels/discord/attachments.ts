@@ -12,7 +12,7 @@ import {
   isSafeDiscordCdnUrl,
 } from './discord-cdn-fetch.js';
 import {
-  scheduleDiscordMediaCacheCleanup,
+  triggerDiscordMediaCacheCleanup,
   writeDiscordMediaCacheFile,
 } from './media-cache.js';
 
@@ -374,7 +374,7 @@ export async function buildAttachmentContext(
   for (const msg of messages) {
     if (!msg.attachments || msg.attachments.size === 0) continue;
     if (!cleanupScheduled) {
-      scheduleDiscordMediaCacheCleanup();
+      void triggerDiscordMediaCacheCleanup();
       cleanupScheduled = true;
     }
     for (const attachment of msg.attachments.values()) {
