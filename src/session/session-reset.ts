@@ -14,6 +14,13 @@ export const DEFAULT_RESET_POLICY: SessionResetPolicy = Object.freeze({
   idleMinutes: 1440,
 });
 
+export function resolveSessionResetChannelKind(
+  channelId?: string | null,
+): string | undefined {
+  const normalized = typeof channelId === 'string' ? channelId.trim() : '';
+  return normalized === 'heartbeat' ? 'heartbeat' : undefined;
+}
+
 export function normalizeSessionResetMode(
   value: unknown,
   fallback: SessionResetMode,

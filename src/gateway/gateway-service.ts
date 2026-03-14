@@ -141,6 +141,7 @@ import {
 import {
   isSessionExpired,
   resolveResetPolicy,
+  resolveSessionResetChannelKind,
   type SessionResetMode,
 } from '../session/session-reset.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
@@ -3039,7 +3040,7 @@ async function maybeFlushSessionBeforeAutoReset(params: {
 
   const runtimeConfig = getRuntimeConfig();
   const policy = resolveResetPolicy({
-    channelKind: params.channelId === 'heartbeat' ? 'heartbeat' : undefined,
+    channelKind: resolveSessionResetChannelKind(params.channelId),
     config: runtimeConfig,
   });
   const effectivePolicy = params.resetMode

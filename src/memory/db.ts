@@ -11,6 +11,7 @@ import { logger } from '../logger.js';
 import {
   isSessionExpired,
   resolveResetPolicy,
+  resolveSessionResetChannelKind,
   type SessionResetMode,
 } from '../session/session-reset.js';
 import type {
@@ -2211,7 +2212,7 @@ export function getOrCreateSession(
 
   if (existing) {
     const policy = resolveResetPolicy({
-      channelKind: channelId === 'heartbeat' ? 'heartbeat' : undefined,
+      channelKind: resolveSessionResetChannelKind(channelId),
       config: getRuntimeConfig(),
     });
     const effectivePolicy = opts?.resetMode

@@ -8,6 +8,7 @@ import {
   DEFAULT_RESET_POLICY,
   isSessionExpired,
   resolveResetPolicy,
+  resolveSessionResetChannelKind,
 } from '../src/session/session-reset.ts';
 
 const { runPreCompactionMemoryFlushMock } = vi.hoisted(() => ({
@@ -192,6 +193,13 @@ test('isSessionExpired returns false for mode both when neither policy triggers'
 
 test('resolveResetPolicy returns the default constant when config is missing', () => {
   expect(resolveResetPolicy()).toBe(DEFAULT_RESET_POLICY);
+});
+
+test('resolveSessionResetChannelKind maps heartbeat sessions explicitly', () => {
+  expect(resolveSessionResetChannelKind('heartbeat')).toBe('heartbeat');
+  expect(resolveSessionResetChannelKind(' heartbeat ')).toBe('heartbeat');
+  expect(resolveSessionResetChannelKind('tui')).toBeUndefined();
+  expect(resolveSessionResetChannelKind(undefined)).toBeUndefined();
 });
 
 test('resolveResetPolicy returns channel overrides when configured', async () => {
