@@ -14,10 +14,21 @@ export const DEFAULT_RESET_POLICY: SessionResetPolicy = Object.freeze({
   idleMinutes: 1440,
 });
 
-function normalizeResetMode(
-  value: SessionResetMode | undefined,
+export function normalizeSessionResetMode(
+  value: unknown,
   fallback: SessionResetMode,
 ): SessionResetMode {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (
+      normalized === 'daily' ||
+      normalized === 'idle' ||
+      normalized === 'both' ||
+      normalized === 'none'
+    ) {
+      return normalized;
+    }
+  }
   if (
     value === 'daily' ||
     value === 'idle' ||
@@ -39,7 +50,7 @@ function normalizePolicy(
     ? Math.max(1, Math.trunc(value?.idleMinutes ?? 0))
     : DEFAULT_RESET_POLICY.idleMinutes;
   return {
-    mode: normalizeResetMode(value?.mode, DEFAULT_RESET_POLICY.mode),
+    mode: normalizeSessionResetMode(value?.mode, DEFAULT_RESET_POLICY.mode),
     atHour,
     idleMinutes,
   };

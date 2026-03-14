@@ -10,7 +10,10 @@ import {
 } from '../agents/agent-types.js';
 import { CODEX_DEFAULT_BASE_URL } from '../auth/codex-auth.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
-import type { SessionResetMode } from '../session/session-reset.js';
+import {
+  normalizeSessionResetMode,
+  type SessionResetMode,
+} from '../session/session-reset.js';
 import type { McpServerConfig } from '../types.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
@@ -1815,24 +1818,6 @@ function normalizeContainerSandboxMode(
     allowEmpty: false,
   }).toLowerCase();
   return normalized === 'host' ? 'host' : 'container';
-}
-
-function normalizeSessionResetMode(
-  value: unknown,
-  fallback: SessionResetMode,
-): SessionResetMode {
-  const normalized = normalizeString(value, fallback, {
-    allowEmpty: false,
-  }).toLowerCase();
-  if (
-    normalized === 'daily' ||
-    normalized === 'idle' ||
-    normalized === 'both' ||
-    normalized === 'none'
-  ) {
-    return normalized;
-  }
-  return fallback;
 }
 
 function normalizeAuxiliaryProviderSelection(
