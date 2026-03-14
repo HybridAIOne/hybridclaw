@@ -429,12 +429,16 @@ export class TuiSlashMenuController {
   private readonly output: NodeJS.WriteStream;
   private readonly shouldShow: () => boolean;
   private readonly resizeHandler: () => void;
+  private readonly originalRefreshLine:
+    | InternalReadline['_refreshLine']
+    | undefined;
   private readonly originalTtyWrite: InternalReadline['_ttyWrite'] | undefined;
   private entries: TuiSlashMenuEntry[];
   private selectedIndex = 0;
   private lastQuery = '';
   private lastRenderSignature = '';
   private renderedLineCount = 0;
+  private dismissedQuery: string | null = null;
 
   constructor(params: {
     rl: readline.Interface;
@@ -448,6 +452,7 @@ export class TuiSlashMenuController {
     this.palette = params.palette;
     this.output = params.output || process.stdout;
     this.shouldShow = params.shouldShow || (() => true);
+    this.originalRefreshLine = this.rl._refreshLine?.bind(this.rl);
     this.originalTtyWrite = this.rl._ttyWrite?.bind(this.rl);
     this.resizeHandler = () => {
       this.lastRenderSignature = '';
@@ -494,11 +499,11 @@ export class TuiSlashMenuController {
   clear(): void {
     if (!this.output.isTTY) return;
     if (this.renderedLineCount > 0) {
-      this.output.write('\x1b7');
+      this.originalRefreshLine?.();
       readline.cursorTo(this.output, 0);
       readline.moveCursor(this.output, 0, 1);
       readline.clearScreenDown(this.output);
-      this.output.write('\x1b8');
+      this.originalRefreshLine?.();
     }
     this.renderedLineCount = 0;
     this.lastRenderSignature = '';
@@ -506,6 +511,7 @@ export class TuiSlashMenuController {
 
   sync(state?: TuiSlashMenuState | null): void {
     if (!this.output.isTTY || !this.shouldShow()) {
+      this.dismissedQuery = null;
       this.lastQuery = '';
       this.selectedIndex = 0;
       this.clear();
@@ -513,8 +519,26 @@ export class TuiSlashMenuController {
     }
 
     const nextState =
-      state ?? buildMenuState(this.entries, this.rl.line, this.rl.cursor);
+      state === undefined
+        ? buildMenuState(this.entries, this.rl.line, this.rl.cursor)
+        : state;
     if (!nextState) {
+      if (state === undefined) {
+        this.dismissedQuery = null;
+      }
+      this.lastQuery = '';
+      this.selectedIndex = 0;
+      this.clear();
+      return;
+    }
+
+    if (
+      this.dismissedQuery !== null &&
+      nextState.query !== this.dismissedQuery
+    ) {
+      this.dismissedQuery = null;
+    }
+    if (nextState.query === this.dismissedQuery) {
       this.lastQuery = '';
       this.selectedIndex = 0;
       this.clear();
@@ -553,12 +577,10 @@ export class TuiSlashMenuController {
 
     this.clear();
     if (lines.length > 0) {
-      this.output.write('\x1b7');
-      readline.cursorTo(this.output, 0);
       this.output.write('\n');
       this.output.write(lines.join('\n'));
-      this.output.write('\x1b8');
       this.renderedLineCount = lines.length;
+      this.originalRefreshLine?.();
     }
     this.lastRenderSignature = renderSignature;
   }
@@ -571,10 +593,11 @@ export class TuiSlashMenuController {
     if (!state) return { handled: false };
 
     if (key.name === 'escape') {
+      this.dismissedQuery = state.query;
       this.lastQuery = '';
       this.selectedIndex = 0;
       this.clear();
-      return { handled: true, state };
+      return { handled: true, state: null };
     }
 
     if (key.name === 'down' || (key.ctrl === true && key.name === 'n')) {

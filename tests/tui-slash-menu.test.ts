@@ -122,7 +122,36 @@ test('clears the current menu before refreshing a completed selection', () => {
     rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
   )._ttyWrite('\t', { name: 'tab' });
 
-  expect(operations.findIndex((entry) => entry === 'refresh')).toBeGreaterThan(
-    operations.findIndex((entry) => entry.startsWith('write:')),
+  expect(operations.lastIndexOf('refresh')).toBeGreaterThan(
+    operations.findLastIndex((entry) => entry.startsWith('write:')),
   );
+});
+
+test('restores the prompt after rendering the menu', () => {
+  const { controller, rl, operations } = buildControllerHarness();
+
+  rl.line = '/mod';
+  rl.cursor = rl.line.length;
+  controller.sync();
+
+  expect(operations.at(-1)).toBe('refresh');
+});
+
+test('escape dismisses the menu until the query changes', () => {
+  const { controller, rl, operations } = buildControllerHarness();
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'escape' });
+
+  operations.length = 0;
+  controller.sync();
+
+  expect(operations.some((entry) => entry.includes('/model'))).toBe(false);
+
+  rl.line = '/mod';
+  rl.cursor = rl.line.length;
+  controller.sync();
+
+  expect(operations.some((entry) => entry.includes('/model'))).toBe(true);
 });
