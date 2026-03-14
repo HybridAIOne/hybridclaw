@@ -10,8 +10,13 @@ permissions:
   packages: write
 
 jobs:
-  publish-container:
+  # Validate tag/package.json alignment once; both image jobs depend on this.
+  validate:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      publish_dockerhub: ${{ steps.check.outputs.publish_dockerhub }}
+      labels: ${{ steps.check.outputs.labels }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,8 +26,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: Resolve image metadata
-        id: meta
+      - name: Validate tag and resolve shared metadata
+        id: check
         shell: bash
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -43,43 +48,51 @@ jobs:
             exit 1
           fi
 
-          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          GHCR_IMAGE="ghcr.io/${OWNER_LC}/hybridclaw-agent"
-          DOCKERHUB_IMAGE="hybridaione/hybridclaw-agent"
-          GHCR_TAGS="${GHCR_IMAGE}:${TAG}"
-          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${TAG}"
-          if [[ "${TAG}" != *-* ]]; then
-            GHCR_TAGS="${GHCR_TAGS}"$'\n'"${GHCR_IMAGE}:latest"
-            DOCKERHUB_TAGS="${DOCKERHUB_TAGS}"$'\n'"${DOCKERHUB_IMAGE}:latest"
-          fi
-
-          TAGS="${GHCR_TAGS}"
           PUBLISH_DOCKERHUB=false
           if [[ -n "${DOCKERHUB_USERNAME}" && -n "${DOCKERHUB_TOKEN}" ]]; then
-            TAGS="${TAGS}"$'\n'"${DOCKERHUB_TAGS}"
             PUBLISH_DOCKERHUB=true
           fi
 
           {
-            echo "ghcr_image=${GHCR_IMAGE}"
-            echo "dockerhub_image=${DOCKERHUB_IMAGE}"
             echo "tag=${TAG}"
             echo "publish_dockerhub=${PUBLISH_DOCKERHUB}"
-            echo "ghcr_tags<<EOF"
-            echo "${GHCR_TAGS}"
-            echo "EOF"
-            echo "dockerhub_tags<<EOF"
-            echo "${DOCKERHUB_TAGS}"
-            echo "EOF"
-            echo "tags<<EOF"
-            echo "${TAGS}"
-            echo "EOF"
             echo "labels<<EOF"
             echo "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
             echo "org.opencontainers.image.revision=${GITHUB_SHA}"
             echo "org.opencontainers.image.version=${TAG}"
             echo "EOF"
           } >> "${GITHUB_OUTPUT}"
+
+  # Execution sandbox image — used inside sandboxes for code execution.
+  publish-agent:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve agent image tags
+        id: meta
+        shell: bash
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+          PUBLISH_DOCKERHUB: ${{ needs.validate.outputs.publish_dockerhub }}
+        run: |
+          set -euo pipefail
+          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          GHCR_IMAGE="ghcr.io/${OWNER_LC}/hybridclaw-agent"
+          DOCKERHUB_IMAGE="hybridaione/hybridclaw-agent"
+          TAGS="${GHCR_IMAGE}:${TAG}"
+          if [[ "${TAG}" != *-* ]]; then
+            TAGS="${TAGS}"$'\n'"${GHCR_IMAGE}:latest"
+          fi
+          if [[ "${PUBLISH_DOCKERHUB}" == "true" ]]; then
+            TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:${TAG}"
+            if [[ "${TAG}" != *-* ]]; then
+              TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:latest"
+            fi
+          fi
+          { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v3
@@ -88,7 +101,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
-        if: steps.meta.outputs.publish_dockerhub == 'true'
+        if: needs.validate.outputs.publish_dockerhub == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -101,7 +114,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push container image
+      - name: Build and push agent image
         uses: docker/build-push-action@v6
         with:
           context: ./container
@@ -110,4 +123,67 @@ jobs:
           sbom: false
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: ${{ needs.validate.outputs.labels }}
+
+  # Gateway image — runs as a permanent claw sandbox (hybridclaw gateway start).
+  publish-gateway:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve gateway image tags
+        id: meta
+        shell: bash
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+          PUBLISH_DOCKERHUB: ${{ needs.validate.outputs.publish_dockerhub }}
+        run: |
+          set -euo pipefail
+          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          GHCR_IMAGE="ghcr.io/${OWNER_LC}/hybridclaw-gateway"
+          DOCKERHUB_IMAGE="hybridaione/hybridclaw-gateway"
+          TAGS="${GHCR_IMAGE}:${TAG}"
+          if [[ "${TAG}" != *-* ]]; then
+            TAGS="${TAGS}"$'\n'"${GHCR_IMAGE}:latest"
+          fi
+          if [[ "${PUBLISH_DOCKERHUB}" == "true" ]]; then
+            TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:${TAG}"
+            if [[ "${TAG}" != *-* ]]; then
+              TAGS="${TAGS}"$'\n'"${DOCKERHUB_IMAGE}:latest"
+            fi
+          fi
+          { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: needs.validate.outputs.publish_dockerhub == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push gateway image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          provenance: false
+          sbom: false
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ needs.validate.outputs.labels }}
