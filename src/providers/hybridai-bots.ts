@@ -1,5 +1,6 @@
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { HYBRIDAI_BASE_URL } from '../config/config.js';
+import { logger } from '../logger.js';
 import type { HybridAIBot } from '../types.js';
 
 interface BotCacheEntry {
@@ -55,4 +56,37 @@ export async function fetchHybridAIBots(options?: {
     botCache = null;
   }
   return bots;
+}
+
+/**
+ * Notify HybridAI that a bot is being used (or no longer used) by HybridClaw.
+ * Fires and logs errors but never throws so callers can treat it as best-effort.
+ */
+export async function updateBotUsedFor(
+  botId: string,
+  agentId: string | null,
+): Promise<void> {
+  const apiKey = getHybridAIApiKey();
+  if (!apiKey) return;
+
+  const usedfor = agentId ? `HybridClaw:${agentId}` : null;
+  const url = `${HYBRIDAI_BASE_URL}/api/bots/settings/${encodeURIComponent(botId)}`;
+  try {
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ usedfor }),
+    });
+    if (!res.ok) {
+      logger.warn(
+        { botId, usedfor, status: res.status },
+        'Failed to update bot usedfor flag',
+      );
+    }
+  } catch (err) {
+    logger.warn({ botId, usedfor, err }, 'Error updating bot usedfor flag');
+  }
 }
