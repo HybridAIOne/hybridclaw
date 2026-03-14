@@ -236,10 +236,6 @@ export function triggerDiscordMediaCacheCleanup(params?: {
   return startDiscordMediaCacheCleanup(params);
 }
 
-export function scheduleDiscordMediaCacheCleanup(): void {
-  void startDiscordMediaCacheCleanup();
-}
-
 export async function writeDiscordMediaCacheFile(params: {
   attachmentName: string;
   buffer: Buffer;
