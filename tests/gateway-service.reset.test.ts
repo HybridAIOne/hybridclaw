@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import Database from 'better-sqlite3';
 import { afterEach, expect, test, vi } from 'vitest';
 
 const ORIGINAL_HOME = process.env.HOME;
@@ -23,6 +24,21 @@ function restoreEnvVar(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
+function updateLastActive(
+  dbPath: string,
+  sessionId: string,
+  lastActive: string,
+): void {
+  const database = new Database(dbPath);
+  try {
+    database
+      .prepare('UPDATE sessions SET last_active = ? WHERE id = ?')
+      .run(lastActive, sessionId);
+  } finally {
+    database.close();
+  }
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
@@ -38,7 +54,9 @@ async function seedSessionFixture() {
   process.env.HOME = homeDir;
   vi.resetModules();
 
-  const { HYBRIDAI_ENABLE_RAG } = await import('../src/config/config.ts');
+  const { DB_PATH, HYBRIDAI_ENABLE_RAG } = await import(
+    '../src/config/config.ts'
+  );
   const {
     initDatabase,
     updateSessionChatbot,
@@ -86,6 +104,7 @@ async function seedSessionFixture() {
   );
 
   return {
+    dbPath: DB_PATH,
     HYBRIDAI_ENABLE_RAG,
     handleGatewayCommand,
     memoryService,
@@ -179,6 +198,24 @@ test('reset includes Discord button components for Discord command requests', as
       ],
     },
   ]);
+});
+
+test('gateway commands ignore malformed last_active timestamps instead of throwing', async () => {
+  const fixture = await seedSessionFixture();
+  updateLastActive(fixture.dbPath, fixture.sessionId, '');
+
+  const result = await fixture.handleGatewayCommand({
+    sessionId: fixture.sessionId,
+    guildId: null,
+    channelId: 'tui',
+    args: ['help'],
+  });
+
+  expect(result.kind).toBe('info');
+  expect(result.text).toContain('`agent`');
+  expect(
+    fixture.memoryService.getConversationHistory(fixture.sessionId, 10),
+  ).toHaveLength(2);
 });
 
 test('reset yes clears history, resets session defaults, and removes the workspace', async () => {

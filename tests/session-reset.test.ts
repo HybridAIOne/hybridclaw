@@ -394,6 +394,36 @@ test('resetSessionIfExpired auto-resets expired sessions', async () => {
   expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
 });
 
+test('resetSessionIfExpired skips malformed last_active timestamps', async () => {
+  const { dbModule, memoryService, dbPath } = await initSessionTestContext();
+  const sessionId = 'invalid-last-active';
+
+  dbModule.getOrCreateSession(sessionId, null, 'tui');
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'user-1',
+    username: 'user',
+    role: 'user',
+    content: 'keep this context',
+  });
+  updateLastActive(dbPath, sessionId, '');
+
+  const reset = dbModule.resetSessionIfExpired(sessionId, {
+    policy: {
+      mode: 'idle',
+      atHour: 4,
+      idleMinutes: 60,
+    },
+  });
+  const session = dbModule.getSessionById(sessionId);
+
+  expect(reset).toBe(false);
+  expect(session?.message_count).toBe(1);
+  expect(session?.reset_count).toBe(0);
+  expect(session?.reset_at).toBeNull();
+  expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(1);
+});
+
 test('getOrCreateSession keeps recent sessions intact', async () => {
   const { dbModule, memoryService, runtimeConfigModule } =
     await initSessionTestContext();

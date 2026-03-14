@@ -2212,7 +2212,19 @@ export function resetSessionIfExpired(
   if (opts?.expiryEvaluation?.lastActive === existing.last_active) {
     shouldReset = opts.expiryEvaluation.isExpired;
   } else {
-    shouldReset = isSessionExpired(opts.policy, existing.last_active);
+    try {
+      shouldReset = isSessionExpired(opts.policy, existing.last_active);
+    } catch (err) {
+      logger.warn(
+        {
+          sessionId,
+          lastActive: existing.last_active,
+          err,
+        },
+        'Skipping session auto-reset due to invalid last_active timestamp',
+      );
+      shouldReset = false;
+    }
   }
   if (!shouldReset) return false;
 

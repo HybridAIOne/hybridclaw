@@ -3048,10 +3048,27 @@ async function prepareSessionAutoReset(params: {
 }): Promise<SessionExpiryEvaluation | undefined> {
   const existingSession = memoryService.getSessionById(params.sessionId);
   if (!existingSession) return undefined;
-  const expiryEvaluation: SessionExpiryEvaluation = {
-    lastActive: existingSession.last_active,
-    isExpired: isSessionExpired(params.policy, existingSession.last_active),
-  };
+  let expiryEvaluation: SessionExpiryEvaluation;
+  try {
+    expiryEvaluation = {
+      lastActive: existingSession.last_active,
+      isExpired: isSessionExpired(params.policy, existingSession.last_active),
+    };
+  } catch (err) {
+    logger.warn(
+      {
+        sessionId: params.sessionId,
+        channelId: params.channelId,
+        lastActive: existingSession.last_active,
+        err,
+      },
+      'Skipping session auto-reset due to invalid last_active timestamp',
+    );
+    expiryEvaluation = {
+      lastActive: existingSession.last_active,
+      isExpired: false,
+    };
+  }
   if (!expiryEvaluation.isExpired) return expiryEvaluation;
   if (!getRuntimeConfig().sessionCompaction.preCompactionMemoryFlush.enabled) {
     return expiryEvaluation;
