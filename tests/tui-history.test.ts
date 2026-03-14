@@ -84,3 +84,31 @@ test('drops blank and multiline user entries and respects the limit', () => {
 
   expect(history).toEqual(['/status']);
 });
+
+test('strips ANSI escape sequences before seeding readline history', () => {
+  const history = buildTuiReadlineHistory(
+    [
+      {
+        id: 1,
+        session_id: 'tui:local',
+        user_id: 'u1',
+        username: 'user',
+        role: 'user',
+        content: '\u001b[31m/status\u001b[0m',
+        created_at: '2026-03-14 10:00:00',
+      },
+      {
+        id: 2,
+        session_id: 'tui:local',
+        user_id: 'u1',
+        username: 'user',
+        role: 'user',
+        content: '\u001b[2K\u001b[1A',
+        created_at: '2026-03-14 10:00:01',
+      },
+    ],
+    10,
+  );
+
+  expect(history).toEqual(['/status']);
+});
