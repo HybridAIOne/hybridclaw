@@ -301,6 +301,21 @@ such as `filesystem__read_file` or `github__list_issues`.
 - `docx` is bundled for Word document creation plus OOXML unpack/edit/pack workflows, comments, and tracked-change cleanup.
 - `pptx` is bundled for presentation creation with `pptxgenjs`, template-preserving OOXML edits, and thumbnail-based visual QA.
 - `office-workflows` is bundled for cross-format tasks such as CSV to XLSX cleanup and XLSX to PPTX or DOCX deliverables coordinated with delegation.
+- `notion` is bundled for Notion workspace pages, block content, and data-source workflows over the Notion API.
+- `trello` is bundled for board, list, and card management in lightweight Kanban workflows.
+- `project-manager` is bundled for sprint plans, milestone breakdowns, risk registers, and stakeholder updates.
+- `feature-planning` is bundled for repo-aware implementation plans, task sequencing, acceptance criteria, and validation strategy before coding.
+- `code-review` is bundled for local diff reviews, PR reviews, risk-focused findings, and test-gap analysis.
+- `code-simplification` is bundled for behavior-preserving refactors that reduce nesting, duplication, and unnecessary abstraction.
+- `github-pr-workflow` is bundled for branch creation, commits, PR authoring, CI follow-up, and merge-readiness workflows with GitHub.
+- `write-blog-post` is bundled for audience-aware blog post outlines and drafts built from briefs, notes, transcripts, or source material.
+- `discord` is bundled for Discord channel operations through the `message` tool, including reads, sends, reactions, pins, and threads.
+- `himalaya` is bundled for host-side IMAP/SMTP email workflows through the Himalaya CLI.
+- `google-workspace` is bundled for Gmail, Calendar, Drive, Docs, and Sheets setup guidance plus browser/API workflow coordination.
+- `1password` is bundled for secure `op`-based secret lookup and command injection workflows.
+- `apple-calendar` is bundled for Apple Calendar or iCal workflows, especially `.ics` drafting/import and macOS calendar coordination.
+- `apple-passwords` is bundled for Passwords.app and Keychain-backed credential lookup on macOS.
+- `apple-music` is bundled for macOS Music app playback control, now-playing checks, and Apple Music URL workflows.
 - Use `hybridclaw skill list` to inspect available installers and `hybridclaw skill install pdf [install-id]` when a bundled skill advertises optional setup helpers.
 
 ## Optional Office Dependencies
