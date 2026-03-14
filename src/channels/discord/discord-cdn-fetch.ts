@@ -253,7 +253,10 @@ export async function fetchDiscordCdnBuffer(
           }
           chunks.push(buffer);
         });
-        response.on('close', clearReadIdleTimeout);
+        response.on('close', () => {
+          clearReadIdleTimeout();
+          rejectOnce(new Error('response_closed_prematurely'));
+        });
         response.on('error', rejectOnce);
         response.on('end', () => {
           resolveOnce({
