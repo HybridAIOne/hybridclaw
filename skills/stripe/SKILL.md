@@ -1,6 +1,6 @@
 ---
 name: stripe
-description: Use this skill when the user wants Stripe workflows such as customer or subscription lookup, checkout/payment investigation, webhook testing, dashboard coordination, or Stripe CLI guidance.
+description: Use this skill when the user wants Stripe workflows such as customer or subscription lookup, checkout/payment investigation, webhook testing, dashboard coordination, Stripe API usage, or Stripe CLI guidance.
 user-invocable: true
 metadata:
   hybridclaw:
@@ -17,14 +17,15 @@ metadata:
 
 # Stripe
 
-Use this skill for Stripe Dashboard, Stripe CLI, and integration-debugging
-workflows.
+Use this skill for Stripe Dashboard, Stripe API, Stripe CLI, and
+integration-debugging workflows.
 
 ## Scope
 
 - investigate customers, products, prices, payments, checkout sessions, and
   subscriptions
 - debug webhook delivery and local webhook forwarding
+- inspect or use the Stripe API through an existing authenticated integration
 - coordinate Dashboard actions through the browser when the user is already
   signed in
 - draft safe operational steps for Stripe-backed app changes
@@ -33,8 +34,8 @@ workflows.
 
 1. Confirm whether the task is in test mode or live mode.
 2. Prefer read-only inspection before any mutation.
-3. Use Stripe CLI when a terminal workflow is available; otherwise use the
-   Dashboard in the browser.
+3. Use Stripe CLI or an existing API client when a terminal or application
+   workflow is available; otherwise use the Dashboard in the browser.
 4. Confirm the exact object id or customer email before changing anything.
 
 ## Stripe CLI
@@ -58,6 +59,35 @@ stripe subscriptions retrieve sub_123
 stripe payment_intents retrieve pi_123
 stripe events list --limit 10
 ```
+
+## Stripe API
+
+Use the API when the application already has a configured Stripe client,
+authenticated helper, or server-side integration path.
+
+Prefer the official Stripe SDKs over ad hoc HTTP calls when you are working in
+application code. Useful read-first targets include:
+
+- `/v1/customers/{id}`
+- `/v1/subscriptions/{id}`
+- `/v1/payment_intents/{id}`
+- `/v1/checkout/sessions/{id}`
+- `/v1/events/{id}`
+- `/v1/prices?product={product_id}`
+
+For API-backed debugging:
+
+1. confirm whether the request is against test or live mode
+2. trace one concrete object id end to end
+3. compare the API object state with webhook delivery and app logs
+4. mutate only after the read path is understood
+
+If the user wants integration help, state whether the source of truth is:
+
+- Stripe API
+- Stripe CLI
+- Dashboard
+- application logs
 
 ## Webhook Debugging
 
@@ -104,9 +134,12 @@ them explicitly.
 - Default to test mode unless the user explicitly says live mode.
 - Never paste secret keys, restricted keys, or webhook signing secrets into
   chat.
+- Never invent a new API auth path mid-task when the existing integration is
+  unclear.
 - Do not create refunds, cancellations, or live charges without explicit
   confirmation.
-- State whether you are using the CLI, the Dashboard, or application logs.
+- State whether you are using the Stripe API, CLI, Dashboard, or application
+  logs.
 - For integration bugs, trace one concrete object or event end to end instead of
   reasoning in the abstract.
 
@@ -114,6 +147,7 @@ them explicitly.
 
 - verify whether a checkout session completed
 - inspect why a subscription did not activate
+- compare API object state with webhook processing in the application
 - replay or trigger webhook flows locally
 - locate a customer, product, or price by known identifiers
 - separate application bugs from Stripe configuration issues
