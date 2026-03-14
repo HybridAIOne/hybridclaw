@@ -175,7 +175,7 @@ async function importFreshHealth(options?: {
     text: 'ok',
   }));
   const getGatewayAdminOverview = vi.fn(() => ({
-    status: { status: 'ok', sessions: 2, version: '0.6.0', uptime: 60 },
+    status: { status: 'ok', sessions: 2, version: '0.7.1', uptime: 60 },
     configPath: '/tmp/config.json',
     recentSessions: [],
     usage: {
@@ -200,7 +200,7 @@ async function importFreshHealth(options?: {
   }));
   const getGatewayAgents = vi.fn(() => ({
     generatedAt: '2026-03-11T10:00:00.000Z',
-    version: '0.6.0',
+    version: '0.7.1',
     uptime: 60,
     ralph: {
       enabled: false,

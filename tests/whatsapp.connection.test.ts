@@ -306,7 +306,7 @@ test('debug-level WhatsApp logs keep structured metadata', async () => {
   const updateHandlers = sockets[0]?.evHandlers.get('connection.update');
   updateHandlers?.[0]?.({ qr: 'test-qr' });
   expect(whatsappLogger.info).toHaveBeenCalledWith(
-    { appVersion: '0.6.0' },
+    { appVersion: '0.7.1' },
     'Scan the WhatsApp QR code in Linked Devices',
   );
 });
@@ -348,7 +348,7 @@ test('provides WhatsApp retry replay lookup to Baileys and persists sent message
   expect(sockets[0]?.config.browser).toEqual([
     'HybridClaw',
     'Gateway',
-    '0.6.0',
+    '0.7.1',
   ]);
   expect(typeof sockets[0]?.config.getMessage).toBe('function');
 

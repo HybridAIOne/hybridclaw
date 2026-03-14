@@ -2,39 +2,68 @@
 
 ## [Unreleased]
 
+## [0.7.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.7.1)
+
 ### Added
 
-- **First-class agents and agent commands**: Agents now own workspaces
-  independently of the active model provider, with `agent` commands available
-  through the gateway, TUI, and Discord for inspecting, listing, creating, and
-  switching session bindings.
-- **Agent/session dashboard split**: The `/agents` page and `/api/agents`
-  response now distinguish logical agents from bound sessions so operators can
-  see both workspace-level state and per-session runtime state.
+- **Admin console and agent dashboards**: Added the embedded `/admin` console
+  and `/agents` workspace/session dashboards so operators can inspect gateway
+  state, sessions, channels, config, models, scheduler tasks, MCP servers,
+  audit events, skills, and tools from the browser.
+- **Full-auto session mode**: Added supervised `fullauto` execution with queued
+  proactive delivery, persisted startup resume, watchdog recovery, and explicit
+  interruption when a human takes over the session.
+- **First-class agents**: Agents now own workspaces independently of the active
+  model provider, with `agent` commands exposed through the gateway, TUI, and
+  Discord for creating, listing, switching, and inspecting agent bindings.
+- **WhatsApp, email, and cross-channel messaging**: Added WhatsApp channel
+  integration, a native email channel, replay/message-store support, auth reset
+  tooling, and shared `message` routing so HybridClaw can send and normalize
+  delivery across Discord, WhatsApp, email, and local channels.
+- **Shared audio transcription and OpenRouter auth**: Added inbound audio
+  transcription fallbacks across local CLIs and provider backends plus
+  `hybridclaw auth login|status|logout openrouter` for provider-aware
+  authentication and model selection.
 
 ### Changed
 
 - **Stable workspace identity across model/provider changes**: Session
-  workspaces are now keyed by agent identity instead of provider-derived agent
-  IDs, so switching from one backend or model family to another keeps the same
-  workspace and memory unless the session is explicitly rebound to another
-  agent.
-- **Session visibility control**: Added `show all|thinking|tools|none` across
-  gateway, TUI, Discord, and web chat so each session can suppress thinking
-  previews and tool activity independently.
-- **Runtime status visibility**: Shared `status` output in TUI and Discord now
-  includes the current session agent alongside the effective model and sandbox
-  state.
+  workspaces are keyed by agent identity instead of provider-derived agent IDs,
+  so switching models or providers keeps the same workspace and memory unless
+  the session is explicitly rebound.
+- **Session visibility and status controls**: Added
+  `show all|thinking|tools|none` across gateway, TUI, Discord, and web chat,
+  while shared status output now includes the current session agent and
+  effective model.
+- **Media and prompt routing**: Current-turn attachments and media now flow
+  through shared routing for Discord, WhatsApp, email, and local clients,
+  including native vision/audio injection paths and stronger preference for
+  current-turn local files over history rediscovery.
+- **Auxiliary task/provider routing**: Added Hermes-style auxiliary routing and
+  tighter provider fallback handling so deferred or background tasks pick the
+  right model more predictably.
 - **Discord activation config cleanup**: Removed the obsolete
   `discord.respondToAllMessages` config path. Guild activation now follows
   `channel mode`, guild policy, and explicit free-response channel settings.
 
 ### Fixed
 
-- **Heartbeat/tool-call stream timeouts**: Hidden stream activity now extends
-  the IPC inactivity deadline even when providers emit tool-call or reasoning
-  chunks without visible text, preventing false heartbeat timeouts on long
-  local-model turns.
+- **Approval/runtime guard hardening**: Tightened approval confirmation flows,
+  tool runtime guards, and gateway/runtime follow-up handling so blocked or
+  long-running turns fail more predictably.
+- **Agent, TUI, and heartbeat stability**: Improved TUI streaming and silent
+  reply handling, stabilized agent dashboards and heartbeat activity tracking,
+  and preserved visibility on long-running turns.
+- **WhatsApp and email delivery reliability**: Fixed WhatsApp auth-lock races,
+  timeout handling, follow-up delivery edge cases, local message-store
+  persistence, and email runtime/delivery hardening.
+- **Audio/media path handling**: Hardened audio transcription media-path
+  resolution, PDF truncation, and current-turn media handling across gateway
+  and container paths.
+- **Discord media cache hardening**: Added SSRF-guarded Discord CDN fetches,
+  per-type cache limits, Unicode-aware filename sanitization, explicit
+  permissions, and lazy TTL-based cleanup with empty-directory pruning for
+  cached inbound media.
 
 ## [0.6.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.6.0)
 

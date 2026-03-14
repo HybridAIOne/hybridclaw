@@ -694,7 +694,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 22+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.6.0.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 22+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.7.1.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -733,30 +733,30 @@
 
 <section id="latest">
   <div class="section-center">
-    <div class="section-label">Release v0.6.0</div>
+    <div class="section-label">Release v0.7.1</div>
     <h2 class="section-title">Latest release highlights</h2>
-    <p class="section-desc">Key improvements included in the latest tagged release.</p>
+    <p class="section-desc">Key improvements included since v0.6.0.</p>
   </div>
     <div class="features-grid">
       <div class="feature-card">
       <div class="feature-icon">&#x1f4bb;</div>
-      <h3>Local model backends</h3>
-      <p>HybridClaw now supports local Ollama, LM Studio, and vLLM providers with <code>hybridclaw local configure|status</code>, live discovery, health monitoring, and local model selection across gateway, TUI, and Discord.</p>
+      <h3>First-class agents</h3>
+      <p>Agents now own stable workspaces across provider changes, with shared <code>agent</code>, <code>show</code>, and <code>status</code> controls available through the gateway, TUI, and Discord.</p>
       </div>
       <div class="feature-card">
       <div class="feature-icon">&#x23f1;&#xfe0f;</div>
-      <h3>Activity-based timeouts</h3>
-      <p>The agent IPC timeout now extends when a model is still producing text or tool progress, which keeps slower local models alive as long as they continue making visible progress.</p>
+      <h3>Admin console and full-auto mode</h3>
+      <p>The browser console now exposes admin, agents, and runtime dashboards, while supervised <code>fullauto</code> sessions can resume queued work and stop cleanly when a human takes over.</p>
       </div>
       <div class="feature-card">
       <div class="feature-icon">&#x1f5d1;&#xfe0f;</div>
-      <h3>Session reset workflow</h3>
-      <p>Gateway, TUI, and Discord now share a confirmed <code>reset</code> flow that clears history, restores per-session defaults, and removes the active agent workspace without leaving stale session state behind.</p>
+      <h3>Cross-channel delivery</h3>
+      <p>HybridClaw adds WhatsApp and email channels, shared message routing, and audio transcription fallbacks so the same assistant can ingest and reply across Discord, WhatsApp, email, and local clients.</p>
       </div>
       <div class="feature-card">
       <div class="feature-icon">&#x1f527;</div>
-      <h3>Runtime stability fixes</h3>
-      <p>Worker pools now restart on backend/auth changes, host-mode prompts use real filesystem paths instead of container-only mounts, and compaction budgets account for large system prompts correctly.</p>
+      <h3>Hardened runtime edges</h3>
+      <p>Approval/runtime guards, auxiliary task routing, and Discord media caching were tightened with better follow-up handling, SSRF-resistant CDN fetches, explicit cache permissions, and TTL cleanup.</p>
       </div>
   </div>
 </section>
