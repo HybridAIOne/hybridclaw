@@ -15,6 +15,8 @@ export interface TuiSlashMenuEntry {
   insertText: string;
   description: string;
   searchTerms: string[];
+  // Lower depth keeps parent commands ahead of nested variants when empty
+  // queries or score ties fall back to structural ordering.
   depth: number;
   sortIndex: number;
 }

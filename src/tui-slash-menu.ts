@@ -298,6 +298,8 @@ const SCORE_WEIGHTS = {
   substringIndexPenalty: 5,
   subsequenceGapPenalty: 10,
   subsequenceStartPenalty: 2,
+  // Lower-depth entries should stay ahead of nested variants when the query is
+  // empty or multiple candidates land in the same fuzzy-match bucket.
   emptyQueryDepthPenalty: 10,
   depthBonusBase: 20,
   depthBonusPenalty: 3,
