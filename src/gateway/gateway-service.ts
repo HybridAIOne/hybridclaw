@@ -107,7 +107,10 @@ import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
-import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
+import {
+  fetchHybridAIBots,
+  updateBotUsedFor,
+} from '../providers/hybridai-bots.js';
 import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
 import {
   getLocalModelInfo,
@@ -4025,7 +4028,16 @@ export async function handleGatewayCommand(
         } catch {
           // keep user-supplied value when lookup fails
         }
+        const previousBotId = session.chatbot_id;
         updateSessionChatbot(session.id, resolvedBotId);
+
+        // Notify HybridAI about the bot change (fire-and-forget)
+        const agentId = resolveSessionAgentId(session);
+        if (previousBotId && previousBotId !== resolvedBotId) {
+          void updateBotUsedFor(previousBotId, null);
+        }
+        void updateBotUsedFor(resolvedBotId, agentId);
+
         return plainCommand(
           `Chatbot set to \`${resolvedBotId}\` for this session.`,
         );
@@ -4565,6 +4577,9 @@ export async function handleGatewayCommand(
         await disableFullAutoSession({ sessionId: session.id });
         interruptGatewaySessionExecution(req.sessionId);
         const deleted = memoryService.clearSessionHistory(session.id);
+        if (session.chatbot_id) {
+          void updateBotUsedFor(session.chatbot_id, null);
+        }
         updateSessionChatbot(session.id, null);
         updateSessionModel(session.id, null);
         updateSessionRag(session.id, HYBRIDAI_ENABLE_RAG);
