@@ -1,6 +1,9 @@
 import path from 'node:path';
 
-import { TrustedCoworkerApprovalRuntime } from './approval-policy.js';
+import {
+  type ToolApprovalEvaluation,
+  TrustedCoworkerApprovalRuntime,
+} from './approval-policy.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import {
   emitRuntimeEvent,
@@ -53,6 +56,10 @@ import {
   recordToolCallOutcome,
 } from './tool-loop-detection.js';
 import {
+  getToolExecutionMode,
+  mapConcurrentInOrder,
+} from './tool-parallelism.js';
+import {
   executeToolWithMetadata,
   getMessageToolDescription,
   getPendingSideEffects,
@@ -74,6 +81,7 @@ import {
   type ContainerInput,
   type ContainerOutput,
   TASK_MODEL_KEYS,
+  type ToolCall,
   type ToolDefinition,
   type ToolExecution,
 } from './types.js';
@@ -462,6 +470,137 @@ function collectRequestedArtifacts(params: {
   }
 }
 
+interface PreparedToolCallExecution {
+  call: ToolCall;
+  approval: ToolApprovalEvaluation;
+}
+
+interface CompletedToolCallExecution {
+  toolName: string;
+  argsJson: string;
+  result: string;
+  isError: boolean;
+  succeeded: boolean;
+  execution: ToolExecution;
+  historyMessage: ChatMessage;
+  artifacts: ArtifactMetadata[];
+}
+
+function logToolCallStart(
+  toolName: string,
+  argsJson: string,
+  approval: ToolApprovalEvaluation,
+): void {
+  const toolPreview =
+    approval.tier === 'yellow'
+      ? approvalRuntime.formatYellowNarration(approval)
+      : argsJson.slice(0, 100);
+  console.error(`[tool] ${toolName}: ${toolPreview}`);
+}
+
+function appendCompletedToolCall(params: {
+  completed: CompletedToolCallExecution;
+  toolExecutions: ToolExecution[];
+  history: ChatMessage[];
+  toolCallHistory: ToolCallHistoryEntry[];
+  artifacts: ArtifactMetadata[];
+  artifactPaths: Set<string>;
+}): void {
+  params.toolExecutions.push(params.completed.execution);
+  for (const artifact of params.completed.artifacts) {
+    const artifactKey = normalizeArtifactKey(artifact.path);
+    if (params.artifactPaths.has(artifactKey)) continue;
+    params.artifactPaths.add(artifactKey);
+    params.artifacts.push(artifact);
+  }
+  params.history.push(params.completed.historyMessage);
+  recordToolCallOutcome(
+    params.toolCallHistory,
+    params.completed.toolName,
+    params.completed.argsJson,
+    params.completed.result,
+    params.completed.isError,
+  );
+}
+
+async function executePreparedToolCall(
+  prepared: PreparedToolCallExecution,
+  toolCallHistory: ToolCallHistoryEntry[],
+): Promise<CompletedToolCallExecution> {
+  const { call, approval } = prepared;
+  const toolName = call.function.name;
+  const argsJson = call.function.arguments;
+  const toolStart = Date.now();
+
+  if (
+    approval.tier === 'yellow' &&
+    approval.implicitDelayMs &&
+    approval.implicitDelayMs > 0
+  ) {
+    await sleep(approval.implicitDelayMs);
+  }
+
+  const blockedReason = await runBeforeToolHooks(toolName, argsJson);
+  const loopGuard = blockedReason
+    ? { stuck: false as const }
+    : detectToolCallLoop(toolCallHistory, toolName, argsJson);
+  const runtimeResult = blockedReason
+    ? {
+        output: `Tool blocked by security hook: ${blockedReason}`,
+        isError: true,
+      }
+    : loopGuard.stuck
+      ? {
+          output: loopGuard.message,
+          isError: true,
+        }
+      : await executeToolWithMetadata(toolName, argsJson);
+  const toolDuration = Date.now() - toolStart;
+  const result = runtimeResult.output;
+  const isError = runtimeResult.isError;
+  const executionBlockedReason =
+    blockedReason || (loopGuard.stuck ? loopGuard.message : null);
+  const succeeded = !isError;
+
+  if (succeeded) {
+    captureSkillSelection(toolName, argsJson);
+  }
+  approvalRuntime.afterToolExecution(approval, succeeded);
+  if (!executionBlockedReason) {
+    await runAfterToolHooks(toolName, argsJson, result);
+  }
+
+  console.error(
+    `[tool] ${toolName} result (${toolDuration}ms): ${result.slice(0, 100)}`,
+  );
+
+  return {
+    toolName,
+    argsJson,
+    result,
+    isError,
+    succeeded,
+    execution: {
+      name: toolName,
+      arguments: argsJson,
+      result,
+      durationMs: toolDuration,
+      isError,
+      blocked: Boolean(executionBlockedReason),
+      blockedReason: executionBlockedReason || undefined,
+      approvalTier: approval.tier,
+      approvalBaseTier: approval.baseTier,
+      approvalDecision: executionBlockedReason ? 'denied' : approval.decision,
+      approvalActionKey: approval.actionKey,
+      approvalReason: approval.reason,
+      approvalRequestId: approval.requestId,
+      approvalExpiresAt: approval.expiresAtMs,
+    },
+    historyMessage: { role: 'tool', content: result, tool_call_id: call.id },
+    artifacts: extractToolArtifacts(toolName, result),
+  };
+}
+
 async function callHybridAIWithRetry(params: {
   provider?:
     | 'hybridai'
@@ -815,29 +954,116 @@ async function processRequest(
     }
 
     let successfulToolCallsThisTurn = 0;
-    for (const call of toolCalls) {
+    for (let callIndex = 0; callIndex < toolCalls.length; ) {
+      const call = toolCalls[callIndex];
       const toolName = call.function.name;
+      const executionMode = getToolExecutionMode(
+        toolName,
+        call.function.arguments,
+      );
+
+      if (executionMode === 'parallel') {
+        const candidateCalls: ToolCall[] = [];
+        while (callIndex + candidateCalls.length < toolCalls.length) {
+          const candidate = toolCalls[callIndex + candidateCalls.length];
+          if (
+            getToolExecutionMode(
+              candidate.function.name,
+              candidate.function.arguments,
+            ) !== 'parallel'
+          ) {
+            break;
+          }
+          candidateCalls.push(candidate);
+        }
+
+        const preparedBatch: PreparedToolCallExecution[] = [];
+        for (const candidate of candidateCalls) {
+          const candidateApproval = approvalRuntime.evaluateToolCall({
+            toolName: candidate.function.name,
+            argsJson: candidate.function.arguments,
+            latestUserPrompt: effectiveUserPrompt,
+          });
+          if (
+            candidateApproval.decision === 'required' ||
+            candidateApproval.decision === 'denied' ||
+            candidateApproval.tier !== 'green'
+          ) {
+            break;
+          }
+          toolsUsed.push(candidate.function.name);
+          logToolCallStart(
+            candidate.function.name,
+            candidate.function.arguments,
+            candidateApproval,
+          );
+          preparedBatch.push({
+            call: candidate,
+            approval: candidateApproval,
+          });
+        }
+
+        if (preparedBatch.length > 1) {
+          console.error(
+            `[tool] running ${preparedBatch.length} read-only tool calls concurrently`,
+          );
+          const completedBatch = await mapConcurrentInOrder(
+            preparedBatch,
+            (prepared) => executePreparedToolCall(prepared, toolCallHistory),
+          );
+          for (const completed of completedBatch) {
+            if (completed.succeeded) {
+              successfulToolCallsThisTurn += 1;
+            }
+            appendCompletedToolCall({
+              completed,
+              toolExecutions,
+              history,
+              toolCallHistory,
+              artifacts,
+              artifactPaths,
+            });
+          }
+          callIndex += preparedBatch.length;
+          continue;
+        }
+
+        if (preparedBatch.length === 1) {
+          const completed = await executePreparedToolCall(
+            preparedBatch[0],
+            toolCallHistory,
+          );
+          if (completed.succeeded) {
+            successfulToolCallsThisTurn += 1;
+          }
+          appendCompletedToolCall({
+            completed,
+            toolExecutions,
+            history,
+            toolCallHistory,
+            artifacts,
+            artifactPaths,
+          });
+          callIndex += 1;
+          continue;
+        }
+      }
+
       const approval = approvalRuntime.evaluateToolCall({
         toolName,
         argsJson: call.function.arguments,
         latestUserPrompt: effectiveUserPrompt,
       });
-
       toolsUsed.push(toolName);
-      const toolPreview =
-        approval.tier === 'yellow'
-          ? approvalRuntime.formatYellowNarration(approval)
-          : call.function.arguments.slice(0, 100);
-      console.error(`[tool] ${toolName}: ${toolPreview}`);
-      const toolStart = Date.now();
+      logToolCallStart(toolName, call.function.arguments, approval);
+
       if (approval.decision === 'required') {
-        const toolDuration = Date.now() - toolStart;
         const prompt = approvalRuntime.formatApprovalRequest(approval);
         toolExecutions.push({
           name: toolName,
           arguments: call.function.arguments,
           result: prompt,
-          durationMs: toolDuration,
+          durationMs: 0,
           isError: false,
           blocked: true,
           blockedReason: approval.reason,
@@ -865,14 +1091,14 @@ async function processRequest(
         });
         return waitingForApproval;
       }
+
       if (approval.decision === 'denied') {
-        const toolDuration = Date.now() - toolStart;
         const denialText = `Approval denied: ${approval.reason}`;
         toolExecutions.push({
           name: toolName,
           arguments: call.function.arguments,
           result: denialText,
-          durationMs: toolDuration,
+          durationMs: 0,
           isError: true,
           blocked: true,
           blockedReason: approval.reason,
@@ -900,82 +1126,26 @@ async function processRequest(
         });
         return denied;
       }
-      if (
-        approval.tier === 'yellow' &&
-        approval.implicitDelayMs &&
-        approval.implicitDelayMs > 0
-      ) {
-        await sleep(approval.implicitDelayMs);
-      }
-      const blockedReason = await runBeforeToolHooks(
-        toolName,
-        call.function.arguments,
-      );
-      const loopGuard = blockedReason
-        ? { stuck: false as const }
-        : detectToolCallLoop(
-            toolCallHistory,
-            toolName,
-            call.function.arguments,
-          );
-      const runtimeResult = blockedReason
-        ? {
-            output: `Tool blocked by security hook: ${blockedReason}`,
-            isError: true,
-          }
-        : loopGuard.stuck
-          ? {
-              output: loopGuard.message,
-              isError: true,
-            }
-          : await executeToolWithMetadata(toolName, call.function.arguments);
-      const toolDuration = Date.now() - toolStart;
-      const result = runtimeResult.output;
-      const isError = runtimeResult.isError;
-      const executionBlockedReason =
-        blockedReason || (loopGuard.stuck ? loopGuard.message : null);
-      const succeeded = !isError;
-      if (succeeded) {
-        successfulToolCallsThisTurn += 1;
-        captureSkillSelection(toolName, call.function.arguments);
-      }
-      approvalRuntime.afterToolExecution(approval, succeeded);
-      if (!executionBlockedReason) {
-        await runAfterToolHooks(toolName, call.function.arguments, result);
-      }
-      console.error(
-        `[tool] ${toolName} result (${toolDuration}ms): ${result.slice(0, 100)}`,
-      );
-      toolExecutions.push({
-        name: toolName,
-        arguments: call.function.arguments,
-        result,
-        durationMs: toolDuration,
-        isError,
-        blocked: Boolean(executionBlockedReason),
-        blockedReason: executionBlockedReason || undefined,
-        approvalTier: approval.tier,
-        approvalBaseTier: approval.baseTier,
-        approvalDecision: executionBlockedReason ? 'denied' : approval.decision,
-        approvalActionKey: approval.actionKey,
-        approvalReason: approval.reason,
-        approvalRequestId: approval.requestId,
-        approvalExpiresAt: approval.expiresAtMs,
-      });
-      for (const artifact of extractToolArtifacts(toolName, result)) {
-        const artifactKey = normalizeArtifactKey(artifact.path);
-        if (artifactPaths.has(artifactKey)) continue;
-        artifactPaths.add(artifactKey);
-        artifacts.push(artifact);
-      }
-      history.push({ role: 'tool', content: result, tool_call_id: call.id });
-      recordToolCallOutcome(
+
+      const completed = await executePreparedToolCall(
+        {
+          call,
+          approval,
+        },
         toolCallHistory,
-        toolName,
-        call.function.arguments,
-        result,
-        isError,
       );
+      if (completed.succeeded) {
+        successfulToolCallsThisTurn += 1;
+      }
+      appendCompletedToolCall({
+        completed,
+        toolExecutions,
+        history,
+        toolCallHistory,
+        artifacts,
+        artifactPaths,
+      });
+      callIndex += 1;
     }
     stalledTurns = advanceStalledTurnCount({
       current: stalledTurns,
