@@ -135,9 +135,7 @@ function readTemplateFile(filename: (typeof BOOTSTRAP_FILES)[number]): string {
 function stripMarkdownSection(content: string, heading: string): string {
   const lines = content.replace(/\r\n/g, '\n').split('\n');
   const targetHeading = `## ${heading}`;
-  const startIndex = lines.findIndex(
-    (line) => line.trim() === targetHeading,
-  );
+  const startIndex = lines.findIndex((line) => line.trim() === targetHeading);
   if (startIndex === -1) return content;
 
   let endIndex = lines.length;
@@ -149,7 +147,10 @@ function stripMarkdownSection(content: string, heading: string): string {
   }
 
   const nextLines = [...lines.slice(0, startIndex), ...lines.slice(endIndex)];
-  return nextLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return nextLines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function normalizeContextFileContent(params: {
@@ -339,7 +340,11 @@ export function loadBootstrapFiles(agentId: string): ContextFile[] {
       let content = fs.readFileSync(filePath, 'utf-8').trim();
       if (!content) continue;
 
-      content = normalizeContextFileContent({ agentId, name: filename, content });
+      content = normalizeContextFileContent({
+        agentId,
+        name: filename,
+        content,
+      });
       if (!content) continue;
 
       if (content.length > MAX_FILE_CHARS) {

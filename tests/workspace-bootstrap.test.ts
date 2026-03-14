@@ -103,7 +103,9 @@ describe('workspace bootstrap lifecycle', () => {
     workspace.ensureBootstrapFiles('agent-test');
 
     const preHatchFiles = workspace.loadBootstrapFiles('agent-test');
-    const preHatchAgents = preHatchFiles.find((file) => file.name === 'AGENTS.md');
+    const preHatchAgents = preHatchFiles.find(
+      (file) => file.name === 'AGENTS.md',
+    );
     expect(preHatchAgents?.content).toContain('## First Run');
 
     const workspaceDir = ipc.agentWorkspaceDir('agent-test');

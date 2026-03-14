@@ -698,7 +698,10 @@ function spinner(): {
       process.stdout.write(formatted.text);
     },
     flushVisibleText: () => {
-      const formatted = flushTuiStreamDelta(visibleTextState, terminalColumns());
+      const formatted = flushTuiStreamDelta(
+        visibleTextState,
+        terminalColumns(),
+      );
       visibleTextState = formatted.state;
       if (!formatted.text) return;
       clearThinkingPreview();

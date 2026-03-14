@@ -82,10 +82,9 @@ test('expands slash skill invocations into explicit skill instructions', () => {
 test('does not expand ordinary prose that merely mentions a skill topic', () => {
   const appleMusic = makeTempSkill('apple-music');
 
-  const expanded = expandSkillInvocation(
-    'Skip to next song on Apple Music',
-    [appleMusic],
-  );
+  const expanded = expandSkillInvocation('Skip to next song on Apple Music', [
+    appleMusic,
+  ]);
 
   expect(expanded).toBe('Skip to next song on Apple Music');
 });

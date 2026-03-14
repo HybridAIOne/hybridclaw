@@ -1058,7 +1058,8 @@ function parseSkillInvocation(
       spaceIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIndex);
     const requestedName = rawSkillName.trim();
     if (requestedName) {
-      const args = spaceIndex === -1 ? '' : trimmed.slice(spaceIndex + 1).trim();
+      const args =
+        spaceIndex === -1 ? '' : trimmed.slice(spaceIndex + 1).trim();
       const skill =
         findInvocableSkill(skills, requestedName) ||
         findSkillCommand(skillCommands, requestedName)?.skill ||
@@ -1074,7 +1075,8 @@ function parseSkillInvocation(
   const spaceIndex = trimmed.indexOf(' ');
   const commandName =
     spaceIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIndex);
-  const remainder = spaceIndex === -1 ? '' : trimmed.slice(spaceIndex + 1).trim();
+  const remainder =
+    spaceIndex === -1 ? '' : trimmed.slice(spaceIndex + 1).trim();
   if (!commandName.trim()) return null;
 
   const lowerCommand = commandName.trim().toLowerCase();

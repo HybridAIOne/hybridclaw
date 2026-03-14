@@ -35,17 +35,17 @@ test('indents the first streamed line and preserves newlines', () => {
 });
 
 test('keeps indent state open when a delta ends with a newline', () => {
-  expect(
-    formatTuiStreamDelta('hello\n', createTuiStreamFormatState()),
-  ).toEqual({
-    text: '  hello\n',
-    state: {
-      lineNeedsIndent: true,
-      currentLineWidth: 0,
-      pendingWhitespace: '',
-      pendingToken: '',
+  expect(formatTuiStreamDelta('hello\n', createTuiStreamFormatState())).toEqual(
+    {
+      text: '  hello\n',
+      state: {
+        lineNeedsIndent: true,
+        currentLineWidth: 0,
+        pendingWhitespace: '',
+        pendingToken: '',
+      },
     },
-  });
+  );
 });
 
 test('continues an already-open streamed line without re-indenting it', () => {

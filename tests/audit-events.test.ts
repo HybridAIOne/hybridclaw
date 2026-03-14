@@ -85,7 +85,8 @@ test('emits approval request and response events for pending red actions', async
       {
         name: 'bash',
         arguments: '{"command":"open -a Music"}',
-        result: 'I need your approval before I run shell command `open -a Music`.',
+        result:
+          'I need your approval before I run shell command `open -a Music`.',
         durationMs: 8,
         isError: false,
         blocked: true,
