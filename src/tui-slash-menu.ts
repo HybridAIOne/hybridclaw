@@ -463,6 +463,7 @@ export class TuiSlashMenuController {
         this.sync(result.state);
         return;
       }
+      this.clear();
       this.originalTtyWrite?.(chunk, key);
       this.sync();
     };
@@ -600,6 +601,7 @@ export class TuiSlashMenuController {
     // Mutating `line`/`cursor` keeps readline history and prompt state intact,
     // but it is also part of the same Node.js-internal contract documented
     // above.
+    this.clear();
     this.rl.line = selectedEntry.insertText;
     this.rl.cursor = selectedEntry.insertText.length;
     this.rl._refreshLine?.();

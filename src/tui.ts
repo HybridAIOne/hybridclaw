@@ -822,11 +822,13 @@ function syncTuiSlashMenu(): void {
 }
 
 function promptTuiInput(rl: readline.Interface): void {
+  clearTuiSlashMenu();
   rl.prompt();
   syncTuiSlashMenu();
 }
 
 function refreshPrompt(rl: readline.Interface): void {
+  clearTuiSlashMenu();
   rl.setPrompt(buildPromptText());
   const internal = rl as TuiReadlineInterface;
   internal._refreshLine?.();
