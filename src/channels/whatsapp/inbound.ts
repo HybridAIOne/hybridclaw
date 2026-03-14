@@ -30,16 +30,6 @@ import {
 const STATUS_BROADCAST_JID = 'status@broadcast';
 const normalizedAllowListCache = new WeakMap<string[], string[]>();
 
-function isManagedWhatsAppMediaPath(filePath: string): boolean {
-  return (
-    resolveManagedTempMediaDir({
-      filePath,
-      rootDir: os.tmpdir(),
-      prefixes: [WHATSAPP_MEDIA_TMP_PREFIX],
-    }) !== null
-  );
-}
-
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]+/g, '_');
 }
@@ -288,12 +278,8 @@ export async function cleanupWhatsAppInboundMedia(
 ): Promise<void> {
   const tempDirs = new Set<string>();
   for (const item of media) {
-    if (!item.path || !isManagedWhatsAppMediaPath(item.path)) continue;
-    const managedDir = resolveManagedTempMediaDir({
-      filePath: item.path,
-      rootDir: os.tmpdir(),
-      prefixes: [WHATSAPP_MEDIA_TMP_PREFIX],
-    });
+    if (!item.path) continue;
+    const managedDir = resolveManagedTempMediaDir({ filePath: item.path });
     if (!managedDir) continue;
     tempDirs.add(managedDir);
   }
