@@ -74,4 +74,45 @@ describe('runManagedMediaCleanup', () => {
     });
     expect(cleanupManagedTempMediaDirectories).not.toHaveBeenCalled();
   });
+
+  test('logs each cleanup failure against the correct task', async () => {
+    const discordError = new Error('discord failed');
+    const managedTempError = new Error('managed temp failed');
+    const triggerDiscordMediaCacheCleanup = vi.fn(() =>
+      Promise.reject(discordError),
+    );
+    const cleanupManagedTempMediaDirectories = vi.fn(() =>
+      Promise.reject(managedTempError),
+    );
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+
+    vi.doMock('../src/channels/discord/media-cache.ts', () => ({
+      triggerDiscordMediaCacheCleanup,
+    }));
+    vi.doMock('../src/media/managed-temp-media.ts', () => ({
+      MANAGED_TEMP_MEDIA_DIR_PREFIXES: ['hybridclaw-wa-'],
+      cleanupManagedTempMediaDirectories,
+    }));
+    vi.doMock('../src/logger.js', () => ({ logger }));
+
+    const { runManagedMediaCleanup } = await import(
+      '../src/gateway/managed-media-cleanup.js'
+    );
+
+    await runManagedMediaCleanup('startup');
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      { error: discordError, reason: 'startup' },
+      'Discord media cache cleanup failed',
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      { error: managedTempError, reason: 'startup' },
+      'Managed temp media cleanup failed',
+    );
+  });
 });

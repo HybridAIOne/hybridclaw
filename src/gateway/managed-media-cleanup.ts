@@ -8,27 +8,26 @@ import {
 export async function runManagedMediaCleanup(
   reason: 'startup' | 'shutdown',
 ): Promise<void> {
-  const cleanupTasks: Array<Promise<void> | null> = [
-    triggerDiscordMediaCacheCleanup({ force: true }),
-  ];
-  if (reason === 'startup') {
-    cleanupTasks.push(
-      cleanupManagedTempMediaDirectories({
-        prefixes: MANAGED_TEMP_MEDIA_DIR_PREFIXES,
-      }),
-    );
-  }
+  const discordTask = triggerDiscordMediaCacheCleanup({ force: true });
+  const managedTempTask =
+    reason === 'startup'
+      ? cleanupManagedTempMediaDirectories({
+          prefixes: MANAGED_TEMP_MEDIA_DIR_PREFIXES,
+        })
+      : null;
 
-  const results = await Promise.allSettled(cleanupTasks);
+  const [discordCleanup, managedTempCleanup] = await Promise.allSettled([
+    discordTask ?? Promise.resolve(),
+    managedTempTask ?? Promise.resolve(),
+  ]);
 
-  const [discordCleanup, managedTempCleanup] = results;
-  if (discordCleanup.status === 'rejected') {
+  if (discordTask && discordCleanup.status === 'rejected') {
     logger.warn(
       { error: discordCleanup.reason, reason },
       'Discord media cache cleanup failed',
     );
   }
-  if (managedTempCleanup?.status === 'rejected') {
+  if (managedTempTask && managedTempCleanup.status === 'rejected') {
     logger.warn(
       { error: managedTempCleanup.reason, reason },
       'Managed temp media cleanup failed',
