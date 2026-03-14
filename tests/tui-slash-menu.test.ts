@@ -1,4 +1,4 @@
-import readline from 'node:readline';
+import type readline from 'node:readline';
 
 import { expect, test, vi } from 'vitest';
 
@@ -106,10 +106,9 @@ function buildControllerHarness() {
 test('clears the current menu before readline redraws typed input', () => {
   const { rl, operations } = buildControllerHarness();
 
-  (rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void })._ttyWrite(
-    'd',
-    { name: 'd' },
-  );
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('d', { name: 'd' });
 
   expect(operations.findIndex((entry) => entry === 'tty:d')).toBeGreaterThan(
     operations.findIndex((entry) => entry.startsWith('write:')),
@@ -119,10 +118,9 @@ test('clears the current menu before readline redraws typed input', () => {
 test('clears the current menu before refreshing a completed selection', () => {
   const { rl, operations } = buildControllerHarness();
 
-  (rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void })._ttyWrite(
-    '\t',
-    { name: 'tab' },
-  );
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('\t', { name: 'tab' });
 
   expect(operations.findIndex((entry) => entry === 'refresh')).toBeGreaterThan(
     operations.findIndex((entry) => entry.startsWith('write:')),

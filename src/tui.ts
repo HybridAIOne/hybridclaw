@@ -48,16 +48,16 @@ import {
   shouldRouteTuiInputToFullAuto,
   type TuiFullAutoState,
 } from './tui-fullauto.js';
+import {
+  buildTuiReadlineHistory,
+  resolveTuiHistoryFetchLimit,
+} from './tui-history.js';
 import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
 import {
   mapTuiApproveSlashToMessage,
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
 } from './tui-slash-command.js';
-import {
-  buildTuiReadlineHistory,
-  resolveTuiHistoryFetchLimit,
-} from './tui-history.js';
 import {
   buildTuiSlashMenuEntries,
   TuiSlashMenuController,
@@ -860,9 +860,14 @@ async function fetchInitialFullAutoState(): Promise<TuiFullAutoState> {
   }
 }
 
-async function fetchTuiInputHistory(limit = TUI_HISTORY_SIZE): Promise<string[]> {
+async function fetchTuiInputHistory(
+  limit = TUI_HISTORY_SIZE,
+): Promise<string[]> {
   try {
-    const response = await gatewayHistory(SESSION_ID, resolveTuiHistoryFetchLimit(limit));
+    const response = await gatewayHistory(
+      SESSION_ID,
+      resolveTuiHistoryFetchLimit(limit),
+    );
     return buildTuiReadlineHistory(response.history, limit);
   } catch {
     return [];

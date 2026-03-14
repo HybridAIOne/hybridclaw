@@ -74,7 +74,10 @@ function compactSearchText(value: string): string {
 }
 
 function sanitizeLabelForSearch(label: string): string {
-  return label.replace(/[<>\[\]"]/g, ' ').replace(/\s+/g, ' ').trim();
+  return label
+    .replace(/[<>[\]"]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function isStringOption(
@@ -99,7 +102,9 @@ function isSubcommandOption(
   );
 }
 
-function formatOptionToken(option: CanonicalSlashStringOptionDefinition): string {
+function formatOptionToken(
+  option: CanonicalSlashStringOptionDefinition,
+): string {
   const cleanedName = option.name.trim();
   if (
     Array.isArray(option.choices) &&
@@ -572,10 +577,7 @@ export class TuiSlashMenuController {
       return { handled: true, state };
     }
 
-    if (
-      key.name === 'down' ||
-      (key.ctrl === true && key.name === 'n')
-    ) {
+    if (key.name === 'down' || (key.ctrl === true && key.name === 'n')) {
       if (state.entries.length === 0) return { handled: true, state };
       this.selectedIndex = (this.selectedIndex + 1) % state.entries.length;
       return { handled: true, state };
