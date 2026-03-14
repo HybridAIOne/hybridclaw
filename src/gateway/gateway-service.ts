@@ -747,6 +747,13 @@ function summarizeAuditPayload(payloadRaw: string): string {
   }
 }
 
+function boundAuditActorField(
+  value: string | null | undefined,
+): string | null | undefined {
+  if (typeof value !== 'string') return value;
+  return value.slice(0, 128);
+}
+
 function formatHybridAIBotFetchError(error: unknown): string {
   if (error instanceof MissingRequiredEnvVarError) {
     return 'HybridAI bot commands require HybridAI API credentials. Run `hybridclaw hybridai login` and try again.';
@@ -4183,8 +4190,8 @@ export async function handleGatewayCommand(
               b.name.toLowerCase() === requested.toLowerCase(),
           );
           if (matched) resolvedBotId = matched.id;
-        } catch {
-          // keep user-supplied value when lookup fails
+        } catch (err) {
+          return badCommand('Error', formatHybridAIBotFetchError(err));
         }
         updateSessionChatbot(session.id, resolvedBotId);
         recordAuditEvent({
@@ -4197,8 +4204,8 @@ export async function handleGatewayCommand(
             previousBotId,
             resolvedBotId,
             changed: previousBotId !== resolvedBotId,
-            userId: req.userId,
-            username: req.username,
+            userId: boundAuditActorField(req.userId),
+            username: boundAuditActorField(req.username),
           },
         });
         return plainCommand(

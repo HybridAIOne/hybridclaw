@@ -1,42 +1,15 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { expect, test, vi } from 'vitest';
+import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
-import { afterEach, expect, test, vi } from 'vitest';
-
-const ORIGINAL_HOME = process.env.HOME;
-const ORIGINAL_DISABLE_CONFIG_WATCHER =
-  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
-
-function makeTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-gateway-bot-auth-'));
-}
-
-function restoreEnvVar(name: string, value: string | undefined): void {
-  if (value === undefined) {
-    delete process.env[name];
-    return;
-  }
-  process.env[name] = value;
-}
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  vi.doUnmock('../src/providers/hybridai-bots.ts');
-  vi.resetModules();
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-  restoreEnvVar(
-    'HYBRIDCLAW_DISABLE_CONFIG_WATCHER',
-    ORIGINAL_DISABLE_CONFIG_WATCHER,
-  );
+const { setupHome } = setupGatewayTest({
+  tempHomePrefix: 'hybridclaw-gateway-bot-auth-',
+  cleanup: () => {
+    vi.doUnmock('../src/providers/hybridai-bots.ts');
+  },
 });
 
 test('bot list returns an actionable message on HybridAI auth failure', async () => {
-  const homeDir = makeTempHome();
-  process.env.HOME = homeDir;
-  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
-  vi.resetModules();
+  setupHome();
 
   const { initDatabase } = await import('../src/memory/db.ts');
   initDatabase({ quiet: true });
@@ -63,6 +36,38 @@ test('bot list returns an actionable message on HybridAI auth failure', async ()
   });
 });
 
+test('bot set fails fast on HybridAI auth failure without mutating session state', async () => {
+  setupHome();
+
+  const { getRecentStructuredAuditForSession, getSessionById, initDatabase } =
+    await import('../src/memory/db.ts');
+  initDatabase({ quiet: true });
+
+  vi.doMock('../src/providers/hybridai-bots.ts', () => ({
+    fetchHybridAIBots: vi.fn(async () => {
+      throw new Error('Failed to fetch bots: 401 UNAUTHORIZED');
+    }),
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-bot-set-auth',
+    guildId: null,
+    channelId: 'channel-bot-set-auth',
+    args: ['bot', 'set', 'Research Bot'],
+  });
+
+  expect(result).toMatchObject({
+    kind: 'error',
+    text: 'HybridAI bot commands require valid HybridAI API credentials. Run `hybridclaw hybridai login` and try again.',
+  });
+  expect(getSessionById('session-bot-set-auth')?.chatbot_id).toBeNull();
+  expect(
+    getRecentStructuredAuditForSession('session-bot-set-auth', 10),
+  ).toEqual([]);
+});
 test.each([
   {
     name: 'list',
@@ -80,10 +85,7 @@ test.each([
   args,
   name,
 }) => {
-  const homeDir = makeTempHome();
-  process.env.HOME = homeDir;
-  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
-  vi.resetModules();
+  setupHome();
 
   const fetchHybridAIBots = vi.fn(async () => [
     {

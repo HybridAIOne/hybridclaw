@@ -1,54 +1,23 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { expect, test, vi } from 'vitest';
+import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
-import { afterEach, expect, test, vi } from 'vitest';
-
-const ORIGINAL_HOME = process.env.HOME;
-const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
-const ORIGINAL_DISABLE_CONFIG_WATCHER =
-  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
-
-function makeTempHome(): string {
-  return fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-observability-ingest-'),
-  );
-}
-
-function restoreEnvVar(name: string, value: string | undefined): void {
-  if (value === undefined) {
-    delete process.env[name];
-    return;
-  }
-  process.env[name] = value;
-}
-
-afterEach(async () => {
-  try {
-    const { stopObservabilityIngest } = await import(
-      '../src/audit/observability-ingest.ts'
-    );
-    stopObservabilityIngest();
-  } catch {
-    // Module may not have been loaded in this test.
-  }
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  vi.resetModules();
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-  restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
-  restoreEnvVar(
-    'HYBRIDCLAW_DISABLE_CONFIG_WATCHER',
-    ORIGINAL_DISABLE_CONFIG_WATCHER,
-  );
+const { setupHome } = setupGatewayTest({
+  tempHomePrefix: 'hybridclaw-observability-ingest-',
+  envVars: ['HYBRIDAI_API_KEY'],
+  cleanup: async () => {
+    try {
+      const { stopObservabilityIngest } = await import(
+        '../src/audit/observability-ingest.ts'
+      );
+      stopObservabilityIngest();
+    } catch {
+      // Module may not have been loaded in this test.
+    }
+  },
 });
 
 test('observability ingest forwards bot.set audit events to HybridAI', async () => {
-  const homeDir = makeTempHome();
-  process.env.HOME = homeDir;
-  process.env.HYBRIDAI_API_KEY = 'test-key';
-  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
-  vi.resetModules();
+  setupHome({ HYBRIDAI_API_KEY: 'test-key' });
 
   const { getRuntimeConfig, saveRuntimeConfig } = await import(
     '../src/config/runtime-config.ts'
