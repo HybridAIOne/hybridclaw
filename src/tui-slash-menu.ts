@@ -512,6 +512,13 @@ export class TuiSlashMenuController {
     this.lastRenderSignature = '';
   }
 
+  // `state` is intentionally tri-state:
+  // - `undefined`: recompute from the current readline buffer
+  // - `null`: caller explicitly wants "no active menu state"
+  // - value: caller already computed the menu state for this keypress
+  //
+  // The `undefined` path is the only one that clears `dismissedQuery`, because
+  // that reset should only happen after observing a fresh buffer/query change.
   sync(state?: TuiSlashMenuState | null): void {
     if (!this.output.isTTY || !this.shouldShow()) {
       this.dismissedQuery = null;
