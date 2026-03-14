@@ -508,10 +508,8 @@ function scoreSearchTerm(query: string, searchTerm: string): number | null {
   return subsequenceScore(compactQuery, compactSearchTerm);
 }
 
-export function buildTuiSlashMenuEntries(
-  modelChoices: Array<{ name: string; value: string }> = [],
-): TuiSlashMenuEntry[] {
-  const definitions = buildCanonicalSlashCommandDefinitions(modelChoices);
+export function buildTuiSlashMenuEntries(): TuiSlashMenuEntry[] {
+  const definitions = buildCanonicalSlashCommandDefinitions([]);
   const entries: TuiSlashMenuEntry[] = [];
   let sortIndex = 0;
 
