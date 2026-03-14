@@ -3,7 +3,7 @@ import { SESSION_COMPACTION_SUMMARY_MAX_CHARS } from '../config/config.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import type {
   SessionExpiryEvaluation,
-  SessionResetMode,
+  SessionResetPolicy,
 } from '../session/session-reset.js';
 import type {
   CanonicalSession,
@@ -61,9 +61,8 @@ export interface CompactionCandidate {
 export interface MemoryBackend {
   resetSessionIfExpired: (
     sessionId: string,
-    channelId: string,
-    opts?: {
-      resetMode?: SessionResetMode;
+    opts: {
+      policy: SessionResetPolicy;
       expiryEvaluation?: SessionExpiryEvaluation;
     },
   ) => boolean;
@@ -382,13 +381,12 @@ export class MemoryService {
 
   resetSessionIfExpired(
     sessionId: string,
-    channelId: string,
-    opts?: {
-      resetMode?: SessionResetMode;
+    opts: {
+      policy: SessionResetPolicy;
       expiryEvaluation?: SessionExpiryEvaluation;
     },
   ): boolean {
-    return this.backend.resetSessionIfExpired(sessionId, channelId, opts);
+    return this.backend.resetSessionIfExpired(sessionId, opts);
   }
 
   getSessionById(sessionId: string): Session | undefined {

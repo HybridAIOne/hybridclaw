@@ -6,14 +6,11 @@ import type { AgentConfig, AgentModelConfig } from '../agents/agent-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import type { AuditEventPayload, WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
-import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
   isSessionExpired,
-  resolveResetPolicy,
-  resolveSessionResetChannelKind,
   type SessionExpiryEvaluation,
-  type SessionResetMode,
+  type SessionResetPolicy,
 } from '../session/session-reset.js';
 import type {
   ApprovalAuditEntry,
@@ -2203,9 +2200,8 @@ export function queryKnowledgeGraph(
 
 export function resetSessionIfExpired(
   sessionId: string,
-  channelId: string,
-  opts?: {
-    resetMode?: SessionResetMode;
+  opts: {
+    policy: SessionResetPolicy;
     expiryEvaluation?: SessionExpiryEvaluation;
   },
 ): boolean {
@@ -2216,14 +2212,7 @@ export function resetSessionIfExpired(
   if (opts?.expiryEvaluation?.lastActive === existing.last_active) {
     shouldReset = opts.expiryEvaluation.isExpired;
   } else {
-    const policy = resolveResetPolicy({
-      channelKind: resolveSessionResetChannelKind(channelId),
-      config: getRuntimeConfig(),
-    });
-    const effectivePolicy = opts?.resetMode
-      ? { ...policy, mode: opts.resetMode }
-      : policy;
-    shouldReset = isSessionExpired(effectivePolicy, existing.last_active);
+    shouldReset = isSessionExpired(opts.policy, existing.last_active);
   }
   if (!shouldReset) return false;
 

@@ -141,7 +141,7 @@ import {
   resolveResetPolicy,
   resolveSessionResetChannelKind,
   type SessionExpiryEvaluation,
-  type SessionResetMode,
+  type SessionResetPolicy,
 } from '../session/session-reset.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import {
@@ -380,6 +380,13 @@ function resolveChannelType(
     return inferredChannelType;
   }
   return source || undefined;
+}
+
+function resolveSessionAutoResetPolicy(channelId: string): SessionResetPolicy {
+  return resolveResetPolicy({
+    channelKind: resolveSessionResetChannelKind(channelId),
+    config: getRuntimeConfig(),
+  });
 }
 
 export type {
@@ -3037,25 +3044,16 @@ async function prepareSessionAutoReset(params: {
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
-  resetMode?: SessionResetMode;
+  policy: SessionResetPolicy;
 }): Promise<SessionExpiryEvaluation | undefined> {
   const existingSession = memoryService.getSessionById(params.sessionId);
   if (!existingSession) return undefined;
-
-  const runtimeConfig = getRuntimeConfig();
-  const policy = resolveResetPolicy({
-    channelKind: resolveSessionResetChannelKind(params.channelId),
-    config: runtimeConfig,
-  });
-  const effectivePolicy = params.resetMode
-    ? { ...policy, mode: params.resetMode }
-    : policy;
   const expiryEvaluation: SessionExpiryEvaluation = {
     lastActive: existingSession.last_active,
-    isExpired: isSessionExpired(effectivePolicy, existingSession.last_active),
+    isExpired: isSessionExpired(params.policy, existingSession.last_active),
   };
   if (!expiryEvaluation.isExpired) return expiryEvaluation;
-  if (!runtimeConfig.sessionCompaction.preCompactionMemoryFlush.enabled) {
+  if (!getRuntimeConfig().sessionCompaction.preCompactionMemoryFlush.enabled) {
     return expiryEvaluation;
   }
 
@@ -3085,6 +3083,7 @@ export async function handleGatewayMessage(
   const startedAt = Date.now();
   const runId = makeAuditRunId('turn');
   const source = req.source?.trim() || 'gateway.chat';
+  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
   const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: req.sessionId,
     channelId: req.channelId,
@@ -3092,8 +3091,10 @@ export async function handleGatewayMessage(
     chatbotId: req.chatbotId,
     model: req.model,
     enableRag: req.enableRag,
+    policy: sessionResetPolicy,
   });
-  memoryService.resetSessionIfExpired(req.sessionId, req.channelId, {
+  memoryService.resetSessionIfExpired(req.sessionId, {
+    policy: sessionResetPolicy,
     expiryEvaluation,
   });
   let session = memoryService.getOrCreateSession(
@@ -3132,8 +3133,10 @@ export async function handleGatewayMessage(
       chatbotId,
       model,
       enableRag: req.enableRag ?? session.enable_rag === 1,
+      policy: sessionResetPolicy,
     });
-    memoryService.resetSessionIfExpired(req.sessionId, req.channelId, {
+    memoryService.resetSessionIfExpired(req.sessionId, {
+      policy: sessionResetPolicy,
       expiryEvaluation: reboundExpiryEvaluation,
     });
     session = memoryService.getOrCreateSession(
@@ -3785,13 +3788,17 @@ export async function runGatewayScheduledTask(
   onError: (error: unknown) => void,
   runKey?: string,
 ): Promise<void> {
+  const sessionResetPolicy = {
+    ...resolveSessionAutoResetPolicy(channelId),
+    mode: 'none',
+  } satisfies SessionResetPolicy;
   const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: origSessionId,
     channelId,
-    resetMode: 'none',
+    policy: sessionResetPolicy,
   });
-  memoryService.resetSessionIfExpired(origSessionId, channelId, {
-    resetMode: 'none',
+  memoryService.resetSessionIfExpired(origSessionId, {
+    policy: sessionResetPolicy,
     expiryEvaluation,
   });
   const session = memoryService.getOrCreateSession(
@@ -3835,11 +3842,14 @@ export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
   const cmd = (req.args[0] || '').toLowerCase();
+  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
   const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: req.sessionId,
     channelId: req.channelId,
+    policy: sessionResetPolicy,
   });
-  memoryService.resetSessionIfExpired(req.sessionId, req.channelId, {
+  memoryService.resetSessionIfExpired(req.sessionId, {
+    policy: sessionResetPolicy,
     expiryEvaluation,
   });
   const session = memoryService.getOrCreateSession(

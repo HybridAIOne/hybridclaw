@@ -308,7 +308,13 @@ test('resetSessionIfExpired applies byChannelKind overrides for real transport c
     formatSqliteUtc(new Date(Date.now() - 2 * 60 * 60 * 1000)),
   );
 
-  const reset = dbModule.resetSessionIfExpired(sessionId, channelId);
+  const reset = dbModule.resetSessionIfExpired(sessionId, {
+    policy: {
+      mode: 'idle',
+      atHour: 4,
+      idleMinutes: 60,
+    },
+  });
   const session = dbModule.getSessionById(sessionId);
 
   expect(reset).toBe(true);
@@ -353,17 +359,8 @@ test('resetSessionState clears messages and tracks the reset metadata', async ()
 });
 
 test('resetSessionIfExpired auto-resets expired sessions', async () => {
-  const { dbModule, memoryService, runtimeConfigModule, dbPath } =
-    await initSessionTestContext();
+  const { dbModule, memoryService, dbPath } = await initSessionTestContext();
   const sessionId = 'auto-reset';
-
-  runtimeConfigModule.updateRuntimeConfig((draft) => {
-    draft.sessionReset.defaultPolicy = {
-      mode: 'idle',
-      atHour: 4,
-      idleMinutes: 60,
-    };
-  });
 
   dbModule.getOrCreateSession(sessionId, null, 'tui');
   memoryService.storeMessage({
@@ -380,7 +377,13 @@ test('resetSessionIfExpired auto-resets expired sessions', async () => {
     formatSqliteUtc(new Date(Date.now() - 2 * 60 * 60 * 1000)),
   );
 
-  const reset = dbModule.resetSessionIfExpired(sessionId, 'tui');
+  const reset = dbModule.resetSessionIfExpired(sessionId, {
+    policy: {
+      mode: 'idle',
+      atHour: 4,
+      idleMinutes: 60,
+    },
+  });
   const session = dbModule.getSessionById(sessionId);
 
   expect(reset).toBe(true);
@@ -456,7 +459,7 @@ test('getOrCreateSession leaves expired sessions untouched until resetSessionIfE
   expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(1);
 });
 
-test('resetSessionIfExpired skips auto-reset when resetMode is none', async () => {
+test('resetSessionIfExpired skips auto-reset when policy mode is none', async () => {
   const { dbModule, memoryService, runtimeConfigModule, dbPath } =
     await initSessionTestContext();
   const sessionId = 'no-auto-reset';
@@ -483,8 +486,12 @@ test('resetSessionIfExpired skips auto-reset when resetMode is none', async () =
     formatSqliteUtc(new Date(Date.now() - 2 * 60 * 60 * 1000)),
   );
 
-  const reset = dbModule.resetSessionIfExpired(sessionId, 'tui', {
-    resetMode: 'none',
+  const reset = dbModule.resetSessionIfExpired(sessionId, {
+    policy: {
+      mode: 'none',
+      atHour: 4,
+      idleMinutes: 60,
+    },
   });
   const session = dbModule.getSessionById(sessionId);
 
@@ -524,7 +531,12 @@ test('resetSessionIfExpired recomputes expiry when a cached evaluation is stale'
     formatSqliteUtc(new Date(Date.now() - 2 * 60 * 60 * 1000)),
   );
 
-  const reset = dbModule.resetSessionIfExpired(sessionId, 'tui', {
+  const reset = dbModule.resetSessionIfExpired(sessionId, {
+    policy: {
+      mode: 'idle',
+      atHour: 4,
+      idleMinutes: 60,
+    },
     expiryEvaluation: {
       lastActive: beforeExpiry?.last_active ?? '',
       isExpired: false,
