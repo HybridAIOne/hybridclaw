@@ -259,15 +259,6 @@ function subsequenceScore(query: string, target: string): number | null {
 function scoreSearchTerm(query: string, searchTerm: string): number | null {
   if (!query) return 0;
 
-  const rawQuery = query.trim().toLowerCase();
-  const rawSearchTerm = searchTerm.trim().toLowerCase();
-  if (rawQuery && rawSearchTerm === rawQuery) {
-    return (
-      SCORE_WEIGHTS.exactNormalizedBase -
-      rawSearchTerm.length * SCORE_WEIGHTS.exactLengthPenalty
-    );
-  }
-
   const normalizedQuery = normalizeSearchText(query);
   const normalizedSearchTerm = normalizeSearchText(searchTerm);
   if (!normalizedQuery || !normalizedSearchTerm) return null;

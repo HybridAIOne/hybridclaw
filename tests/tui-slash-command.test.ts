@@ -50,7 +50,6 @@ test('defaults bare /mcp to the mcp command', () => {
 test('maps Discord-style slash commands to gateway command args', () => {
   expect(mapTuiSlashCommandToGatewayArgs(['help'])).toEqual(['help']);
   expect(mapTuiSlashCommandToGatewayArgs(['h'])).toEqual(['help']);
-  expect(mapTuiSlashCommandToGatewayArgs(['?'])).toEqual(['help']);
   expect(mapTuiSlashCommandToGatewayArgs(['status'])).toEqual(['status']);
   expect(mapTuiSlashCommandToGatewayArgs(['model'])).toEqual(['model', 'info']);
   expect(

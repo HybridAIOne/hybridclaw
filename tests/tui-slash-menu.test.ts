@@ -53,12 +53,6 @@ test('fuzzy ranking can target nested command variants', () => {
   expect(ranked[0]?.label).toBe('/approve agent [approval_id]');
 });
 
-test('exact punctuation aliases still rank after normalization', () => {
-  const ranked = rankTuiSlashMenuEntries(buildTuiSlashMenuEntries(), '?');
-
-  expect(ranked[0]?.label).toBe('/help');
-});
-
 function buildControllerHarness() {
   const operations: string[] = [];
   const output = {

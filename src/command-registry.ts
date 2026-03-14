@@ -256,7 +256,6 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'help':
     case 'h':
-    case '?':
       return ['help'];
 
     default:
@@ -554,7 +553,7 @@ function buildSlashCommandCatalogDefinitions(
       name: 'help',
       description: 'Show available HybridClaw commands',
       tuiMenu: {
-        aliases: ['h', '?'],
+        aliases: ['h'],
       },
     },
     {
