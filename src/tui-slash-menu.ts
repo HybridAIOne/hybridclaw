@@ -433,6 +433,15 @@ function buildMenuState(
   };
 }
 
+function keyRequiresPrecomputedMenuState(key: readline.Key): boolean {
+  if (key.name === 'escape') return true;
+  if (key.name === 'down' || key.name === 'right') return true;
+  if (key.name === 'up') return true;
+  if (key.name === 'tab') return true;
+  if (key.ctrl === true && (key.name === 'n' || key.name === 'p')) return true;
+  return false;
+}
+
 export class TuiSlashMenuController {
   private readonly rl: InternalReadline;
   private readonly palette: TuiSlashMenuPalette;
@@ -473,7 +482,9 @@ export class TuiSlashMenuController {
     // on the current Node.js 22 readline implementation calling `_ttyWrite`
     // for raw-mode keypress handling before prompt redraw.
     this.rl._ttyWrite = (chunk: string, key: readline.Key) => {
-      const state = buildMenuState(this.entries, this.rl.line, this.rl.cursor);
+      const state = keyRequiresPrecomputedMenuState(key)
+        ? buildMenuState(this.entries, this.rl.line, this.rl.cursor)
+        : null;
       const result = this.handleKeypress(key, state);
       if (result.handled) {
         this.sync(result.state);
