@@ -9,7 +9,8 @@
   `idleMinutes: 1440`). Operators who need the previous retention behavior
   should set `sessionReset.defaultPolicy.mode` to `none`; automatic resets now
   log the `sessionId`, incremented `resetCount`, and expiry `reason` at INFO
-  level.
+  level. The daily `atHour` boundary is evaluated in the gateway host's local
+  timezone, not UTC.
 
 ## [0.7.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.7.1)
 

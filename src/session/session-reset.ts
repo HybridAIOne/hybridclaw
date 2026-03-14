@@ -92,6 +92,8 @@ function parseSessionTimestamp(value: string): Date {
     throw new Error('Session timestamp is empty');
   }
 
+  // SQLite datetime('now') stores UTC as `YYYY-MM-DD HH:MM:SS` without the ISO
+  // `T`/`Z` markers, so parse that shape explicitly before falling back.
   const sqliteMatch = trimmed.match(
     /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/,
   );
@@ -118,6 +120,8 @@ function parseSessionTimestamp(value: string): Date {
 }
 
 function getMostRecentResetBoundary(now: Date, atHour: number): Date {
+  // Daily reset boundaries use the gateway host's local timezone. `atHour: 4`
+  // means 4 AM local server time, not 04:00 UTC.
   const boundary = new Date(now);
   boundary.setHours(atHour, 0, 0, 0);
   if (now.getHours() < atHour) {

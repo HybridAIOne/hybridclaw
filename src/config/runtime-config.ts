@@ -395,6 +395,7 @@ export interface RuntimeConfig {
   sessionReset: {
     defaultPolicy: {
       mode: SessionResetMode;
+      // Interpreted in the gateway host's local timezone, not UTC.
       atHour: number;
       idleMinutes: number;
     };
@@ -402,6 +403,7 @@ export interface RuntimeConfig {
       string,
       {
         mode?: SessionResetMode;
+        // Interpreted in the gateway host's local timezone, not UTC.
         atHour?: number;
         idleMinutes?: number;
       }
