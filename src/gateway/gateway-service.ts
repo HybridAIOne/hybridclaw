@@ -256,6 +256,7 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'web_fetch',
   'web_extract',
   'message',
+  'browser_use',
   'browser_navigate',
   'browser_snapshot',
   'browser_click',
@@ -664,7 +665,7 @@ function buildMediaPromptContext(media: MediaContextItem[]): string {
     'When the user asks about current-turn image attachments, use `vision_analyze` with local image paths from `ImageMediaPaths` first.',
     'When the user asks about current-turn PDF/document attachments, prefer the injected `<file>` content or the supplied local path before reading chat history.',
     'Use MediaUrls as fallback when a local path is missing or fails to open.',
-    'Use `browser_vision` only for questions about the active browser tab/page.',
+    'Use browser vision only for questions about the active browser tab/page (`browser_use` action="vision" or legacy `browser_vision`).',
     '',
     '',
   ].join('\n');

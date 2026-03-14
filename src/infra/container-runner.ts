@@ -433,6 +433,8 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     '-e',
     `SEARXNG_BASE_URL=${WEB_SEARCH_SEARXNG_BASE_URL}`,
     '-e',
+    'HYBRIDCLAW_AGENT_EXECUTION_MODE=container',
+    '-e',
     'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
   ];
 

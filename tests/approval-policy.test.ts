@@ -319,6 +319,39 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(second.tier).toBe('yellow');
   });
 
+  test('browser_use navigate inherits host-scoped network approvals', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    const originalPrompt = 'Open Google Images in the browser';
+    const argsJson = JSON.stringify({
+      action: 'navigate',
+      url: 'https://images.google.de',
+    });
+
+    const first = runtime.evaluateToolCall({
+      toolName: 'browser_use',
+      argsJson,
+      latestUserPrompt: originalPrompt,
+    });
+    expect(first.decision).toBe('required');
+    expect(first.actionKey).toBe('network:google.de');
+
+    const prelude = runtime.handleApprovalResponse([userMessage('yes')]);
+    expect(prelude?.approvalMode).toBe('once');
+
+    const second = runtime.evaluateToolCall({
+      toolName: 'browser_use',
+      argsJson: JSON.stringify({
+        action: 'tab_open',
+        url: 'https://www.google.de',
+      }),
+      latestUserPrompt: originalPrompt,
+    });
+    expect(second.actionKey).toBe('network:google.de');
+    expect(second.decision).toBe('promoted');
+  });
+
   test('approval prompt lists text approval options in order for non-pinned actions', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

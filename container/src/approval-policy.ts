@@ -1473,10 +1473,16 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
+    const browserUseAction =
+      lowerTool === 'browser_use'
+        ? normalizeText(args.action).toLowerCase()
+        : '';
     if (
       lowerTool === 'web_fetch' ||
       lowerTool === 'web_extract' ||
-      lowerTool === 'browser_navigate'
+      lowerTool === 'browser_navigate' ||
+      (lowerTool === 'browser_use' &&
+        (browserUseAction === 'navigate' || browserUseAction === 'tab_open'))
     ) {
       const rawUrl = normalizeText(args.url);
       const hostScopes = extractHostScopes(extractHostsFromUrlLikeText(rawUrl));
@@ -1519,7 +1525,7 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
-    if (lowerTool.startsWith('browser_')) {
+    if (lowerTool === 'browser_use' || lowerTool.startsWith('browser_')) {
       return {
         tier: 'yellow',
         actionKey: lowerTool,

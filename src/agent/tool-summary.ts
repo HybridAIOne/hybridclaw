@@ -24,6 +24,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   {
     label: 'Browser',
     tools: [
+      'browser_use',
       'browser_navigate',
       'browser_snapshot',
       'browser_click',

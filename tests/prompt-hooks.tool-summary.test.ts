@@ -12,7 +12,7 @@ test('buildToolsSummary groups the full tool catalog', () => {
     '**Files**: `read`, `write`, `edit`, `delete`, `glob`, `grep`',
   );
   expect(summary).toContain(
-    '**Browser**: `browser_navigate`, `browser_snapshot`, `browser_click`',
+    '**Browser**: `browser_use`, `browser_navigate`, `browser_snapshot`',
   );
   expect(summary).toContain(
     '**Web**: `web_search`, `web_fetch`, `web_extract`',

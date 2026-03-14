@@ -2313,7 +2313,7 @@ async function executeToolInternal(
       const lines = [meta];
       if (result.escalationHint) {
         lines.push(
-          `Escalation hint: ${result.escalationHint} (retry with browser_navigate for this URL).`,
+          `Escalation hint: ${result.escalationHint} (retry with browser_use action="navigate" for this URL).`,
         );
       }
       if (result.warning) {
@@ -2369,6 +2369,7 @@ async function executeToolInternal(
       return await runVisionAnalyze(args, auxiliaryRuntimeContext);
     }
 
+    case 'browser_use':
     case 'browser_navigate':
     case 'browser_snapshot':
     case 'browser_click':

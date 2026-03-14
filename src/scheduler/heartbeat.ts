@@ -55,6 +55,7 @@ const HEARTBEAT_ALLOWED_TOOLS = [
   'web_extract',
   'message',
   'cron',
+  'browser_use',
   'browser_navigate',
   'browser_snapshot',
   'browser_click',
