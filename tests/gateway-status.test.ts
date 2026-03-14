@@ -4,7 +4,6 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
-import { agentWorkspaceDir } from '../src/infra/ipc.js';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
@@ -126,6 +125,7 @@ test('status command includes the current session agent', async () => {
   const { upsertRegisteredAgent } = await import(
     '../src/agents/agent-registry.ts'
   );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
