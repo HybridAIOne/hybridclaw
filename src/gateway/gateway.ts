@@ -1331,7 +1331,9 @@ async function main(): Promise<void> {
   initDatabase();
   initGatewayService();
   resumeEnabledFullAutoSessions();
-  await runManagedMediaCleanup('startup');
+  void runManagedMediaCleanup('startup').catch((error) => {
+    logger.warn({ error }, 'Managed media cleanup failed during startup');
+  });
   startHealthServer();
   setupShutdown();
   await startDiscordIntegration();
