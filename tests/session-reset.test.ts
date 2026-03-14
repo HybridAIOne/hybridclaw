@@ -64,6 +64,20 @@ function updateLastActive(
   }
 }
 
+function countSemanticMemories(dbPath: string, sessionId: string): number {
+  const database = new Database(dbPath);
+  try {
+    const row = database
+      .prepare(
+        'SELECT COUNT(*) AS count FROM semantic_memories WHERE session_id = ?',
+      )
+      .get(sessionId) as { count: number };
+    return row.count;
+  } finally {
+    database.close();
+  }
+}
+
 async function initSessionTestContext() {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -323,8 +337,8 @@ test('resetSessionIfExpired applies byChannelKind overrides for real transport c
   expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
 });
 
-test('resetSessionState clears messages and tracks the reset metadata', async () => {
-  const { dbModule, memoryService } = await initSessionTestContext();
+test('resetSessionState clears messages and semantic memories and tracks the reset metadata', async () => {
+  const { dbModule, memoryService, dbPath } = await initSessionTestContext();
   const sessionId = 'reset-state';
 
   dbModule.getOrCreateSession(sessionId, null, 'tui');
@@ -342,8 +356,16 @@ test('resetSessionState clears messages and tracks the reset metadata', async ()
     role: 'assistant',
     content: 'noted',
   });
+  dbModule.storeSemanticMemory({
+    sessionId,
+    role: 'assistant',
+    content: 'semantic memory to clear',
+    confidence: 0.9,
+  });
   dbModule.updateSessionSummary(sessionId, 'summary');
   dbModule.markSessionMemoryFlush(sessionId);
+
+  expect(countSemanticMemories(dbPath, sessionId)).toBe(1);
 
   dbModule.resetSessionState(sessionId);
 
@@ -356,6 +378,7 @@ test('resetSessionState clears messages and tracks the reset metadata', async ()
   expect(session?.reset_count).toBe(1);
   expect(session?.reset_at).not.toBeNull();
   expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
+  expect(countSemanticMemories(dbPath, sessionId)).toBe(0);
 });
 
 test('resetSessionIfExpired auto-resets expired sessions', async () => {
@@ -370,12 +393,20 @@ test('resetSessionIfExpired auto-resets expired sessions', async () => {
     role: 'user',
     content: 'old context',
   });
+  dbModule.storeSemanticMemory({
+    sessionId,
+    role: 'assistant',
+    content: 'semantic context to clear',
+    confidence: 0.9,
+  });
   dbModule.updateSessionSummary(sessionId, 'summary');
   updateLastActive(
     dbPath,
     sessionId,
     formatSqliteUtc(new Date(Date.now() - 2 * 60 * 60 * 1000)),
   );
+
+  expect(countSemanticMemories(dbPath, sessionId)).toBe(1);
 
   const reset = dbModule.resetSessionIfExpired(sessionId, {
     policy: {
@@ -392,6 +423,7 @@ test('resetSessionIfExpired auto-resets expired sessions', async () => {
   expect(session?.reset_count).toBe(1);
   expect(session?.reset_at).not.toBeNull();
   expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
+  expect(countSemanticMemories(dbPath, sessionId)).toBe(0);
 });
 
 test('resetSessionIfExpired skips malformed last_active timestamps', async () => {

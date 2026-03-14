@@ -2424,6 +2424,7 @@ export function resetSessionState(sessionId: string): void {
        WHERE id = ?`,
     ).run(value);
     db.prepare('DELETE FROM messages WHERE session_id = ?').run(value);
+    db.prepare('DELETE FROM semantic_memories WHERE session_id = ?').run(value);
   });
   transaction(sessionId);
 }
