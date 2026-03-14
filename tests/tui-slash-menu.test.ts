@@ -69,6 +69,10 @@ function buildControllerHarness() {
   const rl = {
     line: '/mo',
     cursor: 3,
+    getCursorPos: vi.fn(() => ({
+      cols: rl.cursor,
+      rows: 0,
+    })),
     _refreshLine: vi.fn(() => {
       operations.push('refresh');
     }),
@@ -122,19 +126,20 @@ test('clears the current menu before refreshing a completed selection', () => {
     rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
   )._ttyWrite('\t', { name: 'tab' });
 
-  expect(operations.lastIndexOf('refresh')).toBeGreaterThan(
-    operations.findLastIndex((entry) => entry.startsWith('write:')),
+  expect(operations.indexOf('refresh')).toBeGreaterThan(
+    operations.findIndex((entry) => entry.startsWith('write:')),
   );
 });
 
-test('restores the prompt after rendering the menu', () => {
+test('restores the prompt cursor after rendering the menu', () => {
   const { controller, rl, operations } = buildControllerHarness();
 
   rl.line = '/mod';
   rl.cursor = rl.line.length;
   controller.sync();
 
-  expect(operations.at(-1)).toBe('refresh');
+  expect(operations.some((entry) => entry.includes('/model'))).toBe(true);
+  expect(operations.at(-1)?.startsWith('write:\x1b[')).toBe(true);
 });
 
 test('escape dismisses the menu until the query changes', () => {

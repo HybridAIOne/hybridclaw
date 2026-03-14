@@ -32,6 +32,7 @@ type InternalReadline = readline.Interface & {
   // re-verify on Node upgrades.
   line: string;
   cursor: number;
+  getCursorPos?: () => { cols: number; rows: number };
   _refreshLine?: () => void;
   _ttyWrite?: (s: string, key: readline.Key) => void;
 };
@@ -429,9 +430,6 @@ export class TuiSlashMenuController {
   private readonly output: NodeJS.WriteStream;
   private readonly shouldShow: () => boolean;
   private readonly resizeHandler: () => void;
-  private readonly originalRefreshLine:
-    | InternalReadline['_refreshLine']
-    | undefined;
   private readonly originalTtyWrite: InternalReadline['_ttyWrite'] | undefined;
   private entries: TuiSlashMenuEntry[];
   private selectedIndex = 0;
@@ -452,7 +450,6 @@ export class TuiSlashMenuController {
     this.palette = params.palette;
     this.output = params.output || process.stdout;
     this.shouldShow = params.shouldShow || (() => true);
-    this.originalRefreshLine = this.rl._refreshLine?.bind(this.rl);
     this.originalTtyWrite = this.rl._ttyWrite?.bind(this.rl);
     this.resizeHandler = () => {
       this.lastRenderSignature = '';
@@ -496,14 +493,20 @@ export class TuiSlashMenuController {
     this.sync();
   }
 
+  private promptCursorColumn(): number {
+    const cols = this.rl.getCursorPos?.().cols;
+    return typeof cols === 'number' && Number.isFinite(cols) ? cols : 0;
+  }
+
   clear(): void {
     if (!this.output.isTTY) return;
     if (this.renderedLineCount > 0) {
-      this.originalRefreshLine?.();
+      const promptColumn = this.promptCursorColumn();
       readline.cursorTo(this.output, 0);
       readline.moveCursor(this.output, 0, 1);
       readline.clearScreenDown(this.output);
-      this.originalRefreshLine?.();
+      readline.moveCursor(this.output, 0, -1);
+      readline.cursorTo(this.output, promptColumn);
     }
     this.renderedLineCount = 0;
     this.lastRenderSignature = '';
@@ -577,10 +580,12 @@ export class TuiSlashMenuController {
 
     this.clear();
     if (lines.length > 0) {
+      const promptColumn = this.promptCursorColumn();
       this.output.write('\n');
       this.output.write(lines.join('\n'));
       this.renderedLineCount = lines.length;
-      this.originalRefreshLine?.();
+      readline.moveCursor(this.output, 0, -this.renderedLineCount);
+      readline.cursorTo(this.output, promptColumn);
     }
     this.lastRenderSignature = renderSignature;
   }
