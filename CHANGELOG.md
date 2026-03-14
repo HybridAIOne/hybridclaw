@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Automatic session reset policy**: Upgrading to the session-reset policy
+  feature enables automatic resets by default (`mode: "both"`, `atHour: 4`,
+  `idleMinutes: 1440`). Operators who need the previous retention behavior
+  should set `sessionReset.defaultPolicy.mode` to `none`; automatic resets now
+  log the `sessionId`, incremented `resetCount`, and expiry `reason` at INFO
+  level.
+
 ## [0.7.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.7.1)
 
 ### Added

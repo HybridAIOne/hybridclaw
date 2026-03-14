@@ -137,7 +137,7 @@ import {
   runPreCompactionMemoryFlush,
 } from '../session/session-maintenance.js';
 import {
-  isSessionExpired,
+  evaluateSessionExpiry,
   resolveResetPolicy,
   resolveSessionResetChannelKind,
   type SessionExpiryEvaluation,
@@ -3050,9 +3050,14 @@ async function prepareSessionAutoReset(params: {
   if (!existingSession) return undefined;
   let expiryEvaluation: SessionExpiryEvaluation;
   try {
+    const expiryStatus = evaluateSessionExpiry(
+      params.policy,
+      existingSession.last_active,
+    );
     expiryEvaluation = {
       lastActive: existingSession.last_active,
-      isExpired: isSessionExpired(params.policy, existingSession.last_active),
+      isExpired: expiryStatus.isExpired,
+      reason: expiryStatus.reason,
     };
   } catch (err) {
     logger.warn(
@@ -3067,6 +3072,7 @@ async function prepareSessionAutoReset(params: {
     expiryEvaluation = {
       lastActive: existingSession.last_active,
       isExpired: false,
+      reason: null,
     };
   }
   if (!expiryEvaluation.isExpired) return expiryEvaluation;

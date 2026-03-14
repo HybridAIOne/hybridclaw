@@ -8,7 +8,7 @@ import type { AuditEventPayload, WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import { logger } from '../logger.js';
 import {
-  isSessionExpired,
+  evaluateSessionExpiry,
   type SessionExpiryEvaluation,
   type SessionResetPolicy,
 } from '../session/session-reset.js';
@@ -2208,12 +2208,20 @@ export function resetSessionIfExpired(
   const existing = getSessionById(sessionId);
   if (!existing) return false;
 
-  let shouldReset: boolean;
+  let expiryEvaluation: SessionExpiryEvaluation;
   if (opts?.expiryEvaluation?.lastActive === existing.last_active) {
-    shouldReset = opts.expiryEvaluation.isExpired;
+    expiryEvaluation = opts.expiryEvaluation;
   } else {
     try {
-      shouldReset = isSessionExpired(opts.policy, existing.last_active);
+      const expiryStatus = evaluateSessionExpiry(
+        opts.policy,
+        existing.last_active,
+      );
+      expiryEvaluation = {
+        lastActive: existing.last_active,
+        isExpired: expiryStatus.isExpired,
+        reason: expiryStatus.reason,
+      };
     } catch (err) {
       logger.warn(
         {
@@ -2223,12 +2231,24 @@ export function resetSessionIfExpired(
         },
         'Skipping session auto-reset due to invalid last_active timestamp',
       );
-      shouldReset = false;
+      expiryEvaluation = {
+        lastActive: existing.last_active,
+        isExpired: false,
+        reason: null,
+      };
     }
   }
-  if (!shouldReset) return false;
+  if (!expiryEvaluation.isExpired) return false;
 
   resetSessionState(sessionId);
+  logger.info(
+    {
+      sessionId,
+      resetCount: existing.reset_count + 1,
+      reason: expiryEvaluation.reason,
+    },
+    'Session auto-reset',
+  );
   return true;
 }
 

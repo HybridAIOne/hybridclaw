@@ -384,6 +384,8 @@ test('resetSessionState clears messages and semantic memories and tracks the res
 test('resetSessionIfExpired auto-resets expired sessions', async () => {
   const { dbModule, memoryService, dbPath } = await initSessionTestContext();
   const sessionId = 'auto-reset';
+  const { logger } = await import('../src/logger.ts');
+  const infoSpy = vi.spyOn(logger, 'info');
 
   dbModule.getOrCreateSession(sessionId, null, 'tui');
   memoryService.storeMessage({
@@ -424,6 +426,14 @@ test('resetSessionIfExpired auto-resets expired sessions', async () => {
   expect(session?.reset_at).not.toBeNull();
   expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
   expect(countSemanticMemories(dbPath, sessionId)).toBe(0);
+  expect(infoSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sessionId,
+      resetCount: 1,
+      reason: 'idle',
+    }),
+    'Session auto-reset',
+  );
 });
 
 test('resetSessionIfExpired skips malformed last_active timestamps', async () => {
@@ -602,6 +612,7 @@ test('resetSessionIfExpired recomputes expiry when a cached evaluation is stale'
     expiryEvaluation: {
       lastActive: beforeExpiry?.last_active ?? '',
       isExpired: false,
+      reason: null,
     },
   });
   const session = dbModule.getSessionById(sessionId);

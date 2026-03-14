@@ -10,9 +10,12 @@ export interface SessionResetPolicy {
   idleMinutes: number;
 }
 
+export type SessionResetReason = 'idle' | 'daily' | 'both';
+
 export interface SessionExpiryEvaluation {
   lastActive: string;
   isExpired: boolean;
+  reason: SessionResetReason | null;
 }
 
 export const DEFAULT_RESET_POLICY: SessionResetPolicy = Object.freeze({
@@ -123,21 +126,29 @@ function getMostRecentResetBoundary(now: Date, atHour: number): Date {
   return boundary;
 }
 
-export function isSessionExpired(
+export function evaluateSessionExpiry(
   policy: SessionResetPolicy,
   lastActive: string,
   now = new Date(),
-): boolean {
-  if (policy.mode === 'none') return false;
+): {
+  isExpired: boolean;
+  reason: SessionResetReason | null;
+} {
+  if (policy.mode === 'none') {
+    return {
+      isExpired: false,
+      reason: null,
+    };
+  }
 
   const normalizedPolicy = normalizePolicy(policy);
   const lastActiveAt = parseSessionTimestamp(lastActive);
+  let idleExpired = false;
+  let dailyExpired = false;
 
   if (normalizedPolicy.mode === 'idle' || normalizedPolicy.mode === 'both') {
     const idleMs = normalizedPolicy.idleMinutes * 60_000;
-    if (now.getTime() - lastActiveAt.getTime() >= idleMs) {
-      return true;
-    }
+    idleExpired = now.getTime() - lastActiveAt.getTime() >= idleMs;
   }
 
   if (normalizedPolicy.mode === 'daily' || normalizedPolicy.mode === 'both') {
@@ -145,12 +156,40 @@ export function isSessionExpired(
       now,
       normalizedPolicy.atHour,
     );
-    if (lastActiveAt < resetBoundary) {
-      return true;
-    }
+    dailyExpired = lastActiveAt < resetBoundary;
   }
 
-  return false;
+  if (idleExpired && dailyExpired) {
+    return {
+      isExpired: true,
+      reason: 'both',
+    };
+  }
+  if (idleExpired) {
+    return {
+      isExpired: true,
+      reason: 'idle',
+    };
+  }
+  if (dailyExpired) {
+    return {
+      isExpired: true,
+      reason: 'daily',
+    };
+  }
+
+  return {
+    isExpired: false,
+    reason: null,
+  };
+}
+
+export function isSessionExpired(
+  policy: SessionResetPolicy,
+  lastActive: string,
+  now = new Date(),
+): boolean {
+  return evaluateSessionExpiry(policy, lastActive, now).isExpired;
 }
 
 export function resolveResetPolicy(opts?: {
