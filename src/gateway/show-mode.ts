@@ -57,11 +57,14 @@ export function filterGatewayChatResultForSessionShowMode(
   return {
     ...result,
     toolsUsed: [],
-    toolExecutions: (result.toolExecutions || []).map((execution) => ({
-      ...execution,
-      name: '',
-      arguments: '',
-      result: '',
-    })),
+    toolExecutions: (result.toolExecutions || []).map((execution) => {
+      const preserveApprovalPrompt = execution.approvalDecision === 'required';
+      return {
+        ...execution,
+        name: '',
+        arguments: '',
+        result: preserveApprovalPrompt ? execution.result : '',
+      };
+    }),
   };
 }

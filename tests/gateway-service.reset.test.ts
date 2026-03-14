@@ -93,6 +93,24 @@ async function seedSessionFixture() {
     role: 'assistant',
     content: 'old assistant message',
   });
+  memoryService.appendCanonicalMessages({
+    agentId: DEFAULT_AGENT_ID,
+    userId: 'user-1',
+    newMessages: [
+      {
+        role: 'user',
+        content: 'old user message',
+        sessionId,
+        channelId: 'tui',
+      },
+      {
+        role: 'assistant',
+        content: 'old assistant message',
+        sessionId,
+        channelId: 'tui',
+      },
+    ],
+  });
 
   const agentId = DEFAULT_AGENT_ID;
   const workspacePath = agentWorkspaceDir(agentId);
@@ -106,12 +124,46 @@ async function seedSessionFixture() {
   return {
     dbPath: DB_PATH,
     HYBRIDAI_ENABLE_RAG,
+    DEFAULT_AGENT_ID,
     handleGatewayCommand,
     memoryService,
     sessionId,
     workspacePath,
   };
 }
+
+test('clear wipes canonical prompt context for the current agent and user', async () => {
+  const fixture = await seedSessionFixture();
+
+  expect(
+    fixture.memoryService.getCanonicalContext({
+      agentId: fixture.DEFAULT_AGENT_ID,
+      userId: 'user-1',
+    }).recent_messages,
+  ).toHaveLength(2);
+
+  const result = await fixture.handleGatewayCommand({
+    sessionId: fixture.sessionId,
+    guildId: null,
+    channelId: 'tui',
+    userId: 'user-1',
+    args: ['clear'],
+  });
+
+  expect(result.kind).toBe('info');
+  expect(
+    fixture.memoryService.getConversationHistory(fixture.sessionId, 10),
+  ).toHaveLength(0);
+  expect(
+    fixture.memoryService.getCanonicalContext({
+      agentId: fixture.DEFAULT_AGENT_ID,
+      userId: 'user-1',
+    }),
+  ).toEqual({
+    summary: null,
+    recent_messages: [],
+  });
+});
 
 test('reset requires confirmation and reset no leaves session state intact', async () => {
   const fixture = await seedSessionFixture();

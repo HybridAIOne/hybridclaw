@@ -7,6 +7,7 @@ import {
 
 const hermesOptions = { parser: 'hermes' as const };
 const mistralOptions = { parser: 'mistral' as const };
+const liquidOptions = { parser: 'liquid' as const };
 
 describe('tool call normalizer', () => {
   test('unwraps nested tool_call wrappers from existing tool calls', () => {
@@ -440,6 +441,34 @@ describe('tool call normalizer', () => {
     });
   });
 
+  test('extracts liquid python-style tool calls from content', () => {
+    const result = normalizeToolCalls(
+      undefined,
+      'Thinking... <|tool_call_start|>[tools.shell(command="ls -la", cwd="/tmp")]<|tool_call_end|> Done',
+      liquidOptions,
+    );
+
+    expect(result.content).toBe('Thinking...  Done');
+    expect(result.toolCalls[0]?.function).toEqual({
+      name: 'shell',
+      arguments: '{"command":"ls -la","cwd":"/tmp"}',
+    });
+  });
+
+  test('extracts multiple liquid tool calls and preserves non-tool text', () => {
+    const result = normalizeToolCalls(
+      undefined,
+      'Before <|tool_call_start|>[first(value=1), second(flag=true)]<|tool_call_end|> After',
+      liquidOptions,
+    );
+
+    expect(result.content).toBe('Before  After');
+    expect(result.toolCalls.map((call) => call.function)).toEqual([
+      { name: 'first', arguments: '{"value":1}' },
+      { name: 'second', arguments: '{"flag":true}' },
+    ]);
+  });
+
   test('resolves parser names by model family', () => {
     expect(resolveToolCallTextParser('mistralai/devstral')).toBe('mistral');
     expect(resolveToolCallTextParser('Qwen/Qwen3-Coder-30B-A3B')).toBe(
@@ -447,6 +476,9 @@ describe('tool call normalizer', () => {
     );
     expect(resolveToolCallTextParser('deepseek-ai/DeepSeek-V3.1')).toBe(
       'deepseek_v3_1',
+    );
+    expect(resolveToolCallTextParser('LiquidAI/LFM2.5-1.2B-Instruct')).toBe(
+      'liquid',
     );
     expect(resolveToolCallTextParser('unknown/model')).toBeNull();
   });

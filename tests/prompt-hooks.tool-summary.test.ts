@@ -85,7 +85,13 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
 
   expect(prompt).toContain('## Skills (mandatory)');
   expect(prompt).toContain(
+    'If the user explicitly names a skill from `<available_skills>`, treat that skill as selected.',
+  );
+  expect(prompt).toContain(
     'If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
+  );
+  expect(prompt).toContain(
+    'Do not claim a listed skill is unavailable when the user named it.',
   );
   expect(prompt).toContain(
     'Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',
@@ -93,11 +99,17 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   expect(prompt).toContain(
     'For normal user work, put generated scripts in workspace `scripts/` or the workspace root. Only write under `skills/` when the user explicitly asked to create or edit a skill.',
   );
+  expect(prompt).toContain(
+    'Before running a helper under `skills/.../scripts/...`, make sure that exact path came from the skill instructions or from a file read/listing in this turn. Do not invent helper names or guess that a sibling script exists.',
+  );
   expect(prompt).toContain('<available_skills>');
   expect(prompt).toContain('<name>pdf</name>');
   expect(prompt).toContain('<location>skills/pdf/SKILL.md</location>');
   expect(prompt).toContain(
     'Default: do not narrate routine, low-risk tool calls; just call the tool.',
+  );
+  expect(prompt).toContain(
+    'If the user has already asked you to perform an action, do not ask for a separate natural-language "yes" just to trigger approvals; attempt the tool call and let the runtime approval flow interrupt if approval is required.',
   );
   expect(prompt).toContain(
     'If the relevant content is already available directly in the current turn, injected `<file>` content, or `[PDFContext]`, answer from that content first before reading skills or searching for the same artifact again.',
@@ -166,6 +178,32 @@ test('buildSystemPromptFromHooks omits mandatory routing instructions when no sk
 
   expect(prompt).not.toContain('## Skills (mandatory)');
   expect(prompt).not.toContain('<available_skills>');
+});
+
+test('buildSystemPromptFromHooks omits the skill catalog when the user explicitly invoked a skill', () => {
+  const pdfSkill = makeSkill();
+  const appleMusicSkill = makeSkill({
+    name: 'apple-music',
+    description: 'Use this skill for Apple Music playback control.',
+    filePath: '/tmp/apple-music/SKILL.md',
+    baseDir: '/tmp/apple-music',
+    location: 'skills/apple-music/SKILL.md',
+  });
+
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [pdfSkill, appleMusicSkill],
+    explicitSkillInvocation: {
+      skill: appleMusicSkill,
+      args: 'skip to next song',
+    },
+  });
+
+  expect(prompt).not.toContain('## Skills (mandatory)');
+  expect(prompt).not.toContain('## Skill (mandatory)');
+  expect(prompt).not.toContain('<available_skills>');
+  expect(prompt).not.toContain('<name>pdf</name>');
+  expect(prompt).not.toContain('<name>apple-music</name>');
 });
 
 test('buildSystemPromptFromHooks uses the provided workspace path in runtime metadata', () => {

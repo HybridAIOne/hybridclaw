@@ -4,7 +4,11 @@ import type {
   RuntimeDiscordChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
-import type { McpServerConfig, TokenUsageStats } from '../types.js';
+import type {
+  McpServerConfig,
+  PendingApproval,
+  TokenUsageStats,
+} from '../types.js';
 
 export type GatewayMessageComponents = NonNullable<
   BaseMessageOptions['components']
@@ -54,10 +58,14 @@ export interface GatewayChatResult {
       | 'required'
       | 'denied';
     approvalActionKey?: string;
+    approvalIntent?: string;
     approvalReason?: string;
     approvalRequestId?: string;
     approvalExpiresAt?: number;
+    approvalAllowSession?: boolean;
+    approvalAllowAgent?: boolean;
   }>;
+  pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;
   effectiveUserPrompt?: string;
@@ -76,6 +84,10 @@ export interface GatewayChatTextDeltaEvent {
   delta: string;
 }
 
+export interface GatewayChatApprovalEvent extends PendingApproval {
+  type: 'approval';
+}
+
 export interface GatewayChatStreamResultEvent {
   type: 'result';
   result: GatewayChatResult;
@@ -84,6 +96,7 @@ export interface GatewayChatStreamResultEvent {
 export type GatewayChatStreamEvent =
   | GatewayChatToolProgressEvent
   | GatewayChatTextDeltaEvent
+  | GatewayChatApprovalEvent
   | GatewayChatStreamResultEvent;
 
 export interface GatewayChatRequestBody {

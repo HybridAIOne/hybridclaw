@@ -125,6 +125,7 @@ test('status command includes the current session agent', async () => {
   const { upsertRegisteredAgent } = await import(
     '../src/agents/agent-registry.ts'
   );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -154,6 +155,9 @@ test('status command includes the current session agent', async () => {
   }
   expect(result.title).toBe('Status');
   expect(result.text).toContain('Agent: research');
+  expect(result.text).toContain(
+    `CWD: ${path.resolve(agentWorkspaceDir('research'))}`,
+  );
 });
 
 test('status uses OpenRouter context_length metadata for the context window', async () => {

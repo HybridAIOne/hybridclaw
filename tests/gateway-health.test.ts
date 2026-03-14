@@ -897,6 +897,174 @@ describe('gateway health server', () => {
     });
   });
 
+  test('streams structured approval events before the final result payload', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayMessage.mockImplementation(
+      async (req: {
+        onApprovalProgress?: (approval: {
+          approvalId: string;
+          prompt: string;
+          intent: string;
+          reason: string;
+          allowSession: boolean;
+          allowAgent: boolean;
+          expiresAt: number;
+        }) => void;
+      }) => {
+        req.onApprovalProgress?.({
+          approvalId: 'approve123',
+          prompt: 'I need your approval before I control a local app.',
+          intent: 'control a local app with `open -a Music`',
+          reason: 'this command controls host GUI or application state',
+          allowSession: true,
+          allowAgent: false,
+          expiresAt: 1_710_000_000_000,
+        });
+        return {
+          status: 'success',
+          result: 'I need your approval before I control a local app.',
+          toolsUsed: ['bash'],
+          pendingApproval: {
+            approvalId: 'approve123',
+            prompt: 'I need your approval before I control a local app.',
+            intent: 'control a local app with `open -a Music`',
+            reason: 'this command controls host GUI or application state',
+            allowSession: true,
+            allowAgent: false,
+            expiresAt: 1_710_000_000_000,
+          },
+          artifacts: [],
+        };
+      },
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { content: 'play music', stream: true },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    const events = res.body
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(events).toEqual([
+      {
+        type: 'approval',
+        approvalId: 'approve123',
+        prompt: 'I need your approval before I control a local app.',
+        intent: 'control a local app with `open -a Music`',
+        reason: 'this command controls host GUI or application state',
+        allowSession: true,
+        allowAgent: false,
+        expiresAt: 1_710_000_000_000,
+      },
+      {
+        type: 'result',
+        result: expect.objectContaining({
+          status: 'success',
+          result:
+            'Approval needed for: control a local app with `open -a Music`\nWhy: this command controls host GUI or application state\nApproval ID: approve123',
+        }),
+      },
+    ]);
+  });
+
+  test('preserves the full approval prompt in approval events when tool output is hidden', async () => {
+    const state = await importFreshHealth();
+    state.getSessionById.mockReturnValue({ show_mode: 'none' });
+    state.handleGatewayMessage.mockImplementation(
+      async (req: {
+        onApprovalProgress?: (approval: {
+          approvalId: string;
+          prompt: string;
+          intent: string;
+          reason: string;
+          allowSession: boolean;
+          allowAgent: boolean;
+          expiresAt: number;
+        }) => void;
+      }) => {
+        req.onApprovalProgress?.({
+          approvalId: 'approve123',
+          prompt: 'I need your approval before I control a local app.',
+          intent: 'control a local app with `open -a Music`',
+          reason: 'this command controls host GUI or application state',
+          allowSession: true,
+          allowAgent: false,
+          expiresAt: 1_710_000_000_000,
+        });
+        return {
+          status: 'success',
+          result: 'I need your approval before I control a local app.',
+          toolsUsed: ['bash'],
+          toolExecutions: [
+            {
+              name: 'bash',
+              arguments: 'open -a Music',
+              result: 'I need your approval before I control a local app.',
+              durationMs: 12,
+              approvalDecision: 'required',
+            },
+          ],
+          pendingApproval: {
+            approvalId: 'approve123',
+            prompt: 'I need your approval before I control a local app.',
+            intent: 'control a local app with `open -a Music`',
+            reason: 'this command controls host GUI or application state',
+            allowSession: true,
+            allowAgent: false,
+            expiresAt: 1_710_000_000_000,
+          },
+          artifacts: [],
+        };
+      },
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { content: 'play music', stream: true },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    const events = res.body
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(events[0]).toEqual({
+      type: 'approval',
+      approvalId: 'approve123',
+      prompt: 'I need your approval before I control a local app.',
+      intent: 'control a local app with `open -a Music`',
+      reason: 'this command controls host GUI or application state',
+      allowSession: true,
+      allowAgent: false,
+      expiresAt: 1_710_000_000_000,
+    });
+    expect(events[1]).toEqual({
+      type: 'result',
+      result: expect.objectContaining({
+        status: 'success',
+        result:
+          'Approval needed for: control a local app with `open -a Music`\nWhy: this command controls host GUI or application state\nApproval ID: approve123',
+        toolExecutions: [
+          expect.objectContaining({
+            name: '',
+            arguments: '',
+            result: 'I need your approval before I control a local app.',
+            approvalDecision: 'required',
+          }),
+        ],
+      }),
+    });
+  });
+
   test('filters tool visibility from web chat responses when show mode hides tools', async () => {
     const state = await importFreshHealth();
     state.getSessionById.mockReturnValue({ show_mode: 'thinking' });

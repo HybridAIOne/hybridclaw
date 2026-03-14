@@ -18,7 +18,8 @@ export type ToolCallTextParser =
   | 'mistral'
   | 'deepseek_v3'
   | 'deepseek_v3_1'
-  | 'kimi_k2';
+  | 'kimi_k2'
+  | 'liquid';
 
 export interface NormalizeToolCallOptions {
   parser?: ToolCallTextParser | null;
@@ -627,6 +628,186 @@ function extractKimiK2ToolCalls(content: string): {
     : { content, toolCalls: [] };
 }
 
+function extractLiquidToolCalls(content: string): {
+  content: string | null;
+  toolCalls: ToolCall[];
+} {
+  const startToken = '<|tool_call_start|>';
+  const endToken = '<|tool_call_end|>';
+  if (!content.includes(startToken)) {
+    return { content, toolCalls: [] };
+  }
+
+  const toolCalls: ToolCall[] = [];
+  const removals: Array<{ start: number; end: number }> = [];
+  let cursor = 0;
+
+  while (cursor < content.length) {
+    const start = content.indexOf(startToken, cursor);
+    if (start < 0) break;
+    const payloadStart = start + startToken.length;
+    const end = content.indexOf(endToken, payloadStart);
+    if (end < 0) break;
+
+    const payload = content.slice(payloadStart, end).trim();
+    const parsedCalls = parseLiquidToolCallList(payload);
+    if (parsedCalls.length > 0) {
+      toolCalls.push(...parsedCalls);
+      removals.push({ start, end: end + endToken.length });
+    }
+    cursor = end + endToken.length;
+  }
+
+  return toolCalls.length > 0
+    ? { content: stripMarkedRanges(content, removals), toolCalls }
+    : { content, toolCalls: [] };
+}
+
+function parseLiquidToolCallList(payload: string): ToolCall[] {
+  const trimmed = payload.trim();
+  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) {
+    return [];
+  }
+
+  const callSegments = splitTopLevelSegments(trimmed.slice(1, -1).trim(), ',');
+  const toolCalls: ToolCall[] = [];
+  for (const segment of callSegments) {
+    const toolCall = parseLiquidToolCall(segment);
+    if (toolCall) toolCalls.push(toolCall);
+  }
+  return toolCalls;
+}
+
+function parseLiquidToolCall(segment: string): ToolCall | null {
+  const trimmed = segment.trim();
+  const callMatch = trimmed.match(/^([A-Za-z_][A-Za-z0-9_.-]*)\(([\s\S]*)\)$/);
+  if (!callMatch) return null;
+
+  const name = callMatch[1]?.trim() || '';
+  const argsText = callMatch[2]?.trim() || '';
+  const argumentsObject: Record<string, unknown> = {};
+
+  if (argsText) {
+    const assignments = splitTopLevelSegments(argsText, ',');
+    for (const assignment of assignments) {
+      const separator = findTopLevelAssignmentOperator(assignment);
+      if (separator < 1) return null;
+      const rawKey = assignment.slice(0, separator).trim();
+      const rawValue = assignment.slice(separator + 1).trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(rawKey) || !rawValue) {
+        return null;
+      }
+      argumentsObject[rawKey] = tryConvertParameterValue(rawValue);
+    }
+  }
+
+  return normalizeToolCallLike({
+    function: {
+      name,
+      arguments: argumentsObject,
+    },
+  });
+}
+
+function splitTopLevelSegments(text: string, separator: string): string[] {
+  const segments: string[] = [];
+  let current = '';
+  let inString = false;
+  let escaped = false;
+  const stack: string[] = [];
+
+  for (const char of text) {
+    if (inString) {
+      current += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      current += char;
+      continue;
+    }
+
+    if (char === '{' || char === '[' || char === '(') {
+      stack.push(char);
+      current += char;
+      continue;
+    }
+
+    if (char === '}' || char === ']' || char === ')') {
+      if (
+        (char === '}' && stack.at(-1) === '{') ||
+        (char === ']' && stack.at(-1) === '[') ||
+        (char === ')' && stack.at(-1) === '(')
+      ) {
+        stack.pop();
+      }
+      current += char;
+      continue;
+    }
+
+    if (char === separator && stack.length === 0) {
+      if (current.trim()) segments.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.trim()) segments.push(current.trim());
+  return segments;
+}
+
+function findTopLevelAssignmentOperator(text: string): number {
+  let inString = false;
+  let escaped = false;
+  const stack: string[] = [];
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '{' || char === '[' || char === '(') {
+      stack.push(char);
+      continue;
+    }
+    if (
+      (char === '}' && stack.at(-1) === '{') ||
+      (char === ']' && stack.at(-1) === '[') ||
+      (char === ')' && stack.at(-1) === '(')
+    ) {
+      stack.pop();
+      continue;
+    }
+    if (char === '=' && stack.length === 0) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
 function parseTextToolCalls(
   parser: ToolCallTextParser | null | undefined,
   responseContent: string,
@@ -645,6 +826,8 @@ function parseTextToolCalls(
       return extractDeepSeekV31ToolCalls(responseContent);
     case 'kimi_k2':
       return extractKimiK2ToolCalls(responseContent);
+    case 'liquid':
+      return extractLiquidToolCalls(responseContent);
     default:
       return { content: responseContent, toolCalls: [] };
   }
@@ -711,6 +894,13 @@ export function resolveToolCallTextParser(
   }
   if (normalizedModel.includes('kimi') && normalizedModel.includes('k2')) {
     return 'kimi_k2';
+  }
+  if (
+    normalizedModel.includes('liquidai') ||
+    normalizedModel.includes('/liquid/') ||
+    normalizedModel.includes('lfm')
+  ) {
+    return 'liquid';
   }
   if (normalizedModel.includes('hermes')) {
     return 'hermes';

@@ -157,6 +157,7 @@ import type {
   DelegationTaskSpec,
   McpServerConfig,
   MediaContextItem,
+  PendingApproval,
   ScheduledTask,
   Session,
   StoredMessage,
@@ -355,6 +356,7 @@ export interface GatewayChatRequest {
   enableRag?: GatewayChatRequestBody['enableRag'];
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
+  onApprovalProgress?: (approval: PendingApproval) => void;
   onProactiveMessage?: (
     message: ProactiveMessagePayload,
   ) => void | Promise<void>;
@@ -3230,7 +3232,9 @@ export async function handleGatewayMessage(
     mediaCount: media.length,
     audioTranscriptCount: audioPrelude.transcripts.length,
     contentLength: userTurnContent.length,
-    streamingRequested: Boolean(req.onTextDelta || req.onToolProgress),
+    streamingRequested: Boolean(
+      req.onTextDelta || req.onToolProgress || req.onApprovalProgress,
+    ),
   };
 
   logger.debug(debugMeta, 'Gateway chat request received');
@@ -3400,6 +3404,7 @@ export async function handleGatewayMessage(
     agentId,
     sessionSummary: mergedSessionSummary,
     history,
+    currentUserContent: userTurnContent,
     extraSafetyText: fullAutoOperatingContract,
     runtimeInfo: {
       chatbotId,
@@ -3505,6 +3510,19 @@ export async function handleGatewayMessage(
       if (!shouldEmitTools) return;
       req.onToolProgress?.(event);
     };
+    const onApprovalProgress = (approval: PendingApproval): void => {
+      logger.debug(
+        {
+          ...debugMeta,
+          approvalId: approval.approvalId,
+          approvalIntent: approval.intent,
+          approvalReason: approval.reason,
+          sinceStartMs: Date.now() - startedAt,
+        },
+        'Gateway approval progress',
+      );
+      req.onApprovalProgress?.(approval);
+    };
     logger.debug(
       {
         ...debugMeta,
@@ -3539,6 +3557,7 @@ export async function handleGatewayMessage(
       blockedTools: mediaPolicy.blockedTools,
       onTextDelta,
       onToolProgress,
+      onApprovalProgress,
       abortSignal: activeGatewayRequest.signal,
       media,
       audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
@@ -3734,6 +3753,7 @@ export async function handleGatewayMessage(
       toolsUsed: output.toolsUsed || [],
       artifacts: output.artifacts,
       toolExecutions,
+      pendingApproval: output.pendingApproval,
       tokenUsage: output.tokenUsage,
       effectiveUserPrompt: output.effectiveUserPrompt,
     };
@@ -4191,7 +4211,7 @@ export async function handleGatewayCommand(
     case 'model': {
       await refreshAvailableModelCatalogs();
       const availableModels = getAvailableModelList();
-      const runtime = resolveAgentForRequest({ session });
+      const runtime = resolveSessionRuntimeTarget(session);
       const currentAgentId = resolveSessionAgentId(session);
       const resolvedAgent = resolveAgentConfig(currentAgentId);
       const sessionOverride = formatSessionModelOverride(session.model);
@@ -4669,6 +4689,12 @@ export async function handleGatewayCommand(
 
     case 'clear': {
       const deleted = memoryService.clearSessionHistory(session.id);
+      if (typeof req.userId === 'string' && req.userId.trim()) {
+        memoryService.clearCanonicalContext({
+          agentId: resolveSessionAgentId(session),
+          userId: req.userId,
+        });
+      }
       return infoCommand(
         'Session Cleared',
         `Deleted ${deleted} messages. Workspace files preserved.`,
@@ -4701,6 +4727,12 @@ export async function handleGatewayCommand(
         await disableFullAutoSession({ sessionId: session.id });
         interruptGatewaySessionExecution(req.sessionId);
         const deleted = memoryService.clearSessionHistory(session.id);
+        if (typeof req.userId === 'string' && req.userId.trim()) {
+          memoryService.clearCanonicalContext({
+            agentId: pending.agentId,
+            userId: req.userId,
+          });
+        }
         updateSessionChatbot(session.id, null);
         updateSessionModel(session.id, null);
         updateSessionRag(session.id, HYBRIDAI_ENABLE_RAG);
@@ -4780,7 +4812,7 @@ export async function handleGatewayCommand(
       const status = getGatewayStatus();
       const delegationStatus = delegationQueueStatus();
       const commitShort = resolveGitCommitShort();
-      const runtime = resolveAgentForRequest({ session });
+      const runtime = resolveSessionRuntimeTarget(session);
       const sessionModel = runtime.model;
       if (sessionModel.trim().toLowerCase().startsWith('openrouter/')) {
         await discoverOpenRouterModels();
@@ -4819,6 +4851,7 @@ export async function handleGatewayCommand(
         `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
         `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
         `🤖 Agent: ${runtime.agentId}`,
+        `📁 CWD: ${runtime.workspacePath}`,
         `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
         `🤖 Full-auto: ${fullAutoLabel}`,
         `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,

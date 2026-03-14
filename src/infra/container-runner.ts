@@ -50,6 +50,7 @@ import type {
   ArtifactMetadata,
   ContainerInput,
   ContainerOutput,
+  PendingApproval,
   ToolProgressEvent,
 } from '../types.js';
 import {
@@ -84,6 +85,7 @@ interface PoolEntry {
   workerSignature: string;
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
+  onApprovalProgress?: (approval: PendingApproval) => void;
   activity?: import('./ipc.js').ActivityTracker;
 }
 
@@ -97,6 +99,7 @@ const pool = new Map<string, PoolEntry>();
 const TOOL_RESULT_RE =
   /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
+const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
@@ -184,6 +187,55 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
       );
     }
   }
+}
+
+function parseApprovalProgress(line: string): PendingApproval | null {
+  const match = line.match(APPROVAL_RE);
+  if (!match) return null;
+  try {
+    const raw = Buffer.from(match[1], 'base64').toString('utf-8');
+    const parsed = JSON.parse(raw) as PendingApproval;
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      typeof parsed.approvalId !== 'string' ||
+      typeof parsed.prompt !== 'string' ||
+      typeof parsed.intent !== 'string' ||
+      typeof parsed.reason !== 'string'
+    ) {
+      return null;
+    }
+    return {
+      approvalId: redactSecrets(parsed.approvalId),
+      prompt: redactSecrets(parsed.prompt),
+      intent: redactSecrets(parsed.intent),
+      reason: redactSecrets(parsed.reason),
+      allowSession: parsed.allowSession === true,
+      allowAgent: parsed.allowAgent === true,
+      expiresAt:
+        typeof parsed.expiresAt === 'number' &&
+        Number.isFinite(parsed.expiresAt)
+          ? parsed.expiresAt
+          : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function emitApprovalProgress(entry: PoolEntry, line: string): boolean {
+  const approval = parseApprovalProgress(line);
+  if (!approval) return false;
+  if (!entry.onApprovalProgress) return true;
+  try {
+    entry.onApprovalProgress(approval);
+  } catch (err) {
+    logger.debug(
+      { sessionId: entry.sessionId, err },
+      'Approval progress callback failed',
+    );
+  }
+  return true;
 }
 
 export function getActiveContainerCount(): number {
@@ -471,6 +523,10 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
         entry.activity?.notify();
         continue;
       }
+      if (emitApprovalProgress(entry, line)) {
+        entry.activity?.notify();
+        continue;
+      }
       logger.debug({ container: containerName }, line);
       emitToolProgress(entry, line);
       entry.activity?.notify();
@@ -488,8 +544,10 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
           logger.debug({ container: containerName }, message);
         })
       ) {
-        logger.debug({ container: containerName }, tail);
-        emitToolProgress(entry, tail);
+        if (!emitApprovalProgress(entry, tail)) {
+          logger.debug({ container: containerName }, tail);
+          emitToolProgress(entry, tail);
+        }
       }
       entry.stderrBuffer = '';
     }
@@ -531,6 +589,7 @@ export async function runContainer(
     blockedTools,
     onTextDelta,
     onToolProgress,
+    onApprovalProgress,
     abortSignal,
     media,
     audioTranscriptsPrepended,
@@ -652,6 +711,7 @@ export async function runContainer(
   entry.workerSignature = workerSignature;
   entry.onTextDelta = onTextDelta;
   entry.onToolProgress = onToolProgress;
+  entry.onApprovalProgress = onApprovalProgress;
   entry.activity = activity;
   const onAbort = () => {
     logger.info(
@@ -693,6 +753,14 @@ export async function runContainer(
       output.result = redactSecrets(output.result);
     if (typeof output.error === 'string')
       output.error = redactSecrets(output.error);
+    if (output.pendingApproval) {
+      output.pendingApproval = {
+        ...output.pendingApproval,
+        prompt: redactSecrets(output.pendingApproval.prompt),
+        intent: redactSecrets(output.pendingApproval.intent),
+        reason: redactSecrets(output.pendingApproval.reason),
+      };
+    }
     const duration = Date.now() - startTime;
 
     logger.info(
@@ -717,6 +785,9 @@ export async function runContainer(
     }
     if (entry.onToolProgress === onToolProgress) {
       entry.onToolProgress = undefined;
+    }
+    if (entry.onApprovalProgress === onApprovalProgress) {
+      entry.onApprovalProgress = undefined;
     }
     entry.activity = undefined;
   }

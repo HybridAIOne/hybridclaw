@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { normalizePlaceholderToolReply } from '../src/gateway/chat-result.js';
+import {
+  normalizePendingApprovalReply,
+  normalizePlaceholderToolReply,
+} from '../src/gateway/chat-result.js';
 import type { GatewayChatResult } from '../src/gateway/gateway-types.js';
 
 function makeResult(
@@ -109,6 +112,32 @@ describe('normalizePlaceholderToolReply', () => {
     expect(normalizePlaceholderToolReply(result)).toMatchObject({
       result:
         'Tool calls failed: browser_navigate, browser_snapshot. Last error: browser runtime is not installed.',
+    });
+  });
+});
+
+describe('normalizePendingApprovalReply', () => {
+  test('replaces raw approval prose with a compact approval summary', () => {
+    const result = makeResult({
+      result:
+        'I need your approval before I run script `bash skills/apple-music/scripts/play-url.sh "https://music.apple.com/us/artist/phil-collins/127837"`.',
+      toolsUsed: ['bash'],
+      pendingApproval: {
+        approvalId: '24959489',
+        prompt:
+          'I need your approval before I run script `bash skills/apple-music/scripts/play-url.sh "https://music.apple.com/us/artist/phil-collins/127837"`.\nWhy: script execution is treated as high risk\nApproval ID: 24959489',
+        intent:
+          'run script `bash skills/apple-music/scripts/play-url.sh "https://music.apple.com/us/artist/phil-collins/127837"`',
+        reason: 'script execution is treated as high risk',
+        allowSession: true,
+        allowAgent: true,
+        expiresAt: null,
+      },
+    });
+
+    expect(normalizePendingApprovalReply(result)).toMatchObject({
+      result:
+        'Approval needed for: run script `bash skills/apple-music/scripts/play-url.sh "https://music.apple.com/us/artist/phil-collins/127837"`\nWhy: script execution is treated as high risk\nApproval ID: 24959489',
     });
   });
 });

@@ -1727,6 +1727,27 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
+    const hostAppControl =
+      /\bosascript\b/.test(lower) ||
+      /\bopen\s+-a\b/.test(lower) ||
+      /\bopen\s+['"]?(music|itms|itmss):\/\//.test(lower);
+    if (hostAppControl) {
+      return {
+        tier: 'red',
+        actionKey: 'bash:host-control',
+        intent: `control a local app with \`${normalizePreview(command)}\``,
+        consequenceIfDenied:
+          'I will avoid controlling host applications and keep the task read-only.',
+        reason: 'this command controls host GUI or application state',
+        commandPreview: normalizePreview(command),
+        pathHints: absPaths,
+        hostHints: hosts,
+        writeIntent,
+        promotableRed: false,
+        stickyYellow: true,
+      };
+    }
+
     if (INSTALL_RE.test(inspectionSurface)) {
       return {
         tier: 'yellow',

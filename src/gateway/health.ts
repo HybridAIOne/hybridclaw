@@ -21,10 +21,12 @@ import type {
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
-import type { ToolProgressEvent } from '../types.js';
+import type { PendingApproval, ToolProgressEvent } from '../types.js';
+import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   filterChatResultForSession,
   hasMessageSendToolExecution,
+  normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
@@ -322,8 +324,12 @@ async function handleApiChat(
 
   const result = filterChatResultForSession(
     chatRequest.sessionId,
-    normalizePlaceholderToolReply(
-      normalizeSilentMessageSendReply(await handleGatewayMessage(chatRequest)),
+    normalizePendingApprovalReply(
+      normalizePlaceholderToolReply(
+        normalizeSilentMessageSendReply(
+          await handleGatewayMessage(chatRequest),
+        ),
+      ),
     ),
   );
   sendJson(res, result.status === 'success' ? 200 : 500, result);
@@ -364,6 +370,14 @@ async function handleApiChatStream(
       delta: filteredDelta,
     });
   };
+  let streamedApprovalId: string | null = null;
+  const onApprovalProgress = (approval: PendingApproval): void => {
+    streamedApprovalId = approval.approvalId;
+    sendEvent({
+      type: 'approval',
+      ...approval,
+    });
+  };
 
   try {
     let result = normalizePlaceholderToolReply(
@@ -372,9 +386,11 @@ async function handleApiChatStream(
           ...chatRequest,
           onTextDelta,
           onToolProgress,
+          onApprovalProgress,
         }),
       ),
     );
+    result = normalizePendingApprovalReply(result);
     if (result.status === 'success') {
       const bufferedDelta = streamFilter.flush();
       if (bufferedDelta) {
@@ -390,9 +406,17 @@ async function handleApiChatStream(
         };
       }
     }
+    const filteredResult = filterChatResultForSession(
+      chatRequest.sessionId,
+      result,
+    );
+    const pendingApproval = extractGatewayChatApprovalEvent(filteredResult);
+    if (pendingApproval && pendingApproval.approvalId !== streamedApprovalId) {
+      sendEvent(pendingApproval);
+    }
     sendEvent({
       type: 'result',
-      result: filterChatResultForSession(chatRequest.sessionId, result),
+      result: filteredResult,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

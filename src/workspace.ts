@@ -132,6 +132,42 @@ function readTemplateFile(filename: (typeof BOOTSTRAP_FILES)[number]): string {
   return fs.readFileSync(templatePath, 'utf-8');
 }
 
+function stripMarkdownSection(content: string, heading: string): string {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const targetHeading = `## ${heading}`;
+  const startIndex = lines.findIndex((line) => line.trim() === targetHeading);
+  if (startIndex === -1) return content;
+
+  let endIndex = lines.length;
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    if (lines[index]?.startsWith('## ')) {
+      endIndex = index;
+      break;
+    }
+  }
+
+  const nextLines = [...lines.slice(0, startIndex), ...lines.slice(endIndex)];
+  return nextLines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function normalizeContextFileContent(params: {
+  agentId: string;
+  name: string;
+  content: string;
+}): string {
+  const { agentId, name } = params;
+  let content = params.content;
+
+  if (name === 'AGENTS.md' && !isBootstrapping(agentId)) {
+    content = stripMarkdownSection(content, 'First Run');
+  }
+
+  return content;
+}
+
 function isWorkspaceFileCustomized(
   wsDir: string,
   filename: (typeof BOOTSTRAP_FILES)[number],
@@ -152,6 +188,7 @@ function isWorkspaceFileCustomized(
 function hasWorkspaceUserContent(wsDir: string): boolean {
   if (fs.existsSync(path.join(wsDir, 'memory'))) return true;
   if (fs.existsSync(path.join(wsDir, '.git'))) return true;
+  if (fs.existsSync(path.join(wsDir, '.session-transcripts'))) return true;
   return isWorkspaceFileCustomized(wsDir, 'MEMORY.md');
 }
 
@@ -301,6 +338,13 @@ export function loadBootstrapFiles(agentId: string): ContextFile[] {
 
     try {
       let content = fs.readFileSync(filePath, 'utf-8').trim();
+      if (!content) continue;
+
+      content = normalizeContextFileContent({
+        agentId,
+        name: filename,
+        content,
+      });
       if (!content) continue;
 
       if (content.length > MAX_FILE_CHARS) {

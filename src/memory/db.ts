@@ -1479,6 +1479,22 @@ export function getCanonicalContext(params: {
   };
 }
 
+export function clearCanonicalContext(params: {
+  agentId: string;
+  userId: string;
+}): number {
+  const agentId = params.agentId.trim();
+  const userId = params.userId.trim();
+  if (!agentId || !userId) return 0;
+  return db
+    .prepare(
+      `DELETE FROM canonical_sessions
+       WHERE agent_id = ?
+         AND user_id = ?`,
+    )
+    .run(agentId, userId).changes;
+}
+
 // --- Usage Tracking / Aggregation ---
 
 function normalizeUsageWindow(window: UsageWindow | undefined): UsageWindow {

@@ -82,6 +82,7 @@ import {
   type ChatMessage,
   type ContainerInput,
   type ContainerOutput,
+  type PendingApproval,
   TASK_MODEL_KEYS,
   type ToolCall,
   type ToolDefinition,
@@ -310,6 +311,13 @@ function emitStreamDelta(delta: string): void {
 
 function emitStreamActivity(): void {
   console.error('[stream-activity]');
+}
+
+function emitApprovalProgress(approval: PendingApproval): void {
+  const payload = Buffer.from(JSON.stringify(approval), 'utf-8').toString(
+    'base64',
+  );
+  console.error(`[approval] ${payload}`);
 }
 
 function latestUserPrompt(messages: ChatMessage[]): string {
@@ -1094,7 +1102,26 @@ async function processRequest(
 
       if (approval.decision === 'required') {
         toolsUsed.push(toolName);
+        if (!approval.requestId) {
+          throw new Error(
+            'Approval-required tool call is missing a request id.',
+          );
+        }
         const prompt = approvalRuntime.formatApprovalRequest(approval);
+        const pendingApproval: PendingApproval = {
+          approvalId: approval.requestId,
+          prompt,
+          intent: approval.intent,
+          reason: approval.reason,
+          allowSession: !approval.pinned,
+          allowAgent: !approval.pinned,
+          expiresAt:
+            typeof approval.expiresAtMs === 'number' &&
+            Number.isFinite(approval.expiresAtMs)
+              ? approval.expiresAtMs
+              : null,
+        };
+        emitApprovalProgress(pendingApproval);
         toolExecutions.push({
           name: toolName,
           arguments: call.function.arguments,
@@ -1107,9 +1134,12 @@ async function processRequest(
           approvalBaseTier: approval.baseTier,
           approvalDecision: approval.decision,
           approvalActionKey: approval.actionKey,
+          approvalIntent: approval.intent,
           approvalReason: approval.reason,
           approvalRequestId: approval.requestId,
           approvalExpiresAt: approval.expiresAtMs,
+          approvalAllowSession: !approval.pinned,
+          approvalAllowAgent: !approval.pinned,
         });
         const waitingForApproval: ContainerOutput = {
           status: 'success',
@@ -1117,6 +1147,7 @@ async function processRequest(
           toolsUsed: [...new Set(toolsUsed)],
           ...(artifacts.length > 0 ? { artifacts } : {}),
           toolExecutions,
+          pendingApproval,
           tokenUsage: finalizeTokenUsage(tokenUsage),
           effectiveUserPrompt,
         };
@@ -1143,9 +1174,12 @@ async function processRequest(
           approvalBaseTier: approval.baseTier,
           approvalDecision: approval.decision,
           approvalActionKey: approval.actionKey,
+          approvalIntent: approval.intent,
           approvalReason: approval.reason,
           approvalRequestId: approval.requestId,
           approvalExpiresAt: approval.expiresAtMs,
+          approvalAllowSession: !approval.pinned,
+          approvalAllowAgent: !approval.pinned,
         });
         const denied: ContainerOutput = {
           status: 'success',

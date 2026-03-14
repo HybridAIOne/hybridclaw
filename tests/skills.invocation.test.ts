@@ -1,0 +1,101 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { afterEach, expect, test } from 'vitest';
+
+import { expandSkillInvocation, type Skill } from '../src/skills/skills.js';
+
+const tempDirs: string[] = [];
+
+function makeTempSkill(skillName: string): Skill {
+  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-skill-'));
+  tempDirs.push(baseDir);
+  const filePath = path.join(baseDir, 'SKILL.md');
+  fs.writeFileSync(
+    filePath,
+    [
+      '---',
+      `name: ${skillName}`,
+      'description: Test skill',
+      'user-invocable: true',
+      '---',
+      '',
+      `# ${skillName}`,
+      '',
+      'Use this skill for host-side Apple Music control.',
+    ].join('\n'),
+    'utf8',
+  );
+  return {
+    name: skillName,
+    description: 'Test skill',
+    userInvocable: true,
+    disableModelInvocation: false,
+    always: false,
+    requires: { bins: [], env: [] },
+    metadata: {
+      hybridclaw: {
+        tags: [],
+        relatedSkills: [],
+        install: [],
+      },
+    },
+    filePath,
+    baseDir,
+    source: 'bundled',
+    location: `skills/${skillName}/SKILL.md`,
+  };
+}
+
+afterEach(() => {
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('does not expand plain-text requests that mention a skill name', () => {
+  const appleMusic = makeTempSkill('apple-music');
+
+  const expanded = expandSkillInvocation(
+    'Use apple-music skill to skip to next song',
+    [appleMusic],
+  );
+
+  expect(expanded).toBe('Use apple-music skill to skip to next song');
+});
+
+test('expands slash skill invocations into explicit skill instructions', () => {
+  const appleMusic = makeTempSkill('apple-music');
+
+  const expanded = expandSkillInvocation('/skill apple-music next track', [
+    appleMusic,
+  ]);
+
+  expect(expanded).toContain('[Explicit skill invocation]');
+  expect(expanded).toContain('Use the "apple-music" skill for this request.');
+  expect(expanded).toContain('Skill input: next track');
+  expect(expanded).toContain('<skill_instructions>');
+});
+
+test('does not expand ordinary prose that merely mentions a skill topic', () => {
+  const appleMusic = makeTempSkill('apple-music');
+
+  const expanded = expandSkillInvocation('Skip to next song on Apple Music', [
+    appleMusic,
+  ]);
+
+  expect(expanded).toBe('Skip to next song on Apple Music');
+});
+
+test('expands $skill mentions into explicit skill instructions', () => {
+  const appleMusic = makeTempSkill('apple-music');
+
+  const expanded = expandSkillInvocation('$apple-music next track', [
+    appleMusic,
+  ]);
+
+  expect(expanded).toContain('[Explicit skill invocation]');
+  expect(expanded).toContain('Skill input: next track');
+});

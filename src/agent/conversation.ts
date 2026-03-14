@@ -5,6 +5,7 @@ import {
 import {
   expandSkillInvocation,
   loadSkills,
+  resolveExplicitSkillInvocation,
   type Skill,
 } from '../skills/skills.js';
 import type { ChatMessage } from '../types.js';
@@ -35,6 +36,7 @@ export function buildConversationContext(params: {
   runtimeInfo?: PromptRuntimeInfo;
   allowedTools?: string[];
   blockedTools?: string[];
+  currentUserContent?: string;
 }): ConversationContext {
   const {
     agentId,
@@ -46,12 +48,18 @@ export function buildConversationContext(params: {
     runtimeInfo,
     allowedTools,
     blockedTools,
+    currentUserContent,
   } = params;
   const skills = loadSkills(agentId);
+  const explicitSkillInvocation =
+    typeof currentUserContent === 'string' && currentUserContent.trim()
+      ? resolveExplicitSkillInvocation(currentUserContent, skills)
+      : null;
   const systemPrompt = buildSystemPromptFromHooks({
     agentId,
     sessionSummary,
     skills,
+    explicitSkillInvocation,
     purpose: 'conversation',
     promptMode,
     extraSafetyText,

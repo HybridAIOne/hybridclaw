@@ -12,7 +12,9 @@ import {
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
 } from './config/config.js';
+import { extractGatewayChatApprovalEvent } from './gateway/chat-approval.js';
 import {
+  type GatewayChatApprovalEvent,
   type GatewayChatResult,
   type GatewayCommandResult,
   gatewayChat,
@@ -36,6 +38,7 @@ import {
   parseModelInfoSummaryFromText,
   parseModelNamesFromListText,
 } from './model-selection.js';
+import { formatTuiApprovalSummary } from './tui-approval.js';
 import {
   DEFAULT_TUI_FULLAUTO_STATE,
   deriveTuiFullAutoState,
@@ -52,9 +55,11 @@ import {
 } from './tui-slash-command.js';
 import {
   countTerminalRows,
+  createTuiStreamFormatState,
   createTuiThinkingStreamState,
+  flushTuiStreamDelta,
   formatTuiStreamDelta,
-  indentTuiBlock,
+  wrapTuiBlock,
 } from './tui-thinking.js';
 import type { SessionShowMode } from './types.js';
 
@@ -244,59 +249,55 @@ let activeRunAbortController: AbortController | null = null;
 let proactivePollInFlight = false;
 let tuiFullAutoState: TuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;
 let fullAutoSteeringInFlight = false;
-let tuiPendingApproval: { requestId: string; prompt: string } | null = null;
+let tuiPendingApproval: {
+  requestId: string;
+  prompt: string;
+  intent: string;
+  reason: string;
+  allowSession: boolean;
+  allowAgent: boolean;
+} | null = null;
 let tuiShowMode: SessionShowMode = DEFAULT_SESSION_SHOW_MODE;
-
-function findPendingApprovalRequestId(
-  result: GatewayChatResult,
-): string | null {
-  const executions = result.toolExecutions || [];
-  for (let i = executions.length - 1; i >= 0; i -= 1) {
-    const execution = executions[i];
-    if (execution.approvalDecision !== 'required') continue;
-    if (!execution.approvalRequestId) continue;
-    return execution.approvalRequestId;
-  }
-  return null;
-}
 
 function mapApprovalSelectionToCommand(
   selection: string,
   requestId: string,
+  options: Array<'once' | 'session' | 'agent' | 'skip'>,
 ): string | null {
   const normalized = selection.trim().toLowerCase().replace(/\s+/g, ' ');
   if (!normalized) return null;
 
-  if (
-    normalized === '1' ||
-    normalized === 'yes' ||
-    normalized === 'y' ||
-    normalized === 'once'
-  ) {
+  const indexedMatch = normalized.match(/^\d+$/);
+  if (indexedMatch) {
+    const index = Number.parseInt(normalized, 10) - 1;
+    const selected = options[index];
+    if (!selected) return null;
+    if (selected === 'once') return `yes ${requestId}`;
+    if (selected === 'session') return `yes ${requestId} for session`;
+    if (selected === 'agent') return `yes ${requestId} for agent`;
+    return `skip ${requestId}`;
+  }
+
+  if (normalized === 'yes' || normalized === 'y' || normalized === 'once') {
     return `yes ${requestId}`;
   }
   if (
-    normalized === '2' ||
-    normalized === 'session' ||
-    normalized === 'yes for session' ||
-    normalized === 'for session'
+    options.includes('session') &&
+    (normalized === 'session' ||
+      normalized === 'yes for session' ||
+      normalized === 'for session')
   ) {
     return `yes ${requestId} for session`;
   }
   if (
-    normalized === '3' ||
-    normalized === 'agent' ||
-    normalized === 'yes for agent' ||
-    normalized === 'for agent'
+    options.includes('agent') &&
+    (normalized === 'agent' ||
+      normalized === 'yes for agent' ||
+      normalized === 'for agent')
   ) {
     return `yes ${requestId} for agent`;
   }
-  if (
-    normalized === '4' ||
-    normalized === 'no' ||
-    normalized === 'n' ||
-    normalized === 'skip'
-  ) {
+  if (normalized === 'no' || normalized === 'n' || normalized === 'skip') {
     return `skip ${requestId}`;
   }
   return null;
@@ -310,18 +311,35 @@ function isApprovalResponseContent(content: string): boolean {
 async function promptApprovalSelection(
   rl: readline.Interface,
   requestId: string,
+  allowSession: boolean,
+  allowAgent: boolean,
 ): Promise<string | null> {
+  const options: Array<'once' | 'session' | 'agent' | 'skip'> = ['once'];
+  if (allowSession) options.push('session');
+  if (allowAgent) options.push('agent');
+  options.push('skip');
+
   console.log(
     `  ${BOLD}${GOLD}Approval options${RESET} ${MUTED}(request ${requestId})${RESET}`,
   );
-  console.log(`  ${TEAL}1${RESET} yes (once)`);
-  console.log(`  ${TEAL}2${RESET} yes for session`);
-  console.log(`  ${TEAL}3${RESET} yes for agent`);
-  console.log(`  ${TEAL}4${RESET} no / skip`);
-  const answer = await new Promise<string>((resolve) => {
-    rl.question(`  ${MUTED}Select 1-4 (Enter to skip):${RESET} `, resolve);
+  options.forEach((option, index) => {
+    const label =
+      option === 'once'
+        ? 'yes (once)'
+        : option === 'session'
+          ? 'yes for session'
+          : option === 'agent'
+            ? 'yes for agent'
+            : 'no / skip';
+    console.log(`  ${TEAL}${index + 1}${RESET} ${label}`);
   });
-  const command = mapApprovalSelectionToCommand(answer, requestId);
+  const answer = await new Promise<string>((resolve) => {
+    rl.question(
+      `  ${MUTED}Select 1-${options.length} (Enter to skip):${RESET} `,
+      resolve,
+    );
+  });
+  const command = mapApprovalSelectionToCommand(answer, requestId, options);
   if (answer.trim() && !command) {
     printInfo(
       `Unrecognized selection "${answer.trim()}". You can reply manually with yes/skip and the request id.`,
@@ -461,9 +479,7 @@ function printResponse(
   if (options?.leadingBlank !== false) {
     console.log();
   }
-  for (const line of text.split('\n')) {
-    console.log(`  ${line}`);
-  }
+  console.log(formatTuiOutput(text));
   console.log();
 }
 
@@ -474,13 +490,18 @@ function printError(
   },
 ): void {
   const prefix = options?.leadingBlank === false ? '' : '\n';
-  console.log(`${prefix}  ${RED}Error: ${text}${RESET}\n`);
+  const wrapped = formatTuiOutput(`Error: ${text}`);
+  const colored = wrapped
+    .split('\n')
+    .map((line) => `${RED}${line}${RESET}`)
+    .join('\n');
+  console.log(`${prefix}${colored}\n`);
 }
 
 function printInfo(text: string): void {
   console.log();
-  for (const line of text.split('\n')) {
-    console.log(`  ${GOLD}${line}${RESET}`);
+  for (const line of formatTuiOutput(text).split('\n')) {
+    console.log(`${GOLD}${line}${RESET}`);
   }
   console.log();
 }
@@ -516,6 +537,14 @@ function printToolUsage(tools: string[]): void {
   );
 }
 
+function terminalColumns(): number {
+  return Math.max(24, process.stdout.columns || 120);
+}
+
+function formatTuiOutput(text: string): string {
+  return wrapTuiBlock(text, terminalColumns(), '  ');
+}
+
 function printGatewayCommandResult(result: GatewayCommandResult): void {
   if (result.kind === 'error') {
     const prefix = result.title ? `${result.title}: ` : '';
@@ -538,6 +567,7 @@ function spinner(): {
   stop: () => void;
   addTool: (toolName: string, preview?: string) => void;
   addVisibleTextDelta: (delta: string) => void;
+  flushVisibleText: () => void;
   setThinkingPreview: (preview: string | null) => void;
   clearThinkingPreview: () => void;
   clearTools: () => void;
@@ -552,7 +582,7 @@ function spinner(): {
   let cursorHidden = false;
   let transientToolLines = 0;
   let hasVisibleText = false;
-  let lineNeedsIndent = true;
+  let visibleTextState = createTuiStreamFormatState();
   let thinkingPreviewRows = 0;
   const clearLine = () => process.stdout.write('\r\x1b[2K');
   const hideCursor = () => {
@@ -621,12 +651,9 @@ function spinner(): {
     if (transientToolLines > 0) return;
     clearThinkingPreview();
     clearLine();
-    const formatted = indentTuiBlock(normalizedPreview);
+    const formatted = wrapTuiBlock(normalizedPreview, terminalColumns(), '  ');
     process.stdout.write(`\r${THINKING_PREVIEW_COLOR}${formatted}${RESET}`);
-    thinkingPreviewRows = countTerminalRows(
-      formatted,
-      process.stdout.columns || 120,
-    );
+    thinkingPreviewRows = countTerminalRows(formatted, terminalColumns());
   };
 
   hideCursor();
@@ -659,10 +686,30 @@ function spinner(): {
       if (!hasVisibleText) {
         clearTools();
         clearLine();
+      }
+      const formatted = formatTuiStreamDelta(
+        delta,
+        visibleTextState,
+        terminalColumns(),
+      );
+      visibleTextState = formatted.state;
+      if (!formatted.text) return;
+      hasVisibleText = true;
+      process.stdout.write(formatted.text);
+    },
+    flushVisibleText: () => {
+      const formatted = flushTuiStreamDelta(
+        visibleTextState,
+        terminalColumns(),
+      );
+      visibleTextState = formatted.state;
+      if (!formatted.text) return;
+      clearThinkingPreview();
+      if (!hasVisibleText) {
+        clearTools();
+        clearLine();
         hasVisibleText = true;
       }
-      const formatted = formatTuiStreamDelta(delta, lineNeedsIndent);
-      lineNeedsIndent = formatted.lineNeedsIndent;
       process.stdout.write(formatted.text);
     },
     setThinkingPreview,
@@ -733,10 +780,11 @@ function isInterruptedResult(result: GatewayChatResult): boolean {
 
 function buildPromptText(): string {
   const fullAutoLabel = formatTuiFullAutoPromptLabel(tuiFullAutoState);
+  const separator = `${MUTED}${'─'.repeat(terminalColumns() - 2)}${RESET}`;
   if (fullAutoLabel) {
-    return `${GOLD}[${fullAutoLabel}]${RESET} ${TEAL}>${RESET} `;
+    return `${separator}\n  ${GOLD}[${fullAutoLabel}]${RESET} ${TEAL}>${RESET} `;
   }
-  return `${TEAL}>${RESET} `;
+  return `${separator}\n  ${TEAL}>${RESET} `;
 }
 
 function refreshPrompt(rl: readline.Interface): void {
@@ -1064,6 +1112,7 @@ async function processMessage(
     const streamedToolNames = new Set<string>();
     let sawStreamEvent = false;
     let sawVisibleTextDelta = false;
+    let streamedApproval: GatewayChatApprovalEvent | null = null;
     let result: GatewayChatResult;
 
     try {
@@ -1082,6 +1131,11 @@ async function processMessage(
             } else if (streamed.thinkingPreview) {
               s.setThinkingPreview(streamed.thinkingPreview);
             }
+            return;
+          }
+          if (event.type === 'approval') {
+            sawStreamEvent = true;
+            streamedApproval = event;
             return;
           }
           if (
@@ -1116,7 +1170,10 @@ async function processMessage(
     ];
     const hasStreamedText = sawVisibleTextDelta;
     const finalText = result.result || 'No response.';
+    const pendingApproval =
+      streamedApproval || extractGatewayChatApprovalEvent(result);
 
+    s.flushVisibleText();
     s.stop();
     s.clearThinkingPreview();
     if (toolNames.length > 0) {
@@ -1145,34 +1202,39 @@ async function processMessage(
       return;
     }
 
-    if (hasStreamedText) {
-      if (toolNames.length > 0) {
-        console.log();
-      } else {
-        process.stdout.write('\n\n');
-      }
-    } else {
-      printResponse(finalText, {
-        leadingBlank: toolNames.length > 0,
-      });
-    }
-    const pendingApprovalId = findPendingApprovalRequestId(result);
-    if (pendingApprovalId) {
+    if (pendingApproval) {
       tuiPendingApproval = {
-        requestId: pendingApprovalId,
-        prompt: finalText,
+        requestId: pendingApproval.approvalId,
+        prompt: pendingApproval.prompt,
+        intent: pendingApproval.intent,
+        reason: pendingApproval.reason,
+        allowSession: pendingApproval.allowSession,
+        allowAgent: pendingApproval.allowAgent,
       };
+      printResponse(formatTuiApprovalSummary(pendingApproval));
       const approvalCommand = await promptApprovalSelection(
         rl,
-        pendingApprovalId,
+        pendingApproval.approvalId,
+        pendingApproval.allowSession,
+        pendingApproval.allowAgent,
       );
       if (approvalCommand) {
         await processMessage(approvalCommand, rl);
       }
-    } else if (isApprovalResponseContent(content)) {
-      tuiPendingApproval = null;
+    } else {
+      if (isApprovalResponseContent(content)) {
+        tuiPendingApproval = null;
+      }
+      if (hasStreamedText) {
+        console.log();
+      } else {
+        printResponse(finalText, {
+          leadingBlank: toolNames.length > 0,
+        });
+      }
     }
   } catch (err) {
+    s.flushVisibleText();
     s.stop();
     if (abortController.signal.aborted) return;
     s.clearThinkingPreview();

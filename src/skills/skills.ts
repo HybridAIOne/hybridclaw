@@ -9,7 +9,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DATA_DIR } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
+import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { guardSkillDirectory } from './skills-guard.js';
@@ -90,8 +92,6 @@ export interface Skill {
   location: string;
 }
 
-const WORKSPACE_SKILLS_DIR = path.join(process.cwd(), 'skills');
-const PROJECT_AGENTS_SKILLS_DIR = path.join(process.cwd(), '.agents', 'skills');
 const SYNCED_SKILLS_DIR = '.synced-skills';
 const MAX_SKILLS_IN_PROMPT = 150;
 const MAX_SKILLS_PROMPT_CHARS = 30_000;
@@ -593,6 +593,14 @@ function pathWithin(root: string, target: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
+function resolveComparablePath(target: string): string {
+  try {
+    return fs.realpathSync.native(target);
+  } catch {
+    return path.resolve(target);
+  }
+}
+
 function asPromptLocation(
   workspaceDir: string,
   absolutePath: string,
@@ -614,8 +622,49 @@ function resolveUserPath(raw: string): string {
 
 function resolveBundledSkillsDir(): string | null {
   const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-  const bundledDir = path.resolve(moduleDir, '..', 'skills');
-  return fs.existsSync(bundledDir) ? bundledDir : null;
+  const bundledDir = resolveInstallPath('skills');
+  const fallbackBundledDir = path.resolve(moduleDir, '..', '..', 'skills');
+  if (fs.existsSync(bundledDir)) return bundledDir;
+  if (fs.existsSync(fallbackBundledDir)) return fallbackBundledDir;
+  return null;
+}
+
+function resolveProjectSkillsDir(): string {
+  return path.join(process.cwd(), 'skills');
+}
+
+function resolveProjectAgentsSkillsDir(): string {
+  return path.join(process.cwd(), '.agents', 'skills');
+}
+
+function isMirroredAgentWorkspaceSkillDir(dir: string): boolean {
+  const agentsRoot = resolveComparablePath(path.join(DATA_DIR, 'agents'));
+  const skillDir = resolveComparablePath(dir);
+  if (!pathWithin(agentsRoot, skillDir)) return false;
+  const relParts = path.relative(agentsRoot, skillDir).split(path.sep);
+  return (
+    relParts.length >= 4 &&
+    Boolean(relParts[0]) &&
+    relParts[1] === 'workspace' &&
+    relParts[2] === 'skills'
+  );
+}
+
+function shouldPreserveExistingSkill(
+  existing: SkillCandidate,
+  candidate: SkillCandidate,
+): boolean {
+  if (
+    resolveComparablePath(existing.baseDir) ===
+    resolveComparablePath(candidate.baseDir)
+  ) {
+    return true;
+  }
+  return (
+    existing.source === 'bundled' &&
+    candidate.source === 'workspace' &&
+    isMirroredAgentWorkspaceSkillDir(candidate.baseDir)
+  );
 }
 
 function resolveCodexSkillsDirs(): string[] {
@@ -757,7 +806,7 @@ function resolveSyncedSkillTarget(
   // Keep workspace skills under /workspace/skills so script paths like
   // "skills/<skill>/scripts/..." remain valid inside the agent container.
   if (skill.source === 'workspace') {
-    const workspaceRoot = path.resolve(WORKSPACE_SKILLS_DIR);
+    const workspaceRoot = path.resolve(resolveProjectSkillsDir());
     const skillBaseDir = path.resolve(skill.baseDir);
     if (pathWithin(workspaceRoot, skillBaseDir)) {
       const rel = path.relative(workspaceRoot, skillBaseDir);
@@ -773,7 +822,7 @@ function resolveSyncedSkillTarget(
 
   // Keep project .agents skills under /workspace/.agents/skills for path-compat.
   if (skill.source === 'agents-project') {
-    const projectAgentsRoot = path.resolve(PROJECT_AGENTS_SKILLS_DIR);
+    const projectAgentsRoot = path.resolve(resolveProjectAgentsSkillsDir());
     const skillBaseDir = path.resolve(skill.baseDir);
     if (pathWithin(projectAgentsRoot, skillBaseDir)) {
       const rel = path.relative(projectAgentsRoot, skillBaseDir);
@@ -1001,33 +1050,57 @@ function parseSkillInvocation(
   skills: Skill[],
 ): { skill: Skill; args: string } | null {
   const trimmed = content.trim();
-  if (!trimmed.startsWith('/')) return null;
   const skillCommands = buildSkillCommandSpecs(skills);
 
-  const commandMatch = trimmed.match(/^\/([^\s]+)(?:\s+([\s\S]+))?$/);
-  if (!commandMatch) return null;
+  if (trimmed.startsWith('$')) {
+    const spaceIndex = trimmed.indexOf(' ');
+    const rawSkillName =
+      spaceIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIndex);
+    const requestedName = rawSkillName.trim();
+    if (requestedName) {
+      const args =
+        spaceIndex === -1 ? '' : trimmed.slice(spaceIndex + 1).trim();
+      const skill =
+        findInvocableSkill(skills, requestedName) ||
+        findSkillCommand(skillCommands, requestedName)?.skill ||
+        null;
+      if (skill) {
+        return { skill, args };
+      }
+    }
+  }
 
-  const commandName = (commandMatch[1] || '').trim();
-  const remainder = (commandMatch[2] || '').trim();
-  if (!commandName) return null;
+  if (!trimmed.startsWith('/')) return null;
 
-  const lowerCommand = commandName.toLowerCase();
+  const spaceIndex = trimmed.indexOf(' ');
+  const commandName =
+    spaceIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIndex);
+  const remainder =
+    spaceIndex === -1 ? '' : trimmed.slice(spaceIndex + 1).trim();
+  if (!commandName.trim()) return null;
+
+  const lowerCommand = commandName.trim().toLowerCase();
   if (lowerCommand === 'skill') {
     if (!remainder) return null;
-    const skillMatch = remainder.match(/^([^\s]+)(?:\s+([\s\S]+))?$/);
-    if (!skillMatch) return null;
-    const explicitName = (skillMatch[1] || '').trim();
-    const explicitSkill = findInvocableSkill(skills, explicitName);
+    const skillNameEnd = remainder.indexOf(' ');
+    const explicitName =
+      skillNameEnd === -1 ? remainder : remainder.slice(0, skillNameEnd);
+    const args =
+      skillNameEnd === -1 ? '' : remainder.slice(skillNameEnd + 1).trim();
     const skill =
-      explicitSkill ||
+      findInvocableSkill(skills, explicitName) ||
       findSkillCommand(skillCommands, explicitName)?.skill ||
       null;
-    if (!skill) return null;
-    return { skill, args: (skillMatch[2] || '').trim() };
+    if (skill) {
+      return { skill, args };
+    }
+  }
+  if (lowerCommand === 'skill') {
+    return null;
   }
 
   if (lowerCommand.startsWith('skill:')) {
-    const skillName = commandName.slice('skill:'.length).trim();
+    const skillName = commandName.trim().slice('skill:'.length).trim();
     if (!skillName) return null;
     const explicitSkill = findInvocableSkill(skills, skillName);
     const skill =
@@ -1058,6 +1131,18 @@ function loadSkillBody(skill: Skill, maxChars: number): string {
   }
 }
 
+export interface SkillInvocation {
+  skill: Skill;
+  args: string;
+}
+
+export function resolveExplicitSkillInvocation(
+  content: string,
+  skills: Skill[],
+): SkillInvocation | null {
+  return parseSkillInvocation(content, skills);
+}
+
 /**
  * Expand explicit skill command invocations into a deterministic user payload.
  * Supports:
@@ -1069,7 +1154,7 @@ export function expandSkillInvocation(
   content: string,
   skills: Skill[],
 ): string {
-  const invocation = parseSkillInvocation(content, skills);
+  const invocation = resolveExplicitSkillInvocation(content, skills);
   if (!invocation) return content;
 
   const body = loadSkillBody(invocation.skill, MAX_INVOKED_SKILL_CHARS);
@@ -1132,6 +1217,8 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   const codexDirs = resolveCodexSkillsDirs();
   const claudeSkillsDir = path.join(os.homedir(), '.claude', 'skills');
   const agentsPersonalSkillsDir = path.join(os.homedir(), '.agents', 'skills');
+  const projectSkillsDir = resolveProjectSkillsDir();
+  const projectAgentsSkillsDir = resolveProjectAgentsSkillsDir();
 
   const extraSkills = extraDirs.flatMap((dir) => scanSkillsDir(dir, 'extra'));
   const bundledSkills = bundledSkillsDir
@@ -1144,19 +1231,27 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
     'agents-personal',
   );
   const projectAgentsSkills = scanSkillsDir(
-    PROJECT_AGENTS_SKILLS_DIR,
+    projectAgentsSkillsDir,
     'agents-project',
   );
-  const workspaceSkills = scanSkillsDir(WORKSPACE_SKILLS_DIR, 'workspace');
+  const workspaceSkills = scanSkillsDir(projectSkillsDir, 'workspace');
 
   const byName = new Map<string, SkillCandidate>();
-  for (const skill of extraSkills) byName.set(skill.name, skill);
-  for (const skill of bundledSkills) byName.set(skill.name, skill);
-  for (const skill of codexSkills) byName.set(skill.name, skill);
-  for (const skill of claudeSkills) byName.set(skill.name, skill);
-  for (const skill of agentsPersonalSkills) byName.set(skill.name, skill);
-  for (const skill of projectAgentsSkills) byName.set(skill.name, skill);
-  for (const skill of workspaceSkills) byName.set(skill.name, skill);
+  const mergeSkills = (skills: SkillCandidate[]) => {
+    for (const skill of skills) {
+      const existing = byName.get(skill.name);
+      if (existing && shouldPreserveExistingSkill(existing, skill)) continue;
+      byName.set(skill.name, skill);
+    }
+  };
+
+  mergeSkills(extraSkills);
+  mergeSkills(bundledSkills);
+  mergeSkills(codexSkills);
+  mergeSkills(claudeSkills);
+  mergeSkills(agentsPersonalSkills);
+  mergeSkills(projectAgentsSkills);
+  mergeSkills(workspaceSkills);
 
   return Array.from(byName.values());
 }

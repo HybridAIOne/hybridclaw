@@ -1,5 +1,6 @@
 import { GATEWAY_API_TOKEN, GATEWAY_BASE_URL } from '../config/config.js';
 import {
+  type GatewayChatApprovalEvent,
   type GatewayChatRequestBody,
   type GatewayChatResult,
   type GatewayChatStreamEvent,
@@ -17,6 +18,7 @@ export type {
   GatewayChatResult,
   GatewayCommandResult,
   GatewayStatus,
+  GatewayChatApprovalEvent,
   GatewayChatStreamEvent,
   GatewayProactivePullResponse,
 };
@@ -211,6 +213,16 @@ function createResponseParser(
     if (parsed.type === 'text' && typeof parsed.delta === 'string') {
       const textEvent = parsed as GatewayChatTextDeltaEvent;
       onEvent(textEvent);
+      return null;
+    }
+
+    if (
+      parsed.type === 'approval' &&
+      typeof parsed.approvalId === 'string' &&
+      typeof parsed.prompt === 'string'
+    ) {
+      const approvalEvent = parsed as GatewayChatApprovalEvent;
+      onEvent(approvalEvent);
       return null;
     }
 

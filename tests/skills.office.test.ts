@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 describe('office bundled skills', () => {
   const originalHome = process.env.HOME;
   const originalDisableWatcher = process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+  const originalCwd = process.cwd();
   const tempHomes: string[] = [];
 
   beforeEach(() => {
@@ -22,6 +23,7 @@ describe('office bundled skills', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.resetModules();
+    process.chdir(originalCwd);
     if (originalHome === undefined) {
       delete process.env.HOME;
     } else {
@@ -250,6 +252,49 @@ describe('office bundled skills', () => {
 
     loadSkills(agentId);
 
+    expect(fs.readFileSync(mirroredThumbnailPath, 'utf8')).toBe(
+      fs.readFileSync(sourceThumbnailPath, 'utf8'),
+    );
+  });
+
+  test('prefers bundled skills over stale mirrored copies when running from an agent workspace', async () => {
+    const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+
+    const agentId = 'office-agent-cwd-refresh';
+    const workspaceDir = agentWorkspaceDir(agentId);
+    const mirroredSkillDir = path.join(workspaceDir, 'skills', 'pptx');
+    const mirroredThumbnailPath = path.join(
+      mirroredSkillDir,
+      'scripts',
+      'thumbnail.cjs',
+    );
+    const sourceSkillDir = path.resolve(process.cwd(), 'skills', 'pptx');
+    const sourceThumbnailPath = path.join(
+      sourceSkillDir,
+      'scripts',
+      'thumbnail.cjs',
+    );
+
+    fs.mkdirSync(path.dirname(mirroredSkillDir), { recursive: true });
+    fs.cpSync(sourceSkillDir, mirroredSkillDir, {
+      recursive: true,
+      force: true,
+    });
+    fs.writeFileSync(
+      mirroredThumbnailPath,
+      '#!/usr/bin/env node\nmodule.exports = { stale: true };\n',
+      'utf8',
+    );
+
+    process.chdir(workspaceDir);
+    vi.resetModules();
+
+    const { loadSkills } = await import('../src/skills/skills.ts');
+    const skills = loadSkills(agentId);
+
+    expect(skills.find((skill) => skill.name === 'pptx')?.source).toBe(
+      'bundled',
+    );
     expect(fs.readFileSync(mirroredThumbnailPath, 'utf8')).toBe(
       fs.readFileSync(sourceThumbnailPath, 'utf8'),
     );

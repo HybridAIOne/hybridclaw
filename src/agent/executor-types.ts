@@ -2,6 +2,7 @@ import type {
   ChatMessage,
   ContainerOutput,
   MediaContextItem,
+  PendingApproval,
   ScheduledTask,
   ToolProgressEvent,
 } from '../types.js';
@@ -22,6 +23,7 @@ export interface ExecutorRequest {
   blockedTools?: string[];
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
+  onApprovalProgress?: (approval: PendingApproval) => void;
   abortSignal?: AbortSignal;
   media?: MediaContextItem[];
   audioTranscriptsPrepended?: boolean;

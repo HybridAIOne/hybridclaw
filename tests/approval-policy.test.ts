@@ -199,6 +199,45 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(evaluation.requestId).toBeTruthy();
   });
 
+  test('host app control commands require explicit approval', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const openApp = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({ command: 'open -a Music' }),
+      latestUserPrompt: 'Open Apple Music',
+    });
+    const appleScript = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({
+        command: `osascript -e 'tell application "Music" to playpause'`,
+      }),
+      latestUserPrompt: 'Toggle Apple Music playback',
+    });
+    const appScheme = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({ command: 'open "music://"' }),
+      latestUserPrompt: 'Open Apple Music',
+    });
+
+    expect(openApp.baseTier).toBe('red');
+    expect(openApp.decision).toBe('required');
+    expect(openApp.actionKey).toBe('bash:host-control');
+    expect(openApp.requestId).toBeTruthy();
+
+    expect(appleScript.baseTier).toBe('red');
+    expect(appleScript.decision).toBe('required');
+    expect(appleScript.actionKey).toBe('bash:host-control');
+    expect(appleScript.requestId).toBeTruthy();
+
+    expect(appScheme.baseTier).toBe('red');
+    expect(appScheme.decision).toBe('required');
+    expect(appScheme.actionKey).toBe('bash:host-control');
+    expect(appScheme.requestId).toBeTruthy();
+  });
+
   test('yes response approves once and replays original prompt', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

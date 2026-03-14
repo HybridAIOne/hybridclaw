@@ -197,9 +197,22 @@ export interface ToolExecution {
     | 'required'
     | 'denied';
   approvalActionKey?: string;
+  approvalIntent?: string;
   approvalReason?: string;
   approvalRequestId?: string;
   approvalExpiresAt?: number;
+  approvalAllowSession?: boolean;
+  approvalAllowAgent?: boolean;
+}
+
+export interface PendingApproval {
+  approvalId: string;
+  prompt: string;
+  intent: string;
+  reason: string;
+  allowSession: boolean;
+  allowAgent: boolean;
+  expiresAt: number | null;
 }
 
 export interface ToolProgressEvent {
@@ -236,6 +249,7 @@ export interface ContainerOutput {
   toolsUsed: string[];
   artifacts?: ArtifactMetadata[];
   toolExecutions?: ToolExecution[];
+  pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;
   effectiveUserPrompt?: string;

@@ -111,25 +111,33 @@ export function emitToolExecutionAuditEvents(input: {
 
     const isRedApprovalAction =
       execution.approvalTier === 'red' || execution.approvalBaseTier === 'red';
-    const hasApprovalDecision = typeof execution.approvalDecision === 'string';
-    if (isRedApprovalAction || hasApprovalDecision) {
+    const decision = execution.approvalDecision;
+    const hasExplicitApprovalFlow =
+      decision === 'required' ||
+      decision === 'denied' ||
+      decision === 'approved_once' ||
+      decision === 'approved_session' ||
+      decision === 'approved_agent' ||
+      decision === 'approved_fullauto';
+    if (isRedApprovalAction || hasExplicitApprovalFlow) {
       const description =
         execution.approvalReason ||
         execution.blockedReason ||
         `Approval flow for tool ${execution.name}`;
-      recordAuditEvent({
-        sessionId,
-        runId,
-        event: {
-          type: 'approval.request',
-          toolCallId,
-          action: execution.approvalActionKey || `tool:${execution.name}`,
-          description,
-          policyName: 'trusted-coworker',
-        },
-      });
+      if (decision === 'required' || decision === 'denied') {
+        recordAuditEvent({
+          sessionId,
+          runId,
+          event: {
+            type: 'approval.request',
+            toolCallId,
+            action: execution.approvalActionKey || `tool:${execution.name}`,
+            description,
+            policyName: 'trusted-coworker',
+          },
+        });
+      }
 
-      const decision = execution.approvalDecision;
       const approved =
         decision === 'approved_once' ||
         decision === 'approved_session' ||

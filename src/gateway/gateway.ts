@@ -78,10 +78,13 @@ import {
 } from '../tui-slash-command.js';
 import type { ArtifactMetadata } from '../types.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
-import { normalizePlaceholderToolReply } from './chat-result.js';
+import { extractGatewayChatApprovalEvent } from './chat-approval.js';
+import {
+  normalizePendingApprovalReply,
+  normalizePlaceholderToolReply,
+} from './chat-result.js';
 import { classifyGatewayError } from './gateway-error-utils.js';
 import {
-  type GatewayChatResult,
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
@@ -238,26 +241,6 @@ function formatEmailGatewayFailure(error: string | null | undefined): string {
   return formatError('Agent Error', detail || 'Unknown error');
 }
 
-function findPendingApprovalMetadata(
-  result: GatewayChatResult,
-): { approvalId: string; expiresAt: number | null } | null {
-  const executions = result.toolExecutions || [];
-  for (let i = executions.length - 1; i >= 0; i -= 1) {
-    const execution = executions[i];
-    if (execution.approvalDecision !== 'required') continue;
-    if (!execution.approvalRequestId) continue;
-    return {
-      approvalId: execution.approvalRequestId,
-      expiresAt:
-        typeof execution.approvalExpiresAt === 'number' &&
-        Number.isFinite(execution.approvalExpiresAt)
-          ? execution.approvalExpiresAt
-          : null,
-    };
-  }
-  return null;
-}
-
 async function rememberPendingApproval(params: {
   sessionId: string;
   approvalId: string;
@@ -355,15 +338,19 @@ async function handleApprovalCommand(params: {
   }
 
   const approvalContent = approvalId ? `${directive} ${approvalId}` : directive;
-  const approvalResult = await handleGatewayMessage({
-    sessionId,
-    guildId,
-    channelId,
-    userId,
-    username,
-    content: approvalContent,
-    media: [],
-  });
+  const approvalResult = normalizePendingApprovalReply(
+    normalizePlaceholderToolReply(
+      await handleGatewayMessage({
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content: approvalContent,
+        media: [],
+      }),
+    ),
+  );
   if (approvalResult.status === 'error') {
     await reply(
       formatError('Approval Error', approvalResult.error || 'Unknown error'),
@@ -384,7 +371,7 @@ async function handleApprovalCommand(params: {
     approvalResultText,
     approvalResult.toolsUsed,
   );
-  const pendingApproval = findPendingApprovalMetadata(approvalResult);
+  const pendingApproval = extractGatewayChatApprovalEvent(approvalResult);
   if (pendingApproval) {
     const components = isDiscordChannelId(channelId)
       ? buildApprovalConfirmationComponents(pendingApproval.approvalId)
@@ -392,7 +379,7 @@ async function handleApprovalCommand(params: {
     await rememberPendingApproval({
       sessionId,
       approvalId: pendingApproval.approvalId,
-      prompt: resultText,
+      prompt: pendingApproval.prompt || resultText,
       userId,
       expiresAt: pendingApproval.expiresAt,
     });
@@ -742,38 +729,40 @@ async function startDiscordIntegration(): Promise<void> {
           }
           await context.stream.append(text);
         };
-        const result = normalizePlaceholderToolReply(
-          await handleGatewayMessage({
-            sessionId,
-            guildId,
-            channelId,
-            userId,
-            username,
-            content,
-            media,
-            onTextDelta: (delta) => {
-              const filteredDelta = streamFilter.push(delta);
-              if (!filteredDelta) return;
-              void appendStreamText(filteredDelta);
-            },
-            onToolProgress: (event) => {
-              if (sawTextDelta) return;
-              if (event.phase === 'start') {
-                context.emitLifecyclePhase('toolUse');
-              } else {
-                context.emitLifecyclePhase('thinking');
-              }
-            },
-            onProactiveMessage: async (message) => {
-              await deliverProactiveMessage(
-                channelId,
-                message.text,
-                'delegate',
-                message.artifacts,
-              );
-            },
-            abortSignal: context.abortSignal,
-          }),
+        const result = normalizePendingApprovalReply(
+          normalizePlaceholderToolReply(
+            await handleGatewayMessage({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              content,
+              media,
+              onTextDelta: (delta) => {
+                const filteredDelta = streamFilter.push(delta);
+                if (!filteredDelta) return;
+                void appendStreamText(filteredDelta);
+              },
+              onToolProgress: (event) => {
+                if (sawTextDelta) return;
+                if (event.phase === 'start') {
+                  context.emitLifecyclePhase('toolUse');
+                } else {
+                  context.emitLifecyclePhase('thinking');
+                }
+              },
+              onProactiveMessage: async (message) => {
+                await deliverProactiveMessage(
+                  channelId,
+                  message.text,
+                  'delegate',
+                  message.artifacts,
+                );
+              },
+              abortSignal: context.abortSignal,
+            }),
+          ),
         );
         if (result.status === 'error') {
           const errorText = formatError(
@@ -815,7 +804,7 @@ async function startDiscordIntegration(): Promise<void> {
           renderedText,
           sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
         );
-        const pendingApproval = findPendingApprovalMetadata(result);
+        const pendingApproval = extractGatewayChatApprovalEvent(result);
         if (pendingApproval) {
           let cleanup: { disableButtons: () => Promise<void> } | null = null;
           if (context.sendApprovalNotification) {
@@ -832,7 +821,7 @@ async function startDiscordIntegration(): Promise<void> {
           await rememberPendingApproval({
             sessionId,
             approvalId: pendingApproval.approvalId,
-            prompt: responseText,
+            prompt: pendingApproval.prompt || responseText,
             userId,
             expiresAt: pendingApproval.expiresAt,
             disableButtons: cleanup?.disableButtons ?? null,

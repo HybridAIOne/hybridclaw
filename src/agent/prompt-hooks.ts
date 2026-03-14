@@ -11,7 +11,11 @@ import {
   SECURITY_POLICY_VERSION,
 } from '../config/runtime-config.js';
 import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
-import { buildSkillsPrompt, type Skill } from '../skills/skills.js';
+import {
+  buildSkillsPrompt,
+  type Skill,
+  type SkillInvocation,
+} from '../skills/skills.js';
 import { buildContextPrompt, loadBootstrapFiles } from '../workspace.js';
 import { SILENT_REPLY_TOKEN } from './silent-reply.js';
 import { buildToolsSummary } from './tool-summary.js';
@@ -35,6 +39,7 @@ export interface PromptHookContext {
   agentId: string;
   sessionSummary?: string | null;
   skills: Skill[];
+  explicitSkillInvocation?: SkillInvocation | null;
   purpose?: 'conversation' | 'memory-flush';
   promptMode?: PromptMode;
   extraSafetyText?: string;
@@ -75,13 +80,14 @@ function buildSkillsSection(skillsPrompt: string): string {
   return [
     '## Skills (mandatory)',
     'Before replying: scan `<available_skills>` `<description>` entries.',
+    '- If the user explicitly names a skill from `<available_skills>`, treat that skill as selected.',
     '- If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
     '- If multiple could apply: choose the most specific one, then read/follow it.',
     '- If none clearly apply: do not read any SKILL.md.',
-    'Constraints: never read more than one skill up front; only read after selecting.',
+    '- Do not claim a listed skill is unavailable when the user named it.',
     '- Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',
-    '- Use `skills/.../scripts/...` only as shipped helper entrypoints to run or read. Do not create new task files under `skills/`.',
     '- For normal user work, put generated scripts in workspace `scripts/` or the workspace root. Only write under `skills/` when the user explicitly asked to create or edit a skill.',
+    '- Before running a helper under `skills/.../scripts/...`, make sure that exact path came from the skill instructions or from a file read/listing in this turn. Do not invent helper names or guess that a sibling script exists.',
     '',
     trimmed,
   ].join('\n');
@@ -90,7 +96,9 @@ function buildSkillsSection(skillsPrompt: string): string {
 function buildBootstrapHook(context: PromptHookContext): string {
   const contextFiles = loadBootstrapFiles(context.agentId);
   const contextPrompt = buildContextPrompt(contextFiles);
-  const skillsPrompt = buildSkillsSection(buildSkillsPrompt(context.skills));
+  const skillsPrompt = context.explicitSkillInvocation
+    ? ''
+    : buildSkillsSection(buildSkillsPrompt(context.skills));
   return [contextPrompt, skillsPrompt].filter(Boolean).join('\n\n');
 }
 
@@ -127,6 +135,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Default: do not narrate routine, low-risk tool calls; just call the tool.',
     'Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions, or when the user explicitly asks.',
     'Keep narration brief and value-dense; avoid repeating obvious steps.',
+    'If the user has already asked you to perform an action, do not ask for a separate natural-language "yes" just to trigger approvals; attempt the tool call and let the runtime approval flow interrupt if approval is required.',
     'When a direct first-class tool exists, use it instead of asking the user to run equivalent CLI commands or doing indirect rediscovery.',
     'If the relevant content is already available directly in the current turn, injected `<file>` content, or `[PDFContext]`, answer from that content first before reading skills or searching for the same artifact again.',
     '',

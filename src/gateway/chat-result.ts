@@ -1,5 +1,9 @@
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import { getSessionById } from '../memory/db.js';
+import {
+  extractGatewayChatApprovalEvent,
+  formatGatewayChatApprovalSummary,
+} from './chat-approval.js';
 import type { GatewayChatResult } from './gateway-types.js';
 import {
   filterGatewayChatResultForSessionShowMode,
@@ -231,5 +235,23 @@ export function normalizeSilentMessageSendReply(
   return {
     ...result,
     result: nextResult,
+  };
+}
+
+export function normalizePendingApprovalReply(
+  result: GatewayChatResult,
+): GatewayChatResult {
+  if (result.status !== 'success') return result;
+  const approval = extractGatewayChatApprovalEvent(result);
+  if (!approval) return result;
+
+  const summary = formatGatewayChatApprovalSummary(approval);
+  if (String(result.result || '').trim() === summary) {
+    return result;
+  }
+
+  return {
+    ...result,
+    result: summary,
   };
 }

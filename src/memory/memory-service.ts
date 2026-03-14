@@ -23,6 +23,7 @@ import {
   addKnowledgeEntity as dbAddKnowledgeEntity,
   addKnowledgeRelation as dbAddKnowledgeRelation,
   appendCanonicalMessages as dbAppendCanonicalMessages,
+  clearCanonicalContext as dbClearCanonicalContext,
   clearSessionHistory as dbClearSessionHistory,
   deleteMemoryValue as dbDeleteMemoryValue,
   deleteMessagesBeforeId as dbDeleteMessagesBeforeId,
@@ -101,6 +102,10 @@ export interface MemoryBackend {
     windowSize?: number;
     excludeSessionId?: string | null;
   }) => CanonicalSessionContext;
+  clearCanonicalContext?: (params: {
+    agentId: string;
+    userId: string;
+  }) => number;
   addKnowledgeEntity: (params: {
     id?: string | null;
     name: string;
@@ -236,6 +241,7 @@ const DEFAULT_BACKEND: MemoryBackend = {
   list: dbListMemoryValues,
   appendCanonicalMessages: dbAppendCanonicalMessages,
   getCanonicalContext: dbGetCanonicalContext,
+  clearCanonicalContext: dbClearCanonicalContext,
   addKnowledgeEntity: dbAddKnowledgeEntity,
   addKnowledgeRelation: dbAddKnowledgeRelation,
   queryKnowledgeGraph: dbQueryKnowledgeGraph,
@@ -440,6 +446,10 @@ export class MemoryService {
     excludeSessionId?: string | null;
   }): CanonicalSessionContext {
     return this.backend.getCanonicalContext(params);
+  }
+
+  clearCanonicalContext(params: { agentId: string; userId: string }): number {
+    return this.backend.clearCanonicalContext?.(params) ?? 0;
   }
 
   addKnowledgeEntity(params: {
