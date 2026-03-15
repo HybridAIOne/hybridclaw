@@ -90,9 +90,17 @@ export interface ToolApprovalEvaluation {
   hostHints: string[];
 }
 
-const POLICY_PATH = path.posix.join('/workspace', '.hybridclaw', 'policy.yaml');
-const TRUST_STORE_PATH = path.posix.join(
-  '/workspace',
+const WORKSPACE_ROOT_DISPLAY = '/workspace';
+const WORKSPACE_ROOT_ACTUAL = path.resolve(
+  process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT || WORKSPACE_ROOT_DISPLAY,
+);
+const POLICY_PATH = path.join(
+  WORKSPACE_ROOT_ACTUAL,
+  '.hybridclaw',
+  'policy.yaml',
+);
+const TRUST_STORE_PATH = path.join(
+  WORKSPACE_ROOT_ACTUAL,
   '.hybridclaw',
   'approval-trust.json',
 );
@@ -103,10 +111,6 @@ const YELLOW_IMPLICIT_DELAY_SECS = Math.max(
 );
 const MAX_PROMPT_CHARS = 1_200;
 const MAX_COMMAND_PREVIEW_CHARS = 160;
-const WORKSPACE_ROOT_DISPLAY = '/workspace';
-const WORKSPACE_ROOT_ACTUAL = path.resolve(
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT || WORKSPACE_ROOT_DISPLAY,
-);
 const SCRATCH_ROOTS = Array.from(
   new Set(
     ['/tmp', '/private/tmp', os.tmpdir()]

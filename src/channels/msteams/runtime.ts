@@ -33,15 +33,12 @@ import {
   parseCommand,
 } from './inbound.js';
 import {
-  createMSTeamsReactionController,
-  type MSTeamsLifecyclePhase,
-} from './reactions.js';
-import {
   type ResolveMSTeamsChannelPolicyResult,
   resolveMSTeamsChannelPolicy,
 } from './send-permissions.js';
 import { MSTeamsStreamManager } from './stream.js';
 import { createMSTeamsTypingController } from './typing.js';
+import { normalizeValue } from './utils.js';
 
 export type ReplyFn = (
   content: string,
@@ -54,7 +51,7 @@ export interface MSTeamsMessageContext {
   abortSignal: AbortSignal;
   stream: MSTeamsStreamManager;
   policy: ResolveMSTeamsChannelPolicyResult;
-  emitLifecyclePhase: (phase: MSTeamsLifecyclePhase) => void;
+  emitLifecyclePhase: (_phase: string) => void;
 }
 
 export type MessageHandler = (
@@ -103,10 +100,6 @@ interface AdapterCompatibleResponse {
   end(chunk?: unknown): AdapterCompatibleResponse;
 }
 
-function normalizeValue(value: string | null | undefined): string {
-  return String(value || '').trim();
-}
-
 function shouldShowTypingForCommand(args: string[]): boolean {
   const command = normalizeValue(args[0]).toLowerCase();
   if (command !== 'approve') {
@@ -150,6 +143,9 @@ function writeAdapterBody(res: ServerResponse, body: unknown): void {
   res.write(JSON.stringify(body));
 }
 
+// CloudAdapter.process() expects an Express-style response object, but the
+// gateway mounts Teams on the shared Node HTTP server. This shim adapts the
+// native ServerResponse without introducing a second web framework layer.
 function createAdapterResponse(res: ServerResponse): AdapterCompatibleResponse {
   const response: AdapterCompatibleResponse = {
     header(name, value) {
@@ -408,8 +404,6 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
       replyToId: activity.id,
     });
     const typingController = createMSTeamsTypingController(turnContext);
-    const reactionController = createMSTeamsReactionController();
-
     typingController.start();
     try {
       await messageHandler(
@@ -427,12 +421,11 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
           abortSignal: abortController.signal,
           stream,
           policy,
-          emitLifecyclePhase: (phase) => reactionController.setPhase(phase),
+          emitLifecyclePhase: () => {},
         },
       );
     } finally {
       typingController.stop();
-      await reactionController.clear();
     }
   } finally {
     releaseActiveSession();
@@ -443,6 +436,11 @@ export function initMSTeams(
   onMessage: MessageHandler,
   onCommand: CommandHandler,
 ): void {
+  if (typeof onMessage !== 'function' || typeof onCommand !== 'function') {
+    throw new Error(
+      'Teams runtime requires both message and command handlers during initialization.',
+    );
+  }
   messageHandler = onMessage;
   commandHandler = onCommand;
   if (!MSTEAMS_ENABLED) return;

@@ -86,9 +86,6 @@
     "qrcode-terminal": "^0.12.0",
     "sanitize-html": "^2.17.1"
   },
-  "optionalDependencies": {
-    "@napi-rs/canvas": "^0.1.82"
-  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.5",
     "@types/better-sqlite3": "^7.6.13",

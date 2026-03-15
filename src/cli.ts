@@ -1551,18 +1551,14 @@ function printMSTeamsStatus(): void {
   const envAppId = process.env.MSTEAMS_APP_ID?.trim() || '';
   const envTenantId = process.env.MSTEAMS_TENANT_ID?.trim() || '';
   const envAppPassword = process.env.MSTEAMS_APP_PASSWORD?.trim() || '';
-  const configAppPassword = config.msteams.appPassword.trim();
-  const appPassword =
-    envAppPassword || storedAppPassword || configAppPassword || '';
+  const appPassword = envAppPassword || storedAppPassword || '';
   const source = envAppPassword
     ? storedAppPassword && envAppPassword === storedAppPassword
       ? 'runtime-secrets'
       : 'env'
     : storedAppPassword
       ? 'runtime-secrets'
-      : configAppPassword
-        ? 'config'
-        : null;
+      : null;
   const appId = envAppId || config.msteams.appId;
   const tenantId = envTenantId || config.msteams.tenantId;
 
@@ -1590,7 +1586,6 @@ function clearMSTeamsCredentials(): void {
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.msteams.enabled = false;
     draft.msteams.appId = '';
-    draft.msteams.appPassword = '';
     draft.msteams.tenantId = '';
   });
 
@@ -2897,7 +2892,8 @@ async function configureMSTeamsAuth(args: string[]): Promise<void> {
     appPassword:
       parsed.appPassword ||
       process.env.MSTEAMS_APP_PASSWORD?.trim() ||
-      currentConfig.appPassword,
+      readStoredRuntimeSecret('MSTEAMS_APP_PASSWORD') ||
+      '',
     tenantId:
       parsed.tenantId ??
       process.env.MSTEAMS_TENANT_ID?.trim() ??
@@ -2907,7 +2903,6 @@ async function configureMSTeamsAuth(args: string[]): Promise<void> {
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.msteams.enabled = true;
     draft.msteams.appId = resolved.appId;
-    draft.msteams.appPassword = '';
     draft.msteams.tenantId = resolved.tenantId;
   });
   const secretsPath = saveRuntimeSecrets({
@@ -2923,6 +2918,9 @@ async function configureMSTeamsAuth(args: string[]): Promise<void> {
   console.log(`Webhook path: ${nextConfig.msteams.webhook.path}`);
   console.log(`DM policy: ${nextConfig.msteams.dmPolicy}`);
   console.log(`Group policy: ${nextConfig.msteams.groupPolicy}`);
+  console.log(
+    'Default Teams access is deny-by-default. Add allowed AAD object IDs or channel/team overrides before expecting replies.',
+  );
   console.log('Next:');
   console.log('  Restart the gateway to pick up Teams settings:');
   console.log('    hybridclaw gateway restart --foreground');

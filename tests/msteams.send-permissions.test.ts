@@ -12,8 +12,8 @@ function buildSnapshot(
   patch?: Partial<MSTeamsPermissionSnapshot>,
 ): MSTeamsPermissionSnapshot {
   return {
-    groupPolicy: 'open',
-    dmPolicy: 'open',
+    groupPolicy: 'allowlist',
+    dmPolicy: 'allowlist',
     allowFrom: [],
     teams: {},
     requireMention: true,
@@ -23,7 +23,7 @@ function buildSnapshot(
   };
 }
 
-test('allows group activity by default in open mode', () => {
+test('denies group activity by default in allowlist mode', () => {
   const result = resolveMSTeamsChannelPolicyFromSnapshot(buildSnapshot(), {
     isDm: false,
     teamId: TEAM_ID,
@@ -31,7 +31,8 @@ test('allows group activity by default in open mode', () => {
     actor: { userId: 'aad-user-1', aadObjectId: 'aad-user-1' },
   });
 
-  expect(result.allowed).toBe(true);
+  expect(result.allowed).toBe(false);
+  expect(result.groupPolicy).toBe('allowlist');
   expect(result.requireMention).toBe(true);
   expect(result.replyStyle).toBe('thread');
 });
@@ -73,10 +74,10 @@ test('enforces cascading allowFrom from channel to team to global', () => {
   expect(allowed.requireMention).toBe(false);
 });
 
-test('treats dm pairing as allowlist until a pairing store exists', () => {
+test('enforces Teams DM allowlists when dmPolicy is allowlist', () => {
   const result = resolveMSTeamsChannelPolicyFromSnapshot(
     buildSnapshot({
-      dmPolicy: 'pairing',
+      dmPolicy: 'allowlist',
       allowFrom: ['aad-user-1'],
     }),
     {
@@ -86,7 +87,7 @@ test('treats dm pairing as allowlist until a pairing store exists', () => {
   );
 
   expect(result.allowed).toBe(true);
-  expect(result.dmPolicy).toBe('pairing');
+  expect(result.dmPolicy).toBe('allowlist');
 });
 
 test('dangerouslyAllowNameMatching allows display-name fallback', () => {

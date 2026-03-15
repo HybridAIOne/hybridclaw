@@ -14,6 +14,7 @@ import {
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { ArtifactMetadata, MediaContextItem } from '../../types.js';
+import { normalizeValue } from './utils.js';
 
 const OUTBOUND_MIME_TYPE_BY_EXTENSION: Record<string, string> = {
   '.gif': 'image/gif',
@@ -37,10 +38,27 @@ const TEAMS_FILE_DOWNLOAD_INFO_CONTENT_TYPE =
   'application/vnd.microsoft.teams.file.download.info';
 
 const PERSONAL_INLINE_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
-const PERSONAL_INLINE_IMAGE_MAX_DIMENSION = 4_096;
 const MSTEAMS_MEDIA_TMP_PREFIX = 'hybridclaw-msteams-';
 const REMOTE_MEDIA_FETCH_TIMEOUT_MS = 15_000;
 const ACCESS_TOKEN_SCOPE_SUFFIX = '/.default';
+const REQUIRED_MSTEAMS_MEDIA_ALLOW_HOSTS = [
+  '*.teams.microsoft.com',
+  '*.trafficmanager.net',
+  '*.blob.core.windows.net',
+  'teams.microsoft.com',
+  'teams.cdn.office.net',
+  'statics.teams.cdn.office.net',
+  'asm.skype.com',
+  'ams.skype.com',
+  'media.ams.skype.com',
+];
+const REQUIRED_MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS = [
+  '*.teams.microsoft.com',
+  '*.trafficmanager.net',
+  'api.botframework.com',
+  'botframework.com',
+  'teams.microsoft.com',
+];
 const OUTBOUND_EXTENSION_BY_MIME_TYPE: Record<string, string> = {
   'application/pdf': '.pdf',
   'audio/mp4': '.m4a',
@@ -62,8 +80,12 @@ interface OAuthTokenResponse {
   expires_in?: number;
 }
 
-function normalizeValue(value: string | null | undefined): string {
-  return String(value || '').trim();
+interface TeamsAttachmentDownloadInfo {
+  url: string;
+  filename: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  authToken: string | null;
 }
 
 function matchesHostPattern(host: string, pattern: string): boolean {
@@ -79,6 +101,36 @@ function matchesHostPattern(host: string, pattern: string): boolean {
 
 function isAllowedHost(host: string, patterns: string[]): boolean {
   return patterns.some((pattern) => matchesHostPattern(host, pattern));
+}
+
+function mergeHostPatterns(
+  configuredPatterns: string[],
+  requiredPatterns: string[],
+): string[] {
+  const merged = new Set<string>();
+  for (const pattern of requiredPatterns) {
+    const normalized = normalizeValue(pattern);
+    if (normalized) merged.add(normalized);
+  }
+  for (const pattern of configuredPatterns) {
+    const normalized = normalizeValue(pattern);
+    if (normalized) merged.add(normalized);
+  }
+  return [...merged];
+}
+
+function getEffectiveMediaAllowHosts(): string[] {
+  return mergeHostPatterns(
+    MSTEAMS_MEDIA_ALLOW_HOSTS,
+    REQUIRED_MSTEAMS_MEDIA_ALLOW_HOSTS,
+  );
+}
+
+function getEffectiveMediaAuthAllowHosts(): string[] {
+  return mergeHostPatterns(
+    MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS,
+    REQUIRED_MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS,
+  );
 }
 
 function looksLikeSupportedAttachment(attachment: Attachment): boolean {
@@ -142,6 +194,16 @@ function parseAttachmentHtmlContent(attachment: Attachment): string {
           ? record.content
           : '';
   return text;
+}
+
+function readAttachmentContentRecord(
+  attachment: Attachment,
+): Record<string, unknown> | null {
+  const content = (attachment as { content?: unknown }).content;
+  if (!content || typeof content !== 'object' || Array.isArray(content)) {
+    return null;
+  }
+  return content as Record<string, unknown>;
 }
 
 function extractAttachmentFilename(url: string, fallbackName: string): string {
@@ -213,7 +275,8 @@ function buildRemoteFallbackMediaItem(params: {
     return null;
   }
 
-  if (!isAllowedHost(host, MSTEAMS_MEDIA_ALLOW_HOSTS)) {
+  const allowHosts = getEffectiveMediaAllowHosts();
+  if (!isAllowedHost(host, allowHosts)) {
     logger.debug(
       { host, name: params.filename || null },
       'Skipping Teams attachment from non-allowlisted host',
@@ -303,13 +366,33 @@ async function acquireClientCredentialsToken(
   return accessToken;
 }
 
-async function fetchTeamsMediaResponse(url: string): Promise<Response> {
+async function fetchTeamsMediaResponse(
+  url: string,
+  authToken?: string | null,
+): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
     REMOTE_MEDIA_FETCH_TIMEOUT_MS,
   );
   try {
+    const normalizedAuthToken = normalizeValue(authToken);
+    if (normalizedAuthToken) {
+      const tokenResponse = await fetch(url, {
+        headers: {
+          Accept: '*/*',
+          Authorization: `Bearer ${normalizedAuthToken}`,
+        },
+        signal: controller.signal,
+      });
+      if (
+        tokenResponse.ok ||
+        (tokenResponse.status !== 401 && tokenResponse.status !== 403)
+      ) {
+        return tokenResponse;
+      }
+    }
+
     const response = await fetch(url, {
       headers: {
         Accept: '*/*',
@@ -321,7 +404,7 @@ async function fetchTeamsMediaResponse(url: string): Promise<Response> {
     }
 
     const host = new URL(url).hostname;
-    if (!isAllowedHost(host, MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS)) {
+    if (!isAllowedHost(host, getEffectiveMediaAuthAllowHosts())) {
       return response;
     }
 
@@ -391,6 +474,7 @@ async function buildMediaItem(params: {
   filename: string;
   mimeType?: string | null;
   sizeBytes?: number;
+  authToken?: string | null;
 }): Promise<MediaContextItem | null> {
   const fallback = buildRemoteFallbackMediaItem(params);
   if (!fallback) {
@@ -416,7 +500,10 @@ async function buildMediaItem(params: {
   }
 
   try {
-    const response = await fetchTeamsMediaResponse(fallback.url);
+    const response = await fetchTeamsMediaResponse(
+      fallback.url,
+      params.authToken,
+    );
     if (!response.ok) {
       throw new Error(
         `Teams attachment fetch failed (${response.status} ${response.statusText})`,
@@ -456,42 +543,54 @@ async function buildMediaItem(params: {
   }
 }
 
-async function shouldInlinePersonalImageAttachment(params: {
+function extractAttachmentDownloadInfo(params: {
+  attachment: Attachment;
+  fallbackName: string;
+  fallbackMimeType: string | null;
+  sizeBytes: number;
+}): TeamsAttachmentDownloadInfo | null {
+  const record = readAttachmentContentRecord(params.attachment);
+  if (!record) return null;
+
+  const downloadUrl =
+    typeof record.downloadUrl === 'string' ? record.downloadUrl.trim() : '';
+  if (!downloadUrl) return null;
+
+  const fileName =
+    typeof record.fileName === 'string' && record.fileName.trim()
+      ? record.fileName.trim()
+      : typeof record.name === 'string' && record.name.trim()
+        ? record.name.trim()
+        : params.fallbackName;
+  const fileType =
+    typeof record.fileType === 'string' ? record.fileType.trim() : '';
+  const authToken =
+    typeof record.token === 'string' && record.token.trim()
+      ? record.token.trim()
+      : null;
+
+  return {
+    url: downloadUrl,
+    filename: fileName,
+    mimeType:
+      inferMimeTypeFromFilename(fileName, params.fallbackMimeType) ||
+      inferMimeTypeFromTeamsFileType(fileType),
+    sizeBytes: params.sizeBytes,
+    authToken,
+  };
+}
+
+function shouldInlinePersonalImageAttachment(params: {
   conversationType: string;
   contentType: string;
   sizeBytes: number;
-  fileBuffer: Buffer;
-  filename: string;
-}): Promise<boolean> {
-  const shouldInline =
+}): boolean {
+  return (
     params.conversationType === 'personal' &&
     params.contentType.startsWith('image/') &&
     params.sizeBytes > 0 &&
-    params.sizeBytes < PERSONAL_INLINE_IMAGE_MAX_BYTES;
-  if (!shouldInline) {
-    return false;
-  }
-
-  try {
-    const { loadImage } = await import('@napi-rs/canvas');
-    const image = await loadImage(params.fileBuffer);
-    const width = Math.round(Number(image.width || 0));
-    const height = Math.round(Number(image.height || 0));
-    if (
-      width > PERSONAL_INLINE_IMAGE_MAX_DIMENSION ||
-      height > PERSONAL_INLINE_IMAGE_MAX_DIMENSION
-    ) {
-      logger.debug(
-        { filename: params.filename, height, width },
-        'Sending Teams personal image via uploaded attachment due to oversized dimensions',
-      );
-      return false;
-    }
-  } catch {
-    // Fall back to inline delivery when image metadata cannot be inspected.
-  }
-
-  return true;
+    params.sizeBytes < PERSONAL_INLINE_IMAGE_MAX_BYTES
+  );
 }
 
 function requireConnectorClient(turnContext: TurnContext): ConnectorClient {
@@ -546,11 +645,9 @@ export async function buildTeamsUploadedFileAttachment(params: {
     params.turnContext.activity.conversation?.conversationType,
   ).toLowerCase();
   if (
-    await shouldInlinePersonalImageAttachment({
+    shouldInlinePersonalImageAttachment({
       conversationType,
       contentType,
-      fileBuffer,
-      filename,
       sizeBytes: fileBuffer.byteLength,
     })
   ) {
@@ -611,6 +708,7 @@ export async function buildTeamsAttachmentContext(params: {
     : [];
   const maxBytes = Math.max(1, MSTEAMS_MEDIA_MAX_MB) * 1024 * 1024;
   const media: MediaContextItem[] = [];
+  const htmlAttachments: Attachment[] = [];
 
   for (const attachment of attachments) {
     const fallbackName = normalizeValue(attachment.name) || 'teams-attachment';
@@ -620,6 +718,31 @@ export async function buildTeamsAttachmentContext(params: {
     );
     const normalizedSizeBytes = Number.isFinite(sizeBytes) ? sizeBytes : 0;
     const contentType = normalizeValue(attachment.contentType).toLowerCase();
+
+    if (contentType.startsWith('text/html')) {
+      htmlAttachments.push(attachment);
+      continue;
+    }
+
+    const downloadInfo = extractAttachmentDownloadInfo({
+      attachment,
+      fallbackName,
+      fallbackMimeType: contentType,
+      sizeBytes: normalizedSizeBytes,
+    });
+    if (downloadInfo) {
+      const mediaItem = await buildMediaItem({
+        url: downloadInfo.url,
+        filename: downloadInfo.filename,
+        mimeType: downloadInfo.mimeType,
+        sizeBytes: downloadInfo.sizeBytes,
+        authToken: downloadInfo.authToken,
+      });
+      if (mediaItem && mediaItem.sizeBytes <= maxBytes) {
+        media.push(mediaItem);
+        continue;
+      }
+    }
 
     if (
       looksLikeSupportedAttachment(attachment) &&
@@ -638,53 +761,32 @@ export async function buildTeamsAttachmentContext(params: {
         media.push(mediaItem);
       }
     }
+  }
 
-    if (contentType === TEAMS_FILE_DOWNLOAD_INFO_CONTENT_TYPE) {
-      const content = (attachment as { content?: unknown }).content;
-      if (content && typeof content === 'object' && !Array.isArray(content)) {
-        const record = content as Record<string, unknown>;
-        const downloadUrl =
-          typeof record.downloadUrl === 'string' ? record.downloadUrl : '';
-        const fileName =
-          typeof record.fileName === 'string' && record.fileName.trim()
-            ? record.fileName.trim()
-            : fallbackName;
-        const fileType =
-          typeof record.fileType === 'string' ? record.fileType.trim() : '';
+  if (media.length > 0) {
+    return media;
+  }
+
+  for (const attachment of htmlAttachments) {
+    const fallbackName = normalizeValue(attachment.name) || 'teams-attachment';
+    const html = parseAttachmentHtmlContent(attachment);
+    HTML_IMAGE_SRC_RE.lastIndex = 0;
+    let match = HTML_IMAGE_SRC_RE.exec(html);
+    while (match) {
+      const src = normalizeValue(match[1]);
+      if (src && !src.startsWith('cid:')) {
+        const filename = extractAttachmentFilename(src, fallbackName);
         const mediaItem = await buildMediaItem({
-          url: downloadUrl,
-          filename: fileName,
-          mimeType:
-            inferMimeTypeFromFilename(fileName, null) ||
-            inferMimeTypeFromTeamsFileType(fileType),
-          sizeBytes: normalizedSizeBytes,
+          url: src,
+          filename,
+          mimeType: inferMimeTypeFromFilename(filename, 'image/png'),
+          sizeBytes: 0,
         });
         if (mediaItem && mediaItem.sizeBytes <= maxBytes) {
           media.push(mediaItem);
         }
       }
-    }
-
-    if (contentType.startsWith('text/html')) {
-      const html = parseAttachmentHtmlContent(attachment);
-      HTML_IMAGE_SRC_RE.lastIndex = 0;
-      let match = HTML_IMAGE_SRC_RE.exec(html);
-      while (match) {
-        const src = normalizeValue(match[1]);
-        if (src && !src.startsWith('cid:')) {
-          const filename = extractAttachmentFilename(src, fallbackName);
-          const mediaItem = await buildMediaItem({
-            url: src,
-            filename,
-            mimeType: inferMimeTypeFromFilename(filename, 'image/png'),
-            sizeBytes: 0,
-          });
-          if (mediaItem && mediaItem.sizeBytes <= maxBytes) {
-            media.push(mediaItem);
-          }
-        }
-        match = HTML_IMAGE_SRC_RE.exec(html);
-      }
+      match = HTML_IMAGE_SRC_RE.exec(html);
     }
   }
 

@@ -181,14 +181,13 @@ async function importFreshCli(options?: {
     msteams: {
       enabled: false,
       appId: '',
-      appPassword: '',
       tenantId: '',
       webhook: {
         port: 3978,
         path: '/api/msteams/messages',
       },
-      groupPolicy: 'open',
-      dmPolicy: 'open',
+      groupPolicy: 'allowlist',
+      dmPolicy: 'allowlist',
       allowFrom: [],
       teams: {},
       requireMention: true,
@@ -834,14 +833,12 @@ describe('CLI hybridai commands', () => {
     const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
       msteams: {
         appId: string;
-        appPassword: string;
         enabled: boolean;
         tenantId: string;
       };
     };
     expect(nextConfig.msteams.enabled).toBe(true);
     expect(nextConfig.msteams.appId).toBe('teams-app-id');
-    expect(nextConfig.msteams.appPassword).toBe('');
     expect(nextConfig.msteams.tenantId).toBe('teams-tenant-id');
     expect(logSpy).toHaveBeenCalledWith('Microsoft Teams mode: enabled');
   });
@@ -886,7 +883,6 @@ describe('CLI hybridai commands', () => {
       msteams: {
         enabled: true,
         appId: '',
-        appPassword: '',
         tenantId: '',
         webhook: {
           port: 3978,

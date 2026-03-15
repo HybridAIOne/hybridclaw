@@ -5,7 +5,11 @@ async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
+async function importFreshGatewayMain(options?: {
+  whatsappLinked?: boolean;
+  msteamsEnabled?: boolean;
+  hasMSTeamsCredentials?: boolean;
+}) {
   vi.resetModules();
 
   const state = {
@@ -34,7 +38,7 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
         smtpSecure: false,
       },
       msteams: {
-        enabled: true,
+        enabled: options?.msteamsEnabled ?? true,
         webhook: {
           port: 9090,
           path: '/api/msteams/messages',
@@ -201,8 +205,10 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
   vi.doMock('../src/config/config.js', () => ({
     DISCORD_TOKEN: 'discord-token',
     EMAIL_PASSWORD: '',
-    MSTEAMS_APP_ID: 'teams-app-id',
-    MSTEAMS_APP_PASSWORD: 'teams-app-password',
+    MSTEAMS_APP_ID:
+      options?.hasMSTeamsCredentials === false ? '' : 'teams-app-id',
+    MSTEAMS_APP_PASSWORD:
+      options?.hasMSTeamsCredentials === false ? '' : 'teams-app-password',
     getConfigSnapshot: state.getConfigSnapshot,
     HEARTBEAT_CHANNEL: '',
     HEARTBEAT_INTERVAL: 1_000,
@@ -348,6 +354,17 @@ describe('gateway bootstrap', () => {
 
     expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
     expect(state.whatsappMessageHandler).not.toBeNull();
+  });
+
+  test('does not start Teams when config disables it even if credentials exist', async () => {
+    const state = await importFreshGatewayMain({
+      msteamsEnabled: false,
+      hasMSTeamsCredentials: true,
+    });
+
+    expect(state.initMSTeams).not.toHaveBeenCalled();
+    expect(state.teamsMessageHandler).toBeNull();
+    expect(state.teamsCommandHandler).toBeNull();
   });
 
   test('formats command replies based on gateway command result kind', async () => {

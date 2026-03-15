@@ -14,6 +14,14 @@ export interface MSTeamsChunkedActivity {
   attachments?: Attachment[];
 }
 
+export interface BuildMSTeamsMessageActivityParams {
+  id?: string;
+  text: string;
+  attachments?: Attachment[];
+  replyStyle: MSTeamsReplyStyle;
+  replyToId?: string | null;
+}
+
 export function buildResponseText(text: string, toolsUsed?: string[]): string {
   let body = text;
   if (toolsUsed && toolsUsed.length > 0) {
@@ -57,17 +65,14 @@ export function prepareChunkedActivities(params: {
   }));
 }
 
-function buildMessageActivity(params: {
-  chunk: MSTeamsChunkedActivity;
-  replyStyle: MSTeamsReplyStyle;
-  replyToId?: string | null;
-}): Partial<Activity> {
+export function buildMSTeamsMessageActivity(
+  params: BuildMSTeamsMessageActivityParams,
+): Partial<Activity> {
   return {
     type: ActivityTypes.Message,
-    ...(params.chunk.text ? { text: params.chunk.text } : {}),
-    ...(params.chunk.attachments?.length
-      ? { attachments: params.chunk.attachments }
-      : {}),
+    ...(params.id ? { id: params.id } : {}),
+    ...(params.text ? { text: params.text } : {}),
+    ...(params.attachments?.length ? { attachments: params.attachments } : {}),
     ...(params.replyStyle === 'thread' && params.replyToId
       ? { replyToId: params.replyToId }
       : {}),
@@ -87,8 +92,9 @@ export async function sendChunkedReply(params: {
   });
   for (const chunk of chunks) {
     await params.turnContext.sendActivity(
-      buildMessageActivity({
-        chunk,
+      buildMSTeamsMessageActivity({
+        text: chunk.text,
+        attachments: chunk.attachments,
         replyStyle: params.replyStyle,
         replyToId: params.replyToId,
       }),

@@ -46,6 +46,10 @@ Check what HybridClaw saved:
 hybridclaw auth status msteams
 ```
 
+By default, Teams DMs and group channels start in `allowlist` mode. That means
+the bot will not answer anyone until you explicitly allow AAD object IDs in
+config or open a specific team/channel policy for testing.
+
 ## 3. Start the gateway
 
 ```bash
@@ -84,6 +88,11 @@ https://<your-public-host>/api/msteams/messages
 Then confirm the Microsoft Teams channel is enabled for that bot.
 
 ## 6. Smoke-test the bot
+
+For a quick test, either:
+
+1. temporarily set `msteams.dmPolicy` / `msteams.groupPolicy` to `open`, or
+2. add your own AAD object ID to `msteams.allowFrom`
 
 1. Open a DM with the bot in Microsoft Teams and send `hello`
 2. Confirm the bot replies

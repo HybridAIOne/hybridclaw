@@ -29,6 +29,9 @@ interface ChannelDraft {
   requireMention: boolean;
   replyStyle: 'thread' | 'top-level';
   groupPolicy: 'open' | 'allowlist' | 'disabled';
+  requireMentionExplicit: boolean;
+  replyStyleExplicit: boolean;
+  groupPolicyExplicit: boolean;
   allowFrom: string;
   tools: string;
 }
@@ -65,7 +68,10 @@ function createDraft(source?: AdminChannelEntry): ChannelDraft {
       requireMention:
         source.config.requireMention ?? source.defaultRequireMention,
       replyStyle: source.config.replyStyle || source.defaultReplyStyle,
-      groupPolicy: source.config.groupPolicy || 'open',
+      groupPolicy: source.config.groupPolicy ?? source.defaultGroupPolicy,
+      requireMentionExplicit: source.config.requireMention !== undefined,
+      replyStyleExplicit: source.config.replyStyle !== undefined,
+      groupPolicyExplicit: source.config.groupPolicy !== undefined,
       allowFrom: joinStringList(source.config.allowFrom),
       tools: joinStringList(source.config.tools),
     };
@@ -109,7 +115,10 @@ function createDraft(source?: AdminChannelEntry): ChannelDraft {
       : '',
     requireMention: true,
     replyStyle: 'thread',
-    groupPolicy: 'open',
+    groupPolicy: 'allowlist',
+    requireMentionExplicit: false,
+    replyStyleExplicit: false,
+    groupPolicyExplicit: false,
     allowFrom: '',
     tools: '',
   };
@@ -120,9 +129,11 @@ function normalizeConfig(
 ): AdminDiscordChannelConfig | AdminMSTeamsChannelConfig {
   if (draft.transport === 'msteams') {
     return {
-      requireMention: draft.requireMention,
-      replyStyle: draft.replyStyle,
-      groupPolicy: draft.groupPolicy,
+      ...(draft.requireMentionExplicit
+        ? { requireMention: draft.requireMention }
+        : {}),
+      ...(draft.replyStyleExplicit ? { replyStyle: draft.replyStyle } : {}),
+      ...(draft.groupPolicyExplicit ? { groupPolicy: draft.groupPolicy } : {}),
       ...(parseStringList(draft.allowFrom).length > 0
         ? { allowFrom: parseStringList(draft.allowFrom) }
         : {}),
@@ -496,13 +507,14 @@ export function ChannelsPage() {
                     <select
                       value={draft.replyStyle}
                       onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          replyStyle: event.target
-                            .value as ChannelDraft['replyStyle'],
-                        }))
-                      }
-                    >
+                    setDraft((current) => ({
+                      ...current,
+                      replyStyle: event.target
+                        .value as ChannelDraft['replyStyle'],
+                      replyStyleExplicit: true,
+                    }))
+                  }
+                >
                       <option value="thread">thread</option>
                       <option value="top-level">top-level</option>
                     </select>
@@ -512,13 +524,14 @@ export function ChannelsPage() {
                     <select
                       value={draft.groupPolicy}
                       onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          groupPolicy: event.target
-                            .value as ChannelDraft['groupPolicy'],
-                        }))
-                      }
-                    >
+                    setDraft((current) => ({
+                      ...current,
+                      groupPolicy: event.target
+                        .value as ChannelDraft['groupPolicy'],
+                      groupPolicyExplicit: true,
+                    }))
+                  }
+                >
                       <option value="open">open</option>
                       <option value="allowlist">allowlist</option>
                       <option value="disabled">disabled</option>
@@ -562,6 +575,7 @@ export function ChannelsPage() {
                     setDraft((current) => ({
                       ...current,
                       requireMention,
+                      requireMentionExplicit: true,
                     }))
                   }
                 />

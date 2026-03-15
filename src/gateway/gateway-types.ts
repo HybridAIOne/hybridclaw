@@ -399,6 +399,7 @@ export interface GatewayAdminMSTeamsChannel {
   transport: 'msteams';
   guildId: string;
   channelId: string;
+  defaultGroupPolicy: RuntimeConfig['msteams']['groupPolicy'];
   defaultReplyStyle: MSTeamsReplyStyle;
   defaultRequireMention: boolean;
   config: RuntimeMSTeamsChannelConfig;

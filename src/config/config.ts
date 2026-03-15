@@ -154,8 +154,9 @@ export let MSTEAMS_TENANT_ID = '';
 export let MSTEAMS_WEBHOOK_PORT = 3_978;
 export let MSTEAMS_WEBHOOK_PATH = '/api/msteams/messages';
 export let MSTEAMS_GROUP_POLICY: RuntimeConfig['msteams']['groupPolicy'] =
-  'open';
-export let MSTEAMS_DM_POLICY: RuntimeConfig['msteams']['dmPolicy'] = 'open';
+  'allowlist';
+export let MSTEAMS_DM_POLICY: RuntimeConfig['msteams']['dmPolicy'] =
+  'allowlist';
 export let MSTEAMS_ALLOW_FROM: string[] = [];
 export let MSTEAMS_TEAMS: RuntimeConfig['msteams']['teams'] = {};
 export let MSTEAMS_REQUIRE_MENTION = true;
@@ -433,8 +434,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   ) as RuntimeConfig['discord']['guilds'];
   MSTEAMS_ENABLED = config.msteams.enabled;
   MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID || config.msteams.appId;
-  MSTEAMS_APP_PASSWORD =
-    process.env.MSTEAMS_APP_PASSWORD || config.msteams.appPassword;
+  MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD || '';
   MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID || config.msteams.tenantId;
   MSTEAMS_WEBHOOK_PORT = Math.max(
     1,

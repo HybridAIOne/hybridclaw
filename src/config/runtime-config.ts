@@ -68,7 +68,7 @@ export type DiscordChannelMode = 'off' | 'mention' | 'free';
 export type DiscordTypingMode = 'instant' | 'thinking' | 'streaming' | 'never';
 export type DiscordHumanDelayMode = 'off' | 'natural' | 'custom';
 export type MSTeamsGroupPolicy = 'open' | 'allowlist' | 'disabled';
-export type MSTeamsDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
+export type MSTeamsDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type MSTeamsReplyStyle = 'thread' | 'top-level';
 export type DiscordAckReactionScope =
   | 'all'
@@ -233,7 +233,6 @@ export interface RuntimeMSTeamsTeamConfig {
 export interface RuntimeMSTeamsConfig {
   enabled: boolean;
   appId: string;
-  appPassword: string;
   tenantId: string;
   webhook: RuntimeMSTeamsWebhookConfig;
   groupPolicy: MSTeamsGroupPolicy;
@@ -578,14 +577,13 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   msteams: {
     enabled: false,
     appId: '',
-    appPassword: '',
     tenantId: '',
     webhook: {
       port: 3_978,
       path: '/api/msteams/messages',
     },
-    groupPolicy: 'open',
-    dmPolicy: 'open',
+    groupPolicy: 'allowlist',
+    dmPolicy: 'allowlist',
     allowFrom: [],
     teams: {},
     requireMention: true,
@@ -1260,9 +1258,11 @@ function normalizeMSTeamsDmPolicy(
 ): MSTeamsDmPolicy {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
+  if (normalized === 'pairing') {
+    return 'allowlist';
+  }
   if (
     normalized === 'open' ||
-    normalized === 'pairing' ||
     normalized === 'allowlist' ||
     normalized === 'disabled'
   ) {
@@ -1917,9 +1917,6 @@ function normalizeMSTeamsConfig(
   return {
     enabled: normalizeBoolean(raw.enabled, fallback.enabled),
     appId: normalizeString(raw.appId, fallback.appId, { allowEmpty: true }),
-    appPassword: normalizeString(raw.appPassword, fallback.appPassword, {
-      allowEmpty: true,
-    }),
     tenantId: normalizeString(raw.tenantId, fallback.tenantId, {
       allowEmpty: true,
     }),

@@ -1,6 +1,7 @@
 import { TurnContext } from 'botbuilder-core';
 import type { Activity } from 'botframework-schema';
 import { isRegisteredTextCommandName } from '../../command-registry.js';
+import { normalizeValue } from './utils.js';
 
 export interface ParsedCommand {
   isCommand: boolean;
@@ -13,10 +14,6 @@ export interface MSTeamsActorIdentity {
   aadObjectId: string | null;
   username: string | null;
   displayName: string | null;
-}
-
-function normalizeValue(value: string | null | undefined): string {
-  return String(value || '').trim();
 }
 
 function stripHtml(text: string): string {

@@ -1,14 +1,15 @@
 import type { TurnContext } from 'botbuilder-core';
-import {
-  type Activity,
-  ActivityTypes,
-  type Attachment,
-} from 'botframework-schema';
+import type { Attachment } from 'botframework-schema';
 import type { MSTeamsReplyStyle } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
-import { prepareChunkedActivities } from './delivery.js';
+import {
+  buildMSTeamsMessageActivity,
+  prepareChunkedActivities,
+} from './delivery.js';
 
 const DEFAULT_EDIT_INTERVAL_MS = 1_200;
+const STREAM_FAILURE_TEXT =
+  'Teams streaming was interrupted while sending the reply. Please retry.';
 
 interface SentActivityRef {
   id: string;
@@ -47,9 +48,8 @@ export class MSTeamsStreamManager {
   append(delta: string): Promise<void> {
     if (this.closed || !delta) return Promise.resolve();
     this.content += delta;
-    return this.enqueue(async () => {
-      await this.sync(false);
-    });
+    this.scheduleFlush();
+    return Promise.resolve();
   }
 
   finalize(text: string, attachments?: Attachment[]): Promise<void> {
@@ -64,11 +64,8 @@ export class MSTeamsStreamManager {
 
   fail(errorText: string): Promise<void> {
     if (this.closed) return Promise.resolve();
-    this.content = this.content ? `${this.content}\n\n${errorText}` : errorText;
-    this.clearFlushTimer();
     return this.enqueue(async () => {
-      await this.sync(true);
-      this.closed = true;
+      await this.closeWithError(errorText);
     });
   }
 
@@ -92,10 +89,25 @@ export class MSTeamsStreamManager {
   }
 
   private enqueue(task: () => Promise<void>): Promise<void> {
-    this.opQueue = this.opQueue.then(task).catch((error) => {
+    this.opQueue = this.opQueue.then(task).catch(async (error) => {
       logger.warn({ error }, 'Teams stream operation failed');
+      await this.handleOperationFailure();
     });
     return this.opQueue;
+  }
+
+  private async handleOperationFailure(): Promise<void> {
+    if (this.closed) return;
+    try {
+      await this.closeWithError(STREAM_FAILURE_TEXT);
+    } catch (error) {
+      this.clearFlushTimer();
+      this.closed = true;
+      logger.warn(
+        { error },
+        'Failed to send Teams stream failure notice after operation error',
+      );
+    }
   }
 
   private clearFlushTimer(): void {
@@ -118,22 +130,15 @@ export class MSTeamsStreamManager {
     }, waitMs);
   }
 
-  private buildOutgoingActivity(params: {
-    id?: string;
-    text: string;
-    attachments?: Attachment[];
-  }): Partial<Activity> {
-    return {
-      type: ActivityTypes.Message,
-      ...(params.id ? { id: params.id } : {}),
-      ...(params.text ? { text: params.text } : {}),
-      ...(params.attachments?.length
-        ? { attachments: params.attachments }
-        : {}),
-      ...(this.replyStyle === 'thread' && this.replyToId
-        ? { replyToId: this.replyToId }
-        : {}),
-    };
+  private async closeWithError(errorText: string): Promise<void> {
+    if (this.closed) return;
+    this.content = this.content ? `${this.content}\n\n${errorText}` : errorText;
+    this.clearFlushTimer();
+    try {
+      await this.sync(true);
+    } finally {
+      this.closed = true;
+    }
   }
 
   private async sync(
@@ -148,14 +153,13 @@ export class MSTeamsStreamManager {
 
     for (let index = 0; index < chunks.length; index += 1) {
       const chunk = chunks[index];
-      const isLast = index === chunks.length - 1;
       const existing = this.sent[index];
-      const outgoing = this.buildOutgoingActivity({
+      const outgoing = buildMSTeamsMessageActivity({
         ...(existing ? { id: existing.id } : {}),
         text: chunk.text,
-        ...(isLast && chunk.attachments?.length
-          ? { attachments: chunk.attachments }
-          : {}),
+        attachments: chunk.attachments,
+        replyStyle: this.replyStyle,
+        replyToId: this.replyToId,
       });
 
       if (!existing) {
@@ -187,6 +191,5 @@ export class MSTeamsStreamManager {
     }
 
     this.lastFlushAt = Date.now();
-    if (!force) this.scheduleFlush();
   }
 }

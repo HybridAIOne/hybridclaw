@@ -919,7 +919,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
     Boolean(String(MSTEAMS_APP_ID || '').trim()) &&
     Boolean(String(MSTEAMS_APP_PASSWORD || '').trim());
 
-  if (!teamsConfig.enabled && !hasCredentials) {
+  if (!teamsConfig.enabled) {
     logger.info('Microsoft Teams integration disabled');
     return false;
   }
@@ -1120,10 +1120,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
   logger.info(
     {
       webhookPath: teamsConfig.webhook.path,
-      autoStartedFromEnv:
-        !teamsConfig.enabled &&
-        Boolean(String(MSTEAMS_APP_ID || '').trim()) &&
-        Boolean(String(MSTEAMS_APP_PASSWORD || '').trim()),
+      autoStartedFromEnv: false,
     },
     'Microsoft Teams integration started inside gateway',
   );

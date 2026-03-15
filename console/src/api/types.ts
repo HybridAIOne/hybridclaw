@@ -156,6 +156,7 @@ export type AdminChannelEntry =
       transport: 'msteams';
       guildId: string;
       channelId: string;
+      defaultGroupPolicy: 'open' | 'allowlist' | 'disabled';
       defaultReplyStyle: 'thread' | 'top-level';
       defaultRequireMention: boolean;
       config: AdminMSTeamsChannelConfig;
@@ -171,7 +172,7 @@ export interface AdminChannelsResponse {
   msteams: {
     enabled: boolean;
     groupPolicy: 'open' | 'allowlist' | 'disabled';
-    dmPolicy: 'open' | 'pairing' | 'allowlist' | 'disabled';
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
     defaultRequireMention: boolean;
     defaultReplyStyle: 'thread' | 'top-level';
   };

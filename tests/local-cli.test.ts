@@ -267,7 +267,6 @@ test('auth login msteams writes config and stores MSTEAMS_APP_PASSWORD', async (
   const secrets = readRuntimeSecrets(homeDir);
   expect(config.msteams.enabled).toBe(true);
   expect(config.msteams.appId).toBe('teams-app-id');
-  expect(config.msteams.appPassword).toBe('');
   expect(config.msteams.tenantId).toBe('teams-tenant-id');
   expect(secrets.MSTEAMS_APP_PASSWORD).toBe('teams-app-password');
 });
@@ -293,7 +292,6 @@ test('auth logout msteams clears Teams credentials and disables the integration'
   const secretsPath = path.join(homeDir, '.hybridclaw', 'credentials.json');
   expect(config.msteams.enabled).toBe(false);
   expect(config.msteams.appId).toBe('');
-  expect(config.msteams.appPassword).toBe('');
   expect(config.msteams.tenantId).toBe('');
   if (fs.existsSync(secretsPath)) {
     const secrets = readRuntimeSecrets(homeDir);

@@ -11,9 +11,11 @@ function trackTempDirFromMediaPath(filePath: string | null | undefined): void {
   tempDirs.push(path.dirname(filePath));
 }
 
-async function importAttachmentsModule() {
+async function importAttachmentsModule(
+  configOverrides: Record<string, unknown> = {},
+) {
   vi.resetModules();
-  vi.doMock('../src/config/config.js', () => ({
+  const baseConfig = {
     MSTEAMS_APP_ID: 'teams-app-id',
     MSTEAMS_APP_PASSWORD: 'teams-secret',
     MSTEAMS_MEDIA_ALLOW_HOSTS: [
@@ -28,13 +30,16 @@ async function importAttachmentsModule() {
     ],
     MSTEAMS_MEDIA_MAX_MB: 20,
     MSTEAMS_TENANT_ID: 'teams-tenant-id',
+  };
+  vi.doMock('../src/config/config.js', () => ({
+    ...baseConfig,
+    ...configOverrides,
   }));
   return import('../src/channels/msteams/attachments.js');
 }
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.unmock('@napi-rs/canvas');
   vi.unstubAllGlobals();
   vi.resetModules();
   while (tempDirs.length > 0) {
@@ -97,12 +102,6 @@ test('buildTeamsUploadedFileAttachment uploads the file through Bot Framework', 
 });
 
 test('buildTeamsUploadedFileAttachment inlines small images for personal chats', async () => {
-  vi.doMock('@napi-rs/canvas', () => ({
-    loadImage: vi.fn(async () => ({
-      height: 512,
-      width: 512,
-    })),
-  }));
   const { buildTeamsUploadedFileAttachment } = await importAttachmentsModule();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-msteams-'));
   tempDirs.push(tempDir);
@@ -150,18 +149,13 @@ test('buildTeamsUploadedFileAttachment inlines small images for personal chats',
   });
 });
 
-test('buildTeamsUploadedFileAttachment uploads oversized personal images instead of inlining them', async () => {
-  vi.doMock('@napi-rs/canvas', () => ({
-    loadImage: vi.fn(async () => ({
-      height: 14_323,
-      width: 1_280,
-    })),
-  }));
+test('buildTeamsUploadedFileAttachment still inlines tall personal images under 4 MB', async () => {
   const { buildTeamsUploadedFileAttachment } = await importAttachmentsModule();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-msteams-'));
   tempDirs.push(tempDir);
   const filePath = path.join(tempDir, 'hybridclaw-homepage.png');
-  fs.writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
+  const fileBuffer = Buffer.alloc(2_000_000, 1);
+  fs.writeFileSync(filePath, fileBuffer);
 
   const uploadAttachment = vi.fn(async () => ({ id: 'attachment-123' }));
   const connectorKey = Symbol('ConnectorClientKey');
@@ -194,11 +188,10 @@ test('buildTeamsUploadedFileAttachment uploads oversized personal images instead
     mimeType: 'image/png',
   });
 
-  expect(uploadAttachment).toHaveBeenCalledOnce();
+  expect(uploadAttachment).not.toHaveBeenCalled();
   expect(attachment).toEqual({
     contentType: 'image/png',
-    contentUrl:
-      'https://smba.trafficmanager.net/de/tenant-id/v3/attachments/attachment-123/views/original',
+    contentUrl: `data:image/png;base64,${fileBuffer.toString('base64')}`,
     name: 'hybridclaw-homepage.png',
   });
 });
@@ -342,7 +335,10 @@ test('buildTeamsAttachmentContext extracts inline html image urls', async () => 
 });
 
 test('buildTeamsAttachmentContext retries Teams media downloads with auth for Teams hosts', async () => {
-  const { buildTeamsAttachmentContext } = await importAttachmentsModule();
+  const { buildTeamsAttachmentContext } = await importAttachmentsModule({
+    MSTEAMS_MEDIA_ALLOW_HOSTS: ['*.teams.microsoft.com'],
+    MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS: ['graph.microsoft.com'],
+  });
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(
@@ -431,5 +427,176 @@ test('buildTeamsAttachmentContext retries Teams media downloads with auth for Te
   });
   expect(fs.readFileSync(media[0]?.path || '')).toEqual(
     Buffer.from([10, 11, 12]),
+  );
+});
+
+test('buildTeamsAttachmentContext retries Bot Framework attachment downloads with auth for trafficmanager hosts', async () => {
+  const { buildTeamsAttachmentContext } = await importAttachmentsModule({
+    MSTEAMS_MEDIA_ALLOW_HOSTS: ['graph.microsoft.com'],
+    MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS: ['graph.microsoft.com'],
+  });
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      new Response('', {
+        status: 401,
+        statusText: 'Unauthorized',
+      }),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          access_token: 'botframework-access-token',
+          expires_in: 3600,
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(Buffer.from([21, 22, 23]), {
+        status: 200,
+        headers: {
+          'content-length': '3',
+          'content-type': 'image/png',
+        },
+      }),
+    );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const media = await buildTeamsAttachmentContext({
+    activity: {
+      attachments: [
+        {
+          contentType: 'image/*',
+          contentUrl:
+            'https://smba.trafficmanager.net/de/tenant-id/v3/attachments/attachment-123/views/original',
+          name: 'original',
+        },
+      ],
+    },
+  });
+  trackTempDirFromMediaPath(media[0]?.path);
+
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    1,
+    'https://smba.trafficmanager.net/de/tenant-id/v3/attachments/attachment-123/views/original',
+    expect.objectContaining({
+      headers: {
+        Accept: '*/*',
+      },
+    }),
+  );
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    2,
+    'https://login.microsoftonline.com/teams-tenant-id/oauth2/v2.0/token',
+    expect.objectContaining({
+      body: expect.stringContaining(
+        'scope=https%3A%2F%2Fapi.botframework.com%2F.default',
+      ),
+      method: 'POST',
+    }),
+  );
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    3,
+    'https://smba.trafficmanager.net/de/tenant-id/v3/attachments/attachment-123/views/original',
+    expect.objectContaining({
+      headers: expect.objectContaining({
+        Accept: '*/*',
+        Authorization: 'Bearer botframework-access-token',
+      }),
+    }),
+  );
+  expect(media).toHaveLength(1);
+  expect(media[0]).toEqual({
+    path: expect.any(String),
+    url: 'https://smba.trafficmanager.net/de/tenant-id/v3/attachments/attachment-123/views/original',
+    originalUrl:
+      'https://smba.trafficmanager.net/de/tenant-id/v3/attachments/attachment-123/views/original',
+    mimeType: 'image/png',
+    sizeBytes: 3,
+    filename: 'original',
+  });
+  expect(fs.readFileSync(media[0]?.path || '')).toEqual(
+    Buffer.from([21, 22, 23]),
+  );
+});
+
+test('buildTeamsAttachmentContext extracts Teams image attachments from content.downloadUrl', async () => {
+  const { buildTeamsAttachmentContext } = await importAttachmentsModule({
+    MSTEAMS_MEDIA_ALLOW_HOSTS: ['graph.microsoft.com'],
+    MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS: ['graph.microsoft.com'],
+  });
+  const fetchMock = vi.fn(
+    async (_url: string, init?: RequestInit) =>
+      new Response(Buffer.from([13, 14, 15]), {
+        status: 200,
+        headers: {
+          'content-length': '3',
+          'content-type': 'image/png',
+          'x-auth-header':
+            typeof init?.headers === 'object' &&
+            init.headers &&
+            'Authorization' in init.headers
+              ? String(
+                  (init.headers as Record<string, string>).Authorization || '',
+                )
+              : '',
+        },
+      }),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const media = await buildTeamsAttachmentContext({
+    activity: {
+      attachments: [
+        {
+          contentType: 'image/*',
+          content: {
+            downloadUrl:
+              'https://de-prod.asyncgw.teams.microsoft.com/v1/objects/example/views/imgo',
+            fileName: 'teams-upload.png',
+            fileType: 'png',
+            token: 'attachment-token',
+          },
+          name: 'teams-upload',
+        },
+        {
+          contentType: 'text/html',
+          content:
+            '<div><img src="https://de-prod.asyncgw.teams.microsoft.com/v1/objects/example/views/imgo" /></div>',
+          name: 'html-fallback',
+        },
+      ],
+    },
+  });
+  trackTempDirFromMediaPath(media[0]?.path);
+
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(fetchMock).toHaveBeenCalledWith(
+    'https://de-prod.asyncgw.teams.microsoft.com/v1/objects/example/views/imgo',
+    expect.objectContaining({
+      headers: expect.objectContaining({
+        Accept: '*/*',
+        Authorization: 'Bearer attachment-token',
+      }),
+    }),
+  );
+  expect(media).toHaveLength(1);
+  expect(media[0]).toEqual({
+    path: expect.any(String),
+    url: 'https://de-prod.asyncgw.teams.microsoft.com/v1/objects/example/views/imgo',
+    originalUrl:
+      'https://de-prod.asyncgw.teams.microsoft.com/v1/objects/example/views/imgo',
+    mimeType: 'image/png',
+    sizeBytes: 3,
+    filename: 'teams-upload.png',
+  });
+  expect(fs.readFileSync(media[0]?.path || '')).toEqual(
+    Buffer.from([13, 14, 15]),
   );
 });

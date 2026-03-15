@@ -13,6 +13,7 @@ import type {
   MSTeamsReplyStyle,
   RuntimeMSTeamsTeamConfig,
 } from '../../config/runtime-config.js';
+import { normalizeValue } from './utils.js';
 
 export interface MSTeamsPermissionSnapshot {
   groupPolicy: MSTeamsGroupPolicy;
@@ -50,10 +51,6 @@ export interface ResolveMSTeamsChannelPolicyResult {
   dmPolicy?: MSTeamsDmPolicy;
 }
 
-function normalizeValue(value: string | null | undefined): string {
-  return String(value || '').trim();
-}
-
 function normalizeLower(value: string | null | undefined): string {
   return normalizeValue(value).toLowerCase();
 }
@@ -68,84 +65,119 @@ function mergeUnique(values: string[]): string[] {
   ];
 }
 
-function resolveEffectiveAllowFrom(params: {
-  globalAllowFrom: string[];
+function resolveChannelConfig(params: {
   teamConfig?: RuntimeMSTeamsTeamConfig;
   channelId?: string | null;
-}): string[] {
+}): RuntimeMSTeamsTeamConfig['channels'][string] | undefined {
   const channelId = normalizeValue(params.channelId);
-  const channelConfig = channelId
-    ? params.teamConfig?.channels[channelId]
-    : undefined;
-  const channelAllowFrom = normalizeList(channelConfig?.allowFrom);
-  if (channelAllowFrom.length > 0) return channelAllowFrom;
-  const teamAllowFrom = normalizeList(params.teamConfig?.allowFrom);
-  if (teamAllowFrom.length > 0) return teamAllowFrom;
-  return normalizeList(params.globalAllowFrom);
+  return channelId ? params.teamConfig?.channels[channelId] : undefined;
+}
+
+function resolveCascaded<T>(params: {
+  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string];
+  teamConfig?: RuntimeMSTeamsTeamConfig;
+  fallback: T;
+  getChannelValue: (
+    channelConfig: RuntimeMSTeamsTeamConfig['channels'][string] | undefined,
+  ) => T | undefined;
+  getTeamValue: (
+    teamConfig: RuntimeMSTeamsTeamConfig | undefined,
+  ) => T | undefined;
+  merge?: (params: {
+    channelValue: T | undefined;
+    teamValue: T | undefined;
+    fallback: T;
+  }) => T;
+}): T {
+  const channelValue = params.getChannelValue(params.channelConfig);
+  const teamValue = params.getTeamValue(params.teamConfig);
+  if (params.merge) {
+    return params.merge({
+      channelValue,
+      teamValue,
+      fallback: params.fallback,
+    });
+  }
+  if (typeof channelValue !== 'undefined') return channelValue;
+  if (typeof teamValue !== 'undefined') return teamValue;
+  return params.fallback;
+}
+
+function resolveEffectiveAllowFrom(params: {
+  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string];
+  globalAllowFrom: string[];
+  teamConfig?: RuntimeMSTeamsTeamConfig;
+}): string[] {
+  return resolveCascaded({
+    channelConfig: params.channelConfig,
+    teamConfig: params.teamConfig,
+    fallback: normalizeList(params.globalAllowFrom),
+    getChannelValue: (channelConfig) => {
+      const allowFrom = normalizeList(channelConfig?.allowFrom);
+      return allowFrom.length > 0 ? allowFrom : undefined;
+    },
+    getTeamValue: (teamConfig) => {
+      const allowFrom = normalizeList(teamConfig?.allowFrom);
+      return allowFrom.length > 0 ? allowFrom : undefined;
+    },
+  });
 }
 
 function resolveTools(params: {
+  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string];
   teamConfig?: RuntimeMSTeamsTeamConfig;
-  channelId?: string | null;
 }): string[] {
-  const channelId = normalizeValue(params.channelId);
-  const channelConfig = channelId
-    ? params.teamConfig?.channels[channelId]
-    : undefined;
-  return mergeUnique([
-    ...(channelConfig?.tools || []),
-    ...(params.teamConfig?.tools || []),
-  ]);
+  return resolveCascaded({
+    channelConfig: params.channelConfig,
+    teamConfig: params.teamConfig,
+    fallback: [],
+    getChannelValue: (channelConfig) => channelConfig?.tools,
+    getTeamValue: (teamConfig) => teamConfig?.tools,
+    merge: ({ channelValue, teamValue }) =>
+      mergeUnique([...(channelValue || []), ...(teamValue || [])]),
+  });
 }
 
 function resolveRequireMention(params: {
+  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string];
   defaultRequireMention: boolean;
   teamConfig?: RuntimeMSTeamsTeamConfig;
-  channelId?: string | null;
 }): boolean {
-  const channelId = normalizeValue(params.channelId);
-  const channelConfig = channelId
-    ? params.teamConfig?.channels[channelId]
-    : undefined;
-  if (typeof channelConfig?.requireMention === 'boolean') {
-    return channelConfig.requireMention;
-  }
-  if (typeof params.teamConfig?.requireMention === 'boolean') {
-    return params.teamConfig.requireMention;
-  }
-  return params.defaultRequireMention;
+  return resolveCascaded({
+    channelConfig: params.channelConfig,
+    teamConfig: params.teamConfig,
+    fallback: params.defaultRequireMention,
+    getChannelValue: (channelConfig) => channelConfig?.requireMention,
+    getTeamValue: (teamConfig) => teamConfig?.requireMention,
+  });
 }
 
 function resolveReplyStyle(params: {
+  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string];
   defaultReplyStyle: MSTeamsReplyStyle;
   teamConfig?: RuntimeMSTeamsTeamConfig;
-  channelId?: string | null;
 }): MSTeamsReplyStyle {
-  const channelId = normalizeValue(params.channelId);
-  const channelConfig = channelId
-    ? params.teamConfig?.channels[channelId]
-    : undefined;
-  return (
-    channelConfig?.replyStyle ||
-    params.teamConfig?.replyStyle ||
-    params.defaultReplyStyle
-  );
+  return resolveCascaded({
+    channelConfig: params.channelConfig,
+    teamConfig: params.teamConfig,
+    fallback: params.defaultReplyStyle,
+    getChannelValue: (channelConfig) => channelConfig?.replyStyle,
+    getTeamValue: (teamConfig) => teamConfig?.replyStyle,
+  });
 }
 
 function resolveGroupPolicy(params: {
+  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string];
   defaultGroupPolicy: MSTeamsGroupPolicy;
   teamConfig?: RuntimeMSTeamsTeamConfig;
-  channelId?: string | null;
 }): MSTeamsGroupPolicy {
-  const channelId = normalizeValue(params.channelId);
-  const channelConfig = channelId
-    ? params.teamConfig?.channels[channelId]
-    : undefined;
-  return (
-    channelConfig?.groupPolicy ||
-    params.teamConfig?.groupPolicy ||
-    params.defaultGroupPolicy
-  );
+  return resolveCascaded({
+    channelConfig: params.channelConfig,
+    teamConfig: params.teamConfig,
+    fallback: params.defaultGroupPolicy,
+    getChannelValue: (channelConfig) => channelConfig?.groupPolicy,
+    getTeamValue: (teamConfig) => teamConfig?.groupPolicy,
+  });
 }
 
 function matchesAllowEntry(params: {
@@ -197,17 +229,18 @@ export function resolveMSTeamsChannelPolicyFromSnapshot(
   const teamId = normalizeValue(params.teamId);
   const channelId = normalizeValue(params.channelId);
   const teamConfig = teamId ? snapshot.teams[teamId] : undefined;
+  const channelConfig = resolveChannelConfig({ teamConfig, channelId });
   const effectiveAllowFrom = resolveEffectiveAllowFrom({
+    channelConfig,
     globalAllowFrom: snapshot.allowFrom,
     teamConfig,
-    channelId,
   });
   const replyStyle = resolveReplyStyle({
+    channelConfig,
     defaultReplyStyle: snapshot.replyStyle,
     teamConfig,
-    channelId,
   });
-  const tools = resolveTools({ teamConfig, channelId });
+  const tools = resolveTools({ channelConfig, teamConfig });
 
   if (params.isDm) {
     if (snapshot.dmPolicy === 'disabled') {
@@ -232,10 +265,7 @@ export function resolveMSTeamsChannelPolicyFromSnapshot(
       if (!matchedAllowFrom) {
         return {
           allowed: false,
-          reason:
-            snapshot.dmPolicy === 'pairing'
-              ? 'msteams.dmPolicy=pairing currently uses the allowFrom gate until a pairing store exists.'
-              : 'sender does not match the effective Teams DM allowlist.',
+          reason: 'sender does not match the effective Teams DM allowlist.',
           requireMention: false,
           replyStyle,
           tools,
@@ -265,14 +295,14 @@ export function resolveMSTeamsChannelPolicyFromSnapshot(
   }
 
   const groupPolicy = resolveGroupPolicy({
+    channelConfig,
     defaultGroupPolicy: snapshot.groupPolicy,
     teamConfig,
-    channelId,
   });
   const requireMention = resolveRequireMention({
+    channelConfig,
     defaultRequireMention: snapshot.requireMention,
     teamConfig,
-    channelId,
   });
 
   if (groupPolicy === 'disabled') {

@@ -130,12 +130,6 @@ async function importRuntime() {
     isTeamsDm: vi.fn(() => true),
     parseCommand: parseCommandMock,
   }));
-  vi.doMock('../src/channels/msteams/reactions.js', () => ({
-    createMSTeamsReactionController: vi.fn(() => ({
-      clear: vi.fn(async () => {}),
-      setPhase: vi.fn(),
-    })),
-  }));
   vi.doMock('../src/channels/msteams/send-permissions.js', () => ({
     resolveMSTeamsChannelPolicy: vi.fn(() => ({
       allowed: true,
@@ -233,6 +227,21 @@ describe('Microsoft Teams runtime webhook adapter', () => {
       MicrosoftAppTenantId: 'teams-tenant-id',
       MicrosoftAppType: 'SingleTenant',
     });
+  });
+
+  test('fails fast when Teams runtime is initialized without handlers', async () => {
+    const runtime = await importRuntime();
+
+    expect(() =>
+      runtime.initMSTeams(undefined as never, vi.fn(async () => {})),
+    ).toThrow(
+      'Teams runtime requires both message and command handlers during initialization.',
+    );
+    expect(() =>
+      runtime.initMSTeams(vi.fn(async () => {}), undefined as never),
+    ).toThrow(
+      'Teams runtime requires both message and command handlers during initialization.',
+    );
   });
 
   test('starts Teams typing while command messages are handled', async () => {
