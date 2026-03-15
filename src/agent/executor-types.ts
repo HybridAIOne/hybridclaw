@@ -1,4 +1,5 @@
 import type {
+  ApprovalContinuation,
   ApprovalResponse,
   ChatMessage,
   ContainerOutput,
@@ -12,6 +13,7 @@ export interface ExecutorRequest {
   sessionId: string;
   messages: ChatMessage[];
   approvalResponse?: ApprovalResponse;
+  approvalContinuation?: ApprovalContinuation;
   chatbotId: string;
   enableRag: boolean;
   model?: string;

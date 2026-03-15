@@ -1,8 +1,6 @@
 import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
-
-import type { ToolDefinition, ToolSchemaProperty } from '../types.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   resolveMediaPath,
@@ -11,7 +9,11 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from '../runtime-paths.js';
-import type { TaskModelPolicies } from '../types.js';
+import type {
+  TaskModelPolicies,
+  ToolDefinition,
+  ToolSchemaProperty,
+} from '../types.js';
 import { browserSessionManager } from './session-manager.js';
 import { analyzeBrowserScreenshot } from './vision-fallback.js';
 
@@ -79,7 +81,9 @@ export function setBrowserModelContext(
 ): void {
   currentBrowserModelContext = {
     provider: provider || 'hybridai',
-    baseUrl: String(baseUrl || '').trim().replace(/\/+$/, ''),
+    baseUrl: String(baseUrl || '')
+      .trim()
+      .replace(/\/+$/, ''),
     apiKey: String(apiKey || '').trim(),
     model: String(model || '').trim(),
     chatbotId: String(chatbotId || '').trim(),
@@ -99,6 +103,120 @@ function success(payload: Record<string, unknown>): string {
 
 function failure(message: string): string {
   return JSON.stringify({ success: false, error: message }, null, 2);
+}
+
+function logBrowserTool(
+  sessionId: string,
+  action: string,
+  phase: 'start' | 'done' | 'error',
+  details?: Record<string, unknown>,
+): void {
+  const suffix =
+    details && Object.keys(details).length > 0
+      ? ` ${JSON.stringify(details)}`
+      : '';
+  console.error(
+    `[browser_use] session=${sessionId} action=${action} phase=${phase}${suffix}`,
+  );
+}
+
+function inferBrowserAction(
+  name: string,
+  args: Record<string, unknown>,
+): string {
+  if (name === 'browser_use') {
+    return (
+      String(args.action || '')
+        .trim()
+        .toLowerCase() || 'unknown'
+    );
+  }
+  if (name === 'browser_navigate') return 'navigate';
+  if (name === 'browser_snapshot') return 'snapshot';
+  if (name === 'browser_click') return 'click';
+  if (name === 'browser_type') return 'type';
+  if (name === 'browser_upload') return 'upload';
+  if (name === 'browser_press') return 'press_key';
+  if (name === 'browser_scroll') return 'scroll';
+  if (name === 'browser_back') return 'back';
+  if (name === 'browser_screenshot') return 'screenshot';
+  if (name === 'browser_pdf') return 'pdf';
+  if (name === 'browser_vision') return 'vision';
+  if (name === 'browser_get_images') return 'images';
+  if (name === 'browser_console') return 'console';
+  if (name === 'browser_network') return 'network';
+  if (name === 'browser_close') return 'stop';
+  return name;
+}
+
+function summarizeBrowserArgs(
+  action: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  switch (action) {
+    case 'start':
+      return {
+        headed: args.headed !== false,
+        browser:
+          typeof args.browser === 'string' && args.browser.trim()
+            ? args.browser.trim()
+            : 'default',
+      };
+    case 'navigate':
+    case 'tab_open':
+      return { url: String(args.url || '') };
+    case 'snapshot':
+      return { compact: args.compact !== false };
+    case 'click':
+      return { ref: String(args.ref || '') };
+    case 'type':
+      return {
+        ref: String(args.ref || ''),
+        textLength: String(args.text || '').length,
+      };
+    case 'upload':
+      return {
+        ref: typeof args.ref === 'string' ? args.ref : undefined,
+        selector:
+          typeof args.selector === 'string' ? args.selector.trim() : undefined,
+        fileCount: Array.isArray(args.files)
+          ? args.files.length
+          : String(args.path || '').trim()
+            ? 1
+            : 0,
+      };
+    case 'scroll':
+      return {
+        direction: String(args.direction || ''),
+        pixels: Number(args.pixels) || 800,
+      };
+    case 'press_key':
+      return { key: String(args.key || '') };
+    case 'tab_focus':
+    case 'tab_close':
+      return { tabId: String(args.tabId || args.targetId || '') };
+    case 'console':
+    case 'network':
+      return { clear: args.clear === true };
+    case 'evaluate':
+      return { expressionLength: String(args.expression || '').length };
+    case 'vision':
+      return {
+        questionLength: String(args.question || '').length,
+        annotate: args.annotate === true,
+      };
+    case 'screenshot':
+      return {
+        fullPage: args.fullPage === true,
+        path: typeof args.path === 'string' ? args.path.trim() : undefined,
+      };
+    case 'pdf':
+      return {
+        path: typeof args.path === 'string' ? args.path.trim() : undefined,
+      };
+    default:
+      return {};
+  }
 }
 
 function normalizeRef(rawRef: unknown): string {
@@ -192,7 +310,9 @@ async function dispatchBrowserUse(
   args: Record<string, unknown>,
   sessionId: string,
 ): Promise<Record<string, unknown>> {
-  const action = String(args.action || '').trim().toLowerCase();
+  const action = String(args.action || '')
+    .trim()
+    .toLowerCase();
   if (!action) throw new Error('action is required');
 
   if (action === 'start') {
@@ -201,7 +321,12 @@ async function dispatchBrowserUse(
       headed: args.headed !== false,
       preferredBrowser:
         typeof args.browser === 'string'
-          ? (args.browser as 'default' | 'chrome' | 'edge' | 'chromium' | 'safari')
+          ? (args.browser as
+              | 'default'
+              | 'chrome'
+              | 'edge'
+              | 'chromium'
+              | 'safari')
           : 'default',
     });
     return {
@@ -222,7 +347,19 @@ async function dispatchBrowserUse(
   }
 
   if (action === 'navigate') {
-    await browserSessionManager.start({ sessionId, headed: true });
+    await browserSessionManager.start({
+      sessionId,
+      headed: args.headed !== false,
+      preferredBrowser:
+        typeof args.browser === 'string'
+          ? (args.browser as
+              | 'default'
+              | 'chrome'
+              | 'edge'
+              | 'chromium'
+              | 'safari')
+          : 'default',
+    });
     const result = await browserSessionManager.navigate(sessionId, args.url);
     return {
       action,
@@ -254,7 +391,11 @@ async function dispatchBrowserUse(
   if (action === 'type') {
     const text = String(args.text || '');
     if (!text) throw new Error('text is required');
-    await browserSessionManager.typeText(sessionId, normalizeRef(args.ref), text);
+    await browserSessionManager.typeText(
+      sessionId,
+      normalizeRef(args.ref),
+      text,
+    );
     return { action, ref: normalizeRef(args.ref), typed_chars: text.length };
   }
 
@@ -262,7 +403,9 @@ async function dispatchBrowserUse(
     await browserSessionManager.uploadFiles(sessionId, {
       ref: args.ref ? normalizeRef(args.ref) : undefined,
       selector:
-        typeof args.selector === 'string' ? String(args.selector).trim() : undefined,
+        typeof args.selector === 'string'
+          ? String(args.selector).trim()
+          : undefined,
       files: resolveUploadPaths(args),
     });
     return {
@@ -275,7 +418,9 @@ async function dispatchBrowserUse(
   }
 
   if (action === 'scroll') {
-    const direction = String(args.direction || '').trim().toLowerCase();
+    const direction = String(args.direction || '')
+      .trim()
+      .toLowerCase();
     if (direction !== 'up' && direction !== 'down') {
       throw new Error('direction must be "up" or "down"');
     }
@@ -393,7 +538,10 @@ async function dispatchBrowserUse(
     });
     const annotationBoxes =
       args.annotate === true
-        ? await browserSessionManager.buildAnnotationBoxes(sessionId, screenshot)
+        ? await browserSessionManager.buildAnnotationBoxes(
+            sessionId,
+            screenshot,
+          )
         : [];
     const vision = await analyzeBrowserScreenshot({
       screenshot,
@@ -422,111 +570,140 @@ export async function executeBrowserTool(
   args: Record<string, unknown>,
   sessionId: string,
 ): Promise<string> {
+  const action = inferBrowserAction(name, args);
+  const startedAt = Date.now();
+  logBrowserTool(
+    sessionId,
+    action,
+    'start',
+    summarizeBrowserArgs(action, args),
+  );
   try {
+    let payload: Record<string, unknown>;
     switch (name) {
       case 'browser_use':
-        return success(await dispatchBrowserUse(args, sessionId));
+        payload = await dispatchBrowserUse(args, sessionId);
+        break;
       case 'browser_navigate':
-        return success(
-          await dispatchBrowserUse({ action: 'navigate', url: args.url }, sessionId),
+        payload = await dispatchBrowserUse(
+          {
+            action: 'navigate',
+            url: args.url,
+            browser: args.browser,
+            headed: args.headed,
+          },
+          sessionId,
         );
+        break;
       case 'browser_snapshot':
-        return success(
-          await dispatchBrowserUse(
-            {
-              action: 'snapshot',
-              compact: args.mode === 'full' ? false : args.compact,
-            },
-            sessionId,
-          ),
+        payload = await dispatchBrowserUse(
+          {
+            action: 'snapshot',
+            compact: args.mode === 'full' ? false : args.compact,
+          },
+          sessionId,
         );
+        break;
       case 'browser_click':
-        return success(
-          await dispatchBrowserUse({ action: 'click', ref: args.ref }, sessionId),
+        payload = await dispatchBrowserUse(
+          { action: 'click', ref: args.ref },
+          sessionId,
         );
+        break;
       case 'browser_type':
-        return success(
-          await dispatchBrowserUse(
-            { action: 'type', ref: args.ref, text: args.text },
-            sessionId,
-          ),
+        payload = await dispatchBrowserUse(
+          { action: 'type', ref: args.ref, text: args.text },
+          sessionId,
         );
+        break;
       case 'browser_upload':
-        return success(
-          await dispatchBrowserUse(
-            {
-              action: 'upload',
-              ref: args.ref,
-              selector: args.selector,
-              path: args.path,
-              files: args.files,
-              paths: args.paths,
-            },
-            sessionId,
-          ),
+        payload = await dispatchBrowserUse(
+          {
+            action: 'upload',
+            ref: args.ref,
+            selector: args.selector,
+            path: args.path,
+            files: args.files,
+            paths: args.paths,
+          },
+          sessionId,
         );
+        break;
       case 'browser_press':
-        return success(
-          await dispatchBrowserUse(
-            { action: 'press_key', key: args.key },
-            sessionId,
-          ),
+        payload = await dispatchBrowserUse(
+          { action: 'press_key', key: args.key },
+          sessionId,
         );
+        break;
       case 'browser_scroll':
-        return success(
-          await dispatchBrowserUse(
-            {
-              action: 'scroll',
-              direction: args.direction,
-              pixels: args.pixels,
-            },
-            sessionId,
-          ),
+        payload = await dispatchBrowserUse(
+          {
+            action: 'scroll',
+            direction: args.direction,
+            pixels: args.pixels,
+          },
+          sessionId,
         );
+        break;
       case 'browser_back':
-        return success(await dispatchBrowserUse({ action: 'back' }, sessionId));
+        payload = await dispatchBrowserUse({ action: 'back' }, sessionId);
+        break;
       case 'browser_screenshot':
-        return success(
-          await dispatchBrowserUse(
-            {
-              action: 'screenshot',
-              path: args.path,
-              fullPage: args.fullPage,
-            },
-            sessionId,
-          ),
+        payload = await dispatchBrowserUse(
+          {
+            action: 'screenshot',
+            path: args.path,
+            fullPage: args.fullPage,
+          },
+          sessionId,
         );
+        break;
       case 'browser_pdf':
-        return success(
-          await dispatchBrowserUse({ action: 'pdf', path: args.path }, sessionId),
+        payload = await dispatchBrowserUse(
+          { action: 'pdf', path: args.path },
+          sessionId,
         );
+        break;
       case 'browser_vision':
-        return success(
-          await dispatchBrowserUse(
-            {
-              action: 'vision',
-              question: args.question,
-              annotate: args.annotate,
-            },
-            sessionId,
-          ),
+        payload = await dispatchBrowserUse(
+          {
+            action: 'vision',
+            question: args.question,
+            annotate: args.annotate,
+          },
+          sessionId,
         );
+        break;
       case 'browser_get_images':
-        return success(await dispatchBrowserUse({ action: 'images' }, sessionId));
+        payload = await dispatchBrowserUse({ action: 'images' }, sessionId);
+        break;
       case 'browser_console':
-        return success(
-          await dispatchBrowserUse({ action: 'console', clear: args.clear }, sessionId),
+        payload = await dispatchBrowserUse(
+          { action: 'console', clear: args.clear },
+          sessionId,
         );
+        break;
       case 'browser_network':
-        return success(
-          await dispatchBrowserUse({ action: 'network', clear: args.clear }, sessionId),
+        payload = await dispatchBrowserUse(
+          { action: 'network', clear: args.clear },
+          sessionId,
         );
+        break;
       case 'browser_close':
-        return success(await dispatchBrowserUse({ action: 'stop' }, sessionId));
+        payload = await dispatchBrowserUse({ action: 'stop' }, sessionId);
+        break;
       default:
         return failure(`Unknown browser tool: ${name}`);
     }
+    logBrowserTool(sessionId, action, 'done', {
+      durationMs: Date.now() - startedAt,
+    });
+    return success(payload);
   } catch (error) {
+    logBrowserTool(sessionId, action, 'error', {
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return failure(error instanceof Error ? error.message : String(error));
   }
 }
@@ -573,9 +750,13 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             description: 'Browser action to perform.',
           },
           url: stringProperty('URL for navigate or tab_open.'),
-          ref: stringProperty('Element ref from a browser snapshot, for example @e5.'),
+          ref: stringProperty(
+            'Element ref from a browser snapshot, for example @e5.',
+          ),
           text: stringProperty('Text to type into the resolved element.'),
-          key: stringProperty('Keyboard key for press_key, for example Enter or Tab.'),
+          key: stringProperty(
+            'Keyboard key for press_key, for example Enter or Tab.',
+          ),
           direction: {
             type: 'string',
             enum: ['up', 'down'],
@@ -594,11 +775,13 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           compact: {
             type: 'boolean',
-            description: 'Compact the ARIA snapshot by trimming structural nodes.',
+            description:
+              'Compact the ARIA snapshot by trimming structural nodes.',
           },
           headed: {
             type: 'boolean',
-            description: 'When starting a browser, prefer a visible headed browser window.',
+            description:
+              'When starting a browser, prefer a visible headed browser window.',
           },
           browser: {
             type: 'string',
@@ -606,7 +789,9 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             description: 'Preferred browser for start.',
           },
           tabId: stringProperty('Target tab id for tab_focus or tab_close.'),
-          selector: stringProperty('CSS selector for upload when no ref is available.'),
+          selector: stringProperty(
+            'CSS selector for upload when no ref is available.',
+          ),
           files: {
             type: 'array',
             items: { type: 'string' },
@@ -620,7 +805,8 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           annotate: {
             type: 'boolean',
-            description: 'Annotate interactive refs on the screenshot for vision analysis when supported.',
+            description:
+              'Annotate interactive refs on the screenshot for vision analysis when supported.',
           },
         },
         required: ['action'],
@@ -637,6 +823,16 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
         type: 'object',
         properties: {
           url: stringProperty('URL to open (http:// or https://).'),
+          headed: {
+            type: 'boolean',
+            description:
+              'Prefer a visible headed browser window when starting the browser.',
+          },
+          browser: {
+            type: 'string',
+            enum: ['default', 'chrome', 'edge', 'chromium', 'safari'],
+            description: 'Preferred browser for navigation startup.',
+          },
         },
         required: ['url'],
       },
@@ -702,7 +898,9 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          ref: stringProperty('Optional browser snapshot ref for the file input.'),
+          ref: stringProperty(
+            'Optional browser snapshot ref for the file input.',
+          ),
           selector: stringProperty('Optional CSS selector for the file input.'),
           path: stringProperty('Primary upload file path.'),
           files: {
@@ -771,7 +969,9 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          path: stringProperty('Optional artifact path under .browser-artifacts.'),
+          path: stringProperty(
+            'Optional artifact path under .browser-artifacts.',
+          ),
           fullPage: {
             type: 'boolean',
             description: 'Capture the full page instead of only the viewport.',
@@ -789,7 +989,9 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          path: stringProperty('Optional artifact path under .browser-artifacts.'),
+          path: stringProperty(
+            'Optional artifact path under .browser-artifacts.',
+          ),
         },
         required: [],
       },
@@ -803,10 +1005,13 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          question: stringProperty('Question to ask about the current browser view.'),
+          question: stringProperty(
+            'Question to ask about the current browser view.',
+          ),
           annotate: {
             type: 'boolean',
-            description: 'Annotate browser refs on the screenshot when supported.',
+            description:
+              'Annotate browser refs on the screenshot when supported.',
           },
         },
         required: ['question'],

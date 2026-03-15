@@ -150,6 +150,7 @@ import {
 } from '../session/token-efficiency.js';
 import { expandSkillInvocation, loadSkillCatalog } from '../skills/skills.js';
 import type {
+  ApprovalContinuation,
   ApprovalResponse,
   ArtifactMetadata,
   CanonicalSessionContext,
@@ -352,6 +353,7 @@ export interface GatewayChatRequest {
   username: GatewayChatRequestBody['username'];
   content: GatewayChatRequestBody['content'];
   approvalResponse?: ApprovalResponse;
+  approvalContinuation?: ApprovalContinuation;
   media?: GatewayChatRequestBody['media'];
   agentId?: GatewayChatRequestBody['agentId'];
   chatbotId?: GatewayChatRequestBody['chatbotId'];
@@ -360,6 +362,10 @@ export interface GatewayChatRequest {
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
+  onPendingApprovalCaptured?: (params: {
+    approval: PendingApproval;
+    continuation?: ApprovalContinuation;
+  }) => void | Promise<void>;
   onProactiveMessage?: (
     message: ProactiveMessagePayload,
   ) => void | Promise<void>;
@@ -3576,6 +3582,7 @@ export async function handleGatewayMessage(
       sessionId: req.sessionId,
       messages,
       approvalResponse: req.approvalResponse,
+      approvalContinuation: req.approvalContinuation,
       chatbotId,
       enableRag,
       model,
@@ -3772,6 +3779,10 @@ export async function handleGatewayMessage(
       effectiveUserPrompt: output.effectiveUserPrompt,
     };
     if (output.pendingApproval) {
+      await req.onPendingApprovalCaptured?.({
+        approval: output.pendingApproval,
+        continuation: output.approvalContinuation,
+      });
       recordCompletedTurnAudit({
         sessionId: req.sessionId,
         runId,

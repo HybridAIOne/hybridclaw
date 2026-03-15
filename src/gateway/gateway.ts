@@ -76,7 +76,7 @@ import {
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
 } from '../tui-slash-command.js';
-import type { ArtifactMetadata } from '../types.js';
+import type { ApprovalContinuation, ArtifactMetadata } from '../types.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import {
   APPROVAL_ALREADY_HANDLED_TEXT,
@@ -627,6 +627,7 @@ async function startDiscordIntegration(): Promise<void> {
     ) => {
       try {
         let sawTextDelta = false;
+        let capturedContinuation: ApprovalContinuation | undefined;
         const streamFilter = createSilentReplyStreamFilter();
         const appendStreamText = async (text: string): Promise<void> => {
           if (!text) return;
@@ -666,6 +667,9 @@ async function startDiscordIntegration(): Promise<void> {
                   'delegate',
                   message.artifacts,
                 );
+              },
+              onPendingApprovalCaptured: ({ continuation }) => {
+                capturedContinuation = continuation;
               },
               abortSignal: context.abortSignal,
             }),
@@ -734,6 +738,7 @@ async function startDiscordIntegration(): Promise<void> {
             approval: pendingApproval,
             fallbackPrompt: responseText,
             originalUserContent: content,
+            continuation: capturedContinuation,
             userId,
             disableButtons: cleanup?.disableButtons ?? null,
           });

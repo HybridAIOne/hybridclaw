@@ -2313,7 +2313,7 @@ async function executeToolInternal(
       const lines = [meta];
       if (result.escalationHint) {
         lines.push(
-          `Escalation hint: ${result.escalationHint} (retry with browser_use action="navigate" for this URL).`,
+          `Escalation hint: ${result.escalationHint} (retry with browser_navigate for an isolated headless browser, or browser_use action="navigate" for the user's desktop browser).`,
         );
       }
       if (result.warning) {

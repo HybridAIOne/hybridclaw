@@ -2,7 +2,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { logger } from '../logger.js';
-import type { PendingApproval, ToolProgressEvent } from '../types.js';
+import type {
+  ApprovalContinuation,
+  PendingApproval,
+  ToolProgressEvent,
+} from '../types.js';
 import {
   rememberPendingApprovalEvent,
   rememberPendingApprovalFromChatResult,
@@ -66,12 +70,18 @@ export async function handleApiChat(
     return;
   }
 
+  let capturedContinuation: ApprovalContinuation | undefined;
   const result = filterChatResultForSession(
     chatRequest.sessionId,
     normalizePendingApprovalReply(
       normalizePlaceholderToolReply(
         normalizeSilentMessageSendReply(
-          await handleGatewayMessage(chatRequest),
+          await handleGatewayMessage({
+            ...chatRequest,
+            onPendingApprovalCaptured: ({ continuation }) => {
+              capturedContinuation = continuation;
+            },
+          }),
         ),
       ),
     ),
@@ -80,6 +90,7 @@ export async function handleApiChat(
     sessionId: chatRequest.sessionId,
     result,
     originalUserContent: chatRequest.content,
+    continuation: capturedContinuation,
     userId: chatRequest.userId,
   });
   sendJson(res, result.status === 'success' ? 200 : 500, result);
@@ -121,6 +132,7 @@ async function handleApiChatStream(
     });
   };
   let streamedApprovalId: string | null = null;
+  let capturedContinuation: ApprovalContinuation | undefined;
   const onApprovalProgress = (approval: PendingApproval): void => {
     streamedApprovalId = approval.approvalId;
     void rememberPendingApprovalEvent({
@@ -143,6 +155,9 @@ async function handleApiChatStream(
           onTextDelta,
           onToolProgress,
           onApprovalProgress,
+          onPendingApprovalCaptured: ({ continuation }) => {
+            capturedContinuation = continuation;
+          },
         }),
       ),
     );
@@ -167,12 +182,13 @@ async function handleApiChatStream(
       result,
     );
     const pendingApproval = extractGatewayChatApprovalEvent(filteredResult);
-    if (pendingApproval && pendingApproval.approvalId !== streamedApprovalId) {
+    if (pendingApproval) {
       await rememberPendingApprovalEvent({
         sessionId: chatRequest.sessionId,
         approval: pendingApproval,
         fallbackPrompt: String(filteredResult.result || '').trim(),
         originalUserContent: chatRequest.content,
+        continuation: capturedContinuation,
         userId: chatRequest.userId,
       });
     }

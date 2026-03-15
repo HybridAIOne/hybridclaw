@@ -6,10 +6,13 @@ import { discoverCdpWsUrl } from './cdp-discovery.js';
 import { CdpTransport } from './cdp-transport.js';
 import { chooseChromiumBrowser } from './default-browser.js';
 import {
-  ChromeExtensionRelayServer,
+  type ChromeExtensionRelayServer,
   ensureChromeExtensionRelayServer,
 } from './extension-relay.js';
-import { buildRoleSnapshotFromAriaSnapshot, resolveRoleRef } from './ref-system.js';
+import {
+  buildRoleSnapshotFromAriaSnapshot,
+  resolveRoleRef,
+} from './ref-system.js';
 import { captureNormalizedScreenshot } from './screenshot.js';
 import { validateNavigationUrl, validateRedirectTarget } from './ssrf-guard.js';
 import type {
@@ -40,6 +43,7 @@ const WATCHDOG_INTERVAL_MS = 60 * 1000;
 const MAX_SESSIONS = 5;
 const MAX_TABS = 5;
 const DEFAULT_CDP_PORTS = [9222, 9223, 9333];
+const START_FAILURE_COOLDOWN_MS = 20 * 1000;
 const EXTRACT_IMAGES_SCRIPT = `(() => {
   const images = Array.from(document.images || []);
   return images
@@ -77,6 +81,11 @@ type InternalSession = {
   networkRequestMap: Map<string, BrowserNetworkRequest>;
 };
 
+type StartFailure = {
+  message: string;
+  occurredAt: number;
+};
+
 type PageInfo = {
   url: string;
   title: string;
@@ -84,6 +93,20 @@ type PageInfo = {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function logBrowserSession(
+  sessionId: string,
+  message: string,
+  details?: Record<string, unknown>,
+): void {
+  const suffix =
+    details && Object.keys(details).length > 0
+      ? ` ${JSON.stringify(details)}`
+      : '';
+  console.error(
+    `[browser-session] session=${normalizeSessionId(sessionId)} ${message}${suffix}`,
+  );
 }
 
 function normalizeSessionId(rawSessionId: string): string {
@@ -103,7 +126,9 @@ function readExecutionMode(): BrowserExecutionMode {
 }
 
 function readConfiguredPorts(): number[] {
-  const explicit = String(process.env.BROWSER_CDP_PORTS || process.env.BROWSER_CDP_PORT || '')
+  const explicit = String(
+    process.env.BROWSER_CDP_PORTS || process.env.BROWSER_CDP_PORT || '',
+  )
     .split(',')
     .map((part) => Number.parseInt(part.trim(), 10))
     .filter((port) => Number.isFinite(port) && port > 0 && port < 65536);
@@ -146,7 +171,9 @@ function renderRemoteObject(remoteObject: unknown): string {
 
 function parseBotDetectionWarning(title: string): string | undefined {
   const lower = title.toLowerCase();
-  const matched = BOT_DETECTION_PATTERNS.find((pattern) => lower.includes(pattern));
+  const matched = BOT_DETECTION_PATTERNS.find((pattern) =>
+    lower.includes(pattern),
+  );
   return matched
     ? `Possible anti-bot or verification page detected (${matched}).`
     : undefined;
@@ -172,6 +199,7 @@ async function tryDiscoverDirectConnection(): Promise<{
 
 export class BrowserSessionManager {
   private readonly sessions = new Map<string, InternalSession>();
+  private readonly recentStartFailures = new Map<string, StartFailure>();
 
   constructor() {
     const timer = setInterval(() => {
@@ -200,9 +228,19 @@ export class BrowserSessionManager {
     currentTab: BrowserTab;
   }> {
     const sessionId = normalizeSessionId(options.sessionId);
+    logBrowserSession(sessionId, 'start requested', {
+      preferredBrowser: options.preferredBrowser || 'default',
+      headed: options.headed !== false,
+      executionMode: readExecutionMode(),
+    });
     const existing = this.sessions.get(sessionId);
     if (existing) {
       this.touch(existing);
+      logBrowserSession(sessionId, 'reusing existing session', {
+        mode: existing.mode,
+        browser: existing.browser.channel,
+        targetId: existing.currentTargetId,
+      });
       return {
         mode: existing.mode,
         browser: existing.browser,
@@ -210,6 +248,17 @@ export class BrowserSessionManager {
         port: existing.port,
         currentTab: await this.getCurrentTab(existing),
       };
+    }
+    const recentFailure = this.recentStartFailures.get(sessionId);
+    if (
+      recentFailure &&
+      Date.now() - recentFailure.occurredAt < START_FAILURE_COOLDOWN_MS
+    ) {
+      logBrowserSession(sessionId, 'reusing recent start failure', {
+        ageMs: Date.now() - recentFailure.occurredAt,
+        error: recentFailure.message,
+      });
+      throw new Error(recentFailure.message);
     }
 
     if (this.sessions.size >= MAX_SESSIONS) {
@@ -219,34 +268,41 @@ export class BrowserSessionManager {
     const executionMode = readExecutionMode();
     let mode: BrowserConnectionMode = 'direct';
     let port: number | undefined;
-    let launchedProcess: import('node:child_process').ChildProcess | null | undefined;
+    let launchedProcess:
+      | import('node:child_process').ChildProcess
+      | null
+      | undefined;
     let relay: ChromeExtensionRelayServer | undefined;
     let browser: BrowserCandidate | null = null;
     let transport: BrowserTransport | null = null;
 
-    const direct = await tryDiscoverDirectConnection();
-    if (direct) {
-      port = direct.port;
-      browser = {
-        channel: 'unknown',
-        engine: 'chromium',
-        name: 'Existing Chromium browser',
-        executablePath: null,
-        userDataDir: null,
-        source: 'explicit',
-      };
-      const directTransport = new CdpTransport(direct.wsUrl);
-      await directTransport.connect();
-      transport = directTransport;
-    } else {
-      let connectedViaRelay = false;
-      if (shouldUseExtensionRelay()) {
-        relay = await ensureChromeExtensionRelayServer();
-        try {
-          await relay.waitForClient(readExtensionRelayWaitMs());
-          mode = 'extension-relay';
-          browser =
-            chooseChromiumBrowser(options.preferredBrowser) || {
+    try {
+      const direct = await tryDiscoverDirectConnection();
+      if (direct) {
+        logBrowserSession(sessionId, 'found direct CDP endpoint', {
+          port: direct.port,
+        });
+        port = direct.port;
+        browser = {
+          channel: 'unknown',
+          engine: 'chromium',
+          name: 'Existing Chromium browser',
+          executablePath: null,
+          userDataDir: null,
+          source: 'explicit',
+        };
+        const directTransport = new CdpTransport(direct.wsUrl);
+        await directTransport.connect();
+        transport = directTransport;
+      } else {
+        let connectedViaRelay = false;
+        if (shouldUseExtensionRelay()) {
+          logBrowserSession(sessionId, 'waiting for extension relay');
+          relay = await ensureChromeExtensionRelayServer();
+          try {
+            await relay.waitForClient(readExtensionRelayWaitMs());
+            mode = 'extension-relay';
+            browser = chooseChromiumBrowser(options.preferredBrowser) || {
               channel: 'unknown',
               engine: 'chromium',
               name: 'Chromium browser via extension relay',
@@ -254,82 +310,140 @@ export class BrowserSessionManager {
               userDataDir: null,
               source: 'explicit',
             };
-          transport = relay;
-          connectedViaRelay = true;
-        } catch (error) {
-          await relay.close().catch(() => undefined);
-          relay = undefined;
-          if (executionMode !== 'host') {
-            throw new Error(
-              error instanceof Error
-                ? `${error.message}. No direct CDP endpoint was available and host-mode launching is not possible from container mode.`
-                : 'Extension relay did not connect and no direct CDP endpoint was available.',
-            );
+            transport = relay;
+            connectedViaRelay = true;
+            logBrowserSession(sessionId, 'extension relay connected', {
+              browser: browser.channel,
+            });
+          } catch (error) {
+            await relay.close().catch(() => undefined);
+            relay = undefined;
+            logBrowserSession(sessionId, 'extension relay unavailable', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+            if (executionMode !== 'host') {
+              throw new Error(
+                error instanceof Error
+                  ? `${error.message}. No direct CDP endpoint was available and host-mode launching is not possible from container mode.`
+                  : 'Extension relay did not connect and no direct CDP endpoint was available.',
+              );
+            }
           }
+        }
+
+        if (!connectedViaRelay) {
+          logBrowserSession(sessionId, 'launching browser for CDP attach', {
+            preferredBrowser: options.preferredBrowser || 'default',
+          });
+          const launched = await launchBrowserWithCdp({
+            executionMode,
+            headed: options.headed,
+            preferredBrowser: options.preferredBrowser,
+          });
+          port = launched.port;
+          mode = launched.mode;
+          browser = launched.browser;
+          launchedProcess = launched.process;
+          const launchedTransport = new CdpTransport(launched.wsUrl);
+          await launchedTransport.connect();
+          transport = launchedTransport;
         }
       }
 
-      if (!connectedViaRelay) {
-        const launched = await launchBrowserWithCdp({
-          executionMode,
-          headed: options.headed,
-          preferredBrowser: options.preferredBrowser,
-        });
-        port = launched.port;
-        mode = launched.mode;
-        browser = launched.browser;
-        launchedProcess = launched.process;
-        const launchedTransport = new CdpTransport(launched.wsUrl);
-        await launchedTransport.connect();
-        transport = launchedTransport;
+      if (!browser || !transport) {
+        throw new Error('Failed to initialize a browser transport');
       }
+
+      const target = await this.pickInitialTarget(transport);
+      const attachResult = await this.attachToTarget(transport, target.id);
+      logBrowserSession(sessionId, 'attached to browser target', {
+        mode,
+        browser: browser.channel,
+        port,
+        targetId: target.id,
+        url: target.url,
+      });
+
+      const session: InternalSession = {
+        sessionId,
+        executionMode,
+        mode,
+        browser,
+        transport,
+        launchedProcess,
+        relay,
+        currentTargetId: target.id,
+        cdpSessionId: attachResult,
+        port,
+        createdAt: Date.now(),
+        lastActivityAt: Date.now(),
+        refMap: {},
+        lastSnapshotText: '',
+        consoleMessages: [],
+        networkRequests: [],
+        networkRequestMap: new Map(),
+      };
+
+      transport.onEvent((event) => this.handleEvent(session, event));
+      await this.enableDomains(session);
+      this.sessions.set(sessionId, session);
+      this.recentStartFailures.delete(sessionId);
+      logBrowserSession(sessionId, 'browser session started', {
+        mode,
+        browser: browser.channel,
+        targetId: target.id,
+      });
+
+      return {
+        mode,
+        browser,
+        executionMode,
+        port,
+        warning: browser.warning,
+        currentTab: target,
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : String(error || 'Unknown browser start failure');
+      logBrowserSession(sessionId, 'browser session start failed', {
+        error: message,
+        mode,
+        browser: browser?.channel,
+        port,
+      });
+      this.recentStartFailures.set(sessionId, {
+        message,
+        occurredAt: Date.now(),
+      });
+      if (relay) {
+        await relay.close().catch(() => undefined);
+      }
+      if (transport) {
+        await transport.close().catch(() => undefined);
+      }
+      if (launchedProcess && launchedProcess.exitCode === null) {
+        try {
+          launchedProcess.kill('SIGTERM');
+        } catch {
+          // Best effort cleanup.
+        }
+      }
+      throw error;
     }
-
-    if (!browser || !transport) {
-      throw new Error('Failed to initialize a browser transport');
-    }
-
-    const target = await this.pickInitialTarget(transport);
-    const attachResult = await this.attachToTarget(transport, target.id);
-
-    const session: InternalSession = {
-      sessionId,
-      executionMode,
-      mode,
-      browser,
-      transport,
-      launchedProcess,
-      relay,
-      currentTargetId: target.id,
-      cdpSessionId: attachResult,
-      port,
-      createdAt: Date.now(),
-      lastActivityAt: Date.now(),
-      refMap: {},
-      lastSnapshotText: '',
-      consoleMessages: [],
-      networkRequests: [],
-      networkRequestMap: new Map(),
-    };
-
-    transport.onEvent((event) => this.handleEvent(session, event));
-    await this.enableDomains(session);
-    this.sessions.set(sessionId, session);
-
-    return {
-      mode,
-      browser,
-      executionMode,
-      port,
-      warning: browser.warning,
-      currentTab: target,
-    };
   }
 
   async stop(sessionId: string): Promise<void> {
     const normalized = normalizeSessionId(sessionId);
     const session = this.sessions.get(normalized);
+    this.recentStartFailures.delete(normalized);
     if (!session) return;
+    logBrowserSession(normalized, 'stopping browser session', {
+      mode: session.mode,
+      browser: session.browser.channel,
+      targetId: session.currentTargetId,
+    });
     this.sessions.delete(normalized);
     try {
       await session.transport.close();
@@ -361,6 +475,10 @@ export class BrowserSessionManager {
     const session = this.requireSession(sessionId);
     this.touch(session);
     const parsedUrl = await validateNavigationUrl(rawUrl);
+    logBrowserSession(sessionId, 'navigating', {
+      url: parsedUrl.toString(),
+      targetId: session.currentTargetId,
+    });
     const response = await session.transport.send<{
       frameId?: string;
       errorText?: string;
@@ -373,9 +491,17 @@ export class BrowserSessionManager {
 
     await this.waitForDocumentReady(session);
     const pageInfo = await this.getPageInfo(session);
+    logBrowserSession(sessionId, 'navigation loaded', {
+      url: pageInfo.url,
+      title: pageInfo.title,
+    });
     await validateRedirectTarget(pageInfo.url);
     const snapshot = await this.snapshot(sessionId, {
       compact: true,
+    });
+    logBrowserSession(sessionId, 'navigation snapshot captured', {
+      refs: Object.keys(snapshot.refMap).length,
+      interactiveRefs: snapshot.interactiveCount,
     });
     return {
       ...pageInfo,
@@ -518,7 +644,8 @@ export class BrowserSessionManager {
         { sessionId: session.cdpSessionId },
       );
       const objectId = evaluated.result?.objectId;
-      if (!objectId) throw new Error(`Could not find selector ${params.selector}`);
+      if (!objectId)
+        throw new Error(`Could not find selector ${params.selector}`);
       const described = await session.transport.send<{
         node?: { backendNodeId?: number };
       }>('DOM.describeNode', { objectId }, { sessionId: session.cdpSessionId });
@@ -589,14 +716,11 @@ export class BrowserSessionManager {
     const history = await session.transport.send<{
       currentIndex?: number;
       entries?: Array<{ id?: number }>;
-    }>(
-      'Page.getNavigationHistory',
-      {},
-      { sessionId: session.cdpSessionId },
-    );
+    }>('Page.getNavigationHistory', {}, { sessionId: session.cdpSessionId });
     const currentIndex = Number(history.currentIndex || 0);
     const previousEntry = history.entries?.[currentIndex - 1];
-    if (!previousEntry?.id) throw new Error('No previous browser history entry');
+    if (!previousEntry?.id)
+      throw new Error('No previous browser history entry');
     await session.transport.send(
       'Page.navigateToHistoryEntry',
       { entryId: previousEntry.id },
@@ -726,9 +850,13 @@ export class BrowserSessionManager {
   ): Promise<BrowserScreenshotResult> {
     const session = this.requireSession(sessionId);
     this.touch(session);
-    return captureNormalizedScreenshot(session.transport, session.cdpSessionId, {
-      fullPage: options.fullPage,
-    });
+    return captureNormalizedScreenshot(
+      session.transport,
+      session.cdpSessionId,
+      {
+        fullPage: options.fullPage,
+      },
+    );
   }
 
   async printToPdf(sessionId: string): Promise<string> {
@@ -763,9 +891,17 @@ export class BrowserSessionManager {
   async buildAnnotationBoxes(
     sessionId: string,
     screenshot: BrowserScreenshotResult,
-  ): Promise<Array<{ ref: string; x: number; y: number; width: number; height: number }>> {
+  ): Promise<
+    Array<{ ref: string; x: number; y: number; width: number; height: number }>
+  > {
     const session = this.requireSession(sessionId);
-    const boxes: Array<{ ref: string; x: number; y: number; width: number; height: number }> = [];
+    const boxes: Array<{
+      ref: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }> = [];
     for (const [ref, roleRef] of Object.entries(session.refMap).slice(0, 60)) {
       if (!roleRef.backendNodeId) continue;
       try {
@@ -810,7 +946,9 @@ export class BrowserSessionManager {
     const normalized = normalizeSessionId(sessionId);
     const session = this.sessions.get(normalized);
     if (!session) {
-      throw new Error('Browser session is not started. Call browser_use with action="start" first.');
+      throw new Error(
+        'Browser session is not started. Call browser_use with action="start" first.',
+      );
     }
     return session;
   }
@@ -823,26 +961,36 @@ export class BrowserSessionManager {
     const threshold = Date.now() - IDLE_TIMEOUT_MS;
     for (const [sessionId, session] of this.sessions) {
       if (session.lastActivityAt >= threshold) continue;
+      logBrowserSession(sessionId, 'cleaning up idle session', {
+        idleMs: Date.now() - session.lastActivityAt,
+      });
       await this.stop(sessionId);
     }
   }
 
-  private async pickInitialTarget(transport: BrowserTransport): Promise<BrowserTab> {
+  private async pickInitialTarget(
+    transport: BrowserTransport,
+  ): Promise<BrowserTab> {
     const targets = await this.listPageTargets(transport);
     const target = targets[targets.length - 1];
     if (target) return target;
-    const created = await transport.send<{ targetId?: string }>('Target.createTarget', {
-      url: 'about:blank',
-    });
+    const created = await transport.send<{ targetId?: string }>(
+      'Target.createTarget',
+      {
+        url: 'about:blank',
+      },
+    );
     const targetId = String(created.targetId || '').trim();
     if (!targetId) throw new Error('Failed to create an initial browser tab');
     const tabs = await this.listPageTargets(transport);
-    return tabs.find((entry) => entry.id === targetId) || {
-      id: targetId,
-      title: '',
-      url: 'about:blank',
-      type: 'page',
-    };
+    return (
+      tabs.find((entry) => entry.id === targetId) || {
+        id: targetId,
+        title: '',
+        url: 'about:blank',
+        type: 'page',
+      }
+    );
   }
 
   private async attachToTarget(
@@ -855,7 +1003,8 @@ export class BrowserSessionManager {
       { timeoutMs: 30_000 },
     );
     const sessionId = String(attached.sessionId || '').trim();
-    if (!sessionId) throw new Error(`Failed to attach to browser target ${targetId}`);
+    if (!sessionId)
+      throw new Error(`Failed to attach to browser target ${targetId}`);
     return sessionId;
   }
 
@@ -885,7 +1034,10 @@ export class BrowserSessionManager {
     if (event.method === 'Runtime.consoleAPICalled') {
       const params = (event.params || {}) as Record<string, unknown>;
       const args = Array.isArray(params.args) ? params.args : [];
-      const text = args.map((arg) => renderRemoteObject(arg)).filter(Boolean).join(' ');
+      const text = args
+        .map((arg) => renderRemoteObject(arg))
+        .filter(Boolean)
+        .join(' ');
       if (!text) return;
       session.consoleMessages.push({
         level: String(params.type || 'log'),
@@ -920,8 +1072,7 @@ export class BrowserSessionManager {
         id: requestId,
         url,
         method: String(request.method || 'GET'),
-        type:
-          typeof params.type === 'string' ? String(params.type) : undefined,
+        type: typeof params.type === 'string' ? String(params.type) : undefined,
         timestamp: Date.now(),
         status: null,
       };
@@ -961,7 +1112,9 @@ export class BrowserSessionManager {
     }
   }
 
-  private async listPageTargets(transport: BrowserTransport): Promise<BrowserTab[]> {
+  private async listPageTargets(
+    transport: BrowserTransport,
+  ): Promise<BrowserTab[]> {
     const targets = await transport.send<{
       targetInfos?: Array<{
         targetId?: string;
@@ -1006,6 +1159,8 @@ export class BrowserSessionManager {
     timeoutMs = 30_000,
   ): Promise<void> {
     const deadline = Date.now() + timeoutMs;
+    let lastReadyState = '';
+    let errorCount = 0;
     while (Date.now() < deadline) {
       try {
         const readyState = await session.transport.send<{
@@ -1020,14 +1175,22 @@ export class BrowserSessionManager {
           { sessionId: session.cdpSessionId, timeoutMs: 5_000 },
         );
         const value = String(readyState.result?.value || '');
+        lastReadyState = value;
         if (value === 'complete' || value === 'interactive') {
           return;
         }
       } catch {
         // Retry until the timeout expires.
+        errorCount += 1;
       }
       await delay(250);
     }
+    logBrowserSession(session.sessionId, 'document ready wait timed out', {
+      timeoutMs,
+      targetId: session.currentTargetId,
+      lastReadyState: lastReadyState || 'unknown',
+      errorCount,
+    });
   }
 
   private async getPageInfo(session: InternalSession): Promise<PageInfo> {

@@ -975,6 +975,36 @@ describe('gateway health server', () => {
 
   test('replays streamed approvals through /api/command without falling through to generic command handling', async () => {
     const state = await importFreshHealth();
+    const continuation = {
+      approvalId: 'approve123',
+      blockedToolCall: {
+        id: 'call-1',
+        type: 'function' as const,
+        function: {
+          name: 'browser_use',
+          arguments:
+            '{"action":"navigate","url":"https://x.com/notifications"}',
+        },
+      },
+      history: [],
+      toolsUsed: ['browser_use'],
+      toolExecutions: [],
+      toolCallHistory: [],
+      tokenUsage: {
+        modelCalls: 1,
+        apiUsageAvailable: false,
+        apiPromptTokens: 0,
+        apiCompletionTokens: 0,
+        apiTotalTokens: 0,
+        apiCacheUsageAvailable: false,
+        apiCacheReadTokens: 0,
+        apiCacheWriteTokens: 0,
+        estimatedPromptTokens: 10,
+        estimatedCompletionTokens: 5,
+        estimatedTotalTokens: 15,
+      },
+      effectiveUserPrompt: 'Open X.com notifications',
+    };
     state.handleGatewayMessage
       .mockImplementationOnce(
         async (req: {
@@ -987,6 +1017,10 @@ describe('gateway health server', () => {
             allowAgent: boolean;
             expiresAt: number;
           }) => void;
+          onPendingApprovalCaptured?: (params: {
+            approval: { approvalId: string };
+            continuation: typeof continuation;
+          }) => void;
         }) => {
           req.onApprovalProgress?.({
             approvalId: 'approve123',
@@ -996,6 +1030,10 @@ describe('gateway health server', () => {
             allowSession: true,
             allowAgent: true,
             expiresAt: 1_710_000_000_000,
+          });
+          req.onPendingApprovalCaptured?.({
+            approval: { approvalId: 'approve123' },
+            continuation,
           });
           return {
             status: 'success',
@@ -1037,6 +1075,16 @@ describe('gateway health server', () => {
     state.handler(chatReq as never, chatRes as never);
     await settle();
 
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    expect(pendingApprovals.getPendingApproval('tui:local')).toEqual(
+      expect.objectContaining({
+        approvalId: 'approve123',
+        continuation,
+      }),
+    );
+
     const approveReq = makeRequest({
       method: 'POST',
       url: '/api/command',
@@ -1067,6 +1115,7 @@ describe('gateway health server', () => {
           decision: 'approve',
           mode: 'once',
         },
+        approvalContinuation: continuation,
       }),
     );
     expect(approveRes.statusCode).toBe(200);
@@ -1074,10 +1123,6 @@ describe('gateway health server', () => {
       kind: 'plain',
       text: 'Approved and continuing',
     });
-
-    const pendingApprovals = await import(
-      '../src/gateway/pending-approvals.js'
-    );
     expect(pendingApprovals.getPendingApproval('tui:local')).toBeNull();
   });
 

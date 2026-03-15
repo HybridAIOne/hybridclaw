@@ -5,7 +5,11 @@ import path from 'node:path';
 import { URL } from 'node:url';
 
 import { classifyMcpTool } from './mcp/tool-classifier.js';
-import type { ApprovalResponse, ChatMessage } from './types.js';
+import type {
+  ApprovalContinuation,
+  ApprovalResponse,
+  ChatMessage,
+} from './types.js';
 
 export type ApprovalTier = 'green' | 'yellow' | 'red';
 
@@ -64,6 +68,23 @@ interface PendingApproval {
   expiresAtMs: number;
   originalPrompt: string;
   pinned: boolean;
+}
+
+interface ApprovalTargetSnapshot {
+  id: string;
+  fingerprint: string;
+  actionKey: string;
+  intent: string;
+  originalPrompt: string;
+  pinned: boolean;
+}
+
+interface ApprovalEvaluationContext {
+  args: Record<string, unknown>;
+  classified: ClassifiedAction;
+  fingerprint: string;
+  pinnedByPolicy: boolean;
+  baseTier: ApprovalTier;
 }
 
 export interface ApprovalPrelude {
@@ -1035,6 +1056,38 @@ export class TrustedCoworkerApprovalRuntime {
     });
   }
 
+  handleStructuredApprovalContinuationResponse(
+    response: ApprovalResponse | null | undefined,
+    continuation: ApprovalContinuation | null | undefined,
+  ): ApprovalPrelude | null {
+    this.reloadPolicyIfNeeded();
+    this.cleanupExpiredPending();
+    if (!response || !continuation) return null;
+
+    const approvalId = String(response.approvalId || '').trim();
+    const decision = response.decision === 'deny' ? 'deny' : 'approve';
+    const rawMode = String(response.mode || 'once')
+      .trim()
+      .toLowerCase();
+    const mode =
+      rawMode === 'session' || rawMode === 'agent' ? rawMode : 'once';
+    const target = this.buildApprovalTargetSnapshot({
+      requestId: approvalId || continuation.approvalId,
+      toolName: continuation.blockedToolCall.function.name,
+      argsJson: continuation.blockedToolCall.function.arguments,
+      latestUserPrompt:
+        continuation.effectiveUserPrompt || 'Continue the approved task',
+    });
+    return this.applyResolvedApprovalResponse(
+      {
+        kind: decision,
+        mode,
+        requestId: target.id,
+      },
+      target,
+    );
+  }
+
   private resolveApprovalResponse(parsedResponse: {
     kind: 'approve' | 'deny';
     mode?: 'once' | 'session' | 'agent';
@@ -1053,8 +1106,20 @@ export class TrustedCoworkerApprovalRuntime {
       };
     }
 
+    return this.applyResolvedApprovalResponse(parsedResponse, target);
+  }
+
+  private applyResolvedApprovalResponse(
+    parsedResponse: {
+      kind: 'approve' | 'deny';
+      mode?: 'once' | 'session' | 'agent';
+      requestId: string;
+    },
+    target: ApprovalTargetSnapshot,
+  ): ApprovalPrelude {
+    this.pending.delete(target.id);
+
     if (parsedResponse.kind === 'deny') {
-      this.pending.delete(target.id);
       return {
         immediateMessage: `Skipped \`${target.intent}\`. I will continue without that action.`,
       };
@@ -1062,7 +1127,6 @@ export class TrustedCoworkerApprovalRuntime {
 
     const requestedMode = parsedResponse.mode || 'once';
     let mode: 'once' | 'session' | 'agent' = requestedMode;
-    this.pending.delete(target.id);
     if (requestedMode === 'session') {
       if (target.pinned) {
         // Pinned-red actions are never session-trusted. Approve only this single run.
@@ -1113,16 +1177,12 @@ export class TrustedCoworkerApprovalRuntime {
     };
   }
 
-  evaluateToolCall(params: {
+  private buildApprovalEvaluationContext(params: {
     toolName: string;
     argsJson: string;
-    latestUserPrompt: string;
-  }): ToolApprovalEvaluation {
-    this.reloadPolicyIfNeeded();
-    this.cleanupExpiredPending();
+  }): ApprovalEvaluationContext {
     const args = parseJsonObject(params.argsJson);
     const classified = this.classifyAction(params.toolName, args);
-
     const fingerprint = stableHash(
       [
         params.toolName,
@@ -1131,15 +1191,54 @@ export class TrustedCoworkerApprovalRuntime {
         normalizeText(JSON.stringify(args)),
       ].join('|'),
     );
-
     const pinnedByPolicy = this.isPinnedRed({
       toolName: params.toolName,
       preview: classified.commandPreview,
       pathHints: classified.pathHints,
       args,
     });
-    const baseTier: ApprovalTier =
-      pinnedByPolicy || classified.tier === 'red' ? 'red' : classified.tier;
+    return {
+      args,
+      classified,
+      fingerprint,
+      pinnedByPolicy,
+      baseTier:
+        pinnedByPolicy || classified.tier === 'red' ? 'red' : classified.tier,
+    };
+  }
+
+  private buildApprovalTargetSnapshot(params: {
+    requestId: string;
+    toolName: string;
+    argsJson: string;
+    latestUserPrompt: string;
+  }): ApprovalTargetSnapshot {
+    const context = this.buildApprovalEvaluationContext({
+      toolName: params.toolName,
+      argsJson: params.argsJson,
+    });
+    return {
+      id: params.requestId,
+      fingerprint: context.fingerprint,
+      actionKey: context.classified.actionKey,
+      intent: context.classified.intent,
+      originalPrompt: params.latestUserPrompt,
+      pinned: context.pinnedByPolicy,
+    };
+  }
+
+  evaluateToolCall(params: {
+    toolName: string;
+    argsJson: string;
+    latestUserPrompt: string;
+  }): ToolApprovalEvaluation {
+    this.reloadPolicyIfNeeded();
+    this.cleanupExpiredPending();
+    const { classified, fingerprint, pinnedByPolicy, baseTier } =
+      this.buildApprovalEvaluationContext({
+        toolName: params.toolName,
+        argsJson: params.argsJson,
+      });
 
     let tier: ApprovalTier = baseTier;
     let decision: ApprovalDecision = 'auto';

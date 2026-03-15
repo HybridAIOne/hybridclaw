@@ -1,7 +1,10 @@
+import type { ApprovalContinuation } from '../types.js';
+
 export interface PendingApprovalPrompt {
   approvalId: string;
   prompt: string;
   originalUserContent: string;
+  continuation?: ApprovalContinuation | null;
   createdAt: number;
   expiresAt: number;
   userId: string;

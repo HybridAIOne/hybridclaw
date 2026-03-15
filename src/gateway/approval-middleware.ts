@@ -1,5 +1,9 @@
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
-import type { ApprovalResponse, PendingApproval } from '../types.js';
+import type {
+  ApprovalContinuation,
+  ApprovalResponse,
+  PendingApproval,
+} from '../types.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   filterChatResultForSession,
@@ -68,6 +72,7 @@ export interface HandleGatewayApprovalCommandParams {
   replayMessage: (
     request: GatewayChatRequest & {
       approvalResponse: ApprovalResponse;
+      approvalContinuation?: ApprovalContinuation;
       media: [];
       source: 'approval';
     },
@@ -80,6 +85,7 @@ export async function rememberPendingApprovalPrompt(params: {
   approvalId: string;
   prompt: string;
   originalUserContent: string;
+  continuation?: ApprovalContinuation | null;
   userId: string;
   expiresAt?: number | null;
   disableButtons?: (() => Promise<void>) | null;
@@ -93,6 +99,7 @@ export async function rememberPendingApprovalPrompt(params: {
     approvalId: params.approvalId,
     prompt: params.prompt,
     originalUserContent: params.originalUserContent,
+    continuation: params.continuation ?? null,
     createdAt,
     expiresAt,
     userId: params.userId,
@@ -115,6 +122,7 @@ export async function rememberPendingApprovalEvent(params: {
   approval: Pick<PendingApproval, 'approvalId' | 'prompt' | 'expiresAt'>;
   fallbackPrompt?: string;
   originalUserContent: string;
+  continuation?: ApprovalContinuation | null;
   userId: string;
   disableButtons?: (() => Promise<void>) | null;
 }): Promise<PendingApprovalPrompt> {
@@ -127,6 +135,7 @@ export async function rememberPendingApprovalEvent(params: {
     approvalId: params.approval.approvalId,
     prompt,
     originalUserContent: params.originalUserContent,
+    continuation: params.continuation,
     userId: params.userId,
     expiresAt: params.approval.expiresAt,
     disableButtons: params.disableButtons,
@@ -137,6 +146,7 @@ export async function rememberPendingApprovalFromChatResult(params: {
   sessionId: string;
   result: GatewayChatResult;
   originalUserContent: string;
+  continuation?: ApprovalContinuation | null;
   userId: string;
   disableButtons?: (() => Promise<void>) | null;
 }): Promise<GatewayChatApprovalEvent | null> {
@@ -147,6 +157,7 @@ export async function rememberPendingApprovalFromChatResult(params: {
     approval,
     fallbackPrompt: String(params.result.result || '').trim(),
     originalUserContent: params.originalUserContent,
+    continuation: params.continuation,
     userId: params.userId,
     disableButtons: params.disableButtons,
   });
@@ -325,6 +336,7 @@ export async function handleGatewayApprovalCommand(
 
   const { claimed } = claimedResult;
   let rawResult: GatewayChatResult;
+  let replayedContinuation: ApprovalContinuation | undefined;
   try {
     rawResult = await params.replayMessage({
       sessionId: claimed.sessionId,
@@ -334,6 +346,10 @@ export async function handleGatewayApprovalCommand(
       username: params.username,
       content: claimed.entry.originalUserContent,
       approvalResponse: buildApprovalResponse(approvalId, directive),
+      approvalContinuation: claimed.entry.continuation || undefined,
+      onPendingApprovalCaptured: ({ continuation }) => {
+        replayedContinuation = continuation;
+      },
       media: [],
       source: 'approval',
     });
@@ -373,6 +389,7 @@ export async function handleGatewayApprovalCommand(
       approval: pendingApproval,
       fallbackPrompt: resultText,
       originalUserContent: claimed.entry.originalUserContent,
+      continuation: replayedContinuation ?? claimed.entry.continuation,
       userId: params.userId,
     });
   } else {

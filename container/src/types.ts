@@ -151,6 +151,7 @@ export interface ContainerInput {
   sessionId: string;
   messages: ChatMessage[];
   approvalResponse?: ApprovalResponse;
+  approvalContinuation?: ApprovalContinuation;
   chatbotId: string;
   enableRag: boolean;
   apiKey: string;
@@ -287,6 +288,30 @@ export interface ArtifactMetadata {
   mimeType: string;
 }
 
+export interface ApprovalContinuationToolHistoryEntry {
+  toolName: string;
+  argsHash: string;
+  resultHash: string;
+  timestamp: number;
+}
+
+export interface ApprovalContinuation {
+  approvalId: string;
+  blockedToolCall: ToolCall;
+  history: ChatMessage[];
+  toolsUsed: string[];
+  toolExecutions: ToolExecution[];
+  toolCallHistory: ApprovalContinuationToolHistoryEntry[];
+  artifacts?: ArtifactMetadata[];
+  tokenUsage: TokenUsageStats;
+  effectiveUserPrompt: string;
+  latestVisibleAssistantText?: string | null;
+  ralphExtraIterations?: number;
+  stalledTurns?: number;
+  ralphSeedPrompt?: string;
+  ralphMaxExtraIterations?: number;
+}
+
 export interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
@@ -294,6 +319,7 @@ export interface ContainerOutput {
   artifacts?: ArtifactMetadata[];
   toolExecutions?: ToolExecution[];
   pendingApproval?: PendingApproval;
+  approvalContinuation?: ApprovalContinuation;
   tokenUsage?: TokenUsageStats;
   error?: string;
   effectiveUserPrompt?: string;

@@ -4,7 +4,10 @@ import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { TrustedCoworkerApprovalRuntime } from '../container/src/approval-policy.js';
-import type { ChatMessage } from '../container/src/types.js';
+import type {
+  ApprovalContinuation,
+  ChatMessage,
+} from '../container/src/types.js';
 
 function userMessage(text: string): ChatMessage {
   return { role: 'user', content: text };
@@ -289,6 +292,75 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(prelude?.replayPrompt).toContain(originalPrompt);
     expect(prelude?.effectiveUserPrompt).toBe(originalPrompt);
     expect(prelude?.approvalMode).toBe('once');
+  });
+
+  test('structured approval continuations survive runtime restarts', () => {
+    const policyPath = '/tmp/hybridclaw-missing-policy.yaml';
+    const originalPrompt = 'Open X.com notifications';
+    const argsJson = JSON.stringify({
+      action: 'navigate',
+      url: 'https://x.com/notifications',
+    });
+
+    const originalRuntime = new TrustedCoworkerApprovalRuntime(policyPath);
+    const pending = originalRuntime.evaluateToolCall({
+      toolName: 'browser_use',
+      argsJson,
+      latestUserPrompt: originalPrompt,
+    });
+    expect(pending.decision).toBe('required');
+    expect(pending.requestId).toBeTruthy();
+
+    const continuation: ApprovalContinuation = {
+      approvalId: pending.requestId || '',
+      blockedToolCall: {
+        id: 'call-1',
+        type: 'function',
+        function: {
+          name: 'browser_use',
+          arguments: argsJson,
+        },
+      },
+      history: [],
+      toolsUsed: ['browser_use'],
+      toolExecutions: [],
+      toolCallHistory: [],
+      tokenUsage: {
+        modelCalls: 1,
+        apiUsageAvailable: false,
+        apiPromptTokens: 0,
+        apiCompletionTokens: 0,
+        apiTotalTokens: 0,
+        apiCacheUsageAvailable: false,
+        apiCacheReadTokens: 0,
+        apiCacheWriteTokens: 0,
+        estimatedPromptTokens: 10,
+        estimatedCompletionTokens: 5,
+        estimatedTotalTokens: 15,
+      },
+      effectiveUserPrompt: originalPrompt,
+    };
+
+    const restartedRuntime = new TrustedCoworkerApprovalRuntime(policyPath);
+    const prelude =
+      restartedRuntime.handleStructuredApprovalContinuationResponse(
+        {
+          approvalId: continuation.approvalId,
+          decision: 'approve',
+          mode: 'once',
+        },
+        continuation,
+      );
+    expect(prelude?.replayPrompt).toContain('Approval already granted');
+    expect(prelude?.effectiveUserPrompt).toBe(originalPrompt);
+    expect(prelude?.approvalMode).toBe('once');
+
+    const approved = restartedRuntime.evaluateToolCall({
+      toolName: 'browser_use',
+      argsJson,
+      latestUserPrompt: originalPrompt,
+    });
+    expect(approved.decision).toBe('approved_once');
   });
 
   test('yes for session persists trust for repeated action key', () => {

@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 import { chooseChromiumBrowser } from './default-browser.js';
 import type {
@@ -11,9 +11,28 @@ import type {
 const DEVTOOLS_URL_RE = /DevTools listening on (ws:\/\/\S+)/i;
 const LAUNCH_TIMEOUT_MS = 15_000;
 
+function logBrowserLaunch(
+  message: string,
+  details?: Record<string, unknown>,
+): void {
+  const suffix =
+    details && Object.keys(details).length > 0
+      ? ` ${JSON.stringify(details)}`
+      : '';
+  console.error(`[browser-launch] ${message}${suffix}`);
+}
+
 function buildLaunchEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
-  for (const key of ['HOME', 'PATH', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL']) {
+  for (const key of [
+    'HOME',
+    'PATH',
+    'TMPDIR',
+    'TMP',
+    'TEMP',
+    'LANG',
+    'LC_ALL',
+  ]) {
     const value = process.env[key];
     if (!value) continue;
     env[key] = value;
@@ -32,6 +51,16 @@ function extractPortFromWsUrl(wsUrl: string): number | undefined {
   }
 }
 
+function summarizeStderr(stderr: string[]): string | undefined {
+  const lines = stderr
+    .join('')
+    .split(/\r?\n/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return undefined;
+  return lines.slice(-3).join(' | ').slice(0, 400);
+}
+
 async function waitForDevToolsUrl(
   child: ChildProcess,
 ): Promise<{ wsUrl: string; stderr: string[] }> {
@@ -39,6 +68,10 @@ async function waitForDevToolsUrl(
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
+      const stderrSummary = summarizeStderr(stderrLines);
+      logBrowserLaunch('timed out waiting for DevTools URL', {
+        stderr: stderrSummary,
+      });
       reject(
         new Error(
           'Timed out waiting for a DevTools websocket URL. If Chrome is already running without remote debugging, restart it with --remote-debugging-port or use the extension relay.',
@@ -59,11 +92,18 @@ async function waitForDevToolsUrl(
       const match = text.match(DEVTOOLS_URL_RE);
       if (!match?.[1]) return;
       cleanup();
+      logBrowserLaunch('received DevTools URL on stderr', {
+        port: extractPortFromWsUrl(match[1]),
+      });
       resolve({ wsUrl: match[1], stderr: stderrLines });
     };
 
     const onExit = (code: number | null) => {
       cleanup();
+      logBrowserLaunch('browser exited before DevTools URL', {
+        exitCode: code ?? 'unknown',
+        stderr: summarizeStderr(stderrLines),
+      });
       reject(
         new Error(
           `Browser exited before exposing DevTools (exit code ${code ?? 'unknown'})`,
@@ -113,9 +153,19 @@ export async function launchBrowserWithCdp(options: {
     env: buildLaunchEnv(),
     stdio: ['ignore', 'ignore', 'pipe'],
   });
+  logBrowserLaunch('spawned browser process', {
+    browser: browser.channel,
+    headed: options.headed !== false,
+    pid: child.pid ?? null,
+    hasUserDataDir: Boolean(browser.userDataDir),
+  });
 
   try {
     const { wsUrl } = await waitForDevToolsUrl(child);
+    logBrowserLaunch('browser launch ready', {
+      browser: browser.channel,
+      port: extractPortFromWsUrl(wsUrl),
+    });
     return {
       browser,
       mode: 'agent-launched',
@@ -129,6 +179,10 @@ export async function launchBrowserWithCdp(options: {
     } catch {
       // Best effort cleanup.
     }
+    logBrowserLaunch('browser launch failed', {
+      browser: browser.channel,
+      error: error instanceof Error ? error.message : String(error),
+    });
     throw error;
   }
 }

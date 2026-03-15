@@ -77,6 +77,7 @@ import {
   TOOL_DEFINITIONS,
 } from './tools.js';
 import {
+  type ApprovalContinuation,
   type ArtifactMetadata,
   type ChatCompletionResponse,
   type ChatMessage,
@@ -497,6 +498,64 @@ interface CompletedToolCallExecution {
   artifacts: ArtifactMetadata[];
 }
 
+function createApprovalContinuation(params: {
+  approvalId: string;
+  blockedToolCall: ToolCall;
+  history: ChatMessage[];
+  toolsUsed: string[];
+  toolExecutions: ToolExecution[];
+  toolCallHistory: ToolCallHistoryEntry[];
+  artifacts: ArtifactMetadata[];
+  tokenUsage: ReturnType<typeof finalizeTokenUsage>;
+  effectiveUserPrompt: string;
+  latestVisibleAssistantText: string | null;
+  ralphExtraIterations: number;
+  stalledTurns: number;
+  ralphSeedPrompt: string;
+  ralphMaxExtraIterations: number;
+}): ApprovalContinuation {
+  return {
+    approvalId: params.approvalId,
+    blockedToolCall: structuredClone(params.blockedToolCall),
+    history: structuredClone(params.history),
+    toolsUsed: [...params.toolsUsed],
+    toolExecutions: structuredClone(params.toolExecutions),
+    toolCallHistory: structuredClone(params.toolCallHistory),
+    artifacts:
+      params.artifacts.length > 0
+        ? structuredClone(params.artifacts)
+        : undefined,
+    tokenUsage: structuredClone(params.tokenUsage),
+    effectiveUserPrompt: params.effectiveUserPrompt,
+    latestVisibleAssistantText: params.latestVisibleAssistantText,
+    ralphExtraIterations: params.ralphExtraIterations,
+    stalledTurns: params.stalledTurns,
+    ralphSeedPrompt: params.ralphSeedPrompt,
+    ralphMaxExtraIterations: params.ralphMaxExtraIterations,
+  };
+}
+
+function summarizeToolFailure(result: string): string {
+  try {
+    const parsed = JSON.parse(result) as unknown;
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      parsed &&
+      (parsed as Record<string, unknown>).success === false
+    ) {
+      const error = String(
+        (parsed as Record<string, unknown>).error || '',
+      ).trim();
+      if (error) return error;
+    }
+  } catch {
+    // Fall back to the raw output.
+  }
+  return result.replace(/\s+/g, ' ').trim() || 'Unknown tool failure.';
+}
+
 function logToolCallStart(
   toolName: string,
   argsJson: string,
@@ -780,32 +839,111 @@ async function processRequest(
   maxTokens?: number,
   effectiveUserPromptOverride?: string,
   ralphMaxIterationsOverride?: number | null,
+  approvalContinuation?: ApprovalContinuation,
 ): Promise<ContainerOutput> {
   const processStartedAt = Date.now();
   await emitRuntimeEvent({
     event: 'before_agent_start',
     messageCount: messages.length,
   });
-  const history: ChatMessage[] = collapseSystemMessages(
-    injectRuntimeCapabilitiesMessage(messages),
+  const history: ChatMessage[] = approvalContinuation
+    ? structuredClone(approvalContinuation.history)
+    : collapseSystemMessages(injectRuntimeCapabilitiesMessage(messages));
+  const toolsUsed: string[] = approvalContinuation
+    ? [...approvalContinuation.toolsUsed]
+    : [];
+  const toolExecutions: ToolExecution[] = approvalContinuation
+    ? structuredClone(approvalContinuation.toolExecutions)
+    : [];
+  const toolCallHistory: ToolCallHistoryEntry[] = approvalContinuation
+    ? structuredClone(approvalContinuation.toolCallHistory)
+    : [];
+  const artifacts: ArtifactMetadata[] = approvalContinuation?.artifacts
+    ? structuredClone(approvalContinuation.artifacts)
+    : [];
+  const artifactPaths = new Set<string>(
+    artifacts.map((artifact) => normalizeArtifactKey(artifact.path)),
   );
-  const toolsUsed: string[] = [];
-  const toolExecutions: ToolExecution[] = [];
-  const toolCallHistory: ToolCallHistoryEntry[] = [];
-  const artifacts: ArtifactMetadata[] = [];
-  const artifactPaths = new Set<string>();
-  const tokenUsage = createTokenUsageStats();
+  const tokenUsage = approvalContinuation
+    ? structuredClone(approvalContinuation.tokenUsage)
+    : createTokenUsageStats();
   const effectiveUserPrompt =
-    effectiveUserPromptOverride || latestUserPrompt(messages);
+    approvalContinuation?.effectiveUserPrompt ||
+    effectiveUserPromptOverride ||
+    latestUserPrompt(messages);
   const ralphMaxExtraIterations = normalizeRalphMaxExtraIterations(
-    ralphMaxIterationsOverride,
+    approvalContinuation?.ralphMaxExtraIterations ?? ralphMaxIterationsOverride,
   );
   const ralphEnabled = ralphMaxExtraIterations !== 0;
-  const ralphSeedPrompt = ralphEnabled ? effectiveUserPrompt : '';
+  const ralphSeedPrompt =
+    approvalContinuation?.ralphSeedPrompt ||
+    (ralphEnabled ? effectiveUserPrompt : '');
   const maxStalledTurns = resolveMaxStalledTurns(ralphMaxExtraIterations);
-  let ralphExtraIterations = 0;
-  let stalledTurns = 0;
-  let latestVisibleAssistantText: string | null = null;
+  let ralphExtraIterations = approvalContinuation?.ralphExtraIterations || 0;
+  let stalledTurns = approvalContinuation?.stalledTurns || 0;
+  let latestVisibleAssistantText =
+    approvalContinuation?.latestVisibleAssistantText || null;
+
+  if (approvalContinuation) {
+    const resumedApproval = approvalRuntime.evaluateToolCall({
+      toolName: approvalContinuation.blockedToolCall.function.name,
+      argsJson: approvalContinuation.blockedToolCall.function.arguments,
+      latestUserPrompt: effectiveUserPrompt,
+    });
+    if (resumedApproval.decision === 'required') {
+      throw new Error(
+        `Approved continuation for ${approvalContinuation.blockedToolCall.function.name} still requires approval.`,
+      );
+    }
+    if (resumedApproval.decision === 'denied') {
+      throw new Error(
+        `Approved continuation for ${approvalContinuation.blockedToolCall.function.name} was denied: ${resumedApproval.reason}`,
+      );
+    }
+    logToolCallStart(
+      approvalContinuation.blockedToolCall.function.name,
+      approvalContinuation.blockedToolCall.function.arguments,
+      resumedApproval,
+    );
+    const completed = await executePreparedToolCall(
+      {
+        call: approvalContinuation.blockedToolCall,
+        approval: resumedApproval,
+      },
+      toolCallHistory,
+    );
+    appendCompletedToolCall({
+      completed,
+      toolsUsed,
+      toolExecutions,
+      history,
+      toolCallHistory,
+      artifacts,
+      artifactPaths,
+    });
+    if (completed.isError) {
+      collectRequestedArtifacts({
+        artifacts,
+        artifactPaths,
+        startedAtMs: processStartedAt,
+      });
+      const failed: ContainerOutput = {
+        status: 'success',
+        result: `I attempted to continue immediately with the approved action, but it failed: ${summarizeToolFailure(completed.result)}`,
+        toolsUsed: [...new Set(toolsUsed)],
+        ...(artifacts.length > 0 ? { artifacts } : {}),
+        toolExecutions,
+        tokenUsage: finalizeTokenUsage(tokenUsage),
+        effectiveUserPrompt,
+      };
+      await emitRuntimeEvent({
+        event: 'turn_end',
+        status: failed.status,
+        toolsUsed: failed.toolsUsed,
+      });
+      return failed;
+    }
+  }
 
   while (stalledTurns < maxStalledTurns) {
     tokenUsage.modelCalls += 1;
@@ -1148,6 +1286,22 @@ async function processRequest(
           ...(artifacts.length > 0 ? { artifacts } : {}),
           toolExecutions,
           pendingApproval,
+          approvalContinuation: createApprovalContinuation({
+            approvalId: approval.requestId,
+            blockedToolCall: call,
+            history,
+            toolsUsed,
+            toolExecutions,
+            toolCallHistory,
+            artifacts,
+            tokenUsage: finalizeTokenUsage(tokenUsage),
+            effectiveUserPrompt,
+            latestVisibleAssistantText,
+            ralphExtraIterations,
+            stalledTurns,
+            ralphSeedPrompt,
+            ralphMaxExtraIterations,
+          }),
           tokenUsage: finalizeTokenUsage(tokenUsage),
           effectiveUserPrompt,
         };
@@ -1332,10 +1486,25 @@ async function main(): Promise<void> {
     audioTranscriptsPrepended: firstInput.audioTranscriptsPrepended,
   });
   const firstPrelude = firstInput.approvalResponse
-    ? approvalRuntime.handleStructuredApprovalResponse(
-        firstInput.approvalResponse,
-      )
+    ? firstInput.approvalContinuation
+      ? approvalRuntime.handleStructuredApprovalContinuationResponse(
+          firstInput.approvalResponse,
+          firstInput.approvalContinuation,
+        )
+      : approvalRuntime.handleStructuredApprovalResponse(
+          firstInput.approvalResponse,
+        )
     : approvalRuntime.handleApprovalResponse(firstMessages);
+  if (
+    firstInput.approvalContinuation &&
+    firstPrelude?.approvedRequestId &&
+    firstPrelude.approvedRequestId !==
+      firstInput.approvalContinuation.approvalId
+  ) {
+    throw new Error(
+      `Approval continuation mismatch: expected ${firstPrelude.approvedRequestId} but received ${firstInput.approvalContinuation.approvalId}.`,
+    );
+  }
   const firstPromptOverride = firstPrelude?.replayPrompt;
   const firstEffectiveUserPrompt = firstPrelude?.effectiveUserPrompt;
   const firstPreparedMessages = firstPromptOverride
@@ -1374,6 +1543,7 @@ async function main(): Promise<void> {
       firstInput.maxTokens,
       firstEffectiveUserPrompt,
       firstInput.ralphMaxIterations,
+      firstInput.approvalContinuation,
     );
     if (
       firstMessagesForRequest !== firstInput.messages &&
@@ -1404,6 +1574,7 @@ async function main(): Promise<void> {
         firstInput.maxTokens,
         firstEffectiveUserPrompt,
         firstInput.ralphMaxIterations,
+        firstInput.approvalContinuation,
       );
     }
   }
@@ -1477,8 +1648,24 @@ async function main(): Promise<void> {
       neverApproveTools: input.fullAutoNeverApproveTools,
     });
     const prelude = input.approvalResponse
-      ? approvalRuntime.handleStructuredApprovalResponse(input.approvalResponse)
+      ? input.approvalContinuation
+        ? approvalRuntime.handleStructuredApprovalContinuationResponse(
+            input.approvalResponse,
+            input.approvalContinuation,
+          )
+        : approvalRuntime.handleStructuredApprovalResponse(
+            input.approvalResponse,
+          )
       : approvalRuntime.handleApprovalResponse(preparedMessages);
+    if (
+      input.approvalContinuation &&
+      prelude?.approvedRequestId &&
+      prelude.approvedRequestId !== input.approvalContinuation.approvalId
+    ) {
+      throw new Error(
+        `Approval continuation mismatch: expected ${prelude.approvedRequestId} but received ${input.approvalContinuation.approvalId}.`,
+      );
+    }
     const promptOverride = prelude?.replayPrompt;
     const effectiveUserPrompt = prelude?.effectiveUserPrompt;
     const messagesForRequest = promptOverride
@@ -1517,6 +1704,7 @@ async function main(): Promise<void> {
       input.maxTokens,
       effectiveUserPrompt,
       input.ralphMaxIterations,
+      input.approvalContinuation,
     );
     if (
       messagesForRequestWithSkillCache !== input.messages &&
@@ -1546,6 +1734,7 @@ async function main(): Promise<void> {
         input.maxTokens,
         effectiveUserPrompt,
         input.ralphMaxIterations,
+        input.approvalContinuation,
       );
     }
 
