@@ -8,7 +8,7 @@ export interface ParsedTuiSlashCommand {
 export type TuiApproveSlashResult =
   | { kind: 'usage' }
   | { kind: 'missing-approval' }
-  | { kind: 'message'; message: string };
+  | { kind: 'args'; args: string[] };
 
 function tokenizeTuiSlashInput(raw: string): string[] {
   return raw.match(/"[^"]*"|\S+/g) ?? [];
@@ -49,7 +49,7 @@ export function mapTuiSlashCommandToGatewayArgs(
   return mapCanonicalCommandToGatewayArgs(parts);
 }
 
-export function mapTuiApproveSlashToMessage(
+export function mapTuiApproveSlashToGatewayArgs(
   parts: string[],
   pendingApprovalId?: string | null,
 ): TuiApproveSlashResult {
@@ -57,14 +57,14 @@ export function mapTuiApproveSlashToMessage(
   const approvalId = (parts[2] || pendingApprovalId || '').trim();
   if (!approvalId) return { kind: 'missing-approval' };
   if (action === 'yes')
-    return { kind: 'message', message: `yes ${approvalId}` };
+    return { kind: 'args', args: ['approve', 'yes', approvalId] };
   if (action === 'session') {
-    return { kind: 'message', message: `yes ${approvalId} for session` };
+    return { kind: 'args', args: ['approve', 'session', approvalId] };
   }
   if (action === 'agent') {
-    return { kind: 'message', message: `yes ${approvalId} for agent` };
+    return { kind: 'args', args: ['approve', 'agent', approvalId] };
   }
   if (action === 'no')
-    return { kind: 'message', message: `skip ${approvalId}` };
+    return { kind: 'args', args: ['approve', 'no', approvalId] };
   return { kind: 'usage' };
 }

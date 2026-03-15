@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 
 import {
-  mapTuiApproveSlashToMessage,
+  mapTuiApproveSlashToGatewayArgs,
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
 } from '../src/tui-slash-command.js';
@@ -86,28 +86,30 @@ test('maps Discord-style slash commands to gateway command args', () => {
 });
 
 test('maps /approve actions to explicit typed results', () => {
-  expect(mapTuiApproveSlashToMessage(['approve', 'yes'], 'abc123')).toEqual({
-    kind: 'message',
-    message: 'yes abc123',
+  expect(mapTuiApproveSlashToGatewayArgs(['approve', 'yes'], 'abc123')).toEqual({
+    kind: 'args',
+    args: ['approve', 'yes', 'abc123'],
   });
-  expect(mapTuiApproveSlashToMessage(['approve', 'agent'], 'abc123')).toEqual({
-    kind: 'message',
-    message: 'yes abc123 for agent',
+  expect(
+    mapTuiApproveSlashToGatewayArgs(['approve', 'agent'], 'abc123'),
+  ).toEqual({
+    kind: 'args',
+    args: ['approve', 'agent', 'abc123'],
   });
-  expect(mapTuiApproveSlashToMessage(['approve', 'no'], 'abc123')).toEqual({
-    kind: 'message',
-    message: 'skip abc123',
+  expect(mapTuiApproveSlashToGatewayArgs(['approve', 'no'], 'abc123')).toEqual({
+    kind: 'args',
+    args: ['approve', 'no', 'abc123'],
   });
 });
 
 test('returns missing-approval instead of overloading empty strings', () => {
-  expect(mapTuiApproveSlashToMessage(['approve', 'session'])).toEqual({
+  expect(mapTuiApproveSlashToGatewayArgs(['approve', 'session'])).toEqual({
     kind: 'missing-approval',
   });
 });
 
 test('returns usage for invalid /approve actions', () => {
-  expect(mapTuiApproveSlashToMessage(['approve', 'maybe'], 'abc123')).toEqual({
+  expect(mapTuiApproveSlashToGatewayArgs(['approve', 'maybe'], 'abc123')).toEqual({
     kind: 'usage',
   });
 });

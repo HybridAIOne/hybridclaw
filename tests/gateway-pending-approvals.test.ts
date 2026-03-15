@@ -12,6 +12,7 @@ test('findPendingApprovalByApprovalId returns stored approvals', async () => {
   await pendingApprovals.setPendingApproval('session-1', {
     approvalId: 'abc123',
     prompt: 'I need your approval before I proceed.',
+    originalUserContent: 'Open x.com notifications',
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-1',
@@ -40,6 +41,7 @@ test('findPendingApprovalByApprovalId removes expired approvals during lookup', 
   await pendingApprovals.setPendingApproval('session-expired', {
     approvalId: 'dead999',
     prompt: 'expired approval',
+    originalUserContent: 'Open x.com notifications',
     createdAt: Date.now() - 120_000,
     expiresAt: Date.now() - 1,
     userId: 'user-1',
@@ -68,6 +70,7 @@ test('setPendingApproval disables and clears overwritten approval entries', asyn
   await pendingApprovals.setPendingApproval('session-2', {
     approvalId: 'abc124',
     prompt: 'first approval',
+    originalUserContent: 'Open x.com notifications',
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-1',
@@ -81,6 +84,7 @@ test('setPendingApproval disables and clears overwritten approval entries', asyn
   await pendingApprovals.setPendingApproval('session-2', {
     approvalId: 'def456',
     prompt: 'second approval',
+    originalUserContent: 'Open x.com notifications',
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-1',
@@ -111,6 +115,7 @@ test('cleanupExpiredPendingApprovals removes expired entries and disables button
   await pendingApprovals.setPendingApproval('session-3', {
     approvalId: 'expire03',
     prompt: 'expired approval',
+    originalUserContent: 'Open x.com notifications',
     createdAt: Date.now() - 120_000,
     expiresAt: Date.now() - 1,
     userId: 'user-1',
@@ -131,6 +136,7 @@ test('claimPendingApprovalByApprovalId marks an approval handled after first cla
   await pendingApprovals.setPendingApproval('session-4', {
     approvalId: 'claim44',
     prompt: 'claim me once',
+    originalUserContent: 'Open x.com notifications',
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'user-1',
@@ -166,6 +172,7 @@ test('claimPendingApprovalByApprovalId leaves approvals unresolved for wrong use
   await pendingApprovals.setPendingApproval('session-5', {
     approvalId: 'claim55',
     prompt: 'claim me correctly',
+    originalUserContent: 'Open x.com notifications',
     createdAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     userId: 'owner-1',

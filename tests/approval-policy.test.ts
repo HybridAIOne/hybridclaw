@@ -266,6 +266,31 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(approved.implicitDelayMs).toBeUndefined();
   });
 
+  test('structured approval responses resolve without parsing a chat reply', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    const originalPrompt = 'Delete dist and rebuild cleanly';
+
+    const pending = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({ command: 'rm -rf dist' }),
+      latestUserPrompt: originalPrompt,
+    });
+    expect(pending.decision).toBe('required');
+    expect(pending.requestId).toBeTruthy();
+
+    const prelude = runtime.handleStructuredApprovalResponse({
+      approvalId: pending.requestId || '',
+      decision: 'approve',
+      mode: 'once',
+    });
+    expect(prelude?.replayPrompt).toContain('Approval already granted');
+    expect(prelude?.replayPrompt).toContain(originalPrompt);
+    expect(prelude?.effectiveUserPrompt).toBe(originalPrompt);
+    expect(prelude?.approvalMode).toBe('once');
+  });
+
   test('yes for session persists trust for repeated action key', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

@@ -1,6 +1,7 @@
 export interface PendingApprovalPrompt {
   approvalId: string;
   prompt: string;
+  originalUserContent: string;
   createdAt: number;
   expiresAt: number;
   userId: string;

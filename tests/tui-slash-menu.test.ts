@@ -131,6 +131,37 @@ test('clears the current menu before refreshing a completed selection', () => {
   );
 });
 
+test('accepted slash completions mark the submitted line for history suppression', () => {
+  const { controller, rl } = buildControllerHarness();
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('\t', { name: 'tab' });
+  rl.line += 'set gpt-5';
+  rl.cursor = rl.line.length;
+  controller.sync();
+
+  expect(controller.consumePendingHistorySuppression('/model set gpt-5')).toBe(
+    true,
+  );
+  expect(controller.consumePendingHistorySuppression('/model set gpt-5')).toBe(
+    false,
+  );
+});
+
+test('history suppression clears when the accepted completion is abandoned', () => {
+  const { controller, rl } = buildControllerHarness();
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('\t', { name: 'tab' });
+  rl.line = 'plain text';
+  rl.cursor = rl.line.length;
+  controller.sync();
+
+  expect(controller.consumePendingHistorySuppression('plain text')).toBe(false);
+});
+
 test('restores the prompt cursor after rendering the menu', () => {
   const { controller, rl, operations } = buildControllerHarness();
 

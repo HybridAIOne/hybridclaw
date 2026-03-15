@@ -54,11 +54,12 @@ import {
 } from './tui-fullauto.js';
 import {
   buildTuiReadlineHistory,
+  dropLatestTuiReadlineHistoryEntry,
   resolveTuiHistoryFetchLimit,
 } from './tui-history.js';
 import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
 import {
-  mapTuiApproveSlashToMessage,
+  mapTuiApproveSlashToGatewayArgs,
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
 } from './tui-slash-command.js';
@@ -284,11 +285,26 @@ let tuiPendingApproval: {
 let tuiShowMode: SessionShowMode = DEFAULT_SESSION_SHOW_MODE;
 let tuiSlashMenu: TuiSlashMenuController | null = null;
 
-function mapApprovalSelectionToCommand(
+function setTuiPendingApproval(details: TuiApprovalDetails | null): void {
+  if (!details) {
+    tuiPendingApproval = null;
+    return;
+  }
+  tuiPendingApproval = {
+    requestId: details.approvalId,
+    summary: formatTuiApprovalSummary(details),
+    intent: details.intent,
+    reason: details.reason,
+    allowSession: details.allowSession,
+    allowAgent: details.allowAgent,
+  };
+}
+
+function mapApprovalSelectionToGatewayArgs(
   selection: string,
   requestId: string,
   options: Array<'once' | 'session' | 'agent' | 'skip'>,
-): string | null {
+): string[] | null {
   const normalized = selection.trim().toLowerCase().replace(/\s+/g, ' ');
   if (!normalized) return null;
 
@@ -297,14 +313,14 @@ function mapApprovalSelectionToCommand(
     const index = Number.parseInt(normalized, 10) - 1;
     const selected = options[index];
     if (!selected) return null;
-    if (selected === 'once') return `yes ${requestId}`;
-    if (selected === 'session') return `yes ${requestId} for session`;
-    if (selected === 'agent') return `yes ${requestId} for agent`;
-    return `skip ${requestId}`;
+    if (selected === 'once') return ['approve', 'yes', requestId];
+    if (selected === 'session') return ['approve', 'session', requestId];
+    if (selected === 'agent') return ['approve', 'agent', requestId];
+    return ['approve', 'no', requestId];
   }
 
   if (normalized === 'yes' || normalized === 'y' || normalized === 'once') {
-    return `yes ${requestId}`;
+    return ['approve', 'yes', requestId];
   }
   if (
     options.includes('session') &&
@@ -312,7 +328,7 @@ function mapApprovalSelectionToCommand(
       normalized === 'yes for session' ||
       normalized === 'for session')
   ) {
-    return `yes ${requestId} for session`;
+    return ['approve', 'session', requestId];
   }
   if (
     options.includes('agent') &&
@@ -320,17 +336,30 @@ function mapApprovalSelectionToCommand(
       normalized === 'yes for agent' ||
       normalized === 'for agent')
   ) {
-    return `yes ${requestId} for agent`;
+    return ['approve', 'agent', requestId];
   }
   if (normalized === 'no' || normalized === 'n' || normalized === 'skip') {
-    return `skip ${requestId}`;
+    return ['approve', 'no', requestId];
   }
   return null;
 }
 
-function isApprovalResponseContent(content: string): boolean {
-  const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
-  return /^(yes|skip)\s+\S+(?:\s+for\s+(session|agent))?$/.test(normalized);
+function dropTuiReadlineHistoryEntry(
+  rl: readline.Interface,
+  line: string,
+): void {
+  if (
+    !('history' in rl) ||
+    !Array.isArray((rl as TuiReadlineInterface).history)
+  )
+    return;
+  dropLatestTuiReadlineHistoryEntry((rl as TuiReadlineInterface).history, line);
+}
+
+function shouldSuppressApprovalInputHistory(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  return parseTuiSlashCommand(trimmed).cmd === 'approve';
 }
 
 function resolvePendingApproval(
@@ -367,7 +396,7 @@ async function promptApprovalSelection(
   requestId: string,
   allowSession: boolean,
   allowAgent: boolean,
-): Promise<string | null> {
+): Promise<string[] | null> {
   const options: Array<'once' | 'session' | 'agent' | 'skip'> = ['once'];
   if (allowSession) options.push('session');
   if (allowAgent) options.push('agent');
@@ -393,13 +422,16 @@ async function promptApprovalSelection(
       resolve,
     );
   });
-  const command = mapApprovalSelectionToCommand(answer, requestId, options);
-  if (answer.trim() && !command) {
+  if (answer.trim()) {
+    dropTuiReadlineHistoryEntry(rl, answer);
+  }
+  const args = mapApprovalSelectionToGatewayArgs(answer, requestId, options);
+  if (answer.trim() && !args) {
     printInfo(
-      `Unrecognized selection "${answer.trim()}". You can reply manually with yes/skip and the request id.`,
+      `Unrecognized selection "${answer.trim()}". You can reply manually with /approve and the request id.`,
     );
   }
-  return command;
+  return args;
 }
 
 function printBanner(
@@ -936,6 +968,16 @@ async function runGatewayCommand(
     printGatewayCommandResult(result);
     const normalizedCommand = (args[0] || '').trim().toLowerCase();
     const normalizedSubcommand = (args[1] || '').trim().toLowerCase();
+    if (normalizedCommand === 'approve') {
+      const pendingApproval = parseTuiApprovalPrompt(
+        renderGatewayCommand(result),
+      );
+      if (pendingApproval) {
+        setTuiPendingApproval(pendingApproval);
+      } else if (result.kind !== 'error') {
+        setTuiPendingApproval(null);
+      }
+    }
     if (normalizedCommand === 'show') {
       tuiShowMode = isSessionShowMode(normalizedSubcommand)
         ? normalizedSubcommand
@@ -1132,22 +1174,15 @@ async function handleSlashCommand(
     case 'approve': {
       const action = (parts[1] || 'view').trim().toLowerCase();
       if (action === 'view' || action === 'status' || action === 'show') {
-        if (!tuiPendingApproval) {
-          printInfo('No pending approval request cached in this TUI session.');
-          return true;
-        }
         const requestedId = (parts[2] || '').trim();
-        if (requestedId && requestedId !== tuiPendingApproval.requestId) {
-          printInfo(
-            `No cached approval prompt for request ${requestedId}. Current pending request: ${tuiPendingApproval.requestId}`,
-          );
-          return true;
-        }
-        printInfo(tuiPendingApproval.summary);
+        await runGatewayCommand(
+          requestedId ? ['approve', 'view', requestedId] : ['approve', 'view'],
+          rl,
+        );
         return true;
       }
 
-      const approvalResult = mapTuiApproveSlashToMessage(
+      const approvalResult = mapTuiApproveSlashToGatewayArgs(
         parts,
         tuiPendingApproval?.requestId,
       );
@@ -1159,7 +1194,7 @@ async function handleSlashCommand(
         printInfo('No pending approval request is available to approve.');
         return true;
       }
-      await processMessage(approvalResult.message, rl);
+      await runGatewayCommand(approvalResult.args, rl);
       return true;
     }
     case 'info':
@@ -1302,28 +1337,18 @@ async function processMessage(
 
     if (pendingApproval) {
       const summary = formatTuiApprovalSummary(pendingApproval);
-      tuiPendingApproval = {
-        requestId: pendingApproval.approvalId,
-        summary,
-        intent: pendingApproval.intent,
-        reason: pendingApproval.reason,
-        allowSession: pendingApproval.allowSession,
-        allowAgent: pendingApproval.allowAgent,
-      };
+      setTuiPendingApproval(pendingApproval);
       printResponse(summary);
-      const approvalCommand = await promptApprovalSelection(
+      const approvalArgs = await promptApprovalSelection(
         rl,
         pendingApproval.approvalId,
         pendingApproval.allowSession,
         pendingApproval.allowAgent,
       );
-      if (approvalCommand) {
-        await processMessage(approvalCommand, rl);
+      if (approvalArgs) {
+        await runGatewayCommand(approvalArgs, rl);
       }
     } else {
-      if (isApprovalResponseContent(content)) {
-        tuiPendingApproval = null;
-      }
       if (hasStreamedText) {
         console.log();
       } else {
@@ -1387,23 +1412,16 @@ async function processFullAutoSteeringMessage(
       const pendingApproval = resolvePendingApproval(result, null);
       if (pendingApproval) {
         const summary = formatTuiApprovalSummary(pendingApproval);
-        tuiPendingApproval = {
-          requestId: pendingApproval.approvalId,
-          summary,
-          intent: pendingApproval.intent,
-          reason: pendingApproval.reason,
-          allowSession: pendingApproval.allowSession,
-          allowAgent: pendingApproval.allowAgent,
-        };
+        setTuiPendingApproval(pendingApproval);
         printResponse(summary);
-        const approvalCommand = await promptApprovalSelection(
+        const approvalArgs = await promptApprovalSelection(
           rl,
           pendingApproval.approvalId,
           pendingApproval.allowSession,
           pendingApproval.allowAgent,
         );
-        if (approvalCommand) {
-          await processMessage(approvalCommand, rl);
+        if (approvalArgs) {
+          await runGatewayCommand(approvalArgs, rl);
         }
         return;
       }
@@ -1562,6 +1580,12 @@ async function main(): Promise<void> {
   };
 
   rl.on('line', (line) => {
+    if (
+      tuiSlashMenu?.consumePendingHistorySuppression(line) ||
+      shouldSuppressApprovalInputHistory(line)
+    ) {
+      dropTuiReadlineHistoryEntry(rl, line);
+    }
     pendingInputLines.push(line);
     if (pendingInputTimer) clearTimeout(pendingInputTimer);
     pendingInputTimer = setTimeout(

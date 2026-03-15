@@ -1331,8 +1331,13 @@ async function main(): Promise<void> {
     media: firstInput.media,
     audioTranscriptsPrepended: firstInput.audioTranscriptsPrepended,
   });
-  const firstPrelude = approvalRuntime.handleApprovalResponse(firstMessages);
+  const firstPrelude = firstInput.approvalResponse
+    ? approvalRuntime.handleStructuredApprovalResponse(
+        firstInput.approvalResponse,
+      )
+    : approvalRuntime.handleApprovalResponse(firstMessages);
   const firstPromptOverride = firstPrelude?.replayPrompt;
+  const firstEffectiveUserPrompt = firstPrelude?.effectiveUserPrompt;
   const firstPreparedMessages = firstPromptOverride
     ? replaceLatestUserPrompt(firstMessages, firstPromptOverride)
     : firstMessages;
@@ -1367,7 +1372,7 @@ async function main(): Promise<void> {
       storedRequestHeaders,
       resolveTools(firstInput),
       firstInput.maxTokens,
-      firstPromptOverride,
+      firstEffectiveUserPrompt,
       firstInput.ralphMaxIterations,
     );
     if (
@@ -1397,7 +1402,7 @@ async function main(): Promise<void> {
         firstInput.requestHeaders,
         resolveTools(firstInput),
         firstInput.maxTokens,
-        firstPromptOverride,
+        firstEffectiveUserPrompt,
         firstInput.ralphMaxIterations,
       );
     }
@@ -1471,8 +1476,11 @@ async function main(): Promise<void> {
       enabled: input.fullAutoEnabled === true,
       neverApproveTools: input.fullAutoNeverApproveTools,
     });
-    const prelude = approvalRuntime.handleApprovalResponse(preparedMessages);
+    const prelude = input.approvalResponse
+      ? approvalRuntime.handleStructuredApprovalResponse(input.approvalResponse)
+      : approvalRuntime.handleApprovalResponse(preparedMessages);
     const promptOverride = prelude?.replayPrompt;
+    const effectiveUserPrompt = prelude?.effectiveUserPrompt;
     const messagesForRequest = promptOverride
       ? replaceLatestUserPrompt(preparedMessages, promptOverride)
       : preparedMessages;
@@ -1507,7 +1515,7 @@ async function main(): Promise<void> {
       requestHeaders,
       resolveTools(input),
       input.maxTokens,
-      promptOverride,
+      effectiveUserPrompt,
       input.ralphMaxIterations,
     );
     if (
@@ -1536,7 +1544,7 @@ async function main(): Promise<void> {
         requestHeaders,
         resolveTools(input),
         input.maxTokens,
-        promptOverride,
+        effectiveUserPrompt,
         input.ralphMaxIterations,
       );
     }

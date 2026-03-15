@@ -429,6 +429,7 @@ export async function runHostProcess(
   const {
     sessionId,
     messages,
+    approvalResponse,
     chatbotId,
     enableRag,
     model = HYBRIDAI_MODEL,
@@ -475,6 +476,7 @@ export async function runHostProcess(
   const input: ContainerInput = {
     sessionId,
     messages,
+    approvalResponse,
     chatbotId: modelRuntime.chatbotId,
     enableRag: modelRuntime.enableRag,
     apiKey: modelRuntime.apiKey,

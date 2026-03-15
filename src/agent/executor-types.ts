@@ -1,4 +1,5 @@
 import type {
+  ApprovalResponse,
   ChatMessage,
   ContainerOutput,
   MediaContextItem,
@@ -10,6 +11,7 @@ import type {
 export interface ExecutorRequest {
   sessionId: string;
   messages: ChatMessage[];
+  approvalResponse?: ApprovalResponse;
   chatbotId: string;
   enableRag: boolean;
   model?: string;

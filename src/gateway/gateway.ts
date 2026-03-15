@@ -78,7 +78,15 @@ import {
 } from '../tui-slash-command.js';
 import type { ArtifactMetadata } from '../types.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
-import { extractGatewayChatApprovalEvent } from './chat-approval.js';
+import {
+  APPROVAL_ALREADY_HANDLED_TEXT,
+  APPROVAL_COMMAND_USAGE_TEXT,
+  clearGatewayPendingApproval,
+  handleGatewayApprovalCommand,
+  NO_PENDING_APPROVAL_FOR_USER_TEXT,
+  NO_PENDING_APPROVAL_TEXT,
+  rememberPendingApprovalEvent,
+} from './approval-middleware.js';
 import {
   normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
@@ -95,13 +103,6 @@ import {
 } from './gateway-service.js';
 import { startHealthServer } from './health.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
-import {
-  cleanupExpiredPendingApprovals,
-  clearPendingApproval,
-  getPendingApproval,
-  type PendingApprovalPrompt,
-  setPendingApproval,
-} from './pending-approvals.js';
 import {
   hasQueuedProactiveDeliveryPath,
   isDiscordChannelId,
@@ -120,7 +121,6 @@ let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
 let memoryConsolidationTimer: ReturnType<typeof setInterval> | null = null;
 
 const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
-const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
 const WHATSAPP_INTERRUPTED_REPLY =
   'The request was interrupted before I could reply. Please send it again.';
 const WHATSAPP_TRANSIENT_FAILURE_REPLY =
@@ -242,162 +242,6 @@ function formatEmailGatewayFailure(error: string | null | undefined): string {
   return formatError('Agent Error', detail || 'Unknown error');
 }
 
-async function rememberPendingApproval(params: {
-  sessionId: string;
-  approvalId: string;
-  prompt: string;
-  userId: string;
-  expiresAt?: number | null;
-  disableButtons?: (() => Promise<void>) | null;
-}): Promise<void> {
-  const createdAt = Date.now();
-  const expiresAt =
-    typeof params.expiresAt === 'number' && Number.isFinite(params.expiresAt)
-      ? Math.max(createdAt + 15_000, params.expiresAt)
-      : createdAt + APPROVAL_PROMPT_DEFAULT_TTL_MS;
-  const entry: PendingApprovalPrompt = {
-    approvalId: params.approvalId,
-    prompt: params.prompt,
-    createdAt,
-    expiresAt,
-    userId: params.userId,
-    resolvedAt: null,
-    disableButtons: params.disableButtons ?? null,
-    disableTimeout: null,
-  };
-  entry.disableTimeout = setTimeout(
-    () => {
-      void clearPendingApproval(params.sessionId, { disableButtons: true });
-    },
-    Math.max(0, expiresAt - Date.now()),
-  );
-  await setPendingApproval(params.sessionId, entry);
-}
-
-async function handleApprovalCommand(params: {
-  sessionId: string;
-  guildId: string | null;
-  channelId: string;
-  userId: string;
-  username: string;
-  args: string[];
-  reply: ReplyFn;
-}): Promise<boolean> {
-  const { sessionId, guildId, channelId, userId, username, args, reply } =
-    params;
-  if ((args[0] || '').toLowerCase() !== 'approve') return false;
-
-  await cleanupExpiredPendingApprovals();
-  const pending = getPendingApproval(sessionId);
-  const action = (args[1] || 'view').trim().toLowerCase();
-  const providedApprovalId = (args[2] || '').trim();
-  const currentApprovalId = pending?.approvalId || '';
-  const approvalId = providedApprovalId || currentApprovalId;
-  const pendingComponents =
-    pending && isDiscordChannelId(channelId)
-      ? buildApprovalConfirmationComponents(pending.approvalId)
-      : undefined;
-
-  if (action === 'view' || action === 'status' || action === 'show') {
-    if (!pending || pending.userId !== userId) {
-      await reply('No pending approval request for you in this session.');
-      return true;
-    }
-    await reply(
-      formatInfo('Pending Approval', pending.prompt),
-      undefined,
-      pendingComponents,
-    );
-    return true;
-  }
-
-  const directive = (() => {
-    if (action === 'yes' || action === '1') return 'yes';
-    if (action === 'session' || action === '2') return 'yes for session';
-    if (action === 'agent' || action === '3') return 'yes for agent';
-    if (
-      action === 'no' ||
-      action === 'deny' ||
-      action === 'skip' ||
-      action === '4'
-    ) {
-      return 'no';
-    }
-    return null;
-  })();
-
-  if (!directive) {
-    await reply(
-      'Usage: `/approve action:view|yes|session|agent|no [approval_id]`',
-    );
-    return true;
-  }
-
-  if (!approvalId && !pending) {
-    await reply('No pending approval request for this session.');
-    return true;
-  }
-
-  const approvalContent = approvalId ? `${directive} ${approvalId}` : directive;
-  const approvalResult = normalizePendingApprovalReply(
-    normalizePlaceholderToolReply(
-      await handleGatewayMessage({
-        sessionId,
-        guildId,
-        channelId,
-        userId,
-        username,
-        content: approvalContent,
-        media: [],
-      }),
-    ),
-  );
-  if (approvalResult.status === 'error') {
-    await reply(
-      formatError('Approval Error', approvalResult.error || 'Unknown error'),
-    );
-    return true;
-  }
-  if (isSilentReply(approvalResult.result)) {
-    await clearPendingApproval(sessionId, { disableButtons: true });
-    return true;
-  }
-  const approvalResultText = stripSilentToken(String(approvalResult.result));
-  if (!approvalResultText.trim()) {
-    await clearPendingApproval(sessionId, { disableButtons: true });
-    return true;
-  }
-
-  const resultText = buildResponseText(
-    approvalResultText,
-    approvalResult.toolsUsed,
-  );
-  const pendingApproval = extractGatewayChatApprovalEvent(approvalResult);
-  if (pendingApproval) {
-    const components = isDiscordChannelId(channelId)
-      ? buildApprovalConfirmationComponents(pendingApproval.approvalId)
-      : undefined;
-    await rememberPendingApproval({
-      sessionId,
-      approvalId: pendingApproval.approvalId,
-      prompt: pendingApproval.prompt || resultText,
-      userId,
-      expiresAt: pendingApproval.expiresAt,
-    });
-    await reply(
-      formatInfo('Pending Approval', resultText),
-      undefined,
-      components,
-    );
-    return true;
-  }
-
-  await clearPendingApproval(sessionId, { disableButtons: true });
-  const attachments = buildArtifactAttachments(approvalResult.artifacts);
-  await reply(resultText, attachments);
-  return true;
-}
-
 async function handleTextChannelCommand(params: {
   sessionId: string;
   guildId: string | null;
@@ -409,17 +253,79 @@ async function handleTextChannelCommand(params: {
 }): Promise<void> {
   const { sessionId, guildId, channelId, userId, username, args, reply } =
     params;
-  if (
-    await handleApprovalCommand({
-      sessionId,
-      guildId,
-      channelId,
-      userId,
-      username,
-      args,
-      reply,
-    })
-  ) {
+  const approvalOutcome = await handleGatewayApprovalCommand({
+    sessionId,
+    guildId,
+    channelId,
+    userId,
+    username,
+    args,
+    replayMessage: handleGatewayMessage,
+    clearOptions: { disableButtons: true },
+  });
+  if (approvalOutcome.handled) {
+    if (approvalOutcome.kind === 'view') {
+      const components = isDiscordChannelId(channelId)
+        ? buildApprovalConfirmationComponents(
+            approvalOutcome.pending.approvalId,
+          )
+        : undefined;
+      await reply(
+        formatInfo('Pending Approval', approvalOutcome.pending.prompt),
+        undefined,
+        components,
+      );
+      return;
+    }
+    if (approvalOutcome.kind === 'usage') {
+      await reply(APPROVAL_COMMAND_USAGE_TEXT);
+      return;
+    }
+    if (approvalOutcome.kind === 'not_found') {
+      await reply(NO_PENDING_APPROVAL_TEXT);
+      return;
+    }
+    if (approvalOutcome.kind === 'unauthorized') {
+      await reply(NO_PENDING_APPROVAL_FOR_USER_TEXT);
+      return;
+    }
+    if (approvalOutcome.kind === 'already_handled') {
+      await reply(APPROVAL_ALREADY_HANDLED_TEXT);
+      return;
+    }
+    if (approvalOutcome.kind === 'error') {
+      await reply(formatError('Approval Error', approvalOutcome.errorMessage));
+      return;
+    }
+    if (approvalOutcome.kind !== 'replayed') {
+      return;
+    }
+    if (approvalOutcome.silent || !approvalOutcome.resultText.trim()) {
+      return;
+    }
+
+    const resultText = buildResponseText(
+      approvalOutcome.resultText,
+      approvalOutcome.normalizedResult.toolsUsed,
+    );
+    if (approvalOutcome.pendingApproval) {
+      const components = isDiscordChannelId(channelId)
+        ? buildApprovalConfirmationComponents(
+            approvalOutcome.pendingApproval.approvalId,
+          )
+        : undefined;
+      await reply(
+        formatInfo('Pending Approval', resultText),
+        undefined,
+        components,
+      );
+      return;
+    }
+
+    const attachments = buildArtifactAttachments(
+      approvalOutcome.rawResult.artifacts,
+    );
+    await reply(resultText, attachments);
     return;
   }
   const result = await handleGatewayCommand({
@@ -778,14 +684,18 @@ async function startDiscordIntegration(): Promise<void> {
           await appendStreamText(bufferedDelta);
         }
         if (streamFilter.isSilent() || isSilentReply(result.result)) {
-          await clearPendingApproval(sessionId, { disableButtons: true });
+          await clearGatewayPendingApproval(sessionId, {
+            disableButtons: true,
+          });
           await context.stream.discard();
           return;
         }
         const attachments = buildArtifactAttachments(result.artifacts);
         const cleanedResultText = stripSilentToken(String(result.result));
         if (!cleanedResultText.trim()) {
-          await clearPendingApproval(sessionId, { disableButtons: true });
+          await clearGatewayPendingApproval(sessionId, {
+            disableButtons: true,
+          });
           await context.stream.discard();
           return;
         }
@@ -805,7 +715,7 @@ async function startDiscordIntegration(): Promise<void> {
           renderedText,
           sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
         );
-        const pendingApproval = extractGatewayChatApprovalEvent(result);
+        const pendingApproval = result.pendingApproval || null;
         if (pendingApproval) {
           let cleanup: { disableButtons: () => Promise<void> } | null = null;
           if (context.sendApprovalNotification) {
@@ -819,12 +729,12 @@ async function startDiscordIntegration(): Promise<void> {
               `<@${userId}> approval required. Use \`/approve\` to view and respond privately.`,
             );
           }
-          await rememberPendingApproval({
+          await rememberPendingApprovalEvent({
             sessionId,
-            approvalId: pendingApproval.approvalId,
-            prompt: pendingApproval.prompt || responseText,
+            approval: pendingApproval,
+            fallbackPrompt: responseText,
+            originalUserContent: content,
             userId,
-            expiresAt: pendingApproval.expiresAt,
             disableButtons: cleanup?.disableButtons ?? null,
           });
           if (cleanup) {
@@ -832,7 +742,7 @@ async function startDiscordIntegration(): Promise<void> {
           }
           return;
         }
-        await clearPendingApproval(sessionId, { disableButtons: true });
+        await clearGatewayPendingApproval(sessionId, { disableButtons: true });
         await context.stream.finalize(responseText, attachments);
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);

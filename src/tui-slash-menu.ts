@@ -446,6 +446,7 @@ export class TuiSlashMenuController {
   private lastRenderSignature = '';
   private renderedLineCount = 0;
   private dismissedQuery: string | null = null;
+  private pendingHistorySuppressionPrefix: string | null = null;
 
   constructor(params: {
     rl: readline.Interface;
@@ -523,6 +524,30 @@ export class TuiSlashMenuController {
     this.lastRenderSignature = '';
   }
 
+  consumePendingHistorySuppression(line: string): boolean {
+    const prefix = this.pendingHistorySuppressionPrefix;
+    this.pendingHistorySuppressionPrefix = null;
+    return (
+      prefix !== null && this.matchesHistorySuppressionPrefix(line, prefix)
+    );
+  }
+
+  private clearStalePendingHistorySuppression(): void {
+    const prefix = this.pendingHistorySuppressionPrefix;
+    if (prefix === null) return;
+    if (this.matchesHistorySuppressionPrefix(this.rl.line, prefix)) return;
+    this.pendingHistorySuppressionPrefix = null;
+  }
+
+  private matchesHistorySuppressionPrefix(
+    line: string,
+    prefix: string,
+  ): boolean {
+    const normalizedPrefix = prefix.trimEnd();
+    if (!normalizedPrefix) return false;
+    return line === normalizedPrefix || line.startsWith(`${normalizedPrefix} `);
+  }
+
   // `state` is intentionally tri-state:
   // - `undefined`: recompute from the current readline buffer
   // - `null`: caller explicitly wants "no active menu state"
@@ -531,6 +556,7 @@ export class TuiSlashMenuController {
   // The `undefined` path is the only one that clears `dismissedQuery`, because
   // that reset should only happen after observing a fresh buffer/query change.
   sync(state?: TuiSlashMenuState | null): void {
+    this.clearStalePendingHistorySuppression();
     if (!this.output.isTTY || !this.shouldShow()) {
       this.dismissedQuery = null;
       this.lastQuery = '';
@@ -666,6 +692,7 @@ export class TuiSlashMenuController {
     // but it is also part of the same Node.js-internal contract documented
     // above.
     this.clear();
+    this.pendingHistorySuppressionPrefix = selectedEntry.insertText;
     this.rl.line = selectedEntry.insertText;
     this.rl.cursor = selectedEntry.insertText.length;
     this.rl._refreshLine?.();

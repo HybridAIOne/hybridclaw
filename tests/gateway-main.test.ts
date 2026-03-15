@@ -360,6 +360,57 @@ describe('gateway bootstrap', () => {
     expect(reply).toHaveBeenNthCalledWith(3, 'rendered:plain output');
   });
 
+  test('routes /approve through the harness without synthesizing a chat approval reply', async () => {
+    const state = await importFreshGatewayMain();
+    const reply = vi.fn(async () => {});
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Approved and continuing',
+      toolsUsed: [],
+      artifacts: [],
+    });
+
+    const pendingApprovals = await import('../src/gateway/pending-approvals.js');
+    await pendingApprovals.setPendingApproval('approval-session', {
+      approvalId: 'abc123',
+      prompt: 'Approval needed for: access x.com',
+      originalUserContent: 'Open X.com notifications',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user',
+      resolvedAt: null,
+      disableButtons: null,
+      disableTimeout: null,
+    });
+
+    await state.commandHandler?.(
+      'tui:local',
+      null,
+      'tui',
+      'user',
+      'alice',
+      ['approve', 'agent', 'abc123'],
+      reply,
+    );
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'approval-session',
+        content: 'Open X.com notifications',
+        approvalResponse: {
+          approvalId: 'abc123',
+          decision: 'approve',
+          mode: 'agent',
+        },
+        source: 'approval',
+        userId: 'user',
+        username: 'alice',
+      }),
+    );
+
+    await pendingApprovals.clearPendingApproval('approval-session');
+  });
+
   test('finalizes Discord message responses using rendered gateway output', async () => {
     const state = await importFreshGatewayMain();
     const stream = {

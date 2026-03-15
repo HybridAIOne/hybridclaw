@@ -150,6 +150,7 @@ export interface TaskModelPolicies {
 export interface ContainerInput {
   sessionId: string;
   messages: ChatMessage[];
+  approvalResponse?: ApprovalResponse;
   chatbotId: string;
   enableRag: boolean;
   apiKey: string;
@@ -219,6 +220,12 @@ export interface MediaContextItem {
   mimeType: string | null;
   sizeBytes: number;
   filename: string;
+}
+
+export interface ApprovalResponse {
+  approvalId: string;
+  decision: 'approve' | 'deny';
+  mode?: 'once' | 'session' | 'agent';
 }
 
 export interface ToolExecution {

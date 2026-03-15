@@ -5,7 +5,7 @@ import path from 'node:path';
 import { URL } from 'node:url';
 
 import { classifyMcpTool } from './mcp/tool-classifier.js';
-import type { ChatMessage } from './types.js';
+import type { ApprovalResponse, ChatMessage } from './types.js';
 
 export type ApprovalTier = 'green' | 'yellow' | 'red';
 
@@ -69,6 +69,7 @@ interface PendingApproval {
 export interface ApprovalPrelude {
   immediateMessage?: string;
   replayPrompt?: string;
+  effectiveUserPrompt?: string;
   approvalMode?: 'once' | 'session' | 'agent';
   approvedRequestId?: string;
 }
@@ -1009,6 +1010,34 @@ export class TrustedCoworkerApprovalRuntime {
 
     const parsedResponse = parseApprovalUserResponse(latest);
     if (!parsedResponse) return null;
+    return this.resolveApprovalResponse(parsedResponse);
+  }
+
+  handleStructuredApprovalResponse(
+    response: ApprovalResponse | null | undefined,
+  ): ApprovalPrelude | null {
+    this.reloadPolicyIfNeeded();
+    this.cleanupExpiredPending();
+    if (!response) return null;
+
+    const approvalId = String(response.approvalId || '').trim();
+    const decision = response.decision === 'deny' ? 'deny' : 'approve';
+    const rawMode = String(response.mode || 'once').trim().toLowerCase();
+    const mode =
+      rawMode === 'session' || rawMode === 'agent' ? rawMode : 'once';
+
+    return this.resolveApprovalResponse({
+      kind: decision,
+      mode,
+      requestId: approvalId,
+    });
+  }
+
+  private resolveApprovalResponse(parsedResponse: {
+    kind: 'approve' | 'deny';
+    mode?: 'once' | 'session' | 'agent';
+    requestId: string;
+  }): ApprovalPrelude {
     if (this.pending.size === 0) {
       return {
         immediateMessage: 'There is no pending approval request right now.',
@@ -1073,6 +1102,7 @@ export class TrustedCoworkerApprovalRuntime {
     );
     return {
       replayPrompt: replayPrompt || undefined,
+      effectiveUserPrompt: target.originalPrompt,
       approvalMode: mode,
       approvedRequestId: target.id,
       immediateMessage: replayPrompt

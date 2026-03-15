@@ -111,9 +111,16 @@ export interface TaskModelPolicies {
   flush_memories?: TaskModelPolicy;
 }
 
+export interface ApprovalResponse {
+  approvalId: string;
+  decision: 'approve' | 'deny';
+  mode?: 'once' | 'session' | 'agent';
+}
+
 export interface ContainerInput {
   sessionId: string;
   messages: ChatMessage[];
+  approvalResponse?: ApprovalResponse;
   chatbotId: string;
   enableRag: boolean;
   apiKey: string;

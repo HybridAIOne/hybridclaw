@@ -50,3 +50,11 @@ export function buildTuiReadlineHistory(
 
   return history;
 }
+
+export function dropLatestTuiReadlineHistoryEntry(
+  history: string[],
+  entry: string,
+): void {
+  if (history[0] !== entry) return;
+  history.shift();
+}

@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   buildTuiReadlineHistory,
+  dropLatestTuiReadlineHistoryEntry,
   resolveTuiHistoryFetchLimit,
 } from '../src/tui-history.js';
 
@@ -121,4 +122,20 @@ test('over-fetches history to compensate for assistant turns', () => {
   expect(resolveTuiHistoryFetchLimit(100)).toBe(200);
   expect(resolveTuiHistoryFetchLimit(150)).toBe(300);
   expect(resolveTuiHistoryFetchLimit(2000)).toBe(400);
+});
+
+test('drops only the newest readline history entry when it matches', () => {
+  const history = ['/model set gpt-5', '/status'];
+
+  dropLatestTuiReadlineHistoryEntry(history, '/model set gpt-5');
+
+  expect(history).toEqual(['/status']);
+});
+
+test('leaves readline history untouched when the newest entry differs', () => {
+  const history = ['/status', '/model set gpt-5'];
+
+  dropLatestTuiReadlineHistoryEntry(history, '/model set gpt-5');
+
+  expect(history).toEqual(['/status', '/model set gpt-5']);
 });

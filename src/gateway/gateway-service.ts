@@ -150,6 +150,7 @@ import {
 } from '../session/token-efficiency.js';
 import { expandSkillInvocation, loadSkillCatalog } from '../skills/skills.js';
 import type {
+  ApprovalResponse,
   ArtifactMetadata,
   CanonicalSessionContext,
   ChatMessage,
@@ -350,6 +351,7 @@ export interface GatewayChatRequest {
   userId: GatewayChatRequestBody['userId'];
   username: GatewayChatRequestBody['username'];
   content: GatewayChatRequestBody['content'];
+  approvalResponse?: ApprovalResponse;
   media?: GatewayChatRequestBody['media'];
   agentId?: GatewayChatRequestBody['agentId'];
   chatbotId?: GatewayChatRequestBody['chatbotId'];
@@ -1029,6 +1031,26 @@ function recordSuccessfulTurn(opts: {
     );
   });
 
+  recordCompletedTurnAudit({
+    sessionId: opts.sessionId,
+    runId: opts.runId,
+    turnIndex: opts.turnIndex,
+    startedAt: opts.startedAt,
+    toolCallCount: opts.toolCallCount,
+    userMessages: 1,
+    assistantMessages: 1,
+  });
+}
+
+function recordCompletedTurnAudit(opts: {
+  sessionId: string;
+  runId: string;
+  turnIndex: number;
+  startedAt: number;
+  toolCallCount: number;
+  userMessages: number;
+  assistantMessages: number;
+}): void {
   recordAuditEvent({
     sessionId: opts.sessionId,
     runId: opts.runId,
@@ -1045,8 +1067,8 @@ function recordSuccessfulTurn(opts: {
       type: 'session.end',
       reason: 'normal',
       stats: {
-        userMessages: 1,
-        assistantMessages: 1,
+        userMessages: opts.userMessages,
+        assistantMessages: opts.assistantMessages,
         toolCalls: opts.toolCallCount,
         durationMs: Date.now() - opts.startedAt,
       },
@@ -3553,6 +3575,7 @@ export async function handleGatewayMessage(
     const output = await runAgent({
       sessionId: req.sessionId,
       messages,
+      approvalResponse: req.approvalResponse,
       chatbotId,
       enableRag,
       model,
@@ -3738,6 +3761,30 @@ export async function handleGatewayMessage(
       },
       'Gateway chat completed successfully',
     );
+    const result: GatewayChatResult = {
+      status: 'success',
+      result: resultText,
+      toolsUsed: output.toolsUsed || [],
+      artifacts: output.artifacts,
+      toolExecutions,
+      pendingApproval: output.pendingApproval,
+      tokenUsage: output.tokenUsage,
+      effectiveUserPrompt: output.effectiveUserPrompt,
+    };
+    if (output.pendingApproval) {
+      recordCompletedTurnAudit({
+        sessionId: req.sessionId,
+        runId,
+        turnIndex,
+        startedAt,
+        toolCallCount: toolExecutions.length,
+        userMessages: 1,
+        assistantMessages: 1,
+      });
+      maybeScheduleFullAutoAfterSuccess({ session, req, result });
+      return result;
+    }
+
     recordSuccessfulTurn({
       sessionId: req.sessionId,
       agentId,
@@ -3754,17 +3801,6 @@ export async function handleGatewayMessage(
       toolCallCount: toolExecutions.length,
       startedAt,
     });
-
-    const result: GatewayChatResult = {
-      status: 'success',
-      result: resultText,
-      toolsUsed: output.toolsUsed || [],
-      artifacts: output.artifacts,
-      toolExecutions,
-      pendingApproval: output.pendingApproval,
-      tokenUsage: output.tokenUsage,
-      effectiveUserPrompt: output.effectiveUserPrompt,
-    };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     return result;
   } catch (err) {

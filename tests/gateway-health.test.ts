@@ -973,6 +973,112 @@ describe('gateway health server', () => {
     ]);
   });
 
+  test('replays streamed approvals through /api/command without falling through to generic command handling', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayMessage
+      .mockImplementationOnce(
+        async (req: {
+          onApprovalProgress?: (approval: {
+            approvalId: string;
+            prompt: string;
+            intent: string;
+            reason: string;
+            allowSession: boolean;
+            allowAgent: boolean;
+            expiresAt: number;
+          }) => void;
+        }) => {
+          req.onApprovalProgress?.({
+            approvalId: 'approve123',
+            prompt: 'I need your approval before I access x.com.',
+            intent: 'access x.com',
+            reason: 'this would contact a new external host',
+            allowSession: true,
+            allowAgent: true,
+            expiresAt: 1_710_000_000_000,
+          });
+          return {
+            status: 'success',
+            result: 'I need your approval before I access x.com.',
+            toolsUsed: ['browser_use'],
+            pendingApproval: {
+              approvalId: 'approve123',
+              prompt: 'I need your approval before I access x.com.',
+              intent: 'access x.com',
+              reason: 'this would contact a new external host',
+              allowSession: true,
+              allowAgent: true,
+              expiresAt: 1_710_000_000_000,
+            },
+            artifacts: [],
+          };
+        },
+      )
+      .mockResolvedValueOnce({
+        status: 'success',
+        result: 'Approved and continuing',
+        toolsUsed: ['browser_use'],
+        artifacts: [],
+      });
+
+    const chatReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        content: 'Open X.com notifications',
+        stream: true,
+        sessionId: 'tui:local',
+        channelId: 'tui',
+        userId: 'user-1',
+        username: 'alice',
+      },
+    });
+    const chatRes = makeResponse();
+    state.handler(chatReq as never, chatRes as never);
+    await settle();
+
+    const approveReq = makeRequest({
+      method: 'POST',
+      url: '/api/command',
+      body: {
+        sessionId: 'tui:local',
+        channelId: 'tui',
+        userId: 'user-1',
+        username: 'alice',
+        args: ['approve', 'yes', 'approve123'],
+      },
+    });
+    const approveRes = makeResponse();
+    state.handler(approveReq as never, approveRes as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        sessionId: 'tui:local',
+        channelId: 'tui',
+        userId: 'user-1',
+        username: 'alice',
+        content: 'Open X.com notifications',
+        source: 'approval',
+        approvalResponse: {
+          approvalId: 'approve123',
+          decision: 'approve',
+          mode: 'once',
+        },
+      }),
+    );
+    expect(approveRes.statusCode).toBe(200);
+    expect(JSON.parse(approveRes.body)).toEqual({
+      kind: 'plain',
+      text: 'Approved and continuing',
+    });
+
+    const pendingApprovals = await import('../src/gateway/pending-approvals.js');
+    expect(pendingApprovals.getPendingApproval('tui:local')).toBeNull();
+  });
+
   test('preserves the full approval prompt in approval events when tool output is hidden', async () => {
     const state = await importFreshHealth();
     state.getSessionById.mockReturnValue({ show_mode: 'none' });

@@ -578,6 +578,7 @@ export async function runContainer(
   const {
     sessionId,
     messages,
+    approvalResponse,
     chatbotId,
     enableRag,
     model = HYBRIDAI_MODEL,
@@ -626,6 +627,7 @@ export async function runContainer(
   const input: ContainerInput = {
     sessionId,
     messages,
+    approvalResponse,
     chatbotId: modelRuntime.chatbotId,
     enableRag: modelRuntime.enableRag,
     apiKey: modelRuntime.apiKey,
