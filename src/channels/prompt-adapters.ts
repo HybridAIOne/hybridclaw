@@ -1,6 +1,7 @@
 import { discordAgentPromptAdapter } from './discord/prompt-adapter.js';
 import { isEmailAddress } from './email/allowlist.js';
 import { emailAgentPromptAdapter } from './email/prompt-adapter.js';
+import { msteamsAgentPromptAdapter } from './msteams/prompt-adapter.js';
 import { isWhatsAppJid } from './whatsapp/phone.js';
 import { whatsappAgentPromptAdapter } from './whatsapp/prompt-adapter.js';
 
@@ -54,11 +55,17 @@ function isEmailContext(runtimeInfo?: ChannelPromptRuntimeInfo): boolean {
   return isEmailAddress(channelId);
 }
 
+function isMSTeamsContext(runtimeInfo?: ChannelPromptRuntimeInfo): boolean {
+  const channelType = normalizeLower(runtimeInfo?.channelType);
+  return channelType === 'msteams' || channelType === 'teams';
+}
+
 function resolveChannelAgentPromptAdapter(params: {
   runtimeInfo?: ChannelPromptRuntimeInfo;
 }): ChannelAgentPromptAdapter | null {
   if (isWhatsAppContext(params.runtimeInfo)) return whatsappAgentPromptAdapter;
   if (isEmailContext(params.runtimeInfo)) return emailAgentPromptAdapter;
+  if (isMSTeamsContext(params.runtimeInfo)) return msteamsAgentPromptAdapter;
   if (isDiscordContext(params.runtimeInfo)) return discordAgentPromptAdapter;
   return null;
 }

@@ -7,16 +7,19 @@ import {
   normalizeDiscordToolAction,
 } from '../channels/discord/tool-actions.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
+import { handleMSTeamsWebhook } from '../channels/msteams/runtime.js';
 import {
   DATA_DIR,
   GATEWAY_API_TOKEN,
   HEALTH_HOST,
   HEALTH_PORT,
+  MSTEAMS_WEBHOOK_PATH,
   WEB_API_TOKEN,
 } from '../config/config.js';
 import type {
   RuntimeConfig,
   RuntimeDiscordChannelConfig,
+  RuntimeMSTeamsChannelConfig,
 } from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
@@ -116,6 +119,59 @@ function isRuntimeDiscordChannelConfig(
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const mode = (value as { mode?: unknown }).mode;
   return mode === 'off' || mode === 'mention' || mode === 'free';
+}
+
+function isRuntimeMSTeamsChannelConfig(
+  value: unknown,
+): value is RuntimeMSTeamsChannelConfig {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const typed = value as {
+    requireMention?: unknown;
+    replyStyle?: unknown;
+    groupPolicy?: unknown;
+    allowFrom?: unknown;
+    tools?: unknown;
+  };
+  if (
+    typed.requireMention !== undefined &&
+    typeof typed.requireMention !== 'boolean'
+  ) {
+    return false;
+  }
+  if (
+    typed.replyStyle !== undefined &&
+    typed.replyStyle !== 'thread' &&
+    typed.replyStyle !== 'top-level'
+  ) {
+    return false;
+  }
+  if (
+    typed.groupPolicy !== undefined &&
+    typed.groupPolicy !== 'open' &&
+    typed.groupPolicy !== 'allowlist' &&
+    typed.groupPolicy !== 'disabled'
+  ) {
+    return false;
+  }
+  if (
+    typed.allowFrom !== undefined &&
+    !(
+      Array.isArray(typed.allowFrom) &&
+      typed.allowFrom.every((entry) => typeof entry === 'string')
+    )
+  ) {
+    return false;
+  }
+  if (
+    typed.tools !== undefined &&
+    !(
+      Array.isArray(typed.tools) &&
+      typed.tools.every((entry) => typeof entry === 'string')
+    )
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function isLoopbackAddress(address: string | undefined): boolean {
@@ -684,26 +740,65 @@ async function handleApiAdminChannels(
   }
 
   if ((req.method || 'GET') === 'DELETE') {
+    const transport = (url.searchParams.get('transport') || '').trim();
     const guildId = (url.searchParams.get('guildId') || '').trim();
     const channelId = (url.searchParams.get('channelId') || '').trim();
-    sendJson(res, 200, removeGatewayAdminChannel({ guildId, channelId }));
+    sendJson(
+      res,
+      200,
+      removeGatewayAdminChannel({
+        transport: transport === 'msteams' ? 'msteams' : 'discord',
+        guildId,
+        channelId,
+      }),
+    );
     return;
   }
 
   const body = (await readJsonBody(req)) as {
+    transport?: string;
     guildId?: string;
     channelId?: string;
-    config?: Record<string, unknown>;
+    config?: unknown;
   };
-  if (
-    typeof body.guildId !== 'string' ||
-    typeof body.channelId !== 'string' ||
-    !isRuntimeDiscordChannelConfig(body.config)
-  ) {
+  const transport =
+    typeof body.transport === 'string' && body.transport.trim() === 'msteams'
+      ? 'msteams'
+      : 'discord';
+  if (typeof body.guildId !== 'string' || typeof body.channelId !== 'string') {
+    sendJson(res, 400, {
+      error: 'Expected `guildId` and `channelId`.',
+    });
+    return;
+  }
+
+  if (transport === 'discord' && !isRuntimeDiscordChannelConfig(body.config)) {
     sendJson(res, 400, {
       error:
-        'Expected `guildId`, `channelId`, and object `config` with `mode` set to off, mention, or free.',
+        'Discord bindings require object `config` with `mode` set to off, mention, or free.',
     });
+    return;
+  }
+
+  if (transport === 'msteams' && !isRuntimeMSTeamsChannelConfig(body.config)) {
+    sendJson(res, 400, {
+      error:
+        'Teams bindings require object `config` containing Teams channel override fields.',
+    });
+    return;
+  }
+
+  if (transport === 'msteams') {
+    sendJson(
+      res,
+      200,
+      upsertGatewayAdminChannel({
+        transport,
+        guildId: body.guildId,
+        channelId: body.channelId,
+        config: body.config as RuntimeMSTeamsChannelConfig,
+      }),
+    );
     return;
   }
 
@@ -711,9 +806,10 @@ async function handleApiAdminChannels(
     res,
     200,
     upsertGatewayAdminChannel({
+      transport,
       guildId: body.guildId,
       channelId: body.channelId,
-      config: body.config,
+      config: body.config as RuntimeDiscordChannelConfig,
     }),
   );
 }
@@ -1023,6 +1119,14 @@ export function startHealthServer(): void {
     }
 
     if (pathname.startsWith('/api/')) {
+      if (pathname === MSTEAMS_WEBHOOK_PATH && method === 'POST') {
+        void handleMSTeamsWebhook(req, res).catch((error) => {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+        return;
+      }
       if (pathname === '/api/artifact' && method === 'GET') {
         handleApiArtifact(req, res, url);
         return;

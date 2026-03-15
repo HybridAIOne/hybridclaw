@@ -468,6 +468,7 @@ async function importFreshHealth(options?: {
   const normalizeDiscordToolAction = vi.fn((value: string) =>
     value === 'reply' ? 'send' : null,
   );
+  const handleMSTeamsWebhook = vi.fn(async () => {});
   const claimQueuedProactiveMessages = vi.fn(() => [
     { id: 1, text: 'queued message' },
   ]);
@@ -481,6 +482,7 @@ async function importFreshHealth(options?: {
     GATEWAY_API_TOKEN: options?.gatewayApiToken || '',
     HEALTH_HOST: '127.0.0.1',
     HEALTH_PORT: 9090,
+    MSTEAMS_WEBHOOK_PATH: '/api/msteams/messages',
     WEB_API_TOKEN: options?.webApiToken || '',
   }));
   vi.doMock('../src/infra/install-root.js', () => ({
@@ -495,6 +497,9 @@ async function importFreshHealth(options?: {
       info: vi.fn(),
       warn: vi.fn(),
     },
+  }));
+  vi.doMock('../src/channels/msteams/runtime.js', () => ({
+    handleMSTeamsWebhook,
   }));
   vi.doMock('../src/memory/db.js', () => ({
     claimQueuedProactiveMessages,
@@ -582,6 +587,7 @@ afterEach(() => {
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/memory/db.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
+  vi.doUnmock('../src/channels/msteams/runtime.js');
   vi.doUnmock('../src/channels/message/tool-actions.js');
   vi.doUnmock('../src/channels/discord/tool-actions.js');
   vi.resetModules();

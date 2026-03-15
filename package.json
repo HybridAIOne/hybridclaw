@@ -67,6 +67,7 @@
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.16",
     "better-sqlite3": "^12.6.2",
+    "botbuilder": "^4.23.3",
     "cron-parser": "^5.5.0",
     "csv-parse": "^6.1.0",
     "discord.js": "^14.25.1",

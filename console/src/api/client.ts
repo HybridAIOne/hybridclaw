@@ -2,6 +2,7 @@ import type {
   AdminAuditResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
+  AdminChannelTransport,
   AdminConfig,
   AdminConfigResponse,
   AdminMcpConfig,
@@ -142,6 +143,7 @@ export function fetchChannels(token: string): Promise<AdminChannelsResponse> {
 export function saveChannel(
   token: string,
   payload: {
+    transport?: AdminChannelTransport;
     guildId: string;
     channelId: string;
     config: AdminChannelConfig;
@@ -156,10 +158,11 @@ export function saveChannel(
 
 export function deleteChannel(
   token: string,
+  transport: AdminChannelTransport,
   guildId: string,
   channelId: string,
 ): Promise<AdminChannelsResponse> {
-  const params = new URLSearchParams({ guildId, channelId });
+  const params = new URLSearchParams({ transport, guildId, channelId });
   return requestJson<AdminChannelsResponse>(
     `/api/admin/channels?${params.toString()}`,
     {

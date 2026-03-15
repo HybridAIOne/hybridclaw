@@ -11,6 +11,8 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
   const state = {
     commandHandler: null as null | ((...args: unknown[]) => Promise<void>),
     messageHandler: null as null | ((...args: unknown[]) => Promise<void>),
+    teamsCommandHandler: null as null | ((...args: unknown[]) => Promise<void>),
+    teamsMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     whatsappMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
@@ -31,9 +33,17 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
         smtpHost: '',
         smtpSecure: false,
       },
+      msteams: {
+        enabled: true,
+        webhook: {
+          port: 9090,
+          path: '/api/msteams/messages',
+        },
+      },
       local: { enabled: false },
       memory: { consolidationIntervalHours: 0, decayRate: 0.25 },
       observability: { enabled: false, botId: '', agentId: '' },
+      ops: { healthPort: 9090 },
       scheduler: { jobs: [] as unknown[] },
     },
     currentSession: {
@@ -67,6 +77,7 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
     })),
     initDatabase: vi.fn(),
     initDiscord: vi.fn(),
+    initMSTeams: vi.fn(),
     initWhatsApp: vi.fn(),
     initGatewayService: vi.fn(),
     listQueuedProactiveMessages: vi.fn(() => []),
@@ -113,6 +124,10 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
     state.messageHandler = messageHandler;
     state.commandHandler = commandHandler;
   });
+  state.initMSTeams.mockImplementation((messageHandler, commandHandler) => {
+    state.teamsMessageHandler = messageHandler;
+    state.teamsCommandHandler = commandHandler;
+  });
   state.initWhatsApp.mockImplementation((messageHandler) => {
     state.whatsappMessageHandler = messageHandler;
   });
@@ -158,6 +173,9 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
     sendToChannel: vi.fn(),
     setDiscordMaintenancePresence: vi.fn(async () => {}),
   }));
+  vi.doMock('../src/channels/msteams/runtime.js', () => ({
+    initMSTeams: state.initMSTeams,
+  }));
   vi.doMock('../src/channels/email/runtime.js', () => ({
     initEmail: vi.fn(async () => {}),
     sendEmailAttachmentTo: vi.fn(async () => {}),
@@ -179,6 +197,8 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
   vi.doMock('../src/config/config.js', () => ({
     DISCORD_TOKEN: 'discord-token',
     EMAIL_PASSWORD: '',
+    MSTEAMS_APP_ID: 'teams-app-id',
+    MSTEAMS_APP_PASSWORD: 'teams-app-password',
     getConfigSnapshot: state.getConfigSnapshot,
     HEARTBEAT_CHANNEL: '',
     HEARTBEAT_INTERVAL: 1_000,
@@ -276,6 +296,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/discord/delivery.js');
   vi.doUnmock('../src/channels/discord/mentions.js');
   vi.doUnmock('../src/channels/discord/runtime.js');
+  vi.doUnmock('../src/channels/msteams/runtime.js');
   vi.doUnmock('../src/channels/email/runtime.js');
   vi.doUnmock('../src/channels/whatsapp/runtime.js');
   vi.doUnmock('../src/channels/whatsapp/auth.js');
@@ -303,6 +324,7 @@ describe('gateway bootstrap', () => {
     expect(state.resumeEnabledFullAutoSessions).toHaveBeenCalledTimes(1);
     expect(state.startHealthServer).toHaveBeenCalledTimes(1);
     expect(state.initDiscord).toHaveBeenCalledTimes(1);
+    expect(state.initMSTeams).toHaveBeenCalledTimes(1);
     expect(state.startHeartbeat).toHaveBeenCalledWith(
       'agent-resolved',
       1_000,

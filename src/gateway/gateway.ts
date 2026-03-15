@@ -30,6 +30,7 @@ import {
   sendToEmail,
   shutdownEmail,
 } from '../channels/email/runtime.js';
+import { initMSTeams } from '../channels/msteams/runtime.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import {
@@ -44,6 +45,8 @@ import {
   getConfigSnapshot,
   HEARTBEAT_CHANNEL,
   HEARTBEAT_INTERVAL,
+  MSTEAMS_APP_ID,
+  MSTEAMS_APP_PASSWORD,
   onConfigChange,
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
 } from '../config/config.js';
@@ -878,6 +881,165 @@ async function startDiscordIntegration(): Promise<void> {
   logger.info('Discord integration started inside gateway');
 }
 
+async function startMSTeamsIntegration(): Promise<boolean> {
+  const teamsConfig = getConfigSnapshot().msteams;
+  const hasCredentials =
+    Boolean(String(MSTEAMS_APP_ID || '').trim()) &&
+    Boolean(String(MSTEAMS_APP_PASSWORD || '').trim());
+
+  if (!teamsConfig.enabled && !hasCredentials) {
+    logger.info('Microsoft Teams integration disabled');
+    return false;
+  }
+  if (!hasCredentials) {
+    logger.info(
+      'Microsoft Teams integration disabled: MSTEAMS_APP_ID or MSTEAMS_APP_PASSWORD is missing',
+    );
+    return false;
+  }
+  if (teamsConfig.webhook.port !== getConfigSnapshot().ops.healthPort) {
+    logger.info(
+      {
+        configuredWebhookPort: teamsConfig.webhook.port,
+        gatewayPort: getConfigSnapshot().ops.healthPort,
+        webhookPath: teamsConfig.webhook.path,
+      },
+      'Microsoft Teams webhook uses the shared gateway HTTP port; configured webhook.port is informational only',
+    );
+  }
+
+  initMSTeams(
+    async (
+      sessionId,
+      guildId,
+      channelId,
+      userId,
+      username,
+      content,
+      media,
+      _reply,
+      context,
+    ) => {
+      try {
+        let sawTextDelta = false;
+        const streamFilter = createSilentReplyStreamFilter();
+        const appendStreamText = async (text: string): Promise<void> => {
+          if (!text) return;
+          if (!sawTextDelta) {
+            sawTextDelta = true;
+            context.emitLifecyclePhase('streaming');
+          }
+          await context.stream.append(text);
+        };
+        const result = normalizePendingApprovalReply(
+          normalizePlaceholderToolReply(
+            await handleGatewayMessage({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              content,
+              media,
+              source: 'msteams',
+              onTextDelta: (delta) => {
+                const filteredDelta = streamFilter.push(delta);
+                if (!filteredDelta) return;
+                void appendStreamText(filteredDelta);
+              },
+              onToolProgress: (event) => {
+                if (sawTextDelta) return;
+                context.emitLifecyclePhase(
+                  event.phase === 'start' ? 'toolUse' : 'thinking',
+                );
+              },
+              abortSignal: context.abortSignal,
+            }),
+          ),
+        );
+        if (result.status === 'error') {
+          await context.stream.fail(
+            formatError('Agent Error', result.error || 'Unknown error'),
+          );
+          return;
+        }
+
+        const bufferedDelta = streamFilter.flush();
+        if (bufferedDelta) {
+          await appendStreamText(bufferedDelta);
+        }
+        if (streamFilter.isSilent() || isSilentReply(result.result)) {
+          await context.stream.discard();
+          return;
+        }
+
+        const renderedText = stripSilentToken(String(result.result || ''));
+        if (!renderedText.trim()) {
+          await context.stream.discard();
+          return;
+        }
+        const showMode = normalizeSessionShowMode(
+          memoryService.getSessionById(sessionId)?.show_mode,
+        );
+        const responseText = buildResponseText(
+          renderedText,
+          sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
+        );
+        const pendingApproval = extractGatewayChatApprovalEvent(result);
+        if (pendingApproval) {
+          await context.stream.finalize(
+            `${responseText}\n\nApproval required. Use the web console or another configured channel to respond to approval \`${pendingApproval.approvalId}\`.`,
+          );
+          return;
+        }
+
+        await context.stream.finalize(responseText);
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        logger.error(
+          { error, sessionId, channelId },
+          'Teams message handling failed',
+        );
+        await context.stream.fail(formatError('Gateway Error', text));
+      }
+    },
+    async (sessionId, guildId, channelId, userId, username, args, reply) => {
+      try {
+        const bridgedReply: ReplyFn = async (content) => {
+          await reply(content);
+        };
+        await handleTextChannelCommand({
+          sessionId,
+          guildId,
+          channelId,
+          userId,
+          username,
+          args,
+          reply: bridgedReply,
+        });
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        logger.error(
+          { error, sessionId, channelId, args },
+          'Teams command handling failed',
+        );
+        await reply(formatError('Gateway Error', text));
+      }
+    },
+  );
+  logger.info(
+    {
+      webhookPath: teamsConfig.webhook.path,
+      autoStartedFromEnv:
+        !teamsConfig.enabled &&
+        Boolean(String(MSTEAMS_APP_ID || '').trim()) &&
+        Boolean(String(MSTEAMS_APP_PASSWORD || '').trim()),
+    },
+    'Microsoft Teams integration started inside gateway',
+  );
+  return true;
+}
+
 async function startWhatsAppIntegration(): Promise<boolean> {
   const whatsappAuth = await getWhatsAppAuthStatus();
   if (!whatsappAuth.linked) {
@@ -1339,6 +1501,7 @@ async function main(): Promise<void> {
   startHealthServer();
   setupShutdown();
   await startDiscordIntegration();
+  const msteamsActive = await startMSTeamsIntegration();
   const emailActive = await startEmailIntegration();
   const whatsappActive = await startWhatsAppIntegration();
 
@@ -1425,6 +1588,7 @@ async function main(): Promise<void> {
     {
       ...getGatewayStatus(),
       discord: !!DISCORD_TOKEN,
+      msteams: msteamsActive,
       email: emailActive,
       whatsapp: whatsappActive,
     },
