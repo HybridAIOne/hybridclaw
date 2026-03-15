@@ -16,12 +16,18 @@ describe('gateway approval middleware', () => {
     const { handleGatewayApprovalCommand } = await import(
       '../src/gateway/approval-middleware.ts'
     );
-    const pendingApprovals = await import('../src/gateway/pending-approvals.js');
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
 
     for (const scenario of [
       {
         action: 'yes',
-        expected: { approvalId: 'approve-1', decision: 'approve', mode: 'once' },
+        expected: {
+          approvalId: 'approve-1',
+          decision: 'approve',
+          mode: 'once',
+        },
       },
       {
         action: 'session',
@@ -33,7 +39,11 @@ describe('gateway approval middleware', () => {
       },
       {
         action: 'agent',
-        expected: { approvalId: 'approve-3', decision: 'approve', mode: 'agent' },
+        expected: {
+          approvalId: 'approve-3',
+          decision: 'approve',
+          mode: 'agent',
+        },
       },
       {
         action: 'no',
@@ -97,7 +107,9 @@ describe('gateway approval middleware', () => {
     const { handleGatewayApprovalCommand } = await import(
       '../src/gateway/approval-middleware.ts'
     );
-    const pendingApprovals = await import('../src/gateway/pending-approvals.js');
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
 
     await pendingApprovals.setPendingApproval('approval-session', {
       approvalId: 'approve-root',
@@ -142,7 +154,9 @@ describe('gateway approval middleware', () => {
         approvalId: 'approve-nested',
       }),
     });
-    expect(pendingApprovals.getPendingApproval('approval-session')).toMatchObject({
+    expect(
+      pendingApprovals.getPendingApproval('approval-session'),
+    ).toMatchObject({
       approvalId: 'approve-nested',
       originalUserContent: 'Open X.com notifications',
       userId: 'user-1',

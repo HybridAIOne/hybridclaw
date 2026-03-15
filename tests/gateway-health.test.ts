@@ -1075,7 +1075,9 @@ describe('gateway health server', () => {
       text: 'Approved and continuing',
     });
 
-    const pendingApprovals = await import('../src/gateway/pending-approvals.js');
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
     expect(pendingApprovals.getPendingApproval('tui:local')).toBeNull();
   });
 

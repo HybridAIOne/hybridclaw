@@ -370,7 +370,9 @@ describe('gateway bootstrap', () => {
       artifacts: [],
     });
 
-    const pendingApprovals = await import('../src/gateway/pending-approvals.js');
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
     await pendingApprovals.setPendingApproval('approval-session', {
       approvalId: 'abc123',
       prompt: 'Approval needed for: access x.com',

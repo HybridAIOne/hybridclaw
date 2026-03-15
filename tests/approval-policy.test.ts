@@ -533,7 +533,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
           '    const vals=ws.getRow(r).values;',
           "    if(!vals.some(v=>v!==null&&v!==undefined&&v!=='')) continue;",
           '    // print first 10 cols with indexes',
-          "    console.log(`${r}: ${vals.join(' | ')}`);",
+          `    console.log(\`\${r}: \${vals.join(' | ')}\`);`,
           '  }',
           '})();',
           'NODE',

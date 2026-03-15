@@ -1022,7 +1022,9 @@ export class TrustedCoworkerApprovalRuntime {
 
     const approvalId = String(response.approvalId || '').trim();
     const decision = response.decision === 'deny' ? 'deny' : 'approve';
-    const rawMode = String(response.mode || 'once').trim().toLowerCase();
+    const rawMode = String(response.mode || 'once')
+      .trim()
+      .toLowerCase();
     const mode =
       rawMode === 'session' || rawMode === 'agent' ? rawMode : 'once';
 
