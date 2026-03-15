@@ -91,6 +91,17 @@ describe('discord delivery', () => {
     ]);
   });
 
+  test('omits empty files and component arrays from payloads', async () => {
+    const { delivery, chunkMessage } = await importFreshDelivery();
+    chunkMessage.mockReturnValue(['only chunk']);
+
+    expect(
+      delivery.prepareChunkedPayloads('ignored', [], [], {
+        byAlias: new Map(),
+      }),
+    ).toEqual([{ content: 'only chunk' }]);
+  });
+
   test('filters blank-only chunks before building Discord payloads', async () => {
     const { delivery, chunkMessage } = await importFreshDelivery();
     chunkMessage.mockReturnValue(['\n', 'visible chunk']);

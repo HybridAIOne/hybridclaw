@@ -64,10 +64,8 @@ export function prepareChunkedPayloads(
   const safeChunks = chunks.length > 0 ? chunks : ['(no content)'];
   return safeChunks.map((content, i) => ({
     content,
-    ...(i === 0 && components !== undefined ? { components } : {}),
-    ...(i === safeChunks.length - 1 && files && files.length > 0
-      ? { files }
-      : {}),
+    ...(i === 0 && components?.length ? { components } : {}),
+    ...(i === safeChunks.length - 1 && files?.length ? { files } : {}),
   }));
 }
 
