@@ -124,7 +124,10 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'For channel catch-up or recap requests with partial scope, infer a reasonable recent scope from available context, do a best-effort read first, and note assumptions after the summary instead of blocking on a clarification.',
   );
   expect(prompt).toContain(
-    'For local Discord, WhatsApp, or email uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',
+    'For local Discord, the current Teams conversation, WhatsApp, or email uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',
+  );
+  expect(prompt).toContain(
+    'If you already created a file earlier in this session and the user asks to post/upload/send it here, reuse that existing `filePath` with `message action="send"` instead of replying with the path alone.',
   );
   expect(prompt).toContain(
     'When the user asks you to create or generate a file and return/upload/post it, include the file immediately in the final delivery. Do not ask a follow-up question offering to upload it later.',
@@ -156,6 +159,13 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   expect(prompt).toContain(
     'Tool call: `message` {"action":"send","filePath":"invoices/dashboard.html.png"}',
   );
+  expect(prompt).toContain(
+    'User: "Post `.browser-artifacts/hybridclaw-homepage.png` here in Teams"',
+  );
+  expect(prompt).toContain(
+    'Earlier in this session you created `.browser-artifacts/hybridclaw-homepage.png`.',
+  );
+  expect(prompt).toContain('User: "Post screenshot here"');
   expect(prompt).toContain(
     'User: "Send this to WhatsApp +491701234567: landed safely"',
   );

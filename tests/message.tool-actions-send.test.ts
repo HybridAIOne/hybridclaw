@@ -5,6 +5,9 @@ async function importFreshMessageToolActions() {
 
   const sendEmailAttachmentTo = vi.fn(async () => {});
   const sendToEmail = vi.fn(async () => {});
+  const hasActiveMSTeamsSession = vi.fn(
+    (sessionId: string) => sessionId === 'teams:dm:user-aad-id',
+  );
   const getRecentMessages = vi.fn((sessionId: string, _limit?: number) =>
     sessionId === 'email:ops@example.com'
       ? [
@@ -44,6 +47,10 @@ async function importFreshMessageToolActions() {
   const getWhatsAppAuthStatus = vi.fn(async () => ({ linked: true }));
   const sendToWhatsAppChat = vi.fn(async () => {});
   const sendWhatsAppMediaToChat = vi.fn(async () => {});
+  const sendToActiveMSTeamsSession = vi.fn(async () => ({
+    attachmentCount: 1,
+    channelId: 'a:teams-current-conversation',
+  }));
   const runDiscordToolAction = vi.fn(async () => ({
     ok: true,
     action: 'send',
@@ -51,6 +58,7 @@ async function importFreshMessageToolActions() {
     transport: 'discord',
   }));
   const enqueueProactiveMessage = vi.fn(() => ({ queued: 1, dropped: 0 }));
+  let currentTeamsChannelId = 'a:teams-current-conversation';
   const getSessionById = vi.fn((sessionId: string) =>
     sessionId === 'wa:test'
       ? { id: sessionId, channel_id: '491234567890@s.whatsapp.net' }
@@ -58,7 +66,9 @@ async function importFreshMessageToolActions() {
         ? { id: sessionId, channel_id: 'ops@example.com' }
         : sessionId === 'email:peer@example.com'
           ? { id: sessionId, channel_id: 'peer@example.com' }
-          : null,
+          : sessionId === 'teams:dm:user-aad-id'
+            ? { id: sessionId, channel_id: currentTeamsChannelId }
+            : null,
   );
   const resolveAgentForRequest = vi.fn(() => ({ agentId: 'main' }));
   const agentWorkspaceDir = vi.fn(() => '/tmp/hybridclaw-agent-workspace');
@@ -69,6 +79,10 @@ async function importFreshMessageToolActions() {
   vi.doMock('../src/channels/email/runtime.js', () => ({
     sendEmailAttachmentTo,
     sendToEmail,
+  }));
+  vi.doMock('../src/channels/msteams/runtime.js', () => ({
+    hasActiveMSTeamsSession,
+    sendToActiveMSTeamsSession,
   }));
   vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
     sendToWhatsAppChat,
@@ -98,8 +112,13 @@ async function importFreshMessageToolActions() {
     getWhatsAppAuthStatus,
     sendToWhatsAppChat,
     sendWhatsAppMediaToChat,
+    hasActiveMSTeamsSession,
+    sendToActiveMSTeamsSession,
     runDiscordToolAction,
     enqueueProactiveMessage,
+    setCurrentTeamsChannelId: (channelId: string) => {
+      currentTeamsChannelId = channelId;
+    },
   };
 }
 
@@ -240,6 +259,67 @@ test('send action routes email attachments through email delivery', async () => 
     action: 'send',
     channelId: 'ops@example.com',
     transport: 'email',
+    attachmentCount: 1,
+  });
+});
+
+test('send action routes current Teams conversation uploads through Teams delivery', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    sessionId: 'teams:dm:user-aad-id',
+    channelId: 'a:teams-current-conversation',
+    content: 'attached screenshot',
+    filePath: '.browser-artifacts/hybridclaw-homepage.png',
+  });
+
+  expect(state.sendToActiveMSTeamsSession).toHaveBeenCalledWith({
+    sessionId: 'teams:dm:user-aad-id',
+    text: 'attached screenshot',
+    filePath:
+      '/tmp/hybridclaw-agent-workspace/.browser-artifacts/hybridclaw-homepage.png',
+  });
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'a:teams-current-conversation',
+    transport: 'msteams',
+    attachmentCount: 1,
+  });
+});
+
+test('send action prefers the active Teams conversation over accidental WhatsApp phone parsing', async () => {
+  const state = await importFreshMessageToolActions();
+  const teamsConversationId =
+    'a:1kGkJSPQvo_Q8xlDCzSNM_Av-YwKUmk_rC9W5qj4EYjwWwuHiWR3XkIhfrUyZAAtw_OPfViF3CNzCdwcIhY2kaIzAvzM6S8to7TUFJa43RrWMboiazAcgSphCU1PBn2VP';
+  state.setCurrentTeamsChannelId(teamsConversationId);
+  state.sendToActiveMSTeamsSession.mockResolvedValue({
+    attachmentCount: 1,
+    channelId: teamsConversationId,
+  });
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    sessionId: 'teams:dm:user-aad-id',
+    channelId: teamsConversationId,
+    filePath: '.browser-artifacts/hybridclaw-homepage.png',
+  });
+
+  expect(state.sendToActiveMSTeamsSession).toHaveBeenCalledWith({
+    sessionId: 'teams:dm:user-aad-id',
+    text: '',
+    filePath:
+      '/tmp/hybridclaw-agent-workspace/.browser-artifacts/hybridclaw-homepage.png',
+  });
+  expect(state.sendWhatsAppMediaToChat).not.toHaveBeenCalled();
+  expect(state.sendToWhatsAppChat).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: teamsConversationId,
+    transport: 'msteams',
     attachmentCount: 1,
   });
 });

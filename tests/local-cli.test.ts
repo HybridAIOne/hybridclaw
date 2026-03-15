@@ -11,6 +11,9 @@ const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 const ORIGINAL_WHATSAPP_SETUP_SETTLE_MS =
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS;
+const ORIGINAL_MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID;
+const ORIGINAL_MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD;
+const ORIGINAL_MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-local-cli-'));
@@ -70,6 +73,21 @@ afterEach(() => {
     process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS =
       ORIGINAL_WHATSAPP_SETUP_SETTLE_MS;
   }
+  if (ORIGINAL_MSTEAMS_APP_ID === undefined) {
+    delete process.env.MSTEAMS_APP_ID;
+  } else {
+    process.env.MSTEAMS_APP_ID = ORIGINAL_MSTEAMS_APP_ID;
+  }
+  if (ORIGINAL_MSTEAMS_APP_PASSWORD === undefined) {
+    delete process.env.MSTEAMS_APP_PASSWORD;
+  } else {
+    process.env.MSTEAMS_APP_PASSWORD = ORIGINAL_MSTEAMS_APP_PASSWORD;
+  }
+  if (ORIGINAL_MSTEAMS_TENANT_ID === undefined) {
+    delete process.env.MSTEAMS_TENANT_ID;
+  } else {
+    process.env.MSTEAMS_TENANT_ID = ORIGINAL_MSTEAMS_TENANT_ID;
+  }
 });
 
 test('local configure lmstudio enables the backend and normalizes the URL', async () => {
@@ -126,6 +144,21 @@ test('help local prints local command usage', async () => {
   expect(logSpy).toHaveBeenCalledWith(
     expect.stringContaining('Usage: hybridclaw local <command>'),
   );
+});
+
+test('top-level help hides deprecated alias commands', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await cli.main(['help']);
+
+  const output = logSpy.mock.calls
+    .map(([message]) => String(message))
+    .join('\n');
+  expect(output).not.toContain('Deprecated alias for local provider');
+  expect(output).not.toContain('Deprecated alias for HybridAI provider');
+  expect(output).not.toContain('Deprecated alias for Codex provider');
 });
 
 test('channels discord setup configures restricted command-only mode by default', async () => {
@@ -212,6 +245,62 @@ test('channels email setup writes config and stores EMAIL_PASSWORD', async () =>
   expect(config.email.folders).toEqual(['INBOX', 'Support']);
   expect(config.email.allowFrom).toEqual(['boss@example.com', '*@example.com']);
   expect(secrets.EMAIL_PASSWORD).toBe('email-app-password');
+});
+
+test('auth login msteams writes config and stores MSTEAMS_APP_PASSWORD', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'auth',
+    'login',
+    'msteams',
+    '--app-id',
+    'teams-app-id',
+    '--tenant-id',
+    'teams-tenant-id',
+    '--app-password',
+    'teams-app-password',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  const secrets = readRuntimeSecrets(homeDir);
+  expect(config.msteams.enabled).toBe(true);
+  expect(config.msteams.appId).toBe('teams-app-id');
+  expect(config.msteams.appPassword).toBe('');
+  expect(config.msteams.tenantId).toBe('teams-tenant-id');
+  expect(secrets.MSTEAMS_APP_PASSWORD).toBe('teams-app-password');
+});
+
+test('auth logout msteams clears Teams credentials and disables the integration', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'auth',
+    'login',
+    'msteams',
+    '--app-id',
+    'teams-app-id',
+    '--tenant-id',
+    'teams-tenant-id',
+    '--app-password',
+    'teams-app-password',
+  ]);
+  await cli.main(['auth', 'logout', 'msteams']);
+
+  const config = readRuntimeConfig(homeDir);
+  const secretsPath = path.join(homeDir, '.hybridclaw', 'credentials.json');
+  expect(config.msteams.enabled).toBe(false);
+  expect(config.msteams.appId).toBe('');
+  expect(config.msteams.appPassword).toBe('');
+  expect(config.msteams.tenantId).toBe('');
+  if (fs.existsSync(secretsPath)) {
+    const secrets = readRuntimeSecrets(homeDir);
+    expect(secrets.MSTEAMS_APP_PASSWORD).toBeUndefined();
+  } else {
+    expect(fs.existsSync(secretsPath)).toBe(false);
+  }
 });
 
 test('channels whatsapp setup configures self-chat-only mode by default', async () => {

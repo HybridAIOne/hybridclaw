@@ -17,7 +17,7 @@ import {
 import type { McpServerConfig } from '../types.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 12;
+export const CONFIG_VERSION = 13;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
@@ -67,6 +67,9 @@ export type DiscordCommandMode = 'public' | 'restricted';
 export type DiscordChannelMode = 'off' | 'mention' | 'free';
 export type DiscordTypingMode = 'instant' | 'thinking' | 'streaming' | 'never';
 export type DiscordHumanDelayMode = 'off' | 'natural' | 'custom';
+export type MSTeamsGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type MSTeamsDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
+export type MSTeamsReplyStyle = 'thread' | 'top-level';
 export type DiscordAckReactionScope =
   | 'all'
   | 'group-mentions'
@@ -205,6 +208,47 @@ export interface RuntimeDiscordGuildConfig {
   sendAllowedRoleIds?: string[];
 }
 
+export interface RuntimeMSTeamsWebhookConfig {
+  port: number;
+  path: string;
+}
+
+export interface RuntimeMSTeamsChannelConfig {
+  requireMention?: boolean;
+  tools?: string[];
+  replyStyle?: MSTeamsReplyStyle;
+  groupPolicy?: MSTeamsGroupPolicy;
+  allowFrom?: string[];
+}
+
+export interface RuntimeMSTeamsTeamConfig {
+  requireMention?: boolean;
+  tools?: string[];
+  replyStyle?: MSTeamsReplyStyle;
+  groupPolicy?: MSTeamsGroupPolicy;
+  allowFrom?: string[];
+  channels: Record<string, RuntimeMSTeamsChannelConfig>;
+}
+
+export interface RuntimeMSTeamsConfig {
+  enabled: boolean;
+  appId: string;
+  appPassword: string;
+  tenantId: string;
+  webhook: RuntimeMSTeamsWebhookConfig;
+  groupPolicy: MSTeamsGroupPolicy;
+  dmPolicy: MSTeamsDmPolicy;
+  allowFrom: string[];
+  teams: Record<string, RuntimeMSTeamsTeamConfig>;
+  requireMention: boolean;
+  textChunkLimit: number;
+  replyStyle: MSTeamsReplyStyle;
+  mediaMaxMb: number;
+  dangerouslyAllowNameMatching: boolean;
+  mediaAllowHosts: string[];
+  mediaAuthAllowHosts: string[];
+}
+
 export interface RuntimeWhatsAppConfig {
   dmPolicy: WhatsAppDmPolicy;
   groupPolicy: WhatsAppGroupPolicy;
@@ -293,6 +337,7 @@ export interface RuntimeConfig {
     maxConcurrentPerChannel: number;
     guilds: Record<string, RuntimeDiscordGuildConfig>;
   };
+  msteams: RuntimeMSTeamsConfig;
   whatsapp: RuntimeWhatsAppConfig;
   email: RuntimeEmailConfig;
   hybridai: {
@@ -529,6 +574,52 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     suppressPatterns: ['/stop', '/pause', 'brb', 'afk'],
     maxConcurrentPerChannel: 2,
     guilds: {},
+  },
+  msteams: {
+    enabled: false,
+    appId: '',
+    appPassword: '',
+    tenantId: '',
+    webhook: {
+      port: 3_978,
+      path: '/api/msteams/messages',
+    },
+    groupPolicy: 'open',
+    dmPolicy: 'open',
+    allowFrom: [],
+    teams: {},
+    requireMention: true,
+    textChunkLimit: 4_000,
+    replyStyle: 'thread',
+    mediaMaxMb: 20,
+    dangerouslyAllowNameMatching: false,
+    mediaAllowHosts: [
+      'graph.microsoft.com',
+      '*.sharepoint.com',
+      '*.sharepoint-df.com',
+      '*.1drv.com',
+      '*.onedrive.com',
+      '*.teams.microsoft.com',
+      '*.trafficmanager.net',
+      '*.blob.core.windows.net',
+      '*.azureedge.net',
+      'teams.microsoft.com',
+      'teams.cdn.office.net',
+      'statics.teams.cdn.office.net',
+      'asm.skype.com',
+      'ams.skype.com',
+      'media.ams.skype.com',
+      'office.com',
+      'office.net',
+      '*.microsoft.com',
+    ],
+    mediaAuthAllowHosts: [
+      'graph.microsoft.com',
+      '*.teams.microsoft.com',
+      'api.botframework.com',
+      'botframework.com',
+      'teams.microsoft.com',
+    ],
   },
   whatsapp: {
     dmPolicy: 'pairing',
@@ -1147,6 +1238,52 @@ function normalizeDiscordSendPolicy(
   return fallback;
 }
 
+function normalizeMSTeamsGroupPolicy(
+  value: unknown,
+  fallback: MSTeamsGroupPolicy,
+): MSTeamsGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeMSTeamsDmPolicy(
+  value: unknown,
+  fallback: MSTeamsDmPolicy,
+): MSTeamsDmPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'pairing' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeMSTeamsReplyStyle(
+  value: unknown,
+  fallback: MSTeamsReplyStyle,
+): MSTeamsReplyStyle {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'thread' || normalized === 'top-level') {
+    return normalized;
+  }
+  if (normalized === 'top_level') return 'top-level';
+  return fallback;
+}
+
 function normalizeWhatsAppDmPolicy(
   value: unknown,
   fallback: WhatsAppDmPolicy,
@@ -1652,6 +1789,180 @@ function normalizeDiscordGuildMap(
   return guilds;
 }
 
+function normalizeMSTeamsWebhookConfig(
+  value: unknown,
+  fallback: RuntimeMSTeamsWebhookConfig,
+): RuntimeMSTeamsWebhookConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    port: normalizeInteger(raw.port, fallback.port, {
+      min: 1,
+      max: 65_535,
+    }),
+    path: normalizeString(raw.path, fallback.path, { allowEmpty: false }),
+  };
+}
+
+function normalizeMSTeamsChannelConfig(
+  value: unknown,
+  fallback: RuntimeMSTeamsChannelConfig,
+): RuntimeMSTeamsChannelConfig | null {
+  if (!isRecord(value)) return null;
+  const config: RuntimeMSTeamsChannelConfig = {};
+
+  if (
+    value.requireMention !== undefined ||
+    fallback.requireMention !== undefined
+  ) {
+    config.requireMention = normalizeBoolean(
+      value.requireMention,
+      fallback.requireMention ?? DEFAULT_RUNTIME_CONFIG.msteams.requireMention,
+    );
+  }
+  if (value.tools !== undefined || fallback.tools !== undefined) {
+    config.tools = normalizeStringArray(value.tools, fallback.tools ?? []);
+  }
+  if (value.replyStyle !== undefined || fallback.replyStyle !== undefined) {
+    config.replyStyle = normalizeMSTeamsReplyStyle(
+      value.replyStyle,
+      fallback.replyStyle ?? DEFAULT_RUNTIME_CONFIG.msteams.replyStyle,
+    );
+  }
+  if (value.groupPolicy !== undefined || fallback.groupPolicy !== undefined) {
+    config.groupPolicy = normalizeMSTeamsGroupPolicy(
+      value.groupPolicy,
+      fallback.groupPolicy ?? DEFAULT_RUNTIME_CONFIG.msteams.groupPolicy,
+    );
+  }
+  if (value.allowFrom !== undefined || fallback.allowFrom !== undefined) {
+    config.allowFrom = normalizeStringArray(
+      value.allowFrom,
+      fallback.allowFrom ?? [],
+    );
+  }
+
+  return config;
+}
+
+function normalizeMSTeamsTeamConfig(
+  value: unknown,
+  fallback: RuntimeMSTeamsTeamConfig,
+): RuntimeMSTeamsTeamConfig {
+  if (!isRecord(value)) return fallback;
+  const rawChannels = isRecord(value.channels) ? value.channels : {};
+  const channels: Record<string, RuntimeMSTeamsChannelConfig> = {};
+  for (const [rawChannelId, rawChannelConfig] of Object.entries(rawChannels)) {
+    const channelId = rawChannelId.trim();
+    if (!channelId) continue;
+    const normalized = normalizeMSTeamsChannelConfig(
+      rawChannelConfig,
+      fallback.channels[channelId] ?? {},
+    );
+    if (!normalized) continue;
+    channels[channelId] = normalized;
+  }
+
+  const requireMention = normalizeBoolean(
+    value.requireMention,
+    fallback.requireMention ?? DEFAULT_RUNTIME_CONFIG.msteams.requireMention,
+  );
+  const tools = normalizeStringArray(value.tools, fallback.tools ?? []);
+  const replyStyle = normalizeMSTeamsReplyStyle(
+    value.replyStyle,
+    fallback.replyStyle ?? DEFAULT_RUNTIME_CONFIG.msteams.replyStyle,
+  );
+  const groupPolicy = normalizeMSTeamsGroupPolicy(
+    value.groupPolicy,
+    fallback.groupPolicy ?? DEFAULT_RUNTIME_CONFIG.msteams.groupPolicy,
+  );
+  const allowFrom = normalizeStringArray(
+    value.allowFrom,
+    fallback.allowFrom ?? [],
+  );
+
+  return {
+    requireMention,
+    ...(tools.length > 0 ? { tools } : {}),
+    replyStyle,
+    groupPolicy,
+    ...(allowFrom.length > 0 ? { allowFrom } : {}),
+    channels,
+  };
+}
+
+function normalizeMSTeamsTeamMap(
+  value: unknown,
+  fallback: Record<string, RuntimeMSTeamsTeamConfig>,
+): Record<string, RuntimeMSTeamsTeamConfig> {
+  if (!isRecord(value)) return fallback;
+  const teams: Record<string, RuntimeMSTeamsTeamConfig> = {};
+  for (const [rawTeamId, rawTeamConfig] of Object.entries(value)) {
+    const teamId = rawTeamId.trim();
+    if (!teamId) continue;
+    teams[teamId] = normalizeMSTeamsTeamConfig(
+      rawTeamConfig,
+      fallback[teamId] ?? {
+        channels: {},
+      },
+    );
+  }
+  return teams;
+}
+
+function normalizeMSTeamsConfig(
+  value: unknown,
+  fallback: RuntimeMSTeamsConfig,
+): RuntimeMSTeamsConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    appId: normalizeString(raw.appId, fallback.appId, { allowEmpty: true }),
+    appPassword: normalizeString(raw.appPassword, fallback.appPassword, {
+      allowEmpty: true,
+    }),
+    tenantId: normalizeString(raw.tenantId, fallback.tenantId, {
+      allowEmpty: true,
+    }),
+    webhook: normalizeMSTeamsWebhookConfig(raw.webhook, fallback.webhook),
+    groupPolicy: normalizeMSTeamsGroupPolicy(
+      raw.groupPolicy,
+      fallback.groupPolicy,
+    ),
+    dmPolicy: normalizeMSTeamsDmPolicy(raw.dmPolicy, fallback.dmPolicy),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    teams: normalizeMSTeamsTeamMap(raw.teams, fallback.teams),
+    requireMention: normalizeBoolean(
+      raw.requireMention,
+      fallback.requireMention,
+    ),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 200,
+        max: 20_000,
+      },
+    ),
+    replyStyle: normalizeMSTeamsReplyStyle(raw.replyStyle, fallback.replyStyle),
+    mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
+      min: 1,
+      max: 100,
+    }),
+    dangerouslyAllowNameMatching: normalizeBoolean(
+      raw.dangerouslyAllowNameMatching,
+      fallback.dangerouslyAllowNameMatching,
+    ),
+    mediaAllowHosts: normalizeStringArray(
+      raw.mediaAllowHosts,
+      fallback.mediaAllowHosts,
+    ),
+    mediaAuthAllowHosts: normalizeStringArray(
+      raw.mediaAuthAllowHosts,
+      fallback.mediaAuthAllowHosts,
+    ),
+  };
+}
+
 function normalizeSchedulerScheduleKind(
   value: unknown,
   fallback: SchedulerScheduleKind,
@@ -2090,6 +2401,7 @@ function normalizeRuntimeConfig(
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
+  const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
   const rawEmail = isRecord(raw.email) ? raw.email : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
@@ -2387,6 +2699,7 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.discord.guilds,
       ),
     },
+    msteams: normalizeMSTeamsConfig(rawMSTeams, DEFAULT_RUNTIME_CONFIG.msteams),
     whatsapp: normalizeWhatsAppConfig(
       rawWhatsApp,
       DEFAULT_RUNTIME_CONFIG.whatsapp,

@@ -144,3 +144,29 @@ test('resolves email hints with read support from explicit email context', () =>
   ).toBe(true);
   expect(hints.some((entry) => entry.includes('`IDENTITY.md`'))).toBe(true);
 });
+
+test('resolves Teams hints from explicit Teams context', () => {
+  const hints = resolveChannelMessageToolHints({
+    runtimeInfo: {
+      channelType: 'msteams',
+      channelId: '19:channel@thread.tacv2',
+      guildId: 'team-123',
+    },
+  });
+
+  expect(hints.length).toBeGreaterThan(0);
+  expect(
+    hints.some((entry) =>
+      entry.includes('Current Teams conversation: `19:channel@thread.tacv2`'),
+    ),
+  ).toBe(true);
+  expect(hints.some((entry) => entry.includes('Adaptive Card'))).toBe(true);
+  expect(
+    hints.some((entry) =>
+      entry.includes('can send into the current Teams conversation'),
+    ),
+  ).toBe(true);
+  expect(hints.some((entry) => entry.includes('post or upload it here'))).toBe(
+    true,
+  );
+});

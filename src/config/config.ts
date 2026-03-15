@@ -71,6 +71,7 @@ export const APP_VERSION = resolveAppVersion();
 function syncRuntimeSecretExports(): void {
   DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';
   EMAIL_PASSWORD = process.env.EMAIL_PASSWORD || '';
+  MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD || '';
   HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY || '';
   OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
 }
@@ -78,6 +79,7 @@ function syncRuntimeSecretExports(): void {
 // Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
 export let DISCORD_TOKEN = '';
 export let EMAIL_PASSWORD = '';
+export let MSTEAMS_APP_PASSWORD = '';
 // Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
 export let HYBRIDAI_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
@@ -146,6 +148,24 @@ export let DISCORD_SUPPRESS_PATTERNS: string[] = [
 ];
 export let DISCORD_MAX_CONCURRENT_PER_CHANNEL = 2;
 export let DISCORD_GUILDS: RuntimeConfig['discord']['guilds'] = {};
+export let MSTEAMS_ENABLED = false;
+export let MSTEAMS_APP_ID = '';
+export let MSTEAMS_TENANT_ID = '';
+export let MSTEAMS_WEBHOOK_PORT = 3_978;
+export let MSTEAMS_WEBHOOK_PATH = '/api/msteams/messages';
+export let MSTEAMS_GROUP_POLICY: RuntimeConfig['msteams']['groupPolicy'] =
+  'open';
+export let MSTEAMS_DM_POLICY: RuntimeConfig['msteams']['dmPolicy'] = 'open';
+export let MSTEAMS_ALLOW_FROM: string[] = [];
+export let MSTEAMS_TEAMS: RuntimeConfig['msteams']['teams'] = {};
+export let MSTEAMS_REQUIRE_MENTION = true;
+export let MSTEAMS_TEXT_CHUNK_LIMIT = 4_000;
+export let MSTEAMS_REPLY_STYLE: RuntimeConfig['msteams']['replyStyle'] =
+  'thread';
+export let MSTEAMS_MEDIA_MAX_MB = 20;
+export let MSTEAMS_DANGEROUSLY_ALLOW_NAME_MATCHING = false;
+export let MSTEAMS_MEDIA_ALLOW_HOSTS: string[] = [];
+export let MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS: string[] = [];
 export let WHATSAPP_DM_POLICY: RuntimeConfig['whatsapp']['dmPolicy'] =
   'pairing';
 export let WHATSAPP_GROUP_POLICY: RuntimeConfig['whatsapp']['groupPolicy'] =
@@ -411,6 +431,33 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_GUILDS = JSON.parse(
     JSON.stringify(config.discord.guilds),
   ) as RuntimeConfig['discord']['guilds'];
+  MSTEAMS_ENABLED = config.msteams.enabled;
+  MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID || config.msteams.appId;
+  MSTEAMS_APP_PASSWORD =
+    process.env.MSTEAMS_APP_PASSWORD || config.msteams.appPassword;
+  MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID || config.msteams.tenantId;
+  MSTEAMS_WEBHOOK_PORT = Math.max(
+    1,
+    Math.min(65_535, config.msteams.webhook.port),
+  );
+  MSTEAMS_WEBHOOK_PATH = config.msteams.webhook.path;
+  MSTEAMS_GROUP_POLICY = config.msteams.groupPolicy;
+  MSTEAMS_DM_POLICY = config.msteams.dmPolicy;
+  MSTEAMS_ALLOW_FROM = [...config.msteams.allowFrom];
+  MSTEAMS_TEAMS = JSON.parse(
+    JSON.stringify(config.msteams.teams),
+  ) as RuntimeConfig['msteams']['teams'];
+  MSTEAMS_REQUIRE_MENTION = config.msteams.requireMention;
+  MSTEAMS_TEXT_CHUNK_LIMIT = Math.max(
+    200,
+    Math.min(20_000, config.msteams.textChunkLimit),
+  );
+  MSTEAMS_REPLY_STYLE = config.msteams.replyStyle;
+  MSTEAMS_MEDIA_MAX_MB = Math.max(1, config.msteams.mediaMaxMb);
+  MSTEAMS_DANGEROUSLY_ALLOW_NAME_MATCHING =
+    config.msteams.dangerouslyAllowNameMatching;
+  MSTEAMS_MEDIA_ALLOW_HOSTS = [...config.msteams.mediaAllowHosts];
+  MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS = [...config.msteams.mediaAuthAllowHosts];
   WHATSAPP_DM_POLICY = config.whatsapp.dmPolicy;
   WHATSAPP_GROUP_POLICY = config.whatsapp.groupPolicy;
   WHATSAPP_ALLOW_FROM = [...config.whatsapp.allowFrom];
