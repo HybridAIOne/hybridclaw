@@ -401,6 +401,72 @@ describe('gateway bootstrap', () => {
     expect(stream.fail).not.toHaveBeenCalled();
   });
 
+  test('stores rendered fallback text for Discord pending approvals', async () => {
+    const state = await importFreshGatewayMain();
+    state.rewriteUserMentionsForMessage.mockResolvedValue('Hello <@123>');
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Hello @alice',
+      toolsUsed: ['search'],
+      artifacts: [],
+      pendingApproval: {
+        approvalId: 'approve123',
+        prompt: '',
+        intent: 'control a local app',
+        reason: 'this command controls host GUI or application state',
+        allowSession: true,
+        allowAgent: false,
+        expiresAt: 1_710_000_000_000,
+      },
+    });
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+    };
+    const context = {
+      abortSignal: new AbortController().signal,
+      batchedMessages: [],
+      emitLifecyclePhase: vi.fn(),
+      mentionLookup: { byAlias: new Map() },
+      sendApprovalNotification: vi.fn(async () => ({
+        disableButtons: vi.fn(async () => {}),
+      })),
+      sourceMessage: {},
+      stream,
+    };
+
+    await state.messageHandler?.(
+      'session',
+      null,
+      'channel',
+      'user',
+      'alice',
+      'hello',
+      [],
+      vi.fn(async () => {}),
+      context,
+    );
+
+    const reply = vi.fn(async () => {});
+    await state.commandHandler?.(
+      'session',
+      null,
+      'channel',
+      'user',
+      'alice',
+      ['approve', 'view'],
+      reply,
+    );
+
+    expect(reply).toHaveBeenCalledWith(
+      '**Pending Approval**\nHello <@123>\n*Tools: search*',
+      undefined,
+      expect.any(Array),
+    );
+  });
+
   test('routes WhatsApp slash commands through the gateway command handler', async () => {
     const state = await importFreshGatewayMain({ whatsappLinked: true });
     const reply = vi.fn(async () => {});

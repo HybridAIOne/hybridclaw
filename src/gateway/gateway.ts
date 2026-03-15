@@ -773,24 +773,24 @@ async function startDiscordIntegration(): Promise<void> {
           await context.stream.fail(errorText);
           return;
         }
-        const bufferedDelta = streamFilter.flush();
-        if (bufferedDelta) {
-          await appendStreamText(bufferedDelta);
+        const pendingApproval = extractGatewayChatApprovalEvent(result);
+        if (!pendingApproval) {
+          const bufferedDelta = streamFilter.flush();
+          if (bufferedDelta) {
+            await appendStreamText(bufferedDelta);
+          }
         }
         if (streamFilter.isSilent() || isSilentReply(result.result)) {
           await clearPendingApproval(sessionId, { disableButtons: true });
           await context.stream.discard();
           return;
         }
-        const attachments = buildArtifactAttachments(result.artifacts);
-        const cleanedResultText = stripSilentToken(String(result.result));
-        if (!cleanedResultText.trim()) {
-          await clearPendingApproval(sessionId, { disableButtons: true });
-          await context.stream.discard();
-          return;
-        }
+        const rawText = stripSilentToken(String(result.result));
+        const showMode = normalizeSessionShowMode(
+          memoryService.getSessionById(sessionId)?.show_mode,
+        );
         const userText = simplifyImageAttachmentNarration(
-          cleanedResultText,
+          rawText,
           result.artifacts,
         );
         const renderedText = await rewriteUserMentionsForMessage(
@@ -798,14 +798,10 @@ async function startDiscordIntegration(): Promise<void> {
           context.sourceMessage,
           context.mentionLookup,
         );
-        const showMode = normalizeSessionShowMode(
-          memoryService.getSessionById(sessionId)?.show_mode,
-        );
         const responseText = buildResponseText(
           renderedText,
           sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
         );
-        const pendingApproval = extractGatewayChatApprovalEvent(result);
         if (pendingApproval) {
           let cleanup: { disableButtons: () => Promise<void> } | null = null;
           if (context.sendApprovalNotification) {
@@ -830,6 +826,12 @@ async function startDiscordIntegration(): Promise<void> {
           if (cleanup) {
             await context.stream.discard();
           }
+          return;
+        }
+        const attachments = buildArtifactAttachments(result.artifacts);
+        if (!rawText.trim()) {
+          await clearPendingApproval(sessionId, { disableButtons: true });
+          await context.stream.discard();
           return;
         }
         await clearPendingApproval(sessionId, { disableButtons: true });
