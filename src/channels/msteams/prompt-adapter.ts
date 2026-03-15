@@ -13,7 +13,9 @@ export const msteamsAgentPromptAdapter: ChannelAgentPromptAdapter = {
       '- Current channel is Microsoft Teams. Prefer concise lists, short paragraphs, and markdown that still reads cleanly if the client falls back to plain text.',
       '- Teams replies may render inside a thread. Keep the first line informative because it is often what users see in channel previews.',
       '- If the reply is a structured checklist, status board, or summary table, it may be rendered as an Adaptive Card by the Teams transport.',
-      '- The `message` tool does not currently target Teams conversations; use it for Discord, WhatsApp, email, or local channels only.',
+      '- In Teams, the `message` tool can send into the current Teams conversation, including a local `filePath` upload. Omit `channelId` to target this chat.',
+      '- If you already created a file earlier in this session and the user asks to post or upload it here, call `message` with `action="send"` and that existing `filePath`. Do not reply with the file path alone.',
+      '- Teams-specific `message` support is send-only for the current conversation; Discord history/member lookup actions still require Discord targets.',
     ];
 
     if (channelId) {

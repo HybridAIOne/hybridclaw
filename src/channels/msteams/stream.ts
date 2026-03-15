@@ -126,7 +126,7 @@ export class MSTeamsStreamManager {
     return {
       type: ActivityTypes.Message,
       ...(params.id ? { id: params.id } : {}),
-      text: params.text,
+      ...(params.text ? { text: params.text } : {}),
       ...(params.attachments?.length
         ? { attachments: params.attachments }
         : {}),

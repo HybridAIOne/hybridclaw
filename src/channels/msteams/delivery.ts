@@ -40,6 +40,14 @@ export function prepareChunkedActivities(params: {
     maxChars: Math.max(200, Math.min(20_000, MSTEAMS_TEXT_CHUNK_LIMIT)),
     maxLines: 120,
   }).filter((entry) => entry.trim().length > 0);
+  if (chunks.length === 0 && params.attachments?.length) {
+    return [
+      {
+        text: '',
+        attachments: params.attachments,
+      },
+    ];
+  }
   const safeChunks = chunks.length > 0 ? chunks : ['(no content)'];
   return safeChunks.map((text, index) => ({
     text,
@@ -56,7 +64,7 @@ function buildMessageActivity(params: {
 }): Partial<Activity> {
   return {
     type: ActivityTypes.Message,
-    text: params.chunk.text,
+    ...(params.chunk.text ? { text: params.chunk.text } : {}),
     ...(params.chunk.attachments?.length
       ? { attachments: params.chunk.attachments }
       : {}),

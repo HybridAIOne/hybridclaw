@@ -54,6 +54,7 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
         ? `${text}\n*Tools: ${toolsUsed.join(', ')}*`
         : text,
     ),
+    buildTeamsArtifactAttachments: vi.fn(async () => []),
     formatError: vi.fn(
       (title: string, detail: string) => `**${title}:** ${detail}`,
     ),
@@ -172,6 +173,9 @@ async function importFreshGatewayMain(options?: { whatsappLinked?: boolean }) {
     initDiscord: state.initDiscord,
     sendToChannel: vi.fn(),
     setDiscordMaintenancePresence: vi.fn(async () => {}),
+  }));
+  vi.doMock('../src/channels/msteams/attachments.js', () => ({
+    buildTeamsArtifactAttachments: state.buildTeamsArtifactAttachments,
   }));
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     initMSTeams: state.initMSTeams,
@@ -296,6 +300,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/discord/delivery.js');
   vi.doUnmock('../src/channels/discord/mentions.js');
   vi.doUnmock('../src/channels/discord/runtime.js');
+  vi.doUnmock('../src/channels/msteams/attachments.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');
   vi.doUnmock('../src/channels/email/runtime.js');
   vi.doUnmock('../src/channels/whatsapp/runtime.js');
@@ -423,8 +428,206 @@ describe('gateway bootstrap', () => {
     expect(stream.fail).not.toHaveBeenCalled();
   });
 
+  test('finalizes Teams message responses with uploaded artifact attachments', async () => {
+    const state = await importFreshGatewayMain();
+    state.buildTeamsArtifactAttachments.mockResolvedValue([
+      {
+        contentType: 'image/png',
+        contentUrl: 'https://example.com/attachment.png',
+        name: 'attachment.png',
+      },
+    ]);
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Hello from gateway',
+      toolsUsed: ['search'],
+      artifacts: [
+        {
+          filename: 'attachment.png',
+          mimeType: 'image/png',
+          path: '/tmp/attachment.png',
+        },
+      ],
+    });
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+    };
+    const turnContext = { sendActivities: vi.fn() };
+    const context = {
+      abortSignal: new AbortController().signal,
+      activity: { id: 'activity-1' },
+      emitLifecyclePhase: vi.fn(),
+      policy: { replyStyle: 'thread' },
+      stream,
+      turnContext,
+    };
+
+    await state.teamsMessageHandler?.(
+      'teams:dm:user-aad-id',
+      null,
+      'a:teams-current-conversation',
+      'user-aad-id',
+      'alice',
+      'hello',
+      [],
+      vi.fn(async () => {}),
+      context,
+    );
+
+    expect(state.buildTeamsArtifactAttachments).toHaveBeenCalledWith({
+      artifacts: [
+        {
+          filename: 'attachment.png',
+          mimeType: 'image/png',
+          path: '/tmp/attachment.png',
+        },
+      ],
+      turnContext,
+    });
+    expect(stream.finalize).toHaveBeenCalledWith(
+      'Hello from gateway\n*Tools: search*',
+      [
+        {
+          contentType: 'image/png',
+          contentUrl: 'https://example.com/attachment.png',
+          name: 'attachment.png',
+        },
+      ],
+    );
+  });
+
+  test('keeps attachment-only Teams replies instead of discarding them', async () => {
+    const state = await importFreshGatewayMain();
+    state.buildTeamsArtifactAttachments.mockResolvedValue([
+      {
+        contentType: 'image/png',
+        contentUrl: 'https://example.com/attachment.png',
+        name: 'attachment.png',
+      },
+    ]);
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: '',
+      toolsUsed: ['browser_screenshot'],
+      artifacts: [
+        {
+          filename: 'attachment.png',
+          mimeType: 'image/png',
+          path: '/tmp/attachment.png',
+        },
+      ],
+    });
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+    };
+    const context = {
+      abortSignal: new AbortController().signal,
+      activity: { id: 'activity-1' },
+      emitLifecyclePhase: vi.fn(),
+      policy: { replyStyle: 'thread' },
+      stream,
+      turnContext: { sendActivities: vi.fn() },
+    };
+
+    await state.teamsMessageHandler?.(
+      'teams:dm:user-aad-id',
+      null,
+      'a:teams-current-conversation',
+      'user-aad-id',
+      'alice',
+      'hello',
+      [],
+      vi.fn(async () => {}),
+      context,
+    );
+
+    expect(stream.discard).not.toHaveBeenCalled();
+    expect(stream.finalize).toHaveBeenCalledWith('', [
+      {
+        contentType: 'image/png',
+        contentUrl: 'https://example.com/attachment.png',
+        name: 'attachment.png',
+      },
+    ]);
+  });
+
+  test('sends Teams attachments as a follow-up when text was already streamed', async () => {
+    const state = await importFreshGatewayMain();
+    state.buildTeamsArtifactAttachments.mockResolvedValue([
+      {
+        contentType: 'image/png',
+        contentUrl: 'https://example.com/attachment.png',
+        name: 'attachment.png',
+      },
+    ]);
+    state.handleGatewayMessage.mockImplementation(
+      async ({ onTextDelta }: { onTextDelta?: (delta: string) => void }) => {
+        onTextDelta?.('Screenshot captured.');
+        return {
+          status: 'success' as const,
+          result: 'Screenshot captured.',
+          toolsUsed: ['browser_screenshot'],
+          artifacts: [
+            {
+              filename: 'attachment.png',
+              mimeType: 'image/png',
+              path: '/tmp/attachment.png',
+            },
+          ],
+        };
+      },
+    );
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+    };
+    const reply = vi.fn(async () => {});
+    const context = {
+      abortSignal: new AbortController().signal,
+      activity: { id: 'activity-1' },
+      emitLifecyclePhase: vi.fn(),
+      policy: { replyStyle: 'thread' },
+      stream,
+      turnContext: { sendActivities: vi.fn() },
+    };
+
+    await state.teamsMessageHandler?.(
+      'teams:dm:user-aad-id',
+      null,
+      'a:teams-current-conversation',
+      'user-aad-id',
+      'alice',
+      'hello',
+      [],
+      reply,
+      context,
+    );
+
+    expect(stream.finalize).toHaveBeenCalledWith(
+      'Screenshot captured.\n*Tools: browser_screenshot*',
+    );
+    expect(reply).toHaveBeenCalledWith('', [
+      {
+        contentType: 'image/png',
+        contentUrl: 'https://example.com/attachment.png',
+        name: 'attachment.png',
+      },
+    ]);
+  });
+
   test('stores rendered fallback text for Discord pending approvals', async () => {
     const state = await importFreshGatewayMain();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
     state.rewriteUserMentionsForMessage.mockResolvedValue('Hello <@123>');
     state.handleGatewayMessage.mockResolvedValue({
       status: 'success',
@@ -487,6 +690,128 @@ describe('gateway bootstrap', () => {
       undefined,
       expect.any(Array),
     );
+    await pendingApprovals.clearPendingApproval('session');
+  });
+
+  test('stores Teams pending approvals and advertises numeric replies', async () => {
+    const state = await importFreshGatewayMain();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Need approval',
+      toolsUsed: ['bash'],
+      artifacts: [],
+      pendingApproval: {
+        approvalId: 'approve123',
+        prompt: 'Need approval',
+        intent: 'control a local app',
+        reason: 'this command controls host GUI or application state',
+        allowSession: true,
+        allowAgent: true,
+        expiresAt: Date.now() + 60_000,
+      },
+    });
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+    };
+    const context = {
+      abortSignal: new AbortController().signal,
+      activity: { id: 'activity-1' },
+      emitLifecyclePhase: vi.fn(),
+      policy: { replyStyle: 'thread' },
+      stream,
+      turnContext: { sendActivities: vi.fn() },
+    };
+
+    await state.teamsMessageHandler?.(
+      'teams:dm:user-aad-id',
+      null,
+      'a:teams-current-conversation',
+      'user-aad-id',
+      'alice',
+      'hello',
+      [],
+      vi.fn(async () => {}),
+      context,
+    );
+
+    expect(
+      pendingApprovals.getPendingApproval('teams:dm:user-aad-id'),
+    ).toMatchObject({
+      approvalId: 'approve123',
+      userId: 'user-aad-id',
+    });
+    expect(stream.finalize).toHaveBeenCalledWith(
+      expect.stringContaining('Reply `1` to allow once'),
+    );
+    expect(stream.finalize).toHaveBeenCalledWith(
+      expect.stringContaining('`/approve [1|2|3|4]`'),
+    );
+    await pendingApprovals.clearPendingApproval('teams:dm:user-aad-id');
+  });
+
+  test('routes bare Teams numeric approvals through the approval command flow', async () => {
+    const state = await importFreshGatewayMain();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval('teams:dm:user-aad-id', {
+      approvalId: 'approve123',
+      prompt: 'Need approval',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-aad-id',
+      resolvedAt: null,
+      disableButtons: null,
+      disableTimeout: null,
+    });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Approved.',
+      toolsUsed: [],
+      artifacts: [],
+    });
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+    };
+    const reply = vi.fn(async () => {});
+    const context = {
+      abortSignal: new AbortController().signal,
+      activity: { id: 'activity-1' },
+      emitLifecyclePhase: vi.fn(),
+      policy: { replyStyle: 'thread' },
+      stream,
+      turnContext: { sendActivities: vi.fn() },
+    };
+
+    await state.teamsMessageHandler?.(
+      'teams:dm:user-aad-id',
+      null,
+      'a:teams-current-conversation',
+      'user-aad-id',
+      'alice',
+      '2',
+      [],
+      reply,
+      context,
+    );
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'yes approve123 for session',
+        sessionId: 'teams:dm:user-aad-id',
+      }),
+    );
+    expect(reply).toHaveBeenCalledWith('Approved.');
+    await pendingApprovals.clearPendingApproval('teams:dm:user-aad-id');
   });
 
   test('routes WhatsApp slash commands through the gateway command handler', async () => {

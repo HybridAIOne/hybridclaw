@@ -18,6 +18,10 @@ import {
 import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { isEmailAddress, normalizeEmailAddress } from '../email/allowlist.js';
 import { sendEmailAttachmentTo, sendToEmail } from '../email/runtime.js';
+import {
+  hasActiveMSTeamsSession,
+  sendToActiveMSTeamsSession,
+} from '../msteams/runtime.js';
 import { getWhatsAppAuthStatus } from '../whatsapp/auth.js';
 import {
   canonicalizeWhatsAppUserJid,
@@ -35,6 +39,8 @@ const MESSAGE_TOOL_READ_DEFAULT_LIMIT = 20;
 const MESSAGE_TOOL_READ_MAX_LIMIT = 100;
 const MESSAGE_TOOL_EMAIL_SESSION_PREFIX = 'email:';
 const MESSAGE_TOOL_EMAIL_PREFIX_RE = /^email:/i;
+const MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE = /^(?:msteams|teams):current$/i;
+const MESSAGE_TOOL_TEAMS_SESSION_PREFIX_RE = /^teams:/i;
 const MESSAGE_TOOL_WHATSAPP_PREFIX_RE = /^whatsapp:/i;
 const MESSAGE_TOOL_LOCAL_SOURCE = 'message-tool';
 
@@ -90,6 +96,7 @@ function normalizeWhatsAppMessageTarget(rawTarget: string): string | null {
   const canonicalJid = canonicalizeWhatsAppUserJid(withoutPrefix);
   if (canonicalJid) return canonicalJid;
   if (isWhatsAppJid(withoutPrefix)) return withoutPrefix;
+  if (/[a-z]/i.test(withoutPrefix)) return null;
 
   const normalizedPhone = normalizePhoneNumber(withoutPrefix);
   if (!normalizedPhone) return null;
@@ -112,6 +119,35 @@ function normalizeEmailMessageTarget(rawTarget: string): string | null {
     .replace(MESSAGE_TOOL_EMAIL_PREFIX_RE, '')
     .trim();
   return normalizeEmailAddress(withoutPrefix);
+}
+
+function resolveActiveMSTeamsSendTarget(
+  request: DiscordToolActionRequest,
+): { channelId: string; sessionId: string } | 'unavailable' | null {
+  const sessionId = String(request.sessionId || '').trim();
+  if (!MESSAGE_TOOL_TEAMS_SESSION_PREFIX_RE.test(sessionId)) {
+    return null;
+  }
+
+  const session = getSessionById(sessionId);
+  const currentChannelId = String(session?.channel_id || '').trim();
+  const rawChannelId = String(request.channelId || '').trim();
+  const targetsCurrentConversation =
+    !rawChannelId ||
+    MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE.test(rawChannelId) ||
+    (currentChannelId.length > 0 && rawChannelId === currentChannelId);
+  if (!targetsCurrentConversation) {
+    return null;
+  }
+
+  if (!hasActiveMSTeamsSession(sessionId)) {
+    return 'unavailable';
+  }
+
+  return {
+    channelId: currentChannelId || rawChannelId,
+    sessionId,
+  };
 }
 
 function resolveMessageToolReadLimit(limit: number | undefined): number {
@@ -262,6 +298,39 @@ async function runEmailMessageSendAction(
   };
 }
 
+async function runMSTeamsMessageSendAction(
+  request: DiscordToolActionRequest,
+  target: { channelId: string; sessionId: string },
+): Promise<Record<string, unknown>> {
+  const content = String(request.content || '').trim();
+  const filePath = resolveMessageToolSendFilePath(request);
+  const hasComponents = hasMessageComponents(request);
+  if (!content && !filePath) {
+    throw new Error(
+      'content is required for Teams send unless filePath is provided.',
+    );
+  }
+  if (hasComponents) {
+    throw new Error('components are not supported for Teams sends.');
+  }
+
+  const delivery = await sendToActiveMSTeamsSession({
+    sessionId: target.sessionId,
+    text: content,
+    filePath,
+  });
+  return {
+    ok: true,
+    action: 'send',
+    channelId: delivery.channelId || target.channelId,
+    transport: 'msteams',
+    ...(delivery.attachmentCount > 0
+      ? { attachmentCount: delivery.attachmentCount }
+      : {}),
+    contentLength: content.length,
+  };
+}
+
 async function runEmailReadAction(
   request: DiscordToolActionRequest,
   params: {
@@ -363,6 +432,16 @@ export async function runMessageToolAction(
 
   if (request.action !== 'send') {
     return await runDiscordToolAction(request);
+  }
+
+  const activeMSTeamsTarget = resolveActiveMSTeamsSendTarget(request);
+  if (activeMSTeamsTarget === 'unavailable') {
+    throw new Error(
+      'Teams message sends currently require the active Teams conversation. Retry from the same Teams chat while the request is running.',
+    );
+  }
+  if (activeMSTeamsTarget) {
+    return await runMSTeamsMessageSendAction(request, activeMSTeamsTarget);
   }
 
   const rawChannelId = String(request.channelId || '').trim();

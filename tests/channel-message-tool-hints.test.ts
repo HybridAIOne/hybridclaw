@@ -160,12 +160,13 @@ test('resolves Teams hints from explicit Teams context', () => {
       entry.includes('Current Teams conversation: `19:channel@thread.tacv2`'),
     ),
   ).toBe(true);
-  expect(
-    hints.some((entry) => entry.includes('Adaptive Card')),
-  ).toBe(true);
+  expect(hints.some((entry) => entry.includes('Adaptive Card'))).toBe(true);
   expect(
     hints.some((entry) =>
-      entry.includes('does not currently target Teams conversations'),
+      entry.includes('can send into the current Teams conversation'),
     ),
   ).toBe(true);
+  expect(hints.some((entry) => entry.includes('post or upload it here'))).toBe(
+    true,
+  );
 });

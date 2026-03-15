@@ -92,14 +92,17 @@ hybridclaw auth login hybridai --browser
 hybridclaw auth login codex --import
 hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
 hybridclaw auth login local ollama llama3.2
+hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
 hybridclaw auth status hybridai
 hybridclaw auth status codex
 hybridclaw auth status openrouter
 hybridclaw auth status local
+hybridclaw auth status msteams
 hybridclaw auth logout hybridai
 hybridclaw auth logout codex
 hybridclaw auth logout openrouter
 hybridclaw auth logout local
+hybridclaw auth logout msteams
 hybridclaw auth whatsapp reset
 ```
 
@@ -116,11 +119,23 @@ hybridclaw local configure ollama llama3.2
 - `hybridclaw auth login codex` auto-selects browser PKCE on local GUI machines and device code on headless or remote shells.
 - `hybridclaw auth login openrouter` accepts `--api-key`, falls back to `OPENROUTER_API_KEY`, or prompts you to paste the key, then enables the provider and can set the global default model.
 - `hybridclaw auth login local` configures Ollama, LM Studio, or vLLM in `~/.hybridclaw/config.json`.
+- `hybridclaw auth login msteams` enables Microsoft Teams, stores `MSTEAMS_APP_PASSWORD` in `~/.hybridclaw/credentials.json`, and can prompt for the app id, app password, and optional tenant id.
 - `hybridclaw auth logout local` disables configured local backends and clears any saved vLLM API key.
+- `hybridclaw auth logout msteams` clears the stored Teams app password and disables the Teams integration in config.
 - `hybridclaw auth whatsapp reset` clears linked WhatsApp Web auth without starting a new pairing session.
-- HybridAI, OpenRouter, Discord, and email secrets are stored in `~/.hybridclaw/credentials.json`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
+- HybridAI, OpenRouter, Discord, email, and Teams secrets are stored in `~/.hybridclaw/credentials.json`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
 - Only one running HybridClaw process should own `~/.hybridclaw/credentials/whatsapp` at a time. If WhatsApp Web shows duplicate Chrome/Ubuntu linked devices or reconnect/auth drift starts, stop the extra process, run `hybridclaw auth whatsapp reset`, then pair again with `hybridclaw channels whatsapp setup`.
 - Use `hybridclaw help`, `hybridclaw help auth`, `hybridclaw help openrouter`, or `hybridclaw help local` for CLI-specific reference output.
+
+## Setting Up MS Teams
+
+See [docs/msteams.md](./docs/msteams.md) for the full setup flow, including:
+
+- Azure app registration and bot credentials
+- Azure Bot webhook and Teams channel configuration
+- `hybridclaw auth login msteams`
+- local tunnel setup
+- DM and channel smoke tests
 
 ## Model Selection
 
@@ -376,8 +391,9 @@ CLI runtime commands:
 - `hybridclaw tui` — Start terminal client connected to gateway
 - `hybridclaw onboarding` — Run trust-model acceptance plus interactive provider onboarding
 - `hybridclaw auth login [provider] ...` — Namespaced provider setup/login entrypoint
-- `hybridclaw auth status <provider>` — Show provider status for `hybridai`, `codex`, `openrouter`, or `local`
-- `hybridclaw auth logout <provider>` — Clear provider credentials or disable local backends
+- `hybridclaw auth status <provider>` — Show provider status for `hybridai`, `codex`, `openrouter`, `local`, or `msteams`
+- `hybridclaw auth logout <provider>` — Clear provider credentials or disable local backends/Teams
+- `hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]` — Enable Microsoft Teams, persist the app secret, and print webhook next steps
 - `hybridclaw auth whatsapp reset` — Clear linked WhatsApp auth so the account can be re-paired cleanly
 - `hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]` — Prepare restricted command-only Discord config and print bot/token next steps
 - `hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]` — Configure IMAP/SMTP email delivery, optionally prompt for missing credentials, and save `EMAIL_PASSWORD`

@@ -30,6 +30,7 @@ import {
   sendToEmail,
   shutdownEmail,
 } from '../channels/email/runtime.js';
+import { buildTeamsArtifactAttachments } from '../channels/msteams/attachments.js';
 import { initMSTeams } from '../channels/msteams/runtime.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
@@ -277,6 +278,51 @@ async function rememberPendingApproval(params: {
   await setPendingApproval(params.sessionId, entry);
 }
 
+function buildApprovalUserMessage(params: {
+  action: string;
+  approvalId: string;
+}): string | null {
+  const action = params.action.trim().toLowerCase();
+  const approvalId = params.approvalId.trim();
+  const withApprovalId = (base: string): string =>
+    approvalId ? `${base} ${approvalId}` : base;
+
+  if (action === 'yes' || action === '1') {
+    return withApprovalId('yes');
+  }
+  if (action === 'session' || action === '2') {
+    return approvalId ? `yes ${approvalId} for session` : 'yes for session';
+  }
+  if (action === 'agent' || action === '3') {
+    return approvalId ? `yes ${approvalId} for agent` : 'yes for agent';
+  }
+  if (
+    action === 'no' ||
+    action === 'deny' ||
+    action === 'skip' ||
+    action === '4'
+  ) {
+    return withApprovalId('no');
+  }
+  return null;
+}
+
+function resolveImplicitNumericApprovalArgs(params: {
+  sessionId: string;
+  userId: string;
+  content: string;
+}): string[] | null {
+  const pending = getPendingApproval(params.sessionId);
+  if (!pending || pending.userId !== params.userId) return null;
+
+  const normalized = params.content.trim();
+  if (normalized === '1') return ['approve', '1'];
+  if (normalized === '2') return ['approve', '2'];
+  if (normalized === '3') return ['approve', '3'];
+  if (normalized === '4') return ['approve', '4'];
+  return null;
+}
+
 async function handleApprovalCommand(params: {
   sessionId: string;
   guildId: string | null;
@@ -314,22 +360,9 @@ async function handleApprovalCommand(params: {
     return true;
   }
 
-  const directive = (() => {
-    if (action === 'yes' || action === '1') return 'yes';
-    if (action === 'session' || action === '2') return 'yes for session';
-    if (action === 'agent' || action === '3') return 'yes for agent';
-    if (
-      action === 'no' ||
-      action === 'deny' ||
-      action === 'skip' ||
-      action === '4'
-    ) {
-      return 'no';
-    }
-    return null;
-  })();
+  const approvalContent = buildApprovalUserMessage({ action, approvalId });
 
-  if (!directive) {
+  if (!approvalContent) {
     await reply(
       'Usage: `/approve action:view|yes|session|agent|no [approval_id]`',
     );
@@ -341,7 +374,6 @@ async function handleApprovalCommand(params: {
     return true;
   }
 
-  const approvalContent = approvalId ? `${directive} ${approvalId}` : directive;
   const approvalResult = normalizePendingApprovalReply(
     normalizePlaceholderToolReply(
       await handleGatewayMessage({
@@ -917,10 +949,31 @@ async function startMSTeamsIntegration(): Promise<boolean> {
       username,
       content,
       media,
-      _reply,
+      reply,
       context,
     ) => {
       try {
+        const implicitApprovalArgs = resolveImplicitNumericApprovalArgs({
+          sessionId,
+          userId,
+          content,
+        });
+        if (implicitApprovalArgs) {
+          const bridgedReply: ReplyFn = async (content) => {
+            await reply(content);
+          };
+          await handleTextChannelCommand({
+            sessionId,
+            guildId,
+            channelId,
+            userId,
+            username,
+            args: implicitApprovalArgs,
+            reply: bridgedReply,
+          });
+          return;
+        }
+
         let sawTextDelta = false;
         const streamFilter = createSilentReplyStreamFilter();
         const appendStreamText = async (text: string): Promise<void> => {
@@ -974,26 +1027,63 @@ async function startMSTeamsIntegration(): Promise<boolean> {
         }
 
         const renderedText = stripSilentToken(String(result.result || ''));
-        if (!renderedText.trim()) {
+        const artifacts = result.artifacts || [];
+        if (!renderedText.trim() && artifacts.length === 0) {
           await context.stream.discard();
           return;
         }
         const showMode = normalizeSessionShowMode(
           memoryService.getSessionById(sessionId)?.show_mode,
         );
-        const responseText = buildResponseText(
-          renderedText,
-          sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
-        );
+        const responseText = renderedText.trim()
+          ? buildResponseText(
+              renderedText,
+              sessionShowModeShowsTools(showMode)
+                ? result.toolsUsed
+                : undefined,
+            )
+          : '';
         const pendingApproval = extractGatewayChatApprovalEvent(result);
         if (pendingApproval) {
+          await rememberPendingApproval({
+            sessionId,
+            approvalId: pendingApproval.approvalId,
+            prompt: pendingApproval.prompt || responseText,
+            userId,
+            expiresAt: pendingApproval.expiresAt,
+          });
           await context.stream.finalize(
-            `${responseText}\n\nApproval required. Use the web console or another configured channel to respond to approval \`${pendingApproval.approvalId}\`.`,
+            `${responseText}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, or \`4\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4]\`.`,
           );
           return;
         }
 
-        await context.stream.finalize(responseText);
+        let attachments:
+          | Awaited<ReturnType<typeof buildTeamsArtifactAttachments>>
+          | undefined;
+        try {
+          attachments = await buildTeamsArtifactAttachments({
+            turnContext: context.turnContext,
+            artifacts,
+          });
+        } catch (error) {
+          logger.warn(
+            {
+              error,
+              sessionId,
+              channelId,
+              artifactCount: artifacts.length,
+            },
+            'Failed to build Teams artifact attachments',
+          );
+        }
+
+        if (attachments?.length && sawTextDelta) {
+          await context.stream.finalize(responseText);
+          await reply('', attachments);
+          return;
+        }
+        await context.stream.finalize(responseText, attachments);
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
         logger.error(
