@@ -786,6 +786,22 @@ async function startDiscordIntegration(): Promise<void> {
           return;
         }
         const rawText = stripSilentToken(String(result.result));
+        const showMode = normalizeSessionShowMode(
+          memoryService.getSessionById(sessionId)?.show_mode,
+        );
+        const userText = simplifyImageAttachmentNarration(
+          rawText,
+          result.artifacts,
+        );
+        const renderedText = await rewriteUserMentionsForMessage(
+          userText,
+          context.sourceMessage,
+          context.mentionLookup,
+        );
+        const responseText = buildResponseText(
+          renderedText,
+          sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
+        );
         if (pendingApproval) {
           let cleanup: { disableButtons: () => Promise<void> } | null = null;
           if (context.sendApprovalNotification) {
@@ -802,7 +818,7 @@ async function startDiscordIntegration(): Promise<void> {
           await rememberPendingApproval({
             sessionId,
             approvalId: pendingApproval.approvalId,
-            prompt: pendingApproval.prompt || rawText,
+            prompt: pendingApproval.prompt || responseText,
             userId,
             expiresAt: pendingApproval.expiresAt,
             disableButtons: cleanup?.disableButtons ?? null,
@@ -813,28 +829,11 @@ async function startDiscordIntegration(): Promise<void> {
           return;
         }
         const attachments = buildArtifactAttachments(result.artifacts);
-        const cleanedResultText = rawText;
-        if (!cleanedResultText.trim()) {
+        if (!rawText.trim()) {
           await clearPendingApproval(sessionId, { disableButtons: true });
           await context.stream.discard();
           return;
         }
-        const userText = simplifyImageAttachmentNarration(
-          cleanedResultText,
-          result.artifacts,
-        );
-        const renderedText = await rewriteUserMentionsForMessage(
-          userText,
-          context.sourceMessage,
-          context.mentionLookup,
-        );
-        const showMode = normalizeSessionShowMode(
-          memoryService.getSessionById(sessionId)?.show_mode,
-        );
-        const responseText = buildResponseText(
-          renderedText,
-          sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
-        );
         await clearPendingApproval(sessionId, { disableButtons: true });
         await context.stream.finalize(responseText, attachments);
       } catch (error) {
