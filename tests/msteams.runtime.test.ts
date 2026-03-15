@@ -233,12 +233,18 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     const runtime = await importRuntime();
 
     expect(() =>
-      runtime.initMSTeams(undefined as never, vi.fn(async () => {})),
+      runtime.initMSTeams(
+        undefined as never,
+        vi.fn(async () => {}),
+      ),
     ).toThrow(
       'Teams runtime requires both message and command handlers during initialization.',
     );
     expect(() =>
-      runtime.initMSTeams(vi.fn(async () => {}), undefined as never),
+      runtime.initMSTeams(
+        vi.fn(async () => {}),
+        undefined as never,
+      ),
     ).toThrow(
       'Teams runtime requires both message and command handlers during initialization.',
     );

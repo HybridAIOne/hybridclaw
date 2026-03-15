@@ -1627,7 +1627,8 @@ export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
         transport: 'msteams',
         guildId: teamId,
         channelId,
-        defaultGroupPolicy: team.groupPolicy ?? runtimeConfig.msteams.groupPolicy,
+        defaultGroupPolicy:
+          team.groupPolicy ?? runtimeConfig.msteams.groupPolicy,
         defaultReplyStyle: team.replyStyle || runtimeConfig.msteams.replyStyle,
         defaultRequireMention:
           team.requireMention ?? runtimeConfig.msteams.requireMention,

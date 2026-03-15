@@ -230,8 +230,9 @@ describe('runtime config migration logging', () => {
           mediaAuthAllowHosts: [],
         };
       }
-      (config.msteams as RuntimeConfig['msteams'] & { dmPolicy: string }).dmPolicy =
-        'pairing';
+      (
+        config.msteams as RuntimeConfig['msteams'] & { dmPolicy: string }
+      ).dmPolicy = 'pairing';
     });
 
     await importFreshRuntimeConfig(homeDir);
@@ -268,8 +269,9 @@ describe('runtime config migration logging', () => {
           mediaAuthAllowHosts: [],
         };
       }
-      (config.msteams as RuntimeConfig['msteams'] & { appPassword?: string }).appPassword =
-        'plaintext-secret';
+      (
+        config.msteams as RuntimeConfig['msteams'] & { appPassword?: string }
+      ).appPassword = 'plaintext-secret';
     });
 
     await importFreshRuntimeConfig(homeDir);

@@ -628,9 +628,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(prelude?.approvalMode).toBe('agent');
     expect(fs.existsSync(trustStorePath)).toBe(true);
 
-    const persisted = JSON.parse(
-      fs.readFileSync(trustStorePath, 'utf-8'),
-    ) as {
+    const persisted = JSON.parse(fs.readFileSync(trustStorePath, 'utf-8')) as {
       trustedActions?: string[];
     };
     expect(persisted.trustedActions).toContain('network:hybridclaw.io');

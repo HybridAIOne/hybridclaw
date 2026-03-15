@@ -507,14 +507,14 @@ export function ChannelsPage() {
                     <select
                       value={draft.replyStyle}
                       onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      replyStyle: event.target
-                        .value as ChannelDraft['replyStyle'],
-                      replyStyleExplicit: true,
-                    }))
-                  }
-                >
+                        setDraft((current) => ({
+                          ...current,
+                          replyStyle: event.target
+                            .value as ChannelDraft['replyStyle'],
+                          replyStyleExplicit: true,
+                        }))
+                      }
+                    >
                       <option value="thread">thread</option>
                       <option value="top-level">top-level</option>
                     </select>
@@ -524,14 +524,14 @@ export function ChannelsPage() {
                     <select
                       value={draft.groupPolicy}
                       onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      groupPolicy: event.target
-                        .value as ChannelDraft['groupPolicy'],
-                      groupPolicyExplicit: true,
-                    }))
-                  }
-                >
+                        setDraft((current) => ({
+                          ...current,
+                          groupPolicy: event.target
+                            .value as ChannelDraft['groupPolicy'],
+                          groupPolicyExplicit: true,
+                        }))
+                      }
+                    >
                       <option value="open">open</option>
                       <option value="allowlist">allowlist</option>
                       <option value="disabled">disabled</option>
