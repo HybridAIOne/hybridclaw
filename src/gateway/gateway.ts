@@ -785,6 +785,7 @@ async function startDiscordIntegration(): Promise<void> {
           await context.stream.discard();
           return;
         }
+        const rawText = stripSilentToken(String(result.result));
         if (pendingApproval) {
           let cleanup: { disableButtons: () => Promise<void> } | null = null;
           if (context.sendApprovalNotification) {
@@ -801,8 +802,7 @@ async function startDiscordIntegration(): Promise<void> {
           await rememberPendingApproval({
             sessionId,
             approvalId: pendingApproval.approvalId,
-            prompt:
-              pendingApproval.prompt || stripSilentToken(String(result.result)),
+            prompt: pendingApproval.prompt || rawText,
             userId,
             expiresAt: pendingApproval.expiresAt,
             disableButtons: cleanup?.disableButtons ?? null,
@@ -813,7 +813,7 @@ async function startDiscordIntegration(): Promise<void> {
           return;
         }
         const attachments = buildArtifactAttachments(result.artifacts);
-        const cleanedResultText = stripSilentToken(String(result.result));
+        const cleanedResultText = rawText;
         if (!cleanedResultText.trim()) {
           await clearPendingApproval(sessionId, { disableButtons: true });
           await context.stream.discard();
