@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HybridClaw — Enterprise AI Digital Coworker</title>
-  <meta name="description" content="HybridClaw is an enterprise-ready AI coworker that unifies Discord, web, and terminal workflows with memory, guardrails, and tool execution.">
+  <meta name="description" content="HybridClaw is an enterprise-ready AI coworker that unifies Discord, Teams, WhatsApp, email, web, and terminal workflows with memory, guardrails, and tool execution.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="HybridClaw">
   <meta property="og:title" content="HybridClaw — Enterprise AI Digital Coworker">
-  <meta property="og:description" content="One assistant brain across Discord, web, and terminal with shared memory and safe execution flow.">
+  <meta property="og:description" content="One assistant brain across Discord, Teams, WhatsApp, email, web, and terminal with shared memory, bundled skills, and safe execution flow.">
   <meta property="og:url" content="https://github.com/HybridAIOne/hybridclaw">
   <meta property="og:image" content="https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/docs/hero.png">
   <meta property="og:image:type" content="image/png">
@@ -17,7 +17,7 @@
   <meta property="og:image:alt" content="HybridClaw hero image">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="HybridClaw — Enterprise AI Digital Coworker">
-  <meta name="twitter:description" content="One assistant brain across Discord, web, and terminal with shared memory and safe execution flow.">
+  <meta name="twitter:description" content="One assistant brain across Discord, Teams, WhatsApp, email, web, and terminal with shared memory, bundled skills, and safe execution flow.">
   <meta name="twitter:image" content="https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/docs/hero.png">
   <link rel="canonical" href="https://github.com/HybridAIOne/hybridclaw">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
@@ -687,14 +687,14 @@
   <img src="hero.png" alt="HybridClaw" class="hero-img">
   <div class="hero-badge">Powered by <span>HybridAI</span></div>
   <h1>One assistant brain<br><span class="gradient">across every team channel</span></h1>
-  <p>HybridClaw gives Discord, web, and terminal users the same memory, the same guardrails, and the same reliable execution flow.</p>
+  <p>HybridClaw gives Discord, Teams, WhatsApp, email, web, and terminal users the same memory, the same guardrails, and the same reliable execution flow.</p>
   <div class="hero-install">
     <div class="hero-install-head">
       <div class="hero-install-label">Install (Linux/macOS)</div>
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 22+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.7.1.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 22+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.7.1; the current repo also includes Teams, more bundled skills, TUI slash/history UX, and session reset policies.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -712,12 +712,12 @@
     <div class="stat-label">Onboarding</div>
   </div>
   <div class="stat">
-    <div class="stat-value">24/7</div>
-    <div class="stat-label">Proactive Assistant</div>
+    <div class="stat-value">28</div>
+    <div class="stat-label">Bundled Skills</div>
   </div>
   <div class="stat">
-    <div class="stat-value">3</div>
-    <div class="stat-label">Ways to Chat</div>
+    <div class="stat-value">6</div>
+    <div class="stat-label">Chat Surfaces</div>
   </div>
   <div class="stat">
     <div class="stat-value">Memory-First</div>
@@ -733,30 +733,30 @@
 
 <section id="latest">
   <div class="section-center">
-    <div class="section-label">Release v0.7.1</div>
-    <h2 class="section-title">Latest release highlights</h2>
-    <p class="section-desc">Key improvements included since v0.6.0.</p>
+    <div class="section-label">Since v0.7.1</div>
+    <h2 class="section-title">Current branch highlights</h2>
+    <p class="section-desc">Major user-facing additions since the latest tagged release.</p>
   </div>
     <div class="features-grid">
       <div class="feature-card">
-      <div class="feature-icon">&#x1f4bb;</div>
-      <h3>First-class agents</h3>
-      <p>Agents now own stable workspaces across provider changes, with shared <code>agent</code>, <code>show</code>, and <code>status</code> controls available through the gateway, TUI, and Discord.</p>
+      <div class="feature-icon">&#x1f465;</div>
+      <h3>Microsoft Teams channel</h3>
+      <p>HybridClaw can receive and answer Microsoft Teams DMs and channel mentions through the Bot Framework webhook flow, with attachment-aware replies, streaming delivery, and allowlist-based send policies.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x23f1;&#xfe0f;</div>
-      <h3>Admin console and full-auto mode</h3>
-      <p>The browser console now exposes admin, agents, and runtime dashboards, while supervised <code>fullauto</code> sessions can resume queued work and stop cleanly when a human takes over.</p>
+      <div class="feature-icon">&#x1f9f0;</div>
+      <h3>More bundled workflow skills</h3>
+      <p>The bundled skill catalog has expanded to 28 skills, covering office documents, GitHub PRs, Notion, Trello, Google Workspace, Stripe, WordPress, Discord, email, and Apple app workflows.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x1f5d1;&#xfe0f;</div>
-      <h3>Cross-channel delivery</h3>
-      <p>HybridClaw adds WhatsApp and email channels, shared message routing, and audio transcription fallbacks so the same assistant can ingest and reply across Discord, WhatsApp, email, and local clients.</p>
+      <div class="feature-icon">&#x2328;&#xfe0f;</div>
+      <h3>TUI slash menu and history recall</h3>
+      <p>The terminal UI now has inline slash-command discovery, help aliases, prompt history recall, and tighter approval flow handling so day-to-day terminal use is faster and less error-prone.</p>
       </div>
       <div class="feature-card">
-      <div class="feature-icon">&#x1f527;</div>
-      <h3>Hardened runtime edges</h3>
-      <p>Approval/runtime guards, auxiliary task routing, and Discord media caching were tightened with better follow-up handling, SSRF-resistant CDN fetches, explicit cache permissions, and TTL cleanup.</p>
+      <div class="feature-icon">&#x23f3;</div>
+      <h3>Reset policy and faster safe tools</h3>
+      <p>Automatic session-reset policies can expire sessions daily or after long idle windows in the gateway host's local timezone, while safe read-only tool calls can batch in parallel without weakening guarded flows.</p>
       </div>
   </div>
 </section>
@@ -834,12 +834,12 @@
     <div class="feature-card">
       <div class="feature-icon">&#x1f504;</div>
       <h3>Stay consistent across channels</h3>
-      <p>Share one assistant behavior across Discord, web, and terminal without managing separate bot personalities.</p>
+      <p>Share one assistant behavior across Discord, Teams, WhatsApp, email, web, and terminal without managing separate bot personalities.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f9e0;</div>
       <h3>Remember what matters</h3>
-      <p>Persist and compact long-running conversations with canonical cross-channel continuity and configurable token-budget controls.</p>
+      <p>Persist and compact long-running conversations with canonical cross-channel continuity, automatic session-reset policies, and configurable token-budget controls.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x23f0;</div>
@@ -982,7 +982,7 @@
   <div class="arch-flow" style="flex-wrap: nowrap; gap: 10px; overflow: hidden; justify-content: center;">
     <div class="arch-node" style="min-width: 180px; max-width: 180px; height: 190px; padding: 16px 14px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
       <div class="arch-node-label" style="font-size: 12px; letter-spacing: 0.08em;">Where people work</div>
-      <div class="arch-node-title" style="font-size: 18px; line-height: 1.2;">Discord / Web / Terminal</div>
+      <div class="arch-node-title" style="font-size: 18px; line-height: 1.2;">Discord / Teams<br>WhatsApp / Email<br>Web / Terminal</div>
       <div class="arch-node-desc" style="font-size: 14px; line-height: 1.35;">One shared user experience</div>
     </div>
     <div class="arch-arrow" style="font-size: 34px; line-height: 1; flex: 0 0 auto;">&rarr;</div>
@@ -1057,7 +1057,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
-      <p>Persistent workspace memory, semantic memory, typed entity/relation knowledge graph, canonical cross-channel sessions, and long-session compaction keep context coherent across Discord/web/terminal channels.</p>
+      <p>Persistent workspace memory, semantic memory, typed entity/relation knowledge graph, canonical cross-channel sessions, and long-session compaction keep context coherent across Discord, Teams, WhatsApp, email, web, and terminal channels.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">SQLite Reliability</h3>
@@ -1077,7 +1077,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Skills Engine</h3>
-      <p>OpenClaw/CLAUDE-compatible <code>SKILL.md</code> support with multi-tier discovery, prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning.</p>
+      <p>HybridClaw ships with 28 bundled skills and also supports OpenClaw/CLAUDE-compatible <code>SKILL.md</code> discovery, prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Personality Switcher</h3>
@@ -1101,7 +1101,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Interfaces &amp; Integrations</h3>
-      <p>Shared assistant behavior across Discord, web, and terminal, powered by HybridAI bots and model selection.</p>
+      <p>Shared assistant behavior across Discord, Teams, WhatsApp, email, web, and terminal, plus bundled skills for office docs, GitHub, Notion, Stripe, WordPress, Google Workspace, Discord, email, and Apple workflows.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Observability Export</h3>
@@ -1113,7 +1113,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Command Surface</h3>
-      <p>Operator-friendly command set across CLI and Discord, including <code>hybridclaw --version</code>, usage aggregation queries, and JSONL export workflows for session debugging.</p>
+      <p>Operator-friendly command set across CLI, TUI, Discord, and gateway surfaces, including TUI slash-command discovery/history recall, usage aggregation queries, and JSONL export workflows for session debugging.</p>
     </div>
   </div>
 </section>
@@ -1304,7 +1304,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use it without Discord?</div>
-      <div class="faq-a">Absolutely. Run <code>hybridclaw tui</code> for the terminal UI. The same assistant behavior and context model is shared across supported interfaces.</div>
+      <div class="faq-a">Absolutely. Run <code>hybridclaw tui</code>, use the built-in web chat, or connect Microsoft Teams, WhatsApp, or email. The same assistant behavior and context model is shared across supported interfaces.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">How are screenshots returned in Discord?</div>
