@@ -39,7 +39,11 @@ import {
   parseModelInfoSummaryFromText,
   parseModelNamesFromListText,
 } from './model-selection.js';
-import { formatTuiApprovalSummary } from './tui-approval.js';
+import {
+  formatTuiApprovalSummary,
+  parseTuiApprovalPrompt,
+  type TuiApprovalDetails,
+} from './tui-approval.js';
 import {
   DEFAULT_TUI_FULLAUTO_STATE,
   deriveTuiFullAutoState,
@@ -271,7 +275,7 @@ let tuiFullAutoState: TuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;
 let fullAutoSteeringInFlight = false;
 let tuiPendingApproval: {
   requestId: string;
-  prompt: string;
+  summary: string;
   intent: string;
   reason: string;
   allowSession: boolean;
@@ -327,6 +331,35 @@ function mapApprovalSelectionToCommand(
 function isApprovalResponseContent(content: string): boolean {
   const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
   return /^(yes|skip)\s+\S+(?:\s+for\s+(session|agent))?$/.test(normalized);
+}
+
+function resolvePendingApproval(
+  result: GatewayChatResult,
+  streamedApproval: GatewayChatApprovalEvent | null,
+): TuiApprovalDetails | null {
+  if (streamedApproval) {
+    return {
+      approvalId: streamedApproval.approvalId,
+      intent: streamedApproval.intent,
+      reason: streamedApproval.reason,
+      allowSession: streamedApproval.allowSession,
+      allowAgent: streamedApproval.allowAgent,
+    };
+  }
+
+  const pendingApproval = extractGatewayChatApprovalEvent(result);
+  if (pendingApproval) {
+    return {
+      approvalId: pendingApproval.approvalId,
+      intent: pendingApproval.intent,
+      reason: pendingApproval.reason,
+      allowSession: pendingApproval.allowSession,
+      allowAgent: pendingApproval.allowAgent,
+    };
+  }
+
+  const prompt = String(result.result || '').trim();
+  return prompt ? parseTuiApprovalPrompt(prompt) : null;
 }
 
 async function promptApprovalSelection(
@@ -1110,7 +1143,7 @@ async function handleSlashCommand(
           );
           return true;
         }
-        printInfo(tuiPendingApproval.prompt);
+        printInfo(tuiPendingApproval.summary);
         return true;
       }
 
@@ -1236,8 +1269,7 @@ async function processMessage(
     ];
     const hasStreamedText = sawVisibleTextDelta;
     const finalText = result.result || 'No response.';
-    const pendingApproval =
-      streamedApproval || extractGatewayChatApprovalEvent(result);
+    const pendingApproval = resolvePendingApproval(result, streamedApproval);
 
     s.flushVisibleText();
     s.stop();
@@ -1269,15 +1301,16 @@ async function processMessage(
     }
 
     if (pendingApproval) {
+      const summary = formatTuiApprovalSummary(pendingApproval);
       tuiPendingApproval = {
         requestId: pendingApproval.approvalId,
-        prompt: pendingApproval.prompt,
+        summary,
         intent: pendingApproval.intent,
         reason: pendingApproval.reason,
         allowSession: pendingApproval.allowSession,
         allowAgent: pendingApproval.allowAgent,
       };
-      printResponse(formatTuiApprovalSummary(pendingApproval));
+      printResponse(summary);
       const approvalCommand = await promptApprovalSelection(
         rl,
         pendingApproval.approvalId,
@@ -1349,6 +1382,29 @@ async function processFullAutoSteeringMessage(
       }
       if (result.status === 'error') {
         printError(result.error || 'Unknown error');
+        return;
+      }
+      const pendingApproval = resolvePendingApproval(result, null);
+      if (pendingApproval) {
+        const summary = formatTuiApprovalSummary(pendingApproval);
+        tuiPendingApproval = {
+          requestId: pendingApproval.approvalId,
+          summary,
+          intent: pendingApproval.intent,
+          reason: pendingApproval.reason,
+          allowSession: pendingApproval.allowSession,
+          allowAgent: pendingApproval.allowAgent,
+        };
+        printResponse(summary);
+        const approvalCommand = await promptApprovalSelection(
+          rl,
+          pendingApproval.approvalId,
+          pendingApproval.allowSession,
+          pendingApproval.allowAgent,
+        );
+        if (approvalCommand) {
+          await processMessage(approvalCommand, rl);
+        }
         return;
       }
       printResponse(result.result || 'No response.');
