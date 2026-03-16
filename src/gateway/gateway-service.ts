@@ -5571,80 +5571,98 @@ export async function handleGatewayCommand(
           );
         }
 
+        if (sub === 'runs') {
+          const skillName = String(req.args[2] || '').trim();
+          if (!skillName) {
+            return badCommand('Usage', 'Usage: `skill runs <name>`');
+          }
+          const { getSkillExecutionRuns } = await import(
+            '../skills/skills-management.js'
+          );
+          const runs = getSkillExecutionRuns(skillName);
+          if (runs.length === 0) {
+            return plainCommand(`No observations found for \`${skillName}\`.`);
+          }
+          return infoCommand(
+            `Skill Runs (${skillName})`,
+            runs.map(formatSkillObservationRun).join('\n\n'),
+          );
+        }
+
         return badCommand(
           'Usage',
           'Usage: `skill list|inspect <name>|inspect --all|runs <name>|amend <name> [--apply|--reject|--rollback]|history <name>`',
         );
       }
 
-    case 'schedule': {
-      const sub = req.args[1]?.toLowerCase();
-      if (sub === 'add') {
-        const rest = req.args.slice(2).join(' ');
-        const atMatch = rest.match(/^at\s+"([^"]+)"\s+(.+)$/i);
-        if (atMatch) {
-          const [, runAtRaw, prompt] = atMatch;
-          const parsedDate = new Date(runAtRaw);
-          if (Number.isNaN(parsedDate.getTime())) {
+      case 'schedule': {
+        const sub = req.args[1]?.toLowerCase();
+        if (sub === 'add') {
+          const rest = req.args.slice(2).join(' ');
+          const atMatch = rest.match(/^at\s+"([^"]+)"\s+(.+)$/i);
+          if (atMatch) {
+            const [, runAtRaw, prompt] = atMatch;
+            const parsedDate = new Date(runAtRaw);
+            if (Number.isNaN(parsedDate.getTime())) {
+              return badCommand(
+                'Invalid Time',
+                `\`${runAtRaw}\` is not a valid ISO timestamp.`,
+              );
+            }
+            const taskId = createTask(
+              session.id,
+              req.channelId,
+              '',
+              prompt,
+              parsedDate.toISOString(),
+            );
+            rearmScheduler();
+            return plainCommand(
+              `Task #${taskId} created: one-shot at \`${parsedDate.toISOString()}\` — ${prompt}`,
+            );
+          }
+
+          const everyMatch = rest.match(/^every\s+(\d+)\s+(.+)$/i);
+          if (everyMatch) {
+            const [, everyRaw, prompt] = everyMatch;
+            const everyMs = Number.parseInt(everyRaw, 10);
+            if (!Number.isFinite(everyMs) || everyMs < 10_000) {
+              return badCommand(
+                'Invalid Interval',
+                'Interval must be at least 10000ms.',
+              );
+            }
+            const taskId = createTask(
+              session.id,
+              req.channelId,
+              '',
+              prompt,
+              undefined,
+              everyMs,
+            );
+            rearmScheduler();
+            return plainCommand(
+              `Task #${taskId} created: every \`${everyMs}ms\` — ${prompt}`,
+            );
+          }
+
+          const cronMatch = rest.match(/^"([^"]+)"\s+(.+)$/);
+          if (!cronMatch) {
             return badCommand(
-              'Invalid Time',
-              `\`${runAtRaw}\` is not a valid ISO timestamp.`,
+              'Usage',
+              'Usage: `schedule add "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>`',
+            );
+          }
+          const [, cronExpr, prompt] = cronMatch;
+          try {
+            CronExpressionParser.parse(cronExpr);
+          } catch {
+            return badCommand(
+              'Invalid Cron',
+              `\`${cronExpr}\` is not a valid cron expression.`,
             );
           }
           const taskId = createTask(
-            session.id,
-            req.channelId,
-            '',
-            prompt,
-            parsedDate.toISOString(),
-          );
-          rearmScheduler();
-          return plainCommand(
-            `Task #${taskId} created: one-shot at \`${parsedDate.toISOString()}\` — ${prompt}`,
-          );
-        }
-
-        const everyMatch = rest.match(/^every\s+(\d+)\s+(.+)$/i);
-        if (everyMatch) {
-          const [, everyRaw, prompt] = everyMatch;
-          const everyMs = Number.parseInt(everyRaw, 10);
-          if (!Number.isFinite(everyMs) || everyMs < 10_000) {
-            return badCommand(
-              'Invalid Interval',
-              'Interval must be at least 10000ms.',
-            );
-          }
-          const taskId = createTask(
-            session.id,
-            req.channelId,
-            '',
-            prompt,
-            undefined,
-            everyMs,
-          );
-          rearmScheduler();
-          return plainCommand(
-            `Task #${taskId} created: every \`${everyMs}ms\` — ${prompt}`,
-          );
-        }
-
-        const cronMatch = rest.match(/^"([^"]+)"\s+(.+)$/);
-        if (!cronMatch) {
-          return badCommand(
-            'Usage',
-            'Usage: `schedule add "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>`',
-          );
-        }
-        const [, cronExpr, prompt] = cronMatch;
-        try {
-          CronExpressionParser.parse(cronExpr);
-        } catch {
-          return badCommand(
-            'Invalid Cron',
-            `\`${cronExpr}\` is not a valid cron expression.`,
-          );
-        }
-        const taskId = createTask(
             session.id,
             req.channelId,
             cronExpr,
