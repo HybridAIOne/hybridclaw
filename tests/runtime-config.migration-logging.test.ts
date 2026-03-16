@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -54,7 +55,19 @@ async function importFreshRuntimeConfig(homeDir: string): Promise<void> {
   await import('../src/config/runtime-config.ts');
 }
 
+type FakeWatcher = EventEmitter &
+  fs.FSWatcher & {
+    close: ReturnType<typeof vi.fn>;
+  };
+
+function createFakeWatcher(): FakeWatcher {
+  const watcher = new EventEmitter() as FakeWatcher;
+  watcher.close = vi.fn();
+  return watcher;
+}
+
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
@@ -295,5 +308,158 @@ describe('runtime config migration logging', () => {
     await importFreshRuntimeConfig(homeDir);
 
     expect(watchSpy).not.toHaveBeenCalled();
+  });
+
+  it('disables the fs watcher without retrying when watch descriptors are exhausted', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+    const watchError = Object.assign(
+      new Error('EMFILE: too many open files, watch'),
+      {
+        code: 'EMFILE',
+      },
+    );
+    const watchSpy = vi.spyOn(fs, 'watch').mockImplementation(() => {
+      throw watchError;
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await importFreshRuntimeConfig(homeDir);
+
+    expect(watchSpy).toHaveBeenCalledTimes(1);
+    expect(
+      warnSpy.mock.calls.some(([message]) =>
+        String(message).includes(
+          '[runtime-config] watcher disabled: EMFILE: too many open files, watch',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      warnSpy.mock.calls.some(([message]) =>
+        String(message).includes('[runtime-config] watcher restart in'),
+      ),
+    ).toBe(false);
+  });
+
+  it('disables the fs watcher without retrying when the watcher emits an async EMFILE error', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+    vi.useFakeTimers();
+    const watchError = Object.assign(
+      new Error('EMFILE: too many open files, watch'),
+      {
+        code: 'EMFILE',
+      },
+    );
+    const fakeWatcher = new EventEmitter() as EventEmitter &
+      fs.FSWatcher & {
+        close: ReturnType<typeof vi.fn>;
+      };
+    fakeWatcher.close = vi.fn();
+    const watchSpy = vi
+      .spyOn(fs, 'watch')
+      .mockImplementation(() => fakeWatcher as unknown as fs.FSWatcher);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await importFreshRuntimeConfig(homeDir);
+
+    setTimeout(() => {
+      fakeWatcher.emit('error', watchError);
+    }, 0);
+    await vi.runAllTimersAsync();
+
+    expect(watchSpy).toHaveBeenCalledTimes(1);
+    expect(fakeWatcher.close).toHaveBeenCalledTimes(1);
+    expect(
+      warnSpy.mock.calls.some(([message]) =>
+        String(message).includes(
+          '[runtime-config] watcher disabled: EMFILE: too many open files, watch',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      warnSpy.mock.calls.some(([message]) =>
+        String(message).includes('[runtime-config] watcher restart in'),
+      ),
+    ).toBe(false);
+  });
+
+  it('increments retry attempts when restarted watchers fail before they become stable', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+    vi.useFakeTimers();
+    const retryableError = Object.assign(new Error('EIO: transient watch failure'), {
+      code: 'EIO',
+    });
+    const watchers: FakeWatcher[] = [];
+    const watchSpy = vi.spyOn(fs, 'watch').mockImplementation(() => {
+      const watcher = createFakeWatcher();
+      watchers.push(watcher);
+      return watcher as unknown as fs.FSWatcher;
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await importFreshRuntimeConfig(homeDir);
+
+    setTimeout(() => {
+      watchers[0]?.emit('error', retryableError);
+    }, 0);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    setTimeout(() => {
+      watchers[1]?.emit('error', retryableError);
+    }, 0);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const restartLogs = warnSpy.mock.calls
+      .map(([message]) => String(message))
+      .filter((message) => message.includes('[runtime-config] watcher restart in'));
+
+    expect(watchSpy).toHaveBeenCalledTimes(2);
+    expect(restartLogs.filter((message) => message.includes('attempt 1/10'))).toHaveLength(1);
+    expect(restartLogs.filter((message) => message.includes('attempt 2/10'))).toHaveLength(1);
+  });
+
+  it('resets retry attempts after a restarted watcher stays healthy without file activity', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+    vi.useFakeTimers();
+    const retryableError = Object.assign(new Error('EIO: transient watch failure'), {
+      code: 'EIO',
+    });
+    const watchers: FakeWatcher[] = [];
+    const watchSpy = vi.spyOn(fs, 'watch').mockImplementation(() => {
+      const watcher = createFakeWatcher();
+      watchers.push(watcher);
+      return watcher as unknown as fs.FSWatcher;
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await importFreshRuntimeConfig(homeDir);
+
+    setTimeout(() => {
+      watchers[0]?.emit('error', retryableError);
+    }, 0);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    setTimeout(() => {
+      watchers[1]?.emit('error', retryableError);
+    }, 0);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const restartLogs = warnSpy.mock.calls
+      .map(([message]) => String(message))
+      .filter((message) => message.includes('[runtime-config] watcher restart in'));
+
+    expect(watchSpy).toHaveBeenCalledTimes(2);
+    expect(restartLogs.filter((message) => message.includes('attempt 1/10'))).toHaveLength(2);
+    expect(restartLogs.filter((message) => message.includes('attempt 2/10'))).toHaveLength(0);
   });
 });
