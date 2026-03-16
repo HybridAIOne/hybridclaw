@@ -52,7 +52,8 @@ import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 let db: Database.Database;
 let databaseInitialized = false;
 
-const SCHEMA_VERSION = 9;
+export const DATABASE_SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = DATABASE_SCHEMA_VERSION;
 
 interface InitDatabaseOptions {
   quiet?: boolean;
@@ -99,6 +100,7 @@ interface SkillObservationSummaryRow {
   avg_duration_ms: number;
   tool_calls_attempted: number;
   tool_calls_failed: number;
+  positive_feedback_count: number;
   negative_feedback_count: number;
   last_observed_at: string | null;
 }
@@ -993,6 +995,102 @@ function migrateV9(
   );
 }
 
+function migrateV10(
+  database: Database.Database,
+  _opts?: InitDatabaseOptions,
+): void {
+  const backupTable = 'skill_observations_v10_backup';
+  if (!tableExists(database, backupTable)) {
+    if (!tableExists(database, 'skill_observations')) {
+      recordMigration(
+        database,
+        10,
+        'Add skill observation constraints for outcome and feedback sentiment',
+      );
+      return;
+    }
+    database.exec(`
+      DROP INDEX IF EXISTS idx_skill_observations_skill_created;
+      DROP INDEX IF EXISTS idx_skill_observations_session;
+      ALTER TABLE skill_observations RENAME TO ${backupTable};
+    `);
+  }
+
+  database.exec(`
+    DROP TABLE IF EXISTS skill_observations;
+
+    CREATE TABLE skill_observations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      skill_name TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      outcome TEXT NOT NULL CHECK (outcome IN ('success', 'failure', 'partial')),
+      error_category TEXT,
+      error_detail TEXT,
+      tool_calls_attempted INTEGER NOT NULL DEFAULT 0,
+      tool_calls_failed INTEGER NOT NULL DEFAULT 0,
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      user_feedback TEXT,
+      feedback_sentiment TEXT CHECK (
+        feedback_sentiment IS NULL OR
+        feedback_sentiment IN ('positive', 'negative', 'neutral')
+      ),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+
+    INSERT INTO skill_observations (
+      id,
+      skill_name,
+      session_id,
+      run_id,
+      outcome,
+      error_category,
+      error_detail,
+      tool_calls_attempted,
+      tool_calls_failed,
+      duration_ms,
+      user_feedback,
+      feedback_sentiment,
+      created_at
+    )
+    SELECT
+      id,
+      skill_name,
+      session_id,
+      run_id,
+      CASE
+        WHEN outcome IN ('success', 'failure', 'partial') THEN outcome
+        ELSE 'failure'
+      END AS outcome,
+      error_category,
+      error_detail,
+      tool_calls_attempted,
+      tool_calls_failed,
+      duration_ms,
+      user_feedback,
+      CASE
+        WHEN feedback_sentiment IN ('positive', 'negative', 'neutral')
+          THEN feedback_sentiment
+        ELSE NULL
+      END AS feedback_sentiment,
+      created_at
+    FROM ${backupTable};
+
+    DROP TABLE ${backupTable};
+
+    CREATE INDEX idx_skill_observations_skill_created
+      ON skill_observations(skill_name, created_at);
+    CREATE INDEX idx_skill_observations_session
+      ON skill_observations(session_id);
+  `);
+
+  recordMigration(
+    database,
+    10,
+    'Add skill observation constraints for outcome and feedback sentiment',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1018,6 +1116,7 @@ function runMigrations(
   if (currentVersion < 7) migrateV7(database, opts);
   if (currentVersion < 8) migrateV8(database, opts);
   if (currentVersion < 9) migrateV9(database, opts);
+  if (currentVersion < 10) migrateV10(database, opts);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -3825,6 +3924,10 @@ function mapSkillObservationSummaries(params: {
       Math.floor(row.tool_calls_attempted || 0),
     ),
     tool_calls_failed: Math.max(0, Math.floor(row.tool_calls_failed || 0)),
+    positive_feedback_count: Math.max(
+      0,
+      Math.floor(row.positive_feedback_count || 0),
+    ),
     negative_feedback_count: Math.max(
       0,
       Math.floor(row.negative_feedback_count || 0),
@@ -3834,7 +3937,7 @@ function mapSkillObservationSummaries(params: {
   }));
 }
 
-// --- Skill Cognee ---
+// --- Adaptive Skills ---
 
 export function recordSkillObservation(input: {
   skillName: string;
@@ -3947,6 +4050,20 @@ export function getObservedSkillNames(params?: {
   return rows.map((row) => row.skill_name.trim()).filter(Boolean);
 }
 
+export function pruneSkillObservations(params: {
+  createdBefore: string;
+}): number {
+  const createdBefore = params.createdBefore.trim();
+  if (!createdBefore) return 0;
+  const result = db
+    .prepare(
+      `DELETE FROM skill_observations
+       WHERE created_at < ?`,
+    )
+    .run(createdBefore);
+  return Math.max(0, Number(result.changes || 0));
+}
+
 export function getSkillObservationSummary(params?: {
   skillName?: string;
   createdAfter?: string | null;
@@ -3976,6 +4093,7 @@ export function getSkillObservationSummary(params?: {
          AVG(duration_ms) AS avg_duration_ms,
          COALESCE(SUM(tool_calls_attempted), 0) AS tool_calls_attempted,
          COALESCE(SUM(tool_calls_failed), 0) AS tool_calls_failed,
+         SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
          SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
          MAX(created_at) AS last_observed_at
        FROM skill_observations

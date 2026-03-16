@@ -361,6 +361,56 @@ export interface AdminSkillsResponse {
   skills: AdminSkill[];
 }
 
+export interface AdminAdaptiveSkillErrorCluster {
+  category: string;
+  count: number;
+  sample_detail?: string | null;
+}
+
+export interface AdminAdaptiveSkillHealthMetric {
+  skill_name: string;
+  total_executions: number;
+  success_rate: number;
+  avg_duration_ms: number;
+  error_clusters: AdminAdaptiveSkillErrorCluster[];
+  tool_breakage_rate: number;
+  positive_feedback_count: number;
+  negative_feedback_count: number;
+  degraded: boolean;
+  degradation_reasons: string[];
+  window_started_at: string;
+  window_ended_at: string;
+}
+
+export interface AdminAdaptiveSkillHealthResponse {
+  metrics: AdminAdaptiveSkillHealthMetric[];
+}
+
+export interface AdminAdaptiveSkillAmendment {
+  id: number;
+  skill_name: string;
+  skill_file_path: string;
+  version: number;
+  previous_version: number | null;
+  status: 'staged' | 'applied' | 'rolled_back' | 'rejected';
+  rationale: string;
+  diff_summary: string;
+  proposed_by: string;
+  reviewed_by: string | null;
+  guard_verdict: 'safe' | 'caution' | 'dangerous';
+  guard_findings_count: number;
+  runs_since_apply: number;
+  created_at: string;
+  updated_at: string;
+  applied_at: string | null;
+  rolled_back_at: string | null;
+  rejected_at: string | null;
+}
+
+export interface AdminAdaptiveSkillAmendmentsResponse {
+  amendments: AdminAdaptiveSkillAmendment[];
+}
+
 export interface AdminToolCatalogEntry {
   name: string;
   group: string;

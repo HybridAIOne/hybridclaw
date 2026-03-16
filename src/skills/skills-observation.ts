@@ -1,5 +1,6 @@
 import { recordAuditEvent } from '../audit/audit-events.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
+import { logger } from '../logger.js';
 import {
   attachFeedbackToObservation,
   incrementAmendmentRunCount,
@@ -7,12 +8,15 @@ import {
 } from '../memory/db.js';
 import type { ToolExecution } from '../types.js';
 import type {
+  AdaptiveSkillsConfig,
   SkillErrorCategory,
   SkillExecutionOutcome,
   SkillFeedbackSentiment,
   SkillObservation,
 } from './adaptive-skills-types.js';
 import { evaluateAmendment, rollbackAmendment } from './skills-evaluation.js';
+
+let queuedSkillEvaluationWork: Promise<void> = Promise.resolve();
 
 function firstFailedToolDetail(toolExecutions: ToolExecution[]): string | null {
   for (const execution of toolExecutions) {
@@ -80,6 +84,36 @@ export function deriveSkillExecutionOutcome(params: {
   return 'success';
 }
 
+function queueSkillEvaluation(input: {
+  config: AdaptiveSkillsConfig;
+  skillName: string;
+}): void {
+  const work = queuedSkillEvaluationWork.then(async () => {
+    try {
+      const evaluation = evaluateAmendment({
+        skillName: input.skillName,
+        config: input.config,
+      });
+      if (evaluation.action === 'rollback' && evaluation.amendmentId) {
+        await rollbackAmendment({
+          amendmentId: evaluation.amendmentId,
+          reason: evaluation.reason,
+        });
+      }
+    } catch (error) {
+      logger.warn(
+        { skillName: input.skillName, error },
+        'Failed to evaluate adaptive skill amendment after execution',
+      );
+    }
+  });
+  queuedSkillEvaluationWork = work.catch(() => {});
+}
+
+export async function waitForQueuedSkillEvaluations(): Promise<void> {
+  await queuedSkillEvaluationWork;
+}
+
 export async function recordSkillExecution(input: {
   skillName: string;
   sessionId: string;
@@ -132,13 +166,7 @@ export async function recordSkillExecution(input: {
   const applied = incrementAmendmentRunCount(skillName);
   if (!applied) return observation;
 
-  const evaluation = await evaluateAmendment({ skillName, config });
-  if (evaluation.action === 'rollback' && evaluation.amendmentId) {
-    await rollbackAmendment({
-      amendmentId: evaluation.amendmentId,
-      reason: evaluation.reason,
-    });
-  }
+  queueSkillEvaluation({ skillName, config });
   return observation;
 }
 

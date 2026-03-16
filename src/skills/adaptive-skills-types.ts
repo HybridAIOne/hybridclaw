@@ -49,6 +49,7 @@ export interface SkillObservationSummary {
   avg_duration_ms: number;
   tool_calls_attempted: number;
   tool_calls_failed: number;
+  positive_feedback_count: number;
   negative_feedback_count: number;
   error_clusters: SkillErrorCluster[];
   last_observed_at: string | null;
@@ -61,6 +62,7 @@ export interface SkillHealthMetrics {
   avg_duration_ms: number;
   error_clusters: SkillErrorCluster[];
   tool_breakage_rate: number;
+  positive_feedback_count: number;
   negative_feedback_count: number;
   degraded: boolean;
   degradation_reasons: string[];
@@ -99,6 +101,7 @@ export interface AdaptiveSkillsConfig {
   enabled: boolean;
   observationEnabled: boolean;
   inspectionIntervalMs: number;
+  observationRetentionDays: number;
   trailingWindowHours: number;
   minExecutionsForInspection: number;
   degradationSuccessRateThreshold: number;

@@ -56,6 +56,7 @@ import {
 import type {
   SkillAmendment,
   SkillHealthMetrics,
+  SkillObservation,
 } from './skills/adaptive-skills-types.js';
 import { printUpdateUsage, runUpdateCommand } from './update.js';
 import { sleep } from './utils/sleep.js';
@@ -622,6 +623,7 @@ Commands:
   hybridclaw skill list
   hybridclaw skill inspect <skill-name>
   hybridclaw skill inspect --all
+  hybridclaw skill runs <skill-name>
   hybridclaw skill amend <skill-name>
   hybridclaw skill amend <skill-name> --apply
   hybridclaw skill amend <skill-name> --reject
@@ -632,8 +634,9 @@ Commands:
 Notes:
   - \`list\` shows declared install options from skill frontmatter.
   - \`inspect\` shows observation-based health metrics for a skill or all observed skills.
+  - \`runs\` shows recent execution observations for one skill.
   - \`amend\` stages, applies, rejects, or rolls back skill amendments.
-  - \`history\` shows amendment versions for one skill.
+  - \`history\` shows amendment versions for one skill, not execution runs.
   - \`install\` runs one declared installer (brew, uv, npm, go, download).`);
 }
 
@@ -3294,11 +3297,16 @@ async function handleCodexCommand(args: string[]): Promise<void> {
 }
 
 function printSkillMetrics(metrics: SkillHealthMetrics): void {
+  const formatRatioAsPercent = (value: number): string =>
+    `${(value * 100).toFixed(2)}%`;
   console.log(`Skill: ${metrics.skill_name}`);
   console.log(`Executions: ${metrics.total_executions}`);
-  console.log(`Success rate: ${metrics.success_rate.toFixed(2)}`);
+  console.log(`Success rate: ${formatRatioAsPercent(metrics.success_rate)}`);
   console.log(`Avg duration: ${Math.round(metrics.avg_duration_ms)}ms`);
-  console.log(`Tool breakage: ${metrics.tool_breakage_rate.toFixed(2)}`);
+  console.log(
+    `Tool breakage: ${formatRatioAsPercent(metrics.tool_breakage_rate)}`,
+  );
+  console.log(`Positive feedback: ${metrics.positive_feedback_count}`);
   console.log(`Negative feedback: ${metrics.negative_feedback_count}`);
   console.log(`Degraded: ${metrics.degraded ? 'yes' : 'no'}`);
   if (metrics.degradation_reasons.length > 0) {
@@ -3329,6 +3337,28 @@ function printAmendmentSummary(amendment: SkillAmendment): void {
   }
 }
 
+function printSkillObservationRun(observation: SkillObservation): void {
+  console.log(`Run: ${observation.run_id}`);
+  console.log(`Outcome: ${observation.outcome}`);
+  console.log(`Observed: ${observation.created_at}`);
+  console.log(`Duration: ${observation.duration_ms}ms`);
+  console.log(
+    `Tools: ${observation.tool_calls_failed}/${observation.tool_calls_attempted} failed`,
+  );
+  if (observation.feedback_sentiment) {
+    console.log(`Feedback: ${observation.feedback_sentiment}`);
+  }
+  if (observation.user_feedback) {
+    console.log(`Feedback note: ${observation.user_feedback}`);
+  }
+  if (observation.error_category) {
+    console.log(`Error category: ${observation.error_category}`);
+  }
+  if (observation.error_detail) {
+    console.log(`Error detail: ${observation.error_detail}`);
+  }
+}
+
 async function handleSkillCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
@@ -3338,33 +3368,30 @@ async function handleSkillCommand(args: string[]): Promise<void> {
 
   const sub = normalized[0].toLowerCase();
   if (sub === 'list') {
-    const { loadSkillCatalog } = await import('./skills/skills.js');
-    const { resolveSkillInstallId } = await import(
-      './skills/skills-install.js'
+    const { listSkillCatalogEntries } = await import(
+      './skills/skills-management.js'
     );
-    const catalog = loadSkillCatalog();
+    const catalog = listSkillCatalogEntries();
     for (const skill of catalog) {
       const availability = skill.available
         ? 'available'
         : skill.missing.join(', ');
       console.log(`${skill.name} [${availability}]`);
-      const installs = skill.metadata.hybridclaw.install || [];
-      for (const [index, spec] of installs.entries()) {
-        const installId = resolveSkillInstallId(spec, index);
-        const label = spec.label ? ` — ${spec.label}` : '';
-        console.log(`  ${installId} (${spec.kind})${label}`);
+      for (const install of skill.installs) {
+        const label = install.label ? ` — ${install.label}` : '';
+        console.log(`  ${install.id} (${install.kind})${label}`);
       }
     }
     return;
   }
 
   if (sub === 'inspect') {
-    const { inspectAllSkills, inspectSkill } = await import(
-      './skills/skills-inspection.js'
+    const { inspectObservedSkill, inspectObservedSkills } = await import(
+      './skills/skills-management.js'
     );
     const target = normalized[1];
     if (target === '--all') {
-      const metricsList = inspectAllSkills();
+      const metricsList = inspectObservedSkills();
       if (metricsList.length === 0) {
         console.log(
           'No observed skills found in the current inspection window.',
@@ -3381,7 +3408,7 @@ async function handleSkillCommand(args: string[]): Promise<void> {
       printSkillUsage();
       throw new Error('Missing skill name for `hybridclaw skill inspect`.');
     }
-    printSkillMetrics(inspectSkill(target));
+    printSkillMetrics(inspectObservedSkill(target));
     return;
   }
 
@@ -3393,86 +3420,74 @@ async function handleSkillCommand(args: string[]): Promise<void> {
     }
 
     const { DEFAULT_AGENT_ID } = await import('./agents/agent-types.js');
-    const { getLatestSkillAmendment } = await import('./memory/db.js');
-    const { inspectSkill } = await import('./skills/skills-inspection.js');
-    const { applyAmendment, proposeAmendment, rejectAmendment } = await import(
-      './skills/skills-amendment.js'
+    const { runSkillAmendmentCommand } = await import(
+      './skills/skills-management.js'
     );
-    const { rollbackAmendment } = await import('./skills/skills-evaluation.js');
 
-    if (normalized.includes('--apply')) {
-      const amendment = getLatestSkillAmendment({
-        skillName,
-        status: 'staged',
-      });
-      if (!amendment) {
-        throw new Error(`No staged amendment found for "${skillName}".`);
-      }
-      const result = await applyAmendment({
-        amendmentId: amendment.id,
-        reviewedBy: 'cli',
-      });
-      if (!result.ok) {
-        throw new Error(result.reason || 'Failed to apply amendment.');
-      }
-      console.log(
-        `Applied staged amendment v${amendment.version} for ${skillName}.`,
-      );
-      return;
-    }
+    const action = normalized.includes('--apply')
+      ? 'apply'
+      : normalized.includes('--reject')
+        ? 'reject'
+        : normalized.includes('--rollback')
+          ? 'rollback'
+          : 'propose';
 
-    if (normalized.includes('--reject')) {
-      const amendment = getLatestSkillAmendment({
-        skillName,
-        status: 'staged',
-      });
-      if (!amendment) {
-        throw new Error(`No staged amendment found for "${skillName}".`);
-      }
-      const result = rejectAmendment({
-        amendmentId: amendment.id,
-        reviewedBy: 'cli',
-      });
-      if (!result.ok) {
-        throw new Error(result.reason || 'Failed to reject amendment.');
-      }
-      console.log(
-        `Rejected staged amendment v${amendment.version} for ${skillName}.`,
-      );
-      return;
-    }
-
-    if (normalized.includes('--rollback')) {
-      const amendment = getLatestSkillAmendment({
-        skillName,
-        status: 'applied',
-      });
-      if (!amendment) {
-        throw new Error(`No applied amendment found for "${skillName}".`);
-      }
-      const result = await rollbackAmendment({
-        amendmentId: amendment.id,
-        reason: 'Rollback requested via CLI.',
-      });
-      if (!result.ok) {
-        throw new Error(result.reason || 'Failed to roll back amendment.');
-      }
-      console.log(
-        `Rolled back amendment v${amendment.version} for ${skillName}.`,
-      );
-      return;
-    }
-
-    const amendment = await proposeAmendment({
+    const result = await runSkillAmendmentCommand({
       skillName,
-      metrics: inspectSkill(skillName),
+      action,
+      reviewedBy: 'cli',
       agentId: DEFAULT_AGENT_ID,
+      rollbackReason: 'Rollback requested via CLI.',
     });
-    console.log(`Staged amendment v${amendment.version} for ${skillName}.`);
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+    if (result.action === 'applied') {
+      console.log(
+        `Applied staged amendment v${result.amendment.version} for ${skillName}.`,
+      );
+      return;
+    }
+    if (result.action === 'rejected') {
+      console.log(
+        `Rejected staged amendment v${result.amendment.version} for ${skillName}.`,
+      );
+      return;
+    }
+    if (result.action === 'rolled_back') {
+      console.log(
+        `Rolled back amendment v${result.amendment.version} for ${skillName}.`,
+      );
+      return;
+    }
     console.log(
-      `Guard: ${amendment.guard_verdict} (${amendment.guard_findings_count} finding(s))`,
+      `Staged amendment v${result.amendment.version} for ${skillName}.`,
     );
-    console.log(`Diff: ${amendment.diff_summary}`);
+    console.log(
+      `Guard: ${result.amendment.guard_verdict} (${result.amendment.guard_findings_count} finding(s))`,
+    );
+    console.log(`Diff: ${result.amendment.diff_summary}`);
+    return;
+  }
+
+  if (sub === 'runs') {
+    const skillName = normalized[1];
+    if (!skillName) {
+      printSkillUsage();
+      throw new Error('Missing skill name for `hybridclaw skill runs`.');
+    }
+    const { getSkillExecutionRuns } = await import(
+      './skills/skills-management.js'
+    );
+    const runs = getSkillExecutionRuns(skillName);
+    if (runs.length === 0) {
+      console.log(`No observations found for ${skillName}.`);
+      return;
+    }
+    for (const [index, observation] of runs.entries()) {
+      if (index > 0) console.log('');
+      printSkillObservationRun(observation);
+    }
     return;
   }
 
@@ -3482,8 +3497,10 @@ async function handleSkillCommand(args: string[]): Promise<void> {
       printSkillUsage();
       throw new Error('Missing skill name for `hybridclaw skill history`.');
     }
-    const { getAmendmentHistory } = await import('./memory/db.js');
-    const history = getAmendmentHistory(skillName);
+    const { getSkillAmendmentHistory } = await import(
+      './skills/skills-management.js'
+    );
+    const history = getSkillAmendmentHistory(skillName);
     if (history.length === 0) {
       console.log(`No amendment history found for ${skillName}.`);
       return;

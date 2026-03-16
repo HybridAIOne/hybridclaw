@@ -923,7 +923,8 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'skill',
-      description: 'Inspect skill health and manage staged skill amendments',
+      description:
+        'Inspect skill health, review recent runs, and manage amendments',
       tuiOnly: true,
       options: [
         {
@@ -950,6 +951,19 @@ function buildSlashCommandCatalogDefinitions(
               insertText: '/skill inspect --all',
               description:
                 'Inspect all skills with observations in the current window',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'runs',
+          description: 'Show recent execution observations for a skill',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name',
+              required: true,
             },
           ],
         },

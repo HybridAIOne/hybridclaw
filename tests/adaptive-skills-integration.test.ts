@@ -65,14 +65,14 @@ Keep the response concise.
   });
 
   const { getLatestSkillAmendment } = await import('../src/memory/db.ts');
-  const { runPeriodicSkillInspection } = await import(
-    '../src/skills/skills-inspection.ts'
-  );
-  const { recordSkillExecution } = await import(
+  const { runPeriodicSkillInspection, waitForQueuedSkillAmendments } =
+    await import('../src/skills/skills-inspection.ts');
+  const { recordSkillExecution, waitForQueuedSkillEvaluations } = await import(
     '../src/skills/skills-observation.ts'
   );
 
   await runPeriodicSkillInspection({ agentId: 'main' });
+  await waitForQueuedSkillAmendments();
 
   const applied = getLatestSkillAmendment({
     skillName: context.skillName,
@@ -93,6 +93,7 @@ Keep the response concise.
     errorCategory: 'model_error',
     errorDetail: 'still failed',
   });
+  await waitForQueuedSkillEvaluations();
 
   const rolledBack = getLatestSkillAmendment({
     skillName: context.skillName,

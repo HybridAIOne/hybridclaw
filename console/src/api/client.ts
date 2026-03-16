@@ -1,4 +1,6 @@
 import type {
+  AdminAdaptiveSkillAmendmentsResponse,
+  AdminAdaptiveSkillHealthResponse,
   AdminAuditResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
@@ -308,6 +310,63 @@ export function fetchAudit(
 
 export function fetchSkills(token: string): Promise<AdminSkillsResponse> {
   return requestJson<AdminSkillsResponse>('/api/admin/skills', { token });
+}
+
+export function fetchAdaptiveSkillHealth(
+  token: string,
+): Promise<AdminAdaptiveSkillHealthResponse> {
+  return requestJson<AdminAdaptiveSkillHealthResponse>('/api/skills/health', {
+    token,
+  });
+}
+
+export function fetchAdaptiveSkillAmendments(
+  token: string,
+): Promise<AdminAdaptiveSkillAmendmentsResponse> {
+  return requestJson<AdminAdaptiveSkillAmendmentsResponse>(
+    '/api/skills/amendments',
+    { token },
+  );
+}
+
+export function fetchAdaptiveSkillAmendmentHistory(
+  token: string,
+  skillName: string,
+): Promise<AdminAdaptiveSkillAmendmentsResponse> {
+  return requestJson<AdminAdaptiveSkillAmendmentsResponse>(
+    `/api/skills/amendments/${encodeURIComponent(skillName)}`,
+    { token },
+  );
+}
+
+export function applyAdaptiveSkillAmendment(
+  token: string,
+  skillName: string,
+  reviewedBy = 'console',
+): Promise<{ ok: boolean; reason?: string; amendmentId?: number }> {
+  return requestJson<{ ok: boolean; reason?: string; amendmentId?: number }>(
+    `/api/skills/amendments/${encodeURIComponent(skillName)}/apply`,
+    {
+      token,
+      method: 'POST',
+      body: { reviewedBy },
+    },
+  );
+}
+
+export function rejectAdaptiveSkillAmendment(
+  token: string,
+  skillName: string,
+  reviewedBy = 'console',
+): Promise<{ ok: boolean; reason?: string; amendmentId?: number }> {
+  return requestJson<{ ok: boolean; reason?: string; amendmentId?: number }>(
+    `/api/skills/amendments/${encodeURIComponent(skillName)}/reject`,
+    {
+      token,
+      method: 'POST',
+      body: { reviewedBy },
+    },
+  );
 }
 
 export function fetchTools(token: string): Promise<AdminToolsResponse> {

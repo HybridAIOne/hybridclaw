@@ -714,6 +714,29 @@ th {
   border-color: #fecaca;
 }
 
+.table-link-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.table-link-button:hover {
+  color: var(--accent);
+}
+
+.skill-review-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .empty-state,
 .success-banner,
 .error-banner,

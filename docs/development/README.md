@@ -15,3 +15,5 @@ top-level contributor quickstart.
   publish flow
 - [Skills Internals](./skills.md) for skill roots, precedence, and invocation
   rules
+- [AdaptiveSkills](./adaptive-skills.md) for the self-improving skill loop,
+  retention, and operator workflows

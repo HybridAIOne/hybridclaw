@@ -50,7 +50,49 @@ test('skill inspect command reports observed skill health', async () => {
   expect(result.title).toBe('Skill Health');
   expect(result.text).toContain(`Skill: ${context.skillName}`);
   expect(result.text).toContain('Executions: 1');
-  expect(result.text).toContain('Tool breakage: 0.50');
+  expect(result.text).toContain('Success rate: 0.00%');
+  expect(result.text).toContain('Tool breakage: 50.00%');
+});
+
+test('skill runs command reports recent execution observations', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  context.dbModule.recordSkillObservation({
+    skillName: context.skillName,
+    sessionId: 'session-runs',
+    runId: 'run-runs',
+    outcome: 'partial',
+    errorCategory: 'tool_error',
+    errorDetail: 'approval denied',
+    toolCallsAttempted: 3,
+    toolCallsFailed: 1,
+    durationMs: 250,
+  });
+  context.dbModule.attachFeedbackToObservation({
+    sessionId: 'session-runs',
+    feedback: 'Needs retry',
+    sentiment: 'negative',
+  });
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-runs',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'runs', context.skillName],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe(`Skill Runs (${context.skillName})`);
+  expect(result.text).toContain('Run: run-runs');
+  expect(result.text).toContain('Outcome: partial');
+  expect(result.text).toContain('Tools: 1/3 failed');
+  expect(result.text).toContain('Feedback: negative');
+  expect(result.text).toContain('Error detail: approval denied');
 });
 
 test('skill amend and history commands stage and show amendments', async () => {

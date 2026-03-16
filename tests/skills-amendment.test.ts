@@ -127,3 +127,50 @@ Keep the response concise.
   expect(applied.ok).toBe(false);
   expect(applied.reason).toContain('changed since the amendment was proposed');
 });
+
+test('diff summary treats inserted lines as additions instead of wholesale changes', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  context.dbModule.recordSkillObservation({
+    skillName: context.skillName,
+    sessionId: 'session-1',
+    runId: 'run-1',
+    outcome: 'failure',
+    errorCategory: 'model_error',
+    errorDetail: 'opening checklist is missing',
+    toolCallsAttempted: 1,
+    toolCallsFailed: 0,
+    durationMs: 75,
+  });
+
+  runAgentMock.mockResolvedValueOnce({
+    status: 'success',
+    result: JSON.stringify({
+      rationale: 'Add a short opening checklist.',
+      content: `---
+name: ${context.skillName}
+description: Demo skill for tests
+---
+Start by listing the exact steps you will take.
+Follow the user's request carefully.
+Keep the response concise.
+`,
+    }),
+    toolsUsed: [],
+  });
+
+  const { inspectSkill } = await import('../src/skills/skills-inspection.ts');
+  const { proposeAmendment } = await import(
+    '../src/skills/skills-amendment.ts'
+  );
+
+  const amendment = await proposeAmendment({
+    skillName: context.skillName,
+    metrics: inspectSkill(context.skillName),
+    agentId: 'main',
+  });
+
+  expect(amendment.diff_summary).toContain(
+    'Changed 0 line(s); added 1; removed 0.',
+  );
+  expect(amendment.diff_summary).toContain('Samples: add line');
+});

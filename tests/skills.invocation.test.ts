@@ -4,7 +4,11 @@ import path from 'node:path';
 
 import { afterEach, expect, test } from 'vitest';
 
-import { expandSkillInvocation, type Skill } from '../src/skills/skills.js';
+import {
+  expandSkillInvocation,
+  resolveObservedSkillName,
+  type Skill,
+} from '../src/skills/skills.js';
 
 const tempDirs: string[] = [];
 
@@ -98,4 +102,79 @@ test('expands $skill mentions into explicit skill instructions', () => {
 
   expect(expanded).toContain('[Explicit skill invocation]');
   expect(expanded).toContain('Skill input: next track');
+});
+
+test('resolves a single implicitly read skill as observed skill use', () => {
+  const appleMusic = makeTempSkill('apple-music');
+
+  const observedSkillName = resolveObservedSkillName({
+    skills: [appleMusic],
+    toolExecutions: [
+      {
+        name: 'read',
+        arguments: '{"path":"skills/apple-music/SKILL.md"}',
+        result: 'ok',
+        durationMs: 5,
+      },
+    ],
+  });
+
+  expect(observedSkillName).toBe('apple-music');
+});
+
+test('prefers a single strongly activated skill over ambiguous skill reads', () => {
+  const appleMusic = makeTempSkill('apple-music');
+  const pdf = makeTempSkill('pdf');
+
+  const observedSkillName = resolveObservedSkillName({
+    skills: [appleMusic, pdf],
+    toolExecutions: [
+      {
+        name: 'read',
+        arguments: '{"path":"skills/apple-music/SKILL.md"}',
+        result: 'ok',
+        durationMs: 5,
+      },
+      {
+        name: 'read',
+        arguments: '{"path":"skills/pdf/SKILL.md"}',
+        result: 'ok',
+        durationMs: 5,
+      },
+      {
+        name: 'bash',
+        arguments:
+          '{"cmd":"bash skills/apple-music/scripts/search.sh \\"Phil Collins\\""}',
+        result: 'ok',
+        durationMs: 12,
+      },
+    ],
+  });
+
+  expect(observedSkillName).toBe('apple-music');
+});
+
+test('leaves implicit skill observations unattributed when multiple skills were only explored', () => {
+  const appleMusic = makeTempSkill('apple-music');
+  const pdf = makeTempSkill('pdf');
+
+  const observedSkillName = resolveObservedSkillName({
+    skills: [appleMusic, pdf],
+    toolExecutions: [
+      {
+        name: 'read',
+        arguments: '{"path":"skills/apple-music/SKILL.md"}',
+        result: 'ok',
+        durationMs: 5,
+      },
+      {
+        name: 'read',
+        arguments: '{"path":"skills/pdf/SKILL.md"}',
+        result: 'ok',
+        durationMs: 5,
+      },
+    ],
+  });
+
+  expect(observedSkillName).toBeNull();
 });

@@ -8,6 +8,7 @@ import {
   addKnowledgeEntity,
   addKnowledgeRelation,
   appendCanonicalMessages,
+  DATABASE_SCHEMA_VERSION,
   decaySemanticMemories,
   deleteMemoryValue,
   forgetSemanticMemory,
@@ -310,7 +311,7 @@ describe.sequential('schema migrations', () => {
     inspect.close();
 
     expect(String(journalMode).toLowerCase()).toBe('wal');
-    expect(Number(schemaVersion)).toBe(8);
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
   });
 
   test('migrates legacy memory_kv rows and creates knowledge graph tables', () => {
@@ -394,7 +395,7 @@ describe.sequential('schema migrations', () => {
       .get() as { name: string } | undefined;
     inspect.close();
 
-    expect(Number(schemaVersion)).toBe(8);
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
     expect(hasEntities?.name).toBe('entities');
     expect(hasRelations?.name).toBe('relations');
     expect(hasCanonical?.name).toBe('canonical_sessions');

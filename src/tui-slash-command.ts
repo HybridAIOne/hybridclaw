@@ -52,6 +52,7 @@ export function mapTuiSlashCommandToGatewayArgs(
     if (
       sub === 'list' ||
       sub === 'inspect' ||
+      sub === 'runs' ||
       sub === 'amend' ||
       sub === 'history'
     ) {

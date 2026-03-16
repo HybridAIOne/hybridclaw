@@ -18,7 +18,7 @@ import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
 import type { McpServerConfig } from '../types.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 14;
+export const CONFIG_VERSION = 15;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
@@ -530,6 +530,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     enabled: false,
     observationEnabled: true,
     inspectionIntervalMs: 3_600_000,
+    observationRetentionDays: 30,
     trailingWindowHours: 168,
     minExecutionsForInspection: 5,
     degradationSuccessRateThreshold: 0.6,
@@ -2661,6 +2662,11 @@ function normalizeRuntimeConfig(
         rawAdaptiveSkills.inspectionIntervalMs,
         DEFAULT_RUNTIME_CONFIG.adaptiveSkills.inspectionIntervalMs,
         { min: 60_000 },
+      ),
+      observationRetentionDays: normalizeInteger(
+        rawAdaptiveSkills.observationRetentionDays,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.observationRetentionDays,
+        { min: 0 },
       ),
       trailingWindowHours: normalizeInteger(
         rawAdaptiveSkills.trailingWindowHours,

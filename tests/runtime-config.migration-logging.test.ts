@@ -391,9 +391,12 @@ describe('runtime config migration logging', () => {
     writeRuntimeConfig(homeDir);
     delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
     vi.useFakeTimers();
-    const retryableError = Object.assign(new Error('EIO: transient watch failure'), {
-      code: 'EIO',
-    });
+    const retryableError = Object.assign(
+      new Error('EIO: transient watch failure'),
+      {
+        code: 'EIO',
+      },
+    );
     const watchers: FakeWatcher[] = [];
     const watchSpy = vi.spyOn(fs, 'watch').mockImplementation(() => {
       const watcher = createFakeWatcher();
@@ -417,11 +420,17 @@ describe('runtime config migration logging', () => {
 
     const restartLogs = warnSpy.mock.calls
       .map(([message]) => String(message))
-      .filter((message) => message.includes('[runtime-config] watcher restart in'));
+      .filter((message) =>
+        message.includes('[runtime-config] watcher restart in'),
+      );
 
     expect(watchSpy).toHaveBeenCalledTimes(2);
-    expect(restartLogs.filter((message) => message.includes('attempt 1/10'))).toHaveLength(1);
-    expect(restartLogs.filter((message) => message.includes('attempt 2/10'))).toHaveLength(1);
+    expect(
+      restartLogs.filter((message) => message.includes('attempt 1/10')),
+    ).toHaveLength(1);
+    expect(
+      restartLogs.filter((message) => message.includes('attempt 2/10')),
+    ).toHaveLength(1);
   });
 
   it('resets retry attempts after a restarted watcher stays healthy without file activity', async () => {
@@ -429,9 +438,12 @@ describe('runtime config migration logging', () => {
     writeRuntimeConfig(homeDir);
     delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
     vi.useFakeTimers();
-    const retryableError = Object.assign(new Error('EIO: transient watch failure'), {
-      code: 'EIO',
-    });
+    const retryableError = Object.assign(
+      new Error('EIO: transient watch failure'),
+      {
+        code: 'EIO',
+      },
+    );
     const watchers: FakeWatcher[] = [];
     const watchSpy = vi.spyOn(fs, 'watch').mockImplementation(() => {
       const watcher = createFakeWatcher();
@@ -456,10 +468,16 @@ describe('runtime config migration logging', () => {
 
     const restartLogs = warnSpy.mock.calls
       .map(([message]) => String(message))
-      .filter((message) => message.includes('[runtime-config] watcher restart in'));
+      .filter((message) =>
+        message.includes('[runtime-config] watcher restart in'),
+      );
 
     expect(watchSpy).toHaveBeenCalledTimes(2);
-    expect(restartLogs.filter((message) => message.includes('attempt 1/10'))).toHaveLength(2);
-    expect(restartLogs.filter((message) => message.includes('attempt 2/10'))).toHaveLength(0);
+    expect(
+      restartLogs.filter((message) => message.includes('attempt 1/10')),
+    ).toHaveLength(2);
+    expect(
+      restartLogs.filter((message) => message.includes('attempt 2/10')),
+    ).toHaveLength(0);
   });
 });

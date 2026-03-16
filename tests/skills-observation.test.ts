@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { afterEach, expect, test } from 'vitest';
 import type { AdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
 import { createAdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
@@ -63,19 +64,44 @@ test('records skill executions and attaches negative feedback', async () => {
   expect(feedback?.feedback_sentiment).toBe('negative');
   expect(feedback?.user_feedback).toBe('Thumbs down');
 
+  await recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-2',
+    runId: 'run-2',
+    toolExecutions: [
+      {
+        name: 'read',
+        arguments: '{"path":"README.md"}',
+        result: 'ok',
+        durationMs: 5,
+      },
+    ],
+    outcome: 'success',
+    durationMs: 75,
+  });
+  const positiveFeedback = recordSkillFeedback({
+    sessionId: 'session-2',
+    feedback: 'Thumbs up',
+    sentiment: 'positive',
+  });
+  expect(positiveFeedback?.feedback_sentiment).toBe('positive');
+
   const observations = context.dbModule.getSkillObservations({
     skillName: context.skillName,
   });
-  expect(observations).toHaveLength(1);
-  expect(observations[0]?.feedback_sentiment).toBe('negative');
+  expect(observations).toHaveLength(2);
+  expect(
+    observations.map((observation) => observation.feedback_sentiment),
+  ).toEqual(['positive', 'negative']);
 
   const summary = context.dbModule.getSkillObservationSummary({
     skillName: context.skillName,
   })[0];
   expect(summary).toMatchObject({
-    total_executions: 1,
+    total_executions: 2,
+    positive_feedback_count: 1,
     negative_feedback_count: 1,
-    tool_calls_attempted: 2,
+    tool_calls_attempted: 3,
     tool_calls_failed: 1,
   });
   expect(summary?.error_clusters).toEqual([
@@ -95,4 +121,50 @@ test('classifies timeout and environment-change failures', async () => {
   expect(classifyErrorCategory([], 'ENOENT: no such file or directory')).toBe(
     'env_changed',
   );
+});
+
+test('skill observation table enforces outcome and feedback sentiment constraints', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  const database = new Database(context.dbPath);
+  try {
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO skill_observations (
+             skill_name,
+             session_id,
+             run_id,
+             outcome
+           ) VALUES (?, ?, ?, ?)`,
+        )
+        .run(
+          context.skillName,
+          'session-invalid-outcome',
+          'run-invalid',
+          'wat',
+        ),
+    ).toThrow(/CHECK constraint failed/);
+
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO skill_observations (
+             skill_name,
+             session_id,
+             run_id,
+             outcome,
+             feedback_sentiment
+           ) VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(
+          context.skillName,
+          'session-invalid-feedback',
+          'run-invalid',
+          'success',
+          'celebratory',
+        ),
+    ).toThrow(/CHECK constraint failed/);
+  } finally {
+    database.close();
+  }
 });

@@ -521,7 +521,7 @@ function printHelp(): void {
     `  ${TEAL}/audit [sessionId]${RESET} Show recent structured audit events`,
   );
   console.log(
-    `  ${TEAL}/skill list|inspect <name>|inspect --all|amend <name> [--apply|--reject|--rollback]|history <name>${RESET} Manage skill health and amendments`,
+    `  ${TEAL}/skill list|inspect <name>|inspect --all|runs <name>|amend <name> [--apply|--reject|--rollback]|history <name>${RESET} Manage skill health, runs, and amendments`,
   );
   console.log(
     `  ${TEAL}/schedule add "<cron>" <prompt>${RESET} Add a scheduled task`,

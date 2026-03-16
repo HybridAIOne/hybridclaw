@@ -14,6 +14,7 @@ import { getRuntimeConfig } from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import type { ToolExecution } from '../types.js';
 import { guardSkillDirectory } from './skills-guard.js';
 
 type SkillSource =
@@ -193,6 +194,10 @@ function escapeXml(text: string): string {
 
 function toPosixPath(p: string): string {
   return p.split(path.sep).join('/');
+}
+
+function normalizeComparablePath(p: string): string {
+  return toPosixPath(p).replace(/\\/g, '/').toLowerCase();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1138,6 +1143,123 @@ export interface SkillInvocation {
 export interface ExpandedSkillInvocation {
   content: string;
   invocation: SkillInvocation | null;
+}
+
+function parseToolExecutionArguments(
+  raw: string,
+): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function collectStringLeaves(value: unknown, out: string[]): void {
+  if (typeof value === 'string') {
+    out.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectStringLeaves(entry, out);
+    return;
+  }
+  if (!isRecord(value)) return;
+  for (const entry of Object.values(value)) {
+    collectStringLeaves(entry, out);
+  }
+}
+
+const TOOL_REFERENCE_TOKEN_RE = /[A-Za-z0-9_.~/-]+(?:\/[A-Za-z0-9_.~/-]+)+/g;
+
+function extractToolReferenceTokens(execution: ToolExecution): string[] {
+  const rawValues: string[] = [];
+  const parsedArgs = parseToolExecutionArguments(execution.arguments || '{}');
+  if (parsedArgs) collectStringLeaves(parsedArgs, rawValues);
+  if (execution.arguments) rawValues.push(execution.arguments);
+
+  const tokens = new Set<string>();
+  for (const rawValue of rawValues) {
+    const matches = rawValue.replace(/\\/g, '/').match(TOOL_REFERENCE_TOKEN_RE);
+    if (!matches) continue;
+    for (const match of matches) {
+      tokens.add(normalizeComparablePath(match));
+    }
+  }
+  return Array.from(tokens);
+}
+
+function resolveSkillReferenceSets(skill: Skill): {
+  weakFiles: Set<string>;
+  strongDirs: Set<string>;
+} {
+  const weakFiles = new Set<string>();
+  const strongDirs = new Set<string>();
+
+  const weakCandidates = [skill.location, skill.filePath];
+  for (const candidate of weakCandidates) {
+    const normalized = normalizeComparablePath(candidate);
+    if (!normalized) continue;
+    weakFiles.add(normalized);
+  }
+
+  const strongCandidates = [
+    path.posix.dirname(toPosixPath(skill.location)),
+    path.dirname(skill.filePath),
+    skill.baseDir,
+  ];
+  for (const candidate of strongCandidates) {
+    const normalized = normalizeComparablePath(candidate);
+    if (!normalized || normalized === '.') continue;
+    strongDirs.add(normalized);
+  }
+
+  return { weakFiles, strongDirs };
+}
+
+export function resolveObservedSkillName(input: {
+  explicitSkillName?: string | null;
+  toolExecutions: ToolExecution[];
+  skills: Skill[];
+}): string | null {
+  const explicitSkillName = input.explicitSkillName?.trim();
+  if (explicitSkillName) return explicitSkillName;
+  if (input.toolExecutions.length === 0 || input.skills.length === 0)
+    return null;
+
+  const weakMatches = new Set<string>();
+  const strongMatches = new Set<string>();
+  const referenceTokens = input.toolExecutions.flatMap(
+    extractToolReferenceTokens,
+  );
+  if (referenceTokens.length === 0) return null;
+
+  for (const skill of input.skills) {
+    const { weakFiles, strongDirs } = resolveSkillReferenceSets(skill);
+
+    for (const token of referenceTokens) {
+      if (weakFiles.has(token)) {
+        weakMatches.add(skill.name);
+        continue;
+      }
+      for (const dir of strongDirs) {
+        if (token === dir || token.startsWith(`${dir}/`)) {
+          strongMatches.add(skill.name);
+          break;
+        }
+      }
+    }
+  }
+
+  if (strongMatches.size === 1) {
+    return strongMatches.values().next().value || null;
+  }
+  if (strongMatches.size > 1) return null;
+  if (weakMatches.size === 1) {
+    return weakMatches.values().next().value || null;
+  }
+  return null;
 }
 
 export function resolveExplicitSkillInvocation(

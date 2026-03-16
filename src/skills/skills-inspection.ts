@@ -7,6 +7,7 @@ import {
   getMemoryValue,
   getObservedSkillNames,
   getSkillObservationSummary,
+  pruneSkillObservations,
   setMemoryValue,
 } from '../memory/db.js';
 import type {
@@ -16,6 +17,9 @@ import type {
 import { applyAmendment, proposeAmendment } from './skills-amendment.js';
 
 const LAST_INSPECTION_KEY = 'adaptive-skills:last-inspection-at';
+const LAST_OBSERVATION_PRUNE_KEY = 'adaptive-skills:last-observation-prune-at';
+const queuedSkillAmendments = new Set<string>();
+let queuedSkillAmendmentWork: Promise<void> = Promise.resolve();
 
 function resolveConfig(config?: AdaptiveSkillsConfig): AdaptiveSkillsConfig {
   return config || getRuntimeConfig().adaptiveSkills;
@@ -27,6 +31,51 @@ function windowStartIso(config: AdaptiveSkillsConfig): string {
   ).toISOString();
 }
 
+function observationRetentionCutoffIso(
+  config: AdaptiveSkillsConfig,
+): string | null {
+  if (config.observationRetentionDays <= 0) return null;
+  return new Date(
+    Date.now() - config.observationRetentionDays * 24 * 60 * 60 * 1000,
+  ).toISOString();
+}
+
+function shouldRunScheduledWork(
+  agentId: string,
+  key: string,
+  intervalMs: number,
+  now: number,
+): boolean {
+  const lastRunRaw = getMemoryValue(agentId, key);
+  const lastRunMs =
+    typeof lastRunRaw === 'string' ? Date.parse(lastRunRaw) : Number.NaN;
+  if (Number.isFinite(lastRunMs) && now - lastRunMs < intervalMs) {
+    return false;
+  }
+  setMemoryValue(agentId, key, new Date(now).toISOString());
+  return true;
+}
+
+function runObservationPruneIfDue(
+  agentId: string,
+  config: AdaptiveSkillsConfig,
+  now: number,
+): number {
+  const cutoffIso = observationRetentionCutoffIso(config);
+  if (!cutoffIso || !config.observationEnabled) return 0;
+  if (
+    !shouldRunScheduledWork(
+      agentId,
+      LAST_OBSERVATION_PRUNE_KEY,
+      config.inspectionIntervalMs,
+      now,
+    )
+  ) {
+    return 0;
+  }
+  return pruneSkillObservations({ createdBefore: cutoffIso });
+}
+
 function inspectionSeverity(metrics: SkillHealthMetrics): number {
   if (!metrics.degraded) return 0;
   return (
@@ -34,6 +83,58 @@ function inspectionSeverity(metrics: SkillHealthMetrics): number {
     Math.round((1 - metrics.success_rate) * 100) +
     Math.round(metrics.tool_breakage_rate * 100)
   );
+}
+
+function queueSkillAmendmentProposal(input: {
+  agentId: string;
+  config: AdaptiveSkillsConfig;
+  metrics: SkillHealthMetrics;
+}): void {
+  const queueKey = `${input.agentId}:${input.metrics.skill_name}`;
+  if (queuedSkillAmendments.has(queueKey)) {
+    return;
+  }
+  queuedSkillAmendments.add(queueKey);
+
+  const work = queuedSkillAmendmentWork.then(async () => {
+    try {
+      const latest = getLatestSkillAmendment({
+        skillName: input.metrics.skill_name,
+      });
+      if (latest?.status === 'staged' || latest?.status === 'applied') {
+        return;
+      }
+
+      const amendment = await proposeAmendment({
+        skillName: input.metrics.skill_name,
+        metrics: input.metrics,
+        agentId: input.agentId,
+      });
+      if (
+        input.config.autoApplyEnabled &&
+        amendment.guard_verdict === 'safe' &&
+        amendment.guard_findings_count === 0
+      ) {
+        await applyAmendment({
+          amendmentId: amendment.id,
+          reviewedBy: 'adaptive-skills:auto',
+        });
+      }
+    } catch (error) {
+      logger.warn(
+        { skillName: input.metrics.skill_name, error },
+        'Failed to propose skill amendment during periodic inspection',
+      );
+    } finally {
+      queuedSkillAmendments.delete(queueKey);
+    }
+  });
+
+  queuedSkillAmendmentWork = work.catch(() => {});
+}
+
+export async function waitForQueuedSkillAmendments(): Promise<void> {
+  await queuedSkillAmendmentWork;
 }
 
 export function isDegraded(
@@ -97,6 +198,7 @@ export function inspectSkill(
       summary && summary.tool_calls_attempted > 0
         ? summary.tool_calls_failed / summary.tool_calls_attempted
         : 0,
+    positive_feedback_count: summary?.positive_feedback_count || 0,
     negative_feedback_count: summary?.negative_feedback_count || 0,
     degraded: false,
     degradation_reasons: [],
@@ -131,21 +233,28 @@ export async function runPeriodicSkillInspection(input?: {
   config?: AdaptiveSkillsConfig;
 }): Promise<SkillHealthMetrics[]> {
   const config = resolveConfig(input?.config);
-  if (!config.enabled) return [];
-
   const agentId = input?.agentId || DEFAULT_AGENT_ID;
   const now = Date.now();
-  const lastRunRaw = getMemoryValue(agentId, LAST_INSPECTION_KEY);
-  const lastRunMs =
-    typeof lastRunRaw === 'string' ? Date.parse(lastRunRaw) : Number.NaN;
+  const prunedObservations = runObservationPruneIfDue(agentId, config, now);
+  if (prunedObservations > 0) {
+    logger.info(
+      { prunedObservations },
+      'Pruned expired adaptive skill observations',
+    );
+  }
+
+  if (!config.enabled) return [];
+
   if (
-    Number.isFinite(lastRunMs) &&
-    now - lastRunMs < config.inspectionIntervalMs
+    !shouldRunScheduledWork(
+      agentId,
+      LAST_INSPECTION_KEY,
+      config.inspectionIntervalMs,
+      now,
+    )
   ) {
     return [];
   }
-
-  setMemoryValue(agentId, LAST_INSPECTION_KEY, new Date(now).toISOString());
   const metricsList = inspectAllSkills(config);
   const sessionId = `adaptive-skills:${agentId}`;
   const runId = makeAuditRunId('skill-inspection');
@@ -161,6 +270,7 @@ export async function runPeriodicSkillInspection(input?: {
         successRate: metrics.success_rate,
         avgDurationMs: metrics.avg_duration_ms,
         toolBreakageRate: metrics.tool_breakage_rate,
+        positiveFeedbackCount: metrics.positive_feedback_count,
         negativeFeedbackCount: metrics.negative_feedback_count,
         degraded: metrics.degraded,
         degradationReasons: metrics.degradation_reasons,
@@ -173,28 +283,11 @@ export async function runPeriodicSkillInspection(input?: {
       continue;
     }
 
-    try {
-      const amendment = await proposeAmendment({
-        skillName: metrics.skill_name,
-        metrics,
-        agentId,
-      });
-      if (
-        config.autoApplyEnabled &&
-        amendment.guard_verdict === 'safe' &&
-        amendment.guard_findings_count === 0
-      ) {
-        await applyAmendment({
-          amendmentId: amendment.id,
-          reviewedBy: 'adaptive-skills:auto',
-        });
-      }
-    } catch (error) {
-      logger.warn(
-        { skillName: metrics.skill_name, error },
-        'Failed to propose skill amendment during periodic inspection',
-      );
-    }
+    queueSkillAmendmentProposal({
+      agentId,
+      config,
+      metrics,
+    });
   }
 
   return metricsList;

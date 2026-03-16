@@ -39,6 +39,118 @@ function resolveSkillCatalogEntry(skillName: string) {
   return match;
 }
 
+interface LineDiffOp {
+  type: 'equal' | 'add' | 'remove';
+  line: string;
+  oldLineNumber?: number;
+  newLineNumber?: number;
+}
+
+function previewLine(line: string | undefined): string {
+  const trimmed = line?.trim() || '';
+  return trimmed ? trimmed.slice(0, 60) : '(blank)';
+}
+
+function buildLineDiff(
+  originalLines: string[],
+  proposedLines: string[],
+): LineDiffOp[] {
+  const oldCount = originalLines.length;
+  const newCount = proposedLines.length;
+  const lcs: number[][] = Array.from({ length: oldCount + 1 }, () =>
+    Array<number>(newCount + 1).fill(0),
+  );
+
+  for (let oldIndex = oldCount - 1; oldIndex >= 0; oldIndex -= 1) {
+    for (let newIndex = newCount - 1; newIndex >= 0; newIndex -= 1) {
+      lcs[oldIndex]![newIndex] =
+        originalLines[oldIndex] === proposedLines[newIndex]
+          ? 1 + (lcs[oldIndex + 1]![newIndex + 1] || 0)
+          : Math.max(
+              lcs[oldIndex + 1]![newIndex] || 0,
+              lcs[oldIndex]![newIndex + 1] || 0,
+            );
+    }
+  }
+
+  const operations: LineDiffOp[] = [];
+  let oldIndex = 0;
+  let newIndex = 0;
+  while (oldIndex < oldCount && newIndex < newCount) {
+    if (originalLines[oldIndex] === proposedLines[newIndex]) {
+      operations.push({
+        type: 'equal',
+        line: originalLines[oldIndex] || '',
+        oldLineNumber: oldIndex + 1,
+        newLineNumber: newIndex + 1,
+      });
+      oldIndex += 1;
+      newIndex += 1;
+      continue;
+    }
+    if (
+      (lcs[oldIndex + 1]![newIndex] || 0) >= (lcs[oldIndex]![newIndex + 1] || 0)
+    ) {
+      operations.push({
+        type: 'remove',
+        line: originalLines[oldIndex] || '',
+        oldLineNumber: oldIndex + 1,
+      });
+      oldIndex += 1;
+      continue;
+    }
+    operations.push({
+      type: 'add',
+      line: proposedLines[newIndex] || '',
+      newLineNumber: newIndex + 1,
+    });
+    newIndex += 1;
+  }
+
+  while (oldIndex < oldCount) {
+    operations.push({
+      type: 'remove',
+      line: originalLines[oldIndex] || '',
+      oldLineNumber: oldIndex + 1,
+    });
+    oldIndex += 1;
+  }
+  while (newIndex < newCount) {
+    operations.push({
+      type: 'add',
+      line: proposedLines[newIndex] || '',
+      newLineNumber: newIndex + 1,
+    });
+    newIndex += 1;
+  }
+
+  return operations;
+}
+
+function describeDiffBlock(block: LineDiffOp[]): string {
+  const removedOps = block.filter((entry) => entry.type === 'remove');
+  const addedOps = block.filter((entry) => entry.type === 'add');
+  if (removedOps.length > 0 && addedOps.length > 0) {
+    const anchorLine =
+      removedOps[0]?.oldLineNumber || addedOps[0]?.newLineNumber || 1;
+    const blockNote =
+      removedOps.length === 1 && addedOps.length === 1
+        ? ''
+        : ` (${removedOps.length}->${addedOps.length} lines)`;
+    return `replace near line ${anchorLine}${blockNote}: "${previewLine(
+      removedOps[0]?.line,
+    )}" -> "${previewLine(addedOps[0]?.line)}"`;
+  }
+  if (addedOps.length > 0) {
+    return `add line ${addedOps[0]?.newLineNumber || 1}: "${previewLine(
+      addedOps[0]?.line,
+    )}"`;
+  }
+  return `remove line ${removedOps[0]?.oldLineNumber || 1}: "${previewLine(
+    removedOps[0]?.line,
+  )}"`;
+}
+
 function buildDiffSummary(
   originalContent: string,
   proposedContent: string,
@@ -48,30 +160,35 @@ function buildDiffSummary(
   }
   const originalLines = originalContent.split('\n');
   const proposedLines = proposedContent.split('\n');
-  const maxLines = Math.max(originalLines.length, proposedLines.length);
   let changed = 0;
   let added = 0;
   let removed = 0;
   const samples: string[] = [];
 
-  for (let index = 0; index < maxLines; index += 1) {
-    const before = originalLines[index];
-    const after = proposedLines[index];
-    if (before === after) continue;
-    changed += 1;
-    if (before === undefined) {
-      added += 1;
-    } else if (after === undefined) {
-      removed += 1;
-    }
+  const operations = buildLineDiff(originalLines, proposedLines);
+  let block: LineDiffOp[] = [];
+  const flushBlock = (): void => {
+    if (block.length === 0) return;
+    const removedOps = block.filter((entry) => entry.type === 'remove');
+    const addedOps = block.filter((entry) => entry.type === 'add');
+    const pairedChanges = Math.min(removedOps.length, addedOps.length);
+    changed += pairedChanges;
+    added += Math.max(0, addedOps.length - removedOps.length);
+    removed += Math.max(0, removedOps.length - addedOps.length);
     if (samples.length < 3) {
-      const beforePreview = before ? before.trim().slice(0, 60) : '(none)';
-      const afterPreview = after ? after.trim().slice(0, 60) : '(none)';
-      samples.push(
-        `line ${index + 1}: "${beforePreview}" -> "${afterPreview}"`,
-      );
+      samples.push(describeDiffBlock(block));
     }
+    block = [];
+  };
+
+  for (const operation of operations) {
+    if (operation.type === 'equal') {
+      flushBlock();
+      continue;
+    }
+    block.push(operation);
   }
+  flushBlock();
 
   return [
     `Changed ${changed} line(s); added ${added}; removed ${removed}.`,
