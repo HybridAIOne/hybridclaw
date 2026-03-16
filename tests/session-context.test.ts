@@ -38,6 +38,22 @@ test('buildSessionContext assembles normalized session fields', () => {
   });
 });
 
+test('buildSessionContext includes the active source channel in connected channels', () => {
+  const context = buildSessionContext({
+    source: {
+      channelKind: 'tui',
+      chatId: 'tui',
+      chatType: 'dm',
+      userId: 'tui-user',
+    },
+    agentId: 'main',
+    sessionKey: '20260316_122238_532f05',
+    connectedChannels: ['discord', 'email'],
+  });
+
+  expect(context.connectedChannels).toEqual(['tui', 'discord', 'email']);
+});
+
 test('buildSessionContextPrompt renders Discord context details', () => {
   const prompt = buildSessionContextPrompt(
     buildSessionContext({

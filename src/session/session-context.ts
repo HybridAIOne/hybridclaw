@@ -30,19 +30,27 @@ function normalizeOptional(value?: string | null): string | undefined {
   return normalized || undefined;
 }
 
-function normalizeChannelList(values?: string[]): string[] {
-  if (!Array.isArray(values)) return [];
-  return Array.from(
-    new Set(
-      values
-        .map((value) =>
-          String(value || '')
-            .trim()
-            .toLowerCase(),
-        )
-        .filter(Boolean),
-    ),
-  );
+function normalizeChannelKind(value?: string | null): string | undefined {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return normalized || undefined;
+}
+
+function normalizeChannelList(
+  values?: string[],
+  sourceChannelKind?: string | null,
+): string[] {
+  const normalizedValues = Array.isArray(values)
+    ? values
+        .map((value) => normalizeChannelKind(value))
+        .filter((value): value is string => Boolean(value))
+    : [];
+  const normalizedSourceChannelKind = normalizeChannelKind(sourceChannelKind);
+  if (normalizedSourceChannelKind) {
+    normalizedValues.unshift(normalizedSourceChannelKind);
+  }
+  return Array.from(new Set(normalizedValues));
 }
 
 function formatChannelKind(kind: string): string {
@@ -85,7 +93,10 @@ export function buildSessionContext(params: SessionContext): SessionContext {
     },
     agentId: String(params.agentId || '').trim(),
     sessionKey: String(params.sessionKey || '').trim(),
-    connectedChannels: normalizeChannelList(params.connectedChannels),
+    connectedChannels: normalizeChannelList(
+      params.connectedChannels,
+      params.source.channelKind,
+    ),
   };
 }
 
