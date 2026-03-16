@@ -14,7 +14,7 @@ import {
   normalizeSessionResetMode,
   type SessionResetMode,
 } from '../session/session-reset.js';
-import type { SkillCogneeConfig } from '../skills/skills-cognee-types.js';
+import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
 import type { McpServerConfig } from '../types.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
@@ -309,7 +309,7 @@ export interface RuntimeConfig {
     extraDirs: string[];
     disabled: string[];
   };
-  skillCognee: SkillCogneeConfig;
+  adaptiveSkills: AdaptiveSkillsConfig;
   discord: {
     prefix: string;
     guildMembersIntent: boolean;
@@ -526,7 +526,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     extraDirs: [],
     disabled: [],
   },
-  skillCognee: {
+  adaptiveSkills: {
     enabled: false,
     observationEnabled: true,
     inspectionIntervalMs: 3_600_000,
@@ -2443,7 +2443,14 @@ function normalizeRuntimeConfig(
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
-  const rawSkillCognee = isRecord(raw.skillCognee) ? raw.skillCognee : {};
+  const rawLegacyAdaptiveSkills = isRecord((raw as Record<string, unknown>).skillCognee)
+    ? (raw as Record<string, unknown>).skillCognee
+    : {};
+  const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
+    ? raw.adaptiveSkills
+    : isRecord(rawLegacyAdaptiveSkills)
+      ? rawLegacyAdaptiveSkills
+      : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
@@ -2639,52 +2646,52 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.skills.disabled,
       ),
     },
-    skillCognee: {
+    adaptiveSkills: {
       enabled: normalizeBoolean(
-        rawSkillCognee.enabled,
-        DEFAULT_RUNTIME_CONFIG.skillCognee.enabled,
+        rawAdaptiveSkills.enabled,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.enabled,
       ),
       observationEnabled: normalizeBoolean(
-        rawSkillCognee.observationEnabled,
-        DEFAULT_RUNTIME_CONFIG.skillCognee.observationEnabled,
+        rawAdaptiveSkills.observationEnabled,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.observationEnabled,
       ),
       inspectionIntervalMs: normalizeInteger(
-        rawSkillCognee.inspectionIntervalMs,
-        DEFAULT_RUNTIME_CONFIG.skillCognee.inspectionIntervalMs,
+        rawAdaptiveSkills.inspectionIntervalMs,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.inspectionIntervalMs,
         { min: 60_000 },
       ),
       trailingWindowHours: normalizeInteger(
-        rawSkillCognee.trailingWindowHours,
-        DEFAULT_RUNTIME_CONFIG.skillCognee.trailingWindowHours,
+        rawAdaptiveSkills.trailingWindowHours,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trailingWindowHours,
         { min: 1 },
       ),
       minExecutionsForInspection: normalizeInteger(
-        rawSkillCognee.minExecutionsForInspection,
-        DEFAULT_RUNTIME_CONFIG.skillCognee.minExecutionsForInspection,
+        rawAdaptiveSkills.minExecutionsForInspection,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.minExecutionsForInspection,
         { min: 1 },
       ),
       degradationSuccessRateThreshold: normalizeNumber(
-        rawSkillCognee.degradationSuccessRateThreshold,
-        DEFAULT_RUNTIME_CONFIG.skillCognee.degradationSuccessRateThreshold,
+        rawAdaptiveSkills.degradationSuccessRateThreshold,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.degradationSuccessRateThreshold,
         { min: 0, max: 1 },
       ),
       degradationToolBreakageThreshold: normalizeNumber(
-        rawSkillCognee.degradationToolBreakageThreshold,
-        DEFAULT_RUNTIME_CONFIG.skillCognee.degradationToolBreakageThreshold,
+        rawAdaptiveSkills.degradationToolBreakageThreshold,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.degradationToolBreakageThreshold,
         { min: 0, max: 1 },
       ),
       autoApplyEnabled: normalizeBoolean(
-        rawSkillCognee.autoApplyEnabled,
-        DEFAULT_RUNTIME_CONFIG.skillCognee.autoApplyEnabled,
+        rawAdaptiveSkills.autoApplyEnabled,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.autoApplyEnabled,
       ),
       evaluationRunsBeforeRollback: normalizeInteger(
-        rawSkillCognee.evaluationRunsBeforeRollback,
-        DEFAULT_RUNTIME_CONFIG.skillCognee.evaluationRunsBeforeRollback,
+        rawAdaptiveSkills.evaluationRunsBeforeRollback,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.evaluationRunsBeforeRollback,
         { min: 1 },
       ),
       rollbackImprovementThreshold: normalizeNumber(
-        rawSkillCognee.rollbackImprovementThreshold,
-        DEFAULT_RUNTIME_CONFIG.skillCognee.rollbackImprovementThreshold,
+        rawAdaptiveSkills.rollbackImprovementThreshold,
+        DEFAULT_RUNTIME_CONFIG.adaptiveSkills.rollbackImprovementThreshold,
         { min: 0, max: 1 },
       ),
     },

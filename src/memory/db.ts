@@ -15,14 +15,14 @@ import {
 import type {
   SkillAmendment,
   SkillAmendmentStatus,
-  SkillCogneeGuardVerdict,
+  AdaptiveSkillsGuardVerdict,
   SkillErrorCategory,
   SkillExecutionOutcome,
   SkillFeedbackSentiment,
   SkillHealthMetrics,
   SkillObservation,
   SkillObservationSummary,
-} from '../skills/skills-cognee-types.js';
+} from '../skills/adaptive-skills-types.js';
 import type {
   ApprovalAuditEntry,
   AuditEntry,
@@ -3722,7 +3722,7 @@ function normalizeSkillAmendmentStatusValue(
 
 function normalizeSkillGuardVerdictValue(
   value: string | null | undefined,
-): SkillCogneeGuardVerdict {
+): AdaptiveSkillsGuardVerdict {
   if (value === 'safe' || value === 'caution' || value === 'dangerous') {
     return value;
   }
@@ -4054,7 +4054,7 @@ export function createSkillAmendment(input: {
   diffSummary: string;
   proposedBy: string;
   reviewedBy?: string | null;
-  guardVerdict: SkillCogneeGuardVerdict;
+  guardVerdict: AdaptiveSkillsGuardVerdict;
   guardFindingsCount?: number;
   metricsAtProposal?: SkillHealthMetrics | null;
   metricsPostApply?: SkillHealthMetrics | null;

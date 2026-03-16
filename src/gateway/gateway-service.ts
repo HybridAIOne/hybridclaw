@@ -159,7 +159,7 @@ import {
 import type {
   SkillAmendment,
   SkillHealthMetrics,
-} from '../skills/skills-cognee-types.js';
+} from '../skills/adaptive-skills-types.js';
 import {
   deriveSkillExecutionOutcome,
   recordSkillExecution,

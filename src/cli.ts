@@ -56,7 +56,7 @@ import {
 import type {
   SkillAmendment,
   SkillHealthMetrics,
-} from './skills/skills-cognee-types.js';
+} from './skills/adaptive-skills-types.js';
 import { printUpdateUsage, runUpdateCommand } from './update.js';
 import { sleep } from './utils/sleep.js';
 

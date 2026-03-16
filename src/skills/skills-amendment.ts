@@ -19,7 +19,7 @@ import { loadSkillCatalog } from './skills.js';
 import type {
   SkillAmendment,
   SkillHealthMetrics,
-} from './skills-cognee-types.js';
+} from './adaptive-skills-types.js';
 import { scanSkillContent } from './skills-guard.js';
 
 const AMENDMENT_ALLOWED_TOOLS = ['read', 'grep', 'glob'];
@@ -125,11 +125,11 @@ function parseProposalOutput(text: string): {
 }
 
 async function resolveCogneeRuntime(agentId: string, skillName: string) {
-  const sessionId = `cognee:${skillName}`;
+  const sessionId = `adaptive-skills:${skillName}`;
   const session = memoryService.getOrCreateSession(
     sessionId,
     null,
-    'skill-cognee',
+    'adaptive-skills',
     agentId,
   );
   const resolvedRuntime = resolveAgentForRequest({
@@ -150,8 +150,8 @@ async function resolveCogneeRuntime(agentId: string, skillName: string) {
       chatbotId,
       model,
       defaultModel: model,
-      channelType: 'skill-cognee',
-      channelId: 'skill-cognee',
+      channelType: 'adaptive-skills',
+      channelId: 'adaptive-skills',
       guildId: null,
       workspacePath: path.dirname(resolveSkillCatalogEntry(skillName).filePath),
     },
@@ -215,7 +215,7 @@ export async function proposeAmendment(input: {
     enableRag: runtime.enableRag,
     model: runtime.model,
     agentId: runtime.resolvedAgentId,
-    channelId: 'skill-cognee',
+    channelId: 'adaptive-skills',
     allowedTools: AMENDMENT_ALLOWED_TOOLS,
   });
   if (output.status === 'error' || !output.result?.trim()) {
@@ -301,7 +301,7 @@ export async function applyAmendment(input: {
     resetRunsSinceApply: true,
   });
   recordAuditEvent({
-    sessionId: `cognee:${amendment.skill_name}`,
+    sessionId: `adaptive-skills:${amendment.skill_name}`,
     runId: makeAuditRunId('skill-amendment'),
     event: {
       type: 'skill.amendment.applied',
@@ -332,7 +332,7 @@ export function rejectAmendment(input: {
     reviewedBy: input.reviewedBy,
   });
   recordAuditEvent({
-    sessionId: `cognee:${amendment.skill_name}`,
+    sessionId: `adaptive-skills:${amendment.skill_name}`,
     runId: makeAuditRunId('skill-amendment'),
     event: {
       type: 'skill.amendment.rejected',

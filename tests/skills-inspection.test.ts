@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from 'vitest';
-import type { SkillCogneeTestContext } from './helpers/skill-cognee-test-setup.ts';
-import { createSkillCogneeTestContext } from './helpers/skill-cognee-test-setup.ts';
+import type { AdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
+import { createAdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
 
-let context: SkillCogneeTestContext | null = null;
+let context: AdaptiveSkillsTestContext | null = null;
 
 afterEach(() => {
   context?.cleanup();
@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 test('computes health metrics and degradation reasons from observations', async () => {
-  context = await createSkillCogneeTestContext();
+  context = await createAdaptiveSkillsTestContext();
   const { inspectSkill } = await import('../src/skills/skills-inspection.ts');
 
   for (let index = 0; index < 5; index += 1) {
@@ -54,7 +54,7 @@ test('computes health metrics and degradation reasons from observations', async 
 });
 
 test('inspectAllSkills sorts degraded skills ahead of healthy ones', async () => {
-  context = await createSkillCogneeTestContext();
+  context = await createAdaptiveSkillsTestContext();
   const { inspectAllSkills } = await import(
     '../src/skills/skills-inspection.ts'
   );

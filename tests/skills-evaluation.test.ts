@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import { afterEach, expect, test } from 'vitest';
-import type { SkillCogneeTestContext } from './helpers/skill-cognee-test-setup.ts';
-import { createSkillCogneeTestContext } from './helpers/skill-cognee-test-setup.ts';
+import type { AdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
+import { createAdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
 
-let context: SkillCogneeTestContext | null = null;
+let context: AdaptiveSkillsTestContext | null = null;
 
 afterEach(() => {
   context?.cleanup();
@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 test('evaluates applied amendments and keeps improvements', async () => {
-  context = await createSkillCogneeTestContext();
+  context = await createAdaptiveSkillsTestContext();
   const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
   const { createSkillAmendment, getLatestSkillAmendment } = await import(
     '../src/memory/db.ts'
@@ -71,7 +71,7 @@ test('evaluates applied amendments and keeps improvements', async () => {
 
   const result = evaluateAmendment({
     skillName: context.skillName,
-    config: getRuntimeConfig().skillCognee,
+    config: getRuntimeConfig().adaptiveSkills,
   });
   expect(result.action).toBe('keep');
 
@@ -83,7 +83,7 @@ test('evaluates applied amendments and keeps improvements', async () => {
 });
 
 test('rolls back applied amendments when improvement stays below threshold', async () => {
-  context = await createSkillCogneeTestContext();
+  context = await createAdaptiveSkillsTestContext();
   const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
   const { createSkillAmendment, getSkillAmendmentById } = await import(
     '../src/memory/db.ts'
@@ -137,7 +137,7 @@ test('rolls back applied amendments when improvement stays below threshold', asy
 
   const evaluation = evaluateAmendment({
     skillName: context.skillName,
-    config: getRuntimeConfig().skillCognee,
+    config: getRuntimeConfig().adaptiveSkills,
   });
   expect(evaluation.action).toBe('rollback');
 

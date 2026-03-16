@@ -11,7 +11,7 @@ Follow the user's request carefully.
 Keep the response concise.
 `;
 
-export interface SkillCogneeTestContext {
+export interface AdaptiveSkillsTestContext {
   homeDir: string;
   dbPath: string;
   skillName: string;
@@ -30,10 +30,10 @@ function restoreEnvVar(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
-export async function createSkillCogneeTestContext(options?: {
+export async function createAdaptiveSkillsTestContext(options?: {
   skillName?: string;
   skillBody?: string;
-}): Promise<SkillCogneeTestContext> {
+}): Promise<AdaptiveSkillsTestContext> {
   const originalHome = process.env.HOME;
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-skill-'));
   process.env.HOME = homeDir;
@@ -60,16 +60,16 @@ export async function createSkillCogneeTestContext(options?: {
   runtimeConfigModule.updateRuntimeConfig((draft) => {
     draft.skills.extraDirs = [extraSkillsDir];
     draft.skills.disabled = [];
-    draft.skillCognee.enabled = false;
-    draft.skillCognee.observationEnabled = true;
-    draft.skillCognee.inspectionIntervalMs = 0;
-    draft.skillCognee.trailingWindowHours = 24;
-    draft.skillCognee.minExecutionsForInspection = 1;
-    draft.skillCognee.degradationSuccessRateThreshold = 0.6;
-    draft.skillCognee.degradationToolBreakageThreshold = 0.3;
-    draft.skillCognee.autoApplyEnabled = false;
-    draft.skillCognee.evaluationRunsBeforeRollback = 3;
-    draft.skillCognee.rollbackImprovementThreshold = 0.05;
+    draft.adaptiveSkills.enabled = false;
+    draft.adaptiveSkills.observationEnabled = true;
+    draft.adaptiveSkills.inspectionIntervalMs = 0;
+    draft.adaptiveSkills.trailingWindowHours = 24;
+    draft.adaptiveSkills.minExecutionsForInspection = 1;
+    draft.adaptiveSkills.degradationSuccessRateThreshold = 0.6;
+    draft.adaptiveSkills.degradationToolBreakageThreshold = 0.3;
+    draft.adaptiveSkills.autoApplyEnabled = false;
+    draft.adaptiveSkills.evaluationRunsBeforeRollback = 3;
+    draft.adaptiveSkills.rollbackImprovementThreshold = 0.05;
   });
 
   return {

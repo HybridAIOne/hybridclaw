@@ -5,12 +5,12 @@ import {
   getSkillAmendmentById,
   updateAmendmentStatus,
 } from '../memory/db.js';
-import type { SkillCogneeConfig } from './skills-cognee-types.js';
+import type { AdaptiveSkillsConfig } from './adaptive-skills-types.js';
 import { inspectSkill } from './skills-inspection.js';
 
 export function evaluateAmendment(input: {
   skillName: string;
-  config: SkillCogneeConfig;
+  config: AdaptiveSkillsConfig;
 }):
   | {
       action: 'keep';
@@ -100,7 +100,7 @@ export async function rollbackAmendment(input: {
     metricsPostApply: inspectSkill(amendment.skill_name),
   });
   recordAuditEvent({
-    sessionId: `cognee:${amendment.skill_name}`,
+    sessionId: `adaptive-skills:${amendment.skill_name}`,
     runId: makeAuditRunId('skill-amendment'),
     event: {
       type: 'skill.amendment.rolled_back',

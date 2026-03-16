@@ -11,7 +11,7 @@ import type {
   SkillExecutionOutcome,
   SkillFeedbackSentiment,
   SkillObservation,
-} from './skills-cognee-types.js';
+} from './adaptive-skills-types.js';
 import { evaluateAmendment, rollbackAmendment } from './skills-evaluation.js';
 
 function firstFailedToolDetail(toolExecutions: ToolExecution[]): string | null {
@@ -90,7 +90,7 @@ export async function recordSkillExecution(input: {
   errorCategory?: SkillErrorCategory | null;
   errorDetail?: string | null;
 }): Promise<SkillObservation | null> {
-  const config = getRuntimeConfig().skillCognee;
+  const config = getRuntimeConfig().adaptiveSkills;
   const skillName = input.skillName.trim();
   if (!skillName || !config.observationEnabled) return null;
 
@@ -147,7 +147,7 @@ export function recordSkillFeedback(input: {
   feedback: string;
   sentiment: SkillFeedbackSentiment;
 }): SkillObservation | null {
-  const config = getRuntimeConfig().skillCognee;
+  const config = getRuntimeConfig().adaptiveSkills;
   if (!config.observationEnabled) return null;
   return attachFeedbackToObservation({
     sessionId: input.sessionId,

@@ -11,17 +11,17 @@ import {
 } from '../memory/db.js';
 import { applyAmendment, proposeAmendment } from './skills-amendment.js';
 import type {
-  SkillCogneeConfig,
+  AdaptiveSkillsConfig,
   SkillHealthMetrics,
-} from './skills-cognee-types.js';
+} from './adaptive-skills-types.js';
 
-const LAST_INSPECTION_KEY = 'skill-cognee:last-inspection-at';
+const LAST_INSPECTION_KEY = 'adaptive-skills:last-inspection-at';
 
-function resolveConfig(config?: SkillCogneeConfig): SkillCogneeConfig {
-  return config || getRuntimeConfig().skillCognee;
+function resolveConfig(config?: AdaptiveSkillsConfig): AdaptiveSkillsConfig {
+  return config || getRuntimeConfig().adaptiveSkills;
 }
 
-function windowStartIso(config: SkillCogneeConfig): string {
+function windowStartIso(config: AdaptiveSkillsConfig): string {
   return new Date(
     Date.now() - config.trailingWindowHours * 60 * 60 * 1000,
   ).toISOString();
@@ -38,7 +38,7 @@ function inspectionSeverity(metrics: SkillHealthMetrics): number {
 
 export function isDegraded(
   metrics: SkillHealthMetrics,
-  config: SkillCogneeConfig,
+  config: AdaptiveSkillsConfig,
 ): { degraded: boolean; reasons: string[] } {
   if (metrics.total_executions < config.minExecutionsForInspection) {
     return {
@@ -75,7 +75,7 @@ export function isDegraded(
 
 export function inspectSkill(
   skillName: string,
-  config?: SkillCogneeConfig,
+  config?: AdaptiveSkillsConfig,
 ): SkillHealthMetrics {
   const resolvedConfig = resolveConfig(config);
   const start = windowStartIso(resolvedConfig);
@@ -112,7 +112,7 @@ export function inspectSkill(
 }
 
 export function inspectAllSkills(
-  config?: SkillCogneeConfig,
+  config?: AdaptiveSkillsConfig,
 ): SkillHealthMetrics[] {
   const resolvedConfig = resolveConfig(config);
   return getObservedSkillNames({
@@ -128,7 +128,7 @@ export function inspectAllSkills(
 
 export async function runPeriodicSkillInspection(input?: {
   agentId?: string;
-  config?: SkillCogneeConfig;
+  config?: AdaptiveSkillsConfig;
 }): Promise<SkillHealthMetrics[]> {
   const config = resolveConfig(input?.config);
   if (!config.enabled) return [];
@@ -147,7 +147,7 @@ export async function runPeriodicSkillInspection(input?: {
 
   setMemoryValue(agentId, LAST_INSPECTION_KEY, new Date(now).toISOString());
   const metricsList = inspectAllSkills(config);
-  const sessionId = `skill-cognee:${agentId}`;
+  const sessionId = `adaptive-skills:${agentId}`;
   const runId = makeAuditRunId('skill-inspection');
 
   for (const metrics of metricsList) {
@@ -186,7 +186,7 @@ export async function runPeriodicSkillInspection(input?: {
       ) {
         await applyAmendment({
           amendmentId: amendment.id,
-          reviewedBy: 'skill-cognee:auto',
+          reviewedBy: 'adaptive-skills:auto',
         });
       }
     } catch (error) {

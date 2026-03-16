@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { afterEach, expect, test, vi } from 'vitest';
-import type { SkillCogneeTestContext } from './helpers/skill-cognee-test-setup.ts';
-import { createSkillCogneeTestContext } from './helpers/skill-cognee-test-setup.ts';
+import type { AdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
+import { createAdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
 
 const { runAgentMock } = vi.hoisted(() => ({
   runAgentMock: vi.fn(),
@@ -11,7 +11,7 @@ vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
 }));
 
-let context: SkillCogneeTestContext | null = null;
+let context: AdaptiveSkillsTestContext | null = null;
 
 afterEach(() => {
   runAgentMock.mockReset();
@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 test('stages and rejects a proposed amendment', async () => {
-  context = await createSkillCogneeTestContext();
+  context = await createAdaptiveSkillsTestContext();
   context.dbModule.recordSkillObservation({
     skillName: context.skillName,
     sessionId: 'session-1',
@@ -79,7 +79,7 @@ Keep the response concise.
 });
 
 test('applyAmendment refuses to overwrite concurrent skill edits', async () => {
-  context = await createSkillCogneeTestContext();
+  context = await createAdaptiveSkillsTestContext();
   context.dbModule.recordSkillObservation({
     skillName: context.skillName,
     sessionId: 'session-1',

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { afterEach, expect, test, vi } from 'vitest';
-import type { SkillCogneeTestContext } from './helpers/skill-cognee-test-setup.ts';
-import { createSkillCogneeTestContext } from './helpers/skill-cognee-test-setup.ts';
+import type { AdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
+import { createAdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
 
 const { runAgentMock } = vi.hoisted(() => ({
   runAgentMock: vi.fn(),
@@ -11,7 +11,7 @@ vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
 }));
 
-let context: SkillCogneeTestContext | null = null;
+let context: AdaptiveSkillsTestContext | null = null;
 
 afterEach(() => {
   runAgentMock.mockReset();
@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 test('runs the inspection, amendment, apply, and rollback loop end to end', async () => {
-  context = await createSkillCogneeTestContext({
+  context = await createAdaptiveSkillsTestContext({
     skillBody: `---
 name: demo-skill
 description: Demo skill for tests
@@ -30,10 +30,10 @@ Keep the response concise.
 `,
   });
   context.runtimeConfigModule.updateRuntimeConfig((draft) => {
-    draft.skillCognee.enabled = true;
-    draft.skillCognee.autoApplyEnabled = true;
-    draft.skillCognee.evaluationRunsBeforeRollback = 1;
-    draft.skillCognee.rollbackImprovementThreshold = 0.1;
+    draft.adaptiveSkills.enabled = true;
+    draft.adaptiveSkills.autoApplyEnabled = true;
+    draft.adaptiveSkills.evaluationRunsBeforeRollback = 1;
+    draft.adaptiveSkills.rollbackImprovementThreshold = 0.1;
   });
 
   context.dbModule.recordSkillObservation({

@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from 'vitest';
-import type { SkillCogneeTestContext } from './helpers/skill-cognee-test-setup.ts';
-import { createSkillCogneeTestContext } from './helpers/skill-cognee-test-setup.ts';
+import type { AdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
+import { createAdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
 
-let context: SkillCogneeTestContext | null = null;
+let context: AdaptiveSkillsTestContext | null = null;
 
 afterEach(() => {
   context?.cleanup();
@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 test('records skill executions and attaches negative feedback', async () => {
-  context = await createSkillCogneeTestContext();
+  context = await createAdaptiveSkillsTestContext();
   const {
     deriveSkillExecutionOutcome,
     recordSkillExecution,
@@ -84,7 +84,7 @@ test('records skill executions and attaches negative feedback', async () => {
 });
 
 test('classifies timeout and environment-change failures', async () => {
-  context = await createSkillCogneeTestContext();
+  context = await createAdaptiveSkillsTestContext();
   const { classifyErrorCategory } = await import(
     '../src/skills/skills-observation.ts'
   );

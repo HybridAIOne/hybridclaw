@@ -1012,7 +1012,7 @@ function decodeApiPathSegment(value: string): string {
   }
 }
 
-async function handleApiSkillCognee(
+async function handleApiAdaptiveSkills(
   req: IncomingMessage,
   res: ServerResponse,
   pathname: string,
@@ -1282,7 +1282,7 @@ export function startHealthServer(): void {
             pathname === '/api/skills/amendments' ||
             pathname.startsWith('/api/skills/amendments/')
           ) {
-            await handleApiSkillCognee(req, res, pathname);
+            await handleApiAdaptiveSkills(req, res, pathname);
             return;
           }
           if (pathname === '/api/admin/overview' && method === 'GET') {
