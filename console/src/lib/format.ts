@@ -9,12 +9,10 @@ function normalizeCount(value: number | null | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
-export function formatTokenBreakdown(
-  params: {
-    inputTokens: number | null | undefined;
-    outputTokens: number | null | undefined;
-  },
-): string {
+export function formatTokenBreakdown(params: {
+  inputTokens: number | null | undefined;
+  outputTokens: number | null | undefined;
+}): string {
   return `${formatCompactNumber(normalizeCount(params.inputTokens))} in / ${formatCompactNumber(normalizeCount(params.outputTokens))} out`;
 }
 
