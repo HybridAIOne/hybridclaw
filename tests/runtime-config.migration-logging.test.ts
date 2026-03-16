@@ -208,6 +208,84 @@ describe('runtime config migration logging', () => {
     ]);
   });
 
+  it('normalizes the legacy Teams dm pairing policy to allowlist on startup', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      if (!config.msteams) {
+        config.msteams = {
+          enabled: false,
+          appId: '',
+          tenantId: '',
+          webhook: { port: 3978, path: '/api/msteams/messages' },
+          groupPolicy: 'open',
+          dmPolicy: 'open',
+          allowFrom: [],
+          teams: {},
+          requireMention: true,
+          textChunkLimit: 4000,
+          replyStyle: 'thread',
+          mediaMaxMb: 20,
+          dangerouslyAllowNameMatching: false,
+          mediaAllowHosts: [],
+          mediaAuthAllowHosts: [],
+        };
+      }
+      (
+        config.msteams as RuntimeConfig['msteams'] & { dmPolicy: string }
+      ).dmPolicy = 'pairing';
+    });
+
+    await importFreshRuntimeConfig(homeDir);
+
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
+    ) as RuntimeConfig;
+
+    expect(stored.msteams.dmPolicy).toBe('allowlist');
+  });
+
+  it('strips legacy Teams app passwords from config on startup', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      if (!config.msteams) {
+        config.msteams = {
+          enabled: false,
+          appId: '',
+          tenantId: '',
+          webhook: { port: 3978, path: '/api/msteams/messages' },
+          groupPolicy: 'open',
+          dmPolicy: 'open',
+          allowFrom: [],
+          teams: {},
+          requireMention: true,
+          textChunkLimit: 4000,
+          replyStyle: 'thread',
+          mediaMaxMb: 20,
+          dangerouslyAllowNameMatching: false,
+          mediaAllowHosts: [],
+          mediaAuthAllowHosts: [],
+        };
+      }
+      (
+        config.msteams as RuntimeConfig['msteams'] & { appPassword?: string }
+      ).appPassword = 'plaintext-secret';
+    });
+
+    await importFreshRuntimeConfig(homeDir);
+
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
+    ) as RuntimeConfig & { msteams: { appPassword?: string } };
+
+    expect(stored.msteams.appPassword).toBeUndefined();
+  });
+
   it('does not start the fs watcher when watcher disable env is set', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir);

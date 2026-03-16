@@ -252,6 +252,42 @@ describe.sequential('container message tool normalization', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test('send targets the current Teams conversation when channelId is omitted', async () => {
+    const fetchMock = mockGatewayFetch({
+      ok: true,
+      action: 'send',
+      channelId: 'a:teams-current-conversation',
+    });
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+    vi.spyOn(fs, 'statSync').mockReturnValue({
+      isFile: () => true,
+    } as fs.Stats);
+    setGatewayContext(
+      'http://gateway.local',
+      'token',
+      'a:teams-current-conversation',
+    );
+    setSessionContext('teams:dm:user-aad-id');
+
+    const result = await executeTool(
+      'message',
+      JSON.stringify({
+        action: 'send',
+        filePath: 'package.json',
+      }),
+    );
+
+    expect(result).toContain('"ok": true');
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const payload = JSON.parse(String(init.body || '{}')) as Record<
+      string,
+      unknown
+    >;
+    expect(payload.channelId).toBe('a:teams-current-conversation');
+    expect(payload.sessionId).toBe('teams:dm:user-aad-id');
+    expect(payload.filePath).toBe('package.json');
+  });
+
   test('message tool description does not treat WhatsApp chat as a Discord channel', () => {
     setGatewayContext(
       'http://gateway.local',
@@ -264,6 +300,21 @@ describe.sequential('container message tool normalization', () => {
     expect(description).toContain('Supports actions:');
     expect(description).toContain('WhatsApp');
     expect(description).toContain('ingested email thread history');
+  });
+
+  test('message tool description advertises current Teams send support', () => {
+    setGatewayContext(
+      'http://gateway.local',
+      'token',
+      'a:teams-current-conversation',
+    );
+    setSessionContext('teams:dm:user-aad-id');
+
+    const description = getMessageToolDescription();
+    expect(description).toContain(
+      'Current Teams conversation (a:teams-current-conversation) supports: send.',
+    );
+    expect(description).toContain('current Teams conversation for send');
   });
 
   test('message tool description enumerates other configured channels', () => {

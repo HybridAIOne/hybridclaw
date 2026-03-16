@@ -18,6 +18,7 @@ import {
 import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { isEmailAddress, normalizeEmailAddress } from '../email/allowlist.js';
 import { sendEmailAttachmentTo, sendToEmail } from '../email/runtime.js';
+import { maybeRunMSTeamsToolAction } from '../msteams/tool-actions.js';
 import { getWhatsAppAuthStatus } from '../whatsapp/auth.js';
 import {
   canonicalizeWhatsAppUserJid,
@@ -90,6 +91,7 @@ function normalizeWhatsAppMessageTarget(rawTarget: string): string | null {
   const canonicalJid = canonicalizeWhatsAppUserJid(withoutPrefix);
   if (canonicalJid) return canonicalJid;
   if (isWhatsAppJid(withoutPrefix)) return withoutPrefix;
+  if (/[a-z]/i.test(withoutPrefix)) return null;
 
   const normalizedPhone = normalizePhoneNumber(withoutPrefix);
   if (!normalizedPhone) return null;
@@ -353,6 +355,13 @@ async function runLocalMessageSendAction(
 export async function runMessageToolAction(
   request: DiscordToolActionRequest,
 ): Promise<Record<string, unknown>> {
+  const teamsResult = await maybeRunMSTeamsToolAction(request, {
+    resolveSendFilePath: resolveMessageToolSendFilePath,
+  });
+  if (teamsResult) {
+    return teamsResult;
+  }
+
   if (request.action === 'read') {
     const emailReadTarget = resolveEmailReadTarget(request);
     if (emailReadTarget) {

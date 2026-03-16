@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { TrustedCoworkerApprovalRuntime } from '../container/src/approval-policy.js';
 import type { ChatMessage } from '../container/src/types.js';
@@ -14,6 +14,10 @@ function tempTrustStorePath(name: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-approval-'));
   return path.join(dir, `${name}.json`);
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('TrustedCoworkerApprovalRuntime', () => {
   test('yellow actions promote to green after successful repeat', () => {
@@ -592,5 +596,49 @@ describe('TrustedCoworkerApprovalRuntime', () => {
       latestUserPrompt: prompt,
     });
     expect(third.decision).toBe('required');
+  });
+
+  test('default host-mode trust store persists under the actual workspace root', async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-approval-workspace-'),
+    );
+    const stateDir = path.join(workspaceRoot, '.hybridclaw');
+    fs.mkdirSync(stateDir, { recursive: true });
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    vi.resetModules();
+
+    const prompt = 'Open hybridclaw.io';
+    const argsJson = JSON.stringify({ url: 'https://hybridclaw.io' });
+    const trustStorePath = path.join(stateDir, 'approval-trust.json');
+
+    const { TrustedCoworkerApprovalRuntime: HostModeApprovalRuntime } =
+      await import('../container/src/approval-policy.js');
+
+    const runtime = new HostModeApprovalRuntime();
+    const first = runtime.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson,
+      latestUserPrompt: prompt,
+    });
+    expect(first.decision).toBe('required');
+
+    const prelude = runtime.handleApprovalResponse([
+      userMessage('yes for agent'),
+    ]);
+    expect(prelude?.approvalMode).toBe('agent');
+    expect(fs.existsSync(trustStorePath)).toBe(true);
+
+    const persisted = JSON.parse(fs.readFileSync(trustStorePath, 'utf-8')) as {
+      trustedActions?: string[];
+    };
+    expect(persisted.trustedActions).toContain('network:hybridclaw.io');
+
+    const restarted = new HostModeApprovalRuntime();
+    const second = restarted.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson,
+      latestUserPrompt: prompt,
+    });
+    expect(second.decision).toBe('approved_agent');
   });
 });

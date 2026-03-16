@@ -27,7 +27,7 @@ const BASE_EMAIL_CONFIG = {
   smtpPort: 587,
   smtpSecure: false,
   address: 'agent@example.com',
-  pollIntervalMs: 15000,
+  pollIntervalMs: 30000,
   folders: ['INBOX'],
   allowFrom: ['boss@example.com'],
   textChunkLimit: 50000,

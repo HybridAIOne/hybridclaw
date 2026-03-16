@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Microsoft Teams channel**: Added Teams channel support with
+  `hybridclaw auth login msteams`, inbound webhook handling, streaming and
+  attachment-aware replies, allowlist-based DM/channel policies, and gateway
+  visibility so one assistant can work across Discord, Teams, WhatsApp,
+  email, web, and TUI surfaces.
+- **Bundled workflow and app skills**: Added bundled skills for planning,
+  review, publishing, and operations workflows plus integrations for Notion,
+  Trello, GitHub PRs, Google Workspace, Discord, Himalaya email, 1Password,
+  Stripe, WordPress, and Apple Calendar/Passwords/Music.
+- **TUI slash menu and history recall**: Added inline slash-command discovery,
+  help aliases, prompt history recall, and improved numbered approvals in the
+  terminal client.
+
 ### Changed
 
 - **Automatic session reset policy**: Upgrading to the session-reset policy
@@ -11,6 +26,23 @@
   log the `sessionId`, incremented `resetCount`, and expiry `reason` at INFO
   level. The daily `atHour` boundary is evaluated in the gateway host's local
   timezone, not UTC.
+- **Tool execution throughput**: Safe read-only tool calls can batch in
+  parallel while loop-guarded tools remain sequential and deferred approvals
+  still fall back safely.
+- **Operator defaults and provider signals**: OpenRouter requests send
+  app-attribution headers, bot-set actions emit observability/audit events,
+  and the email channel default poll interval is 30 seconds.
+
+### Fixed
+
+- **Microsoft Teams runtime hardening**: Tightened Teams send permissions,
+  media handling, and streaming behavior across DM and channel replies.
+- **Approval and media UX**: Preserved Discord approval artifacts and rendered
+  fallbacks, kept TUI approvals in the numbered flow, and hardened managed
+  media cleanup plus Discord CDN idle/close handling.
+- **Scheduler and reset edge cases**: Normalized scheduler cron timezone
+  handling, guarded reset timestamp parsing, inferred reset channel kinds more
+  reliably, and cleared semantic memories during session reset.
 
 ## [0.7.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.7.1)
 

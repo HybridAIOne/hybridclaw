@@ -1,7 +1,9 @@
 import type { BaseMessageOptions } from 'discord.js';
 import type {
+  MSTeamsReplyStyle,
   RuntimeConfig,
   RuntimeDiscordChannelConfig,
+  RuntimeMSTeamsChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
 import type {
@@ -383,7 +385,7 @@ export interface GatewayAdminDeleteSessionResult {
   deletedApprovalEntries: number;
 }
 
-export interface GatewayAdminChannel {
+export interface GatewayAdminDiscordChannel {
   id: string;
   transport: 'discord';
   guildId: string;
@@ -392,6 +394,21 @@ export interface GatewayAdminChannel {
   config: RuntimeDiscordChannelConfig;
 }
 
+export interface GatewayAdminMSTeamsChannel {
+  id: string;
+  transport: 'msteams';
+  guildId: string;
+  channelId: string;
+  defaultGroupPolicy: RuntimeConfig['msteams']['groupPolicy'];
+  defaultReplyStyle: MSTeamsReplyStyle;
+  defaultRequireMention: boolean;
+  config: RuntimeMSTeamsChannelConfig;
+}
+
+export type GatewayAdminChannel =
+  | GatewayAdminDiscordChannel
+  | GatewayAdminMSTeamsChannel;
+
 export interface GatewayAdminChannelsResponse {
   groupPolicy: RuntimeConfig['discord']['groupPolicy'];
   defaultTypingMode: RuntimeConfig['discord']['typingMode'];
@@ -399,14 +416,29 @@ export interface GatewayAdminChannelsResponse {
   defaultAckReaction: string;
   defaultRateLimitPerUser: number;
   defaultMaxConcurrentPerChannel: number;
+  msteams: {
+    enabled: boolean;
+    groupPolicy: RuntimeConfig['msteams']['groupPolicy'];
+    dmPolicy: RuntimeConfig['msteams']['dmPolicy'];
+    defaultRequireMention: boolean;
+    defaultReplyStyle: RuntimeConfig['msteams']['replyStyle'];
+  };
   channels: GatewayAdminChannel[];
 }
 
-export interface GatewayAdminChannelUpsertRequest {
-  guildId: string;
-  channelId: string;
-  config: RuntimeDiscordChannelConfig;
-}
+export type GatewayAdminChannelUpsertRequest =
+  | {
+      transport?: 'discord';
+      guildId: string;
+      channelId: string;
+      config: RuntimeDiscordChannelConfig;
+    }
+  | {
+      transport: 'msteams';
+      guildId: string;
+      channelId: string;
+      config: RuntimeMSTeamsChannelConfig;
+    };
 
 export interface GatewayAdminConfigResponse {
   path: string;

@@ -10,7 +10,13 @@
 
 <img width="540" height="511" alt="image" src="docs/hero.png" />
 
-Personal AI assistant bot for Discord, powered by [HybridAI](https://hybridai.one).
+Personal AI assistant for Discord, Microsoft Teams, WhatsApp, email, web, and
+terminal, powered by [HybridAI](https://hybridai.one).
+
+HybridClaw keeps one assistant brain across team chat, inbox, browser, and
+document workflows with shared memory, approvals, scheduling, and bundled
+skills for office docs, GitHub, Notion, Stripe, WordPress, Google Workspace,
+and Apple apps.
 
 ## Install from npm
 
@@ -33,7 +39,7 @@ container sandbox.
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, and optional Discord integration
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, and channel integrations for Discord, Microsoft Teams, WhatsApp, and email
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`)
 - **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, and preinstalled browser automation runtime
 - Communication via file-based IPC (input.json / output.json)
@@ -64,6 +70,7 @@ hybridclaw gateway start --foreground
 # For stdio MCP servers that rely on host tools like `docker` or `npx`
 hybridclaw gateway start --foreground --sandbox=host
 
+# If msteams.enabled=true and MSTEAMS_APP_PASSWORD is configured, gateway auto-connects to Microsoft Teams.
 # If DISCORD_TOKEN is set, gateway auto-connects to Discord.
 # If email.enabled=true and EMAIL_PASSWORD is configured, gateway auto-connects to Email.
 # If linked WhatsApp auth exists, gateway auto-connects to WhatsApp.
@@ -92,14 +99,17 @@ hybridclaw auth login hybridai --browser
 hybridclaw auth login codex --import
 hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
 hybridclaw auth login local ollama llama3.2
+hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
 hybridclaw auth status hybridai
 hybridclaw auth status codex
 hybridclaw auth status openrouter
 hybridclaw auth status local
+hybridclaw auth status msteams
 hybridclaw auth logout hybridai
 hybridclaw auth logout codex
 hybridclaw auth logout openrouter
 hybridclaw auth logout local
+hybridclaw auth logout msteams
 hybridclaw auth whatsapp reset
 ```
 
@@ -116,11 +126,23 @@ hybridclaw local configure ollama llama3.2
 - `hybridclaw auth login codex` auto-selects browser PKCE on local GUI machines and device code on headless or remote shells.
 - `hybridclaw auth login openrouter` accepts `--api-key`, falls back to `OPENROUTER_API_KEY`, or prompts you to paste the key, then enables the provider and can set the global default model.
 - `hybridclaw auth login local` configures Ollama, LM Studio, or vLLM in `~/.hybridclaw/config.json`.
+- `hybridclaw auth login msteams` enables Microsoft Teams, stores `MSTEAMS_APP_PASSWORD` in `~/.hybridclaw/credentials.json`, and can prompt for the app id, app password, and optional tenant id.
 - `hybridclaw auth logout local` disables configured local backends and clears any saved vLLM API key.
+- `hybridclaw auth logout msteams` clears the stored Teams app password and disables the Teams integration in config.
 - `hybridclaw auth whatsapp reset` clears linked WhatsApp Web auth without starting a new pairing session.
-- HybridAI, OpenRouter, Discord, and email secrets are stored in `~/.hybridclaw/credentials.json`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
+- HybridAI, OpenRouter, Discord, email, and Teams secrets are stored in `~/.hybridclaw/credentials.json`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
 - Only one running HybridClaw process should own `~/.hybridclaw/credentials/whatsapp` at a time. If WhatsApp Web shows duplicate Chrome/Ubuntu linked devices or reconnect/auth drift starts, stop the extra process, run `hybridclaw auth whatsapp reset`, then pair again with `hybridclaw channels whatsapp setup`.
 - Use `hybridclaw help`, `hybridclaw help auth`, `hybridclaw help openrouter`, or `hybridclaw help local` for CLI-specific reference output.
+
+## Setting Up MS Teams
+
+See [docs/msteams.md](./docs/msteams.md) for the full setup flow, including:
+
+- Azure app registration and bot credentials
+- Azure Bot webhook and Teams channel configuration
+- `hybridclaw auth login msteams`
+- local tunnel setup
+- DM and channel smoke tests
 
 ## Model Selection
 
@@ -154,6 +176,7 @@ Examples:
 Runtime model:
 
 - `hybridclaw gateway` is the core process and should run first.
+- If `msteams.enabled` is true and `MSTEAMS_APP_PASSWORD` is configured, Microsoft Teams runs inside gateway automatically.
 - If `DISCORD_TOKEN` is set, Discord runs inside gateway automatically.
 - If `email.enabled` is true and `EMAIL_PASSWORD` is configured, Email runs inside gateway automatically.
 - If linked WhatsApp auth exists under `~/.hybridclaw/credentials/whatsapp`, WhatsApp runs inside gateway automatically.
@@ -174,11 +197,13 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - `container.*` controls execution isolation, including `sandboxMode`, `memory`, `memorySwap`, `cpus`, `network`, `binds`, and additional mounts.
 - Use `container.binds` for explicit host-to-container mounts in `host:container[:ro|rw]` format. Mounted paths appear inside the sandbox under `/workspace/extra/<container>`.
 - `mcpServers.*` declares Model Context Protocol servers that HybridClaw connects to per session and exposes as namespaced tools (`server__tool`).
+- `sessionReset.*` controls automatic daily and idle session expiry. The default policy resets both daily and after 24 hours idle at `04:00` in the gateway host's local timezone; set `sessionReset.defaultPolicy.mode` to `none` to disable automatic resets.
+- `email.pollIntervalMs` defaults to `30000` (30 seconds) and is clamped to a minimum of `1000`.
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently written to `~/.hybridclaw/config.json` as plain text. Use low-privilege tokens only, set `chmod 700 ~/.hybridclaw && chmod 600 ~/.hybridclaw/config.json`, and prefer `host` sandbox mode for stdio MCP servers that depend on host-installed tools.
 - `media.audio` controls shared inbound audio transcription. By default it auto-detects local CLIs first (`sherpa-onnx-offline`, `whisper-cli`, `whisper`), then `gemini`, then provider keys (`openai`, `groq`, `deepgram`, `google`).
 - `whisper-cli` auto-detect also needs a whisper.cpp model file. If the binary exists but HybridClaw still skips local transcription, set `WHISPER_CPP_MODEL` to a local `ggml-*.bin` model path.
 - If no transcript backend is available, the container tries native model audio input before tool-use fallback for supported local providers. Today that fallback is enabled for `vllm` sessions and uses the original current-turn audio attachment.
-- Keep runtime secrets in `~/.hybridclaw/credentials.json` (`HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`, `EMAIL_PASSWORD`). Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
+- Keep runtime secrets in `~/.hybridclaw/credentials.json` (`HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`, `EMAIL_PASSWORD`, `MSTEAMS_APP_PASSWORD`). Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 - Trust-model acceptance is stored in `~/.hybridclaw/config.json` under `security.*` and is required before runtime starts.
 - See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
 - For contributor workflow, see [CONTRIBUTING.md](./CONTRIBUTING.md). For deeper runtime, skills, release, voice/TTS, and maintainer reference docs, see [docs/development/README.md](./docs/development/README.md).
@@ -296,6 +321,9 @@ such as `filesystem__read_file` or `github__list_issues`.
 
 ## Bundled Skills
 
+HybridClaw currently ships with 28 bundled skills. Notable workflow and app
+integrations include:
+
 - `pdf` is bundled and supports text extraction, page rendering, fillable form inspection/filling, and non-fillable overlay workflows.
 - `xlsx` is bundled for spreadsheet creation, formula-safe editing, CSV/TSV cleanup, and LibreOffice-backed recalculation.
 - `docx` is bundled for Word document creation plus OOXML unpack/edit/pack workflows, comments, and tracked-change cleanup.
@@ -376,11 +404,12 @@ CLI runtime commands:
 - `hybridclaw tui` — Start terminal client connected to gateway
 - `hybridclaw onboarding` — Run trust-model acceptance plus interactive provider onboarding
 - `hybridclaw auth login [provider] ...` — Namespaced provider setup/login entrypoint
-- `hybridclaw auth status <provider>` — Show provider status for `hybridai`, `codex`, `openrouter`, or `local`
-- `hybridclaw auth logout <provider>` — Clear provider credentials or disable local backends
+- `hybridclaw auth status <provider>` — Show provider status for `hybridai`, `codex`, `openrouter`, `local`, or `msteams`
+- `hybridclaw auth logout <provider>` — Clear provider credentials or disable local backends/Teams
+- `hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]` — Enable Microsoft Teams, persist the app secret, and print webhook next steps
 - `hybridclaw auth whatsapp reset` — Clear linked WhatsApp auth so the account can be re-paired cleanly
 - `hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]` — Prepare restricted command-only Discord config and print bot/token next steps
-- `hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]` — Configure IMAP/SMTP email delivery, optionally prompt for missing credentials, and save `EMAIL_PASSWORD`
+- `hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]` — Configure IMAP/SMTP email delivery, optionally prompt for missing credentials, default to a 30-second IMAP poll interval, and save `EMAIL_PASSWORD`
 - `hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...` — Prepare private-by-default WhatsApp config, enable the default `👀` ack reaction, optionally wipe stale auth, open a temporary pairing session, and print the QR code
 - `hybridclaw local status` — Show current local backend config and default model
 - `hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]` — Enable and configure a local backend
@@ -420,7 +449,9 @@ In Discord, use `!claw help` or the slash commands. Key ones:
 - `!claw schedule add at "<ISO time>" <prompt>` — Add one-shot task
 - `!claw schedule add every <ms> <prompt>` — Add interval task
 
-In the TUI, use `/agent`, `/agent list`, `/agent switch <id>`, `/agent create
+In the TUI, typing `/` opens the slash-command menu with inline filtering and
+help aliases, while pressing Up/Down on an empty prompt recalls earlier
+prompts. Use `/agent`, `/agent list`, `/agent switch <id>`, `/agent create
 <id> [--model <model>]`, and `/agent model [name]` for agent control. Use
 `/model set <name>` for a session-only override, `/model clear` to fall back to
 the agent/default model chain, and `/model info` to inspect the active scope.

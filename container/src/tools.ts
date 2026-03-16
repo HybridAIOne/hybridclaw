@@ -159,9 +159,10 @@ function parseStructuredToolOutput(
 const MESSAGE_TOOL_ACTION_LIST =
   'read, member-info, channel-info, send, react, quote-reply, edit, delete, pin, unpin, thread-create, thread-reply';
 const MESSAGE_TOOL_DESCRIPTION_BASE =
-  'Send messages and uploads across supported channels (Discord, WhatsApp, email, local TUI), plus read Discord channel history, read ingested email thread history, and look up member info on Discord. Use this when asked to send/post/DM/notify someone, post a local file/image, read Discord messages or ingested email threads, or look up Discord users.';
+  'Send messages and uploads across supported channels (Discord, current Microsoft Teams chat, WhatsApp, email, local TUI), plus read Discord channel history, read ingested email thread history, and look up member info on Discord. Use this when asked to send/post/DM/notify someone, post a local file/image, read Discord messages or ingested email threads, or look up Discord users.';
 let gatewayConfiguredChannels: string[] = [];
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
+const TEAMS_SESSION_ID_RE = /^teams:/i;
 
 function normalizeConfiguredChannelList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -184,12 +185,25 @@ function resolveGatewayDiscordChannelFallback(): string {
   return normalized;
 }
 
+function resolveGatewayMSTeamsChannelFallback(): string {
+  if (!TEAMS_SESSION_ID_RE.test(currentSessionId)) return '';
+  return readStringValue(gatewayChannelId) || '';
+}
+
+function resolveGatewayMessageSendChannelFallback(): string {
+  return (
+    resolveGatewayDiscordChannelFallback() ||
+    resolveGatewayMSTeamsChannelFallback()
+  );
+}
+
 export function getMessageToolDescription(channelId?: string): string {
   const explicitChannelId = normalizeDiscordMessageTarget(channelId);
   const activeChannelId =
     explicitChannelId && DISCORD_SNOWFLAKE_RE.test(explicitChannelId)
       ? explicitChannelId
       : resolveGatewayDiscordChannelFallback();
+  const activeTeamsChannelId = resolveGatewayMSTeamsChannelFallback();
   const configuredChannels = normalizeConfiguredChannelList(
     gatewayConfiguredChannels,
   );
@@ -202,6 +216,9 @@ export function getMessageToolDescription(channelId?: string): string {
         ? ` Other configured channels: ${otherChannels.map((id) => `${id} (${MESSAGE_TOOL_ACTION_LIST})`).join(', ')}.`
         : '';
     return `${MESSAGE_TOOL_DESCRIPTION_BASE} Current Discord channel (${activeChannelId}) supports: ${MESSAGE_TOOL_ACTION_LIST}. Omit channelId/to to target the current Discord channel for read/channel-info/send.${withOthers}`;
+  }
+  if (activeTeamsChannelId) {
+    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Current Teams conversation (${activeTeamsChannelId}) supports: send. Omit channelId/to to target the current Teams conversation for send, including local file uploads. Discord-only actions such as read/member-info/channel-info still require explicit Discord targets.`;
   }
   const withOthers =
     configuredChannels.length > 0
@@ -1998,7 +2015,7 @@ async function executeToolInternal(
           resolveDiscordMessageSendUserLookupTarget(args);
         const fallbackChannelId = userLookupTarget
           ? ''
-          : resolveGatewayDiscordChannelFallback();
+          : resolveGatewayMessageSendChannelFallback();
         const channelId = explicitChannelId || fallbackChannelId;
         if (!channelId && !userLookupTarget) {
           return failTool(
@@ -2904,7 +2921,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           filePath: {
             type: 'string',
             description:
-              'Optional local file to upload for action="send". Discord and WhatsApp sends support filePath; local queued sends do not. Use a workspace-relative path or an absolute /discord-media-cache path.',
+              'Optional local file to upload for action="send". Discord, the current Teams conversation, WhatsApp, and email support filePath; local queued sends do not. Use a workspace-relative path or an absolute /discord-media-cache path.',
           },
           attachmentPath: {
             type: 'string',
@@ -2932,7 +2949,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               type: 'object',
             },
             description:
-              'Optional Discord components payload for action="send" (buttons/selects/action rows). Supported only for Discord sends.',
+              'Optional Discord components payload for action="send" (buttons/selects/action rows). Supported only for Discord sends, not Teams/WhatsApp/email/local sends.',
           },
           text: {
             type: 'string',

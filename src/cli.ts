@@ -296,9 +296,6 @@ function printMainUsage(): void {
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, WhatsApp, Email)
-  local      Deprecated alias for local provider setup/status
-  hybridai   Deprecated alias for HybridAI provider auth
-  codex      Deprecated alias for Codex provider auth
   skill      List skill dependency installers or run one
   update     Check and apply HybridClaw CLI updates
   audit      Inspect/verify structured audit trail
@@ -385,9 +382,9 @@ function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|openrouter|local> ...
-  hybridclaw auth status <hybridai|codex|openrouter|local>
-  hybridclaw auth logout <hybridai|codex|openrouter|local>
+  hybridclaw auth login <hybridai|codex|openrouter|local|msteams> ...
+  hybridclaw auth status <hybridai|codex|openrouter|local|msteams>
+  hybridclaw auth logout <hybridai|codex|openrouter|local|msteams>
   hybridclaw auth whatsapp reset
 
 Examples:
@@ -396,16 +393,20 @@ Examples:
   hybridclaw auth login codex --import
   hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
   hybridclaw auth login local ollama llama3.2
+  hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
   hybridclaw auth whatsapp reset
   hybridclaw auth status openrouter
+  hybridclaw auth status msteams
   hybridclaw auth logout codex
+  hybridclaw auth logout msteams
 
 Notes:
   - \`auth login\` without a provider runs the normal interactive onboarding flow.
   - \`local logout\` disables configured local backends and clears any saved vLLM API key.
+  - \`auth login msteams\` enables Microsoft Teams and stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()}.
   - \`auth whatsapp reset\` clears linked WhatsApp Web auth so you can re-pair cleanly.
   - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
-  - The older \`hybridclaw hybridai ...\`, \`hybridclaw codex ...\`, and \`hybridclaw local ...\` aliases are deprecated.`);
+  - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.`);
 }
 
 function printChannelsUsage(): void {
@@ -430,6 +431,7 @@ Notes:
   - Email SMTP secure mode defaults to \`false\` on port \`587\`; use \`--smtp-secure\` for implicit TLS on port \`465\`.
   - \`--no-smtp-secure\` is the correct setting for encrypted STARTTLS on port \`587\`; it does not force plaintext by itself.
   - Email inbound is explicit-opt-in: when email \`allowFrom\` is empty, inbound email is ignored.
+  - Microsoft Teams setup lives under \`hybridclaw auth login msteams\` because it needs app credentials instead of a channel pairing flow.
   - Discord activates automatically when \`DISCORD_TOKEN\` is configured.
   - Email activates automatically when \`email.enabled=true\` and \`EMAIL_PASSWORD\` is configured.
   - WhatsApp activates automatically once linked auth exists.`);
@@ -444,6 +446,20 @@ Notes:
   - Only one running HybridClaw process may own the WhatsApp auth state at a time.
   - Use \`auth whatsapp reset\` to clear stale linked-device auth before re-pairing.
   - Use \`channels whatsapp setup\` to configure policy and open a fresh QR pairing session.`);
+}
+
+function printMSTeamsUsage(): void {
+  console.log(`Usage:
+  hybridclaw auth login msteams [--app-id <id>|--client-id <id>] [--app-password <secret>|--client-secret <secret>] [--tenant-id <id>]
+  hybridclaw auth status msteams
+  hybridclaw auth logout msteams
+
+Notes:
+  - \`auth login msteams\` enables the Microsoft Teams integration in ${runtimeConfigPath()}.
+  - \`auth login msteams\` stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()} and clears any plaintext \`msteams.appPassword\` value from config.
+  - \`--tenant-id\` is optional.
+  - If \`--app-password\` is omitted and \`MSTEAMS_APP_PASSWORD\` is already set, HybridClaw reuses that value.
+  - If \`--app-id\` or \`--app-password\` is missing and the terminal is interactive, HybridClaw prompts for them and also offers an optional tenant id prompt.`);
 }
 
 function printCodexUsage(): void {
@@ -532,9 +548,7 @@ Topics:
   tui         Help for terminal client
   onboarding  Help for onboarding flow
   channels    Help for channel setup helpers
-  local       Help for deprecated local provider alias
-  hybridai    Help for deprecated HybridAI provider alias
-  codex       Help for deprecated Codex provider alias
+  msteams     Help for Microsoft Teams auth/setup commands
   openrouter  Help for OpenRouter setup/status/logout commands
   whatsapp    Help for WhatsApp setup/reset commands
   skill       Help for skill installer commands
@@ -595,6 +609,10 @@ function printHelpTopic(topic: string): boolean {
       return true;
     case 'channels':
       printChannelsUsage();
+      return true;
+    case 'msteams':
+    case 'teams':
+      printMSTeamsUsage();
       return true;
     case 'local':
       printLocalUsage();
@@ -1359,7 +1377,12 @@ async function configureOpenRouter(args: string[]): Promise<void> {
   console.log(`  /model set ${fullModelName}`);
 }
 
-type UnifiedProvider = 'hybridai' | 'codex' | 'openrouter' | 'local';
+type UnifiedProvider =
+  | 'hybridai'
+  | 'codex'
+  | 'openrouter'
+  | 'local'
+  | 'msteams';
 
 function normalizeUnifiedProvider(
   rawProvider: string | undefined,
@@ -1383,6 +1406,13 @@ function normalizeUnifiedProvider(
   }
   if (normalized === 'local') {
     return 'local';
+  }
+  if (
+    normalized === 'msteams' ||
+    normalized === 'teams' ||
+    normalized === 'ms-teams'
+  ) {
+    return 'msteams';
   }
   return null;
 }
@@ -1412,7 +1442,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, or \`local\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
       );
     }
     return {
@@ -1426,7 +1456,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, or \`local\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
       );
     }
     return {
@@ -1445,7 +1475,7 @@ function parseUnifiedProviderArgs(args: string[]): {
 }
 
 function readStoredRuntimeSecret(
-  secretKey: 'OPENROUTER_API_KEY',
+  secretKey: 'OPENROUTER_API_KEY' | 'MSTEAMS_APP_PASSWORD',
 ): string | null {
   const filePath = runtimeSecretsPath();
   if (!fs.existsSync(filePath)) return null;
@@ -1514,6 +1544,61 @@ function clearOpenRouterCredentials(): void {
   );
 }
 
+function printMSTeamsStatus(): void {
+  ensureRuntimeConfigFile();
+  const config = getRuntimeConfig();
+  const storedAppPassword = readStoredRuntimeSecret('MSTEAMS_APP_PASSWORD');
+  const envAppId = process.env.MSTEAMS_APP_ID?.trim() || '';
+  const envTenantId = process.env.MSTEAMS_TENANT_ID?.trim() || '';
+  const envAppPassword = process.env.MSTEAMS_APP_PASSWORD?.trim() || '';
+  const appPassword = envAppPassword || storedAppPassword || '';
+  const source = envAppPassword
+    ? storedAppPassword && envAppPassword === storedAppPassword
+      ? 'runtime-secrets'
+      : 'env'
+    : storedAppPassword
+      ? 'runtime-secrets'
+      : null;
+  const appId = envAppId || config.msteams.appId;
+  const tenantId = envTenantId || config.msteams.tenantId;
+
+  console.log(`Path: ${runtimeSecretsPath()}`);
+  console.log(`Authenticated: ${appId && appPassword ? 'yes' : 'no'}`);
+  if (source) {
+    console.log(`Source: ${source}`);
+  }
+  if (appPassword) {
+    console.log(`App password: ${maskSecret(appPassword)}`);
+  }
+  console.log(`Config: ${runtimeConfigPath()}`);
+  console.log(`Enabled: ${config.msteams.enabled ? 'yes' : 'no'}`);
+  console.log(`App ID: ${appId || '(not set)'}`);
+  console.log(`Tenant ID: ${tenantId || '(not set)'}`);
+  console.log(`Webhook path: ${config.msteams.webhook.path}`);
+  console.log(`DM policy: ${config.msteams.dmPolicy}`);
+  console.log(`Group policy: ${config.msteams.groupPolicy}`);
+}
+
+function clearMSTeamsCredentials(): void {
+  ensureRuntimeConfigFile();
+  const filePath = saveRuntimeSecrets({ MSTEAMS_APP_PASSWORD: null });
+  delete process.env.MSTEAMS_APP_PASSWORD;
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.msteams.enabled = false;
+    draft.msteams.appId = '';
+    draft.msteams.tenantId = '';
+  });
+
+  console.log(`Cleared Microsoft Teams credentials in ${filePath}.`);
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(
+    `Microsoft Teams integration: ${nextConfig.msteams.enabled ? 'enabled' : 'disabled'}`,
+  );
+  console.log(
+    'If MSTEAMS_APP_ID, MSTEAMS_APP_PASSWORD, or MSTEAMS_TENANT_ID are still exported in your shell, unset them separately.',
+  );
+}
+
 function clearLocalBackends(): void {
   ensureRuntimeConfigFile();
   const nextConfig = updateRuntimeConfig((draft) => {
@@ -1546,6 +1631,10 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
   }
   if (provider === 'openrouter') {
     printOpenRouterUsage();
+    return;
+  }
+  if (provider === 'msteams') {
+    printMSTeamsUsage();
     return;
   }
   printLocalUsage();
@@ -1768,7 +1857,7 @@ async function handleAuthLoginCommand(args: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalized);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalized[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, or \`local\`.`,
+      `Unknown auth login provider "${normalized[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -1786,6 +1875,10 @@ async function handleAuthLoginCommand(args: string[]): Promise<void> {
   }
   if (parsed.provider === 'openrouter') {
     await configureOpenRouter(parsed.remaining);
+    return;
+  }
+  if (parsed.provider === 'msteams') {
+    await configureMSTeamsAuth(parsed.remaining);
     return;
   }
   configureLocalBackend(parsed.remaining);
@@ -1890,6 +1983,14 @@ async function dispatchProviderAction(
     clearOpenRouterCredentials();
     return;
   }
+  if (provider === 'msteams') {
+    if (action === 'status') {
+      printMSTeamsStatus();
+      return;
+    }
+    clearMSTeamsCredentials();
+    return;
+  }
   if (action === 'status') {
     printLocalStatus();
     return;
@@ -1911,7 +2012,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalized);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalized[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, or \`local\`.`,
+      `Unknown ${action} provider "${normalized[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
     );
   }
   if (parsed.remaining.length > 0) {
@@ -2308,6 +2409,73 @@ function parseEmailSetupArgs(args: string[]): {
   };
 }
 
+function parseMSTeamsLoginArgs(args: string[]): {
+  appId: string | null;
+  appPassword: string | null;
+  tenantId: string | null;
+} {
+  let appId: string | null = null;
+  let appPassword: string | null = null;
+  let tenantId: string | null = null;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--app-id' || arg === '--client-id') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--app-id`.');
+      appId = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--app-id=')) {
+      appId = arg.slice('--app-id='.length).trim() || null;
+      continue;
+    }
+    if (arg.startsWith('--client-id=')) {
+      appId = arg.slice('--client-id='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--app-password' || arg === '--client-secret') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--app-password`.');
+      appPassword = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--app-password=')) {
+      appPassword = arg.slice('--app-password='.length).trim() || null;
+      continue;
+    }
+    if (arg.startsWith('--client-secret=')) {
+      appPassword = arg.slice('--client-secret='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--tenant-id') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--tenant-id`.');
+      tenantId = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--tenant-id=')) {
+      tenantId = arg.slice('--tenant-id='.length).trim() || null;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]\`.`,
+    );
+  }
+
+  return {
+    appId,
+    appPassword,
+    tenantId,
+  };
+}
+
 function normalizeDiscordUserId(raw: string): string | null {
   const trimmed = raw.trim();
   const mentionMatch = trimmed.match(/^<@!?(\d{16,22})>$/);
@@ -2404,6 +2572,75 @@ async function promptWithDefault(params: {
     const validated = params.validate ? params.validate(candidate) : candidate;
     if (validated) return validated;
     console.log(params.errorMessage || 'Please enter a valid value.');
+  }
+}
+
+async function promptOptionalWithDefault(params: {
+  rl: readline.Interface;
+  question: string;
+  defaultValue?: string;
+}): Promise<string> {
+  const suffix = params.defaultValue ? ` [${params.defaultValue}]` : '';
+  const raw = (
+    await params.rl.question(`${params.question}${suffix}: `)
+  ).trim();
+  return raw || params.defaultValue || '';
+}
+
+async function resolveInteractiveMSTeamsLogin(params: {
+  appId: string;
+  appPassword: string;
+  tenantId: string;
+}): Promise<{
+  appId: string;
+  appPassword: string;
+  tenantId: string;
+}> {
+  let appId = params.appId;
+  let appPassword = params.appPassword;
+
+  if (appId && appPassword) {
+    return {
+      appId,
+      appPassword,
+      tenantId: params.tenantId,
+    };
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      'Missing Microsoft Teams credentials. Pass `--app-id <id>` and `--app-password <secret>` (or the `--client-id` / `--client-secret` aliases), set `MSTEAMS_APP_PASSWORD`, or run this command in an interactive terminal to be prompted.',
+    );
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    appId = await promptWithDefault({
+      rl,
+      question: 'Microsoft Teams app id',
+      defaultValue: appId || undefined,
+    });
+    appPassword = await promptWithDefault({
+      rl,
+      question: 'Microsoft Teams app password',
+      defaultValue: appPassword || undefined,
+    });
+    const tenantId = await promptOptionalWithDefault({
+      rl,
+      question: 'Microsoft Teams tenant id (optional)',
+      defaultValue: params.tenantId || undefined,
+    });
+    return {
+      appId,
+      appPassword,
+      tenantId,
+    };
+  } finally {
+    rl.close();
   }
 }
 
@@ -2643,6 +2880,54 @@ function configureDiscordChannel(args: string[]): void {
   } else {
     console.log('  Use DMs first, or rerun with --allow-user-id <snowflake>');
   }
+}
+
+async function configureMSTeamsAuth(args: string[]): Promise<void> {
+  ensureRuntimeConfigFile();
+  const parsed = parseMSTeamsLoginArgs(args);
+  const currentConfig = getRuntimeConfig().msteams;
+  const resolved = await resolveInteractiveMSTeamsLogin({
+    appId:
+      parsed.appId || process.env.MSTEAMS_APP_ID?.trim() || currentConfig.appId,
+    appPassword:
+      parsed.appPassword ||
+      process.env.MSTEAMS_APP_PASSWORD?.trim() ||
+      readStoredRuntimeSecret('MSTEAMS_APP_PASSWORD') ||
+      '',
+    tenantId:
+      parsed.tenantId ??
+      process.env.MSTEAMS_TENANT_ID?.trim() ??
+      currentConfig.tenantId,
+  });
+
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.msteams.enabled = true;
+    draft.msteams.appId = resolved.appId;
+    draft.msteams.tenantId = resolved.tenantId;
+  });
+  const secretsPath = saveRuntimeSecrets({
+    MSTEAMS_APP_PASSWORD: resolved.appPassword,
+  });
+  process.env.MSTEAMS_APP_PASSWORD = resolved.appPassword;
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(`Saved Microsoft Teams app password to ${secretsPath}.`);
+  console.log('Microsoft Teams mode: enabled');
+  console.log(`App ID: ${nextConfig.msteams.appId}`);
+  console.log(`Tenant ID: ${nextConfig.msteams.tenantId || '(not set)'}`);
+  console.log(`Webhook path: ${nextConfig.msteams.webhook.path}`);
+  console.log(`DM policy: ${nextConfig.msteams.dmPolicy}`);
+  console.log(`Group policy: ${nextConfig.msteams.groupPolicy}`);
+  console.log(
+    'Default Teams access is deny-by-default. Add allowed AAD object IDs or channel/team overrides before expecting replies.',
+  );
+  console.log('Next:');
+  console.log('  Restart the gateway to pick up Teams settings:');
+  console.log('    hybridclaw gateway restart --foreground');
+  console.log('    hybridclaw gateway status');
+  console.log(
+    `  Expose ${nextConfig.msteams.webhook.path} on your public HTTPS endpoint and register it in the Teams bot channel`,
+  );
 }
 
 async function configureEmailChannel(args: string[]): Promise<void> {

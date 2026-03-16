@@ -108,7 +108,7 @@ export interface AdminOverview {
   };
 }
 
-export interface AdminChannelConfig {
+export interface AdminDiscordChannelConfig {
   mode: 'off' | 'mention' | 'free';
   typingMode?: 'instant' | 'thinking' | 'streaming' | 'never';
   debounceMs?: number;
@@ -128,6 +128,40 @@ export interface AdminChannelConfig {
   sendAllowedRoleIds?: string[];
 }
 
+export interface AdminMSTeamsChannelConfig {
+  requireMention?: boolean;
+  replyStyle?: 'thread' | 'top-level';
+  groupPolicy?: 'open' | 'allowlist' | 'disabled';
+  allowFrom?: string[];
+  tools?: string[];
+}
+
+export type AdminChannelConfig =
+  | AdminDiscordChannelConfig
+  | AdminMSTeamsChannelConfig;
+
+export type AdminChannelTransport = 'discord' | 'msteams';
+
+export type AdminChannelEntry =
+  | {
+      id: string;
+      transport: 'discord';
+      guildId: string;
+      channelId: string;
+      defaultMode: 'off' | 'mention' | 'free';
+      config: AdminDiscordChannelConfig;
+    }
+  | {
+      id: string;
+      transport: 'msteams';
+      guildId: string;
+      channelId: string;
+      defaultGroupPolicy: 'open' | 'allowlist' | 'disabled';
+      defaultReplyStyle: 'thread' | 'top-level';
+      defaultRequireMention: boolean;
+      config: AdminMSTeamsChannelConfig;
+    };
+
 export interface AdminChannelsResponse {
   groupPolicy: 'open' | 'allowlist' | 'disabled';
   defaultTypingMode: 'instant' | 'thinking' | 'streaming' | 'never';
@@ -135,14 +169,14 @@ export interface AdminChannelsResponse {
   defaultAckReaction: string;
   defaultRateLimitPerUser: number;
   defaultMaxConcurrentPerChannel: number;
-  channels: Array<{
-    id: string;
-    transport: 'discord';
-    guildId: string;
-    channelId: string;
-    defaultMode: 'off' | 'mention' | 'free';
-    config: AdminChannelConfig;
-  }>;
+  msteams: {
+    enabled: boolean;
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    defaultRequireMention: boolean;
+    defaultReplyStyle: 'thread' | 'top-level';
+  };
+  channels: AdminChannelEntry[];
 }
 
 export interface AdminConfig {

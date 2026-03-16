@@ -370,7 +370,12 @@ function resolveChannelType(
   const source = String(req.source || '')
     .trim()
     .toLowerCase();
-  if (source === 'discord' || source === 'whatsapp' || source === 'email') {
+  if (
+    source === 'discord' ||
+    source === 'whatsapp' ||
+    source === 'email' ||
+    source === 'msteams'
+  ) {
     return source;
   }
   const inferredChannelType = resolveSessionResetChannelKind(req.channelId);
@@ -1609,6 +1614,29 @@ export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
     }
   }
 
+  const teamEntries = Object.entries(runtimeConfig.msteams.teams).sort(
+    ([left], [right]) => left.localeCompare(right),
+  );
+  for (const [teamId, team] of teamEntries) {
+    const channelEntries = Object.entries(team.channels).sort(
+      ([left], [right]) => left.localeCompare(right),
+    );
+    for (const [channelId, config] of channelEntries) {
+      channels.push({
+        id: `msteams:${teamId}:${channelId}`,
+        transport: 'msteams',
+        guildId: teamId,
+        channelId,
+        defaultGroupPolicy:
+          team.groupPolicy ?? runtimeConfig.msteams.groupPolicy,
+        defaultReplyStyle: team.replyStyle || runtimeConfig.msteams.replyStyle,
+        defaultRequireMention:
+          team.requireMention ?? runtimeConfig.msteams.requireMention,
+        config,
+      });
+    }
+  }
+
   return {
     groupPolicy: runtimeConfig.discord.groupPolicy,
     defaultTypingMode: runtimeConfig.discord.typingMode,
@@ -1617,6 +1645,13 @@ export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
     defaultRateLimitPerUser: runtimeConfig.discord.rateLimitPerUser,
     defaultMaxConcurrentPerChannel:
       runtimeConfig.discord.maxConcurrentPerChannel,
+    msteams: {
+      enabled: runtimeConfig.msteams.enabled,
+      groupPolicy: runtimeConfig.msteams.groupPolicy,
+      dmPolicy: runtimeConfig.msteams.dmPolicy,
+      defaultRequireMention: runtimeConfig.msteams.requireMention,
+      defaultReplyStyle: runtimeConfig.msteams.replyStyle,
+    },
     channels,
   };
 }
@@ -1631,6 +1666,17 @@ export function upsertGatewayAdminChannel(
   }
 
   updateRuntimeConfig((draft) => {
+    if (input.transport === 'msteams') {
+      const team = draft.msteams.teams[guildId] ?? {
+        requireMention: draft.msteams.requireMention,
+        replyStyle: draft.msteams.replyStyle,
+        channels: {},
+      };
+      team.channels[channelId] = input.config;
+      draft.msteams.teams[guildId] = team;
+      return;
+    }
+
     const guild = draft.discord.guilds[guildId] ?? {
       defaultMode: 'mention',
       channels: {},
@@ -1643,6 +1689,7 @@ export function upsertGatewayAdminChannel(
 }
 
 export function removeGatewayAdminChannel(params: {
+  transport?: 'discord' | 'msteams';
   guildId: string;
   channelId: string;
 }): GatewayAdminChannelsResponse {
@@ -1653,6 +1700,14 @@ export function removeGatewayAdminChannel(params: {
   }
 
   updateRuntimeConfig((draft) => {
+    if (params.transport === 'msteams') {
+      const team = draft.msteams.teams[guildId];
+      if (!team?.channels[channelId]) return;
+      delete team.channels[channelId];
+      draft.msteams.teams[guildId] = team;
+      return;
+    }
+
     const guild = draft.discord.guilds[guildId];
     if (!guild?.channels[channelId]) return;
     delete guild.channels[channelId];

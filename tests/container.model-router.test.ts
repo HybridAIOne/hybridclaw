@@ -85,6 +85,7 @@ describe('container model router', () => {
           unknown
         >;
         expect(body.model).toBe('gpt-5-codex');
+        expect(body.stream).toBe(true);
         expect(body.instructions).toContain('Analyze the provided image');
         expect(body.input).toEqual([
           {
@@ -132,6 +133,64 @@ describe('container model router', () => {
     expect(result).toMatchObject({
       model: 'openai-codex/gpt-5-codex',
       analysis: 'A bar chart.',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('uses streaming requests for HybridAI vision calls', async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(input).toBe('https://hybridai.one/v1/chat/completions');
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body).toMatchObject({
+          model: 'gpt-5.4',
+          chatbot_id: 'bot_123',
+          stream: true,
+          stream_options: { include_usage: true },
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: 'What is in this image?' },
+                {
+                  type: 'image_url',
+                  image_url: { url: 'data:image/png;base64,ZmFrZQ==' },
+                },
+              ],
+            },
+          ],
+        });
+        return new Response(
+          [
+            'data: {"id":"resp_vision","model":"gpt-5.4","choices":[{"delta":{"role":"assistant","content":"A chrome logo."}}]}',
+            'data: {"choices":[{"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}',
+            'data: [DONE]',
+          ].join('\n'),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' },
+          },
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callVisionProviderModel({
+      provider: 'hybridai',
+      baseUrl: 'https://hybridai.one',
+      apiKey: 'hybridai-test-key',
+      model: 'gpt-5.4',
+      chatbotId: 'bot_123',
+      question: 'What is in this image?',
+      imageDataUrl: 'data:image/png;base64,ZmFrZQ==',
+    });
+
+    expect(result).toMatchObject({
+      model: 'gpt-5.4',
+      analysis: 'A chrome logo.',
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

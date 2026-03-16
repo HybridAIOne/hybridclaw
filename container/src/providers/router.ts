@@ -162,6 +162,16 @@ function normalizeVisionBaseUrl(
   return normalized;
 }
 
+function shouldStreamVisionRequest(
+  provider: RuntimeProvider | undefined,
+): boolean {
+  return (
+    provider === undefined ||
+    provider === 'hybridai' ||
+    provider === 'openai-codex'
+  );
+}
+
 function buildVisionMessages(params: RoutedVisionCallParams): ChatMessage[] {
   const messages: ChatMessage[] = [];
   if (params.provider === 'openai-codex') {
@@ -206,7 +216,7 @@ export async function callVisionProviderModel(
   const contextError = getVisionModelContextError(params);
   if (contextError) throw new Error(contextError);
 
-  const response = await callRoutedModel({
+  const request = {
     provider: params.provider,
     baseUrl: normalizeVisionBaseUrl(params.provider, params.baseUrl),
     apiKey: params.apiKey,
@@ -220,7 +230,13 @@ export async function callVisionProviderModel(
     messages: buildVisionMessages(params),
     tools: [],
     maxTokens: params.maxTokens,
-  });
+  };
+  const response = shouldStreamVisionRequest(params.provider)
+    ? await callRoutedModelStream({
+        ...request,
+        onTextDelta: () => undefined,
+      })
+    : await callRoutedModel(request);
 
   const analysis = extractResponseTextContent(
     response.choices[0]?.message?.content,

@@ -145,6 +145,76 @@ describe.sequential('container tool runtime guards', () => {
     expect(result.output).toContain('Detected test image.');
   });
 
+  test('vision_analyze uses streaming for openai-codex fallback vision requests', async () => {
+    tempImagePath = path.join(
+      os.tmpdir(),
+      `hybridclaw-vision-${Date.now()}.png`,
+    );
+    fs.writeFileSync(tempImagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(input).toBe('https://chatgpt.com/backend-api/codex/responses');
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body).toMatchObject({
+          model: 'gpt-5.4',
+          stream: true,
+        });
+        return new Response(
+          JSON.stringify({
+            id: 'resp_codex',
+            model: 'gpt-5.4',
+            output: [
+              {
+                type: 'message',
+                role: 'assistant',
+                content: [
+                  { type: 'output_text', text: 'Detected via Codex stream.' },
+                ],
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { executeToolWithMetadata, setModelContext, setTaskModelPolicies } =
+      await import('../container/src/tools.js');
+    setModelContext(
+      'openai-codex',
+      'https://chatgpt.com/backend-api/codex',
+      'codex-test-key',
+      'openai-codex/gpt-5.4',
+      '',
+      {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer codex-test-key',
+        'OpenAI-Beta': 'responses=experimental',
+      },
+    );
+    setTaskModelPolicies(undefined);
+
+    const result = await executeToolWithMetadata(
+      'vision_analyze',
+      JSON.stringify({
+        image_url: tempImagePath,
+        question: 'What is in this image?',
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain('Detected via Codex stream.');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   test('vision_analyze uses Ollama native vision requests', async () => {
     tempImagePath = path.join(
       os.tmpdir(),
@@ -339,6 +409,64 @@ describe.sequential('container tool runtime guards', () => {
       max_tokens: 321,
     });
     expect(result.output).toContain('Detected via task model policy.');
+  });
+
+  test('vision_analyze uses streaming for direct HybridAI vision requests', async () => {
+    tempImagePath = path.join(
+      os.tmpdir(),
+      `hybridclaw-vision-${Date.now()}.png`,
+    );
+    fs.writeFileSync(tempImagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body).toMatchObject({
+          model: 'gpt-5.4',
+          chatbot_id: 'bot_123',
+          stream: true,
+          stream_options: { include_usage: true },
+        });
+        return new Response(
+          [
+            'data: {"id":"resp_vision","model":"gpt-5.4","choices":[{"delta":{"role":"assistant","content":"Detected via HybridAI stream."}}]}',
+            'data: {"choices":[{"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}',
+            'data: [DONE]',
+          ].join('\n'),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' },
+          },
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { executeToolWithMetadata, setModelContext } = await import(
+      '../container/src/tools.js'
+    );
+    setModelContext(
+      'hybridai',
+      'https://hybridai.one',
+      'hybridai-test-key',
+      'gpt-5.4',
+      'bot_123',
+    );
+
+    const result = await executeToolWithMetadata(
+      'vision_analyze',
+      JSON.stringify({
+        image_url: tempImagePath,
+        question: 'What is in this image?',
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain('Detected via HybridAI stream.');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test('blocks repeated identical discovery calls with identical outcomes', () => {

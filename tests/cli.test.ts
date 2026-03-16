@@ -9,6 +9,9 @@ const tempDirs: string[] = [];
 const ORIGINAL_WHATSAPP_SETUP_SETTLE_MS =
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS;
 const ORIGINAL_EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
+const ORIGINAL_MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID;
+const ORIGINAL_MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD;
+const ORIGINAL_MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
@@ -169,11 +172,31 @@ async function importFreshCli(options?: {
       smtpPort: 587,
       smtpSecure: false,
       address: '',
-      pollIntervalMs: 15000,
+      pollIntervalMs: 30000,
       folders: ['INBOX'],
       allowFrom: [],
       textChunkLimit: 50000,
       mediaMaxMb: 20,
+    },
+    msteams: {
+      enabled: false,
+      appId: '',
+      tenantId: '',
+      webhook: {
+        port: 3978,
+        path: '/api/msteams/messages',
+      },
+      groupPolicy: 'allowlist',
+      dmPolicy: 'allowlist',
+      allowFrom: [],
+      teams: {},
+      requireMention: true,
+      textChunkLimit: 4000,
+      replyStyle: 'thread',
+      mediaMaxMb: 20,
+      dangerouslyAllowNameMatching: false,
+      mediaAllowHosts: [],
+      mediaAuthAllowHosts: [],
     },
     local: {
       backends: {
@@ -392,6 +415,21 @@ afterEach(() => {
   } else {
     process.env.EMAIL_PASSWORD = ORIGINAL_EMAIL_PASSWORD;
   }
+  if (ORIGINAL_MSTEAMS_APP_ID === undefined) {
+    delete process.env.MSTEAMS_APP_ID;
+  } else {
+    process.env.MSTEAMS_APP_ID = ORIGINAL_MSTEAMS_APP_ID;
+  }
+  if (ORIGINAL_MSTEAMS_APP_PASSWORD === undefined) {
+    delete process.env.MSTEAMS_APP_PASSWORD;
+  } else {
+    process.env.MSTEAMS_APP_PASSWORD = ORIGINAL_MSTEAMS_APP_PASSWORD;
+  }
+  if (ORIGINAL_MSTEAMS_TENANT_ID === undefined) {
+    delete process.env.MSTEAMS_TENANT_ID;
+  } else {
+    process.env.MSTEAMS_TENANT_ID = ORIGINAL_MSTEAMS_TENANT_ID;
+  }
   Object.defineProperty(process.stdin, 'isTTY', {
     configurable: true,
     value: ORIGINAL_STDIN_IS_TTY,
@@ -419,6 +457,20 @@ describe('CLI hybridai commands', () => {
         'Usage: hybridclaw auth <command> [provider] [options]',
       ),
     );
+  });
+
+  it('hides deprecated aliases from the top-level help output', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['help']);
+
+    const output = logSpy.mock.calls
+      .map(([message]) => String(message))
+      .join('\n');
+    expect(output).not.toContain('Deprecated alias for local provider');
+    expect(output).not.toContain('Deprecated alias for HybridAI provider');
+    expect(output).not.toContain('Deprecated alias for Codex provider');
   });
 
   it('runs bare auth login through onboarding', async () => {
@@ -474,6 +526,17 @@ describe('CLI hybridai commands', () => {
 
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('hybridclaw auth whatsapp reset'),
+    );
+  });
+
+  it('prints msteams help', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['help', 'msteams']);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('hybridclaw auth login msteams'),
     );
   });
 
@@ -744,6 +807,108 @@ describe('CLI hybridai commands', () => {
     expect(updateRuntimeConfig).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith('Backend: ollama');
     expect(logSpy).toHaveBeenCalledWith('Configured model: ollama/llama3.2');
+  });
+
+  it('routes auth login msteams to the Teams auth flow', async () => {
+    const { cli, saveRuntimeSecrets, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'auth',
+      'login',
+      'msteams',
+      '--app-id',
+      'teams-app-id',
+      '--tenant-id',
+      'teams-tenant-id',
+      '--app-password',
+      'teams-secret',
+    ]);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      MSTEAMS_APP_PASSWORD: 'teams-secret',
+    });
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      msteams: {
+        appId: string;
+        enabled: boolean;
+        tenantId: string;
+      };
+    };
+    expect(nextConfig.msteams.enabled).toBe(true);
+    expect(nextConfig.msteams.appId).toBe('teams-app-id');
+    expect(nextConfig.msteams.tenantId).toBe('teams-tenant-id');
+    expect(logSpy).toHaveBeenCalledWith('Microsoft Teams mode: enabled');
+  });
+
+  it('prompts for the optional Teams tenant id during interactive login', async () => {
+    const {
+      cli,
+      readlineCreateInterface,
+      readlineQuestion,
+      updateRuntimeConfig,
+    } = await importFreshCli({
+      promptResponses: ['teams-app-id', 'teams-secret', 'teams-tenant-id'],
+    });
+
+    await cli.main(['auth', 'login', 'msteams']);
+
+    expect(readlineCreateInterface).toHaveBeenCalled();
+    expect(readlineQuestion).toHaveBeenCalledWith('Microsoft Teams app id: ');
+    expect(readlineQuestion).toHaveBeenCalledWith(
+      'Microsoft Teams app password: ',
+    );
+    expect(readlineQuestion).toHaveBeenCalledWith(
+      'Microsoft Teams tenant id (optional): ',
+    );
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      msteams: {
+        appId: string;
+        tenantId: string;
+      };
+    };
+    expect(nextConfig.msteams.appId).toBe('teams-app-id');
+    expect(nextConfig.msteams.tenantId).toBe('teams-tenant-id');
+  });
+
+  it('prints Microsoft Teams status through auth status', async () => {
+    process.env.MSTEAMS_APP_ID = 'teams-app-id';
+    process.env.MSTEAMS_APP_PASSWORD = 'teams-secret';
+    process.env.MSTEAMS_TENANT_ID = 'teams-tenant-id';
+    const { cli, getRuntimeConfig } = await importFreshCli();
+    getRuntimeConfig.mockReturnValue({
+      ...getRuntimeConfig(),
+      msteams: {
+        enabled: true,
+        appId: '',
+        tenantId: '',
+        webhook: {
+          port: 3978,
+          path: '/api/msteams/messages',
+        },
+        groupPolicy: 'open',
+        dmPolicy: 'open',
+        allowFrom: [],
+        teams: {},
+        requireMention: true,
+        textChunkLimit: 4000,
+        replyStyle: 'thread',
+        mediaMaxMb: 20,
+        dangerouslyAllowNameMatching: false,
+        mediaAllowHosts: [],
+        mediaAuthAllowHosts: [],
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'status', 'msteams']);
+
+    expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+    expect(logSpy).toHaveBeenCalledWith('Enabled: yes');
+    expect(logSpy).toHaveBeenCalledWith('App ID: teams-app-id');
+    expect(logSpy).toHaveBeenCalledWith('Tenant ID: teams-tenant-id');
   });
 
   it('configures OpenRouter from auth login with --api-key', async () => {
