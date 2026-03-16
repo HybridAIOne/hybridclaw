@@ -12,6 +12,5 @@ export function shouldPrintTuiStartHint(commandLabel: string): boolean {
   const tokens = tokenizeCommandLabel(commandLabel).map((token) =>
     token.toLowerCase(),
   );
-  if (tokens.length < 2) return false;
-  return tokens[1] === 'onboarding';
+  return tokens[1] !== 'tui';
 }
