@@ -285,8 +285,8 @@ export function ModelsPage() {
                           </strong>
                           <small>
                             {formatTokenBreakdown(
-                              model.usageMonthly.totalInputTokens,
-                              model.usageMonthly.totalOutputTokens,
+                              model.usageMonthly.totalInputTokens ?? 0,
+                              model.usageMonthly.totalOutputTokens ?? 0,
                             )}
                           </small>
                           <small>
@@ -335,8 +335,8 @@ export function ModelsPage() {
                     <strong>{model.id}</strong>
                     <small>
                       {formatTokenBreakdown(
-                        model.usageDaily?.totalInputTokens || 0,
-                        model.usageDaily?.totalOutputTokens || 0,
+                        model.usageDaily?.totalInputTokens ?? 0,
+                        model.usageDaily?.totalOutputTokens ?? 0,
                       )}{' '}
                       · {model.usageDaily?.callCount || 0} calls today
                     </small>

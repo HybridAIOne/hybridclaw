@@ -5,11 +5,15 @@ export function formatCompactNumber(value: number): string {
   }).format(value);
 }
 
+function normalizeCount(value: number | null | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
 export function formatTokenBreakdown(
-  inputTokens: number,
-  outputTokens: number,
+  inputTokens: number | null | undefined,
+  outputTokens: number | null | undefined,
 ): string {
-  return `${formatCompactNumber(inputTokens)} in / ${formatCompactNumber(outputTokens)} out`;
+  return `${formatCompactNumber(normalizeCount(inputTokens))} in / ${formatCompactNumber(normalizeCount(outputTokens))} out`;
 }
 
 export function formatUsd(value: number): string {

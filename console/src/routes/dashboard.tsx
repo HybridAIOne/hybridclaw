@@ -106,8 +106,8 @@ export function DashboardPage() {
               </strong>
               <small>
                 {formatTokenBreakdown(
-                  overview.usage.daily.totalInputTokens,
-                  overview.usage.daily.totalOutputTokens,
+                  overview.usage.daily.totalInputTokens ?? 0,
+                  overview.usage.daily.totalOutputTokens ?? 0,
                 )}
               </small>
               <small>
@@ -122,8 +122,8 @@ export function DashboardPage() {
               </strong>
               <small>
                 {formatTokenBreakdown(
-                  overview.usage.monthly.totalInputTokens,
-                  overview.usage.monthly.totalOutputTokens,
+                  overview.usage.monthly.totalInputTokens ?? 0,
+                  overview.usage.monthly.totalOutputTokens ?? 0,
                 )}
               </small>
               <small>
@@ -144,8 +144,8 @@ export function DashboardPage() {
                     <strong>{row.model}</strong>
                     <small>
                       {formatTokenBreakdown(
-                        row.totalInputTokens,
-                        row.totalOutputTokens,
+                        row.totalInputTokens ?? 0,
+                        row.totalOutputTokens ?? 0,
                       )}{' '}
                       · {row.callCount} calls this month
                     </small>
