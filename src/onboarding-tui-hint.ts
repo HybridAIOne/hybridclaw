@@ -12,5 +12,7 @@ export function shouldPrintTuiStartHint(commandLabel: string): boolean {
   const tokens = tokenizeCommandLabel(commandLabel).map((token) =>
     token.toLowerCase(),
   );
-  return tokens[1] !== 'tui';
+  if (tokens.length < 2) return false;
+  // This hint is reserved for the explicit onboarding command, not later auth flows.
+  return tokens[1] === 'onboarding';
 }

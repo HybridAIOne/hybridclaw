@@ -6,22 +6,22 @@ import {
 } from '../src/onboarding-tui-hint.ts';
 
 describe('shouldPrintTuiStartHint', () => {
-  it('returns true for empty input', () => {
-    expect(shouldPrintTuiStartHint('')).toBe(true);
-    expect(shouldPrintTuiStartHint('   ')).toBe(true);
+  it('returns false for empty input', () => {
+    expect(shouldPrintTuiStartHint('')).toBe(false);
+    expect(shouldPrintTuiStartHint('   ')).toBe(false);
   });
 
   it('returns true for onboarding commands', () => {
     expect(shouldPrintTuiStartHint('hybridclaw onboarding')).toBe(true);
   });
 
-  it('returns true for non-tui commands', () => {
-    expect(shouldPrintTuiStartHint('hybridclaw auth')).toBe(true);
-    expect(shouldPrintTuiStartHint('hybridclaw auth status')).toBe(true);
+  it('returns false for auth and other non-onboarding commands', () => {
+    expect(shouldPrintTuiStartHint('hybridclaw auth')).toBe(false);
+    expect(shouldPrintTuiStartHint('hybridclaw auth status')).toBe(false);
     expect(shouldPrintTuiStartHint('hybridclaw auth login hybridai')).toBe(
-      true,
+      false,
     );
-    expect(shouldPrintTuiStartHint('hybridclaw setup')).toBe(true);
+    expect(shouldPrintTuiStartHint('hybridclaw setup')).toBe(false);
   });
 
   it('returns false when tui is already launching', () => {
@@ -30,8 +30,8 @@ describe('shouldPrintTuiStartHint', () => {
   });
 
   it('matches command segments case-insensitively', () => {
-    expect(shouldPrintTuiStartHint('HYBRIDCLAW TUI')).toBe(false);
-    expect(shouldPrintTuiStartHint('HYBRIDCLAW AUTH LOGIN')).toBe(true);
+    expect(shouldPrintTuiStartHint('HYBRIDCLAW ONBOARDING')).toBe(true);
+    expect(shouldPrintTuiStartHint('HYBRIDCLAW AUTH LOGIN')).toBe(false);
   });
 });
 
