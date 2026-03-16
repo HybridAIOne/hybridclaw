@@ -5,6 +5,13 @@ export function formatCompactNumber(value: number): string {
   }).format(value);
 }
 
+export function formatTokenBreakdown(
+  inputTokens: number,
+  outputTokens: number,
+): string {
+  return `${formatCompactNumber(inputTokens)} in / ${formatCompactNumber(outputTokens)} out`;
+}
+
 export function formatUsd(value: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',

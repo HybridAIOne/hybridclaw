@@ -6,6 +6,7 @@ import { PageHeader, Panel } from '../components/ui';
 import {
   formatCompactNumber,
   formatRelativeTime,
+  formatTokenBreakdown,
   formatUsd,
   joinStringList,
   parseStringList,
@@ -283,6 +284,12 @@ export function ModelsPage() {
                             )}
                           </strong>
                           <small>
+                            {formatTokenBreakdown(
+                              model.usageMonthly.totalInputTokens,
+                              model.usageMonthly.totalOutputTokens,
+                            )}
+                          </small>
+                          <small>
                             {formatUsd(model.usageMonthly.totalCostUsd)} ·{' '}
                             {model.usageMonthly.callCount} calls
                           </small>
@@ -327,7 +334,11 @@ export function ModelsPage() {
                   <div>
                     <strong>{model.id}</strong>
                     <small>
-                      {model.usageDaily?.callCount || 0} calls today
+                      {formatTokenBreakdown(
+                        model.usageDaily?.totalInputTokens || 0,
+                        model.usageDaily?.totalOutputTokens || 0,
+                      )}{' '}
+                      · {model.usageDaily?.callCount || 0} calls today
                     </small>
                   </div>
                   <span>{formatUsd(model.usageDaily?.totalCostUsd || 0)}</span>
