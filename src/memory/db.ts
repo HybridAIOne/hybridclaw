@@ -1629,6 +1629,17 @@ export function getUsageTotals(params?: {
 }
 
 export function getSessionUsageTotals(sessionId: string): UsageTotals {
+  return getSessionUsageTotalsSince(sessionId, null);
+}
+
+export function getSessionUsageTotalsSince(
+  sessionId: string,
+  sinceTimestamp: string | null,
+): UsageTotals {
+  const normalizedSince =
+    typeof sinceTimestamp === 'string' && sinceTimestamp.trim()
+      ? sinceTimestamp.trim()
+      : null;
   const row = db
     .prepare(
       `SELECT
@@ -1639,9 +1650,10 @@ export function getSessionUsageTotals(sessionId: string): UsageTotals {
          COUNT(*) AS call_count,
          COALESCE(SUM(tool_calls), 0) AS total_tool_calls
        FROM usage_events
-       WHERE session_id = ?`,
+       WHERE session_id = ?
+         AND (? IS NULL OR timestamp >= ?)`,
     )
-    .get(sessionId) as UsageTotals;
+    .get(sessionId, normalizedSince, normalizedSince) as UsageTotals;
 
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
@@ -1651,6 +1663,47 @@ export function getSessionUsageTotals(sessionId: string): UsageTotals {
     call_count: normalizeUsageNumber(row.call_count),
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
   };
+}
+
+export function getSessionToolCallBreakdown(
+  sessionId: string,
+  sinceTimestamp: string | null = null,
+): Array<{ toolName: string; count: number }> {
+  const normalizedSince =
+    typeof sinceTimestamp === 'string' && sinceTimestamp.trim()
+      ? sinceTimestamp.trim()
+      : null;
+  const rows = db
+    .prepare(
+      `SELECT payload
+       FROM audit_events
+       WHERE session_id = ?
+         AND event_type = 'tool.call'
+         AND (? IS NULL OR timestamp >= ?)
+       ORDER BY id ASC`,
+    )
+    .all(sessionId, normalizedSince, normalizedSince) as Array<{
+    payload: string;
+  }>;
+
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    try {
+      const payload = JSON.parse(row.payload) as { toolName?: unknown };
+      const toolName = String(payload.toolName || '').trim();
+      if (!toolName) continue;
+      counts.set(toolName, (counts.get(toolName) || 0) + 1);
+    } catch {
+      // Best effort only. Skip malformed audit payloads.
+    }
+  }
+
+  return [...counts.entries()]
+    .map(([toolName, count]) => ({ toolName, count }))
+    .sort(
+      (left, right) =>
+        right.count - left.count || left.toolName.localeCompare(right.toolName),
+    );
 }
 
 export function listUsageByModel(params?: {

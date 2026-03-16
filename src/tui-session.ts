@@ -9,9 +9,13 @@ export interface TuiRunOptions {
 export interface TuiExitSummary {
   sessionId: string;
   durationMs: number;
-  messageCount: number;
-  userMessageCount: number;
+  inputTokenCount: number;
+  outputTokenCount: number;
+  costUsd: number;
   toolCallCount: number;
+  toolBreakdown: Array<{ toolName: string; count: number }>;
+  modifiedFileCount: number;
+  createdFileCount: number;
   resumeCommand: string;
 }
 
@@ -67,13 +71,44 @@ export function formatTuiSessionDuration(durationMs: number): string {
   return `${seconds}s`;
 }
 
+function formatInteger(value: number): string {
+  return Math.max(0, Math.round(value)).toLocaleString('en-US');
+}
+
+function formatApproxUsd(value: number): string {
+  const normalized = Number.isFinite(value) ? Math.max(0, value) : 0;
+  return `$${normalized.toFixed(2)}`;
+}
+
+function formatToolBreakdown(
+  entries: Array<{ toolName: string; count: number }>,
+): string {
+  return entries
+    .filter(
+      (entry) =>
+        entry &&
+        typeof entry.toolName === 'string' &&
+        entry.toolName.trim() &&
+        Number.isFinite(entry.count) &&
+        entry.count > 0,
+    )
+    .map((entry) => `${formatInteger(entry.count)} ${entry.toolName.trim()}`)
+    .join(', ');
+}
+
 export function buildTuiExitSummaryLines(summary: TuiExitSummary): string[] {
+  const toolBreakdown = formatToolBreakdown(summary.toolBreakdown);
+  const toolCallsLine = toolBreakdown
+    ? `Tool calls: ${formatInteger(summary.toolCallCount)} (${toolBreakdown})`
+    : `Tool calls: ${formatInteger(summary.toolCallCount)}`;
+
   return [
-    'Resume this session with:',
-    `  ${summary.resumeCommand} ${summary.sessionId}`,
+    `Session ${summary.sessionId} completed in ${formatTuiSessionDuration(summary.durationMs)}`,
     '',
-    `Session:        ${summary.sessionId}`,
-    `Duration:       ${formatTuiSessionDuration(summary.durationMs)}`,
-    `Messages:       ${summary.messageCount} (${summary.userMessageCount} user, ${summary.toolCallCount} tool calls)`,
+    `Tokens:     ${formatInteger(summary.inputTokenCount)} in / ${formatInteger(summary.outputTokenCount)} out  (~${formatApproxUsd(summary.costUsd)})`,
+    toolCallsLine,
+    `Files:      ${formatInteger(summary.modifiedFileCount)} modified, ${formatInteger(summary.createdFileCount)} created`,
+    '',
+    `Resume: ${summary.resumeCommand} ${summary.sessionId}`,
   ];
 }

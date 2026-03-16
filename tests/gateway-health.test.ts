@@ -159,6 +159,18 @@ async function importFreshHealth(options?: {
     messageCount: 2,
     userMessageCount: 1,
     toolCallCount: 3,
+    inputTokenCount: 12847,
+    outputTokenCount: 8203,
+    costUsd: 0.42,
+    toolBreakdown: [
+      { toolName: 'edit', count: 14 },
+      { toolName: 'bash', count: 6 },
+      { toolName: 'read', count: 3 },
+    ],
+    fileChanges: {
+      modifiedCount: 7,
+      createdCount: 2,
+    },
   }));
   const getSessionById = vi.fn(() => ({ show_mode: 'all' }));
   const handleGatewayMessage = vi.fn(async () => ({
@@ -680,7 +692,9 @@ describe('gateway health server', () => {
     await settle();
 
     expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2);
-    expect(state.getGatewayHistorySummary).toHaveBeenCalledWith('s1');
+    expect(state.getGatewayHistorySummary).toHaveBeenCalledWith('s1', {
+      sinceMs: null,
+    });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       sessionId: 's1',
@@ -692,6 +706,18 @@ describe('gateway health server', () => {
         messageCount: 2,
         userMessageCount: 1,
         toolCallCount: 3,
+        inputTokenCount: 12847,
+        outputTokenCount: 8203,
+        costUsd: 0.42,
+        toolBreakdown: [
+          { toolName: 'edit', count: 14 },
+          { toolName: 'bash', count: 6 },
+          { toolName: 'read', count: 3 },
+        ],
+        fileChanges: {
+          modifiedCount: 7,
+          createdCount: 2,
+        },
       },
     });
   });

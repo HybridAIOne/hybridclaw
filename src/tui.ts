@@ -59,7 +59,6 @@ import {
 import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
 import {
   buildTuiExitSummaryLines,
-  formatTuiSessionDuration,
   generateTuiSessionId,
   type TuiRunOptions,
 } from './tui-session.js';
@@ -929,12 +928,20 @@ async function fetchTuiInputHistory(
 }
 
 async function fetchTuiExitSummary(): Promise<{
-  messageCount: number;
-  userMessageCount: number;
+  inputTokenCount: number;
+  outputTokenCount: number;
+  costUsd: number;
   toolCallCount: number;
+  toolBreakdown: Array<{ toolName: string; count: number }>;
+  fileChanges: {
+    modifiedCount: number;
+    createdCount: number;
+  };
 } | null> {
   try {
-    const response = await gatewayHistory(tuiSessionId, 1);
+    const response = await gatewayHistory(tuiSessionId, 1, {
+      summarySinceMs: tuiSessionStartedAtMs,
+    });
     return response.summary || null;
   } catch {
     return null;
@@ -948,33 +955,18 @@ async function finalizeTuiExit(): Promise<void> {
   tuiSlashMenu = null;
 
   const summary = await fetchTuiExitSummary();
-  if (!summary) {
-    console.log();
-    console.log('Resume this session with:');
-    console.log(`  ${tuiResumeCommand} ${tuiSessionId}`);
-    console.log();
-    console.log(`Session:        ${tuiSessionId}`);
-    console.log(
-      `Duration:       ${formatTuiSessionDuration(Date.now() - tuiSessionStartedAtMs)}`,
-    );
-    console.log();
-    process.exit(0);
-    return;
-  }
-
-  if (summary.messageCount <= 0) {
-    console.log(`\n${MUTED}  Goodbye!${RESET}\n`);
-    process.exit(0);
-    return;
-  }
 
   console.log();
   for (const line of buildTuiExitSummaryLines({
     sessionId: tuiSessionId,
     durationMs: Date.now() - tuiSessionStartedAtMs,
-    messageCount: summary.messageCount,
-    userMessageCount: summary.userMessageCount,
-    toolCallCount: summary.toolCallCount,
+    inputTokenCount: summary?.inputTokenCount ?? 0,
+    outputTokenCount: summary?.outputTokenCount ?? 0,
+    costUsd: summary?.costUsd ?? 0,
+    toolCallCount: summary?.toolCallCount ?? 0,
+    toolBreakdown: summary?.toolBreakdown ?? [],
+    modifiedFileCount: summary?.fileChanges.modifiedCount ?? 0,
+    createdFileCount: summary?.fileChanges.createdCount ?? 0,
     resumeCommand: tuiResumeCommand,
   })) {
     console.log(line);

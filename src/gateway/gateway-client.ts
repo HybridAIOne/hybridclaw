@@ -263,11 +263,21 @@ export async function gatewayPullProactive(
 export async function gatewayHistory(
   sessionId: string,
   limit = 100,
+  options?: {
+    summarySinceMs?: number | null;
+  },
 ): Promise<GatewayHistoryResponse> {
   const params = new URLSearchParams({
     sessionId,
     limit: String(Math.max(1, Math.floor(limit))),
   });
+  if (
+    typeof options?.summarySinceMs === 'number' &&
+    Number.isFinite(options.summarySinceMs) &&
+    options.summarySinceMs > 0
+  ) {
+    params.set('summarySinceMs', String(Math.floor(options.summarySinceMs)));
+  }
   return requestJson<GatewayHistoryResponse>(
     `/api/history?${params.toString()}`,
     {

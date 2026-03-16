@@ -154,10 +154,25 @@ export interface GatewayHistoryMessage {
   created_at: string;
 }
 
+export interface GatewayHistoryToolBreakdownEntry {
+  toolName: string;
+  count: number;
+}
+
+export interface GatewayHistoryFileChanges {
+  modifiedCount: number;
+  createdCount: number;
+}
+
 export interface GatewayHistorySummary {
   messageCount: number;
   userMessageCount: number;
   toolCallCount: number;
+  inputTokenCount: number;
+  outputTokenCount: number;
+  costUsd: number;
+  toolBreakdown: GatewayHistoryToolBreakdownEntry[];
+  fileChanges: GatewayHistoryFileChanges;
 }
 
 export interface GatewayHistoryResponse {
