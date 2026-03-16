@@ -18,6 +18,11 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/approve yes [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
   expect(labels).toContain('/bot list');
+  expect(labels).toContain('/skill');
+  expect(labels).toContain('/skill inspect <name>');
+  expect(labels).toContain('/skill inspect --all');
+  expect(labels).toContain('/skill amend <name> --apply');
+  expect(labels).toContain('/skill history <name>');
 });
 
 test('resolves slash menu queries only at the end of the active line', () => {

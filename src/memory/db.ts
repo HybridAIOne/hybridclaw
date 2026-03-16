@@ -13,6 +13,17 @@ import {
   type SessionResetPolicy,
 } from '../session/session-reset.js';
 import type {
+  SkillAmendment,
+  SkillAmendmentStatus,
+  SkillCogneeGuardVerdict,
+  SkillErrorCategory,
+  SkillExecutionOutcome,
+  SkillFeedbackSentiment,
+  SkillHealthMetrics,
+  SkillObservation,
+  SkillObservationSummary,
+} from '../skills/skills-cognee-types.js';
+import type {
   ApprovalAuditEntry,
   AuditEntry,
   CanonicalSession,
@@ -41,7 +52,7 @@ import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 let db: Database.Database;
 let databaseInitialized = false;
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 interface InitDatabaseOptions {
   quiet?: boolean;
@@ -61,6 +72,69 @@ interface AgentRow {
   workspace: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface SkillObservationRow {
+  id: number;
+  skill_name: string;
+  session_id: string;
+  run_id: string;
+  outcome: string;
+  error_category: string | null;
+  error_detail: string | null;
+  tool_calls_attempted: number;
+  tool_calls_failed: number;
+  duration_ms: number;
+  user_feedback: string | null;
+  feedback_sentiment: string | null;
+  created_at: string;
+}
+
+interface SkillObservationSummaryRow {
+  skill_name: string;
+  total_executions: number;
+  success_count: number;
+  failure_count: number;
+  partial_count: number;
+  avg_duration_ms: number;
+  tool_calls_attempted: number;
+  tool_calls_failed: number;
+  negative_feedback_count: number;
+  last_observed_at: string | null;
+}
+
+interface SkillObservationErrorClusterRow {
+  skill_name: string;
+  error_category: string | null;
+  count: number;
+  sample_detail: string | null;
+}
+
+interface SkillAmendmentRow {
+  id: number;
+  skill_name: string;
+  skill_file_path: string;
+  version: number;
+  previous_version: number | null;
+  status: string;
+  original_content: string;
+  proposed_content: string;
+  original_content_hash: string;
+  proposed_content_hash: string;
+  rationale: string;
+  diff_summary: string;
+  proposed_by: string;
+  reviewed_by: string | null;
+  guard_verdict: string;
+  guard_findings_count: number;
+  metrics_at_proposal: string | null;
+  metrics_post_apply: string | null;
+  runs_since_apply: number;
+  created_at: string;
+  updated_at: string;
+  applied_at: string | null;
+  rolled_back_at: string | null;
+  rejected_at: string | null;
 }
 
 function getSchemaVersion(database: Database.Database): number {
@@ -854,6 +928,71 @@ function migrateV8(
   );
 }
 
+function migrateV9(
+  database: Database.Database,
+  _opts?: InitDatabaseOptions,
+): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS skill_observations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      skill_name TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      error_category TEXT,
+      error_detail TEXT,
+      tool_calls_attempted INTEGER NOT NULL DEFAULT 0,
+      tool_calls_failed INTEGER NOT NULL DEFAULT 0,
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      user_feedback TEXT,
+      feedback_sentiment TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_skill_observations_skill_created
+      ON skill_observations(skill_name, created_at);
+    CREATE INDEX IF NOT EXISTS idx_skill_observations_session
+      ON skill_observations(session_id);
+
+    CREATE TABLE IF NOT EXISTS skill_amendments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      skill_name TEXT NOT NULL,
+      skill_file_path TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      previous_version INTEGER,
+      status TEXT NOT NULL,
+      original_content TEXT NOT NULL,
+      proposed_content TEXT NOT NULL,
+      original_content_hash TEXT NOT NULL,
+      proposed_content_hash TEXT NOT NULL,
+      rationale TEXT NOT NULL,
+      diff_summary TEXT NOT NULL,
+      proposed_by TEXT NOT NULL,
+      reviewed_by TEXT,
+      guard_verdict TEXT NOT NULL,
+      guard_findings_count INTEGER NOT NULL DEFAULT 0,
+      metrics_at_proposal TEXT,
+      metrics_post_apply TEXT,
+      runs_since_apply INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      applied_at TEXT,
+      rolled_back_at TEXT,
+      rejected_at TEXT,
+      UNIQUE(skill_name, version)
+    );
+    CREATE INDEX IF NOT EXISTS idx_skill_amendments_skill_version
+      ON skill_amendments(skill_name, version);
+    CREATE INDEX IF NOT EXISTS idx_skill_amendments_status
+      ON skill_amendments(status);
+  `);
+
+  recordMigration(
+    database,
+    9,
+    'Add skill observation and amendment tracking tables',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -878,6 +1017,7 @@ function runMigrations(
   if (currentVersion < 6) migrateV6(database, opts);
   if (currentVersion < 7) migrateV7(database, opts);
   if (currentVersion < 8) migrateV8(database, opts);
+  if (currentVersion < 9) migrateV9(database, opts);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -3505,6 +3645,610 @@ export function resumeTask(taskId: number): void {
 
 export function deleteTask(taskId: number): void {
   db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
+}
+
+function parseSkillMetricsJson(raw: string | null): SkillHealthMetrics | null {
+  const normalized = raw?.trim() || '';
+  if (!normalized) return null;
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as SkillHealthMetrics;
+  } catch {
+    return null;
+  }
+}
+
+function serializeSkillMetricsJson(
+  metrics: SkillHealthMetrics | null | undefined,
+): string | null {
+  if (!metrics) return null;
+  try {
+    return JSON.stringify(metrics);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSkillOutcome(
+  value: string | null | undefined,
+): SkillExecutionOutcome {
+  if (value === 'success' || value === 'failure' || value === 'partial') {
+    return value;
+  }
+  return 'failure';
+}
+
+function normalizeSkillErrorCategoryValue(
+  value: string | null | undefined,
+): SkillErrorCategory | null {
+  if (
+    value === 'tool_error' ||
+    value === 'timeout' ||
+    value === 'user_abort' ||
+    value === 'model_error' ||
+    value === 'env_changed' ||
+    value === 'unknown'
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function normalizeSkillFeedbackSentimentValue(
+  value: string | null | undefined,
+): SkillFeedbackSentiment | null {
+  if (value === 'positive' || value === 'negative' || value === 'neutral') {
+    return value;
+  }
+  return null;
+}
+
+function normalizeSkillAmendmentStatusValue(
+  value: string | null | undefined,
+): SkillAmendmentStatus {
+  if (
+    value === 'staged' ||
+    value === 'applied' ||
+    value === 'rolled_back' ||
+    value === 'rejected'
+  ) {
+    return value;
+  }
+  return 'staged';
+}
+
+function normalizeSkillGuardVerdictValue(
+  value: string | null | undefined,
+): SkillCogneeGuardVerdict {
+  if (value === 'safe' || value === 'caution' || value === 'dangerous') {
+    return value;
+  }
+  return 'caution';
+}
+
+function mapSkillObservationRow(row: SkillObservationRow): SkillObservation {
+  return {
+    id: Math.floor(row.id),
+    skill_name: row.skill_name,
+    session_id: row.session_id,
+    run_id: row.run_id,
+    outcome: normalizeSkillOutcome(row.outcome),
+    error_category: normalizeSkillErrorCategoryValue(row.error_category),
+    error_detail: row.error_detail,
+    tool_calls_attempted: Math.max(
+      0,
+      Math.floor(row.tool_calls_attempted || 0),
+    ),
+    tool_calls_failed: Math.max(0, Math.floor(row.tool_calls_failed || 0)),
+    duration_ms: Math.max(0, Math.floor(row.duration_ms || 0)),
+    user_feedback: row.user_feedback,
+    feedback_sentiment: normalizeSkillFeedbackSentimentValue(
+      row.feedback_sentiment,
+    ),
+    created_at: row.created_at,
+  };
+}
+
+function mapSkillAmendmentRow(row: SkillAmendmentRow): SkillAmendment {
+  return {
+    id: Math.floor(row.id),
+    skill_name: row.skill_name,
+    skill_file_path: row.skill_file_path,
+    version: Math.max(1, Math.floor(row.version || 1)),
+    previous_version:
+      typeof row.previous_version === 'number'
+        ? Math.floor(row.previous_version)
+        : null,
+    status: normalizeSkillAmendmentStatusValue(row.status),
+    original_content: row.original_content,
+    proposed_content: row.proposed_content,
+    original_content_hash: row.original_content_hash,
+    proposed_content_hash: row.proposed_content_hash,
+    rationale: row.rationale,
+    diff_summary: row.diff_summary,
+    proposed_by: row.proposed_by,
+    reviewed_by: row.reviewed_by,
+    guard_verdict: normalizeSkillGuardVerdictValue(row.guard_verdict),
+    guard_findings_count: Math.max(
+      0,
+      Math.floor(row.guard_findings_count || 0),
+    ),
+    metrics_at_proposal: parseSkillMetricsJson(row.metrics_at_proposal),
+    metrics_post_apply: parseSkillMetricsJson(row.metrics_post_apply),
+    runs_since_apply: Math.max(0, Math.floor(row.runs_since_apply || 0)),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    applied_at: row.applied_at,
+    rolled_back_at: row.rolled_back_at,
+    rejected_at: row.rejected_at,
+  };
+}
+
+function mapSkillObservationSummaries(params: {
+  summaryRows: SkillObservationSummaryRow[];
+  clusterRows: SkillObservationErrorClusterRow[];
+}): SkillObservationSummary[] {
+  const clusterMap = new Map<
+    string,
+    Array<{
+      category: SkillErrorCategory;
+      count: number;
+      sample_detail?: string | null;
+    }>
+  >();
+  for (const row of params.clusterRows) {
+    const skillName = row.skill_name.trim();
+    if (!skillName) continue;
+    const category =
+      normalizeSkillErrorCategoryValue(row.error_category) || 'unknown';
+    const existing = clusterMap.get(skillName) || [];
+    existing.push({
+      category,
+      count: Math.max(0, Math.floor(row.count || 0)),
+      sample_detail: row.sample_detail,
+    });
+    clusterMap.set(skillName, existing);
+  }
+
+  return params.summaryRows.map((row) => ({
+    skill_name: row.skill_name,
+    total_executions: Math.max(0, Math.floor(row.total_executions || 0)),
+    success_count: Math.max(0, Math.floor(row.success_count || 0)),
+    failure_count: Math.max(0, Math.floor(row.failure_count || 0)),
+    partial_count: Math.max(0, Math.floor(row.partial_count || 0)),
+    avg_duration_ms: Math.max(0, Number(row.avg_duration_ms || 0)),
+    tool_calls_attempted: Math.max(
+      0,
+      Math.floor(row.tool_calls_attempted || 0),
+    ),
+    tool_calls_failed: Math.max(0, Math.floor(row.tool_calls_failed || 0)),
+    negative_feedback_count: Math.max(
+      0,
+      Math.floor(row.negative_feedback_count || 0),
+    ),
+    error_clusters: clusterMap.get(row.skill_name) || [],
+    last_observed_at: row.last_observed_at,
+  }));
+}
+
+// --- Skill Cognee ---
+
+export function recordSkillObservation(input: {
+  skillName: string;
+  sessionId: string;
+  runId: string;
+  outcome: SkillExecutionOutcome;
+  errorCategory?: SkillErrorCategory | null;
+  errorDetail?: string | null;
+  toolCallsAttempted?: number;
+  toolCallsFailed?: number;
+  durationMs?: number;
+}): SkillObservation {
+  const result = db
+    .prepare(
+      `INSERT INTO skill_observations (
+         skill_name,
+         session_id,
+         run_id,
+         outcome,
+         error_category,
+         error_detail,
+         tool_calls_attempted,
+         tool_calls_failed,
+         duration_ms
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.skillName.trim(),
+      input.sessionId.trim(),
+      input.runId.trim(),
+      input.outcome,
+      input.errorCategory || null,
+      input.errorDetail?.trim() || null,
+      Math.max(0, Math.floor(input.toolCallsAttempted || 0)),
+      Math.max(0, Math.floor(input.toolCallsFailed || 0)),
+      Math.max(0, Math.floor(input.durationMs || 0)),
+    );
+
+  const row = db
+    .prepare('SELECT * FROM skill_observations WHERE id = ?')
+    .get(result.lastInsertRowid) as SkillObservationRow;
+  return mapSkillObservationRow(row);
+}
+
+export function getSkillObservations(params?: {
+  skillName?: string;
+  sessionId?: string;
+  runId?: string;
+  createdAfter?: string | null;
+  limit?: number;
+}): SkillObservation[] {
+  const clauses: string[] = [];
+  const args: Array<string | number> = [];
+  const skillName = params?.skillName?.trim() || '';
+  const sessionId = params?.sessionId?.trim() || '';
+  const runId = params?.runId?.trim() || '';
+  const createdAfter = params?.createdAfter?.trim() || '';
+  if (skillName) {
+    clauses.push('skill_name = ?');
+    args.push(skillName);
+  }
+  if (sessionId) {
+    clauses.push('session_id = ?');
+    args.push(sessionId);
+  }
+  if (runId) {
+    clauses.push('run_id = ?');
+    args.push(runId);
+  }
+  if (createdAfter) {
+    clauses.push('created_at >= ?');
+    args.push(createdAfter);
+  }
+  const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const limit = Math.max(1, Math.min(params?.limit || 100, 1_000));
+  return (
+    db
+      .prepare(
+        `SELECT *
+         FROM skill_observations
+         ${whereClause}
+         ORDER BY created_at DESC, id DESC
+         LIMIT ?`,
+      )
+      .all(...args, limit) as SkillObservationRow[]
+  ).map(mapSkillObservationRow);
+}
+
+export function getObservedSkillNames(params?: {
+  createdAfter?: string | null;
+}): string[] {
+  const createdAfter = params?.createdAfter?.trim() || '';
+  const rows = createdAfter
+    ? (db
+        .prepare(
+          `SELECT DISTINCT skill_name
+           FROM skill_observations
+           WHERE created_at >= ?
+           ORDER BY skill_name ASC`,
+        )
+        .all(createdAfter) as Array<{ skill_name: string }>)
+    : (db
+        .prepare(
+          `SELECT DISTINCT skill_name
+           FROM skill_observations
+           ORDER BY skill_name ASC`,
+        )
+        .all() as Array<{ skill_name: string }>);
+  return rows
+    .map((row) => row.skill_name.trim())
+    .filter(Boolean);
+}
+
+export function getSkillObservationSummary(params?: {
+  skillName?: string;
+  createdAfter?: string | null;
+}): SkillObservationSummary[] {
+  const clauses: string[] = [];
+  const args: Array<string | number> = [];
+  const skillName = params?.skillName?.trim() || '';
+  const createdAfter = params?.createdAfter?.trim() || '';
+  if (skillName) {
+    clauses.push('skill_name = ?');
+    args.push(skillName);
+  }
+  if (createdAfter) {
+    clauses.push('created_at >= ?');
+    args.push(createdAfter);
+  }
+  const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const summaryRows = db
+    .prepare(
+      `SELECT
+         skill_name,
+         COUNT(*) AS total_executions,
+         SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+         SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+         SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+         AVG(duration_ms) AS avg_duration_ms,
+         COALESCE(SUM(tool_calls_attempted), 0) AS tool_calls_attempted,
+         COALESCE(SUM(tool_calls_failed), 0) AS tool_calls_failed,
+         SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
+         MAX(created_at) AS last_observed_at
+       FROM skill_observations
+       ${whereClause}
+       GROUP BY skill_name
+       ORDER BY skill_name ASC`,
+    )
+    .all(...args) as SkillObservationSummaryRow[];
+
+  if (summaryRows.length === 0) return [];
+
+  const clusterClauses = [...clauses, "outcome != 'success'"];
+  const clusterWhereClause =
+    clusterClauses.length > 0 ? `WHERE ${clusterClauses.join(' AND ')}` : '';
+  const clusterRows = db
+    .prepare(
+      `SELECT
+         skill_name,
+         COALESCE(NULLIF(TRIM(error_category), ''), 'unknown') AS error_category,
+         COUNT(*) AS count,
+         MIN(error_detail) AS sample_detail
+       FROM skill_observations
+       ${clusterWhereClause}
+       GROUP BY skill_name, COALESCE(NULLIF(TRIM(error_category), ''), 'unknown')
+       ORDER BY skill_name ASC, count DESC`,
+    )
+    .all(...args) as SkillObservationErrorClusterRow[];
+
+  return mapSkillObservationSummaries({
+    summaryRows,
+    clusterRows,
+  });
+}
+
+export function attachFeedbackToObservation(input: {
+  sessionId: string;
+  feedback: string;
+  sentiment: SkillFeedbackSentiment;
+}): SkillObservation | null {
+  const sessionId = input.sessionId.trim();
+  if (!sessionId) return null;
+  const target = db
+    .prepare(
+      `SELECT id
+       FROM skill_observations
+       WHERE session_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+    )
+    .get(sessionId) as { id: number } | undefined;
+  if (!target) return null;
+
+  db.prepare(
+    `UPDATE skill_observations
+     SET user_feedback = ?,
+         feedback_sentiment = ?
+     WHERE id = ?`,
+  ).run(input.feedback.trim() || null, input.sentiment, target.id);
+
+  const row = db
+    .prepare('SELECT * FROM skill_observations WHERE id = ?')
+    .get(target.id) as SkillObservationRow;
+  return mapSkillObservationRow(row);
+}
+
+export function createSkillAmendment(input: {
+  skillName: string;
+  skillFilePath: string;
+  previousVersion?: number | null;
+  status?: SkillAmendmentStatus;
+  originalContent: string;
+  proposedContent: string;
+  originalContentHash: string;
+  proposedContentHash: string;
+  rationale: string;
+  diffSummary: string;
+  proposedBy: string;
+  reviewedBy?: string | null;
+  guardVerdict: SkillCogneeGuardVerdict;
+  guardFindingsCount?: number;
+  metricsAtProposal?: SkillHealthMetrics | null;
+  metricsPostApply?: SkillHealthMetrics | null;
+  runsSinceApply?: number;
+}): SkillAmendment {
+  const skillName = input.skillName.trim();
+  const latest = db
+    .prepare(
+      `SELECT version
+       FROM skill_amendments
+       WHERE skill_name = ?
+       ORDER BY version DESC
+       LIMIT 1`,
+    )
+    .get(skillName) as { version?: number } | undefined;
+  const version = Math.max(1, Math.floor((latest?.version || 0) + 1));
+  const result = db
+    .prepare(
+      `INSERT INTO skill_amendments (
+         skill_name,
+         skill_file_path,
+         version,
+         previous_version,
+         status,
+         original_content,
+         proposed_content,
+         original_content_hash,
+         proposed_content_hash,
+         rationale,
+         diff_summary,
+         proposed_by,
+         reviewed_by,
+         guard_verdict,
+         guard_findings_count,
+         metrics_at_proposal,
+         metrics_post_apply,
+         runs_since_apply
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      skillName,
+      input.skillFilePath,
+      version,
+      typeof input.previousVersion === 'number'
+        ? Math.floor(input.previousVersion)
+        : null,
+      input.status || 'staged',
+      input.originalContent,
+      input.proposedContent,
+      input.originalContentHash,
+      input.proposedContentHash,
+      input.rationale.trim(),
+      input.diffSummary.trim(),
+      input.proposedBy.trim(),
+      input.reviewedBy?.trim() || null,
+      input.guardVerdict,
+      Math.max(0, Math.floor(input.guardFindingsCount || 0)),
+      serializeSkillMetricsJson(input.metricsAtProposal),
+      serializeSkillMetricsJson(input.metricsPostApply),
+      Math.max(0, Math.floor(input.runsSinceApply || 0)),
+    );
+
+  const row = db
+    .prepare('SELECT * FROM skill_amendments WHERE id = ?')
+    .get(result.lastInsertRowid) as SkillAmendmentRow;
+  return mapSkillAmendmentRow(row);
+}
+
+export function getSkillAmendmentById(amendmentId: number): SkillAmendment | null {
+  const row = db
+    .prepare('SELECT * FROM skill_amendments WHERE id = ?')
+    .get(Math.floor(amendmentId)) as SkillAmendmentRow | undefined;
+  return row ? mapSkillAmendmentRow(row) : null;
+}
+
+export function getLatestSkillAmendment(params: {
+  skillName: string;
+  status?: SkillAmendmentStatus | SkillAmendmentStatus[];
+}): SkillAmendment | null {
+  const skillName = params.skillName.trim();
+  if (!skillName) return null;
+  const statuses = Array.isArray(params.status)
+    ? params.status
+    : params.status
+      ? [params.status]
+      : [];
+  const clauses = ['skill_name = ?'];
+  const args: Array<string | number> = [skillName];
+  if (statuses.length > 0) {
+    clauses.push(`status IN (${statuses.map(() => '?').join(', ')})`);
+    args.push(...statuses);
+  }
+  const row = db
+    .prepare(
+      `SELECT *
+       FROM skill_amendments
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY version DESC, id DESC
+       LIMIT 1`,
+    )
+    .get(...args) as SkillAmendmentRow | undefined;
+  return row ? mapSkillAmendmentRow(row) : null;
+}
+
+export function getStagedAmendments(): SkillAmendment[] {
+  return (
+    db
+      .prepare(
+        `SELECT *
+         FROM skill_amendments
+         WHERE status = 'staged'
+         ORDER BY created_at DESC, id DESC`,
+      )
+      .all() as SkillAmendmentRow[]
+  ).map(mapSkillAmendmentRow);
+}
+
+export function updateAmendmentStatus(input: {
+  amendmentId: number;
+  status: SkillAmendmentStatus;
+  reviewedBy?: string | null;
+  metricsPostApply?: SkillHealthMetrics | null;
+  resetRunsSinceApply?: boolean;
+}): SkillAmendment | null {
+  const amendmentId = Math.floor(input.amendmentId);
+  if (!Number.isFinite(amendmentId) || amendmentId <= 0) return null;
+
+  const reviewedBy = input.reviewedBy?.trim() || null;
+  const nowSql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+  const extraAssignments: string[] = [];
+  if (reviewedBy) {
+    extraAssignments.push('reviewed_by = ?');
+  }
+  if (typeof input.metricsPostApply !== 'undefined') {
+    extraAssignments.push('metrics_post_apply = ?');
+  }
+  if (input.status === 'applied') {
+    extraAssignments.push(`applied_at = COALESCE(applied_at, ${nowSql})`);
+    if (input.resetRunsSinceApply !== false) {
+      extraAssignments.push('runs_since_apply = 0');
+    }
+  } else if (input.status === 'rolled_back') {
+    extraAssignments.push(`rolled_back_at = ${nowSql}`);
+  } else if (input.status === 'rejected') {
+    extraAssignments.push(`rejected_at = ${nowSql}`);
+  }
+
+  const sql = `
+    UPDATE skill_amendments
+    SET status = ?,
+        updated_at = ${nowSql}
+        ${extraAssignments.length > 0 ? `, ${extraAssignments.join(', ')}` : ''}
+    WHERE id = ?
+  `;
+  const args: Array<string | number | null> = [input.status];
+  if (reviewedBy) args.push(reviewedBy);
+  if (typeof input.metricsPostApply !== 'undefined') {
+    args.push(serializeSkillMetricsJson(input.metricsPostApply));
+  }
+  args.push(amendmentId);
+  db.prepare(sql).run(...args);
+  return getSkillAmendmentById(amendmentId);
+}
+
+export function incrementAmendmentRunCount(
+  skillName: string,
+): SkillAmendment | null {
+  const target = getLatestSkillAmendment({
+    skillName,
+    status: 'applied',
+  });
+  if (!target) return null;
+  db.prepare(
+    `UPDATE skill_amendments
+     SET runs_since_apply = runs_since_apply + 1,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+     WHERE id = ?`,
+  ).run(target.id);
+  return getSkillAmendmentById(target.id);
+}
+
+export function getAmendmentHistory(skillName: string): SkillAmendment[] {
+  const normalized = skillName.trim();
+  if (!normalized) return [];
+  return (
+    db
+      .prepare(
+        `SELECT *
+         FROM skill_amendments
+         WHERE skill_name = ?
+         ORDER BY version DESC, id DESC`,
+      )
+      .all(normalized) as SkillAmendmentRow[]
+  ).map(mapSkillAmendmentRow);
 }
 
 // --- Audit ---

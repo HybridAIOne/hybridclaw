@@ -14,10 +14,11 @@ import {
   normalizeSessionResetMode,
   type SessionResetMode,
 } from '../session/session-reset.js';
+import type { SkillCogneeConfig } from '../skills/skills-cognee-types.js';
 import type { McpServerConfig } from '../types.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 13;
+export const CONFIG_VERSION = 14;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
@@ -308,6 +309,7 @@ export interface RuntimeConfig {
     extraDirs: string[];
     disabled: string[];
   };
+  skillCognee: SkillCogneeConfig;
   discord: {
     prefix: string;
     guildMembersIntent: boolean;
@@ -523,6 +525,18 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   skills: {
     extraDirs: [],
     disabled: [],
+  },
+  skillCognee: {
+    enabled: false,
+    observationEnabled: true,
+    inspectionIntervalMs: 3_600_000,
+    trailingWindowHours: 168,
+    minExecutionsForInspection: 5,
+    degradationSuccessRateThreshold: 0.6,
+    degradationToolBreakageThreshold: 0.3,
+    autoApplyEnabled: false,
+    evaluationRunsBeforeRollback: 10,
+    rollbackImprovementThreshold: 0.05,
   },
   discord: {
     prefix: '!claw',
@@ -2429,6 +2443,7 @@ function normalizeRuntimeConfig(
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
+  const rawSkillCognee = isRecord(raw.skillCognee) ? raw.skillCognee : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
@@ -2622,6 +2637,57 @@ function normalizeRuntimeConfig(
       disabled: normalizeStringArray(
         rawSkills.disabled,
         DEFAULT_RUNTIME_CONFIG.skills.disabled,
+      ),
+    },
+    skillCognee: {
+      enabled: normalizeBoolean(
+        rawSkillCognee.enabled,
+        DEFAULT_RUNTIME_CONFIG.skillCognee.enabled,
+      ),
+      observationEnabled: normalizeBoolean(
+        rawSkillCognee.observationEnabled,
+        DEFAULT_RUNTIME_CONFIG.skillCognee.observationEnabled,
+      ),
+      inspectionIntervalMs: normalizeInteger(
+        rawSkillCognee.inspectionIntervalMs,
+        DEFAULT_RUNTIME_CONFIG.skillCognee.inspectionIntervalMs,
+        { min: 60_000 },
+      ),
+      trailingWindowHours: normalizeInteger(
+        rawSkillCognee.trailingWindowHours,
+        DEFAULT_RUNTIME_CONFIG.skillCognee.trailingWindowHours,
+        { min: 1 },
+      ),
+      minExecutionsForInspection: normalizeInteger(
+        rawSkillCognee.minExecutionsForInspection,
+        DEFAULT_RUNTIME_CONFIG.skillCognee.minExecutionsForInspection,
+        { min: 1 },
+      ),
+      degradationSuccessRateThreshold: normalizeNumber(
+        rawSkillCognee.degradationSuccessRateThreshold,
+        DEFAULT_RUNTIME_CONFIG.skillCognee
+          .degradationSuccessRateThreshold,
+        { min: 0, max: 1 },
+      ),
+      degradationToolBreakageThreshold: normalizeNumber(
+        rawSkillCognee.degradationToolBreakageThreshold,
+        DEFAULT_RUNTIME_CONFIG.skillCognee
+          .degradationToolBreakageThreshold,
+        { min: 0, max: 1 },
+      ),
+      autoApplyEnabled: normalizeBoolean(
+        rawSkillCognee.autoApplyEnabled,
+        DEFAULT_RUNTIME_CONFIG.skillCognee.autoApplyEnabled,
+      ),
+      evaluationRunsBeforeRollback: normalizeInteger(
+        rawSkillCognee.evaluationRunsBeforeRollback,
+        DEFAULT_RUNTIME_CONFIG.skillCognee.evaluationRunsBeforeRollback,
+        { min: 1 },
+      ),
+      rollbackImprovementThreshold: normalizeNumber(
+        rawSkillCognee.rollbackImprovementThreshold,
+        DEFAULT_RUNTIME_CONFIG.skillCognee.rollbackImprovementThreshold,
+        { min: 0, max: 1 },
       ),
     },
     discord: {

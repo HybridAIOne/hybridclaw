@@ -45,6 +45,7 @@ import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { logger } from '../../logger.js';
 import { getSessionById } from '../../memory/db.js';
 import { getAvailableModelChoices } from '../../providers/model-catalog.js';
+import { recordSkillFeedback } from '../../skills/skills-observation.js';
 import type { MediaContextItem } from '../../types.js';
 import { sleep } from '../../utils/sleep.js';
 import {
@@ -2480,6 +2481,11 @@ export function initDiscord(
       message.channelId,
       `${user.username} reacted with 👎 to assistant message ${message.id}.`,
     );
+    recordSkillFeedback({
+      sessionId: getSessionId(message),
+      feedback: `${user.username} reacted with 👎 to assistant message ${message.id}.`,
+      sentiment: 'negative',
+    });
   });
 
   if (!DISCORD_TOKEN) {

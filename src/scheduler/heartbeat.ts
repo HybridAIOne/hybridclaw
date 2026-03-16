@@ -35,6 +35,7 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
+import { runPeriodicSkillInspection } from '../skills/skills-inspection.js';
 
 const HEARTBEAT_PROMPT =
   '[Heartbeat poll] Check HEARTBEAT.md for periodic tasks. If nothing needs attention, reply HEARTBEAT_OK.';
@@ -261,6 +262,13 @@ export function startHeartbeat(
             : {}),
         },
       });
+      try {
+        await runPeriodicSkillInspection({
+          agentId: resolvedAgentId,
+        });
+      } catch (error) {
+        logger.warn({ agentId: resolvedAgentId, error }, 'Skill inspection failed');
+      }
       processSideEffects(output, sessionId, heartbeatChannelId);
 
       if (output.status === 'error') {

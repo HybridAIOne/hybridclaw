@@ -46,6 +46,19 @@ export function parseTuiSlashCommand(input: string): ParsedTuiSlashCommand {
 export function mapTuiSlashCommandToGatewayArgs(
   parts: string[],
 ): string[] | null {
+  const cmd = (parts[0] || '').trim().toLowerCase();
+  if (cmd === 'skill') {
+    const sub = (parts[1] || '').trim().toLowerCase();
+    if (
+      sub === 'list' ||
+      sub === 'inspect' ||
+      sub === 'amend' ||
+      sub === 'history'
+    ) {
+      return ['skill', ...parts.slice(1)];
+    }
+    return null;
+  }
   return mapCanonicalCommandToGatewayArgs(parts);
 }
 

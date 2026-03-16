@@ -1135,6 +1135,11 @@ export interface SkillInvocation {
   args: string;
 }
 
+export interface ExpandedSkillInvocation {
+  content: string;
+  invocation: SkillInvocation | null;
+}
+
 export function resolveExplicitSkillInvocation(
   content: string,
   skills: Skill[],
@@ -1172,6 +1177,17 @@ export function expandSkillInvocation(
   }
 
   return lines.join('\n');
+}
+
+export function expandSkillInvocationWithResolution(
+  content: string,
+  skills: Skill[],
+): ExpandedSkillInvocation {
+  const invocation = resolveExplicitSkillInvocation(content, skills);
+  return {
+    content: invocation ? expandSkillInvocation(content, skills) : content,
+    invocation,
+  };
 }
 
 export interface SkillCatalogEntry {

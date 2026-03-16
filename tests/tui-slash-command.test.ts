@@ -83,6 +83,34 @@ test('maps Discord-style slash commands to gateway command args', () => {
     'bot',
     'list',
   ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['skill', 'inspect', '--all']),
+  ).toEqual(['skill', 'inspect', '--all']);
+  expect(mapTuiSlashCommandToGatewayArgs(['skill', 'list'])).toEqual([
+    'skill',
+    'list',
+  ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['skill', 'amend', 'demo-skill']),
+  ).toEqual(['skill', 'amend', 'demo-skill']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'skill',
+      'amend',
+      'demo-skill',
+      '--apply',
+    ]),
+  ).toEqual(['skill', 'amend', 'demo-skill', '--apply']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['skill', 'history', 'demo-skill']),
+  ).toEqual(['skill', 'history', 'demo-skill']);
+});
+
+test('keeps explicit /skill invocations out of the slash-command path', () => {
+  expect(mapTuiSlashCommandToGatewayArgs(['skill', 'demo-skill'])).toBeNull();
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['skill', 'demo-skill', 'fix', 'tests']),
+  ).toBeNull();
 });
 
 test('maps /approve actions to explicit typed results', () => {

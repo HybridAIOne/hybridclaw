@@ -152,7 +152,18 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import { expandSkillInvocation, loadSkillCatalog } from '../skills/skills.js';
+import type {
+  SkillAmendment,
+  SkillHealthMetrics,
+} from '../skills/skills-cognee-types.js';
+import {
+  expandSkillInvocationWithResolution,
+  loadSkillCatalog,
+} from '../skills/skills.js';
+import {
+  deriveSkillExecutionOutcome,
+  recordSkillExecution,
+} from '../skills/skills-observation.js';
 import type {
   ArtifactMetadata,
   CanonicalSessionContext,
@@ -1092,6 +1103,53 @@ function infoCommand(
 
 function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
+}
+
+function formatSkillHealthMetrics(metrics: SkillHealthMetrics): string {
+  const lines = [
+    `Skill: ${metrics.skill_name}`,
+    `Executions: ${metrics.total_executions}`,
+    `Success rate: ${metrics.success_rate.toFixed(2)}`,
+    `Avg duration: ${Math.round(metrics.avg_duration_ms)}ms`,
+    `Tool breakage: ${metrics.tool_breakage_rate.toFixed(2)}`,
+    `Negative feedback: ${metrics.negative_feedback_count}`,
+    `Degraded: ${metrics.degraded ? 'yes' : 'no'}`,
+  ];
+  if (metrics.degradation_reasons.length > 0) {
+    lines.push(`Reasons: ${metrics.degradation_reasons.join('; ')}`);
+  }
+  if (metrics.error_clusters.length > 0) {
+    lines.push(
+      `Error clusters: ${metrics.error_clusters
+        .map((cluster) =>
+          cluster.sample_detail
+            ? `${cluster.category}=${cluster.count} (${cluster.sample_detail})`
+            : `${cluster.category}=${cluster.count}`,
+        )
+        .join('; ')}`,
+    );
+  }
+  return lines.join('\n');
+}
+
+function formatSkillAmendment(amendment: SkillAmendment): string {
+  const lines = [
+    `Version: ${amendment.version}`,
+    `Status: ${amendment.status}`,
+    `Guard: ${amendment.guard_verdict} (${amendment.guard_findings_count} finding(s))`,
+    `Runs since apply: ${amendment.runs_since_apply}`,
+    `Created: ${amendment.created_at}`,
+  ];
+  if (amendment.reviewed_by) {
+    lines.push(`Reviewed by: ${amendment.reviewed_by}`);
+  }
+  if (amendment.rationale) {
+    lines.push(`Rationale: ${amendment.rationale}`);
+  }
+  if (amendment.diff_summary) {
+    lines.push(`Diff: ${amendment.diff_summary}`);
+  }
+  return lines.join('\n');
 }
 
 function formatSessionModelOverride(model: string | null | undefined): string {
@@ -3559,7 +3617,12 @@ export async function handleGatewayMessage(
     );
   }
   const mediaContextBlock = buildMediaPromptContext(media);
-  const expandedUserContent = expandSkillInvocation(userTurnContent, skills);
+  const skillInvocation = expandSkillInvocationWithResolution(
+    userTurnContent,
+    skills,
+  );
+  const expandedUserContent = skillInvocation.content;
+  const resolvedSkillName = skillInvocation.invocation?.skill.name || null;
   const agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;
@@ -3707,6 +3770,27 @@ export async function handleGatewayMessage(
       toolCalls: toolExecutions.length,
       costUsd: extractUsageCostUsd(output.tokenUsage),
     });
+    if (resolvedSkillName) {
+      try {
+        await recordSkillExecution({
+          skillName: resolvedSkillName,
+          sessionId: req.sessionId,
+          runId,
+          toolExecutions,
+          outcome: deriveSkillExecutionOutcome({
+            outputStatus: output.status,
+            toolExecutions,
+          }),
+          durationMs: Date.now() - startedAt,
+          errorDetail: output.error,
+        });
+      } catch (error) {
+        logger.warn(
+          { sessionId: req.sessionId, skillName: resolvedSkillName, error },
+          'Failed to record skill execution observation',
+        );
+      }
+    }
 
     const parentDepth = extractDelegationDepth(req.sessionId);
     let acceptedDelegations = 0;
@@ -4053,6 +4137,10 @@ export async function handleGatewayCommand(
         '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
         '`export session [sessionId]` — Export session JSONL snapshot for debugging',
         '`audit [sessionId]` — Show recent structured audit events for a session',
+        '`skill list` — List available skills and availability',
+        '`skill inspect <name>|--all` — Show observation-based skill health',
+        '`skill amend <name> [--apply|--reject|--rollback]` — Stage or manage skill amendments',
+        '`skill history <name>` — Show amendment history for a skill',
         '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
         '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
         '`schedule add every <ms> <prompt>` — Add interval task',
@@ -5141,6 +5229,211 @@ export async function handleGatewayCommand(
         return `#${row.seq} ${row.event_type} ${row.timestamp} ${summarizeAuditPayload(row.payload)}`;
       });
       return infoCommand(`Audit (${targetSessionId})`, lines.join('\n'));
+    }
+
+    case 'skill': {
+      const sub = (req.args[1] || '').trim().toLowerCase();
+      if (!sub) {
+        return badCommand(
+          'Usage',
+          'Usage: `skill list|inspect <name>|inspect --all|amend <name> [--apply|--reject|--rollback]|history <name>`',
+        );
+      }
+
+      if (sub === 'list') {
+        const catalog = loadSkillCatalog();
+        if (catalog.length === 0) {
+          return plainCommand('No skills are available.');
+        }
+        const lines = catalog.map((skill) => {
+          const availability = skill.available
+            ? skill.enabled
+              ? 'available'
+              : 'disabled'
+            : skill.missing.join(', ');
+          const description = skill.description ? ` — ${skill.description}` : '';
+          return `${skill.name} [${availability}]${description}`;
+        });
+        return infoCommand('Skills', lines.join('\n'));
+      }
+
+      if (sub === 'inspect') {
+        const inspectionModule = await import('../skills/skills-inspection.js');
+        const target = String(req.args[2] || '').trim();
+        if (!target) {
+          return badCommand(
+            'Usage',
+            'Usage: `skill inspect <name>` or `skill inspect --all`',
+          );
+        }
+        if (target === '--all' || target.toLowerCase() === 'all') {
+          const metricsList = inspectionModule.inspectAllSkills();
+          if (metricsList.length === 0) {
+            return plainCommand(
+              'No observed skills found in the current inspection window.',
+            );
+          }
+          return infoCommand(
+            'Skill Health',
+            metricsList.map(formatSkillHealthMetrics).join('\n\n'),
+          );
+        }
+
+        const metrics = inspectionModule.inspectSkill(target);
+        if (metrics.total_executions === 0) {
+          return plainCommand(`No observations found for \`${target}\`.`);
+        }
+        return infoCommand('Skill Health', formatSkillHealthMetrics(metrics));
+      }
+
+      if (sub === 'amend') {
+        const skillName = String(req.args[2] || '').trim();
+        if (!skillName) {
+          return badCommand(
+            'Usage',
+            'Usage: `skill amend <name> [--apply|--reject|--rollback]`',
+          );
+        }
+
+        const actions = new Set(
+          req.args
+            .slice(3)
+            .map((entry) => String(entry || '').trim().toLowerCase())
+            .filter(Boolean),
+        );
+        const hasApply = actions.has('--apply') || actions.has('apply');
+        const hasReject = actions.has('--reject') || actions.has('reject');
+        const hasRollback =
+          actions.has('--rollback') || actions.has('rollback');
+        const selectedActions = [hasApply, hasReject, hasRollback].filter(
+          Boolean,
+        ).length;
+        if (selectedActions > 1) {
+          return badCommand(
+            'Usage',
+            'Choose at most one amendment action: `--apply`, `--reject`, or `--rollback`.',
+          );
+        }
+
+        const dbModule = await import('../memory/db.js');
+        const amendmentModule = await import('../skills/skills-amendment.js');
+        const evaluationModule = await import(
+          '../skills/skills-evaluation.js'
+        );
+        const inspectionModule = await import('../skills/skills-inspection.js');
+
+        if (hasApply) {
+          const amendment = dbModule.getLatestSkillAmendment({
+            skillName,
+            status: 'staged',
+          });
+          if (!amendment) {
+            return plainCommand(
+              `No staged amendment found for \`${skillName}\`.`,
+            );
+          }
+          const result = await amendmentModule.applyAmendment({
+            amendmentId: amendment.id,
+            reviewedBy: 'gateway-command',
+          });
+          if (!result.ok) {
+            return badCommand(
+              'Apply Failed',
+              result.reason || 'Failed to apply amendment.',
+            );
+          }
+          return plainCommand(
+            `Applied staged amendment v${amendment.version} for \`${skillName}\`.`,
+          );
+        }
+
+        if (hasReject) {
+          const amendment = dbModule.getLatestSkillAmendment({
+            skillName,
+            status: 'staged',
+          });
+          if (!amendment) {
+            return plainCommand(
+              `No staged amendment found for \`${skillName}\`.`,
+            );
+          }
+          const result = amendmentModule.rejectAmendment({
+            amendmentId: amendment.id,
+            reviewedBy: 'gateway-command',
+          });
+          if (!result.ok) {
+            return badCommand(
+              'Reject Failed',
+              result.reason || 'Failed to reject amendment.',
+            );
+          }
+          return plainCommand(
+            `Rejected staged amendment v${amendment.version} for \`${skillName}\`.`,
+          );
+        }
+
+        if (hasRollback) {
+          const amendment = dbModule.getLatestSkillAmendment({
+            skillName,
+            status: 'applied',
+          });
+          if (!amendment) {
+            return plainCommand(
+              `No applied amendment found for \`${skillName}\`.`,
+            );
+          }
+          const result = await evaluationModule.rollbackAmendment({
+            amendmentId: amendment.id,
+            reason: 'Rollback requested via gateway command.',
+          });
+          if (!result.ok) {
+            return badCommand(
+              'Rollback Failed',
+              result.reason || 'Failed to roll back amendment.',
+            );
+          }
+          return plainCommand(
+            `Rolled back amendment v${amendment.version} for \`${skillName}\`.`,
+          );
+        }
+
+        const metrics = inspectionModule.inspectSkill(skillName);
+        if (metrics.total_executions === 0) {
+          return plainCommand(
+            `No observations found for \`${skillName}\`; run the skill first before proposing an amendment.`,
+          );
+        }
+        const amendment = await amendmentModule.proposeAmendment({
+          skillName,
+          metrics,
+          agentId: resolveSessionAgentId(session) || DEFAULT_AGENT_ID,
+        });
+        return infoCommand(
+          `Skill Amendment (${skillName})`,
+          formatSkillAmendment(amendment),
+        );
+      }
+
+      if (sub === 'history') {
+        const skillName = String(req.args[2] || '').trim();
+        if (!skillName) {
+          return badCommand('Usage', 'Usage: `skill history <name>`');
+        }
+        const dbModule = await import('../memory/db.js');
+        const history = dbModule.getAmendmentHistory(skillName);
+        if (history.length === 0) {
+          return plainCommand(`No amendment history found for \`${skillName}\`.`);
+        }
+        return infoCommand(
+          `Skill History (${skillName})`,
+          history.map(formatSkillAmendment).join('\n\n'),
+        );
+      }
+
+      return badCommand(
+        'Usage',
+        'Usage: `skill list|inspect <name>|inspect --all|amend <name> [--apply|--reject|--rollback]|history <name>`',
+      );
     }
 
     case 'schedule': {

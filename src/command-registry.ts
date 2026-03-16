@@ -922,6 +922,86 @@ function buildSlashCommandCatalogDefinitions(
       ],
     },
     {
+      name: 'skill',
+      description: 'Inspect skill health and manage staged skill amendments',
+      tuiOnly: true,
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'list',
+          description: 'List available skills and their current availability',
+        },
+        {
+          kind: 'subcommand',
+          name: 'inspect',
+          description: 'Inspect one skill or all observed skills',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name',
+              required: true,
+            },
+          ],
+          tuiMenuEntries: [
+            {
+              id: 'skill.inspect.all',
+              label: '/skill inspect --all',
+              insertText: '/skill inspect --all',
+              description:
+                'Inspect all skills with observations in the current window',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'amend',
+          description: 'Stage, apply, reject, or roll back a skill amendment',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name',
+              required: true,
+            },
+          ],
+          tuiMenuEntries: [
+            {
+              id: 'skill.amend.apply',
+              label: '/skill amend <name> --apply',
+              insertText: '/skill amend ',
+              description: 'Apply the latest staged amendment for a skill',
+            },
+            {
+              id: 'skill.amend.reject',
+              label: '/skill amend <name> --reject',
+              insertText: '/skill amend ',
+              description: 'Reject the latest staged amendment for a skill',
+            },
+            {
+              id: 'skill.amend.rollback',
+              label: '/skill amend <name> --rollback',
+              insertText: '/skill amend ',
+              description: 'Roll back the latest applied amendment for a skill',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'history',
+          description: 'Show amendment history for a skill',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name',
+              required: true,
+            },
+          ],
+        },
+      ],
+    },
+    {
       name: 'info',
       description: 'Show current bot, model, and runtime settings together',
       tuiOnly: true,

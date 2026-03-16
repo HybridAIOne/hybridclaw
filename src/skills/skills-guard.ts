@@ -1349,6 +1349,15 @@ function scanFile(entry: SkillFileEntry): SkillGuardFinding[] {
     return [];
   }
 
+  return scanTextContent(entry.relativePath, content);
+}
+
+function scanTextContent(
+  relativePath: string,
+  content: string,
+): SkillGuardFinding[] {
+  const normalizedPath = relativePath.trim() || 'SKILL.md';
+
   const lines = content.split('\n');
   const seen = new Set<string>();
   const findings: SkillGuardFinding[] = [];
@@ -1367,7 +1376,7 @@ function scanFile(entry: SkillFileEntry): SkillGuardFinding[] {
           patternId: rule.patternId,
           severity: rule.severity,
           category: rule.category,
-          file: entry.relativePath,
+          file: normalizedPath,
           line: lineNo,
           match: matched.length > 120 ? `${matched.slice(0, 117)}...` : matched,
           description: rule.description,
@@ -1389,7 +1398,7 @@ function scanFile(entry: SkillFileEntry): SkillGuardFinding[] {
           patternId: 'invisible_unicode',
           severity: 'high',
           category: 'prompt-injection',
-          file: entry.relativePath,
+          file: normalizedPath,
           line: lineNo,
           match: `U+${(char.codePointAt(0) || 0).toString(16).toUpperCase().padStart(4, '0')} (${charName})`,
           description: `invisible unicode character ${charName} (possible text hiding/injection)`,
@@ -1541,6 +1550,33 @@ function shouldAllowByPolicy(result: SkillGuardScanResult): {
   return {
     allowed: false,
     reason: `blocked (${result.trustLevel} source + ${result.verdict} verdict, ${result.findings.length} finding(s))`,
+  };
+}
+
+export function scanSkillContent(params: {
+  skillName: string;
+  skillPath?: string;
+  sourceTag: string;
+  content: string;
+  fileName?: string;
+}): SkillGuardScanResult {
+  const trustLevel = resolveSkillTrustLevel(params.sourceTag);
+  const findings = scanTextContent(params.fileName || 'SKILL.md', params.content);
+  const verdict = determineVerdict(findings);
+  return {
+    skillName: params.skillName,
+    skillPath: params.skillPath || '(in-memory)',
+    sourceTag: params.sourceTag,
+    trustLevel,
+    verdict,
+    findings,
+    scannedAt: new Date().toISOString(),
+    summary: buildSummary({
+      skillName: params.skillName,
+      verdict,
+      findings,
+    }),
+    fromCache: false,
   };
 }
 

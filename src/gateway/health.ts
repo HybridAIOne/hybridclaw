@@ -1004,6 +1004,119 @@ async function handleApiAdminSkills(
   );
 }
 
+function decodeApiPathSegment(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+async function handleApiSkillCognee(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+): Promise<void> {
+  const dbModule = await import('../memory/db.js');
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments.length < 3) {
+    sendJson(res, 404, { error: 'Not Found' });
+    return;
+  }
+
+  if (segments[2] === 'health') {
+    if ((req.method || 'GET') !== 'GET') {
+      sendJson(res, 405, { error: 'Method Not Allowed' });
+      return;
+    }
+    const inspectionModule = await import('../skills/skills-inspection.js');
+    if (segments.length === 3) {
+      sendJson(res, 200, { metrics: inspectionModule.inspectAllSkills() });
+      return;
+    }
+    const skillName = decodeApiPathSegment(segments.slice(3).join('/'));
+    sendJson(res, 200, { metrics: inspectionModule.inspectSkill(skillName) });
+    return;
+  }
+
+  if (segments[2] !== 'amendments') {
+    sendJson(res, 404, { error: 'Not Found' });
+    return;
+  }
+
+  if (segments.length === 3) {
+    if ((req.method || 'GET') !== 'GET') {
+      sendJson(res, 405, { error: 'Method Not Allowed' });
+      return;
+    }
+    sendJson(res, 200, { amendments: dbModule.getStagedAmendments() });
+    return;
+  }
+
+  const skillName = decodeApiPathSegment(segments[3] || '');
+  if (!skillName) {
+    sendJson(res, 400, { error: 'Missing skill name.' });
+    return;
+  }
+
+  if (segments.length === 4) {
+    if ((req.method || 'GET') !== 'GET') {
+      sendJson(res, 405, { error: 'Method Not Allowed' });
+      return;
+    }
+    sendJson(res, 200, { amendments: dbModule.getAmendmentHistory(skillName) });
+    return;
+  }
+
+  const action = segments[4] || '';
+  if ((req.method || 'GET') !== 'POST') {
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as { reviewedBy?: unknown };
+  const reviewedBy =
+    typeof body.reviewedBy === 'string' && body.reviewedBy.trim()
+      ? body.reviewedBy.trim()
+      : 'gateway-admin';
+  const amendment = dbModule.getLatestSkillAmendment({
+    skillName,
+    status: 'staged',
+  });
+  if (!amendment) {
+    sendJson(res, 404, { error: `No staged amendment found for "${skillName}".` });
+    return;
+  }
+
+  if (action === 'apply') {
+    const amendmentModule = await import('../skills/skills-amendment.js');
+    const result = await amendmentModule.applyAmendment({
+      amendmentId: amendment.id,
+      reviewedBy,
+    });
+    sendJson(res, result.ok ? 200 : 400, {
+      ...result,
+      amendmentId: amendment.id,
+    });
+    return;
+  }
+
+  if (action === 'reject') {
+    const amendmentModule = await import('../skills/skills-amendment.js');
+    const result = amendmentModule.rejectAmendment({
+      amendmentId: amendment.id,
+      reviewedBy,
+    });
+    sendJson(res, result.ok ? 200 : 400, {
+      ...result,
+      amendmentId: amendment.id,
+    });
+    return;
+  }
+
+  sendJson(res, 404, { error: 'Not Found' });
+}
+
 function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
   const sendEvent = (event: string, payload: unknown): void => {
     if (res.writableEnded) return;
@@ -1159,6 +1272,15 @@ export function startHealthServer(): void {
           }
           if (pathname === '/api/status' && method === 'GET') {
             sendJson(res, 200, getGatewayStatus());
+            return;
+          }
+          if (
+            pathname === '/api/skills/health' ||
+            pathname.startsWith('/api/skills/health/') ||
+            pathname === '/api/skills/amendments' ||
+            pathname.startsWith('/api/skills/amendments/')
+          ) {
+            await handleApiSkillCognee(req, res, pathname);
             return;
           }
           if (pathname === '/api/admin/overview' && method === 'GET') {
