@@ -19,6 +19,7 @@ import {
   shouldPrintTuiStartHint,
 } from './onboarding-tui-hint.js';
 import { isCodexModel, resolveModelProvider } from './providers/factory.js';
+import { normalizeBots } from './providers/hybridai-bots.js';
 import {
   ensureRuntimeInstructionCopies,
   resolveRuntimeInstructionPath,
@@ -28,12 +29,7 @@ import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from './security/runtime-secrets.js';
-
-interface HybridAIBot {
-  id: string;
-  name: string;
-  description?: string;
-}
+import type { HybridAIBot } from './types.js';
 
 interface ApiKeyValidationResult {
   ok: boolean;
@@ -243,28 +239,6 @@ async function tryOpenUrl(url: string): Promise<boolean> {
       resolve(true);
     });
   });
-}
-
-function normalizeBots(payload: unknown): HybridAIBot[] {
-  const data = payload as
-    | {
-        data?: Record<string, unknown>[];
-        bots?: Record<string, unknown>[];
-        items?: Record<string, unknown>[];
-      }
-    | Record<string, unknown>[];
-  const raw = Array.isArray(data)
-    ? data
-    : data?.data || data?.bots || data?.items || [];
-
-  return raw
-    .map((item) => ({
-      id: String(item.id ?? item._id ?? item.chatbot_id ?? item.bot_id ?? ''),
-      name: String(item.bot_name ?? item.name ?? 'Unnamed'),
-      description:
-        item.description != null ? String(item.description) : undefined,
-    }))
-    .filter((bot) => Boolean(bot.id));
 }
 
 async function validateApiKey(

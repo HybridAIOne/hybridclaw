@@ -9,7 +9,7 @@ interface BotCacheEntry {
 
 let botCache: BotCacheEntry | null = null;
 
-function normalizeBots(payload: unknown): HybridAIBot[] {
+export function normalizeBots(payload: unknown): HybridAIBot[] {
   const data = payload as
     | {
         data?: Record<string, unknown>[];
@@ -21,12 +21,20 @@ function normalizeBots(payload: unknown): HybridAIBot[] {
     ? data
     : data.data || data.bots || data.items || [];
 
-  return raw.map((item) => ({
-    id: String(item.id ?? item._id ?? item.chatbot_id ?? item.bot_id ?? ''),
-    name: String(item.bot_name ?? item.name ?? 'Unnamed'),
-    description:
-      item.description != null ? String(item.description) : undefined,
-  }));
+  return raw
+    .map((item) => ({
+      id: String(item.id ?? item._id ?? item.chatbot_id ?? item.bot_id ?? ''),
+      name: String(item.bot_name ?? item.name ?? 'Unnamed'),
+      description:
+        item.description != null ? String(item.description) : undefined,
+      model:
+        item.model1 != null
+          ? String(item.model1)
+          : item.model != null
+            ? String(item.model)
+            : undefined,
+    }))
+    .filter((bot) => Boolean(bot.id));
 }
 
 export async function fetchHybridAIBots(options?: {
