@@ -120,7 +120,9 @@ test('buildSessionContextPrompt renders TUI and heartbeat sources', () => {
   expect(tuiPrompt).toContain('**Session:** 20260316_122238_532f05');
   expect(tuiPrompt).toContain('**Session key:** agent:main:tui:dm:local');
   expect(heartbeatPrompt).toContain('**Platform:** Heartbeat (system)');
-  expect(heartbeatPrompt).toContain('**Session:** sess_20260316_185427_deadbeef');
+  expect(heartbeatPrompt).toContain(
+    '**Session:** sess_20260316_185427_deadbeef',
+  );
   expect(heartbeatPrompt).toContain('**Connected channels:** heartbeat');
 });
 
