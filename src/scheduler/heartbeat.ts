@@ -173,7 +173,8 @@ export function startHeartbeat(
           guildId: null,
         },
         agentId: resolvedAgentId,
-        sessionKey: sessionId,
+        sessionId: session.id,
+        sessionKey: session.session_key,
         connectedChannels: listChannels().map((channel) => channel.kind),
       });
       const { messages } = buildConversationContext({

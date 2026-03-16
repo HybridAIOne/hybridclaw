@@ -329,12 +329,15 @@ test('resetSessionIfExpired applies byChannelKind overrides for real transport c
       idleMinutes: 60,
     },
   });
-  const session = dbModule.getSessionById(sessionId);
+  const nextSessionId = reset?.id || sessionId;
+  const session = dbModule.getSessionById(nextSessionId);
 
-  expect(reset).toBe(true);
+  expect(reset).not.toBeNull();
   expect(session?.message_count).toBe(0);
   expect(session?.reset_count).toBe(1);
-  expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
+  expect(memoryService.getConversationHistory(nextSessionId, 10)).toHaveLength(
+    0,
+  );
 });
 
 test('resetSessionState clears messages and semantic memories and tracks the reset metadata', async () => {
@@ -367,9 +370,9 @@ test('resetSessionState clears messages and semantic memories and tracks the res
 
   expect(countSemanticMemories(dbPath, sessionId)).toBe(1);
 
-  dbModule.resetSessionState(sessionId);
+  const nextSession = dbModule.resetSessionState(sessionId);
 
-  const session = dbModule.getSessionById(sessionId);
+  const session = dbModule.getSessionById(nextSession.id);
   expect(session).toBeDefined();
   expect(session?.message_count).toBe(0);
   expect(session?.session_summary).toBeNull();
@@ -377,8 +380,10 @@ test('resetSessionState clears messages and semantic memories and tracks the res
   expect(session?.memory_flush_at).toBeNull();
   expect(session?.reset_count).toBe(1);
   expect(session?.reset_at).not.toBeNull();
-  expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
-  expect(countSemanticMemories(dbPath, sessionId)).toBe(0);
+  expect(memoryService.getConversationHistory(nextSession.id, 10)).toHaveLength(
+    0,
+  );
+  expect(countSemanticMemories(dbPath, nextSession.id)).toBe(0);
 });
 
 test('resetSessionIfExpired auto-resets expired sessions', async () => {
@@ -417,18 +422,22 @@ test('resetSessionIfExpired auto-resets expired sessions', async () => {
       idleMinutes: 60,
     },
   });
-  const session = dbModule.getSessionById(sessionId);
+  const nextSessionId = reset?.id || sessionId;
+  const session = dbModule.getSessionById(nextSessionId);
 
-  expect(reset).toBe(true);
+  expect(reset).not.toBeNull();
   expect(session?.message_count).toBe(0);
   expect(session?.session_summary).toBeNull();
   expect(session?.reset_count).toBe(1);
   expect(session?.reset_at).not.toBeNull();
-  expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
-  expect(countSemanticMemories(dbPath, sessionId)).toBe(0);
+  expect(memoryService.getConversationHistory(nextSessionId, 10)).toHaveLength(
+    0,
+  );
+  expect(countSemanticMemories(dbPath, nextSessionId)).toBe(0);
   expect(infoSpy).toHaveBeenCalledWith(
     expect.objectContaining({
-      sessionId,
+      previousSessionId: sessionId,
+      sessionId: nextSessionId,
       resetCount: 1,
       reason: 'idle',
     }),
@@ -459,7 +468,7 @@ test('resetSessionIfExpired skips malformed last_active timestamps', async () =>
   });
   const session = dbModule.getSessionById(sessionId);
 
-  expect(reset).toBe(false);
+  expect(reset).toBeNull();
   expect(session?.message_count).toBe(1);
   expect(session?.reset_count).toBe(0);
   expect(session?.reset_at).toBeNull();
@@ -531,6 +540,67 @@ test('getOrCreateSession leaves expired sessions untouched until resetSessionIfE
   expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(1);
 });
 
+test('handleGatewayCommand rotates a fresh TUI launch under the stable key', async () => {
+  const { dbModule } = await initSessionTestContext();
+  const initialSessionId = '20260316_120000_aaaaaa';
+  const nextSessionId = '20260316_130000_bbbbbb';
+
+  const initialSession = dbModule.getOrCreateSession(
+    initialSessionId,
+    null,
+    'tui',
+  );
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: nextSessionId,
+    sessionMode: 'new',
+    guildId: null,
+    channelId: 'tui',
+    args: ['show'],
+  });
+
+  expect(result.sessionId).toBe(nextSessionId);
+  expect(dbModule.getSessionById(initialSession.id)?.is_current).toBe(0);
+  expect(dbModule.getSessionById(nextSessionId)).toMatchObject({
+    id: nextSessionId,
+    session_key: 'agent:main:tui:dm:local',
+    is_current: 1,
+  });
+});
+
+test('handleGatewayCommand resumes an exact archived TUI session id', async () => {
+  const { dbModule } = await initSessionTestContext();
+  const initialSessionId = '20260316_120000_aaaaaa';
+  const nextSessionId = '20260316_130000_bbbbbb';
+
+  dbModule.getOrCreateSession(initialSessionId, null, 'tui');
+  dbModule.getOrCreateSession(nextSessionId, null, 'tui', undefined, {
+    forceNewCurrent: true,
+  });
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: initialSessionId,
+    sessionMode: 'resume',
+    guildId: null,
+    channelId: 'tui',
+    args: ['show'],
+  });
+
+  expect(result.sessionId).toBe(initialSessionId);
+  expect(dbModule.getSessionById(initialSessionId)).toMatchObject({
+    id: initialSessionId,
+    session_key: 'agent:main:tui:dm:local',
+    is_current: 0,
+  });
+  expect(dbModule.getSessionById(nextSessionId)?.is_current).toBe(1);
+});
+
 test('resetSessionIfExpired skips auto-reset when policy mode is none', async () => {
   const { dbModule, memoryService, runtimeConfigModule, dbPath } =
     await initSessionTestContext();
@@ -567,7 +637,7 @@ test('resetSessionIfExpired skips auto-reset when policy mode is none', async ()
   });
   const session = dbModule.getSessionById(sessionId);
 
-  expect(reset).toBe(false);
+  expect(reset).toBeNull();
   expect(session?.message_count).toBe(1);
   expect(session?.reset_count).toBe(0);
   expect(session?.reset_at).toBeNull();
@@ -615,12 +685,15 @@ test('resetSessionIfExpired recomputes expiry when a cached evaluation is stale'
       reason: null,
     },
   });
-  const session = dbModule.getSessionById(sessionId);
+  const nextSessionId = reset?.id || sessionId;
+  const session = dbModule.getSessionById(nextSessionId);
 
-  expect(reset).toBe(true);
+  expect(reset).not.toBeNull();
   expect(session?.message_count).toBe(0);
   expect(session?.reset_count).toBe(1);
-  expect(memoryService.getConversationHistory(sessionId, 10)).toHaveLength(0);
+  expect(memoryService.getConversationHistory(nextSessionId, 10)).toHaveLength(
+    0,
+  );
 });
 
 test('handleGatewayCommand flushes memories before auto-resetting an expired session', async () => {
@@ -655,7 +728,7 @@ test('handleGatewayCommand flushes memories before auto-resetting an expired ses
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
-  await handleGatewayCommand({
+  const result = await handleGatewayCommand({
     sessionId,
     guildId: null,
     channelId: 'tui',
@@ -672,7 +745,7 @@ test('handleGatewayCommand flushes memories before auto-resetting an expired ses
     }),
   );
 
-  const session = dbModule.getSessionById(sessionId);
+  const session = dbModule.getSessionById(result.sessionId || sessionId);
   expect(session?.reset_count).toBe(1);
   expect(session?.message_count).toBe(0);
 });

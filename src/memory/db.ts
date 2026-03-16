@@ -8,11 +8,14 @@ import type { AuditEventPayload, WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import { logger } from '../logger.js';
 import {
+  buildSessionKey,
   isLegacySessionKey,
   migrateLegacySessionKey,
+  parseSessionKey,
 } from '../session/session-key.js';
 import {
   evaluateSessionExpiry,
+  resolveSessionResetChannelKind,
   type SessionExpiryEvaluation,
   type SessionResetPolicy,
 } from '../session/session-reset.js';
@@ -56,7 +59,7 @@ import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 11;
+export const DATABASE_SCHEMA_VERSION = 12;
 const SCHEMA_VERSION = DATABASE_SCHEMA_VERSION;
 
 interface InitDatabaseOptions {
@@ -185,6 +188,20 @@ function hasSessionLegacySessionIdColumn(database: Database.Database): boolean {
   );
 }
 
+function hasSessionKeyColumn(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'sessions') &&
+    columnExists(database, 'sessions', 'session_key')
+  );
+}
+
+function hasSessionCurrentColumn(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'sessions') &&
+    columnExists(database, 'sessions', 'is_current')
+  );
+}
+
 function skillObservationsNeedConstraintMigration(
   database: Database.Database,
 ): boolean {
@@ -244,6 +261,8 @@ function migrateV1(database: Database.Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
+      session_key TEXT,
+      is_current INTEGER NOT NULL DEFAULT 1,
       guild_id TEXT,
       channel_id TEXT NOT NULL,
       chatbot_id TEXT,
@@ -1202,6 +1221,56 @@ function migrateV11(
   );
 }
 
+function migrateV12(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'session_key',
+    ddl: 'session_key TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'is_current',
+    ddl: 'is_current INTEGER NOT NULL DEFAULT 1',
+    quiet,
+  });
+
+  if (hasSessionKeyColumn(database)) {
+    database.exec(`
+      UPDATE sessions
+      SET session_key = id
+      WHERE session_key IS NULL
+         OR TRIM(session_key) = '';
+    `);
+  }
+  if (hasSessionCurrentColumn(database)) {
+    database.exec(`
+      UPDATE sessions
+      SET is_current = 1
+      WHERE is_current IS NULL;
+    `);
+  }
+
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_key ON sessions(session_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_current_key
+      ON sessions(session_key)
+      WHERE is_current = 1;
+  `);
+
+  recordMigration(
+    database,
+    12,
+    'Split stable session keys from rotating session instance ids',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1234,6 +1303,7 @@ function runMigrations(
     migrateV10(database, opts);
   }
   if (currentVersion < 11) migrateV11(database, opts);
+  if (currentVersion < 12) migrateV12(database, opts);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -2732,9 +2802,9 @@ export function resetSessionIfExpired(
     policy: SessionResetPolicy;
     expiryEvaluation?: SessionExpiryEvaluation;
   },
-): boolean {
+): Session | null {
   const existing = getSessionById(sessionId);
-  if (!existing) return false;
+  if (!existing) return null;
 
   let expiryEvaluation: SessionExpiryEvaluation;
   if (opts?.expiryEvaluation?.lastActive === existing.last_active) {
@@ -2766,26 +2836,46 @@ export function resetSessionIfExpired(
       };
     }
   }
-  if (!expiryEvaluation.isExpired) return false;
+  if (!expiryEvaluation.isExpired) return null;
 
-  resetSessionState(existing.id);
+  const rotated = createFreshSessionInstance(existing.id);
   logger.info(
     {
-      sessionId: existing.id,
-      resetCount: existing.reset_count + 1,
+      previousSessionId: existing.id,
+      sessionId: rotated.session.id,
+      sessionKey: rotated.session.session_key,
+      resetCount: rotated.session.reset_count,
       reason: expiryEvaluation.reason,
     },
     'Session auto-reset',
   );
-  return true;
+  return rotated.session;
 }
 
 function requireSessionById(sessionId: string): Session {
-  const session = getSessionById(sessionId);
+  const session = selectSessionById(sessionId) || getSessionById(sessionId);
   if (!session) {
     throw new Error(`Session ${sessionId} disappeared during database update`);
   }
   return session;
+}
+
+function padSessionTimestampPart(value: number): string {
+  return String(Math.max(0, Math.trunc(value))).padStart(2, '0');
+}
+
+function generateSessionInstanceId(now: Date = new Date()): string {
+  const timestamp = [
+    String(now.getUTCFullYear()).padStart(4, '0'),
+    padSessionTimestampPart(now.getUTCMonth() + 1),
+    padSessionTimestampPart(now.getUTCDate()),
+  ].join('');
+  const time = [
+    padSessionTimestampPart(now.getUTCHours()),
+    padSessionTimestampPart(now.getUTCMinutes()),
+    padSessionTimestampPart(now.getUTCSeconds()),
+  ].join('');
+  return `sess_${timestamp}_${time}_${randomUUID().replace(/-/g, '').slice(0, 8)}`;
 }
 
 function selectSessionById(sessionId: string): Session | undefined {
@@ -2794,21 +2884,104 @@ function selectSessionById(sessionId: string): Session | undefined {
     | undefined;
 }
 
-function selectSessionIdByLegacySessionId(
+function selectCurrentSessionBySessionKey(
+  sessionKey: string,
+): Session | undefined {
+  if (!hasSessionKeyColumn(db) || !hasSessionCurrentColumn(db))
+    return undefined;
+  return db
+    .prepare(
+      `SELECT *
+       FROM sessions
+       WHERE session_key = ?
+         AND is_current = 1
+       LIMIT 1`,
+    )
+    .get(sessionKey) as Session | undefined;
+}
+
+function selectCurrentSessionByLegacySessionId(
   legacySessionId: string,
-): string | undefined {
-  if (!hasSessionLegacySessionIdColumn(db)) return undefined;
-  const row = db
-    .prepare('SELECT id FROM sessions WHERE legacy_session_id = ?')
-    .get(legacySessionId) as { id: string } | undefined;
-  return row?.id;
+): Session | undefined {
+  if (!hasSessionLegacySessionIdColumn(db) || !hasSessionCurrentColumn(db)) {
+    return undefined;
+  }
+  return db
+    .prepare(
+      `SELECT *
+       FROM sessions
+       WHERE legacy_session_id = ?
+         AND is_current = 1
+       LIMIT 1`,
+    )
+    .get(legacySessionId) as Session | undefined;
+}
+
+function deriveSessionKeyFromContext(params: {
+  requestedSessionId: string;
+  channelId: string;
+  agentId: string;
+}): string {
+  const channelKind = resolveSessionResetChannelKind(params.channelId);
+  if (channelKind === 'heartbeat') {
+    return buildSessionKey(params.agentId, 'heartbeat', 'system', 'default');
+  }
+  if (channelKind === 'tui') {
+    return buildSessionKey(params.agentId, 'tui', 'dm', 'local');
+  }
+  return params.requestedSessionId;
+}
+
+function resolveCanonicalSessionKey(params: {
+  requestedSessionId: string;
+  guildId: string | null;
+  channelId: string;
+  agentId: string;
+}): string {
+  const exactSession = selectSessionById(params.requestedSessionId);
+  if (exactSession?.session_key) {
+    return exactSession.session_key;
+  }
+  if (isLegacySessionKey(params.requestedSessionId)) {
+    return migrateLegacySessionKey(params.requestedSessionId, {
+      agent_id: params.agentId,
+      guild_id: params.guildId,
+      channel_id: params.channelId,
+    });
+  }
+  if (parseSessionKey(params.requestedSessionId)) {
+    return params.requestedSessionId;
+  }
+  return deriveSessionKeyFromContext(params);
+}
+
+function resolveNewSessionInstanceId(params: {
+  requestedSessionId: string;
+}): string {
+  if (
+    params.requestedSessionId &&
+    !parseSessionKey(params.requestedSessionId) &&
+    !isLegacySessionKey(params.requestedSessionId)
+  ) {
+    return params.requestedSessionId;
+  }
+  let nextId = generateSessionInstanceId();
+  while (selectSessionById(nextId)) {
+    nextId = generateSessionInstanceId();
+  }
+  return nextId;
 }
 
 export function resolveSessionIdCompat(sessionId: string): string {
   const normalized = String(sessionId || '').trim();
   if (!normalized) return normalized;
-  if (selectSessionById(normalized)) return normalized;
-  return selectSessionIdByLegacySessionId(normalized) || normalized;
+  const exactSession = selectSessionById(normalized);
+  if (exactSession) return exactSession.id;
+  return (
+    selectCurrentSessionBySessionKey(normalized)?.id ||
+    selectCurrentSessionByLegacySessionId(normalized)?.id ||
+    normalized
+  );
 }
 
 export function getOrCreateSession(
@@ -2816,63 +2989,231 @@ export function getOrCreateSession(
   guildId: string | null,
   channelId: string,
   agentId?: string,
+  options?: {
+    forceNewCurrent?: boolean;
+  },
 ): Session {
   const requestedSessionId = String(sessionId || '').trim();
-  const normalizedAgentId = agentId?.trim() || null;
-  const canonicalSessionId = isLegacySessionKey(requestedSessionId)
-    ? migrateLegacySessionKey(requestedSessionId, {
-        agent_id: normalizedAgentId || DEFAULT_AGENT_ID,
-        guild_id: guildId,
-        channel_id: channelId,
-      })
-    : requestedSessionId;
-  const resolvedSessionId = resolveSessionIdCompat(canonicalSessionId);
-  const existing = getSessionById(resolvedSessionId);
+  const normalizedAgentId = agentId?.trim() || DEFAULT_AGENT_ID;
+  const forceNewCurrent = options?.forceNewCurrent === true;
+  const canonicalSessionKey = resolveCanonicalSessionKey({
+    requestedSessionId,
+    guildId,
+    channelId,
+    agentId: normalizedAgentId,
+  });
+  const exactSession = requestedSessionId
+    ? selectSessionById(requestedSessionId)
+    : undefined;
 
+  if (exactSession) {
+    db.prepare(
+      `UPDATE sessions
+       SET last_active = datetime('now'),
+           agent_id = ?,
+           session_key = COALESCE(NULLIF(session_key, ''), ?)
+       WHERE id = ?`,
+    ).run(
+      normalizedAgentId,
+      canonicalSessionKey || exactSession.id,
+      exactSession.id,
+    );
+    return requireSessionById(exactSession.id);
+  }
+
+  const existing =
+    selectCurrentSessionBySessionKey(canonicalSessionKey) ||
+    (requestedSessionId
+      ? selectCurrentSessionByLegacySessionId(requestedSessionId)
+      : undefined);
   if (existing) {
-    if (
-      requestedSessionId &&
-      requestedSessionId !== existing.id &&
-      isLegacySessionKey(requestedSessionId)
-    ) {
-      db.prepare(
-        `UPDATE sessions
-         SET legacy_session_id = COALESCE(legacy_session_id, ?)
-         WHERE id = ?`,
-      ).run(requestedSessionId, existing.id);
-    }
-    if (normalizedAgentId && existing.agent_id !== normalizedAgentId) {
-      db.prepare(
-        `UPDATE sessions
-         SET last_active = datetime('now'),
-             agent_id = ?
-         WHERE id = ?`,
-      ).run(normalizedAgentId, existing.id);
-      return requireSessionById(existing.id);
+    if (forceNewCurrent) {
+      return createFreshSessionInstance(existing.id, {
+        nextSessionId: resolveNewSessionInstanceId({ requestedSessionId }),
+      }).session;
     }
     db.prepare(
-      "UPDATE sessions SET last_active = datetime('now') WHERE id = ?",
-    ).run(existing.id);
+      `UPDATE sessions
+       SET last_active = datetime('now'),
+           agent_id = ?,
+           session_key = ?,
+           legacy_session_id = CASE
+             WHEN ? THEN ?
+             ELSE legacy_session_id
+           END
+       WHERE id = ?`,
+    ).run(
+      normalizedAgentId,
+      canonicalSessionKey || existing.id,
+      requestedSessionId !== canonicalSessionKey &&
+        isLegacySessionKey(requestedSessionId)
+        ? 1
+        : 0,
+      requestedSessionId || null,
+      existing.id,
+    );
     return requireSessionById(existing.id);
   }
 
+  const nextSessionId = resolveNewSessionInstanceId({ requestedSessionId });
   db.prepare(
-    'INSERT INTO sessions (id, guild_id, channel_id, agent_id, legacy_session_id) VALUES (?, ?, ?, ?, ?)',
+    `INSERT INTO sessions (
+       id,
+       session_key,
+       is_current,
+       guild_id,
+       channel_id,
+       agent_id,
+       legacy_session_id
+     ) VALUES (?, ?, 1, ?, ?, ?, ?)`,
   ).run(
-    canonicalSessionId,
+    nextSessionId,
+    canonicalSessionKey || nextSessionId,
     guildId,
     channelId,
-    normalizedAgentId || DEFAULT_AGENT_ID,
-    requestedSessionId !== canonicalSessionId ? requestedSessionId : null,
+    normalizedAgentId,
+    requestedSessionId !== canonicalSessionKey &&
+      isLegacySessionKey(requestedSessionId)
+      ? requestedSessionId
+      : null,
   );
 
-  return requireSessionById(canonicalSessionId);
+  return requireSessionById(nextSessionId);
 }
 
 export function getSessionById(sessionId: string): Session | undefined {
-  const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  if (!resolvedSessionId) return undefined;
-  return selectSessionById(resolvedSessionId);
+  const normalized = String(sessionId || '').trim();
+  if (!normalized) return undefined;
+  return (
+    selectSessionById(normalized) ||
+    selectCurrentSessionBySessionKey(normalized) ||
+    selectCurrentSessionByLegacySessionId(normalized)
+  );
+}
+
+function countSessionMessages(sessionId: string): number {
+  const row = db
+    .prepare('SELECT COUNT(*) AS count FROM messages WHERE session_id = ?')
+    .get(sessionId) as { count: number } | undefined;
+  return row?.count ?? 0;
+}
+
+function copySessionKvStore(
+  previousSessionId: string,
+  nextSessionId: string,
+): void {
+  if (!tableExists(db, 'kv_store')) return;
+  const rows = db
+    .prepare(
+      `SELECT key, value, version, updated_at
+       FROM kv_store
+       WHERE agent_id = ?`,
+    )
+    .all(previousSessionId) as MemoryKvRow[];
+  if (rows.length === 0) return;
+  const insert = db.prepare(
+    `INSERT INTO kv_store (agent_id, key, value, version, updated_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+  for (const row of rows) {
+    insert.run(nextSessionId, row.key, row.value, row.version, row.updated_at);
+  }
+}
+
+export function createFreshSessionInstance(
+  sessionId: string,
+  params?: {
+    nextSessionId?: string | null;
+    resetSettings?: boolean;
+    defaultEnableRag?: boolean;
+  },
+): {
+  previousSession: Session;
+  session: Session;
+  deletedMessages: number;
+} {
+  const previousSession = requireSessionById(resolveSessionIdCompat(sessionId));
+  const nextSessionId =
+    String(params?.nextSessionId || '').trim() || generateSessionInstanceId();
+  const nowIso = new Date().toISOString();
+  const deletedMessages = countSessionMessages(previousSession.id);
+  const nextSessionKey = previousSession.session_key || previousSession.id;
+  const nextEnableRag =
+    params?.resetSettings && typeof params.defaultEnableRag === 'boolean'
+      ? params.defaultEnableRag
+        ? 1
+        : 0
+      : previousSession.enable_rag;
+
+  const rotate = db.transaction(() => {
+    if (hasSessionLegacySessionIdColumn(db)) {
+      db.prepare(
+        'UPDATE sessions SET legacy_session_id = NULL WHERE id = ?',
+      ).run(previousSession.id);
+    }
+    if (hasSessionCurrentColumn(db)) {
+      db.prepare(
+        'UPDATE sessions SET is_current = 0 WHERE session_key = ?',
+      ).run(nextSessionKey);
+    }
+    db.prepare(
+      `INSERT INTO sessions (
+         id,
+         session_key,
+         is_current,
+         guild_id,
+         channel_id,
+         agent_id,
+         chatbot_id,
+         model,
+         enable_rag,
+         message_count,
+         session_summary,
+         summary_updated_at,
+         compaction_count,
+         memory_flush_at,
+         full_auto_enabled,
+         full_auto_prompt,
+         full_auto_started_at,
+         show_mode,
+         created_at,
+         last_active,
+         reset_count,
+         reset_at,
+         legacy_session_id
+       ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      nextSessionId,
+      nextSessionKey,
+      previousSession.guild_id,
+      previousSession.channel_id,
+      previousSession.agent_id,
+      params?.resetSettings ? null : previousSession.chatbot_id,
+      params?.resetSettings ? null : previousSession.model,
+      nextEnableRag,
+      params?.resetSettings ? 0 : previousSession.full_auto_enabled,
+      params?.resetSettings ? null : previousSession.full_auto_prompt,
+      params?.resetSettings ? null : previousSession.full_auto_started_at,
+      params?.resetSettings ? 'all' : previousSession.show_mode,
+      nowIso,
+      nowIso,
+      previousSession.reset_count + 1,
+      nowIso,
+      previousSession.legacy_session_id || null,
+    );
+    db.prepare('UPDATE tasks SET session_id = ? WHERE session_id = ?').run(
+      nextSessionId,
+      previousSession.id,
+    );
+    copySessionKvStore(previousSession.id, nextSessionId);
+  });
+  rotate();
+
+  return {
+    previousSession,
+    session: requireSessionById(nextSessionId),
+    deletedMessages,
+  };
 }
 
 export function updateSessionChatbot(
@@ -2958,39 +3299,44 @@ export function updateSessionShowMode(
 }
 
 export function getAllSessions(): Session[] {
-  return db
-    .prepare('SELECT * FROM sessions ORDER BY last_active DESC')
-    .all() as Session[];
+  const sql = hasSessionCurrentColumn(db)
+    ? 'SELECT * FROM sessions WHERE is_current = 1 ORDER BY last_active DESC'
+    : 'SELECT * FROM sessions ORDER BY last_active DESC';
+  return db.prepare(sql).all() as Session[];
 }
 
 export function getFullAutoSessionCount(): number {
   const row = db
     .prepare(
-      'SELECT COUNT(*) as count FROM sessions WHERE full_auto_enabled = 1',
+      hasSessionCurrentColumn(db)
+        ? 'SELECT COUNT(*) as count FROM sessions WHERE is_current = 1 AND full_auto_enabled = 1'
+        : 'SELECT COUNT(*) as count FROM sessions WHERE full_auto_enabled = 1',
     )
     .get() as { count: number };
   return row.count;
 }
 
 export function getEnabledFullAutoSessions(): Session[] {
-  return db
-    .prepare(
-      'SELECT * FROM sessions WHERE full_auto_enabled = 1 ORDER BY last_active DESC',
-    )
-    .all() as Session[];
+  const sql = hasSessionCurrentColumn(db)
+    ? 'SELECT * FROM sessions WHERE is_current = 1 AND full_auto_enabled = 1 ORDER BY last_active DESC'
+    : 'SELECT * FROM sessions WHERE full_auto_enabled = 1 ORDER BY last_active DESC';
+  return db.prepare(sql).all() as Session[];
 }
 
 export function getSessionCount(): number {
-  const row = db.prepare('SELECT COUNT(*) as count FROM sessions').get() as {
-    count: number;
-  };
+  const sql = hasSessionCurrentColumn(db)
+    ? 'SELECT COUNT(*) as count FROM sessions WHERE is_current = 1'
+    : 'SELECT COUNT(*) as count FROM sessions';
+  const row = db.prepare(sql).get() as { count: number };
   return row.count;
 }
 
 export function getMostRecentSessionChannelId(): string | null {
   const row = db
     .prepare(
-      'SELECT channel_id FROM sessions ORDER BY last_active DESC LIMIT 1',
+      hasSessionCurrentColumn(db)
+        ? 'SELECT channel_id FROM sessions WHERE is_current = 1 ORDER BY last_active DESC LIMIT 1'
+        : 'SELECT channel_id FROM sessions ORDER BY last_active DESC LIMIT 1',
     )
     .get() as { channel_id?: string } | undefined;
   if (!row || typeof row.channel_id !== 'string') return null;
@@ -3012,25 +3358,8 @@ export function clearSessionHistory(sessionId: string): number {
   return result.changes;
 }
 
-export function resetSessionState(sessionId: string): void {
-  const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  const transaction = db.transaction((value: string) => {
-    db.prepare(
-      `UPDATE sessions
-       SET message_count = 0,
-           session_summary = NULL,
-           summary_updated_at = NULL,
-           compaction_count = 0,
-           memory_flush_at = NULL,
-           reset_count = reset_count + 1,
-           reset_at = datetime('now'),
-           last_active = datetime('now')
-       WHERE id = ?`,
-    ).run(value);
-    db.prepare('DELETE FROM messages WHERE session_id = ?').run(value);
-    db.prepare('DELETE FROM semantic_memories WHERE session_id = ?').run(value);
-  });
-  transaction(resolvedSessionId);
+export function resetSessionState(sessionId: string): Session {
+  return createFreshSessionInstance(sessionId).session;
 }
 
 export function deleteSessionData(sessionId: string): {

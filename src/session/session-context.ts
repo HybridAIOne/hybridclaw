@@ -21,7 +21,8 @@ export interface SessionSource {
 export interface SessionContext {
   source: SessionSource;
   agentId: string;
-  sessionKey: string;
+  sessionId: string;
+  sessionKey?: string;
   connectedChannels: string[];
 }
 
@@ -92,7 +93,8 @@ export function buildSessionContext(params: SessionContext): SessionContext {
       guildName: normalizeOptional(params.source.guildName),
     },
     agentId: String(params.agentId || '').trim(),
-    sessionKey: String(params.sessionKey || '').trim(),
+    sessionId: String(params.sessionId || '').trim(),
+    sessionKey: normalizeOptional(params.sessionKey),
     connectedChannels: normalizeChannelList(
       params.connectedChannels,
       params.source.channelKind,
@@ -104,10 +106,14 @@ export function buildSessionContextPrompt(context: SessionContext): string {
   const lines = [
     '## Session Context',
     `**Platform:** ${formatChannelKind(String(context.source.channelKind))} (${formatChatType(context.source.chatType)})`,
-    `**Session:** ${context.sessionKey}`,
+    `**Session:** ${context.sessionId}`,
     `**Chat ID:** ${context.source.chatId}`,
     `**Agent:** ${context.agentId}`,
   ];
+
+  if (context.sessionKey && context.sessionKey !== context.sessionId) {
+    lines.push(`**Session key:** ${context.sessionKey}`);
+  }
 
   if (context.source.userId || context.source.userName) {
     const userLabel = context.source.userName

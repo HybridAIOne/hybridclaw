@@ -32,6 +32,7 @@ export async function runIsolatedScheduledTask(params: {
   chatbotId: string;
   model: string;
   agentId: string;
+  sessionId?: string;
   sessionKey?: string;
   onResult: (result: {
     text: string;
@@ -46,6 +47,7 @@ export async function runIsolatedScheduledTask(params: {
     chatbotId,
     model,
     agentId,
+    sessionId,
     sessionKey,
     onResult,
     onError,
@@ -63,6 +65,7 @@ export async function runIsolatedScheduledTask(params: {
         agent_id: agentId,
       })
     : rawSessionKey;
+  const activeSessionId = String(sessionId || '').trim() || cronSessionId;
   const runId = makeAuditRunId('cron');
   const startedAt = Date.now();
   const provider = resolveModelProvider(model);
@@ -77,6 +80,7 @@ export async function runIsolatedScheduledTask(params: {
       guildId: null,
     },
     agentId,
+    sessionId: activeSessionId,
     sessionKey: cronSessionId,
     connectedChannels: listChannels().map((channel) => channel.kind),
   });
@@ -100,7 +104,7 @@ export async function runIsolatedScheduledTask(params: {
   messages.push({ role: 'user', content: prompt });
 
   recordAuditEvent({
-    sessionId: cronSessionId,
+    sessionId: activeSessionId,
     runId,
     event: {
       type: 'session.start',
@@ -113,7 +117,7 @@ export async function runIsolatedScheduledTask(params: {
     },
   });
   recordAuditEvent({
-    sessionId: cronSessionId,
+    sessionId: activeSessionId,
     runId,
     event: {
       type: 'turn.start',
@@ -126,7 +130,7 @@ export async function runIsolatedScheduledTask(params: {
 
   try {
     const output = await runAgent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       messages,
       chatbotId,
       enableRag: false,
@@ -136,7 +140,7 @@ export async function runIsolatedScheduledTask(params: {
       blockedTools: ['cron'],
     });
     emitToolExecutionAuditEvents({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       toolExecutions: output.toolExecutions || [],
     });
@@ -159,7 +163,7 @@ export async function runIsolatedScheduledTask(params: {
     const apiCacheReadTokens = tokenUsage?.apiCacheReadTokens || 0;
     const apiCacheWriteTokens = tokenUsage?.apiCacheWriteTokens || 0;
     recordAuditEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       event: {
         type: 'model.usage',
@@ -196,7 +200,7 @@ export async function runIsolatedScheduledTask(params: {
       },
     });
     recordUsageEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       agentId,
       model,
       inputTokens: apiUsageAvailable ? apiPromptTokens : estimatedPromptTokens,
@@ -213,7 +217,7 @@ export async function runIsolatedScheduledTask(params: {
         artifacts: output.artifacts,
       });
       recordAuditEvent({
-        sessionId: cronSessionId,
+        sessionId: activeSessionId,
         runId,
         event: {
           type: 'turn.end',
@@ -222,7 +226,7 @@ export async function runIsolatedScheduledTask(params: {
         },
       });
       recordAuditEvent({
-        sessionId: cronSessionId,
+        sessionId: activeSessionId,
         runId,
         event: {
           type: 'session.end',
@@ -239,7 +243,7 @@ export async function runIsolatedScheduledTask(params: {
     }
     const message = output.error || 'Scheduled task returned no result.';
     recordAuditEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       event: {
         type: 'error',
@@ -249,7 +253,7 @@ export async function runIsolatedScheduledTask(params: {
       },
     });
     recordAuditEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       event: {
         type: 'turn.end',
@@ -258,7 +262,7 @@ export async function runIsolatedScheduledTask(params: {
       },
     });
     recordAuditEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       event: {
         type: 'session.end',
@@ -275,7 +279,7 @@ export async function runIsolatedScheduledTask(params: {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     recordAuditEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       event: {
         type: 'error',
@@ -285,7 +289,7 @@ export async function runIsolatedScheduledTask(params: {
       },
     });
     recordAuditEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       event: {
         type: 'turn.end',
@@ -294,7 +298,7 @@ export async function runIsolatedScheduledTask(params: {
       },
     });
     recordAuditEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       event: {
         type: 'session.end',

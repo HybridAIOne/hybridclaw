@@ -80,6 +80,7 @@ import {
 } from '../media/audio-transcription.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
+  createFreshSessionInstance,
   createTask,
   deleteSessionData,
   deleteTask,
@@ -258,7 +259,6 @@ import {
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
-  DEFAULT_SESSION_SHOW_MODE,
   describeSessionShowMode,
   isSessionShowMode,
   normalizeSessionShowMode,
@@ -368,6 +368,7 @@ interface DelegationTaskRunInput {
 
 export interface GatewayChatRequest {
   sessionId: GatewayChatRequestBody['sessionId'];
+  sessionMode?: GatewayChatRequestBody['sessionMode'];
   guildId: GatewayChatRequestBody['guildId'];
   channelId: GatewayChatRequestBody['channelId'];
   userId: GatewayChatRequestBody['userId'];
@@ -386,6 +387,15 @@ export interface GatewayChatRequest {
   ) => void | Promise<void>;
   abortSignal?: AbortSignal;
   source?: string;
+}
+
+function shouldForceNewTuiSession(
+  req: Pick<
+    GatewayChatRequest | GatewayCommandRequest,
+    'channelId' | 'sessionMode'
+  >,
+): boolean {
+  return req.channelId === 'tui' && req.sessionMode === 'new';
 }
 
 function resolveChannelType(
@@ -3318,19 +3328,30 @@ export async function handleGatewayMessage(
     enableRag: req.enableRag,
     policy: sessionResetPolicy,
   });
-  memoryService.resetSessionIfExpired(req.sessionId, {
+  const autoResetSession = memoryService.resetSessionIfExpired(req.sessionId, {
     policy: sessionResetPolicy,
     expiryEvaluation,
   });
+  if (autoResetSession) {
+    req.sessionId = autoResetSession.id;
+  }
   let session = memoryService.getOrCreateSession(
     req.sessionId,
     req.guildId,
     req.channelId,
     req.agentId ?? undefined,
+    { forceNewCurrent: shouldForceNewTuiSession(req) },
   );
   if (session.id !== req.sessionId) {
     req.sessionId = session.id;
   }
+  const attachSessionIdentity = (
+    result: GatewayChatResult,
+  ): GatewayChatResult => ({
+    ...result,
+    sessionId: req.sessionId,
+    sessionKey: session.session_key,
+  });
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
     clearScheduledFullAutoContinuation(req.sessionId);
@@ -3362,6 +3383,34 @@ export async function handleGatewayMessage(
     getChannel(channelType) ||
     getChannelByContextId(req.channelId) ||
     undefined;
+  if (session.agent_id !== agentId) {
+    const reboundExpiryEvaluation = await prepareSessionAutoReset({
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      agentId,
+      chatbotId,
+      model,
+      enableRag: req.enableRag ?? session.enable_rag === 1,
+      policy: sessionResetPolicy,
+    });
+    const reboundSession = memoryService.resetSessionIfExpired(req.sessionId, {
+      policy: sessionResetPolicy,
+      expiryEvaluation: reboundExpiryEvaluation,
+    });
+    if (reboundSession) {
+      req.sessionId = reboundSession.id;
+    }
+    session = memoryService.getOrCreateSession(
+      req.sessionId,
+      req.guildId,
+      req.channelId,
+      agentId,
+      { forceNewCurrent: shouldForceNewTuiSession(req) },
+    );
+    if (session.id !== req.sessionId) {
+      req.sessionId = session.id;
+    }
+  }
   const sessionContext = buildSessionContext({
     source: {
       channelKind: channelType,
@@ -3377,33 +3426,10 @@ export async function handleGatewayMessage(
       guildId: req.guildId,
     },
     agentId,
-    sessionKey: req.sessionId,
+    sessionId: session.id,
+    sessionKey: session.session_key,
     connectedChannels,
   });
-  if (session.agent_id !== agentId) {
-    const reboundExpiryEvaluation = await prepareSessionAutoReset({
-      sessionId: req.sessionId,
-      channelId: req.channelId,
-      agentId,
-      chatbotId,
-      model,
-      enableRag: req.enableRag ?? session.enable_rag === 1,
-      policy: sessionResetPolicy,
-    });
-    memoryService.resetSessionIfExpired(req.sessionId, {
-      policy: sessionResetPolicy,
-      expiryEvaluation: reboundExpiryEvaluation,
-    });
-    session = memoryService.getOrCreateSession(
-      req.sessionId,
-      req.guildId,
-      req.channelId,
-      agentId,
-    );
-    if (session.id !== req.sessionId) {
-      req.sessionId = session.id;
-    }
-  }
   const showMode = normalizeSessionShowMode(session.show_mode);
   const shouldEmitTools = sessionShowModeShowsTools(showMode);
   const enableRag = req.enableRag ?? session.enable_rag === 1;
@@ -3415,22 +3441,17 @@ export async function handleGatewayMessage(
     workspaceBootstrap.workspaceInitialized &&
     (session.message_count > 0 || Boolean(session.session_summary))
   ) {
-    const clearedMessages = memoryService.clearSessionHistory(req.sessionId);
-    const refreshedSession = memoryService.getSessionById(req.sessionId);
-    // clearSessionHistory only deletes messages and updates the existing session row.
-    // If the row is missing here, another code path deleted the session unexpectedly.
-    if (!refreshedSession) {
-      throw new Error(
-        `Session ${req.sessionId} disappeared after clearSessionHistory`,
-      );
-    }
-    session = refreshedSession;
+    const rotated = createFreshSessionInstance(req.sessionId);
+    req.sessionId = rotated.session.id;
+    session = rotated.session;
     logger.info(
       {
         sessionId: req.sessionId,
+        previousSessionId: rotated.previousSession.id,
+        sessionKey: session.session_key,
         agentId,
         workspacePath: workspaceBootstrap.workspacePath,
-        clearedMessages,
+        clearedMessages: rotated.deletedMessages,
       },
       'Cleared session history after workspace reset',
     );
@@ -3578,7 +3599,7 @@ export async function handleGatewayMessage(
       toolsUsed: [],
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
-    return result;
+    return attachSessionIdentity(result);
   }
 
   const history = memoryService
@@ -3974,7 +3995,7 @@ export async function handleGatewayMessage(
           },
         },
       });
-      return {
+      return attachSessionIdentity({
         status: 'error',
         result: null,
         toolsUsed: output.toolsUsed || [],
@@ -3982,7 +4003,7 @@ export async function handleGatewayMessage(
         toolExecutions,
         tokenUsage: output.tokenUsage,
         error: errorMessage,
-      };
+      });
     }
 
     const resultText = output.result || 'No response from agent.';
@@ -4024,7 +4045,7 @@ export async function handleGatewayMessage(
       effectiveUserPrompt: output.effectiveUserPrompt,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
-    return result;
+    return attachSessionIdentity(result);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     logAudit(
@@ -4076,13 +4097,13 @@ export async function handleGatewayMessage(
         },
       },
     });
-    return {
+    return attachSessionIdentity({
       status: 'error',
       result: null,
       toolsUsed: [],
       toolExecutions: undefined,
       error: errorMsg,
-    };
+    });
   } finally {
     activeGatewayRequest.release();
   }
@@ -4097,21 +4118,28 @@ export async function runGatewayScheduledTask(
   onError: (error: unknown) => void,
   runKey?: string,
 ): Promise<void> {
+  let currentSessionId = origSessionId;
   const sessionResetPolicy = {
     ...resolveSessionAutoResetPolicy(channelId),
     mode: 'none',
   } satisfies SessionResetPolicy;
   const expiryEvaluation = await prepareSessionAutoReset({
-    sessionId: origSessionId,
+    sessionId: currentSessionId,
     channelId,
     policy: sessionResetPolicy,
   });
-  memoryService.resetSessionIfExpired(origSessionId, {
-    policy: sessionResetPolicy,
-    expiryEvaluation,
-  });
+  const autoResetSession = memoryService.resetSessionIfExpired(
+    currentSessionId,
+    {
+      policy: sessionResetPolicy,
+      expiryEvaluation,
+    },
+  );
+  if (autoResetSession) {
+    currentSessionId = autoResetSession.id;
+  }
   const session = memoryService.getOrCreateSession(
-    origSessionId,
+    currentSessionId,
     null,
     channelId,
     undefined,
@@ -4120,7 +4148,7 @@ export async function runGatewayScheduledTask(
   if (modelRequiresChatbotId(model) && !chatbotId) {
     logger.warn(
       {
-        sessionId: origSessionId,
+        sessionId: currentSessionId,
         channelId,
         taskId,
         model,
@@ -4141,6 +4169,7 @@ export async function runGatewayScheduledTask(
     chatbotId,
     model,
     agentId,
+    sessionId: session.id,
     sessionKey: runKey,
     onResult,
     onError,
@@ -4157,1348 +4186,1396 @@ export async function handleGatewayCommand(
     channelId: req.channelId,
     policy: sessionResetPolicy,
   });
-  memoryService.resetSessionIfExpired(req.sessionId, {
+  const autoResetSession = memoryService.resetSessionIfExpired(req.sessionId, {
     policy: sessionResetPolicy,
     expiryEvaluation,
   });
-  const session = memoryService.getOrCreateSession(
+  if (autoResetSession) {
+    req.sessionId = autoResetSession.id;
+  }
+  let session = memoryService.getOrCreateSession(
     req.sessionId,
     req.guildId,
     req.channelId,
     undefined,
+    { forceNewCurrent: shouldForceNewTuiSession(req) },
   );
   if (session.id !== req.sessionId) {
     req.sessionId = session.id;
   }
 
-  switch (cmd) {
-    case 'help': {
-      const help = [
-        '`agent` — Show current session agent',
-        '`agent list` — List available agents',
-        '`agent switch <id>` — Bind this session to an existing agent',
-        '`agent create <id> [--model <model>]` — Create a new agent',
-        '`agent model [name]` — Show or set the persistent model for the current agent',
-        '`bot list` — List available bots',
-        '`bot set <id|name>` — Set chatbot for this session',
-        '`bot info` — Show current chatbot settings',
-        '`model list [provider]` — List available models',
-        '`model set <name>` — Set model for this session',
-        '`model clear` — Clear the session model override',
-        '`model default [name]` — Show or set default model for new sessions',
-        '`model info` — Show effective, session, agent, and default models',
-        '`rag [on|off]` — Toggle or set RAG mode',
-        '`channel mode [off|mention|free]` — Set or inspect this Discord channel response mode',
-        '`channel policy [open|allowlist|disabled]` — Set or inspect guild channel policy',
-        '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
-        '`fullauto [status|off|on [prompt]|<prompt>]` — Enable/inspect/disable session full-auto mode',
-        '`show [all|thinking|tools|none]` — Control visible thinking/tool activity for this session',
-        '`mcp list` — List configured MCP servers',
-        '`mcp add <name> <json>` — Add or update an MCP server config',
-        '`mcp remove <name>` — Remove an MCP server config',
-        '`mcp toggle <name>` — Enable or disable an MCP server',
-        '`mcp reconnect <name>` — Restart current session runtime so the server reconnects next turn',
-        '`clear` — Clear session history',
-        '`reset [yes|no]` — Clear history, reset session settings, and remove the current agent workspace',
-        '`/compact` — Archive older history, summarize it, and retain recent context',
-        '`/status` — Show runtime status (Discord slash command, private to caller)',
-        '`/approve [view|yes|session|agent|no] [approval_id]` — View/respond to pending approvals privately',
-        '`/show <all|thinking|tools|none>` — Control visible thinking/tool activity for this session',
-        '`stop` — Abort the current session run and disable full-auto mode',
-        '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
-        '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
-        '`/model list [provider]` — List available runtime models',
-        '`/model set <name>` — Set the model for this session',
-        '`/model clear` — Clear the model override for this session',
-        '`/model info` — Show effective, session, agent, and default model details',
-        '`/model default [name]` — Show or set the default model for new sessions',
-        '`sessions` — List active sessions',
-        '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
-        '`export session [sessionId]` — Export session JSONL snapshot for debugging',
-        '`audit [sessionId]` — Show recent structured audit events for a session',
-        '`skill list` — List available skills and availability',
-        '`skill inspect <name>|--all` — Show observation-based skill health',
-        '`skill runs <name>` — Show recent execution observations for a skill',
-        '`skill amend <name> [--apply|--reject|--rollback]` — Stage or manage skill amendments',
-        '`skill history <name>` — Show amendment history for a skill',
-        '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
-        '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
-        '`schedule add every <ms> <prompt>` — Add interval task',
-        '`schedule list` — List scheduled tasks',
-        '`schedule remove <id>` — Remove a task',
-        '`schedule toggle <id>` — Enable/disable a task',
-      ];
-      return infoCommand('HybridClaw Commands', help.join('\n'));
-    }
-
-    case 'agent': {
-      const sub = (req.args[1] || '').toLowerCase();
-      if (!sub || sub === 'info' || sub === 'current') {
-        const currentAgentId = resolveSessionAgentId(session);
-        const agent = resolveAgentConfig(currentAgentId);
-        const storedAgent = getStoredAgentConfig(currentAgentId);
-        const runtime = resolveAgentForRequest({ session });
-        return infoCommand(
-          'Agent',
-          [
-            `Current agent: ${agent.id}`,
-            ...(agent.name ? [`Name: ${agent.name}`] : []),
-            `Effective model: ${runtime.model}`,
-            `Global model: ${HYBRIDAI_MODEL}`,
-            `Agent model: ${formatConfiguredAgentModel(storedAgent)}`,
-            `Session model: ${formatSessionModelOverride(session.model)}`,
-            `Chatbot: ${runtime.chatbotId || '(none)'}`,
-            `Workspace: ${path.resolve(agentWorkspaceDir(agent.id))}`,
-          ].join('\n'),
-        );
+  const result = await (async (): Promise<GatewayCommandResult> => {
+    switch (cmd) {
+      case 'help': {
+        const help = [
+          '`agent` — Show current session agent',
+          '`agent list` — List available agents',
+          '`agent switch <id>` — Bind this session to an existing agent',
+          '`agent create <id> [--model <model>]` — Create a new agent',
+          '`agent model [name]` — Show or set the persistent model for the current agent',
+          '`bot list` — List available bots',
+          '`bot set <id|name>` — Set chatbot for this session',
+          '`bot info` — Show current chatbot settings',
+          '`model list [provider]` — List available models',
+          '`model set <name>` — Set model for this session',
+          '`model clear` — Clear the session model override',
+          '`model default [name]` — Show or set default model for new sessions',
+          '`model info` — Show effective, session, agent, and default models',
+          '`rag [on|off]` — Toggle or set RAG mode',
+          '`channel mode [off|mention|free]` — Set or inspect this Discord channel response mode',
+          '`channel policy [open|allowlist|disabled]` — Set or inspect guild channel policy',
+          '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
+          '`fullauto [status|off|on [prompt]|<prompt>]` — Enable/inspect/disable session full-auto mode',
+          '`show [all|thinking|tools|none]` — Control visible thinking/tool activity for this session',
+          '`mcp list` — List configured MCP servers',
+          '`mcp add <name> <json>` — Add or update an MCP server config',
+          '`mcp remove <name>` — Remove an MCP server config',
+          '`mcp toggle <name>` — Enable or disable an MCP server',
+          '`mcp reconnect <name>` — Restart current session runtime so the server reconnects next turn',
+          '`clear` — Clear session history',
+          '`reset [yes|no]` — Clear history, reset session settings, and remove the current agent workspace',
+          '`/compact` — Archive older history, summarize it, and retain recent context',
+          '`/status` — Show runtime status (Discord slash command, private to caller)',
+          '`/approve [view|yes|session|agent|no] [approval_id]` — View/respond to pending approvals privately',
+          '`/show <all|thinking|tools|none>` — Control visible thinking/tool activity for this session',
+          '`stop` — Abort the current session run and disable full-auto mode',
+          '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
+          '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
+          '`/model list [provider]` — List available runtime models',
+          '`/model set <name>` — Set the model for this session',
+          '`/model clear` — Clear the model override for this session',
+          '`/model info` — Show effective, session, agent, and default model details',
+          '`/model default [name]` — Show or set the default model for new sessions',
+          '`sessions` — List active sessions',
+          '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
+          '`export session [sessionId]` — Export session JSONL snapshot for debugging',
+          '`audit [sessionId]` — Show recent structured audit events for a session',
+          '`skill list` — List available skills and availability',
+          '`skill inspect <name>|--all` — Show observation-based skill health',
+          '`skill runs <name>` — Show recent execution observations for a skill',
+          '`skill amend <name> [--apply|--reject|--rollback]` — Stage or manage skill amendments',
+          '`skill history <name>` — Show amendment history for a skill',
+          '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
+          '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
+          '`schedule add every <ms> <prompt>` — Add interval task',
+          '`schedule list` — List scheduled tasks',
+          '`schedule remove <id>` — Remove a task',
+          '`schedule toggle <id>` — Enable/disable a task',
+        ];
+        return infoCommand('HybridClaw Commands', help.join('\n'));
       }
 
-      if (sub === 'list') {
-        const currentAgentId = resolveSessionAgentId(session);
-        const entries = listAgents();
-        const lines = entries.map((agent) => {
-          const label =
-            agent.id === currentAgentId ? `${agent.id} (current)` : agent.id;
-          const model = resolveAgentModel(agent) || HYBRIDAI_MODEL;
-          return agent.name
-            ? `${label} — ${agent.name} · ${model}`
-            : `${label} — ${model}`;
-        });
-        return infoCommand(
-          'Agents',
-          lines.length > 0 ? lines.join('\n') : 'No agents configured.',
-        );
-      }
-
-      if (sub === 'switch') {
-        const targetAgentId = String(req.args[2] || '').trim();
-        if (!targetAgentId) {
-          return badCommand('Usage', 'Usage: `agent switch <id>`');
-        }
-        const targetAgent = findAgentConfig(targetAgentId);
-        if (!targetAgent) {
-          return badCommand(
-            'Not Found',
-            `Agent \`${targetAgentId}\` was not found.`,
-          );
-        }
-        updateSessionAgent(session.id, targetAgent.id);
-        const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
-        return plainCommand(
-          `Session agent set to \`${targetAgent.id}\` (model: \`${model}\`).`,
-        );
-      }
-
-      if (sub === 'model') {
-        const currentAgentId = resolveSessionAgentId(session);
-        const storedAgent =
-          getStoredAgentConfig(currentAgentId) ??
-          ({ id: currentAgentId } satisfies AgentConfig);
-        const resolvedAgent = resolveAgentConfig(currentAgentId);
-        const sessionOverride = formatSessionModelOverride(session.model);
-        const modelName = String(req.args[2] || '').trim();
-
-        if (!modelName) {
+      case 'agent': {
+        const sub = (req.args[1] || '').toLowerCase();
+        if (!sub || sub === 'info' || sub === 'current') {
+          const currentAgentId = resolveSessionAgentId(session);
+          const agent = resolveAgentConfig(currentAgentId);
+          const storedAgent = getStoredAgentConfig(currentAgentId);
           const runtime = resolveAgentForRequest({ session });
           return infoCommand(
-            'Agent Model',
+            'Agent',
             [
-              `Current agent: ${resolvedAgent.id}`,
+              `Current agent: ${agent.id}`,
+              ...(agent.name ? [`Name: ${agent.name}`] : []),
               `Effective model: ${runtime.model}`,
               `Global model: ${HYBRIDAI_MODEL}`,
               `Agent model: ${formatConfiguredAgentModel(storedAgent)}`,
-              `Session model: ${sessionOverride}`,
+              `Session model: ${formatSessionModelOverride(session.model)}`,
+              `Chatbot: ${runtime.chatbotId || '(none)'}`,
+              `Workspace: ${path.resolve(agentWorkspaceDir(agent.id))}`,
             ].join('\n'),
           );
         }
 
-        await refreshAvailableModelCatalogs();
-        const availableModels = getAvailableModelList();
-        if (
-          availableModels.length > 0 &&
-          !availableModels.includes(modelName)
-        ) {
-          return badCommand(
-            'Unknown Model',
-            `\`${modelName}\` is not in the available models list.`,
+        if (sub === 'list') {
+          const currentAgentId = resolveSessionAgentId(session);
+          const entries = listAgents();
+          const lines = entries.map((agent) => {
+            const label =
+              agent.id === currentAgentId ? `${agent.id} (current)` : agent.id;
+            const model = resolveAgentModel(agent) || HYBRIDAI_MODEL;
+            return agent.name
+              ? `${label} — ${agent.name} · ${model}`
+              : `${label} — ${model}`;
+          });
+          return infoCommand(
+            'Agents',
+            lines.length > 0 ? lines.join('\n') : 'No agents configured.',
           );
         }
 
-        const updated = upsertRegisteredAgent({
-          ...storedAgent,
-          model: modelName,
-        });
-        const effectiveModel = resolveAgentForRequest({ session }).model;
-        const hasSessionOverride = sessionOverride !== '(none)';
-        return infoCommand(
-          'Agent Model Updated',
-          [
-            `Current agent: ${updated.id}`,
-            `Effective model: ${effectiveModel}`,
-            `Global model: ${HYBRIDAI_MODEL}`,
-            `Agent model: ${resolveAgentModel(updated) || '(none)'}`,
-            `Session model: ${sessionOverride}`,
-            ...(hasSessionOverride
-              ? [
-                  'Run `model clear` to use the updated agent model in this session.',
-                ]
-              : []),
-          ].join('\n'),
-        );
-      }
-
-      if (sub === 'create') {
-        const newAgentId = String(req.args[2] || '').trim();
-        if (!newAgentId) {
-          return badCommand(
-            'Usage',
-            'Usage: `agent create <id> [--model <model>]`',
-          );
-        }
-        if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(newAgentId)) {
-          return badCommand(
-            'Invalid Agent Id',
-            'Agent ids must start with a letter or number and only use letters, numbers, `_`, or `-`.',
-          );
-        }
-        if (findAgentConfig(newAgentId)) {
-          return badCommand(
-            'Already Exists',
-            `Agent \`${newAgentId}\` already exists.`,
-          );
-        }
-
-        let modelName: string | undefined;
-        const trailingArgs = req.args.slice(3);
-        if (trailingArgs.length > 0) {
-          if (
-            trailingArgs.length !== 2 ||
-            trailingArgs[0] !== '--model' ||
-            !String(trailingArgs[1] || '').trim()
-          ) {
+        if (sub === 'switch') {
+          const targetAgentId = String(req.args[2] || '').trim();
+          if (!targetAgentId) {
+            return badCommand('Usage', 'Usage: `agent switch <id>`');
+          }
+          const targetAgent = findAgentConfig(targetAgentId);
+          if (!targetAgent) {
             return badCommand(
-              'Usage',
-              'Usage: `agent create <id> [--model <model>]`',
+              'Not Found',
+              `Agent \`${targetAgentId}\` was not found.`,
             );
           }
-          modelName = String(trailingArgs[1]).trim();
+          updateSessionAgent(session.id, targetAgent.id);
+          const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
+          return plainCommand(
+            `Session agent set to \`${targetAgent.id}\` (model: \`${model}\`).`,
+          );
+        }
+
+        if (sub === 'model') {
+          const currentAgentId = resolveSessionAgentId(session);
+          const storedAgent =
+            getStoredAgentConfig(currentAgentId) ??
+            ({ id: currentAgentId } satisfies AgentConfig);
+          const resolvedAgent = resolveAgentConfig(currentAgentId);
+          const sessionOverride = formatSessionModelOverride(session.model);
+          const modelName = String(req.args[2] || '').trim();
+
+          if (!modelName) {
+            const runtime = resolveAgentForRequest({ session });
+            return infoCommand(
+              'Agent Model',
+              [
+                `Current agent: ${resolvedAgent.id}`,
+                `Effective model: ${runtime.model}`,
+                `Global model: ${HYBRIDAI_MODEL}`,
+                `Agent model: ${formatConfiguredAgentModel(storedAgent)}`,
+                `Session model: ${sessionOverride}`,
+              ].join('\n'),
+            );
+          }
+
           await refreshAvailableModelCatalogs();
           const availableModels = getAvailableModelList();
-          if (availableModels.length === 0) {
-            logger.warn(
-              {
-                sessionId: req.sessionId,
-                agentId: newAgentId,
-                model: modelName,
-              },
-              'Skipping agent model validation because no available models are configured',
-            );
-          } else if (!availableModels.includes(modelName)) {
+          if (
+            availableModels.length > 0 &&
+            !availableModels.includes(modelName)
+          ) {
             return badCommand(
               'Unknown Model',
               `\`${modelName}\` is not in the available models list.`,
             );
           }
+
+          const updated = upsertRegisteredAgent({
+            ...storedAgent,
+            model: modelName,
+          });
+          const effectiveModel = resolveAgentForRequest({ session }).model;
+          const hasSessionOverride = sessionOverride !== '(none)';
+          return infoCommand(
+            'Agent Model Updated',
+            [
+              `Current agent: ${updated.id}`,
+              `Effective model: ${effectiveModel}`,
+              `Global model: ${HYBRIDAI_MODEL}`,
+              `Agent model: ${resolveAgentModel(updated) || '(none)'}`,
+              `Session model: ${sessionOverride}`,
+              ...(hasSessionOverride
+                ? [
+                    'Run `model clear` to use the updated agent model in this session.',
+                  ]
+                : []),
+            ].join('\n'),
+          );
         }
 
-        const created = upsertRegisteredAgent({
-          id: newAgentId,
-          ...(modelName ? { model: modelName } : {}),
-        });
-        return infoCommand(
-          'Agent Created',
-          [
-            `Agent: ${created.id}`,
-            `Model: ${resolveAgentModel(created) || HYBRIDAI_MODEL}`,
-            `Workspace: ${path.resolve(agentWorkspaceDir(created.id))}`,
-          ].join('\n'),
+        if (sub === 'create') {
+          const newAgentId = String(req.args[2] || '').trim();
+          if (!newAgentId) {
+            return badCommand(
+              'Usage',
+              'Usage: `agent create <id> [--model <model>]`',
+            );
+          }
+          if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(newAgentId)) {
+            return badCommand(
+              'Invalid Agent Id',
+              'Agent ids must start with a letter or number and only use letters, numbers, `_`, or `-`.',
+            );
+          }
+          if (findAgentConfig(newAgentId)) {
+            return badCommand(
+              'Already Exists',
+              `Agent \`${newAgentId}\` already exists.`,
+            );
+          }
+
+          let modelName: string | undefined;
+          const trailingArgs = req.args.slice(3);
+          if (trailingArgs.length > 0) {
+            if (
+              trailingArgs.length !== 2 ||
+              trailingArgs[0] !== '--model' ||
+              !String(trailingArgs[1] || '').trim()
+            ) {
+              return badCommand(
+                'Usage',
+                'Usage: `agent create <id> [--model <model>]`',
+              );
+            }
+            modelName = String(trailingArgs[1]).trim();
+            await refreshAvailableModelCatalogs();
+            const availableModels = getAvailableModelList();
+            if (availableModels.length === 0) {
+              logger.warn(
+                {
+                  sessionId: req.sessionId,
+                  agentId: newAgentId,
+                  model: modelName,
+                },
+                'Skipping agent model validation because no available models are configured',
+              );
+            } else if (!availableModels.includes(modelName)) {
+              return badCommand(
+                'Unknown Model',
+                `\`${modelName}\` is not in the available models list.`,
+              );
+            }
+          }
+
+          const created = upsertRegisteredAgent({
+            id: newAgentId,
+            ...(modelName ? { model: modelName } : {}),
+          });
+          return infoCommand(
+            'Agent Created',
+            [
+              `Agent: ${created.id}`,
+              `Model: ${resolveAgentModel(created) || HYBRIDAI_MODEL}`,
+              `Workspace: ${path.resolve(agentWorkspaceDir(created.id))}`,
+            ].join('\n'),
+          );
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `agent|agent list|agent switch <id>|agent model [name]|agent create <id> [--model <model>]`',
         );
       }
 
-      return badCommand(
-        'Usage',
-        'Usage: `agent|agent list|agent switch <id>|agent model [name]|agent create <id> [--model <model>]`',
-      );
-    }
+      case 'bot': {
+        const runtime = resolveAgentForRequest({ session });
+        if (resolveModelProvider(runtime.model) !== 'hybridai') {
+          return plainCommand('Only for hybridai provider');
+        }
+        const sub = req.args[1]?.toLowerCase();
+        if (sub === 'list') {
+          try {
+            const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
+            if (bots.length === 0) return plainCommand('No bots available.');
+            const list = bots
+              .map(
+                (b) =>
+                  `• ${b.name} (${b.id})${b.model ? ` [${b.model}]` : ''}${b.description ? ` — ${b.description}` : ''}`,
+              )
+              .join('\n');
+            return infoCommand('Available Bots', list);
+          } catch (err) {
+            return badCommand('Error', formatHybridAIBotFetchError(err));
+          }
+        }
 
-    case 'bot': {
-      const runtime = resolveAgentForRequest({ session });
-      if (resolveModelProvider(runtime.model) !== 'hybridai') {
-        return plainCommand('Only for hybridai provider');
-      }
-      const sub = req.args[1]?.toLowerCase();
-      if (sub === 'list') {
-        try {
-          const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
-          if (bots.length === 0) return plainCommand('No bots available.');
-          const list = bots
-            .map(
+        if (sub === 'set') {
+          const requested = req.args.slice(2).join(' ').trim();
+          if (!requested)
+            return badCommand('Usage', 'Usage: `bot set <id|name>`');
+          const previousBotId = session.chatbot_id;
+          let resolvedBotId = requested;
+          try {
+            const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
+            const matched = bots.find(
               (b) =>
-                `• ${b.name} (${b.id})${b.model ? ` [${b.model}]` : ''}${b.description ? ` — ${b.description}` : ''}`,
-            )
-            .join('\n');
-          return infoCommand('Available Bots', list);
-        } catch (err) {
-          return badCommand('Error', formatHybridAIBotFetchError(err));
-        }
-      }
-
-      if (sub === 'set') {
-        const requested = req.args.slice(2).join(' ').trim();
-        if (!requested)
-          return badCommand('Usage', 'Usage: `bot set <id|name>`');
-        const previousBotId = session.chatbot_id;
-        let resolvedBotId = requested;
-        try {
-          const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
-          const matched = bots.find(
-            (b) =>
-              b.id === requested ||
-              b.name.toLowerCase() === requested.toLowerCase(),
-          );
-          if (matched) resolvedBotId = matched.id;
-        } catch (err) {
-          return badCommand('Error', formatHybridAIBotFetchError(err));
-        }
-        updateSessionChatbot(session.id, resolvedBotId);
-        recordAuditEvent({
-          sessionId: session.id,
-          runId: makeAuditRunId('cmd'),
-          event: {
-            type: 'bot.set',
-            source: 'command',
-            requestedBot: requested,
-            previousBotId,
-            resolvedBotId,
-            changed: previousBotId !== resolvedBotId,
-            userId: boundAuditActorField(req.userId),
-            username: boundAuditActorField(req.username),
-          },
-        });
-        return plainCommand(
-          `Chatbot set to \`${resolvedBotId}\` for this session.`,
-        );
-      }
-
-      if (sub === 'info') {
-        const botId = runtime.chatbotId || 'Not set';
-        let botLabel = botId;
-        let botModel: string | undefined;
-        try {
-          const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
-          const bot = bots.find((b) => b.id === botId);
-          if (bot) {
-            botLabel = `${bot.name} (${bot.id})`;
-            botModel = bot.model;
+                b.id === requested ||
+                b.name.toLowerCase() === requested.toLowerCase(),
+            );
+            if (matched) resolvedBotId = matched.id;
+          } catch (err) {
+            return badCommand('Error', formatHybridAIBotFetchError(err));
           }
-        } catch {
-          // keep ID fallback
-        }
-        const ragStatus = session.enable_rag ? 'Enabled' : 'Disabled';
-        const lines = [
-          `Chatbot: ${botLabel}`,
-          ...(botModel ? [`Bot Model: ${botModel}`] : []),
-          `Model: ${runtime.model}`,
-          `RAG: ${ragStatus}`,
-        ];
-        return infoCommand('Bot Info', lines.join('\n'));
-      }
-
-      return badCommand('Usage', 'Usage: `bot list|set <id|name>|info`');
-    }
-
-    case 'model': {
-      await refreshAvailableModelCatalogs();
-      const availableModels = getAvailableModelList();
-      const runtime = resolveSessionRuntimeTarget(session);
-      const currentAgentId = resolveSessionAgentId(session);
-      const resolvedAgent = resolveAgentConfig(currentAgentId);
-      const sessionOverride = formatSessionModelOverride(session.model);
-      const fallbackModel = resolveAgentModel(resolvedAgent) || HYBRIDAI_MODEL;
-      const sub = req.args[1]?.toLowerCase();
-      if (sub === 'list') {
-        const providerFilterArg = req.args[2];
-        if (
-          providerFilterArg &&
-          !normalizeModelCatalogProviderFilter(providerFilterArg)
-        ) {
-          return badCommand(
-            'Unknown Provider',
-            'Usage: `model list [hybridai|codex|openrouter|local|ollama|lmstudio|vllm]`',
+          updateSessionChatbot(session.id, resolvedBotId);
+          recordAuditEvent({
+            sessionId: session.id,
+            runId: makeAuditRunId('cmd'),
+            event: {
+              type: 'bot.set',
+              source: 'command',
+              requestedBot: requested,
+              previousBotId,
+              resolvedBotId,
+              changed: previousBotId !== resolvedBotId,
+              userId: boundAuditActorField(req.userId),
+              username: boundAuditActorField(req.username),
+            },
+          });
+          return plainCommand(
+            `Chatbot set to \`${resolvedBotId}\` for this session.`,
           );
         }
-        const listedModels = getAvailableModelList(providerFilterArg);
-        const current = runtime.model;
-        const modelCatalog = listedModels.map((model) => {
-          return {
-            value: model,
-            label: model === current ? `${model} (current)` : model,
-            isFree: isAvailableModelFree(model),
-          };
-        });
-        const list = modelCatalog.map((entry) => entry.label).join('\n');
-        if (!list) {
+
+        if (sub === 'info') {
+          const botId = runtime.chatbotId || 'Not set';
+          let botLabel = botId;
+          let botModel: string | undefined;
+          try {
+            const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
+            const bot = bots.find((b) => b.id === botId);
+            if (bot) {
+              botLabel = `${bot.name} (${bot.id})`;
+              botModel = bot.model;
+            }
+          } catch {
+            // keep ID fallback
+          }
+          const ragStatus = session.enable_rag ? 'Enabled' : 'Disabled';
+          const lines = [
+            `Chatbot: ${botLabel}`,
+            ...(botModel ? [`Bot Model: ${botModel}`] : []),
+            `Model: ${runtime.model}`,
+            `RAG: ${ragStatus}`,
+          ];
+          return infoCommand('Bot Info', lines.join('\n'));
+        }
+
+        return badCommand('Usage', 'Usage: `bot list|set <id|name>|info`');
+      }
+
+      case 'model': {
+        await refreshAvailableModelCatalogs();
+        const availableModels = getAvailableModelList();
+        const runtime = resolveSessionRuntimeTarget(session);
+        const currentAgentId = resolveSessionAgentId(session);
+        const resolvedAgent = resolveAgentConfig(currentAgentId);
+        const sessionOverride = formatSessionModelOverride(session.model);
+        const fallbackModel =
+          resolveAgentModel(resolvedAgent) || HYBRIDAI_MODEL;
+        const sub = req.args[1]?.toLowerCase();
+        if (sub === 'list') {
+          const providerFilterArg = req.args[2];
+          if (
+            providerFilterArg &&
+            !normalizeModelCatalogProviderFilter(providerFilterArg)
+          ) {
+            return badCommand(
+              'Unknown Provider',
+              'Usage: `model list [hybridai|codex|openrouter|local|ollama|lmstudio|vllm]`',
+            );
+          }
+          const listedModels = getAvailableModelList(providerFilterArg);
+          const current = runtime.model;
+          const modelCatalog = listedModels.map((model) => {
+            return {
+              value: model,
+              label: model === current ? `${model} (current)` : model,
+              isFree: isAvailableModelFree(model),
+            };
+          });
+          const list = modelCatalog.map((entry) => entry.label).join('\n');
+          if (!list) {
+            return infoCommand(
+              'Available Models',
+              providerFilterArg
+                ? `No models available for provider \`${providerFilterArg}\`.`
+                : 'No models available.',
+            );
+          }
           return infoCommand(
-            'Available Models',
             providerFilterArg
-              ? `No models available for provider \`${providerFilterArg}\`.`
-              : 'No models available.',
+              ? `Available Models (${providerFilterArg})`
+              : 'Available Models',
+            list,
+            undefined,
+            { modelCatalog },
           );
         }
-        return infoCommand(
-          providerFilterArg
-            ? `Available Models (${providerFilterArg})`
-            : 'Available Models',
-          list,
-          undefined,
-          { modelCatalog },
-        );
-      }
 
-      if (sub === 'default') {
-        const modelName = req.args[2];
-        if (!modelName) {
-          const defaultLine = `Default model: ${HYBRIDAI_MODEL}`;
-          if (availableModels.length === 0) {
-            return infoCommand('Default Model', defaultLine);
+        if (sub === 'default') {
+          const modelName = req.args[2];
+          if (!modelName) {
+            const defaultLine = `Default model: ${HYBRIDAI_MODEL}`;
+            if (availableModels.length === 0) {
+              return infoCommand('Default Model', defaultLine);
+            }
+            const list = availableModels
+              .map((m) => (m === HYBRIDAI_MODEL ? `${m} (default)` : m))
+              .join('\n');
+            return infoCommand('Default Model', `${defaultLine}\n\n${list}`);
           }
-          const list = availableModels
-            .map((m) => (m === HYBRIDAI_MODEL ? `${m} (default)` : m))
-            .join('\n');
-          return infoCommand('Default Model', `${defaultLine}\n\n${list}`);
-        }
-        if (
-          availableModels.length > 0 &&
-          !availableModels.includes(modelName)
-        ) {
-          return badCommand(
-            'Unknown Model',
-            `\`${modelName}\` is not in the available models list.`,
+          if (
+            availableModels.length > 0 &&
+            !availableModels.includes(modelName)
+          ) {
+            return badCommand(
+              'Unknown Model',
+              `\`${modelName}\` is not in the available models list.`,
+            );
+          }
+          updateRuntimeConfig((draft) => {
+            draft.hybridai.defaultModel = modelName;
+          });
+          return plainCommand(
+            `Default model set to \`${modelName}\` for new sessions.`,
           );
         }
-        updateRuntimeConfig((draft) => {
-          draft.hybridai.defaultModel = modelName;
-        });
-        return plainCommand(
-          `Default model set to \`${modelName}\` for new sessions.`,
-        );
-      }
 
-      if (sub === 'set') {
-        const modelName = req.args[2];
-        if (!modelName) return badCommand('Usage', 'Usage: `model set <name>`');
-        if (
-          availableModels.length > 0 &&
-          !availableModels.includes(modelName)
-        ) {
-          return badCommand(
-            'Unknown Model',
-            `\`${modelName}\` is not in the available models list.`,
+        if (sub === 'set') {
+          const modelName = req.args[2];
+          if (!modelName)
+            return badCommand('Usage', 'Usage: `model set <name>`');
+          if (
+            availableModels.length > 0 &&
+            !availableModels.includes(modelName)
+          ) {
+            return badCommand(
+              'Unknown Model',
+              `\`${modelName}\` is not in the available models list.`,
+            );
+          }
+          updateSessionModel(session.id, modelName);
+          return plainCommand(
+            `Model set to \`${modelName}\` for this session.`,
           );
         }
-        updateSessionModel(session.id, modelName);
-        return plainCommand(`Model set to \`${modelName}\` for this session.`);
-      }
 
-      if (sub === 'clear' || sub === 'auto') {
-        updateSessionModel(session.id, null);
-        return plainCommand(
-          sessionOverride === '(none)'
-            ? `Session model override is already clear. Effective model: \`${fallbackModel}\`.`
-            : `Session model override cleared. Effective model: \`${fallbackModel}\`.`,
-        );
-      }
-
-      if (sub === 'info') {
-        return infoCommand(
-          'Model Info',
-          [
-            `Effective model: ${runtime.model}`,
-            `Global model: ${HYBRIDAI_MODEL}`,
-            `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
-            `Session model: ${sessionOverride}`,
-          ].join('\n'),
-        );
-      }
-
-      return badCommand(
-        'Usage',
-        'Usage: `model list [provider]|set <name>|clear|default [name]|info`',
-      );
-    }
-
-    case 'rag': {
-      const sub = req.args[1]?.toLowerCase();
-      if (sub === 'on' || sub === 'off') {
-        updateSessionRag(session.id, sub === 'on');
-        return plainCommand(
-          `RAG ${sub === 'on' ? 'enabled' : 'disabled'} for this session.`,
-        );
-      }
-      if (!sub) {
-        const nextEnabled = session.enable_rag === 0;
-        updateSessionRag(session.id, nextEnabled);
-        return plainCommand(
-          `RAG ${nextEnabled ? 'enabled' : 'disabled'} for this session.`,
-        );
-      }
-      return badCommand('Usage', 'Usage: `rag [on|off]`');
-    }
-
-    case 'channel': {
-      const sub = (req.args[1] || '').toLowerCase();
-      if (sub === 'mode' || !sub) {
-        const guildId = req.guildId;
-        if (!guildId) {
-          return badCommand(
-            'Guild Only',
-            '`channel mode` is only available in Discord guild channels.',
+        if (sub === 'clear' || sub === 'auto') {
+          updateSessionModel(session.id, null);
+          return plainCommand(
+            sessionOverride === '(none)'
+              ? `Session model override is already clear. Effective model: \`${fallbackModel}\`.`
+              : `Session model override cleared. Effective model: \`${fallbackModel}\`.`,
           );
         }
-        const requestedMode = (req.args[sub ? 2 : 1] || '').toLowerCase();
-        if (!requestedMode) {
-          const currentMode = resolveGuildChannelMode(guildId, req.channelId);
+
+        if (sub === 'info') {
           return infoCommand(
-            'Channel Mode',
+            'Model Info',
             [
-              `Current mode: \`${currentMode}\``,
-              `Group policy: \`${DISCORD_GROUP_POLICY}\``,
-              `Config path: \`discord.guilds.${guildId}.channels.${req.channelId}.mode\``,
+              `Effective model: ${runtime.model}`,
+              `Global model: ${HYBRIDAI_MODEL}`,
+              `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
+              `Session model: ${sessionOverride}`,
+            ].join('\n'),
+          );
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `model list [provider]|set <name>|clear|default [name]|info`',
+        );
+      }
+
+      case 'rag': {
+        const sub = req.args[1]?.toLowerCase();
+        if (sub === 'on' || sub === 'off') {
+          updateSessionRag(session.id, sub === 'on');
+          return plainCommand(
+            `RAG ${sub === 'on' ? 'enabled' : 'disabled'} for this session.`,
+          );
+        }
+        if (!sub) {
+          const nextEnabled = session.enable_rag === 0;
+          updateSessionRag(session.id, nextEnabled);
+          return plainCommand(
+            `RAG ${nextEnabled ? 'enabled' : 'disabled'} for this session.`,
+          );
+        }
+        return badCommand('Usage', 'Usage: `rag [on|off]`');
+      }
+
+      case 'channel': {
+        const sub = (req.args[1] || '').toLowerCase();
+        if (sub === 'mode' || !sub) {
+          const guildId = req.guildId;
+          if (!guildId) {
+            return badCommand(
+              'Guild Only',
+              '`channel mode` is only available in Discord guild channels.',
+            );
+          }
+          const requestedMode = (req.args[sub ? 2 : 1] || '').toLowerCase();
+          if (!requestedMode) {
+            const currentMode = resolveGuildChannelMode(guildId, req.channelId);
+            return infoCommand(
+              'Channel Mode',
+              [
+                `Current mode: \`${currentMode}\``,
+                `Group policy: \`${DISCORD_GROUP_POLICY}\``,
+                `Config path: \`discord.guilds.${guildId}.channels.${req.channelId}.mode\``,
+                'Usage: `channel mode off|mention|free`',
+              ].join('\n'),
+            );
+          }
+          if (!DISCORD_CHANNEL_MODE_VALUES.has(requestedMode)) {
+            return badCommand(
+              'Usage',
               'Usage: `channel mode off|mention|free`',
-            ].join('\n'),
+            );
+          }
+          const mode = requestedMode as 'off' | 'mention' | 'free';
+          updateRuntimeConfig((draft) => {
+            const guild = draft.discord.guilds[guildId] ?? {
+              defaultMode: 'mention',
+              channels: {},
+            };
+            guild.channels[req.channelId] = { mode };
+            draft.discord.guilds[guildId] = guild;
+          });
+          return plainCommand(
+            `Set channel mode to \`${mode}\` for this channel. (Policy: \`${DISCORD_GROUP_POLICY}\`)`,
           );
         }
-        if (!DISCORD_CHANNEL_MODE_VALUES.has(requestedMode)) {
-          return badCommand('Usage', 'Usage: `channel mode off|mention|free`');
-        }
-        const mode = requestedMode as 'off' | 'mention' | 'free';
-        updateRuntimeConfig((draft) => {
-          const guild = draft.discord.guilds[guildId] ?? {
-            defaultMode: 'mention',
-            channels: {},
-          };
-          guild.channels[req.channelId] = { mode };
-          draft.discord.guilds[guildId] = guild;
-        });
-        return plainCommand(
-          `Set channel mode to \`${mode}\` for this channel. (Policy: \`${DISCORD_GROUP_POLICY}\`)`,
-        );
-      }
 
-      if (sub === 'policy') {
-        const requestedPolicy = (req.args[2] || '').toLowerCase();
-        if (!requestedPolicy) {
-          return infoCommand(
-            'Channel Policy',
-            [
-              `Current policy: \`${DISCORD_GROUP_POLICY}\``,
-              'Policies:',
-              '• `open` — all guild channels are active unless a per-channel mode overrides',
-              '• `allowlist` — only channels listed under `discord.guilds.<guild>.channels` are active',
-              '• `disabled` — all guild channels are disabled',
+        if (sub === 'policy') {
+          const requestedPolicy = (req.args[2] || '').toLowerCase();
+          if (!requestedPolicy) {
+            return infoCommand(
+              'Channel Policy',
+              [
+                `Current policy: \`${DISCORD_GROUP_POLICY}\``,
+                'Policies:',
+                '• `open` — all guild channels are active unless a per-channel mode overrides',
+                '• `allowlist` — only channels listed under `discord.guilds.<guild>.channels` are active',
+                '• `disabled` — all guild channels are disabled',
+                'Usage: `channel policy open|allowlist|disabled`',
+              ].join('\n'),
+            );
+          }
+          if (!DISCORD_GROUP_POLICY_VALUES.has(requestedPolicy)) {
+            return badCommand(
+              'Usage',
               'Usage: `channel policy open|allowlist|disabled`',
+            );
+          }
+          const policy = requestedPolicy as 'open' | 'allowlist' | 'disabled';
+          updateRuntimeConfig((draft) => {
+            draft.discord.groupPolicy = policy;
+          });
+          return plainCommand(`Discord group policy set to \`${policy}\`.`);
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `channel mode [off|mention|free]` or `channel policy [open|allowlist|disabled]`',
+        );
+      }
+
+      case 'ralph': {
+        const sub = (req.args[1] || '').toLowerCase();
+        if (!sub || sub === 'info' || sub === 'status') {
+          const current = normalizeRalphIterations(
+            PROACTIVE_RALPH_MAX_ITERATIONS,
+          );
+          return infoCommand(
+            'Ralph Loop',
+            [
+              `Current: ${formatRalphIterations(current)}`,
+              'Usage: `ralph on|off|set <n>|info`',
+              'Set values: `0` disables, `-1` is unlimited, `1-64` are extra autonomous iterations.',
             ].join('\n'),
           );
         }
-        if (!DISCORD_GROUP_POLICY_VALUES.has(requestedPolicy)) {
-          return badCommand(
-            'Usage',
-            'Usage: `channel policy open|allowlist|disabled`',
-          );
+
+        let nextValue: number | null = null;
+        if (sub === 'on') {
+          nextValue =
+            PROACTIVE_RALPH_MAX_ITERATIONS === 0
+              ? 3
+              : PROACTIVE_RALPH_MAX_ITERATIONS;
+        } else if (sub === 'off') {
+          nextValue = 0;
+        } else if (sub === 'set') {
+          if (req.args[2] == null) {
+            return badCommand(
+              'Usage',
+              'Usage: `ralph set <n>` (0=off, -1=unlimited, 1-64=extra iterations)',
+            );
+          }
+          const parsed = Number.parseInt(req.args[2], 10);
+          if (Number.isNaN(parsed)) {
+            return badCommand(
+              'Usage',
+              'Usage: `ralph set <n>` where n is an integer',
+            );
+          }
+          if (parsed < -1 || parsed > MAX_RALPH_ITERATIONS) {
+            return badCommand(
+              'Range',
+              `Ralph iterations must be between -1 and ${MAX_RALPH_ITERATIONS}.`,
+            );
+          }
+          nextValue = parsed;
+        } else {
+          const parsed = Number.parseInt(sub, 10);
+          if (Number.isNaN(parsed)) {
+            return badCommand('Usage', 'Usage: `ralph on|off|set <n>|info`');
+          }
+          if (parsed < -1 || parsed > MAX_RALPH_ITERATIONS) {
+            return badCommand(
+              'Range',
+              `Ralph iterations must be between -1 and ${MAX_RALPH_ITERATIONS}.`,
+            );
+          }
+          nextValue = parsed;
         }
-        const policy = requestedPolicy as 'open' | 'allowlist' | 'disabled';
+
+        const normalized = normalizeRalphIterations(nextValue);
         updateRuntimeConfig((draft) => {
-          draft.discord.groupPolicy = policy;
+          draft.proactive.ralph.maxIterations = normalized;
         });
-        return plainCommand(`Discord group policy set to \`${policy}\`.`);
-      }
-
-      return badCommand(
-        'Usage',
-        'Usage: `channel mode [off|mention|free]` or `channel policy [open|allowlist|disabled]`',
-      );
-    }
-
-    case 'ralph': {
-      const sub = (req.args[1] || '').toLowerCase();
-      if (!sub || sub === 'info' || sub === 'status') {
-        const current = normalizeRalphIterations(
-          PROACTIVE_RALPH_MAX_ITERATIONS,
-        );
-        return infoCommand(
-          'Ralph Loop',
-          [
-            `Current: ${formatRalphIterations(current)}`,
-            'Usage: `ralph on|off|set <n>|info`',
-            'Set values: `0` disables, `-1` is unlimited, `1-64` are extra autonomous iterations.',
-          ].join('\n'),
+        const restarted = interruptGatewaySessionExecution(req.sessionId);
+        const restartNote = restarted
+          ? ' Current session container restarted to apply immediately.'
+          : '';
+        return plainCommand(
+          `Ralph loop set to ${formatRalphIterations(normalized)}.${restartNote}`,
         );
       }
 
-      let nextValue: number | null = null;
-      if (sub === 'on') {
-        nextValue =
-          PROACTIVE_RALPH_MAX_ITERATIONS === 0
-            ? 3
-            : PROACTIVE_RALPH_MAX_ITERATIONS;
-      } else if (sub === 'off') {
-        nextValue = 0;
-      } else if (sub === 'set') {
-        if (req.args[2] == null) {
+      case 'fullauto': {
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        if (!sub) {
+          const refreshed = memoryService.getSessionById(session.id) ?? session;
+          return infoCommand(
+            'Full-Auto Status',
+            buildFullAutoStatusLines(refreshed).join('\n'),
+          );
+        }
+
+        if (sub === 'on') {
+          const promptText = req.args.slice(2).join(' ').trim();
+          return enableFullAutoCommand({
+            session,
+            req,
+            prompt: promptText || null,
+          });
+        }
+
+        if (sub === 'off' || sub === 'disable' || sub === 'stop') {
+          await disableFullAutoSession({ sessionId: session.id });
+          return plainCommand(
+            'Full-auto mode disabled. Current turns may finish, but no further auto-turns will be queued.',
+          );
+        }
+
+        if (sub === 'status' || sub === 'info') {
+          const refreshed = memoryService.getSessionById(session.id) ?? session;
+          return infoCommand(
+            'Full-Auto Status',
+            buildFullAutoStatusLines(refreshed).join('\n'),
+          );
+        }
+
+        const prompt = req.args.slice(1).join(' ').trim();
+        if (!prompt) {
           return badCommand(
             'Usage',
-            'Usage: `ralph set <n>` (0=off, -1=unlimited, 1-64=extra iterations)',
+            'Usage: `fullauto [status|off|on [prompt]|<prompt>]`',
           );
         }
-        const parsed = Number.parseInt(req.args[2], 10);
-        if (Number.isNaN(parsed)) {
-          return badCommand(
-            'Usage',
-            'Usage: `ralph set <n>` where n is an integer',
-          );
-        }
-        if (parsed < -1 || parsed > MAX_RALPH_ITERATIONS) {
-          return badCommand(
-            'Range',
-            `Ralph iterations must be between -1 and ${MAX_RALPH_ITERATIONS}.`,
-          );
-        }
-        nextValue = parsed;
-      } else {
-        const parsed = Number.parseInt(sub, 10);
-        if (Number.isNaN(parsed)) {
-          return badCommand('Usage', 'Usage: `ralph on|off|set <n>|info`');
-        }
-        if (parsed < -1 || parsed > MAX_RALPH_ITERATIONS) {
-          return badCommand(
-            'Range',
-            `Ralph iterations must be between -1 and ${MAX_RALPH_ITERATIONS}.`,
-          );
-        }
-        nextValue = parsed;
-      }
-
-      const normalized = normalizeRalphIterations(nextValue);
-      updateRuntimeConfig((draft) => {
-        draft.proactive.ralph.maxIterations = normalized;
-      });
-      const restarted = interruptGatewaySessionExecution(req.sessionId);
-      const restartNote = restarted
-        ? ' Current session container restarted to apply immediately.'
-        : '';
-      return plainCommand(
-        `Ralph loop set to ${formatRalphIterations(normalized)}.${restartNote}`,
-      );
-    }
-
-    case 'fullauto': {
-      const sub = (req.args[1] || '').trim().toLowerCase();
-      if (!sub) {
-        const refreshed = memoryService.getSessionById(session.id) ?? session;
-        return infoCommand(
-          'Full-Auto Status',
-          buildFullAutoStatusLines(refreshed).join('\n'),
-        );
-      }
-
-      if (sub === 'on') {
-        const promptText = req.args.slice(2).join(' ').trim();
         return enableFullAutoCommand({
           session,
           req,
-          prompt: promptText || null,
+          prompt,
         });
       }
 
-      if (sub === 'off' || sub === 'disable' || sub === 'stop') {
-        await disableFullAutoSession({ sessionId: session.id });
-        return plainCommand(
-          'Full-auto mode disabled. Current turns may finish, but no further auto-turns will be queued.',
-        );
-      }
+      case 'show': {
+        const currentMode = normalizeSessionShowMode(session.show_mode);
+        const nextMode = (req.args[1] || '').trim().toLowerCase();
 
-      if (sub === 'status' || sub === 'info') {
-        const refreshed = memoryService.getSessionById(session.id) ?? session;
-        return infoCommand(
-          'Full-Auto Status',
-          buildFullAutoStatusLines(refreshed).join('\n'),
-        );
-      }
+        if (!nextMode || nextMode === 'info' || nextMode === 'status') {
+          return infoCommand(
+            'Show Mode',
+            [
+              `Current: ${currentMode}`,
+              describeSessionShowMode(currentMode),
+              'Modes: `show all`, `show thinking`, `show tools`, `show none`',
+            ].join('\n'),
+          );
+        }
 
-      const prompt = req.args.slice(1).join(' ').trim();
-      if (!prompt) {
-        return badCommand(
-          'Usage',
-          'Usage: `fullauto [status|off|on [prompt]|<prompt>]`',
-        );
-      }
-      return enableFullAutoCommand({
-        session,
-        req,
-        prompt,
-      });
-    }
+        if (!isSessionShowMode(nextMode)) {
+          return badCommand('Usage', 'Usage: `show [all|thinking|tools|none]`');
+        }
 
-    case 'show': {
-      const currentMode = normalizeSessionShowMode(session.show_mode);
-      const nextMode = (req.args[1] || '').trim().toLowerCase();
-
-      if (!nextMode || nextMode === 'info' || nextMode === 'status') {
+        updateSessionShowMode(session.id, nextMode);
         return infoCommand(
           'Show Mode',
-          [
-            `Current: ${currentMode}`,
-            describeSessionShowMode(currentMode),
-            'Modes: `show all`, `show thinking`, `show tools`, `show none`',
-          ].join('\n'),
-        );
-      }
-
-      if (!isSessionShowMode(nextMode)) {
-        return badCommand('Usage', 'Usage: `show [all|thinking|tools|none]`');
-      }
-
-      updateSessionShowMode(session.id, nextMode);
-      return infoCommand(
-        'Show Mode',
-        [`Current: ${nextMode}`, describeSessionShowMode(nextMode)].join('\n'),
-      );
-    }
-
-    case 'stop':
-    case 'abort': {
-      await disableFullAutoSession({ sessionId: session.id });
-      const stopped = interruptGatewaySessionExecution(req.sessionId);
-      return plainCommand(
-        stopped
-          ? 'Stopped the current session run and disabled full-auto mode.'
-          : 'No active session run. Full-auto mode disabled.',
-      );
-    }
-
-    case 'mcp': {
-      const sub = (req.args[1] || 'list').toLowerCase();
-      const runtimeConfig = getRuntimeConfig();
-      const servers = runtimeConfig.mcpServers || {};
-
-      if (sub === 'list') {
-        const entries = Object.entries(servers);
-        if (entries.length === 0) {
-          return plainCommand(
-            'No MCP servers configured. Use `mcp add <name> <json>`.',
-          );
-        }
-        entries.sort(([left], [right]) => left.localeCompare(right));
-        return infoCommand(
-          'MCP Servers',
-          entries
-            .map(([name, config]) => summarizeMcpServer(name, config))
-            .join('\n'),
-        );
-      }
-
-      if (sub === 'add') {
-        const parsedName = parseMcpServerName(String(req.args[2] || ''));
-        if (!parsedName.name) {
-          return badCommand(
-            parsedName.error === 'Usage: `mcp add <name> <json>`'
-              ? 'Usage'
-              : 'Invalid MCP Name',
-            parsedName.error || 'Invalid MCP server name.',
-          );
-        }
-        const name = parsedName.name;
-        const parsed = parseMcpServerConfig(req.args.slice(3).join(' '));
-        if (!parsed.config) {
-          return badCommand(
-            'Invalid MCP Config',
-            parsed.error || 'Invalid config.',
-          );
-        }
-        updateRuntimeConfig((draft) => {
-          draft.mcpServers[name] = parsed.config as McpServerConfig;
-        });
-        return plainCommand(
-          `MCP server \`${name}\` saved.${restartNoteForMcpChange(req.sessionId)}`,
-        );
-      }
-
-      if (sub === 'remove') {
-        const name = String(req.args[2] || '').trim();
-        if (!name) {
-          return badCommand('Usage', 'Usage: `mcp remove <name>`');
-        }
-        if (!servers[name]) {
-          return badCommand(
-            'Not Found',
-            `MCP server \`${name}\` was not found.`,
-          );
-        }
-        updateRuntimeConfig((draft) => {
-          delete draft.mcpServers[name];
-        });
-        return plainCommand(
-          `MCP server \`${name}\` removed.${restartNoteForMcpChange(req.sessionId)}`,
-        );
-      }
-
-      if (sub === 'toggle') {
-        const name = String(req.args[2] || '').trim();
-        if (!name) {
-          return badCommand('Usage', 'Usage: `mcp toggle <name>`');
-        }
-        const existing = servers[name];
-        if (!existing) {
-          return badCommand(
-            'Not Found',
-            `MCP server \`${name}\` was not found.`,
-          );
-        }
-        const nextEnabled = existing.enabled === false;
-        updateRuntimeConfig((draft) => {
-          const entry = draft.mcpServers[name];
-          if (entry) entry.enabled = nextEnabled;
-        });
-        return plainCommand(
-          `MCP server \`${name}\` ${nextEnabled ? 'enabled' : 'disabled'}.${restartNoteForMcpChange(req.sessionId)}`,
-        );
-      }
-
-      if (sub === 'reconnect') {
-        const name = String(req.args[2] || '').trim();
-        if (!name) {
-          return badCommand('Usage', 'Usage: `mcp reconnect <name>`');
-        }
-        if (!servers[name]) {
-          return badCommand(
-            'Not Found',
-            `MCP server \`${name}\` was not found.`,
-          );
-        }
-        return plainCommand(
-          `MCP server \`${name}\` scheduled for reconnect.${restartNoteForMcpChange(req.sessionId)}`,
-        );
-      }
-
-      return badCommand(
-        'Usage',
-        'Usage: `mcp list|add <name> <json>|remove <name>|toggle <name>|reconnect <name>`',
-      );
-    }
-
-    case 'clear': {
-      const deleted = memoryService.clearSessionHistory(session.id);
-      if (typeof req.userId === 'string' && req.userId.trim()) {
-        memoryService.clearCanonicalContext({
-          agentId: resolveSessionAgentId(session),
-          userId: req.userId,
-        });
-      }
-      return infoCommand(
-        'Session Cleared',
-        `Deleted ${deleted} messages. Workspace files preserved.`,
-      );
-    }
-
-    case 'reset': {
-      const sub = req.args[1]?.toLowerCase();
-      if (sub && sub !== 'yes' && sub !== 'no') {
-        return badCommand('Usage', 'Usage: `reset [yes|no]`');
-      }
-
-      if (sub === 'no') {
-        pendingSessionResets.delete(req.sessionId);
-        return plainCommand(
-          'Reset cancelled. Session history and workspace were left unchanged.',
-        );
-      }
-
-      if (sub === 'yes') {
-        const pending = getPendingSessionReset(req.sessionId);
-        if (!pending) {
-          return badCommand(
-            'Confirmation Required',
-            'Run `reset` first, then confirm with `reset yes` or cancel with `reset no`.',
-          );
-        }
-
-        pendingSessionResets.delete(req.sessionId);
-        await disableFullAutoSession({ sessionId: session.id });
-        interruptGatewaySessionExecution(req.sessionId);
-        const deleted = memoryService.clearSessionHistory(session.id);
-        if (typeof req.userId === 'string' && req.userId.trim()) {
-          memoryService.clearCanonicalContext({
-            agentId: pending.agentId,
-            userId: req.userId,
-          });
-        }
-        updateSessionChatbot(session.id, null);
-        updateSessionModel(session.id, null);
-        updateSessionRag(session.id, HYBRIDAI_ENABLE_RAG);
-        updateSessionShowMode(session.id, DEFAULT_SESSION_SHOW_MODE);
-        const workspaceReset = resetWorkspace(pending.agentId);
-        const workspaceLine = workspaceReset.removed
-          ? `Removed workspace: ${workspaceReset.workspacePath}`
-          : `Workspace was already empty: ${workspaceReset.workspacePath}`;
-        return infoCommand(
-          'Session Reset',
-          [
-            `Deleted ${deleted} messages.`,
-            `Session model/chatbot/show settings reset to defaults. RAG default is now ${HYBRIDAI_ENABLE_RAG ? 'enabled' : 'disabled'}.`,
-            workspaceLine,
-          ].join('\n'),
-        );
-      }
-
-      const runtime = resolveSessionRuntimeTarget(session);
-      const resetComponents =
-        isDiscordChannelId(req.channelId) && typeof req.userId === 'string'
-          ? buildResetConfirmationComponents({
-              sessionId: req.sessionId,
-              userId: req.userId,
-            })
-          : undefined;
-      pendingSessionResets.set(req.sessionId, {
-        requestedAt: Date.now(),
-        agentId: runtime.agentId,
-        workspacePath: runtime.workspacePath,
-        model: runtime.model,
-        chatbotId: runtime.chatbotId,
-      });
-      return infoCommand(
-        'Confirm Reset',
-        [
-          `This will delete this session's history, reset per-session model/bot/show settings, and remove the current agent workspace.`,
-          `Model: ${runtime.model}`,
-          `Agent workspace: ${runtime.workspacePath}`,
-          resetComponents
-            ? 'Use the buttons below to continue or cancel.'
-            : 'Reply with `reset yes` to continue or `reset no` to cancel.',
-        ].join('\n'),
-        resetComponents,
-      );
-    }
-
-    case 'compact': {
-      try {
-        const result = await memoryService.compactSession(session.id);
-        const compressionRatio =
-          result.tokensBefore > 0
-            ? 1 - result.tokensAfter / result.tokensBefore
-            : 0;
-        return infoCommand(
-          'Session Compacted',
-          [
-            `Tokens: ${formatCompactNumber(result.tokensBefore)} -> ${formatCompactNumber(result.tokensAfter)} (${formatPercent(compressionRatio)} smaller)`,
-            `Messages: compacted ${result.messagesCompacted}, preserved ${result.messagesPreserved}`,
-            `Archive: ${formatArchiveReference(result.archivePath)}`,
-          ].join('\n'),
-        );
-      } catch (err) {
-        if (err instanceof NoCompactableMessagesError) {
-          return plainCommand(
-            'Nothing to compact. The session is already within the preserved recent window.',
-          );
-        }
-        return badCommand(
-          'Compaction Failed',
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-    }
-
-    case 'status': {
-      const status = getGatewayStatus();
-      const delegationStatus = delegationQueueStatus();
-      const commitShort = resolveGitCommitShort();
-      const runtime = resolveSessionRuntimeTarget(session);
-      const sessionModel = runtime.model;
-      if (sessionModel.trim().toLowerCase().startsWith('openrouter/')) {
-        await discoverOpenRouterModels();
-      }
-      const modelContextWindowTokens =
-        resolveLocalModelContextWindow(sessionModel) ??
-        getDiscoveredOpenRouterModelContextWindow(sessionModel) ??
-        resolveModelContextWindowFallback(sessionModel);
-      const metrics = readSessionStatusSnapshot(session.id, {
-        modelContextWindowTokens,
-      });
-      const queueLabel = `${delegationStatus.active} active / ${delegationStatus.queued} queued`;
-      const proactiveQueued = getQueuedProactiveMessageCount();
-      const cacheKnown =
-        metrics.cacheReadTokens != null || metrics.cacheWriteTokens != null;
-      const cacheHitLabel = formatPercent(
-        cacheKnown ? (metrics.cacheHitPercent ?? 0) : metrics.cacheHitPercent,
-      );
-      const contextLabel =
-        metrics.contextUsedTokens != null && metrics.contextBudgetTokens != null
-          ? `${formatCompactNumber(metrics.contextUsedTokens)}/${formatCompactNumber(metrics.contextBudgetTokens)} (${formatPercent(metrics.contextUsagePercent)})`
-          : metrics.contextUsedTokens != null
-            ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
-            : 'n/a';
-      const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
-      const fullAutoState = getFullAutoRuntimeState(session.id);
-      const fullAutoLabel = isFullAutoEnabled(session)
-        ? `on (${fullAutoState?.turns ?? 0} turns, ${fullAutoState?.consecutiveErrors ?? 0} errors)`
-        : 'off';
-      const showMode = normalizeSessionShowMode(session.show_mode);
-      const lines = [
-        `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
-        `🧠 Model: ${sessionModel}`,
-        `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out`,
-        cacheKnown
-          ? `🗄️ Cache: ${cacheHitLabel} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
-          : '🗄️ Cache: n/a (provider did not report cache stats)',
-        `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
-        `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
-        `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
-        `🤖 Agent: ${runtime.agentId}`,
-        `📁 CWD: ${runtime.workspacePath}`,
-        `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
-        `🤖 Full-auto: ${fullAutoLabel}`,
-        `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
-      ];
-      return infoCommand('Status', lines.join('\n'));
-    }
-
-    case 'sessions': {
-      const sessions = getAllSessions();
-      if (sessions.length === 0) return plainCommand('No active sessions.');
-      const list = sessions
-        .slice(0, 20)
-        .map(
-          (s) =>
-            `${s.id} — ${s.message_count} msgs, last active ${s.last_active}`,
-        )
-        .join('\n');
-      return infoCommand('Sessions', list);
-    }
-
-    case 'usage': {
-      const sub = (req.args[1] || 'summary').toLowerCase();
-      if (sub === 'daily' || sub === 'monthly') {
-        const rows = listUsageByAgent({ window: sub });
-        if (rows.length === 0) {
-          return plainCommand(`No usage events recorded for ${sub} window.`);
-        }
-        const lines = rows.slice(0, 20).map((row) => {
-          return `${row.agent_id} — ${formatCompactNumber(row.total_tokens)} tokens (${formatCompactNumber(row.total_input_tokens)} in / ${formatCompactNumber(row.total_output_tokens)} out) · ${row.call_count} calls · ${formatUsd(row.total_cost_usd)}`;
-        });
-        return infoCommand(`Usage (${sub} · by agent)`, lines.join('\n'));
-      }
-
-      if (sub === 'model') {
-        const maybeWindow = (req.args[2] || '').toLowerCase();
-        const window =
-          maybeWindow === 'daily' || maybeWindow === 'monthly'
-            ? maybeWindow
-            : 'monthly';
-        const modelAgentId =
-          maybeWindow === 'daily' || maybeWindow === 'monthly'
-            ? (req.args[3] || '').trim()
-            : (req.args[2] || '').trim();
-        const rows = listUsageByModel({
-          window,
-          agentId: modelAgentId || undefined,
-        });
-        if (rows.length === 0) {
-          return plainCommand('No usage events recorded for model breakdown.');
-        }
-        const lines = rows.slice(0, 20).map((row) => {
-          return `${row.model} — ${formatCompactNumber(row.total_tokens)} tokens · ${row.call_count} calls · ${formatUsd(row.total_cost_usd)}`;
-        });
-        const scope = modelAgentId ? `agent ${modelAgentId}` : 'all agents';
-        return infoCommand(
-          `Usage (${window} · by model · ${scope})`,
-          lines.join('\n'),
-        );
-      }
-
-      if (sub !== 'summary') {
-        return badCommand(
-          'Usage',
-          'Usage: `usage [summary|daily|monthly|model [daily|monthly] [agentId]]`',
-        );
-      }
-
-      const currentAgentId = resolveSessionAgentId(session);
-      const daily = getUsageTotals({
-        agentId: currentAgentId,
-        window: 'daily',
-      });
-      const monthly = getUsageTotals({
-        agentId: currentAgentId,
-        window: 'monthly',
-      });
-      const topModels = listUsageByModel({
-        agentId: currentAgentId,
-        window: 'monthly',
-      }).slice(0, 5);
-      const scopeLabel = currentAgentId;
-      const lines = [
-        `Scope: ${scopeLabel}`,
-        `Today: ${formatCompactNumber(daily.total_tokens)} tokens · ${daily.call_count} calls · ${formatUsd(daily.total_cost_usd)}`,
-        `Month: ${formatCompactNumber(monthly.total_tokens)} tokens · ${monthly.call_count} calls · ${formatUsd(monthly.total_cost_usd)}`,
-      ];
-      if (topModels.length > 0) {
-        lines.push('Top models (monthly):');
-        lines.push(
-          ...topModels.map(
-            (row) =>
-              `- ${row.model}: ${formatCompactNumber(row.total_tokens)} tokens · ${formatUsd(row.total_cost_usd)}`,
+          [`Current: ${nextMode}`, describeSessionShowMode(nextMode)].join(
+            '\n',
           ),
         );
       }
-      return infoCommand('Usage Summary', lines.join('\n'));
-    }
 
-    case 'export': {
-      const sub = (req.args[1] || 'session').toLowerCase();
-      if (sub !== 'session') {
-        return badCommand('Usage', 'Usage: `export session [sessionId]`');
-      }
-      const targetSessionId = (req.args[2] || session.id || '').trim();
-      if (!targetSessionId) {
-        return badCommand('Usage', 'Usage: `export session [sessionId]`');
-      }
-      const targetSession = memoryService.getSessionById(targetSessionId);
-      if (!targetSession) {
-        return badCommand(
-          'Not Found',
-          `Session \`${targetSessionId}\` was not found.`,
-        );
-      }
-      const exportAgentId = resolveSessionAgentId(targetSession);
-      const messages = memoryService.getRecentMessages(targetSessionId);
-      const exported = exportSessionSnapshotJsonl({
-        agentId: exportAgentId,
-        sessionId: targetSessionId,
-        channelId: targetSession.channel_id,
-        summary: targetSession.session_summary,
-        messages,
-        reason: 'manual',
-      });
-      if (!exported) {
-        return badCommand(
-          'Export Failed',
-          'Failed to write session export JSONL file. Check gateway logs for details.',
-        );
-      }
-      return infoCommand(
-        'Session Exported',
-        [
-          `File: ${exported.path}`,
-          `Messages: ${messages.length}`,
-          `Summary: ${targetSession.session_summary ? 'yes' : 'no'}`,
-        ].join('\n'),
-      );
-    }
-
-    case 'audit': {
-      const targetSessionId = (req.args[1] || session.id || '').trim();
-      if (!targetSessionId) {
-        return badCommand('Usage', 'Usage: `audit [sessionId]`');
-      }
-      const rows = getRecentStructuredAuditForSession(targetSessionId, 20);
-      if (rows.length === 0) {
+      case 'stop':
+      case 'abort': {
+        await disableFullAutoSession({ sessionId: session.id });
+        const stopped = interruptGatewaySessionExecution(req.sessionId);
         return plainCommand(
-          `No structured audit events for session \`${targetSessionId}\`.`,
+          stopped
+            ? 'Stopped the current session run and disabled full-auto mode.'
+            : 'No active session run. Full-auto mode disabled.',
         );
       }
-      const lines = rows.map((row) => {
-        return `#${row.seq} ${row.event_type} ${row.timestamp} ${summarizeAuditPayload(row.payload)}`;
-      });
-      return infoCommand(`Audit (${targetSessionId})`, lines.join('\n'));
-    }
 
-    case 'skill': {
-      const sub = (req.args[1] || '').trim().toLowerCase();
-      if (!sub) {
+      case 'mcp': {
+        const sub = (req.args[1] || 'list').toLowerCase();
+        const runtimeConfig = getRuntimeConfig();
+        const servers = runtimeConfig.mcpServers || {};
+
+        if (sub === 'list') {
+          const entries = Object.entries(servers);
+          if (entries.length === 0) {
+            return plainCommand(
+              'No MCP servers configured. Use `mcp add <name> <json>`.',
+            );
+          }
+          entries.sort(([left], [right]) => left.localeCompare(right));
+          return infoCommand(
+            'MCP Servers',
+            entries
+              .map(([name, config]) => summarizeMcpServer(name, config))
+              .join('\n'),
+          );
+        }
+
+        if (sub === 'add') {
+          const parsedName = parseMcpServerName(String(req.args[2] || ''));
+          if (!parsedName.name) {
+            return badCommand(
+              parsedName.error === 'Usage: `mcp add <name> <json>`'
+                ? 'Usage'
+                : 'Invalid MCP Name',
+              parsedName.error || 'Invalid MCP server name.',
+            );
+          }
+          const name = parsedName.name;
+          const parsed = parseMcpServerConfig(req.args.slice(3).join(' '));
+          if (!parsed.config) {
+            return badCommand(
+              'Invalid MCP Config',
+              parsed.error || 'Invalid config.',
+            );
+          }
+          updateRuntimeConfig((draft) => {
+            draft.mcpServers[name] = parsed.config as McpServerConfig;
+          });
+          return plainCommand(
+            `MCP server \`${name}\` saved.${restartNoteForMcpChange(req.sessionId)}`,
+          );
+        }
+
+        if (sub === 'remove') {
+          const name = String(req.args[2] || '').trim();
+          if (!name) {
+            return badCommand('Usage', 'Usage: `mcp remove <name>`');
+          }
+          if (!servers[name]) {
+            return badCommand(
+              'Not Found',
+              `MCP server \`${name}\` was not found.`,
+            );
+          }
+          updateRuntimeConfig((draft) => {
+            delete draft.mcpServers[name];
+          });
+          return plainCommand(
+            `MCP server \`${name}\` removed.${restartNoteForMcpChange(req.sessionId)}`,
+          );
+        }
+
+        if (sub === 'toggle') {
+          const name = String(req.args[2] || '').trim();
+          if (!name) {
+            return badCommand('Usage', 'Usage: `mcp toggle <name>`');
+          }
+          const existing = servers[name];
+          if (!existing) {
+            return badCommand(
+              'Not Found',
+              `MCP server \`${name}\` was not found.`,
+            );
+          }
+          const nextEnabled = existing.enabled === false;
+          updateRuntimeConfig((draft) => {
+            const entry = draft.mcpServers[name];
+            if (entry) entry.enabled = nextEnabled;
+          });
+          return plainCommand(
+            `MCP server \`${name}\` ${nextEnabled ? 'enabled' : 'disabled'}.${restartNoteForMcpChange(req.sessionId)}`,
+          );
+        }
+
+        if (sub === 'reconnect') {
+          const name = String(req.args[2] || '').trim();
+          if (!name) {
+            return badCommand('Usage', 'Usage: `mcp reconnect <name>`');
+          }
+          if (!servers[name]) {
+            return badCommand(
+              'Not Found',
+              `MCP server \`${name}\` was not found.`,
+            );
+          }
+          return plainCommand(
+            `MCP server \`${name}\` scheduled for reconnect.${restartNoteForMcpChange(req.sessionId)}`,
+          );
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `mcp list|add <name> <json>|remove <name>|toggle <name>|reconnect <name>`',
+        );
+      }
+
+      case 'clear': {
+        const rotated = createFreshSessionInstance(session.id);
+        req.sessionId = rotated.session.id;
+        session = rotated.session;
+        if (typeof req.userId === 'string' && req.userId.trim()) {
+          memoryService.clearCanonicalContext({
+            agentId: resolveSessionAgentId(session),
+            userId: req.userId,
+          });
+        }
+        return infoCommand(
+          'Session Cleared',
+          `Deleted ${rotated.deletedMessages} messages. Workspace files preserved.`,
+        );
+      }
+
+      case 'reset': {
+        const sub = req.args[1]?.toLowerCase();
+        if (sub && sub !== 'yes' && sub !== 'no') {
+          return badCommand('Usage', 'Usage: `reset [yes|no]`');
+        }
+
+        if (sub === 'no') {
+          pendingSessionResets.delete(req.sessionId);
+          return plainCommand(
+            'Reset cancelled. Session history and workspace were left unchanged.',
+          );
+        }
+
+        if (sub === 'yes') {
+          const pending = getPendingSessionReset(req.sessionId);
+          if (!pending) {
+            return badCommand(
+              'Confirmation Required',
+              'Run `reset` first, then confirm with `reset yes` or cancel with `reset no`.',
+            );
+          }
+
+          pendingSessionResets.delete(req.sessionId);
+          await disableFullAutoSession({ sessionId: session.id });
+          interruptGatewaySessionExecution(req.sessionId);
+          const rotated = createFreshSessionInstance(session.id, {
+            resetSettings: true,
+            defaultEnableRag: HYBRIDAI_ENABLE_RAG,
+          });
+          req.sessionId = rotated.session.id;
+          session = rotated.session;
+          if (typeof req.userId === 'string' && req.userId.trim()) {
+            memoryService.clearCanonicalContext({
+              agentId: pending.agentId,
+              userId: req.userId,
+            });
+          }
+          const workspaceReset = resetWorkspace(pending.agentId);
+          const workspaceLine = workspaceReset.removed
+            ? `Removed workspace: ${workspaceReset.workspacePath}`
+            : `Workspace was already empty: ${workspaceReset.workspacePath}`;
+          return infoCommand(
+            'Session Reset',
+            [
+              `Deleted ${rotated.deletedMessages} messages.`,
+              `Session model/chatbot/show settings reset to defaults. RAG default is now ${HYBRIDAI_ENABLE_RAG ? 'enabled' : 'disabled'}.`,
+              workspaceLine,
+            ].join('\n'),
+          );
+        }
+
+        const runtime = resolveSessionRuntimeTarget(session);
+        const resetComponents =
+          isDiscordChannelId(req.channelId) && typeof req.userId === 'string'
+            ? buildResetConfirmationComponents({
+                sessionId: req.sessionId,
+                userId: req.userId,
+              })
+            : undefined;
+        pendingSessionResets.set(req.sessionId, {
+          requestedAt: Date.now(),
+          agentId: runtime.agentId,
+          workspacePath: runtime.workspacePath,
+          model: runtime.model,
+          chatbotId: runtime.chatbotId,
+        });
+        return infoCommand(
+          'Confirm Reset',
+          [
+            `This will delete this session's history, reset per-session model/bot/show settings, and remove the current agent workspace.`,
+            `Model: ${runtime.model}`,
+            `Agent workspace: ${runtime.workspacePath}`,
+            resetComponents
+              ? 'Use the buttons below to continue or cancel.'
+              : 'Reply with `reset yes` to continue or `reset no` to cancel.',
+          ].join('\n'),
+          resetComponents,
+        );
+      }
+
+      case 'compact': {
+        try {
+          const result = await memoryService.compactSession(session.id);
+          const compressionRatio =
+            result.tokensBefore > 0
+              ? 1 - result.tokensAfter / result.tokensBefore
+              : 0;
+          return infoCommand(
+            'Session Compacted',
+            [
+              `Tokens: ${formatCompactNumber(result.tokensBefore)} -> ${formatCompactNumber(result.tokensAfter)} (${formatPercent(compressionRatio)} smaller)`,
+              `Messages: compacted ${result.messagesCompacted}, preserved ${result.messagesPreserved}`,
+              `Archive: ${formatArchiveReference(result.archivePath)}`,
+            ].join('\n'),
+          );
+        } catch (err) {
+          if (err instanceof NoCompactableMessagesError) {
+            return plainCommand(
+              'Nothing to compact. The session is already within the preserved recent window.',
+            );
+          }
+          return badCommand(
+            'Compaction Failed',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+
+      case 'status': {
+        const status = getGatewayStatus();
+        const delegationStatus = delegationQueueStatus();
+        const commitShort = resolveGitCommitShort();
+        const runtime = resolveSessionRuntimeTarget(session);
+        const sessionModel = runtime.model;
+        if (sessionModel.trim().toLowerCase().startsWith('openrouter/')) {
+          await discoverOpenRouterModels();
+        }
+        const modelContextWindowTokens =
+          resolveLocalModelContextWindow(sessionModel) ??
+          getDiscoveredOpenRouterModelContextWindow(sessionModel) ??
+          resolveModelContextWindowFallback(sessionModel);
+        const metrics = readSessionStatusSnapshot(session.id, {
+          modelContextWindowTokens,
+        });
+        const queueLabel = `${delegationStatus.active} active / ${delegationStatus.queued} queued`;
+        const proactiveQueued = getQueuedProactiveMessageCount();
+        const cacheKnown =
+          metrics.cacheReadTokens != null || metrics.cacheWriteTokens != null;
+        const cacheHitLabel = formatPercent(
+          cacheKnown ? (metrics.cacheHitPercent ?? 0) : metrics.cacheHitPercent,
+        );
+        const contextLabel =
+          metrics.contextUsedTokens != null &&
+          metrics.contextBudgetTokens != null
+            ? `${formatCompactNumber(metrics.contextUsedTokens)}/${formatCompactNumber(metrics.contextBudgetTokens)} (${formatPercent(metrics.contextUsagePercent)})`
+            : metrics.contextUsedTokens != null
+              ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
+              : 'n/a';
+        const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
+        const fullAutoState = getFullAutoRuntimeState(session.id);
+        const fullAutoLabel = isFullAutoEnabled(session)
+          ? `on (${fullAutoState?.turns ?? 0} turns, ${fullAutoState?.consecutiveErrors ?? 0} errors)`
+          : 'off';
+        const showMode = normalizeSessionShowMode(session.show_mode);
+        const lines = [
+          `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
+          `🧠 Model: ${sessionModel}`,
+          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out`,
+          cacheKnown
+            ? `🗄️ Cache: ${cacheHitLabel} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
+            : '🗄️ Cache: n/a (provider did not report cache stats)',
+          `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
+          `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
+          `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
+          `🤖 Agent: ${runtime.agentId}`,
+          `📁 CWD: ${runtime.workspacePath}`,
+          `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
+          `🤖 Full-auto: ${fullAutoLabel}`,
+          `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
+        ];
+        return infoCommand('Status', lines.join('\n'));
+      }
+
+      case 'sessions': {
+        const sessions = getAllSessions();
+        if (sessions.length === 0) return plainCommand('No active sessions.');
+        const list = sessions
+          .slice(0, 20)
+          .map(
+            (s) =>
+              `${s.id} — ${s.message_count} msgs, last active ${s.last_active}`,
+          )
+          .join('\n');
+        return infoCommand('Sessions', list);
+      }
+
+      case 'usage': {
+        const sub = (req.args[1] || 'summary').toLowerCase();
+        if (sub === 'daily' || sub === 'monthly') {
+          const rows = listUsageByAgent({ window: sub });
+          if (rows.length === 0) {
+            return plainCommand(`No usage events recorded for ${sub} window.`);
+          }
+          const lines = rows.slice(0, 20).map((row) => {
+            return `${row.agent_id} — ${formatCompactNumber(row.total_tokens)} tokens (${formatCompactNumber(row.total_input_tokens)} in / ${formatCompactNumber(row.total_output_tokens)} out) · ${row.call_count} calls · ${formatUsd(row.total_cost_usd)}`;
+          });
+          return infoCommand(`Usage (${sub} · by agent)`, lines.join('\n'));
+        }
+
+        if (sub === 'model') {
+          const maybeWindow = (req.args[2] || '').toLowerCase();
+          const window =
+            maybeWindow === 'daily' || maybeWindow === 'monthly'
+              ? maybeWindow
+              : 'monthly';
+          const modelAgentId =
+            maybeWindow === 'daily' || maybeWindow === 'monthly'
+              ? (req.args[3] || '').trim()
+              : (req.args[2] || '').trim();
+          const rows = listUsageByModel({
+            window,
+            agentId: modelAgentId || undefined,
+          });
+          if (rows.length === 0) {
+            return plainCommand(
+              'No usage events recorded for model breakdown.',
+            );
+          }
+          const lines = rows.slice(0, 20).map((row) => {
+            return `${row.model} — ${formatCompactNumber(row.total_tokens)} tokens · ${row.call_count} calls · ${formatUsd(row.total_cost_usd)}`;
+          });
+          const scope = modelAgentId ? `agent ${modelAgentId}` : 'all agents';
+          return infoCommand(
+            `Usage (${window} · by model · ${scope})`,
+            lines.join('\n'),
+          );
+        }
+
+        if (sub !== 'summary') {
+          return badCommand(
+            'Usage',
+            'Usage: `usage [summary|daily|monthly|model [daily|monthly] [agentId]]`',
+          );
+        }
+
+        const currentAgentId = resolveSessionAgentId(session);
+        const daily = getUsageTotals({
+          agentId: currentAgentId,
+          window: 'daily',
+        });
+        const monthly = getUsageTotals({
+          agentId: currentAgentId,
+          window: 'monthly',
+        });
+        const topModels = listUsageByModel({
+          agentId: currentAgentId,
+          window: 'monthly',
+        }).slice(0, 5);
+        const scopeLabel = currentAgentId;
+        const lines = [
+          `Scope: ${scopeLabel}`,
+          `Today: ${formatCompactNumber(daily.total_tokens)} tokens · ${daily.call_count} calls · ${formatUsd(daily.total_cost_usd)}`,
+          `Month: ${formatCompactNumber(monthly.total_tokens)} tokens · ${monthly.call_count} calls · ${formatUsd(monthly.total_cost_usd)}`,
+        ];
+        if (topModels.length > 0) {
+          lines.push('Top models (monthly):');
+          lines.push(
+            ...topModels.map(
+              (row) =>
+                `- ${row.model}: ${formatCompactNumber(row.total_tokens)} tokens · ${formatUsd(row.total_cost_usd)}`,
+            ),
+          );
+        }
+        return infoCommand('Usage Summary', lines.join('\n'));
+      }
+
+      case 'export': {
+        const sub = (req.args[1] || 'session').toLowerCase();
+        if (sub !== 'session') {
+          return badCommand('Usage', 'Usage: `export session [sessionId]`');
+        }
+        const targetSessionId = (req.args[2] || session.id || '').trim();
+        if (!targetSessionId) {
+          return badCommand('Usage', 'Usage: `export session [sessionId]`');
+        }
+        const targetSession = memoryService.getSessionById(targetSessionId);
+        if (!targetSession) {
+          return badCommand(
+            'Not Found',
+            `Session \`${targetSessionId}\` was not found.`,
+          );
+        }
+        const exportAgentId = resolveSessionAgentId(targetSession);
+        const messages = memoryService.getRecentMessages(targetSessionId);
+        const exported = exportSessionSnapshotJsonl({
+          agentId: exportAgentId,
+          sessionId: targetSessionId,
+          channelId: targetSession.channel_id,
+          summary: targetSession.session_summary,
+          messages,
+          reason: 'manual',
+        });
+        if (!exported) {
+          return badCommand(
+            'Export Failed',
+            'Failed to write session export JSONL file. Check gateway logs for details.',
+          );
+        }
+        return infoCommand(
+          'Session Exported',
+          [
+            `File: ${exported.path}`,
+            `Messages: ${messages.length}`,
+            `Summary: ${targetSession.session_summary ? 'yes' : 'no'}`,
+          ].join('\n'),
+        );
+      }
+
+      case 'audit': {
+        const targetSessionId = (req.args[1] || session.id || '').trim();
+        if (!targetSessionId) {
+          return badCommand('Usage', 'Usage: `audit [sessionId]`');
+        }
+        const rows = getRecentStructuredAuditForSession(targetSessionId, 20);
+        if (rows.length === 0) {
+          return plainCommand(
+            `No structured audit events for session \`${targetSessionId}\`.`,
+          );
+        }
+        const lines = rows.map((row) => {
+          return `#${row.seq} ${row.event_type} ${row.timestamp} ${summarizeAuditPayload(row.payload)}`;
+        });
+        return infoCommand(`Audit (${targetSessionId})`, lines.join('\n'));
+      }
+
+      case 'skill': {
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        if (!sub) {
+          return badCommand(
+            'Usage',
+            'Usage: `skill list|inspect <name>|inspect --all|amend <name> [--apply|--reject|--rollback]|history <name>`',
+          );
+        }
+
+        if (sub === 'list') {
+          const catalog = loadSkillCatalog();
+          if (catalog.length === 0) {
+            return plainCommand('No skills are available.');
+          }
+          const lines = catalog.map((skill) => {
+            const availability = skill.available
+              ? skill.enabled
+                ? 'available'
+                : 'disabled'
+              : skill.missing.join(', ');
+            const description = skill.description
+              ? ` — ${skill.description}`
+              : '';
+            return `${skill.name} [${availability}]${description}`;
+          });
+          return infoCommand('Skills', lines.join('\n'));
+        }
+
+        if (sub === 'inspect') {
+          const inspectionModule = await import(
+            '../skills/skills-inspection.js'
+          );
+          const target = String(req.args[2] || '').trim();
+          if (!target) {
+            return badCommand(
+              'Usage',
+              'Usage: `skill inspect <name>` or `skill inspect --all`',
+            );
+          }
+          if (target === '--all' || target.toLowerCase() === 'all') {
+            const metricsList = inspectionModule.inspectAllSkills();
+            if (metricsList.length === 0) {
+              return plainCommand(
+                'No observed skills found in the current inspection window.',
+              );
+            }
+            return infoCommand(
+              'Skill Health',
+              metricsList.map(formatSkillHealthMetrics).join('\n\n'),
+            );
+          }
+
+          const metrics = inspectionModule.inspectSkill(target);
+          if (metrics.total_executions === 0) {
+            return plainCommand(`No observations found for \`${target}\`.`);
+          }
+          return infoCommand('Skill Health', formatSkillHealthMetrics(metrics));
+        }
+
+        if (sub === 'amend') {
+          const skillName = String(req.args[2] || '').trim();
+          if (!skillName) {
+            return badCommand(
+              'Usage',
+              'Usage: `skill amend <name> [--apply|--reject|--rollback]`',
+            );
+          }
+
+          const actions = new Set(
+            req.args
+              .slice(3)
+              .map((entry) =>
+                String(entry || '')
+                  .trim()
+                  .toLowerCase(),
+              )
+              .filter(Boolean),
+          );
+          const hasApply = actions.has('--apply') || actions.has('apply');
+          const hasReject = actions.has('--reject') || actions.has('reject');
+          const hasRollback =
+            actions.has('--rollback') || actions.has('rollback');
+          const selectedActions = [hasApply, hasReject, hasRollback].filter(
+            Boolean,
+          ).length;
+          if (selectedActions > 1) {
+            return badCommand(
+              'Usage',
+              'Choose at most one amendment action: `--apply`, `--reject`, or `--rollback`.',
+            );
+          }
+
+          const dbModule = await import('../memory/db.js');
+          const amendmentModule = await import('../skills/skills-amendment.js');
+          const evaluationModule = await import(
+            '../skills/skills-evaluation.js'
+          );
+          const inspectionModule = await import(
+            '../skills/skills-inspection.js'
+          );
+
+          if (hasApply) {
+            const amendment = dbModule.getLatestSkillAmendment({
+              skillName,
+              status: 'staged',
+            });
+            if (!amendment) {
+              return plainCommand(
+                `No staged amendment found for \`${skillName}\`.`,
+              );
+            }
+            const result = await amendmentModule.applyAmendment({
+              amendmentId: amendment.id,
+              reviewedBy: 'gateway-command',
+            });
+            if (!result.ok) {
+              return badCommand(
+                'Apply Failed',
+                result.reason || 'Failed to apply amendment.',
+              );
+            }
+            return plainCommand(
+              `Applied staged amendment v${amendment.version} for \`${skillName}\`.`,
+            );
+          }
+
+          if (hasReject) {
+            const amendment = dbModule.getLatestSkillAmendment({
+              skillName,
+              status: 'staged',
+            });
+            if (!amendment) {
+              return plainCommand(
+                `No staged amendment found for \`${skillName}\`.`,
+              );
+            }
+            const result = amendmentModule.rejectAmendment({
+              amendmentId: amendment.id,
+              reviewedBy: 'gateway-command',
+            });
+            if (!result.ok) {
+              return badCommand(
+                'Reject Failed',
+                result.reason || 'Failed to reject amendment.',
+              );
+            }
+            return plainCommand(
+              `Rejected staged amendment v${amendment.version} for \`${skillName}\`.`,
+            );
+          }
+
+          if (hasRollback) {
+            const amendment = dbModule.getLatestSkillAmendment({
+              skillName,
+              status: 'applied',
+            });
+            if (!amendment) {
+              return plainCommand(
+                `No applied amendment found for \`${skillName}\`.`,
+              );
+            }
+            const result = await evaluationModule.rollbackAmendment({
+              amendmentId: amendment.id,
+              reason: 'Rollback requested via gateway command.',
+            });
+            if (!result.ok) {
+              return badCommand(
+                'Rollback Failed',
+                result.reason || 'Failed to roll back amendment.',
+              );
+            }
+            return plainCommand(
+              `Rolled back amendment v${amendment.version} for \`${skillName}\`.`,
+            );
+          }
+
+          const metrics = inspectionModule.inspectSkill(skillName);
+          if (metrics.total_executions === 0) {
+            return plainCommand(
+              `No observations found for \`${skillName}\`; run the skill first before proposing an amendment.`,
+            );
+          }
+          const amendment = await amendmentModule.proposeAmendment({
+            skillName,
+            metrics,
+            agentId: resolveSessionAgentId(session) || DEFAULT_AGENT_ID,
+          });
+          return infoCommand(
+            `Skill Amendment (${skillName})`,
+            formatSkillAmendment(amendment),
+          );
+        }
+
+        if (sub === 'history') {
+          const skillName = String(req.args[2] || '').trim();
+          if (!skillName) {
+            return badCommand('Usage', 'Usage: `skill history <name>`');
+          }
+          const dbModule = await import('../memory/db.js');
+          const history = dbModule.getAmendmentHistory(skillName);
+          if (history.length === 0) {
+            return plainCommand(
+              `No amendment history found for \`${skillName}\`.`,
+            );
+          }
+          return infoCommand(
+            `Skill History (${skillName})`,
+            history.map(formatSkillAmendment).join('\n\n'),
+          );
+        }
+
         return badCommand(
           'Usage',
           'Usage: `skill list|inspect <name>|inspect --all|runs <name>|amend <name> [--apply|--reject|--rollback]|history <name>`',
         );
       }
-
-      if (sub === 'list') {
-        const { listSkillCatalogEntries } = await import(
-          '../skills/skills-management.js'
-        );
-        const catalog = listSkillCatalogEntries();
-        if (catalog.length === 0) {
-          return plainCommand('No skills are available.');
-        }
-        const lines = catalog.map((skill) => {
-          const availability = skill.available
-            ? skill.enabled
-              ? 'available'
-              : 'disabled'
-            : skill.missing.join(', ');
-          const description = skill.description
-            ? ` — ${skill.description}`
-            : '';
-          return `${skill.name} [${availability}]${description}`;
-        });
-        return infoCommand('Skills', lines.join('\n'));
-      }
-
-      if (sub === 'inspect') {
-        const { inspectObservedSkill, inspectObservedSkills } = await import(
-          '../skills/skills-management.js'
-        );
-        const target = String(req.args[2] || '').trim();
-        if (!target) {
-          return badCommand(
-            'Usage',
-            'Usage: `skill inspect <name>` or `skill inspect --all`',
-          );
-        }
-        if (target === '--all' || target.toLowerCase() === 'all') {
-          const metricsList = inspectObservedSkills();
-          if (metricsList.length === 0) {
-            return plainCommand(
-              'No observed skills found in the current inspection window.',
-            );
-          }
-          return infoCommand(
-            'Skill Health',
-            metricsList.map(formatSkillHealthMetrics).join('\n\n'),
-          );
-        }
-
-        const metrics = inspectObservedSkill(target);
-        if (metrics.total_executions === 0) {
-          return plainCommand(`No observations found for \`${target}\`.`);
-        }
-        return infoCommand('Skill Health', formatSkillHealthMetrics(metrics));
-      }
-
-      if (sub === 'amend') {
-        const skillName = String(req.args[2] || '').trim();
-        if (!skillName) {
-          return badCommand(
-            'Usage',
-            'Usage: `skill amend <name> [--apply|--reject|--rollback]`',
-          );
-        }
-
-        const actions = new Set(
-          req.args
-            .slice(3)
-            .map((entry) =>
-              String(entry || '')
-                .trim()
-                .toLowerCase(),
-            )
-            .filter(Boolean),
-        );
-        const hasApply = actions.has('--apply') || actions.has('apply');
-        const hasReject = actions.has('--reject') || actions.has('reject');
-        const hasRollback =
-          actions.has('--rollback') || actions.has('rollback');
-        const selectedActions = [hasApply, hasReject, hasRollback].filter(
-          Boolean,
-        ).length;
-        if (selectedActions > 1) {
-          return badCommand(
-            'Usage',
-            'Choose at most one amendment action: `--apply`, `--reject`, or `--rollback`.',
-          );
-        }
-
-        const { runSkillAmendmentCommand } = await import(
-          '../skills/skills-management.js'
-        );
-        const result = await runSkillAmendmentCommand({
-          skillName,
-          action: hasApply
-            ? 'apply'
-            : hasReject
-              ? 'reject'
-              : hasRollback
-                ? 'rollback'
-                : 'propose',
-          reviewedBy: 'gateway-command',
-          agentId: resolveSessionAgentId(session) || DEFAULT_AGENT_ID,
-          rollbackReason: 'Rollback requested via gateway command.',
-        });
-        if (!result.ok) {
-          if (
-            result.error === 'no_staged_amendment' ||
-            result.error === 'no_applied_amendment' ||
-            result.error === 'no_observations'
-          ) {
-            return plainCommand(result.message.replaceAll('"', '`'));
-          }
-          return badCommand(
-            `${result.action[0]?.toUpperCase()}${result.action.slice(1)} Failed`,
-            result.message,
-          );
-        }
-        if (result.action === 'applied') {
-          return plainCommand(
-            `Applied staged amendment v${result.amendment.version} for \`${skillName}\`.`,
-          );
-        }
-        if (result.action === 'rejected') {
-          return plainCommand(
-            `Rejected staged amendment v${result.amendment.version} for \`${skillName}\`.`,
-          );
-        }
-        if (result.action === 'rolled_back') {
-          return plainCommand(
-            `Rolled back amendment v${result.amendment.version} for \`${skillName}\`.`,
-          );
-        }
-        return infoCommand(
-          `Skill Amendment (${skillName})`,
-          formatSkillAmendment(result.amendment),
-        );
-      }
-
-      if (sub === 'runs') {
-        const skillName = String(req.args[2] || '').trim();
-        if (!skillName) {
-          return badCommand('Usage', 'Usage: `skill runs <name>`');
-        }
-        const { getSkillExecutionRuns } = await import(
-          '../skills/skills-management.js'
-        );
-        const runs = getSkillExecutionRuns(skillName);
-        if (runs.length === 0) {
-          return plainCommand(`No observations found for \`${skillName}\`.`);
-        }
-        return infoCommand(
-          `Skill Runs (${skillName})`,
-          runs.map(formatSkillObservationRun).join('\n\n'),
-        );
-      }
-
-      if (sub === 'history') {
-        const skillName = String(req.args[2] || '').trim();
-        if (!skillName) {
-          return badCommand('Usage', 'Usage: `skill history <name>`');
-        }
-        const { getSkillAmendmentHistory } = await import(
-          '../skills/skills-management.js'
-        );
-        const history = getSkillAmendmentHistory(skillName);
-        if (history.length === 0) {
-          return plainCommand(
-            `No amendment history found for \`${skillName}\`.`,
-          );
-        }
-        return infoCommand(
-          `Skill History (${skillName})`,
-          history.map(formatSkillAmendment).join('\n\n'),
-        );
-      }
-
-      return badCommand(
-        'Usage',
-        'Usage: `skill list|inspect <name>|inspect --all|runs <name>|amend <name> [--apply|--reject|--rollback]|history <name>`',
-      );
-    }
 
     case 'schedule': {
       const sub = req.args[1]?.toLowerCase();
@@ -5567,74 +5644,86 @@ export async function handleGatewayCommand(
             `\`${cronExpr}\` is not a valid cron expression.`,
           );
         }
-        const taskId = createTask(session.id, req.channelId, cronExpr, prompt);
-        rearmScheduler();
-        return plainCommand(
-          `Task #${taskId} created: cron \`${cronExpr}\` — ${prompt}`,
-        );
-      }
-
-      if (sub === 'list') {
-        const tasks = getTasksForSession(session.id);
-        if (tasks.length === 0) return plainCommand('No scheduled tasks.');
-        const list = tasks
-          .map((task) => {
-            const scheduleLabel = task.run_at
-              ? `at ${task.run_at}`
-              : task.every_ms
-                ? `every ${task.every_ms}ms`
-                : task.cron_expr
-                  ? `cron ${task.cron_expr}`
-                  : 'unspecified';
-            const statusLabel = task.last_status || 'n/a';
-            const errorSuffix =
-              task.consecutive_errors > 0
-                ? ` · errors ${task.consecutive_errors}`
-                : '';
-            return `#${task.id} ${task.enabled ? 'enabled' : 'disabled'} (${scheduleLabel}) [${statusLabel}${errorSuffix}] — ${task.prompt.slice(0, 60)}`;
-          })
-          .join('\n');
-        return infoCommand('Scheduled Tasks', list);
-      }
-
-      if (sub === 'remove') {
-        const taskId = parseIntOrNull(req.args[2]);
-        if (!taskId)
-          return badCommand('Usage', 'Usage: `schedule remove <id>`');
-        deleteTask(taskId);
-        rearmScheduler();
-        return plainCommand(`Task #${taskId} removed.`);
-      }
-
-      if (sub === 'toggle') {
-        const taskId = parseIntOrNull(req.args[2]);
-        if (!taskId)
-          return badCommand('Usage', 'Usage: `schedule toggle <id>`');
-        const tasks = getTasksForSession(session.id);
-        const task = tasks.find((t) => t.id === taskId);
-        if (!task)
-          return badCommand(
-            'Not Found',
-            `Task #${taskId} was not found in this session.`,
+        const taskId = createTask(
+            session.id,
+            req.channelId,
+            cronExpr,
+            prompt,
           );
-        if (task.enabled) {
-          pauseTask(taskId);
-        } else {
-          resumeTask(taskId);
+          rearmScheduler();
+          return plainCommand(
+            `Task #${taskId} created: cron \`${cronExpr}\` — ${prompt}`,
+          );
         }
-        rearmScheduler();
-        return plainCommand(
-          `Task #${taskId} ${task.enabled ? 'disabled' : 'enabled'}.`,
-        );
+
+        if (sub === 'list') {
+          const tasks = getTasksForSession(session.id);
+          if (tasks.length === 0) return plainCommand('No scheduled tasks.');
+          const list = tasks
+            .map((task) => {
+              const scheduleLabel = task.run_at
+                ? `at ${task.run_at}`
+                : task.every_ms
+                  ? `every ${task.every_ms}ms`
+                  : task.cron_expr
+                    ? `cron ${task.cron_expr}`
+                    : 'unspecified';
+              const statusLabel = task.last_status || 'n/a';
+              const errorSuffix =
+                task.consecutive_errors > 0
+                  ? ` · errors ${task.consecutive_errors}`
+                  : '';
+              return `#${task.id} ${task.enabled ? 'enabled' : 'disabled'} (${scheduleLabel}) [${statusLabel}${errorSuffix}] — ${task.prompt.slice(0, 60)}`;
+            })
+            .join('\n');
+          return infoCommand('Scheduled Tasks', list);
+        }
+
+        if (sub === 'remove') {
+          const taskId = parseIntOrNull(req.args[2]);
+          if (!taskId)
+            return badCommand('Usage', 'Usage: `schedule remove <id>`');
+          deleteTask(taskId);
+          rearmScheduler();
+          return plainCommand(`Task #${taskId} removed.`);
+        }
+
+        if (sub === 'toggle') {
+          const taskId = parseIntOrNull(req.args[2]);
+          if (!taskId)
+            return badCommand('Usage', 'Usage: `schedule toggle <id>`');
+          const tasks = getTasksForSession(session.id);
+          const task = tasks.find((t) => t.id === taskId);
+          if (!task)
+            return badCommand(
+              'Not Found',
+              `Task #${taskId} was not found in this session.`,
+            );
+          if (task.enabled) {
+            pauseTask(taskId);
+          } else {
+            resumeTask(taskId);
+          }
+          rearmScheduler();
+          return plainCommand(
+            `Task #${taskId} ${task.enabled ? 'disabled' : 'enabled'}.`,
+          );
+        }
+
+        return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
       }
 
-      return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
+      default:
+        return badCommand(
+          'Unknown Command',
+          `Unknown command: \`${cmd || '(empty)'}\`.`,
+        );
     }
+  })();
 
-    default:
-      return badCommand(
-        'Unknown Command',
-        `Unknown command: \`${cmd || '(empty)'}\`.`,
-      );
-  }
+  return {
+    ...result,
+    sessionId: req.sessionId,
+    sessionKey: session.session_key,
+  };
 }

@@ -49,6 +49,8 @@ function createTempDbPath(): string {
 function makeSession(partial?: Partial<Session>): Session {
   return {
     id: 'session:test',
+    session_key: 'session:test',
+    is_current: 1,
     guild_id: null,
     channel_id: 'channel:test',
     agent_id: 'main',
@@ -513,7 +515,7 @@ describe.sequential('schema migrations', () => {
       .get('legacy_session_id') as { 1: number } | undefined;
     inspect.close();
 
-    expect(Number(schemaVersion)).toBe(11);
+    expect(Number(schemaVersion)).toBe(12);
     expect(hasLegacyColumn).toBeDefined();
   });
 });

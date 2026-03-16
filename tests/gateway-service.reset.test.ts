@@ -151,8 +151,9 @@ test('clear wipes canonical prompt context for the current agent and user', asyn
   });
 
   expect(result.kind).toBe('info');
+  const activeSessionId = result.sessionId || fixture.sessionId;
   expect(
-    fixture.memoryService.getConversationHistory(fixture.sessionId, 10),
+    fixture.memoryService.getConversationHistory(activeSessionId, 10),
   ).toHaveLength(0);
   expect(
     fixture.memoryService.getCanonicalContext({
@@ -296,12 +297,13 @@ test('reset yes clears history, resets session defaults, and removes the workspa
   expect(result.text).toContain('Removed workspace');
   expect(result.text).toContain('model/chatbot/show settings reset');
 
+  const activeSessionId = result.sessionId || fixture.sessionId;
   expect(
-    fixture.memoryService.getConversationHistory(fixture.sessionId, 10),
+    fixture.memoryService.getConversationHistory(activeSessionId, 10),
   ).toHaveLength(0);
   expect(fs.existsSync(fixture.workspacePath)).toBe(false);
 
-  const session = fixture.memoryService.getSessionById(fixture.sessionId);
+  const session = fixture.memoryService.getSessionById(activeSessionId);
   expect(session).toBeDefined();
   expect(session?.message_count).toBe(0);
   expect(session?.model).toBeNull();
