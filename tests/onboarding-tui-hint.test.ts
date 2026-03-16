@@ -26,9 +26,7 @@ describe('shouldPrintTuiStartHint', () => {
 
   it('returns false when tui is already launching', () => {
     expect(shouldPrintTuiStartHint('hybridclaw tui')).toBe(false);
-    expect(shouldPrintTuiStartHint('hybridclaw tui --session foo')).toBe(
-      false,
-    );
+    expect(shouldPrintTuiStartHint('hybridclaw tui --session foo')).toBe(false);
   });
 
   it('matches command segments case-insensitively', () => {
