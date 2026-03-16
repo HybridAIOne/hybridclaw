@@ -1,13 +1,10 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildConversationContext } from '../agent/conversation.js';
 import { runAgent } from '../agent/agent.js';
+import { buildConversationContext } from '../agent/conversation.js';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
-import {
-  makeAuditRunId,
-  recordAuditEvent,
-} from '../audit/audit-events.js';
+import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { HYBRIDAI_CHATBOT_ID } from '../config/config.js';
 import {
   createSkillAmendment,
@@ -18,12 +15,12 @@ import {
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { modelRequiresChatbotId } from '../providers/factory.js';
-import { scanSkillContent } from './skills-guard.js';
 import { loadSkillCatalog } from './skills.js';
 import type {
   SkillAmendment,
   SkillHealthMetrics,
 } from './skills-cognee-types.js';
+import { scanSkillContent } from './skills-guard.js';
 
 const AMENDMENT_ALLOWED_TOOLS = ['read', 'grep', 'glob'];
 
@@ -42,7 +39,10 @@ function resolveSkillCatalogEntry(skillName: string) {
   return match;
 }
 
-function buildDiffSummary(originalContent: string, proposedContent: string): string {
+function buildDiffSummary(
+  originalContent: string,
+  proposedContent: string,
+): string {
   if (originalContent === proposedContent) {
     return 'No material content changes.';
   }
@@ -67,7 +67,9 @@ function buildDiffSummary(originalContent: string, proposedContent: string): str
     if (samples.length < 3) {
       const beforePreview = before ? before.trim().slice(0, 60) : '(none)';
       const afterPreview = after ? after.trim().slice(0, 60) : '(none)';
-      samples.push(`line ${index + 1}: "${beforePreview}" -> "${afterPreview}"`);
+      samples.push(
+        `line ${index + 1}: "${beforePreview}" -> "${afterPreview}"`,
+      );
     }
   }
 
@@ -287,7 +289,11 @@ export async function applyAmendment(input: {
     };
   }
 
-  fs.writeFileSync(amendment.skill_file_path, amendment.proposed_content, 'utf-8');
+  fs.writeFileSync(
+    amendment.skill_file_path,
+    amendment.proposed_content,
+    'utf-8',
+  );
   updateAmendmentStatus({
     amendmentId: amendment.id,
     status: 'applied',

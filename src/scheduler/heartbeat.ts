@@ -267,7 +267,10 @@ export function startHeartbeat(
           agentId: resolvedAgentId,
         });
       } catch (error) {
-        logger.warn({ agentId: resolvedAgentId, error }, 'Skill inspection failed');
+        logger.warn(
+          { agentId: resolvedAgentId, error },
+          'Skill inspection failed',
+        );
       }
       processSideEffects(output, sessionId, heartbeatChannelId);
 

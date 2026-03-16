@@ -1,10 +1,10 @@
-import {
-  incrementAmendmentRunCount,
-  recordSkillObservation as insertSkillObservation,
-  attachFeedbackToObservation,
-} from '../memory/db.js';
 import { recordAuditEvent } from '../audit/audit-events.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
+import {
+  attachFeedbackToObservation,
+  incrementAmendmentRunCount,
+  recordSkillObservation as insertSkillObservation,
+} from '../memory/db.js';
 import type { ToolExecution } from '../types.js';
 import type {
   SkillErrorCategory,
@@ -31,8 +31,12 @@ export function classifyErrorCategory(
   toolExecutions: ToolExecution[],
   agentError?: string | null,
 ): SkillErrorCategory | null {
-  const normalizedError = String(agentError || '').trim().toLowerCase();
-  if (toolExecutions.some((execution) => execution.isError || execution.blocked)) {
+  const normalizedError = String(agentError || '')
+    .trim()
+    .toLowerCase();
+  if (
+    toolExecutions.some((execution) => execution.isError || execution.blocked)
+  ) {
     return 'tool_error';
   }
   if (!normalizedError) return null;
@@ -66,7 +70,11 @@ export function deriveSkillExecutionOutcome(params: {
   toolExecutions: ToolExecution[];
 }): SkillExecutionOutcome {
   if (params.outputStatus === 'error') return 'failure';
-  if (params.toolExecutions.some((execution) => execution.isError || execution.blocked)) {
+  if (
+    params.toolExecutions.some(
+      (execution) => execution.isError || execution.blocked,
+    )
+  ) {
     return 'partial';
   }
   return 'success';

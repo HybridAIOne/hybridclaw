@@ -152,14 +152,14 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import type {
-  SkillAmendment,
-  SkillHealthMetrics,
-} from '../skills/skills-cognee-types.js';
 import {
   expandSkillInvocationWithResolution,
   loadSkillCatalog,
 } from '../skills/skills.js';
+import type {
+  SkillAmendment,
+  SkillHealthMetrics,
+} from '../skills/skills-cognee-types.js';
 import {
   deriveSkillExecutionOutcome,
   recordSkillExecution,
@@ -5251,7 +5251,9 @@ export async function handleGatewayCommand(
               ? 'available'
               : 'disabled'
             : skill.missing.join(', ');
-          const description = skill.description ? ` — ${skill.description}` : '';
+          const description = skill.description
+            ? ` — ${skill.description}`
+            : '';
           return `${skill.name} [${availability}]${description}`;
         });
         return infoCommand('Skills', lines.join('\n'));
@@ -5298,7 +5300,11 @@ export async function handleGatewayCommand(
         const actions = new Set(
           req.args
             .slice(3)
-            .map((entry) => String(entry || '').trim().toLowerCase())
+            .map((entry) =>
+              String(entry || '')
+                .trim()
+                .toLowerCase(),
+            )
             .filter(Boolean),
         );
         const hasApply = actions.has('--apply') || actions.has('apply');
@@ -5317,9 +5323,7 @@ export async function handleGatewayCommand(
 
         const dbModule = await import('../memory/db.js');
         const amendmentModule = await import('../skills/skills-amendment.js');
-        const evaluationModule = await import(
-          '../skills/skills-evaluation.js'
-        );
+        const evaluationModule = await import('../skills/skills-evaluation.js');
         const inspectionModule = await import('../skills/skills-inspection.js');
 
         if (hasApply) {
@@ -5422,7 +5426,9 @@ export async function handleGatewayCommand(
         const dbModule = await import('../memory/db.js');
         const history = dbModule.getAmendmentHistory(skillName);
         if (history.length === 0) {
-          return plainCommand(`No amendment history found for \`${skillName}\`.`);
+          return plainCommand(
+            `No amendment history found for \`${skillName}\`.`,
+          );
         }
         return infoCommand(
           `Skill History (${skillName})`,

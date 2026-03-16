@@ -49,14 +49,14 @@ import {
 } from './config/runtime-config.js';
 import { ensureRuntimeCredentials } from './onboarding.js';
 import type { LocalBackendType } from './providers/local-types.js';
-import type {
-  SkillAmendment,
-  SkillHealthMetrics,
-} from './skills/skills-cognee-types.js';
 import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from './security/runtime-secrets.js';
+import type {
+  SkillAmendment,
+  SkillHealthMetrics,
+} from './skills/skills-cognee-types.js';
 import { printUpdateUsage, runUpdateCommand } from './update.js';
 import { sleep } from './utils/sleep.js';
 
@@ -3366,7 +3366,9 @@ async function handleSkillCommand(args: string[]): Promise<void> {
     if (target === '--all') {
       const metricsList = inspectAllSkills();
       if (metricsList.length === 0) {
-        console.log('No observed skills found in the current inspection window.');
+        console.log(
+          'No observed skills found in the current inspection window.',
+        );
         return;
       }
       for (const [index, metrics] of metricsList.entries()) {
@@ -3393,14 +3395,10 @@ async function handleSkillCommand(args: string[]): Promise<void> {
     const { DEFAULT_AGENT_ID } = await import('./agents/agent-types.js');
     const { getLatestSkillAmendment } = await import('./memory/db.js');
     const { inspectSkill } = await import('./skills/skills-inspection.js');
-    const {
-      applyAmendment,
-      proposeAmendment,
-      rejectAmendment,
-    } = await import('./skills/skills-amendment.js');
-    const { rollbackAmendment } = await import(
-      './skills/skills-evaluation.js'
+    const { applyAmendment, proposeAmendment, rejectAmendment } = await import(
+      './skills/skills-amendment.js'
     );
+    const { rollbackAmendment } = await import('./skills/skills-evaluation.js');
 
     if (normalized.includes('--apply')) {
       const amendment = getLatestSkillAmendment({
@@ -3417,7 +3415,9 @@ async function handleSkillCommand(args: string[]): Promise<void> {
       if (!result.ok) {
         throw new Error(result.reason || 'Failed to apply amendment.');
       }
-      console.log(`Applied staged amendment v${amendment.version} for ${skillName}.`);
+      console.log(
+        `Applied staged amendment v${amendment.version} for ${skillName}.`,
+      );
       return;
     }
 
@@ -3436,7 +3436,9 @@ async function handleSkillCommand(args: string[]): Promise<void> {
       if (!result.ok) {
         throw new Error(result.reason || 'Failed to reject amendment.');
       }
-      console.log(`Rejected staged amendment v${amendment.version} for ${skillName}.`);
+      console.log(
+        `Rejected staged amendment v${amendment.version} for ${skillName}.`,
+      );
       return;
     }
 
@@ -3455,7 +3457,9 @@ async function handleSkillCommand(args: string[]): Promise<void> {
       if (!result.ok) {
         throw new Error(result.reason || 'Failed to roll back amendment.');
       }
-      console.log(`Rolled back amendment v${amendment.version} for ${skillName}.`);
+      console.log(
+        `Rolled back amendment v${amendment.version} for ${skillName}.`,
+      );
       return;
     }
 

@@ -99,7 +99,7 @@ Keep the response concise.
   });
   expect(rolledBack?.status).toBe('rolled_back');
   expect(fs.readFileSync(context.skillFilePath, 'utf-8')).toContain(
-    'Follow the user\'s request carefully.',
+    "Follow the user's request carefully.",
   );
   expect(fs.readFileSync(context.skillFilePath, 'utf-8')).not.toContain(
     'List the required steps before acting.',

@@ -1561,7 +1561,10 @@ export function scanSkillContent(params: {
   fileName?: string;
 }): SkillGuardScanResult {
   const trustLevel = resolveSkillTrustLevel(params.sourceTag);
-  const findings = scanTextContent(params.fileName || 'SKILL.md', params.content);
+  const findings = scanTextContent(
+    params.fileName || 'SKILL.md',
+    params.content,
+  );
   const verdict = determineVerdict(findings);
   return {
     skillName: params.skillName,

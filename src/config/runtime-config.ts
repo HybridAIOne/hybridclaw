@@ -2665,14 +2665,12 @@ function normalizeRuntimeConfig(
       ),
       degradationSuccessRateThreshold: normalizeNumber(
         rawSkillCognee.degradationSuccessRateThreshold,
-        DEFAULT_RUNTIME_CONFIG.skillCognee
-          .degradationSuccessRateThreshold,
+        DEFAULT_RUNTIME_CONFIG.skillCognee.degradationSuccessRateThreshold,
         { min: 0, max: 1 },
       ),
       degradationToolBreakageThreshold: normalizeNumber(
         rawSkillCognee.degradationToolBreakageThreshold,
-        DEFAULT_RUNTIME_CONFIG.skillCognee
-          .degradationToolBreakageThreshold,
+        DEFAULT_RUNTIME_CONFIG.skillCognee.degradationToolBreakageThreshold,
         { min: 0, max: 1 },
       ),
       autoApplyEnabled: normalizeBoolean(

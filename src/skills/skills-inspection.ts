@@ -1,19 +1,19 @@
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
+import { logger } from '../logger.js';
 import {
   getLatestSkillAmendment,
+  getMemoryValue,
   getObservedSkillNames,
   getSkillObservationSummary,
-  getMemoryValue,
   setMemoryValue,
 } from '../memory/db.js';
-import { logger } from '../logger.js';
+import { applyAmendment, proposeAmendment } from './skills-amendment.js';
 import type {
   SkillCogneeConfig,
   SkillHealthMetrics,
 } from './skills-cognee-types.js';
-import { applyAmendment, proposeAmendment } from './skills-amendment.js';
 
 const LAST_INSPECTION_KEY = 'skill-cognee:last-inspection-at';
 
@@ -111,7 +111,9 @@ export function inspectSkill(
   };
 }
 
-export function inspectAllSkills(config?: SkillCogneeConfig): SkillHealthMetrics[] {
+export function inspectAllSkills(
+  config?: SkillCogneeConfig,
+): SkillHealthMetrics[] {
   const resolvedConfig = resolveConfig(config);
   return getObservedSkillNames({
     createdAfter: windowStartIso(resolvedConfig),

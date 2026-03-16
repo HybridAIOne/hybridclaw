@@ -55,7 +55,9 @@ test('computes health metrics and degradation reasons from observations', async 
 
 test('inspectAllSkills sorts degraded skills ahead of healthy ones', async () => {
   context = await createSkillCogneeTestContext();
-  const { inspectAllSkills } = await import('../src/skills/skills-inspection.ts');
+  const { inspectAllSkills } = await import(
+    '../src/skills/skills-inspection.ts'
+  );
 
   context.dbModule.recordSkillObservation({
     skillName: context.skillName,

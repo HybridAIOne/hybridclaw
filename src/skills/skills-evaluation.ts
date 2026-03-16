@@ -37,9 +37,7 @@ export function evaluateAmendment(input: {
       reason: 'No applied amendment found.',
     };
   }
-  if (
-    amendment.runs_since_apply < input.config.evaluationRunsBeforeRollback
-  ) {
+  if (amendment.runs_since_apply < input.config.evaluationRunsBeforeRollback) {
     return {
       action: 'insufficient_data',
       reason: `Need ${input.config.evaluationRunsBeforeRollback} runs before evaluation; have ${amendment.runs_since_apply}.`,
@@ -91,7 +89,11 @@ export async function rollbackAmendment(input: {
     return { ok: false, reason: 'Only applied amendments can be rolled back.' };
   }
 
-  fs.writeFileSync(amendment.skill_file_path, amendment.original_content, 'utf-8');
+  fs.writeFileSync(
+    amendment.skill_file_path,
+    amendment.original_content,
+    'utf-8',
+  );
   updateAmendmentStatus({
     amendmentId: amendment.id,
     status: 'rolled_back',

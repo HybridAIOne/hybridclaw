@@ -3908,7 +3908,8 @@ export function getSkillObservations(params?: {
     clauses.push('created_at >= ?');
     args.push(createdAfter);
   }
-  const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const whereClause =
+    clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
   const limit = Math.max(1, Math.min(params?.limit || 100, 1_000));
   return (
     db
@@ -3943,9 +3944,7 @@ export function getObservedSkillNames(params?: {
            ORDER BY skill_name ASC`,
         )
         .all() as Array<{ skill_name: string }>);
-  return rows
-    .map((row) => row.skill_name.trim())
-    .filter(Boolean);
+  return rows.map((row) => row.skill_name.trim()).filter(Boolean);
 }
 
 export function getSkillObservationSummary(params?: {
@@ -3964,7 +3963,8 @@ export function getSkillObservationSummary(params?: {
     clauses.push('created_at >= ?');
     args.push(createdAfter);
   }
-  const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const whereClause =
+    clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
   const summaryRows = db
     .prepare(
       `SELECT
@@ -4123,7 +4123,9 @@ export function createSkillAmendment(input: {
   return mapSkillAmendmentRow(row);
 }
 
-export function getSkillAmendmentById(amendmentId: number): SkillAmendment | null {
+export function getSkillAmendmentById(
+  amendmentId: number,
+): SkillAmendment | null {
   const row = db
     .prepare('SELECT * FROM skill_amendments WHERE id = ?')
     .get(Math.floor(amendmentId)) as SkillAmendmentRow | undefined;

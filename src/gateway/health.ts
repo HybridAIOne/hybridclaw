@@ -1084,7 +1084,9 @@ async function handleApiSkillCognee(
     status: 'staged',
   });
   if (!amendment) {
-    sendJson(res, 404, { error: `No staged amendment found for "${skillName}".` });
+    sendJson(res, 404, {
+      error: `No staged amendment found for "${skillName}".`,
+    });
     return;
   }
 

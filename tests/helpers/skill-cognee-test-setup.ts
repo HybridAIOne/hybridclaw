@@ -45,10 +45,16 @@ export async function createSkillCogneeTestContext(options?: {
   const skillDir = path.join(extraSkillsDir, skillName);
   const skillFilePath = path.join(skillDir, 'SKILL.md');
   fs.mkdirSync(skillDir, { recursive: true });
-  fs.writeFileSync(skillFilePath, options?.skillBody || DEFAULT_SKILL_BODY, 'utf-8');
+  fs.writeFileSync(
+    skillFilePath,
+    options?.skillBody || DEFAULT_SKILL_BODY,
+    'utf-8',
+  );
 
   const dbModule = await import('../../src/memory/db.ts');
-  const runtimeConfigModule = await import('../../src/config/runtime-config.ts');
+  const runtimeConfigModule = await import(
+    '../../src/config/runtime-config.ts'
+  );
   dbModule.initDatabase({ quiet: true, dbPath });
 
   runtimeConfigModule.updateRuntimeConfig((draft) => {
