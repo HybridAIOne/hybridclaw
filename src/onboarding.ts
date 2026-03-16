@@ -378,6 +378,32 @@ function printMeta(label: string, value: string): void {
   console.log(`${MUTED}${label}:${RESET} ${TEAL}${value}${RESET}`);
 }
 
+function tokenizeCommandLabel(commandLabel: string): string[] {
+  return commandLabel.trim().split(/\s+/).filter(Boolean);
+}
+
+function resolveTuiCommandLabel(commandLabel: string): string {
+  const tokens = tokenizeCommandLabel(commandLabel);
+  if (tokens.length === 0) return 'hybridclaw tui';
+  return `${tokens[0]} tui`;
+}
+
+function shouldPrintTuiStartHint(commandLabel: string): boolean {
+  const tokens = tokenizeCommandLabel(commandLabel).map((token) =>
+    token.toLowerCase(),
+  );
+  if (tokens.length < 2) return false;
+  if (tokens[1] === 'onboarding') return true;
+  return tokens[1] === 'auth' && tokens.length >= 3 && tokens[2] === 'login';
+}
+
+function printTuiStartHint(commandLabel: string): void {
+  if (!shouldPrintTuiStartHint(commandLabel)) return;
+  printInfo(
+    `Start HybridClaw now with \`${resolveTuiCommandLabel(commandLabel)}\`.`,
+  );
+}
+
 function styledPromptWithIcon(question: string, icon: string): string {
   return `${TEAL}${icon}${RESET} ${question}`;
 }
@@ -742,13 +768,15 @@ async function runHybridAIApiKeyOnboarding(params: {
   if (switchedModel) {
     printSuccess(`Default model set to: ${defaultHybridAIModel()}`);
   }
+  printTuiStartHint(commandLabel);
   console.log();
 }
 
 async function runCodexOnboarding(params: {
   rl: readline.Interface;
+  commandLabel: string;
 }): Promise<void> {
-  const { rl } = params;
+  const { rl, commandLabel } = params;
   const existing = getCodexAuthStatus();
   if (existing.authenticated) {
     printSetup('Reconfiguring OpenAI Codex credentials.');
@@ -779,6 +807,7 @@ async function runCodexOnboarding(params: {
   if (switchedModel) {
     printSuccess(`Default model set to: ${defaultCodexModel()}`);
   }
+  printTuiStartHint(commandLabel);
   console.log();
 }
 
@@ -832,6 +861,7 @@ async function runOpenRouterOnboarding(params: {
       `No OpenRouter default model is configured. Set hybridai.defaultModel to an openrouter/... model in ${runtimeConfigPath()} if needed.`,
     );
   }
+  printTuiStartHint(commandLabel);
   console.log();
 }
 
@@ -925,7 +955,7 @@ export async function ensureRuntimeCredentials(
     const authMethod =
       options.preferredAuth || (await promptAuthMethod(rl, currentModel));
     if (authMethod === 'openai-codex') {
-      await runCodexOnboarding({ rl });
+      await runCodexOnboarding({ rl, commandLabel });
       return;
     }
     if (authMethod === 'openrouter') {
