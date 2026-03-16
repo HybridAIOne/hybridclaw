@@ -5,9 +5,12 @@ on:
     tags:
       - 'v*'
 
+# No top-level packages: write — the GITHUB_TOKEN is not used for registry
+# auth. A dedicated GitHub App token (GHCR_APP_ID / GHCR_APP_PRIVATE_KEY) is
+# used instead, which is scoped to packages: write only and cannot create
+# runners, open PRs, or perform any other org action.
 permissions:
   contents: read
-  packages: write
 
 jobs:
   # Validate tag/package.json alignment once; both image jobs depend on this.
@@ -19,10 +22,10 @@ jobs:
       labels: ${{ steps.check.outputs.labels }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -69,7 +72,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Get GHCR token
+        id: ghcr-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.GHCR_APP_ID }}
+          private-key: ${{ secrets.GHCR_APP_PRIVATE_KEY }}
 
       - name: Resolve agent image tags
         id: meta
@@ -95,30 +105,33 @@ jobs:
           { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
 
       - name: Setup QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Setup Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Login to Docker Hub
         if: needs.validate.outputs.publish_dockerhub == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ github.repository_owner }}
+          password: ${{ steps.ghcr-token.outputs.token }}
 
       - name: Build and push agent image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ./container
           push: true
+          # provenance and sbom disabled: multi-platform builds via QEMU emit
+          # an extra attestation manifest that confuses some older Docker clients
+          # pulling the image. Re-evaluate when dropping linux/arm64 QEMU builds.
           provenance: false
           sbom: false
           platforms: linux/amd64,linux/arm64
@@ -131,7 +144,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Get GHCR token
+        id: ghcr-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.GHCR_APP_ID }}
+          private-key: ${{ secrets.GHCR_APP_PRIVATE_KEY }}
 
       - name: Resolve gateway image tags
         id: meta
@@ -157,31 +177,32 @@ jobs:
           { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
 
       - name: Setup QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Setup Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Login to Docker Hub
         if: needs.validate.outputs.publish_dockerhub == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ github.repository_owner }}
+          password: ${{ steps.ghcr-token.outputs.token }}
 
       - name: Build and push gateway image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: ./Dockerfile
           push: true
+          # provenance and sbom disabled: see agent job comment above.
           provenance: false
           sbom: false
           platforms: linux/amd64,linux/arm64
