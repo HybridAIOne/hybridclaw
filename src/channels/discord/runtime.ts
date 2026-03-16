@@ -44,7 +44,7 @@ import {
 } from '../../gateway/show-mode.js';
 import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { logger } from '../../logger.js';
-import { getSessionById } from '../../memory/db.js';
+import { getSessionById, resolveSessionIdCompat } from '../../memory/db.js';
 import { getAvailableModelChoices } from '../../providers/model-catalog.js';
 import { recordSkillFeedback } from '../../skills/skills-observation.js';
 import type { MediaContextItem } from '../../types.js';
@@ -2514,11 +2514,13 @@ export function initDiscord(
       negativeFeedbackByChannel.set(message.channelId, feedback);
     }
     recordSkillFeedback({
-      sessionId: resolveDiscordSkillFeedbackSessionId({
-        guildId: message.guild?.id ?? null,
-        channelId: message.channelId,
-        userId: user.id,
-      }),
+      sessionId: resolveSessionIdCompat(
+        resolveDiscordSkillFeedbackSessionId({
+          guildId: message.guild?.id ?? null,
+          channelId: message.channelId,
+          userId: user.id,
+        }),
+      ),
       feedback,
       sentiment,
     });
