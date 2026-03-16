@@ -27,10 +27,7 @@ function hasDailyUsage(model: ModelEntry): model is ModelWithDailyUsage {
   return model.usageDaily !== null;
 }
 
-function compareModelsByUsage(
-  left: ModelEntry,
-  right: ModelEntry,
-): number {
+function compareModelsByUsage(left: ModelEntry, right: ModelEntry): number {
   const leftTokens = left.usageMonthly?.totalTokens || 0;
   const rightTokens = right.usageMonthly?.totalTokens || 0;
   if (rightTokens !== leftTokens) return rightTokens - leftTokens;
