@@ -4222,7 +4222,7 @@ export async function handleGatewayCommand(
           const list = bots
             .map(
               (b) =>
-                `• ${b.name} (${b.id})${b.description ? ` — ${b.description}` : ''}`,
+                `• ${b.name} (${b.id})${b.model ? ` [${b.model}]` : ''}${b.description ? ` — ${b.description}` : ''}`,
             )
             .join('\n');
           return infoCommand('Available Bots', list);
@@ -4271,18 +4271,25 @@ export async function handleGatewayCommand(
       if (sub === 'info') {
         const botId = runtime.chatbotId || 'Not set';
         let botLabel = botId;
+        let botModel: string | undefined;
         try {
           const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
           const bot = bots.find((b) => b.id === botId);
-          if (bot) botLabel = `${bot.name} (${bot.id})`;
+          if (bot) {
+            botLabel = `${bot.name} (${bot.id})`;
+            botModel = bot.model;
+          }
         } catch {
           // keep ID fallback
         }
         const ragStatus = session.enable_rag ? 'Enabled' : 'Disabled';
-        return infoCommand(
-          'Bot Info',
-          `Chatbot: ${botLabel}\nModel: ${runtime.model}\nRAG: ${ragStatus}`,
-        );
+        const lines = [
+          `Chatbot: ${botLabel}`,
+          ...(botModel ? [`Bot Model: ${botModel}`] : []),
+          `Model: ${runtime.model}`,
+          `RAG: ${ragStatus}`,
+        ];
+        return infoCommand('Bot Info', lines.join('\n'));
       }
 
       return badCommand('Usage', 'Usage: `bot list|set <id|name>|info`');

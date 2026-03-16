@@ -26,6 +26,12 @@ function normalizeBots(payload: unknown): HybridAIBot[] {
     name: String(item.bot_name ?? item.name ?? 'Unnamed'),
     description:
       item.description != null ? String(item.description) : undefined,
+    model:
+      item.model1 != null
+        ? String(item.model1)
+        : item.model != null
+          ? String(item.model)
+          : undefined,
   }));
 }
 
