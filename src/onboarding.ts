@@ -14,6 +14,10 @@ import {
   SECURITY_POLICY_VERSION,
   updateRuntimeConfig,
 } from './config/runtime-config.js';
+import {
+  resolveTuiCommandLabel,
+  shouldPrintTuiStartHint,
+} from './onboarding-tui-hint.js';
 import { isCodexModel, resolveModelProvider } from './providers/factory.js';
 import {
   ensureRuntimeInstructionCopies,
@@ -376,25 +380,6 @@ function printWarn(text: string): void {
 
 function printMeta(label: string, value: string): void {
   console.log(`${MUTED}${label}:${RESET} ${TEAL}${value}${RESET}`);
-}
-
-function tokenizeCommandLabel(commandLabel: string): string[] {
-  return commandLabel.trim().split(/\s+/).filter(Boolean);
-}
-
-function resolveTuiCommandLabel(commandLabel: string): string {
-  const tokens = tokenizeCommandLabel(commandLabel);
-  if (tokens.length === 0) return 'hybridclaw tui';
-  return `${tokens[0]} tui`;
-}
-
-function shouldPrintTuiStartHint(commandLabel: string): boolean {
-  const tokens = tokenizeCommandLabel(commandLabel).map((token) =>
-    token.toLowerCase(),
-  );
-  if (tokens.length < 2) return false;
-  if (tokens[1] === 'onboarding') return true;
-  return tokens[1] === 'auth' && tokens.length >= 3 && tokens[2] === 'login';
 }
 
 function printTuiStartHint(commandLabel: string): void {

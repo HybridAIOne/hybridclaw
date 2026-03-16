@@ -10,12 +10,16 @@ const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
-const ORIGINAL_CWD = process.cwd();
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
+const TEMP_HOMES: string[] = [];
 
 function makeTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-onboarding-'));
+  const homeDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-onboarding-'),
+  );
+  TEMP_HOMES.push(homeDir);
+  return homeDir;
 }
 
 function writeRuntimeConfig(
@@ -42,7 +46,6 @@ async function runHybridAIOnboarding(commandName: string): Promise<string> {
   writeRuntimeConfig(homeDir);
 
   process.env.HOME = homeDir;
-  process.chdir(homeDir);
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   delete process.env.HYBRIDAI_API_KEY;
   Object.defineProperty(process.stdin, 'isTTY', {
@@ -63,6 +66,16 @@ async function runHybridAIOnboarding(commandName: string): Promise<string> {
       }),
     },
   }));
+  vi.doMock('../src/security/runtime-secrets.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets.ts')
+    >('../src/security/runtime-secrets.ts');
+    return {
+      ...actual,
+      loadRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.loadRuntimeSecrets(targetHomeDir ?? homeDir, homeDir),
+    };
+  });
   vi.stubGlobal(
     'fetch',
     vi.fn(
@@ -108,6 +121,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.doUnmock('node:readline/promises');
+  vi.doUnmock('../src/security/runtime-secrets.ts');
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
     delete process.env.HOME;
@@ -125,7 +139,6 @@ afterEach(() => {
   } else {
     process.env.HYBRIDAI_API_KEY = ORIGINAL_HYBRIDAI_API_KEY;
   }
-  process.chdir(ORIGINAL_CWD);
   Object.defineProperty(process.stdin, 'isTTY', {
     value: ORIGINAL_STDIN_IS_TTY,
     configurable: true,
@@ -134,6 +147,11 @@ afterEach(() => {
     value: ORIGINAL_STDOUT_IS_TTY,
     configurable: true,
   });
+  while (TEMP_HOMES.length > 0) {
+    const homeDir = TEMP_HOMES.pop();
+    if (!homeDir) continue;
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
 });
 
 test('interactive onboarding suggests starting the TUI after HybridAI setup', async () => {
