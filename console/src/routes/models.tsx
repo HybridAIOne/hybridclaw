@@ -18,9 +18,18 @@ interface ModelDraft {
   codexModels: string;
 }
 
+type ModelEntry = Awaited<ReturnType<typeof fetchModels>>['models'][number];
+type ModelWithDailyUsage = ModelEntry & {
+  usageDaily: NonNullable<ModelEntry['usageDaily']>;
+};
+
+function hasDailyUsage(model: ModelEntry): model is ModelWithDailyUsage {
+  return model.usageDaily !== null;
+}
+
 function compareModelsByUsage(
-  left: Awaited<ReturnType<typeof fetchModels>>['models'][number],
-  right: Awaited<ReturnType<typeof fetchModels>>['models'][number],
+  left: ModelEntry,
+  right: ModelEntry,
 ): number {
   const leftTokens = left.usageMonthly?.totalTokens || 0;
   const rightTokens = right.usageMonthly?.totalTokens || 0;
@@ -93,6 +102,9 @@ export function ModelsPage() {
 
   const providerEntries = Object.entries(
     modelsQuery.data?.providerStatus || {},
+  );
+  const modelsWithDailyUsage = (modelsQuery.data?.models || []).filter(
+    hasDailyUsage,
   );
 
   return (
@@ -315,18 +327,16 @@ export function ModelsPage() {
         )}
       </Panel>
 
-      {modelsQuery.data?.models.some((model) => model.usageDaily) ? (
+      {modelsWithDailyUsage.length > 0 ? (
         <Panel
           title="Recent daily activity"
           subtitle={`Updated ${formatRelativeTime(new Date().toISOString())}`}
         >
           <div className="list-stack">
-            {modelsQuery.data.models
-              .filter((model) => model.usageDaily)
+            {modelsWithDailyUsage
               .sort(
                 (left, right) =>
-                  (right.usageDaily?.totalTokens || 0) -
-                  (left.usageDaily?.totalTokens || 0),
+                  right.usageDaily.totalTokens - left.usageDaily.totalTokens,
               )
               .slice(0, 6)
               .map((model) => (
@@ -335,13 +345,13 @@ export function ModelsPage() {
                     <strong>{model.id}</strong>
                     <small>
                       {formatTokenBreakdown(
-                        model.usageDaily?.totalInputTokens ?? 0,
-                        model.usageDaily?.totalOutputTokens ?? 0,
+                        model.usageDaily.totalInputTokens ?? 0,
+                        model.usageDaily.totalOutputTokens ?? 0,
                       )}{' '}
-                      · {model.usageDaily?.callCount || 0} calls today
+                      · {model.usageDaily.callCount} calls today
                     </small>
                   </div>
-                  <span>{formatUsd(model.usageDaily?.totalCostUsd || 0)}</span>
+                  <span>{formatUsd(model.usageDaily.totalCostUsd ?? 0)}</span>
                 </div>
               ))}
           </div>
