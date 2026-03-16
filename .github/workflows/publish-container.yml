@@ -5,12 +5,11 @@ on:
     tags:
       - 'v*'
 
-# No top-level packages: write — the GITHUB_TOKEN is not used for registry
-# auth. A dedicated GitHub App token (GHCR_APP_ID / GHCR_APP_PRIVATE_KEY) is
-# used instead, which is scoped to packages: write only and cannot create
-# runners, open PRs, or perform any other org action.
 permissions:
   contents: read
+  packages: write
+  attestations: write
+  id-token: write
 
 jobs:
   # Validate tag/package.json alignment once; both image jobs depend on this.
@@ -74,13 +73,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Get GHCR token
-        id: ghcr-token
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
-        with:
-          app-id: ${{ secrets.GHCR_APP_ID }}
-          private-key: ${{ secrets.GHCR_APP_PRIVATE_KEY }}
-
       - name: Resolve agent image tags
         id: meta
         shell: bash
@@ -121,17 +113,15 @@ jobs:
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ steps.ghcr-token.outputs.token }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push agent image
+        id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ./container
           push: true
-          # provenance and sbom disabled: multi-platform builds via QEMU emit
-          # an extra attestation manifest that confuses some older Docker clients
-          # pulling the image. Re-evaluate when dropping linux/arm64 QEMU builds.
           provenance: false
           sbom: false
           platforms: linux/amd64,linux/arm64
@@ -145,13 +135,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Get GHCR token
-        id: ghcr-token
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
-        with:
-          app-id: ${{ secrets.GHCR_APP_ID }}
-          private-key: ${{ secrets.GHCR_APP_PRIVATE_KEY }}
 
       - name: Resolve gateway image tags
         id: meta
@@ -193,16 +176,16 @@ jobs:
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ steps.ghcr-token.outputs.token }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push gateway image
+        id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: ./Dockerfile
           push: true
-          # provenance and sbom disabled: see agent job comment above.
           provenance: false
           sbom: false
           platforms: linux/amd64,linux/arm64
