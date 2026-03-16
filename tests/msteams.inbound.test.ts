@@ -96,7 +96,9 @@ test('cleanIncomingContent extracts classic card text fields', async () => {
         },
       ],
     }),
-  ).toBe('Build failed\n\nmain branch\n\nPlease check the CI logs.\n\nOpen logs');
+  ).toBe(
+    'Build failed\n\nmain branch\n\nPlease check the CI logs.\n\nOpen logs',
+  );
 });
 
 test('cleanIncomingContent falls back to HTML attachment content', async () => {
@@ -108,7 +110,8 @@ test('cleanIncomingContent falls back to HTML attachment content', async () => {
       attachments: [
         {
           contentType: 'text/html',
-          content: '<div><p>Hello <strong>world</strong></p><ul><li>One</li><li>Two</li></ul></div>',
+          content:
+            '<div><p>Hello <strong>world</strong></p><ul><li>One</li><li>Two</li></ul></div>',
         },
       ],
     }),

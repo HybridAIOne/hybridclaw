@@ -163,7 +163,9 @@ test('resolves Teams hints from explicit Teams context', () => {
   expect(hints.some((entry) => entry.includes('Adaptive Card'))).toBe(true);
   expect(
     hints.some((entry) =>
-      entry.includes('supports `read`, `channel-info`, `member-info`, and `send`'),
+      entry.includes(
+        'supports `read`, `channel-info`, `member-info`, and `send`',
+      ),
     ),
   ).toBe(true);
   expect(

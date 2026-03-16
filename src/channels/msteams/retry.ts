@@ -51,9 +51,7 @@ function readHeader(
   if (typeof Headers !== 'undefined' && headers instanceof Headers) {
     return headers.get(key) || '';
   }
-  if (
-    typeof (headers as { get?: unknown }).get === 'function'
-  ) {
+  if (typeof (headers as { get?: unknown }).get === 'function') {
     const value = (headers as { get: (name: string) => unknown }).get(key);
     return typeof value === 'string' ? value : '';
   }
@@ -84,14 +82,22 @@ function isRetryableTeamsError(error: unknown): boolean {
     return true;
   }
   const text =
-    error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : '';
   return classifyGatewayError(text) === 'transient';
 }
 
 function extractRetryDelayMs(error: unknown, fallbackMs: number): number {
   const maybe = error as TeamsErrorLike;
   const retryAfter = maybe.retryAfter ?? maybe.data?.retry_after;
-  if (typeof retryAfter === 'number' && Number.isFinite(retryAfter) && retryAfter > 0) {
+  if (
+    typeof retryAfter === 'number' &&
+    Number.isFinite(retryAfter) &&
+    retryAfter > 0
+  ) {
     return Math.max(50, Math.ceil(retryAfter * 1_000));
   }
   if (typeof retryAfter === 'string') {
@@ -101,7 +107,8 @@ function extractRetryDelayMs(error: unknown, fallbackMs: number): number {
 
   for (const key of ['x-ms-retry-after-ms', 'retry-after']) {
     const headerValue =
-      readHeader(maybe.response?.headers, key) || readHeader(maybe.headers, key);
+      readHeader(maybe.response?.headers, key) ||
+      readHeader(maybe.headers, key);
     const delay = parseHeaderDelayMs(headerValue, key);
     if (delay !== null) return delay;
   }
@@ -124,14 +131,20 @@ async function withMSTeamsRetry<T>(
     try {
       return await run();
     } catch (error) {
-      if (attempt >= MSTEAMS_RETRY_MAX_ATTEMPTS || !isRetryableTeamsError(error)) {
+      if (
+        attempt >= MSTEAMS_RETRY_MAX_ATTEMPTS ||
+        !isRetryableTeamsError(error)
+      ) {
         throw error;
       }
       const waitMs = Math.min(
         extractRetryDelayMs(error, delayMs),
         MSTEAMS_RETRY_MAX_DELAY_MS,
       );
-      logger.warn({ label, attempt, waitMs, error }, 'Teams transport failed; retrying');
+      logger.warn(
+        { label, attempt, waitMs, error },
+        'Teams transport failed; retrying',
+      );
       await sleep(waitMs);
       delayMs = Math.min(delayMs * 2, MSTEAMS_RETRY_MAX_DELAY_MS);
     }
@@ -143,7 +156,9 @@ export function sendMSTeamsActivityWithRetry(
   activity: Partial<Activity>,
   label: string,
 ) {
-  return withMSTeamsRetry(label, async () => turnContext.sendActivity(activity));
+  return withMSTeamsRetry(label, async () =>
+    turnContext.sendActivity(activity),
+  );
 }
 
 export function updateMSTeamsActivityWithRetry(
