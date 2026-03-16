@@ -3093,6 +3093,19 @@ function scheduleWatcherRestart(reason: string): void {
   }, delay);
 }
 
+function isEmfileError(reason: string): boolean {
+  return reason.includes('EMFILE');
+}
+
+function logEmfileHint(): void {
+  console.warn(
+    '[runtime-config] EMFILE: too many open files — the OS file-descriptor limit is too low.\n' +
+      '  Fix for this session:  ulimit -n 10240\n' +
+      '  Fix permanently (macOS): sudo launchctl limit maxfiles 61440 122880\n' +
+      '  Config hot-reload is disabled; restart hybridclaw after changing config.',
+  );
+}
+
 function startWatcher(): void {
   if (isRuntimeConfigWatcherDisabled()) return;
   if (configWatcher) return;
@@ -3107,10 +3120,11 @@ function startWatcher(): void {
           return;
         }
         if (filename.toString() !== path.basename(CONFIG_PATH)) return;
+        // Watcher is stable — reset retry counter on first successful event.
+        watcherRetryAttempt = 0;
         scheduleReload(`watch:${filename.toString()}`);
       },
     );
-    watcherRetryAttempt = 0;
     if (watcherRestartTimer) {
       clearTimeout(watcherRestartTimer);
       watcherRestartTimer = null;
@@ -3118,13 +3132,21 @@ function startWatcher(): void {
 
     configWatcher.on('error', (err) => {
       const reason = err instanceof Error ? err.message : String(err);
-      console.warn(`[runtime-config] watcher error: ${reason}`);
       configWatcher?.close();
       configWatcher = null;
+      if (isEmfileError(reason)) {
+        logEmfileHint();
+        return; // no retry — system limit won't change at runtime
+      }
+      console.warn(`[runtime-config] watcher error: ${reason}`);
       scheduleWatcherRestart(`watcher error: ${reason}`);
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
+    if (isEmfileError(reason)) {
+      logEmfileHint();
+      return;
+    }
     console.warn(`[runtime-config] watcher setup failed: ${reason}`);
     scheduleWatcherRestart(`watcher setup failed: ${reason}`);
   }
