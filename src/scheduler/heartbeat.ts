@@ -17,11 +17,7 @@ import {
   recordAuditEvent,
 } from '../audit/audit-events.js';
 import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
-import {
-  getChannel,
-  listChannels,
-  registerChannel,
-} from '../channels/channel-registry.js';
+import { getChannel, registerChannel } from '../channels/channel-registry.js';
 import {
   HEARTBEAT_CHANNEL,
   HEARTBEAT_ENABLED,
@@ -39,11 +35,11 @@ import { buildSessionContext } from '../session/session-context.js';
 import { buildSessionKey } from '../session/session-key.js';
 import { maybeCompactSession } from '../session/session-maintenance.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
-import {
-  estimateTokenCountFromMessages,
-  estimateTokenCountFromText,
-} from '../session/token-efficiency.js';
 import { runPeriodicSkillInspection } from '../skills/skills-inspection.js';
+import {
+  buildModelUsageAuditStats,
+  recordModelUsageAuditEvent,
+} from './model-usage.js';
 
 const HEARTBEAT_PROMPT =
   '[Heartbeat poll] Check HEARTBEAT.md for periodic tasks. If nothing needs attention, reply HEARTBEAT_OK.';
@@ -175,7 +171,6 @@ export function startHeartbeat(
         agentId: resolvedAgentId,
         sessionId: session.id,
         sessionKey: session.session_key,
-        connectedChannels: listChannels().map((channel) => channel.kind),
       });
       const { messages } = buildConversationContext({
         agentId: resolvedAgentId,
@@ -238,63 +233,19 @@ export function startHeartbeat(
         runId,
         toolExecutions: output.toolExecutions || [],
       });
-      const tokenUsage = output.tokenUsage;
-      const estimatedPromptTokens =
-        tokenUsage?.estimatedPromptTokens ||
-        estimateTokenCountFromMessages(messages);
-      const estimatedCompletionTokens =
-        tokenUsage?.estimatedCompletionTokens ||
-        estimateTokenCountFromText(output.result || '');
-      const estimatedTotalTokens =
-        tokenUsage?.estimatedTotalTokens ||
-        estimatedPromptTokens + estimatedCompletionTokens;
-      const apiUsageAvailable = tokenUsage?.apiUsageAvailable === true;
-      const apiPromptTokens = tokenUsage?.apiPromptTokens || 0;
-      const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
-      const apiTotalTokens =
-        tokenUsage?.apiTotalTokens || apiPromptTokens + apiCompletionTokens;
-      const apiCacheUsageAvailable =
-        tokenUsage?.apiCacheUsageAvailable === true;
-      const apiCacheReadTokens = tokenUsage?.apiCacheReadTokens || 0;
-      const apiCacheWriteTokens = tokenUsage?.apiCacheWriteTokens || 0;
-      recordAuditEvent({
+      const usage = buildModelUsageAuditStats({
+        messages,
+        resultText: output.result,
+        toolCallCount: (output.toolExecutions || []).length,
+        tokenUsage: output.tokenUsage,
+      });
+      recordModelUsageAuditEvent({
         sessionId,
         runId,
-        event: {
-          type: 'model.usage',
-          provider,
-          model,
-          durationMs: Date.now() - startedAt,
-          toolCallCount: (output.toolExecutions || []).length,
-          modelCalls: tokenUsage ? Math.max(1, tokenUsage.modelCalls) : 0,
-          promptTokens: apiUsageAvailable
-            ? apiPromptTokens
-            : estimatedPromptTokens,
-          completionTokens: apiUsageAvailable
-            ? apiCompletionTokens
-            : estimatedCompletionTokens,
-          totalTokens: apiUsageAvailable
-            ? apiTotalTokens
-            : estimatedTotalTokens,
-          estimatedPromptTokens,
-          estimatedCompletionTokens,
-          estimatedTotalTokens,
-          apiUsageAvailable,
-          apiPromptTokens,
-          apiCompletionTokens,
-          apiTotalTokens,
-          ...(apiCacheUsageAvailable
-            ? {
-                apiCacheUsageAvailable,
-                apiCacheReadTokens,
-                apiCacheWriteTokens,
-                cacheReadTokens: apiCacheReadTokens,
-                cacheReadInputTokens: apiCacheReadTokens,
-                cacheWriteTokens: apiCacheWriteTokens,
-                cacheWriteInputTokens: apiCacheWriteTokens,
-              }
-            : {}),
-        },
+        provider,
+        model,
+        startedAt,
+        usage,
       });
       try {
         await runPeriodicSkillInspection({

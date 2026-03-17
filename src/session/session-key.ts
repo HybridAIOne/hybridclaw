@@ -7,6 +7,11 @@ export interface ParsedSessionKey {
   peerId: string;
 }
 
+export interface SessionKeyMigrationResult {
+  key: string;
+  migrated: boolean;
+}
+
 interface SessionKeyMigrationContext {
   agent_id?: string | null;
   guild_id?: string | null;
@@ -75,59 +80,88 @@ export function migrateLegacySessionKey(
   key: string,
   session: SessionKeyMigrationContext,
 ): string {
+  return inspectSessionKeyMigration(key, session).key;
+}
+
+export function inspectSessionKeyMigration(
+  key: string,
+  session: SessionKeyMigrationContext,
+): SessionKeyMigrationResult {
   const normalized = String(key || '').trim();
-  if (!normalized) return normalized;
-  if (parseSessionKey(normalized)) return normalized;
+  if (!normalized) return { key: normalized, migrated: false };
+  if (parseSessionKey(normalized)) {
+    return { key: normalized, migrated: false };
+  }
 
   const normalizedAgentId =
     String(session.agent_id || '').trim() || DEFAULT_AGENT_ID;
   const discordMatch = normalized.match(/^(\d{16,22}):(\d{16,22})$/);
   if (discordMatch) {
     const channelId = String(session.channel_id || discordMatch[2]).trim();
-    return buildSessionKey(normalizedAgentId, 'discord', 'channel', channelId);
+    return {
+      key: buildSessionKey(normalizedAgentId, 'discord', 'channel', channelId),
+      migrated: true,
+    };
   }
 
   if (normalized.startsWith('dm:')) {
-    return buildSessionKey(
-      normalizedAgentId,
-      'discord',
-      'dm',
-      normalized.slice('dm:'.length),
-    );
+    return {
+      key: buildSessionKey(
+        normalizedAgentId,
+        'discord',
+        'dm',
+        normalized.slice('dm:'.length),
+      ),
+      migrated: true,
+    };
   }
 
   if (normalized.startsWith('heartbeat:')) {
     const agentIdFromKey =
       normalized.slice('heartbeat:'.length).trim() || normalizedAgentId;
-    return buildSessionKey(agentIdFromKey, 'heartbeat', 'system', 'default');
+    return {
+      key: buildSessionKey(agentIdFromKey, 'heartbeat', 'system', 'default'),
+      migrated: true,
+    };
   }
 
   if (normalized.startsWith('scheduler:')) {
-    return buildSessionKey(
-      normalizedAgentId,
-      'scheduler',
-      'system',
-      normalized.slice('scheduler:'.length),
-    );
+    return {
+      key: buildSessionKey(
+        normalizedAgentId,
+        'scheduler',
+        'system',
+        normalized.slice('scheduler:'.length),
+      ),
+      migrated: true,
+    };
   }
 
   if (normalized.startsWith('cron:')) {
-    return buildSessionKey(
-      normalizedAgentId,
-      'scheduler',
-      'cron',
-      normalized.slice('cron:'.length),
-    );
+    return {
+      key: buildSessionKey(
+        normalizedAgentId,
+        'scheduler',
+        'cron',
+        normalized.slice('cron:'.length),
+      ),
+      migrated: true,
+    };
   }
 
   if (normalized.startsWith('tui:')) {
-    return buildSessionKey(
-      normalizedAgentId,
-      'tui',
-      'dm',
-      normalized.slice('tui:'.length),
-    );
+    return {
+      key: buildSessionKey(
+        normalizedAgentId,
+        'tui',
+        'dm',
+        normalized.slice('tui:'.length),
+      ),
+      migrated: true,
+    };
   }
 
-  return normalized;
+  // Unknown or non-legacy inputs pass through unchanged; callers can use the
+  // explicit `migrated` flag to distinguish this no-op from a real rewrite.
+  return { key: normalized, migrated: false };
 }

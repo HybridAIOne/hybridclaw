@@ -1,11 +1,24 @@
 import { expect, test } from 'vitest';
 
+import {
+  DISCORD_CAPABILITIES,
+  EMAIL_CAPABILITIES,
+  MSTEAMS_CAPABILITIES,
+  WHATSAPP_CAPABILITIES,
+} from '../src/channels/channel.js';
+import { registerChannel } from '../src/channels/channel-registry.js';
 import { resolveChannelMessageToolHints } from '../src/channels/prompt-adapters.js';
 
 const CHANNEL_ID = '1475079601968648386';
 const GUILD_ID = '123456789012345678';
 
 test('resolves Discord message tool hints when channelType is discord', () => {
+  registerChannel({
+    kind: 'discord',
+    id: 'discord-bot',
+    capabilities: DISCORD_CAPABILITIES,
+  });
+
   const hints = resolveChannelMessageToolHints({
     runtimeInfo: {
       channelType: 'discord',
@@ -56,6 +69,12 @@ test('returns no channel hints for explicit non-Discord channel type', () => {
 });
 
 test('includes DM context hint when guildId is null', () => {
+  registerChannel({
+    kind: 'discord',
+    id: 'discord-bot',
+    capabilities: DISCORD_CAPABILITIES,
+  });
+
   const hints = resolveChannelMessageToolHints({
     runtimeInfo: {
       channelType: 'discord',
@@ -70,6 +89,12 @@ test('includes DM context hint when guildId is null', () => {
 });
 
 test('resolves WhatsApp hints from explicit WhatsApp context', () => {
+  registerChannel({
+    kind: 'whatsapp',
+    id: 'whatsapp',
+    capabilities: WHATSAPP_CAPABILITIES,
+  });
+
   const hints = resolveChannelMessageToolHints({
     runtimeInfo: {
       channelType: 'whatsapp',
@@ -106,6 +131,12 @@ test('prefers WhatsApp hints over email hints for raw WhatsApp jids', () => {
 });
 
 test('resolves email hints with read support from explicit email context', () => {
+  registerChannel({
+    kind: 'email',
+    id: 'ops@example.com',
+    capabilities: EMAIL_CAPABILITIES,
+  });
+
   const hints = resolveChannelMessageToolHints({
     runtimeInfo: {
       channelType: 'email',
@@ -146,6 +177,12 @@ test('resolves email hints with read support from explicit email context', () =>
 });
 
 test('resolves Teams hints from explicit Teams context', () => {
+  registerChannel({
+    kind: 'msteams',
+    id: 'msteams',
+    capabilities: MSTEAMS_CAPABILITIES,
+  });
+
   const hints = resolveChannelMessageToolHints({
     runtimeInfo: {
       channelType: 'msteams',

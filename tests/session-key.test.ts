@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   buildSessionKey,
+  inspectSessionKeyMigration,
   isLegacySessionKey,
   migrateLegacySessionKey,
   parseSessionKey,
@@ -60,6 +61,26 @@ test('migrateLegacySessionKey converts legacy ids using session metadata', () =>
       agent_id: 'main',
     }),
   ).toBe('agent:main:scheduler:system:nightly');
+});
+
+test('inspectSessionKeyMigration distinguishes rewritten and no-op results', () => {
+  expect(
+    inspectSessionKeyMigration('dm:439508376087560193', {
+      agent_id: 'main',
+    }),
+  ).toEqual({
+    key: 'agent:main:discord:dm:439508376087560193',
+    migrated: true,
+  });
+
+  expect(
+    inspectSessionKeyMigration('custom-session-id', {
+      agent_id: 'main',
+    }),
+  ).toEqual({
+    key: 'custom-session-id',
+    migrated: false,
+  });
 });
 
 test('build and parse round-trip to the same segments', () => {

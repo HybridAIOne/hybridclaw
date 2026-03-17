@@ -2,6 +2,8 @@ import { expect, test } from 'vitest';
 
 import { buildSystemPromptFromHooks } from '../src/agent/prompt-hooks.js';
 import { buildToolsSummary } from '../src/agent/tool-summary.js';
+import { EMAIL_CAPABILITIES } from '../src/channels/channel.js';
+import { registerChannel } from '../src/channels/channel-registry.js';
 import type { Skill } from '../src/skills/skills.js';
 
 test('buildToolsSummary groups the full tool catalog', () => {
@@ -239,6 +241,12 @@ test('buildSystemPromptFromHooks does not fall back to the repo cwd', () => {
 });
 
 test('buildSystemPromptFromHooks includes email signature guidance for email context', () => {
+  registerChannel({
+    kind: 'email',
+    id: 'ops@example.com',
+    capabilities: EMAIL_CAPABILITIES,
+  });
+
   const prompt = buildSystemPromptFromHooks({
     agentId: 'test-agent',
     skills: [],

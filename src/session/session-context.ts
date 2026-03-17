@@ -1,4 +1,9 @@
 import type { ChannelKind } from '../channels/channel.js';
+import {
+  listChannels,
+  normalizeChannelKind,
+  normalizeChannelValue,
+} from '../channels/channel-registry.js';
 
 export type SessionChatType =
   | 'channel'
@@ -23,28 +28,16 @@ export interface SessionContext {
   agentId: string;
   sessionId: string;
   sessionKey?: string;
-  connectedChannels: string[];
 }
 
 const CHANNEL_KIND_LABELS: Record<ChannelKind, string> = {
-  api: 'API',
-  cli: 'CLI',
   discord: 'Discord',
   email: 'Email',
   heartbeat: 'Heartbeat',
   msteams: 'Microsoft Teams',
   scheduler: 'Scheduler',
   tui: 'TUI',
-  web: 'Web',
   whatsapp: 'WhatsApp',
-};
-
-const CHANNEL_KIND_SET = new Set<ChannelKind>(
-  Object.keys(CHANNEL_KIND_LABELS) as ChannelKind[],
-);
-
-const CHANNEL_KIND_ALIASES: Record<string, ChannelKind> = {
-  teams: 'msteams',
 };
 
 function normalizeOptional(value?: string | null): string | undefined {
@@ -52,37 +45,8 @@ function normalizeOptional(value?: string | null): string | undefined {
   return normalized || undefined;
 }
 
-function normalizeChannelKind(value?: string | null): ChannelKind | undefined {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return undefined;
-  if (CHANNEL_KIND_SET.has(normalized as ChannelKind)) {
-    return normalized as ChannelKind;
-  }
-  return CHANNEL_KIND_ALIASES[normalized];
-}
-
-function normalizeChannelList(
-  values?: string[],
-  sourceChannelKind?: string | null,
-): string[] {
-  const normalizedValues: ChannelKind[] = Array.isArray(values)
-    ? values
-        .map((value) => normalizeChannelKind(value))
-        .filter((value): value is ChannelKind => Boolean(value))
-    : [];
-  const normalizedSourceChannelKind = normalizeChannelKind(sourceChannelKind);
-  if (normalizedSourceChannelKind) {
-    normalizedValues.unshift(normalizedSourceChannelKind);
-  }
-  return Array.from(new Set(normalizedValues));
-}
-
 function formatChannelKind(kind?: string | null): string {
-  const fallback = String(kind || '')
-    .trim()
-    .toLowerCase();
+  const fallback = normalizeChannelValue(kind) || '';
   const normalized = normalizeChannelKind(fallback);
   if (normalized) {
     return CHANNEL_KIND_LABELS[normalized];
@@ -119,14 +83,11 @@ export function buildSessionContext(params: SessionContext): SessionContext {
     agentId: String(params.agentId || '').trim(),
     sessionId: String(params.sessionId || '').trim(),
     sessionKey: normalizeOptional(params.sessionKey),
-    connectedChannels: normalizeChannelList(
-      params.connectedChannels,
-      params.source.channelKind,
-    ),
   };
 }
 
 export function buildSessionContextPrompt(context: SessionContext): string {
+  const connectedChannels = listChannels().map((channel) => channel.kind);
   const lines = [
     '## Session Context',
     `**Platform:** ${formatChannelKind(context.source.channelKind)} (${formatChatType(context.source.chatType)})`,
@@ -159,9 +120,7 @@ export function buildSessionContextPrompt(context: SessionContext): string {
 
   lines.push(
     `**Connected channels:** ${
-      context.connectedChannels.length > 0
-        ? context.connectedChannels.join(', ')
-        : 'none'
+      connectedChannels.length > 0 ? connectedChannels.join(', ') : 'none'
     }`,
   );
 

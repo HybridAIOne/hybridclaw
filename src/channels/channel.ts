@@ -1,13 +1,10 @@
 export type ChannelKind =
-  | 'api'
-  | 'cli'
   | 'discord'
   | 'email'
   | 'heartbeat'
   | 'msteams'
   | 'scheduler'
   | 'tui'
-  | 'web'
   | 'whatsapp';
 
 export interface ChannelCapabilities {

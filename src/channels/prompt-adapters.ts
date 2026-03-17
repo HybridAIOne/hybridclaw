@@ -1,5 +1,9 @@
 import type { ChannelInfo } from './channel.js';
-import { getChannel, getChannelByContextId } from './channel-registry.js';
+import {
+  getChannel,
+  getChannelByContextId,
+  normalizeChannelValue,
+} from './channel-registry.js';
 import { discordAgentPromptAdapter } from './discord/prompt-adapter.js';
 import { emailAgentPromptAdapter } from './email/prompt-adapter.js';
 import { msteamsAgentPromptAdapter } from './msteams/prompt-adapter.js';
@@ -18,12 +22,6 @@ export type ChannelAgentPromptAdapter = {
   }) => string[];
 };
 
-function normalizeLower(value: string | undefined): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
-}
-
 function normalizeValue(value: string | null | undefined): string {
   return String(value || '').trim();
 }
@@ -35,7 +33,7 @@ function resolveRuntimeChannel(
   if (explicitChannel) {
     return explicitChannel;
   }
-  const channelType = normalizeLower(runtimeInfo?.channelType);
+  const channelType = normalizeChannelValue(runtimeInfo?.channelType);
   if (channelType) {
     return getChannel(channelType);
   }

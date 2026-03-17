@@ -5,12 +5,7 @@ import {
   makeAuditRunId,
   recordAuditEvent,
 } from '../audit/audit-events.js';
-import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
-import {
-  getChannel,
-  listChannels,
-  registerChannel,
-} from '../channels/channel-registry.js';
+import { getChannel } from '../channels/channel-registry.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { recordUsageEvent } from '../memory/db.js';
 import { resolveModelProvider } from '../providers/factory.js';
@@ -21,9 +16,9 @@ import {
   migrateLegacySessionKey,
 } from '../session/session-key.js';
 import {
-  estimateTokenCountFromMessages,
-  estimateTokenCountFromText,
-} from '../session/token-efficiency.js';
+  buildModelUsageAuditStats,
+  recordModelUsageAuditEvent,
+} from './model-usage.js';
 
 export async function runIsolatedScheduledTask(params: {
   taskId: number;
@@ -52,11 +47,6 @@ export async function runIsolatedScheduledTask(params: {
     onResult,
     onError,
   } = params;
-  registerChannel({
-    kind: 'scheduler',
-    id: 'scheduler',
-    capabilities: SYSTEM_CAPABILITIES,
-  });
   const rawSessionKey = sessionKey?.trim()
     ? sessionKey.trim()
     : buildSessionKey(agentId, 'scheduler', 'cron', String(taskId));
@@ -74,7 +64,7 @@ export async function runIsolatedScheduledTask(params: {
     source: {
       channelKind: 'scheduler',
       chatId: channelId,
-      chatType: 'system',
+      chatType: 'cron',
       userId: 'scheduler',
       userName: 'scheduler',
       guildId: null,
@@ -82,7 +72,6 @@ export async function runIsolatedScheduledTask(params: {
     agentId,
     sessionId: activeSessionId,
     sessionKey: cronSessionId,
-    connectedChannels: listChannels().map((channel) => channel.kind),
   });
   const { messages } = buildConversationContext({
     agentId,
@@ -144,71 +133,28 @@ export async function runIsolatedScheduledTask(params: {
       runId,
       toolExecutions: output.toolExecutions || [],
     });
-    const tokenUsage = output.tokenUsage;
-    const estimatedPromptTokens =
-      tokenUsage?.estimatedPromptTokens ||
-      estimateTokenCountFromMessages(messages);
-    const estimatedCompletionTokens =
-      tokenUsage?.estimatedCompletionTokens ||
-      estimateTokenCountFromText(output.result || '');
-    const estimatedTotalTokens =
-      tokenUsage?.estimatedTotalTokens ||
-      estimatedPromptTokens + estimatedCompletionTokens;
-    const apiUsageAvailable = tokenUsage?.apiUsageAvailable === true;
-    const apiPromptTokens = tokenUsage?.apiPromptTokens || 0;
-    const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
-    const apiTotalTokens =
-      tokenUsage?.apiTotalTokens || apiPromptTokens + apiCompletionTokens;
-    const apiCacheUsageAvailable = tokenUsage?.apiCacheUsageAvailable === true;
-    const apiCacheReadTokens = tokenUsage?.apiCacheReadTokens || 0;
-    const apiCacheWriteTokens = tokenUsage?.apiCacheWriteTokens || 0;
-    recordAuditEvent({
+    const usage = buildModelUsageAuditStats({
+      messages,
+      resultText: output.result,
+      toolCallCount: (output.toolExecutions || []).length,
+      tokenUsage: output.tokenUsage,
+    });
+    recordModelUsageAuditEvent({
       sessionId: activeSessionId,
       runId,
-      event: {
-        type: 'model.usage',
-        provider,
-        model,
-        durationMs: Date.now() - startedAt,
-        toolCallCount: (output.toolExecutions || []).length,
-        modelCalls: tokenUsage ? Math.max(1, tokenUsage.modelCalls) : 0,
-        promptTokens: apiUsageAvailable
-          ? apiPromptTokens
-          : estimatedPromptTokens,
-        completionTokens: apiUsageAvailable
-          ? apiCompletionTokens
-          : estimatedCompletionTokens,
-        totalTokens: apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens,
-        estimatedPromptTokens,
-        estimatedCompletionTokens,
-        estimatedTotalTokens,
-        apiUsageAvailable,
-        apiPromptTokens,
-        apiCompletionTokens,
-        apiTotalTokens,
-        ...(apiCacheUsageAvailable
-          ? {
-              apiCacheUsageAvailable,
-              apiCacheReadTokens,
-              apiCacheWriteTokens,
-              cacheReadTokens: apiCacheReadTokens,
-              cacheReadInputTokens: apiCacheReadTokens,
-              cacheWriteTokens: apiCacheWriteTokens,
-              cacheWriteInputTokens: apiCacheWriteTokens,
-            }
-          : {}),
-      },
+      provider,
+      model,
+      startedAt,
+      usage,
     });
     recordUsageEvent({
       sessionId: activeSessionId,
       agentId,
       model,
-      inputTokens: apiUsageAvailable ? apiPromptTokens : estimatedPromptTokens,
-      outputTokens: apiUsageAvailable
-        ? apiCompletionTokens
-        : estimatedCompletionTokens,
-      totalTokens: apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens,
-      toolCalls: (output.toolExecutions || []).length,
+      inputTokens: usage.promptTokens,
+      outputTokens: usage.completionTokens,
+      totalTokens: usage.totalTokens,
+      toolCalls: usage.toolCallCount,
     });
 
     if (output.status === 'success' && output.result) {

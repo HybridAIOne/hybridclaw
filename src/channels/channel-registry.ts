@@ -14,15 +14,12 @@ import { isWhatsAppJid } from './whatsapp/phone.js';
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 
 const CHANNEL_CAPABILITIES: Record<ChannelKind, ChannelInfo['capabilities']> = {
-  api: SYSTEM_CAPABILITIES,
-  cli: SYSTEM_CAPABILITIES,
   discord: DISCORD_CAPABILITIES,
   email: EMAIL_CAPABILITIES,
   heartbeat: SYSTEM_CAPABILITIES,
   msteams: MSTEAMS_CAPABILITIES,
   scheduler: SYSTEM_CAPABILITIES,
   tui: TUI_CAPABILITIES,
-  web: SYSTEM_CAPABILITIES,
   whatsapp: WHATSAPP_CAPABILITIES,
 };
 
@@ -36,10 +33,19 @@ const CHANNEL_KIND_ALIASES: Record<string, ChannelKind> = {
 
 const channels = new Map<ChannelKind, ChannelInfo>();
 
-function normalizeChannelKind(kind?: string | null): ChannelKind | undefined {
-  const normalized = String(kind || '')
+export function normalizeChannelValue(
+  value?: string | null,
+): string | undefined {
+  const normalized = String(value || '')
     .trim()
     .toLowerCase();
+  return normalized || undefined;
+}
+
+export function normalizeChannelKind(
+  kind?: string | null,
+): ChannelKind | undefined {
+  const normalized = normalizeChannelValue(kind);
   if (!normalized) return undefined;
   if (CHANNEL_KIND_SET.has(normalized as ChannelKind)) {
     return normalized as ChannelKind;
@@ -90,7 +96,7 @@ export function getChannel(
 ): ChannelInfo | undefined {
   const normalized = normalizeChannelKind(kind);
   if (!normalized) return undefined;
-  return channels.get(normalized) || buildDefaultChannelInfo(normalized);
+  return channels.get(normalized);
 }
 
 export function getChannelByContextId(

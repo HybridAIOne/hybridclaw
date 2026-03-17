@@ -518,6 +518,72 @@ describe.sequential('schema migrations', () => {
     expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
     expect(hasLegacyColumn).toBeDefined();
   });
+
+  test('fails v11 legacy session migration when a canonical target row already exists', () => {
+    const dbPath = createTempDbPath();
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        guild_id TEXT,
+        channel_id TEXT NOT NULL,
+        agent_id TEXT DEFAULT 'main'
+      );
+
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        user_id TEXT,
+        username TEXT,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL
+      );
+    `);
+    legacy
+      .prepare(
+        'INSERT INTO sessions (id, guild_id, channel_id, agent_id) VALUES (?, ?, ?, ?)',
+      )
+      .run(
+        'agent:main:discord:dm:439508376087560193',
+        null,
+        '439508376087560193',
+        'main',
+      );
+    legacy
+      .prepare(
+        'INSERT INTO sessions (id, guild_id, channel_id, agent_id) VALUES (?, ?, ?, ?)',
+      )
+      .run('dm:439508376087560193', null, '439508376087560193', 'main');
+    legacy
+      .prepare(
+        `INSERT INTO messages (session_id, user_id, username, role, content)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run('dm:439508376087560193', 'u1', 'alice', 'user', 'hello');
+    legacy.pragma('user_version = 10');
+    legacy.close();
+
+    expect(() => initDatabase({ quiet: true, dbPath })).toThrow(
+      /Unable to migrate legacy session ids due to conflicting target rows/,
+    );
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const sessionIds = inspect
+      .prepare('SELECT id FROM sessions ORDER BY id')
+      .all() as Array<{ id: string }>;
+    const message = inspect
+      .prepare('SELECT session_id FROM messages LIMIT 1')
+      .get() as { session_id: string };
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(10);
+    expect(sessionIds.map((row) => row.id)).toEqual([
+      'agent:main:discord:dm:439508376087560193',
+      'dm:439508376087560193',
+    ]);
+    expect(message.session_id).toBe('dm:439508376087560193');
+  });
 });
 
 describe.sequential('knowledge graph DB', () => {

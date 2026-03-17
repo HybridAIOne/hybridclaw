@@ -42,7 +42,6 @@ import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import {
   getChannel,
   getChannelByContextId,
-  listChannels,
 } from '../channels/channel-registry.js';
 import {
   APP_VERSION,
@@ -3376,7 +3375,6 @@ export async function handleGatewayMessage(
   const { agentId, model, chatbotId } = resolvedRequest;
   const channelType =
     resolveChannelType(req) || resolveSessionResetChannelKind(req.channelId);
-  const connectedChannels = listChannels().map((channel) => channel.kind);
   const channel =
     (channelType ? getChannel(channelType) : undefined) ||
     getChannelByContextId(req.channelId) ||
@@ -3426,7 +3424,6 @@ export async function handleGatewayMessage(
     agentId,
     sessionId: session.id,
     sessionKey: session.session_key,
-    connectedChannels,
   });
   const showMode = normalizeSessionShowMode(session.show_mode);
   const shouldEmitTools = sessionShowModeShowsTools(showMode);

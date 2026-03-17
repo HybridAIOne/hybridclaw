@@ -9,6 +9,7 @@ import { DB_PATH } from '../config/config.js';
 import { logger } from '../logger.js';
 import {
   buildSessionKey,
+  inspectSessionKeyMigration,
   isLegacySessionKey,
   migrateLegacySessionKey,
   parseSessionKey,
@@ -1179,20 +1180,28 @@ function migrateV11(
 
   const migrateSessionIds = database.transaction(
     (sessions: LegacySessionRow[]) => {
+      const conflicts: Array<{
+        legacySessionId: string;
+        nextId: string;
+      }> = [];
+
       for (const session of sessions) {
         if (!isLegacySessionKey(session.id)) continue;
-        const nextId = migrateLegacySessionKey(session.id, session);
-        if (!nextId || nextId === session.id) continue;
+        const migration = inspectSessionKeyMigration(session.id, session);
+        if (!migration.migrated) {
+          throw new Error(
+            `Legacy session id migration could not rewrite recognized legacy key: ${session.id}`,
+          );
+        }
+        const nextId = migration.key;
         const conflictingRow = database
           .prepare('SELECT id FROM sessions WHERE id = ?')
           .get(nextId) as { id: string } | undefined;
         if (conflictingRow && conflictingRow.id !== session.id) {
-          if (!quiet) {
-            logger.warn(
-              { legacySessionId: session.id, nextId },
-              'Skipping legacy session id migration due to conflicting target row',
-            );
-          }
+          conflicts.push({
+            legacySessionId: session.id,
+            nextId,
+          });
           continue;
         }
         for (const table of relatedTables) {
@@ -1209,6 +1218,16 @@ function migrateV11(
            WHERE id = ?`,
           )
           .run(nextId, session.id, session.id);
+      }
+
+      if (conflicts.length > 0) {
+        const details = conflicts
+          .map((entry) => `${entry.legacySessionId} -> ${entry.nextId}`)
+          .join(', ');
+        // Abort instead of recording a partial success while legacy ids remain.
+        throw new Error(
+          `Unable to migrate legacy session ids due to conflicting target rows: ${details}`,
+        );
       }
     },
   );
