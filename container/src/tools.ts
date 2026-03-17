@@ -370,6 +370,12 @@ function readPositiveNumberValue(value: unknown): number | null {
   return parsed;
 }
 
+function readPositiveIntegerValue(value: unknown): number | null {
+  const parsed = readPositiveNumberValue(value);
+  if (parsed == null) return null;
+  return Math.floor(parsed);
+}
+
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -424,8 +430,8 @@ function normalizeWorkflowTriggerInput(value: unknown): WorkflowTrigger | null {
   if (cronExpr) trigger.cronExpr = cronExpr;
   const runAt = readStringValue(value.runAt);
   if (runAt) trigger.runAt = runAt;
-  const everyMs = readPositiveNumberValue(value.everyMs);
-  if (everyMs != null) trigger.everyMs = Math.round(everyMs);
+  const everyMs = readPositiveIntegerValue(value.everyMs);
+  if (everyMs != null) trigger.everyMs = everyMs;
   const sourceChannel = readStringValue(value.sourceChannel);
   if (sourceChannel) trigger.sourceChannel = sourceChannel;
   const eventType = readStringValue(value.eventType);
@@ -445,7 +451,7 @@ function normalizeWorkflowRetryPolicyInput(
   value: unknown,
 ): WorkflowStep['retryPolicy'] | undefined {
   if (!isObjectRecord(value)) return undefined;
-  const maxAttempts = readPositiveNumberValue(value.maxAttempts);
+  const maxAttempts = readPositiveIntegerValue(value.maxAttempts);
   if (maxAttempts == null) return undefined;
   const strategy = readStringValue(value.strategy);
   const retryOn = normalizeStringList(value.retryOn)?.filter(
@@ -456,8 +462,8 @@ function normalizeWorkflowRetryPolicyInput(
       entry === 'transient',
   );
   return {
-    maxAttempts: Math.round(maxAttempts),
-    backoffMs: readPositiveNumberValue(value.backoffMs) || undefined,
+    maxAttempts,
+    backoffMs: readPositiveIntegerValue(value.backoffMs) || undefined,
     strategy:
       strategy === 'fixed' || strategy === 'exponential'
         ? strategy
@@ -471,8 +477,8 @@ function normalizeWorkflowDefaultsInput(
 ): WorkflowSpec['defaults'] | undefined {
   if (!isObjectRecord(value)) return undefined;
   const defaults: NonNullable<WorkflowSpec['defaults']> = {};
-  const timeoutMs = readPositiveNumberValue(value.timeoutMs);
-  if (timeoutMs != null) defaults.timeoutMs = Math.round(timeoutMs);
+  const timeoutMs = readPositiveIntegerValue(value.timeoutMs);
+  if (timeoutMs != null) defaults.timeoutMs = timeoutMs;
   const retryPolicy = normalizeWorkflowRetryPolicyInput(value.retryPolicy);
   if (retryPolicy) defaults.retryPolicy = retryPolicy;
   const lightContext = readBooleanValue(value.lightContext);
@@ -499,7 +505,7 @@ function normalizeWorkflowStepInput(value: unknown): WorkflowStep | null {
     dependsOn: normalizeStringList(value.dependsOn),
     deliverTo: normalizeWorkflowDeliveryInput(value.deliverTo) || undefined,
     extractAs: readStringValue(value.extractAs) || undefined,
-    timeoutMs: readPositiveNumberValue(value.timeoutMs) || undefined,
+    timeoutMs: readPositiveIntegerValue(value.timeoutMs) || undefined,
     retryPolicy: normalizeWorkflowRetryPolicyInput(value.retryPolicy),
     lightContext: readBooleanValue(value.lightContext),
   };
@@ -577,7 +583,46 @@ function normalizeWorkflowContextInput(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-function normalizeWorkflowSpecInput(value: unknown): WorkflowSpec | null {
+function isValidWorkflowScheduleTriggerInput(trigger: WorkflowTrigger): boolean {
+  if (trigger.kind !== 'schedule') return true;
+  const configured = [
+    Boolean(trigger.cronExpr),
+    Boolean(trigger.runAt),
+    trigger.everyMs != null,
+  ].filter(Boolean).length;
+  return configured === 1;
+}
+
+function isMeaningfulWorkflowKeywordTriggerInput(
+  trigger: WorkflowTrigger,
+): boolean {
+  if (trigger.kind !== 'keyword') return true;
+  return Boolean(trigger.contentPattern);
+}
+
+function validateWorkflowStepsInput(steps: WorkflowStep[]): boolean {
+  if (steps.length === 0) return false;
+  const stepIds = new Set<string>();
+  for (const step of steps) {
+    if (stepIds.has(step.id)) return false;
+    stepIds.add(step.id);
+  }
+  for (const step of steps) {
+    if (step.dependsOn?.some((dependency) => !stepIds.has(dependency))) {
+      return false;
+    }
+    if (step.kind === 'agent' && !step.prompt) return false;
+    if (step.kind === 'deliver' && (!step.input || !step.delivery)) {
+      return false;
+    }
+    if (step.kind === 'approval' && !step.approvalPrompt) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function normalizeWorkflowSpecInput(value: unknown): WorkflowSpec | null {
   let rawValue = value;
   if (typeof rawValue === 'string') {
     try {
@@ -590,6 +635,8 @@ function normalizeWorkflowSpecInput(value: unknown): WorkflowSpec | null {
   const version = Number(rawValue.version ?? 1);
   const trigger = normalizeWorkflowTriggerInput(rawValue.trigger);
   if (!trigger) return null;
+  if (!isValidWorkflowScheduleTriggerInput(trigger)) return null;
+  if (!isMeaningfulWorkflowKeywordTriggerInput(trigger)) return null;
   const delivery = normalizeWorkflowDeliveryInput(rawValue.delivery);
   if (!delivery) return null;
   if (!Array.isArray(rawValue.steps) || rawValue.steps.length === 0) return null;
@@ -630,16 +677,7 @@ function normalizeWorkflowSpecInput(value: unknown): WorkflowSpec | null {
     .map((entry) => normalizeWorkflowStepInput(entry))
     .filter((entry): entry is WorkflowStep => Boolean(entry));
   if (steps.length !== rawValue.steps.length) return null;
-  const knownStepIds = new Set<string>();
-  for (const step of steps) {
-    if (knownStepIds.has(step.id)) return null;
-    knownStepIds.add(step.id);
-  }
-  for (const step of steps) {
-    if (step.dependsOn?.some((dependency) => !knownStepIds.has(dependency))) {
-      return null;
-    }
-  }
+  if (!validateWorkflowStepsInput(steps)) return null;
 
   return {
     version: 2,
