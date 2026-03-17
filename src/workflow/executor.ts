@@ -63,6 +63,7 @@ interface ExecutedAgentStep {
 
 const DEFAULT_WORKFLOW_STEP_TIMEOUT_MS = 30_000;
 const DEFAULT_WORKFLOW_RETRY_DELAY_MS = 2_000;
+const runningWorkflows = new Set<number>();
 
 class WorkflowExecutionError extends Error {
   reason: WorkflowRetryOn | 'configuration' | 'unsupported' | 'validation';
@@ -517,413 +518,435 @@ export async function executeWorkflow(params: {
     return;
   }
 
-  const runId = makeAuditRunId('workflow');
-  const workflowSessionId = `workflow:${workflow.id}`;
-  const startedAt = Date.now();
-  const session = memoryService.getOrCreateSession(
-    params.sessionId,
-    null,
-    workflow.channel_id,
-    params.agentId,
-  );
-  const { agentId, chatbotId, model } = resolveAgentForRequest({
-    agentId: params.agentId,
-    session,
-  });
-  if (modelRequiresChatbotId(model) && !chatbotId) {
-    throw new WorkflowExecutionError(
-      'No chatbot configured for workflow execution. Configure a chatbot before running this workflow.',
-      'configuration',
+  if (runningWorkflows.has(workflow.id)) {
+    logger.warn(
+      {
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        triggerKind: workflow.spec.trigger.kind,
+        sourceChannel: params.event?.sourceChannel || null,
+      },
+      'Skipping workflow execution because another run is still in progress',
     );
+    return;
   }
 
-  const orderedSteps = sortWorkflowSteps(workflow.spec.steps);
-  const provider = resolveModelProvider(model);
-  const workspacePath = agentWorkspaceDir(agentId);
-  const stepResults: WorkflowStepResult[] = [];
-  const stepArtifacts = new Map<string, WorkflowArtifact[] | undefined>();
-  const extractedValues: Record<string, string> = {};
-  let totalToolCalls = 0;
-  let completedSteps = 0;
-  let activeStep: WorkflowStep | null = null;
-  let activeStepIndex = 0;
-  let activeStepStartedAt = 0;
-  let finalResultText = '';
-  let finalArtifacts: WorkflowArtifact[] | undefined;
-
-  recordAuditEvent({
-    sessionId: params.sessionId,
-    runId,
-    event: {
-      type: 'workflow.execution.start',
-      workflowId: workflow.id,
-      workflowName: workflow.name,
-      triggerKind: workflow.spec.trigger.kind,
-      stepCount: orderedSteps.length,
-      sourceChannel: params.event?.sourceChannel || null,
-    },
-  });
-  recordAuditEvent({
-    sessionId: workflowSessionId,
-    runId,
-    event: {
-      type: 'session.start',
-      userId: 'workflow',
-      channel: workflow.channel_id,
-      cwd: workspacePath,
-      model,
-      source: 'workflow',
-      workflowId: workflow.id,
-    },
-  });
+  runningWorkflows.add(workflow.id);
 
   try {
-    for (const [index, step] of orderedSteps.entries()) {
-      activeStep = step;
-      activeStepIndex = index + 1;
-      activeStepStartedAt = Date.now();
-      const timeoutMs = resolveStepTimeoutMs(workflow.spec.defaults, step);
-      const retryPolicy = resolveStepRetryPolicy(workflow.spec.defaults, step);
-      const bootstrapContextMode = resolveStepBootstrapContextMode(
-        workflow.spec.defaults,
-        step,
+    const runId = makeAuditRunId('workflow');
+    const workflowSessionId = `workflow:${workflow.id}`;
+    const startedAt = Date.now();
+    const session = memoryService.getOrCreateSession(
+      params.sessionId,
+      null,
+      workflow.channel_id,
+      params.agentId,
+    );
+    const { agentId, chatbotId, model } = resolveAgentForRequest({
+      agentId: params.agentId,
+      session,
+    });
+    if (modelRequiresChatbotId(model) && !chatbotId) {
+      throw new WorkflowExecutionError(
+        'No chatbot configured for workflow execution. Configure a chatbot before running this workflow.',
+        'configuration',
       );
+    }
 
-      recordAuditEvent({
-        sessionId: params.sessionId,
-        runId,
-        event: {
-          type: 'workflow.step.start',
-          workflowId: workflow.id,
-          stepId: step.id,
-          stepIndex: activeStepIndex,
-          stepKind: step.kind,
-        },
-      });
-      if (step.kind === 'agent') {
+    const orderedSteps = sortWorkflowSteps(workflow.spec.steps);
+    const provider = resolveModelProvider(model);
+    const workspacePath = agentWorkspaceDir(agentId);
+    const stepResults: WorkflowStepResult[] = [];
+    const stepArtifacts = new Map<string, WorkflowArtifact[] | undefined>();
+    const extractedValues: Record<string, string> = {};
+    let totalToolCalls = 0;
+    let completedSteps = 0;
+    let activeStep: WorkflowStep | null = null;
+    let activeStepIndex = 0;
+    let activeStepStartedAt = 0;
+    let finalResultText = '';
+    let finalArtifacts: WorkflowArtifact[] | undefined;
+
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId,
+      event: {
+        type: 'workflow.execution.start',
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        triggerKind: workflow.spec.trigger.kind,
+        stepCount: orderedSteps.length,
+        sourceChannel: params.event?.sourceChannel || null,
+      },
+    });
+    recordAuditEvent({
+      sessionId: workflowSessionId,
+      runId,
+      event: {
+        type: 'session.start',
+        userId: 'workflow',
+        channel: workflow.channel_id,
+        cwd: workspacePath,
+        model,
+        source: 'workflow',
+        workflowId: workflow.id,
+      },
+    });
+
+    try {
+      for (const [index, step] of orderedSteps.entries()) {
+        activeStep = step;
+        activeStepIndex = index + 1;
+        activeStepStartedAt = Date.now();
+        const timeoutMs = resolveStepTimeoutMs(workflow.spec.defaults, step);
+        const retryPolicy = resolveStepRetryPolicy(
+          workflow.spec.defaults,
+          step,
+        );
+        const bootstrapContextMode = resolveStepBootstrapContextMode(
+          workflow.spec.defaults,
+          step,
+        );
+
         recordAuditEvent({
-          sessionId: workflowSessionId,
+          sessionId: params.sessionId,
           runId,
           event: {
-            type: 'turn.start',
-            turnIndex: activeStepIndex,
-            userInput: step.prompt || '',
-            source: 'workflow',
+            type: 'workflow.step.start',
             workflowId: workflow.id,
             stepId: step.id,
+            stepIndex: activeStepIndex,
+            stepKind: step.kind,
           },
         });
-      }
+        if (step.kind === 'agent') {
+          recordAuditEvent({
+            sessionId: workflowSessionId,
+            runId,
+            event: {
+              type: 'turn.start',
+              turnIndex: activeStepIndex,
+              userInput: step.prompt || '',
+              source: 'workflow',
+              workflowId: workflow.id,
+              stepId: step.id,
+            },
+          });
+        }
 
-      if (step.kind === 'agent') {
-        const executed = await withRetry({
-          label: `workflow ${workflow.id} step ${step.id}`,
-          retryPolicy,
-          run: () =>
-            withTimeout({
-              label: `workflow ${workflow.id} step ${step.id}`,
-              timeoutMs,
-              run: (signal) =>
-                executeAgentStep({
-                  workflow,
-                  workflowSessionId,
-                  agentId,
-                  chatbotId,
-                  model,
-                  step,
-                  event: params.event,
-                  stepResults,
-                  extractedValues,
-                  bootstrapContextMode,
-                  abortSignal: signal,
-                }),
-            }),
-        });
-        const toolExecutions = executed.output.toolExecutions || [];
-        totalToolCalls += toolExecutions.length;
-        emitToolExecutionAuditEvents({
-          sessionId: workflowSessionId,
-          runId,
-          toolExecutions,
-        });
-        const usage = buildUsageMetrics(
-          executed.messages,
-          executed.resultText,
-          executed.output.tokenUsage,
-        );
-        recordAuditEvent({
-          sessionId: workflowSessionId,
-          runId,
-          event: {
-            type: 'model.usage',
-            provider,
-            model,
-            durationMs: Date.now() - activeStepStartedAt,
-            toolCallCount: toolExecutions.length,
-            modelCalls: executed.output.tokenUsage
-              ? Math.max(1, executed.output.tokenUsage.modelCalls)
-              : 0,
-            ...usage,
-          },
-        });
-        recordUsageEvent({
-          sessionId: workflowSessionId,
-          agentId,
-          model,
-          inputTokens: usage.promptTokens,
-          outputTokens: usage.completionTokens,
-          totalTokens: usage.totalTokens,
-          toolCalls: toolExecutions.length,
-        });
-
-        if (step.deliverTo) {
-          await withRetry({
-            label: `workflow ${workflow.id} step ${step.id} delivery`,
+        if (step.kind === 'agent') {
+          const executed = await withRetry({
+            label: `workflow ${workflow.id} step ${step.id}`,
             retryPolicy,
             run: () =>
               withTimeout({
-                label: `workflow ${workflow.id} step ${step.id} delivery`,
+                label: `workflow ${workflow.id} step ${step.id}`,
+                timeoutMs,
+                run: (signal) =>
+                  executeAgentStep({
+                    workflow,
+                    workflowSessionId,
+                    agentId,
+                    chatbotId,
+                    model,
+                    step,
+                    event: params.event,
+                    stepResults,
+                    extractedValues,
+                    bootstrapContextMode,
+                    abortSignal: signal,
+                  }),
+              }),
+          });
+          const toolExecutions = executed.output.toolExecutions || [];
+          totalToolCalls += toolExecutions.length;
+          emitToolExecutionAuditEvents({
+            sessionId: workflowSessionId,
+            runId,
+            toolExecutions,
+          });
+          const usage = buildUsageMetrics(
+            executed.messages,
+            executed.resultText,
+            executed.output.tokenUsage,
+          );
+          recordAuditEvent({
+            sessionId: workflowSessionId,
+            runId,
+            event: {
+              type: 'model.usage',
+              provider,
+              model,
+              durationMs: Date.now() - activeStepStartedAt,
+              toolCallCount: toolExecutions.length,
+              modelCalls: executed.output.tokenUsage
+                ? Math.max(1, executed.output.tokenUsage.modelCalls)
+                : 0,
+              ...usage,
+            },
+          });
+          recordUsageEvent({
+            sessionId: workflowSessionId,
+            agentId,
+            model,
+            inputTokens: usage.promptTokens,
+            outputTokens: usage.completionTokens,
+            totalTokens: usage.totalTokens,
+            toolCalls: toolExecutions.length,
+          });
+
+          if (step.deliverTo) {
+            await withRetry({
+              label: `workflow ${workflow.id} step ${step.id} delivery`,
+              retryPolicy,
+              run: () =>
+                withTimeout({
+                  label: `workflow ${workflow.id} step ${step.id} delivery`,
+                  timeoutMs,
+                  run: async () =>
+                    deliverWorkflowResult({
+                      workflow,
+                      delivery: step.deliverTo as WorkflowDelivery,
+                      event: params.event,
+                      source: `workflow:${workflow.id}:${step.id}`,
+                      text: executed.resultText,
+                      artifacts: executed.artifacts,
+                      timeoutMs,
+                    }),
+                }),
+            });
+          }
+
+          finalResultText = executed.resultText;
+          finalArtifacts = executed.artifacts;
+          stepResults.push({
+            id: step.id,
+            index: activeStepIndex,
+            result: executed.resultText,
+          });
+          stepArtifacts.set(step.id, executed.artifacts);
+          if (step.extractAs) {
+            extractedValues[step.extractAs] = executed.resultText;
+          }
+        } else if (step.kind === 'deliver') {
+          const interpolationContext = buildWorkflowInterpolationContext({
+            event: params.event,
+            workflowContext: workflow.spec.context,
+            stepResults,
+            extractedValues,
+            fallbackTimestamp: new Date().toISOString(),
+          });
+          const text = interpolateWorkflowTemplate(
+            step.input || '',
+            interpolationContext,
+          );
+          const artifacts = resolveDeliveryArtifacts({
+            step,
+            stepArtifacts,
+            fallbackArtifacts: finalArtifacts,
+          });
+          await withRetry({
+            label: `workflow ${workflow.id} step ${step.id}`,
+            retryPolicy,
+            run: () =>
+              withTimeout({
+                label: `workflow ${workflow.id} step ${step.id}`,
                 timeoutMs,
                 run: async () =>
                   deliverWorkflowResult({
                     workflow,
-                    delivery: step.deliverTo as WorkflowDelivery,
+                    delivery: step.delivery as WorkflowDelivery,
                     event: params.event,
                     source: `workflow:${workflow.id}:${step.id}`,
-                    text: executed.resultText,
-                    artifacts: executed.artifacts,
+                    text,
+                    artifacts,
                     timeoutMs,
                   }),
               }),
           });
+          finalResultText = text;
+          stepResults.push({
+            id: step.id,
+            index: activeStepIndex,
+            result: text,
+          });
+          stepArtifacts.set(step.id, artifacts);
+          if (step.extractAs) {
+            extractedValues[step.extractAs] = text;
+          }
+        } else {
+          throw new WorkflowExecutionError(
+            'Workflow approval steps are not supported yet.',
+            'unsupported',
+          );
         }
 
-        finalResultText = executed.resultText;
-        finalArtifacts = executed.artifacts;
-        stepResults.push({
-          id: step.id,
-          index: activeStepIndex,
-          result: executed.resultText,
+        completedSteps += 1;
+        recordAuditEvent({
+          sessionId: params.sessionId,
+          runId,
+          event: {
+            type: 'workflow.step.end',
+            workflowId: workflow.id,
+            stepId: step.id,
+            stepIndex: activeStepIndex,
+            status: 'success',
+            durationMs: Date.now() - activeStepStartedAt,
+          },
         });
-        stepArtifacts.set(step.id, executed.artifacts);
-        if (step.extractAs) {
-          extractedValues[step.extractAs] = executed.resultText;
+        if (step.kind === 'agent') {
+          recordAuditEvent({
+            sessionId: workflowSessionId,
+            runId,
+            event: {
+              type: 'turn.end',
+              turnIndex: activeStepIndex,
+              finishReason: 'completed',
+            },
+          });
         }
-      } else if (step.kind === 'deliver') {
-        const interpolationContext = buildWorkflowInterpolationContext({
-          event: params.event,
-          workflowContext: workflow.spec.context,
-          stepResults,
-          extractedValues,
-          fallbackTimestamp: new Date().toISOString(),
-        });
-        const text = interpolateWorkflowTemplate(
-          step.input || '',
-          interpolationContext,
-        );
-        const artifacts = resolveDeliveryArtifacts({
-          step,
-          stepArtifacts,
-          fallbackArtifacts: finalArtifacts,
-        });
+        activeStep = null;
+      }
+
+      const lastStep = orderedSteps[orderedSteps.length - 1];
+      const lastStepDelivery =
+        lastStep?.kind === 'deliver' ? lastStep.delivery : lastStep?.deliverTo;
+      const lastStepDeliveredSameAsFinal =
+        Boolean(lastStepDelivery) &&
+        resolveDeliveryKey(lastStepDelivery as WorkflowDelivery) ===
+          resolveDeliveryKey(workflow.spec.delivery);
+
+      if (finalResultText && !lastStepDeliveredSameAsFinal) {
+        const timeoutMs =
+          workflow.spec.defaults?.timeoutMs || DEFAULT_WORKFLOW_STEP_TIMEOUT_MS;
+        const retryPolicy =
+          workflow.spec.defaults?.retryPolicy ||
+          ({ maxAttempts: 1 } satisfies WorkflowRetryPolicy);
         await withRetry({
-          label: `workflow ${workflow.id} step ${step.id}`,
+          label: `workflow ${workflow.id} final delivery`,
           retryPolicy,
           run: () =>
             withTimeout({
-              label: `workflow ${workflow.id} step ${step.id}`,
+              label: `workflow ${workflow.id} final delivery`,
               timeoutMs,
               run: async () =>
                 deliverWorkflowResult({
                   workflow,
-                  delivery: step.delivery as WorkflowDelivery,
+                  delivery: workflow.spec.delivery,
                   event: params.event,
-                  source: `workflow:${workflow.id}:${step.id}`,
-                  text,
-                  artifacts,
+                  source: `workflow:${workflow.id}`,
+                  text: finalResultText,
+                  artifacts: finalArtifacts,
                   timeoutMs,
                 }),
             }),
         });
-        finalResultText = text;
-        stepResults.push({
-          id: step.id,
-          index: activeStepIndex,
-          result: text,
-        });
-        stepArtifacts.set(step.id, artifacts);
-        if (step.extractAs) {
-          extractedValues[step.extractAs] = text;
-        }
-      } else {
-        throw new WorkflowExecutionError(
-          'Workflow approval steps are not supported yet.',
-          'unsupported',
-        );
       }
 
-      completedSteps += 1;
+      updateWorkflowRunStatus(workflow.id, 'success');
       recordAuditEvent({
         sessionId: params.sessionId,
         runId,
         event: {
-          type: 'workflow.step.end',
+          type: 'workflow.execution.end',
           workflowId: workflow.id,
-          stepId: step.id,
-          stepIndex: activeStepIndex,
           status: 'success',
-          durationMs: Date.now() - activeStepStartedAt,
-        },
-      });
-      if (step.kind === 'agent') {
-        recordAuditEvent({
-          sessionId: workflowSessionId,
-          runId,
-          event: {
-            type: 'turn.end',
-            turnIndex: activeStepIndex,
-            finishReason: 'completed',
-          },
-        });
-      }
-      activeStep = null;
-    }
-
-    const lastStep = orderedSteps[orderedSteps.length - 1];
-    const lastStepDelivery =
-      lastStep?.kind === 'deliver' ? lastStep.delivery : lastStep?.deliverTo;
-    const lastStepDeliveredSameAsFinal =
-      Boolean(lastStepDelivery) &&
-      resolveDeliveryKey(lastStepDelivery as WorkflowDelivery) ===
-        resolveDeliveryKey(workflow.spec.delivery);
-
-    if (finalResultText && !lastStepDeliveredSameAsFinal) {
-      const timeoutMs =
-        workflow.spec.defaults?.timeoutMs || DEFAULT_WORKFLOW_STEP_TIMEOUT_MS;
-      const retryPolicy =
-        workflow.spec.defaults?.retryPolicy ||
-        ({ maxAttempts: 1 } satisfies WorkflowRetryPolicy);
-      await withRetry({
-        label: `workflow ${workflow.id} final delivery`,
-        retryPolicy,
-        run: () =>
-          withTimeout({
-            label: `workflow ${workflow.id} final delivery`,
-            timeoutMs,
-            run: async () =>
-              deliverWorkflowResult({
-                workflow,
-                delivery: workflow.spec.delivery,
-                event: params.event,
-                source: `workflow:${workflow.id}`,
-                text: finalResultText,
-                artifacts: finalArtifacts,
-                timeoutMs,
-              }),
-          }),
-      });
-    }
-
-    updateWorkflowRunStatus(workflow.id, 'success');
-    recordAuditEvent({
-      sessionId: params.sessionId,
-      runId,
-      event: {
-        type: 'workflow.execution.end',
-        workflowId: workflow.id,
-        status: 'success',
-        completedSteps,
-        durationMs: Date.now() - startedAt,
-      },
-    });
-    recordAuditEvent({
-      sessionId: workflowSessionId,
-      runId,
-      event: {
-        type: 'session.end',
-        reason: 'normal',
-        stats: {
-          userMessages: orderedSteps.filter((step) => step.kind === 'agent')
-            .length,
-          assistantMessages: completedSteps,
-          toolCalls: totalToolCalls,
+          completedSteps,
           durationMs: Date.now() - startedAt,
         },
-      },
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const status = completedSteps > 0 ? 'partial' : 'error';
-    updateWorkflowRunStatus(workflow.id, status);
+      });
+      recordAuditEvent({
+        sessionId: workflowSessionId,
+        runId,
+        event: {
+          type: 'session.end',
+          reason: 'normal',
+          stats: {
+            userMessages: orderedSteps.filter((step) => step.kind === 'agent')
+              .length,
+            assistantMessages: completedSteps,
+            toolCalls: totalToolCalls,
+            durationMs: Date.now() - startedAt,
+          },
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = completedSteps > 0 ? 'partial' : 'error';
+      updateWorkflowRunStatus(workflow.id, status);
 
-    if (activeStep) {
+      if (activeStep) {
+        recordAuditEvent({
+          sessionId: params.sessionId,
+          runId,
+          event: {
+            type: 'workflow.step.end',
+            workflowId: workflow.id,
+            stepId: activeStep.id,
+            stepIndex: activeStepIndex,
+            status: status === 'partial' ? 'partial' : 'error',
+            durationMs: Math.max(0, Date.now() - activeStepStartedAt),
+            error: message,
+          },
+        });
+        if (activeStep.kind === 'agent') {
+          recordAuditEvent({
+            sessionId: workflowSessionId,
+            runId,
+            event: {
+              type: 'turn.end',
+              turnIndex: activeStepIndex,
+              finishReason: 'error',
+            },
+          });
+        }
+      }
+
       recordAuditEvent({
         sessionId: params.sessionId,
         runId,
         event: {
-          type: 'workflow.step.end',
+          type: 'workflow.execution.end',
           workflowId: workflow.id,
-          stepId: activeStep.id,
-          stepIndex: activeStepIndex,
-          status: status === 'partial' ? 'partial' : 'error',
-          durationMs: Math.max(0, Date.now() - activeStepStartedAt),
+          status,
+          completedSteps,
+          durationMs: Date.now() - startedAt,
           error: message,
         },
       });
-      if (activeStep.kind === 'agent') {
-        recordAuditEvent({
-          sessionId: workflowSessionId,
-          runId,
-          event: {
-            type: 'turn.end',
-            turnIndex: activeStepIndex,
-            finishReason: 'error',
-          },
-        });
-      }
-    }
-
-    recordAuditEvent({
-      sessionId: params.sessionId,
-      runId,
-      event: {
-        type: 'workflow.execution.end',
-        workflowId: workflow.id,
-        status,
-        completedSteps,
-        durationMs: Date.now() - startedAt,
-        error: message,
-      },
-    });
-    recordAuditEvent({
-      sessionId: workflowSessionId,
-      runId,
-      event: {
-        type: 'error',
-        errorType: 'workflow',
-        message,
-        recoverable: true,
-      },
-    });
-    recordAuditEvent({
-      sessionId: workflowSessionId,
-      runId,
-      event: {
-        type: 'session.end',
-        reason: 'error',
-        stats: {
-          userMessages: orderedSteps.filter((step) => step.kind === 'agent')
-            .length,
-          assistantMessages: completedSteps,
-          toolCalls: totalToolCalls,
-          durationMs: Date.now() - startedAt,
+      recordAuditEvent({
+        sessionId: workflowSessionId,
+        runId,
+        event: {
+          type: 'error',
+          errorType: 'workflow',
+          message,
+          recoverable: true,
         },
-      },
-    });
-    logger.warn(
-      { error, workflowId: workflow.id, runId },
-      'Workflow execution failed',
-    );
-    throw error;
+      });
+      recordAuditEvent({
+        sessionId: workflowSessionId,
+        runId,
+        event: {
+          type: 'session.end',
+          reason: 'error',
+          stats: {
+            userMessages: orderedSteps.filter((step) => step.kind === 'agent')
+              .length,
+            assistantMessages: completedSteps,
+            toolCalls: totalToolCalls,
+            durationMs: Date.now() - startedAt,
+          },
+        },
+      });
+      logger.warn(
+        { error, workflowId: workflow.id, runId },
+        'Workflow execution failed',
+      );
+      throw error;
+    }
+  } finally {
+    runningWorkflows.delete(workflow.id);
   }
 }
