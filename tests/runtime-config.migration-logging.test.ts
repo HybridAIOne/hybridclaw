@@ -221,6 +221,37 @@ describe('runtime config migration logging', () => {
     ]);
   });
 
+  it('normalizes per-channel disabled skills on startup', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      (
+        config.skills as RuntimeConfig['skills'] & {
+          channelDisabled?: Record<string, unknown>;
+        }
+      ).channelDisabled = {
+        discord: [' pdf ', '', 123],
+        teams: 'apple-calendar, himalaya',
+        unknown: ['code-review'],
+        email: null,
+      };
+    });
+
+    await importFreshRuntimeConfig(homeDir);
+
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
+    ) as RuntimeConfig;
+
+    expect(stored.skills.channelDisabled).toEqual({
+      discord: ['pdf'],
+      email: [],
+      msteams: ['apple-calendar', 'himalaya'],
+    });
+  });
+
   it('normalizes the legacy Teams dm pairing policy to allowlist on startup', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {

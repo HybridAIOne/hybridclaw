@@ -8,7 +8,13 @@
   },
   "skills": {
     "extraDirs": [],
-    "disabled": []
+    "disabled": [],
+    "channelDisabled": {
+      "discord": [],
+      "msteams": [],
+      "whatsapp": [],
+      "email": []
+    }
   },
   "discord": {
     "prefix": "!claw",

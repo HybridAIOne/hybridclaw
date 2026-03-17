@@ -9,6 +9,8 @@ import {
   DEFAULT_AGENT_ID,
 } from '../agents/agent-types.js';
 import { CODEX_DEFAULT_BASE_URL } from '../auth/codex-auth.js';
+import type { SkillConfigChannelKind } from '../channels/channel.js';
+import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
 import {
   normalizeSessionResetMode,
@@ -313,6 +315,7 @@ export interface RuntimeConfig {
   skills: {
     extraDirs: string[];
     disabled: string[];
+    channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
   };
   adaptiveSkills: AdaptiveSkillsConfig;
   discord: {
@@ -534,6 +537,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   skills: {
     extraDirs: [],
     disabled: [],
+    channelDisabled: {},
   },
   adaptiveSkills: {
     enabled: false,
@@ -1022,6 +1026,19 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   }
 
   return fallback;
+}
+
+function normalizeSkillChannelDisabled(
+  value: unknown,
+): Partial<Record<SkillConfigChannelKind, string[]>> {
+  const rawChannelDisabled = isRecord(value) ? value : {};
+  const channelDisabled: Partial<Record<SkillConfigChannelKind, string[]>> = {};
+  for (const [key, rawDisabled] of Object.entries(rawChannelDisabled)) {
+    const channelKind = normalizeSkillConfigChannelKind(key);
+    if (!channelKind) continue;
+    channelDisabled[channelKind] = normalizeStringArray(rawDisabled, []);
+  }
+  return channelDisabled;
 }
 
 function cloneAgentModelConfig(
@@ -2657,6 +2674,7 @@ function normalizeRuntimeConfig(
         rawSkills.disabled,
         DEFAULT_RUNTIME_CONFIG.skills.disabled,
       ),
+      channelDisabled: normalizeSkillChannelDisabled(rawSkills.channelDisabled),
     },
     adaptiveSkills: {
       enabled: normalizeBoolean(

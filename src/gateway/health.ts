@@ -1058,10 +1058,17 @@ async function handleApiAdminSkills(
   const body = (await readJsonBody(req)) as {
     name?: unknown;
     enabled?: unknown;
+    channel?: unknown;
   };
   if (typeof body.enabled !== 'boolean') {
     sendJson(res, 400, {
       error: 'Expected boolean `enabled` in request body.',
+    });
+    return;
+  }
+  if (body.channel != null && typeof body.channel !== 'string') {
+    sendJson(res, 400, {
+      error: 'Expected string `channel` in request body.',
     });
     return;
   }
@@ -1071,6 +1078,7 @@ async function handleApiAdminSkills(
     setGatewayAdminSkillEnabled({
       name: String(body.name || ''),
       enabled: body.enabled,
+      channel: typeof body.channel === 'string' ? body.channel : undefined,
     }),
   );
 }

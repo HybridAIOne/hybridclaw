@@ -127,3 +127,38 @@ test('handleGatewayMessage does not attribute ambiguous read-only skill explorat
   expect(getSkillObservationSummary({ skillName: 'apple-music' })).toEqual([]);
   expect(getSkillObservationSummary({ skillName: 'pdf' })).toEqual([]);
 });
+
+test('setGatewayAdminSkillEnabled stores per-channel disabled skills separately', async () => {
+  setupHome();
+
+  const { getRuntimeConfig, updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { setGatewayAdminSkillEnabled } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  updateRuntimeConfig((draft) => {
+    draft.skills.disabled = ['pdf'];
+    draft.skills.channelDisabled = {
+      discord: ['docx'],
+    };
+  });
+
+  const result = setGatewayAdminSkillEnabled({
+    name: 'pptx',
+    enabled: false,
+    channel: 'teams',
+  });
+
+  expect(getRuntimeConfig().skills.disabled).toEqual(['pdf']);
+  expect(getRuntimeConfig().skills.channelDisabled).toEqual({
+    discord: ['docx'],
+    msteams: ['pptx'],
+  });
+  expect(result.disabled).toEqual(['pdf']);
+  expect(result.channelDisabled).toEqual({
+    discord: ['docx'],
+    msteams: ['pptx'],
+  });
+});

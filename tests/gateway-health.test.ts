@@ -391,6 +391,7 @@ async function importFreshHealth(options?: {
   const getGatewayAdminSkills = vi.fn(() => ({
     extraDirs: [],
     disabled: [],
+    channelDisabled: {},
     skills: [],
   }));
   const deleteGatewayAdminSession = vi.fn(() => ({
@@ -484,6 +485,7 @@ async function importFreshHealth(options?: {
   const setGatewayAdminSkillEnabled = vi.fn(() => ({
     extraDirs: [],
     disabled: [],
+    channelDisabled: {},
     skills: [],
   }));
   const runMessageToolAction = vi.fn(async () => ({ ok: true }));
@@ -913,6 +915,24 @@ describe('gateway health server', () => {
     });
   });
 
+  test('returns admin skills for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/skills' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminSkills).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      extraDirs: [],
+      disabled: [],
+      channelDisabled: {},
+      skills: [],
+    });
+  });
+
   test('toggles admin skills for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -921,6 +941,7 @@ describe('gateway health server', () => {
       body: {
         name: 'pdf',
         enabled: false,
+        channel: 'teams',
       },
     });
     const res = makeResponse();
@@ -929,6 +950,7 @@ describe('gateway health server', () => {
     await settle();
 
     expect(state.setGatewayAdminSkillEnabled).toHaveBeenCalledWith({
+      channel: 'teams',
       enabled: false,
       name: 'pdf',
     });

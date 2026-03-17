@@ -102,7 +102,7 @@ function buildSystemPrompt(
   return buildSystemPromptFromHooks({
     agentId,
     sessionSummary,
-    skills: loadSkills(agentId),
+    skills: loadSkills(agentId, undefined),
     purpose: 'memory-flush',
     promptMode: 'minimal',
     extraSafetyText: extra,

@@ -7,6 +7,11 @@ export type ChannelKind =
   | 'tui'
   | 'whatsapp';
 
+export type SkillConfigChannelKind = Extract<
+  ChannelKind,
+  'discord' | 'email' | 'msteams' | 'whatsapp'
+>;
+
 export interface ChannelCapabilities {
   typing: boolean;
   reactions: boolean;

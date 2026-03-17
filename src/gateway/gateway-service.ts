@@ -42,6 +42,8 @@ import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import {
   getChannel,
   getChannelByContextId,
+  listChannels,
+  normalizeSkillConfigChannelKind,
 } from '../channels/channel-registry.js';
 import {
   APP_VERSION,
@@ -545,6 +547,23 @@ function dedupeStrings(values: string[]): string[] {
     deduped.push(value);
   }
   return deduped;
+}
+
+function getAdminChannelDisabledSkills(
+  value: RuntimeConfig['skills']['channelDisabled'],
+): GatewayAdminSkillsResponse['channelDisabled'] {
+  return Object.fromEntries(
+    Object.entries(value ?? {})
+      .flatMap(([channel, rawNames]) => {
+        const channelKind = normalizeSkillConfigChannelKind(channel);
+        if (!channelKind) return [];
+        const names = dedupeStrings(
+          Array.isArray(rawNames) ? rawNames : [],
+        ).sort((left, right) => left.localeCompare(right));
+        return [[channelKind, names]];
+      })
+      .sort(([left], [right]) => String(left).localeCompare(String(right))),
+  );
 }
 
 function buildGatewayProviderHealth(params: {
@@ -2593,6 +2612,9 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
     disabled: dedupeStrings(runtimeConfig.skills.disabled).sort((a, b) =>
       a.localeCompare(b),
     ),
+    channelDisabled: getAdminChannelDisabledSkills(
+      runtimeConfig.skills.channelDisabled,
+    ),
     skills: loadSkillCatalog().map((skill) => ({
       name: skill.name,
       description: skill.description,
@@ -2612,10 +2634,18 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
 export function setGatewayAdminSkillEnabled(input: {
   name: string;
   enabled: boolean;
+  channel?: string;
 }): GatewayAdminSkillsResponse {
   const name = String(input.name || '').trim();
   if (!name) {
     throw new Error('Expected non-empty skill `name`.');
+  }
+  const rawChannel = String(input.channel || '').trim();
+  const channelKind = rawChannel
+    ? normalizeSkillConfigChannelKind(rawChannel)
+    : undefined;
+  if (rawChannel && !channelKind) {
+    throw new Error(`Unsupported skill channel: ${rawChannel}`);
   }
   const known = loadSkillCatalog().some((skill) => skill.name === name);
   if (!known) {
@@ -2623,6 +2653,26 @@ export function setGatewayAdminSkillEnabled(input: {
   }
 
   updateRuntimeConfig((draft) => {
+    if (channelKind) {
+      const disabled = new Set(
+        (draft.skills.channelDisabled?.[channelKind] ?? [])
+          .map((entry) => String(entry || '').trim())
+          .filter(Boolean),
+      );
+      if (input.enabled) {
+        disabled.delete(name);
+      } else {
+        disabled.add(name);
+      }
+      draft.skills.channelDisabled = {
+        ...(draft.skills.channelDisabled ?? {}),
+        [channelKind]: [...disabled].sort((left, right) =>
+          left.localeCompare(right),
+        ),
+      };
+      return;
+    }
+
     const disabled = new Set(
       draft.skills.disabled
         .map((entry) => String(entry || '').trim())

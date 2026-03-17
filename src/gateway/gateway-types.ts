@@ -1,4 +1,5 @@
 import type { BaseMessageOptions } from 'discord.js';
+import type { SkillConfigChannelKind } from '../channels/channel.js';
 import type {
   MSTeamsReplyStyle,
   RuntimeConfig,
@@ -573,6 +574,7 @@ export interface GatewayAdminSkill {
 export interface GatewayAdminSkillsResponse {
   extraDirs: string[];
   disabled: string[];
+  channelDisabled: Partial<Record<SkillConfigChannelKind, string[]>>;
   skills: GatewayAdminSkill[];
 }
 

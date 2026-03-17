@@ -94,6 +94,40 @@ describe('office bundled skills', () => {
     });
   });
 
+  test('applies global and per-channel disabled skills when loading skills', async () => {
+    const { updateRuntimeConfig } = await import(
+      '../src/config/runtime-config.ts'
+    );
+    const { loadSkillCatalog, loadSkills } = await import(
+      '../src/skills/skills.ts'
+    );
+
+    updateRuntimeConfig((draft) => {
+      draft.skills.disabled = ['pdf'];
+      draft.skills.channelDisabled = {
+        discord: ['docx'],
+      };
+    });
+
+    const catalog = loadSkillCatalog();
+    expect(catalog.find((skill) => skill.name === 'pdf')?.enabled).toBe(false);
+    expect(catalog.find((skill) => skill.name === 'docx')?.enabled).toBe(true);
+
+    const defaultSkills = loadSkills('office-agent-default-disable');
+    const discordSkills = loadSkills('office-agent-discord-disable', 'discord');
+    const whatsappSkills = loadSkills(
+      'office-agent-whatsapp-disable',
+      'whatsapp',
+    );
+
+    expect(defaultSkills.some((skill) => skill.name === 'pdf')).toBe(false);
+    expect(defaultSkills.some((skill) => skill.name === 'docx')).toBe(true);
+    expect(discordSkills.some((skill) => skill.name === 'pdf')).toBe(false);
+    expect(discordSkills.some((skill) => skill.name === 'docx')).toBe(false);
+    expect(whatsappSkills.some((skill) => skill.name === 'pdf')).toBe(false);
+    expect(whatsappSkills.some((skill) => skill.name === 'docx')).toBe(true);
+  });
+
   test('syncs bundled skills into workspace/skills for script-path compatibility', async () => {
     const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
     const { buildSkillsPrompt, loadSkills } = await import(

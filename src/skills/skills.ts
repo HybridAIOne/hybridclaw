@@ -9,6 +9,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { SkillConfigChannelKind } from '../channels/channel.js';
+import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { DATA_DIR } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
@@ -1337,12 +1339,26 @@ export interface SkillCatalogEntry {
   missing: string[];
 }
 
-function getDisabledSkillNames(): Set<string> {
-  return new Set(
-    (getRuntimeConfig().skills?.disabled ?? [])
+function getDisabledSkillNames(
+  channelKind?: SkillConfigChannelKind | string,
+): Set<string> {
+  const config = getRuntimeConfig();
+  const disabled = new Set(
+    (config.skills?.disabled ?? [])
       .map((name) => String(name || '').trim())
       .filter(Boolean),
   );
+  const normalizedChannelKind = normalizeSkillConfigChannelKind(channelKind);
+  if (!normalizedChannelKind) return disabled;
+
+  for (const rawName of config.skills?.channelDisabled?.[
+    normalizedChannelKind
+  ] ?? []) {
+    const name = String(rawName || '').trim();
+    if (!name) continue;
+    disabled.add(name);
+  }
+  return disabled;
 }
 
 function collectResolvedSkillCandidates(): SkillCandidate[] {
@@ -1447,10 +1463,13 @@ export function loadSkillCatalog(): SkillCatalogEntry[] {
  * Any non-workspace skill selected by precedence is mirrored into workspace so
  * the container can read it via /workspace/... paths.
  */
-export function loadSkills(agentId: string): Skill[] {
+export function loadSkills(
+  agentId: string,
+  channelKind?: SkillConfigChannelKind | string,
+): Skill[] {
   const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
   fs.mkdirSync(workspaceDir, { recursive: true });
-  const disabled = getDisabledSkillNames();
+  const disabled = getDisabledSkillNames(channelKind);
   const guarded = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
   ).filter(

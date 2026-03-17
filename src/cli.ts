@@ -16,6 +16,10 @@ import {
   getHybridAIAuthStatus,
   loginHybridAIInteractive,
 } from './auth/hybridai-auth.js';
+import type {
+  SkillConfigChannelKind,
+} from './channels/channel.js';
+import { normalizeSkillConfigChannelKind } from './channels/channel-registry.js';
 import {
   normalizeEmailAddress,
   normalizeEmailAllowEntry,
@@ -621,6 +625,9 @@ function printSkillUsage(): void {
 
 Commands:
   hybridclaw skill list
+  hybridclaw skill enable <skill-name> [--channel <kind>]
+  hybridclaw skill disable <skill-name> [--channel <kind>]
+  hybridclaw skill toggle [--channel <kind>]
   hybridclaw skill inspect <skill-name>
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
@@ -633,6 +640,8 @@ Commands:
 
 Notes:
   - \`list\` shows declared install options from skill frontmatter.
+  - Omit \`--channel\` to change the global disabled list.
+  - \`--channel teams\` is normalized to \`msteams\`.
   - \`inspect\` shows observation-based health metrics for a skill or all observed skills.
   - \`runs\` shows recent execution observations for one skill.
   - \`amend\` stages, applies, rejects, or rolls back skill amendments.
@@ -1520,6 +1529,100 @@ function normalizeUnifiedProvider(
 
 function normalizeArgs(args: string[]): string[] {
   return args.map((arg) => arg.trim()).filter(Boolean);
+}
+
+function parseSkillChannelKind(
+  value: string,
+): SkillConfigChannelKind | undefined {
+  const raw = String(value || '').trim();
+  if (!raw || raw.toLowerCase() === 'global') return undefined;
+  const channelKind = normalizeSkillConfigChannelKind(raw);
+  if (!channelKind) {
+    throw new Error(`Unsupported channel kind: ${value}`);
+  }
+  return channelKind;
+}
+
+function parseSkillScopeArgs(args: string[]): {
+  channelKind?: SkillConfigChannelKind;
+  remaining: string[];
+} {
+  const remaining: string[] = [];
+  let channelKind: SkillConfigChannelKind | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--channel') {
+      const next = args[index + 1];
+      if (!next) {
+        throw new Error('Missing value for `--channel`.');
+      }
+      channelKind = parseSkillChannelKind(next);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--channel=')) {
+      channelKind = parseSkillChannelKind(arg.slice('--channel='.length));
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    remaining.push(arg);
+  }
+
+  return { channelKind, remaining };
+}
+
+function getSkillScopeDisabledNames(
+  config: {
+    skills?: {
+      disabled?: string[];
+      channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
+    };
+  },
+  channelKind?: SkillConfigChannelKind,
+): Set<string> {
+  const rawDisabled = channelKind
+    ? (config.skills?.channelDisabled?.[channelKind] ?? [])
+    : (config.skills?.disabled ?? []);
+  return new Set(
+    rawDisabled.map((name) => String(name || '').trim()).filter(Boolean),
+  );
+}
+
+function setSkillScopeEnabled(
+  draft: {
+    skills: {
+      disabled: string[];
+      channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
+    };
+  },
+  skillName: string,
+  enabled: boolean,
+  channelKind?: SkillConfigChannelKind,
+): void {
+  const disabled = getSkillScopeDisabledNames(draft, channelKind);
+  if (enabled) {
+    disabled.delete(skillName);
+  } else {
+    disabled.add(skillName);
+  }
+  const nextDisabled = [...disabled].sort((left, right) =>
+    left.localeCompare(right),
+  );
+  if (channelKind) {
+    draft.skills.channelDisabled = {
+      ...(draft.skills.channelDisabled ?? {}),
+      [channelKind]: nextDisabled,
+    };
+    return;
+  }
+  draft.skills.disabled = nextDisabled;
+}
+
+function formatSkillScopeLabel(channelKind?: SkillConfigChannelKind): string {
+  return channelKind ? channelKind : 'global';
 }
 
 function parseUnifiedProviderArgs(args: string[]): {
@@ -3381,6 +3484,123 @@ async function handleSkillCommand(args: string[]): Promise<void> {
         const label = install.label ? ` — ${install.label}` : '';
         console.log(`  ${install.id} (${install.kind})${label}`);
       }
+    }
+    return;
+  }
+
+  if (sub === 'enable' || sub === 'disable') {
+    const { channelKind, remaining } = parseSkillScopeArgs(normalized.slice(1));
+    const skillName = remaining[0];
+    if (!skillName || remaining.length !== 1) {
+      printSkillUsage();
+      throw new Error(
+        `Expected exactly one skill name for \`hybridclaw skill ${sub}\`.`,
+      );
+    }
+
+    const { loadSkillCatalog } = await import('./skills/skills.js');
+    const known = loadSkillCatalog().some((skill) => skill.name === skillName);
+    if (!known) {
+      throw new Error(`Unknown skill: ${skillName}`);
+    }
+
+    const enabled = sub === 'enable';
+    const nextConfig = updateRuntimeConfig((draft) => {
+      setSkillScopeEnabled(draft, skillName, enabled, channelKind);
+    });
+    console.log(
+      `${enabled ? 'Enabled' : 'Disabled'} ${skillName} in ${formatSkillScopeLabel(channelKind)} scope.`,
+    );
+    if (
+      channelKind &&
+      enabled &&
+      getSkillScopeDisabledNames(nextConfig).has(skillName)
+    ) {
+      console.log(`${skillName} remains globally disabled.`);
+    }
+    return;
+  }
+
+  if (sub === 'toggle') {
+    const { channelKind, remaining } = parseSkillScopeArgs(normalized.slice(1));
+    if (remaining.length > 0) {
+      printSkillUsage();
+      throw new Error(
+        'Unexpected positional arguments for `hybridclaw skill toggle`.',
+      );
+    }
+
+    const { loadSkillCatalog } = await import('./skills/skills.js');
+    const catalog = loadSkillCatalog();
+    if (catalog.length === 0) {
+      console.log('No skills found.');
+      return;
+    }
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      throw new Error(
+        '`hybridclaw skill toggle` requires an interactive terminal.',
+      );
+    }
+
+    const currentConfig = getRuntimeConfig();
+    const scopeDisabled = getSkillScopeDisabledNames(
+      currentConfig,
+      channelKind,
+    );
+    const globalDisabled = getSkillScopeDisabledNames(currentConfig);
+    for (const [index, skill] of catalog.entries()) {
+      const marker = scopeDisabled.has(skill.name) ? '[x]' : '[ ]';
+      const globalSuffix =
+        channelKind &&
+        globalDisabled.has(skill.name) &&
+        !scopeDisabled.has(skill.name)
+          ? ' (globally disabled)'
+          : '';
+      console.log(`${index + 1}. ${marker} ${skill.name}${globalSuffix}`);
+    }
+
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    try {
+      const answer = (
+        await rl.question(
+          `Toggle which skill number for ${formatSkillScopeLabel(channelKind)} scope? `,
+        )
+      ).trim();
+      if (!answer) {
+        console.log('No changes made.');
+        return;
+      }
+      const selection = Number.parseInt(answer, 10);
+      if (
+        !Number.isInteger(selection) ||
+        selection < 1 ||
+        selection > catalog.length
+      ) {
+        throw new Error('Choose a listed skill number.');
+      }
+      const selected = catalog[selection - 1];
+      if (!selected) {
+        throw new Error('Choose a listed skill number.');
+      }
+      const enabled = scopeDisabled.has(selected.name);
+      const nextConfig = updateRuntimeConfig((draft) => {
+        setSkillScopeEnabled(draft, selected.name, enabled, channelKind);
+      });
+      console.log(
+        `${enabled ? 'Enabled' : 'Disabled'} ${selected.name} in ${formatSkillScopeLabel(channelKind)} scope.`,
+      );
+      if (
+        channelKind &&
+        enabled &&
+        getSkillScopeDisabledNames(nextConfig).has(selected.name)
+      ) {
+        console.log(`${selected.name} remains globally disabled.`);
+      }
+    } finally {
+      rl.close();
     }
     return;
   }

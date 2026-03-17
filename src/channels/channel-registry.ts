@@ -4,6 +4,7 @@ import {
   DISCORD_CAPABILITIES,
   EMAIL_CAPABILITIES,
   MSTEAMS_CAPABILITIES,
+  type SkillConfigChannelKind,
   SYSTEM_CAPABILITIES,
   TUI_CAPABILITIES,
   WHATSAPP_CAPABILITIES,
@@ -54,6 +55,21 @@ export function normalizeChannelKind(
     return normalized as ChannelKind;
   }
   return CHANNEL_KIND_ALIASES[normalized];
+}
+
+export function normalizeSkillConfigChannelKind(
+  kind?: string | null,
+): SkillConfigChannelKind | undefined {
+  const channelKind = normalizeChannelKind(kind);
+  if (
+    channelKind !== 'discord' &&
+    channelKind !== 'email' &&
+    channelKind !== 'msteams' &&
+    channelKind !== 'whatsapp'
+  ) {
+    return undefined;
+  }
+  return channelKind;
 }
 
 function buildDefaultChannelInfo(kind: ChannelKind): ChannelInfo {

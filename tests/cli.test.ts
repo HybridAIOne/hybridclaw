@@ -118,6 +118,11 @@ async function importFreshCli(options?: {
   const ensureRuntimeCredentials = vi.fn();
   const ensureContainerImageReady = vi.fn();
   const saveRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
+  const loadSkillCatalog = vi.fn(() => [
+    { name: 'pdf' },
+    { name: 'docx' },
+    { name: 'pptx' },
+  ]);
   const getWhatsAppAuthStatus = vi.fn(async () => ({
     linked: false,
     jid: null,
@@ -136,6 +141,11 @@ async function importFreshCli(options?: {
   }));
   const ensureRuntimeConfigFile = vi.fn(() => false);
   const getRuntimeConfig = vi.fn(() => ({
+    skills: {
+      extraDirs: [],
+      disabled: [],
+      channelDisabled: {},
+    },
     discord: {
       prefix: '!claw',
       commandsOnly: false,
@@ -326,6 +336,9 @@ async function importFreshCli(options?: {
   vi.doMock('../src/onboarding.ts', () => ({
     ensureRuntimeCredentials,
   }));
+  vi.doMock('../src/skills/skills.ts', () => ({
+    loadSkillCatalog,
+  }));
   vi.doMock('../src/security/instruction-approval-audit.ts', () => ({
     beginInstructionApprovalAudit: vi.fn(() => ({
       sessionId: 'tui:local',
@@ -378,6 +391,7 @@ async function importFreshCli(options?: {
     updateRuntimeConfig,
     gatewayHealth,
     gatewayStatus,
+    loadSkillCatalog,
     readlineCreateInterface,
     readlineQuestion,
     readlineClose,
@@ -398,6 +412,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/whatsapp/auth.ts');
   vi.doUnmock('node:readline/promises');
   vi.doUnmock('../src/onboarding.ts');
+  vi.doUnmock('../src/skills/skills.ts');
   vi.doUnmock('../src/security/instruction-approval-audit.ts');
   vi.doUnmock('../src/security/instruction-integrity.ts');
   vi.doUnmock('../src/security/runtime-secrets.ts');
@@ -1230,6 +1245,56 @@ describe('CLI hybridai commands', () => {
         resumeCommand: 'hybridclaw tui --resume',
       }),
     );
+  });
+
+  it('disables a skill for one channel scope', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['skill', 'disable', 'pdf', '--channel', 'teams']);
+
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      skills: {
+        disabled: string[];
+        channelDisabled?: Record<string, string[]>;
+      };
+    };
+    expect(nextConfig.skills.disabled).toEqual([]);
+    expect(nextConfig.skills.channelDisabled).toEqual({
+      msteams: ['pdf'],
+    });
+    expect(logSpy).toHaveBeenCalledWith('Disabled pdf in msteams scope.');
+  });
+
+  it('enables a globally disabled skill without changing channel overrides', async () => {
+    const { cli, getRuntimeConfig, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    getRuntimeConfig.mockReturnValue({
+      ...getRuntimeConfig(),
+      skills: {
+        extraDirs: [],
+        disabled: ['pdf'],
+        channelDisabled: {
+          discord: ['docx'],
+        },
+      },
+    });
+
+    await cli.main(['skill', 'enable', 'pdf']);
+
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      skills: {
+        disabled: string[];
+        channelDisabled?: Record<string, string[]>;
+      };
+    };
+    expect(nextConfig.skills.disabled).toEqual([]);
+    expect(nextConfig.skills.channelDisabled).toEqual({
+      discord: ['docx'],
+    });
+    expect(logSpy).toHaveBeenCalledWith('Enabled pdf in global scope.');
   });
 
   it('treats a symlinked bin path as direct execution', async () => {
