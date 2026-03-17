@@ -7,6 +7,8 @@ top-level contributor quickstart.
   layout
 - [Runtime Internals](./runtime.md) for sandboxing, configuration, audit, and
   observability behavior
+- [Session Routing](./session-routing.md) for canonical session keys, DM
+  isolation scope, and identity-link behavior
 - [Voice and TTS](./voice-tts.md) for outbound voice-reply setup and local
   speech backend expectations
 - [Testing Reference](./testing.md) for local checks, hooks, and test-suite

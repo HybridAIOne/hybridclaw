@@ -775,7 +775,37 @@
     const errorEl = document.getElementById('error');
     const urlParams = new URLSearchParams(window.location.search);
     const queryToken = urlParams.get('token') || '';
-    let activeSessionId = localStorage.getItem('hybridclaw_session') || 'web:default';
+
+    function randomHex(byteCount) {
+      const bytes = new Uint8Array(byteCount);
+      if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+        window.crypto.getRandomValues(bytes);
+      } else {
+        for (let index = 0; index < bytes.length; index += 1) {
+          bytes[index] = Math.floor(Math.random() * 256);
+        }
+      }
+      return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+    }
+
+    function generateWebSessionId() {
+      return `agent:main:channel:web:chat:dm:peer:${randomHex(8)}`;
+    }
+
+    function generateWebUserId() {
+      return `web-user-${randomHex(4)}`;
+    }
+
+    function resolveStoredSessionId(raw) {
+      const normalized = String(raw || '').trim();
+      if (!normalized || normalized === 'web:default' || normalized === 'agent:main:channel:web:chat:dm:peer:default') {
+        return generateWebSessionId();
+      }
+      return normalized;
+    }
+
+    let activeSessionId = resolveStoredSessionId(localStorage.getItem('hybridclaw_session'));
+    const activeUserId = localStorage.getItem('hybridclaw_user_id') || generateWebUserId();
     let activeSessionNumber = parseInt(localStorage.getItem('hybridclaw_session_number') || '1', 10);
     if (Number.isNaN(activeSessionNumber) || activeSessionNumber < 1) {
       activeSessionNumber = 1;
@@ -810,6 +840,7 @@
 
     function savePrefs() {
       localStorage.setItem('hybridclaw_session', activeSessionId);
+      localStorage.setItem('hybridclaw_user_id', activeUserId);
       localStorage.setItem('hybridclaw_session_number', String(activeSessionNumber));
       localStorage.setItem('hybridclaw_last_session_number', String(lastSessionNumber));
       if (apiToken) {
@@ -1162,6 +1193,10 @@
           method: 'GET',
           headers: apiHeaders(),
         });
+        if (payload.sessionId) {
+          activeSessionId = String(payload.sessionId);
+          savePrefs();
+        }
         for (const msg of payload.history || []) {
           addMessage(msg.role, msg.content);
         }
@@ -1199,13 +1234,17 @@
           body: JSON.stringify({
             sessionId: activeSessionId,
             channelId: 'web',
-            userId: 'web-user',
+            userId: activeUserId,
             username: 'web',
             content,
           }),
         });
         if (payload.status === 'error') {
           throw new Error(payload.error || 'Unknown error');
+        }
+        if (payload.sessionId) {
+          activeSessionId = String(payload.sessionId);
+          savePrefs();
         }
         thinkingItem.remove();
         addMessage('assistant', payload.result || '', payload.artifacts || []);
@@ -1220,7 +1259,7 @@
     function newChat() {
       lastSessionNumber += 1;
       activeSessionNumber = lastSessionNumber;
-      activeSessionId = `web:${Date.now()}`;
+      activeSessionId = generateWebSessionId();
       messageEl.value = '';
       messagesEl.innerHTML = '';
       updateEmptyState();

@@ -14,11 +14,16 @@ import {
   normalizeSessionResetMode,
   type SessionResetMode,
 } from '../session/session-reset.js';
+import {
+  normalizeSessionDmScope,
+  normalizeSessionIdentityLinks,
+  type SessionDmScope,
+} from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
 import type { McpServerConfig } from '../types.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 15;
+export const CONFIG_VERSION = 16;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
@@ -455,6 +460,10 @@ export interface RuntimeConfig {
       }
     >;
   };
+  sessionRouting: {
+    dmScope: SessionDmScope;
+    identityLinks: Record<string, string[]>;
+  };
   promptHooks: {
     bootstrapEnabled: boolean;
     memoryEnabled: boolean;
@@ -830,6 +839,10 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       atHour: 4,
       idleMinutes: 1440,
     },
+  },
+  sessionRouting: {
+    dmScope: 'per-channel-peer',
+    identityLinks: {},
   },
   promptHooks: {
     bootstrapEnabled: true,
@@ -2521,6 +2534,9 @@ function normalizeRuntimeConfig(
   const rawResetByChannelKind = isRecord(rawSessionReset.byChannelKind)
     ? rawSessionReset.byChannelKind
     : {};
+  const rawSessionRouting = isRecord(raw.sessionRouting)
+    ? raw.sessionRouting
+    : {};
   const rawPromptHooks = isRecord(raw.promptHooks) ? raw.promptHooks : {};
   const rawProactive = isRecord(raw.proactive) ? raw.proactive : {};
   const rawActiveHours = isRecord(rawProactive.activeHours)
@@ -3272,6 +3288,15 @@ function normalizeRuntimeConfig(
       byChannelKind: normalizeSessionResetByChannelKind(
         rawResetByChannelKind,
         DEFAULT_RUNTIME_CONFIG.sessionReset.defaultPolicy,
+      ),
+    },
+    sessionRouting: {
+      dmScope: normalizeSessionDmScope(
+        rawSessionRouting.dmScope,
+        DEFAULT_RUNTIME_CONFIG.sessionRouting.dmScope,
+      ),
+      identityLinks: normalizeSessionIdentityLinks(
+        rawSessionRouting.identityLinks,
       ),
     },
     promptHooks: {

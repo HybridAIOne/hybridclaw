@@ -50,6 +50,7 @@ function makeSession(partial?: Partial<Session>): Session {
   return {
     id: 'session:test',
     session_key: 'session:test',
+    main_session_key: 'session:test',
     is_current: 1,
     guild_id: null,
     channel_id: 'channel:test',
@@ -434,7 +435,8 @@ describe.sequential('schema migrations', () => {
 
     initDatabase({ quiet: true, dbPath });
 
-    const migratedSessionId = 'agent:main:discord:dm:439508376087560193';
+    const migratedSessionId =
+      'agent:main:channel:discord:chat:dm:peer:439508376087560193';
     const migratedSession = getSessionById(migratedSessionId);
     expect(migratedSession?.id).toBe(migratedSessionId);
     expect(migratedSession?.legacy_session_id).toBe('dm:439508376087560193');
@@ -503,7 +505,8 @@ describe.sequential('schema migrations', () => {
 
     initDatabase({ quiet: true, dbPath });
 
-    const migratedSessionId = 'agent:main:discord:dm:439508376087560193';
+    const migratedSessionId =
+      'agent:main:channel:discord:chat:dm:peer:439508376087560193';
     const migratedSession = getSessionById('dm:439508376087560193');
     expect(migratedSession?.id).toBe(migratedSessionId);
     expect(migratedSession?.legacy_session_id).toBe('dm:439508376087560193');
@@ -544,7 +547,7 @@ describe.sequential('schema migrations', () => {
         'INSERT INTO sessions (id, guild_id, channel_id, agent_id) VALUES (?, ?, ?, ?)',
       )
       .run(
-        'agent:main:discord:dm:439508376087560193',
+        'agent:main:channel:discord:chat:dm:peer:439508376087560193',
         null,
         '439508376087560193',
         'main',
@@ -579,7 +582,7 @@ describe.sequential('schema migrations', () => {
 
     expect(Number(schemaVersion)).toBe(10);
     expect(sessionIds.map((row) => row.id)).toEqual([
-      'agent:main:discord:dm:439508376087560193',
+      'agent:main:channel:discord:chat:dm:peer:439508376087560193',
       'dm:439508376087560193',
     ]);
     expect(message.session_id).toBe('dm:439508376087560193');
@@ -624,6 +627,52 @@ describe.sequential('schema migrations', () => {
       vi.doUnmock('node:crypto');
       vi.useRealTimers();
       vi.resetModules();
+    }
+  });
+
+  test('stores a collapsed main_session_key for linked DM identities', async () => {
+    const originalHome = process.env.HOME;
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-memory-config-'),
+    );
+    process.env.HOME = runtimeHome;
+    vi.resetModules();
+
+    const dbPath = createTempDbPath();
+    const runtimeConfigModule = await import('../src/config/runtime-config.js');
+    const dbModule = await import('../src/memory/db.js');
+    const sessionKeyModule = await import('../src/session/session-key.js');
+    dbModule.initDatabase({ quiet: true, dbPath });
+    const originalConfig = runtimeConfigModule.getRuntimeConfig();
+    try {
+      runtimeConfigModule.updateRuntimeConfig((draft) => {
+        draft.sessionRouting.dmScope = 'per-linked-identity';
+        draft.sessionRouting.identityLinks = {
+          alice: ['discord:user-123', 'email:boss@example.com'],
+        };
+      });
+
+      const session = dbModule.getOrCreateSession(
+        sessionKeyModule.buildSessionKey('main', 'discord', 'dm', 'user-123'),
+        null,
+        'discord-dm',
+      );
+
+      expect(session.session_key).toBe(
+        'agent:main:channel:discord:chat:dm:peer:user-123',
+      );
+      expect(session.main_session_key).toBe(
+        'agent:main:channel:main:chat:dm:peer:alice',
+      );
+    } finally {
+      runtimeConfigModule.saveRuntimeConfig(originalConfig);
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      vi.resetModules();
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
     }
   });
 });

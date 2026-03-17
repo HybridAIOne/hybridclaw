@@ -1189,7 +1189,9 @@ describe('CLI hybridai commands', () => {
     );
     expect(runTui).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionId: expect.stringMatching(/^\d{8}_\d{6}_[0-9a-f]{6}$/),
+        sessionId: expect.stringMatching(
+          /^agent:main:channel:tui:chat:dm:peer:\d{8}_\d{6}_[0-9a-f]{6}$/,
+        ),
         sessionMode: 'new',
         startedAtMs: expect.any(Number),
         resumeCommand: 'hybridclaw tui --resume',

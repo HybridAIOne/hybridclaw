@@ -1,5 +1,5 @@
 {
-  "version": 12,
+  "version": 16,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -286,6 +286,10 @@
   "memory": {
     "decayRate": 0.1,
     "consolidationIntervalHours": 24
+  },
+  "sessionRouting": {
+    "dmScope": "per-channel-peer",
+    "identityLinks": {}
   },
   "ops": {
     "healthHost": "127.0.0.1",

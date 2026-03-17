@@ -47,6 +47,18 @@ HybridClaw may persist:
 
 Operators are responsible for data retention, backup, and deletion requirements.
 
+## Session Isolation
+
+HybridClaw isolates direct-message context by default with
+`sessionRouting.dmScope = "per-channel-peer"`, which keeps DM continuity scoped
+to the current channel kind and peer identity. Operators may opt into
+cross-channel DM continuity with `per-linked-identity`, but only by supplying
+explicit `sessionRouting.identityLinks` mappings in `config.json`.
+
+If an operator links the wrong aliases together, HybridClaw will merge memory
+and session continuity across those users. Operators are responsible for
+verifying identity-link ownership before enabling cross-channel routing.
+
 ## Explicit Acceptance Requirement
 
 On first run (or when policy version changes), onboarding requires explicit acceptance:

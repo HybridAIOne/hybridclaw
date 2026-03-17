@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { DEFAULT_AGENT_ID } from './agents/agent-types.js';
+import { buildSessionKey } from './session/session-key.js';
 
 export interface TuiRunOptions {
   sessionId: string;
@@ -26,7 +28,7 @@ function padTimestampPart(value: number): string {
   return String(Math.max(0, Math.trunc(value))).padStart(2, '0');
 }
 
-export function generateTuiSessionId(
+function generateTuiSessionToken(
   now: Date = new Date(),
   suffix: string = randomBytes(3).toString('hex'),
 ): string {
@@ -43,6 +45,18 @@ export function generateTuiSessionId(
       .replace(/[^a-f0-9]/g, '')
       .slice(0, 6) || randomBytes(3).toString('hex');
   return `${year}${month}${day}_${hours}${minutes}${seconds}_${normalizedSuffix}`;
+}
+
+export function generateTuiSessionId(
+  now: Date = new Date(),
+  suffix: string = randomBytes(3).toString('hex'),
+): string {
+  return buildSessionKey(
+    DEFAULT_AGENT_ID,
+    'tui',
+    'dm',
+    generateTuiSessionToken(now, suffix),
+  );
 }
 
 export function resolveTuiRunOptions(params?: {

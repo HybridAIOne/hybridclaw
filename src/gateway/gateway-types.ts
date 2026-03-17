@@ -28,6 +28,7 @@ export interface GatewayCommandResult {
   text: string;
   sessionId?: string;
   sessionKey?: string;
+  mainSessionKey?: string;
   components?: GatewayMessageComponents;
   modelCatalog?: GatewayModelCatalogEntry[];
 }
@@ -38,6 +39,7 @@ export interface GatewayChatResult {
   toolsUsed: string[];
   sessionId?: string;
   sessionKey?: string;
+  mainSessionKey?: string;
   artifacts?: Array<{
     path: string;
     filename: string;

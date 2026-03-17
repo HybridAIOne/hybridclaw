@@ -8,6 +8,7 @@ import {
   type WAMessage,
   type WASocket,
 } from '@whiskeysockets/baileys';
+import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import type {
   RuntimeWhatsAppConfig,
   WhatsAppDmPolicy,
@@ -17,6 +18,7 @@ import {
   resolveManagedTempMediaDir,
   WHATSAPP_MEDIA_TMP_PREFIX,
 } from '../../media/managed-temp-media.js';
+import { buildSessionKey } from '../../session/session-key.js';
 import type { MediaContextItem } from '../../types.js';
 import { guessWhatsAppExtensionFromMimeType } from './mime-utils.js';
 import {
@@ -308,6 +310,7 @@ export async function processInboundWhatsAppMessage(params: {
   sock: Pick<WASocket, 'updateMediaMessage' | 'logger'>;
   config: RuntimeWhatsAppConfig;
   selfJids: string[];
+  agentId?: string;
 }): Promise<ProcessedWhatsAppInbound | null> {
   const chatJid = params.message.key.remoteJid?.trim();
   if (
@@ -360,7 +363,12 @@ export async function processInboundWhatsAppMessage(params: {
     : chatJid;
 
   return {
-    sessionId: `wa:${sessionChatJid}`,
+    sessionId: buildSessionKey(
+      params.agentId || DEFAULT_AGENT_ID,
+      'whatsapp',
+      access.isGroup ? 'group' : 'dm',
+      access.isGroup ? sessionChatJid : userId,
+    ),
     guildId: access.isGroup ? chatJid : null,
     channelId: chatJid,
     userId,

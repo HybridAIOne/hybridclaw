@@ -5,7 +5,8 @@ import { Readable } from 'node:stream';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-const DEFAULT_WEB_SESSION_ID = 'agent:main:web:dm:default';
+const DEFAULT_WEB_SESSION_ID = 'agent:main:channel:web:chat:dm:peer:default';
+const WEB_SESSION_ID_RE = /^agent:main:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
 
 const tempDirs: string[] = [];
 
@@ -728,6 +729,40 @@ describe('gateway health server', () => {
     });
   });
 
+  test('rejects history requests without an explicit session id', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/history?limit=2' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayHistory).not.toHaveBeenCalled();
+    expect(state.getGatewayHistorySummary).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Missing `sessionId` query parameter.',
+    });
+  });
+
+  test('rejects malformed canonical session ids for history requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/history?sessionId=agent:main:channel:discord:chat',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayHistory).not.toHaveBeenCalled();
+    expect(state.getGatewayHistorySummary).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Malformed canonical `sessionId`.',
+    });
+  });
+
   test('returns admin overview for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/admin/overview' });
@@ -923,6 +958,23 @@ describe('gateway health server', () => {
 
   test('normalizes silent message-send chat responses', async () => {
     const state = await importFreshHealth();
+    state.handleGatewayMessage.mockImplementation(
+      async (request: { sessionId: string }) => ({
+        status: 'success' as const,
+        result: '__MESSAGE_SEND_HANDLED__',
+        sessionId: request.sessionId,
+        toolsUsed: [],
+        toolExecutions: [
+          {
+            name: 'message',
+            arguments: JSON.stringify({ action: 'send' }),
+            result: '',
+            isError: false,
+          },
+        ],
+        artifacts: [],
+      }),
+    );
     const req = makeRequest({
       method: 'POST',
       url: '/api/chat',
@@ -937,14 +989,56 @@ describe('gateway health server', () => {
       expect.objectContaining({
         channelId: 'web',
         content: 'send this',
-        sessionId: DEFAULT_WEB_SESSION_ID,
-        userId: 'web-user',
+        sessionId: expect.stringMatching(WEB_SESSION_ID_RE),
+        userId: expect.stringMatching(WEB_SESSION_ID_RE),
       }),
     );
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
       result: 'Message sent.',
+      sessionId: expect.stringMatching(WEB_SESSION_ID_RE),
+    });
+  });
+
+  test('rejects api command requests without an explicit session id', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/command',
+      body: { args: ['help'] },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Missing `sessionId` in request body.',
+    });
+  });
+
+  test('rejects malformed canonical session ids for command requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/command',
+      body: {
+        args: ['help'],
+        sessionId: 'agent:main:channel:discord:chat',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Malformed canonical `sessionId`.',
     });
   });
 

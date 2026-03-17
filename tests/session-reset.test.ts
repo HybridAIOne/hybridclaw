@@ -566,7 +566,7 @@ test('handleGatewayCommand rotates a fresh TUI launch under the stable key', asy
   expect(dbModule.getSessionById(initialSession.id)?.is_current).toBe(0);
   expect(dbModule.getSessionById(nextSessionId)).toMatchObject({
     id: nextSessionId,
-    session_key: 'agent:main:tui:dm:local',
+    session_key: 'agent:main:channel:tui:chat:dm:peer:local',
     is_current: 1,
   });
 });
@@ -595,7 +595,7 @@ test('handleGatewayCommand resumes an exact archived TUI session id', async () =
   expect(result.sessionId).toBe(initialSessionId);
   expect(dbModule.getSessionById(initialSessionId)).toMatchObject({
     id: initialSessionId,
-    session_key: 'agent:main:tui:dm:local',
+    session_key: 'agent:main:channel:tui:chat:dm:peer:local',
     is_current: 0,
   });
   expect(dbModule.getSessionById(nextSessionId)?.is_current).toBe(1);

@@ -1,6 +1,8 @@
 import { TurnContext } from 'botbuilder-core';
 import type { Activity } from 'botframework-schema';
+import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import { isRegisteredTextCommandName } from '../../command-registry.js';
+import { buildSessionKey } from '../../session/session-key.js';
 import { isRecord, normalizeValue } from './utils.js';
 
 export interface ParsedCommand {
@@ -279,14 +281,17 @@ export function extractActorIdentity(
 
 export function buildSessionIdFromActivity(
   activity: Partial<Activity>,
+  agentId = DEFAULT_AGENT_ID,
 ): string {
   const actor = extractActorIdentity(activity);
   const teamId = extractTeamsTeamId(activity);
   const conversationId = normalizeValue(activity.conversation?.id);
   if (!teamId) {
-    return `teams:dm:${actor.userId}`;
+    return buildSessionKey(agentId, 'msteams', 'dm', actor.userId);
   }
-  return `teams:${teamId}:${conversationId}`;
+  return buildSessionKey(agentId, 'msteams', 'channel', conversationId, {
+    topicId: teamId,
+  });
 }
 
 export function parseCommand(text: string): ParsedCommand {

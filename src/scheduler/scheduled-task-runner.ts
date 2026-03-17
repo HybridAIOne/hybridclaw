@@ -29,6 +29,7 @@ export async function runIsolatedScheduledTask(params: {
   agentId: string;
   sessionId?: string;
   sessionKey?: string;
+  mainSessionKey?: string;
   onResult: (result: {
     text: string;
     artifacts?: Array<{ path: string; filename: string; mimeType: string }>;
@@ -44,6 +45,7 @@ export async function runIsolatedScheduledTask(params: {
     agentId,
     sessionId,
     sessionKey,
+    mainSessionKey,
     onResult,
     onError,
   } = params;
@@ -72,6 +74,7 @@ export async function runIsolatedScheduledTask(params: {
     agentId,
     sessionId: activeSessionId,
     sessionKey: cronSessionId,
+    mainSessionKey: mainSessionKey?.trim() || cronSessionId,
   });
   const { messages } = buildConversationContext({
     agentId,

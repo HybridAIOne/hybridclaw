@@ -81,10 +81,37 @@ Common advanced areas:
 - Approval policy controls (workspace-local): `./.hybridclaw/policy.yaml`
 - Scheduler jobs: `scheduler.jobs[]` with cron, every, or at delivery targets
 - Memory compaction and consolidation: `sessionCompaction.*`, `memory.*`
+- Session continuity and DM isolation: `sessionRouting.*`
 - Proactive runtime: `proactive.*`
 - MCP server registry: `mcpServers.*`
 - Observability export: `observability.*`
 - Skills roots: `skills.extraDirs`
+
+## Session Routing Internals
+
+HybridClaw separates concrete transport identity from continuity scope:
+
+- `session_key` identifies the specific transport conversation
+- `main_session_key` identifies the continuity scope used by current-session
+  lookup and canonical memory windows
+
+The default routing mode is `sessionRouting.dmScope = "per-channel-peer"`,
+which isolates DM continuity by channel kind and peer identity. Operators can
+opt into `per-linked-identity` and supply `sessionRouting.identityLinks` to
+collapse verified aliases onto one main session scope.
+
+Canonical keys use a marker-based format:
+
+```text
+agent:<agentId>:channel:<channelKind>:chat:<chatType>:peer:<peerId>
+```
+
+Optional typed segments such as `:thread:`, `:topic:`, and `:subagent:` can be
+appended without changing the parser contract. Malformed canonical keys are
+rejected at the boundary rather than being treated as legacy ids.
+
+For the routing rules and operator guidance, see
+[Session Routing](./session-routing.md).
 
 ## MCP Runtime Notes
 

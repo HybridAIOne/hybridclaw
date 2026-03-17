@@ -2,7 +2,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { type Attachment, type ParsedMail, simpleParser } from 'mailparser';
+import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import type { RuntimeEmailConfig } from '../../config/runtime-config.js';
+import { buildSessionKey } from '../../session/session-key.js';
 import type { MediaContextItem } from '../../types.js';
 import { matchesEmailAllowList, normalizeEmailAddress } from './allowlist.js';
 import { DEFAULT_EMAIL_SUBJECT } from './constants.js';
@@ -176,6 +178,7 @@ export async function processInboundEmail(
   raw: Buffer | string,
   config: RuntimeEmailConfig,
   selfAddress: string,
+  agentId = DEFAULT_AGENT_ID,
 ): Promise<ProcessedEmailInbound | null> {
   const mail = await simpleParser(raw);
   const sender = resolveSender(mail);
@@ -197,7 +200,7 @@ export async function processInboundEmail(
   }
 
   return {
-    sessionId: `email:${sender.address}`,
+    sessionId: buildSessionKey(agentId, 'email', 'dm', sender.address),
     guildId: null,
     channelId: sender.address,
     userId: sender.address,

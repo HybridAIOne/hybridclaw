@@ -164,7 +164,9 @@ describe('email inbound parsing', () => {
     );
 
     expect(result).not.toBeNull();
-    expect(result?.sessionId).toBe('email:boss@example.com');
+    expect(result?.sessionId).toBe(
+      'agent:main:channel:email:chat:dm:peer:boss%40example.com',
+    );
     expect(result?.content).toContain('[Subject: Quarterly plan]');
     expect(result?.content).toContain('Please review the attachment.');
     expect(result?.media).toHaveLength(1);

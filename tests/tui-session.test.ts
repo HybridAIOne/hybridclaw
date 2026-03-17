@@ -13,7 +13,9 @@ test('generateTuiSessionId uses a hermes-style timestamp and short hex suffix', 
     '532f05',
   );
 
-  expect(sessionId).toBe('20260316_122238_532f05');
+  expect(sessionId).toBe(
+    'agent:main:channel:tui:chat:dm:peer:20260316_122238_532f05',
+  );
 });
 
 test('resolveTuiRunOptions preserves explicit resume session ids', () => {

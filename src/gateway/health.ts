@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
@@ -25,7 +26,10 @@ import type {
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
-import { buildSessionKey } from '../session/session-key.js';
+import {
+  buildSessionKey,
+  classifySessionKeyShape,
+} from '../session/session-key.js';
 import type { PendingApproval, ToolProgressEvent } from '../types.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
@@ -116,12 +120,24 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
 
-function resolveDefaultWebSessionId(agentId?: string | null): string {
+function normalizeOptionalString(value: unknown): string | undefined {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized || undefined;
+}
+
+function generateDefaultWebSessionId(agentId?: string | null): string {
   return buildSessionKey(
     String(agentId || '').trim() || DEFAULT_AGENT_ID,
     'web',
     'dm',
-    'default',
+    randomUUID().replace(/-/g, '').slice(0, 16),
+  );
+}
+
+function isMalformedCanonicalSessionId(value: string | undefined): boolean {
+  return (
+    classifySessionKeyShape(String(value || '').trim()) ===
+    'canonical_malformed'
   );
 }
 
@@ -374,17 +390,22 @@ async function handleApiChat(
     return;
   }
 
+  const sessionId =
+    normalizeOptionalString(body.sessionId) ||
+    generateDefaultWebSessionId(body.agentId);
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
   const chatRequest: GatewayChatRequest = {
-    sessionId:
-      String(body.sessionId || '').trim() ||
-      resolveDefaultWebSessionId(body.agentId),
+    sessionId,
     sessionMode:
       body.sessionMode === 'resume' || body.sessionMode === 'new'
         ? body.sessionMode
         : undefined,
     guildId: body.guildId ?? null,
     channelId: body.channelId || 'web',
-    userId: body.userId || 'web-user',
+    userId: normalizeOptionalString(body.userId) || sessionId,
     username: body.username ?? 'web',
     content,
     agentId: body.agentId,
@@ -537,6 +558,15 @@ async function handleApiCommand(
   res: ServerResponse,
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Partial<GatewayCommandRequest>;
+  const sessionId = normalizeOptionalString(body.sessionId);
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` in request body.' });
+    return;
+  }
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
   const args = Array.isArray(body.args)
     ? body.args.map((value) => String(value))
     : [];
@@ -548,8 +578,7 @@ async function handleApiCommand(
   }
 
   const commandRequest: GatewayCommandRequest = {
-    sessionId:
-      String(body.sessionId || '').trim() || resolveDefaultWebSessionId(),
+    sessionId,
     sessionMode:
       body.sessionMode === 'resume' || body.sessionMode === 'new'
         ? body.sessionMode
@@ -557,7 +586,7 @@ async function handleApiCommand(
     guildId: body.guildId ?? null,
     channelId: body.channelId || 'web',
     args,
-    userId: body.userId ?? null,
+    userId: normalizeOptionalString(body.userId) || sessionId,
     username: body.username ?? null,
   };
   const result = await handleGatewayCommand(commandRequest);
@@ -623,8 +652,15 @@ async function handleApiMessageAction(
 }
 
 function handleApiHistory(res: ServerResponse, url: URL): void {
-  const sessionId =
-    url.searchParams.get('sessionId')?.trim() || resolveDefaultWebSessionId();
+  const sessionId = url.searchParams.get('sessionId')?.trim();
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
+    return;
+  }
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
   const parsedLimit = parseInt(url.searchParams.get('limit') || '40', 10);
   const parsedSummarySinceMs = parseInt(
     url.searchParams.get('summarySinceMs') || '',

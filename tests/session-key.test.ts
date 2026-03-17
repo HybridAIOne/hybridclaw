@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   buildSessionKey,
+  classifySessionKeyShape,
   inspectSessionKeyMigration,
   isLegacySessionKey,
   migrateLegacySessionKey,
@@ -10,12 +11,14 @@ import {
 
 test('buildSessionKey lowercases and formats hierarchical keys', () => {
   expect(buildSessionKey('Main', 'Discord', 'Channel', 'ABC123')).toBe(
-    'agent:main:discord:channel:abc123',
+    'agent:main:channel:discord:chat:channel:peer:abc123',
   );
 });
 
 test('parseSessionKey parses valid hierarchical keys', () => {
-  expect(parseSessionKey('agent:main:scheduler:cron:job:42')).toEqual({
+  expect(
+    parseSessionKey('agent:main:channel:scheduler:chat:cron:peer:job%3A42'),
+  ).toEqual({
     agentId: 'main',
     channelKind: 'scheduler',
     chatType: 'cron',
@@ -34,9 +37,11 @@ test('isLegacySessionKey detects supported legacy formats', () => {
   expect(isLegacySessionKey('dm:439508376087560193')).toBe(true);
   expect(isLegacySessionKey('heartbeat:main')).toBe(true);
   expect(isLegacySessionKey('cron:42')).toBe(true);
-  expect(isLegacySessionKey('agent:main:discord:dm:439508376087560193')).toBe(
-    false,
-  );
+  expect(
+    isLegacySessionKey(
+      'agent:main:channel:discord:chat:dm:peer:439508376087560193',
+    ),
+  ).toBe(false);
 });
 
 test('migrateLegacySessionKey converts legacy ids using session metadata', () => {
@@ -45,22 +50,22 @@ test('migrateLegacySessionKey converts legacy ids using session metadata', () =>
       agent_id: 'main',
       channel_id: '1475079601968648386',
     }),
-  ).toBe('agent:main:discord:channel:1475079601968648386');
+  ).toBe('agent:main:channel:discord:chat:channel:peer:1475079601968648386');
   expect(
     migrateLegacySessionKey('dm:439508376087560193', {
       agent_id: 'main',
     }),
-  ).toBe('agent:main:discord:dm:439508376087560193');
+  ).toBe('agent:main:channel:discord:chat:dm:peer:439508376087560193');
   expect(
     migrateLegacySessionKey('heartbeat:main', {
       agent_id: 'ignored',
     }),
-  ).toBe('agent:main:heartbeat:system:default');
+  ).toBe('agent:main:channel:heartbeat:chat:system:peer:default');
   expect(
     migrateLegacySessionKey('scheduler:nightly', {
       agent_id: 'main',
     }),
-  ).toBe('agent:main:scheduler:system:nightly');
+  ).toBe('agent:main:channel:scheduler:chat:system:peer:nightly');
 });
 
 test('inspectSessionKeyMigration distinguishes rewritten and no-op results', () => {
@@ -69,7 +74,7 @@ test('inspectSessionKeyMigration distinguishes rewritten and no-op results', () 
       agent_id: 'main',
     }),
   ).toEqual({
-    key: 'agent:main:discord:dm:439508376087560193',
+    key: 'agent:main:channel:discord:chat:dm:peer:439508376087560193',
     migrated: true,
   });
 
@@ -81,6 +86,19 @@ test('inspectSessionKeyMigration distinguishes rewritten and no-op results', () 
     key: 'custom-session-id',
     migrated: false,
   });
+});
+
+test('classifySessionKeyShape distinguishes canonical, malformed, legacy, and opaque ids', () => {
+  expect(
+    classifySessionKeyShape(
+      'agent:main:channel:discord:chat:dm:peer:439508376087560193',
+    ),
+  ).toBe('canonical');
+  expect(classifySessionKeyShape('agent:main:channel:discord:chat')).toBe(
+    'canonical_malformed',
+  );
+  expect(classifySessionKeyShape('dm:439508376087560193')).toBe('legacy');
+  expect(classifySessionKeyShape('custom-session-id')).toBe('opaque');
 });
 
 test('build and parse round-trip to the same segments', () => {

@@ -429,6 +429,36 @@ function resolveSessionAutoResetPolicy(channelId: string): SessionResetPolicy {
   });
 }
 
+function resolveCanonicalContextScope(
+  session: Pick<Session, 'main_session_key' | 'session_key' | 'id'>,
+): string {
+  return (
+    String(session.main_session_key || '').trim() ||
+    String(session.session_key || '').trim() ||
+    String(session.id || '').trim()
+  );
+}
+
+function clearCanonicalPromptContext(params: {
+  agentId: string;
+  session: Pick<Session, 'main_session_key' | 'session_key' | 'id'>;
+  userId?: string | null;
+}): void {
+  const scopes = new Set<string>();
+  const canonicalScope = resolveCanonicalContextScope(params.session);
+  if (canonicalScope) scopes.add(canonicalScope);
+
+  const requestUserId = String(params.userId || '').trim();
+  if (requestUserId) scopes.add(requestUserId);
+
+  for (const scope of scopes) {
+    memoryService.clearCanonicalContext({
+      agentId: params.agentId,
+      userId: scope,
+    });
+  }
+}
+
 export type {
   GatewayAdminChannelsResponse,
   GatewayAdminConfigResponse,
@@ -990,6 +1020,7 @@ function recordSuccessfulTurn(opts: {
   turnIndex: number;
   userId: string;
   username: string | null;
+  canonicalScopeId: string;
   userContent: string;
   resultText: string;
   toolCallCount: number;
@@ -1009,10 +1040,10 @@ function recordSuccessfulTurn(opts: {
     },
   });
   try {
-    if (opts.userId.trim()) {
+    if (opts.canonicalScopeId.trim()) {
       memoryService.appendCanonicalMessages({
         agentId: opts.agentId,
-        userId: opts.userId,
+        userId: opts.canonicalScopeId,
         newMessages: [
           {
             role: 'user',
@@ -1031,7 +1062,11 @@ function recordSuccessfulTurn(opts: {
     }
   } catch (err) {
     logger.debug(
-      { sessionId: opts.sessionId, userId: opts.userId, err },
+      {
+        sessionId: opts.sessionId,
+        canonicalScopeId: opts.canonicalScopeId,
+        err,
+      },
       'Failed to append canonical session memory',
     );
   }
@@ -3350,6 +3385,7 @@ export async function handleGatewayMessage(
     ...result,
     sessionId: req.sessionId,
     sessionKey: session.session_key,
+    mainSessionKey: session.main_session_key,
   });
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
@@ -3424,6 +3460,7 @@ export async function handleGatewayMessage(
     agentId,
     sessionId: session.id,
     sessionKey: session.session_key,
+    mainSessionKey: session.main_session_key,
   });
   const showMode = normalizeSessionShowMode(session.show_mode);
   const shouldEmitTools = sessionShowModeShowsTools(showMode);
@@ -3458,6 +3495,7 @@ export async function handleGatewayMessage(
     abortSignal: activeGatewayRequest.signal,
   });
   const userTurnContent = audioPrelude.content;
+  const canonicalContextScope = resolveCanonicalContextScope(session);
   if (isFullAutoEnabled(session)) {
     syncFullAutoRuntimeContext(req.sessionId, {
       guildId: req.guildId,
@@ -3583,6 +3621,7 @@ export async function handleGatewayMessage(
       turnIndex,
       userId: req.userId,
       username: req.username,
+      canonicalScopeId: canonicalContextScope,
       userContent: req.content,
       resultText,
       toolCallCount: 0,
@@ -3605,11 +3644,11 @@ export async function handleGatewayMessage(
     summary: null,
     recent_messages: [],
   };
-  if (req.userId.trim()) {
+  if (canonicalContextScope) {
     try {
       canonicalContext = memoryService.getCanonicalContext({
         agentId,
-        userId: req.userId,
+        userId: canonicalContextScope,
         windowSize: 12,
         excludeSessionId: req.sessionId,
       });
@@ -3621,7 +3660,7 @@ export async function handleGatewayMessage(
       };
     } catch (err) {
       logger.debug(
-        { sessionId: req.sessionId, userId: req.userId, err },
+        { sessionId: req.sessionId, canonicalContextScope, err },
         'Failed to load canonical session context',
       );
     }
@@ -4023,6 +4062,7 @@ export async function handleGatewayMessage(
       turnIndex,
       userId: req.userId,
       username: req.username,
+      canonicalScopeId: canonicalContextScope,
       userContent: effectiveUserContent,
       resultText,
       toolCallCount: toolExecutions.length,
@@ -4166,6 +4206,7 @@ export async function runGatewayScheduledTask(
     agentId,
     sessionId: session.id,
     sessionKey: runKey,
+    mainSessionKey: session.main_session_key,
     onResult,
     onError,
   });
@@ -4198,6 +4239,14 @@ export async function handleGatewayCommand(
   if (session.id !== req.sessionId) {
     req.sessionId = session.id;
   }
+  const attachCommandSessionIdentity = (
+    result: GatewayCommandResult,
+  ): GatewayCommandResult => ({
+    ...result,
+    sessionId: req.sessionId,
+    sessionKey: session.session_key,
+    mainSessionKey: session.main_session_key,
+  });
 
   const result = await (async (): Promise<GatewayCommandResult> => {
     switch (cmd) {
@@ -5028,12 +5077,11 @@ export async function handleGatewayCommand(
         const rotated = createFreshSessionInstance(session.id);
         req.sessionId = rotated.session.id;
         session = rotated.session;
-        if (typeof req.userId === 'string' && req.userId.trim()) {
-          memoryService.clearCanonicalContext({
-            agentId: resolveSessionAgentId(session),
-            userId: req.userId,
-          });
-        }
+        clearCanonicalPromptContext({
+          agentId: resolveSessionAgentId(session),
+          session,
+          userId: req.userId,
+        });
         return infoCommand(
           'Session Cleared',
           `Deleted ${rotated.deletedMessages} messages. Workspace files preserved.`,
@@ -5071,12 +5119,11 @@ export async function handleGatewayCommand(
           });
           req.sessionId = rotated.session.id;
           session = rotated.session;
-          if (typeof req.userId === 'string' && req.userId.trim()) {
-            memoryService.clearCanonicalContext({
-              agentId: pending.agentId,
-              userId: req.userId,
-            });
-          }
+          clearCanonicalPromptContext({
+            agentId: pending.agentId,
+            session,
+            userId: req.userId,
+          });
           const workspaceReset = resetWorkspace(pending.agentId);
           const workspaceLine = workspaceReset.removed
             ? `Removed workspace: ${workspaceReset.workspacePath}`
@@ -5734,9 +5781,5 @@ export async function handleGatewayCommand(
     }
   })();
 
-  return {
-    ...result,
-    sessionId: req.sessionId,
-    sessionKey: session.session_key,
-  };
+  return attachCommandSessionIdentity(result);
 }

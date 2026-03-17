@@ -29,6 +29,7 @@ export interface SessionContext {
   agentId: string;
   sessionId: string;
   sessionKey?: string;
+  mainSessionKey?: string;
 }
 
 const CHANNEL_KIND_LABELS: Record<ChannelKind, string> = {
@@ -121,6 +122,7 @@ export function buildSessionContext(params: SessionContext): SessionContext {
     agentId: String(params.agentId || '').trim(),
     sessionId: String(params.sessionId || '').trim(),
     sessionKey: normalizeOptional(params.sessionKey),
+    mainSessionKey: normalizeOptional(params.mainSessionKey),
   };
 }
 
@@ -140,6 +142,7 @@ export function buildSessionContextPrompt(context: SessionContext): string {
       : rawChatId;
   const agentId = sanitizePromptValue(context.agentId);
   const sessionKey = sanitizeOptionalPromptValue(context.sessionKey);
+  const mainSessionKey = sanitizeOptionalPromptValue(context.mainSessionKey);
   const userId = sanitizeOptionalPromptValue(context.source.userId);
   const userName = sanitizeOptionalPromptValue(context.source.userName);
   const guildId =
@@ -161,6 +164,14 @@ export function buildSessionContextPrompt(context: SessionContext): string {
     context.sessionKey !== context.sessionId
   ) {
     lines.push(`**Session key:** ${sessionKey}`);
+  }
+  if (
+    mainSessionKey &&
+    context.mainSessionKey &&
+    context.mainSessionKey !== context.sessionKey &&
+    context.mainSessionKey !== context.sessionId
+  ) {
+    lines.push(`**Main session key:** ${mainSessionKey}`);
   }
 
   if (userId || userName) {

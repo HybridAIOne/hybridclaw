@@ -171,6 +171,7 @@ export function startHeartbeat(
         agentId: resolvedAgentId,
         sessionId: session.id,
         sessionKey: session.session_key,
+        mainSessionKey: session.main_session_key,
       });
       const { messages } = buildConversationContext({
         agentId: resolvedAgentId,

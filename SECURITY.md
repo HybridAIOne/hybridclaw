@@ -69,7 +69,38 @@ Tool execution runs inside Docker with sandbox constraints:
 
 Implementation: [src/container-runner.ts](./src/container-runner.ts), [src/mount-security.ts](./src/mount-security.ts)
 
-### 4) Audit & Tamper Evidence
+### 4) Session Isolation
+
+HybridClaw distinguishes between the transport-facing session and the continuity
+scope used for durable context:
+
+- `session_key` identifies the concrete transport conversation
+- `main_session_key` identifies the continuity scope that canonical memory and
+  session lookup can collapse onto
+
+Default behavior is deny-by-default for DM sharing:
+
+- `sessionRouting.dmScope = "per-channel-peer"` is the default and keeps direct
+  messages isolated by channel kind and peer identity
+- Web chat requests without a caller-supplied `sessionId` get a unique canonical
+  session key instead of sharing a global default
+- Command/history APIs require an explicit `sessionId` instead of guessing a
+  shared DM scope
+
+Operators may opt into cross-channel DM continuity with
+`sessionRouting.dmScope = "per-linked-identity"` and
+`sessionRouting.identityLinks`, but that merges context across every linked
+alias. Only configure identity links when the mappings are verified and owned by
+the same human. A bad link merges memory across users.
+
+Malformed canonical session keys are rejected at the boundary instead of being
+treated as legacy or opaque session ids.
+
+Implementation: [src/session/session-key.ts](./src/session/session-key.ts),
+[src/session/session-routing.ts](./src/session/session-routing.ts),
+[src/memory/db.ts](./src/memory/db.ts)
+
+### 5) Audit & Tamper Evidence
 
 Security-relevant behavior is written to structured audit logs:
 
@@ -89,6 +120,6 @@ If compromise is suspected:
 
 1. Stop gateway and active containers.
 2. Rotate API keys/tokens.
-3. Review mount allowlist and workspace files.
+3. Review mount allowlist, workspace files, and `sessionRouting.identityLinks`.
 4. Inspect denied/authorization events with `hybridclaw audit approvals --denied`.
 5. Validate audit integrity with `hybridclaw audit verify`.

@@ -6,9 +6,11 @@ import type { AgentConfig, AgentModelConfig } from '../agents/agent-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import type { AuditEventPayload, WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
   buildSessionKey,
+  classifySessionKeyShape,
   inspectSessionKeyMigration,
   isLegacySessionKey,
   migrateLegacySessionKey,
@@ -20,6 +22,7 @@ import {
   type SessionExpiryEvaluation,
   type SessionResetPolicy,
 } from '../session/session-reset.js';
+import { resolveSessionRoutingScope } from '../session/session-routing.js';
 import type {
   SkillAmendment,
   SkillAmendmentStatus,
@@ -60,7 +63,7 @@ import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 12;
+export const DATABASE_SCHEMA_VERSION = 13;
 const SCHEMA_VERSION = DATABASE_SCHEMA_VERSION;
 
 interface InitDatabaseOptions {
@@ -203,6 +206,13 @@ function hasSessionCurrentColumn(database: Database.Database): boolean {
   );
 }
 
+function hasSessionMainKeyColumn(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'sessions') &&
+    columnExists(database, 'sessions', 'main_session_key')
+  );
+}
+
 function skillObservationsNeedConstraintMigration(
   database: Database.Database,
 ): boolean {
@@ -263,6 +273,7 @@ function migrateV1(database: Database.Database): void {
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       session_key TEXT,
+      main_session_key TEXT,
       is_current INTEGER NOT NULL DEFAULT 1,
       guild_id TEXT,
       channel_id TEXT NOT NULL,
@@ -1290,6 +1301,43 @@ function migrateV12(
   );
 }
 
+function migrateV13(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'main_session_key',
+    ddl: 'main_session_key TEXT',
+    quiet,
+  });
+
+  if (hasSessionMainKeyColumn(database)) {
+    database.exec(`
+      UPDATE sessions
+      SET main_session_key = COALESCE(
+        NULLIF(TRIM(main_session_key), ''),
+        NULLIF(TRIM(session_key), ''),
+        id
+      )
+      WHERE main_session_key IS NULL
+         OR TRIM(main_session_key) = '';
+    `);
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_main_key
+        ON sessions(main_session_key);
+    `);
+  }
+
+  recordMigration(
+    database,
+    13,
+    'Add continuity-scoped main session keys for DM routing and linked identities',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1323,6 +1371,7 @@ function runMigrations(
   }
   if (currentVersion < 11) migrateV11(database, opts);
   if (currentVersion < 12) migrateV12(database, opts);
+  if (currentVersion < 13) migrateV13(database, opts);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -2919,6 +2968,23 @@ function selectCurrentSessionBySessionKey(
     .get(sessionKey) as Session | undefined;
 }
 
+function selectCurrentSessionByMainSessionKey(
+  mainSessionKey: string,
+): Session | undefined {
+  if (!hasSessionMainKeyColumn(db) || !hasSessionCurrentColumn(db)) {
+    return undefined;
+  }
+  return db
+    .prepare(
+      `SELECT *
+       FROM sessions
+       WHERE main_session_key = ?
+         AND is_current = 1
+       LIMIT 1`,
+    )
+    .get(mainSessionKey) as Session | undefined;
+}
+
 function selectCurrentSessionByLegacySessionId(
   legacySessionId: string,
 ): Session | undefined {
@@ -2957,6 +3023,12 @@ function resolveCanonicalSessionKey(params: {
   channelId: string;
   agentId: string;
 }): string {
+  const requestedShape = classifySessionKeyShape(params.requestedSessionId);
+  if (requestedShape === 'canonical_malformed') {
+    throw new Error(
+      `Malformed canonical session key: ${params.requestedSessionId}`,
+    );
+  }
   const exactSession = selectSessionById(params.requestedSessionId);
   if (exactSession?.session_key) {
     return exactSession.session_key;
@@ -2974,9 +3046,24 @@ function resolveCanonicalSessionKey(params: {
   return deriveSessionKeyFromContext(params);
 }
 
+function resolveMainSessionKey(sessionKey: string): string {
+  const scope = resolveSessionRoutingScope(
+    sessionKey,
+    getRuntimeConfig().sessionRouting,
+  );
+  return scope.mainSessionKey;
+}
+
 function resolveNewSessionInstanceId(params: {
   requestedSessionId: string;
 }): string {
+  if (
+    classifySessionKeyShape(params.requestedSessionId) === 'canonical_malformed'
+  ) {
+    throw new Error(
+      `Malformed canonical session key: ${params.requestedSessionId}`,
+    );
+  }
   if (
     params.requestedSessionId &&
     !parseSessionKey(params.requestedSessionId) &&
@@ -2995,6 +3082,9 @@ function resolveFreshSessionInstanceId(
   requestedSessionId?: string | null,
 ): string {
   const normalized = String(requestedSessionId || '').trim();
+  if (classifySessionKeyShape(normalized) === 'canonical_malformed') {
+    throw new Error(`Malformed canonical session key: ${normalized}`);
+  }
   if (normalized) return normalized;
   let nextId = generateSessionInstanceId();
   while (selectSessionById(nextId)) {
@@ -3010,6 +3100,7 @@ export function resolveSessionIdCompat(sessionId: string): string {
   if (exactSession) return exactSession.id;
   return (
     selectCurrentSessionBySessionKey(normalized)?.id ||
+    selectCurrentSessionByMainSessionKey(normalized)?.id ||
     selectCurrentSessionByLegacySessionId(normalized)?.id ||
     normalized
   );
@@ -3033,6 +3124,7 @@ export function getOrCreateSession(
     channelId,
     agentId: requestedAgentId || DEFAULT_AGENT_ID,
   });
+  const mainSessionKey = resolveMainSessionKey(canonicalSessionKey);
   const exactSession = requestedSessionId
     ? selectSessionById(requestedSessionId)
     : undefined;
@@ -3044,9 +3136,19 @@ export function getOrCreateSession(
       `UPDATE sessions
        SET last_active = datetime('now'),
            agent_id = ?,
-           session_key = COALESCE(NULLIF(session_key, ''), ?)
+           guild_id = ?,
+           channel_id = ?,
+           session_key = ?,
+           main_session_key = ?
        WHERE id = ?`,
-    ).run(nextAgentId, canonicalSessionKey || exactSession.id, exactSession.id);
+    ).run(
+      nextAgentId,
+      guildId,
+      channelId,
+      canonicalSessionKey || exactSession.id,
+      mainSessionKey || canonicalSessionKey || exactSession.id,
+      exactSession.id,
+    );
     return requireSessionById(exactSession.id);
   }
 
@@ -3067,7 +3169,10 @@ export function getOrCreateSession(
       `UPDATE sessions
        SET last_active = datetime('now'),
            agent_id = ?,
+           guild_id = ?,
+           channel_id = ?,
            session_key = ?,
+           main_session_key = ?,
            legacy_session_id = CASE
              WHEN ? THEN ?
              ELSE legacy_session_id
@@ -3075,7 +3180,10 @@ export function getOrCreateSession(
        WHERE id = ?`,
     ).run(
       nextAgentId,
+      guildId,
+      channelId,
       canonicalSessionKey || existing.id,
+      mainSessionKey || canonicalSessionKey || existing.id,
       requestedSessionId !== canonicalSessionKey &&
         isLegacySessionKey(requestedSessionId)
         ? 1
@@ -3091,15 +3199,17 @@ export function getOrCreateSession(
     `INSERT INTO sessions (
        id,
        session_key,
+       main_session_key,
        is_current,
        guild_id,
        channel_id,
        agent_id,
        legacy_session_id
-     ) VALUES (?, ?, 1, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, 1, ?, ?, ?, ?)`,
   ).run(
     nextSessionId,
     canonicalSessionKey || nextSessionId,
+    mainSessionKey || canonicalSessionKey || nextSessionId,
     guildId,
     channelId,
     requestedAgentId || DEFAULT_AGENT_ID,
@@ -3118,6 +3228,7 @@ export function getSessionById(sessionId: string): Session | undefined {
   return (
     selectSessionById(normalized) ||
     selectCurrentSessionBySessionKey(normalized) ||
+    selectCurrentSessionByMainSessionKey(normalized) ||
     selectCurrentSessionByLegacySessionId(normalized)
   );
 }
@@ -3168,6 +3279,8 @@ export function createFreshSessionInstance(
   const nowIso = new Date().toISOString();
   const deletedMessages = countSessionMessages(previousSession.id);
   const nextSessionKey = previousSession.session_key || previousSession.id;
+  const nextMainSessionKey =
+    previousSession.main_session_key || nextSessionKey || previousSession.id;
   const nextEnableRag =
     params?.resetSettings && typeof params.defaultEnableRag === 'boolean'
       ? params.defaultEnableRag
@@ -3190,6 +3303,7 @@ export function createFreshSessionInstance(
       `INSERT INTO sessions (
          id,
          session_key,
+         main_session_key,
          is_current,
          guild_id,
          channel_id,
@@ -3211,10 +3325,11 @@ export function createFreshSessionInstance(
          reset_count,
          reset_at,
          legacy_session_id
-       ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       nextSessionId,
       nextSessionKey,
+      nextMainSessionKey,
       previousSession.guild_id,
       previousSession.channel_id,
       previousSession.agent_id,

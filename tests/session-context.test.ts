@@ -31,7 +31,8 @@ test('buildSessionContext assembles normalized session fields', async () => {
     },
     agentId: ' main ',
     sessionId: ' sess_20260316_185427_1a2b3c4d ',
-    sessionKey: ' agent:main:discord:channel:1475079601968648386 ',
+    sessionKey:
+      ' agent:main:channel:discord:chat:channel:peer:1475079601968648386 ',
   });
 
   expect(context).toEqual({
@@ -46,7 +47,8 @@ test('buildSessionContext assembles normalized session fields', async () => {
     },
     agentId: 'main',
     sessionId: 'sess_20260316_185427_1a2b3c4d',
-    sessionKey: 'agent:main:discord:channel:1475079601968648386',
+    sessionKey:
+      'agent:main:channel:discord:chat:channel:peer:1475079601968648386',
   });
 });
 
@@ -177,7 +179,8 @@ test('buildSessionContextPrompt renders Discord context details', async () => {
       },
       agentId: 'main',
       sessionId: 'sess_20260316_185427_1a2b3c4d',
-      sessionKey: 'agent:main:discord:channel:1475079601968648386',
+      sessionKey:
+        'agent:main:channel:discord:chat:channel:peer:1475079601968648386',
     }),
   );
 
@@ -185,7 +188,7 @@ test('buildSessionContextPrompt renders Discord context details', async () => {
   expect(prompt).toContain('**Platform:** Discord (channel)');
   expect(prompt).toContain('**Session:** sess_20260316_185427_1a2b3c4d');
   expect(prompt).toContain(
-    '**Session key:** agent:main:discord:channel:1475079601968648386',
+    '**Session key:** agent:main:channel:discord:chat:channel:peer:1475079601968648386',
   );
   expect(prompt).toContain('**User:** alice (id: 123456)');
   expect(prompt).toContain('**Guild:** Ops (id: 987654)');
@@ -209,7 +212,8 @@ test('buildSessionContextPrompt sanitizes user-controlled prompt fields', async 
       },
       agentId: 'main',
       sessionId: 'sess_20260316_185427_1a2b3c4d',
-      sessionKey: 'agent:main:discord:channel:1475079601968648386',
+      sessionKey:
+        'agent:main:channel:discord:chat:channel:peer:1475079601968648386',
     }),
   );
 
@@ -276,7 +280,7 @@ test('buildSessionContextPrompt renders TUI and heartbeat sources', async () => 
       },
       agentId: 'main',
       sessionId: '20260316_122238_532f05',
-      sessionKey: 'agent:main:tui:dm:local',
+      sessionKey: 'agent:main:channel:tui:chat:dm:peer:local',
     }),
   );
   const heartbeatPrompt = buildSessionContextPrompt(
@@ -288,13 +292,15 @@ test('buildSessionContextPrompt renders TUI and heartbeat sources', async () => 
       },
       agentId: 'main',
       sessionId: 'sess_20260316_185427_deadbeef',
-      sessionKey: 'agent:main:heartbeat:system:default',
+      sessionKey: 'agent:main:channel:heartbeat:chat:system:peer:default',
     }),
   );
 
   expect(tuiPrompt).toContain('**Platform:** TUI (direct message)');
   expect(tuiPrompt).toContain('**Session:** 20260316_122238_532f05');
-  expect(tuiPrompt).toContain('**Session key:** agent:main:tui:dm:local');
+  expect(tuiPrompt).toContain(
+    '**Session key:** agent:main:channel:tui:chat:dm:peer:local',
+  );
   expect(heartbeatPrompt).toContain('**Platform:** Heartbeat (system)');
   expect(heartbeatPrompt).toContain(
     '**Session:** sess_20260316_185427_deadbeef',
@@ -326,8 +332,8 @@ test('buildSessionContextPrompt renders scheduler cron sources as scheduled runs
         userName: 'scheduler',
       },
       agentId: 'main',
-      sessionId: 'agent:main:scheduler:cron:42',
-      sessionKey: 'agent:main:scheduler:cron:42',
+      sessionId: 'agent:main:channel:scheduler:chat:cron:peer:42',
+      sessionKey: 'agent:main:channel:scheduler:chat:cron:peer:42',
     }),
   );
 
@@ -386,7 +392,8 @@ test('prompt hooks include session context when runtime info provides it', async
     },
     agentId: 'main',
     sessionId: 'sess_20260316_185427_1a2b3c4d',
-    sessionKey: 'agent:main:discord:channel:1475079601968648386',
+    sessionKey:
+      'agent:main:channel:discord:chat:channel:peer:1475079601968648386',
   });
 
   const prompt = buildSystemPromptFromHooks({

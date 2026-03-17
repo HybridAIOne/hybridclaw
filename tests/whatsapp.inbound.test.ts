@@ -252,7 +252,9 @@ describe('whatsapp inbound policy filtering', () => {
     });
 
     expect(result).not.toBeNull();
-    expect(result?.sessionId).toBe('wa:491703330161@s.whatsapp.net');
+    expect(result?.sessionId).toBe(
+      'agent:main:channel:whatsapp:chat:dm:peer:%2B491703330161',
+    );
     expect(result?.channelId).toBe('1061007917075@lid');
     expect(result?.userId).toBe('+491703330161');
   });
