@@ -47,6 +47,7 @@ import {
 } from './chat-result.js';
 import {
   createGatewayAdminAgent,
+  createGatewayAdminWorkflow,
   deleteGatewayAdminAgent,
   deleteGatewayAdminSession,
   type GatewayChatRequest,
@@ -63,6 +64,7 @@ import {
   getGatewayAdminSessions,
   getGatewayAdminSkills,
   getGatewayAdminTools,
+  getGatewayAdminWorkflows,
   getGatewayAgents,
   getGatewayHistory,
   getGatewayHistorySummary,
@@ -72,11 +74,13 @@ import {
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   removeGatewayAdminSchedulerJob,
+  removeGatewayAdminWorkflow,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
   setGatewayAdminSchedulerJobPaused,
   setGatewayAdminSkillEnabled,
   updateGatewayAdminAgent,
+  updateGatewayAdminWorkflow,
   upsertGatewayAdminChannel,
   upsertGatewayAdminMcpServer,
   upsertGatewayAdminSchedulerJob,
@@ -1051,6 +1055,71 @@ async function handleApiAdminScheduler(
   sendJson(res, 200, upsertGatewayAdminSchedulerJob({ job: body.job }));
 }
 
+async function handleApiAdminWorkflows(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if ((req.method || 'GET') === 'GET') {
+    const sessionId = (url.searchParams.get('sessionId') || '').trim();
+    const agentId = (url.searchParams.get('agentId') || '').trim();
+    sendJson(
+      res,
+      200,
+      getGatewayAdminWorkflows({
+        sessionId: sessionId || undefined,
+        agentId: agentId || undefined,
+      }),
+    );
+    return;
+  }
+
+  if ((req.method || 'GET') === 'DELETE') {
+    const workflowId = Number.parseInt(
+      (url.searchParams.get('workflowId') || '').trim(),
+      10,
+    );
+    sendJson(res, 200, removeGatewayAdminWorkflow(workflowId));
+    return;
+  }
+
+  if ((req.method || 'GET') === 'POST') {
+    const body = (await readJsonBody(req)) as {
+      workflowId?: unknown;
+      action?: unknown;
+    };
+    const workflowId = Number.parseInt(String(body.workflowId || ''), 10);
+    const action = String(body.action || '')
+      .trim()
+      .toLowerCase();
+    if (action !== 'toggle') {
+      sendJson(res, 400, {
+        error: 'Expected workflow action `toggle`.',
+      });
+      return;
+    }
+    sendJson(res, 200, updateGatewayAdminWorkflow({ workflowId, action }));
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as { workflow?: unknown };
+  if (
+    !body.workflow ||
+    typeof body.workflow !== 'object' ||
+    Array.isArray(body.workflow)
+  ) {
+    sendJson(res, 400, {
+      error: 'Expected object `workflow` in request body.',
+    });
+    return;
+  }
+  sendJson(
+    res,
+    200,
+    createGatewayAdminWorkflow({ workflow: body.workflow as never }),
+  );
+}
+
 async function handleApiAdminMcp(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1478,6 +1547,16 @@ export function startHealthServer(): void {
               method === 'POST')
           ) {
             await handleApiAdminScheduler(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/workflows' &&
+            (method === 'GET' ||
+              method === 'PUT' ||
+              method === 'DELETE' ||
+              method === 'POST')
+          ) {
+            await handleApiAdminWorkflows(req, res, url);
             return;
           }
           if (

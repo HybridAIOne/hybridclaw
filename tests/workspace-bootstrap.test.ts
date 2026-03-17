@@ -132,6 +132,28 @@ describe('workspace bootstrap lifecycle', () => {
     expect(postHatchAgents?.content).toContain('## Every Session');
   });
 
+  test('supports light bootstrap mode for lightweight agent runs', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const lightFiles = workspace.loadBootstrapFiles('agent-test', {
+      mode: 'light',
+    });
+
+    expect(lightFiles.map((file) => file.name).sort()).toEqual([
+      'IDENTITY.md',
+      'MEMORY.md',
+      'SOUL.md',
+      'USER.md',
+    ]);
+  });
+
   test('removes stale BOOTSTRAP.md when the workspace already looks completed', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');

@@ -1,10 +1,7 @@
 import fs from 'node:fs';
 import { AttachmentBuilder } from 'discord.js';
 import { stopAllExecutions } from '../agent/executor.js';
-import {
-  isWithinActiveHours,
-  proactiveWindowLabel,
-} from '../agent/proactive-policy.js';
+import { isWithinActiveHours } from '../agent/proactive-policy.js';
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
@@ -21,22 +18,18 @@ import { rewriteUserMentionsForMessage } from '../channels/discord/mentions.js';
 import {
   initDiscord,
   type ReplyFn,
-  sendToChannel,
   setDiscordMaintenancePresence,
 } from '../channels/discord/runtime.js';
 import {
   initEmail,
   sendEmailAttachmentTo,
-  sendToEmail,
   shutdownEmail,
 } from '../channels/email/runtime.js';
 import { buildTeamsArtifactAttachments } from '../channels/msteams/attachments.js';
 import { initMSTeams } from '../channels/msteams/runtime.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
-import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import {
   initWhatsApp,
-  sendToWhatsAppChat,
   sendWhatsAppMediaToChat,
   shutdownWhatsApp,
 } from '../channels/whatsapp/runtime.js';
@@ -49,14 +42,12 @@ import {
   MSTEAMS_APP_ID,
   MSTEAMS_APP_PASSWORD,
   onConfigChange,
-  PROACTIVE_QUEUE_OUTSIDE_HOURS,
 } from '../config/config.js';
 import { logger } from '../logger.js';
 import {
   deleteQueuedProactiveMessage,
-  enqueueProactiveMessage,
-  getMostRecentSessionChannelId,
   getQueuedProactiveMessageCount,
+  getWorkflowByCompanionTaskId,
   initDatabase,
   listQueuedProactiveMessages,
 } from '../memory/db.js';
@@ -81,6 +72,8 @@ import {
   parseTuiSlashCommand,
 } from '../tui-slash-command.js';
 import type { ArtifactMetadata } from '../types.js';
+import { executeWorkflow } from '../workflow/executor.js';
+import { initializeWorkflowRuntime } from '../workflow/service.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
@@ -107,11 +100,12 @@ import {
   setPendingApproval,
 } from './pending-approvals.js';
 import {
-  hasQueuedProactiveDeliveryPath,
+  deliverProactiveMessage,
+  deliverWebhookMessage,
   isDiscordChannelId,
-  isEmailAddress,
   isSupportedProactiveChannelId,
   resolveHeartbeatDeliveryChannelId,
+  resolveLastUsedDeliverableChannelId,
   shouldDropQueuedProactiveMessage,
 } from './proactive-delivery.js';
 import {
@@ -500,208 +494,6 @@ function resolveTextChannelSlashCommands(content: string): string[][] | null {
   return args ? [args] : null;
 }
 
-async function deliverProactiveMessage(
-  channelId: string,
-  text: string,
-  source: string,
-  artifacts?: ArtifactMetadata[],
-): Promise<void> {
-  if (!isWithinActiveHours()) {
-    if (PROACTIVE_QUEUE_OUTSIDE_HOURS) {
-      const { queued, dropped } = enqueueProactiveMessage(
-        channelId,
-        text,
-        source,
-        MAX_QUEUED_PROACTIVE_MESSAGES,
-      );
-      logger.info(
-        {
-          source,
-          channelId,
-          queued,
-          dropped,
-          artifactCount: artifacts?.length || 0,
-          activeHours: proactiveWindowLabel(),
-        },
-        'Proactive message queued (outside active hours)',
-      );
-      if (artifacts && artifacts.length > 0) {
-        logger.warn(
-          { source, channelId, artifactCount: artifacts.length },
-          'Queued proactive message does not persist attachments; only text was queued',
-        );
-      }
-      return;
-    }
-    logger.info(
-      { source, channelId, activeHours: proactiveWindowLabel() },
-      'Proactive message suppressed (outside active hours)',
-    );
-    return;
-  }
-
-  await sendProactiveMessageNow(channelId, text, source, artifacts);
-}
-
-async function sendProactiveMessageNow(
-  channelId: string,
-  text: string,
-  source: string,
-  artifacts?: ArtifactMetadata[],
-): Promise<void> {
-  const attachments = buildArtifactAttachments(artifacts);
-  if (isWhatsAppJid(channelId)) {
-    const whatsappAuth = await getWhatsAppAuthStatus();
-    if (!whatsappAuth.linked) {
-      logger.info(
-        { source, channelId, text },
-        'Proactive WhatsApp message suppressed: WhatsApp not linked',
-      );
-      return;
-    }
-    if (attachments.length > 0) {
-      logger.warn(
-        { source, channelId, artifactCount: attachments.length },
-        'Proactive WhatsApp delivery currently sends text only',
-      );
-    }
-    try {
-      await sendToWhatsAppChat(channelId, text);
-    } catch (error) {
-      logger.warn(
-        { source, channelId, error },
-        'Failed to send proactive message to WhatsApp chat',
-      );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
-    }
-    return;
-  }
-
-  if (isEmailAddress(channelId)) {
-    if (
-      !getConfigSnapshot().email.enabled ||
-      !String(EMAIL_PASSWORD || '').trim()
-    ) {
-      logger.info(
-        { source, channelId, text, artifactCount: attachments.length },
-        'Proactive email message suppressed: email channel is not configured',
-      );
-      return;
-    }
-
-    try {
-      if (artifacts && artifacts.length > 0) {
-        await sendEmailAttachmentTo({
-          to: channelId,
-          filePath: artifacts[0].path,
-          body: text,
-          mimeType: artifacts[0].mimeType,
-          filename: artifacts[0].filename,
-        });
-        for (let index = 1; index < artifacts.length; index += 1) {
-          await sendEmailAttachmentTo({
-            to: channelId,
-            filePath: artifacts[index].path,
-            mimeType: artifacts[index].mimeType,
-            filename: artifacts[index].filename,
-          });
-        }
-        return;
-      }
-
-      await sendToEmail(channelId, text);
-    } catch (error) {
-      logger.warn(
-        { source, channelId, error, artifactCount: attachments.length },
-        'Failed to send proactive message to email recipient',
-      );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
-    }
-    return;
-  }
-
-  if (!isDiscordChannelId(channelId)) {
-    const { queued, dropped } = enqueueProactiveMessage(
-      channelId,
-      text,
-      source,
-      MAX_QUEUED_PROACTIVE_MESSAGES,
-    );
-    logger.info(
-      {
-        source,
-        channelId,
-        queued,
-        dropped,
-        artifactCount: attachments.length,
-      },
-      'Proactive message queued for local channel delivery',
-    );
-    if (attachments.length > 0) {
-      logger.warn(
-        { source, channelId, artifactCount: attachments.length },
-        'Queued proactive local delivery does not persist attachments; only text was queued',
-      );
-    }
-    return;
-  }
-
-  if (!DISCORD_TOKEN) {
-    logger.info(
-      { source, channelId, text, artifactCount: attachments.length },
-      'Proactive message (no Discord delivery)',
-    );
-    return;
-  }
-
-  try {
-    await sendToChannel(channelId, text, attachments);
-  } catch (error) {
-    logger.warn(
-      { source, channelId, error, artifactCount: attachments.length },
-      'Failed to send proactive message to Discord channel',
-    );
-    logger.info({ source, channelId, text }, 'Proactive message fallback');
-  }
-}
-
-async function deliverWebhookMessage(
-  webhookUrl: string,
-  text: string,
-  source: string,
-  artifacts?: ArtifactMetadata[],
-): Promise<void> {
-  const response = await fetch(webhookUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-    body: JSON.stringify({
-      text,
-      source,
-      artifactCount: artifacts?.length || 0,
-      artifacts: (artifacts || []).map((artifact) => ({
-        filename: artifact.filename,
-        mimeType: artifact.mimeType,
-      })),
-    }),
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(
-      `Webhook delivery failed (${response.status}): ${body.slice(0, 300)}`,
-    );
-  }
-}
-
-function resolveLastUsedDeliverableChannelId(): string | null {
-  const channelId = getMostRecentSessionChannelId();
-  if (!channelId) return null;
-  return hasQueuedProactiveDeliveryPath({ channel_id: channelId })
-    ? channelId
-    : null;
-}
-
 async function flushQueuedProactiveMessages(): Promise<void> {
   if (!isWithinActiveHours()) return;
   const pending = listQueuedProactiveMessages(MAX_QUEUED_PROACTIVE_MESSAGES);
@@ -721,7 +513,7 @@ async function flushQueuedProactiveMessages(): Promise<void> {
       }
       continue;
     }
-    await sendProactiveMessageNow(
+    await deliverProactiveMessage(
       item.channel_id,
       item.text,
       `${item.source}:queued`,
@@ -1450,6 +1242,18 @@ async function runScheduledTask(
         ? `cron:${request.taskId}`
         : undefined;
 
+  if (request.source === 'db-task' && request.taskId != null) {
+    const linkedWorkflow = getWorkflowByCompanionTaskId(request.taskId);
+    if (linkedWorkflow) {
+      await executeWorkflow({
+        workflowId: linkedWorkflow.id,
+        agentId: linkedWorkflow.agent_id,
+        sessionId: linkedWorkflow.session_id,
+      });
+      return;
+    }
+  }
+
   await runGatewayScheduledTask(
     request.sessionId,
     runChannelId,
@@ -1579,6 +1383,7 @@ function startOrRestartMemoryConsolidationScheduler(): void {
 async function main(): Promise<void> {
   logger.info('Starting HybridClaw gateway');
   initDatabase();
+  initializeWorkflowRuntime();
   initGatewayService();
   resumeEnabledFullAutoSessions();
   void runManagedMediaCleanup('startup').catch((error) => {

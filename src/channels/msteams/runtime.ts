@@ -24,6 +24,7 @@ import {
 import { logger } from '../../logger.js';
 import { getMemoryValue, setMemoryValue } from '../../memory/db.js';
 import type { MediaContextItem } from '../../types.js';
+import { publishWorkflowEvent } from '../../workflow/event-bus.js';
 import { MSTEAMS_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
 import {
@@ -647,6 +648,22 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
     const typingController = createMSTeamsTypingController(turnContext);
     typingController.start();
     try {
+      const activityTimestampMs = Date.parse(String(activity.timestamp || ''));
+      void publishWorkflowEvent({
+        kind: 'message',
+        sourceChannel: 'msteams',
+        channelId,
+        senderId: actor.userId,
+        content,
+        timestamp: Number.isFinite(activityTimestampMs)
+          ? activityTimestampMs
+          : Date.now(),
+      }).catch((error) => {
+        logger.debug(
+          { error, sessionId, channelId },
+          'Failed to publish Teams workflow event',
+        );
+      });
       await messageHandler(
         sessionId,
         teamId,

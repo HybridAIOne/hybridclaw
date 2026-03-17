@@ -27,6 +27,11 @@ import {
   type DelegationTaskSpec,
   type MediaContextItem,
   type ScheduleSideEffect,
+  type WorkflowDelivery,
+  type WorkflowSideEffect,
+  type WorkflowSpec,
+  type WorkflowStep,
+  type WorkflowTrigger,
   TASK_MODEL_KEYS,
   type TaskModelKey,
   type TaskModelPolicies,
@@ -83,6 +88,7 @@ type ScheduledTaskInfo = {
 
 let pendingSchedules: ScheduleSideEffect[] = [];
 let pendingDelegations: DelegationSideEffect[] = [];
+let pendingWorkflows: WorkflowSideEffect[] = [];
 let injectedTasks: ScheduledTaskInfo[] = [];
 let currentSessionId = '';
 let gatewayBaseUrl = '';
@@ -247,19 +253,26 @@ function cloneTaskModelPolicies(
 export function resetSideEffects(): void {
   pendingSchedules = [];
   pendingDelegations = [];
+  pendingWorkflows = [];
 }
 
 export function getPendingSideEffects():
   | {
       schedules?: ScheduleSideEffect[];
       delegations?: DelegationSideEffect[];
+      workflows?: WorkflowSideEffect[];
     }
   | undefined {
-  if (pendingSchedules.length === 0 && pendingDelegations.length === 0)
+  if (
+    pendingSchedules.length === 0 &&
+    pendingDelegations.length === 0 &&
+    pendingWorkflows.length === 0
+  )
     return undefined;
   return {
     schedules: pendingSchedules.length > 0 ? pendingSchedules : undefined,
     delegations: pendingDelegations.length > 0 ? pendingDelegations : undefined,
+    workflows: pendingWorkflows.length > 0 ? pendingWorkflows : undefined,
   };
 }
 
@@ -355,6 +368,287 @@ function readPositiveNumberValue(value: unknown): number | null {
   const parsed = Number(trimmed);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return parsed;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeStringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .map((entry) => readStringValue(entry))
+    .filter((entry): entry is string => Boolean(entry));
+  return normalized.length > 0 ? [...new Set(normalized)] : undefined;
+}
+
+function readBooleanValue(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function normalizeWorkflowDeliveryInput(
+  value: unknown,
+): WorkflowDelivery | null {
+  if (!isObjectRecord(value)) return null;
+  const kind = readStringValue(value.kind);
+  if (
+    kind !== 'channel' &&
+    kind !== 'email' &&
+    kind !== 'webhook' &&
+    kind !== 'originating'
+  ) {
+    return null;
+  }
+  return {
+    kind,
+    channelType: readStringValue(value.channelType) || undefined,
+    target: readStringValue(value.target) || undefined,
+    channelName: readStringValue(value.channelName) || undefined,
+  };
+}
+
+function normalizeWorkflowTriggerInput(value: unknown): WorkflowTrigger | null {
+  if (!isObjectRecord(value)) return null;
+  const kind = readStringValue(value.kind);
+  if (
+    kind !== 'schedule' &&
+    kind !== 'channel_event' &&
+    kind !== 'reaction' &&
+    kind !== 'keyword' &&
+    kind !== 'webhook'
+  ) {
+    return null;
+  }
+  const trigger: WorkflowTrigger = { kind };
+  const cronExpr = readStringValue(value.cronExpr);
+  if (cronExpr) trigger.cronExpr = cronExpr;
+  const runAt = readStringValue(value.runAt);
+  if (runAt) trigger.runAt = runAt;
+  const everyMs = readPositiveNumberValue(value.everyMs);
+  if (everyMs != null) trigger.everyMs = Math.round(everyMs);
+  const sourceChannel = readStringValue(value.sourceChannel);
+  if (sourceChannel) trigger.sourceChannel = sourceChannel;
+  const eventType = readStringValue(value.eventType);
+  if (eventType) trigger.eventType = eventType;
+  const fromPattern = readStringValue(value.fromPattern);
+  if (fromPattern) trigger.fromPattern = fromPattern;
+  const contentPattern = readStringValue(value.contentPattern);
+  if (contentPattern) trigger.contentPattern = contentPattern;
+  const reactionEmoji = readStringValue(value.reactionEmoji);
+  if (reactionEmoji) trigger.reactionEmoji = reactionEmoji;
+  const subjectPattern = readStringValue(value.subjectPattern);
+  if (subjectPattern) trigger.subjectPattern = subjectPattern;
+  return trigger;
+}
+
+function normalizeWorkflowRetryPolicyInput(
+  value: unknown,
+): WorkflowStep['retryPolicy'] | undefined {
+  if (!isObjectRecord(value)) return undefined;
+  const maxAttempts = readPositiveNumberValue(value.maxAttempts);
+  if (maxAttempts == null) return undefined;
+  const strategy = readStringValue(value.strategy);
+  const retryOn = normalizeStringList(value.retryOn)?.filter(
+    (entry): entry is 'timeout' | 'delivery_error' | 'rate_limit' | 'transient' =>
+      entry === 'timeout' ||
+      entry === 'delivery_error' ||
+      entry === 'rate_limit' ||
+      entry === 'transient',
+  );
+  return {
+    maxAttempts: Math.round(maxAttempts),
+    backoffMs: readPositiveNumberValue(value.backoffMs) || undefined,
+    strategy:
+      strategy === 'fixed' || strategy === 'exponential'
+        ? strategy
+        : undefined,
+    retryOn: retryOn && retryOn.length > 0 ? retryOn : undefined,
+  };
+}
+
+function normalizeWorkflowDefaultsInput(
+  value: unknown,
+): WorkflowSpec['defaults'] | undefined {
+  if (!isObjectRecord(value)) return undefined;
+  const defaults: NonNullable<WorkflowSpec['defaults']> = {};
+  const timeoutMs = readPositiveNumberValue(value.timeoutMs);
+  if (timeoutMs != null) defaults.timeoutMs = Math.round(timeoutMs);
+  const retryPolicy = normalizeWorkflowRetryPolicyInput(value.retryPolicy);
+  if (retryPolicy) defaults.retryPolicy = retryPolicy;
+  const lightContext = readBooleanValue(value.lightContext);
+  if (lightContext !== undefined) defaults.lightContext = lightContext;
+  return Object.keys(defaults).length > 0 ? defaults : undefined;
+}
+
+function normalizeWorkflowStepInput(value: unknown): WorkflowStep | null {
+  if (!isObjectRecord(value)) return null;
+  const id = readStringValue(value.id);
+  if (!id) return null;
+  const inferredKind = readStringValue(value.kind) || (readStringValue(value.prompt) ? 'agent' : null);
+  if (
+    inferredKind !== 'agent' &&
+    inferredKind !== 'deliver' &&
+    inferredKind !== 'approval'
+  ) {
+    return null;
+  }
+
+  const step: WorkflowStep = {
+    id,
+    kind: inferredKind,
+    dependsOn: normalizeStringList(value.dependsOn),
+    deliverTo: normalizeWorkflowDeliveryInput(value.deliverTo) || undefined,
+    extractAs: readStringValue(value.extractAs) || undefined,
+    timeoutMs: readPositiveNumberValue(value.timeoutMs) || undefined,
+    retryPolicy: normalizeWorkflowRetryPolicyInput(value.retryPolicy),
+    lightContext: readBooleanValue(value.lightContext),
+  };
+
+  if (inferredKind === 'agent') {
+    const prompt = readStringValue(value.prompt);
+    if (!prompt) return null;
+    step.prompt = prompt;
+    step.input = readStringValue(value.input) || undefined;
+    return step;
+  }
+
+  if (inferredKind === 'deliver') {
+    const input = readStringValue(value.input);
+    const delivery =
+      normalizeWorkflowDeliveryInput(value.delivery) ||
+      normalizeWorkflowDeliveryInput(value.deliverTo);
+    if (!input || !delivery) return null;
+    step.input = input;
+    step.delivery = delivery;
+    return step;
+  }
+
+  const approvalPrompt =
+    readStringValue(value.approvalPrompt) || readStringValue(value.prompt);
+  if (!approvalPrompt) return null;
+  step.approvalPrompt = approvalPrompt;
+  step.input = readStringValue(value.input) || undefined;
+  return step;
+}
+
+function normalizeLegacyWorkflowStepInput(
+  value: unknown,
+): {
+  id: string;
+  prompt: string;
+  dependsOn?: string[];
+  deliverTo?: WorkflowDelivery;
+  extractAs?: string;
+} | null {
+  if (!isObjectRecord(value)) return null;
+  const id = readStringValue(value.id);
+  const prompt = readStringValue(value.prompt);
+  if (!id || !prompt) return null;
+  return {
+    id,
+    prompt,
+    dependsOn: normalizeStringList(value.dependsOn),
+    deliverTo: normalizeWorkflowDeliveryInput(value.deliverTo) || undefined,
+    extractAs: readStringValue(value.extractAs) || undefined,
+  };
+}
+
+function normalizeWorkflowContextInput(
+  value: unknown,
+): Record<string, string> | undefined {
+  if (Array.isArray(value)) {
+    const out: Record<string, string> = {};
+    for (const entry of value) {
+      if (!isObjectRecord(entry)) continue;
+      const key = readStringValue(entry.key);
+      const entryValue = readStringValue(entry.value);
+      if (!key || !entryValue) continue;
+      out[key] = entryValue;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+  if (!isObjectRecord(value)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    const normalizedValue = readStringValue(raw);
+    if (!key.trim() || !normalizedValue) continue;
+    out[key.trim()] = normalizedValue;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function normalizeWorkflowSpecInput(value: unknown): WorkflowSpec | null {
+  let rawValue = value;
+  if (typeof rawValue === 'string') {
+    try {
+      rawValue = JSON.parse(rawValue) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (!isObjectRecord(rawValue)) return null;
+  const version = Number(rawValue.version ?? 1);
+  const trigger = normalizeWorkflowTriggerInput(rawValue.trigger);
+  if (!trigger) return null;
+  const delivery = normalizeWorkflowDeliveryInput(rawValue.delivery);
+  if (!delivery) return null;
+  if (!Array.isArray(rawValue.steps) || rawValue.steps.length === 0) return null;
+
+  if (version === 1) {
+    const legacySteps = rawValue.steps
+      .map((entry) => normalizeLegacyWorkflowStepInput(entry))
+      .filter(
+        (
+          entry,
+        ): entry is {
+          id: string;
+          prompt: string;
+          dependsOn?: string[];
+          deliverTo?: WorkflowDelivery;
+          extractAs?: string;
+        } => Boolean(entry),
+      );
+    if (legacySteps.length !== rawValue.steps.length) return null;
+    return {
+      version: 2,
+      trigger,
+      steps: legacySteps.map((step) => ({
+        id: step.id,
+        kind: 'agent',
+        prompt: step.prompt,
+        dependsOn: step.dependsOn,
+        deliverTo: step.deliverTo,
+        extractAs: step.extractAs,
+      })),
+      delivery,
+      context: normalizeWorkflowContextInput(rawValue.context),
+    };
+  }
+
+  if (version !== 2) return null;
+  const steps = rawValue.steps
+    .map((entry) => normalizeWorkflowStepInput(entry))
+    .filter((entry): entry is WorkflowStep => Boolean(entry));
+  if (steps.length !== rawValue.steps.length) return null;
+  const knownStepIds = new Set<string>();
+  for (const step of steps) {
+    if (knownStepIds.has(step.id)) return null;
+    knownStepIds.add(step.id);
+  }
+  for (const step of steps) {
+    if (step.dependsOn?.some((dependency) => !knownStepIds.has(dependency))) {
+      return null;
+    }
+  }
+
+  return {
+    version: 2,
+    trigger,
+    steps,
+    delivery,
+    defaults: normalizeWorkflowDefaultsInput(rawValue.defaults),
+    context: normalizeWorkflowContextInput(rawValue.context),
+  };
 }
 
 function resolveDiscordMessageAction(
@@ -2504,6 +2798,65 @@ async function executeToolInternal(
       );
     }
 
+    case 'workflow': {
+      const action = readStringValue(args.action);
+      if (!action) return failTool('Error: action is required');
+
+      if (action === 'create') {
+        const name = readStringValue(args.name);
+        const naturalLanguage =
+          readStringValue(args.naturalLanguage) ||
+          readStringValue(args.natural_language) ||
+          readStringValue(args.prompt) ||
+          readStringValue(args.description);
+        const description = readStringValue(args.description) || '';
+        const spec = normalizeWorkflowSpecInput(args.spec);
+        if (!name) return failTool('Error: name is required');
+        if (!naturalLanguage) {
+          return failTool('Error: naturalLanguage is required');
+        }
+        if (!spec) {
+          return failTool('Error: spec must be a valid WorkflowSpec');
+        }
+        pendingWorkflows.push({
+          action: 'create',
+          name,
+          description,
+          naturalLanguage,
+          spec,
+        });
+        return `Prepared workflow "${name}" with ${spec.steps.length} step(s) and ${spec.trigger.kind} trigger.`;
+      }
+
+      if (action === 'remove') {
+        const workflowId = readPositiveNumberValue(args.workflowId ?? args.id);
+        if (workflowId == null) {
+          return failTool('Error: workflowId is required');
+        }
+        pendingWorkflows.push({
+          action: 'remove',
+          workflowId: Math.round(workflowId),
+        });
+        return `Prepared removal of workflow #${Math.round(workflowId)}`;
+      }
+
+      if (action === 'toggle') {
+        const workflowId = readPositiveNumberValue(args.workflowId ?? args.id);
+        if (workflowId == null) {
+          return failTool('Error: workflowId is required');
+        }
+        pendingWorkflows.push({
+          action: 'toggle',
+          workflowId: Math.round(workflowId),
+        });
+        return `Prepared toggle of workflow #${Math.round(workflowId)}`;
+      }
+
+      return failTool(
+        `Error: unknown workflow action "${action}". Use "create", "remove", or "toggle".`,
+      );
+    }
+
     case 'delegate': {
       if (pendingDelegations.length >= MAX_PENDING_DELEGATIONS) {
         return failTool(
@@ -3325,6 +3678,218 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           taskId: {
             type: 'number',
             description: 'Task ID to remove (required for "remove")',
+          },
+        },
+        required: ['action'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'workflow',
+      description:
+        'Create, remove, or toggle persistent workflows. For "create", compile the user request into a deterministic WorkflowSpec and send it here. The gateway renders the stored workflow as canonical YAML for inspection.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            description: 'Action to perform: "create", "remove", or "toggle"',
+            enum: ['create', 'remove', 'toggle'],
+          },
+          name: {
+            type: 'string',
+            description:
+              'Workflow name (required for "create"). Keep it short and descriptive.',
+          },
+          description: {
+            type: 'string',
+            description: 'Optional workflow summary for humans.',
+          },
+          naturalLanguage: {
+            type: 'string',
+            description:
+              'Original user workflow request in natural language (required for "create").',
+          },
+          workflowId: {
+            type: 'number',
+            description:
+              'Workflow id for "remove" or "toggle" actions. Alias: id.',
+          },
+          id: {
+            type: 'number',
+            description:
+              'Alternate workflow id field for "remove" or "toggle".',
+          },
+          spec: {
+            type: 'object',
+            description:
+              'Compiled WorkflowSpec payload. Must include version, trigger, steps, and delivery.',
+            properties: {
+              version: {
+                type: 'number',
+                description: 'Workflow spec version. Use 2.',
+              },
+              trigger: {
+                type: 'object',
+                properties: {
+                  kind: {
+                    type: 'string',
+                    enum: [
+                      'schedule',
+                      'channel_event',
+                      'reaction',
+                      'keyword',
+                      'webhook',
+                    ],
+                  },
+                  cronExpr: { type: 'string' },
+                  runAt: { type: 'string' },
+                  everyMs: { type: 'number' },
+                  sourceChannel: { type: 'string' },
+                  eventType: { type: 'string' },
+                  fromPattern: { type: 'string' },
+                  contentPattern: { type: 'string' },
+                  reactionEmoji: { type: 'string' },
+                  subjectPattern: { type: 'string' },
+                },
+                required: ['kind'],
+              },
+              steps: {
+                type: 'array',
+                minItems: 1,
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    kind: {
+                      type: 'string',
+                      enum: ['agent', 'deliver', 'approval'],
+                    },
+                    prompt: { type: 'string' },
+                    input: { type: 'string' },
+                    approvalPrompt: { type: 'string' },
+                    dependsOn: {
+                      type: 'array',
+                      items: { type: 'string' },
+                    },
+                    extractAs: { type: 'string' },
+                    timeoutMs: { type: 'number' },
+                    lightContext: { type: 'boolean' },
+                    retryPolicy: {
+                      type: 'object',
+                      properties: {
+                        maxAttempts: { type: 'number' },
+                        backoffMs: { type: 'number' },
+                        strategy: {
+                          type: 'string',
+                          enum: ['fixed', 'exponential'],
+                        },
+                        retryOn: {
+                          type: 'array',
+                          items: {
+                            type: 'string',
+                            enum: [
+                              'timeout',
+                              'delivery_error',
+                              'rate_limit',
+                              'transient',
+                            ],
+                          },
+                        },
+                      },
+                      required: ['maxAttempts'],
+                    },
+                    deliverTo: {
+                      type: 'object',
+                      properties: {
+                        kind: {
+                          type: 'string',
+                          enum: ['channel', 'email', 'webhook', 'originating'],
+                        },
+                        channelType: { type: 'string' },
+                        target: { type: 'string' },
+                        channelName: { type: 'string' },
+                      },
+                      required: ['kind'],
+                    },
+                    delivery: {
+                      type: 'object',
+                      properties: {
+                        kind: {
+                          type: 'string',
+                          enum: ['channel', 'email', 'webhook', 'originating'],
+                        },
+                        channelType: { type: 'string' },
+                        target: { type: 'string' },
+                        channelName: { type: 'string' },
+                      },
+                      required: ['kind'],
+                    },
+                  },
+                  required: ['id', 'kind'],
+                },
+              },
+              delivery: {
+                type: 'object',
+                properties: {
+                  kind: {
+                    type: 'string',
+                    enum: ['channel', 'email', 'webhook', 'originating'],
+                  },
+                  channelType: { type: 'string' },
+                  target: { type: 'string' },
+                  channelName: { type: 'string' },
+                },
+                required: ['kind'],
+              },
+              defaults: {
+                type: 'object',
+                properties: {
+                  timeoutMs: { type: 'number' },
+                  lightContext: { type: 'boolean' },
+                  retryPolicy: {
+                    type: 'object',
+                    properties: {
+                      maxAttempts: { type: 'number' },
+                      backoffMs: { type: 'number' },
+                      strategy: {
+                        type: 'string',
+                        enum: ['fixed', 'exponential'],
+                      },
+                      retryOn: {
+                        type: 'array',
+                        items: {
+                          type: 'string',
+                          enum: [
+                            'timeout',
+                            'delivery_error',
+                            'rate_limit',
+                            'transient',
+                          ],
+                        },
+                      },
+                    },
+                    required: ['maxAttempts'],
+                  },
+                },
+              },
+              context: {
+                type: 'array',
+                description:
+                  'Optional context key/value pairs to interpolate later.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    key: { type: 'string' },
+                    value: { type: 'string' },
+                  },
+                  required: ['key', 'value'],
+                },
+              },
+            },
+            required: ['version', 'trigger', 'steps', 'delivery'],
           },
         },
         required: ['action'],

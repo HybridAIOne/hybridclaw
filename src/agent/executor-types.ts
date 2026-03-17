@@ -6,6 +6,7 @@ import type {
   ScheduledTask,
   ToolProgressEvent,
 } from '../types.js';
+import type { BootstrapContextMode } from '../workspace.js';
 
 export interface ExecutorRequest {
   sessionId: string;
@@ -27,6 +28,7 @@ export interface ExecutorRequest {
   abortSignal?: AbortSignal;
   media?: MediaContextItem[];
   audioTranscriptsPrepended?: boolean;
+  bootstrapContextMode?: BootstrapContextMode;
 }
 
 export interface Executor {

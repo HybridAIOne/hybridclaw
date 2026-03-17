@@ -15,6 +15,16 @@ export interface AuditEventPayload {
   [key: string]: unknown;
 }
 
+export const WORKFLOW_AUDIT_EVENT_TYPES = [
+  'workflow.created',
+  'workflow.deleted',
+  'workflow.toggled',
+  'workflow.execution.start',
+  'workflow.execution.end',
+  'workflow.step.start',
+  'workflow.step.end',
+] as const;
+
 export interface WireMetadataRecord {
   type: 'metadata';
   protocolVersion: typeof AUDIT_PROTOCOL_VERSION;

@@ -97,10 +97,13 @@ import {
   getSessionUsageTotalsSince,
   getTasksForSession,
   getUsageTotals,
+  getWorkflow,
+  getWorkflowByCompanionTaskId,
   listStructuredAuditEntries,
   listUsageByAgent,
   listUsageByModel,
   listUsageBySession,
+  listWorkflows,
   logAudit,
   pauseTask,
   recordUsageEvent,
@@ -191,6 +194,14 @@ import type {
   ToolProgressEvent,
 } from '../types.js';
 import { sleep } from '../utils/sleep.js';
+import {
+  createPersistedWorkflow,
+  removePersistedWorkflow,
+  resolveWorkflowDeliveryLabel,
+  resolveWorkflowScheduleLabel,
+  togglePersistedWorkflow,
+} from '../workflow/service.js';
+import { validateWorkflowSpec } from '../workflow/types.js';
 import { ensureBootstrapFiles, resetWorkspace } from '../workspace.js';
 import {
   buildFullAutoOperatingContract,
@@ -243,6 +254,8 @@ import {
   type GatewayAdminToolCatalogEntry,
   type GatewayAdminToolsResponse,
   type GatewayAdminUsageSummary,
+  type GatewayAdminWorkflow,
+  type GatewayAdminWorkflowResponse,
   type GatewayAgentsResponse,
   type GatewayChatRequestBody,
   type GatewayChatResult,
@@ -2360,6 +2373,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
         } satisfies GatewayAdminSchedulerJob;
       }),
       ...getAllTasks().map((task) => {
+        const linkedWorkflow = getWorkflowByCompanionTaskId(task.id);
         const normalizedPrompt = task.prompt.replace(/\s+/g, ' ').trim();
         const createdAtMs = parseSchedulerTimestampMs(task.created_at);
         const lastStatus =
@@ -2371,10 +2385,13 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
           id: `task:${task.id}`,
           source: 'task',
           name:
-            normalizedPrompt.length > 72
+            linkedWorkflow?.name ||
+            (normalizedPrompt.length > 72
               ? `${normalizedPrompt.slice(0, 69).trimEnd()}...`
-              : normalizedPrompt || `Task #${task.id}`,
-          description: `#${task.id}`,
+              : normalizedPrompt || `Task #${task.id}`),
+          description: linkedWorkflow
+            ? `Workflow #${linkedWorkflow.id}`
+            : `#${task.id}`,
           enabled: Boolean(task.enabled),
           schedule: task.run_at
             ? {
@@ -2425,6 +2442,87 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
       }),
     ].sort(compareGatewayAdminSchedulerJobs),
   };
+}
+
+function mapGatewayAdminWorkflow(
+  workflow: NonNullable<ReturnType<typeof getWorkflow>>,
+): GatewayAdminWorkflow {
+  return {
+    id: workflow.id,
+    sessionId: workflow.session_id,
+    agentId: workflow.agent_id,
+    channelId: workflow.channel_id,
+    name: workflow.name,
+    description: workflow.description,
+    naturalLanguage: workflow.natural_language,
+    spec: workflow.spec,
+    enabled: Boolean(workflow.enabled),
+    companionTaskId: workflow.companion_task_id,
+    lastRun: workflow.last_run,
+    lastStatus: workflow.last_status,
+    consecutiveErrors: workflow.consecutive_errors,
+    runCount: workflow.run_count,
+    createdAt: workflow.created_at,
+    updatedAt: workflow.updated_at,
+  };
+}
+
+export function getGatewayAdminWorkflows(params?: {
+  sessionId?: string;
+  agentId?: string;
+}): GatewayAdminWorkflowResponse {
+  return {
+    workflows: listWorkflows({
+      sessionId: params?.sessionId,
+      agentId: params?.agentId,
+    }).map((workflow) => mapGatewayAdminWorkflow(workflow)),
+  };
+}
+
+export function createGatewayAdminWorkflow(input: {
+  workflow: {
+    sessionId: string;
+    agentId: string;
+    channelId: string;
+    name: string;
+    description?: string;
+    naturalLanguage: string;
+    spec: unknown;
+    enabled?: boolean;
+  };
+}): GatewayAdminWorkflowResponse {
+  const validation = validateWorkflowSpec(input.workflow.spec);
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
+  createPersistedWorkflow({
+    sessionId: input.workflow.sessionId,
+    agentId: input.workflow.agentId,
+    channelId: input.workflow.channelId,
+    name: input.workflow.name,
+    description: input.workflow.description,
+    naturalLanguage: input.workflow.naturalLanguage,
+    spec: validation.spec,
+    enabled: input.workflow.enabled,
+  });
+  return getGatewayAdminWorkflows();
+}
+
+export function removeGatewayAdminWorkflow(
+  workflowId: number,
+): GatewayAdminWorkflowResponse {
+  removePersistedWorkflow(workflowId);
+  return getGatewayAdminWorkflows();
+}
+
+export function updateGatewayAdminWorkflow(params: {
+  workflowId: number;
+  action: 'toggle';
+}): GatewayAdminWorkflowResponse {
+  if (params.action === 'toggle') {
+    togglePersistedWorkflow(params.workflowId);
+  }
+  return getGatewayAdminWorkflows();
 }
 
 function compareGatewayAdminSchedulerJobs(
@@ -2486,6 +2584,11 @@ export function removeGatewayAdminSchedulerJob(
     if (!Number.isFinite(taskId) || taskId <= 0) {
       throw new Error('Expected numeric scheduler `taskId`.');
     }
+    const linkedWorkflow = getWorkflowByCompanionTaskId(taskId);
+    if (linkedWorkflow) {
+      removePersistedWorkflow(linkedWorkflow.id);
+      return getGatewayAdminScheduler();
+    }
     deleteTask(taskId);
     rearmScheduler();
     return getGatewayAdminScheduler();
@@ -2514,6 +2617,14 @@ export function setGatewayAdminSchedulerJobPaused(params: {
     const taskId = Number.parseInt(params.jobId, 10);
     if (!Number.isFinite(taskId) || taskId <= 0) {
       throw new Error('Expected numeric scheduler `taskId`.');
+    }
+    const linkedWorkflow = getWorkflowByCompanionTaskId(taskId);
+    if (linkedWorkflow) {
+      const currentlyEnabled = Boolean(linkedWorkflow.enabled);
+      if (params.paused === currentlyEnabled) {
+        togglePersistedWorkflow(linkedWorkflow.id);
+      }
+      return getGatewayAdminScheduler();
     }
     if (params.paused) {
       pauseTask(taskId);
@@ -3957,63 +4068,71 @@ export async function handleGatewayMessage(
 
     const parentDepth = extractDelegationDepth(req.sessionId);
     let acceptedDelegations = 0;
-    processSideEffects(output, req.sessionId, req.channelId, {
-      onDelegation: (effect) => {
-        const normalized = normalizeDelegationEffect(effect, model);
-        if (!normalized.plan) {
-          logger.warn(
-            {
-              sessionId: req.sessionId,
-              error: normalized.error || 'unknown',
-              effect,
-            },
-            'Delegation skipped — invalid payload',
-          );
-          return;
-        }
-
-        const childDepth = parentDepth + 1;
-        if (childDepth > PROACTIVE_DELEGATION_MAX_DEPTH) {
-          logger.info(
-            {
-              sessionId: req.sessionId,
-              childDepth,
-              maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH,
-            },
-            'Delegation skipped — depth limit reached',
-          );
-          return;
-        }
-
-        const requestedRuns = normalized.plan.tasks.length;
-        if (
-          acceptedDelegations + requestedRuns >
-          PROACTIVE_DELEGATION_MAX_PER_TURN
-        ) {
-          logger.info(
-            {
-              sessionId: req.sessionId,
-              limit: PROACTIVE_DELEGATION_MAX_PER_TURN,
-              requestedRuns,
-              acceptedDelegations,
-            },
-            'Delegation skipped — per-turn limit reached',
-          );
-          return;
-        }
-        acceptedDelegations += requestedRuns;
-        enqueueDelegationFromSideEffect({
-          plan: normalized.plan,
-          parentSessionId: req.sessionId,
-          channelId: req.channelId,
-          chatbotId,
-          enableRag,
-          agentId,
-          onProactiveMessage: req.onProactiveMessage,
-          parentDepth,
-        });
+    processSideEffects(
+      output,
+      {
+        sessionId: req.sessionId,
+        channelId: req.channelId,
+        agentId,
       },
-    });
+      {
+        onDelegation: (effect) => {
+          const normalized = normalizeDelegationEffect(effect, model);
+          if (!normalized.plan) {
+            logger.warn(
+              {
+                sessionId: req.sessionId,
+                error: normalized.error || 'unknown',
+                effect,
+              },
+              'Delegation skipped — invalid payload',
+            );
+            return;
+          }
+
+          const childDepth = parentDepth + 1;
+          if (childDepth > PROACTIVE_DELEGATION_MAX_DEPTH) {
+            logger.info(
+              {
+                sessionId: req.sessionId,
+                childDepth,
+                maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH,
+              },
+              'Delegation skipped — depth limit reached',
+            );
+            return;
+          }
+
+          const requestedRuns = normalized.plan.tasks.length;
+          if (
+            acceptedDelegations + requestedRuns >
+            PROACTIVE_DELEGATION_MAX_PER_TURN
+          ) {
+            logger.info(
+              {
+                sessionId: req.sessionId,
+                limit: PROACTIVE_DELEGATION_MAX_PER_TURN,
+                requestedRuns,
+                acceptedDelegations,
+              },
+              'Delegation skipped — per-turn limit reached',
+            );
+            return;
+          }
+          acceptedDelegations += requestedRuns;
+          enqueueDelegationFromSideEffect({
+            plan: normalized.plan,
+            parentSessionId: req.sessionId,
+            channelId: req.channelId,
+            chatbotId,
+            enableRag,
+            agentId,
+            onProactiveMessage: req.onProactiveMessage,
+            parentDepth,
+          });
+        },
+      },
+    );
 
     if (output.status === 'error') {
       const errorMessage = output.error || 'Unknown agent error.';
@@ -4244,6 +4363,142 @@ export async function runGatewayScheduledTask(
   });
 }
 
+function formatWorkflowListItem(
+  workflow: NonNullable<ReturnType<typeof getWorkflow>>,
+): string {
+  const statusLabel = workflow.last_status || 'n/a';
+  const errorSuffix =
+    workflow.consecutive_errors > 0
+      ? ` · errors ${workflow.consecutive_errors}`
+      : '';
+  return `#${workflow.id} ${workflow.enabled ? 'enabled' : 'disabled'} (${resolveWorkflowScheduleLabel(workflow)} -> ${resolveWorkflowDeliveryLabel(workflow.spec.delivery)}) [${statusLabel}${errorSuffix}] — ${workflow.name}`;
+}
+
+function formatWorkflowHistoryEntry(entry: {
+  eventType: string;
+  timestamp: string;
+  payload: Record<string, unknown>;
+}): string {
+  const timestamp = entry.timestamp || 'unknown';
+  const payloadStatus =
+    typeof entry.payload.status === 'string' ? entry.payload.status : null;
+  const stepId =
+    typeof entry.payload.stepId === 'string' ? entry.payload.stepId : null;
+  const error =
+    typeof entry.payload.error === 'string' ? entry.payload.error : null;
+  const parts = [timestamp, entry.eventType];
+  if (stepId) parts.push(`step=${stepId}`);
+  if (payloadStatus) parts.push(`status=${payloadStatus}`);
+  if (error) parts.push(`error=${abbreviateForUser(error, 100)}`);
+  return parts.join(' · ');
+}
+
+async function compileWorkflowFromNaturalLanguage(params: {
+  session: Session;
+  description: string;
+  channelId: string;
+}): Promise<{
+  workflowId: number;
+  compilerMessage: string | null;
+}> {
+  const resolved = resolveAgentForRequest({ session: params.session });
+  const messages: ChatMessage[] = [
+    {
+      role: 'system',
+      content: [
+        'Compile the user request into a HybridClaw workflow.',
+        'Rules:',
+        '- Use the `workflow` tool exactly once if the request can be satisfied.',
+        '- Phase 1 only: `spec.trigger.kind` must be `schedule`.',
+        '- Phase 1 only: emit exactly one primary workflow step with `kind = "agent"`.',
+        '- Emit `spec.version = 2`.',
+        '- Build a deterministic workflow config. The gateway will render canonical YAML from your structured spec.',
+        '- Cron expressions are interpreted in UTC.',
+        '- Preserve the original request in `naturalLanguage`.',
+        '- Give the workflow a short descriptive name.',
+        '- The step prompt must be the direct instruction to execute when the workflow fires.',
+        '- Use `spec.defaults.lightContext = true` for lightweight summary, digest, classification, or extraction workflows unless full context is clearly needed.',
+        '- Add `spec.defaults.timeoutMs` when the request implies a bounded job; prefer 30000 unless a shorter timeout is clearly warranted.',
+        '- Use `delivery.kind = "originating"` when the user did not specify another destination.',
+        '- Keep the top-level `delivery` set to the final destination for Phase 1 workflows.',
+        '- If the request cannot be represented as a schedule workflow, do not call tools and explain why briefly.',
+        `Current timestamp: ${new Date().toISOString()}`,
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: params.description,
+    },
+  ];
+  const output = await runAgent({
+    sessionId: params.session.id,
+    messages,
+    chatbotId: resolved.chatbotId,
+    enableRag: false,
+    model: resolved.model,
+    agentId: resolved.agentId,
+    channelId: params.channelId,
+    allowedTools: ['workflow'],
+  });
+  if (output.status === 'error') {
+    throw new Error(output.error || 'Workflow compilation failed.');
+  }
+
+  const workflowEffects = output.sideEffects?.workflows || [];
+  const createEffect = workflowEffects.find(
+    (effect) => effect.action === 'create',
+  );
+  if (!createEffect) {
+    throw new Error(
+      output.result || 'Workflow compiler did not return a workflow spec.',
+    );
+  }
+  const validation = validateWorkflowSpec(createEffect.spec);
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
+  if (validation.spec.trigger.kind !== 'schedule') {
+    throw new Error(
+      'Workflow create currently supports schedule triggers only.',
+    );
+  }
+  if (validation.spec.steps.length !== 1) {
+    throw new Error(
+      'Workflow create currently supports exactly one primary workflow step.',
+    );
+  }
+  if (validation.spec.steps[0]?.kind !== 'agent') {
+    throw new Error('Workflow create currently supports agent steps only.');
+  }
+  const processing = processSideEffects(
+    {
+      ...output,
+      sideEffects: {
+        ...output.sideEffects,
+        workflows: [
+          {
+            ...createEffect,
+            spec: validation.spec,
+          },
+        ],
+      },
+    },
+    {
+      sessionId: params.session.id,
+      channelId: params.channelId,
+      agentId: resolved.agentId,
+    },
+  );
+  const workflowId = processing.createdWorkflowIds[0];
+  if (!workflowId) {
+    throw new Error('Workflow compiler did not persist a workflow.');
+  }
+  return {
+    workflowId,
+    compilerMessage: output.result || null,
+  };
+}
+
 export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
@@ -4337,9 +4592,16 @@ export async function handleGatewayCommand(
           '`schedule list` — List scheduled tasks',
           '`schedule remove <id>` — Remove a task',
           '`schedule toggle <id>` — Enable/disable a task',
-        ];
-        return infoCommand('HybridClaw Commands', help.join('\n'));
-      }
+        '`workflow create <description>` — Compile and save a workflow',
+        '`workflow list` — List workflows for this session',
+        '`workflow update <id> <description>` — Recompile and replace a workflow',
+        '`workflow describe <id>` — Show the compiled workflow spec',
+        '`workflow toggle <id>` — Enable or disable a workflow',
+        '`workflow remove <id>` — Delete a workflow',
+        '`workflow history <id>` — Show recent workflow audit events',
+      ];
+      return infoCommand('HybridClaw Commands', help.join('\n'));
+    }
 
       case 'agent': {
         const sub = (req.args[1] || '').toLowerCase();
@@ -5804,6 +6066,204 @@ export async function handleGatewayCommand(
 
         return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
       }
+
+      case 'workflow': {
+      const sub = req.args[1]?.toLowerCase();
+      const workflowId = parseIntOrNull(req.args[2]);
+
+      if (sub === 'list') {
+        const workflows = listWorkflows({ sessionId: session.id });
+        if (workflows.length === 0) return plainCommand('No workflows.');
+        return infoCommand(
+          'Workflows',
+          workflows
+            .map((workflow) => formatWorkflowListItem(workflow))
+            .join('\n'),
+        );
+      }
+
+      if (sub === 'create') {
+        const description = req.args.slice(2).join(' ').trim();
+        if (!description) {
+          return badCommand('Usage', 'Usage: `workflow create <description>`');
+        }
+        try {
+          const compiled = await compileWorkflowFromNaturalLanguage({
+            session,
+            description,
+            channelId: req.channelId,
+          });
+          const workflow = getWorkflow(compiled.workflowId);
+          if (!workflow) {
+            return badCommand(
+              'Workflow Error',
+              `Workflow #${compiled.workflowId} could not be loaded after creation.`,
+            );
+          }
+          return plainCommand(
+            `Workflow #${workflow.id} created: ${workflow.name} (${resolveWorkflowScheduleLabel(workflow)} -> ${resolveWorkflowDeliveryLabel(workflow.spec.delivery)})`,
+          );
+        } catch (error) {
+          return badCommand(
+            'Workflow Error',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+
+      if (sub === 'update') {
+        if (!workflowId) {
+          return badCommand(
+            'Usage',
+            'Usage: `workflow update <id> <description>`',
+          );
+        }
+        const workflow = getWorkflow(workflowId);
+        if (!workflow || workflow.session_id !== session.id) {
+          return badCommand(
+            'Not Found',
+            `Workflow #${workflowId} was not found in this session.`,
+          );
+        }
+        const description = req.args.slice(3).join(' ').trim();
+        if (!description) {
+          return badCommand(
+            'Usage',
+            'Usage: `workflow update <id> <description>`',
+          );
+        }
+        try {
+          const compiled = await compileWorkflowDraftFromNaturalLanguage({
+            session,
+            description,
+            channelId: req.channelId,
+          });
+          const updated = updatePersistedWorkflow(workflowId, {
+            sessionId: session.id,
+            agentId: workflow.agent_id,
+            channelId: workflow.channel_id,
+            ...compiled.workflow,
+            enabled: Boolean(workflow.enabled),
+          });
+          if (!updated) {
+            return badCommand(
+              'Workflow Error',
+              `Workflow #${workflowId} could not be updated.`,
+            );
+          }
+          return plainCommand(
+            `Workflow #${updated.id} updated: ${updated.name} (${resolveWorkflowScheduleLabel(updated)} -> ${resolveWorkflowDeliveryLabel(updated.spec.delivery)})`,
+          );
+        } catch (error) {
+          return badCommand(
+            'Workflow Error',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+
+      if (
+        sub === 'remove' ||
+        sub === 'toggle' ||
+        sub === 'describe' ||
+        sub === 'history'
+      ) {
+        if (!workflowId) {
+          return badCommand('Usage', `Usage: \`workflow ${sub} <id>\``);
+        }
+        const workflow = getWorkflow(workflowId);
+        if (!workflow || workflow.session_id !== session.id) {
+          return badCommand(
+            'Not Found',
+            `Workflow #${workflowId} was not found in this session.`,
+          );
+        }
+
+        if (sub === 'remove') {
+          removePersistedWorkflow(workflowId);
+          return plainCommand(`Workflow #${workflowId} removed.`);
+        }
+
+        if (sub === 'toggle') {
+          const updated = togglePersistedWorkflow(workflowId);
+          if (!updated) {
+            return badCommand(
+              'Not Found',
+              `Workflow #${workflowId} could not be updated.`,
+            );
+          }
+          return plainCommand(
+            `Workflow #${workflowId} ${updated.enabled ? 'enabled' : 'disabled'}.`,
+          );
+        }
+
+        if (sub === 'describe') {
+          return infoCommand(
+            `Workflow #${workflow.id}`,
+            [
+              `Name: ${workflow.name}`,
+              `Enabled: ${workflow.enabled ? 'yes' : 'no'}`,
+              `Schedule: ${resolveWorkflowScheduleLabel(workflow)}`,
+              `Delivery: ${resolveWorkflowDeliveryLabel(workflow.spec.delivery)}`,
+              `Companion task: ${workflow.companion_task_id ?? 'none'}`,
+              workflow.description
+                ? `Description: ${workflow.description}`
+                : null,
+              `Natural language: ${workflow.natural_language}`,
+              '',
+              JSON.stringify(workflow.spec, null, 2),
+            ]
+              .filter((line): line is string => Boolean(line))
+              .join('\n'),
+          );
+        }
+
+        const history = listStructuredAuditEntries({
+          sessionId: session.id,
+          limit: 100,
+        })
+          .map((entry) => ({
+            eventType: entry.event_type,
+            timestamp: entry.timestamp,
+            payload: parseAuditPayload(entry),
+          }))
+          .filter((entry) => {
+            if (!entry.eventType.startsWith('workflow.')) return false;
+            if (!entry.payload) return false;
+            return numberFromUnknown(entry.payload.workflowId) === workflow.id;
+          })
+          .filter(
+            (
+              entry,
+            ): entry is {
+              eventType: string;
+              timestamp: string;
+              payload: Record<string, unknown>;
+            } => Boolean(entry.payload),
+          )
+          .slice(0, 12);
+        if (history.length === 0) {
+          return infoCommand(
+            `Workflow History (#${workflow.id})`,
+            [
+              'No workflow audit entries found yet.',
+              `Last run: ${workflow.last_run || 'never'}`,
+              `Last status: ${workflow.last_status || 'n/a'}`,
+              `Run count: ${workflow.run_count}`,
+            ].join('\n'),
+          );
+        }
+        return infoCommand(
+          `Workflow History (#${workflow.id})`,
+          history.map((entry) => formatWorkflowHistoryEntry(entry)).join('\n'),
+        );
+      }
+
+      return badCommand(
+        'Usage',
+        'Usage: `workflow create|list|update|remove|toggle|describe|history`',
+      );
+    }
 
       default:
         return badCommand(

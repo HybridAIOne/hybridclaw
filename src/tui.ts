@@ -532,6 +532,9 @@ function printHelp(): void {
     `  ${TEAL}/schedule add "<cron>" <prompt>${RESET} Add a scheduled task`,
   );
   console.log(
+    `  ${TEAL}/workflow create <description>|list|describe <id>|toggle <id>|remove <id>|history <id>${RESET} Manage workflows`,
+  );
+  console.log(
     `  ${TEAL}/compact${RESET}          Archive and compact older session history`,
   );
   console.log(`  ${TEAL}/clear${RESET}            Clear session history`);

@@ -2,6 +2,7 @@ import nodemailer, { type Transporter } from 'nodemailer';
 import { EMAIL_PASSWORD, getConfigSnapshot } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types.js';
+import { publishWorkflowEvent } from '../../workflow/event-bus.js';
 import { EMAIL_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
 import { createEmailConnectionManager } from './connection.js';
@@ -219,6 +220,25 @@ export function createEmailRuntime(): EmailRuntime {
           };
 
           try {
+            void publishWorkflowEvent({
+              kind: 'email_received',
+              sourceChannel: 'email',
+              channelId: inbound.channelId,
+              senderId: inbound.userId,
+              senderAddress: inbound.senderAddress,
+              content: inbound.content,
+              subject: inbound.subject,
+              timestamp: Date.now(),
+            }).catch((error) => {
+              logger.debug(
+                {
+                  error,
+                  sessionId: inbound.sessionId,
+                  channelId: inbound.channelId,
+                },
+                'Failed to publish email workflow event',
+              );
+            });
             await messageHandler(
               inbound.sessionId,
               inbound.guildId,

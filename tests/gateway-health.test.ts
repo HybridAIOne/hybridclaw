@@ -366,6 +366,46 @@ async function importFreshHealth(options?: {
   const getGatewayAdminScheduler = vi.fn(() => ({
     jobs: [],
   }));
+  const getGatewayAdminWorkflows = vi.fn(() => ({
+    workflows: [
+      {
+        id: 1,
+        sessionId: 'web:default',
+        agentId: 'main',
+        channelId: '123456789012345678',
+        name: 'Daily digest',
+        description: 'Summarize updates every morning.',
+        naturalLanguage:
+          'Every day at 9am, summarize my recent Discord messages and email me.',
+        spec: {
+          version: 2,
+          trigger: {
+            kind: 'schedule',
+            cronExpr: '0 9 * * *',
+          },
+          steps: [
+            {
+              id: 'summarize',
+              kind: 'agent',
+              prompt: 'Summarize my recent Discord messages.',
+            },
+          ],
+          delivery: {
+            kind: 'email',
+            target: 'me@example.com',
+          },
+        },
+        enabled: true,
+        companionTaskId: 7,
+        lastRun: null,
+        lastStatus: null,
+        consecutiveErrors: 0,
+        runCount: 0,
+        createdAt: '2026-03-16T09:00:00.000Z',
+        updatedAt: '2026-03-16T09:00:00.000Z',
+      },
+    ],
+  }));
   const getGatewayAdminChannels = vi.fn(() => ({
     groupPolicy: 'open',
     defaultTypingMode: 'thinking',
@@ -495,6 +535,8 @@ async function importFreshHealth(options?: {
   const removeGatewayAdminSchedulerJob = vi.fn(() => ({
     jobs: [],
   }));
+  const createGatewayAdminWorkflow = vi.fn(() => getGatewayAdminWorkflows());
+  const removeGatewayAdminWorkflow = vi.fn(() => getGatewayAdminWorkflows());
   const removeGatewayAdminMcpServer = vi.fn(() => ({
     servers: [],
   }));
@@ -515,6 +557,7 @@ async function importFreshHealth(options?: {
   const setGatewayAdminSchedulerJobPaused = vi.fn(() => ({
     jobs: [],
   }));
+  const updateGatewayAdminWorkflow = vi.fn(() => getGatewayAdminWorkflows());
   const upsertGatewayAdminMcpServer = vi.fn(() => ({
     servers: [],
   }));
@@ -575,6 +618,7 @@ async function importFreshHealth(options?: {
     getSessionById,
   }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
+    createGatewayAdminWorkflow,
     createGatewayAdminAgent,
     deleteGatewayAdminAgent,
     deleteGatewayAdminSession,
@@ -591,6 +635,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminSessions,
     getGatewayAdminSkills,
     getGatewayAdminTools,
+    getGatewayAdminWorkflows,
     getGatewayHistory,
     getGatewayHistorySummary,
     getGatewayStatus,
@@ -599,11 +644,13 @@ async function importFreshHealth(options?: {
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
     removeGatewayAdminSchedulerJob,
+    removeGatewayAdminWorkflow,
     saveGatewayAdminConfig,
     saveGatewayAdminModels,
     setGatewayAdminSchedulerJobPaused,
     setGatewayAdminSkillEnabled,
     updateGatewayAdminAgent,
+    updateGatewayAdminWorkflow,
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
     upsertGatewayAdminSchedulerJob,
@@ -634,13 +681,17 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgents,
     getGatewayAdminModels,
     getGatewayAdminScheduler,
+    getGatewayAdminWorkflows,
     getGatewayAdminMcp,
     getGatewayAdminAudit,
     getGatewayAdminSkills,
     getGatewayAdminTools,
+    createGatewayAdminWorkflow,
     createGatewayAdminAgent,
     updateGatewayAdminAgent,
     deleteGatewayAdminAgent,
+    updateGatewayAdminWorkflow,
+    removeGatewayAdminWorkflow,
     GatewayRequestError,
     setGatewayAdminSkillEnabled,
     handleGatewayMessage,
@@ -1009,6 +1060,33 @@ describe('gateway health server', () => {
     expect(JSON.parse(res.body)).toEqual({ jobs: [] });
   });
 
+  test('returns admin workflows for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: `/api/admin/workflows?sessionId=${encodeURIComponent(DEFAULT_WEB_SESSION_ID)}`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminWorkflows).toHaveBeenCalledWith({
+      sessionId: DEFAULT_WEB_SESSION_ID,
+      agentId: undefined,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      workflows: [
+        expect.objectContaining({
+          id: 1,
+          name: 'Daily digest',
+          agentId: 'main',
+          companionTaskId: 7,
+        }),
+      ],
+    });
+  });
+
   test('returns filtered admin audit entries for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -1252,6 +1330,32 @@ describe('gateway health server', () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Malformed canonical `sessionId`.',
+    });
+  });
+
+  test('defaults command requests to the canonical web session key', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/command',
+      body: { args: ['help'] },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: ['help'],
+        channelId: 'web',
+        sessionId: DEFAULT_WEB_SESSION_ID,
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      kind: 'plain',
+      text: 'ok',
     });
   });
 

@@ -572,6 +572,7 @@ Interactive slash commands inside TUI:
   /usage [summary|daily|monthly|model [daily|monthly] [agentId]]
   /export [sessionId]   /sessions   /audit [sessionId]
   /schedule add "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
+  /workflow create <description> | list | describe <id> | toggle <id> | remove <id> | history <id>
   /info   /compact   /clear   /reset [yes|no]   /stop   /exit`);
 }
 

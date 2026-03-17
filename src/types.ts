@@ -238,6 +238,8 @@ export interface TokenUsageStats {
   estimatedTotalTokens: number;
 }
 
+import type { WorkflowSideEffect } from './workflow/types.js';
+
 export interface ArtifactMetadata {
   path: string;
   filename: string;
@@ -257,6 +259,7 @@ export interface ContainerOutput {
   sideEffects?: {
     schedules?: ScheduleSideEffect[];
     delegations?: DelegationSideEffect[];
+    workflows?: WorkflowSideEffect[];
   };
 }
 

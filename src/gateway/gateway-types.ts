@@ -12,6 +12,7 @@ import type {
   PendingApproval,
   TokenUsageStats,
 } from '../types.js';
+import type { WorkflowRunStatus, WorkflowSpec } from '../workflow/types.js';
 
 export type GatewayMessageComponents = NonNullable<
   BaseMessageOptions['components']
@@ -524,6 +525,29 @@ export interface GatewayAdminSchedulerJob {
 
 export interface GatewayAdminSchedulerResponse {
   jobs: GatewayAdminSchedulerJob[];
+}
+
+export interface GatewayAdminWorkflow {
+  id: number;
+  sessionId: string;
+  agentId: string;
+  channelId: string;
+  name: string;
+  description: string;
+  naturalLanguage: string;
+  spec: WorkflowSpec;
+  enabled: boolean;
+  companionTaskId: number | null;
+  lastRun: string | null;
+  lastStatus: WorkflowRunStatus | null;
+  consecutiveErrors: number;
+  runCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GatewayAdminWorkflowResponse {
+  workflows: GatewayAdminWorkflow[];
 }
 
 export interface GatewayAdminMcpServer {

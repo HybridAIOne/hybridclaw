@@ -47,7 +47,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     label: 'Scheduling',
-    tools: ['cron'],
+    tools: ['cron', 'workflow'],
   },
   {
     label: 'Delegation',

@@ -293,6 +293,7 @@ export interface ContainerOutput {
   sideEffects?: {
     schedules?: ScheduleSideEffect[];
     delegations?: DelegationSideEffect[];
+    workflows?: WorkflowSideEffect[];
   };
 }
 
@@ -321,3 +322,77 @@ export interface DelegationSideEffect {
   tasks?: DelegationTaskSpec[];
   chain?: DelegationTaskSpec[];
 }
+
+export interface WorkflowTrigger {
+  kind: 'schedule' | 'channel_event' | 'reaction' | 'keyword' | 'webhook';
+  cronExpr?: string;
+  runAt?: string;
+  everyMs?: number;
+  sourceChannel?: string;
+  eventType?: string;
+  fromPattern?: string;
+  contentPattern?: string;
+  reactionEmoji?: string;
+  subjectPattern?: string;
+}
+
+export interface WorkflowStep {
+  id: string;
+  kind: 'agent' | 'deliver' | 'approval';
+  prompt?: string;
+  input?: string;
+  delivery?: WorkflowDelivery;
+  approvalPrompt?: string;
+  dependsOn?: string[];
+  deliverTo?: WorkflowDelivery;
+  extractAs?: string;
+  timeoutMs?: number;
+  retryPolicy?: WorkflowRetryPolicy;
+  lightContext?: boolean;
+}
+
+export interface WorkflowDelivery {
+  kind: 'channel' | 'email' | 'webhook' | 'originating';
+  channelType?: string;
+  target?: string;
+  channelName?: string;
+}
+
+export type WorkflowRetryOn =
+  | 'timeout'
+  | 'delivery_error'
+  | 'rate_limit'
+  | 'transient';
+
+export interface WorkflowRetryPolicy {
+  maxAttempts: number;
+  backoffMs?: number;
+  strategy?: 'fixed' | 'exponential';
+  retryOn?: WorkflowRetryOn[];
+}
+
+export interface WorkflowDefaults {
+  timeoutMs?: number;
+  retryPolicy?: WorkflowRetryPolicy;
+  lightContext?: boolean;
+}
+
+export interface WorkflowSpec {
+  version: 2;
+  trigger: WorkflowTrigger;
+  steps: WorkflowStep[];
+  delivery: WorkflowDelivery;
+  defaults?: WorkflowDefaults;
+  context?: Record<string, string>;
+}
+
+export type WorkflowSideEffect =
+  | {
+      action: 'create';
+      name: string;
+      description: string;
+      naturalLanguage: string;
+      spec: WorkflowSpec;
+    }
+  | { action: 'remove'; workflowId: number }
+  | { action: 'toggle'; workflowId: number };

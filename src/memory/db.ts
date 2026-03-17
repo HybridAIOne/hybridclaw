@@ -59,11 +59,19 @@ import type {
   UsageWindow,
 } from '../types.js';
 import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
+import type {
+  StoredWorkflow,
+  WorkflowCreateInput,
+  WorkflowRunStatus,
+  WorkflowSpec,
+  WorkflowUpdateInput,
+} from '../workflow/types.js';
+import { validateWorkflowSpec } from '../workflow/types.js';
 
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 13;
+export const DATABASE_SCHEMA_VERSION = 14;
 const SCHEMA_VERSION = DATABASE_SCHEMA_VERSION;
 
 interface InitDatabaseOptions {
@@ -82,6 +90,25 @@ interface AgentRow {
   chatbot_id: string | null;
   enable_rag: number | null;
   workspace: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface WorkflowRow {
+  id: number;
+  session_id: string;
+  agent_id: string;
+  channel_id: string;
+  name: string;
+  description: string;
+  spec: string;
+  natural_language: string;
+  enabled: number;
+  companion_task_id: number | null;
+  last_run: string | null;
+  last_status: string | null;
+  consecutive_errors: number;
+  run_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -1338,6 +1365,44 @@ function migrateV13(
   );
 }
 
+function migrateV14(
+  database: Database.Database,
+  _opts?: InitDatabaseOptions,
+): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS workflows (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      spec TEXT NOT NULL,
+      natural_language TEXT NOT NULL,
+      enabled INTEGER DEFAULT 1,
+      companion_task_id INTEGER,
+      last_run TEXT,
+      last_status TEXT,
+      consecutive_errors INTEGER DEFAULT 0,
+      run_count INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (companion_task_id) REFERENCES tasks(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflows_agent ON workflows(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_workflows_enabled ON workflows(enabled);
+    CREATE INDEX IF NOT EXISTS idx_workflows_session ON workflows(session_id);
+    CREATE INDEX IF NOT EXISTS idx_workflows_companion_task
+      ON workflows(companion_task_id);
+  `);
+
+  recordMigration(
+    database,
+    14,
+    'Add workflow specs and companion schedule linkage',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1372,6 +1437,7 @@ function runMigrations(
   if (currentVersion < 11) migrateV11(database, opts);
   if (currentVersion < 12) migrateV12(database, opts);
   if (currentVersion < 13) migrateV13(database, opts);
+  if (currentVersion < 14) migrateV14(database, opts);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -4302,6 +4368,206 @@ export function markSessionMemoryFlush(sessionId: string): void {
   db.prepare(
     "UPDATE sessions SET memory_flush_at = datetime('now') WHERE id = ?",
   ).run(resolvedSessionId);
+}
+
+function serializeWorkflowSpecJson(spec: WorkflowSpec): string {
+  const validation = validateWorkflowSpec(spec);
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
+  return JSON.stringify(validation.spec);
+}
+
+function parseWorkflowSpecJson(raw: string): WorkflowSpec | null {
+  const normalized = String(raw || '').trim();
+  if (!normalized) return null;
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    const validation = validateWorkflowSpec(parsed);
+    return validation.ok ? validation.spec : null;
+  } catch {
+    return null;
+  }
+}
+
+function mapWorkflowRow(row: WorkflowRow): StoredWorkflow | null {
+  const spec = parseWorkflowSpecJson(row.spec);
+  if (!spec) {
+    logger.warn(
+      { workflowId: row.id },
+      'Skipping invalid stored workflow spec',
+    );
+    return null;
+  }
+  const lastStatus =
+    row.last_status === 'success' ||
+    row.last_status === 'error' ||
+    row.last_status === 'partial'
+      ? row.last_status
+      : null;
+  return {
+    id: row.id,
+    session_id: row.session_id,
+    agent_id: row.agent_id,
+    channel_id: row.channel_id,
+    name: row.name,
+    description: row.description,
+    spec,
+    natural_language: row.natural_language,
+    enabled: row.enabled,
+    companion_task_id: row.companion_task_id,
+    last_run: row.last_run,
+    last_status: lastStatus,
+    consecutive_errors: row.consecutive_errors,
+    run_count: row.run_count,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+// --- Workflows ---
+
+export function createWorkflow(input: WorkflowCreateInput): number {
+  const result = db
+    .prepare(
+      `INSERT INTO workflows (
+        session_id,
+        agent_id,
+        channel_id,
+        name,
+        description,
+        spec,
+        natural_language,
+        enabled,
+        companion_task_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.sessionId,
+      input.agentId,
+      input.channelId,
+      input.name.trim(),
+      input.description?.trim() || '',
+      serializeWorkflowSpecJson(input.spec),
+      input.naturalLanguage.trim(),
+      input.enabled === false ? 0 : 1,
+      input.companionTaskId ?? null,
+    );
+  return result.lastInsertRowid as number;
+}
+
+export function getWorkflow(workflowId: number): StoredWorkflow | null {
+  const row = db
+    .prepare('SELECT * FROM workflows WHERE id = ?')
+    .get(workflowId) as WorkflowRow | undefined;
+  return row ? mapWorkflowRow(row) : null;
+}
+
+export function getWorkflowByCompanionTaskId(
+  companionTaskId: number,
+): StoredWorkflow | null {
+  const row = db
+    .prepare('SELECT * FROM workflows WHERE companion_task_id = ?')
+    .get(companionTaskId) as WorkflowRow | undefined;
+  return row ? mapWorkflowRow(row) : null;
+}
+
+export function listWorkflows(params?: {
+  sessionId?: string;
+  agentId?: string;
+  enabled?: boolean;
+}): StoredWorkflow[] {
+  const clauses: string[] = [];
+  const values: Array<string | number> = [];
+  if (params?.sessionId) {
+    clauses.push('session_id = ?');
+    values.push(params.sessionId);
+  }
+  if (params?.agentId) {
+    clauses.push('agent_id = ?');
+    values.push(params.agentId);
+  }
+  if (params?.enabled !== undefined) {
+    clauses.push('enabled = ?');
+    values.push(params.enabled ? 1 : 0);
+  }
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const rows = db
+    .prepare(
+      `SELECT * FROM workflows ${where} ORDER BY created_at DESC, id DESC`,
+    )
+    .all(...values) as WorkflowRow[];
+  return rows
+    .map((row) => mapWorkflowRow(row))
+    .filter((row): row is StoredWorkflow => Boolean(row));
+}
+
+export function updateWorkflow(
+  workflowId: number,
+  updates: WorkflowUpdateInput,
+): boolean {
+  const fields: string[] = [];
+  const values: Array<string | number | null> = [];
+
+  if (updates.name !== undefined) {
+    fields.push('name = ?');
+    values.push(updates.name.trim());
+  }
+  if (updates.description !== undefined) {
+    fields.push('description = ?');
+    values.push(updates.description.trim());
+  }
+  if (updates.spec !== undefined) {
+    fields.push('spec = ?');
+    values.push(serializeWorkflowSpecJson(updates.spec));
+  }
+  if (updates.naturalLanguage !== undefined) {
+    fields.push('natural_language = ?');
+    values.push(updates.naturalLanguage.trim());
+  }
+  if (updates.enabled !== undefined) {
+    fields.push('enabled = ?');
+    values.push(updates.enabled ? 1 : 0);
+  }
+  if (updates.companionTaskId !== undefined) {
+    fields.push('companion_task_id = ?');
+    values.push(updates.companionTaskId);
+  }
+  if (fields.length === 0) return false;
+
+  fields.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
+  values.push(workflowId);
+  const result = db
+    .prepare(`UPDATE workflows SET ${fields.join(', ')} WHERE id = ?`)
+    .run(...values);
+  return result.changes > 0;
+}
+
+export function deleteWorkflow(workflowId: number): void {
+  db.prepare('DELETE FROM workflows WHERE id = ?').run(workflowId);
+}
+
+export function updateWorkflowRunStatus(
+  workflowId: number,
+  status: WorkflowRunStatus,
+): void {
+  const row = db
+    .prepare('SELECT consecutive_errors FROM workflows WHERE id = ?')
+    .get(workflowId) as { consecutive_errors?: number } | undefined;
+  if (!row) return;
+  const nextConsecutiveErrors =
+    status === 'error'
+      ? Math.max(0, Math.floor(row.consecutive_errors || 0)) + 1
+      : 0;
+  db.prepare(
+    `UPDATE workflows
+     SET last_run = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+         last_status = ?,
+         consecutive_errors = ?,
+         run_count = run_count + 1,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+     WHERE id = ?`,
+  ).run(status, nextConsecutiveErrors, workflowId);
 }
 
 // --- Tasks ---

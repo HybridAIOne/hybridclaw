@@ -2,6 +2,7 @@ import type { WAMessage } from '@whiskeysockets/baileys';
 import { getConfigSnapshot } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types.js';
+import { publishWorkflowEvent } from '../../workflow/event-bus.js';
 import { WHATSAPP_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
 import {
@@ -165,6 +166,20 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
     };
     typingController.start();
     try {
+      void publishWorkflowEvent({
+        kind: 'message',
+        sourceChannel: 'whatsapp',
+        channelId: batch.channelId,
+        senderId: batch.senderJid,
+        senderAddress: batch.senderJid,
+        content: batch.content,
+        timestamp: Date.now(),
+      }).catch((error) => {
+        logger.debug(
+          { error, sessionId: batch.sessionId, channelId: batch.channelId },
+          'Failed to publish WhatsApp workflow event',
+        );
+      });
       await messageHandler(
         batch.sessionId,
         batch.guildId,

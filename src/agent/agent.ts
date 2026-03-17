@@ -9,6 +9,11 @@ import type {
   ContainerOutput,
   MediaContextItem,
 } from '../types.js';
+import {
+  type BootstrapContextMode,
+  buildContextPrompt,
+  loadBootstrapFiles,
+} from '../workspace.js';
 import { getExecutor } from './executor.js';
 import type { ExecutorRequest } from './executor-types.js';
 
@@ -21,6 +26,7 @@ function dumpPrompt(
   media?: MediaContextItem[],
   allowedTools?: string[],
   blockedTools?: string[],
+  bootstrapContextMode?: BootstrapContextMode,
 ): void {
   try {
     const entry = {
@@ -32,6 +38,7 @@ function dumpPrompt(
       media: Array.isArray(media) ? media : [],
       allowedTools: Array.isArray(allowedTools) ? allowedTools : undefined,
       blockedTools: Array.isArray(blockedTools) ? blockedTools : undefined,
+      bootstrapContextMode,
     };
     const filePath = path.join(DATA_DIR, 'last_prompt.jsonl');
     fs.writeFileSync(filePath, `${JSON.stringify(entry)}\n`);
@@ -51,10 +58,28 @@ export async function runAgent(
   const media = params.media;
   const allowedTools = params.allowedTools;
   const blockedTools = params.blockedTools;
+  const bootstrapContextMode = params.bootstrapContextMode;
   const workspaceRoot = getExecutor().getWorkspacePath(agentId);
+  const bootstrapContextPrompt = bootstrapContextMode
+    ? buildContextPrompt(
+        loadBootstrapFiles(agentId, {
+          mode: bootstrapContextMode,
+        }),
+      )
+    : '';
+  const messagesWithBootstrap =
+    bootstrapContextPrompt.trim().length > 0
+      ? [
+          {
+            role: 'system' as const,
+            content: bootstrapContextPrompt,
+          },
+          ...params.messages,
+        ]
+      : params.messages;
   const preparedMessages = await injectPdfContextMessages({
     sessionId,
-    messages: params.messages,
+    messages: messagesWithBootstrap,
     workspaceRoot,
     media,
   });
@@ -66,6 +91,7 @@ export async function runAgent(
     media,
     allowedTools,
     blockedTools,
+    bootstrapContextMode,
   );
   return getExecutor().exec({
     ...params,

@@ -62,6 +62,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'sessions',
   'audit',
   'schedule',
+  'workflow',
   'channel',
   'ralph',
   'mcp',
@@ -246,6 +247,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'schedule':
       return ['schedule', ...parts.slice(1)];
+
+    case 'workflow':
+      return ['workflow', ...parts.slice(1)];
 
     case 'stop':
     case 'abort':
@@ -888,6 +892,83 @@ function buildSlashCommandCatalogDefinitions(
       ],
     },
     {
+      name: 'workflow',
+      description: 'Manage natural-language workflows for this session',
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'list',
+          description: 'List workflows',
+        },
+        {
+          kind: 'subcommand',
+          name: 'create',
+          description: 'Compile and save a workflow from natural language',
+          options: [
+            {
+              kind: 'string',
+              name: 'description',
+              description:
+                'Example: Every day at 9am, summarize my recent Discord messages and email the digest to me@example.com',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'remove',
+          description: 'Delete a workflow',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Workflow id',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'toggle',
+          description: 'Enable or disable a workflow',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Workflow id',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'describe',
+          description: 'Show a compiled workflow spec',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Workflow id',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'history',
+          description: 'Show recent workflow audit history',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Workflow id',
+              required: true,
+            },
+          ],
+        },
+      ],
+    },
+    {
       name: 'fullauto',
       description: 'Enable, inspect, disable, or steer session full-auto mode',
       tuiMenu: {
@@ -1289,6 +1370,31 @@ export function parseCanonicalSlashCommandArgs(
         if (!spec) return null;
         const parts = tokenizeFreeformText(spec);
         return parts.length > 0 ? ['schedule', 'add', ...parts] : null;
+      }
+      return null;
+    }
+
+    case 'workflow': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (subcommand === 'list') return ['workflow', 'list'];
+      if (
+        subcommand === 'remove' ||
+        subcommand === 'toggle' ||
+        subcommand === 'describe' ||
+        subcommand === 'history'
+      ) {
+        const id = normalizeStringOption(interaction, 'id', true);
+        return id ? ['workflow', subcommand, id] : null;
+      }
+      if (subcommand === 'create') {
+        const description = normalizeStringOption(
+          interaction,
+          'description',
+          true,
+        );
+        if (!description) return null;
+        const parts = tokenizeFreeformText(description);
+        return parts.length > 0 ? ['workflow', 'create', ...parts] : null;
       }
       return null;
     }

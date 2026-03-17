@@ -21,6 +21,12 @@ const BOOTSTRAP_FILES = [
   'BOOTSTRAP.md',
   'BOOT.md',
 ] as const;
+const LIGHT_BOOTSTRAP_FILES: ReadonlySet<string> = new Set([
+  'SOUL.md',
+  'IDENTITY.md',
+  'USER.md',
+  'MEMORY.md',
+] as const);
 const ONE_TIME_BOOTSTRAP_FILES = new Set(['BOOTSTRAP.md']);
 const WORKSPACE_STATE_DIRNAME = '.hybridclaw';
 const WORKSPACE_STATE_FILENAME = 'workspace-state.json';
@@ -48,6 +54,8 @@ export interface ContextFile {
   name: string;
   content: string;
 }
+
+export type BootstrapContextMode = 'full' | 'light';
 
 export interface EnsureBootstrapFilesResult {
   workspacePath: string;
@@ -328,11 +336,18 @@ export function resetWorkspace(agentId: string): ResetWorkspaceResult {
  * Load all bootstrap files from the workspace.
  * Returns only files that exist and have content.
  */
-export function loadBootstrapFiles(agentId: string): ContextFile[] {
+export function loadBootstrapFiles(
+  agentId: string,
+  options?: {
+    mode?: BootstrapContextMode;
+  },
+): ContextFile[] {
   const wsDir = agentWorkspaceDir(agentId);
   const files: ContextFile[] = [];
+  const mode = options?.mode || 'full';
 
   for (const filename of BOOTSTRAP_FILES) {
+    if (mode === 'light' && !LIGHT_BOOTSTRAP_FILES.has(filename)) continue;
     const filePath = path.join(wsDir, filename);
     if (!fs.existsSync(filePath)) continue;
 
