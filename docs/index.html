@@ -1079,6 +1079,10 @@
       <p>Runtime supports start, stop, and restart flows with graceful shutdown handling, explicit sandbox overrides (<code>--sandbox=container|host</code>), and status reporting for both managed and unmanaged gateway processes.</p>
     </div>
     <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Admin Console</h3>
+      <p>Embedded browser-based admin at <code>/admin</code> with Dashboard, Gateway, Sessions, Bindings, Models, Scheduler, MCP, Audit, Skills, Tools, and Config pages. Pair with <code>/chat</code> for web conversations and <code>/agents</code> for workspace dashboards.</p>
+    </div>
+    <div class="feature-card">
       <h3 style="color: var(--accent-1);">Command Surface</h3>
       <p>Operator-friendly command set across CLI, TUI, Discord, and gateway surfaces, including <code>hybridclaw doctor</code>, TUI slash-command discovery/history recall, <code>/skill config</code>, usage aggregation queries, and JSONL export workflows for session debugging.</p>
     </div>
@@ -1091,7 +1095,7 @@
 <section id="tools">
   <div class="section-center">
     <div class="section-label">Toolbox</div>
-    <h2 class="section-title">13 built-in capabilities</h2>
+    <h2 class="section-title">17 built-in capabilities</h2>
     <p class="section-desc">From reading content to taking action, HybridClaw can complete real workflows end-to-end.</p>
   </div>
   <div class="tools-grid">
@@ -1146,9 +1150,29 @@
       <div class="tool-pill-desc">Static/read-only URL fetch &amp; extraction</div>
     </div>
     <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f4e6;</div>
+      <div class="tool-pill-name">web_extract</div>
+      <div class="tool-pill-desc">Extract structured data from pages</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f50d;</div>
+      <div class="tool-pill-name">web_search</div>
+      <div class="tool-pill-desc">Search the web</div>
+    </div>
+    <div class="tool-pill">
       <div class="tool-pill-icon">&#x1f5a5;&#xfe0f;</div>
       <div class="tool-pill-name">browser_*</div>
       <div class="tool-pill-desc">JS-rendered + interactive automation (auth, click, type, screenshot, PDF)</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f441;&#xfe0f;</div>
+      <div class="tool-pill-name">vision_analyze</div>
+      <div class="tool-pill-desc">Analyze images with vision</div>
+    </div>
+    <div class="tool-pill">
+      <div class="tool-pill-icon">&#x1f4e8;</div>
+      <div class="tool-pill-name">message</div>
+      <div class="tool-pill-desc">Send across Discord, Teams, WhatsApp, email</div>
     </div>
     <div class="tool-pill">
       <div class="tool-pill-icon">&#x1f9f0;</div>
@@ -1185,6 +1209,7 @@
         <tr><td>TOOLS.md</td><td>Tool usage notes and tips</td></tr>
         <tr><td>HEARTBEAT.md</td><td>Tasks to check during heartbeat</td></tr>
         <tr><td>BOOT.md</td><td>Startup instructions</td></tr>
+        <tr><td>BOOTSTRAP.md</td><td>One-time onboarding (removed after first run)</td></tr>
         <tr><td>AGENTS.md</td><td>Conventions and guidelines</td></tr>
       </tbody>
     </table>
@@ -1307,7 +1332,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">What AI models does it support?</div>
-      <div class="faq-a">HybridClaw works with any model available through the HybridAI API. You can list available models with <code>model list</code> and switch per channel at any time.</div>
+      <div class="faq-a">HybridClaw supports HybridAI models, OpenAI Codex models (via <code>openai-codex/</code> prefix), OpenRouter models (via <code>openrouter/</code> prefix), and local backends including Ollama, LM Studio, and vLLM. Use <code>model list</code> to browse available models and switch per channel or session at any time.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Does the agent remember things between conversations?</div>
@@ -1316,6 +1341,10 @@
     <div class="faq-item">
       <div class="faq-q">Can I switch the assistant personality at runtime?</div>
       <div class="faq-a">Yes. Use <code>/personality</code> (or <code>/personality list</code>) to view profiles, <code>/personality &lt;name&gt;</code> to activate one, and <code>/personality reset</code> to go back to default. HybridClaw persists the active persona in <code>SOUL.md</code> as a managed block with <code>Name</code>, <code>Definition</code>, and <code>Rules</code>.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Is there a web-based admin interface?</div>
+      <div class="faq-a">Yes. The gateway serves an embedded admin console at <code>/admin</code> with pages for Dashboard, Gateway, Sessions, Bindings, Models, Scheduler, MCP, Audit, Skills, Tools, and Config. There is also a web chat at <code>/chat</code> and an agent/session dashboard at <code>/agents</code>. When <code>WEB_API_TOKEN</code> is unset, localhost access opens without a login prompt.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use skills from CLAUDE.md or OpenClaw?</div>
