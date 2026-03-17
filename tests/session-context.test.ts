@@ -305,8 +305,12 @@ test('buildSessionContextPrompt falls back to unknown channel labels', async () 
 test('prompt hooks include session context when runtime info provides it', async () => {
   vi.resetModules();
   const { DISCORD_CAPABILITIES } = await import('../src/channels/channel.js');
-  const { registerChannel } = await import('../src/channels/channel-registry.js');
-  const { buildSessionContext } = await import('../src/session/session-context.js');
+  const { registerChannel } = await import(
+    '../src/channels/channel-registry.js'
+  );
+  const { buildSessionContext } = await import(
+    '../src/session/session-context.js'
+  );
   const { buildSystemPromptFromHooks } = await import(
     '../src/agent/prompt-hooks.js'
   );
