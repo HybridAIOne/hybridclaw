@@ -5,8 +5,8 @@ top-level contributor quickstart.
 
 - [Architecture](./architecture.md) for the major runtime pieces and repository
   layout
-- [Runtime Internals](./runtime.md) for sandboxing, configuration, audit, and
-  observability behavior
+- [Runtime Internals](./runtime.md) for sandboxing, configuration, diagnostics,
+  audit, and observability behavior
 - [Session Routing](./session-routing.md) for canonical session keys, DM
   isolation scope, and identity-link behavior
 - [Voice and TTS](./voice-tts.md) for outbound voice-reply setup and local
@@ -17,5 +17,5 @@ top-level contributor quickstart.
   publish flow
 - [Skills Internals](./skills.md) for skill roots, precedence, and invocation
   rules
-- [AdaptiveSkills](./adaptive-skills.md) for the self-improving skill loop,
+- [Adaptive Skills](./adaptive-skills.md) for the self-improving skill loop,
   retention, and operator workflows

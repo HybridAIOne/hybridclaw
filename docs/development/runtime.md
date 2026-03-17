@@ -66,6 +66,8 @@ Core details:
 - `hybridai.maxTokens` sets the default completion budget per model call.
 - Trust-model acceptance is persisted under `security.*` and enforced before
   runtime start.
+- `ops.webApiToken` (and the `WEB_API_TOKEN` env var) gate the built-in
+  `/chat`, `/agents`, `/admin`, and admin API surfaces when set.
 - `mcpServers.*.env` and `mcpServers.*.headers` are persisted in
   `~/.hybridclaw/config.json` exactly as configured today. Treat them as
   plaintext secrets and lock the runtime directory down with
@@ -82,10 +84,42 @@ Common advanced areas:
 - Scheduler jobs: `scheduler.jobs[]` with cron, every, or at delivery targets
 - Memory compaction and consolidation: `sessionCompaction.*`, `memory.*`
 - Session continuity and DM isolation: `sessionRouting.*`
+- Skill availability: `skills.disabled`, `skills.channelDisabled.*`
+- Adaptive skill observation/amendment loop: `adaptiveSkills.*`
 - Proactive runtime: `proactive.*`
 - MCP server registry: `mcpServers.*`
 - Observability export: `observability.*`
 - Skills roots: `skills.extraDirs`
+
+## Runtime Diagnostics
+
+`hybridclaw doctor` is the operator-facing health check for local runtime
+issues. It runs these categories in parallel:
+
+- `runtime`
+- `gateway`
+- `config`
+- `credentials`
+- `database`
+- `providers`
+- `local-backends`
+- `docker`
+- `channels`
+- `skills`
+- `security`
+- `disk`
+
+Useful flags:
+
+- `--fix` applies safe remediations for checks that expose one, then reruns the
+  fixable checks
+- `--json` emits a machine-readable report for CI or shell automation while
+  still returning exit code `1` if errors remain
+- `hybridclaw doctor <category>` narrows the report to one subsystem
+
+The command is intended for first-install triage, auth/provider drift, Docker
+or gateway liveness checks, file-permission issues, and other local operator
+problems that are faster to diagnose from one aggregated report.
 
 ## Session Routing Internals
 
@@ -112,6 +146,26 @@ rejected at the boundary rather than being treated as legacy ids.
 
 For the routing rules and operator guidance, see
 [Session Routing](./session-routing.md).
+
+## Web Surfaces And API Auth
+
+HybridClaw's built-in browser surfaces share one auth model:
+
+- `/chat` is the end-user chat UI
+- `/agents` shows logical agents plus live/persisted session cards
+- `/admin` serves the embedded operator console
+
+When `WEB_API_TOKEN` / `ops.webApiToken` is configured, these surfaces prompt
+for the token and reuse it for subsequent API calls. When unset, localhost
+access stays open without a browser login prompt.
+
+Session behavior matches the routing rules above:
+
+- `/api/chat` can mint a fresh canonical web session id when the caller omits
+  `sessionId`
+- `/api/command` and `/api/history` require an explicit `sessionId`
+- malformed canonical session ids are rejected instead of being treated as
+  opaque legacy ids
 
 ## MCP Runtime Notes
 

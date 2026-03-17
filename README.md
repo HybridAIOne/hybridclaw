@@ -18,6 +18,10 @@ document workflows with shared memory, approvals, scheduling, and bundled
 skills for office docs, GitHub, Notion, Stripe, WordPress, Google Workspace,
 and Apple apps.
 
+Operators can also health-check the runtime with `hybridclaw doctor`, tune
+skill availability globally or per channel, and review adaptive skill health
+and amendment history from the CLI, TUI, or admin surfaces.
+
 ## Install from npm
 
 ```bash
@@ -88,6 +92,7 @@ hybridclaw tui
 # open http://127.0.0.1:9090/admin
 # Includes Dashboard, Sessions, Channels, Config, Models, Scheduler, MCP, Audit, Skills, and Tools
 # If WEB_API_TOKEN is unset, localhost access opens without a login prompt
+# If WEB_API_TOKEN is set, /chat, /agents, and /admin all prompt for the same token
 ```
 
 ## Authentication
@@ -199,7 +204,10 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - `mcpServers.*` declares Model Context Protocol servers that HybridClaw connects to per session and exposes as namespaced tools (`server__tool`).
 - `sessionReset.*` controls automatic daily and idle session expiry. The default policy resets both daily and after 24 hours idle at `04:00` in the gateway host's local timezone; set `sessionReset.defaultPolicy.mode` to `none` to disable automatic resets.
 - `sessionRouting.*` controls DM continuity scope. The default `per-channel-peer` mode keeps direct messages isolated by transport and peer identity; `per-linked-identity` plus `sessionRouting.identityLinks` can collapse verified aliases onto one shared main session.
+- `skills.disabled` and `skills.channelDisabled.{discord,msteams,whatsapp,email}` control global and per-channel skill availability. Use `hybridclaw skill enable|disable <name> [--channel <kind>]` or the TUI `/skill config` checklist to manage them.
+- `adaptiveSkills.*` controls observation, inspection, amendment staging, and rollback for the self-improving skill loop. See [docs/development/adaptive-skills.md](./docs/development/adaptive-skills.md) for the operator workflow.
 - `email.pollIntervalMs` defaults to `30000` (30 seconds) and is clamped to a minimum of `1000`.
+- `ops.webApiToken` (or `WEB_API_TOKEN`) gates the built-in `/chat`, `/agents`, and `/admin` surfaces plus the admin API. When unset, localhost browser access stays open without a login prompt.
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently written to `~/.hybridclaw/config.json` as plain text. Use low-privilege tokens only, set `chmod 700 ~/.hybridclaw && chmod 600 ~/.hybridclaw/config.json`, and prefer `host` sandbox mode for stdio MCP servers that depend on host-installed tools.
 - `media.audio` controls shared inbound audio transcription. By default it auto-detects local CLIs first (`sherpa-onnx-offline`, `whisper-cli`, `whisper`), then `gemini`, then provider keys (`openai`, `groq`, `deepgram`, `google`).
 - `whisper-cli` auto-detect also needs a whisper.cpp model file. If the binary exists but HybridClaw still skips local transcription, set `WHISPER_CPP_MODEL` to a local `ggml-*.bin` model path.
@@ -208,6 +216,20 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - Trust-model acceptance is stored in `~/.hybridclaw/config.json` under `security.*` and is required before runtime starts.
 - See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
 - For contributor workflow, see [CONTRIBUTING.md](./CONTRIBUTING.md). For deeper runtime, skills, release, voice/TTS, and maintainer reference docs, see [docs/development/README.md](./docs/development/README.md).
+
+## Diagnostics
+
+Use `hybridclaw doctor` when setup, auth, Docker, or runtime state looks
+wrong. It runs independent checks for runtime, gateway, config, credentials,
+database, providers, local backends, Docker, channels, skills, security, and
+disk state in parallel.
+
+- `hybridclaw doctor --fix` applies safe remediations where the check exposes
+  one, then reruns the fixable checks.
+- `hybridclaw doctor --json` prints a machine-readable report for CI or
+  automation while still returning exit code `1` if errors remain.
+- `hybridclaw doctor docker`, `hybridclaw doctor providers`, and the other
+  category names narrow the report to one subsystem.
 
 ## Local Provider Quickstart (LM Studio Example)
 
@@ -349,6 +371,12 @@ integrations include:
 - `apple-music` is bundled for macOS Music app playback control, now-playing checks, and Apple Music URL workflows.
 - Use `hybridclaw skill list` to inspect available installers and `hybridclaw skill install pdf [install-id]` when a bundled skill advertises optional setup helpers.
 
+Skills can be disabled globally or per channel kind (`discord`, `msteams`,
+`whatsapp`, `email`) with `hybridclaw skill enable|disable <name> [--channel <kind>]`
+or via the TUI `/skill config` screen. For observation-driven health and
+amendment workflows, use `hybridclaw skill inspect|runs|amend|history` or the
+admin `Skills` page.
+
 ## Optional Office Dependencies
 
 When you run HybridClaw in the default container sandbox, the bundled office image already includes the main office tooling. These installs matter primarily for `--sandbox=host` workflows or when you want the same capabilities on your local machine.
@@ -403,6 +431,7 @@ CLI runtime commands:
 - `hybridclaw gateway compact` — Archive older session history into semantic memory while preserving a recent active context tail
 - `hybridclaw gateway reset [yes|no]` — Clear session history, reset per-session model/chatbot/RAG settings, and remove the current agent workspace (confirmation required)
 - `hybridclaw tui` — Start terminal client connected to gateway
+- `hybridclaw tui --resume <sessionId>` / `hybridclaw --resume <sessionId>` — Resume an earlier TUI session by canonical session id
 - `hybridclaw onboarding` — Run trust-model acceptance plus interactive provider onboarding
 - `hybridclaw auth login [provider] ...` — Namespaced provider setup/login entrypoint
 - `hybridclaw auth status <provider>` — Show provider status for `hybridai`, `codex`, `openrouter`, `local`, or `msteams`
@@ -416,7 +445,10 @@ CLI runtime commands:
 - `hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]` — Enable and configure a local backend
 - `hybridclaw hybridai ...`, `hybridclaw codex ...`, and `hybridclaw local ...` — Legacy aliases for the older provider-specific command surface
 - `hybridclaw help` / `hybridclaw help auth` / `hybridclaw help openrouter` — Print CLI reference for the unified provider commands
+- `hybridclaw doctor [--fix|--json|<component>]` — Diagnose runtime, gateway, config, credentials, database, providers, local backends, Docker, channels, skills, security, and disk state
 - `hybridclaw skill list` — Show skills and any declared installer options
+- `hybridclaw skill enable <skill-name> [--channel <kind>]`, `disable`, `toggle` — Manage global and per-channel skill availability
+- `hybridclaw skill inspect <skill-name>` / `hybridclaw skill inspect --all`, `runs`, `amend`, `history` — Review adaptive skill health, observations, and amendment history
 - `hybridclaw skill install <skill> [install-id]` — Run a declared skill dependency installer
 - `hybridclaw update [status|--check] [--yes]` — Check for updates and upgrade global npm installs (source checkouts get git-based update instructions)
 - `hybridclaw audit ...` — Verify and inspect structured audit trail (`recent`, `search`, `approvals`, `verify`, `instructions`)
@@ -457,5 +489,8 @@ prompts. Use `/agent`, `/agent list`, `/agent switch <id>`, `/agent create
 `/model set <name>` for a session-only override, `/model clear` to fall back to
 the agent/default model chain, and `/model info` to inspect the active scope.
 `/status` shows both the current session and agent; `/compact` handles session
-compaction; `/reset` runs the confirmed workspace reset flow; and `/mcp ...`
-manages runtime MCP servers.
+compaction; `/reset` runs the confirmed workspace reset flow; `/skill config`
+opens the interactive skill availability checklist; and `/mcp ...` manages
+runtime MCP servers. When a TUI session exits, HybridClaw prints the
+input/output token split, tool/file totals, and a ready-to-run
+`hybridclaw tui --resume <sessionId>` command for that session.

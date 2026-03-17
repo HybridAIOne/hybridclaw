@@ -33,3 +33,28 @@ Skill roots include:
 - `/skill <name> [input]`
 - `/skill:<name> [input]`
 - `/<name> [input]` if `user-invocable: true`
+
+## Availability Controls
+
+HybridClaw separates skill discovery from runtime availability.
+
+- `skills.disabled` is the global disabled list
+- `skills.channelDisabled.discord`
+- `skills.channelDisabled.msteams`
+- `skills.channelDisabled.whatsapp`
+- `skills.channelDisabled.email`
+
+Operator surfaces:
+
+- `hybridclaw skill enable <name> [--channel <kind>]`
+- `hybridclaw skill disable <name> [--channel <kind>]`
+- `hybridclaw skill toggle [--channel <kind>]` for the interactive checklist
+- TUI `/skill config` for the same checklist over the gateway
+- admin `Skills` page for the current disabled list plus adaptive-skill review
+
+`--channel teams` is normalized to `msteams`.
+
+## Adaptive Skills
+
+Observation, inspection, and guarded amendment workflows are configured under
+`adaptiveSkills.*` and documented in [Adaptive Skills](./adaptive-skills.md).

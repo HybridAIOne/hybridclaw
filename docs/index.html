@@ -666,7 +666,6 @@
     </div>
     <div class="nav-links">
       <a href="#hybridai">HybridAI</a>
-      <a href="#latest">Latest</a>
       <a href="#features">Features</a>
       <a href="#comparison">Comparison</a>
       <a href="#architecture">Architecture</a>
@@ -694,7 +693,7 @@
       <button class="hero-copy-btn" type="button" onclick="navigator.clipboard.writeText('npm install -g @hybridaione/hybridclaw'); this.textContent='Copied'; setTimeout(() => this.textContent='Copy', 1400);">Copy</button>
     </div>
     <code>npm install -g @hybridaione/hybridclaw</code>
-    <div class="hero-install-note">Prerequisites: Node.js 22+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding. Latest tagged release: v0.7.1; the current repo also includes Teams, extensible session routing with DM isolation controls, more bundled skills, TUI slash/history UX, and session reset policies.</div>
+    <div class="hero-install-note">Prerequisites: Node.js 22+. Docker provides full container isolation, while containerized deployments can switch the gateway to host sandbox mode to avoid nested Docker. Browser automation tooling ships with the agent runtime. HybridAI API key setup can be completed during onboarding.</div>
   </div>
   <div class="hero-cta">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -728,38 +727,6 @@
     <div class="stat-label">Security + Control</div>
   </div>
 </div>
-
-<div class="glow-divider"></div>
-
-<section id="latest">
-  <div class="section-center">
-    <div class="section-label">Since v0.7.1</div>
-    <h2 class="section-title">Current branch highlights</h2>
-    <p class="section-desc">Major user-facing additions since the latest tagged release.</p>
-  </div>
-    <div class="features-grid">
-      <div class="feature-card">
-      <div class="feature-icon">&#x1f465;</div>
-      <h3>Microsoft Teams channel</h3>
-      <p>HybridClaw can receive and answer Microsoft Teams DMs and channel mentions through the Bot Framework webhook flow, with attachment-aware replies, streaming delivery, and allowlist-based send policies.</p>
-      </div>
-      <div class="feature-card">
-      <div class="feature-icon">&#x1f9f0;</div>
-      <h3>More bundled workflow skills</h3>
-      <p>The bundled skill catalog has expanded to 28 skills, covering office documents, GitHub PRs, Notion, Trello, Google Workspace, Stripe, WordPress, Discord, email, and Apple app workflows.</p>
-      </div>
-      <div class="feature-card">
-      <div class="feature-icon">&#x2328;&#xfe0f;</div>
-      <h3>TUI slash menu and history recall</h3>
-      <p>The terminal UI now has inline slash-command discovery, help aliases, prompt history recall, and tighter approval flow handling so day-to-day terminal use is faster and less error-prone.</p>
-      </div>
-      <div class="feature-card">
-      <div class="feature-icon">&#x23f3;</div>
-      <h3>Session routing and safer defaults</h3>
-      <p>Canonical <code>agent:...:channel:...:chat:...:peer:...</code> keys, DM isolation by default, opt-in linked-identity continuity, and stricter malformed-key rejection make session ownership explicit across web, TUI, and channel runtimes.</p>
-      </div>
-  </div>
-</section>
 
 <div class="glow-divider"></div>
 
@@ -1053,7 +1020,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Configuration</h3>
-      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Includes container isolation controls (<code>container.sandboxMode</code>, <code>container.memorySwap</code>, <code>container.network</code>), session routing controls (<code>sessionRouting.dmScope</code>, <code>sessionRouting.identityLinks</code>), memory controls (<code>memory.decayRate</code>, <code>memory.consolidationIntervalHours</code>), compaction controls (<code>sessionCompaction.tokenBudget</code>, <code>sessionCompaction.budgetRatio</code>), Discord policy controls, and proactive <code>scheduler.jobs[]</code> automation. Secrets live in <code>~/.hybridclaw/credentials.json</code>.</p>
+      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Includes container isolation controls (<code>container.sandboxMode</code>, <code>container.memorySwap</code>, <code>container.network</code>), session routing controls (<code>sessionRouting.dmScope</code>, <code>sessionRouting.identityLinks</code>), skill-availability controls (<code>skills.disabled</code>, <code>skills.channelDisabled.*</code>), adaptive-skill controls (<code>adaptiveSkills.*</code>), compaction controls (<code>sessionCompaction.tokenBudget</code>, <code>sessionCompaction.budgetRatio</code>), and built-in web auth via <code>ops.webApiToken</code>. Secrets live in <code>~/.hybridclaw/credentials.json</code>.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
@@ -1113,7 +1080,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Command Surface</h3>
-      <p>Operator-friendly command set across CLI, TUI, Discord, and gateway surfaces, including TUI slash-command discovery/history recall, usage aggregation queries, and JSONL export workflows for session debugging.</p>
+      <p>Operator-friendly command set across CLI, TUI, Discord, and gateway surfaces, including <code>hybridclaw doctor</code>, TUI slash-command discovery/history recall, <code>/skill config</code>, usage aggregation queries, and JSONL export workflows for session debugging.</p>
     </div>
   </div>
 </section>
@@ -1251,8 +1218,8 @@
       <p>Use Discord or run <code>hybridclaw tui</code> for a terminal-native chat experience. If runtime instruction copies drift from installed defaults, TUI asks you to restore them first.</p>
     </div>
     <div class="feature-card">
-      <h3 style="color: var(--accent-1);">5. Restart safely</h3>
-      <p>Use <code>hybridclaw gateway restart [--sandbox=container|host]</code> when config or runtime placement changes and keep observability export aligned.</p>
+      <h3 style="color: var(--accent-1);">5. Diagnose issues fast</h3>
+      <p>Run <code>hybridclaw doctor</code> to check runtime, auth, providers, Docker, channels, and disk state. Add <code>--fix</code> when a safe remediation is available.</p>
     </div>
   </div>
   <div class="quickstart-box">
@@ -1274,6 +1241,10 @@
     <h2 class="section-title">Common questions</h2>
   </div>
   <div class="faq-list">
+    <div class="faq-item">
+      <div class="faq-q">How do I diagnose setup problems quickly?</div>
+      <div class="faq-a">Run <code>hybridclaw doctor</code>. It checks runtime, gateway, config, credentials, database, providers, Docker, channels, skills, security, and disk state in parallel. Use <code>hybridclaw doctor --fix</code> to apply safe remediations where supported, or <code>--json</code> for CI-friendly output.</div>
+    </div>
     <div class="faq-item">
       <div class="faq-q">Why does onboarding ask me to accept TRUST_MODEL.md?</div>
       <div class="faq-a">HybridClaw enforces explicit trust-model acceptance before runtime starts. Acceptance is recorded in <code>config.json</code> with policy version and timestamp so operators can prove security acknowledgement. Technical runtime controls are documented separately in <code>SECURITY.md</code>.</div>

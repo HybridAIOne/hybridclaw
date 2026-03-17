@@ -2,13 +2,31 @@
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.8.0)
+
 ### Added
 
+- **Adaptive skills loop**: Added `adaptiveSkills` configuration plus
+  `hybridclaw skill inspect|runs|amend|history`, guarded amendment staging,
+  and admin `Skills` health/amendment review so HybridClaw can observe skill
+  runs and improve `SKILL.md` instructions over time.
+- **Doctor diagnostics command**: Added `hybridclaw doctor [--fix|--json|<component>]`
+  with parallel runtime, gateway, config, credentials, database, providers,
+  local-backends, Docker, channels, skills, security, and disk checks plus
+  safe auto-remediation where supported.
 - **Microsoft Teams channel**: Added Teams channel support with
   `hybridclaw auth login msteams`, inbound webhook handling, streaming and
   attachment-aware replies, allowlist-based DM/channel policies, and gateway
   visibility so one assistant can work across Discord, Teams, WhatsApp,
   email, web, and TUI surfaces.
+- **Per-channel skill controls and TUI skill config**: Added global and
+  per-channel skill disable lists for Discord, Teams, WhatsApp, and email,
+  CLI `skill enable|disable|toggle` controls, and a TUI `/skill config`
+  checklist for editing them interactively.
+- **TUI session resume flow**: Added `hybridclaw tui --resume <sessionId>`
+  and `hybridclaw --resume <sessionId>` plus exit summaries that show
+  input/output token breakdowns, file/tool counts, and a ready-to-run resume
+  command for the current canonical TUI session.
 - **Extensible session routing**: Added marker-based canonical session keys,
   `main_session_key` continuity scopes, explicit malformed-key detection, and
   configurable DM routing so operators can keep direct messages isolated by
@@ -38,13 +56,18 @@
   app-attribution headers, bot-set actions emit observability/audit events,
   and the email channel default poll interval is 30 seconds.
 - **Web and local session defaults**: Anonymous web chats now get unique
-  canonical session ids instead of sharing a default DM session, API
-  command/history calls fail closed without an explicit `sessionId`, and TUI,
-  Teams, email, WhatsApp, heartbeat, and scheduler flows now emit canonical
-  transport keys directly at ingress.
+  canonical session ids instead of sharing a default DM session, built-in
+  `/chat`, `/agents`, and `/admin` surfaces honor `WEB_API_TOKEN` when
+  configured, API command/history calls fail closed without an explicit
+  `sessionId`, and TUI, Teams, email, WhatsApp, heartbeat, and scheduler
+  flows now emit canonical transport keys directly at ingress.
 
 ### Fixed
 
+- **Operator diagnostics and hot-reload stability**: Tightened `doctor`
+  diagnostics, foreground gateway PID handling, and runtime-config watcher
+  recovery after transient `EMFILE` failures so local repair and hot-reload
+  flows stay actionable.
 - **Microsoft Teams runtime hardening**: Tightened Teams send permissions,
   media handling, and streaming behavior across DM and channel replies.
 - **Approval and media UX**: Preserved Discord approval artifacts and rendered

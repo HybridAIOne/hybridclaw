@@ -16,6 +16,19 @@
       "email": []
     }
   },
+  "adaptiveSkills": {
+    "enabled": false,
+    "observationEnabled": true,
+    "inspectionIntervalMs": 3600000,
+    "observationRetentionDays": 30,
+    "trailingWindowHours": 168,
+    "minExecutionsForInspection": 5,
+    "degradationSuccessRateThreshold": 0.6,
+    "degradationToolBreakageThreshold": 0.3,
+    "autoApplyEnabled": false,
+    "evaluationRunsBeforeRollback": 10,
+    "rollbackImprovementThreshold": 0.05
+  },
   "discord": {
     "prefix": "!claw",
     "guildMembersIntent": false,

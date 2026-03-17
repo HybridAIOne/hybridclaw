@@ -1,6 +1,6 @@
 # AdaptiveSkills
 
-AdaptiveSkills is the self-improving skill loop in HybridClaw. It keeps
+"AdaptiveSkills" is the self-improving skill loop in HybridClaw. It keeps
 observation data in SQLite, inspects that data for degraded skills, stages
 guarded `SKILL.md` amendments, and can evaluate applied changes for rollback.
 
@@ -19,7 +19,7 @@ events for execution, inspection, proposal, apply, reject, and rollback steps.
 
 ## Enabling
 
-AdaptiveSkills is configured under `adaptiveSkills` in the runtime config and
+Adaptive Skills is configured under `adaptiveSkills` in the runtime config and
 is disabled by default.
 
 ```json
@@ -58,7 +58,7 @@ backward compatibility.
 ## Observation Attribution
 
 HybridClaw does not require explicit `/skill` invocation for observation.
-AdaptiveSkills records a skill when the run clearly activates exactly one skill,
+Adaptive Skills records a skill when the run clearly activates exactly one skill,
 for example by reading `skills/<name>/SKILL.md` or executing files under
 `skills/<name>/`.
 
@@ -84,11 +84,11 @@ while preserving the amendment history table as the durable review log.
 
 ## Operator Surfaces
 
-AdaptiveSkills can be managed from:
+Adaptive Skills can be managed from:
 
-- CLI: `hybridclaw skill inspect`, `hybridclaw skill amend`, `hybridclaw skill history`
 - CLI: `hybridclaw skill inspect`, `hybridclaw skill runs`, `hybridclaw skill amend`, `hybridclaw skill history`
 - Gateway/TUI slash commands: `skill inspect`, `skill runs`, `skill amend`, `skill history`
+- TUI: `/skill config` manages global and per-channel skill availability, separate from observation/amendment review
 - Admin console: the `Skills` page now shows observed health, staged
   amendments, and amendment history
 - Admin API:
@@ -101,9 +101,9 @@ AdaptiveSkills can be managed from:
 
 ## Command Flow
 
-`skill inspect` reports observation-derived health metrics, including success
-rate, tool breakage, positive feedback, negative feedback, and degradation
-reasons.
+`skill inspect <name>` and `skill inspect --all` report observation-derived
+health metrics, including success rate, tool breakage, positive feedback,
+negative feedback, and degradation reasons.
 
 `skill amend <name>` stages a guarded proposal using recent failures plus the
 current `SKILL.md`. `--apply`, `--reject`, and `--rollback` then manage the
