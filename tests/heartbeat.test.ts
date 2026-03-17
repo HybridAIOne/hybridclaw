@@ -63,7 +63,8 @@ vi.mock('../src/audit/audit-events.js', () => ({
   recordAuditEvent: mocks.recordAuditEvent,
 }));
 
-vi.mock('../src/config/config.js', () => ({
+vi.mock('../src/config/config.js', async () => ({
+  ...(await vi.importActual('../src/config/config.js')),
   HEARTBEAT_CHANNEL: '',
   HEARTBEAT_ENABLED: true,
   HYBRIDAI_CHATBOT_ID: '',

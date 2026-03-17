@@ -200,8 +200,9 @@ import {
   resolveWorkflowDeliveryLabel,
   resolveWorkflowScheduleLabel,
   togglePersistedWorkflow,
+  updatePersistedWorkflow,
 } from '../workflow/service.js';
-import { validateWorkflowSpec } from '../workflow/types.js';
+import { type WorkflowSpec, validateWorkflowSpec } from '../workflow/types.js';
 import { ensureBootstrapFiles, resetWorkspace } from '../workspace.js';
 import {
   buildFullAutoOperatingContract,
@@ -4393,12 +4394,17 @@ function formatWorkflowHistoryEntry(entry: {
   return parts.join(' · ');
 }
 
-async function compileWorkflowFromNaturalLanguage(params: {
+async function compileWorkflowDraftFromNaturalLanguage(params: {
   session: Session;
   description: string;
   channelId: string;
 }): Promise<{
-  workflowId: number;
+  workflow: {
+    name: string;
+    description?: string;
+    naturalLanguage: string;
+    spec: WorkflowSpec;
+  };
   compilerMessage: string | null;
 }> {
   const resolved = resolveAgentForRequest({ session: params.session });
@@ -4459,43 +4465,47 @@ async function compileWorkflowFromNaturalLanguage(params: {
   }
   if (validation.spec.trigger.kind !== 'schedule') {
     throw new Error(
-      'Workflow create currently supports schedule triggers only.',
+      'Workflow compilation currently supports schedule triggers only.',
     );
   }
   if (validation.spec.steps.length !== 1) {
     throw new Error(
-      'Workflow create currently supports exactly one workflow step, and that step must be an agent step.',
+      'Workflow compilation currently supports exactly one workflow step, and that step must be an agent step.',
     );
   }
   if (validation.spec.steps[0]?.kind !== 'agent') {
-    throw new Error('Workflow create currently supports agent steps only.');
-  }
-  const processing = processSideEffects(
-    {
-      ...output,
-      sideEffects: {
-        ...output.sideEffects,
-        workflows: [
-          {
-            ...createEffect,
-            spec: validation.spec,
-          },
-        ],
-      },
-    },
-    {
-      sessionId: params.session.id,
-      channelId: params.channelId,
-      agentId: resolved.agentId,
-    },
-  );
-  const workflowId = processing.createdWorkflowIds[0];
-  if (!workflowId) {
-    throw new Error('Workflow compiler did not persist a workflow.');
+    throw new Error('Workflow compilation currently supports agent steps only.');
   }
   return {
-    workflowId,
+    workflow: {
+      name: createEffect.name,
+      description: createEffect.description,
+      naturalLanguage: createEffect.naturalLanguage || params.description,
+      spec: validation.spec,
+    },
     compilerMessage: output.result || null,
+  };
+}
+
+async function compileWorkflowFromNaturalLanguage(params: {
+  session: Session;
+  description: string;
+  channelId: string;
+}): Promise<{
+  workflowId: number;
+  compilerMessage: string | null;
+}> {
+  const resolved = resolveAgentForRequest({ session: params.session });
+  const compiled = await compileWorkflowDraftFromNaturalLanguage(params);
+  const workflow = createPersistedWorkflow({
+    sessionId: params.session.id,
+    agentId: resolved.agentId,
+    channelId: params.channelId,
+    ...compiled.workflow,
+  });
+  return {
+    workflowId: workflow.id,
+    compilerMessage: compiled.compilerMessage,
   };
 }
 

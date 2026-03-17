@@ -44,7 +44,7 @@ afterEach(() => {
   }
 });
 
-test('workflow commands compile, persist, list, describe, history, toggle, and remove workflows', async () => {
+test('workflow commands compile, update, persist, list, describe, history, toggle, and remove workflows', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -84,6 +84,43 @@ test('workflow commands compile, persist, list, describe, history, toggle, and r
             delivery: {
               kind: 'email',
               target: 'me@example.com',
+            },
+          },
+        },
+      ],
+    },
+  });
+  runAgentMock.mockResolvedValueOnce({
+    status: 'success',
+    result: 'Updated workflow.',
+    toolsUsed: ['workflow'],
+    sideEffects: {
+      workflows: [
+        {
+          action: 'create',
+          name: 'Evening digest',
+          description: 'Summarize updates each weekday evening.',
+          naturalLanguage:
+            'Every weekday at 6pm, summarize my recent Discord messages and post the digest to the originating channel.',
+          spec: {
+            version: 2,
+            trigger: {
+              kind: 'schedule',
+              cronExpr: '0 18 * * 1-5',
+            },
+            defaults: {
+              timeoutMs: 30000,
+              lightContext: true,
+            },
+            steps: [
+              {
+                id: 'summarize',
+                kind: 'agent',
+                prompt: 'Summarize my recent Discord messages for the evening.',
+              },
+            ],
+            delivery: {
+              kind: 'originating',
             },
           },
         },
@@ -131,6 +168,7 @@ test('workflow commands compile, persist, list, describe, history, toggle, and r
   expect(createdWorkflow).toBeDefined();
   expect(createdWorkflow.name).toBe('Daily digest');
   expect(dbModule.getTasksForSession(sessionId)).toHaveLength(1);
+  const originalCompanionTaskId = dbModule.getTasksForSession(sessionId)[0]?.id;
 
   const listed = await handleGatewayCommand({
     sessionId,
@@ -173,6 +211,58 @@ test('workflow commands compile, persist, list, describe, history, toggle, and r
     throw new Error(`Unexpected result kind: ${history.kind}`);
   }
   expect(history.text).toContain('workflow.created');
+
+  const updated = await handleGatewayCommand({
+    sessionId,
+    guildId: null,
+    channelId,
+    args: [
+      'workflow',
+      'update',
+      String(createdWorkflow.id),
+      'Every',
+      'weekday',
+      'at',
+      '6pm,',
+      'summarize',
+      'my',
+      'recent',
+      'Discord',
+      'messages',
+      'and',
+      'post',
+      'the',
+      'digest',
+      'to',
+      'the',
+      'originating',
+      'channel.',
+    ],
+  });
+  expect(updated.kind).toBe('plain');
+
+  const updatedWorkflow = dbModule.getWorkflow(createdWorkflow.id);
+  expect(updatedWorkflow).toBeDefined();
+  expect(updatedWorkflow?.name).toBe('Evening digest');
+  expect(updatedWorkflow?.natural_language).toContain('weekday at 6pm');
+  expect(updatedWorkflow?.spec.trigger.cronExpr).toBe('0 18 * * 1-5');
+  expect(updatedWorkflow?.spec.delivery.kind).toBe('originating');
+  expect(dbModule.getTasksForSession(sessionId)).toHaveLength(1);
+  expect(dbModule.getTasksForSession(sessionId)[0]?.id).not.toBe(
+    originalCompanionTaskId,
+  );
+
+  const updatedHistory = await handleGatewayCommand({
+    sessionId,
+    guildId: null,
+    channelId,
+    args: ['workflow', 'history', String(createdWorkflow.id)],
+  });
+  expect(updatedHistory.kind).toBe('info');
+  if (updatedHistory.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${updatedHistory.kind}`);
+  }
+  expect(updatedHistory.text).toContain('workflow.updated');
 
   const toggled = await handleGatewayCommand({
     sessionId,

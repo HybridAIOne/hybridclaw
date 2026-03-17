@@ -16,6 +16,7 @@ import type {
   AdminSession,
   AdminSkillsResponse,
   AdminToolsResponse,
+  AdminWorkflowsResponse,
   DeleteSessionResult,
   GatewayStatus,
 } from './types';
@@ -257,6 +258,42 @@ export function setSchedulerJobPaused(
     method: 'POST',
     body: payload,
   });
+}
+
+export function fetchWorkflows(
+  token: string,
+): Promise<AdminWorkflowsResponse> {
+  return requestJson<AdminWorkflowsResponse>('/api/admin/workflows', {
+    token,
+  });
+}
+
+export function toggleWorkflow(
+  token: string,
+  workflowId: number,
+): Promise<AdminWorkflowsResponse> {
+  return requestJson<AdminWorkflowsResponse>('/api/admin/workflows', {
+    token,
+    method: 'POST',
+    body: {
+      workflowId,
+      action: 'toggle',
+    },
+  });
+}
+
+export function deleteWorkflow(
+  token: string,
+  workflowId: number,
+): Promise<AdminWorkflowsResponse> {
+  const params = new URLSearchParams({ workflowId: String(workflowId) });
+  return requestJson<AdminWorkflowsResponse>(
+    `/api/admin/workflows?${params.toString()}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
 }
 
 export function fetchMcp(token: string): Promise<AdminMcpResponse> {

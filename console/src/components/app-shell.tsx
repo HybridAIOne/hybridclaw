@@ -86,6 +86,7 @@ const NAV_ITEMS: ReadonlyArray<{
   { to: '/channels', label: 'Bindings' },
   { to: '/models', label: 'Models' },
   { to: '/scheduler', label: 'Scheduler' },
+  { to: '/workflows', label: 'Workflows' },
   { to: '/mcp', label: 'MCP' },
   { to: '/audit', label: 'Audit' },
   { to: '/skills', label: 'Skills' },

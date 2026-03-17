@@ -208,9 +208,8 @@ describe('email inbound parsing', () => {
 
 describe('email delivery helpers', () => {
   test('renders multipart html from lightweight email formatting', async () => {
-    vi.doMock('../src/config/config.ts', () => ({
-      APP_VERSION: '0.7.1',
-      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+    vi.doMock('../src/config/config.ts', async () => ({
+      ...(await vi.importActual('../src/config/config.ts')),
       EMAIL_TEXT_CHUNK_LIMIT: 50000,
     }));
     const { sendEmail } = await import('../src/channels/email/delivery.js');
@@ -262,9 +261,8 @@ describe('email delivery helpers', () => {
   });
 
   test('sanitizes raw html from outbound email bodies', async () => {
-    vi.doMock('../src/config/config.ts', () => ({
-      APP_VERSION: '0.7.1',
-      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+    vi.doMock('../src/config/config.ts', async () => ({
+      ...(await vi.importActual('../src/config/config.ts')),
       EMAIL_TEXT_CHUNK_LIMIT: 50000,
     }));
     const { sendEmail } = await import('../src/channels/email/delivery.js');
@@ -298,9 +296,8 @@ describe('email delivery helpers', () => {
   });
 
   test('logs outbound email delivery metadata without body content', async () => {
-    vi.doMock('../src/config/config.ts', () => ({
-      APP_VERSION: '0.7.1',
-      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+    vi.doMock('../src/config/config.ts', async () => ({
+      ...(await vi.importActual('../src/config/config.ts')),
       EMAIL_TEXT_CHUNK_LIMIT: 50000,
     }));
     const loggerInfo = vi.fn();
@@ -349,9 +346,8 @@ describe('email delivery helpers', () => {
   });
 
   test('warns when SMTP reports rejected or pending recipients', async () => {
-    vi.doMock('../src/config/config.ts', () => ({
-      APP_VERSION: '0.7.1',
-      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+    vi.doMock('../src/config/config.ts', async () => ({
+      ...(await vi.importActual('../src/config/config.ts')),
       EMAIL_TEXT_CHUNK_LIMIT: 50000,
     }));
     const loggerInfo = vi.fn();
@@ -410,9 +406,8 @@ describe('email delivery helpers', () => {
   });
 
   test('adds reply subject and threading headers on outbound send', async () => {
-    vi.doMock('../src/config/config.ts', () => ({
-      APP_VERSION: '0.7.1',
-      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+    vi.doMock('../src/config/config.ts', async () => ({
+      ...(await vi.importActual('../src/config/config.ts')),
       EMAIL_TEXT_CHUNK_LIMIT: 50000,
     }));
     const { sendEmail } = await import('../src/channels/email/delivery.js');
@@ -453,9 +448,8 @@ describe('email delivery helpers', () => {
   });
 
   test('extracts inline subject prefixes and attaches files', async () => {
-    vi.doMock('../src/config/config.ts', () => ({
-      APP_VERSION: '0.7.1',
-      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+    vi.doMock('../src/config/config.ts', async () => ({
+      ...(await vi.importActual('../src/config/config.ts')),
       EMAIL_TEXT_CHUNK_LIMIT: 50000,
     }));
     const { sendEmail } = await import('../src/channels/email/delivery.js');
@@ -498,9 +492,8 @@ describe('email delivery helpers', () => {
   });
 
   test('sends attachment-only email without inserting placeholder body text', async () => {
-    vi.doMock('../src/config/config.ts', () => ({
-      APP_VERSION: '0.7.1',
-      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+    vi.doMock('../src/config/config.ts', async () => ({
+      ...(await vi.importActual('../src/config/config.ts')),
       EMAIL_TEXT_CHUNK_LIMIT: 50000,
     }));
     const { sendEmail } = await import('../src/channels/email/delivery.js');
@@ -542,9 +535,8 @@ describe('email delivery helpers', () => {
   });
 
   test('chunks long email bodies according to the configured limit', async () => {
-    vi.doMock('../src/config/config.ts', () => ({
-      APP_VERSION: '0.7.1',
-      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+    vi.doMock('../src/config/config.ts', async () => ({
+      ...(await vi.importActual('../src/config/config.ts')),
       EMAIL_TEXT_CHUNK_LIMIT: 500,
     }));
     const { prepareEmailTextChunks } = await import(
@@ -557,9 +549,8 @@ describe('email delivery helpers', () => {
 
 describe('email runtime', () => {
   test('aborts in-flight handlers during shutdown', async () => {
-    vi.doMock('../src/config/config.ts', () => ({
-      APP_VERSION: '0.7.1',
-      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+    vi.doMock('../src/config/config.ts', async () => ({
+      ...(await vi.importActual('../src/config/config.ts')),
       EMAIL_PASSWORD: 'email-app-password',
       getConfigSnapshot: () => ({
         email: BASE_EMAIL_CONFIG,
@@ -667,9 +658,8 @@ describe('email runtime', () => {
   });
 
   test('does not resume processing later messages after shutdown completes', async () => {
-    vi.doMock('../src/config/config.ts', () => ({
-      APP_VERSION: '0.7.1',
-      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+    vi.doMock('../src/config/config.ts', async () => ({
+      ...(await vi.importActual('../src/config/config.ts')),
       EMAIL_PASSWORD: 'email-app-password',
       getConfigSnapshot: () => ({
         email: BASE_EMAIL_CONFIG,

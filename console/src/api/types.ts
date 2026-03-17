@@ -454,6 +454,84 @@ export interface AdminToolsResponse {
   recentExecutions: AdminToolExecution[];
 }
 
+export interface AdminWorkflowTrigger {
+  kind: 'schedule' | 'channel_event' | 'reaction' | 'keyword' | 'webhook';
+  cronExpr?: string;
+  runAt?: string;
+  everyMs?: number;
+  sourceChannel?: string;
+  eventType?: string;
+  fromPattern?: string;
+  contentPattern?: string;
+  reactionEmoji?: string;
+  subjectPattern?: string;
+}
+
+export interface AdminWorkflowDelivery {
+  kind: 'channel' | 'email' | 'webhook' | 'originating';
+  channelType?: string;
+  target?: string;
+  channelName?: string;
+}
+
+export interface AdminWorkflowRetryPolicy {
+  maxAttempts: number;
+  backoffMs?: number;
+  strategy?: 'fixed' | 'exponential';
+  retryOn?: Array<'timeout' | 'delivery_error' | 'rate_limit' | 'transient'>;
+}
+
+export interface AdminWorkflowStep {
+  id: string;
+  kind: 'agent' | 'deliver' | 'approval';
+  prompt?: string;
+  input?: string;
+  delivery?: AdminWorkflowDelivery;
+  approvalPrompt?: string;
+  dependsOn?: string[];
+  deliverTo?: AdminWorkflowDelivery;
+  extractAs?: string;
+  timeoutMs?: number;
+  retryPolicy?: AdminWorkflowRetryPolicy;
+  lightContext?: boolean;
+}
+
+export interface AdminWorkflowSpec {
+  version: 2;
+  trigger: AdminWorkflowTrigger;
+  steps: AdminWorkflowStep[];
+  delivery: AdminWorkflowDelivery;
+  defaults?: {
+    timeoutMs?: number;
+    retryPolicy?: AdminWorkflowRetryPolicy;
+    lightContext?: boolean;
+  };
+  context?: Record<string, string>;
+}
+
+export interface AdminWorkflow {
+  id: number;
+  sessionId: string;
+  agentId: string;
+  channelId: string;
+  name: string;
+  description: string;
+  naturalLanguage: string;
+  spec: AdminWorkflowSpec;
+  enabled: boolean;
+  companionTaskId: number | null;
+  lastRun: string | null;
+  lastStatus: 'success' | 'error' | 'partial' | null;
+  consecutiveErrors: number;
+  runCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminWorkflowsResponse {
+  workflows: AdminWorkflow[];
+}
+
 export interface DeleteSessionResult {
   deleted: boolean;
   sessionId: string;

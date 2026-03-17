@@ -118,6 +118,7 @@ import {
   parseSlashInteractionArgs,
 } from './slash-commands.js';
 import { DiscordStreamManager } from './stream.js';
+import { publishDiscordReactionWorkflowEvent } from './workflow-events.js';
 import {
   type CachedDiscordPresence,
   createDiscordToolActionRunner,
@@ -2510,15 +2511,28 @@ export function initDiscord(
       ? await reaction.fetch().catch(() => null)
       : reaction;
     if (!fullReaction) return;
-    const sentiment = classifyDiscordSkillFeedbackSentiment(
-      fullReaction.emoji.name,
-    );
-    if (!sentiment) return;
 
     const message = fullReaction.message.partial
       ? await fullReaction.message.fetch().catch(() => null)
       : fullReaction.message;
     if (!message) return;
+
+    void publishDiscordReactionWorkflowEvent({
+      channelId: message.channelId,
+      senderId: user.id,
+      reactionEmoji: fullReaction.emoji.name || fullReaction.emoji.toString(),
+      content: cleanIncomingContent(message.content || ''),
+    }).catch((error) => {
+      logger.debug(
+        { error, channelId: message.channelId, userId: user.id },
+        'Failed to publish Discord workflow reaction event',
+      );
+    });
+
+    const sentiment = classifyDiscordSkillFeedbackSentiment(
+      fullReaction.emoji.name,
+    );
+    if (!sentiment) return;
     if (!client.user || message.author?.id !== client.user.id) return;
 
     const feedback = formatDiscordSkillFeedbackMessage({

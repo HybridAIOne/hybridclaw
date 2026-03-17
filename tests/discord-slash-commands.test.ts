@@ -54,6 +54,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
       'sessions',
       'audit',
       'schedule',
+      'workflow',
     ]),
   );
   expect(
@@ -218,6 +219,31 @@ test('parseSlashInteractionArgs preserves quoted schedule add specs', () => {
   );
 
   expect(args).toEqual(['schedule', 'add', '"*/5 * * * *"', 'check', 'logs']);
+});
+
+test('parseSlashInteractionArgs maps workflow update interactions to command args', () => {
+  const args = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'workflow',
+      subcommand: 'update',
+      strings: {
+        id: '7',
+        description: 'Every weekday at 6pm summarize updates',
+      },
+    }) as never,
+  );
+
+  expect(args).toEqual([
+    'workflow',
+    'update',
+    '7',
+    'Every',
+    'weekday',
+    'at',
+    '6pm',
+    'summarize',
+    'updates',
+  ]);
 });
 
 test('parseSlashInteractionArgs maps usage model filters and export defaults', () => {

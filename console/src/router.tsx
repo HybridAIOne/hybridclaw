@@ -16,6 +16,7 @@ import { SchedulerPage } from './routes/scheduler';
 import { SessionsPage } from './routes/sessions';
 import { SkillsPage } from './routes/skills';
 import { ToolsPage } from './routes/tools';
+import { WorkflowsPage } from './routes/workflows';
 
 function RootLayout() {
   return (
@@ -71,6 +72,12 @@ const schedulerRoute = createRoute({
   component: SchedulerPage,
 });
 
+const workflowsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/workflows',
+  component: WorkflowsPage,
+});
+
 const mcpRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/mcp',
@@ -103,6 +110,7 @@ const routeTree = rootRoute.addChildren([
   configRoute,
   modelsRoute,
   schedulerRoute,
+  workflowsRoute,
   mcpRoute,
   auditRoute,
   skillsRoute,

@@ -48,7 +48,11 @@ function syncWorkflowRuntime(workflow: StoredWorkflow): void {
 
 function recordWorkflowAuditEvent(params: {
   sessionId: string;
-  type: 'workflow.created' | 'workflow.deleted' | 'workflow.toggled';
+  type:
+    | 'workflow.created'
+    | 'workflow.deleted'
+    | 'workflow.toggled'
+    | 'workflow.updated';
   workflowId: number;
   name?: string;
   enabled?: boolean;
@@ -169,6 +173,92 @@ export function togglePersistedWorkflow(
   recordWorkflowAuditEvent({
     sessionId: updated.session_id,
     type: 'workflow.toggled',
+    workflowId: updated.id,
+    name: updated.name,
+    enabled: Boolean(updated.enabled),
+    companionTaskId: updated.companion_task_id,
+    triggerKind: updated.spec.trigger.kind,
+  });
+  return updated;
+}
+
+export function updatePersistedWorkflow(
+  workflowId: number,
+  input: WorkflowCreateInput,
+): StoredWorkflow | null {
+  const existing = getWorkflow(workflowId);
+  if (!existing) return null;
+
+  const nextEnabled = input.enabled !== false;
+  const shouldReplaceCompanionTask =
+    input.name.trim() !== existing.name ||
+    (input.description?.trim() || '') !== existing.description ||
+    JSON.stringify(input.spec) !== JSON.stringify(existing.spec);
+
+  let nextCompanionTaskId = existing.companion_task_id;
+  let createdCompanionTaskId: number | null = null;
+  let shouldRearmScheduler = false;
+
+  try {
+    if (shouldReplaceCompanionTask) {
+      const companionConfig = getWorkflowCompanionTaskConfig(input.spec.trigger);
+      if (companionConfig) {
+        createdCompanionTaskId = createTask(
+          existing.session_id,
+          existing.channel_id,
+          companionConfig.cronExpr,
+          buildWorkflowCompanionPrompt(input),
+          companionConfig.runAt,
+          companionConfig.everyMs,
+        );
+        if (!nextEnabled) {
+          toggleTask(createdCompanionTaskId, false);
+        }
+        nextCompanionTaskId = createdCompanionTaskId;
+      } else {
+        nextCompanionTaskId = null;
+      }
+      shouldRearmScheduler = true;
+    }
+
+    updateWorkflow(workflowId, {
+      name: input.name,
+      description: input.description,
+      spec: input.spec,
+      naturalLanguage: input.naturalLanguage,
+      enabled: nextEnabled,
+      ...(shouldReplaceCompanionTask
+        ? { companionTaskId: nextCompanionTaskId }
+        : {}),
+    });
+
+    if (shouldReplaceCompanionTask && existing.companion_task_id != null) {
+      deleteTask(existing.companion_task_id);
+    } else if (
+      !shouldReplaceCompanionTask &&
+      existing.companion_task_id != null &&
+      Boolean(existing.enabled) !== nextEnabled
+    ) {
+      toggleTask(existing.companion_task_id, nextEnabled);
+      shouldRearmScheduler = true;
+    }
+  } catch (error) {
+    if (createdCompanionTaskId != null) {
+      deleteTask(createdCompanionTaskId);
+    }
+    throw error;
+  }
+
+  if (shouldRearmScheduler) {
+    rearmScheduler();
+  }
+
+  const updated = getWorkflow(workflowId);
+  if (!updated) return null;
+  syncWorkflowRuntime(updated);
+  recordWorkflowAuditEvent({
+    sessionId: updated.session_id,
+    type: 'workflow.updated',
     workflowId: updated.id,
     name: updated.name,
     enabled: Boolean(updated.enabled),

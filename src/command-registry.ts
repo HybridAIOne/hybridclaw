@@ -929,6 +929,25 @@ function buildSlashCommandCatalogDefinitions(
         },
         {
           kind: 'subcommand',
+          name: 'update',
+          description: 'Recompile and replace a workflow',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Workflow id',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'description',
+              description: 'Updated workflow description',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
           name: 'toggle',
           description: 'Enable or disable a workflow',
           options: [
@@ -1385,6 +1404,17 @@ export function parseCanonicalSlashCommandArgs(
       ) {
         const id = normalizeStringOption(interaction, 'id', true);
         return id ? ['workflow', subcommand, id] : null;
+      }
+      if (subcommand === 'update') {
+        const id = normalizeStringOption(interaction, 'id', true);
+        const description = normalizeStringOption(
+          interaction,
+          'description',
+          true,
+        );
+        if (!id || !description) return null;
+        const parts = tokenizeFreeformText(description);
+        return parts.length > 0 ? ['workflow', 'update', id, ...parts] : null;
       }
       if (subcommand === 'create') {
         const description = normalizeStringOption(

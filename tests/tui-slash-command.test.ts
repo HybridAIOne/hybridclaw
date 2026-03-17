@@ -131,6 +131,29 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(
     mapTuiSlashCommandToGatewayArgs(['workflow', 'describe', '7']),
   ).toEqual(['workflow', 'describe', '7']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'workflow',
+      'update',
+      '7',
+      'Every',
+      'weekday',
+      'at',
+      '6pm',
+      'summarize',
+      'updates',
+    ]),
+  ).toEqual([
+    'workflow',
+    'update',
+    '7',
+    'Every',
+    'weekday',
+    'at',
+    '6pm',
+    'summarize',
+    'updates',
+  ]);
 });
 
 test('keeps explicit /skill invocations out of the slash-command path', () => {

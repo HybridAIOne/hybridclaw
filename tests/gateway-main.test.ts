@@ -206,8 +206,8 @@ async function importFreshGatewayMain(options?: {
       jid: state.whatsappLinked ? '491701234567:16@s.whatsapp.net' : null,
     })),
   }));
-  vi.doMock('../src/config/config.js', () => ({
-    DATA_DIR: '/tmp/hybridclaw-data',
+  vi.doMock('../src/config/config.js', async () => ({
+    ...(await vi.importActual('../src/config/config.js')),
     DISCORD_TOKEN: 'discord-token',
     EMAIL_PASSWORD: '',
     MSTEAMS_APP_ID:
@@ -231,12 +231,13 @@ async function importFreshGatewayMain(options?: {
       warn: vi.fn(),
     },
   }));
-  vi.doMock('../src/memory/db.js', () => ({
+  vi.doMock('../src/memory/db.js', async () => ({
+    ...(await vi.importActual('../src/memory/db.js')),
     deleteQueuedProactiveMessage: vi.fn(),
     enqueueProactiveMessage: vi.fn(() => ({ dropped: 0, queued: 1 })),
     getMostRecentSessionChannelId: vi.fn(() => 'discord:123'),
     getQueuedProactiveMessageCount: vi.fn(() => 0),
-    getWorkflowByCompanionTaskId: state.getWorkflowByCompanionTaskId,
+    getWorkflowByCompanionTaskId: vi.fn(() => null),
     initDatabase: state.initDatabase,
     listQueuedProactiveMessages: state.listQueuedProactiveMessages,
   }));
@@ -265,6 +266,12 @@ async function importFreshGatewayMain(options?: {
     rearmScheduler: state.rearmScheduler,
     startScheduler: state.startScheduler,
     stopScheduler: vi.fn(),
+  }));
+  vi.doMock('../src/workflow/executor.js', () => ({
+    executeWorkflow: vi.fn(async () => {}),
+  }));
+  vi.doMock('../src/workflow/service.js', () => ({
+    initializeWorkflowRuntime: vi.fn(),
   }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
     getGatewayStatus: state.getGatewayStatus,
@@ -338,6 +345,8 @@ afterEach(() => {
   vi.doUnmock('../src/providers/local-health.js');
   vi.doUnmock('../src/scheduler/heartbeat.js');
   vi.doUnmock('../src/scheduler/scheduler.js');
+  vi.doUnmock('../src/workflow/executor.js');
+  vi.doUnmock('../src/workflow/service.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
   vi.doUnmock('../src/gateway/health.js');
   vi.doUnmock('../src/gateway/proactive-delivery.js');
