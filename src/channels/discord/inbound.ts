@@ -1,4 +1,5 @@
 import { isRegisteredTextCommandName } from '../../command-registry.js';
+import { buildSessionKey } from '../../session/session-key.js';
 
 export interface ParsedCommand {
   isCommand: boolean;
@@ -101,11 +102,17 @@ export function hasSlashCommandInvocation(
 }
 
 export function buildSessionIdFromContext(
+  agentId: string,
   guildId: string | null,
   channelId: string,
   userId: string,
 ): string {
-  return guildId ? `${guildId}:${channelId}` : `dm:${userId}`;
+  return buildSessionKey(
+    agentId,
+    'discord',
+    guildId ? 'channel' : 'dm',
+    guildId ? channelId : userId,
+  );
 }
 
 export function parseCommand(

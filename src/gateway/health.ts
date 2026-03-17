@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
@@ -24,6 +25,7 @@ import type {
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
+import { buildSessionKey } from '../session/session-key.js';
 import type { PendingApproval, ToolProgressEvent } from '../types.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
@@ -113,6 +115,15 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
+
+function resolveDefaultWebSessionId(agentId?: string | null): string {
+  return buildSessionKey(
+    String(agentId || '').trim() || DEFAULT_AGENT_ID,
+    'web',
+    'dm',
+    'default',
+  );
+}
 
 class HttpRequestError extends Error {
   statusCode: number;
@@ -364,7 +375,13 @@ async function handleApiChat(
   }
 
   const chatRequest: GatewayChatRequest = {
-    sessionId: body.sessionId || 'web:default',
+    sessionId:
+      String(body.sessionId || '').trim() ||
+      resolveDefaultWebSessionId(body.agentId),
+    sessionMode:
+      body.sessionMode === 'resume' || body.sessionMode === 'new'
+        ? body.sessionMode
+        : undefined,
     guildId: body.guildId ?? null,
     channelId: body.channelId || 'web',
     userId: body.userId || 'web-user',
@@ -392,15 +409,14 @@ async function handleApiChat(
     return;
   }
 
-  const result = filterChatResultForSession(
-    chatRequest.sessionId,
-    normalizePendingApprovalReply(
-      normalizePlaceholderToolReply(
-        normalizeSilentMessageSendReply(
-          await handleGatewayMessage(chatRequest),
-        ),
-      ),
+  const processedResult = normalizePendingApprovalReply(
+    normalizePlaceholderToolReply(
+      normalizeSilentMessageSendReply(await handleGatewayMessage(chatRequest)),
     ),
+  );
+  const result = filterChatResultForSession(
+    processedResult.sessionId || chatRequest.sessionId,
+    processedResult,
   );
   sendJson(res, result.status === 'success' ? 200 : 500, result);
 }
@@ -477,7 +493,7 @@ async function handleApiChatStream(
       }
     }
     const filteredResult = filterChatResultForSession(
-      chatRequest.sessionId,
+      result.sessionId || chatRequest.sessionId,
       result,
     );
     const pendingApproval = extractGatewayChatApprovalEvent(filteredResult);
@@ -532,7 +548,12 @@ async function handleApiCommand(
   }
 
   const commandRequest: GatewayCommandRequest = {
-    sessionId: body.sessionId || 'web:default',
+    sessionId:
+      String(body.sessionId || '').trim() || resolveDefaultWebSessionId(),
+    sessionMode:
+      body.sessionMode === 'resume' || body.sessionMode === 'new'
+        ? body.sessionMode
+        : undefined,
     guildId: body.guildId ?? null,
     channelId: body.channelId || 'web',
     args,
@@ -602,7 +623,8 @@ async function handleApiMessageAction(
 }
 
 function handleApiHistory(res: ServerResponse, url: URL): void {
-  const sessionId = url.searchParams.get('sessionId') || 'web:default';
+  const sessionId =
+    url.searchParams.get('sessionId')?.trim() || resolveDefaultWebSessionId();
   const parsedLimit = parseInt(url.searchParams.get('limit') || '40', 10);
   const parsedSummarySinceMs = parseInt(
     url.searchParams.get('summarySinceMs') || '',

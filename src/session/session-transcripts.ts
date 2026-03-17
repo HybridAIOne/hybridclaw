@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { agentWorkspaceDir, ensureAgentDirs } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -44,7 +44,7 @@ export function appendSessionTranscript(
       content: entry.content,
       createdAt: entry.createdAt || new Date().toISOString(),
     };
-    fs.appendFileSync(filePath, JSON.stringify(row) + '\n', 'utf-8');
+    fs.appendFileSync(filePath, `${JSON.stringify(row)}\n`, 'utf-8');
   } catch (err) {
     logger.debug(
       { agentId, sessionId: entry.sessionId, err },

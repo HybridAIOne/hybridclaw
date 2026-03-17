@@ -8,6 +8,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
 
+import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
+import { registerChannel } from '../channels/channel-registry.js';
 import { DATA_DIR, getConfigSnapshot } from '../config/config.js';
 import type { RuntimeSchedulerJob } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
@@ -930,6 +932,11 @@ export function resumeConfigJob(jobId: string): boolean {
 export function startScheduler(runner: TaskRunner): void {
   logger.info('Scheduler started');
   taskRunner = runner;
+  registerChannel({
+    kind: 'scheduler',
+    id: 'scheduler',
+    capabilities: SYSTEM_CAPABILITIES,
+  });
   arm();
 }
 

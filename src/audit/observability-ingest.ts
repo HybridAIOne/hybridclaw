@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from 'crypto';
-import os from 'os';
+import { createHash, randomUUID } from 'node:crypto';
+import os from 'node:os';
 
 import {
   APP_VERSION,

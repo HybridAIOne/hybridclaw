@@ -120,7 +120,7 @@ test.each([
     args,
   });
 
-  expect(result).toEqual({
+  expect(result).toMatchObject({
     kind: 'plain',
     text: 'Only for hybridai provider',
   });

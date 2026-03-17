@@ -2,6 +2,8 @@ import nodemailer, { type Transporter } from 'nodemailer';
 import { EMAIL_PASSWORD, getConfigSnapshot } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types.js';
+import { EMAIL_CAPABILITIES } from '../channel.js';
+import { registerChannel } from '../channel-registry.js';
 import { createEmailConnectionManager } from './connection.js';
 import { type EmailSendParams, sendEmail } from './delivery.js';
 import { cleanupEmailInboundMedia, processInboundEmail } from './inbound.js';
@@ -259,6 +261,12 @@ export function createEmailRuntime(): EmailRuntime {
       ensureRuntimeActive();
       if (runtimeInitialized) return;
       runtimeInitialized = true;
+      const config = ensureRuntimeConfig();
+      registerChannel({
+        kind: 'email',
+        id: config.address,
+        capabilities: EMAIL_CAPABILITIES,
+      });
       await ensureTransport();
       await ensureConnectionManager(messageHandler).start();
     },

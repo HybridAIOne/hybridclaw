@@ -26,6 +26,19 @@ test('resolveTuiRunOptions preserves explicit resume session ids', () => {
     }),
   ).toEqual({
     sessionId: '20260316_122238_532f05',
+    sessionMode: 'resume',
+    startedAtMs: now.getTime(),
+    resumeCommand: 'hybridclaw tui --resume',
+  });
+});
+
+test('resolveTuiRunOptions marks fresh launches as new sessions', () => {
+  const now = new Date(2026, 2, 16, 12, 22, 38);
+
+  expect(
+    resolveTuiRunOptions({ now, resumeCommand: 'hybridclaw tui --resume' }),
+  ).toMatchObject({
+    sessionMode: 'new',
     startedAtMs: now.getTime(),
     resumeCommand: 'hybridclaw tui --resume',
   });

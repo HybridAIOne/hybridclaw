@@ -82,6 +82,7 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
   );
 
   vi.doMock('../src/config/config.ts', () => ({
+    DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
     WHATSAPP_TEXT_CHUNK_LIMIT: 4000,
     getConfigSnapshot: vi.fn(() => ({
       whatsapp: {

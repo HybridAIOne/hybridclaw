@@ -1,13 +1,16 @@
+import type { ChannelInfo } from './channel.js';
+import {
+  getChannel,
+  getChannelByContextId,
+  normalizeChannelValue,
+} from './channel-registry.js';
 import { discordAgentPromptAdapter } from './discord/prompt-adapter.js';
-import { isEmailAddress } from './email/allowlist.js';
 import { emailAgentPromptAdapter } from './email/prompt-adapter.js';
 import { msteamsAgentPromptAdapter } from './msteams/prompt-adapter.js';
-import { isWhatsAppJid } from './whatsapp/phone.js';
 import { whatsappAgentPromptAdapter } from './whatsapp/prompt-adapter.js';
 
-const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
-
 export interface ChannelPromptRuntimeInfo {
+  channel?: ChannelInfo;
   channelType?: string;
   channelId?: string;
   guildId?: string | null;
@@ -19,54 +22,35 @@ export type ChannelAgentPromptAdapter = {
   }) => string[];
 };
 
-function normalizeLower(value: string | undefined): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
-}
-
 function normalizeValue(value: string | null | undefined): string {
   return String(value || '').trim();
 }
 
-function isWhatsAppContext(runtimeInfo?: ChannelPromptRuntimeInfo): boolean {
-  const channelType = normalizeLower(runtimeInfo?.channelType);
-  if (channelType) return channelType === 'whatsapp';
-
+function resolveRuntimeChannel(
+  runtimeInfo?: ChannelPromptRuntimeInfo,
+): ChannelInfo | undefined {
+  const explicitChannel = runtimeInfo?.channel;
+  if (explicitChannel) {
+    return explicitChannel;
+  }
+  const channelType = normalizeChannelValue(runtimeInfo?.channelType);
+  if (channelType) {
+    return getChannel(channelType);
+  }
   const channelId = normalizeValue(runtimeInfo?.channelId);
-  return isWhatsAppJid(channelId);
-}
-
-function isDiscordContext(runtimeInfo?: ChannelPromptRuntimeInfo): boolean {
-  const channelType = normalizeLower(runtimeInfo?.channelType);
-  if (channelType) return channelType === 'discord';
-
-  const channelId = normalizeValue(runtimeInfo?.channelId);
-  if (DISCORD_SNOWFLAKE_RE.test(channelId)) return true;
-  const guildId = normalizeValue(runtimeInfo?.guildId);
-  return DISCORD_SNOWFLAKE_RE.test(guildId);
-}
-
-function isEmailContext(runtimeInfo?: ChannelPromptRuntimeInfo): boolean {
-  const channelType = normalizeLower(runtimeInfo?.channelType);
-  if (channelType) return channelType === 'email';
-
-  const channelId = normalizeValue(runtimeInfo?.channelId);
-  return isEmailAddress(channelId);
-}
-
-function isMSTeamsContext(runtimeInfo?: ChannelPromptRuntimeInfo): boolean {
-  const channelType = normalizeLower(runtimeInfo?.channelType);
-  return channelType === 'msteams' || channelType === 'teams';
+  if (!channelId) return undefined;
+  return getChannelByContextId(channelId);
 }
 
 function resolveChannelAgentPromptAdapter(params: {
   runtimeInfo?: ChannelPromptRuntimeInfo;
 }): ChannelAgentPromptAdapter | null {
-  if (isWhatsAppContext(params.runtimeInfo)) return whatsappAgentPromptAdapter;
-  if (isEmailContext(params.runtimeInfo)) return emailAgentPromptAdapter;
-  if (isMSTeamsContext(params.runtimeInfo)) return msteamsAgentPromptAdapter;
-  if (isDiscordContext(params.runtimeInfo)) return discordAgentPromptAdapter;
+  const channel = resolveRuntimeChannel(params.runtimeInfo);
+  if (!channel) return null;
+  if (channel.kind === 'whatsapp') return whatsappAgentPromptAdapter;
+  if (channel.kind === 'email') return emailAgentPromptAdapter;
+  if (channel.kind === 'msteams') return msteamsAgentPromptAdapter;
+  if (channel.kind === 'discord') return discordAgentPromptAdapter;
   return null;
 }
 

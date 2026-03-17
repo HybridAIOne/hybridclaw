@@ -10,6 +10,7 @@ import {
   PermissionFlagsBits,
 } from 'discord.js';
 import { resolveAgentForRequest } from '../../agents/agent-registry.js';
+import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import {
   DISCORD_ACK_REACTION,
   DISCORD_ACK_REACTION_SCOPE,
@@ -43,11 +44,13 @@ import {
 } from '../../gateway/show-mode.js';
 import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { logger } from '../../logger.js';
-import { getSessionById } from '../../memory/db.js';
+import { getSessionById, resolveSessionIdCompat } from '../../memory/db.js';
 import { getAvailableModelChoices } from '../../providers/model-catalog.js';
 import { recordSkillFeedback } from '../../skills/skills-observation.js';
 import type { MediaContextItem } from '../../types.js';
 import { sleep } from '../../utils/sleep.js';
+import { DISCORD_CAPABILITIES } from '../channel.js';
+import { registerChannel } from '../channel-registry.js';
 import {
   buildApprovalActionRow,
   disableApprovalButtons,
@@ -712,7 +715,19 @@ function buildSessionIdFromContext(
   channelId: string,
   userId: string,
 ): string {
-  return buildSessionIdFromContextInbound(guildId, channelId, userId);
+  const defaultSessionId = buildSessionIdFromContextInbound(
+    DEFAULT_AGENT_ID,
+    guildId,
+    channelId,
+    userId,
+  );
+  const legacySessionId = guildId ? `${guildId}:${channelId}` : `dm:${userId}`;
+  const existingSession =
+    getSessionById(defaultSessionId) || getSessionById(legacySessionId);
+  if (existingSession) {
+    return existingSession.id;
+  }
+  return defaultSessionId;
 }
 
 interface ResolvedChannelBehavior {
@@ -1262,6 +1277,11 @@ export function initDiscord(
 ): Client {
   messageHandler = onMessage;
   commandHandler = onCommand;
+  registerChannel({
+    kind: 'discord',
+    id: 'discord',
+    capabilities: DISCORD_CAPABILITIES,
+  });
 
   interface QueuedConversationMessage {
     msg: DiscordMessage;
@@ -2494,11 +2514,13 @@ export function initDiscord(
       negativeFeedbackByChannel.set(message.channelId, feedback);
     }
     recordSkillFeedback({
-      sessionId: resolveDiscordSkillFeedbackSessionId({
-        guildId: message.guild?.id ?? null,
-        channelId: message.channelId,
-        userId: user.id,
-      }),
+      sessionId: resolveSessionIdCompat(
+        resolveDiscordSkillFeedbackSessionId({
+          guildId: message.guild?.id ?? null,
+          channelId: message.channelId,
+          userId: user.id,
+        }),
+      ),
       feedback,
       sentiment,
     });

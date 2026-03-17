@@ -38,7 +38,6 @@ function toDiscordActivityType(
       return ActivityType.Competing;
     case 'custom':
       return ActivityType.Custom;
-    case 'watching':
     default:
       return ActivityType.Watching;
   }

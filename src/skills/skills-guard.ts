@@ -1,6 +1,6 @@
-import { createHash } from 'crypto';
-import fs from 'fs';
-import path from 'path';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 export type SkillGuardTrustLevel =
   | 'builtin'
@@ -471,9 +471,7 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'translate-then-execute evasion technique',
   },
   {
-    regex: r(
-      String.raw`<!--[^>]*(?:ignore|override|system|secret|hidden)[^>]*-->`,
-    ),
+    regex: r(`<!--[^>]*(?:ignore|override|system|secret|hidden)[^>]*-->`),
     patternId: 'html_comment_injection',
     severity: 'high',
     category: 'prompt-injection',
@@ -654,7 +652,7 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'relative path traversal',
   },
   {
-    regex: r(String.raw`/etc/passwd|/etc/shadow`),
+    regex: r(`/etc/passwd|/etc/shadow`),
     patternId: 'system_passwd_access',
     severity: 'critical',
     category: 'destructive-ops',
@@ -668,7 +666,7 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'references /proc filesystem',
   },
   {
-    regex: r(String.raw`/dev/shm/`),
+    regex: r(`/dev/shm/`),
     patternId: 'dev_shm',
     severity: 'medium',
     category: 'destructive-ops',
@@ -682,7 +680,7 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'cryptocurrency mining reference',
   },
   {
-    regex: r(String.raw`hashrate|nonce.*difficulty`),
+    regex: r(`hashrate|nonce.*difficulty`),
     patternId: 'mining_indicators',
     severity: 'medium',
     category: 'destructive-ops',
@@ -703,14 +701,14 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'uses sudo (privilege escalation)',
   },
   {
-    regex: r(String.raw`setuid|setgid|cap_setuid`),
+    regex: r(`setuid|setgid|cap_setuid`),
     patternId: 'setuid_setgid',
     severity: 'critical',
     category: 'destructive-ops',
     description: 'setuid/setgid privilege escalation mechanism',
   },
   {
-    regex: r(String.raw`NOPASSWD`),
+    regex: r(`NOPASSWD`),
     patternId: 'nopasswd_sudo',
     severity: 'critical',
     category: 'destructive-ops',
@@ -742,14 +740,14 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'references shell startup file',
   },
   {
-    regex: r(String.raw`authorized_keys`),
+    regex: r(`authorized_keys`),
     patternId: 'ssh_backdoor',
     severity: 'critical',
     category: 'persistence',
     description: 'modifies SSH authorized keys',
   },
   {
-    regex: r(String.raw`ssh-keygen`),
+    regex: r(`ssh-keygen`),
     patternId: 'ssh_keygen',
     severity: 'medium',
     category: 'persistence',
@@ -777,7 +775,7 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'macOS launch agent/daemon persistence',
   },
   {
-    regex: r(String.raw`/etc/sudoers|visudo`),
+    regex: r(`/etc/sudoers|visudo`),
     patternId: 'sudoers_mod',
     severity: 'critical',
     category: 'persistence',
@@ -1077,28 +1075,28 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'embedded private key',
   },
   {
-    regex: r(String.raw`ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{80,}`),
+    regex: r(`ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{80,}`),
     patternId: 'github_token_leaked',
     severity: 'critical',
     category: 'credential-exposure',
     description: 'GitHub personal access token in skill content',
   },
   {
-    regex: r(String.raw`sk-[A-Za-z0-9]{20,}`),
+    regex: r(`sk-[A-Za-z0-9]{20,}`),
     patternId: 'openai_key_leaked',
     severity: 'critical',
     category: 'credential-exposure',
     description: 'possible OpenAI API key in skill content',
   },
   {
-    regex: r(String.raw`sk-ant-[A-Za-z0-9_-]{90,}`),
+    regex: r(`sk-ant-[A-Za-z0-9_-]{90,}`),
     patternId: 'anthropic_key_leaked',
     severity: 'critical',
     category: 'credential-exposure',
     description: 'possible Anthropic API key in skill content',
   },
   {
-    regex: r(String.raw`AKIA[0-9A-Z]{16}`),
+    regex: r(`AKIA[0-9A-Z]{16}`),
     patternId: 'aws_access_key_leaked',
     severity: 'critical',
     category: 'credential-exposure',

@@ -29,7 +29,7 @@ test('uses the reacting user session for DM skill feedback', () => {
       channelId: 'dm-channel',
       userId: 'user-123',
     }),
-  ).toBe('dm:user-123');
+  ).toBe('agent:main:discord:dm:user-123');
 });
 
 test('uses the shared guild channel session for guild skill feedback', () => {
@@ -39,5 +39,5 @@ test('uses the shared guild channel session for guild skill feedback', () => {
       channelId: 'channel-456',
       userId: 'user-123',
     }),
-  ).toBe('guild-123:channel-456');
+  ).toBe('agent:main:discord:channel:channel-456');
 });

@@ -26,6 +26,8 @@ export interface GatewayCommandResult {
   kind: 'plain' | 'info' | 'error';
   title?: string;
   text: string;
+  sessionId?: string;
+  sessionKey?: string;
   components?: GatewayMessageComponents;
   modelCatalog?: GatewayModelCatalogEntry[];
 }
@@ -34,6 +36,8 @@ export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
+  sessionId?: string;
+  sessionKey?: string;
   artifacts?: Array<{
     path: string;
     filename: string;
@@ -103,6 +107,7 @@ export type GatewayChatStreamEvent =
 
 export interface GatewayChatRequestBody {
   sessionId: string;
+  sessionMode?: 'new' | 'resume';
   guildId: string | null;
   channelId: string;
   userId: string;
@@ -124,6 +129,7 @@ export interface GatewayChatRequestBody {
 
 export interface GatewayCommandRequest {
   sessionId: string;
+  sessionMode?: 'new' | 'resume';
   guildId: string | null;
   channelId: string;
   args: string[];

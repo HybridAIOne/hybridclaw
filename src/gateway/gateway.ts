@@ -393,13 +393,14 @@ async function handleApprovalCommand(params: {
     );
     return true;
   }
+  const approvalSessionId = approvalResult.sessionId || sessionId;
   if (isSilentReply(approvalResult.result)) {
-    await clearPendingApproval(sessionId, { disableButtons: true });
+    await clearPendingApproval(approvalSessionId, { disableButtons: true });
     return true;
   }
   const approvalResultText = stripSilentToken(String(approvalResult.result));
   if (!approvalResultText.trim()) {
-    await clearPendingApproval(sessionId, { disableButtons: true });
+    await clearPendingApproval(approvalSessionId, { disableButtons: true });
     return true;
   }
 
@@ -413,7 +414,7 @@ async function handleApprovalCommand(params: {
       ? buildApprovalConfirmationComponents(pendingApproval.approvalId)
       : undefined;
     await rememberPendingApproval({
-      sessionId,
+      sessionId: approvalSessionId,
       approvalId: pendingApproval.approvalId,
       prompt: pendingApproval.prompt || resultText,
       userId,
@@ -427,7 +428,7 @@ async function handleApprovalCommand(params: {
     return true;
   }
 
-  await clearPendingApproval(sessionId, { disableButtons: true });
+  await clearPendingApproval(approvalSessionId, { disableButtons: true });
   const attachments = buildArtifactAttachments(approvalResult.artifacts);
   await reply(resultText, attachments);
   return true;
@@ -806,6 +807,7 @@ async function startDiscordIntegration(): Promise<void> {
           return;
         }
         const pendingApproval = extractGatewayChatApprovalEvent(result);
+        const effectiveSessionId = result.sessionId || sessionId;
         if (!pendingApproval) {
           const bufferedDelta = streamFilter.flush();
           if (bufferedDelta) {
@@ -813,13 +815,15 @@ async function startDiscordIntegration(): Promise<void> {
           }
         }
         if (streamFilter.isSilent() || isSilentReply(result.result)) {
-          await clearPendingApproval(sessionId, { disableButtons: true });
+          await clearPendingApproval(effectiveSessionId, {
+            disableButtons: true,
+          });
           await context.stream.discard();
           return;
         }
         const rawText = stripSilentToken(String(result.result));
         const showMode = normalizeSessionShowMode(
-          memoryService.getSessionById(sessionId)?.show_mode,
+          memoryService.getSessionById(effectiveSessionId)?.show_mode,
         );
         const userText = simplifyImageAttachmentNarration(
           rawText,
@@ -848,7 +852,7 @@ async function startDiscordIntegration(): Promise<void> {
             );
           }
           await rememberPendingApproval({
-            sessionId,
+            sessionId: effectiveSessionId,
             approvalId: pendingApproval.approvalId,
             prompt: pendingApproval.prompt || responseText,
             userId,
@@ -862,11 +866,15 @@ async function startDiscordIntegration(): Promise<void> {
         }
         const attachments = buildArtifactAttachments(result.artifacts);
         if (!rawText.trim()) {
-          await clearPendingApproval(sessionId, { disableButtons: true });
+          await clearPendingApproval(effectiveSessionId, {
+            disableButtons: true,
+          });
           await context.stream.discard();
           return;
         }
-        await clearPendingApproval(sessionId, { disableButtons: true });
+        await clearPendingApproval(effectiveSessionId, {
+          disableButtons: true,
+        });
         await context.stream.finalize(responseText, attachments);
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
@@ -1016,12 +1024,13 @@ async function startMSTeamsIntegration(): Promise<boolean> {
 
         const renderedText = stripSilentToken(String(result.result || ''));
         const artifacts = result.artifacts || [];
+        const effectiveSessionId = result.sessionId || sessionId;
         if (!renderedText.trim() && artifacts.length === 0) {
           await context.stream.discard();
           return;
         }
         const showMode = normalizeSessionShowMode(
-          memoryService.getSessionById(sessionId)?.show_mode,
+          memoryService.getSessionById(effectiveSessionId)?.show_mode,
         );
         const responseText = renderedText.trim()
           ? buildResponseText(
@@ -1034,7 +1043,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
         const pendingApproval = extractGatewayChatApprovalEvent(result);
         if (pendingApproval) {
           await rememberPendingApproval({
-            sessionId,
+            sessionId: effectiveSessionId,
             approvalId: pendingApproval.approvalId,
             prompt: pendingApproval.prompt || responseText,
             userId,
@@ -1189,8 +1198,9 @@ async function startWhatsAppIntegration(): Promise<boolean> {
           return;
         }
 
+        const effectiveSessionId = result.sessionId || sessionId;
         const showMode = normalizeSessionShowMode(
-          memoryService.getSessionById(sessionId)?.show_mode,
+          memoryService.getSessionById(effectiveSessionId)?.show_mode,
         );
         if (cleanedResultText.trim()) {
           const responseText = buildResponseText(
@@ -1300,8 +1310,9 @@ async function startEmailIntegration(): Promise<boolean> {
             return;
           }
 
+          const effectiveSessionId = result.sessionId || sessionId;
           const showMode = normalizeSessionShowMode(
-            memoryService.getSessionById(sessionId)?.show_mode,
+            memoryService.getSessionById(effectiveSessionId)?.show_mode,
           );
           if (cleanedResultText.trim()) {
             const responseText = buildResponseText(

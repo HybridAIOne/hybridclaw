@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 export interface TuiRunOptions {
   sessionId: string;
+  sessionMode: 'new' | 'resume';
   startedAtMs: number;
   resumeCommand: string;
 }
@@ -57,6 +58,7 @@ export function resolveTuiRunOptions(params?: {
 
   return {
     sessionId: resumeSessionId || generateTuiSessionId(now),
+    sessionMode: resumeSessionId ? 'resume' : 'new',
     startedAtMs: now.getTime(),
     resumeCommand: resumeCommand || 'hybridclaw tui --resume',
   };

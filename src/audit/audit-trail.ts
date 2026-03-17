@@ -1,6 +1,6 @@
-import { createHash, randomUUID } from 'crypto';
-import fs from 'fs';
-import path from 'path';
+import { createHash, randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { DATA_DIR } from '../config/config.js';
 import { redactSecretsDeep } from '../security/redact.js';

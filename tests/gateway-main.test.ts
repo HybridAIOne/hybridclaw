@@ -65,6 +65,7 @@ async function importFreshGatewayMain(options?: {
     formatInfo: vi.fn((title: string, body: string) => `**${title}**\n${body}`),
     getConfigSnapshot: vi.fn(),
     getGatewayStatus: vi.fn(() => ({ status: 'ok', sessions: 1 })),
+    getWorkflowByCompanionTaskId: vi.fn(() => null),
     handleGatewayCommand: vi.fn(async ({ args }: { args: string[] }) => {
       if (args[0] === 'info') {
         return { kind: 'info' as const, title: 'Info', text: 'Body' };
@@ -84,6 +85,7 @@ async function importFreshGatewayMain(options?: {
     initDiscord: vi.fn(),
     initMSTeams: vi.fn(),
     initWhatsApp: vi.fn(),
+    initializeWorkflowRuntime: vi.fn(),
     initGatewayService: vi.fn(),
     listQueuedProactiveMessages: vi.fn(() => []),
     memoryServiceConsolidate: vi.fn(() => ({
@@ -103,6 +105,8 @@ async function importFreshGatewayMain(options?: {
       chatbotId: 'bot-1',
     })),
     rewriteUserMentionsForMessage: vi.fn(async (text: string) => text),
+    runManagedMediaCleanup: vi.fn(async () => {}),
+    executeWorkflow: vi.fn(async () => {}),
     setInterval: vi.fn(() => ({ timer: true })),
     startHealthServer: vi.fn(),
     startHeartbeat: vi.fn(),
@@ -203,6 +207,7 @@ async function importFreshGatewayMain(options?: {
     })),
   }));
   vi.doMock('../src/config/config.js', () => ({
+    DATA_DIR: '/tmp/hybridclaw-data',
     DISCORD_TOKEN: 'discord-token',
     EMAIL_PASSWORD: '',
     MSTEAMS_APP_ID:
@@ -231,6 +236,7 @@ async function importFreshGatewayMain(options?: {
     enqueueProactiveMessage: vi.fn(() => ({ dropped: 0, queued: 1 })),
     getMostRecentSessionChannelId: vi.fn(() => 'discord:123'),
     getQueuedProactiveMessageCount: vi.fn(() => 0),
+    getWorkflowByCompanionTaskId: state.getWorkflowByCompanionTaskId,
     initDatabase: state.initDatabase,
     listQueuedProactiveMessages: state.listQueuedProactiveMessages,
   }));
@@ -273,12 +279,24 @@ async function importFreshGatewayMain(options?: {
     startHealthServer: state.startHealthServer,
   }));
   vi.doMock('../src/gateway/proactive-delivery.js', () => ({
+    deliverProactiveMessage: vi.fn(async () => {}),
+    deliverWebhookMessage: vi.fn(async () => {}),
     hasQueuedProactiveDeliveryPath: vi.fn(() => true),
     isDiscordChannelId: vi.fn(() => true),
     isEmailAddress: vi.fn(() => false),
     isSupportedProactiveChannelId: vi.fn(() => true),
     resolveHeartbeatDeliveryChannelId: vi.fn(() => '123456789012345678'),
+    resolveLastUsedDeliverableChannelId: vi.fn(() => '123456789012345678'),
     shouldDropQueuedProactiveMessage: vi.fn(() => false),
+  }));
+  vi.doMock('../src/gateway/managed-media-cleanup.js', () => ({
+    runManagedMediaCleanup: state.runManagedMediaCleanup,
+  }));
+  vi.doMock('../src/workflow/executor.js', () => ({
+    executeWorkflow: state.executeWorkflow,
+  }));
+  vi.doMock('../src/workflow/service.js', () => ({
+    initializeWorkflowRuntime: state.initializeWorkflowRuntime,
   }));
 
   await import('../src/gateway/gateway.ts');
@@ -323,6 +341,9 @@ afterEach(() => {
   vi.doUnmock('../src/gateway/gateway-service.js');
   vi.doUnmock('../src/gateway/health.js');
   vi.doUnmock('../src/gateway/proactive-delivery.js');
+  vi.doUnmock('../src/gateway/managed-media-cleanup.js');
+  vi.doUnmock('../src/workflow/executor.js');
+  vi.doUnmock('../src/workflow/service.js');
   vi.resetModules();
 });
 

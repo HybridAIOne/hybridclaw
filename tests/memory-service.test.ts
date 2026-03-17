@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import {
   addKnowledgeEntity,
@@ -15,6 +15,7 @@ import {
   getCanonicalContext,
   getMemoryValue,
   getOrCreateSession,
+  getSessionById,
   getUsageTotals,
   initDatabase,
   listMemoryValues,
@@ -48,6 +49,8 @@ function createTempDbPath(): string {
 function makeSession(partial?: Partial<Session>): Session {
   return {
     id: 'session:test',
+    session_key: 'session:test',
+    is_current: 1,
     guild_id: null,
     channel_id: 'channel:test',
     agent_id: 'main',
@@ -400,6 +403,228 @@ describe.sequential('schema migrations', () => {
     expect(hasRelations?.name).toBe('relations');
     expect(hasCanonical?.name).toBe('canonical_sessions');
     expect(hasUsage?.name).toBe('usage_events');
+  });
+
+  test('migrates legacy session ids and related rows to hierarchical keys', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    const legacy = new Database(dbPath);
+    legacy
+      .prepare(
+        `INSERT INTO sessions
+          (id, guild_id, channel_id, agent_id, chatbot_id, model, enable_rag, message_count, session_summary, summary_updated_at, compaction_count, memory_flush_at, full_auto_enabled, full_auto_prompt, full_auto_started_at, show_mode, created_at, last_active, reset_count, reset_at, legacy_session_id)
+         VALUES (?, ?, ?, ?, NULL, NULL, 1, 1, NULL, NULL, 0, NULL, 0, NULL, NULL, 'all', datetime('now'), datetime('now'), 0, NULL, NULL)`,
+      )
+      .run('dm:439508376087560193', null, '439508376087560193', 'main');
+    legacy
+      .prepare(
+        `INSERT INTO messages (session_id, user_id, username, role, content)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run('dm:439508376087560193', 'u1', 'alice', 'user', 'hello');
+    legacy
+      .prepare(
+        `INSERT INTO tasks (session_id, channel_id, cron_expr, prompt)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run('dm:439508376087560193', '439508376087560193', '* * * * *', 'ping');
+    legacy.pragma('user_version = 9');
+    legacy.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const migratedSessionId = 'agent:main:discord:dm:439508376087560193';
+    const migratedSession = getSessionById(migratedSessionId);
+    expect(migratedSession?.id).toBe(migratedSessionId);
+    expect(migratedSession?.legacy_session_id).toBe('dm:439508376087560193');
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const migratedMessage = inspect
+      .prepare('SELECT session_id FROM messages LIMIT 1')
+      .get() as { session_id: string };
+    const migratedTask = inspect
+      .prepare('SELECT session_id FROM tasks LIMIT 1')
+      .get() as { session_id: string };
+    inspect.close();
+
+    expect(migratedMessage.session_id).toBe(migratedSessionId);
+    expect(migratedTask.session_id).toBe(migratedSessionId);
+    expect(getSessionById('dm:439508376087560193')?.id).toBe(migratedSessionId);
+  });
+
+  test('migrates existing schema v10 databases that lack legacy session ids', () => {
+    const dbPath = createTempDbPath();
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        guild_id TEXT,
+        channel_id TEXT NOT NULL,
+        agent_id TEXT DEFAULT 'main'
+      );
+
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        user_id TEXT,
+        username TEXT,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL
+      );
+
+      CREATE TABLE tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        cron_expr TEXT NOT NULL,
+        prompt TEXT NOT NULL
+      );
+    `);
+    legacy
+      .prepare(
+        'INSERT INTO sessions (id, guild_id, channel_id, agent_id) VALUES (?, ?, ?, ?)',
+      )
+      .run('dm:439508376087560193', null, '439508376087560193', 'main');
+    legacy
+      .prepare(
+        `INSERT INTO messages (session_id, user_id, username, role, content)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run('dm:439508376087560193', 'u1', 'alice', 'user', 'hello');
+    legacy
+      .prepare(
+        `INSERT INTO tasks (session_id, channel_id, cron_expr, prompt)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run('dm:439508376087560193', '439508376087560193', '* * * * *', 'ping');
+    legacy.pragma('user_version = 10');
+    legacy.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const migratedSessionId = 'agent:main:discord:dm:439508376087560193';
+    const migratedSession = getSessionById('dm:439508376087560193');
+    expect(migratedSession?.id).toBe(migratedSessionId);
+    expect(migratedSession?.legacy_session_id).toBe('dm:439508376087560193');
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const hasLegacyColumn = inspect
+      .prepare("SELECT 1 FROM pragma_table_info('sessions') WHERE name = ?")
+      .get('legacy_session_id') as { 1: number } | undefined;
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(hasLegacyColumn).toBeDefined();
+  });
+
+  test('fails v11 legacy session migration when a canonical target row already exists', () => {
+    const dbPath = createTempDbPath();
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        guild_id TEXT,
+        channel_id TEXT NOT NULL,
+        agent_id TEXT DEFAULT 'main'
+      );
+
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        user_id TEXT,
+        username TEXT,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL
+      );
+    `);
+    legacy
+      .prepare(
+        'INSERT INTO sessions (id, guild_id, channel_id, agent_id) VALUES (?, ?, ?, ?)',
+      )
+      .run(
+        'agent:main:discord:dm:439508376087560193',
+        null,
+        '439508376087560193',
+        'main',
+      );
+    legacy
+      .prepare(
+        'INSERT INTO sessions (id, guild_id, channel_id, agent_id) VALUES (?, ?, ?, ?)',
+      )
+      .run('dm:439508376087560193', null, '439508376087560193', 'main');
+    legacy
+      .prepare(
+        `INSERT INTO messages (session_id, user_id, username, role, content)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run('dm:439508376087560193', 'u1', 'alice', 'user', 'hello');
+    legacy.pragma('user_version = 10');
+    legacy.close();
+
+    expect(() => initDatabase({ quiet: true, dbPath })).toThrow(
+      /Unable to migrate legacy session ids due to conflicting target rows/,
+    );
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const sessionIds = inspect
+      .prepare('SELECT id FROM sessions ORDER BY id')
+      .all() as Array<{ id: string }>;
+    const message = inspect
+      .prepare('SELECT session_id FROM messages LIMIT 1')
+      .get() as { session_id: string };
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(10);
+    expect(sessionIds.map((row) => row.id)).toEqual([
+      'agent:main:discord:dm:439508376087560193',
+      'dm:439508376087560193',
+    ]);
+    expect(message.session_id).toBe('dm:439508376087560193');
+  });
+
+  test('createFreshSessionInstance retries generated ids until it finds a free one', async () => {
+    const dbPath = createTempDbPath();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-17T12:34:56.000Z'));
+    vi.resetModules();
+    vi.doMock('node:crypto', async () => {
+      const actual =
+        await vi.importActual<typeof import('node:crypto')>('node:crypto');
+      const uuids = [
+        '11111111-1111-1111-1111-111111111111',
+        '22222222-2222-2222-2222-222222222222',
+      ];
+      return {
+        ...actual,
+        randomUUID: vi.fn(() => uuids.shift() || actual.randomUUID()),
+      };
+    });
+
+    try {
+      const { createFreshSessionInstance, getOrCreateSession, initDatabase } =
+        await import('../src/memory/db.js');
+
+      initDatabase({ quiet: true, dbPath });
+
+      const previousSession = getOrCreateSession(
+        'session-under-test',
+        null,
+        'c1',
+      );
+      getOrCreateSession('sess_20260317_123456_11111111', null, 'c2');
+
+      const rotated = createFreshSessionInstance(previousSession.id);
+
+      expect(rotated.previousSession.id).toBe('session-under-test');
+      expect(rotated.session.id).toBe('sess_20260317_123456_22222222');
+    } finally {
+      vi.doUnmock('node:crypto');
+      vi.useRealTimers();
+      vi.resetModules();
+    }
   });
 });
 

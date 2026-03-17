@@ -3,7 +3,8 @@
  * Usage: npm run tui
  */
 import readline from 'node:readline';
-
+import { TUI_CAPABILITIES } from './channels/channel.js';
+import { registerChannel } from './channels/channel-registry.js';
 import {
   APP_VERSION,
   CONFIGURED_MODELS,
@@ -288,6 +289,7 @@ let tuiPendingApproval: {
 let tuiShowMode: SessionShowMode = DEFAULT_SESSION_SHOW_MODE;
 let tuiSlashMenu: TuiSlashMenuController | null = null;
 let tuiSessionId = generateTuiSessionId();
+let tuiSessionMode: 'new' | 'resume' = 'new';
 let tuiSessionStartedAtMs = Date.now();
 let tuiResumeCommand = 'hybridclaw tui --resume';
 let tuiExitInProgress = false;
@@ -796,11 +798,13 @@ function spinner(): {
 
 function sessionGatewayContext(): {
   sessionId: string;
+  sessionMode: 'new' | 'resume';
   guildId: null;
   channelId: string;
 } {
   return {
     sessionId: tuiSessionId,
+    sessionMode: tuiSessionMode,
     guildId: null,
     channelId: CHANNEL_ID,
   };
@@ -808,6 +812,7 @@ function sessionGatewayContext(): {
 
 function buildGatewayChatRequest(content: string): {
   sessionId: string;
+  sessionMode: 'new' | 'resume';
   guildId: null;
   channelId: string;
   userId: string;
@@ -825,12 +830,14 @@ function buildGatewayChatRequest(content: string): {
 async function requestGatewayCommand(
   args: string[],
 ): Promise<GatewayCommandResult> {
-  return gatewayCommand({
+  const result = await gatewayCommand({
     ...sessionGatewayContext(),
     args,
     userId: TUI_USER_ID,
     username: TUI_USERNAME,
   });
+  syncTuiSessionIdFromResult(result);
+  return result;
 }
 
 function collectToolNames(result: GatewayChatResult): string[] {
@@ -852,6 +859,16 @@ function collectToolNames(result: GatewayChatResult): string[] {
 function isInterruptedResult(result: GatewayChatResult): boolean {
   const errorText = result.error || '';
   return errorText.includes('aborted') || errorText.includes('Interrupted');
+}
+
+function syncTuiSessionId(nextSessionId: string | null | undefined): void {
+  const normalized = String(nextSessionId || '').trim();
+  if (!normalized || normalized === tuiSessionId) return;
+  tuiSessionId = normalized;
+}
+
+function syncTuiSessionIdFromResult(result: { sessionId?: string }): void {
+  syncTuiSessionId(result.sessionId);
 }
 
 function buildPromptText(): string {
@@ -1331,6 +1348,7 @@ async function processMessage(
       }
       result = await gatewayChat(request, abortController.signal);
     }
+    syncTuiSessionIdFromResult(result);
 
     const toolNames = [
       ...new Set([...streamedToolNames, ...collectToolNames(result)]),
@@ -1445,6 +1463,7 @@ async function processFullAutoSteeringMessage(
         buildGatewayChatRequest(content),
         abortController.signal,
       );
+      syncTuiSessionIdFromResult(result);
       if (isInterruptedResult(result)) {
         return;
       }
@@ -1652,8 +1671,14 @@ async function main(): Promise<void> {
 }
 
 export async function runTui(options?: Partial<TuiRunOptions>): Promise<void> {
+  registerChannel({
+    kind: 'tui',
+    id: CHANNEL_ID,
+    capabilities: TUI_CAPABILITIES,
+  });
   const sessionId = String(options?.sessionId || '').trim();
   tuiSessionId = sessionId || generateTuiSessionId();
+  tuiSessionMode = options?.sessionMode === 'resume' ? 'resume' : 'new';
   tuiSessionStartedAtMs =
     typeof options?.startedAtMs === 'number' &&
     Number.isFinite(options.startedAtMs)

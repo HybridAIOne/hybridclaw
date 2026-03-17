@@ -24,6 +24,8 @@ import {
 import { logger } from '../../logger.js';
 import { getMemoryValue, setMemoryValue } from '../../memory/db.js';
 import type { MediaContextItem } from '../../types.js';
+import { MSTEAMS_CAPABILITIES } from '../channel.js';
+import { registerChannel } from '../channel-registry.js';
 import {
   buildTeamsAttachmentContext,
   buildTeamsUploadedFileAttachment,
@@ -681,6 +683,11 @@ export function initMSTeams(
   }
   messageHandler = onMessage;
   commandHandler = onCommand;
+  registerChannel({
+    kind: 'msteams',
+    id: 'msteams',
+    capabilities: MSTEAMS_CAPABILITIES,
+  });
   if (!MSTEAMS_ENABLED) return;
   if (
     !normalizeValue(MSTEAMS_APP_ID) ||

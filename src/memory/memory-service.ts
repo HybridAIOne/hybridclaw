@@ -66,12 +66,15 @@ export interface MemoryBackend {
       policy: SessionResetPolicy;
       expiryEvaluation?: SessionExpiryEvaluation;
     },
-  ) => boolean;
+  ) => Session | null;
   getOrCreateSession: (
     sessionId: string,
     guildId: string | null,
     channelId: string,
     agentId?: string,
+    options?: {
+      forceNewCurrent?: boolean;
+    },
   ) => Session;
   getSessionById: (sessionId: string) => Session | undefined;
   getConversationHistory: (
@@ -376,12 +379,16 @@ export class MemoryService {
     guildId: string | null,
     channelId: string,
     agentId?: string,
+    options?: {
+      forceNewCurrent?: boolean;
+    },
   ): Session {
     return this.backend.getOrCreateSession(
       sessionId,
       guildId,
       channelId,
       agentId,
+      options,
     );
   }
 
@@ -391,7 +398,7 @@ export class MemoryService {
       policy: SessionResetPolicy;
       expiryEvaluation?: SessionExpiryEvaluation;
     },
-  ): boolean {
+  ): Session | null {
     return this.backend.resetSessionIfExpired(sessionId, opts);
   }
 

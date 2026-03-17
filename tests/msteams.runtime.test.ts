@@ -127,6 +127,8 @@ async function importRuntime() {
     },
   }));
   vi.doMock('../src/config/config.js', () => ({
+    APP_VERSION: '0.7.1',
+    DATA_DIR: '/tmp/hybridclaw-test-data',
     MSTEAMS_APP_ID: 'teams-app-id',
     MSTEAMS_APP_PASSWORD: 'teams-secret',
     MSTEAMS_ENABLED: true,
@@ -140,10 +142,14 @@ async function importRuntime() {
       warn: loggerWarnMock,
     },
   }));
-  vi.doMock('../src/memory/db.js', () => ({
-    getMemoryValue: getMemoryValueMock,
-    setMemoryValue: setMemoryValueMock,
-  }));
+  vi.doMock('../src/memory/db.js', async () => {
+    const actual = await vi.importActual('../src/memory/db.js');
+    return {
+      ...actual,
+      getMemoryValue: getMemoryValueMock,
+      setMemoryValue: setMemoryValueMock,
+    };
+  });
   vi.doMock('../src/channels/msteams/attachments.js', () => ({
     buildTeamsAttachmentContext: buildTeamsAttachmentContextMock,
     maybeHandleMSTeamsFileConsentInvoke:

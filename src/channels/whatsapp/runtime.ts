@@ -2,6 +2,8 @@ import type { WAMessage } from '@whiskeysockets/baileys';
 import { getConfigSnapshot } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types.js';
+import { WHATSAPP_CAPABILITIES } from '../channel.js';
+import { registerChannel } from '../channel-registry.js';
 import {
   createWhatsAppConnectionManager,
   type WhatsAppConnectionManager,
@@ -309,6 +311,11 @@ function ensureDefaultRuntime(): WhatsAppRuntime {
 export async function initWhatsApp(
   messageHandler: WhatsAppMessageHandler,
 ): Promise<void> {
+  registerChannel({
+    kind: 'whatsapp',
+    id: 'whatsapp',
+    capabilities: WHATSAPP_CAPABILITIES,
+  });
   await ensureDefaultRuntime().initWhatsApp(messageHandler);
 }
 

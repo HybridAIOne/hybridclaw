@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import type { SkillFeedbackSentiment } from '../../skills/adaptive-skills-types.js';
 import { buildSessionIdFromContext } from './inbound.js';
 
@@ -27,11 +28,13 @@ export function formatDiscordSkillFeedbackMessage(input: {
 }
 
 export function resolveDiscordSkillFeedbackSessionId(input: {
+  agentId?: string;
   guildId: string | null;
   channelId: string;
   userId: string;
 }): string {
   return buildSessionIdFromContext(
+    input.agentId || DEFAULT_AGENT_ID,
     input.guildId,
     input.channelId,
     input.userId,

@@ -1,17 +1,24 @@
 import { runAgent } from '../agent/agent.js';
+import { buildConversationContext } from '../agent/conversation.js';
 import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
   recordAuditEvent,
 } from '../audit/audit-events.js';
+import { getChannel } from '../channels/channel-registry.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { recordUsageEvent } from '../memory/db.js';
 import { resolveModelProvider } from '../providers/factory.js';
+import { buildSessionContext } from '../session/session-context.js';
 import {
-  estimateTokenCountFromMessages,
-  estimateTokenCountFromText,
-} from '../session/token-efficiency.js';
-import type { ChatMessage } from '../types.js';
+  buildSessionKey,
+  isLegacySessionKey,
+  migrateLegacySessionKey,
+} from '../session/session-key.js';
+import {
+  buildModelUsageAuditStats,
+  recordModelUsageAuditEvent,
+} from './model-usage.js';
 
 export async function runIsolatedScheduledTask(params: {
   taskId: number;
@@ -20,6 +27,7 @@ export async function runIsolatedScheduledTask(params: {
   chatbotId: string;
   model: string;
   agentId: string;
+  sessionId?: string;
   sessionKey?: string;
   onResult: (result: {
     text: string;
@@ -34,20 +42,58 @@ export async function runIsolatedScheduledTask(params: {
     chatbotId,
     model,
     agentId,
+    sessionId,
     sessionKey,
     onResult,
     onError,
   } = params;
-  const cronSessionId =
-    sessionKey && sessionKey.trim() ? sessionKey.trim() : `cron:${taskId}`;
+  const rawSessionKey = sessionKey?.trim()
+    ? sessionKey.trim()
+    : buildSessionKey(agentId, 'scheduler', 'cron', String(taskId));
+  const cronSessionId = isLegacySessionKey(rawSessionKey)
+    ? migrateLegacySessionKey(rawSessionKey, {
+        agent_id: agentId,
+      })
+    : rawSessionKey;
+  const activeSessionId = String(sessionId || '').trim() || cronSessionId;
   const runId = makeAuditRunId('cron');
-  const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
   const startedAt = Date.now();
   const provider = resolveModelProvider(model);
   const workspacePath = agentWorkspaceDir(agentId);
+  const sessionContext = buildSessionContext({
+    source: {
+      channelKind: 'scheduler',
+      chatId: channelId,
+      chatType: 'cron',
+      userId: 'scheduler',
+      userName: 'scheduler',
+      guildId: null,
+    },
+    agentId,
+    sessionId: activeSessionId,
+    sessionKey: cronSessionId,
+  });
+  const { messages } = buildConversationContext({
+    agentId,
+    history: [],
+    currentUserContent: prompt,
+    runtimeInfo: {
+      channel: getChannel('scheduler'),
+      chatbotId,
+      model,
+      defaultModel: model,
+      channelType: 'scheduler',
+      channelId,
+      guildId: null,
+      sessionContext,
+      workspacePath,
+    },
+    blockedTools: ['cron'],
+  });
+  messages.push({ role: 'user', content: prompt });
 
   recordAuditEvent({
-    sessionId: cronSessionId,
+    sessionId: activeSessionId,
     runId,
     event: {
       type: 'session.start',
@@ -60,7 +106,7 @@ export async function runIsolatedScheduledTask(params: {
     },
   });
   recordAuditEvent({
-    sessionId: cronSessionId,
+    sessionId: activeSessionId,
     runId,
     event: {
       type: 'turn.start',
@@ -73,7 +119,7 @@ export async function runIsolatedScheduledTask(params: {
 
   try {
     const output = await runAgent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       messages,
       chatbotId,
       enableRag: false,
@@ -83,75 +129,32 @@ export async function runIsolatedScheduledTask(params: {
       blockedTools: ['cron'],
     });
     emitToolExecutionAuditEvents({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       toolExecutions: output.toolExecutions || [],
     });
-    const tokenUsage = output.tokenUsage;
-    const estimatedPromptTokens =
-      tokenUsage?.estimatedPromptTokens ||
-      estimateTokenCountFromMessages(messages);
-    const estimatedCompletionTokens =
-      tokenUsage?.estimatedCompletionTokens ||
-      estimateTokenCountFromText(output.result || '');
-    const estimatedTotalTokens =
-      tokenUsage?.estimatedTotalTokens ||
-      estimatedPromptTokens + estimatedCompletionTokens;
-    const apiUsageAvailable = tokenUsage?.apiUsageAvailable === true;
-    const apiPromptTokens = tokenUsage?.apiPromptTokens || 0;
-    const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
-    const apiTotalTokens =
-      tokenUsage?.apiTotalTokens || apiPromptTokens + apiCompletionTokens;
-    const apiCacheUsageAvailable = tokenUsage?.apiCacheUsageAvailable === true;
-    const apiCacheReadTokens = tokenUsage?.apiCacheReadTokens || 0;
-    const apiCacheWriteTokens = tokenUsage?.apiCacheWriteTokens || 0;
-    recordAuditEvent({
-      sessionId: cronSessionId,
+    const usage = buildModelUsageAuditStats({
+      messages,
+      resultText: output.result,
+      toolCallCount: (output.toolExecutions || []).length,
+      tokenUsage: output.tokenUsage,
+    });
+    recordModelUsageAuditEvent({
+      sessionId: activeSessionId,
       runId,
-      event: {
-        type: 'model.usage',
-        provider,
-        model,
-        durationMs: Date.now() - startedAt,
-        toolCallCount: (output.toolExecutions || []).length,
-        modelCalls: tokenUsage ? Math.max(1, tokenUsage.modelCalls) : 0,
-        promptTokens: apiUsageAvailable
-          ? apiPromptTokens
-          : estimatedPromptTokens,
-        completionTokens: apiUsageAvailable
-          ? apiCompletionTokens
-          : estimatedCompletionTokens,
-        totalTokens: apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens,
-        estimatedPromptTokens,
-        estimatedCompletionTokens,
-        estimatedTotalTokens,
-        apiUsageAvailable,
-        apiPromptTokens,
-        apiCompletionTokens,
-        apiTotalTokens,
-        ...(apiCacheUsageAvailable
-          ? {
-              apiCacheUsageAvailable,
-              apiCacheReadTokens,
-              apiCacheWriteTokens,
-              cacheReadTokens: apiCacheReadTokens,
-              cacheReadInputTokens: apiCacheReadTokens,
-              cacheWriteTokens: apiCacheWriteTokens,
-              cacheWriteInputTokens: apiCacheWriteTokens,
-            }
-          : {}),
-      },
+      provider,
+      model,
+      startedAt,
+      usage,
     });
     recordUsageEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       agentId,
       model,
-      inputTokens: apiUsageAvailable ? apiPromptTokens : estimatedPromptTokens,
-      outputTokens: apiUsageAvailable
-        ? apiCompletionTokens
-        : estimatedCompletionTokens,
-      totalTokens: apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens,
-      toolCalls: (output.toolExecutions || []).length,
+      inputTokens: usage.promptTokens,
+      outputTokens: usage.completionTokens,
+      totalTokens: usage.totalTokens,
+      toolCalls: usage.toolCallCount,
     });
 
     if (output.status === 'success' && output.result) {
@@ -160,7 +163,7 @@ export async function runIsolatedScheduledTask(params: {
         artifacts: output.artifacts,
       });
       recordAuditEvent({
-        sessionId: cronSessionId,
+        sessionId: activeSessionId,
         runId,
         event: {
           type: 'turn.end',
@@ -169,7 +172,7 @@ export async function runIsolatedScheduledTask(params: {
         },
       });
       recordAuditEvent({
-        sessionId: cronSessionId,
+        sessionId: activeSessionId,
         runId,
         event: {
           type: 'session.end',
@@ -186,7 +189,7 @@ export async function runIsolatedScheduledTask(params: {
     }
     const message = output.error || 'Scheduled task returned no result.';
     recordAuditEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       event: {
         type: 'error',
@@ -196,7 +199,7 @@ export async function runIsolatedScheduledTask(params: {
       },
     });
     recordAuditEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       event: {
         type: 'turn.end',
@@ -205,7 +208,7 @@ export async function runIsolatedScheduledTask(params: {
       },
     });
     recordAuditEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       event: {
         type: 'session.end',
@@ -222,7 +225,7 @@ export async function runIsolatedScheduledTask(params: {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     recordAuditEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       event: {
         type: 'error',
@@ -232,7 +235,7 @@ export async function runIsolatedScheduledTask(params: {
       },
     });
     recordAuditEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       event: {
         type: 'turn.end',
@@ -241,7 +244,7 @@ export async function runIsolatedScheduledTask(params: {
       },
     });
     recordAuditEvent({
-      sessionId: cronSessionId,
+      sessionId: activeSessionId,
       runId,
       event: {
         type: 'session.end',
