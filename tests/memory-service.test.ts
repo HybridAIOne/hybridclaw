@@ -591,9 +591,8 @@ describe.sequential('schema migrations', () => {
     vi.setSystemTime(new Date('2026-03-17T12:34:56.000Z'));
     vi.resetModules();
     vi.doMock('node:crypto', async () => {
-      const actual = await vi.importActual<typeof import('node:crypto')>(
-        'node:crypto',
-      );
+      const actual =
+        await vi.importActual<typeof import('node:crypto')>('node:crypto');
       const uuids = [
         '11111111-1111-1111-1111-111111111111',
         '22222222-2222-2222-2222-222222222222',
@@ -605,15 +604,16 @@ describe.sequential('schema migrations', () => {
     });
 
     try {
-      const {
-        createFreshSessionInstance,
-        getOrCreateSession,
-        initDatabase,
-      } = await import('../src/memory/db.js');
+      const { createFreshSessionInstance, getOrCreateSession, initDatabase } =
+        await import('../src/memory/db.js');
 
       initDatabase({ quiet: true, dbPath });
 
-      const previousSession = getOrCreateSession('session-under-test', null, 'c1');
+      const previousSession = getOrCreateSession(
+        'session-under-test',
+        null,
+        'c1',
+      );
       getOrCreateSession('sess_20260317_123456_11111111', null, 'c2');
 
       const rotated = createFreshSessionInstance(previousSession.id);
