@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,6 +7,20 @@ import { Readable } from 'node:stream';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const tempDirs: string[] = [];
+const ORIGINAL_HYBRIDCLAW_AUTH_SECRET = process.env.HYBRIDCLAW_AUTH_SECRET;
+
+function signAuthPayload(
+  payload: Record<string, unknown>,
+  secret: string,
+): string {
+  const payloadSegment = Buffer.from(JSON.stringify(payload)).toString(
+    'base64url',
+  );
+  const signature = createHmac('sha256', secret)
+    .update(payloadSegment)
+    .digest('base64url');
+  return `${payloadSegment}.${signature}`;
+}
 
 function makeTempDocsDir(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-'));
@@ -69,16 +84,29 @@ function makeRequest(params: {
 }
 
 function makeResponse() {
+  const headers: Record<string, string | string[]> = {};
+  const resolveHeaderKey = (name: string): string => {
+    const existing = Object.keys(headers).find(
+      (key) => key.toLowerCase() === name.toLowerCase(),
+    );
+    return existing || name;
+  };
   const response = {
     writableEnded: false,
     headersSent: false,
     destroyed: false,
     statusCode: 0,
-    headers: {} as Record<string, string>,
+    headers,
     body: '',
-    writeHead(statusCode: number, headers: Record<string, string>) {
+    setHeader(name: string, value: string | string[]) {
+      headers[resolveHeaderKey(name)] = value;
+    },
+    getHeader(name: string) {
+      return headers[resolveHeaderKey(name)];
+    },
+    writeHead(statusCode: number, headers: Record<string, string | string[]>) {
       response.statusCode = statusCode;
-      response.headers = headers;
+      Object.assign(response.headers, headers);
       response.headersSent = true;
     },
     write(chunk: unknown) {
@@ -127,8 +155,16 @@ async function importFreshHealth(options?: {
   dataDir?: string;
   webApiToken?: string;
   gatewayApiToken?: string;
+  authSecret?: string;
+  hybridAiBaseUrl?: string;
 }) {
   vi.resetModules();
+
+  if (options?.authSecret === undefined) {
+    delete process.env.HYBRIDCLAW_AUTH_SECRET;
+  } else {
+    process.env.HYBRIDCLAW_AUTH_SECRET = options.authSecret;
+  }
 
   const docsDir = options?.docsDir || makeTempDocsDir();
   const dataDir = options?.dataDir || makeTempDataDir();
@@ -501,6 +537,7 @@ async function importFreshHealth(options?: {
     GATEWAY_API_TOKEN: options?.gatewayApiToken || '',
     HEALTH_HOST: '127.0.0.1',
     HEALTH_PORT: 9090,
+    HYBRIDAI_BASE_URL: options?.hybridAiBaseUrl || 'https://hybridai.one',
     MSTEAMS_WEBHOOK_PATH: '/api/msteams/messages',
     WEB_API_TOKEN: options?.webApiToken || '',
   }));
@@ -612,6 +649,11 @@ afterEach(() => {
   vi.doUnmock('../src/channels/message/tool-actions.js');
   vi.doUnmock('../src/channels/discord/tool-actions.js');
   vi.resetModules();
+  if (ORIGINAL_HYBRIDCLAW_AUTH_SECRET === undefined) {
+    delete process.env.HYBRIDCLAW_AUTH_SECRET;
+  } else {
+    process.env.HYBRIDCLAW_AUTH_SECRET = ORIGINAL_HYBRIDCLAW_AUTH_SECRET;
+  }
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (!dir) continue;
@@ -661,9 +703,38 @@ describe('gateway health server', () => {
     expect(res.body).toContain('<h1>Docs</h1>');
   });
 
-  test('serves the standalone agents docs page via /agents alias', async () => {
+  test('redirects protected docs routes to HybridAI login when no session cookie is present', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/agents' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe(
+      'https://hybridai.one/login?context=hybridclaw&next=/admin_api_keys',
+    );
+  });
+
+  test('serves the standalone agents docs page with a valid session cookie', async () => {
+    const authSecret = 'health-secret';
+    const issuedAtSeconds = Math.floor(Date.now() / 1000);
+    const sessionToken = signAuthPayload(
+      {
+        exp: issuedAtSeconds + 60,
+        iat: issuedAtSeconds,
+        sub: 'user-1',
+        typ: 'session',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/agents',
+      headers: {
+        cookie: `hybridclaw_session=${sessionToken}`,
+      },
+    });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
@@ -673,9 +744,21 @@ describe('gateway health server', () => {
     expect(res.body).toContain('<h1>Agents</h1>');
   });
 
-  test('serves admin SPA files and falls back to index.html', async () => {
-    const state = await importFreshHealth();
+  test('serves admin SPA files and falls back to index.html with a valid session cookie', async () => {
+    const authSecret = 'health-secret';
+    const issuedAtSeconds = Math.floor(Date.now() / 1000);
+    const sessionToken = signAuthPayload(
+      {
+        exp: issuedAtSeconds + 60,
+        iat: issuedAtSeconds,
+        sub: 'user-1',
+        typ: 'session',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
     const req = makeRequest({ url: '/admin/sessions' });
+    req.headers.cookie = `hybridclaw_session=${sessionToken}`;
     const res = makeResponse();
 
     state.handler(req as never, res as never);
@@ -683,6 +766,49 @@ describe('gateway health server', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
     expect(res.body).toContain('<h1>Admin</h1>');
+  });
+
+  test('accepts a valid launch token on /auth/callback, sets a session cookie, and redirects to /admin', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/admin');
+    expect(res.headers['Set-Cookie']).toEqual(
+      expect.stringContaining('hybridclaw_session='),
+    );
+    expect(res.headers['Set-Cookie']).toEqual(
+      expect.stringContaining('HttpOnly'),
+    );
+    expect(res.headers['Set-Cookie']).toEqual(
+      expect.stringContaining('SameSite=Lax'),
+    );
+  });
+
+  test('returns 401 from /auth/callback when the launch token is invalid', async () => {
+    const state = await importFreshHealth({ authSecret: 'health-secret' });
+    const req = makeRequest({
+      url: '/auth/callback?token=bad-token',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body).toBe('Unauthorized. Invalid or expired auth token.');
   });
 
   test('returns history for authorized loopback API requests', async () => {

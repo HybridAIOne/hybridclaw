@@ -13,6 +13,7 @@ import {
   GATEWAY_API_TOKEN,
   HEALTH_HOST,
   HEALTH_PORT,
+  HYBRIDAI_BASE_URL,
   MSTEAMS_WEBHOOK_PATH,
   WEB_API_TOKEN,
 } from '../config/config.js';
@@ -25,6 +26,11 @@ import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
 import type { PendingApproval, ToolProgressEvent } from '../types.js';
+import {
+  hasSessionAuth,
+  setSessionCookie,
+  verifyLaunchToken,
+} from './auth-token.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   filterChatResultForSession,
@@ -77,6 +83,7 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );
 const MAX_REQUEST_BYTES = 1_000_000; // 1MB
+const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 
 const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -228,6 +235,52 @@ function sendJson(
 function sendText(res: ServerResponse, statusCode: number, text: string): void {
   res.writeHead(statusCode, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end(text);
+}
+
+function sendRedirect(
+  res: ServerResponse,
+  statusCode: number,
+  location: string,
+): void {
+  res.writeHead(statusCode, {
+    'Cache-Control': 'no-store',
+    Location: location,
+  });
+  res.end();
+}
+
+function resolveHybridAILoginUrl(): string | null {
+  const baseUrl = HYBRIDAI_BASE_URL.trim().replace(/\/+$/, '');
+  if (!baseUrl) return null;
+  return `${baseUrl}${HYBRIDAI_LOGIN_PATH}`;
+}
+
+function requiresSessionAuth(pathname: string): boolean {
+  return (
+    pathname === '/chat' ||
+    pathname === '/chat.html' ||
+    pathname === '/agents' ||
+    pathname === '/agents.html' ||
+    pathname === '/admin' ||
+    pathname.startsWith('/admin/')
+  );
+}
+
+function ensureSessionAuth(req: IncomingMessage, res: ServerResponse): boolean {
+  if (hasSessionAuth(req)) return true;
+
+  const loginUrl = resolveHybridAILoginUrl();
+  if (!loginUrl) {
+    sendText(
+      res,
+      401,
+      'Unauthorized. Sign in via HybridAI before accessing the web console.',
+    );
+    return false;
+  }
+
+  sendRedirect(res, 302, loginUrl);
+  return false;
 }
 
 function isWithinRoot(candidate: string, root: string): boolean {
@@ -1256,6 +1309,28 @@ export function startHealthServer(): void {
       return;
     }
 
+    if (pathname === '/auth/callback') {
+      if (method !== 'GET') {
+        sendJson(res, 405, { error: 'Method Not Allowed' });
+        return;
+      }
+
+      const token = (url.searchParams.get('token') || '').trim();
+      if (!token) {
+        sendText(res, 401, 'Unauthorized. Invalid or expired auth token.');
+        return;
+      }
+
+      try {
+        const payload = verifyLaunchToken(token);
+        setSessionCookie(res, payload);
+        sendRedirect(res, 302, '/admin');
+      } catch {
+        sendText(res, 401, 'Unauthorized. Invalid or expired auth token.');
+      }
+      return;
+    }
+
     if (pathname.startsWith('/api/')) {
       if (pathname === MSTEAMS_WEBHOOK_PATH && method === 'POST') {
         void handleMSTeamsWebhook(req, res).catch((error) => {
@@ -1414,6 +1489,10 @@ export function startHealthServer(): void {
           sendJson(res, statusCode, { error: errorText });
         }
       })();
+      return;
+    }
+
+    if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
       return;
     }
 
