@@ -4410,7 +4410,7 @@ async function compileWorkflowFromNaturalLanguage(params: {
         'Rules:',
         '- Use the `workflow` tool exactly once if the request can be satisfied.',
         '- Phase 1 only: `spec.trigger.kind` must be `schedule`.',
-        '- Phase 1 only: emit exactly one primary workflow step with `kind = "agent"`.',
+        '- Phase 1 only: emit exactly one workflow step, and it must use `kind = "agent"`.',
         '- Emit `spec.version = 2`.',
         '- Build a deterministic workflow config. The gateway will render canonical YAML from your structured spec.',
         '- Cron expressions are interpreted in UTC.',
@@ -4464,7 +4464,7 @@ async function compileWorkflowFromNaturalLanguage(params: {
   }
   if (validation.spec.steps.length !== 1) {
     throw new Error(
-      'Workflow create currently supports exactly one primary workflow step.',
+      'Workflow create currently supports exactly one workflow step, and that step must be an agent step.',
     );
   }
   if (validation.spec.steps[0]?.kind !== 'agent') {
