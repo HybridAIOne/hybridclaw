@@ -10,6 +10,7 @@ import { checkLocalBackendsCategory } from './local-backends.js';
 import { checkProviders } from './providers.js';
 import { checkRuntime } from './runtime.js';
 import { checkSecurity } from './security.js';
+import { checkSkills } from './skills.js';
 
 export function doctorChecks(): DoctorCheck[] {
   return [
@@ -57,6 +58,11 @@ export function doctorChecks(): DoctorCheck[] {
       category: 'channels',
       label: 'Channels',
       run: checkChannels,
+    },
+    {
+      category: 'skills',
+      label: 'Skills',
+      run: checkSkills,
     },
     {
       category: 'security',

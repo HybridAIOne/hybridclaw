@@ -3,7 +3,12 @@ import Database from 'better-sqlite3';
 import { DB_PATH } from '../../config/config.js';
 import { DATABASE_SCHEMA_VERSION, initDatabase } from '../../memory/db.js';
 import type { DiagResult } from '../types.js';
-import { formatBytes, makeResult, shortenHomePath } from '../utils.js';
+import {
+  formatBytes,
+  makeResult,
+  shortenHomePath,
+  toErrorMessage,
+} from '../utils.js';
 
 export async function checkDatabase(): Promise<DiagResult[]> {
   const dbPath = DB_PATH;
@@ -59,7 +64,7 @@ export async function checkDatabase(): Promise<DiagResult[]> {
         'database',
         'Database',
         'error',
-        `Failed to open ${displayPath} (${error instanceof Error ? error.message : String(error)})`,
+        `Failed to open ${displayPath} (${toErrorMessage(error)})`,
       ),
     ];
   }

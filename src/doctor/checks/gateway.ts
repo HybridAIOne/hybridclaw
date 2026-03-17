@@ -7,18 +7,24 @@ import {
 import type { GatewayStatus } from '../../gateway/gateway-types.js';
 import { restartGatewayFromDoctor } from '../gateway-repair.js';
 import type { DiagResult } from '../types.js';
-import { formatDuration, makeResult } from '../utils.js';
+import { formatDuration, makeResult, toErrorMessage } from '../utils.js';
 
 export async function checkGateway(): Promise<DiagResult[]> {
   const pidState = readGatewayPid();
   const pidRunning = Boolean(pidState && isPidRunning(pidState.pid));
   let health: GatewayStatus | null = null;
   let apiError = '';
+  const removeStalePidFix: NonNullable<DiagResult['fix']> = {
+    summary: 'Remove the stale gateway PID file',
+    apply: async () => {
+      removeGatewayPidFile();
+    },
+  };
 
   try {
     health = await gatewayHealth();
   } catch (error) {
-    apiError = error instanceof Error ? error.message : String(error);
+    apiError = toErrorMessage(error);
   }
 
   if (health && pidRunning) {
@@ -41,14 +47,7 @@ export async function checkGateway(): Promise<DiagResult[]> {
         pidState
           ? 'Gateway reachable, but the local PID file is stale'
           : 'Gateway reachable, but no managed PID file is present',
-        pidState
-          ? {
-              summary: 'Remove the stale gateway PID file',
-              apply: async () => {
-                removeGatewayPidFile();
-              },
-            }
-          : undefined,
+        pidState ? removeStalePidFix : undefined,
       ),
     ];
   }
@@ -60,12 +59,7 @@ export async function checkGateway(): Promise<DiagResult[]> {
         'Gateway',
         'warn',
         `Stale PID file for pid ${pidState.pid}; gateway API is unreachable`,
-        {
-          summary: 'Remove the stale gateway PID file',
-          apply: async () => {
-            removeGatewayPidFile();
-          },
-        },
+        removeStalePidFix,
       ),
     ];
   }

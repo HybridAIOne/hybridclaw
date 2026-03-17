@@ -3,7 +3,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { DiagResult, DoctorCategory, DoctorReport } from './types.js';
-import { DOCTOR_CATEGORIES, SEVERITY_ORDER } from './types.js';
+import { DOCTOR_CATEGORIES } from './types.js';
+
+const SEVERITY_ORDER: Record<DiagResult['severity'], number> = {
+  ok: 0,
+  warn: 1,
+  error: 2,
+};
 
 export function shortenHomePath(filePath: string): string {
   const homeDir = os.homedir();
@@ -66,21 +72,59 @@ export function findExistingPath(filePath: string): string {
   return current;
 }
 
-export function readDiskFreeBytes(targetPath: string): number {
-  const stat = fs.statfsSync(findExistingPath(targetPath));
-  return Number(stat.bavail) * Number(stat.bsize);
+export function readDiskFreeBytes(targetPath: string): number | null {
+  try {
+    const stat = fs.statfsSync(findExistingPath(targetPath));
+    const freeBytes = Number(stat.bavail) * Number(stat.bsize);
+    return Number.isFinite(freeBytes) && freeBytes >= 0 ? freeBytes : null;
+  } catch {
+    return null;
+  }
 }
 
 export function readDirSize(dirPath: string): number {
-  if (!fs.existsSync(dirPath)) return 0;
-  const stat = fs.statSync(dirPath);
-  if (stat.isFile()) return stat.size;
-  if (!stat.isDirectory()) return 0;
-  let total = 0;
-  for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
-    total += readDirSize(path.join(dirPath, entry.name));
-  }
-  return total;
+  const visited = new Set<string>();
+
+  const measure = (targetPath: string): number => {
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(targetPath);
+    } catch {
+      return 0;
+    }
+
+    if (stat.isFile()) return stat.size;
+    if (!stat.isDirectory()) return 0;
+
+    const visitKey = (() => {
+      try {
+        return fs.realpathSync(targetPath);
+      } catch {
+        return path.resolve(targetPath);
+      }
+    })();
+    if (visited.has(visitKey)) return 0;
+    visited.add(visitKey);
+
+    let total = 0;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(targetPath, { withFileTypes: true });
+    } catch {
+      return 0;
+    }
+
+    for (const entry of entries) {
+      try {
+        total += measure(path.join(targetPath, entry.name));
+      } catch {
+        // best effort; skip unreadable or unstable entries
+      }
+    }
+    return total;
+  };
+
+  return measure(dirPath);
 }
 
 export function runVersionCommand(command: string): string | null {
@@ -118,6 +162,10 @@ export function makeResult(
   };
 }
 
+export function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function summarizeCounts(
   results: DiagResult[],
 ): DoctorReport['summary'] {
@@ -149,23 +197,20 @@ export function normalizeComponent(
     configuration: 'config',
     credentials: 'credentials',
     creds: 'credentials',
-    secrets: 'credentials',
     db: 'database',
     database: 'database',
     provider: 'providers',
     providers: 'providers',
-    local: 'local-backends',
-    backend: 'local-backends',
     backends: 'local-backends',
     'local-backends': 'local-backends',
-    localbackends: 'local-backends',
     docker: 'docker',
     container: 'docker',
     channels: 'channels',
     channel: 'channels',
+    skill: 'skills',
+    skills: 'skills',
     security: 'security',
     disk: 'disk',
-    storage: 'disk',
   };
   return aliasMap[value] || null;
 }

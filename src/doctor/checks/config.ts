@@ -13,6 +13,7 @@ import {
   makeResult,
   readUnixMode,
   shortenHomePath,
+  toErrorMessage,
 } from '../utils.js';
 
 export async function checkConfig(): Promise<DiagResult[]> {
@@ -39,7 +40,7 @@ export async function checkConfig(): Promise<DiagResult[]> {
         'config',
         'Config',
         'error',
-        `${displayPath} is not valid JSON (${error instanceof Error ? error.message : String(error)})`,
+        `${displayPath} is not valid JSON (${toErrorMessage(error)})`,
       ),
     ];
   }
@@ -92,7 +93,7 @@ export async function checkConfig(): Promise<DiagResult[]> {
       severity,
       message,
       writableByOthers
-        ? buildChmodFix(filePath, 0o644, `Restrict ${displayPath} permissions`)
+        ? buildChmodFix(filePath, 0o600, `Restrict ${displayPath} permissions`)
         : undefined,
     ),
   ];

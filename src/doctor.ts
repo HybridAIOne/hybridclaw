@@ -12,6 +12,7 @@ import {
   normalizeComponent,
   normalizeDoctorComponentList,
   summarizeCounts,
+  toErrorMessage,
 } from './doctor/utils.js';
 
 export type {
@@ -69,10 +70,7 @@ async function runChecks(checks: DoctorCheck[]): Promise<DiagResult[]> {
       return;
     }
 
-    const message =
-      result.reason instanceof Error
-        ? result.reason.message
-        : String(result.reason);
+    const message = toErrorMessage(result.reason);
     results.push(
       makeResult(
         check.category,
@@ -159,7 +157,7 @@ async function applyFixes(
           category: result.category,
           label: result.label,
           status: 'failed',
-          message: error instanceof Error ? error.message : String(error),
+          message: toErrorMessage(error),
         });
 
         for (
@@ -182,10 +180,7 @@ async function applyFixes(
               category: appliedFix.category,
               label: appliedFix.label,
               status: 'rollback_failed',
-              message:
-                rollbackError instanceof Error
-                  ? rollbackError.message
-                  : String(rollbackError),
+              message: toErrorMessage(rollbackError),
             });
           }
         }
@@ -239,9 +234,20 @@ export async function runDoctor(args: DoctorArgs): Promise<DoctorReport> {
   };
 }
 
-function fixSymbol(status: DoctorFixOutcome['status']): string {
+type RenderedFixStatus = Extract<
+  DoctorFixOutcome['status'],
+  'applied' | 'failed' | 'skipped'
+>;
+
+function isRenderedFixStatus(
+  status: DoctorFixOutcome['status'],
+): status is RenderedFixStatus {
+  return status === 'applied' || status === 'failed' || status === 'skipped';
+}
+
+function fixSymbol(status: RenderedFixStatus): string {
   if (status === 'applied') return '✓';
-  if (status === 'failed' || status === 'rollback_failed') return '✖';
+  if (status === 'failed') return '✖';
   return '⚠';
 }
 
@@ -260,9 +266,17 @@ export function renderDoctorReport(report: DoctorReport): string {
     );
   }
 
-  if (report.fixes.length > 0) {
+  const renderedFixes = report.fixes.filter(
+    (
+      fix,
+    ): fix is DoctorFixOutcome & {
+      status: RenderedFixStatus;
+    } => isRenderedFixStatus(fix.status),
+  );
+
+  if (renderedFixes.length > 0) {
     lines.push('');
-    for (const fix of report.fixes) {
+    for (const fix of renderedFixes) {
       lines.push(
         `${fixSymbol(fix.status)} Fix ${fix.label.padEnd(labelWidth)}  ${fix.message}`,
       );
@@ -287,7 +301,7 @@ export async function runDoctorCli(argv: string[]): Promise<number> {
     }
     return report.summary.exitCode;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(toErrorMessage(error));
     return 1;
   }
 }

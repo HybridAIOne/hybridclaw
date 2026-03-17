@@ -8,6 +8,7 @@ import {
   makeResult,
   readUnixMode,
   shortenHomePath,
+  toErrorMessage,
 } from '../utils.js';
 
 export async function checkCredentials(): Promise<DiagResult[]> {
@@ -46,7 +47,7 @@ export async function checkCredentials(): Promise<DiagResult[]> {
         'credentials',
         'Credentials',
         'error',
-        `${displayPath} is not valid JSON (${error instanceof Error ? error.message : String(error)})`,
+        `${displayPath} is not valid JSON (${toErrorMessage(error)})`,
       ),
     ];
   }

@@ -11,21 +11,11 @@ import {
   verifyInstructionIntegrity,
 } from '../../security/instruction-integrity.js';
 import type { DiagResult } from '../types.js';
-import { makeResult, severityFrom } from '../utils.js';
+import { findExistingPath, makeResult, severityFrom } from '../utils.js';
 
 function checkWritablePath(targetPath: string): boolean {
-  const existing = (() => {
-    let current = path.resolve(targetPath);
-    while (!fs.existsSync(current)) {
-      const parent = path.dirname(current);
-      if (parent === current) return targetPath;
-      current = parent;
-    }
-    return current;
-  })();
-
   try {
-    fs.accessSync(existing, fs.constants.W_OK);
+    fs.accessSync(findExistingPath(targetPath), fs.constants.W_OK);
     return true;
   } catch {
     return false;

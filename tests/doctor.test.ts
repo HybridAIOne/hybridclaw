@@ -75,6 +75,37 @@ test('runDoctor fixes insecure credentials permissions and reruns the check', as
   expect(fs.statSync(credentialsPath).mode & 0o777).toBe(0o600);
 });
 
+test('checkConfig fixes world-readable config permissions to owner-only', async () => {
+  const dir = createTempDir('hybridclaw-doctor-config-');
+  const configPath = path.join(dir, 'config.json');
+  fs.writeFileSync(
+    configPath,
+    `${JSON.stringify({ version: 16, hybridai: { defaultModel: 'gpt-5-nano' }, ops: { dbPath: '/tmp/hybridclaw.db' }, container: { image: 'hybridclaw-agent' } }, null, 2)}\n`,
+    'utf-8',
+  );
+  fs.chmodSync(configPath, 0o666);
+
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    CONFIG_VERSION: 16,
+    ensureRuntimeConfigFile: vi.fn(),
+    getRuntimeConfig: () => ({
+      hybridai: { defaultModel: 'gpt-5-nano' },
+      ops: { dbPath: '/tmp/hybridclaw.db' },
+      container: { image: 'hybridclaw-agent' },
+    }),
+    runtimeConfigPath: () => configPath,
+  }));
+
+  const { checkConfig } = await import('../src/doctor/checks/config.ts');
+  const [result] = await checkConfig();
+
+  expect(result.severity).toBe('warn');
+  expect(result.fix).toBeDefined();
+
+  await result.fix?.apply();
+  expect(fs.statSync(configPath).mode & 0o777).toBe(0o600);
+});
+
 test('checkProviders treats probe failures as provider health failures', async () => {
   vi.doMock('../src/config/runtime-config.js', () => ({
     getRuntimeConfig: () => ({
@@ -198,6 +229,52 @@ test('checkGateway exposes a restart fix when the PID is alive but the API is un
   expect(restartGatewayFromDoctor).toHaveBeenCalledTimes(1);
 });
 
+test('checkDisk warns when free space cannot be determined', async () => {
+  const dir = createTempDir('hybridclaw-doctor-disk-');
+  const dbPath = path.join(dir, 'hybridclaw.db');
+  fs.writeFileSync(dbPath, 'db', 'utf-8');
+
+  vi.doMock('../src/config/config.js', () => ({
+    DATA_DIR: dir,
+    DB_PATH: dbPath,
+  }));
+  vi.spyOn(fs, 'statfsSync').mockImplementation(() => {
+    throw new Error('unsupported');
+  });
+
+  const { checkDisk } = await import('../src/doctor/checks/disk.ts');
+  const [result] = await checkDisk();
+
+  expect(result.severity).toBe('warn');
+  expect(result.message).toContain('free space unavailable');
+  expect(result.message).toContain('DB 2 B');
+});
+
+test('readDirSize skips unreadable entries and symlink loops', async () => {
+  const dir = createTempDir('hybridclaw-doctor-size-');
+  fs.writeFileSync(path.join(dir, 'good.txt'), 'good', 'utf-8');
+  fs.writeFileSync(path.join(dir, 'bad.txt'), 'bad', 'utf-8');
+  fs.symlinkSync('.', path.join(dir, 'loop'));
+
+  type LstatArgs = Parameters<typeof fs.lstatSync>;
+  const originalLstatSync = fs.lstatSync.bind(fs) as (
+    ...args: LstatArgs
+  ) => ReturnType<typeof fs.lstatSync>;
+  vi.spyOn(fs, 'lstatSync').mockImplementation(((
+    filePath: LstatArgs[0],
+    options?: LstatArgs[1],
+  ) => {
+    if (String(filePath).endsWith('bad.txt')) {
+      throw new Error('permission denied');
+    }
+    return originalLstatSync(filePath, options as LstatArgs[1]);
+  }) as never);
+
+  const { readDirSize } = await import('../src/doctor/utils.ts');
+
+  expect(readDirSize(dir)).toBe(4);
+});
+
 test('checkDocker only reports daemon and image state', async () => {
   vi.doMock('node:child_process', () => ({
     spawnSync: vi.fn(() => ({
@@ -231,6 +308,15 @@ test('checkDocker only reports daemon and image state', async () => {
   expect(result.severity).toBe('ok');
   expect(result.message).toBe('Daemon running, image hybridclaw-agent present');
   expect(result.message).not.toContain('free');
+});
+
+test('restartGatewayFromDoctor configures a bounded spawn timeout', () => {
+  const source = fs.readFileSync(
+    path.join(process.cwd(), 'src', 'doctor', 'gateway-repair.ts'),
+    'utf-8',
+  );
+
+  expect(source).toContain('timeout: 30_000');
 });
 
 test('checkSecurity does not offer an auto-fix for modified instruction copies', async () => {
@@ -267,6 +353,144 @@ test('checkSecurity does not offer an auto-fix for modified instruction copies',
   expect(result.severity).toBe('warn');
   expect(result.message).toContain('SECURITY.md:modified');
   expect(result.fix).toBeUndefined();
+});
+
+test('checkSkills warns on enabled caution skills and disables them with fix', async () => {
+  const disabledSkills = new Set<string>();
+
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    getRuntimeConfig: () => ({
+      skills: {
+        disabled: [...disabledSkills],
+      },
+    }),
+    setRuntimeSkillScopeEnabled: (
+      draft: { skills: { disabled: string[] } },
+      skillName: string,
+      enabled: boolean,
+    ) => {
+      const nextDisabled = new Set(draft.skills.disabled);
+      if (enabled) {
+        nextDisabled.delete(skillName);
+      } else {
+        nextDisabled.add(skillName);
+      }
+      draft.skills.disabled = [...nextDisabled].sort((left, right) =>
+        left.localeCompare(right),
+      );
+    },
+    updateRuntimeConfig: (
+      mutate: (draft: { skills: { disabled: string[] } }) => void,
+    ) => {
+      const draft = {
+        skills: {
+          disabled: [...disabledSkills],
+        },
+      };
+      mutate(draft);
+      disabledSkills.clear();
+      for (const skillName of draft.skills.disabled) {
+        disabledSkills.add(skillName);
+      }
+      return draft;
+    },
+  }));
+  vi.doMock('../src/skills/skills.js', () => ({
+    loadSkillCatalog: () => [
+      {
+        name: 'workspace-risk',
+        description: 'Workspace skill with a suspicious pattern',
+        userInvocable: false,
+        disableModelInvocation: false,
+        always: false,
+        requires: {
+          bins: [],
+          env: [],
+        },
+        metadata: {
+          hybridclaw: {
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/workspace-risk/SKILL.md',
+        baseDir: '/tmp/workspace-risk',
+        source: 'workspace',
+        available: true,
+        enabled: true,
+        missing: [],
+      },
+      {
+        name: 'safe-skill',
+        description: 'Safe skill',
+        userInvocable: false,
+        disableModelInvocation: false,
+        always: false,
+        requires: {
+          bins: [],
+          env: [],
+        },
+        metadata: {
+          hybridclaw: {
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/safe-skill/SKILL.md',
+        baseDir: '/tmp/safe-skill',
+        source: 'workspace',
+        available: true,
+        enabled: true,
+        missing: [],
+      },
+    ],
+  }));
+  vi.doMock('../src/skills/skills-guard.js', () => ({
+    guardSkillDirectory: ({ skillName }: { skillName: string }) => ({
+      allowed: true,
+      reason: 'allowed for test',
+      result: {
+        skillName,
+        skillPath: `/tmp/${skillName}`,
+        sourceTag: 'workspace',
+        trustLevel: 'workspace',
+        verdict: skillName === 'workspace-risk' ? 'caution' : 'safe',
+        findings:
+          skillName === 'workspace-risk'
+            ? [
+                {
+                  patternId: 'shell_rc_mod',
+                  severity: 'medium',
+                  category: 'persistence',
+                  file: 'SKILL.md',
+                  line: 7,
+                  match: '.zshrc',
+                  description: 'references shell startup file',
+                },
+              ]
+            : [],
+        scannedAt: '2026-03-17T10:00:00.000Z',
+        summary: `${skillName} summary`,
+        fromCache: false,
+      },
+    }),
+  }));
+
+  const { checkSkills } = await import('../src/doctor/checks/skills.ts');
+  const [result] = await checkSkills();
+
+  expect(result.severity).toBe('warn');
+  expect(result.message).toContain('workspace-risk');
+  expect(result.fix?.summary).toContain('Disable flagged skills');
+  expect(disabledSkills.size).toBe(0);
+
+  await result.fix?.apply();
+  expect(disabledSkills.has('workspace-risk')).toBe(true);
+
+  await result.fix?.rollback?.();
+  expect(disabledSkills.has('workspace-risk')).toBe(false);
 });
 
 test('checkChannels distinguishes intentionally disabled channels from missing setup', async () => {
@@ -440,6 +664,18 @@ test('renderDoctorReport prints the summary and applied fixes', async () => {
         status: 'applied',
         message: 'Applied fix for docker',
       },
+      {
+        category: 'gateway',
+        label: 'Gateway',
+        status: 'rolled_back',
+        message: 'Rolled back after a later fix failed',
+      },
+      {
+        category: 'database',
+        label: 'Database',
+        status: 'rollback_failed',
+        message: 'Rollback failed',
+      },
     ],
   });
 
@@ -447,5 +683,23 @@ test('renderDoctorReport prints the summary and applied fixes', async () => {
   expect(output).toContain('✓ Gateway');
   expect(output).toContain('⚠ Docker');
   expect(output).toContain('✓ Fix Docker');
+  expect(output).not.toContain('Rolled back after a later fix failed');
+  expect(output).not.toContain('Rollback failed');
   expect(output).toContain('1 ok · 1 warning · 0 errors');
+});
+
+test('normalizeComponent keeps the minimal doctor aliases', async () => {
+  const { normalizeComponent } = await import('../src/doctor/utils.ts');
+
+  expect(normalizeComponent('local-backends')).toBe('local-backends');
+  expect(normalizeComponent('backends')).toBe('local-backends');
+  expect(normalizeComponent('db')).toBe('database');
+  expect(normalizeComponent('creds')).toBe('credentials');
+  expect(normalizeComponent('container')).toBe('docker');
+
+  expect(normalizeComponent('backend')).toBeNull();
+  expect(normalizeComponent('local')).toBeNull();
+  expect(normalizeComponent('localbackends')).toBeNull();
+  expect(normalizeComponent('secrets')).toBeNull();
+  expect(normalizeComponent('storage')).toBeNull();
 });

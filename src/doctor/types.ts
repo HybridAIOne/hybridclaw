@@ -8,6 +8,7 @@ export const DOCTOR_CATEGORIES = [
   'local-backends',
   'docker',
   'channels',
+  'skills',
   'security',
   'disk',
 ] as const;
@@ -59,9 +60,3 @@ export interface DoctorReport {
   };
   fixes: DoctorFixOutcome[];
 }
-
-export const SEVERITY_ORDER: Record<DiagResult['severity'], number> = {
-  ok: 0,
-  warn: 1,
-  error: 2,
-};

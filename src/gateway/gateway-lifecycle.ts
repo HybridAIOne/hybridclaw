@@ -1,7 +1,6 @@
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { DATA_DIR, GATEWAY_BASE_URL } from '../config/config.js';
+import { DATA_DIR } from '../config/config.js';
 
 export interface GatewayPidState {
   pid: number;
@@ -63,52 +62,4 @@ export function isPidRunning(pid: number): boolean {
   } catch {
     return false;
   }
-}
-
-function parseGatewayBaseUrl(): URL | null {
-  try {
-    return new URL(GATEWAY_BASE_URL);
-  } catch {
-    return null;
-  }
-}
-
-function isLocalGatewayHost(hostname: string): boolean {
-  const normalized = hostname.trim().toLowerCase();
-  return (
-    normalized === '127.0.0.1' ||
-    normalized === 'localhost' ||
-    normalized === '::1'
-  );
-}
-
-function resolveGatewayListenPort(url: URL): number {
-  if (url.port) {
-    const parsed = Number.parseInt(url.port, 10);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  }
-  return url.protocol === 'https:' ? 443 : 80;
-}
-
-export function findGatewayPidByPort(): number | null {
-  const parsed = parseGatewayBaseUrl();
-  if (!parsed || !isLocalGatewayHost(parsed.hostname)) return null;
-  const port = resolveGatewayListenPort(parsed);
-
-  const result = spawnSync(
-    'lsof',
-    ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'],
-    {
-      encoding: 'utf-8',
-    },
-  );
-  if (result.error) return null;
-  const output = (result.stdout || '').trim();
-  if (!output) return null;
-
-  const firstPid = output
-    .split('\n')
-    .map((line) => Number.parseInt(line.trim(), 10))
-    .find((pid) => Number.isFinite(pid) && pid > 0);
-  return firstPid && Number.isFinite(firstPid) ? firstPid : null;
 }

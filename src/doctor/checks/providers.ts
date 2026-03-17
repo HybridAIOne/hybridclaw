@@ -8,7 +8,7 @@ import {
   probeOpenRouter,
 } from '../provider-probes.js';
 import type { DiagResult } from '../types.js';
-import { makeResult, severityFrom } from '../utils.js';
+import { makeResult, severityFrom, toErrorMessage } from '../utils.js';
 
 type ProviderKey = 'hybridai' | 'codex' | 'openrouter';
 
@@ -144,12 +144,7 @@ export async function checkProviders(): Promise<DiagResult[]> {
       probesByKey.set(plan.key, result.value.probe);
       return;
     }
-    errorsByKey.set(
-      plan.key,
-      result.reason instanceof Error
-        ? result.reason.message
-        : String(result.reason),
-    );
+    errorsByKey.set(plan.key, toErrorMessage(result.reason));
   });
 
   const segments: string[] = [];

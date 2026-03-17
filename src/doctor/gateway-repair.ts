@@ -79,6 +79,7 @@ export async function restartGatewayFromDoctor(): Promise<void> {
     cwd: process.cwd(),
     env: { ...process.env },
     encoding: 'utf-8',
+    timeout: 30_000,
   });
   if (result.error) {
     throw result.error;

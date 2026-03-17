@@ -55,6 +55,15 @@ async function importFreshCli(options?: {
   };
   gatewayReachable?: boolean;
   sandboxMode?: 'host' | 'container';
+  gatewayFlags?: {
+    foreground?: boolean;
+    sandboxMode?: 'host' | 'container' | null;
+    debug?: boolean;
+    help?: boolean;
+    passthrough?: string[];
+  };
+  ensureContainerImageReadyError?: Error | null;
+  gatewayModuleError?: Error | null;
   promptResponses?: string[];
 }) {
   vi.resetModules();
@@ -117,7 +126,11 @@ async function importFreshCli(options?: {
   const runUpdateCommand = vi.fn();
   const runDoctorCli = vi.fn(async () => 0);
   const ensureRuntimeCredentials = vi.fn();
-  const ensureContainerImageReady = vi.fn();
+  const ensureContainerImageReady = vi.fn(async () => {
+    if (options?.ensureContainerImageReadyError) {
+      throw options.ensureContainerImageReadyError;
+    }
+  });
   const saveRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
   const loadSkillCatalog = vi.fn(() => [
     { name: 'pdf' },
@@ -141,6 +154,7 @@ async function importFreshCli(options?: {
     waitForSocket: whatsappWaitForSocket,
   }));
   const ensureRuntimeConfigFile = vi.fn(() => false);
+  const onRuntimeConfigChange = vi.fn(() => () => {});
   const getRuntimeConfig = vi.fn(() => ({
     skills: {
       extraDirs: [],
@@ -302,6 +316,13 @@ async function importFreshCli(options?: {
     ragDefault: true,
     timestamp: new Date().toISOString(),
   }));
+  const ensureGatewayRunDir = vi.fn();
+  const findGatewayPidByPort = vi.fn(() => null);
+  const readGatewayPid = vi.fn(() => null);
+  const removeGatewayPidFile = vi.fn();
+  const writeGatewayPid = vi.fn();
+  const isPidRunning = vi.fn(() => true);
+  const gatewayModuleLoaded = vi.fn();
   const tuiModuleLoaded = vi.fn();
   const runTui = vi.fn(async () => {
     tuiModuleLoaded();
@@ -348,9 +369,11 @@ async function importFreshCli(options?: {
   vi.doMock('../src/config/cli-flags.ts', () => ({
     findUnsupportedGatewayLifecycleFlag: vi.fn(() => null),
     parseGatewayFlags: vi.fn(() => ({
-      foreground: false,
-      sandboxMode: null,
-      passthrough: [],
+      foreground: options?.gatewayFlags?.foreground ?? false,
+      sandboxMode: options?.gatewayFlags?.sandboxMode ?? null,
+      debug: options?.gatewayFlags?.debug ?? false,
+      help: options?.gatewayFlags?.help ?? false,
+      passthrough: options?.gatewayFlags?.passthrough ?? [],
     })),
   }));
   vi.doMock('../src/config/config.ts', () => ({
@@ -365,6 +388,7 @@ async function importFreshCli(options?: {
     ensureRuntimeConfigFile,
     getRuntimeSkillScopeDisabledNames,
     getRuntimeConfig,
+    onRuntimeConfigChange,
     runtimeConfigPath,
     setRuntimeSkillScopeEnabled,
     updateRuntimeConfig,
@@ -373,6 +397,22 @@ async function importFreshCli(options?: {
     gatewayHealth,
     gatewayStatus,
   }));
+  vi.doMock('../src/gateway/gateway-lifecycle.ts', () => ({
+    ensureGatewayRunDir,
+    findGatewayPidByPort,
+    GATEWAY_LOG_FILE_ENV: 'HYBRIDCLAW_GATEWAY_LOG_FILE',
+    GATEWAY_LOG_PATH: '/tmp/hybridclaw-data/gateway/gateway.log',
+    GATEWAY_STDIO_TO_LOG_ENV: 'HYBRIDCLAW_GATEWAY_STDIO_TO_LOG',
+    isPidRunning,
+    readGatewayPid,
+    removeGatewayPidFile,
+    writeGatewayPid,
+  }));
+  vi.doMock('../src/gateway/gateway.ts', () => {
+    if (options?.gatewayModuleError) throw options.gatewayModuleError;
+    gatewayModuleLoaded();
+    return {};
+  });
   vi.doMock('../src/infra/container-setup.ts', () => ({
     ensureContainerImageReady,
   }));
@@ -452,6 +492,13 @@ async function importFreshCli(options?: {
     updateRuntimeConfig,
     gatewayHealth,
     gatewayStatus,
+    ensureGatewayRunDir,
+    findGatewayPidByPort,
+    readGatewayPid,
+    removeGatewayPidFile,
+    writeGatewayPid,
+    isPidRunning,
+    gatewayModuleLoaded,
     loadSkillCatalog,
     readlineCreateInterface,
     readlineQuestion,
@@ -469,6 +516,8 @@ afterEach(() => {
   vi.doUnmock('../src/config/config.ts');
   vi.doUnmock('../src/config/runtime-config.ts');
   vi.doUnmock('../src/gateway/gateway-client.ts');
+  vi.doUnmock('../src/gateway/gateway-lifecycle.ts');
+  vi.doUnmock('../src/gateway/gateway.ts');
   vi.doUnmock('../src/infra/container-setup.ts');
   vi.doUnmock('../src/channels/whatsapp/auth.ts');
   vi.doUnmock('node:readline/promises');
@@ -1250,6 +1299,85 @@ describe('CLI hybridai commands', () => {
 
     expect(runDoctorCli).toHaveBeenCalledWith(['--fix', 'docker']);
     expect(process.exitCode).toBe(1);
+  });
+
+  it('writes and cleans up a managed PID file for gateway start --foreground', async () => {
+    const {
+      cli,
+      ensureGatewayRunDir,
+      ensureRuntimeCredentials,
+      gatewayModuleLoaded,
+      removeGatewayPidFile,
+      writeGatewayPid,
+    } = await importFreshCli({
+      gatewayFlags: {
+        foreground: true,
+        sandboxMode: 'host',
+      },
+    });
+    const registered = new Map<string, Array<(...args: unknown[]) => void>>();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(process, 'on').mockImplementation(((
+      event: string | symbol,
+      listener: (...args: unknown[]) => void,
+    ) => {
+      const key = String(event);
+      const listeners = registered.get(key) ?? [];
+      listeners.push(listener);
+      registered.set(key, listeners);
+      return process;
+    }) as never);
+
+    await cli.main(['gateway', 'start', '--foreground', '--sandbox=host']);
+
+    expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
+      commandName: 'hybridclaw gateway start --foreground',
+    });
+    expect(ensureGatewayRunDir).toHaveBeenCalled();
+    expect(writeGatewayPid).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pid: process.pid,
+        cwd: process.cwd(),
+      }),
+    );
+    expect(gatewayModuleLoaded).toHaveBeenCalled();
+    expect(registered.get('exit')).toHaveLength(1);
+    expect(registered.get('SIGINT')).toHaveLength(1);
+    expect(registered.get('SIGTERM')).toHaveLength(1);
+
+    removeGatewayPidFile.mockClear();
+    registered.get('exit')?.[0]();
+
+    expect(removeGatewayPidFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('cleans up the managed PID file if gateway foreground startup fails', async () => {
+    const startupError = new Error('gateway bootstrap failed');
+    const { cli, removeGatewayPidFile, writeGatewayPid } = await importFreshCli(
+      {
+        gatewayFlags: {
+          foreground: true,
+          sandboxMode: 'container',
+        },
+        ensureContainerImageReadyError: startupError,
+      },
+    );
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(process, 'on').mockImplementation(
+      ((_: string | symbol, __: (...args: unknown[]) => void) =>
+        process) as never,
+    );
+
+    await expect(
+      cli.main(['gateway', 'start', '--foreground', '--sandbox=container']),
+    ).rejects.toThrow('gateway bootstrap failed');
+
+    expect(writeGatewayPid).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pid: process.pid,
+      }),
+    );
+    expect(removeGatewayPidFile).toHaveBeenCalledTimes(1);
   });
 
   it('launches tui without local runtime preflight when gateway is already reachable', async () => {

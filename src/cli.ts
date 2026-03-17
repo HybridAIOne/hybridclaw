@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
@@ -52,7 +52,6 @@ import {
 } from './config/runtime-config.js';
 import {
   ensureGatewayRunDir,
-  findGatewayPidByPort,
   GATEWAY_LOG_FILE_ENV,
   GATEWAY_LOG_PATH,
   GATEWAY_STDIO_TO_LOG_ENV,
@@ -78,6 +77,9 @@ import { sleep } from './utils/sleep.js';
 
 const PACKAGE_NAME = '@hybridaione/hybridclaw';
 let cachedInstallRoot: string | null = null;
+let foregroundGatewayExitHandler: (() => void) | null = null;
+let foregroundGatewaySigintHandler: (() => void) | null = null;
+let foregroundGatewaySigtermHandler: (() => void) | null = null;
 
 function resolveWhatsAppSetupSettleMs(): number {
   const raw = String(
@@ -115,6 +117,132 @@ function resolveInstallRoot(): string {
 
   cachedInstallRoot = process.cwd();
   return cachedInstallRoot;
+}
+
+function cleanupForegroundGatewayPidFile(): void {
+  try {
+    removeGatewayPidFile();
+  } catch {
+    // best effort during process teardown
+  }
+}
+
+function removeForegroundGatewayPidHandlers(): void {
+  if (foregroundGatewayExitHandler) {
+    process.removeListener('exit', foregroundGatewayExitHandler);
+    foregroundGatewayExitHandler = null;
+  }
+  if (foregroundGatewaySigintHandler) {
+    process.removeListener('SIGINT', foregroundGatewaySigintHandler);
+    foregroundGatewaySigintHandler = null;
+  }
+  if (foregroundGatewaySigtermHandler) {
+    process.removeListener('SIGTERM', foregroundGatewaySigtermHandler);
+    foregroundGatewaySigtermHandler = null;
+  }
+}
+
+function registerForegroundGatewayPid(commandName: string): {
+  markReady: () => void;
+  cleanup: () => void;
+} {
+  removeForegroundGatewayPidHandlers();
+  cleanupForegroundGatewayPidFile();
+
+  let ready = false;
+  const handleExit = () => {
+    cleanupForegroundGatewayPidFile();
+  };
+  const handleSignal = (signal: NodeJS.Signals) => {
+    cleanupForegroundGatewayPidFile();
+    removeForegroundGatewayPidHandlers();
+    if (ready) return;
+    try {
+      process.kill(process.pid, signal);
+    } catch {
+      // best effort; allow the current process state to unwind
+    }
+  };
+
+  foregroundGatewayExitHandler = handleExit;
+  foregroundGatewaySigintHandler = () => {
+    handleSignal('SIGINT');
+  };
+  foregroundGatewaySigtermHandler = () => {
+    handleSignal('SIGTERM');
+  };
+
+  process.on('exit', foregroundGatewayExitHandler);
+  process.on('SIGINT', foregroundGatewaySigintHandler);
+  process.on('SIGTERM', foregroundGatewaySigtermHandler);
+
+  writeGatewayPid({
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    cwd: process.cwd(),
+    command:
+      process.argv.length > 1
+        ? [process.execPath, ...process.argv.slice(1)]
+        : [commandName],
+  });
+
+  return {
+    markReady: () => {
+      ready = true;
+    },
+    cleanup: () => {
+      cleanupForegroundGatewayPidFile();
+      removeForegroundGatewayPidHandlers();
+    },
+  };
+}
+
+function parseGatewayBaseUrl(): URL | null {
+  try {
+    return new URL(GATEWAY_BASE_URL);
+  } catch {
+    return null;
+  }
+}
+
+function isLocalGatewayHost(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return (
+    normalized === '127.0.0.1' ||
+    normalized === 'localhost' ||
+    normalized === '::1'
+  );
+}
+
+function resolveGatewayListenPort(url: URL): number {
+  if (url.port) {
+    const parsed = Number.parseInt(url.port, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return url.protocol === 'https:' ? 443 : 80;
+}
+
+function findGatewayPidByPort(): number | null {
+  const parsed = parseGatewayBaseUrl();
+  if (!parsed || !isLocalGatewayHost(parsed.hostname)) return null;
+  const port = resolveGatewayListenPort(parsed);
+
+  const result = spawnSync(
+    'lsof',
+    ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'],
+    {
+      encoding: 'utf-8',
+    },
+  );
+  if (result.error) return null;
+  const output = (result.stdout || '').trim();
+  if (!output) return null;
+
+  const firstPid = output
+    .split('\n')
+    .map((line) => Number.parseInt(line.trim(), 10))
+    .find((pid) => Number.isFinite(pid) && pid > 0);
+  return firstPid && Number.isFinite(firstPid) ? firstPid : null;
 }
 
 async function ensureRuntimeContainer(
@@ -637,7 +765,7 @@ function printDoctorUsage(): void {
   hybridclaw doctor
   hybridclaw doctor --fix
   hybridclaw doctor --json
-  hybridclaw doctor <runtime|gateway|config|credentials|database|providers|local-backends|docker|channels|security|disk>
+  hybridclaw doctor <runtime|gateway|config|credentials|database|providers|local-backends|docker|channels|skills|security|disk>
 
 Notes:
   - Runs independent diagnostic categories in parallel and reports ok, warning, and error states.
@@ -849,13 +977,20 @@ async function runGatewayForeground(
     console.log(`${commandName}: forcing gateway log level to debug.`);
   }
   ensureGatewayRunDir();
+  const foregroundGatewayPid = registerForegroundGatewayPid(commandName);
   if (process.env[GATEWAY_STDIO_TO_LOG_ENV] === '1') {
     delete process.env[GATEWAY_LOG_FILE_ENV];
   } else {
     process.env[GATEWAY_LOG_FILE_ENV] = GATEWAY_LOG_PATH;
   }
   await ensureRuntimeContainer(commandName, true, sandboxMode);
-  await import('./gateway/gateway.js');
+  try {
+    await import('./gateway/gateway.js');
+    foregroundGatewayPid.markReady();
+  } catch (error) {
+    foregroundGatewayPid.cleanup();
+    throw error;
+  }
 }
 
 async function startGatewayBackend(
