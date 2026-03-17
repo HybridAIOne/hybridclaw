@@ -115,6 +115,7 @@ async function importFreshCli(options?: {
   );
   const printUpdateUsage = vi.fn();
   const runUpdateCommand = vi.fn();
+  const runDoctorCli = vi.fn(async () => 0);
   const ensureRuntimeCredentials = vi.fn();
   const ensureContainerImageReady = vi.fn();
   const saveRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
@@ -420,6 +421,9 @@ async function importFreshCli(options?: {
     printUpdateUsage,
     runUpdateCommand,
   }));
+  vi.doMock('../src/doctor.ts', () => ({
+    runDoctorCli,
+  }));
 
   const cli = await import('../src/cli.ts');
   return {
@@ -432,6 +436,7 @@ async function importFreshCli(options?: {
     loginHybridAIInteractive,
     printUpdateUsage,
     runUpdateCommand,
+    runDoctorCli,
     ensureRuntimeCredentials,
     ensureContainerImageReady,
     getWhatsAppAuthStatus,
@@ -1234,6 +1239,17 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Usage: hybridclaw <command>'),
     );
+  });
+
+  it('delegates doctor commands to the doctor module and forwards the exit code', async () => {
+    const { cli, runDoctorCli } = await importFreshCli();
+    runDoctorCli.mockResolvedValueOnce(1);
+    process.exitCode = 0;
+
+    await cli.main(['doctor', '--fix', 'docker']);
+
+    expect(runDoctorCli).toHaveBeenCalledWith(['--fix', 'docker']);
+    expect(process.exitCode).toBe(1);
   });
 
   it('launches tui without local runtime preflight when gateway is already reachable', async () => {

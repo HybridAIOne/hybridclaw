@@ -40,7 +40,9 @@ function runCommand(
   });
 }
 
-async function containerImageExists(imageName: string): Promise<boolean> {
+export async function containerImageExists(
+  imageName: string,
+): Promise<boolean> {
   const result = await runCommand('docker', ['image', 'inspect', imageName]);
   return result.code === 0;
 }

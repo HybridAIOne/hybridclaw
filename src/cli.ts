@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
@@ -37,7 +37,6 @@ import {
 } from './config/cli-flags.js';
 import {
   APP_VERSION,
-  DATA_DIR,
   GATEWAY_BASE_URL,
   getResolvedSandboxMode,
   MissingRequiredEnvVarError,
@@ -51,6 +50,18 @@ import {
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from './config/runtime-config.js';
+import {
+  ensureGatewayRunDir,
+  findGatewayPidByPort,
+  GATEWAY_LOG_FILE_ENV,
+  GATEWAY_LOG_PATH,
+  GATEWAY_STDIO_TO_LOG_ENV,
+  type GatewayPidState,
+  isPidRunning,
+  readGatewayPid,
+  removeGatewayPidFile,
+  writeGatewayPid,
+} from './gateway/gateway-lifecycle.js';
 import { ensureRuntimeCredentials } from './onboarding.js';
 import type { LocalBackendType } from './providers/local-types.js';
 import {
@@ -309,6 +320,7 @@ function printMainUsage(): void {
   skill      List skill dependency installers or run one
   update     Check and apply HybridClaw CLI updates
   audit      Inspect/verify structured audit trail
+  doctor     Run environment and runtime diagnostics
   help       Show general or topic-specific help (e.g. \`hybridclaw help gateway\`)
 
   Options:
@@ -620,6 +632,19 @@ Commands:
   instructions [--sync] [--approve]  Verify or restore runtime instruction files`);
 }
 
+function printDoctorUsage(): void {
+  console.log(`Usage:
+  hybridclaw doctor
+  hybridclaw doctor --fix
+  hybridclaw doctor --json
+  hybridclaw doctor <runtime|gateway|config|credentials|database|providers|local-backends|docker|channels|security|disk>
+
+Notes:
+  - Runs independent diagnostic categories in parallel and reports ok, warning, and error states.
+  - \`--fix\` retries fixable checks after applying automatic remediation where supported.
+  - \`--json\` prints a machine-readable report and still uses exit code 1 when any errors remain.`);
+}
+
 function printSkillUsage(): void {
   console.log(`Usage: hybridclaw skill <command>
 
@@ -664,6 +689,7 @@ Topics:
   skill       Help for skill installer commands
   update      Help for checking/applying CLI updates
   audit       Help for audit commands
+  doctor      Help for diagnostics and auto-remediation
   help        This help`);
 }
 
@@ -748,72 +774,14 @@ function printHelpTopic(topic: string): boolean {
     case 'audit':
       printAuditUsage();
       return true;
+    case 'doctor':
+      printDoctorUsage();
+      return true;
     case 'help':
       printHelpUsage();
       return true;
     default:
       return false;
-  }
-}
-
-interface GatewayPidState {
-  pid: number;
-  startedAt: string;
-  cwd: string;
-  command: string[];
-}
-
-const GATEWAY_RUN_DIR = path.join(DATA_DIR, 'gateway');
-const GATEWAY_PID_PATH = path.join(GATEWAY_RUN_DIR, 'gateway.pid.json');
-const GATEWAY_LOG_PATH = path.join(GATEWAY_RUN_DIR, 'gateway.log');
-const GATEWAY_LOG_FILE_ENV = 'HYBRIDCLAW_GATEWAY_LOG_FILE';
-const GATEWAY_STDIO_TO_LOG_ENV = 'HYBRIDCLAW_GATEWAY_STDIO_TO_LOG';
-
-function ensureGatewayRunDir(): void {
-  fs.mkdirSync(GATEWAY_RUN_DIR, { recursive: true });
-}
-
-function writeGatewayPid(state: GatewayPidState): void {
-  ensureGatewayRunDir();
-  const tmp = `${GATEWAY_PID_PATH}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
-  fs.renameSync(tmp, GATEWAY_PID_PATH);
-}
-
-function removeGatewayPidFile(): void {
-  if (fs.existsSync(GATEWAY_PID_PATH)) fs.unlinkSync(GATEWAY_PID_PATH);
-}
-
-function readGatewayPid(): GatewayPidState | null {
-  try {
-    const raw = fs.readFileSync(GATEWAY_PID_PATH, 'utf-8');
-    const parsed = JSON.parse(raw) as Partial<GatewayPidState>;
-    if (
-      !parsed ||
-      typeof parsed.pid !== 'number' ||
-      !Number.isFinite(parsed.pid)
-    )
-      return null;
-    return {
-      pid: parsed.pid,
-      startedAt: typeof parsed.startedAt === 'string' ? parsed.startedAt : '',
-      cwd: typeof parsed.cwd === 'string' ? parsed.cwd : '',
-      command: Array.isArray(parsed.command)
-        ? parsed.command.map((item) => String(item))
-        : [],
-    };
-  } catch {
-    return null;
-  }
-}
-
-function isPidRunning(pid: number): boolean {
-  if (!Number.isFinite(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
   }
 }
 
@@ -838,54 +806,6 @@ async function waitForGatewayUnreachable(timeoutMs: number): Promise<boolean> {
 async function requestUnmanagedGatewayShutdown(): Promise<void> {
   const { gatewayShutdown } = await import('./gateway/gateway-client.js');
   await gatewayShutdown();
-}
-
-function parseGatewayBaseUrl(): URL | null {
-  try {
-    return new URL(GATEWAY_BASE_URL);
-  } catch {
-    return null;
-  }
-}
-
-function isLocalGatewayHost(hostname: string): boolean {
-  const normalized = hostname.trim().toLowerCase();
-  return (
-    normalized === '127.0.0.1' ||
-    normalized === 'localhost' ||
-    normalized === '::1'
-  );
-}
-
-function resolveGatewayListenPort(url: URL): number {
-  if (url.port) {
-    const parsed = Number.parseInt(url.port, 10);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  }
-  return url.protocol === 'https:' ? 443 : 80;
-}
-
-function findGatewayPidByPort(): number | null {
-  const parsed = parseGatewayBaseUrl();
-  if (!parsed || !isLocalGatewayHost(parsed.hostname)) return null;
-  const port = resolveGatewayListenPort(parsed);
-
-  const result = spawnSync(
-    'lsof',
-    ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'],
-    {
-      encoding: 'utf-8',
-    },
-  );
-  if (result.error) return null;
-  const output = (result.stdout || '').trim();
-  if (!output) return null;
-
-  const firstPid = output
-    .split('\n')
-    .map((line) => Number.parseInt(line.trim(), 10))
-    .find((pid) => Number.isFinite(pid) && pid > 0);
-  return firstPid && Number.isFinite(firstPid) ? firstPid : null;
 }
 
 function adoptGatewayPid(pid: number, source: string): boolean {
@@ -3786,6 +3706,15 @@ export async function main(
       }
       const { runAuditCli } = await import('./audit/audit-cli.js');
       await runAuditCli(subargs);
+      break;
+    }
+    case 'doctor': {
+      if (isHelpRequest(subargs)) {
+        printDoctorUsage();
+        break;
+      }
+      const { runDoctorCli } = await import('./doctor.js');
+      process.exitCode = await runDoctorCli(subargs);
       break;
     }
     case 'help': {
