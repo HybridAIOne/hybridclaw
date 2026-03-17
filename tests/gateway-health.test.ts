@@ -5,6 +5,8 @@ import { Readable } from 'node:stream';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+const DEFAULT_WEB_SESSION_ID = 'agent:main:web:dm:default';
+
 const tempDirs: string[] = [];
 
 function makeTempDocsDir(): string {
@@ -270,20 +272,20 @@ async function importFreshHealth(options?: {
         costUsd: 0.01,
         messageCount: 2,
         toolCalls: 1,
-        recentSessionId: 'web:default',
+        recentSessionId: DEFAULT_WEB_SESSION_ID,
         status: 'active',
       },
     ],
     sessions: [
       {
-        id: 'web:default',
+        id: DEFAULT_WEB_SESSION_ID,
         name: 'Web web',
         task: 'User prompt',
         lastQuestion: 'User prompt',
         lastAnswer: 'Assistant reply',
         fullAutoEnabled: true,
         model: 'gpt-5',
-        sessionId: 'web:default',
+        sessionId: DEFAULT_WEB_SESSION_ID,
         channelId: 'web',
         channelName: null,
         agentId: 'main',
@@ -378,7 +380,7 @@ async function importFreshHealth(options?: {
       {
         id: 1,
         toolName: 'read',
-        sessionId: 'web:default',
+        sessionId: DEFAULT_WEB_SESSION_ID,
         timestamp: '2026-03-11T10:00:00.000Z',
         durationMs: 12,
         isError: false,
@@ -797,7 +799,7 @@ describe('gateway health server', () => {
       ],
       sessions: [
         {
-          id: 'web:default',
+          id: DEFAULT_WEB_SESSION_ID,
           status: 'active',
           fullAutoEnabled: true,
         },
@@ -935,7 +937,7 @@ describe('gateway health server', () => {
       expect.objectContaining({
         channelId: 'web',
         content: 'send this',
-        sessionId: 'web:default',
+        sessionId: DEFAULT_WEB_SESSION_ID,
         userId: 'web-user',
       }),
     );
