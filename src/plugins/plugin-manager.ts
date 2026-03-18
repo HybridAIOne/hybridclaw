@@ -553,8 +553,6 @@ export class PluginManager {
     config: RuntimeConfig = this.getConfig(),
   ): Promise<PluginCandidate[]> {
     const configuredEntries = toPluginConfigEntries(config);
-    if (configuredEntries.length === 0) return [];
-
     const discovered = new Map<string, PluginCandidate>();
     for (const candidate of this.scanDirectory(
       path.join(this.homeDir, '.hybridclaw', 'plugins'),
@@ -571,9 +569,12 @@ export class PluginManager {
         discovered.set(candidate.id, candidate);
     }
 
-    const selected: PluginCandidate[] = [];
+    const selected = new Map<string, PluginCandidate>(discovered);
     for (const entry of configuredEntries) {
-      if (!entry.enabled) continue;
+      if (!entry.enabled) {
+        selected.delete(entry.id);
+        continue;
+      }
       try {
         let candidate: PluginCandidate | undefined;
         if (entry.path) {
@@ -581,6 +582,11 @@ export class PluginManager {
             path.resolve(this.cwd, entry.path),
             'config',
           );
+          if (candidate.id !== entry.id) {
+            throw new Error(
+              `Configured plugin id "${entry.id}" did not match manifest id "${candidate.id}".`,
+            );
+          }
         } else {
           candidate = discovered.get(entry.id);
         }
@@ -591,9 +597,9 @@ export class PluginManager {
           );
           continue;
         }
-        selected.push({
+        selected.set(entry.id, {
           ...candidate,
-          enabled: entry.enabled,
+          enabled: true,
           config: deepClone(entry.config || {}),
         });
       } catch (error) {
@@ -603,7 +609,7 @@ export class PluginManager {
         );
       }
     }
-    return selected;
+    return [...selected.values()];
   }
 
   private scanDirectory(

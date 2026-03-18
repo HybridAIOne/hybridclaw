@@ -445,6 +445,7 @@ function printMainUsage(): void {
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, WhatsApp, Email)
+  plugin     Install and enable HybridClaw plugins
   skill      List skill dependency installers or run one
   update     Check and apply HybridClaw CLI updates
   audit      Inspect/verify structured audit trail
@@ -802,6 +803,23 @@ Notes:
   - \`install\` runs one declared installer (brew, uv, npm, go, download).`);
 }
 
+function printPluginUsage(): void {
+  console.log(`Usage: hybridclaw plugin <command>
+
+Commands:
+  hybridclaw plugin install <path|npm-spec>
+
+Examples:
+  hybridclaw plugin install ./plugins/honcho-memory
+  hybridclaw plugin install @hybridaione/hybridclaw-plugin-honcho-memory
+
+Notes:
+  - Plugins install into \`~/.hybridclaw/plugins/<plugin-id>\`.
+  - Valid plugins in \`~/.hybridclaw/plugins/\` or \`./.hybridclaw/plugins/\` auto-discover at runtime.
+  - \`install\` validates \`hybridclaw.plugin.yaml\` and installs npm dependencies when needed.
+  - Use ${runtimeConfigPath()} only for plugin overrides such as disable flags, config values, or custom paths.`);
+}
+
 function printHelpUsage(): void {
   console.log(`Usage: hybridclaw help <topic>
 
@@ -811,6 +829,7 @@ Topics:
   tui         Help for terminal client
   onboarding  Help for onboarding flow
   channels    Help for channel setup helpers
+  plugin      Help for plugin installation
   msteams     Help for Microsoft Teams auth/setup commands
   openrouter  Help for OpenRouter setup/status/logout commands
   whatsapp    Help for WhatsApp setup/reset commands
@@ -873,6 +892,9 @@ function printHelpTopic(topic: string): boolean {
       return true;
     case 'channels':
       printChannelsUsage();
+      return true;
+    case 'plugin':
+      printPluginUsage();
       return true;
     case 'msteams':
     case 'teams':
@@ -3760,6 +3782,66 @@ async function handleSkillCommand(args: string[]): Promise<void> {
   throw new Error(`Unknown skill subcommand: ${sub}`);
 }
 
+async function handlePluginCommand(args: string[]): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printPluginUsage();
+    return;
+  }
+
+  const sub = normalized[0].toLowerCase();
+  if (sub !== 'install') {
+    printPluginUsage();
+    throw new Error(
+      `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin install <path|npm-spec>\`.`,
+    );
+  }
+
+  const source = normalized[1];
+  if (!source) {
+    printPluginUsage();
+    throw new Error(
+      'Missing plugin source for `hybridclaw plugin install <path|npm-spec>`.',
+    );
+  }
+  if (normalized.length !== 2) {
+    printPluginUsage();
+    throw new Error(
+      'Unexpected extra arguments for `hybridclaw plugin install <path|npm-spec>`.',
+    );
+  }
+
+  const { installPlugin } = await import('./plugins/plugin-install.js');
+  const result = await installPlugin(source);
+
+  if (result.alreadyInstalled) {
+    console.log(`Plugin ${result.pluginId} is already present at ${result.pluginDir}.`);
+  } else {
+    console.log(`Installed plugin ${result.pluginId} to ${result.pluginDir}.`);
+  }
+  if (result.dependenciesInstalled) {
+    console.log('Installed plugin npm dependencies.');
+  }
+  console.log(
+    `Plugin ${result.pluginId} will auto-discover from ${result.pluginDir}.`,
+  );
+  if (result.requiresEnv.length > 0) {
+    console.log(`Required env vars: ${result.requiresEnv.join(', ')}`);
+  }
+  if (result.requiredConfigKeys.length > 0) {
+    console.log(
+      `Add a plugins.list[] override in ${runtimeConfigPath()} to set required config keys: ${result.requiredConfigKeys.join(', ')}`,
+    );
+  } else {
+    console.log(
+      `No config entry is required unless you want plugin overrides in ${runtimeConfigPath()}.`,
+    );
+  }
+  console.log('Restart the gateway to load plugin changes:');
+  console.log('  hybridclaw gateway restart --foreground');
+  console.log('  hybridclaw gateway status');
+}
+
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<void> {
@@ -3810,6 +3892,9 @@ export async function main(
       break;
     case 'channels':
       await handleChannelsCommand(subargs);
+      break;
+    case 'plugin':
+      await handlePluginCommand(subargs);
       break;
     case 'local':
       printDeprecatedProviderAliasWarning('local', subargs);

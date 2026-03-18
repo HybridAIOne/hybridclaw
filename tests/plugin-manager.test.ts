@@ -19,7 +19,13 @@ function loadRuntimeConfig(): RuntimeConfig {
   ) as RuntimeConfig;
 }
 
-function writeDemoPlugin(rootDir: string): void {
+function writeDemoPlugin(
+  rootDir: string,
+  options?: {
+    requireWorkspaceId?: boolean;
+    workspaceDefault?: string;
+  },
+): void {
   const pluginDir = path.join(rootDir, '.hybridclaw', 'plugins', 'demo-plugin');
   fs.mkdirSync(pluginDir, { recursive: true });
   fs.writeFileSync(
@@ -33,10 +39,15 @@ function writeDemoPlugin(rootDir: string): void {
       '  properties:',
       '    workspaceId:',
       '      type: string',
+      ...(options?.workspaceDefault
+        ? [`      default: ${options.workspaceDefault}`]
+        : []),
       '    autoRecall:',
       '      type: boolean',
       '      default: true',
-      '  required: [workspaceId]',
+      ...(options?.requireWorkspaceId === false
+        ? []
+        : ['  required: [workspaceId]']),
       '',
     ].join('\n'),
     'utf-8',
@@ -87,6 +98,39 @@ afterEach(() => {
   }
 });
 
+test('plugin manager auto-discovers plugins from project directories without config entries', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeDemoPlugin(cwd, {
+    requireWorkspaceId: false,
+    workspaceDefault: 'workspace-auto',
+  });
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+
+  expect(manager.getToolDefinitions()).toEqual([
+    expect.objectContaining({ name: 'demo_echo' }),
+  ]);
+  await expect(
+    manager.executeTool({
+      toolName: 'demo_echo',
+      args: { text: 'hello' },
+      sessionId: 'session-1',
+      channelId: 'web',
+    }),
+  ).resolves.toBe('workspace-auto:true:hello');
+});
+
 test('plugin manager loads configured plugins, applies config defaults, and exposes tools', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');
@@ -132,6 +176,44 @@ test('plugin manager loads configured plugins, applies config defaults, and expo
       channelId: 'web',
     }),
   ).resolves.toBe('workspace-123:true:hello');
+});
+
+test('plugin manager honors config overrides that disable an auto-discovered plugin', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeDemoPlugin(cwd, {
+    requireWorkspaceId: false,
+    workspaceDefault: 'workspace-auto',
+  });
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'demo-plugin',
+      enabled: false,
+      config: {},
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+
+  expect(manager.getToolDefinitions()).toEqual([]);
+  expect(
+    await manager.collectPromptContext({
+      sessionId: 'session-1',
+      userId: 'user-1',
+      agentId: 'main',
+      channelId: 'web',
+      recentMessages: [],
+    }),
+  ).toEqual([]);
 });
 
 test('plugin manager rejects invalid plugin config against configSchema', async () => {

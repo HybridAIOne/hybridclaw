@@ -1,7 +1,26 @@
 # Plugin System
 
 HybridClaw plugins are local runtime extensions discovered from plugin
-directories and enabled explicitly in `~/.hybridclaw/config.json`.
+directories.
+
+## Install Workflow
+
+Use the CLI to install a plugin from a local directory or npm package:
+
+```bash
+hybridclaw plugin install ./plugins/honcho-memory
+hybridclaw plugin install @hybridaione/hybridclaw-plugin-honcho-memory
+```
+
+The install command:
+
+- copies the plugin into `~/.hybridclaw/plugins/<plugin-id>/`
+- validates `hybridclaw.plugin.yaml`
+- installs npm dependencies when the plugin ships a `package.json` or npm
+  install hints
+
+Required secrets or plugin-specific config values still need to be filled in
+after install.
 
 ## Discovery And Enablement
 
@@ -11,8 +30,14 @@ Discovery sources:
 - `<project>/.hybridclaw/plugins/<plugin-id>/`
 - explicit `plugins.list[].path` entries from runtime config
 
-HybridClaw only loads plugins that are listed in `plugins.list[]` with
-`enabled: true`. Discovery alone does not activate a plugin.
+Any valid plugin found in the home or project plugin directories is discovered
+automatically.
+
+`plugins.list[]` is an override layer, not the activation gate. Use it to:
+
+- disable a discovered plugin with `enabled: false`
+- provide plugin-specific config values
+- point a plugin id at a custom path outside the default plugin directories
 
 Runtime config shape:
 
@@ -112,7 +137,11 @@ The repository includes a proof-of-concept Honcho plugin sample in:
 - `docs/development/honcho-memory.index.ts`
 - `docs/development/honcho-memory.package.json`
 
-The sample installs under `~/.hybridclaw/plugins/honcho-memory/` and registers:
+After arranging those files into a plugin directory or publishing them as an
+npm package, you can install the sample with `hybridclaw plugin install
+<path|npm-spec>`.
+
+It registers:
 
 - a memory layer for prompt recall and async capture
 - a `honcho_query` tool

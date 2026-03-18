@@ -64,6 +64,16 @@ async function importFreshCli(options?: {
   };
   ensureContainerImageReadyError?: Error | null;
   gatewayModuleError?: Error | null;
+  pluginInstallError?: Error | null;
+  pluginInstallResult?: {
+    pluginId: string;
+    pluginDir: string;
+    source: string;
+    alreadyInstalled: boolean;
+    dependenciesInstalled: boolean;
+    requiresEnv: string[];
+    requiredConfigKeys: string[];
+  };
   promptResponses?: string[];
 }) {
   vi.resetModules();
@@ -153,9 +163,28 @@ async function importFreshCli(options?: {
     stop: whatsappStop,
     waitForSocket: whatsappWaitForSocket,
   }));
+  const installPlugin = vi.fn(async (source: string) => {
+    if (options?.pluginInstallError) {
+      throw options.pluginInstallError;
+    }
+    return (
+      options?.pluginInstallResult || {
+        pluginId: 'demo-plugin',
+        pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
+        source,
+        alreadyInstalled: false,
+        dependenciesInstalled: true,
+        requiresEnv: [],
+        requiredConfigKeys: [],
+      }
+    );
+  });
   const ensureRuntimeConfigFile = vi.fn(() => false);
   const onRuntimeConfigChange = vi.fn(() => () => {});
   const getRuntimeConfig = vi.fn(() => ({
+    plugins: {
+      list: [],
+    },
     skills: {
       extraDirs: [],
       disabled: [],
@@ -457,6 +486,12 @@ async function importFreshCli(options?: {
       runTui,
     };
   });
+  vi.doMock('../src/plugins/plugin-install.ts', () => ({
+    installPlugin,
+  }));
+  vi.doMock('../src/plugins/plugin-install.js', () => ({
+    installPlugin,
+  }));
   vi.doMock('../src/update.ts', () => ({
     printUpdateUsage,
     runUpdateCommand,
@@ -482,6 +517,7 @@ async function importFreshCli(options?: {
     getWhatsAppAuthStatus,
     resetWhatsAppAuthState,
     createWhatsAppConnectionManager,
+    installPlugin,
     whatsappStart,
     whatsappStop,
     whatsappWaitForSocket,
@@ -527,6 +563,8 @@ afterEach(() => {
   vi.doUnmock('../src/security/instruction-integrity.ts');
   vi.doUnmock('../src/security/runtime-secrets.ts');
   vi.doUnmock('../src/tui.ts');
+  vi.doUnmock('../src/plugins/plugin-install.ts');
+  vi.doUnmock('../src/plugins/plugin-install.js');
   vi.doUnmock('../src/update.ts');
   vi.resetModules();
   if (ORIGINAL_WHATSAPP_SETUP_SETTLE_MS === undefined) {
@@ -648,6 +686,17 @@ describe('CLI hybridai commands', () => {
     );
   });
 
+  it('prints plugin help', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['help', 'plugin']);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('hybridclaw plugin install <path|npm-spec>'),
+    );
+  });
+
   it('prints whatsapp help', async () => {
     const { cli } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -667,6 +716,49 @@ describe('CLI hybridai commands', () => {
 
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('hybridclaw auth login msteams'),
+    );
+  });
+
+  it('installs a plugin and leaves runtime config for optional overrides', async () => {
+    const {
+      cli,
+      installPlugin,
+    } = await importFreshCli({
+      pluginInstallResult: {
+        pluginId: 'honcho-memory',
+        pluginDir: '/tmp/.hybridclaw/plugins/honcho-memory',
+        source: '@hybridaione/hybridclaw-plugin-honcho-memory',
+        alreadyInstalled: false,
+        dependenciesInstalled: true,
+        requiresEnv: ['HONCHO_API_KEY'],
+        requiredConfigKeys: ['workspaceId'],
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'plugin',
+      'install',
+      '@hybridaione/hybridclaw-plugin-honcho-memory',
+    ]);
+
+    expect(installPlugin).toHaveBeenCalledWith(
+      '@hybridaione/hybridclaw-plugin-honcho-memory',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Installed plugin honcho-memory to /tmp/.hybridclaw/plugins/honcho-memory.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Plugin honcho-memory will auto-discover from /tmp/.hybridclaw/plugins/honcho-memory.',
+    );
+    expect(logSpy).toHaveBeenCalledWith('Required env vars: HONCHO_API_KEY');
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Add a plugins.list[] override in ',
+      ),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('to set required config keys: workspaceId'),
     );
   });
 
