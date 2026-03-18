@@ -160,6 +160,52 @@ describe('runtime config migration logging', () => {
     expect(stored.mcpServers.demo.url).toBe('https://example.com/mcp');
   });
 
+  it('normalizes plugin config entries and drops invalid rows on startup', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.plugins.list = [
+        {
+          id: 'honcho-memory',
+          enabled: true,
+          config: {
+            workspaceId: 'workspace-a',
+          },
+        },
+        {
+          id: '',
+          enabled: true,
+          config: {},
+        } as RuntimeConfig['plugins']['list'][number],
+        {
+          id: 'honcho-memory',
+          enabled: false,
+          config: {
+            workspaceId: 'workspace-b',
+          },
+        },
+      ];
+    });
+
+    await importFreshRuntimeConfig(homeDir);
+
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
+    ) as RuntimeConfig;
+
+    expect(stored.plugins.list).toEqual([
+      {
+        id: 'honcho-memory',
+        enabled: true,
+        config: {
+          workspaceId: 'workspace-a',
+        },
+      },
+    ]);
+  });
+
   it('drops MCP servers that are invalid for their selected transport', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {

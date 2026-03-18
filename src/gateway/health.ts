@@ -72,6 +72,7 @@ import {
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   removeGatewayAdminSchedulerJob,
+  runGatewayPluginTool,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
   setGatewayAdminSchedulerJobPaused,
@@ -127,6 +128,12 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
+type ApiPluginToolRequestBody = {
+  toolName?: unknown;
+  args?: unknown;
+  sessionId?: unknown;
+  channelId?: unknown;
+};
 
 function normalizeOptionalString(value: unknown): string | undefined {
   const normalized = typeof value === 'string' ? value.trim() : '';
@@ -703,6 +710,39 @@ async function handleApiMessageAction(
 
   const result = await runMessageToolAction(request);
   sendJson(res, 200, result);
+}
+
+async function handleApiPluginTool(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as ApiPluginToolRequestBody;
+  const toolName =
+    typeof body.toolName === 'string' ? body.toolName.trim() : '';
+  if (!toolName) {
+    sendJson(res, 400, { error: 'Missing `toolName` in request body.' });
+    return;
+  }
+  const args =
+    body.args && typeof body.args === 'object' && !Array.isArray(body.args)
+      ? (body.args as Record<string, unknown>)
+      : {};
+  try {
+    const result = await runGatewayPluginTool({
+      toolName,
+      args,
+      sessionId:
+        typeof body.sessionId === 'string' ? body.sessionId : undefined,
+      channelId:
+        typeof body.channelId === 'string' ? body.channelId : undefined,
+    });
+    sendJson(res, 200, { ok: true, result });
+  } catch (error) {
+    throw new HttpRequestError(
+      500,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 function handleApiHistory(res: ServerResponse, url: URL): void {
@@ -1542,6 +1582,10 @@ export function startHealthServer(): void {
           }
           if (pathname === '/api/message/action' && method === 'POST') {
             await handleApiMessageAction(req, res);
+            return;
+          }
+          if (pathname === '/api/plugin/tool' && method === 'POST') {
+            await handleApiPluginTool(req, res);
             return;
           }
           if (pathname === '/api/discord/action' && method === 'POST') {

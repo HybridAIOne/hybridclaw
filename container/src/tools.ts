@@ -26,6 +26,7 @@ import {
   type DelegationSideEffect,
   type DelegationTaskSpec,
   type MediaContextItem,
+  type PluginRuntimeToolDefinition,
   type ScheduleSideEffect,
   TASK_MODEL_KEYS,
   type TaskModelKey,
@@ -104,6 +105,7 @@ let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
 let mcpClientManager: McpClientManager | null = null;
+let pluginTools: PluginRuntimeToolDefinition[] = [];
 const MAX_PENDING_DELEGATIONS = 3;
 const MAX_DELEGATION_BATCH_ITEMS = 6;
 const VISION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
@@ -339,6 +341,42 @@ export function setMcpClientManager(manager: McpClientManager | null): void {
   mcpClientManager = manager;
 }
 
+export function setPluginTools(tools?: PluginRuntimeToolDefinition[]): void {
+  pluginTools = Array.isArray(tools)
+    ? tools.map((tool) => ({
+        ...tool,
+        parameters: {
+          type: 'object',
+          properties: { ...(tool.parameters?.properties || {}) },
+          required: Array.isArray(tool.parameters?.required)
+            ? [...tool.parameters.required]
+            : [],
+        },
+      }))
+    : [];
+}
+
+export function getPluginToolDefinitions(): ToolDefinition[] {
+  return pluginTools.map((tool) => ({
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: {
+        type: 'object',
+        properties: { ...(tool.parameters.properties || {}) },
+        required: [...tool.parameters.required],
+      },
+    },
+  }));
+}
+
+function getPluginToolDefinition(
+  name: string,
+): PluginRuntimeToolDefinition | undefined {
+  return pluginTools.find((tool) => tool.name === name);
+}
+
 function readStringValue(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
@@ -484,6 +522,12 @@ function resolveGatewayMessageActionUrl(): string | null {
   return `${base}/api/message/action`;
 }
 
+function resolveGatewayPluginToolUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) return null;
+  return `${base}/api/plugin/tool`;
+}
+
 async function callGatewayMessageAction(
   payload: Record<string, unknown>,
 ): Promise<string> {
@@ -565,6 +609,71 @@ async function callGatewayMessageAction(
 
   if (parsed) return JSON.stringify(parsed, null, 2);
   return rawText || JSON.stringify({ ok: true }, null, 2);
+}
+
+async function callGatewayPluginTool(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const url = resolveGatewayPluginToolUrl();
+  if (!url) {
+    return failTool(
+      'Error: plugin tools are unavailable because gatewayBaseUrl is not configured.',
+    );
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        toolName: name,
+        args,
+        sessionId: currentSessionId,
+        channelId: gatewayChannelId,
+      }),
+    });
+  } catch (err) {
+    return failTool(
+      `Error: plugin tool request failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  const rawText = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const maybe = JSON.parse(rawText) as unknown;
+    if (maybe && typeof maybe === 'object' && !Array.isArray(maybe)) {
+      parsed = maybe as Record<string, unknown>;
+    }
+  } catch {
+    parsed = null;
+  }
+
+  if (!response.ok) {
+    const errorText =
+      parsed && typeof parsed.error === 'string'
+        ? parsed.error
+        : rawText || `Plugin tool ${name} failed.`;
+    return failTool(errorText);
+  }
+
+  if (parsed) {
+    const result = parsed.result ?? parsed.output;
+    if (typeof result === 'string') return result;
+    if (result != null) return JSON.stringify(result, null, 2);
+  }
+  return rawText;
 }
 
 function normalizeDelegationTask(
@@ -1593,6 +1702,13 @@ async function executeToolInternal(
       return failTool(result.output);
     }
     return result.output;
+  }
+
+  if (getPluginToolDefinition(name)) {
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+      return failTool('Error: plugin tool arguments must be a JSON object');
+    }
+    return callGatewayPluginTool(name, args as Record<string, unknown>);
   }
 
   switch (name) {

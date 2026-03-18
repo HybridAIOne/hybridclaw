@@ -1,0 +1,39 @@
+id: honcho-memory
+name: Honcho Memory
+version: 1.0.0
+description: Async peer reasoning and long-term memory via Honcho
+kind: memory
+requires:
+  env:
+    - HONCHO_API_KEY
+install:
+  - kind: npm
+    package: "@honcho-ai/sdk"
+configSchema:
+  type: object
+  properties:
+    workspaceId:
+      type: string
+    environment:
+      type: string
+      default: production
+    autoCapture:
+      type: boolean
+      default: true
+    autoRecall:
+      type: boolean
+      default: true
+    contextQuery:
+      type: string
+      default: >-
+        Summarize what you know about this user in 3-5 sentences,
+        focusing on preferences, communication style, and ongoing goals.
+  required:
+    - workspaceId
+configUiHints:
+  workspaceId:
+    label: Workspace ID
+    placeholder: hybridclaw-prod
+  environment:
+    label: Environment
+    help: production or a self-hosted URL

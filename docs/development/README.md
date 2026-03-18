@@ -17,5 +17,7 @@ top-level contributor quickstart.
   publish flow
 - [Skills Internals](./skills.md) for skill roots, precedence, and invocation
   rules
+- [Plugin System](./plugins.md) for plugin manifests, runtime discovery,
+  config wiring, and the Honcho memory example
 - [Adaptive Skills](./adaptive-skills.md) for the self-improving skill loop,
   retention, and operator workflows

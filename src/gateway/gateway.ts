@@ -96,6 +96,7 @@ import {
   renderGatewayCommand,
   resumeEnabledFullAutoSessions,
   runGatewayScheduledTask,
+  stopGatewayPlugins,
 } from './gateway-service.js';
 import { startHealthServer } from './health.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
@@ -1388,6 +1389,9 @@ function setupShutdown(): void {
     stopDiscoveryLoop();
     stopHealthCheckLoop();
     stopAllExecutions();
+    await stopGatewayPlugins().catch((error) => {
+      logger.debug({ error }, 'Failed to stop plugins during shutdown');
+    });
     stopScheduler();
     stopMemoryConsolidationScheduler();
     if (proactiveFlushTimer) {

@@ -232,6 +232,7 @@ async function importFreshHealth(options?: {
     kind: 'plain' as const,
     text: 'ok',
   }));
+  const runGatewayPluginTool = vi.fn(async () => 'plugin-tool-result');
   const getGatewayAdminOverview = vi.fn(() => ({
     status: { status: 'ok', sessions: 2, version: '0.7.1', uptime: 60 },
     configPath: '/tmp/config.json',
@@ -596,6 +597,7 @@ async function importFreshHealth(options?: {
     getGatewayStatus,
     handleGatewayCommand,
     handleGatewayMessage,
+    runGatewayPluginTool,
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
     removeGatewayAdminSchedulerJob,
@@ -632,6 +634,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminOverview,
     getGatewayAgents,
     getGatewayAdminAgents,
+    runGatewayPluginTool,
     getGatewayAdminModels,
     getGatewayAdminScheduler,
     getGatewayAdminMcp,
@@ -1639,6 +1642,36 @@ describe('gateway health server', () => {
     );
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ ok: true });
+  });
+
+  test('dispatches plugin tool API requests through the gateway plugin runtime', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/plugin/tool',
+      body: {
+        toolName: 'honcho_query',
+        args: { question: 'What do you know?' },
+        sessionId: 'session-plugin-api',
+        channelId: 'web',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.runGatewayPluginTool).toHaveBeenCalledWith({
+      toolName: 'honcho_query',
+      args: { question: 'What do you know?' },
+      sessionId: 'session-plugin-api',
+      channelId: 'web',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      result: 'plugin-tool-result',
+    });
   });
 
   test('serves office artifacts from the agent data root with query-token auth', async () => {

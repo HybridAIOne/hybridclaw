@@ -105,6 +105,12 @@ export interface ToolSchemaProperty {
   maxItems?: number;
 }
 
+export interface PluginRuntimeToolDefinition {
+  name: string;
+  description: string;
+  parameters: ToolSchema;
+}
+
 export interface TaskModelPolicy {
   provider?:
     | 'hybridai'
@@ -188,6 +194,7 @@ export interface ContainerInput {
   blockedTools?: string[];
   media?: MediaContextItem[];
   audioTranscriptsPrepended?: boolean;
+  pluginTools?: PluginRuntimeToolDefinition[];
   mcpServers?: Record<string, McpServerConfig>;
   taskModels?: TaskModelPolicies;
   webSearch?: {

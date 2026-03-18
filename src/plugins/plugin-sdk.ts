@@ -1,0 +1,36 @@
+export type { ChannelInfo } from '../channels/channel.js';
+export type { RuntimeConfig } from '../config/runtime-config.js';
+export type { AIProvider } from '../providers/types.js';
+export type { StoredMessage } from '../types.js';
+export type {
+  HybridClawPluginApi,
+  HybridClawPluginDefinition,
+  LoadedPlugin,
+  MemoryLayerPlugin,
+  PluginAfterToolCallContext,
+  PluginCandidate,
+  PluginCommandDefinition,
+  PluginCompactionContext,
+  PluginConfigSchema,
+  PluginConfigUiHint,
+  PluginDiscoverySource,
+  PluginGatewayLifecycleContext,
+  PluginHookHandlerMap,
+  PluginHookName,
+  PluginKind,
+  PluginLogger,
+  PluginManifest,
+  PluginMemoryFlushContext,
+  PluginPromptBuildContext,
+  PluginPromptHook,
+  PluginRegistrationMode,
+  PluginRuntime,
+  PluginRuntimeToolDefinition,
+  PluginService,
+  PluginSessionResetContext,
+  PluginToolDefinition,
+  PluginToolHandlerContext,
+  PluginToolHookContext,
+  PluginToolSchema,
+  PluginToolSchemaProperty,
+} from './plugin-types.js';
