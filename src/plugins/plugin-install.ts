@@ -80,7 +80,9 @@ function defaultRunCommand({ command, args, cwd }: PluginCommand): void {
     );
   }
   if (result.signal) {
-    throw new Error(`${command} ${args.join(' ')} terminated by ${result.signal}.`);
+    throw new Error(
+      `${command} ${args.join(' ')} terminated by ${result.signal}.`,
+    );
   }
 }
 
@@ -152,7 +154,9 @@ function assertPluginManifestDir(dir: string): void {
 function collectTopLevelNodeModuleDirs(nodeModulesRoot: string): string[] {
   if (!fs.existsSync(nodeModulesRoot)) return [];
   const dirs: string[] = [];
-  for (const entry of fs.readdirSync(nodeModulesRoot, { withFileTypes: true })) {
+  for (const entry of fs.readdirSync(nodeModulesRoot, {
+    withFileTypes: true,
+  })) {
     if (entry.name === '.bin') continue;
     if (entry.name.startsWith('@') && entry.isDirectory()) {
       const scopeRoot = path.join(nodeModulesRoot, entry.name);
@@ -268,7 +272,8 @@ function getRequiredConfigKeys(manifest: PluginManifest): string[] {
   const required = manifest.configSchema?.required;
   if (!Array.isArray(required)) return [];
   return required.filter(
-    (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
+    (entry): entry is string =>
+      typeof entry === 'string' && entry.trim().length > 0,
   );
 }
 
@@ -309,11 +314,17 @@ export async function installPlugin(
         path.join(os.tmpdir(), 'hybridclaw-plugin-fetch-'),
       );
       cleanupDirs.push(fetchRoot);
-      sourceDir = fetchPluginDirFromNpmSpec(sourceRef.spec, fetchRoot, runCommand);
+      sourceDir = fetchPluginDirFromNpmSpec(
+        sourceRef.spec,
+        fetchRoot,
+        runCommand,
+      );
     }
 
     assertPluginManifestDir(sourceDir);
-    const manifest = loadPluginManifest(path.join(sourceDir, MANIFEST_FILE_NAME));
+    const manifest = loadPluginManifest(
+      path.join(sourceDir, MANIFEST_FILE_NAME),
+    );
     const pluginDir = path.join(installRoot, manifest.id);
 
     if (fs.existsSync(pluginDir)) {
@@ -386,7 +397,10 @@ export async function uninstallPlugin(
     fs.rmSync(pluginDir, { recursive: true, force: true });
   }
 
-  const removedConfigOverrides = countPluginConfigOverrides(pluginId, getConfig());
+  const removedConfigOverrides = countPluginConfigOverrides(
+    pluginId,
+    getConfig(),
+  );
   if (removedConfigOverrides > 0) {
     updateConfig((draft) => {
       draft.plugins.list = draft.plugins.list.filter(

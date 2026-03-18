@@ -37,8 +37,8 @@ import type {
   PluginRegistrationMode,
   PluginRuntimeToolDefinition,
   PluginService,
-  PluginSummary,
   PluginSessionResetContext,
+  PluginSummary,
   PluginToolDefinition,
   PluginToolHandlerContext,
   PluginToolSchema,
@@ -902,7 +902,10 @@ export class PluginManager {
       tools: new Map(this.tools),
       commands: new Map(this.commands),
       hooks: new Map(
-        [...this.hooks.entries()].map(([name, entries]) => [name, [...entries]]),
+        [...this.hooks.entries()].map(([name, entries]) => [
+          name,
+          [...entries],
+        ]),
       ),
       registeredChannels: listChannels(),
     };
@@ -919,7 +922,10 @@ export class PluginManager {
     this.tools = new Map(snapshot.tools);
     this.commands = new Map(snapshot.commands);
     this.hooks = new Map(
-      [...snapshot.hooks.entries()].map(([name, entries]) => [name, [...entries]]),
+      [...snapshot.hooks.entries()].map(([name, entries]) => [
+        name,
+        [...entries],
+      ]),
     );
 
     for (const channel of listChannels()) {

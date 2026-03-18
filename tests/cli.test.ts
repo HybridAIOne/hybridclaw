@@ -676,31 +676,28 @@ describe('CLI hybridai commands', () => {
   });
 
   it('lists discovered plugins with status, tools, hooks, and errors', async () => {
-    const {
-      cli,
-      ensurePluginManagerInitialized,
-      listPluginSummary,
-    } = await importFreshCli({
-      pluginListSummary: [
-        {
-          id: 'demo-plugin',
-          name: 'Demo Plugin',
-          version: '1.0.0',
-          source: 'project',
-          enabled: true,
-          tools: ['demo_echo'],
-          hooks: ['demo-hook'],
-        },
-        {
-          id: 'broken-plugin',
-          source: 'home',
-          enabled: true,
-          error: 'register exploded',
-          tools: [],
-          hooks: [],
-        },
-      ],
-    });
+    const { cli, ensurePluginManagerInitialized, listPluginSummary } =
+      await importFreshCli({
+        pluginListSummary: [
+          {
+            id: 'demo-plugin',
+            name: 'Demo Plugin',
+            version: '1.0.0',
+            source: 'project',
+            enabled: true,
+            tools: ['demo_echo'],
+            hooks: ['demo-hook'],
+          },
+          {
+            id: 'broken-plugin',
+            source: 'home',
+            enabled: true,
+            error: 'register exploded',
+            tools: [],
+            hooks: [],
+          },
+        ],
+      });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await cli.main(['plugin', 'list']);
@@ -747,10 +744,7 @@ describe('CLI hybridai commands', () => {
   });
 
   it('installs a plugin and leaves runtime config for optional overrides', async () => {
-    const {
-      cli,
-      installPlugin,
-    } = await importFreshCli({
+    const { cli, installPlugin } = await importFreshCli({
       pluginInstallResult: {
         pluginId: 'example-plugin',
         pluginDir: '/tmp/.hybridclaw/plugins/example-plugin',
@@ -763,11 +757,7 @@ describe('CLI hybridai commands', () => {
     });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cli.main([
-      'plugin',
-      'install',
-      '@scope/hybridclaw-plugin-example',
-    ]);
+    await cli.main(['plugin', 'install', '@scope/hybridclaw-plugin-example']);
 
     expect(installPlugin).toHaveBeenCalledWith(
       '@scope/hybridclaw-plugin-example',
@@ -782,9 +772,7 @@ describe('CLI hybridai commands', () => {
       'Required env vars: EXAMPLE_PLUGIN_TOKEN',
     );
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'Add a plugins.list[] override in ',
-      ),
+      expect.stringContaining('Add a plugins.list[] override in '),
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('to set required config keys: workspaceId'),
@@ -1522,7 +1510,9 @@ describe('CLI hybridai commands', () => {
 
     expect(process.env.HYBRIDCLAW_LOG_REQUESTS).toBe('1');
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('request_log stores best-effort redacted prompts'),
+      expect.stringContaining(
+        'request_log stores best-effort redacted prompts',
+      ),
     );
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Treat this log as potentially sensitive.'),

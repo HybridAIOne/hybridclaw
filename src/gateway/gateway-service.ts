@@ -113,12 +113,12 @@ import {
   updateSessionShowMode,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
+import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
+import { uninstallPlugin } from '../plugins/plugin-install.js';
 import {
   ensurePluginManagerInitialized,
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
-import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
-import { uninstallPlugin } from '../plugins/plugin-install.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
@@ -391,9 +391,10 @@ function sanitizeRequestLogToolExecutions(
   return toolExecutions.map((execution) => {
     const { arguments: rawArguments, ...executionWithoutArguments } = execution;
     return {
-      ...(sanitizeRequestLogValue(
-        executionWithoutArguments,
-      ) as Omit<ToolExecution, 'arguments'>),
+      ...(sanitizeRequestLogValue(executionWithoutArguments) as Omit<
+        ToolExecution,
+        'arguments'
+      >),
       arguments: sanitizeRequestLogToolArguments(execution.name, rawArguments),
     };
   });
@@ -5510,7 +5511,10 @@ export async function handleGatewayCommand(
             );
           }
         }
-        return badCommand('Usage', 'Usage: `plugin list|uninstall <plugin-id>`');
+        return badCommand(
+          'Usage',
+          'Usage: `plugin list|uninstall <plugin-id>`',
+        );
       }
 
       case 'clear': {

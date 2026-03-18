@@ -8,41 +8,41 @@ const {
   uninstallPluginMock,
   pluginManagerMock,
 } = vi.hoisted(() => {
-    const pluginManager = {
-      collectPromptContext: vi.fn(async () => ['plugin-memory-context']),
-      getToolDefinitions: vi.fn(() => [
-        {
-          name: 'memory_lookup',
-          description: 'Query plugin memory',
-          parameters: {
-            type: 'object' as const,
-            properties: {
-              question: { type: 'string' },
-            },
-            required: ['question'],
+  const pluginManager = {
+    collectPromptContext: vi.fn(async () => ['plugin-memory-context']),
+    getToolDefinitions: vi.fn(() => [
+      {
+        name: 'memory_lookup',
+        description: 'Query plugin memory',
+        parameters: {
+          type: 'object' as const,
+          properties: {
+            question: { type: 'string' },
           },
+          required: ['question'],
         },
-      ]),
-      notifyBeforeAgentStart: vi.fn(async () => {}),
-      notifyTurnComplete: vi.fn(async () => {}),
-      notifyAgentEnd: vi.fn(async () => {}),
-      handleSessionReset: vi.fn(async () => {}),
-      notifySessionStart: vi.fn(async () => {}),
-      listPluginSummary: vi.fn(() => []),
-    };
-    return {
-      runAgentMock: vi.fn(),
-      ensurePluginManagerInitializedMock: vi.fn(async () => pluginManager),
-      shutdownPluginManagerMock: vi.fn(async () => {}),
-      uninstallPluginMock: vi.fn(async () => ({
-        pluginId: 'demo-plugin',
-        pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
-        removedPluginDir: true,
-        removedConfigOverrides: 1,
-      })),
-      pluginManagerMock: pluginManager,
-    };
-  });
+      },
+    ]),
+    notifyBeforeAgentStart: vi.fn(async () => {}),
+    notifyTurnComplete: vi.fn(async () => {}),
+    notifyAgentEnd: vi.fn(async () => {}),
+    handleSessionReset: vi.fn(async () => {}),
+    notifySessionStart: vi.fn(async () => {}),
+    listPluginSummary: vi.fn(() => []),
+  };
+  return {
+    runAgentMock: vi.fn(),
+    ensurePluginManagerInitializedMock: vi.fn(async () => pluginManager),
+    shutdownPluginManagerMock: vi.fn(async () => {}),
+    uninstallPluginMock: vi.fn(async () => ({
+      pluginId: 'demo-plugin',
+      pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
+      removedPluginDir: true,
+      removedConfigOverrides: 1,
+    })),
+    pluginManagerMock: pluginManager,
+  };
+});
 
 vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,

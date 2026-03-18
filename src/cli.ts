@@ -3849,7 +3849,9 @@ async function handlePluginCommand(args: string[]): Promise<void> {
         `Plugin ${result.pluginId} is already present at ${result.pluginDir}.`,
       );
     } else {
-      console.log(`Installed plugin ${result.pluginId} to ${result.pluginDir}.`);
+      console.log(
+        `Installed plugin ${result.pluginId} to ${result.pluginDir}.`,
+      );
     }
     if (result.dependenciesInstalled) {
       console.log('Installed plugin npm dependencies.');
@@ -3893,7 +3895,9 @@ async function handlePluginCommand(args: string[]): Promise<void> {
     const { uninstallPlugin } = await import('./plugins/plugin-install.js');
     const result = await uninstallPlugin(pluginId);
     if (result.removedPluginDir) {
-      console.log(`Uninstalled plugin ${result.pluginId} from ${result.pluginDir}.`);
+      console.log(
+        `Uninstalled plugin ${result.pluginId} from ${result.pluginDir}.`,
+      );
     } else {
       console.log(
         `Removed plugin overrides for ${result.pluginId}; no installed plugin directory was present at ${result.pluginDir}.`,
@@ -3910,18 +3914,17 @@ async function handlePluginCommand(args: string[]): Promise<void> {
         `No plugins.list[] overrides were removed from ${runtimeConfigPath()}.`,
       );
     }
-    console.log('Restart the gateway to unload plugin changes if it is running:');
+    console.log(
+      'Restart the gateway to unload plugin changes if it is running:',
+    );
     console.log('  hybridclaw gateway restart --foreground');
     console.log('  hybridclaw gateway status');
     return;
   }
-
-  {
-    printPluginUsage();
-    throw new Error(
-      `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\`, \`hybridclaw plugin install <path|npm-spec>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
-    );
-  }
+  printPluginUsage();
+  throw new Error(
+    `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\`, \`hybridclaw plugin install <path|npm-spec>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
+  );
 }
 
 export async function main(

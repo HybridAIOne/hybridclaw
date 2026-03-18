@@ -226,7 +226,9 @@ export function mapCanonicalCommandToGatewayArgs(
       if (!sub || sub === 'list') return ['plugin', 'list'];
       if (sub === 'uninstall') {
         const pluginId = (parts[2] || '').trim();
-        return pluginId ? ['plugin', 'uninstall', pluginId] : ['plugin', 'uninstall'];
+        return pluginId
+          ? ['plugin', 'uninstall', pluginId]
+          : ['plugin', 'uninstall'];
       }
       return null;
     }

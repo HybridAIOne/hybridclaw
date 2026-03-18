@@ -107,9 +107,9 @@ describe('plugin install', () => {
       requiresEnv: ['DEMO_PLUGIN_KEY'],
       requiredConfigKeys: ['workspaceId'],
     });
-    expect(fs.existsSync(path.join(installedDir, 'hybridclaw.plugin.yaml'))).toBe(
-      true,
-    );
+    expect(
+      fs.existsSync(path.join(installedDir, 'hybridclaw.plugin.yaml')),
+    ).toBe(true);
     expect(fs.existsSync(path.join(installedDir, 'index.js'))).toBe(true);
     expect(fs.existsSync(path.join(installedDir, 'node_modules'))).toBe(false);
     expect(fs.existsSync(path.join(installedDir, '.git'))).toBe(false);
@@ -163,9 +163,9 @@ describe('plugin install', () => {
     expect(result.pluginDir).toBe(installedDir);
     expect(result.alreadyInstalled).toBe(false);
     expect(result.dependenciesInstalled).toBe(true);
-    expect(fs.existsSync(path.join(installedDir, 'hybridclaw.plugin.yaml'))).toBe(
-      true,
-    );
+    expect(
+      fs.existsSync(path.join(installedDir, 'hybridclaw.plugin.yaml')),
+    ).toBe(true);
     expect(runCommand).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
@@ -191,7 +191,12 @@ describe('plugin install', () => {
 
   test('uninstalls a home plugin and removes matching runtime config overrides', async () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
-    const pluginDir = path.join(homeDir, '.hybridclaw', 'plugins', 'demo-plugin');
+    const pluginDir = path.join(
+      homeDir,
+      '.hybridclaw',
+      'plugins',
+      'demo-plugin',
+    );
     writePluginDir(pluginDir);
 
     let config = {
@@ -214,7 +219,9 @@ describe('plugin install', () => {
       },
     );
 
-    const { uninstallPlugin } = await import('../src/plugins/plugin-install.js');
+    const { uninstallPlugin } = await import(
+      '../src/plugins/plugin-install.js'
+    );
     const result = await uninstallPlugin('demo-plugin', {
       homeDir,
       getRuntimeConfig,
@@ -242,7 +249,9 @@ describe('plugin install', () => {
       },
     } as RuntimeConfig;
 
-    const { uninstallPlugin } = await import('../src/plugins/plugin-install.js');
+    const { uninstallPlugin } = await import(
+      '../src/plugins/plugin-install.js'
+    );
     const result = await uninstallPlugin('demo-plugin', {
       homeDir,
       getRuntimeConfig: () => structuredClone(config),
@@ -265,7 +274,9 @@ describe('plugin install', () => {
 
   test('rejects invalid plugin ids during uninstall', async () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
-    const { uninstallPlugin } = await import('../src/plugins/plugin-install.js');
+    const { uninstallPlugin } = await import(
+      '../src/plugins/plugin-install.js'
+    );
 
     await expect(
       uninstallPlugin('../demo-plugin', {
