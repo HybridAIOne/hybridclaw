@@ -546,18 +546,9 @@ function resolveClickTarget(args: Record<string, unknown>): ClickTarget {
   const text = String(args.text || '').trim();
   const selector = String(args.selector || '').trim();
 
-  const specifiedTargets = [
-    ref ? 'ref' : null,
-    selector ? 'selector' : null,
-    text ? 'text' : null,
-  ].filter((value): value is string => Boolean(value));
-  if (specifiedTargets.length > 1) {
-    throw new Error('browser_click accepts only one of ref, selector, or text');
-  }
-
+  if (text) return { raw: text, source: 'text' };
+  if (selector) return { raw: selector, source: 'selector' };
   if (!ref) {
-    if (selector) return { raw: selector, source: 'selector' };
-    if (text) return { raw: text, source: 'text' };
     throw new Error('ref is required (or provide selector or text)');
   }
   return {
@@ -1794,7 +1785,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_click',
       description:
-        'Click an element by snapshot ref (example: "@e5"). If snapshot refs are missing for JS-only clickable containers, you can fall back to a CSS selector or visible text match. Provide only one targeting field per call.',
+        'Click an element by snapshot ref (example: "@e5"). If snapshot refs are missing for JS-only clickable containers, you can fall back to a CSS selector or visible text match. For backward compatibility, if multiple targeting fields are provided, browser_click prefers text, then selector, then ref.',
       parameters: {
         type: 'object',
         properties: {

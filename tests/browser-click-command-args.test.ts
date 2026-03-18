@@ -324,7 +324,7 @@ test('browser_click accepts visible-text fallback clicks', async () => {
   expect(parsed.matched_kind).toBe('text');
 });
 
-test('browser_click rejects ambiguous targeting inputs', async () => {
+test('browser_click preserves backward-compatible text priority for mixed targets', async () => {
   tempRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-browser-click-ambiguous-'),
   );
@@ -337,15 +337,22 @@ test('browser_click rejects ambiguous targeting inputs', async () => {
 
   const output = await executeBrowserTool(
     'browser_click',
-    { ref: 'e7', text: 'Leben mit Bots' },
+    {
+      ref: 'e7',
+      selector: 'img[alt="Cover: Leben mit Bots"]',
+      text: 'Leben mit Bots',
+      exact: false,
+    },
     'session-1',
   );
   const parsed = JSON.parse(output) as Record<string, unknown>;
 
-  expect(parsed.success).toBe(false);
-  expect(parsed.error).toBe(
-    'browser_click accepts only one of ref, selector, or text',
-  );
+  expect(parsed.success).toBe(true);
+  expect(parsed.clicked).toBe('Leben mit Bots');
+  expect(parsed.text).toBe('Leben mit Bots');
+  expect(parsed.exact).toBe(false);
+  expect(parsed.ref).toBeUndefined();
+  expect(parsed.selector).toBeUndefined();
 });
 
 test('browser_click selector fallback resolves to the clickable card ancestor', async () => {
