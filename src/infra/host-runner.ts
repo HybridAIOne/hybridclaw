@@ -450,6 +450,7 @@ export async function runHostProcess(
     abortSignal,
     media,
     audioTranscriptsPrepended,
+    pluginTools,
   } = params;
 
   const { workspacePath } = getSessionPaths(sessionId, agentId);
@@ -462,6 +463,7 @@ export async function runHostProcess(
   const taskModels = await resolveTaskModelPolicies({
     agentId,
     chatbotId: modelRuntime.chatbotId,
+    sessionModel: model,
   });
 
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
@@ -511,6 +513,7 @@ export async function runHostProcess(
     blockedTools,
     media,
     audioTranscriptsPrepended,
+    pluginTools,
     mcpServers: MCP_SERVERS,
     taskModels,
     contextGuard: {

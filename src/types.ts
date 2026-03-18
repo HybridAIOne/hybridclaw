@@ -70,6 +70,29 @@ export interface McpServerConfig {
   enabled?: boolean;
 }
 
+export interface RuntimeToolSchemaProperty {
+  type: string | string[];
+  description?: string;
+  items?: RuntimeToolSchemaProperty;
+  properties?: Record<string, RuntimeToolSchemaProperty>;
+  required?: string[];
+  enum?: string[];
+  minItems?: number;
+  maxItems?: number;
+}
+
+export interface RuntimeToolSchema {
+  type: 'object';
+  properties: Record<string, RuntimeToolSchemaProperty>;
+  required: string[];
+}
+
+export interface PluginRuntimeToolDefinition {
+  name: string;
+  description: string;
+  parameters: RuntimeToolSchema;
+}
+
 export interface TaskModelPolicy {
   provider?:
     | 'hybridai'
@@ -161,6 +184,7 @@ export interface ContainerInput {
   blockedTools?: string[];
   media?: MediaContextItem[];
   audioTranscriptsPrepended?: boolean;
+  pluginTools?: PluginRuntimeToolDefinition[];
   mcpServers?: Record<string, McpServerConfig>;
   taskModels?: TaskModelPolicies;
   contextGuard?: ContextGuardConfig;

@@ -309,6 +309,17 @@ export interface RuntimeSchedulerJob {
   enabled: boolean;
 }
 
+export interface RuntimePluginConfigEntry {
+  id: string;
+  enabled: boolean;
+  path?: string;
+  config: Record<string, unknown>;
+}
+
+export interface RuntimePluginsConfig {
+  list: RuntimePluginConfigEntry[];
+}
+
 export interface RuntimeConfig {
   version: number;
   security: RuntimeSecurityConfig;
@@ -318,6 +329,7 @@ export interface RuntimeConfig {
     disabled: string[];
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
   };
+  plugins: RuntimePluginsConfig;
   adaptiveSkills: AdaptiveSkillsConfig;
   discord: {
     prefix: string;
@@ -560,6 +572,9 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     extraDirs: [],
     disabled: [],
     channelDisabled: {},
+  },
+  plugins: {
+    list: [],
   },
   adaptiveSkills: {
     enabled: false,
@@ -1243,6 +1258,46 @@ function normalizeAgentsConfig(
     defaults,
     list,
   };
+}
+
+function normalizeRuntimePluginEntry(
+  value: unknown,
+  fallback?: RuntimePluginConfigEntry,
+): RuntimePluginConfigEntry | null {
+  if (!isRecord(value)) return null;
+  const id = normalizeString(value.id, fallback?.id ?? '', {
+    allowEmpty: false,
+  });
+  if (!id) return null;
+  const config = isRecord(value.config)
+    ? cloneConfig(value.config)
+    : cloneConfig(fallback?.config ?? {});
+  const pluginPath = normalizeString(value.path, fallback?.path ?? '', {
+    allowEmpty: true,
+  });
+  return {
+    id,
+    enabled: normalizeBoolean(value.enabled, fallback?.enabled ?? true),
+    ...(pluginPath ? { path: pluginPath } : {}),
+    config,
+  };
+}
+
+function normalizeRuntimePluginsConfig(
+  value: unknown,
+  fallback: RuntimePluginsConfig,
+): RuntimePluginsConfig {
+  const raw = isRecord(value) ? value : {};
+  const listSource = Array.isArray(raw.list) ? raw.list : fallback.list;
+  const list: RuntimePluginConfigEntry[] = [];
+  const seen = new Set<string>();
+  for (const entry of listSource) {
+    const normalized = normalizeRuntimePluginEntry(entry);
+    if (!normalized || seen.has(normalized.id)) continue;
+    seen.add(normalized.id);
+    list.push(normalized);
+  }
+  return { list };
 }
 
 function normalizeStringRecord(value: unknown): Record<string, string> {
@@ -2561,6 +2616,7 @@ function normalizeRuntimeConfig(
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
+  const rawPlugins = isRecord(raw.plugins) ? raw.plugins : {};
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
     : {};
@@ -2766,6 +2822,10 @@ function normalizeRuntimeConfig(
       ),
       channelDisabled: normalizeSkillChannelDisabled(rawSkills.channelDisabled),
     },
+    plugins: normalizeRuntimePluginsConfig(
+      rawPlugins,
+      DEFAULT_RUNTIME_CONFIG.plugins,
+    ),
     adaptiveSkills: {
       enabled: normalizeBoolean(
         rawAdaptiveSkills.enabled,

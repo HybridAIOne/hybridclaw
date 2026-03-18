@@ -6,6 +6,7 @@ async function settle(): Promise<void> {
 }
 
 async function importFreshGatewayMain(options?: {
+  discordInitError?: Error;
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
   hasMSTeamsCredentials?: boolean;
@@ -88,6 +89,11 @@ async function importFreshGatewayMain(options?: {
     initializeWorkflowRuntime: vi.fn(),
     initGatewayService: vi.fn(),
     listQueuedProactiveMessages: vi.fn(() => []),
+    loggerDebug: vi.fn(),
+    loggerError: vi.fn(),
+    loggerFatal: vi.fn(),
+    loggerInfo: vi.fn(),
+    loggerWarn: vi.fn(),
     memoryServiceConsolidate: vi.fn(() => ({
       memoriesDecayed: 0,
       durationMs: 1,
@@ -129,10 +135,15 @@ async function importFreshGatewayMain(options?: {
       return vi.fn();
     },
   );
-  state.initDiscord.mockImplementation((messageHandler, commandHandler) => {
-    state.messageHandler = messageHandler;
-    state.commandHandler = commandHandler;
-  });
+  state.initDiscord.mockImplementation(
+    async (messageHandler, commandHandler) => {
+      state.messageHandler = messageHandler;
+      state.commandHandler = commandHandler;
+      if (options?.discordInitError) {
+        throw options.discordInitError;
+      }
+    },
+  );
   state.initMSTeams.mockImplementation((messageHandler, commandHandler) => {
     state.teamsMessageHandler = messageHandler;
     state.teamsCommandHandler = commandHandler;
@@ -224,11 +235,11 @@ async function importFreshGatewayMain(options?: {
   }));
   vi.doMock('../src/logger.js', () => ({
     logger: {
-      debug: vi.fn(),
-      error: vi.fn(),
-      fatal: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
+      debug: state.loggerDebug,
+      error: state.loggerError,
+      fatal: state.loggerFatal,
+      info: state.loggerInfo,
+      warn: state.loggerWarn,
     },
   }));
   vi.doMock('../src/memory/db.js', () => ({
@@ -375,6 +386,57 @@ describe('gateway bootstrap', () => {
 
     expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
     expect(state.whatsappMessageHandler).not.toBeNull();
+  });
+
+  test('keeps the gateway running when Discord startup rejects', async () => {
+    const discordInitError = Object.assign(
+      new Error('An invalid token was provided.'),
+      { code: 'TokenInvalid' },
+    );
+    const state = await importFreshGatewayMain({ discordInitError });
+
+    expect(state.initDiscord).toHaveBeenCalledTimes(1);
+    expect(state.initMSTeams).toHaveBeenCalledTimes(1);
+    expect(state.startHealthServer).toHaveBeenCalledTimes(1);
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      'Discord integration disabled: DISCORD_TOKEN was rejected by Discord. Update or clear the token and restart the gateway.',
+    );
+    expect(state.loggerError).not.toHaveBeenCalledWith(
+      { error: discordInitError },
+      'Discord integration failed to start',
+    );
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ok',
+        sessions: 1,
+        discord: false,
+        msteams: true,
+        email: false,
+        whatsapp: false,
+      }),
+      'HybridClaw gateway started',
+    );
+  });
+
+  test('logs non-token Discord startup failures as errors', async () => {
+    const discordInitError = new Error('Discord gateway unavailable');
+    const state = await importFreshGatewayMain({ discordInitError });
+
+    expect(state.initDiscord).toHaveBeenCalledTimes(1);
+    expect(state.loggerError).toHaveBeenCalledWith(
+      { error: discordInitError },
+      'Discord integration failed to start',
+    );
+    expect(state.loggerWarn).not.toHaveBeenCalledWith(
+      'Discord integration disabled: DISCORD_TOKEN was rejected by Discord. Update or clear the token and restart the gateway.',
+    );
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ok',
+        discord: false,
+      }),
+      'HybridClaw gateway started',
+    );
   });
 
   test('does not start Teams when config disables it even if credentials exist', async () => {

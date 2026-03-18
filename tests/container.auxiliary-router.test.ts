@@ -5,6 +5,8 @@ import { callAuxiliaryModel } from '../container/src/providers/auxiliary.js';
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.resetModules();
+  vi.doUnmock('../container/src/providers/router.js');
 });
 
 describe('container auxiliary router', () => {
@@ -97,6 +99,47 @@ describe('container auxiliary router', () => {
     ).rejects.toThrow(
       'browser_vision is not configured: missing active request base URL context.',
     );
+  });
+
+  test('preserves the original vision failure as the error cause', async () => {
+    const originalError = new Error(
+      'This model does not support image inputs.',
+    );
+    vi.doMock('../container/src/providers/router.js', () => ({
+      callRoutedModel: vi.fn(),
+      callVisionProviderModel: vi.fn(async () => {
+        throw originalError;
+      }),
+      extractResponseTextContent: vi.fn(),
+    }));
+
+    const { callAuxiliaryModel: callFreshAuxiliaryModel } = await import(
+      '../container/src/providers/auxiliary.js'
+    );
+
+    try {
+      await callFreshAuxiliaryModel({
+        task: 'vision',
+        fallbackContext: {
+          provider: 'openrouter',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          apiKey: 'test-key',
+          model: 'openrouter/example/visionless-model',
+          chatbotId: '',
+          requestHeaders: {},
+        },
+        question: 'What is in this image?',
+        imageDataUrl: 'data:image/png;base64,ZmFrZQ==',
+        toolName: 'vision_analyze',
+      });
+      throw new Error('Expected callAuxiliaryModel to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toBe(
+        'Model "openrouter/example/visionless-model" does not support vision/image inputs. Configure a vision-capable model via auxiliaryModels.vision in runtime config, or use a vision-enabled session model. Original error: This model does not support image inputs.',
+      );
+      expect((err as Error & { cause?: unknown }).cause).toBe(originalError);
+    }
   });
 
   test('routes compression text calls through the configured auxiliary model', async () => {

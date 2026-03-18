@@ -196,3 +196,52 @@ test('available model catalog reloads OpenRouter discovery after 60 minutes', as
     expect.arrayContaining(['openai-codex/gpt-5-codex']),
   );
 });
+
+test('vision fallback ignores OpenRouter models with image output only', async () => {
+  const homeDir = makeTempHome();
+  process.env.OPENROUTER_API_KEY = 'or-test-key';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = true;
+    config.openrouter.models = [];
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.endsWith('/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'acme/text-to-image',
+                architecture: { modality: 'text->image' },
+              },
+              {
+                id: 'zeus/vision-chat',
+                architecture: { modality: 'text+image->text' },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs();
+
+  expect(catalog.isModelVisionCapable('openrouter/acme/text-to-image')).toBe(
+    false,
+  );
+  expect(catalog.isModelVisionCapable('openrouter/zeus/vision-chat')).toBe(
+    true,
+  );
+  expect(
+    catalog.findVisionCapableModel('openrouter/acme/text-to-image'),
+  ).toBe('openrouter/zeus/vision-chat');
+});

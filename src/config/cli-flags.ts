@@ -2,12 +2,14 @@ export type SandboxModeOverride = 'container' | 'host';
 export type UnsupportedGatewayLifecycleFlag =
   | 'foreground'
   | 'sandbox'
-  | 'debug';
+  | 'debug'
+  | 'log-requests';
 
 export interface ParsedGatewayFlags {
   debug: boolean;
   foreground: boolean;
   help: boolean;
+  logRequests: boolean;
   sandboxMode: SandboxModeOverride | null;
 }
 
@@ -32,6 +34,10 @@ function isDebugFlag(arg: string): boolean {
   return String(arg || '').trim() === '--debug';
 }
 
+function isLogRequestsFlag(arg: string): boolean {
+  return String(arg || '').trim() === '--log-requests';
+}
+
 function hasSandboxFlag(argv: string[]): boolean {
   return argv.some((arg) => isSandboxFlag(arg));
 }
@@ -42,6 +48,10 @@ function hasForegroundFlag(argv: string[]): boolean {
 
 function hasDebugFlag(argv: string[]): boolean {
   return argv.some((arg) => isDebugFlag(arg));
+}
+
+function hasLogRequestsFlag(argv: string[]): boolean {
+  return argv.some((arg) => isLogRequestsFlag(arg));
 }
 
 export function findUnsupportedGatewayLifecycleFlag(
@@ -56,6 +66,7 @@ export function findUnsupportedGatewayLifecycleFlag(
   if (hasSandboxFlag(argv)) return 'sandbox';
   if (hasForegroundFlag(argv)) return 'foreground';
   if (hasDebugFlag(argv)) return 'debug';
+  if (hasLogRequestsFlag(argv)) return 'log-requests';
   return null;
 }
 
@@ -63,6 +74,7 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
   let debug = false;
   let foreground = false;
   let help = false;
+  let logRequests = false;
   let sandboxMode: SandboxModeOverride | null = null;
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -76,6 +88,11 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
 
     if (isDebugFlag(arg)) {
       debug = true;
+      continue;
+    }
+
+    if (isLogRequestsFlag(arg)) {
+      logRequests = true;
       continue;
     }
 
@@ -111,5 +128,5 @@ export function parseGatewayFlags(argv: string[]): ParsedGatewayFlags {
     throw new Error(`Unexpected gateway lifecycle option: ${arg}`);
   }
 
-  return { debug, foreground, help, sandboxMode };
+  return { debug, foreground, help, logRequests, sandboxMode };
 }

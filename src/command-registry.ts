@@ -65,6 +65,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'channel',
   'ralph',
   'mcp',
+  'plugin',
   'clear',
   'reset',
   'compact',
@@ -219,6 +220,18 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'mcp':
       return parts.length > 1 ? ['mcp', ...parts.slice(1)] : ['mcp', 'list'];
+
+    case 'plugin': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub || sub === 'list') return ['plugin', 'list'];
+      if (sub === 'uninstall') {
+        const pluginId = (parts[2] || '').trim();
+        return pluginId
+          ? ['plugin', 'uninstall', pluginId]
+          : ['plugin', 'uninstall'];
+      }
+      return null;
+    }
 
     case 'fullauto':
       return parts.length > 1 ? ['fullauto', ...parts.slice(1)] : ['fullauto'];
@@ -552,6 +565,31 @@ function buildSlashCommandCatalogDefinitions(
       tuiMenu: {
         aliases: ['h'],
       },
+    },
+    {
+      name: 'plugin',
+      description: 'List or uninstall HybridClaw plugins',
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'list',
+          description: 'List discovered plugins, tools, hooks, and load errors',
+        },
+        {
+          kind: 'subcommand',
+          name: 'uninstall',
+          description:
+            'Remove a home-installed plugin and matching runtime config overrides',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Plugin id to uninstall',
+              required: true,
+            },
+          ],
+        },
+      ],
     },
     {
       name: 'bot',
@@ -1218,6 +1256,16 @@ export function parseCanonicalSlashCommandArgs(
         const name = normalizeStringOption(interaction, 'name', true);
         const config = normalizeStringOption(interaction, 'config', true);
         return name && config ? ['mcp', 'add', name, config] : null;
+      }
+      return null;
+    }
+
+    case 'plugin': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (subcommand === 'list') return ['plugin', 'list'];
+      if (subcommand === 'uninstall') {
+        const pluginId = normalizeStringOption(interaction, 'id', true);
+        return pluginId ? ['plugin', 'uninstall', pluginId] : null;
       }
       return null;
     }

@@ -12,6 +12,7 @@ const ORIGINAL_AUXILIARY_COMPRESSION_PROVIDER =
   process.env.AUXILIARY_COMPRESSION_PROVIDER;
 const ORIGINAL_AUXILIARY_COMPRESSION_MODEL =
   process.env.AUXILIARY_COMPRESSION_MODEL;
+const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-task-routing-'));
@@ -68,6 +69,7 @@ afterEach(() => {
     'AUXILIARY_COMPRESSION_MODEL',
     ORIGINAL_AUXILIARY_COMPRESSION_MODEL,
   );
+  restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
 });
 
 test('resolves configured vision task model policy on the host', async () => {
@@ -262,6 +264,180 @@ test('warns when task model policy resolution fails and returns a deferred error
       err: expect.any(Error),
     }),
     'Failed to resolve auxiliary task model policy',
+  );
+});
+
+test('discovers OpenRouter vision models before choosing a fallback on cold start', async () => {
+  const homeDir = makeTempHome();
+  process.env.OPENROUTER_API_KEY = 'or-task-routing-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = true;
+    config.openrouter.models = [];
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+    config.auxiliaryModels.vision.model = '';
+    config.auxiliaryModels.vision.provider = 'auto';
+    config.auxiliaryModels.vision.maxTokens = 654;
+  });
+
+  const fetchMock = vi.fn(async (input: string) => {
+    if (input.endsWith('/models')) {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'acme/text-only',
+              architecture: { modality: 'text->text' },
+            },
+            {
+              id: 'zeus/vision-chat',
+              architecture: { modality: 'text+image->text' },
+              context_length: 262_144,
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const taskRouting = await importFreshTaskRouting(homeDir);
+  const policy = await taskRouting.resolveTaskModelPolicy('vision', {
+    agentId: 'main',
+    sessionModel: 'openrouter/acme/text-only',
+  });
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(policy).toMatchObject({
+    provider: 'openrouter',
+    apiKey: 'or-task-routing-test',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'openrouter/zeus/vision-chat',
+    chatbotId: '',
+    requestHeaders: {
+      'HTTP-Referer': 'https://github.com/hybridaione/hybridclaw',
+      'X-OpenRouter-Title': 'HybridClaw',
+      'X-OpenRouter-Categories': 'cli-agent,general-chat',
+      'X-Title': 'HybridClaw',
+    },
+    isLocal: false,
+    contextWindow: 262_144,
+    maxTokens: 654,
+  });
+});
+
+test('warns when no vision fallback is available after OpenRouter discovery refresh', async () => {
+  const homeDir = makeTempHome();
+  process.env.OPENROUTER_API_KEY = 'or-task-routing-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = true;
+    config.openrouter.models = ['openrouter/acme/text-only'];
+    config.hybridai.defaultModel = 'gpt-5-nano';
+    config.hybridai.models = ['gpt-5-nano'];
+    config.codex.models = ['openai-codex/gpt-5.3-codex-spark'];
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+    config.auxiliaryModels.vision.model = '';
+    config.auxiliaryModels.vision.provider = 'auto';
+  });
+
+  const warn = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn,
+      info: vi.fn(),
+    },
+  }));
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.endsWith('/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'acme/text-only',
+                architecture: { modality: 'text->text' },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const taskRouting = await importFreshTaskRouting(homeDir);
+  const policy = await taskRouting.resolveTaskModelPolicy('vision', {
+    agentId: 'main',
+    sessionModel: 'openrouter/acme/text-only',
+  });
+
+  expect(policy).toMatchObject({
+    provider: 'openrouter',
+    model: 'openrouter/acme/text-only',
+    error:
+      'Session model "openrouter/acme/text-only" does not support vision/image inputs, and no vision-capable fallback model is available.',
+  });
+  expect(warn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      task: 'vision',
+      sessionModel: 'openrouter/acme/text-only',
+      openrouterDiscoveredModels: 1,
+    }),
+    'Session model lacks vision support and no capable fallback model is available',
+  );
+});
+
+test('returns a deferred policy error when fallback credential resolution fails', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.hybridai.defaultModel = 'gpt-5-nano';
+    config.hybridai.models = ['gpt-5-nano'];
+    config.codex.models = ['openai-codex/gpt-5.1-codex-max'];
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+    config.auxiliaryModels.vision.model = '';
+    config.auxiliaryModels.vision.provider = 'auto';
+  });
+
+  const warn = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn,
+      info: vi.fn(),
+    },
+  }));
+
+  const taskRouting = await importFreshTaskRouting(homeDir);
+  const policy = await taskRouting.resolveTaskModelPolicy('vision', {
+    agentId: 'main',
+    sessionModel: 'gpt-5-nano',
+  });
+
+  expect(policy).toMatchObject({
+    provider: 'openai-codex',
+    model: 'openai-codex/gpt-5.1-codex-max',
+    error: expect.stringContaining(
+      'Session model "gpt-5-nano" does not support vision/image inputs, and fallback model "openai-codex/gpt-5.1-codex-max" could not be resolved:',
+    ),
+  });
+  expect(policy?.error).toContain('No Codex credentials are stored.');
+  expect(warn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      task: 'vision',
+      visionFallback: 'openai-codex/gpt-5.1-codex-max',
+      err: expect.any(Error),
+    }),
+    'Failed to resolve vision fallback model credentials',
   );
 });
 

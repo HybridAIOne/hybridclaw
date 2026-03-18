@@ -21,6 +21,8 @@ and Apple apps.
 Operators can also health-check the runtime with `hybridclaw doctor`, tune
 skill availability globally or per channel, and review adaptive skill health
 and amendment history from the CLI, TUI, or admin surfaces.
+For turn-level debugging, gateway start/restart can also persist best-effort
+redacted prompts, responses, and tool payloads with `--log-requests`.
 
 ## Install from npm
 
@@ -44,8 +46,10 @@ container sandbox.
 ## Architecture
 
 - **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, and channel integrations for Discord, Microsoft Teams, WhatsApp, and email
-- **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`)
-- **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, and preinstalled browser automation runtime
+- **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
+  a structured startup banner that surfaces model, sandbox, gateway, and
+  chatbot context before the first prompt
+- **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, and preinstalled browser automation runtime with cursor-aware snapshots for JS-heavy custom UI
 - Communication via file-based IPC (input.json / output.json)
 
 ## Quick start
@@ -230,6 +234,10 @@ disk state in parallel.
   automation while still returning exit code `1` if errors remain.
 - `hybridclaw doctor docker`, `hybridclaw doctor providers`, and the other
   category names narrow the report to one subsystem.
+- `hybridclaw gateway start --log-requests` or
+  `hybridclaw gateway restart --log-requests` persists best-effort redacted
+  prompts, responses, and tool payloads to SQLite `request_log` for
+  turn-level debugging. Treat that table as sensitive operator data.
 
 ## Local Provider Quickstart (LM Studio Example)
 
@@ -422,8 +430,8 @@ Without these tools, the office skills still create and edit `.docx`, `.xlsx`, a
 CLI runtime commands:
 
 - `hybridclaw --version` / `-v` — Print installed HybridClaw version
-- `hybridclaw gateway start [--foreground] [--sandbox=container|host]` — Start gateway (backend by default; foreground with flag)
-- `hybridclaw gateway restart [--foreground] [--sandbox=container|host]` — Restart managed gateway backend process
+- `hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--sandbox=container|host]` — Start gateway (backend by default; foreground with flag)
+- `hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]` — Restart managed gateway backend process
 - `hybridclaw gateway stop` — Stop managed gateway backend process
 - `hybridclaw gateway status` — Show lifecycle/API status
 - `hybridclaw gateway <command...>` — Send a command to a running gateway (for example `sessions`, `bot info`)
@@ -483,8 +491,9 @@ In Discord, use `!claw help` or the slash commands. Key ones:
 - `!claw schedule add every <ms> <prompt>` — Add interval task
 
 In the TUI, typing `/` opens the slash-command menu with inline filtering and
-help aliases, while pressing Up/Down on an empty prompt recalls earlier
-prompts. Use `/agent`, `/agent list`, `/agent switch <id>`, `/agent create
+help aliases, while the startup banner summarizes the active model, sandbox,
+gateway, provider, and chatbot context before the first prompt. Pressing
+Up/Down on an empty prompt recalls earlier prompts. Use `/agent`, `/agent list`, `/agent switch <id>`, `/agent create
 <id> [--model <model>]`, and `/agent model [name]` for agent control. Use
 `/model set <name>` for a session-only override, `/model clear` to fall back to
 the agent/default model chain, and `/model info` to inspect the active scope.

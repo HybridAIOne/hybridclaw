@@ -3,6 +3,42 @@ interface HybridAIModel {
   contextWindowTokens: number | null;
 }
 
+// Models known to accept image_url content parts (vision-capable).
+// Keep in sync with upstream provider documentation.
+const STATIC_VISION_CAPABLE_MODELS = new Set<string>([
+  // GPT-5 family (vision-enabled variants)
+  'gpt-5',
+  'gpt-5-mini',
+  'gpt-5-pro',
+  'gpt-5.1',
+  'gpt-5.1-codex',
+  'gpt-5.1-codex-max',
+  'gpt-5.1-codex-mini',
+  'gpt-5.2',
+  'gpt-5.2-codex',
+  'gpt-5.2-pro',
+  'gpt-5.3-codex',
+  'gpt-5.4',
+
+  // Claude family
+  'claude-opus-4-6',
+  'claude-opus-4.6',
+  'claude-sonnet-4-6',
+  'claude-sonnet-4.6',
+
+  // Gemini family
+  'gemini-3',
+  'gemini-3-pro',
+  'gemini-3-flash',
+  'gemini-3.1',
+  'gemini-3.1-pro',
+  'gemini-3.1-pro-high',
+  'gemini-3.1-pro-low',
+  'gemini-3-pro-preview',
+  'gemini-3-flash-preview',
+  'gemini-3.1-pro-preview',
+]);
+
 // Source: ../../examples/pi-mono/packages/ai/src/models.generated.ts
 // Keep this list intentionally small and focused on the GPT-5 family we use.
 const STATIC_MODEL_CONTEXT_WINDOWS: Record<string, number> = {
@@ -45,6 +81,46 @@ const STATIC_MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'gpt-5.3-codex-spark': 128_000,
 };
 
+function collectModelLookupCandidates(modelName: string): string[] {
+  const normalized = modelName.trim().toLowerCase();
+  if (!normalized) return [];
+
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  const queue = [normalized];
+
+  while (queue.length > 0) {
+    const candidate = queue.shift()?.trim().toLowerCase() ?? '';
+    if (!candidate || seen.has(candidate)) continue;
+
+    candidates.push(candidate);
+    seen.add(candidate);
+
+    if (candidate.includes('/')) {
+      queue.push(candidate.split('/').at(-1) ?? '');
+    }
+
+    if (candidate.includes(':')) {
+      queue.push(...candidate.split(':'));
+    }
+  }
+
+  return candidates;
+}
+
+function matchesModelFamily(candidateId: string, targetId: string): boolean {
+  if (!candidateId || !targetId) return false;
+  if (candidateId === targetId) return true;
+  const boundary = candidateId.at(targetId.length);
+  return (
+    candidateId.startsWith(targetId) &&
+    (boundary === '-' ||
+      boundary === '.' ||
+      boundary === ':' ||
+      boundary === '/')
+  );
+}
+
 export function resolveModelContextWindowFromList(
   models: HybridAIModel[],
   modelName: string,
@@ -54,21 +130,6 @@ export function resolveModelContextWindowFromList(
     return normalized.includes('/')
       ? (normalized.split('/').at(-1) ?? normalized)
       : normalized;
-  };
-  const matchesModelFamily = (
-    candidateId: string,
-    targetId: string,
-  ): boolean => {
-    if (!candidateId || !targetId) return false;
-    if (candidateId === targetId) return true;
-    const boundary = candidateId.at(targetId.length);
-    return (
-      candidateId.startsWith(targetId) &&
-      (boundary === '-' ||
-        boundary === '.' ||
-        boundary === ':' ||
-        boundary === '/')
-    );
   };
 
   const target = modelName.trim().toLowerCase();
@@ -109,45 +170,17 @@ export function resolveModelContextWindowFromList(
 export function resolveModelContextWindowFallback(
   modelName: string,
 ): number | null {
-  const matchesModelFamily = (
-    candidateId: string,
-    targetId: string,
-  ): boolean => {
-    if (!candidateId || !targetId) return false;
-    if (candidateId === targetId) return true;
-    const boundary = candidateId.at(targetId.length);
-    return (
-      candidateId.startsWith(targetId) &&
-      (boundary === '-' ||
-        boundary === '.' ||
-        boundary === ':' ||
-        boundary === '/')
-    );
-  };
+  const candidates = collectModelLookupCandidates(modelName);
+  if (candidates.length === 0) return null;
 
-  const normalized = modelName.trim().toLowerCase();
-  if (!normalized) return null;
-
-  const direct = STATIC_MODEL_CONTEXT_WINDOWS[normalized];
-  if (direct != null) return direct;
-
-  const slashTail = normalized.includes('/')
-    ? (normalized.split('/').at(-1) ?? '')
-    : normalized;
-  if (slashTail && STATIC_MODEL_CONTEXT_WINDOWS[slashTail] != null) {
-    return STATIC_MODEL_CONTEXT_WINDOWS[slashTail];
+  for (const candidate of candidates) {
+    const direct = STATIC_MODEL_CONTEXT_WINDOWS[candidate];
+    if (direct != null) return direct;
   }
 
-  const colonTail = normalized.includes(':')
-    ? (normalized.split(':').at(-1) ?? '')
-    : normalized;
-  if (colonTail && STATIC_MODEL_CONTEXT_WINDOWS[colonTail] != null) {
-    return STATIC_MODEL_CONTEXT_WINDOWS[colonTail];
-  }
-
-  // Family fallback for versioned ids, e.g. "gpt-5.1-2025-11-13".
-  const familyCandidates = [slashTail, colonTail, normalized].filter(Boolean);
-  for (const candidate of familyCandidates) {
+  // Family fallback for derived ids such as "gpt-5.1-2025-11-13" or
+  // provider/tag forms like "openai/gpt-5:latest".
+  for (const candidate of candidates) {
     const bestMatch = Object.keys(STATIC_MODEL_CONTEXT_WINDOWS)
       .filter((key) => matchesModelFamily(candidate, key))
       .sort((a, b) => b.length - a.length)
@@ -156,4 +189,16 @@ export function resolveModelContextWindowFallback(
   }
 
   return null;
+}
+
+/**
+ * Returns true if the model is known to support vision (image_url content
+ * parts) based on the static capability list.  Strips provider prefixes and
+ * colon-separated suffixes so that ids like "openai-codex/gpt-5" or
+ * "gpt-5:latest" still match.
+ */
+export function isStaticModelVisionCapable(modelName: string): boolean {
+  return collectModelLookupCandidates(modelName).some((candidate) =>
+    STATIC_VISION_CAPABLE_MODELS.has(candidate),
+  );
 }

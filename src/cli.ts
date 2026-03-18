@@ -54,6 +54,7 @@ import {
   ensureGatewayRunDir,
   GATEWAY_LOG_FILE_ENV,
   GATEWAY_LOG_PATH,
+  GATEWAY_LOG_REQUESTS_ENV,
   GATEWAY_STDIO_TO_LOG_ENV,
   type GatewayPidState,
   isPidRunning,
@@ -62,6 +63,7 @@ import {
   writeGatewayPid,
 } from './gateway/gateway-lifecycle.js';
 import { ensureRuntimeCredentials } from './onboarding.js';
+import { formatPluginSummaryList } from './plugins/plugin-formatting.js';
 import type { LocalBackendType } from './providers/local-types.js';
 import {
   runtimeSecretsPath,
@@ -75,6 +77,8 @@ import type {
 import { printUpdateUsage, runUpdateCommand } from './update.js';
 import { sleep } from './utils/sleep.js';
 
+const GATEWAY_LOG_REQUESTS_WARNING =
+  'Gateway request logging enabled. request_log stores best-effort redacted prompts, responses, and tool payloads for debugging. Treat this log as potentially sensitive.';
 const PACKAGE_NAME = '@hybridaione/hybridclaw';
 let cachedInstallRoot: string | null = null;
 let foregroundGatewayExitHandler: (() => void) | null = null;
@@ -445,6 +449,7 @@ function printMainUsage(): void {
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, WhatsApp, Email)
+  plugin     Manage HybridClaw plugins
   skill      List skill dependency installers or run one
   update     Check and apply HybridClaw CLI updates
   audit      Inspect/verify structured audit trail
@@ -461,8 +466,8 @@ function printGatewayUsage(): void {
 
 Commands:
   hybridclaw gateway
-  hybridclaw gateway start [--foreground] [--debug] [--sandbox=container|host]
-  hybridclaw gateway restart [--foreground] [--debug] [--sandbox=container|host]
+  hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
+  hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
   hybridclaw gateway stop
   hybridclaw gateway status
   hybridclaw gateway sessions
@@ -802,6 +807,29 @@ Notes:
   - \`install\` runs one declared installer (brew, uv, npm, go, download).`);
 }
 
+function printPluginUsage(): void {
+  console.log(`Usage: hybridclaw plugin <command>
+
+Commands:
+  hybridclaw plugin list
+  hybridclaw plugin install <path|npm-spec>
+  hybridclaw plugin uninstall <plugin-id>
+
+Examples:
+  hybridclaw plugin list
+  hybridclaw plugin install ./plugins/example-plugin
+  hybridclaw plugin install @scope/hybridclaw-plugin-example
+  hybridclaw plugin uninstall example-plugin
+
+Notes:
+  - Plugins install into \`~/.hybridclaw/plugins/<plugin-id>\`.
+  - Valid plugins in \`~/.hybridclaw/plugins/\` or \`./.hybridclaw/plugins/\` auto-discover at runtime.
+  - \`list\` shows discovered plugin status, source, tools, hooks, and load errors.
+  - \`install\` validates \`hybridclaw.plugin.yaml\` and installs npm dependencies when needed.
+  - \`uninstall\` removes the home-installed plugin directory and matching \`plugins.list[]\` overrides.
+  - Use ${runtimeConfigPath()} only for plugin overrides such as disable flags, config values, or custom paths.`);
+}
+
 function printHelpUsage(): void {
   console.log(`Usage: hybridclaw help <topic>
 
@@ -811,6 +839,7 @@ Topics:
   tui         Help for terminal client
   onboarding  Help for onboarding flow
   channels    Help for channel setup helpers
+  plugin      Help for plugin management
   msteams     Help for Microsoft Teams auth/setup commands
   openrouter  Help for OpenRouter setup/status/logout commands
   whatsapp    Help for WhatsApp setup/reset commands
@@ -873,6 +902,9 @@ function printHelpTopic(topic: string): boolean {
       return true;
     case 'channels':
       printChannelsUsage();
+      return true;
+    case 'plugin':
+      printPluginUsage();
       return true;
     case 'msteams':
     case 'teams':
@@ -965,10 +997,15 @@ async function runGatewayForeground(
   commandName: string,
   sandboxMode: SandboxModeOverride | null = null,
   debug = false,
+  logRequests = false,
 ): Promise<void> {
   await ensureRuntimeCredentials({ commandName });
   if (sandboxMode) {
     setSandboxModeOverride(sandboxMode);
+  }
+  if (logRequests) {
+    process.env[GATEWAY_LOG_REQUESTS_ENV] = '1';
+    console.warn(GATEWAY_LOG_REQUESTS_WARNING);
   }
   if (debug) {
     process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
@@ -998,6 +1035,7 @@ async function startGatewayBackend(
   waitForHealthy = false,
   sandboxMode: SandboxModeOverride | null = null,
   debug = false,
+  logRequests = false,
 ): Promise<void> {
   if (await isGatewayReachable()) {
     const existing = readGatewayPid();
@@ -1048,6 +1086,9 @@ async function startGatewayBackend(
 
   await ensureRuntimeCredentials({ commandName });
   await ensureRuntimeContainer(commandName, true, sandboxMode);
+  if (logRequests) {
+    console.warn(GATEWAY_LOG_REQUESTS_WARNING);
+  }
 
   ensureGatewayRunDir();
   const out = fs.openSync(GATEWAY_LOG_PATH, 'a');
@@ -1059,6 +1100,7 @@ async function startGatewayBackend(
     'start',
     '--foreground',
     ...(debug ? ['--debug'] : []),
+    ...(logRequests ? ['--log-requests'] : []),
     ...(sandboxMode ? [`--sandbox=${sandboxMode}`] : []),
   ];
   const child = spawn(process.execPath, childArgs, {
@@ -1271,11 +1313,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
     findUnsupportedGatewayLifecycleFlag(normalized);
   if (unsupportedLifecycleFlag) {
     console.error(
-      unsupportedLifecycleFlag === 'sandbox'
-        ? '`--sandbox` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.'
-        : unsupportedLifecycleFlag === 'foreground'
-          ? '`--foreground` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.'
-          : '`--debug` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.',
+      `\`--${unsupportedLifecycleFlag}\` is only supported with \`hybridclaw gateway start\` and \`hybridclaw gateway restart\`.`,
     );
     process.exitCode = 1;
     return;
@@ -1292,6 +1330,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
         'hybridclaw gateway start --foreground',
         flags.sandboxMode,
         flags.debug,
+        flags.logRequests,
       );
       return;
     }
@@ -1300,6 +1339,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       false,
       flags.sandboxMode,
       flags.debug,
+      flags.logRequests,
     );
     return;
   }
@@ -1317,6 +1357,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
         'hybridclaw gateway restart --foreground',
         flags.sandboxMode,
         flags.debug,
+        flags.logRequests,
       );
       return;
     }
@@ -1325,6 +1366,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       false,
       flags.sandboxMode,
       flags.debug,
+      flags.logRequests,
     );
     return;
   }
@@ -3760,6 +3802,131 @@ async function handleSkillCommand(args: string[]): Promise<void> {
   throw new Error(`Unknown skill subcommand: ${sub}`);
 }
 
+async function handlePluginCommand(args: string[]): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printPluginUsage();
+    return;
+  }
+
+  const sub = normalized[0].toLowerCase();
+  if (sub === 'list') {
+    if (normalized.length !== 1) {
+      printPluginUsage();
+      throw new Error(
+        'Unexpected extra arguments for `hybridclaw plugin list`.',
+      );
+    }
+
+    const { ensurePluginManagerInitialized } = await import(
+      './plugins/plugin-manager.js'
+    );
+    const manager = await ensurePluginManagerInitialized();
+    console.log(formatPluginSummaryList(manager.listPluginSummary()));
+    return;
+  }
+
+  if (sub === 'install') {
+    const source = normalized[1];
+    if (!source) {
+      printPluginUsage();
+      throw new Error(
+        'Missing plugin source for `hybridclaw plugin install <path|npm-spec>`.',
+      );
+    }
+    if (normalized.length !== 2) {
+      printPluginUsage();
+      throw new Error(
+        'Unexpected extra arguments for `hybridclaw plugin install <path|npm-spec>`.',
+      );
+    }
+
+    const { installPlugin } = await import('./plugins/plugin-install.js');
+    const result = await installPlugin(source);
+
+    if (result.alreadyInstalled) {
+      console.log(
+        `Plugin ${result.pluginId} is already present at ${result.pluginDir}.`,
+      );
+    } else {
+      console.log(
+        `Installed plugin ${result.pluginId} to ${result.pluginDir}.`,
+      );
+    }
+    if (result.dependenciesInstalled) {
+      console.log('Installed plugin npm dependencies.');
+    }
+    console.log(
+      `Plugin ${result.pluginId} will auto-discover from ${result.pluginDir}.`,
+    );
+    if (result.requiresEnv.length > 0) {
+      console.log(`Required env vars: ${result.requiresEnv.join(', ')}`);
+    }
+    if (result.requiredConfigKeys.length > 0) {
+      console.log(
+        `Add a plugins.list[] override in ${runtimeConfigPath()} to set required config keys: ${result.requiredConfigKeys.join(', ')}`,
+      );
+    } else {
+      console.log(
+        `No config entry is required unless you want plugin overrides in ${runtimeConfigPath()}.`,
+      );
+    }
+    console.log('Restart the gateway to load plugin changes:');
+    console.log('  hybridclaw gateway restart --foreground');
+    console.log('  hybridclaw gateway status');
+    return;
+  }
+
+  if (sub === 'uninstall') {
+    const pluginId = normalized[1];
+    if (!pluginId) {
+      printPluginUsage();
+      throw new Error(
+        'Missing plugin id for `hybridclaw plugin uninstall <plugin-id>`.',
+      );
+    }
+    if (normalized.length !== 2) {
+      printPluginUsage();
+      throw new Error(
+        'Unexpected extra arguments for `hybridclaw plugin uninstall <plugin-id>`.',
+      );
+    }
+
+    const { uninstallPlugin } = await import('./plugins/plugin-install.js');
+    const result = await uninstallPlugin(pluginId);
+    if (result.removedPluginDir) {
+      console.log(
+        `Uninstalled plugin ${result.pluginId} from ${result.pluginDir}.`,
+      );
+    } else {
+      console.log(
+        `Removed plugin overrides for ${result.pluginId}; no installed plugin directory was present at ${result.pluginDir}.`,
+      );
+    }
+    if (result.removedConfigOverrides > 0) {
+      const label =
+        result.removedConfigOverrides === 1 ? 'override' : 'overrides';
+      console.log(
+        `Removed ${result.removedConfigOverrides} plugins.list[] ${label} from ${runtimeConfigPath()}.`,
+      );
+    } else {
+      console.log(
+        `No plugins.list[] overrides were removed from ${runtimeConfigPath()}.`,
+      );
+    }
+    console.log(
+      'Restart the gateway to unload plugin changes if it is running:',
+    );
+    console.log('  hybridclaw gateway restart --foreground');
+    console.log('  hybridclaw gateway status');
+    return;
+  }
+  printPluginUsage();
+  throw new Error(
+    `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\`, \`hybridclaw plugin install <path|npm-spec>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
+  );
+}
+
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<void> {
@@ -3810,6 +3977,9 @@ export async function main(
       break;
     case 'channels':
       await handleChannelsCommand(subargs);
+      break;
+    case 'plugin':
+      await handlePluginCommand(subargs);
       break;
     case 'local':
       printDeprecatedProviderAliasWarning('local', subargs);

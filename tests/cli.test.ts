@@ -13,6 +13,7 @@ const ORIGINAL_MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID;
 const ORIGINAL_MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD;
 const ORIGINAL_MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const ORIGINAL_HYBRIDCLAW_LOG_REQUESTS = process.env.HYBRIDCLAW_LOG_REQUESTS;
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
 
@@ -60,10 +61,38 @@ async function importFreshCli(options?: {
     sandboxMode?: 'host' | 'container' | null;
     debug?: boolean;
     help?: boolean;
+    logRequests?: boolean;
     passthrough?: string[];
   };
   ensureContainerImageReadyError?: Error | null;
   gatewayModuleError?: Error | null;
+  pluginInstallError?: Error | null;
+  pluginInstallResult?: {
+    pluginId: string;
+    pluginDir: string;
+    source: string;
+    alreadyInstalled: boolean;
+    dependenciesInstalled: boolean;
+    requiresEnv: string[];
+    requiredConfigKeys: string[];
+  };
+  pluginUninstallError?: Error | null;
+  pluginUninstallResult?: {
+    pluginId: string;
+    pluginDir: string;
+    removedPluginDir: boolean;
+    removedConfigOverrides: number;
+  };
+  pluginListSummary?: Array<{
+    id: string;
+    name?: string;
+    version?: string;
+    source: 'home' | 'project' | 'config';
+    enabled: boolean;
+    error?: string;
+    tools: string[];
+    hooks: string[];
+  }>;
   promptResponses?: string[];
 }) {
   vi.resetModules();
@@ -153,88 +182,46 @@ async function importFreshCli(options?: {
     stop: whatsappStop,
     waitForSocket: whatsappWaitForSocket,
   }));
+  const installPlugin = vi.fn(async (source: string) => {
+    if (options?.pluginInstallError) {
+      throw options.pluginInstallError;
+    }
+    return (
+      options?.pluginInstallResult || {
+        pluginId: 'demo-plugin',
+        pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
+        source,
+        alreadyInstalled: false,
+        dependenciesInstalled: true,
+        requiresEnv: [],
+        requiredConfigKeys: [],
+      }
+    );
+  });
+  const uninstallPlugin = vi.fn(async (pluginId: string) => {
+    if (options?.pluginUninstallError) {
+      throw options.pluginUninstallError;
+    }
+    return (
+      options?.pluginUninstallResult || {
+        pluginId,
+        pluginDir: `/tmp/.hybridclaw/plugins/${pluginId}`,
+        removedPluginDir: true,
+        removedConfigOverrides: 0,
+      }
+    );
+  });
+  const listPluginSummary = vi.fn(() => options?.pluginListSummary || []);
+  const ensurePluginManagerInitialized = vi.fn(async () => ({
+    listPluginSummary,
+  }));
   const ensureRuntimeConfigFile = vi.fn(() => false);
   const onRuntimeConfigChange = vi.fn(() => () => {});
-  const getRuntimeConfig = vi.fn(() => ({
-    skills: {
-      extraDirs: [],
-      disabled: [],
-      channelDisabled: {},
-    },
-    discord: {
-      prefix: '!claw',
-      commandsOnly: false,
-      commandMode: 'public',
-      commandAllowedUserIds: [],
-      commandUserId: '',
-      groupPolicy: 'open',
-      freeResponseChannels: [],
-      guilds: {},
-    },
-    hybridai: { defaultModel: 'gpt-5-nano' },
-    openrouter: {
-      enabled: false,
-      baseUrl: 'https://openrouter.ai/api/v1',
-      models: ['openrouter/anthropic/claude-sonnet-4'],
-    },
-    whatsapp: {
-      dmPolicy: 'pairing',
-      groupPolicy: 'disabled',
-      allowFrom: [],
-      groupAllowFrom: [],
-      textChunkLimit: 4000,
-      debounceMs: 2500,
-      sendReadReceipts: true,
-      ackReaction: '',
-      mediaMaxMb: 20,
-    },
-    email: {
-      enabled: false,
-      imapHost: '',
-      imapPort: 993,
-      imapSecure: true,
-      smtpHost: '',
-      smtpPort: 587,
-      smtpSecure: false,
-      address: '',
-      pollIntervalMs: 30000,
-      folders: ['INBOX'],
-      allowFrom: [],
-      textChunkLimit: 50000,
-      mediaMaxMb: 20,
-    },
-    msteams: {
-      enabled: false,
-      appId: '',
-      tenantId: '',
-      webhook: {
-        port: 3978,
-        path: '/api/msteams/messages',
-      },
-      groupPolicy: 'allowlist',
-      dmPolicy: 'allowlist',
-      allowFrom: [],
-      teams: {},
-      requireMention: true,
-      textChunkLimit: 4000,
-      replyStyle: 'thread',
-      mediaMaxMb: 20,
-      dangerouslyAllowNameMatching: false,
-      mediaAllowHosts: [],
-      mediaAuthAllowHosts: [],
-    },
-    local: {
-      backends: {
-        ollama: { enabled: true, baseUrl: 'http://127.0.0.1:11434' },
-        lmstudio: { enabled: false, baseUrl: 'http://127.0.0.1:1234/v1' },
-        vllm: {
-          enabled: false,
-          baseUrl: 'http://127.0.0.1:8000/v1',
-          apiKey: '',
-        },
-      },
-    },
-  }));
+  const actualRuntimeConfig = await import('../src/config/runtime-config.ts');
+  let runtimeConfigState = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'config.example.json'), 'utf8'),
+  ) as ReturnType<typeof actualRuntimeConfig.getRuntimeConfig>;
+  const getRuntimeConfig = vi.fn(() => structuredClone(runtimeConfigState));
   const runtimeConfigPath = vi.fn(() => '/tmp/config.json');
   const getRuntimeSkillScopeDisabledNames = vi.fn(
     (
@@ -292,9 +279,10 @@ async function importFreshCli(options?: {
   );
   const updateRuntimeConfig = vi.fn(
     (mutator: (draft: Record<string, unknown>) => void) => {
-      const draft = getRuntimeConfig();
+      const draft = getRuntimeConfig() as Record<string, unknown>;
       mutator(draft);
-      return draft;
+      runtimeConfigState = draft as typeof runtimeConfigState;
+      return structuredClone(runtimeConfigState);
     },
   );
   const gatewayHealth = vi.fn(async () => {
@@ -373,6 +361,7 @@ async function importFreshCli(options?: {
       sandboxMode: options?.gatewayFlags?.sandboxMode ?? null,
       debug: options?.gatewayFlags?.debug ?? false,
       help: options?.gatewayFlags?.help ?? false,
+      logRequests: options?.gatewayFlags?.logRequests ?? false,
       passthrough: options?.gatewayFlags?.passthrough ?? [],
     })),
   }));
@@ -384,7 +373,8 @@ async function importFreshCli(options?: {
     getResolvedSandboxMode: vi.fn(() => options?.sandboxMode || 'host'),
     setSandboxModeOverride: vi.fn(),
   }));
-  vi.doMock('../src/config/runtime-config.ts', () => ({
+  vi.doMock('../src/config/runtime-config.ts', async () => ({
+    ...actualRuntimeConfig,
     ensureRuntimeConfigFile,
     getRuntimeSkillScopeDisabledNames,
     getRuntimeConfig,
@@ -401,6 +391,7 @@ async function importFreshCli(options?: {
     ensureGatewayRunDir,
     findGatewayPidByPort,
     GATEWAY_LOG_FILE_ENV: 'HYBRIDCLAW_GATEWAY_LOG_FILE',
+    GATEWAY_LOG_REQUESTS_ENV: 'HYBRIDCLAW_LOG_REQUESTS',
     GATEWAY_LOG_PATH: '/tmp/hybridclaw-data/gateway/gateway.log',
     GATEWAY_STDIO_TO_LOG_ENV: 'HYBRIDCLAW_GATEWAY_STDIO_TO_LOG',
     isPidRunning,
@@ -449,6 +440,7 @@ async function importFreshCli(options?: {
     verifyInstructionIntegrity: vi.fn(() => ({ ok: true })),
   }));
   vi.doMock('../src/security/runtime-secrets.ts', () => ({
+    loadRuntimeSecrets: vi.fn(),
     runtimeSecretsPath: vi.fn(() => '/tmp/credentials.json'),
     saveRuntimeSecrets,
   }));
@@ -457,6 +449,18 @@ async function importFreshCli(options?: {
       runTui,
     };
   });
+  vi.doMock('../src/plugins/plugin-install.ts', () => ({
+    installPlugin,
+    uninstallPlugin,
+  }));
+  vi.doMock('../src/plugins/plugin-install.js', () => ({
+    installPlugin,
+    uninstallPlugin,
+  }));
+  vi.doMock('../src/plugins/plugin-manager.js', () => ({
+    ensurePluginManagerInitialized,
+    shutdownPluginManager: vi.fn(async () => {}),
+  }));
   vi.doMock('../src/update.ts', () => ({
     printUpdateUsage,
     runUpdateCommand,
@@ -482,6 +486,10 @@ async function importFreshCli(options?: {
     getWhatsAppAuthStatus,
     resetWhatsAppAuthState,
     createWhatsAppConnectionManager,
+    installPlugin,
+    uninstallPlugin,
+    listPluginSummary,
+    ensurePluginManagerInitialized,
     whatsappStart,
     whatsappStop,
     whatsappWaitForSocket,
@@ -527,6 +535,9 @@ afterEach(() => {
   vi.doUnmock('../src/security/instruction-integrity.ts');
   vi.doUnmock('../src/security/runtime-secrets.ts');
   vi.doUnmock('../src/tui.ts');
+  vi.doUnmock('../src/plugins/plugin-install.ts');
+  vi.doUnmock('../src/plugins/plugin-install.js');
+  vi.doUnmock('../src/plugins/plugin-manager.js');
   vi.doUnmock('../src/update.ts');
   vi.resetModules();
   if (ORIGINAL_WHATSAPP_SETUP_SETTLE_MS === undefined) {
@@ -539,6 +550,11 @@ afterEach(() => {
     delete process.env.OPENROUTER_API_KEY;
   } else {
     process.env.OPENROUTER_API_KEY = ORIGINAL_OPENROUTER_API_KEY;
+  }
+  if (ORIGINAL_HYBRIDCLAW_LOG_REQUESTS === undefined) {
+    delete process.env.HYBRIDCLAW_LOG_REQUESTS;
+  } else {
+    process.env.HYBRIDCLAW_LOG_REQUESTS = ORIGINAL_HYBRIDCLAW_LOG_REQUESTS;
   }
   if (ORIGINAL_EMAIL_PASSWORD === undefined) {
     delete process.env.EMAIL_PASSWORD;
@@ -648,6 +664,63 @@ describe('CLI hybridai commands', () => {
     );
   });
 
+  it('prints plugin help', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['help', 'plugin']);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('hybridclaw plugin list'),
+    );
+  });
+
+  it('lists discovered plugins with status, tools, hooks, and errors', async () => {
+    const { cli, ensurePluginManagerInitialized, listPluginSummary } =
+      await importFreshCli({
+        pluginListSummary: [
+          {
+            id: 'demo-plugin',
+            name: 'Demo Plugin',
+            version: '1.0.0',
+            source: 'project',
+            enabled: true,
+            tools: ['demo_echo'],
+            hooks: ['demo-hook'],
+          },
+          {
+            id: 'broken-plugin',
+            source: 'home',
+            enabled: true,
+            error: 'register exploded',
+            tools: [],
+            hooks: [],
+          },
+        ],
+      });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'list']);
+
+    expect(ensurePluginManagerInitialized).toHaveBeenCalled();
+    expect(listPluginSummary).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      [
+        'demo-plugin v1.0.0 [project]',
+        '  name: Demo Plugin',
+        '  enabled: yes',
+        '  tools: demo_echo',
+        '  hooks: demo-hook',
+        '',
+        'broken-plugin [home]',
+        '  enabled: yes',
+        '  error: register exploded',
+        '  tools: (none)',
+        '  hooks: (none)',
+      ].join('\n'),
+    );
+  });
+
   it('prints whatsapp help', async () => {
     const { cli } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -667,6 +740,67 @@ describe('CLI hybridai commands', () => {
 
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('hybridclaw auth login msteams'),
+    );
+  });
+
+  it('installs a plugin and leaves runtime config for optional overrides', async () => {
+    const { cli, installPlugin } = await importFreshCli({
+      pluginInstallResult: {
+        pluginId: 'example-plugin',
+        pluginDir: '/tmp/.hybridclaw/plugins/example-plugin',
+        source: '@scope/hybridclaw-plugin-example',
+        alreadyInstalled: false,
+        dependenciesInstalled: true,
+        requiresEnv: ['EXAMPLE_PLUGIN_TOKEN'],
+        requiredConfigKeys: ['workspaceId'],
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'install', '@scope/hybridclaw-plugin-example']);
+
+    expect(installPlugin).toHaveBeenCalledWith(
+      '@scope/hybridclaw-plugin-example',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Installed plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Plugin example-plugin will auto-discover from /tmp/.hybridclaw/plugins/example-plugin.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Required env vars: EXAMPLE_PLUGIN_TOKEN',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Add a plugins.list[] override in '),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('to set required config keys: workspaceId'),
+    );
+  });
+
+  it('uninstalls a plugin and reports removed runtime config overrides', async () => {
+    const { cli, uninstallPlugin } = await importFreshCli({
+      pluginUninstallResult: {
+        pluginId: 'example-plugin',
+        pluginDir: '/tmp/.hybridclaw/plugins/example-plugin',
+        removedPluginDir: true,
+        removedConfigOverrides: 2,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'uninstall', 'example-plugin']);
+
+    expect(uninstallPlugin).toHaveBeenCalledWith('example-plugin');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Uninstalled plugin example-plugin from /tmp/.hybridclaw/plugins/example-plugin.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Removed 2 plugins.list[] overrides from '),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Restart the gateway to unload plugin changes if it is running:',
     );
   });
 
@@ -1351,6 +1485,40 @@ describe('CLI hybridai commands', () => {
     expect(removeGatewayPidFile).toHaveBeenCalledTimes(1);
   });
 
+  it('enables redacted request logging for gateway start --foreground', async () => {
+    const { cli } = await importFreshCli({
+      gatewayFlags: {
+        foreground: true,
+        logRequests: true,
+      },
+    });
+    const registered = new Map<string, Array<(...args: unknown[]) => void>>();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(process, 'on').mockImplementation(((
+      event: string | symbol,
+      listener: (...args: unknown[]) => void,
+    ) => {
+      const key = String(event);
+      const listeners = registered.get(key) ?? [];
+      listeners.push(listener);
+      registered.set(key, listeners);
+      return process;
+    }) as never);
+
+    await cli.main(['gateway', 'start', '--foreground', '--log-requests']);
+
+    expect(process.env.HYBRIDCLAW_LOG_REQUESTS).toBe('1');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'request_log stores best-effort redacted prompts',
+      ),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Treat this log as potentially sensitive.'),
+    );
+  });
+
   it('cleans up the managed PID file if gateway foreground startup fails', async () => {
     const startupError = new Error('gateway bootstrap failed');
     const { cli, removeGatewayPidFile, writeGatewayPid } = await importFreshCli(
@@ -1460,7 +1628,7 @@ describe('CLI hybridai commands', () => {
       };
     };
     expect(nextConfig.skills.disabled).toEqual([]);
-    expect(nextConfig.skills.channelDisabled).toEqual({
+    expect(nextConfig.skills.channelDisabled).toMatchObject({
       msteams: ['pdf'],
     });
     expect(logSpy).toHaveBeenCalledWith('Disabled pdf in msteams scope.');
@@ -1491,7 +1659,7 @@ describe('CLI hybridai commands', () => {
       };
     };
     expect(nextConfig.skills.disabled).toEqual([]);
-    expect(nextConfig.skills.channelDisabled).toEqual({
+    expect(nextConfig.skills.channelDisabled).toMatchObject({
       discord: ['docx'],
     });
     expect(logSpy).toHaveBeenCalledWith('Enabled pdf in global scope.');

@@ -88,6 +88,7 @@ Common advanced areas:
 - Adaptive skill observation/amendment loop: `adaptiveSkills.*`
 - Proactive runtime: `proactive.*`
 - MCP server registry: `mcpServers.*`
+- Plugin overrides: `plugins.list[]`
 - Observability export: `observability.*`
 - Skills roots: `skills.extraDirs`
 

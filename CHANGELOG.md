@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+## [0.8.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.8.2)
+
+### Added
+
+- **Refined TUI startup banner**: Added a richer terminal startup banner with
+  active model, default model, sandbox mode, gateway URL, provider context,
+  chatbot id, slash-command overview, and a more distinctive visual layout.
+
+### Fixed
+
+- **Discord invalid-token startup handling**: Gateway startup now disables the
+  Discord integration when the configured token is invalid instead of failing
+  the wider runtime startup path.
+
+## [0.8.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.8.1)
+
+### Added
+
+- **Opt-in gateway request logging**: Added `--log-requests` to
+  `hybridclaw gateway start|restart` so operators can persist best-effort
+  redacted prompts, responses, and tool payloads in SQLite `request_log` for
+  debugging. Typed text sent through `browser_type` is always redacted.
+
+### Fixed
+
+- **Gateway request logging safeguards**: Tightened opt-in request-log
+  parsing and redaction so unsupported env values are ignored, secret-like
+  query parameters are scrubbed, and failed turns only record when a
+  sanitized request payload exists.
+- **Browser snapshot clickability on custom UIs**: `browser_snapshot` now
+  enables cursor-aware clickable refs in every mode, so pointer-driven cards
+  and other custom controls without ARIA roles are more reliably discoverable
+  and clickable.
+- **Vitest stability and release-bump resilience**: Pinned Vitest back to
+  `4.0.18` to restore test isolation stability after the `4.1.0` behavior
+  change, and removed hardcoded release-version assertions from the WhatsApp
+  connection tests.
+
 ## [0.8.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.8.0)
 
 ### Added

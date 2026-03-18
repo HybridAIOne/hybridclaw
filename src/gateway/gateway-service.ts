@@ -103,6 +103,7 @@ import {
   listUsageBySession,
   logAudit,
   pauseTask,
+  recordRequestLog,
   recordUsageEvent,
   resumeTask,
   updateSessionAgent,
@@ -112,6 +113,14 @@ import {
   updateSessionShowMode,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
+import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
+import { uninstallPlugin } from '../plugins/plugin-install.js';
+import {
+  ensurePluginManagerInitialized,
+  type PluginManager,
+  reloadPluginManager,
+  shutdownPluginManager,
+} from '../plugins/plugin-manager.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
@@ -142,6 +151,7 @@ import {
   rearmScheduler,
   resumeConfigJob,
 } from '../scheduler/scheduler.js';
+import { redactSecrets } from '../security/redact.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
 import {
@@ -188,6 +198,7 @@ import type {
   StoredMessage,
   StructuredAuditEntry,
   TokenUsageStats,
+  ToolExecution,
   ToolProgressEvent,
 } from '../types.js';
 import { sleep } from '../utils/sleep.js';
@@ -220,6 +231,7 @@ import {
   formatCompactNumber,
   formatRalphIterations,
 } from './gateway-formatting.js';
+import { GATEWAY_LOG_REQUESTS_ENV } from './gateway-lifecycle.js';
 import {
   interruptGatewaySessionExecution,
   registerActiveGatewayRequest,
@@ -268,6 +280,166 @@ import {
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
+const REQUEST_LOG_SENSITIVE_KEY_RE =
+  /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
+const REQUEST_LOG_INLINE_SECRET_RE =
+  /\b(pass(?:word)?|secret|token|api(?:[_ -]?key)?|authorization|cookie|credential)\b(\s*[:=]\s*)([^\n\r,;]+)|([?&](?:token|signature|x-amz-[^=]*))=([^&\s]+)/gi;
+const ALWAYS_REDACT_TOOL_FIELDS: Record<string, ReadonlySet<string>> = {
+  browser_type: new Set(['text']),
+};
+const GATEWAY_REQUEST_LOG_ENABLED_VALUE = '1';
+let lastWarnedGatewayRequestLoggingValue: string | null = null;
+
+function isGatewayRequestLoggingEnabled(): boolean {
+  const raw = String(process.env[GATEWAY_LOG_REQUESTS_ENV] || '').trim();
+  if (!raw) return false;
+  if (raw === GATEWAY_REQUEST_LOG_ENABLED_VALUE) {
+    lastWarnedGatewayRequestLoggingValue = null;
+    return true;
+  }
+  if (raw !== lastWarnedGatewayRequestLoggingValue) {
+    logger.warn(
+      {
+        envVar: GATEWAY_LOG_REQUESTS_ENV,
+        expectedValue: GATEWAY_REQUEST_LOG_ENABLED_VALUE,
+        value: raw,
+      },
+      'Ignoring invalid gateway request logging env value',
+    );
+    lastWarnedGatewayRequestLoggingValue = raw;
+  }
+  return false;
+}
+
+function redactRequestLogText(text: string): string {
+  return redactSecrets(text).replace(
+    REQUEST_LOG_INLINE_SECRET_RE,
+    (
+      match: string,
+      label: string | undefined,
+      separator: string | undefined,
+      _value: string | undefined,
+      queryKey: string | undefined,
+      _queryValue: string | undefined,
+    ) => {
+      if (label && separator) return `${label}${separator}[REDACTED]`;
+      if (queryKey) return `${queryKey}=[REDACTED]`;
+      return match;
+    },
+  );
+}
+
+function sanitizeRequestLogValue(
+  value: unknown,
+  extraKeyRedact?: (key: string) => boolean,
+): unknown {
+  if (typeof value === 'string') return redactRequestLogText(value);
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeRequestLogValue(entry, extraKeyRedact));
+  }
+  if (!value || typeof value !== 'object') return value;
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (REQUEST_LOG_SENSITIVE_KEY_RE.test(key) || extraKeyRedact?.(key)) {
+      sanitized[key] = '[REDACTED]';
+      continue;
+    }
+    sanitized[key] = sanitizeRequestLogValue(raw, extraKeyRedact);
+  }
+  return sanitized;
+}
+
+function sanitizeRequestLogToolArguments(
+  toolName: string,
+  rawArguments: string,
+): string {
+  const trimmed = rawArguments.trim();
+  if (!trimmed) return trimmed;
+
+  const extraKeyRedact = (key: string) =>
+    ALWAYS_REDACT_TOOL_FIELDS[toolName]?.has(key) ?? false;
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return JSON.stringify(sanitizeRequestLogValue(parsed, extraKeyRedact));
+  } catch {
+    return redactRequestLogText(trimmed);
+  }
+}
+
+function sanitizeRequestLogMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((message) => ({
+    ...message,
+    content: sanitizeRequestLogValue(message.content) as ChatMessage['content'],
+    tool_calls: Array.isArray(message.tool_calls)
+      ? message.tool_calls.map((toolCall) => ({
+          ...toolCall,
+          function: {
+            ...toolCall.function,
+            arguments: sanitizeRequestLogToolArguments(
+              toolCall.function.name,
+              toolCall.function.arguments,
+            ),
+          },
+        }))
+      : message.tool_calls,
+  }));
+}
+
+function sanitizeRequestLogToolExecutions(
+  toolExecutions: ToolExecution[],
+): ToolExecution[] {
+  return toolExecutions.map((execution) => {
+    const { arguments: rawArguments, ...executionWithoutArguments } = execution;
+    return {
+      ...(sanitizeRequestLogValue(executionWithoutArguments) as Omit<
+        ToolExecution,
+        'arguments'
+      >),
+      arguments: sanitizeRequestLogToolArguments(execution.name, rawArguments),
+    };
+  });
+}
+
+function maybeRecordGatewayRequestLog(params: {
+  sessionId: string;
+  model: string;
+  chatbotId: string;
+  messages: ChatMessage[];
+  status: 'success' | 'error';
+  response?: string | null;
+  error?: string | null;
+  toolExecutions?: ToolExecution[];
+  toolsUsed?: string[];
+  durationMs: number;
+}): void {
+  try {
+    recordRequestLog({
+      sessionId: params.sessionId,
+      model: params.model,
+      chatbotId: params.chatbotId,
+      messages: sanitizeRequestLogMessages(params.messages),
+      status: params.status,
+      response: params.response ? redactRequestLogText(params.response) : null,
+      error: params.error ? redactRequestLogText(params.error) : null,
+      toolExecutions: Array.isArray(params.toolExecutions)
+        ? sanitizeRequestLogToolExecutions(params.toolExecutions)
+        : null,
+      toolsUsed: params.toolsUsed,
+      durationMs: params.durationMs,
+    });
+  } catch (error) {
+    logger.warn(
+      {
+        sessionId: params.sessionId,
+        model: params.model,
+        err: error,
+      },
+      'Failed to persist request_log row',
+    );
+  }
+}
 
 export class GatewayRequestError extends Error {
   statusCode: number;
@@ -471,6 +643,7 @@ function clearCanonicalPromptContext(params: {
   }
 }
 
+export { resumeEnabledFullAutoSessions } from './fullauto.js';
 export type {
   GatewayAdminChannelsResponse,
   GatewayAdminConfigResponse,
@@ -483,7 +656,6 @@ export type {
   GatewayStatus,
 };
 export { renderGatewayCommand };
-export { resumeEnabledFullAutoSessions } from './fullauto.js';
 
 let gatewayServiceInitialized = false;
 
@@ -491,7 +663,14 @@ export function initGatewayService(): void {
   if (gatewayServiceInitialized) return;
   listAgents();
   configureFullAutoRuntime({ handleGatewayMessage });
+  void ensurePluginManagerInitialized().catch((error) => {
+    logger.warn({ error }, 'Plugin manager initialization failed');
+  });
   gatewayServiceInitialized = true;
+}
+
+export async function stopGatewayPlugins(): Promise<void> {
+  await shutdownPluginManager();
 }
 
 function formatUptime(seconds: number): string {
@@ -953,6 +1132,14 @@ function formatCanonicalContextPrompt(params: {
   return merged || null;
 }
 
+function formatPluginPromptContext(sections: string[]): string | null {
+  const normalized = sections
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (normalized.length === 0) return null;
+  return normalized.join('\n\n');
+}
+
 function resolveActivationModeLabel(): string {
   if (DISCORD_COMMANDS_ONLY) return 'commands-only';
   if (DISCORD_GROUP_POLICY === 'disabled') return 'disabled';
@@ -1156,6 +1343,36 @@ function recordSuccessfulTurn(opts: {
   });
 }
 
+function buildStoredTurnMessages(params: {
+  sessionId: string;
+  userId: string;
+  username: string | null;
+  userContent: string;
+  resultText: string;
+}): StoredMessage[] {
+  const timestamp = new Date().toISOString();
+  return [
+    {
+      id: 0,
+      session_id: params.sessionId,
+      user_id: params.userId,
+      username: params.username,
+      role: 'user',
+      content: params.userContent,
+      created_at: timestamp,
+    },
+    {
+      id: 0,
+      session_id: params.sessionId,
+      user_id: 'assistant',
+      username: null,
+      role: 'assistant',
+      content: params.resultText,
+      created_at: timestamp,
+    },
+  ];
+}
+
 function normalizeRalphIterations(value: number): number {
   if (!Number.isFinite(value)) return 0;
   const truncated = Math.trunc(value);
@@ -1166,6 +1383,35 @@ function normalizeRalphIterations(value: number): number {
 
 function badCommand(title: string, text: string): GatewayCommandResult {
   return { kind: 'error', title, text };
+}
+
+async function tryEnsurePluginManagerInitializedForGateway(params: {
+  sessionId: string;
+  channelId: string;
+  agentId?: string | null;
+  surface: 'chat' | 'command';
+}): Promise<{
+  pluginManager: PluginManager | null;
+  pluginInitError: unknown;
+}> {
+  try {
+    return {
+      pluginManager: await ensurePluginManagerInitialized(),
+      pluginInitError: null,
+    };
+  } catch (pluginInitError) {
+    logger.warn(
+      {
+        sessionId: params.sessionId,
+        channelId: params.channelId,
+        agentId: params.agentId ?? null,
+        surface: params.surface,
+        error: pluginInitError,
+      },
+      'Plugin manager init failed; proceeding without plugins',
+    );
+    return { pluginManager: null, pluginInitError };
+  }
 }
 
 function infoCommand(
@@ -3382,6 +3628,12 @@ export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
+  const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway({
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    agentId: req.agentId,
+    surface: 'chat',
+  });
   const runId = makeAuditRunId('turn');
   const source = req.source?.trim() || 'gateway.chat';
   const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
@@ -3399,7 +3651,19 @@ export async function handleGatewayMessage(
     expiryEvaluation,
   });
   if (autoResetSession) {
+    const previousSessionId = req.sessionId;
     req.sessionId = autoResetSession.id;
+    if (pluginManager) {
+      await pluginManager.handleSessionReset({
+        previousSessionId,
+        sessionId: req.sessionId,
+        userId: req.userId,
+        agentId:
+          req.agentId?.trim() || autoResetSession.agent_id || DEFAULT_AGENT_ID,
+        channelId: req.channelId,
+        reason: 'auto-reset',
+      });
+    }
   }
   let session = memoryService.getOrCreateSession(
     req.sessionId,
@@ -3462,7 +3726,18 @@ export async function handleGatewayMessage(
       expiryEvaluation: reboundExpiryEvaluation,
     });
     if (reboundSession) {
+      const previousSessionId = req.sessionId;
       req.sessionId = reboundSession.id;
+      if (pluginManager) {
+        await pluginManager.handleSessionReset({
+          previousSessionId,
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId,
+          channelId: req.channelId,
+          reason: 'auto-reset',
+        });
+      }
     }
     session = memoryService.getOrCreateSession(
       req.sessionId,
@@ -3508,6 +3783,16 @@ export async function handleGatewayMessage(
     const rotated = createFreshSessionInstance(req.sessionId);
     req.sessionId = rotated.session.id;
     session = rotated.session;
+    if (pluginManager) {
+      await pluginManager.handleSessionReset({
+        previousSessionId: rotated.previousSession.id,
+        sessionId: rotated.session.id,
+        userId: req.userId,
+        agentId,
+        channelId: req.channelId,
+        reason: 'workspace-reset',
+      });
+    }
     logger.info(
       {
         sessionId: req.sessionId,
@@ -3540,6 +3825,16 @@ export async function handleGatewayMessage(
     });
   }
   const turnIndex = session.message_count + 1;
+  if (turnIndex === 1) {
+    if (pluginManager) {
+      await pluginManager.notifySessionStart({
+        sessionId: req.sessionId,
+        userId: req.userId,
+        agentId,
+        channelId: req.channelId,
+      });
+    }
+  }
   const debugMeta = {
     sessionId: req.sessionId,
     guildId: req.guildId,
@@ -3701,12 +3996,23 @@ export async function handleGatewayMessage(
     summary: canonicalContext.summary,
     recentMessages: canonicalContext.recent_messages,
   });
+  const pluginPromptSummary = formatPluginPromptContext(
+    pluginManager
+      ? await pluginManager.collectPromptContext({
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId,
+          channelId: req.channelId,
+          recentMessages: history,
+        })
+      : [],
+  );
   const memoryContext = memoryService.buildPromptMemoryContext({
     session,
     query: userTurnContent,
   });
   const mergedSessionSummary =
-    [canonicalPromptSummary, memoryContext.promptSummary]
+    [canonicalPromptSummary, memoryContext.promptSummary, pluginPromptSummary]
       .filter(
         (value): value is string =>
           typeof value === 'string' && value.trim().length > 0,
@@ -3800,6 +4106,9 @@ export async function handleGatewayMessage(
     role: 'user',
     content: agentUserContent,
   });
+  const requestMessages = isGatewayRequestLoggingEnabled()
+    ? messages.slice()
+    : null;
 
   let agentStage:
     | 'pre-agent'
@@ -3868,6 +4177,15 @@ export async function handleGatewayMessage(
         promptMessages: messages.length,
       },
     });
+    if (pluginManager) {
+      await pluginManager.notifyBeforeAgentStart({
+        sessionId: req.sessionId,
+        userId: req.userId,
+        agentId,
+        channelId: req.channelId,
+        model: model || undefined,
+      });
+    }
     agentStage = 'awaiting-agent-output';
     const output = await runAgent({
       sessionId: req.sessionId,
@@ -3888,6 +4206,7 @@ export async function handleGatewayMessage(
       abortSignal: activeGatewayRequest.signal,
       media,
       audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
+      pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
     agentStage = 'processing-agent-output';
     const effectiveUserContent =
@@ -4017,10 +4336,11 @@ export async function handleGatewayMessage(
 
     if (output.status === 'error') {
       const errorMessage = output.error || 'Unknown agent error.';
+      const durationMs = Date.now() - startedAt;
       logger.debug(
         {
           ...debugMeta,
-          durationMs: Date.now() - startedAt,
+          durationMs,
           toolCallCount: toolExecutions.length,
           firstTextDeltaMs,
           artifactCount: output.artifacts?.length || 0,
@@ -4057,10 +4377,23 @@ export async function handleGatewayMessage(
             userMessages: 0,
             assistantMessages: 0,
             toolCalls: toolExecutions.length,
-            durationMs: Date.now() - startedAt,
+            durationMs,
           },
         },
       });
+      if (requestMessages !== null) {
+        maybeRecordGatewayRequestLog({
+          sessionId: req.sessionId,
+          model,
+          chatbotId,
+          messages: requestMessages,
+          status: 'error',
+          error: errorMessage,
+          toolExecutions,
+          toolsUsed: output.toolsUsed || [],
+          durationMs,
+        });
+      }
       return attachSessionIdentity({
         status: 'error',
         result: null,
@@ -4073,10 +4406,11 @@ export async function handleGatewayMessage(
     }
 
     const resultText = output.result || 'No response from agent.';
+    const durationMs = Date.now() - startedAt;
     logger.debug(
       {
         ...debugMeta,
-        durationMs: Date.now() - startedAt,
+        durationMs,
         toolCallCount: toolExecutions.length,
         firstTextDeltaMs,
         artifactCount: output.artifacts?.length || 0,
@@ -4100,6 +4434,60 @@ export async function handleGatewayMessage(
       toolCallCount: toolExecutions.length,
       startedAt,
     });
+    const storedTurnMessages = buildStoredTurnMessages({
+      sessionId: req.sessionId,
+      userId: req.userId,
+      username: req.username,
+      userContent: effectiveUserContent,
+      resultText,
+    });
+    if (pluginManager) {
+      void pluginManager
+        .notifyTurnComplete({
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId,
+          messages: storedTurnMessages,
+        })
+        .catch((error) => {
+          logger.warn(
+            { sessionId: req.sessionId, agentId, error },
+            'Plugin turn-complete hooks failed',
+          );
+        });
+      void pluginManager
+        .notifyAgentEnd({
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId,
+          channelId: req.channelId,
+          messages: storedTurnMessages,
+          resultText,
+          toolNames: toolExecutions.map((execution) => execution.name),
+          model: model || undefined,
+          durationMs: Date.now() - startedAt,
+          tokenUsage: output.tokenUsage
+            ? {
+                promptTokens: output.tokenUsage.apiUsageAvailable
+                  ? output.tokenUsage.apiPromptTokens
+                  : output.tokenUsage.estimatedPromptTokens,
+                completionTokens: output.tokenUsage.apiUsageAvailable
+                  ? output.tokenUsage.apiCompletionTokens
+                  : output.tokenUsage.estimatedCompletionTokens,
+                totalTokens: output.tokenUsage.apiUsageAvailable
+                  ? output.tokenUsage.apiTotalTokens
+                  : output.tokenUsage.estimatedTotalTokens,
+                modelCalls: output.tokenUsage.modelCalls,
+              }
+            : undefined,
+        })
+        .catch((error) => {
+          logger.warn(
+            { sessionId: req.sessionId, agentId, error },
+            'Plugin agent-end hooks failed',
+          );
+        });
+    }
 
     const result: GatewayChatResult = {
       status: 'success',
@@ -4112,19 +4500,28 @@ export async function handleGatewayMessage(
       effectiveUserPrompt: output.effectiveUserPrompt,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    if (requestMessages !== null) {
+      maybeRecordGatewayRequestLog({
+        sessionId: req.sessionId,
+        model,
+        chatbotId,
+        messages: requestMessages,
+        status: 'success',
+        response: resultText,
+        toolExecutions,
+        toolsUsed: output.toolsUsed || [],
+        durationMs,
+      });
+    }
     return attachSessionIdentity(result);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    logAudit(
-      'error',
-      req.sessionId,
-      { error: errorMsg },
-      Date.now() - startedAt,
-    );
+    const durationMs = Date.now() - startedAt;
+    logAudit('error', req.sessionId, { error: errorMsg }, durationMs);
     logger.error(
       {
         ...debugMeta,
-        durationMs: Date.now() - startedAt,
+        durationMs,
         stage: agentStage,
         err,
       },
@@ -4160,10 +4557,21 @@ export async function handleGatewayMessage(
           userMessages: 0,
           assistantMessages: 0,
           toolCalls: 0,
-          durationMs: Date.now() - startedAt,
+          durationMs,
         },
       },
     });
+    if (requestMessages !== null) {
+      maybeRecordGatewayRequestLog({
+        sessionId: req.sessionId,
+        model,
+        chatbotId,
+        messages: requestMessages,
+        status: 'error',
+        error: errorMsg,
+        durationMs,
+      });
+    }
     return attachSessionIdentity({
       status: 'error',
       result: null,
@@ -4174,6 +4582,21 @@ export async function handleGatewayMessage(
   } finally {
     activeGatewayRequest.release();
   }
+}
+
+export async function runGatewayPluginTool(params: {
+  toolName: string;
+  args: Record<string, unknown>;
+  sessionId?: string;
+  channelId?: string;
+}): Promise<string> {
+  const pluginManager = await ensurePluginManagerInitialized();
+  return pluginManager.executeTool({
+    toolName: params.toolName,
+    args: params.args,
+    sessionId: String(params.sessionId || '').trim(),
+    channelId: String(params.channelId || '').trim(),
+  });
 }
 
 export async function runGatewayScheduledTask(
@@ -4247,6 +4670,12 @@ export async function runGatewayScheduledTask(
 export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
+  let { pluginManager, pluginInitError } =
+    await tryEnsurePluginManagerInitializedForGateway({
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      surface: 'command',
+    });
   const cmd = (req.args[0] || '').toLowerCase();
   const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
   const expiryEvaluation = await prepareSessionAutoReset({
@@ -4259,7 +4688,18 @@ export async function handleGatewayCommand(
     expiryEvaluation,
   });
   if (autoResetSession) {
+    const previousSessionId = req.sessionId;
     req.sessionId = autoResetSession.id;
+    if (pluginManager) {
+      await pluginManager.handleSessionReset({
+        previousSessionId,
+        sessionId: req.sessionId,
+        userId: String(req.userId || ''),
+        agentId: autoResetSession.agent_id || DEFAULT_AGENT_ID,
+        channelId: req.channelId,
+        reason: 'auto-reset',
+      });
+    }
   }
   let session = memoryService.getOrCreateSession(
     req.sessionId,
@@ -4308,6 +4748,9 @@ export async function handleGatewayCommand(
           '`mcp remove <name>` — Remove an MCP server config',
           '`mcp toggle <name>` — Enable or disable an MCP server',
           '`mcp reconnect <name>` — Restart current session runtime so the server reconnects next turn',
+          '`plugin list` — List discovered plugins and load status',
+          '`plugin reload` — Reload all plugins (picks up code changes without gateway restart)',
+          '`plugin uninstall <plugin-id>` — Remove a home-installed plugin and matching runtime config overrides',
           '`clear` — Clear session history',
           '`reset [yes|no]` — Clear history, reset session settings, and remove the current agent workspace',
           '`/compact` — Archive older history, summarize it, and retain recent context',
@@ -4322,6 +4765,8 @@ export async function handleGatewayCommand(
           '`/model clear` — Clear the model override for this session',
           '`/model info` — Show effective, session, agent, and default model details',
           '`/model default [name]` — Show or set the default model for new sessions',
+          '`/plugin list` — List discovered plugins and load status',
+          '`/plugin uninstall <plugin-id>` — Remove a home-installed plugin and matching runtime config overrides',
           '`sessions` — List active sessions',
           '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
           '`export session [sessionId]` — Export session JSONL snapshot for debugging',
@@ -5105,10 +5550,91 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'plugin': {
+        const sub = (req.args[1] || 'list').toLowerCase();
+        if (sub === 'list') {
+          if (!pluginManager) {
+            return badCommand(
+              'Plugin Runtime Unavailable',
+              pluginInitError instanceof Error
+                ? pluginInitError.message
+                : 'Plugin manager failed to initialize.',
+            );
+          }
+          return infoCommand(
+            'Plugins',
+            formatPluginSummaryList(pluginManager.listPluginSummary()),
+          );
+        }
+        if (sub === 'uninstall') {
+          const pluginId = String(req.args[2] || '').trim();
+          if (!pluginId) {
+            return badCommand(
+              'Usage',
+              'Usage: `plugin list|uninstall <plugin-id>`',
+            );
+          }
+          try {
+            const result = await uninstallPlugin(pluginId);
+            await shutdownPluginManager();
+            const lines = [
+              result.removedPluginDir
+                ? `Uninstalled plugin \`${result.pluginId}\` from \`${result.pluginDir}\`.`
+                : `Removed plugin overrides for \`${result.pluginId}\`; no home install existed at \`${result.pluginDir}\`.`,
+              result.removedConfigOverrides > 0
+                ? `Removed ${result.removedConfigOverrides} matching \`plugins.list[]\` override${result.removedConfigOverrides === 1 ? '' : 's'}.`
+                : 'No matching `plugins.list[]` overrides were removed.',
+              'Plugin runtime will reload on the next turn.',
+            ];
+            return infoCommand('Plugin Uninstalled', lines.join('\n'));
+          } catch (error) {
+            return badCommand(
+              'Plugin Uninstall Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+        if (sub === 'reload') {
+          try {
+            pluginManager = await reloadPluginManager();
+            pluginInitError = null;
+            return infoCommand(
+              'Plugins Reloaded',
+              formatPluginSummaryList(pluginManager.listPluginSummary()),
+            );
+          } catch (error) {
+            return badCommand(
+              'Plugin Reload Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+        return badCommand(
+          'Usage',
+          'Usage: `plugin list|reload|uninstall <plugin-id>`',
+        );
+      }
+
       case 'clear': {
         const rotated = createFreshSessionInstance(session.id);
         req.sessionId = rotated.session.id;
         session = rotated.session;
+        if (pluginManager) {
+          await pluginManager.handleSessionReset({
+            previousSessionId: rotated.previousSession.id,
+            sessionId: rotated.session.id,
+            userId: String(req.userId || ''),
+            agentId: resolveSessionAgentId(rotated.previousSession),
+            channelId: req.channelId,
+            reason: 'clear',
+          });
+        }
+        if (typeof req.userId === 'string' && req.userId.trim()) {
+          memoryService.clearCanonicalContext({
+            agentId: resolveSessionAgentId(session),
+            userId: req.userId,
+          });
+        }
         clearCanonicalPromptContext({
           agentId: resolveSessionAgentId(session),
           session,
@@ -5151,6 +5677,22 @@ export async function handleGatewayCommand(
           });
           req.sessionId = rotated.session.id;
           session = rotated.session;
+          if (pluginManager) {
+            await pluginManager.handleSessionReset({
+              previousSessionId: rotated.previousSession.id,
+              sessionId: rotated.session.id,
+              userId: String(req.userId || ''),
+              agentId: pending.agentId,
+              channelId: req.channelId,
+              reason: 'reset',
+            });
+          }
+          if (typeof req.userId === 'string' && req.userId.trim()) {
+            memoryService.clearCanonicalContext({
+              agentId: pending.agentId,
+              userId: req.userId,
+            });
+          }
           clearCanonicalPromptContext({
             agentId: pending.agentId,
             session,

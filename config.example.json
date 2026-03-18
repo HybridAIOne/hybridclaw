@@ -29,6 +29,9 @@
     "evaluationRunsBeforeRollback": 10,
     "rollbackImprovementThreshold": 0.05
   },
+  "plugins": {
+    "list": []
+  },
   "discord": {
     "prefix": "!claw",
     "guildMembersIntent": false,

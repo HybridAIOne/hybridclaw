@@ -7,7 +7,7 @@ import type {
   ResolveProviderRuntimeParams,
 } from './types.js';
 
-const OPENAI_CODEX_MODEL_PREFIX = 'openai-codex/';
+export const OPENAI_CODEX_MODEL_PREFIX = 'openai-codex/';
 
 export function isOpenAICodexModel(model: string): boolean {
   return String(model || '')
