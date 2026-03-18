@@ -1,4 +1,12 @@
+import fs from 'node:fs';
+
 import { afterEach, expect, test, vi } from 'vitest';
+
+const APP_VERSION = (
+  JSON.parse(
+    fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  ) as { version: string }
+).version;
 
 async function flushMicrotasks(count = 4): Promise<void> {
   for (let index = 0; index < count; index += 1) {
