@@ -776,57 +776,50 @@ function buildTextClickScript(text: string, exact: boolean): string {
     const rect = element.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
   };
-  const candidates = [];
-  for (const element of Array.from(document.querySelectorAll('body *'))) {
-    const tag = String(element.tagName || '').toLowerCase();
-    if (tag === 'script' || tag === 'style' || tag === 'noscript') continue;
-    if (!isVisible(element)) continue;
-    const candidateValues = [
-      { kind: 'aria-label', value: element.getAttribute('aria-label') || '' },
-      { kind: 'alt', value: element.getAttribute('alt') || '' },
-      { kind: 'title', value: element.getAttribute('title') || '' },
-      {
-        kind: 'text',
-        value:
-          ('innerText' in element ? element.innerText : element.textContent) ||
-          '',
-      },
-    ];
-    let bestScore = -1;
-    let bestLength = Number.MAX_SAFE_INTEGER;
-    let matchedKind = '';
-    for (const entry of candidateValues) {
-      const normalized = normalize(entry.value);
-      if (!normalized) continue;
-      const matches = exact
-        ? normalized === needle
-        : normalized.includes(needle);
-      if (!matches) continue;
-      const score =
-        normalized === needle ? 3 : normalized.startsWith(needle) ? 2 : 1;
-      if (score > bestScore || (score === bestScore && normalized.length < bestLength)) {
-        bestScore = score;
-        bestLength = normalized.length;
-        matchedKind = entry.kind;
+  const findMatch = (matchMode) => {
+    if (!document.body) return null;
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_ELEMENT,
+    );
+    let current = walker.currentNode;
+    while (current) {
+      const element = current;
+      const tag = String(element.tagName || '').toLowerCase();
+      if (
+        tag !== 'script' &&
+        tag !== 'style' &&
+        tag !== 'noscript' &&
+        isVisible(element)
+      ) {
+        const candidateValues = [
+          { kind: 'aria-label', value: element.getAttribute('aria-label') || '' },
+          {
+            kind: 'text',
+            value:
+              ('innerText' in element ? element.innerText : element.textContent) ||
+              '',
+          },
+          { kind: 'alt', value: element.getAttribute('alt') || '' },
+          { kind: 'title', value: element.getAttribute('title') || '' },
+        ];
+        for (const entry of candidateValues) {
+          const normalized = normalize(entry.value);
+          if (!normalized) continue;
+          const matches =
+            matchMode === 'exact'
+              ? normalized === needle
+              : normalized.includes(needle);
+          if (matches) {
+            return { element, matchedKind: entry.kind };
+          }
+        }
       }
+      current = walker.nextNode();
     }
-    if (bestScore < 0) continue;
-    const rect = element.getBoundingClientRect();
-    candidates.push({
-      element,
-      score: bestScore,
-      matchedKind,
-      textLength: bestLength,
-      area: Math.round(rect.width * rect.height),
-    });
-  }
-  candidates.sort(
-    (left, right) =>
-      right.score - left.score ||
-      left.textLength - right.textLength ||
-      left.area - right.area,
-  );
-  const match = candidates[0];
+    return null;
+  };
+  const match = findMatch('exact') || (!exact ? findMatch('substring') : null);
   if (!match) {
     return {
       ok: false,
