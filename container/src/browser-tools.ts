@@ -693,24 +693,8 @@ function buildSnapshotCommandArgs(mode: SnapshotMode, full: boolean): string[] {
   return ['-i', '-c', ...SNAPSHOT_CURSOR_FLAGS];
 }
 
-function buildSelectorClickScript(selector: string): string {
-  return `(() => {
-  const selector = ${JSON.stringify(selector)};
-  let element;
-  try {
-    element = document.querySelector(selector);
-  } catch (error) {
-    return {
-      ok: false,
-      error: 'invalid selector: ' + String(error && error.message ? error.message : error),
-    };
-  }
-  if (!element) {
-    return {
-      ok: false,
-      error: 'no element matches selector "' + selector + '"',
-    };
-  }
+function buildElementClickResultScript(extraFields = ''): string {
+  return `
   if (typeof element.scrollIntoView === 'function') {
     element.scrollIntoView({ block: 'center', inline: 'center' });
   }
@@ -741,9 +725,30 @@ function buildSelectorClickScript(selector: string): string {
       .slice(0, 200);
   return {
     ok: true,
-    tag: String(element.tagName || '').toLowerCase(),
+    tag: String(element.tagName || '').toLowerCase(),${extraFields}
     text: preview,
-  };
+  };`;
+}
+
+function buildSelectorClickScript(selector: string): string {
+  return `(() => {
+  const selector = ${JSON.stringify(selector)};
+  let element;
+  try {
+    element = document.querySelector(selector);
+  } catch (error) {
+    return {
+      ok: false,
+      error: 'invalid selector: ' + String(error && error.message ? error.message : error),
+    };
+  }
+  if (!element) {
+    return {
+      ok: false,
+      error: 'no element matches selector "' + selector + '"',
+    };
+  }
+${buildElementClickResultScript()}
 })()`;
 }
 
@@ -829,38 +834,7 @@ function buildTextClickScript(text: string, exact: boolean): string {
     };
   }
   const element = match.element;
-  if (typeof element.scrollIntoView === 'function') {
-    element.scrollIntoView({ block: 'center', inline: 'center' });
-  }
-  if (typeof element.click === 'function') {
-    element.click();
-  } else {
-    element.dispatchEvent(
-      new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-        view: window,
-      }),
-    );
-  }
-  const preview =
-    String(
-      ('innerText' in element ? element.innerText : element.textContent) ||
-        element.getAttribute('alt') ||
-        element.getAttribute('title') ||
-        element.getAttribute('aria-label') ||
-        '',
-    )
-      .replace(/\\s+/g, ' ')
-      .trim()
-      .slice(0, 200);
-  return {
-    ok: true,
-    tag: String(element.tagName || '').toLowerCase(),
-    matched_kind: match.matchedKind,
-    text: preview,
-  };
+${buildElementClickResultScript('\n    matched_kind: match.matchedKind,')}
 })()`;
 }
 
