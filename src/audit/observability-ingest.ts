@@ -18,6 +18,7 @@ import {
 import { logger } from '../logger.js';
 import {
   deleteObservabilityIngestToken,
+  getAnyChatbotId,
   getObservabilityIngestToken,
   getObservabilityOffset,
   getStructuredAuditAfterId,
@@ -140,7 +141,11 @@ function normalizeIngestUrl(baseUrl: string, ingestPath: string): string {
 }
 
 function resolveConfig(): ResolvedIngestConfig {
-  const botId = OBSERVABILITY_BOT_ID.trim() || HYBRIDAI_CHATBOT_ID.trim();
+  const botId =
+    OBSERVABILITY_BOT_ID.trim() ||
+    HYBRIDAI_CHATBOT_ID.trim() ||
+    getAnyChatbotId() ||
+    '';
   const label = OBSERVABILITY_LABEL.trim() || os.hostname();
   const environment = OBSERVABILITY_ENVIRONMENT.trim() || 'prod';
   const batchMaxEvents = clampInteger(
@@ -852,26 +857,31 @@ export function startObservabilityIngest(): void {
     if (config.enabled) {
       logger.warn(
         { reason: validation.reason },
-        'Observability ingest not started',
+        'Observability ingest not started (will retry each flush interval)',
       );
     }
-    return;
   }
 
   timer = setInterval(() => {
     void flushObservability('interval');
   }, config.flushIntervalMs);
-  void flushObservability('startup');
+
+  if (validation.ok) {
+    void flushObservability('startup');
+  }
 
   logger.info(
     {
       ingestUrl: config.ingestUrl,
-      botId: config.botId,
+      botId: config.botId || '(pending)',
       agentId: config.agentId,
       flushIntervalMs: config.flushIntervalMs,
       batchMaxEvents: config.batchMaxEvents,
+      deferredStart: !validation.ok,
     },
-    'Observability ingest started',
+    validation.ok
+      ? 'Observability ingest started'
+      : 'Observability ingest timer started (waiting for botId)',
   );
 }
 
