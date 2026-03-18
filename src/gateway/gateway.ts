@@ -916,8 +916,8 @@ async function startDiscordIntegration(): Promise<boolean> {
         }
       },
     );
-  } catch (error) {
-    logger.error({ error }, 'Discord integration failed to start');
+  } catch (err) {
+    logger.error({ err }, 'Discord integration failed to start');
     return false;
   }
   logger.info('Discord integration started inside gateway');

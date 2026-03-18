@@ -4,6 +4,7 @@ import {
   type ApplicationCommandDataResolvable,
   AttachmentBuilder,
   Client,
+  DiscordjsErrorCodes,
   type Message as DiscordMessage,
   GatewayIntentBits,
   Partials,
@@ -217,6 +218,29 @@ const NIGHT_HOURS_END = 7;
 const CONVERSATION_COOLDOWN_RESET_MS = 20 * 60_000;
 const CONVERSATION_COOLDOWN_THRESHOLD = 5;
 const CONVERSATION_COOLDOWN_MAX_FACTOR = 2.5;
+const DISCORD_FATAL_ERROR_CODES = new Set<string>([
+  DiscordjsErrorCodes.ClientMissingIntents,
+  DiscordjsErrorCodes.DisallowedIntents,
+  DiscordjsErrorCodes.InvalidIntents,
+  DiscordjsErrorCodes.ShardingRequired,
+  DiscordjsErrorCodes.TokenInvalid,
+  DiscordjsErrorCodes.TokenMissing,
+]);
+const DISCORD_UNRECOVERABLE_GATEWAY_CLOSE_REASONS = new Map<number, string>([
+  [4004, 'AuthenticationFailed'],
+  [4010, 'InvalidShard'],
+  [4011, 'ShardingRequired'],
+  [4012, 'InvalidAPIVersion'],
+  [4013, 'InvalidIntents'],
+  [4014, 'DisallowedIntents'],
+]);
+const DISCORD_FATAL_ERROR_MESSAGE_PATTERNS = [
+  /\binvalid token\b/i,
+  /\bmissing intents\b/i,
+  /\bsharding is required\b/i,
+  /\binvalid intent provided\b/i,
+  /\bprivileged intent provided is not enabled or whitelisted\b/i,
+];
 
 const discordPresenceCache = new Map<string, CachedDiscordPresence>();
 const userRateLimiter = new SlidingWindowRateLimiter(60_000);
@@ -233,6 +257,63 @@ const conversationExchangeByKey = new Map<
   string,
   { count: number; lastAtMs: number }
 >();
+
+function normalizeDiscordRuntimeError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  return new Error(String(error));
+}
+
+function isFatalDiscordRuntimeError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return DISCORD_FATAL_ERROR_MESSAGE_PATTERNS.some((pattern) =>
+      pattern.test(String(error)),
+    );
+  }
+
+  const code = (error as { code?: unknown }).code;
+  if (
+    (typeof code === 'string' && DISCORD_FATAL_ERROR_CODES.has(code)) ||
+    (typeof code === 'number' &&
+      DISCORD_UNRECOVERABLE_GATEWAY_CLOSE_REASONS.has(code))
+  ) {
+    return true;
+  }
+
+  const message =
+    typeof (error as { message?: unknown }).message === 'string'
+      ? (error as { message: string }).message
+      : String(error);
+  return DISCORD_FATAL_ERROR_MESSAGE_PATTERNS.some((pattern) =>
+    pattern.test(message),
+  );
+}
+
+function scheduleFatalDiscordRuntimeError(error: Error): void {
+  setImmediate(() => {
+    throw error;
+  });
+}
+
+function createUnrecoverableDiscordShardDisconnectError(
+  shardId: number,
+  code: number,
+  wasClean: boolean,
+): Error {
+  const closeReason =
+    DISCORD_UNRECOVERABLE_GATEWAY_CLOSE_REASONS.get(code) || 'Unknown';
+  return Object.assign(
+    new Error(
+      `Discord shard ${shardId} disconnected with unrecoverable gateway close code ${code} (${closeReason}).`,
+    ),
+    {
+      code,
+      closeCode: code,
+      closeReason,
+      shardId,
+      wasClean,
+    },
+  );
+}
 
 function setDiscordPresence(userId: string, data: CachedDiscordPresence): void {
   discordPresenceCache.set(userId, data);
@@ -1588,8 +1669,45 @@ export async function initDiscord(
     });
   });
 
-  client.on('error', (error) => {
-    logger.error({ error }, 'Discord client error (will reconnect automatically)');
+  client.on('error', (err) => {
+    const normalizedError = normalizeDiscordRuntimeError(err);
+    if (isFatalDiscordRuntimeError(normalizedError)) {
+      logger.error(
+        { err: normalizedError },
+        'Discord client encountered a fatal error; exiting',
+      );
+      scheduleFatalDiscordRuntimeError(normalizedError);
+      return;
+    }
+    logger.error({ err: normalizedError }, 'Discord client error');
+  });
+
+  client.on('shardError', (err, shardId) => {
+    logger.error(
+      { err, shardId },
+      'Discord shard error (Discord.js will attempt to reconnect)',
+    );
+  });
+
+  client.on('shardDisconnect', (event, shardId) => {
+    const disconnectError = createUnrecoverableDiscordShardDisconnectError(
+      shardId,
+      event.code,
+      event.wasClean,
+    );
+    logger.error(
+      {
+        err: disconnectError,
+        shardId,
+        closeCode: event.code,
+        closeReason:
+          DISCORD_UNRECOVERABLE_GATEWAY_CLOSE_REASONS.get(event.code) ||
+          'Unknown',
+        wasClean: event.wasClean,
+      },
+      'Discord shard disconnected with unrecoverable gateway close code; exiting',
+    );
+    scheduleFatalDiscordRuntimeError(disconnectError);
   });
 
   client.on('clientReady', () => {

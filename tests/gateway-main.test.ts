@@ -397,7 +397,7 @@ describe('gateway bootstrap', () => {
     expect(state.initMSTeams).toHaveBeenCalledTimes(1);
     expect(state.startHealthServer).toHaveBeenCalledTimes(1);
     expect(state.loggerError).toHaveBeenCalledWith(
-      { error: discordInitError },
+      { err: discordInitError },
       'Discord integration failed to start',
     );
     expect(state.loggerInfo).toHaveBeenCalledWith(
