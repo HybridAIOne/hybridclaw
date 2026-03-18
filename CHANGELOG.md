@@ -10,6 +10,14 @@
   updates to the docs landing page so the latest shipped changes are visible
   from the project site.
 
+### Fixed
+
+- **Browser click fallbacks for JS-only cards**: `browser_click` can fall back
+  to visible text or CSS selectors when snapshot refs are missing, resolves a
+  likely clickable ancestor before dispatching the click, keeps provider-safe
+  tool schema metadata, and preserves backward-compatible mixed-target
+  priority of `text`, then `selector`, then `ref`.
+
 ## [0.8.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.8.2)
 
 ### Added
