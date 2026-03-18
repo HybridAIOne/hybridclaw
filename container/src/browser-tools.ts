@@ -160,6 +160,10 @@ type UploadTarget = {
   raw: string;
   source: 'ref' | 'selector';
 };
+type ClickTarget = {
+  raw: string;
+  source: 'ref' | 'selector' | 'text';
+};
 type BrowserModelContext = {
   provider:
     | 'hybridai'
@@ -537,6 +541,22 @@ function ensureRef(raw: unknown): string {
   return ref.startsWith('@') ? ref : `@${ref}`;
 }
 
+function resolveClickTarget(args: Record<string, unknown>): ClickTarget {
+  const ref = String(args.ref || '').trim();
+  const text = String(args.text || '').trim();
+  const selector = String(args.selector || '').trim();
+
+  if (text) return { raw: text, source: 'text' };
+  if (selector) return { raw: selector, source: 'selector' };
+  if (!ref) {
+    throw new Error('ref is required (or provide selector or text)');
+  }
+  return {
+    raw: ref.startsWith('@') ? ref : `@${ref}`,
+    source: 'ref',
+  };
+}
+
 function resolveUploadTarget(args: Record<string, unknown>): UploadTarget {
   const selector = String(args.selector || args.target || '').trim();
   if (selector) return { raw: selector, source: 'selector' };
@@ -653,13 +673,222 @@ function normalizeSnapshotMode(rawMode: unknown): SnapshotMode {
   throw new Error('mode must be one of "default", "interactive", or "full"');
 }
 
-function buildSnapshotCommandArgs(
-  mode: SnapshotMode,
-  full: boolean,
-): string[] {
+function buildSnapshotCommandArgs(mode: SnapshotMode, full: boolean): string[] {
   if (mode === 'interactive') return ['-i', ...SNAPSHOT_CURSOR_FLAGS];
   if (mode === 'full' || full) return [...SNAPSHOT_CURSOR_FLAGS];
   return ['-i', '-c', ...SNAPSHOT_CURSOR_FLAGS];
+}
+
+function buildElementClickResultScript(extraFields = ''): string {
+  return `
+  const resolveClickableTarget = (start) => {
+    let current = start;
+    while (current) {
+      const tag = String(current.tagName || '').toLowerCase();
+      const role =
+        typeof current.getAttribute === 'function'
+          ? String(current.getAttribute('role') || '').toLowerCase()
+          : '';
+      const tabIndexValue =
+        typeof current.tabIndex === 'number' && Number.isFinite(current.tabIndex)
+          ? current.tabIndex
+          : typeof current.getAttribute === 'function'
+              ? Number.parseInt(String(current.getAttribute('tabindex') || ''), 10)
+              : Number.NaN;
+      const style =
+        typeof window.getComputedStyle === 'function'
+          ? window.getComputedStyle(current)
+          : null;
+      const cursor = style && typeof style.cursor === 'string'
+        ? style.cursor.toLowerCase()
+        : '';
+      const isNativeInteractive =
+        tag === 'a' ||
+        tag === 'button' ||
+        tag === 'input' ||
+        tag === 'select' ||
+        tag === 'textarea' ||
+        tag === 'summary' ||
+        tag === 'label';
+      const isSemanticInteractive = role === 'button' || role === 'link';
+      const isFocusable =
+        Number.isFinite(tabIndexValue) && Number(tabIndexValue) >= 0;
+      if (
+        isNativeInteractive ||
+        isSemanticInteractive ||
+        cursor === 'pointer' ||
+        isFocusable ||
+        typeof current.onclick === 'function'
+      ) {
+        return current;
+      }
+      current = current.parentElement || null;
+    }
+    return start;
+  };
+  const clickTarget = resolveClickableTarget(element);
+  if (typeof clickTarget.scrollIntoView === 'function') {
+    clickTarget.scrollIntoView({ block: 'center', inline: 'center' });
+  }
+  if (typeof clickTarget.click === 'function') {
+    clickTarget.click();
+  } else {
+    clickTarget.dispatchEvent(
+      new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: window,
+      }),
+    );
+  }
+  const preview =
+    String(
+      ('innerText' in clickTarget ? clickTarget.innerText : clickTarget.textContent) ||
+        (typeof clickTarget.getAttribute === 'function'
+          ? clickTarget.getAttribute('alt') ||
+            clickTarget.getAttribute('title') ||
+            clickTarget.getAttribute('aria-label')
+          : '') ||
+        '',
+    )
+      .replace(/\\s+/g, ' ')
+      .trim()
+      .slice(0, 200);
+  return {
+    ok: true,
+    tag: String(clickTarget.tagName || '').toLowerCase(),${extraFields}
+    text: preview,
+  };`;
+}
+
+function buildSelectorClickScript(selector: string): string {
+  return `(() => {
+  const selector = ${JSON.stringify(selector)};
+  let element;
+  try {
+    element = document.querySelector(selector);
+  } catch (error) {
+    return {
+      ok: false,
+      error: 'invalid selector: ' + String(error && error.message ? error.message : error),
+    };
+  }
+  if (!element) {
+    return {
+      ok: false,
+      error: 'no element matches selector "' + selector + '"',
+    };
+  }
+${buildElementClickResultScript()}
+})()`;
+}
+
+function buildTextClickScript(text: string, exact: boolean): string {
+  return `(() => {
+  const query = ${JSON.stringify(text)};
+  const exact = ${JSON.stringify(exact)};
+  const normalize = (value) =>
+    String(value || '')
+      .replace(/\\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  const needle = normalize(query);
+  if (!needle) {
+    return { ok: false, error: 'text is required' };
+  }
+  const isVisible = (element) => {
+    if (!element || typeof element.getBoundingClientRect !== 'function') {
+      return false;
+    }
+    const style = window.getComputedStyle(element);
+    if (!style || style.display === 'none' || style.visibility === 'hidden') {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+  const findMatch = (matchMode) => {
+    if (!document.body) return null;
+    const kindPriority = {
+      'aria-label': 0,
+      text: 1,
+      alt: 2,
+      title: 3,
+    };
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_ELEMENT,
+    );
+    let current = walker.currentNode;
+    let bestMatch = null;
+    while (current) {
+      const element = current;
+      const tag = String(element.tagName || '').toLowerCase();
+      if (
+        tag !== 'script' &&
+        tag !== 'style' &&
+        tag !== 'noscript' &&
+        isVisible(element)
+      ) {
+        const candidateValues = [
+          { kind: 'aria-label', value: element.getAttribute('aria-label') || '' },
+          {
+            kind: 'text',
+            value:
+              ('innerText' in element ? element.innerText : element.textContent) ||
+              '',
+          },
+          { kind: 'alt', value: element.getAttribute('alt') || '' },
+          { kind: 'title', value: element.getAttribute('title') || '' },
+        ];
+        for (const entry of candidateValues) {
+          const normalized = normalize(entry.value);
+          if (!normalized) continue;
+          const matches =
+            matchMode === 'exact'
+              ? normalized === needle
+              : normalized.includes(needle);
+          if (!matches) continue;
+          const rect = element.getBoundingClientRect();
+          const area = Math.round(rect.width * rect.height);
+          const candidate = {
+            element,
+            matchedKind: entry.kind,
+            textLength: normalized.length,
+            area,
+            kindRank:
+              kindPriority[entry.kind] !== undefined
+                ? kindPriority[entry.kind]
+                : Number.MAX_SAFE_INTEGER,
+          };
+          if (
+            !bestMatch ||
+            candidate.textLength < bestMatch.textLength ||
+            (candidate.textLength === bestMatch.textLength &&
+              candidate.area < bestMatch.area) ||
+            (candidate.textLength === bestMatch.textLength &&
+              candidate.area === bestMatch.area &&
+              candidate.kindRank < bestMatch.kindRank)
+          ) {
+            bestMatch = candidate;
+          }
+        }
+      }
+      current = walker.nextNode();
+    }
+    return bestMatch;
+  };
+  const match = findMatch('exact') || (!exact ? findMatch('substring') : null);
+  if (!match) {
+    return {
+      ok: false,
+      error: 'no visible element matches text "' + query + '"',
+    };
+  }
+  const element = match.element;
+${buildElementClickResultScript('\n    matched_kind: match.matchedKind,')}
+})()`;
 }
 
 function parseOptionalFrame(raw: unknown): FrameTarget | null {
@@ -1111,16 +1340,55 @@ export async function executeBrowserTool(
       }
 
       case 'browser_click': {
-        const ref = ensureRef(args.ref);
+        const target = resolveClickTarget(args);
         const frame = parseOptionalFrame(args.frame);
         await applyFrameTarget(effectiveSessionId, frame);
-        const result = await runAgentBrowser(effectiveSessionId, 'click', [
-          ref,
-        ]);
-        if (!result.success)
-          return failure(result.error || `failed to click ${ref}`);
+        if (target.source === 'ref') {
+          const result = await runAgentBrowser(effectiveSessionId, 'click', [
+            target.raw,
+          ]);
+          if (!result.success)
+            return failure(result.error || `failed to click ${target.raw}`);
+          return success({
+            clicked: target.raw,
+            ref: target.raw,
+            ...(frame ? { frame: frame.raw } : {}),
+          });
+        }
+
+        const clickEval = await runBrowserEval(
+          effectiveSessionId,
+          target.source === 'selector'
+            ? buildSelectorClickScript(target.raw)
+            : buildTextClickScript(target.raw, args.exact === true),
+          30_000,
+        );
+        if (!clickEval.success) {
+          return failure(
+            clickEval.error ||
+              `failed to click ${target.source} "${target.raw}"`,
+          );
+        }
+        const clickData = asRecord(clickEval.result);
+        if (clickData?.ok !== true) {
+          const error =
+            typeof clickData?.error === 'string'
+              ? clickData.error
+              : `failed to click ${target.source} "${target.raw}"`;
+          return failure(error);
+        }
         return success({
-          clicked: ref,
+          clicked: target.raw,
+          ...(target.source === 'selector'
+            ? { selector: target.raw }
+            : { text: target.raw, exact: args.exact === true }),
+          ...(typeof clickData.tag === 'string' ? { tag: clickData.tag } : {}),
+          ...(typeof clickData.text === 'string'
+            ? { matched_text: clickData.text }
+            : {}),
+          ...(typeof clickData.matched_kind === 'string'
+            ? { matched_kind: clickData.matched_kind }
+            : {}),
           ...(frame ? { frame: frame.raw } : {}),
         });
       }
@@ -1516,7 +1784,8 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'browser_click',
-      description: 'Click an element by snapshot ref (example: "@e5").',
+      description:
+        'Click an element by snapshot ref (example: "@e5"). If snapshot refs are missing for JS-only clickable containers, you can fall back to a CSS selector or visible text match. For backward compatibility, if multiple targeting fields are provided, browser_click prefers text, then selector, then ref.',
       parameters: {
         type: 'object',
         properties: {
@@ -1524,13 +1793,28 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'string',
             description: 'Element reference from browser_snapshot.',
           },
+          selector: {
+            type: 'string',
+            description:
+              'Optional CSS selector fallback when no snapshot ref is available.',
+          },
+          text: {
+            type: 'string',
+            description:
+              'Optional visible-text fallback when no snapshot ref is available.',
+          },
+          exact: {
+            type: 'boolean',
+            description:
+              'When using text, require an exact match instead of substring matching.',
+          },
           frame: {
             type: 'string',
             description:
               'Optional frame selector. Use "main" to target the main document again.',
           },
         },
-        required: ['ref'],
+        required: [],
       },
     },
   },

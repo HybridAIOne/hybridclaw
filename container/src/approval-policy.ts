@@ -109,6 +109,11 @@ const YELLOW_IMPLICIT_DELAY_SECS = Math.max(
   1,
   Math.round(YELLOW_IMPLICIT_DELAY_MS / 1_000),
 );
+const IMPLICIT_DELAY_BROWSER_INPUT_TOOLS = new Set([
+  'browser_press',
+  'browser_type',
+  'browser_upload',
+]);
 const MAX_PROMPT_CHARS = 1_200;
 const MAX_COMMAND_PREVIEW_CHARS = 160;
 const SCRATCH_ROOTS = Array.from(
@@ -1223,7 +1228,9 @@ export class TrustedCoworkerApprovalRuntime {
       commandPreview: classified.commandPreview,
       pinned: pinnedByPolicy,
       implicitDelayMs:
-        tier === 'yellow' && decision === 'implicit'
+        tier === 'yellow' &&
+        decision === 'implicit' &&
+        this.shouldApplyImplicitDelay(params.toolName)
           ? YELLOW_IMPLICIT_DELAY_MS
           : undefined,
       hostHints: classified.hostHints,
@@ -1244,7 +1251,16 @@ export class TrustedCoworkerApprovalRuntime {
   }
 
   formatYellowNarration(evaluation: ToolApprovalEvaluation): string {
+    if (!evaluation.implicitDelayMs || evaluation.implicitDelayMs <= 0) {
+      return evaluation.intent;
+    }
     return `${evaluation.intent}. Waiting ${YELLOW_IMPLICIT_DELAY_SECS}s for interruption before running.`;
+  }
+
+  private shouldApplyImplicitDelay(toolName: string): boolean {
+    const lowerTool = toolName.trim().toLowerCase();
+    if (!lowerTool.startsWith('browser_')) return true;
+    return IMPLICIT_DELAY_BROWSER_INPUT_TOOLS.has(lowerTool);
   }
 
   formatApprovalRequest(evaluation: ToolApprovalEvaluation): string {
