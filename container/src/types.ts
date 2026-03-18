@@ -92,6 +92,16 @@ export interface ToolSchema {
   type: 'object';
   properties: Record<string, ToolSchemaProperty>;
   required: string[];
+  anyOf?: ToolSchemaConstraint[];
+  oneOf?: ToolSchemaConstraint[];
+}
+
+export interface ToolSchemaConstraint {
+  type?: 'object';
+  properties?: Record<string, ToolSchemaProperty>;
+  required?: string[];
+  anyOf?: ToolSchemaConstraint[];
+  oneOf?: ToolSchemaConstraint[];
 }
 
 export interface ToolSchemaProperty {

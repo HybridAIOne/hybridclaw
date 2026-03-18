@@ -1790,6 +1790,11 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
           },
         },
         required: [],
+        anyOf: [
+          { required: ['ref'] },
+          { required: ['selector'] },
+          { required: ['text'] },
+        ],
       },
     },
   },
