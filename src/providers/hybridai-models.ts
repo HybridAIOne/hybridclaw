@@ -3,6 +3,42 @@ interface HybridAIModel {
   contextWindowTokens: number | null;
 }
 
+// Models known to accept image_url content parts (vision-capable).
+// Keep in sync with upstream provider documentation.
+const STATIC_VISION_CAPABLE_MODELS = new Set<string>([
+  // GPT-5 family (vision-enabled variants)
+  'gpt-5',
+  'gpt-5-mini',
+  'gpt-5-pro',
+  'gpt-5.1',
+  'gpt-5.1-codex',
+  'gpt-5.1-codex-max',
+  'gpt-5.1-codex-mini',
+  'gpt-5.2',
+  'gpt-5.2-codex',
+  'gpt-5.2-pro',
+  'gpt-5.3-codex',
+  'gpt-5.4',
+
+  // Claude family
+  'claude-opus-4-6',
+  'claude-opus-4.6',
+  'claude-sonnet-4-6',
+  'claude-sonnet-4.6',
+
+  // Gemini family
+  'gemini-3',
+  'gemini-3-pro',
+  'gemini-3-flash',
+  'gemini-3.1',
+  'gemini-3.1-pro',
+  'gemini-3.1-pro-high',
+  'gemini-3.1-pro-low',
+  'gemini-3-pro-preview',
+  'gemini-3-flash-preview',
+  'gemini-3.1-pro-preview',
+]);
+
 // Source: ../../examples/pi-mono/packages/ai/src/models.generated.ts
 // Keep this list intentionally small and focused on the GPT-5 family we use.
 const STATIC_MODEL_CONTEXT_WINDOWS: Record<string, number> = {
@@ -156,4 +192,29 @@ export function resolveModelContextWindowFallback(
   }
 
   return null;
+}
+
+/**
+ * Returns true if the model is known to support vision (image_url content
+ * parts) based on the static capability list.  Strips provider prefixes and
+ * colon-separated suffixes so that ids like "openai-codex/gpt-5" or
+ * "gpt-5:latest" still match.
+ */
+export function isStaticModelVisionCapable(modelName: string): boolean {
+  const normalized = modelName.trim().toLowerCase();
+  if (!normalized) return false;
+
+  if (STATIC_VISION_CAPABLE_MODELS.has(normalized)) return true;
+
+  const slashTail = normalized.includes('/')
+    ? (normalized.split('/').at(-1) ?? '')
+    : normalized;
+  if (slashTail && STATIC_VISION_CAPABLE_MODELS.has(slashTail)) return true;
+
+  const colonTail = normalized.includes(':')
+    ? (normalized.split(':').at(-1) ?? '')
+    : normalized;
+  if (colonTail && STATIC_VISION_CAPABLE_MODELS.has(colonTail)) return true;
+
+  return false;
 }
