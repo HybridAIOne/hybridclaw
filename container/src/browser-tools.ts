@@ -1068,9 +1068,9 @@ export async function executeBrowserTool(
         const mode = normalizeSnapshotMode(args.mode);
         const full = args.full === true;
         let commandArgs: string[];
-        if (mode === 'interactive') commandArgs = ['-i'];
-        else if (mode === 'full') commandArgs = [];
-        else commandArgs = full ? [] : ['-i', '-c'];
+        if (mode === 'interactive') commandArgs = ['-i', '-C'];
+        else if (mode === 'full') commandArgs = ['-C'];
+        else commandArgs = full ? ['-C'] : ['-i', '-c', '-C'];
 
         const result = await runAgentBrowser(
           effectiveSessionId,
