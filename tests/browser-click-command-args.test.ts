@@ -74,7 +74,6 @@ test('browser_click preserves ref-based clicks', async () => {
 
   expect(parsed.success).toBe(true);
   expect(parsed.clicked).toBe('@e7');
-  expect(parsed.target_type).toBe('ref');
   expect(parsed.ref).toBe('@e7');
   expect(parsed.tag).toBeUndefined();
 });
@@ -100,7 +99,6 @@ test('browser_click accepts selector fallback clicks', async () => {
 
   expect(parsed.success).toBe(true);
   expect(parsed.clicked).toBe(selector);
-  expect(parsed.target_type).toBe('selector');
   expect(parsed.selector).toBe(selector);
   expect(parsed.tag).toBe('h3');
   expect(parsed.matched_text).toBe('Leben mit Bots');
@@ -126,7 +124,6 @@ test('browser_click accepts visible-text fallback clicks', async () => {
 
   expect(parsed.success).toBe(true);
   expect(parsed.clicked).toBe('Leben mit Bots');
-  expect(parsed.target_type).toBe('text');
   expect(parsed.text).toBe('Leben mit Bots');
   expect(parsed.exact).toBe(true);
   expect(parsed.tag).toBe('h3');

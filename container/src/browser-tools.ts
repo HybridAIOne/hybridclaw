@@ -1291,7 +1291,6 @@ export async function executeBrowserTool(
             return failure(result.error || `failed to click ${target.raw}`);
           return success({
             clicked: target.raw,
-            target_type: target.source,
             ref: target.raw,
             ...(frame ? { frame: frame.raw } : {}),
           });
@@ -1320,7 +1319,6 @@ export async function executeBrowserTool(
         }
         return success({
           clicked: target.raw,
-          target_type: target.source,
           ...(target.source === 'selector'
             ? { selector: target.raw }
             : { text: target.raw, exact: args.exact === true }),
