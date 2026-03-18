@@ -26,7 +26,7 @@ import type { McpServerConfig } from '../types.js';
 import { normalizeTrimmedStringSet } from '../utils/normalized-strings.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 16;
+export const CONFIG_VERSION = 17;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
@@ -446,6 +446,13 @@ export interface RuntimeConfig {
       maxMessages: number;
       maxChars: number;
     };
+    inLoopGuard: {
+      enabled: boolean;
+      perResultShare: number;
+      compactionRatio: number;
+      overflowRatio: number;
+      maxRetries: number;
+    };
   };
   sessionReset: {
     defaultPolicy: {
@@ -850,6 +857,13 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       enabled: true,
       maxMessages: 80,
       maxChars: 24_000,
+    },
+    inLoopGuard: {
+      enabled: true,
+      perResultShare: 0.5,
+      compactionRatio: 0.75,
+      overflowRatio: 0.9,
+      maxRetries: 3,
     },
   },
   sessionReset: {
@@ -2617,6 +2631,9 @@ function normalizeRuntimeConfig(
   const rawPreFlush = isRecord(rawSessionCompaction.preCompactionMemoryFlush)
     ? rawSessionCompaction.preCompactionMemoryFlush
     : {};
+  const rawInLoopGuard = isRecord(rawSessionCompaction.inLoopGuard)
+    ? rawSessionCompaction.inLoopGuard
+    : {};
   const rawSessionReset = isRecord(raw.sessionReset) ? raw.sessionReset : {};
   const rawDefaultResetPolicy = isRecord(rawSessionReset.defaultPolicy)
     ? rawSessionReset.defaultPolicy
@@ -3356,6 +3373,32 @@ function normalizeRuntimeConfig(
           DEFAULT_RUNTIME_CONFIG.sessionCompaction.preCompactionMemoryFlush
             .maxChars,
           { min: 4_000 },
+        ),
+      },
+      inLoopGuard: {
+        enabled: normalizeBoolean(
+          rawInLoopGuard.enabled,
+          DEFAULT_RUNTIME_CONFIG.sessionCompaction.inLoopGuard.enabled,
+        ),
+        perResultShare: normalizeNumber(
+          rawInLoopGuard.perResultShare,
+          DEFAULT_RUNTIME_CONFIG.sessionCompaction.inLoopGuard.perResultShare,
+          { min: 0.1, max: 0.9 },
+        ),
+        compactionRatio: normalizeNumber(
+          rawInLoopGuard.compactionRatio,
+          DEFAULT_RUNTIME_CONFIG.sessionCompaction.inLoopGuard.compactionRatio,
+          { min: 0.2, max: 0.98 },
+        ),
+        overflowRatio: normalizeNumber(
+          rawInLoopGuard.overflowRatio,
+          DEFAULT_RUNTIME_CONFIG.sessionCompaction.inLoopGuard.overflowRatio,
+          { min: 0.3, max: 0.99 },
+        ),
+        maxRetries: normalizeInteger(
+          rawInLoopGuard.maxRetries,
+          DEFAULT_RUNTIME_CONFIG.sessionCompaction.inLoopGuard.maxRetries,
+          { min: 0, max: 10 },
         ),
       },
     },

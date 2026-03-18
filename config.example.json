@@ -1,5 +1,5 @@
 {
-  "version": 16,
+  "version": 17,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -342,6 +342,13 @@
       "enabled": true,
       "maxMessages": 80,
       "maxChars": 24000
+    },
+    "inLoopGuard": {
+      "enabled": true,
+      "perResultShare": 0.5,
+      "compactionRatio": 0.75,
+      "overflowRatio": 0.9,
+      "maxRetries": 3
     }
   },
   "promptHooks": {

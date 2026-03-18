@@ -306,6 +306,11 @@ export let SESSION_COMPACTION_SUMMARY_MAX_CHARS = 8_000;
 export let PRE_COMPACTION_MEMORY_FLUSH_ENABLED = true;
 export let PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES = 80;
 export let PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS = 24_000;
+export let CONTEXT_GUARD_ENABLED = true;
+export let CONTEXT_GUARD_PER_RESULT_SHARE = 0.5;
+export let CONTEXT_GUARD_COMPACTION_RATIO = 0.75;
+export let CONTEXT_GUARD_OVERFLOW_RATIO = 0.9;
+export let CONTEXT_GUARD_MAX_RETRIES = 3;
 
 export let PROACTIVE_ACTIVE_HOURS_ENABLED = false;
 export let PROACTIVE_ACTIVE_HOURS_TIMEZONE = '';
@@ -620,6 +625,23 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS = Math.max(
     4_000,
     config.sessionCompaction.preCompactionMemoryFlush.maxChars,
+  );
+  CONTEXT_GUARD_ENABLED = config.sessionCompaction.inLoopGuard.enabled;
+  CONTEXT_GUARD_PER_RESULT_SHARE = Math.max(
+    0.1,
+    Math.min(0.9, config.sessionCompaction.inLoopGuard.perResultShare),
+  );
+  CONTEXT_GUARD_COMPACTION_RATIO = Math.max(
+    0.2,
+    Math.min(0.98, config.sessionCompaction.inLoopGuard.compactionRatio),
+  );
+  CONTEXT_GUARD_OVERFLOW_RATIO = Math.max(
+    CONTEXT_GUARD_COMPACTION_RATIO,
+    Math.min(0.99, config.sessionCompaction.inLoopGuard.overflowRatio),
+  );
+  CONTEXT_GUARD_MAX_RETRIES = Math.max(
+    0,
+    Math.min(10, config.sessionCompaction.inLoopGuard.maxRetries),
   );
 
   PROACTIVE_ACTIVE_HOURS_ENABLED = config.proactive.activeHours.enabled;

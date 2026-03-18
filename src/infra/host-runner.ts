@@ -6,6 +6,11 @@ import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   CONTAINER_TIMEOUT,
+  CONTEXT_GUARD_COMPACTION_RATIO,
+  CONTEXT_GUARD_ENABLED,
+  CONTEXT_GUARD_MAX_RETRIES,
+  CONTEXT_GUARD_OVERFLOW_RATIO,
+  CONTEXT_GUARD_PER_RESULT_SHARE,
   GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
@@ -508,6 +513,13 @@ export async function runHostProcess(
     audioTranscriptsPrepended,
     mcpServers: MCP_SERVERS,
     taskModels,
+    contextGuard: {
+      enabled: CONTEXT_GUARD_ENABLED,
+      perResultShare: CONTEXT_GUARD_PER_RESULT_SHARE,
+      compactionRatio: CONTEXT_GUARD_COMPACTION_RATIO,
+      overflowRatio: CONTEXT_GUARD_OVERFLOW_RATIO,
+      maxRetries: CONTEXT_GUARD_MAX_RETRIES,
+    },
     webSearch: {
       provider: WEB_SEARCH_PROVIDER,
       fallbackProviders: [...WEB_SEARCH_FALLBACK_PROVIDERS],

@@ -5,7 +5,9 @@ import type {
   TokenUsageStats,
 } from './types.js';
 
-const CHARS_PER_TOKEN = 4;
+export const CHARS_PER_TOKEN = 4;
+export const TOOL_RESULT_CHARS_PER_TOKEN = 2;
+export type TokenEstimateCache = WeakMap<ChatMessage, number>;
 
 function parseUsageNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -52,13 +54,28 @@ export function createTokenUsageStats(): TokenUsageStats {
   };
 }
 
-export function estimateTextTokens(text: unknown): number {
-  const normalized = typeof text === 'string' ? text : '';
-  if (!normalized) return 0;
-  return Math.max(1, Math.ceil(normalized.length / CHARS_PER_TOKEN));
+export function createTokenEstimateCache(): TokenEstimateCache {
+  return new WeakMap<ChatMessage, number>();
 }
 
-function normalizeContentText(content: ChatMessage['content']): string {
+export function estimateTextTokens(text: unknown): number {
+  return estimateTextTokensWithRatio(text, CHARS_PER_TOKEN);
+}
+
+export function estimateToolResultTokens(text: unknown): number {
+  return estimateTextTokensWithRatio(text, TOOL_RESULT_CHARS_PER_TOKEN);
+}
+
+function estimateTextTokensWithRatio(
+  text: unknown,
+  charsPerToken: number,
+): number {
+  const normalized = typeof text === 'string' ? text : '';
+  if (!normalized) return 0;
+  return Math.max(1, Math.ceil(normalized.length / charsPerToken));
+}
+
+export function normalizeContentText(content: ChatMessage['content']): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   const chunks: string[] = [];
@@ -78,17 +95,39 @@ function normalizeContentText(content: ChatMessage['content']): string {
   return chunks.join('\n');
 }
 
-export function estimateMessageTokens(messages: ChatMessage[]): number {
+export function estimateChatMessageTokens(
+  message: ChatMessage,
+  cache?: TokenEstimateCache,
+): number {
+  if (cache) {
+    const cached = cache.get(message);
+    if (cached !== undefined) return cached;
+  }
+
+  let total = 4;
+  total += estimateTextTokens(message.role);
+  total +=
+    message.role === 'tool'
+      ? estimateToolResultTokens(normalizeContentText(message.content))
+      : estimateTextTokens(normalizeContentText(message.content));
+  if (message.tool_calls) {
+    total += estimateTextTokens(JSON.stringify(message.tool_calls));
+  }
+  if (message.tool_call_id) total += estimateTextTokens(message.tool_call_id);
+
+  cache?.set(message, total);
+  return total;
+}
+
+export function estimateMessageTokens(
+  messages: ChatMessage[],
+  cache?: TokenEstimateCache,
+): number {
   if (!Array.isArray(messages) || messages.length === 0) return 0;
 
   let total = 2;
   for (const message of messages) {
-    total += 4;
-    total += estimateTextTokens(message.role);
-    total += estimateTextTokens(normalizeContentText(message.content));
-    if (message.tool_calls)
-      total += estimateTextTokens(JSON.stringify(message.tool_calls));
-    if (message.tool_call_id) total += estimateTextTokens(message.tool_call_id);
+    total += estimateChatMessageTokens(message, cache);
   }
   return total;
 }

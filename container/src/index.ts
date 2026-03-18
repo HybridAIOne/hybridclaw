@@ -5,11 +5,13 @@ import {
   TrustedCoworkerApprovalRuntime,
 } from './approval-policy.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
+import { applyContextGuard } from './context-guard.js';
 import {
   emitRuntimeEvent,
   runAfterToolHooks,
   runBeforeToolHooks,
 } from './extensions.js';
+import { compactInLoop } from './in-loop-compaction.js';
 import { waitForInput, writeOutput } from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
@@ -22,6 +24,7 @@ import {
   injectNativeVisionContent,
   shouldRetryWithoutNativeMedia,
 } from './native-media.js';
+import { callAuxiliaryModel } from './providers/auxiliary.js';
 import { callRoutedModel, callRoutedModelStream } from './providers/router.js';
 import {
   buildRalphPrompt,
@@ -45,6 +48,7 @@ import {
 } from './system-messages.js';
 import {
   accumulateApiUsage,
+  createTokenEstimateCache,
   createTokenUsageStats,
   estimateMessageTokens,
   estimateTextTokens,
@@ -536,6 +540,39 @@ function appendCompletedToolCall(params: {
   );
 }
 
+function buildContextOverflowOutput(params: {
+  latestVisibleAssistantText: string | null;
+  toolsUsed: string[];
+  artifacts: ArtifactMetadata[];
+  toolExecutions: ToolExecution[];
+  tokenUsage: ReturnType<typeof finalizeTokenUsage>;
+  effectiveUserPrompt: string;
+}): ContainerOutput {
+  const overflowMessage =
+    'Context window exhausted inside the container tool loop after repeated in-loop compaction attempts. Compact or reset the session and retry.';
+  if (params.latestVisibleAssistantText) {
+    return {
+      status: 'success',
+      result: `${params.latestVisibleAssistantText}\n\n[${overflowMessage}]`,
+      toolsUsed: [...new Set(params.toolsUsed)],
+      ...(params.artifacts.length > 0 ? { artifacts: params.artifacts } : {}),
+      toolExecutions: params.toolExecutions,
+      tokenUsage: params.tokenUsage,
+      effectiveUserPrompt: params.effectiveUserPrompt,
+    };
+  }
+  return {
+    status: 'error',
+    result: null,
+    toolsUsed: [...new Set(params.toolsUsed)],
+    ...(params.artifacts.length > 0 ? { artifacts: params.artifacts } : {}),
+    toolExecutions: params.toolExecutions,
+    tokenUsage: params.tokenUsage,
+    error: overflowMessage,
+    effectiveUserPrompt: params.effectiveUserPrompt,
+  };
+}
+
 async function executePreparedToolCall(
   prepared: PreparedToolCallExecution,
   toolCallHistory: ToolCallHistoryEntry[],
@@ -777,6 +814,8 @@ async function processRequest(
   enableRag: boolean,
   requestHeaders: Record<string, string> | undefined,
   tools: ToolDefinition[],
+  taskModels: ContainerInput['taskModels'] | undefined,
+  contextGuard: ContainerInput['contextGuard'] | undefined,
   maxTokens?: number,
   effectiveUserPromptOverride?: string,
   ralphMaxIterationsOverride?: number | null,
@@ -786,7 +825,7 @@ async function processRequest(
     event: 'before_agent_start',
     messageCount: messages.length,
   });
-  const history: ChatMessage[] = collapseSystemMessages(
+  let history: ChatMessage[] = collapseSystemMessages(
     injectRuntimeCapabilitiesMessage(messages),
   );
   const toolsUsed: string[] = [];
@@ -806,10 +845,104 @@ async function processRequest(
   let ralphExtraIterations = 0;
   let stalledTurns = 0;
   let latestVisibleAssistantText: string | null = null;
+  let compactionRetries = 0;
+  const tokenEstimateCache = createTokenEstimateCache();
+  const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
 
   while (stalledTurns < maxStalledTurns) {
+    const guardResult = applyContextGuard({
+      history,
+      contextWindowTokens: contextWindow,
+      config: contextGuard,
+      cache: tokenEstimateCache,
+    });
+    if (
+      guardResult.truncatedToolResults > 0 ||
+      guardResult.compactedToolResults > 0
+    ) {
+      console.error(
+        `[context] guard adjusted history truncated=${guardResult.truncatedToolResults} compacted=${guardResult.compactedToolResults} totalTokens=${guardResult.totalTokensAfter}/${guardResult.overflowBudgetTokens}`,
+      );
+    }
+    if (guardResult.tier3Triggered) {
+      if (compactionRetries >= maxContextGuardRetries) {
+        const overflow = buildContextOverflowOutput({
+          latestVisibleAssistantText,
+          toolsUsed,
+          artifacts,
+          toolExecutions,
+          tokenUsage: finalizeTokenUsage(tokenUsage),
+          effectiveUserPrompt,
+        });
+        await emitRuntimeEvent({
+          event: 'turn_end',
+          status: overflow.status,
+          toolsUsed: overflow.toolsUsed,
+        });
+        return overflow;
+      }
+
+      const compacted = await compactInLoop({
+        history,
+        contextWindowTokens: contextWindow,
+        summarize: async (summaryMessages, summaryMaxTokens) => {
+          tokenUsage.modelCalls += 1;
+          tokenUsage.estimatedPromptTokens +=
+            estimateMessageTokens(summaryMessages);
+          const response = await callAuxiliaryModel({
+            task: 'compression',
+            taskModels,
+            fallbackContext: {
+              provider,
+              baseUrl,
+              apiKey,
+              model,
+              chatbotId,
+              requestHeaders,
+              isLocal,
+              contextWindow,
+              thinkingFormat,
+            },
+            messages: summaryMessages,
+            maxTokens: summaryMaxTokens,
+            toolName: 'in_loop_compaction',
+          });
+          accumulateApiUsage(tokenUsage, response.response);
+          tokenUsage.estimatedCompletionTokens += estimateTextTokens(
+            response.content,
+          );
+          return response.content;
+        },
+      });
+      if (!compacted.changed) {
+        const overflow = buildContextOverflowOutput({
+          latestVisibleAssistantText,
+          toolsUsed,
+          artifacts,
+          toolExecutions,
+          tokenUsage: finalizeTokenUsage(tokenUsage),
+          effectiveUserPrompt,
+        });
+        await emitRuntimeEvent({
+          event: 'turn_end',
+          status: overflow.status,
+          toolsUsed: overflow.toolsUsed,
+        });
+        return overflow;
+      }
+      history = compacted.history;
+      compactionRetries += 1;
+      console.error(
+        `[context] in-loop compaction retry=${compactionRetries} compactedMessages=${compacted.compactedMessages} summarySource=${compacted.summarySource}`,
+      );
+      continue;
+    }
+
     tokenUsage.modelCalls += 1;
-    tokenUsage.estimatedPromptTokens += estimateMessageTokens(history);
+    tokenUsage.estimatedPromptTokens += estimateMessageTokens(
+      history,
+      tokenEstimateCache,
+    );
 
     let response: Awaited<ReturnType<typeof callHybridAIWithRetry>>;
     try {
@@ -1366,6 +1499,8 @@ async function main(): Promise<void> {
       firstInput.enableRag,
       storedRequestHeaders,
       resolveTools(firstInput),
+      firstTaskModels,
+      firstInput.contextGuard,
       firstInput.maxTokens,
       firstPromptOverride,
       firstInput.ralphMaxIterations,
@@ -1396,6 +1531,8 @@ async function main(): Promise<void> {
         firstInput.enableRag,
         firstInput.requestHeaders,
         resolveTools(firstInput),
+        firstTaskModels,
+        firstInput.contextGuard,
         firstInput.maxTokens,
         firstPromptOverride,
         firstInput.ralphMaxIterations,
@@ -1506,6 +1643,8 @@ async function main(): Promise<void> {
       input.enableRag,
       requestHeaders,
       resolveTools(input),
+      taskModels,
+      input.contextGuard,
       input.maxTokens,
       promptOverride,
       input.ralphMaxIterations,
@@ -1535,6 +1674,8 @@ async function main(): Promise<void> {
         input.enableRag,
         requestHeaders,
         resolveTools(input),
+        taskModels,
+        input.contextGuard,
         input.maxTokens,
         promptOverride,
         input.ralphMaxIterations,
