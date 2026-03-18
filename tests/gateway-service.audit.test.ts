@@ -18,6 +18,7 @@ const { setupHome } = setupGatewayTest({
   cleanup: () => {
     runAgentMock.mockReset();
     vi.doUnmock('../src/providers/hybridai-bots.ts');
+    vi.doUnmock('../src/logger.js');
   },
 });
 
@@ -224,6 +225,10 @@ test('handleGatewayMessage records agent handoff before agent-side timeouts', as
 
 test('handleGatewayMessage stores redacted request logs when enabled', async () => {
   setupHome({ HYBRIDCLAW_LOG_REQUESTS: '1' });
+  const secret = 'supersecret1234567890';
+  const signedSignature = 'amzsignature1234567890';
+  const signedToken = 'signedtoken1234567890';
+  const signedUrl = `https://s3.amazonaws.com/bucket?X-Amz-Signature=${signedSignature}&token=${signedToken}`;
 
   runAgentMock.mockResolvedValue({
     status: 'error',
@@ -234,13 +239,13 @@ test('handleGatewayMessage stores redacted request logs when enabled', async () 
         name: 'browser_type',
         arguments: JSON.stringify({
           element: 'password',
-          text: 'supersecret1234567890',
+          text: secret,
         }),
-        result: 'typed password',
+        result: `uploaded to ${signedUrl}`,
         durationMs: 12,
       },
     ],
-    error: 'Password: supersecret1234567890',
+    error: `Password: ${secret}`,
   });
 
   const { DB_PATH } = await import('../src/config/config.ts');
@@ -250,14 +255,13 @@ test('handleGatewayMessage stores redacted request logs when enabled', async () 
   );
 
   initDatabase({ quiet: true });
-  const secret = 'supersecret1234567890';
   const result = await handleGatewayMessage({
     sessionId: 'session-request-log',
     guildId: null,
     channelId: 'web',
     userId: 'user-1',
     username: 'alice',
-    content: `Username: alice\nPassword: ${secret}`,
+    content: `Username: alice\nPassword: ${secret}\nUpload URL: ${signedUrl}`,
     model: 'test-model',
     chatbotId: 'bot-1',
   });
@@ -290,13 +294,139 @@ test('handleGatewayMessage stores redacted request logs when enabled', async () 
   expect(row?.response).toBeNull();
   expect(row?.tools_used).toBe(JSON.stringify(['browser_type']));
   expect(row?.messages_json).not.toContain(secret);
+  expect(row?.messages_json).not.toContain(signedSignature);
+  expect(row?.messages_json).not.toContain(signedToken);
   expect(row?.messages_json).toContain('Password: [REDACTED]');
+  expect(row?.messages_json).toContain(
+    'X-Amz-Signature=[REDACTED]&token=[REDACTED]',
+  );
   expect(row?.error).toBe('Password: [REDACTED]');
   expect(row?.tool_executions_json).not.toContain(secret);
+  expect(row?.tool_executions_json).not.toContain(signedSignature);
+  expect(row?.tool_executions_json).not.toContain(signedToken);
   const toolExecutions = JSON.parse(
     row?.tool_executions_json || '[]',
   ) as Array<{
     arguments?: string;
+    result?: string;
   }>;
   expect(toolExecutions[0]?.arguments).toContain('"text":"[REDACTED]"');
+  expect(toolExecutions[0]?.result).toContain(
+    'X-Amz-Signature=[REDACTED]&token=[REDACTED]',
+  );
+});
+
+test('handleGatewayMessage skips request logs when request logging is disabled', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'done',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { DB_PATH } = await import('../src/config/config.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayMessage({
+    sessionId: 'session-request-log-disabled',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: 'hello',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+
+  const inspect = new Database(DB_PATH, { readonly: true });
+  const rowCount = inspect
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM request_log
+       WHERE session_id = ?`,
+    )
+    .get('session-request-log-disabled') as { count: number };
+  inspect.close();
+
+  expect(rowCount.count).toBe(0);
+});
+
+test('handleGatewayMessage warns once and disables request logs for invalid env values', async () => {
+  setupHome({ HYBRIDCLAW_LOG_REQUESTS: 'true' });
+
+  const logger = {
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  };
+  vi.doMock('../src/logger.js', () => ({ logger }));
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'done',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { DB_PATH } = await import('../src/config/config.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  await handleGatewayMessage({
+    sessionId: 'session-request-log-invalid-a',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: 'hello',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+  await handleGatewayMessage({
+    sessionId: 'session-request-log-invalid-b',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: 'hello again',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(logger.warn).toHaveBeenCalledTimes(1);
+  expect(logger.warn).toHaveBeenCalledWith(
+    {
+      envVar: 'HYBRIDCLAW_LOG_REQUESTS',
+      expectedValue: '1',
+      value: 'true',
+    },
+    'Ignoring invalid gateway request logging env value',
+  );
+
+  const inspect = new Database(DB_PATH, { readonly: true });
+  const rowCount = inspect
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM request_log
+       WHERE session_id IN (?, ?)`,
+    )
+    .get(
+      'session-request-log-invalid-a',
+      'session-request-log-invalid-b',
+    ) as { count: number };
+  inspect.close();
+
+  expect(rowCount.count).toBe(0);
 });

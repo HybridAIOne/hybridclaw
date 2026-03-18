@@ -1386,7 +1386,10 @@ describe('CLI hybridai commands', () => {
 
     expect(process.env.HYBRIDCLAW_LOG_REQUESTS).toBe('1');
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('request_log stores redacted prompts'),
+      expect.stringContaining('request_log stores best-effort redacted prompts'),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Treat this log as potentially sensitive.'),
     );
   });
 

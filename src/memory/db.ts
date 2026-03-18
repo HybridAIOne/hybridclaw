@@ -63,7 +63,7 @@ import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 14;
+export const DATABASE_SCHEMA_VERSION = 15;
 const SCHEMA_VERSION = DATABASE_SCHEMA_VERSION;
 
 interface InitDatabaseOptions {
@@ -1352,13 +1352,98 @@ function migrateV14(database: Database.Database): void {
       tool_executions_json TEXT,
       tools_used TEXT,
       duration_ms INTEGER,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_request_log_session_created
       ON request_log(session_id, created_at DESC);
   `);
 
   recordMigration(database, 14, 'Add opt-in gateway request logging table');
+}
+
+function requestLogCreatedAtNeedsDefaultRemoval(
+  database: Database.Database,
+): boolean {
+  if (!tableExists(database, 'request_log')) return false;
+  const definition = getTableSql(database, 'request_log').toLowerCase();
+  return definition.includes("created_at text default (datetime('now'))");
+}
+
+function migrateV15(database: Database.Database): void {
+  const backupTable = 'request_log_v15_backup';
+  if (!tableExists(database, backupTable)) {
+    if (!requestLogCreatedAtNeedsDefaultRemoval(database)) {
+      recordMigration(
+        database,
+        15,
+        'Remove request_log created_at default in favor of application timestamps',
+      );
+      return;
+    }
+    database.exec(`
+      DROP INDEX IF EXISTS idx_request_log_session_created;
+      ALTER TABLE request_log RENAME TO ${backupTable};
+    `);
+  }
+
+  database.exec(`
+    DROP TABLE IF EXISTS request_log;
+
+    CREATE TABLE request_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      model TEXT,
+      chatbot_id TEXT,
+      messages_json TEXT,
+      status TEXT,
+      response TEXT,
+      error TEXT,
+      tool_executions_json TEXT,
+      tools_used TEXT,
+      duration_ms INTEGER,
+      created_at TEXT
+    );
+
+    INSERT INTO request_log (
+      id,
+      session_id,
+      model,
+      chatbot_id,
+      messages_json,
+      status,
+      response,
+      error,
+      tool_executions_json,
+      tools_used,
+      duration_ms,
+      created_at
+    )
+    SELECT
+      id,
+      session_id,
+      model,
+      chatbot_id,
+      messages_json,
+      status,
+      response,
+      error,
+      tool_executions_json,
+      tools_used,
+      duration_ms,
+      created_at
+    FROM ${backupTable};
+
+    DROP TABLE ${backupTable};
+
+    CREATE INDEX idx_request_log_session_created
+      ON request_log(session_id, created_at DESC);
+  `);
+
+  recordMigration(
+    database,
+    15,
+    'Remove request_log created_at default in favor of application timestamps',
+  );
 }
 
 function runMigrations(
@@ -1396,6 +1481,7 @@ function runMigrations(
   if (currentVersion < 12) migrateV12(database, opts);
   if (currentVersion < 13) migrateV13(database, opts);
   if (currentVersion < 14) migrateV14(database);
+  if (currentVersion < 15) migrateV15(database);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -2127,7 +2213,6 @@ export function recordRequestLog(params: {
   toolExecutions?: unknown;
   toolsUsed?: unknown;
   durationMs?: number | null;
-  createdAt?: string | null;
 }): void {
   const sessionId = resolveSessionIdCompat(params.sessionId.trim());
   if (!sessionId) return;
@@ -2140,7 +2225,7 @@ export function recordRequestLog(params: {
     typeof params.durationMs === 'number' && Number.isFinite(params.durationMs)
       ? Math.max(0, Math.trunc(params.durationMs))
       : null;
-  const createdAt = params.createdAt?.trim() || new Date().toISOString();
+  const createdAt = new Date().toISOString();
 
   db.prepare(
     `INSERT INTO request_log (

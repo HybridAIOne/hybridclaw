@@ -275,20 +275,49 @@ const MAX_HISTORY_MESSAGES = 40;
 const REQUEST_LOG_SENSITIVE_KEY_RE =
   /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
 const REQUEST_LOG_INLINE_SECRET_RE =
-  /\b(pass(?:word)?|secret|token|api(?:[_ -]?key)?|authorization|cookie|credential)\b(\s*[:=]\s*)([^\n\r,;]+)/gi;
+  /\b(pass(?:word)?|secret|token|api(?:[_ -]?key)?|authorization|cookie|credential)\b(\s*[:=]\s*)([^\n\r,;]+)|([?&](?:token|signature|x-amz-[^=]*))=([^&\s]+)/gi;
+const ALWAYS_REDACT_TOOL_FIELDS: Record<string, ReadonlySet<string>> = {
+  browser_type: new Set(['text']),
+};
+const GATEWAY_REQUEST_LOG_ENABLED_VALUE = '1';
+let lastWarnedGatewayRequestLoggingValue: string | null = null;
 
 function isGatewayRequestLoggingEnabled(): boolean {
-  const raw = String(process.env[GATEWAY_LOG_REQUESTS_ENV] || '')
-    .trim()
-    .toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+  const raw = String(process.env[GATEWAY_LOG_REQUESTS_ENV] || '').trim();
+  if (!raw) return false;
+  if (raw === GATEWAY_REQUEST_LOG_ENABLED_VALUE) {
+    lastWarnedGatewayRequestLoggingValue = null;
+    return true;
+  }
+  if (raw !== lastWarnedGatewayRequestLoggingValue) {
+    logger.warn(
+      {
+        envVar: GATEWAY_LOG_REQUESTS_ENV,
+        expectedValue: GATEWAY_REQUEST_LOG_ENABLED_VALUE,
+        value: raw,
+      },
+      'Ignoring invalid gateway request logging env value',
+    );
+    lastWarnedGatewayRequestLoggingValue = raw;
+  }
+  return false;
 }
 
 function redactRequestLogText(text: string): string {
   return redactSecrets(text).replace(
     REQUEST_LOG_INLINE_SECRET_RE,
-    (_match: string, label: string, separator: string, _value: string) =>
-      `${label}${separator}[REDACTED]`,
+    (
+      match: string,
+      label: string | undefined,
+      separator: string | undefined,
+      _value: string | undefined,
+      queryKey: string | undefined,
+      _queryValue: string | undefined,
+    ) => {
+      if (label && separator) return `${label}${separator}[REDACTED]`;
+      if (queryKey) return `${queryKey}=[REDACTED]`;
+      return match;
+    },
   );
 }
 
@@ -320,10 +349,8 @@ function sanitizeRequestLogToolArguments(
   const trimmed = rawArguments.trim();
   if (!trimmed) return trimmed;
 
-  const extraKeyRedact =
-    toolName === 'browser_type'
-      ? (key: string) => key === 'text'
-      : undefined;
+  const extraKeyRedact = (key: string) =>
+    ALWAYS_REDACT_TOOL_FIELDS[toolName]?.has(key) ?? false;
 
   try {
     const parsed = JSON.parse(trimmed) as unknown;
@@ -355,20 +382,22 @@ function sanitizeRequestLogMessages(messages: ChatMessage[]): ChatMessage[] {
 function sanitizeRequestLogToolExecutions(
   toolExecutions: ToolExecution[],
 ): ToolExecution[] {
-  return toolExecutions.map((execution) => ({
-    ...(sanitizeRequestLogValue(execution) as ToolExecution),
-    arguments: sanitizeRequestLogToolArguments(
-      execution.name,
-      execution.arguments,
-    ),
-  }));
+  return toolExecutions.map((execution) => {
+    const { arguments: rawArguments, ...executionWithoutArguments } = execution;
+    return {
+      ...(sanitizeRequestLogValue(
+        executionWithoutArguments,
+      ) as Omit<ToolExecution, 'arguments'>),
+      arguments: sanitizeRequestLogToolArguments(execution.name, rawArguments),
+    };
+  });
 }
 
 function maybeRecordGatewayRequestLog(params: {
   sessionId: string;
   model: string;
   chatbotId: string;
-  messages: ChatMessage[] | null;
+  messages: ChatMessage[];
   status: 'success' | 'error';
   response?: string | null;
   error?: string | null;
@@ -376,22 +405,19 @@ function maybeRecordGatewayRequestLog(params: {
   toolsUsed?: string[];
   durationMs: number;
 }): void {
-  if (!isGatewayRequestLoggingEnabled()) return;
   try {
     recordRequestLog({
       sessionId: params.sessionId,
       model: params.model,
       chatbotId: params.chatbotId,
-      messages: params.messages
-        ? sanitizeRequestLogMessages(params.messages)
-        : null,
+      messages: sanitizeRequestLogMessages(params.messages),
       status: params.status,
       response: params.response ? redactRequestLogText(params.response) : null,
       error: params.error ? redactRequestLogText(params.error) : null,
       toolExecutions: Array.isArray(params.toolExecutions)
         ? sanitizeRequestLogToolExecutions(params.toolExecutions)
         : null,
-      toolsUsed: sanitizeRequestLogValue(params.toolsUsed),
+      toolsUsed: params.toolsUsed,
       durationMs: params.durationMs,
     });
   } catch (error) {
@@ -4202,17 +4228,19 @@ export async function handleGatewayMessage(
           },
         },
       });
-      maybeRecordGatewayRequestLog({
-        sessionId: req.sessionId,
-        model,
-        chatbotId,
-        messages: requestMessages,
-        status: 'error',
-        error: errorMessage,
-        toolExecutions,
-        toolsUsed: output.toolsUsed || [],
-        durationMs,
-      });
+      if (requestMessages !== null) {
+        maybeRecordGatewayRequestLog({
+          sessionId: req.sessionId,
+          model,
+          chatbotId,
+          messages: requestMessages,
+          status: 'error',
+          error: errorMessage,
+          toolExecutions,
+          toolsUsed: output.toolsUsed || [],
+          durationMs,
+        });
+      }
       return attachSessionIdentity({
         status: 'error',
         result: null,
@@ -4265,17 +4293,19 @@ export async function handleGatewayMessage(
       effectiveUserPrompt: output.effectiveUserPrompt,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
-    maybeRecordGatewayRequestLog({
-      sessionId: req.sessionId,
-      model,
-      chatbotId,
-      messages: requestMessages,
-      status: 'success',
-      response: resultText,
-      toolExecutions,
-      toolsUsed: output.toolsUsed || [],
-      durationMs,
-    });
+    if (requestMessages !== null) {
+      maybeRecordGatewayRequestLog({
+        sessionId: req.sessionId,
+        model,
+        chatbotId,
+        messages: requestMessages,
+        status: 'success',
+        response: resultText,
+        toolExecutions,
+        toolsUsed: output.toolsUsed || [],
+        durationMs,
+      });
+    }
     return attachSessionIdentity(result);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -4324,15 +4354,17 @@ export async function handleGatewayMessage(
         },
       },
     });
-    maybeRecordGatewayRequestLog({
-      sessionId: req.sessionId,
-      model,
-      chatbotId,
-      messages: requestMessages,
-      status: 'error',
-      error: errorMsg,
-      durationMs,
-    });
+    if (requestMessages !== null) {
+      maybeRecordGatewayRequestLog({
+        sessionId: req.sessionId,
+        model,
+        chatbotId,
+        messages: requestMessages,
+        status: 'error',
+        error: errorMsg,
+        durationMs,
+      });
+    }
     return attachSessionIdentity({
       status: 'error',
       result: null,

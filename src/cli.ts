@@ -62,8 +62,6 @@ import {
   removeGatewayPidFile,
   writeGatewayPid,
 } from './gateway/gateway-lifecycle.js';
-const GATEWAY_LOG_REQUESTS_WARNING =
-  'Gateway request logging enabled. request_log stores redacted prompts, responses, and tool payloads for debugging.';
 import { ensureRuntimeCredentials } from './onboarding.js';
 import type { LocalBackendType } from './providers/local-types.js';
 import {
@@ -78,6 +76,8 @@ import type {
 import { printUpdateUsage, runUpdateCommand } from './update.js';
 import { sleep } from './utils/sleep.js';
 
+const GATEWAY_LOG_REQUESTS_WARNING =
+  'Gateway request logging enabled. request_log stores best-effort redacted prompts, responses, and tool payloads for debugging. Treat this log as potentially sensitive.';
 const PACKAGE_NAME = '@hybridaione/hybridclaw';
 let cachedInstallRoot: string | null = null;
 let foregroundGatewayExitHandler: (() => void) | null = null;
