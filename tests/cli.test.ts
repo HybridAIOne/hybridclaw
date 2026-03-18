@@ -13,6 +13,7 @@ const ORIGINAL_MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID;
 const ORIGINAL_MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD;
 const ORIGINAL_MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const ORIGINAL_HYBRIDCLAW_LOG_REQUESTS = process.env.HYBRIDCLAW_LOG_REQUESTS;
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
 
@@ -60,6 +61,7 @@ async function importFreshCli(options?: {
     sandboxMode?: 'host' | 'container' | null;
     debug?: boolean;
     help?: boolean;
+    logRequests?: boolean;
     passthrough?: string[];
   };
   ensureContainerImageReadyError?: Error | null;
@@ -373,6 +375,7 @@ async function importFreshCli(options?: {
       sandboxMode: options?.gatewayFlags?.sandboxMode ?? null,
       debug: options?.gatewayFlags?.debug ?? false,
       help: options?.gatewayFlags?.help ?? false,
+      logRequests: options?.gatewayFlags?.logRequests ?? false,
       passthrough: options?.gatewayFlags?.passthrough ?? [],
     })),
   }));
@@ -401,6 +404,7 @@ async function importFreshCli(options?: {
     ensureGatewayRunDir,
     findGatewayPidByPort,
     GATEWAY_LOG_FILE_ENV: 'HYBRIDCLAW_GATEWAY_LOG_FILE',
+    GATEWAY_LOG_REQUESTS_ENV: 'HYBRIDCLAW_LOG_REQUESTS',
     GATEWAY_LOG_PATH: '/tmp/hybridclaw-data/gateway/gateway.log',
     GATEWAY_STDIO_TO_LOG_ENV: 'HYBRIDCLAW_GATEWAY_STDIO_TO_LOG',
     isPidRunning,
@@ -449,6 +453,7 @@ async function importFreshCli(options?: {
     verifyInstructionIntegrity: vi.fn(() => ({ ok: true })),
   }));
   vi.doMock('../src/security/runtime-secrets.ts', () => ({
+    loadRuntimeSecrets: vi.fn(),
     runtimeSecretsPath: vi.fn(() => '/tmp/credentials.json'),
     saveRuntimeSecrets,
   }));
@@ -539,6 +544,11 @@ afterEach(() => {
     delete process.env.OPENROUTER_API_KEY;
   } else {
     process.env.OPENROUTER_API_KEY = ORIGINAL_OPENROUTER_API_KEY;
+  }
+  if (ORIGINAL_HYBRIDCLAW_LOG_REQUESTS === undefined) {
+    delete process.env.HYBRIDCLAW_LOG_REQUESTS;
+  } else {
+    process.env.HYBRIDCLAW_LOG_REQUESTS = ORIGINAL_HYBRIDCLAW_LOG_REQUESTS;
   }
   if (ORIGINAL_EMAIL_PASSWORD === undefined) {
     delete process.env.EMAIL_PASSWORD;
@@ -1349,6 +1359,35 @@ describe('CLI hybridai commands', () => {
     registered.get('exit')?.[0]();
 
     expect(removeGatewayPidFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('enables redacted request logging for gateway start --foreground', async () => {
+    const { cli } = await importFreshCli({
+      gatewayFlags: {
+        foreground: true,
+        logRequests: true,
+      },
+    });
+    const registered = new Map<string, Array<(...args: unknown[]) => void>>();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(process, 'on').mockImplementation(((
+      event: string | symbol,
+      listener: (...args: unknown[]) => void,
+    ) => {
+      const key = String(event);
+      const listeners = registered.get(key) ?? [];
+      listeners.push(listener);
+      registered.set(key, listeners);
+      return process;
+    }) as never);
+
+    await cli.main(['gateway', 'start', '--foreground', '--log-requests']);
+
+    expect(process.env.HYBRIDCLAW_LOG_REQUESTS).toBe('1');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('request_log stores redacted prompts'),
+    );
   });
 
   it('cleans up the managed PID file if gateway foreground startup fails', async () => {

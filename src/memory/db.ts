@@ -63,7 +63,7 @@ import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 13;
+export const DATABASE_SCHEMA_VERSION = 14;
 const SCHEMA_VERSION = DATABASE_SCHEMA_VERSION;
 
 interface InitDatabaseOptions {
@@ -1338,6 +1338,29 @@ function migrateV13(
   );
 }
 
+function migrateV14(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS request_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      model TEXT,
+      chatbot_id TEXT,
+      messages_json TEXT,
+      status TEXT,
+      response TEXT,
+      error TEXT,
+      tool_executions_json TEXT,
+      tools_used TEXT,
+      duration_ms INTEGER,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_request_log_session_created
+      ON request_log(session_id, created_at DESC);
+  `);
+
+  recordMigration(database, 14, 'Add opt-in gateway request logging table');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1372,6 +1395,7 @@ function runMigrations(
   if (currentVersion < 11) migrateV11(database, opts);
   if (currentVersion < 12) migrateV12(database, opts);
   if (currentVersion < 13) migrateV13(database, opts);
+  if (currentVersion < 14) migrateV14(database);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -2080,6 +2104,70 @@ export function recordUsageEvent(params: {
     totalTokens,
     costUsd,
     toolCalls,
+  );
+}
+
+function serializeRequestLogJson(value: unknown): string | null {
+  if (value == null) return null;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
+export function recordRequestLog(params: {
+  sessionId: string;
+  model?: string | null;
+  chatbotId?: string | null;
+  messages?: unknown;
+  status?: string | null;
+  response?: string | null;
+  error?: string | null;
+  toolExecutions?: unknown;
+  toolsUsed?: unknown;
+  durationMs?: number | null;
+  createdAt?: string | null;
+}): void {
+  const sessionId = resolveSessionIdCompat(params.sessionId.trim());
+  if (!sessionId) return;
+  const model = params.model?.trim() || null;
+  const chatbotId = params.chatbotId?.trim() || null;
+  const status = params.status?.trim() || null;
+  const response = params.response ?? null;
+  const error = params.error ?? null;
+  const durationMs =
+    typeof params.durationMs === 'number' && Number.isFinite(params.durationMs)
+      ? Math.max(0, Math.trunc(params.durationMs))
+      : null;
+  const createdAt = params.createdAt?.trim() || new Date().toISOString();
+
+  db.prepare(
+    `INSERT INTO request_log (
+       session_id,
+       model,
+       chatbot_id,
+       messages_json,
+       status,
+       response,
+       error,
+       tool_executions_json,
+       tools_used,
+       duration_ms,
+       created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    sessionId,
+    model,
+    chatbotId,
+    serializeRequestLogJson(params.messages),
+    status,
+    response,
+    error,
+    serializeRequestLogJson(params.toolExecutions),
+    serializeRequestLogJson(params.toolsUsed),
+    durationMs,
+    createdAt,
   );
 }
 

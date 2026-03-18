@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 
+import Database from 'better-sqlite3';
 import { expect, test, vi } from 'vitest';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
@@ -13,6 +14,7 @@ vi.mock('../src/agent/agent.js', () => ({
 
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-audit-',
+  envVars: ['HYBRIDCLAW_LOG_REQUESTS'],
   cleanup: () => {
     runAgentMock.mockReset();
     vi.doUnmock('../src/providers/hybridai-bots.ts');
@@ -218,4 +220,83 @@ test('handleGatewayMessage records agent handoff before agent-side timeouts', as
     errorType: 'agent',
     stage: 'processing-agent-output',
   });
+});
+
+test('handleGatewayMessage stores redacted request logs when enabled', async () => {
+  setupHome({ HYBRIDCLAW_LOG_REQUESTS: '1' });
+
+  runAgentMock.mockResolvedValue({
+    status: 'error',
+    result: null,
+    toolsUsed: ['browser_type'],
+    toolExecutions: [
+      {
+        name: 'browser_type',
+        arguments: JSON.stringify({
+          element: 'password',
+          text: 'supersecret1234567890',
+        }),
+        result: 'typed password',
+        durationMs: 12,
+      },
+    ],
+    error: 'Password: supersecret1234567890',
+  });
+
+  const { DB_PATH } = await import('../src/config/config.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const secret = 'supersecret1234567890';
+  const result = await handleGatewayMessage({
+    sessionId: 'session-request-log',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: `Username: alice\nPassword: ${secret}`,
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('error');
+
+  const inspect = new Database(DB_PATH, { readonly: true });
+  const row = inspect
+    .prepare(
+      `SELECT messages_json, status, response, error, tool_executions_json, tools_used
+       FROM request_log
+       WHERE session_id = ?
+       ORDER BY id DESC
+       LIMIT 1`,
+    )
+    .get('session-request-log') as
+    | {
+        messages_json: string | null;
+        status: string | null;
+        response: string | null;
+        error: string | null;
+        tool_executions_json: string | null;
+        tools_used: string | null;
+      }
+    | undefined;
+  inspect.close();
+
+  expect(row).toBeDefined();
+  expect(row?.status).toBe('error');
+  expect(row?.response).toBeNull();
+  expect(row?.tools_used).toBe(JSON.stringify(['browser_type']));
+  expect(row?.messages_json).not.toContain(secret);
+  expect(row?.messages_json).toContain('Password: [REDACTED]');
+  expect(row?.error).toBe('Password: [REDACTED]');
+  expect(row?.tool_executions_json).not.toContain(secret);
+  const toolExecutions = JSON.parse(
+    row?.tool_executions_json || '[]',
+  ) as Array<{
+    arguments?: string;
+  }>;
+  expect(toolExecutions[0]?.arguments).toContain('"text":"[REDACTED]"');
 });

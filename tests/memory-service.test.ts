@@ -312,10 +312,16 @@ describe.sequential('schema migrations', () => {
     const inspect = new Database(dbPath, { readonly: true });
     const journalMode = inspect.pragma('journal_mode', { simple: true });
     const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const hasRequestLog = inspect
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'request_log'",
+      )
+      .get() as { name: string } | undefined;
     inspect.close();
 
     expect(String(journalMode).toLowerCase()).toBe('wal');
     expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(hasRequestLog?.name).toBe('request_log');
   });
 
   test('migrates legacy memory_kv rows and creates knowledge graph tables', () => {
