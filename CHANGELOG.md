@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.8.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.8.2)
+
+### Added
+
+- **Refined TUI startup banner**: Added a richer terminal startup banner with
+  active model, default model, sandbox mode, gateway URL, provider context,
+  chatbot id, slash-command overview, and a more distinctive visual layout.
+
+### Fixed
+
+- **Discord invalid-token startup handling**: Gateway startup now disables the
+  Discord integration when the configured token is invalid instead of failing
+  the wider runtime startup path.
+
 ## [0.8.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.8.1)
 
 ### Added

@@ -46,7 +46,9 @@ container sandbox.
 ## Architecture
 
 - **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, and channel integrations for Discord, Microsoft Teams, WhatsApp, and email
-- **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`)
+- **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
+  a structured startup banner that surfaces model, sandbox, gateway, and
+  chatbot context before the first prompt
 - **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, and preinstalled browser automation runtime with cursor-aware snapshots for JS-heavy custom UI
 - Communication via file-based IPC (input.json / output.json)
 
@@ -489,8 +491,9 @@ In Discord, use `!claw help` or the slash commands. Key ones:
 - `!claw schedule add every <ms> <prompt>` — Add interval task
 
 In the TUI, typing `/` opens the slash-command menu with inline filtering and
-help aliases, while pressing Up/Down on an empty prompt recalls earlier
-prompts. Use `/agent`, `/agent list`, `/agent switch <id>`, `/agent create
+help aliases, while the startup banner summarizes the active model, sandbox,
+gateway, provider, and chatbot context before the first prompt. Pressing
+Up/Down on an empty prompt recalls earlier prompts. Use `/agent`, `/agent list`, `/agent switch <id>`, `/agent create
 <id> [--model <model>]`, and `/agent model [name]` for agent control. Use
 `/model set <name>` for a session-only override, `/model clear` to fall back to
 the agent/default model chain, and `/model info` to inspect the active scope.
