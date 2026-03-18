@@ -81,6 +81,7 @@ vi.mock('../src/logger.js', () => ({
 
 vi.mock('../src/memory/db.js', () => ({
   getTasksForSession: mocks.getTasksForSession,
+  resetSessionIfExpired: vi.fn(() => null),
 }));
 
 vi.mock('../src/memory/memory-service.js', () => ({

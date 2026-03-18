@@ -3,6 +3,8 @@
 These docs hold the deeper reference material that does not belong in the
 top-level contributor quickstart.
 
+- [Extensibility: Tools, Skills, and Plugins](./extensibility.md) for when to
+  use each extension mechanism and how they compose
 - [Architecture](./architecture.md) for the major runtime pieces and repository
   layout
 - [Runtime Internals](./runtime.md) for sandboxing, configuration, diagnostics,
@@ -17,5 +19,9 @@ top-level contributor quickstart.
   publish flow
 - [Skills Internals](./skills.md) for skill roots, precedence, and invocation
   rules
+- [Plugin System](./plugins.md) for plugin manifests, runtime discovery,
+  config wiring, install workflow, and runtime hooks
 - [Adaptive Skills](./adaptive-skills.md) for the self-improving skill loop,
   retention, and operator workflows
+- [OpenTelemetry Tracing Plugin](./otel-plugin.md) for emitting OTLP traces
+  to Langfuse, Jaeger, Grafana Tempo, or any OTLP backend

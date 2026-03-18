@@ -169,7 +169,7 @@ async function importFreshHealth(options?: {
     process.env.HYBRIDCLAW_AUTH_SECRET = options.authSecret;
   }
 
-  const docsDir = options?.docsDir || makeTempDocsDir();
+  const installRoot = options?.docsDir || makeTempDocsDir();
   const dataDir = options?.dataDir || makeTempDataDir();
   let handler:
     | ((
@@ -232,6 +232,7 @@ async function importFreshHealth(options?: {
     kind: 'plain' as const,
     text: 'ok',
   }));
+  const runGatewayPluginTool = vi.fn(async () => 'plugin-tool-result');
   const getGatewayAdminOverview = vi.fn(() => ({
     status: { status: 'ok', sessions: 2, version: '0.7.1', uptime: 60 },
     configPath: '/tmp/config.json',
@@ -556,7 +557,7 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/infra/install-root.js', () => ({
     resolveInstallPath: vi.fn((...segments: string[]) =>
-      path.join(docsDir, ...segments),
+      path.join(installRoot, ...segments),
     ),
   }));
   vi.doMock('../src/logger.js', () => ({
@@ -573,6 +574,7 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/memory/db.js', () => ({
     claimQueuedProactiveMessages,
     getSessionById,
+    resetSessionIfExpired: vi.fn(() => null),
   }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
     createGatewayAdminAgent,
@@ -596,6 +598,7 @@ async function importFreshHealth(options?: {
     getGatewayStatus,
     handleGatewayCommand,
     handleGatewayMessage,
+    runGatewayPluginTool,
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
     removeGatewayAdminSchedulerJob,
@@ -612,6 +615,7 @@ async function importFreshHealth(options?: {
     runMessageToolAction,
   }));
   vi.doMock('../src/channels/discord/tool-actions.js', () => ({
+    createDiscordToolActionRunner: vi.fn(() => vi.fn(async () => ({ ok: true }))),
     normalizeDiscordToolAction,
   }));
 
@@ -632,6 +636,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminOverview,
     getGatewayAgents,
     getGatewayAdminAgents,
+    runGatewayPluginTool,
     getGatewayAdminModels,
     getGatewayAdminScheduler,
     getGatewayAdminMcp,
@@ -1639,6 +1644,36 @@ describe('gateway health server', () => {
     );
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ ok: true });
+  });
+
+  test('dispatches plugin tool API requests through the gateway plugin runtime', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/plugin/tool',
+      body: {
+        toolName: 'memory_lookup',
+        args: { question: 'What do you know?' },
+        sessionId: 'session-plugin-api',
+        channelId: 'web',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.runGatewayPluginTool).toHaveBeenCalledWith({
+      toolName: 'memory_lookup',
+      args: { question: 'What do you know?' },
+      sessionId: 'session-plugin-api',
+      channelId: 'web',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      result: 'plugin-tool-result',
+    });
   });
 
   test('serves office artifacts from the agent data root with query-token auth', async () => {

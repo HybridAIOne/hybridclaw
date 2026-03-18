@@ -65,11 +65,13 @@ import {
   executeToolWithMetadata,
   getMessageToolDescription,
   getPendingSideEffects,
+  getPluginToolDefinitions,
   resetSideEffects,
   setGatewayContext,
   setMcpClientManager,
   setMediaContext,
   setModelContext,
+  setPluginTools,
   setScheduledTasks,
   setSessionContext,
   setTaskModelPolicies,
@@ -1255,7 +1257,8 @@ async function processRequest(
  */
 function resolveTools(input: ContainerInput): ToolDefinition[] {
   const mcpTools = mcpClientManager?.getAllToolDefinitions() || [];
-  let tools = [...TOOL_DEFINITIONS, ...mcpTools];
+  const dynamicPluginTools = getPluginToolDefinitions();
+  let tools = [...TOOL_DEFINITIONS, ...dynamicPluginTools, ...mcpTools];
   if (input.allowedTools) {
     const allowed = new Set(input.allowedTools);
     tools = tools.filter((tool) => allowed.has(tool.function.name));
@@ -1303,6 +1306,7 @@ async function main(): Promise<void> {
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
   setSessionContext(firstInput.sessionId);
+  setPluginTools(firstInput.pluginTools);
   setGatewayContext(
     firstInput.gatewayBaseUrl,
     firstInput.gatewayApiToken,
@@ -1439,6 +1443,7 @@ async function main(): Promise<void> {
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
     setSessionContext(input.sessionId);
+    setPluginTools(input.pluginTools);
     setGatewayContext(
       input.gatewayBaseUrl,
       input.gatewayApiToken,

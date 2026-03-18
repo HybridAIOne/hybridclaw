@@ -115,6 +115,12 @@ export function registerChannel(info: ChannelInfo): void {
   });
 }
 
+export function unregisterChannel(kind: ChannelKind | string): void {
+  const normalized = normalizeChannelKind(kind);
+  if (!normalized) return;
+  channels.delete(normalized);
+}
+
 export function getChannel(
   kind: ChannelKind | string,
 ): ChannelInfo | undefined {

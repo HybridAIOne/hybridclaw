@@ -30,6 +30,7 @@ async function importFreshConnectionModule(options?: {
   deferAuthState?: boolean;
 }) {
   vi.resetModules();
+  const { APP_VERSION } = await import('../src/config/config.js');
 
   const sockets: Array<{
     config: {
@@ -156,6 +157,7 @@ async function importFreshConnectionModule(options?: {
 
   const module = await import('../src/channels/whatsapp/connection.ts');
   return {
+    APP_VERSION,
     ...module,
     qrcodeGenerate,
     sockets,
@@ -295,7 +297,7 @@ test('info-level WhatsApp logs omit structured metadata', async () => {
 });
 
 test('debug-level WhatsApp logs keep structured metadata', async () => {
-  const { createWhatsAppConnectionManager, sockets, whatsappLogger } =
+  const { APP_VERSION, createWhatsAppConnectionManager, sockets, whatsappLogger } =
     await importFreshConnectionModule({
       logLevel: 'debug',
     });
@@ -340,6 +342,7 @@ test('forced root debug level keeps structured metadata even if child logger lev
 
 test('provides WhatsApp retry replay lookup to Baileys and persists sent messages', async () => {
   const {
+    APP_VERSION,
     acquireWhatsAppAuthLock,
     createWhatsAppConnectionManager,
     releaseAuthLock,

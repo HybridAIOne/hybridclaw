@@ -3,6 +3,7 @@ import type {
   ContainerOutput,
   MediaContextItem,
   PendingApproval,
+  PluginRuntimeToolDefinition,
   ScheduledTask,
   ToolProgressEvent,
 } from '../types.js';
@@ -27,6 +28,7 @@ export interface ExecutorRequest {
   abortSignal?: AbortSignal;
   media?: MediaContextItem[];
   audioTranscriptsPrepended?: boolean;
+  pluginTools?: PluginRuntimeToolDefinition[];
 }
 
 export interface Executor {

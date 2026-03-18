@@ -47,6 +47,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
       'rag',
       'ralph',
       'mcp',
+      'plugin',
       'clear',
       'reset',
       'usage',
