@@ -54,6 +54,7 @@ import {
   ensureGatewayRunDir,
   GATEWAY_LOG_FILE_ENV,
   GATEWAY_LOG_PATH,
+  GATEWAY_LOG_REQUESTS_ENV,
   GATEWAY_STDIO_TO_LOG_ENV,
   type GatewayPidState,
   isPidRunning,
@@ -76,6 +77,8 @@ import type {
 import { printUpdateUsage, runUpdateCommand } from './update.js';
 import { sleep } from './utils/sleep.js';
 
+const GATEWAY_LOG_REQUESTS_WARNING =
+  'Gateway request logging enabled. request_log stores best-effort redacted prompts, responses, and tool payloads for debugging. Treat this log as potentially sensitive.';
 const PACKAGE_NAME = '@hybridaione/hybridclaw';
 let cachedInstallRoot: string | null = null;
 let foregroundGatewayExitHandler: (() => void) | null = null;
@@ -463,8 +466,8 @@ function printGatewayUsage(): void {
 
 Commands:
   hybridclaw gateway
-  hybridclaw gateway start [--foreground] [--debug] [--sandbox=container|host]
-  hybridclaw gateway restart [--foreground] [--debug] [--sandbox=container|host]
+  hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
+  hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
   hybridclaw gateway stop
   hybridclaw gateway status
   hybridclaw gateway sessions
@@ -991,10 +994,15 @@ async function runGatewayForeground(
   commandName: string,
   sandboxMode: SandboxModeOverride | null = null,
   debug = false,
+  logRequests = false,
 ): Promise<void> {
   await ensureRuntimeCredentials({ commandName });
   if (sandboxMode) {
     setSandboxModeOverride(sandboxMode);
+  }
+  if (logRequests) {
+    process.env[GATEWAY_LOG_REQUESTS_ENV] = '1';
+    console.warn(GATEWAY_LOG_REQUESTS_WARNING);
   }
   if (debug) {
     process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
@@ -1024,6 +1032,7 @@ async function startGatewayBackend(
   waitForHealthy = false,
   sandboxMode: SandboxModeOverride | null = null,
   debug = false,
+  logRequests = false,
 ): Promise<void> {
   if (await isGatewayReachable()) {
     const existing = readGatewayPid();
@@ -1074,6 +1083,9 @@ async function startGatewayBackend(
 
   await ensureRuntimeCredentials({ commandName });
   await ensureRuntimeContainer(commandName, true, sandboxMode);
+  if (logRequests) {
+    console.warn(GATEWAY_LOG_REQUESTS_WARNING);
+  }
 
   ensureGatewayRunDir();
   const out = fs.openSync(GATEWAY_LOG_PATH, 'a');
@@ -1085,6 +1097,7 @@ async function startGatewayBackend(
     'start',
     '--foreground',
     ...(debug ? ['--debug'] : []),
+    ...(logRequests ? ['--log-requests'] : []),
     ...(sandboxMode ? [`--sandbox=${sandboxMode}`] : []),
   ];
   const child = spawn(process.execPath, childArgs, {
@@ -1297,11 +1310,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
     findUnsupportedGatewayLifecycleFlag(normalized);
   if (unsupportedLifecycleFlag) {
     console.error(
-      unsupportedLifecycleFlag === 'sandbox'
-        ? '`--sandbox` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.'
-        : unsupportedLifecycleFlag === 'foreground'
-          ? '`--foreground` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.'
-          : '`--debug` is only supported with `hybridclaw gateway start` and `hybridclaw gateway restart`.',
+      `\`--${unsupportedLifecycleFlag}\` is only supported with \`hybridclaw gateway start\` and \`hybridclaw gateway restart\`.`,
     );
     process.exitCode = 1;
     return;
@@ -1318,6 +1327,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
         'hybridclaw gateway start --foreground',
         flags.sandboxMode,
         flags.debug,
+        flags.logRequests,
       );
       return;
     }
@@ -1326,6 +1336,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       false,
       flags.sandboxMode,
       flags.debug,
+      flags.logRequests,
     );
     return;
   }
@@ -1343,6 +1354,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
         'hybridclaw gateway restart --foreground',
         flags.sandboxMode,
         flags.debug,
+        flags.logRequests,
       );
       return;
     }
@@ -1351,6 +1363,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       false,
       flags.sandboxMode,
       flags.debug,
+      flags.logRequests,
     );
     return;
   }

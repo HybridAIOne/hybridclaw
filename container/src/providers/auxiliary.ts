@@ -179,18 +179,35 @@ export async function callAuxiliaryModel(
     };
   }
 
-  return callVisionProviderModel({
-    provider: context.provider,
-    baseUrl: context.baseUrl,
-    apiKey: context.apiKey,
-    model: context.model,
-    chatbotId: context.chatbotId,
-    requestHeaders: context.requestHeaders,
-    isLocal: context.isLocal,
-    contextWindow: context.contextWindow,
-    thinkingFormat: context.thinkingFormat,
-    question: params.question,
-    imageDataUrl: params.imageDataUrl,
-    maxTokens: context.maxTokens,
-  });
+  try {
+    return await callVisionProviderModel({
+      provider: context.provider,
+      baseUrl: context.baseUrl,
+      apiKey: context.apiKey,
+      model: context.model,
+      chatbotId: context.chatbotId,
+      requestHeaders: context.requestHeaders,
+      isLocal: context.isLocal,
+      contextWindow: context.contextWindow,
+      thinkingFormat: context.thinkingFormat,
+      question: params.question,
+      imageDataUrl: params.imageDataUrl,
+      maxTokens: context.maxTokens,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Surface a clearer error when the model simply cannot handle images.
+    if (
+      /does not support image/i.test(message) ||
+      /not.*vision/i.test(message)
+    ) {
+      throw new Error(
+        `Model "${context.model}" does not support vision/image inputs. ` +
+          'Configure a vision-capable model via auxiliaryModels.vision in runtime config, ' +
+          `or use a vision-enabled session model. Original error: ${message}`,
+        { cause: err },
+      );
+    }
+    throw err;
+  }
 }

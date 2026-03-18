@@ -1,14 +1,18 @@
 import { CONFIGURED_MODELS } from '../config/config.js';
 import { resolveModelProvider } from './factory.js';
+import { isStaticModelVisionCapable } from './hybridai-models.js';
 import {
   discoverAllLocalModels,
   getDiscoveredLocalModelNames,
 } from './local-discovery.js';
+import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
 import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelNames,
   isDiscoveredOpenRouterModelFree,
+  isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
+import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
 
 type ModelCatalogProviderFilter =
   | 'hybridai'
@@ -19,8 +23,6 @@ type ModelCatalogProviderFilter =
   | 'vllm'
   | 'local';
 
-const OPENAI_CODEX_MODEL_PREFIX = 'openai-codex/';
-const OPENROUTER_MODEL_PREFIX = 'openrouter/';
 const OLLAMA_MODEL_PREFIX = 'ollama/';
 const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
 const VLLM_MODEL_PREFIX = 'vllm/';
@@ -157,6 +159,44 @@ export async function refreshAvailableModelCatalogs(): Promise<void> {
     discoverAllLocalModels(),
     discoverOpenRouterModels(),
   ]);
+}
+
+/**
+ * Returns true if the model is known to support vision (image input).
+ * Checks both OpenRouter discovery data and the static capability list.
+ */
+export function isModelVisionCapable(model: string): boolean {
+  const normalized = String(model || '').trim();
+  if (!normalized) return false;
+  return (
+    isDiscoveredOpenRouterModelVisionCapable(normalized) ||
+    isStaticModelVisionCapable(normalized)
+  );
+}
+
+/**
+ * Returns the first vision-capable model from the available model list,
+ * preferring models from the same provider prefix as `preferredModel`.
+ * Returns null if no vision-capable model is found.
+ */
+export function findVisionCapableModel(preferredModel?: string): string | null {
+  const allModels = getAvailableModelList();
+  const visionModels = allModels.filter((m) => isModelVisionCapable(m));
+  if (visionModels.length === 0) return null;
+
+  // Prefer a model from the same provider as the preferred model.
+  if (preferredModel) {
+    const slashIndex = preferredModel.indexOf('/');
+    if (slashIndex > 0) {
+      const prefix = preferredModel.slice(0, slashIndex + 1).toLowerCase();
+      const sameProvider = visionModels.find((m) =>
+        m.toLowerCase().startsWith(prefix),
+      );
+      if (sameProvider) return sameProvider;
+    }
+  }
+
+  return visionModels[0];
 }
 
 export async function getAvailableModelChoices(

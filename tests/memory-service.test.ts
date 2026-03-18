@@ -13,6 +13,7 @@ import {
   deleteMemoryValue,
   forgetSemanticMemory,
   getCanonicalContext,
+  getAnyChatbotId,
   getMemoryValue,
   getOrCreateSession,
   getSessionById,
@@ -312,10 +313,22 @@ describe.sequential('schema migrations', () => {
     const inspect = new Database(dbPath, { readonly: true });
     const journalMode = inspect.pragma('journal_mode', { simple: true });
     const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const hasRequestLog = inspect
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'request_log'",
+      )
+      .get() as { name: string } | undefined;
+    const requestLogSql = inspect
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get('request_log') as { sql: string | null } | undefined;
     inspect.close();
 
     expect(String(journalMode).toLowerCase()).toBe('wal');
     expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(hasRequestLog?.name).toBe('request_log');
+    expect(requestLogSql?.sql?.toLowerCase()).not.toContain(
+      "created_at text default (datetime('now'))",
+    );
   });
 
   test('migrates legacy memory_kv rows and creates knowledge graph tables', () => {
@@ -404,6 +417,119 @@ describe.sequential('schema migrations', () => {
     expect(hasRelations?.name).toBe('relations');
     expect(hasCanonical?.name).toBe('canonical_sessions');
     expect(hasUsage?.name).toBe('usage_events');
+  });
+
+  test('getAnyChatbotId prefers the most recently active session', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('session-older', null, 'channel-a');
+    getOrCreateSession('session-newer', null, 'channel-b');
+
+    const inspect = new Database(dbPath);
+    inspect
+      .prepare(
+        `UPDATE sessions
+         SET chatbot_id = ?, last_active = ?
+         WHERE id = ?`,
+      )
+      .run('bot-older', '2026-03-18T10:00:00.000Z', 'session-older');
+    inspect
+      .prepare(
+        `UPDATE sessions
+         SET chatbot_id = ?, last_active = ?
+         WHERE id = ?`,
+      )
+      .run('bot-newer', '2026-03-18T11:00:00.000Z', 'session-newer');
+    inspect.close();
+
+    expect(getAnyChatbotId()).toBe('bot-newer');
+  });
+
+  test('migrates request_log to remove the created_at default', () => {
+    const dbPath = createTempDbPath();
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE request_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        model TEXT,
+        chatbot_id TEXT,
+        messages_json TEXT,
+        status TEXT,
+        response TEXT,
+        error TEXT,
+        tool_executions_json TEXT,
+        tools_used TEXT,
+        duration_ms INTEGER,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_request_log_session_created
+        ON request_log(session_id, created_at DESC);
+    `);
+    legacy
+      .prepare(
+        `INSERT INTO request_log (
+           session_id,
+           model,
+           chatbot_id,
+           messages_json,
+           status,
+           response,
+           error,
+           tool_executions_json,
+           tools_used,
+           duration_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'legacy-request-log',
+        'test-model',
+        'bot-1',
+        '[]',
+        'success',
+        'ok',
+        null,
+        '[]',
+        '[]',
+        42,
+      );
+    legacy.pragma('user_version = 14');
+    legacy.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const requestLogSql = inspect
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get('request_log') as { sql: string | null } | undefined;
+    const row = inspect
+      .prepare(
+        `SELECT session_id, status, duration_ms, created_at
+         FROM request_log
+         WHERE session_id = ?`,
+      )
+      .get('legacy-request-log') as
+      | {
+          session_id: string;
+          status: string | null;
+          duration_ms: number | null;
+          created_at: string | null;
+        }
+      | undefined;
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(requestLogSql?.sql?.toLowerCase()).not.toContain(
+      "created_at text default (datetime('now'))",
+    );
+    expect(row).toMatchObject({
+      session_id: 'legacy-request-log',
+      status: 'success',
+      duration_ms: 42,
+    });
+    expect(row?.created_at).toBeTruthy();
   });
 
   test('migrates legacy session ids and related rows to hierarchical keys', () => {

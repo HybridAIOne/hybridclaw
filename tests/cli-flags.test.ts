@@ -11,6 +11,7 @@ describe('parseGatewayFlags', () => {
       debug: false,
       foreground: true,
       help: false,
+      logRequests: false,
       sandboxMode: null,
     });
   });
@@ -22,6 +23,7 @@ describe('parseGatewayFlags', () => {
       debug: true,
       foreground: true,
       help: false,
+      logRequests: false,
       sandboxMode: 'host',
     });
   });
@@ -31,6 +33,7 @@ describe('parseGatewayFlags', () => {
       debug: false,
       foreground: false,
       help: false,
+      logRequests: false,
       sandboxMode: 'container',
     });
   });
@@ -40,6 +43,17 @@ describe('parseGatewayFlags', () => {
       debug: false,
       foreground: false,
       help: true,
+      logRequests: false,
+      sandboxMode: null,
+    });
+  });
+
+  it('parses request logging flag', () => {
+    expect(parseGatewayFlags(['--log-requests'])).toEqual({
+      debug: false,
+      foreground: false,
+      help: false,
+      logRequests: true,
       sandboxMode: null,
     });
   });
@@ -69,6 +83,9 @@ describe('findUnsupportedGatewayLifecycleFlag', () => {
     expect(findUnsupportedGatewayLifecycleFlag(['status', '--debug'])).toBe(
       'debug',
     );
+    expect(
+      findUnsupportedGatewayLifecycleFlag(['status', '--log-requests']),
+    ).toBe('log-requests');
     expect(findUnsupportedGatewayLifecycleFlag(['--sandbox=host'])).toBe(
       'sandbox',
     );

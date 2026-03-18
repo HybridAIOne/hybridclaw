@@ -103,6 +103,7 @@ import {
   listUsageBySession,
   logAudit,
   pauseTask,
+  recordRequestLog,
   recordUsageEvent,
   resumeTask,
   updateSessionAgent,
@@ -147,6 +148,7 @@ import {
   rearmScheduler,
   resumeConfigJob,
 } from '../scheduler/scheduler.js';
+import { redactSecrets } from '../security/redact.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
 import {
@@ -193,6 +195,7 @@ import type {
   StoredMessage,
   StructuredAuditEntry,
   TokenUsageStats,
+  ToolExecution,
   ToolProgressEvent,
 } from '../types.js';
 import { sleep } from '../utils/sleep.js';
@@ -225,6 +228,7 @@ import {
   formatCompactNumber,
   formatRalphIterations,
 } from './gateway-formatting.js';
+import { GATEWAY_LOG_REQUESTS_ENV } from './gateway-lifecycle.js';
 import {
   interruptGatewaySessionExecution,
   registerActiveGatewayRequest,
@@ -273,6 +277,165 @@ import {
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
+const REQUEST_LOG_SENSITIVE_KEY_RE =
+  /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
+const REQUEST_LOG_INLINE_SECRET_RE =
+  /\b(pass(?:word)?|secret|token|api(?:[_ -]?key)?|authorization|cookie|credential)\b(\s*[:=]\s*)([^\n\r,;]+)|([?&](?:token|signature|x-amz-[^=]*))=([^&\s]+)/gi;
+const ALWAYS_REDACT_TOOL_FIELDS: Record<string, ReadonlySet<string>> = {
+  browser_type: new Set(['text']),
+};
+const GATEWAY_REQUEST_LOG_ENABLED_VALUE = '1';
+let lastWarnedGatewayRequestLoggingValue: string | null = null;
+
+function isGatewayRequestLoggingEnabled(): boolean {
+  const raw = String(process.env[GATEWAY_LOG_REQUESTS_ENV] || '').trim();
+  if (!raw) return false;
+  if (raw === GATEWAY_REQUEST_LOG_ENABLED_VALUE) {
+    lastWarnedGatewayRequestLoggingValue = null;
+    return true;
+  }
+  if (raw !== lastWarnedGatewayRequestLoggingValue) {
+    logger.warn(
+      {
+        envVar: GATEWAY_LOG_REQUESTS_ENV,
+        expectedValue: GATEWAY_REQUEST_LOG_ENABLED_VALUE,
+        value: raw,
+      },
+      'Ignoring invalid gateway request logging env value',
+    );
+    lastWarnedGatewayRequestLoggingValue = raw;
+  }
+  return false;
+}
+
+function redactRequestLogText(text: string): string {
+  return redactSecrets(text).replace(
+    REQUEST_LOG_INLINE_SECRET_RE,
+    (
+      match: string,
+      label: string | undefined,
+      separator: string | undefined,
+      _value: string | undefined,
+      queryKey: string | undefined,
+      _queryValue: string | undefined,
+    ) => {
+      if (label && separator) return `${label}${separator}[REDACTED]`;
+      if (queryKey) return `${queryKey}=[REDACTED]`;
+      return match;
+    },
+  );
+}
+
+function sanitizeRequestLogValue(
+  value: unknown,
+  extraKeyRedact?: (key: string) => boolean,
+): unknown {
+  if (typeof value === 'string') return redactRequestLogText(value);
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeRequestLogValue(entry, extraKeyRedact));
+  }
+  if (!value || typeof value !== 'object') return value;
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (REQUEST_LOG_SENSITIVE_KEY_RE.test(key) || extraKeyRedact?.(key)) {
+      sanitized[key] = '[REDACTED]';
+      continue;
+    }
+    sanitized[key] = sanitizeRequestLogValue(raw, extraKeyRedact);
+  }
+  return sanitized;
+}
+
+function sanitizeRequestLogToolArguments(
+  toolName: string,
+  rawArguments: string,
+): string {
+  const trimmed = rawArguments.trim();
+  if (!trimmed) return trimmed;
+
+  const extraKeyRedact = (key: string) =>
+    ALWAYS_REDACT_TOOL_FIELDS[toolName]?.has(key) ?? false;
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return JSON.stringify(sanitizeRequestLogValue(parsed, extraKeyRedact));
+  } catch {
+    return redactRequestLogText(trimmed);
+  }
+}
+
+function sanitizeRequestLogMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((message) => ({
+    ...message,
+    content: sanitizeRequestLogValue(message.content) as ChatMessage['content'],
+    tool_calls: Array.isArray(message.tool_calls)
+      ? message.tool_calls.map((toolCall) => ({
+          ...toolCall,
+          function: {
+            ...toolCall.function,
+            arguments: sanitizeRequestLogToolArguments(
+              toolCall.function.name,
+              toolCall.function.arguments,
+            ),
+          },
+        }))
+      : message.tool_calls,
+  }));
+}
+
+function sanitizeRequestLogToolExecutions(
+  toolExecutions: ToolExecution[],
+): ToolExecution[] {
+  return toolExecutions.map((execution) => {
+    const { arguments: rawArguments, ...executionWithoutArguments } = execution;
+    return {
+      ...(sanitizeRequestLogValue(
+        executionWithoutArguments,
+      ) as Omit<ToolExecution, 'arguments'>),
+      arguments: sanitizeRequestLogToolArguments(execution.name, rawArguments),
+    };
+  });
+}
+
+function maybeRecordGatewayRequestLog(params: {
+  sessionId: string;
+  model: string;
+  chatbotId: string;
+  messages: ChatMessage[];
+  status: 'success' | 'error';
+  response?: string | null;
+  error?: string | null;
+  toolExecutions?: ToolExecution[];
+  toolsUsed?: string[];
+  durationMs: number;
+}): void {
+  try {
+    recordRequestLog({
+      sessionId: params.sessionId,
+      model: params.model,
+      chatbotId: params.chatbotId,
+      messages: sanitizeRequestLogMessages(params.messages),
+      status: params.status,
+      response: params.response ? redactRequestLogText(params.response) : null,
+      error: params.error ? redactRequestLogText(params.error) : null,
+      toolExecutions: Array.isArray(params.toolExecutions)
+        ? sanitizeRequestLogToolExecutions(params.toolExecutions)
+        : null,
+      toolsUsed: params.toolsUsed,
+      durationMs: params.durationMs,
+    });
+  } catch (error) {
+    logger.warn(
+      {
+        sessionId: params.sessionId,
+        model: params.model,
+        err: error,
+      },
+      'Failed to persist request_log row',
+    );
+  }
+}
 
 export class GatewayRequestError extends Error {
   statusCode: number;
@@ -476,6 +639,7 @@ function clearCanonicalPromptContext(params: {
   }
 }
 
+export { resumeEnabledFullAutoSessions } from './fullauto.js';
 export type {
   GatewayAdminChannelsResponse,
   GatewayAdminConfigResponse,
@@ -488,7 +652,6 @@ export type {
   GatewayStatus,
 };
 export { renderGatewayCommand };
-export { resumeEnabledFullAutoSessions } from './fullauto.js';
 
 let gatewayServiceInitialized = false;
 
@@ -3895,6 +4058,9 @@ export async function handleGatewayMessage(
     role: 'user',
     content: agentUserContent,
   });
+  const requestMessages = isGatewayRequestLoggingEnabled()
+    ? messages.slice()
+    : null;
 
   let agentStage:
     | 'pre-agent'
@@ -4119,10 +4285,11 @@ export async function handleGatewayMessage(
 
     if (output.status === 'error') {
       const errorMessage = output.error || 'Unknown agent error.';
+      const durationMs = Date.now() - startedAt;
       logger.debug(
         {
           ...debugMeta,
-          durationMs: Date.now() - startedAt,
+          durationMs,
           toolCallCount: toolExecutions.length,
           firstTextDeltaMs,
           artifactCount: output.artifacts?.length || 0,
@@ -4159,10 +4326,23 @@ export async function handleGatewayMessage(
             userMessages: 0,
             assistantMessages: 0,
             toolCalls: toolExecutions.length,
-            durationMs: Date.now() - startedAt,
+            durationMs,
           },
         },
       });
+      if (requestMessages !== null) {
+        maybeRecordGatewayRequestLog({
+          sessionId: req.sessionId,
+          model,
+          chatbotId,
+          messages: requestMessages,
+          status: 'error',
+          error: errorMessage,
+          toolExecutions,
+          toolsUsed: output.toolsUsed || [],
+          durationMs,
+        });
+      }
       return attachSessionIdentity({
         status: 'error',
         result: null,
@@ -4175,10 +4355,11 @@ export async function handleGatewayMessage(
     }
 
     const resultText = output.result || 'No response from agent.';
+    const durationMs = Date.now() - startedAt;
     logger.debug(
       {
         ...debugMeta,
-        durationMs: Date.now() - startedAt,
+        durationMs,
         toolCallCount: toolExecutions.length,
         firstTextDeltaMs,
         artifactCount: output.artifacts?.length || 0,
@@ -4250,19 +4431,28 @@ export async function handleGatewayMessage(
       effectiveUserPrompt: output.effectiveUserPrompt,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    if (requestMessages !== null) {
+      maybeRecordGatewayRequestLog({
+        sessionId: req.sessionId,
+        model,
+        chatbotId,
+        messages: requestMessages,
+        status: 'success',
+        response: resultText,
+        toolExecutions,
+        toolsUsed: output.toolsUsed || [],
+        durationMs,
+      });
+    }
     return attachSessionIdentity(result);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    logAudit(
-      'error',
-      req.sessionId,
-      { error: errorMsg },
-      Date.now() - startedAt,
-    );
+    const durationMs = Date.now() - startedAt;
+    logAudit('error', req.sessionId, { error: errorMsg }, durationMs);
     logger.error(
       {
         ...debugMeta,
-        durationMs: Date.now() - startedAt,
+        durationMs,
         stage: agentStage,
         err,
       },
@@ -4298,10 +4488,21 @@ export async function handleGatewayMessage(
           userMessages: 0,
           assistantMessages: 0,
           toolCalls: 0,
-          durationMs: Date.now() - startedAt,
+          durationMs,
         },
       },
     });
+    if (requestMessages !== null) {
+      maybeRecordGatewayRequestLog({
+        sessionId: req.sessionId,
+        model,
+        chatbotId,
+        messages: requestMessages,
+        status: 'error',
+        error: errorMsg,
+        durationMs,
+      });
+    }
     return attachSessionIdentity({
       status: 'error',
       result: null,

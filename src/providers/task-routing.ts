@@ -11,6 +11,11 @@ import {
   type TaskModelPolicy,
 } from '../types.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
+import {
+  findVisionCapableModel,
+  isModelVisionCapable,
+} from './model-catalog.js';
+import { discoverOpenRouterModels } from './openrouter-discovery.js';
 
 export type AuxiliaryTask = TaskModelKey;
 
@@ -127,6 +132,10 @@ function selectFirstNonEmpty(values: string[]): string | undefined {
   return values.find((value) => value.trim())?.trim();
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export function resolveDefaultAuxiliaryModelForProvider(
   provider: RuntimeProvider,
 ): string | undefined {
@@ -191,6 +200,10 @@ export async function resolveTaskModelPolicy(
   params: {
     agentId?: string;
     chatbotId?: string;
+    /** The session/fallback model that would be used if no task override is
+     *  configured.  For the `vision` task this is checked for vision capability
+     *  so the router can substitute a capable model when necessary. */
+    sessionModel?: string;
   } = {},
 ): Promise<TaskModelPolicy | undefined> {
   const configured = getConfiguredTaskSelection(task);
@@ -198,7 +211,85 @@ export async function resolveTaskModelPolicy(
   const rawModel = getSelectedTaskModel(task);
   const maxTokens = normalizeMaxTokens(configured.maxTokens);
 
-  if (providerSelection === 'auto' && !rawModel) return undefined;
+  if (providerSelection === 'auto' && !rawModel) {
+    // For the vision task, verify that the session/fallback model actually
+    // supports image inputs.  If it does not, find a vision-capable model
+    // from the catalog and return it as an override so the container never
+    // attempts a vision call against a text-only model.
+    if (task === 'vision' && params.sessionModel) {
+      let sessionModelIsVisionCapable = isModelVisionCapable(params.sessionModel);
+      let discoveredOpenRouterModels: string[] = [];
+      if (!sessionModelIsVisionCapable) {
+        discoveredOpenRouterModels = await discoverOpenRouterModels();
+        sessionModelIsVisionCapable = isModelVisionCapable(params.sessionModel);
+      }
+
+      if (!sessionModelIsVisionCapable) {
+        const fallback = findVisionCapableModel(params.sessionModel);
+        if (fallback) {
+          logger.info(
+            {
+              task,
+              sessionModel: params.sessionModel,
+              visionFallback: fallback,
+            },
+            'Session model lacks vision support; routing vision task to capable model',
+          );
+          try {
+            const resolved = await resolveModelRuntimeCredentials({
+              model: fallback,
+              chatbotId: params.chatbotId,
+              enableRag: false,
+              agentId: params.agentId,
+            });
+            return {
+              provider: resolved.provider,
+              baseUrl: resolved.baseUrl,
+              apiKey: resolved.apiKey,
+              requestHeaders: { ...resolved.requestHeaders },
+              isLocal: resolved.isLocal,
+              contextWindow: resolved.contextWindow,
+              thinkingFormat: resolved.thinkingFormat,
+              model: fallback,
+              chatbotId: resolved.chatbotId,
+              maxTokens,
+            };
+          } catch (err) {
+            logger.warn(
+              { task, visionFallback: fallback, err },
+              'Failed to resolve vision fallback model credentials',
+            );
+            return {
+              provider: detectRuntimeProviderPrefix(fallback),
+              model: fallback,
+              maxTokens,
+              error:
+                `Session model "${params.sessionModel}" does not support vision/image inputs, ` +
+                `and fallback model "${fallback}" could not be resolved: ${errorMessage(err)}`,
+            };
+          }
+        } else {
+          logger.warn(
+            {
+              task,
+              sessionModel: params.sessionModel,
+              openrouterDiscoveredModels: discoveredOpenRouterModels.length,
+            },
+            'Session model lacks vision support and no capable fallback model is available',
+          );
+          return {
+            provider: detectRuntimeProviderPrefix(params.sessionModel),
+            model: params.sessionModel,
+            maxTokens,
+            error:
+              `Session model "${params.sessionModel}" does not support vision/image inputs, ` +
+              'and no vision-capable fallback model is available.',
+          };
+        }
+      }
+    }
+    return undefined;
+  }
 
   const model =
     providerSelection === 'auto'
@@ -264,7 +355,7 @@ export async function resolveTaskModelPolicy(
 }
 
 export async function resolveTaskModelPolicies(
-  params: { agentId?: string; chatbotId?: string } = {},
+  params: { agentId?: string; chatbotId?: string; sessionModel?: string } = {},
 ): Promise<TaskModelPolicies | undefined> {
   const taskModels: TaskModelPolicies = {};
   for (const task of AUXILIARY_TASKS) {

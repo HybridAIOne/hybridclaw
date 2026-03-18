@@ -40,6 +40,7 @@ const BROWSER_PROFILE_ROOT = path.join(
   'browser-profiles',
 );
 const ENV_FALSEY = new Set(['0', 'false', 'no', 'off']);
+const SNAPSHOT_CURSOR_FLAGS = ['-C'] as const;
 const BOT_DETECTION_PATTERNS = [
   'access denied',
   'blocked',
@@ -652,6 +653,15 @@ function normalizeSnapshotMode(rawMode: unknown): SnapshotMode {
   throw new Error('mode must be one of "default", "interactive", or "full"');
 }
 
+function buildSnapshotCommandArgs(
+  mode: SnapshotMode,
+  full: boolean,
+): string[] {
+  if (mode === 'interactive') return ['-i', ...SNAPSHOT_CURSOR_FLAGS];
+  if (mode === 'full' || full) return [...SNAPSHOT_CURSOR_FLAGS];
+  return ['-i', '-c', ...SNAPSHOT_CURSOR_FLAGS];
+}
+
 function parseOptionalFrame(raw: unknown): FrameTarget | null {
   if (raw == null) return null;
   const frame = String(raw).trim();
@@ -1067,10 +1077,7 @@ export async function executeBrowserTool(
       case 'browser_snapshot': {
         const mode = normalizeSnapshotMode(args.mode);
         const full = args.full === true;
-        let commandArgs: string[];
-        if (mode === 'interactive') commandArgs = ['-i'];
-        else if (mode === 'full') commandArgs = [];
-        else commandArgs = full ? [] : ['-i', '-c'];
+        const commandArgs = buildSnapshotCommandArgs(mode, full);
 
         const result = await runAgentBrowser(
           effectiveSessionId,

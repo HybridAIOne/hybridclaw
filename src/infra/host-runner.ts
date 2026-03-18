@@ -458,6 +458,7 @@ export async function runHostProcess(
   const taskModels = await resolveTaskModelPolicies({
     agentId,
     chatbotId: modelRuntime.chatbotId,
+    sessionModel: model,
   });
 
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {

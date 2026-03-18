@@ -605,6 +605,7 @@ export async function runContainer(
   const taskModels = await resolveTaskModelPolicies({
     agentId,
     chatbotId: modelRuntime.chatbotId,
+    sessionModel: model,
   });
   // Enforce concurrent container limit
   if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
