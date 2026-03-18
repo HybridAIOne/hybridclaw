@@ -3534,6 +3534,18 @@ export function createFreshSessionInstance(
   };
 }
 
+export function getAnyChatbotId(): string | null {
+  const row = db
+    .prepare(
+      `SELECT chatbot_id FROM sessions
+       WHERE chatbot_id IS NOT NULL AND chatbot_id != ''
+       ORDER BY last_active DESC
+       LIMIT 1`,
+    )
+    .get() as { chatbot_id: string } | undefined;
+  return row?.chatbot_id?.trim() || null;
+}
+
 export function updateSessionChatbot(
   sessionId: string,
   chatbotId: string | null,
