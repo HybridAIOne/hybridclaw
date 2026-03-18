@@ -1588,6 +1588,10 @@ export function initDiscord(
     });
   });
 
+  client.on('error', (error) => {
+    logger.error({ error }, 'Discord client error (will reconnect automatically)');
+  });
+
   client.on('clientReady', () => {
     logger.info({ user: client.user?.tag }, 'Discord bot connected');
     startupConnectedAtMs = Date.now();
