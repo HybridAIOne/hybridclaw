@@ -1024,7 +1024,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Configuration</h3>
-      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Includes container isolation controls (<code>container.sandboxMode</code>, <code>container.memorySwap</code>, <code>container.network</code>), session routing controls (<code>sessionRouting.dmScope</code>, <code>sessionRouting.identityLinks</code>), skill-availability controls (<code>skills.disabled</code>, <code>skills.channelDisabled.*</code>), adaptive-skill controls (<code>adaptiveSkills.*</code>), compaction controls (<code>sessionCompaction.tokenBudget</code>, <code>sessionCompaction.budgetRatio</code>), and built-in web auth via <code>ops.webApiToken</code>. Secrets live in <code>~/.hybridclaw/credentials.json</code>.</p>
+      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Includes container isolation controls (<code>container.sandboxMode</code>, <code>container.memorySwap</code>, <code>container.network</code>), session routing controls (<code>sessionRouting.dmScope</code>, <code>sessionRouting.identityLinks</code>), skill-availability controls (<code>skills.disabled</code>, <code>skills.channelDisabled.*</code>), plugin override controls (<code>plugins.list[]</code>), adaptive-skill controls (<code>adaptiveSkills.*</code>), compaction controls (<code>sessionCompaction.tokenBudget</code>, <code>sessionCompaction.budgetRatio</code>), and built-in web auth via <code>ops.webApiToken</code>. Secrets live in <code>~/.hybridclaw/credentials.json</code>.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
@@ -1071,6 +1071,10 @@
       <p>Read-first routing prefers <code>web_fetch</code> for static retrieval, emits escalation hints on JS/app-shell/bot-blocked pages, and guides browser extraction with full snapshots for dynamic content.</p>
     </div>
     <div class="feature-card">
+      <h3 style="color: var(--accent-1);">Plugin Extensibility</h3>
+      <p>HybridClaw now supports local plugins with typed manifests, plugin tools, memory layers, prompt hooks, lifecycle hooks, and exported SDK types. Operators can auto-discover plugins from home or project directories, manage them with <code>hybridclaw plugin list|install|uninstall</code>, and hot-reload them with <code>/plugin reload</code>.</p>
+    </div>
+    <div class="feature-card">
       <h3 style="color: var(--accent-1);">Interfaces &amp; Integrations</h3>
       <p>Shared assistant behavior across Discord, Teams, WhatsApp, email, web, and terminal, plus bundled skills for office docs, GitHub, Notion, Stripe, WordPress, Google Workspace, Discord, email, and Apple workflows.</p>
     </div>
@@ -1080,7 +1084,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Gateway Lifecycle</h3>
-      <p>Runtime supports start, stop, and restart flows with graceful shutdown handling, explicit sandbox overrides (<code>--sandbox=container|host</code>), and status reporting for both managed and unmanaged gateway processes.</p>
+      <p>Runtime supports start, stop, and restart flows with graceful shutdown handling, explicit sandbox overrides (<code>--sandbox=container|host</code>), status reporting for both managed and unmanaged gateway processes, and safer startup fallback when Discord token configuration is invalid.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Admin Console</h3>
@@ -1088,7 +1092,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Command Surface</h3>
-      <p>Operator-friendly command set across CLI, TUI, Discord, and gateway surfaces, including <code>hybridclaw doctor</code>, a richer TUI startup banner, slash-command discovery/history recall, <code>/skill config</code>, usage aggregation queries, and JSONL export workflows for session debugging.</p>
+      <p>Operator-friendly command set across CLI, TUI, Discord, and gateway surfaces, including <code>hybridclaw doctor</code>, <code>hybridclaw plugin list|install|uninstall</code>, <code>/plugin reload</code>, a richer TUI startup banner, slash-command discovery/history recall, <code>/skill config</code>, usage aggregation queries, and JSONL export workflows for session debugging.</p>
     </div>
   </div>
 </section>
@@ -1171,7 +1175,7 @@
     <div class="tool-pill">
       <div class="tool-pill-icon">&#x1f441;&#xfe0f;</div>
       <div class="tool-pill-name">vision_analyze</div>
-      <div class="tool-pill-desc">Analyze images with vision</div>
+      <div class="tool-pill-desc">Analyze images with vision and auto-route to a capable fallback model when needed</div>
     </div>
     <div class="tool-pill">
       <div class="tool-pill-icon">&#x1f4e8;</div>
@@ -1295,6 +1299,10 @@
       <div class="faq-a">Default is <code>web_fetch</code> for static/read-only retrieval. HybridClaw escalates to browser automation for JavaScript-heavy apps, auth-gated flows, interaction steps, or when <code>web_fetch</code> reports hints like <code>javascript_required</code>, <code>spa_shell_only</code>, <code>empty_extraction</code>, <code>boilerplate_only</code>, or <code>bot_blocked</code>. Browser snapshots also mark pointer- and click-handler-driven custom controls more reliably, which helps the agent interact with modern app-style UIs.</div>
     </div>
     <div class="faq-item">
+      <div class="faq-q">Can I extend HybridClaw with plugins?</div>
+      <div class="faq-a">Yes. HybridClaw supports local plugins with typed manifests, plugin tools, memory layers, prompt hooks, and lifecycle hooks. Valid plugins auto-discover from <code>~/.hybridclaw/plugins/</code> and project-local <code>.hybridclaw/plugins/</code> directories, and you can manage them with <code>hybridclaw plugin list</code>, <code>install</code>, <code>uninstall</code>, and <code>/plugin reload</code>.</div>
+    </div>
+    <div class="faq-item">
       <div class="faq-q">Is the audit trail immutable?</div>
       <div class="faq-a">Audit logs are append-only and hash-chained per session, so modifications are tamper-evident. Use <code>hybridclaw audit verify &lt;sessionId&gt;</code> to validate integrity, and <code>hybridclaw audit approvals --denied</code> to review denied actions.</div>
     </div>
@@ -1304,7 +1312,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use it without Discord?</div>
-      <div class="faq-a">Absolutely. Run <code>hybridclaw tui</code>, use the built-in web chat, or connect Microsoft Teams, WhatsApp, or email. The same assistant behavior and context model is shared across supported interfaces.</div>
+      <div class="faq-a">Absolutely. Run <code>hybridclaw tui</code>, use the built-in web chat, or connect Microsoft Teams, WhatsApp, or email. The same assistant behavior and context model is shared across supported interfaces, and gateway startup now stays available even if Discord token configuration is invalid.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">How are screenshots returned in Discord?</div>
