@@ -690,13 +690,59 @@ function buildSnapshotCommandArgs(mode: SnapshotMode, full: boolean): string[] {
 
 function buildElementClickResultScript(extraFields = ''): string {
   return `
-  if (typeof element.scrollIntoView === 'function') {
-    element.scrollIntoView({ block: 'center', inline: 'center' });
+  const resolveClickableTarget = (start) => {
+    let current = start;
+    while (current) {
+      const tag = String(current.tagName || '').toLowerCase();
+      const role =
+        typeof current.getAttribute === 'function'
+          ? String(current.getAttribute('role') || '').toLowerCase()
+          : '';
+      const tabIndexValue =
+        typeof current.tabIndex === 'number' && Number.isFinite(current.tabIndex)
+          ? current.tabIndex
+          : typeof current.getAttribute === 'function'
+              ? Number.parseInt(String(current.getAttribute('tabindex') || ''), 10)
+              : Number.NaN;
+      const style =
+        typeof window.getComputedStyle === 'function'
+          ? window.getComputedStyle(current)
+          : null;
+      const cursor = style && typeof style.cursor === 'string'
+        ? style.cursor.toLowerCase()
+        : '';
+      const isNativeInteractive =
+        tag === 'a' ||
+        tag === 'button' ||
+        tag === 'input' ||
+        tag === 'select' ||
+        tag === 'textarea' ||
+        tag === 'summary' ||
+        tag === 'label';
+      const isSemanticInteractive = role === 'button' || role === 'link';
+      const isFocusable =
+        Number.isFinite(tabIndexValue) && Number(tabIndexValue) >= 0;
+      if (
+        isNativeInteractive ||
+        isSemanticInteractive ||
+        cursor === 'pointer' ||
+        isFocusable ||
+        typeof current.onclick === 'function'
+      ) {
+        return current;
+      }
+      current = current.parentElement || null;
+    }
+    return start;
+  };
+  const clickTarget = resolveClickableTarget(element);
+  if (typeof clickTarget.scrollIntoView === 'function') {
+    clickTarget.scrollIntoView({ block: 'center', inline: 'center' });
   }
-  if (typeof element.click === 'function') {
-    element.click();
+  if (typeof clickTarget.click === 'function') {
+    clickTarget.click();
   } else {
-    element.dispatchEvent(
+    clickTarget.dispatchEvent(
       new MouseEvent('click', {
         bubbles: true,
         cancelable: true,
@@ -707,11 +753,11 @@ function buildElementClickResultScript(extraFields = ''): string {
   }
   const preview =
     String(
-      ('innerText' in element ? element.innerText : element.textContent) ||
-        (typeof element.getAttribute === 'function'
-          ? element.getAttribute('alt') ||
-            element.getAttribute('title') ||
-            element.getAttribute('aria-label')
+      ('innerText' in clickTarget ? clickTarget.innerText : clickTarget.textContent) ||
+        (typeof clickTarget.getAttribute === 'function'
+          ? clickTarget.getAttribute('alt') ||
+            clickTarget.getAttribute('title') ||
+            clickTarget.getAttribute('aria-label')
           : '') ||
         '',
     )
@@ -720,7 +766,7 @@ function buildElementClickResultScript(extraFields = ''): string {
       .slice(0, 200);
   return {
     ok: true,
-    tag: String(element.tagName || '').toLowerCase(),${extraFields}
+    tag: String(clickTarget.tagName || '').toLowerCase(),${extraFields}
     text: preview,
   };`;
 }
@@ -773,11 +819,18 @@ function buildTextClickScript(text: string, exact: boolean): string {
   };
   const findMatch = (matchMode) => {
     if (!document.body) return null;
+    const kindPriority = {
+      'aria-label': 0,
+      text: 1,
+      alt: 2,
+      title: 3,
+    };
     const walker = document.createTreeWalker(
       document.body,
       NodeFilter.SHOW_ELEMENT,
     );
     let current = walker.currentNode;
+    let bestMatch = null;
     while (current) {
       const element = current;
       const tag = String(element.tagName || '').toLowerCase();
@@ -805,14 +858,35 @@ function buildTextClickScript(text: string, exact: boolean): string {
             matchMode === 'exact'
               ? normalized === needle
               : normalized.includes(needle);
-          if (matches) {
-            return { element, matchedKind: entry.kind };
+          if (!matches) continue;
+          const rect = element.getBoundingClientRect();
+          const area = Math.round(rect.width * rect.height);
+          const candidate = {
+            element,
+            matchedKind: entry.kind,
+            textLength: normalized.length,
+            area,
+            kindRank:
+              kindPriority[entry.kind] !== undefined
+                ? kindPriority[entry.kind]
+                : Number.MAX_SAFE_INTEGER,
+          };
+          if (
+            !bestMatch ||
+            candidate.textLength < bestMatch.textLength ||
+            (candidate.textLength === bestMatch.textLength &&
+              candidate.area < bestMatch.area) ||
+            (candidate.textLength === bestMatch.textLength &&
+              candidate.area === bestMatch.area &&
+              candidate.kindRank < bestMatch.kindRank)
+          ) {
+            bestMatch = candidate;
           }
         }
       }
       current = walker.nextNode();
     }
-    return null;
+    return bestMatch;
   };
   const match = findMatch('exact') || (!exact ? findMatch('substring') : null);
   if (!match) {
