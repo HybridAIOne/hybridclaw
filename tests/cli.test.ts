@@ -74,6 +74,16 @@ async function importFreshCli(options?: {
     requiresEnv: string[];
     requiredConfigKeys: string[];
   };
+  pluginListSummary?: Array<{
+    id: string;
+    name?: string;
+    version?: string;
+    source: 'home' | 'project' | 'config';
+    enabled: boolean;
+    error?: string;
+    tools: string[];
+    hooks: string[];
+  }>;
   promptResponses?: string[];
 }) {
   vi.resetModules();
@@ -179,91 +189,17 @@ async function importFreshCli(options?: {
       }
     );
   });
+  const listPluginSummary = vi.fn(() => options?.pluginListSummary || []);
+  const ensurePluginManagerInitialized = vi.fn(async () => ({
+    listPluginSummary,
+  }));
   const ensureRuntimeConfigFile = vi.fn(() => false);
   const onRuntimeConfigChange = vi.fn(() => () => {});
-  const getRuntimeConfig = vi.fn(() => ({
-    plugins: {
-      list: [],
-    },
-    skills: {
-      extraDirs: [],
-      disabled: [],
-      channelDisabled: {},
-    },
-    discord: {
-      prefix: '!claw',
-      commandsOnly: false,
-      commandMode: 'public',
-      commandAllowedUserIds: [],
-      commandUserId: '',
-      groupPolicy: 'open',
-      freeResponseChannels: [],
-      guilds: {},
-    },
-    hybridai: { defaultModel: 'gpt-5-nano' },
-    openrouter: {
-      enabled: false,
-      baseUrl: 'https://openrouter.ai/api/v1',
-      models: ['openrouter/anthropic/claude-sonnet-4'],
-    },
-    whatsapp: {
-      dmPolicy: 'pairing',
-      groupPolicy: 'disabled',
-      allowFrom: [],
-      groupAllowFrom: [],
-      textChunkLimit: 4000,
-      debounceMs: 2500,
-      sendReadReceipts: true,
-      ackReaction: '',
-      mediaMaxMb: 20,
-    },
-    email: {
-      enabled: false,
-      imapHost: '',
-      imapPort: 993,
-      imapSecure: true,
-      smtpHost: '',
-      smtpPort: 587,
-      smtpSecure: false,
-      address: '',
-      pollIntervalMs: 30000,
-      folders: ['INBOX'],
-      allowFrom: [],
-      textChunkLimit: 50000,
-      mediaMaxMb: 20,
-    },
-    msteams: {
-      enabled: false,
-      appId: '',
-      tenantId: '',
-      webhook: {
-        port: 3978,
-        path: '/api/msteams/messages',
-      },
-      groupPolicy: 'allowlist',
-      dmPolicy: 'allowlist',
-      allowFrom: [],
-      teams: {},
-      requireMention: true,
-      textChunkLimit: 4000,
-      replyStyle: 'thread',
-      mediaMaxMb: 20,
-      dangerouslyAllowNameMatching: false,
-      mediaAllowHosts: [],
-      mediaAuthAllowHosts: [],
-    },
-    local: {
-      backends: {
-        ollama: { enabled: true, baseUrl: 'http://127.0.0.1:11434' },
-        lmstudio: { enabled: false, baseUrl: 'http://127.0.0.1:1234/v1' },
-        vllm: {
-          enabled: false,
-          baseUrl: 'http://127.0.0.1:8000/v1',
-          apiKey: '',
-        },
-      },
-    },
-  }));
+  const actualRuntimeConfig = await import('../src/config/runtime-config.ts');
+  let runtimeConfigState = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'config.example.json'), 'utf8'),
+  ) as ReturnType<typeof actualRuntimeConfig.getRuntimeConfig>;
+  const getRuntimeConfig = vi.fn(() => structuredClone(runtimeConfigState));
   const runtimeConfigPath = vi.fn(() => '/tmp/config.json');
   const getRuntimeSkillScopeDisabledNames = vi.fn(
     (
@@ -321,9 +257,10 @@ async function importFreshCli(options?: {
   );
   const updateRuntimeConfig = vi.fn(
     (mutator: (draft: Record<string, unknown>) => void) => {
-      const draft = getRuntimeConfig();
+      const draft = getRuntimeConfig() as Record<string, unknown>;
       mutator(draft);
-      return draft;
+      runtimeConfigState = draft as typeof runtimeConfigState;
+      return structuredClone(runtimeConfigState);
     },
   );
   const gatewayHealth = vi.fn(async () => {
@@ -413,7 +350,8 @@ async function importFreshCli(options?: {
     getResolvedSandboxMode: vi.fn(() => options?.sandboxMode || 'host'),
     setSandboxModeOverride: vi.fn(),
   }));
-  vi.doMock('../src/config/runtime-config.ts', () => ({
+  vi.doMock('../src/config/runtime-config.ts', async () => ({
+    ...actualRuntimeConfig,
     ensureRuntimeConfigFile,
     getRuntimeSkillScopeDisabledNames,
     getRuntimeConfig,
@@ -478,6 +416,7 @@ async function importFreshCli(options?: {
     verifyInstructionIntegrity: vi.fn(() => ({ ok: true })),
   }));
   vi.doMock('../src/security/runtime-secrets.ts', () => ({
+    loadRuntimeSecrets: vi.fn(),
     runtimeSecretsPath: vi.fn(() => '/tmp/credentials.json'),
     saveRuntimeSecrets,
   }));
@@ -491,6 +430,10 @@ async function importFreshCli(options?: {
   }));
   vi.doMock('../src/plugins/plugin-install.js', () => ({
     installPlugin,
+  }));
+  vi.doMock('../src/plugins/plugin-manager.js', () => ({
+    ensurePluginManagerInitialized,
+    shutdownPluginManager: vi.fn(async () => {}),
   }));
   vi.doMock('../src/update.ts', () => ({
     printUpdateUsage,
@@ -518,6 +461,8 @@ async function importFreshCli(options?: {
     resetWhatsAppAuthState,
     createWhatsAppConnectionManager,
     installPlugin,
+    listPluginSummary,
+    ensurePluginManagerInitialized,
     whatsappStart,
     whatsappStop,
     whatsappWaitForSocket,
@@ -565,6 +510,7 @@ afterEach(() => {
   vi.doUnmock('../src/tui.ts');
   vi.doUnmock('../src/plugins/plugin-install.ts');
   vi.doUnmock('../src/plugins/plugin-install.js');
+  vi.doUnmock('../src/plugins/plugin-manager.js');
   vi.doUnmock('../src/update.ts');
   vi.resetModules();
   if (ORIGINAL_WHATSAPP_SETUP_SETTLE_MS === undefined) {
@@ -693,7 +639,56 @@ describe('CLI hybridai commands', () => {
     await cli.main(['help', 'plugin']);
 
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('hybridclaw plugin install <path|npm-spec>'),
+      expect.stringContaining('hybridclaw plugin list'),
+    );
+  });
+
+  it('lists discovered plugins with status, tools, hooks, and errors', async () => {
+    const {
+      cli,
+      ensurePluginManagerInitialized,
+      listPluginSummary,
+    } = await importFreshCli({
+      pluginListSummary: [
+        {
+          id: 'demo-plugin',
+          name: 'Demo Plugin',
+          version: '1.0.0',
+          source: 'project',
+          enabled: true,
+          tools: ['demo_echo'],
+          hooks: ['demo-hook'],
+        },
+        {
+          id: 'broken-plugin',
+          source: 'home',
+          enabled: true,
+          error: 'register exploded',
+          tools: [],
+          hooks: [],
+        },
+      ],
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'list']);
+
+    expect(ensurePluginManagerInitialized).toHaveBeenCalled();
+    expect(listPluginSummary).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      [
+        'demo-plugin v1.0.0 [project]',
+        '  name: Demo Plugin',
+        '  enabled: yes',
+        '  tools: demo_echo',
+        '  hooks: demo-hook',
+        '',
+        'broken-plugin [home]',
+        '  enabled: yes',
+        '  error: register exploded',
+        '  tools: (none)',
+        '  hooks: (none)',
+      ].join('\n'),
     );
   });
 
@@ -725,12 +720,12 @@ describe('CLI hybridai commands', () => {
       installPlugin,
     } = await importFreshCli({
       pluginInstallResult: {
-        pluginId: 'honcho-memory',
-        pluginDir: '/tmp/.hybridclaw/plugins/honcho-memory',
-        source: '@hybridaione/hybridclaw-plugin-honcho-memory',
+        pluginId: 'example-plugin',
+        pluginDir: '/tmp/.hybridclaw/plugins/example-plugin',
+        source: '@scope/hybridclaw-plugin-example',
         alreadyInstalled: false,
         dependenciesInstalled: true,
-        requiresEnv: ['HONCHO_API_KEY'],
+        requiresEnv: ['EXAMPLE_PLUGIN_TOKEN'],
         requiredConfigKeys: ['workspaceId'],
       },
     });
@@ -739,19 +734,21 @@ describe('CLI hybridai commands', () => {
     await cli.main([
       'plugin',
       'install',
-      '@hybridaione/hybridclaw-plugin-honcho-memory',
+      '@scope/hybridclaw-plugin-example',
     ]);
 
     expect(installPlugin).toHaveBeenCalledWith(
-      '@hybridaione/hybridclaw-plugin-honcho-memory',
+      '@scope/hybridclaw-plugin-example',
     );
     expect(logSpy).toHaveBeenCalledWith(
-      'Installed plugin honcho-memory to /tmp/.hybridclaw/plugins/honcho-memory.',
+      'Installed plugin example-plugin to /tmp/.hybridclaw/plugins/example-plugin.',
     );
     expect(logSpy).toHaveBeenCalledWith(
-      'Plugin honcho-memory will auto-discover from /tmp/.hybridclaw/plugins/honcho-memory.',
+      'Plugin example-plugin will auto-discover from /tmp/.hybridclaw/plugins/example-plugin.',
     );
-    expect(logSpy).toHaveBeenCalledWith('Required env vars: HONCHO_API_KEY');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Required env vars: EXAMPLE_PLUGIN_TOKEN',
+    );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining(
         'Add a plugins.list[] override in ',
@@ -1552,7 +1549,7 @@ describe('CLI hybridai commands', () => {
       };
     };
     expect(nextConfig.skills.disabled).toEqual([]);
-    expect(nextConfig.skills.channelDisabled).toEqual({
+    expect(nextConfig.skills.channelDisabled).toMatchObject({
       msteams: ['pdf'],
     });
     expect(logSpy).toHaveBeenCalledWith('Disabled pdf in msteams scope.');
@@ -1583,7 +1580,7 @@ describe('CLI hybridai commands', () => {
       };
     };
     expect(nextConfig.skills.disabled).toEqual([]);
-    expect(nextConfig.skills.channelDisabled).toEqual({
+    expect(nextConfig.skills.channelDisabled).toMatchObject({
       discord: ['docx'],
     });
     expect(logSpy).toHaveBeenCalledWith('Enabled pdf in global scope.');

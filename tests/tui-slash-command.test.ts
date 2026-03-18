@@ -107,6 +107,10 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(
     mapTuiSlashCommandToGatewayArgs(['skill', 'history', 'demo-skill']),
   ).toEqual(['skill', 'history', 'demo-skill']);
+  expect(mapTuiSlashCommandToGatewayArgs(['plugin', 'list'])).toEqual([
+    'plugin',
+    'list',
+  ]);
 });
 
 test('keeps explicit /skill invocations out of the slash-command path', () => {

@@ -169,7 +169,7 @@ async function importFreshHealth(options?: {
     process.env.HYBRIDCLAW_AUTH_SECRET = options.authSecret;
   }
 
-  const docsDir = options?.docsDir || makeTempDocsDir();
+  const installRoot = options?.docsDir || makeTempDocsDir();
   const dataDir = options?.dataDir || makeTempDataDir();
   let handler:
     | ((
@@ -557,7 +557,7 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/infra/install-root.js', () => ({
     resolveInstallPath: vi.fn((...segments: string[]) =>
-      path.join(docsDir, ...segments),
+      path.join(installRoot, ...segments),
     ),
   }));
   vi.doMock('../src/logger.js', () => ({
@@ -574,6 +574,7 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/memory/db.js', () => ({
     claimQueuedProactiveMessages,
     getSessionById,
+    resetSessionIfExpired: vi.fn(() => null),
   }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
     createGatewayAdminAgent,
@@ -614,6 +615,7 @@ async function importFreshHealth(options?: {
     runMessageToolAction,
   }));
   vi.doMock('../src/channels/discord/tool-actions.js', () => ({
+    createDiscordToolActionRunner: vi.fn(() => vi.fn(async () => ({ ok: true }))),
     normalizeDiscordToolAction,
   }));
 
@@ -1650,7 +1652,7 @@ describe('gateway health server', () => {
       method: 'POST',
       url: '/api/plugin/tool',
       body: {
-        toolName: 'honcho_query',
+        toolName: 'memory_lookup',
         args: { question: 'What do you know?' },
         sessionId: 'session-plugin-api',
         channelId: 'web',
@@ -1662,7 +1664,7 @@ describe('gateway health server', () => {
     await settle();
 
     expect(state.runGatewayPluginTool).toHaveBeenCalledWith({
-      toolName: 'honcho_query',
+      toolName: 'memory_lookup',
       args: { question: 'What do you know?' },
       sessionId: 'session-plugin-api',
       channelId: 'web',

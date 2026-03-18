@@ -62,6 +62,7 @@ import {
   writeGatewayPid,
 } from './gateway/gateway-lifecycle.js';
 import { ensureRuntimeCredentials } from './onboarding.js';
+import { formatPluginSummaryList } from './plugins/plugin-formatting.js';
 import type { LocalBackendType } from './providers/local-types.js';
 import {
   runtimeSecretsPath,
@@ -807,15 +808,18 @@ function printPluginUsage(): void {
   console.log(`Usage: hybridclaw plugin <command>
 
 Commands:
+  hybridclaw plugin list
   hybridclaw plugin install <path|npm-spec>
 
 Examples:
-  hybridclaw plugin install ./plugins/honcho-memory
-  hybridclaw plugin install @hybridaione/hybridclaw-plugin-honcho-memory
+  hybridclaw plugin list
+  hybridclaw plugin install ./plugins/example-plugin
+  hybridclaw plugin install @scope/hybridclaw-plugin-example
 
 Notes:
   - Plugins install into \`~/.hybridclaw/plugins/<plugin-id>\`.
   - Valid plugins in \`~/.hybridclaw/plugins/\` or \`./.hybridclaw/plugins/\` auto-discover at runtime.
+  - \`list\` shows discovered plugin status, source, tools, hooks, and load errors.
   - \`install\` validates \`hybridclaw.plugin.yaml\` and installs npm dependencies when needed.
   - Use ${runtimeConfigPath()} only for plugin overrides such as disable flags, config values, or custom paths.`);
 }
@@ -829,7 +833,7 @@ Topics:
   tui         Help for terminal client
   onboarding  Help for onboarding flow
   channels    Help for channel setup helpers
-  plugin      Help for plugin installation
+  plugin      Help for plugin management
   msteams     Help for Microsoft Teams auth/setup commands
   openrouter  Help for OpenRouter setup/status/logout commands
   whatsapp    Help for WhatsApp setup/reset commands
@@ -3790,10 +3794,26 @@ async function handlePluginCommand(args: string[]): Promise<void> {
   }
 
   const sub = normalized[0].toLowerCase();
+  if (sub === 'list') {
+    if (normalized.length !== 1) {
+      printPluginUsage();
+      throw new Error(
+        'Unexpected extra arguments for `hybridclaw plugin list`.',
+      );
+    }
+
+    const { ensurePluginManagerInitialized } = await import(
+      './plugins/plugin-manager.js'
+    );
+    const manager = await ensurePluginManagerInitialized();
+    console.log(formatPluginSummaryList(manager.listPluginSummary()));
+    return;
+  }
+
   if (sub !== 'install') {
     printPluginUsage();
     throw new Error(
-      `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin install <path|npm-spec>\`.`,
+      `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\` or \`hybridclaw plugin install <path|npm-spec>\`.`,
     );
   }
 

@@ -65,6 +65,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'channel',
   'ralph',
   'mcp',
+  'plugin',
   'clear',
   'reset',
   'compact',
@@ -219,6 +220,12 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'mcp':
       return parts.length > 1 ? ['mcp', ...parts.slice(1)] : ['mcp', 'list'];
+
+    case 'plugin': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub || sub === 'list') return ['plugin', 'list'];
+      return null;
+    }
 
     case 'fullauto':
       return parts.length > 1 ? ['fullauto', ...parts.slice(1)] : ['fullauto'];
@@ -552,6 +559,17 @@ function buildSlashCommandCatalogDefinitions(
       tuiMenu: {
         aliases: ['h'],
       },
+    },
+    {
+      name: 'plugin',
+      description: 'List discovered plugins and their runtime status',
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'list',
+          description: 'List discovered plugins, tools, hooks, and load errors',
+        },
+      ],
     },
     {
       name: 'bot',
@@ -1219,6 +1237,12 @@ export function parseCanonicalSlashCommandArgs(
         const config = normalizeStringOption(interaction, 'config', true);
         return name && config ? ['mcp', 'add', name, config] : null;
       }
+      return null;
+    }
+
+    case 'plugin': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (subcommand === 'list') return ['plugin', 'list'];
       return null;
     }
 

@@ -28,8 +28,8 @@ describe.sequential('container plugin tool dispatch', () => {
     setGatewayContext('http://127.0.0.1:9000', 'token-123', 'web', []);
     setPluginTools([
       {
-        name: 'honcho_query',
-        description: 'Query Honcho memory',
+        name: 'memory_lookup',
+        description: 'Query plugin memory',
         parameters: {
           type: 'object',
           properties: {
@@ -42,12 +42,12 @@ describe.sequential('container plugin tool dispatch', () => {
 
     expect(getPluginToolDefinitions()).toEqual([
       expect.objectContaining({
-        function: expect.objectContaining({ name: 'honcho_query' }),
+        function: expect.objectContaining({ name: 'memory_lookup' }),
       }),
     ]);
 
     const result = await executeTool(
-      'honcho_query',
+      'memory_lookup',
       JSON.stringify({ question: 'hello?' }),
     );
 
@@ -61,7 +61,7 @@ describe.sequential('container plugin tool dispatch', () => {
           'Content-Type': 'application/json',
         }),
         body: JSON.stringify({
-          toolName: 'honcho_query',
+          toolName: 'memory_lookup',
           args: { question: 'hello?' },
           sessionId: '',
           channelId: 'web',

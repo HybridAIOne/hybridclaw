@@ -1,8 +1,0 @@
-{
-  "name": "hybridclaw-plugin-honcho-memory",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@honcho-ai/sdk": "^1.4.0"
-  }
-}

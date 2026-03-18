@@ -8,8 +8,9 @@ directories.
 Use the CLI to install a plugin from a local directory or npm package:
 
 ```bash
-hybridclaw plugin install ./plugins/honcho-memory
-hybridclaw plugin install @hybridaione/hybridclaw-plugin-honcho-memory
+hybridclaw plugin list
+hybridclaw plugin install ./plugins/example-plugin
+hybridclaw plugin install @scope/hybridclaw-plugin-example
 ```
 
 The install command:
@@ -18,6 +19,9 @@ The install command:
 - validates `hybridclaw.plugin.yaml`
 - installs npm dependencies when the plugin ships a `package.json` or npm
   install hints
+
+`hybridclaw plugin list` shows discovered plugins with source, enabled state,
+registered tools/hooks, and any load error.
 
 Required secrets or plugin-specific config values still need to be filled in
 after install.
@@ -46,13 +50,10 @@ Runtime config shape:
   "plugins": {
     "list": [
       {
-        "id": "honcho-memory",
+        "id": "example-plugin",
         "enabled": true,
         "config": {
-          "workspaceId": "hybridclaw-prod",
-          "environment": "production",
-          "autoCapture": true,
-          "autoRecall": true
+          "workspaceId": "workspace-a"
         }
       }
     ]
@@ -126,23 +127,5 @@ Gateway turn flow:
 4. HybridClaw persists the turn to SQLite.
 5. Memory layers receive the completed turn asynchronously.
 
-This lets an external system such as Honcho provide long-term recall without
+This lets an external memory or recall system provide long-term context without
 becoming the system of record for local session history.
-
-## Honcho Example
-
-The repository includes a proof-of-concept Honcho plugin sample in:
-
-- `docs/development/honcho-memory.hybridclaw.plugin.yaml`
-- `docs/development/honcho-memory.index.ts`
-- `docs/development/honcho-memory.package.json`
-
-After arranging those files into a plugin directory or publishing them as an
-npm package, you can install the sample with `hybridclaw plugin install
-<path|npm-spec>`.
-
-It registers:
-
-- a memory layer for prompt recall and async capture
-- a `honcho_query` tool
-- lifecycle cleanup hooks for session reset and gateway shutdown

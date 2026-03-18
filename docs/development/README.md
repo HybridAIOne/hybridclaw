@@ -18,6 +18,6 @@ top-level contributor quickstart.
 - [Skills Internals](./skills.md) for skill roots, precedence, and invocation
   rules
 - [Plugin System](./plugins.md) for plugin manifests, runtime discovery,
-  config wiring, and the Honcho memory example
+  config wiring, install workflow, and runtime hooks
 - [Adaptive Skills](./adaptive-skills.md) for the self-improving skill loop,
   retention, and operator workflows

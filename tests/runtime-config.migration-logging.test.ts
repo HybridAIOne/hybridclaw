@@ -165,7 +165,7 @@ describe('runtime config migration logging', () => {
     writeRuntimeConfig(homeDir, (config) => {
       config.plugins.list = [
         {
-          id: 'honcho-memory',
+          id: 'example-plugin',
           enabled: true,
           config: {
             workspaceId: 'workspace-a',
@@ -177,7 +177,7 @@ describe('runtime config migration logging', () => {
           config: {},
         } as RuntimeConfig['plugins']['list'][number],
         {
-          id: 'honcho-memory',
+          id: 'example-plugin',
           enabled: false,
           config: {
             workspaceId: 'workspace-b',
@@ -197,7 +197,7 @@ describe('runtime config migration logging', () => {
 
     expect(stored.plugins.list).toEqual([
       {
-        id: 'honcho-memory',
+        id: 'example-plugin',
         enabled: true,
         config: {
           workspaceId: 'workspace-a',

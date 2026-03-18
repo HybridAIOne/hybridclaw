@@ -7,8 +7,8 @@ const { runAgentMock, ensurePluginManagerInitializedMock, pluginManagerMock } =
       collectPromptContext: vi.fn(async () => ['plugin-memory-context']),
       getToolDefinitions: vi.fn(() => [
         {
-          name: 'honcho_query',
-          description: 'Query Honcho memory',
+          name: 'memory_lookup',
+          description: 'Query plugin memory',
           parameters: {
             type: 'object' as const,
             properties: {
@@ -23,6 +23,7 @@ const { runAgentMock, ensurePluginManagerInitializedMock, pluginManagerMock } =
       notifyAgentEnd: vi.fn(async () => {}),
       handleSessionReset: vi.fn(async () => {}),
       notifySessionStart: vi.fn(async () => {}),
+      listPluginSummary: vi.fn(() => []),
     };
     return {
       runAgentMock: vi.fn(),
@@ -52,6 +53,7 @@ const { setupHome } = setupGatewayTest({
     pluginManagerMock.notifyAgentEnd.mockClear();
     pluginManagerMock.handleSessionReset.mockClear();
     pluginManagerMock.notifySessionStart.mockClear();
+    pluginManagerMock.listPluginSummary.mockClear();
   },
 });
 
@@ -67,10 +69,10 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
   runAgentMock.mockResolvedValue({
     status: 'success',
     result: 'plugin-aware reply',
-    toolsUsed: ['honcho_query'],
+    toolsUsed: ['memory_lookup'],
     toolExecutions: [
       {
-        name: 'honcho_query',
+        name: 'memory_lookup',
         arguments: '{"question":"what matters?"}',
         result: 'long-term summary',
         durationMs: 12,
@@ -101,7 +103,7 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
     expect.objectContaining({
       pluginTools: [
         expect.objectContaining({
-          name: 'honcho_query',
+          name: 'memory_lookup',
         }),
       ],
       messages: expect.arrayContaining([
@@ -133,7 +135,55 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
   expect(pluginManagerMock.notifyAgentEnd).toHaveBeenCalledWith(
     expect.objectContaining({
       resultText: 'plugin-aware reply',
-      toolNames: ['honcho_query'],
+      toolNames: ['memory_lookup'],
     }),
   );
+});
+
+test('handleGatewayCommand lists plugin summaries', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  pluginManagerMock.listPluginSummary.mockReturnValue([
+    {
+      id: 'demo-plugin',
+      name: 'Demo Plugin',
+      version: '1.0.0',
+      source: 'project',
+      enabled: true,
+      tools: ['demo_echo'],
+      hooks: ['demo-hook'],
+    },
+    {
+      id: 'broken-plugin',
+      source: 'home',
+      enabled: true,
+      error: 'register exploded',
+      tools: [],
+      hooks: [],
+    },
+  ]);
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-list',
+    guildId: null,
+    channelId: 'web',
+    args: ['plugin', 'list'],
+  });
+
+  expect(pluginManagerMock.listPluginSummary).toHaveBeenCalled();
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugins');
+  expect(result.text).toContain('demo-plugin v1.0.0 [project]');
+  expect(result.text).toContain('tools: demo_echo');
+  expect(result.text).toContain('broken-plugin [home]');
+  expect(result.text).toContain('error: register exploded');
 });

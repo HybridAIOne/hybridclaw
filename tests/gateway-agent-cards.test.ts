@@ -26,6 +26,7 @@ vi.mock('../src/infra/ipc.js', () => ({
 vi.mock('../src/memory/db.js', () => ({
   getRecentMessages: vi.fn(() => []),
   getRecentStructuredAuditForSession: vi.fn(() => []),
+  resetSessionIfExpired: vi.fn(() => null),
 }));
 
 vi.mock('../src/gateway/fullauto.js', () => ({

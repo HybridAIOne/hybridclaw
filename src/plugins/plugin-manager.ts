@@ -5,7 +5,11 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import type { ChannelInfo } from '../channels/channel.js';
-import { registerChannel } from '../channels/channel-registry.js';
+import {
+  listChannels,
+  registerChannel,
+  unregisterChannel,
+} from '../channels/channel-registry.js';
 import {
   getRuntimeConfig,
   type RuntimeConfig,
@@ -33,6 +37,7 @@ import type {
   PluginRegistrationMode,
   PluginRuntimeToolDefinition,
   PluginService,
+  PluginSummary,
   PluginSessionResetContext,
   PluginToolDefinition,
   PluginToolHandlerContext,
@@ -95,6 +100,18 @@ type RegisteredProvider = {
 type RegisteredChannel = {
   pluginId: string;
   channel: ChannelInfo;
+};
+
+type PluginRegistrationSnapshot = {
+  memoryLayers: RegisteredMemoryLayer[];
+  promptHooks: RegisteredPromptHook[];
+  services: RegisteredService[];
+  providers: RegisteredProvider[];
+  channels: RegisteredChannel[];
+  tools: Map<string, RegisteredTool>;
+  commands: Map<string, RegisteredCommand>;
+  hooks: Map<PluginHookName, RegisteredHook[]>;
+  registeredChannels: ChannelInfo[];
 };
 
 export interface ExecutePluginToolParams {
@@ -684,50 +701,112 @@ export class PluginManager {
       return typeof value !== 'string' || value.trim().length === 0;
     });
     if (missingEnv.length > 0) {
-      this.logger.info(
+      const error = `Missing required env vars: ${missingEnv.join(', ')}.`;
+      this.logger.warn(
         { pluginId: candidate.id, missingEnv },
-        'Plugin is loading with missing declared environment variables',
+        'Skipping plugin due to missing required environment variables',
       );
+      this.plugins.push({
+        id: candidate.id,
+        manifest: candidate.manifest,
+        candidate,
+        enabled: false,
+        status: 'failed',
+        error,
+        toolsRegistered: [],
+        hooksRegistered: [],
+      });
+      return;
     }
 
-    const mod = await importPluginModule(candidate.entrypoint);
-    const definition = resolvePluginDefinition(mod);
-    if (definition.id.trim() !== candidate.id) {
-      throw new Error(
-        `Plugin definition id "${definition.id}" did not match manifest id "${candidate.id}".`,
-      );
-    }
-    const schema = definition.configSchema || candidate.manifest.configSchema;
-    const validatedConfig = validatePluginConfig(schema, candidate.config);
-    const api = createPluginApi({
-      manager: this,
-      pluginId: definition.id,
-      pluginDir: candidate.dir,
-      registrationMode,
-      config,
-      pluginConfig: validatedConfig,
-      homeDir: this.homeDir,
-      cwd: this.cwd,
-    });
+    let definition: HybridClawPluginDefinition | undefined;
+    let api: ReturnType<typeof createPluginApi> | undefined;
+    let toolsRegistered: string[] = [];
+    let hooksRegistered: string[] = [];
 
-    const registerResult = definition.register(api) as unknown;
-    if (
-      registerResult &&
-      typeof registerResult === 'object' &&
-      typeof (registerResult as { then?: unknown }).then === 'function'
-    ) {
-      throw new Error(
-        `Plugin "${definition.id}" returned a promise from register(api); register must be synchronous.`,
-      );
-    }
+    try {
+      const mod = await importPluginModule(candidate.entrypoint);
+      definition = resolvePluginDefinition(mod);
+      if (definition.id.trim() !== candidate.id) {
+        throw new Error(
+          `Plugin definition id "${definition.id}" did not match manifest id "${candidate.id}".`,
+        );
+      }
+      const schema = definition.configSchema || candidate.manifest.configSchema;
+      const validatedConfig = validatePluginConfig(schema, candidate.config);
+      api = createPluginApi({
+        manager: this,
+        pluginId: definition.id,
+        pluginDir: candidate.dir,
+        registrationMode,
+        config,
+        pluginConfig: validatedConfig,
+        homeDir: this.homeDir,
+        cwd: this.cwd,
+      });
 
-    this.plugins.push({
-      id: definition.id,
-      manifest: candidate.manifest,
-      definition,
-      candidate,
-      api,
-    });
+      const snapshot = this.createPluginRegistrationSnapshot();
+      try {
+        const registerResult = definition.register(api) as unknown;
+        if (
+          registerResult &&
+          typeof registerResult === 'object' &&
+          typeof (registerResult as { then?: unknown }).then === 'function'
+        ) {
+          throw new Error(
+            `Plugin "${definition.id}" returned a promise from register(api); register must be synchronous.`,
+          );
+        }
+      } catch (error) {
+        toolsRegistered = this.getPluginToolNames(definition.id);
+        hooksRegistered = this.getPluginHookNames(definition.id);
+        this.restorePluginRegistrationSnapshot(snapshot);
+        throw error;
+      }
+
+      toolsRegistered = this.getPluginToolNames(definition.id);
+      hooksRegistered = this.getPluginHookNames(definition.id);
+
+      this.plugins.push({
+        id: definition.id,
+        manifest: candidate.manifest,
+        definition,
+        candidate,
+        api,
+        enabled: candidate.enabled,
+        status: 'loaded',
+        toolsRegistered,
+        hooksRegistered,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : String(error || 'Unknown error');
+      const pluginId = definition?.id?.trim() || candidate.id;
+      this.logger.warn(
+        {
+          pluginId,
+          pluginDir: candidate.dir,
+          entrypoint: candidate.entrypoint,
+          errorMessage,
+          error,
+        },
+        'Plugin failed to load',
+      );
+      this.plugins.push({
+        id: pluginId,
+        manifest: candidate.manifest,
+        candidate,
+        definition,
+        api,
+        enabled: candidate.enabled,
+        status: 'failed',
+        error: errorMessage,
+        toolsRegistered,
+        hooksRegistered,
+      });
+    }
   }
 
   registerMemoryLayer(pluginId: string, layer: MemoryLayerPlugin): void {
@@ -798,6 +877,81 @@ export class PluginManager {
 
   getLoadedPlugins(): LoadedPlugin[] {
     return [...this.plugins];
+  }
+
+  listPluginSummary(): PluginSummary[] {
+    return this.plugins.map((plugin) => ({
+      id: plugin.id,
+      name: plugin.manifest.name,
+      version: plugin.manifest.version,
+      source: plugin.candidate.source,
+      enabled: plugin.enabled,
+      error: plugin.error,
+      tools: [...plugin.toolsRegistered],
+      hooks: [...plugin.hooksRegistered],
+    }));
+  }
+
+  private createPluginRegistrationSnapshot(): PluginRegistrationSnapshot {
+    return {
+      memoryLayers: [...this.memoryLayers],
+      promptHooks: [...this.promptHooks],
+      services: [...this.services],
+      providers: [...this.providers],
+      channels: [...this.channels],
+      tools: new Map(this.tools),
+      commands: new Map(this.commands),
+      hooks: new Map(
+        [...this.hooks.entries()].map(([name, entries]) => [name, [...entries]]),
+      ),
+      registeredChannels: listChannels(),
+    };
+  }
+
+  private restorePluginRegistrationSnapshot(
+    snapshot: PluginRegistrationSnapshot,
+  ): void {
+    this.memoryLayers = [...snapshot.memoryLayers];
+    this.promptHooks = [...snapshot.promptHooks];
+    this.services = [...snapshot.services];
+    this.providers = [...snapshot.providers];
+    this.channels = [...snapshot.channels];
+    this.tools = new Map(snapshot.tools);
+    this.commands = new Map(snapshot.commands);
+    this.hooks = new Map(
+      [...snapshot.hooks.entries()].map(([name, entries]) => [name, [...entries]]),
+    );
+
+    for (const channel of listChannels()) {
+      unregisterChannel(channel.kind);
+    }
+    for (const channel of snapshot.registeredChannels) {
+      registerChannel(channel);
+    }
+  }
+
+  private getPluginToolNames(pluginId: string): string[] {
+    return Array.from(this.tools.values())
+      .filter((entry) => entry.pluginId === pluginId)
+      .map((entry) => entry.tool.name)
+      .sort((left, right) => left.localeCompare(right));
+  }
+
+  private getPluginHookNames(pluginId: string): string[] {
+    const registered = new Set<string>();
+
+    for (const entry of this.promptHooks) {
+      if (entry.pluginId !== pluginId) continue;
+      registered.add(entry.hook.id);
+    }
+
+    for (const [name, entries] of this.hooks.entries()) {
+      if (entries.some((entry) => entry.pluginId === pluginId)) {
+        registered.add(name);
+      }
+    }
+
+    return [...registered].sort((left, right) => left.localeCompare(right));
   }
 
   getMemoryLayers(): MemoryLayerPlugin[] {

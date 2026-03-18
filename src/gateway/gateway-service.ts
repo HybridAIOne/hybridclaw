@@ -116,6 +116,7 @@ import {
   ensurePluginManagerInitialized,
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
+import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
@@ -4470,6 +4471,7 @@ export async function handleGatewayCommand(
           '`mcp remove <name>` — Remove an MCP server config',
           '`mcp toggle <name>` — Enable or disable an MCP server',
           '`mcp reconnect <name>` — Restart current session runtime so the server reconnects next turn',
+          '`plugin list` — List discovered plugins and load status',
           '`clear` — Clear session history',
           '`reset [yes|no]` — Clear history, reset session settings, and remove the current agent workspace',
           '`/compact` — Archive older history, summarize it, and retain recent context',
@@ -4484,6 +4486,7 @@ export async function handleGatewayCommand(
           '`/model clear` — Clear the model override for this session',
           '`/model info` — Show effective, session, agent, and default model details',
           '`/model default [name]` — Show or set the default model for new sessions',
+          '`/plugin list` — List discovered plugins and load status',
           '`sessions` — List active sessions',
           '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
           '`export session [sessionId]` — Export session JSONL snapshot for debugging',
@@ -5265,6 +5268,17 @@ export async function handleGatewayCommand(
           'Usage',
           'Usage: `mcp list|add <name> <json>|remove <name>|toggle <name>|reconnect <name>`',
         );
+      }
+
+      case 'plugin': {
+        const sub = (req.args[1] || 'list').toLowerCase();
+        if (sub === 'list') {
+          return infoCommand(
+            'Plugins',
+            formatPluginSummaryList(pluginManager.listPluginSummary()),
+          );
+        }
+        return badCommand('Usage', 'Usage: `plugin list`');
       }
 
       case 'clear': {

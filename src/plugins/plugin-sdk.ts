@@ -26,6 +26,7 @@ export type {
   PluginRegistrationMode,
   PluginRuntime,
   PluginRuntimeToolDefinition,
+  PluginSummary,
   PluginService,
   PluginSessionResetContext,
   PluginToolDefinition,

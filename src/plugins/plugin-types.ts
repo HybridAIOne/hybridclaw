@@ -307,7 +307,23 @@ export interface HybridClawPluginDefinition {
 export interface LoadedPlugin {
   id: string;
   manifest: PluginManifest;
-  definition: HybridClawPluginDefinition;
   candidate: PluginCandidate;
-  api: HybridClawPluginApi;
+  enabled: boolean;
+  status: 'loaded' | 'failed';
+  error?: string;
+  toolsRegistered: string[];
+  hooksRegistered: string[];
+  definition?: HybridClawPluginDefinition;
+  api?: HybridClawPluginApi;
+}
+
+export interface PluginSummary {
+  id: string;
+  name?: string;
+  version?: string;
+  source: PluginDiscoverySource;
+  enabled: boolean;
+  error?: string;
+  tools: string[];
+  hooks: string[];
 }
