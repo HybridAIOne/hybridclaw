@@ -133,3 +133,27 @@ test('browser_click accepts visible-text fallback clicks', async () => {
   expect(parsed.matched_text).toBe('Leben mit Bots');
   expect(parsed.matched_kind).toBe('text');
 });
+
+test('browser_click rejects ambiguous targeting inputs', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-click-ambiguous-'),
+  );
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_click',
+    { ref: 'e7', text: 'Leben mit Bots' },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+
+  expect(parsed.success).toBe(false);
+  expect(parsed.error).toBe(
+    'browser_click accepts only one of ref, selector, or text'
+  );
+});

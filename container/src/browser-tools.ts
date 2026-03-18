@@ -542,14 +542,27 @@ function ensureRef(raw: unknown): string {
 }
 
 function resolveClickTarget(args: Record<string, unknown>): ClickTarget {
-  const text = String(args.text || '').trim();
-  if (text) return { raw: text, source: 'text' };
-
-  const selector = String(args.selector || args.target || '').trim();
-  if (selector) return { raw: selector, source: 'selector' };
-
   const ref = String(args.ref || '').trim();
+  const text = String(args.text || '').trim();
+  const selector = String(args.selector || '').trim();
+  const targetAlias = String(args.target || '').trim();
+  if (selector && targetAlias && selector !== targetAlias) {
+    throw new Error('provide only one of selector or target');
+  }
+  const selectorValue = selector || targetAlias;
+
+  const specifiedTargets = [
+    ref ? 'ref' : null,
+    selectorValue ? 'selector' : null,
+    text ? 'text' : null,
+  ].filter((value): value is string => Boolean(value));
+  if (specifiedTargets.length > 1) {
+    throw new Error('browser_click accepts only one of ref, selector, or text');
+  }
+
   if (!ref) {
+    if (selectorValue) return { raw: selectorValue, source: 'selector' };
+    if (text) return { raw: text, source: 'text' };
     throw new Error('ref is required (or provide selector or text)');
   }
   return {
@@ -1747,7 +1760,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_click',
       description:
-        'Click an element by snapshot ref (example: "@e5"). If snapshot refs are missing for JS-only clickable containers, you can fall back to a CSS selector or visible text match.',
+        'Click an element by snapshot ref (example: "@e5"). If snapshot refs are missing for JS-only clickable containers, you can fall back to a CSS selector or visible text match. Provide only one targeting field per call.',
       parameters: {
         type: 'object',
         properties: {
