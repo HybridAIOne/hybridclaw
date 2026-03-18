@@ -1,4 +1,12 @@
+import fs from 'node:fs';
+
 import { afterEach, expect, test, vi } from 'vitest';
+
+const APP_VERSION = (
+  JSON.parse(
+    fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  ) as { version: string }
+).version;
 
 async function flushMicrotasks(count = 4): Promise<void> {
   for (let index = 0; index < count; index += 1) {
@@ -306,7 +314,7 @@ test('debug-level WhatsApp logs keep structured metadata', async () => {
   const updateHandlers = sockets[0]?.evHandlers.get('connection.update');
   updateHandlers?.[0]?.({ qr: 'test-qr' });
   expect(whatsappLogger.info).toHaveBeenCalledWith(
-    { appVersion: '0.7.1' },
+    { appVersion: APP_VERSION },
     'Scan the WhatsApp QR code in Linked Devices',
   );
 });
@@ -348,7 +356,7 @@ test('provides WhatsApp retry replay lookup to Baileys and persists sent message
   expect(sockets[0]?.config.browser).toEqual([
     'HybridClaw',
     'Gateway',
-    '0.7.1',
+    APP_VERSION,
   ]);
   expect(typeof sockets[0]?.config.getMessage).toBe('function');
 
