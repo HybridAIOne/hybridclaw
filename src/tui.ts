@@ -47,6 +47,7 @@ import {
   parseTuiApprovalPrompt,
   type TuiApprovalDetails,
 } from './tui-approval.js';
+import { renderTuiStartupBanner } from './tui-banner.js';
 import {
   DEFAULT_TUI_FULLAUTO_STATE,
   deriveTuiFullAutoState,
@@ -101,7 +102,6 @@ type TuiReadlineInterface = readline.Interface & {
 interface TuiPalette {
   muted: string;
   teal: string;
-  navy: string;
   gold: string;
   green: string;
   red: string;
@@ -110,7 +110,6 @@ interface TuiPalette {
 const DARK_PALETTE: TuiPalette = {
   muted: '\x1b[38;2;170;184;204m',
   teal: '\x1b[38;2;92;224;216m',
-  navy: '\x1b[38;2;30;58;95m',
   gold: '\x1b[38;2;255;215;0m',
   green: '\x1b[38;2;16;185;129m',
   red: '\x1b[38;2;239;68;68m',
@@ -119,7 +118,6 @@ const DARK_PALETTE: TuiPalette = {
 const LIGHT_PALETTE: TuiPalette = {
   muted: '\x1b[38;2;88;99;116m',
   teal: '\x1b[38;2;0;122;128m',
-  navy: '\x1b[38;2;30;58;95m',
   gold: '\x1b[38;2;138;97;0m',
   green: '\x1b[38;2;0;130;92m',
   red: '\x1b[38;2;185;28;28m',
@@ -159,10 +157,29 @@ const THEME = resolveTuiTheme();
 const PALETTE = THEME === 'light' ? LIGHT_PALETTE : DARK_PALETTE;
 const MUTED = PALETTE.muted;
 const TEAL = PALETTE.teal;
-const NAVY = PALETTE.navy;
 const GOLD = PALETTE.gold;
 const GREEN = PALETTE.green;
 const RED = PALETTE.red;
+const WORDMARK_RAMP =
+  THEME === 'light'
+    ? ([
+        '\x1b[38;2;24;86;156m',
+        '\x1b[38;2;31;108;186m',
+        '\x1b[38;2;38;130;214m',
+        '\x1b[38;2;52;152;239m',
+        '\x1b[38;2;38;130;214m',
+        '\x1b[38;2;31;108;186m',
+        '\x1b[38;2;24;86;156m',
+      ] as const)
+    : ([
+        '\x1b[38;2;36;95;168m',
+        '\x1b[38;2;46;122;202m',
+        '\x1b[38;2;66;145;226m',
+        '\x1b[38;2;78;176;245m',
+        '\x1b[38;2;66;145;226m',
+        '\x1b[38;2;46;122;202m',
+        '\x1b[38;2;36;95;168m',
+      ] as const);
 const THINKING_PREVIEW_COLOR =
   THEME === 'light' ? '\x1b[38;2;145;154;170m' : '\x1b[38;2;116;129;148m';
 const JELLYFISH_PULSE_FRAMES =
@@ -423,56 +440,30 @@ function printBanner(
   sandboxMode: 'container' | 'host',
 ): void {
   clearTuiSlashMenu();
-  const T = TEAL;
-  const N = NAVY;
-  const logo = [
-    `${T}                            ####  ####${RESET}`,
-    `${T}                       #########  #########${RESET}`,
-    `${T}                    ####       #  #${N}      #####${RESET}`,
-    `${T}                  ###          #  #${N}         ####${RESET}`,
-    `${T}                ##             #  #${N}            ###${RESET}`,
-    `${T}               ##       ##     #  #${N}    #        ###${RESET}`,
-    `${T}  #######     ##       #####   #  #${N}   ####        ##${RESET}`,
-    `${T}##### #####  ##         ###  ###  #${N}#    #          ##   ${N}######${RESET}`,
-    `${T}## ##### ##  #                     ${N}##              ##   ##  ##${RESET}`,
-    `${T} ###    ###  ##             #       ${N}#              ##    ####${RESET}`,
-    `${T}       #      ##            ###    ${N}##            ####     ##${RESET}`,
-    `${T}     ##           #           ##  ${N}##         ####  ##     ##${RESET}`,
-    `${T} ####    ##        #               ${N}#  #       ####    ##      ##     ${N}###${RESET}`,
-    `${T} ####    ####       ##             ${N}#  #    ###     ###        ##    ${N}####${RESET}`,
-    `${T}            ####       ####   #    ${N}#  #  ###########         ##${RESET}`,
-    `${T}######      ###    ##            ##${N}     #####        ####   ###        ${N}#####${RESET}`,
-    `${T}          ##     ##           #    ${N}         ###       ###    ###${RESET}`,
-    `${T}          ##     #              ###${N}######     ##        #    ##${RESET}`,
-    `${T}          ##    #         #        ${N}   #######  ##       ##   ##${RESET}`,
-    `${T}          ##    #           # ##   ${N}     ######  #       ##   ##${RESET}`,
-    `${T}          ##    #          #####${N}######    ####  #       ##${RESET}`,
-    `${T}                 #              ${N}       ###   ##  #       #    # #${RESET}`,
-    `${T}       # ### #   #       #  ###${N}         ###    ##     ###   ######${RESET}`,
-    `${T}       # ###      ##          #${N}#########     ##      ##     ######${RESET}`,
-    `${T}                    #       #  ${N}            ###     ###${RESET}`,
-    `${T}              ####   ###     ##${N}#####  ######     ###    ${N}####${RESET}`,
-    `${T}                        ###   ${N}     # ##      #####${RESET}`,
-    `${T}                           ###${N}### # ##########${RESET}`,
-    `${T}                              ${N}  ##  ###${RESET}`,
-  ];
   console.log();
-  for (const line of logo) console.log(line);
-  console.log();
-  console.log(
-    `  \u{1F99E} ${BOLD}${TEAL}H y b r i d ${GOLD}C l a w${RESET} ${MUTED}v${APP_VERSION}${RESET}`,
-  );
-  console.log(`${MUTED}     Powered by HybridAI${RESET}`);
-  console.log();
-  console.log(
-    `  ${MUTED}Model:${RESET} ${TEAL}${modelInfo.current}${RESET}${MUTED} (default: ${modelInfo.defaultModel})${RESET}${MUTED} | Bot:${RESET} ${GOLD}${HYBRIDAI_CHATBOT_ID || 'unset'}${RESET}`,
-  );
-  console.log(
-    `  ${MUTED}Gateway:${RESET} ${TEAL}${GATEWAY_BASE_URL}${RESET}${MUTED} | Sandbox:${RESET} ${GOLD}${sandboxMode}${RESET}`,
-  );
-  console.log(
-    `  ${MUTED}HybridAI:${RESET} ${TEAL}${HYBRIDAI_BASE_URL}${RESET}`,
-  );
+  for (const line of renderTuiStartupBanner({
+    columns: terminalColumns(),
+    info: {
+      currentModel: modelInfo.current,
+      defaultModel: modelInfo.defaultModel,
+      sandboxMode,
+      gatewayBaseUrl: GATEWAY_BASE_URL,
+      hybridAIBaseUrl: HYBRIDAI_BASE_URL,
+      chatbotId: HYBRIDAI_CHATBOT_ID || 'unset',
+      version: APP_VERSION,
+    },
+    palette: {
+      reset: RESET,
+      bold: BOLD,
+      muted: MUTED,
+      teal: TEAL,
+      gold: GOLD,
+      green: GREEN,
+      wordmarkRamp: WORDMARK_RAMP,
+    },
+  })) {
+    console.log(line);
+  }
   console.log();
 }
 

@@ -135,13 +135,15 @@ async function importFreshGatewayMain(options?: {
       return vi.fn();
     },
   );
-  state.initDiscord.mockImplementation(async (messageHandler, commandHandler) => {
-    state.messageHandler = messageHandler;
-    state.commandHandler = commandHandler;
-    if (options?.discordInitError) {
-      throw options.discordInitError;
-    }
-  });
+  state.initDiscord.mockImplementation(
+    async (messageHandler, commandHandler) => {
+      state.messageHandler = messageHandler;
+      state.commandHandler = commandHandler;
+      if (options?.discordInitError) {
+        throw options.discordInitError;
+      }
+    },
+  );
   state.initMSTeams.mockImplementation((messageHandler, commandHandler) => {
     state.teamsMessageHandler = messageHandler;
     state.teamsCommandHandler = commandHandler;
@@ -396,7 +398,10 @@ describe('gateway bootstrap', () => {
     expect(state.initDiscord).toHaveBeenCalledTimes(1);
     expect(state.initMSTeams).toHaveBeenCalledTimes(1);
     expect(state.startHealthServer).toHaveBeenCalledTimes(1);
-    expect(state.loggerError).toHaveBeenCalledWith(
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      'Discord integration disabled: DISCORD_TOKEN was rejected by Discord. Update or clear the token and restart the gateway.',
+    );
+    expect(state.loggerError).not.toHaveBeenCalledWith(
       { error: discordInitError },
       'Discord integration failed to start',
     );
@@ -408,6 +413,27 @@ describe('gateway bootstrap', () => {
         msteams: true,
         email: false,
         whatsapp: false,
+      }),
+      'HybridClaw gateway started',
+    );
+  });
+
+  test('logs non-token Discord startup failures as errors', async () => {
+    const discordInitError = new Error('Discord gateway unavailable');
+    const state = await importFreshGatewayMain({ discordInitError });
+
+    expect(state.initDiscord).toHaveBeenCalledTimes(1);
+    expect(state.loggerError).toHaveBeenCalledWith(
+      { error: discordInitError },
+      'Discord integration failed to start',
+    );
+    expect(state.loggerWarn).not.toHaveBeenCalledWith(
+      'Discord integration disabled: DISCORD_TOKEN was rejected by Discord. Update or clear the token and restart the gateway.',
+    );
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ok',
+        discord: false,
       }),
       'HybridClaw gateway started',
     );
