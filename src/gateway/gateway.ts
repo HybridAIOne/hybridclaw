@@ -918,11 +918,29 @@ async function startDiscordIntegration(): Promise<boolean> {
       },
     );
   } catch (error) {
+    if (isDiscordInvalidTokenError(error)) {
+      logger.warn(
+        'Discord integration disabled: DISCORD_TOKEN was rejected by Discord. Update or clear the token and restart the gateway.',
+      );
+      return false;
+    }
     logger.error({ error }, 'Discord integration failed to start');
     return false;
   }
   logger.info('Discord integration started inside gateway');
   return true;
+}
+
+function isDiscordInvalidTokenError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code =
+    'code' in error && typeof error.code === 'string' ? error.code : '';
+  if (code === 'TokenInvalid') return true;
+  const message =
+    'message' in error && typeof error.message === 'string'
+      ? error.message
+      : '';
+  return message.toLowerCase().includes('invalid token');
 }
 
 async function startMSTeamsIntegration(): Promise<boolean> {
