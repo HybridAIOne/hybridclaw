@@ -1,3 +1,5 @@
+import { findLoadedPluginCommand } from './plugins/plugin-manager.js';
+
 export interface CanonicalTuiMenuPresentation {
   label?: string;
   insertText?: string;
@@ -144,7 +146,12 @@ function normalizeSubcommand(
 }
 
 export function isRegisteredTextCommandName(name: string): boolean {
-  return REGISTERED_TEXT_COMMAND_NAMES.has(name.trim().toLowerCase());
+  const normalized = name.trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    REGISTERED_TEXT_COMMAND_NAMES.has(normalized) ||
+    findLoadedPluginCommand(normalized) !== undefined
+  );
 }
 
 export function mapCanonicalCommandToGatewayArgs(
@@ -269,7 +276,7 @@ export function mapCanonicalCommandToGatewayArgs(
       return ['help'];
 
     default:
-      return null;
+      return findLoadedPluginCommand(cmd) ? [cmd, ...parts.slice(1)] : null;
   }
 }
 

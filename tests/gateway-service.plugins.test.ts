@@ -11,6 +11,7 @@ const {
 } = vi.hoisted(() => {
   const pluginManager = {
     collectPromptContext: vi.fn(async () => ['plugin-memory-context']),
+    findCommand: vi.fn(() => undefined),
     getToolDefinitions: vi.fn(() => [
       {
         name: 'memory_lookup',
@@ -74,6 +75,7 @@ const { setupHome } = setupGatewayTest({
     pluginManagerMock.handleSessionReset.mockClear();
     pluginManagerMock.notifySessionStart.mockClear();
     pluginManagerMock.listPluginSummary.mockClear();
+    pluginManagerMock.findCommand.mockClear();
     shutdownPluginManagerMock.mockClear();
     uninstallPluginMock.mockClear();
   },
@@ -249,6 +251,41 @@ test('handleGatewayCommand lists plugin summaries', async () => {
   expect(result.text).toContain('tools: demo_echo');
   expect(result.text).toContain('broken-plugin [home]');
   expect(result.text).toContain('error: register exploded');
+});
+
+test('handleGatewayCommand dispatches plugin-registered commands', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const handler = vi.fn(async () => 'QMD index is ready.');
+  pluginManagerMock.findCommand.mockReturnValue({
+    name: 'qmd',
+    description: 'Show QMD status',
+    handler,
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-command',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    args: ['qmd', 'status'],
+  });
+
+  expect(pluginManagerMock.findCommand).toHaveBeenCalledWith('qmd');
+  expect(handler).toHaveBeenCalledWith(['status'], {
+    sessionId: 'session-plugin-command',
+    channelId: 'web',
+    userId: 'user-42',
+  });
+  expect(result.kind).toBe('plain');
+  expect(result.text).toBe('QMD index is ready.');
 });
 
 test('handleGatewayCommand help continues without plugins when plugin manager init fails', async () => {

@@ -1438,6 +1438,27 @@ function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
 }
 
+function normalizePluginCommandResult(value: unknown): GatewayCommandResult {
+  if (
+    value !== null &&
+    typeof value === 'object' &&
+    'kind' in value &&
+    'text' in value &&
+    typeof value.kind === 'string' &&
+    typeof value.text === 'string' &&
+    (value.kind === 'plain' || value.kind === 'info' || value.kind === 'error')
+  ) {
+    return value as GatewayCommandResult;
+  }
+  if (typeof value === 'string') {
+    return plainCommand(value);
+  }
+  if (value == null) {
+    return plainCommand('');
+  }
+  return plainCommand(JSON.stringify(value, null, 2));
+}
+
 function formatRatioAsPercent(value: number): string {
   return `${(value * 100).toFixed(2)}%`;
 }
@@ -6388,11 +6409,29 @@ export async function handleGatewayCommand(
         return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
       }
 
-      default:
+      default: {
+        const pluginCommand = pluginManager?.findCommand(cmd);
+        if (pluginCommand) {
+          try {
+            return normalizePluginCommandResult(
+              await pluginCommand.handler(req.args.slice(1), {
+                sessionId: req.sessionId,
+                channelId: req.channelId,
+                userId: req.userId,
+              }),
+            );
+          } catch (error) {
+            return badCommand(
+              'Plugin Command Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
         return badCommand(
           'Unknown Command',
           `Unknown command: \`${cmd || '(empty)'}\`.`,
         );
+      }
     }
   })();
 

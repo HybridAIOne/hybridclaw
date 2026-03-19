@@ -1,0 +1,10 @@
+{
+  "name": "hybridclaw-plugin-qmd-memory",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HybridClaw memory plugin that queries QMD and exports session transcripts",
+  "engines": {
+    "node": "22.x"
+  }
+}

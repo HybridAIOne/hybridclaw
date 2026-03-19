@@ -1322,6 +1322,13 @@ export async function ensurePluginManagerInitialized(): Promise<PluginManager> {
   }
 }
 
+export function findLoadedPluginCommand(
+  name: string,
+): PluginCommandDefinition | undefined {
+  if (!singleton) return undefined;
+  return singleton.findCommand(name);
+}
+
 export async function shutdownPluginManager(): Promise<void> {
   if (!singleton) return;
   const manager = singleton;

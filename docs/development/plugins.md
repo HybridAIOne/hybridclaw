@@ -119,9 +119,9 @@ Currently wired runtime surfaces:
 - services
 - channels
 
-Provider and command registration are typed and stored by the manager, but they
-are not yet routed into the broader runtime in the same way as memory layers
-and plugin tools.
+Provider registration is typed and stored by the manager, but providers are
+not yet routed into the broader runtime in the same way as memory layers,
+plugin tools, and plugin commands.
 
 Type exports for external plugins are available from:
 

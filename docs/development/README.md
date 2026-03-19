@@ -21,6 +21,8 @@ top-level contributor quickstart.
   rules
 - [Plugin System](./plugins.md) for plugin manifests, runtime discovery,
   config wiring, install workflow, and runtime hooks
+- [QMD Memory Plugin](./qmd-memory-plugin.md) for the installable external
+  markdown-search memory layer shipped in `plugins/qmd-memory`
 - [Adaptive Skills](./adaptive-skills.md) for the self-improving skill loop,
   retention, and operator workflows
 - [OpenTelemetry Tracing Plugin](./otel-plugin.md) for emitting OTLP traces

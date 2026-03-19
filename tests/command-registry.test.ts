@@ -1,12 +1,18 @@
-import { expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 
-import {
-  buildCanonicalSlashCommandDefinitions,
-  isRegisteredTextCommandName,
-  parseCanonicalSlashCommandArgs,
-} from '../src/command-registry.js';
+async function importCommandRegistry() {
+  return import('../src/command-registry.js');
+}
 
-test('registers plugin as a slash/text command', () => {
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.resetModules();
+  vi.doUnmock('../src/plugins/plugin-manager.js');
+});
+
+test('registers plugin as a slash/text command', async () => {
+  const { buildCanonicalSlashCommandDefinitions, isRegisteredTextCommandName } =
+    await importCommandRegistry();
   expect(isRegisteredTextCommandName('plugin')).toBe(true);
 
   expect(buildCanonicalSlashCommandDefinitions([])).toEqual(
@@ -28,7 +34,8 @@ test('registers plugin as a slash/text command', () => {
   );
 });
 
-test('parses /plugin list into gateway args', () => {
+test('parses /plugin list into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs } = await importCommandRegistry();
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'plugin',
@@ -38,7 +45,8 @@ test('parses /plugin list into gateway args', () => {
   ).toEqual(['plugin', 'list']);
 });
 
-test('parses /plugin uninstall into gateway args', () => {
+test('parses /plugin uninstall into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs } = await importCommandRegistry();
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'plugin',
@@ -46,4 +54,27 @@ test('parses /plugin uninstall into gateway args', () => {
       getSubcommand: () => 'uninstall',
     }),
   ).toEqual(['plugin', 'uninstall', 'demo-plugin']);
+});
+
+test('recognizes loaded plugin commands without hardcoding them in the registry', async () => {
+  vi.doMock('../src/plugins/plugin-manager.js', () => ({
+    findLoadedPluginCommand: vi.fn((name: string) =>
+      name === 'qmd'
+        ? {
+            name: 'qmd',
+            description: 'QMD status',
+            handler: vi.fn(),
+          }
+        : undefined,
+    ),
+  }));
+
+  const { isRegisteredTextCommandName, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
+  expect(isRegisteredTextCommandName('qmd')).toBe(true);
+  expect(mapCanonicalCommandToGatewayArgs(['qmd'])).toEqual(['qmd']);
+  expect(mapCanonicalCommandToGatewayArgs(['qmd', 'status'])).toEqual([
+    'qmd',
+    'status',
+  ]);
 });

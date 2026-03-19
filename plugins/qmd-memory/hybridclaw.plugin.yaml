@@ -1,0 +1,44 @@
+id: qmd-memory
+name: QMD Knowledge Search
+version: 0.1.0
+kind: memory
+description: Search an external QMD index for markdown knowledge and optionally export session transcripts for indexing.
+entrypoint: src/index.js
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    command:
+      type: string
+      default: qmd
+    workingDirectory:
+      type: string
+    searchMode:
+      type: string
+      enum: [search, vsearch, query]
+      default: search
+    maxResults:
+      type: number
+      default: 10
+      minimum: 1
+      maximum: 20
+    maxSnippetChars:
+      type: number
+      default: 600
+      minimum: 100
+      maximum: 2000
+    maxInjectedChars:
+      type: number
+      default: 4000
+      minimum: 500
+      maximum: 16000
+    timeoutMs:
+      type: number
+      default: 12000
+      minimum: 1000
+      maximum: 60000
+    sessionExport:
+      type: boolean
+      default: false
+    sessionExportDir:
+      type: string
