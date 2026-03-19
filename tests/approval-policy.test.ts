@@ -99,6 +99,42 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(imageAlias.implicitDelayMs).toBeUndefined();
   });
 
+  test('non-input browser tools skip the implicit interruption delay', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'browser_click',
+      argsJson: JSON.stringify({ ref: '@e5' }),
+      latestUserPrompt: 'Open the selected book',
+    });
+
+    expect(evaluation.tier).toBe('yellow');
+    expect(evaluation.decision).toBe('implicit');
+    expect(evaluation.implicitDelayMs).toBeUndefined();
+    expect(runtime.formatYellowNarration(evaluation)).toBe('run browser_click');
+  });
+
+  test('input-like browser tools keep the implicit interruption delay', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'browser_type',
+      argsJson: JSON.stringify({ ref: '@e9', text: 'search term' }),
+      latestUserPrompt: 'Type into the search box',
+    });
+
+    expect(evaluation.tier).toBe('yellow');
+    expect(evaluation.decision).toBe('implicit');
+    expect(evaluation.implicitDelayMs).toBe(5_000);
+    expect(runtime.formatYellowNarration(evaluation)).toContain(
+      'Waiting 5s for interruption before running.',
+    );
+  });
+
   test('read-like MCP tools are green', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
