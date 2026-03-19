@@ -286,9 +286,6 @@ export interface MemoryCitation {
   content: string;
   /** Decayed confidence at recall time */
   confidence: number;
-  /** Where the memory came from */
-  source: string;
-  scope: string;
 }
 
 export interface ContainerOutput {

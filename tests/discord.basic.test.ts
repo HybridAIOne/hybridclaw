@@ -61,8 +61,6 @@ test('buildResponseText appends recalled memory footer before tools', () => {
         memoryId: 7,
         content: 'User prefers concise changelog entries.',
         confidence: 0.9,
-        source: 'conversation',
-        scope: 'episodic',
       },
     ],
   );

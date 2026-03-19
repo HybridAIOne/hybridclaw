@@ -10,16 +10,12 @@ describe('extractMemoryCitations', () => {
         memoryId: 11,
         content: 'User prefers concise changelog entries.',
         confidence: 0.9,
-        source: 'conversation',
-        scope: 'episodic',
       },
       {
         ref: '[mem:2]',
         memoryId: 12,
         content: 'User works in Berlin.',
         confidence: 0.6,
-        source: 'conversation',
-        scope: 'episodic',
       },
     ];
 
@@ -38,8 +34,6 @@ describe('extractMemoryCitations', () => {
         memoryId: 11,
         content: 'User prefers concise changelog entries.',
         confidence: 0.9,
-        source: 'conversation',
-        scope: 'episodic',
       },
     ]);
 

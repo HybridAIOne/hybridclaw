@@ -37,8 +37,6 @@ test('handleGatewayMessage extracts cited memory references from the model respo
         memoryId: 7,
         content: 'User prefers concise changelog entries.',
         confidence: 0.9,
-        source: 'conversation',
-        scope: 'episodic',
       },
     ],
   });
@@ -67,8 +65,6 @@ test('handleGatewayMessage extracts cited memory references from the model respo
       memoryId: 7,
       content: 'User prefers concise changelog entries.',
       confidence: 0.9,
-      source: 'conversation',
-      scope: 'episodic',
     },
   ]);
 });

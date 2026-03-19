@@ -1134,8 +1134,6 @@ describe('MemoryService', () => {
         memoryId: 1,
         content: 'User likes concise changelog entries.',
         confidence: 0.9,
-        source: 'conversation',
-        scope: 'episodic',
       },
     ]);
     expect(second.promptSummary).toContain('Relevant Memory Recall');

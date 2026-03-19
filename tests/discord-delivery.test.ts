@@ -62,8 +62,6 @@ describe('discord delivery', () => {
             memoryId: 4,
             content: 'User prefers concise changelog entries.',
             confidence: 0.9,
-            source: 'conversation',
-            scope: 'episodic',
           },
         ],
       ),

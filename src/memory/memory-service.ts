@@ -678,8 +678,6 @@ export class MemoryService {
         memoryId: memory.id,
         content: truncateInline(memory.content, 220),
         confidence: Math.max(0, Math.min(1, memory.confidence)),
-        source: memory.source,
-        scope: memory.scope,
       }),
     );
 
