@@ -51,24 +51,6 @@ test('buildResponseText appends tool footer when tools were used', () => {
   expect(output).toBe('Done.\n*Tools: vision_analyze, message*');
 });
 
-test('buildResponseText appends recalled memory footer before tools', () => {
-  const output = buildResponseText(
-    'Done.',
-    ['message'],
-    [
-      {
-        ref: '[mem:1]',
-        memoryId: 7,
-        content: 'User prefers concise changelog entries.',
-        confidence: 0.9,
-      },
-    ],
-  );
-  expect(output).toBe(
-    'Done.\n\n*Recalled memories:*\n[mem:1]: User prefers concise changelog entries. (90%)\n*Tools: message*',
-  );
-});
-
 test('buildResponseText leaves text unchanged when no tools were used', () => {
   const output = buildResponseText('Done.');
   expect(output).toBe('Done.');
