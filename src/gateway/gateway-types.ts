@@ -9,6 +9,7 @@ import type {
 } from '../config/runtime-config.js';
 import type {
   McpServerConfig,
+  MemoryCitation,
   PendingApproval,
   TokenUsageStats,
 } from '../types.js';
@@ -38,6 +39,7 @@ export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
+  memoryCitations?: MemoryCitation[];
   sessionId?: string;
   sessionKey?: string;
   mainSessionKey?: string;

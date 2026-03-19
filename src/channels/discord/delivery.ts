@@ -9,6 +9,7 @@ import {
   DISCORD_TEXT_CHUNK_LIMIT,
 } from '../../config/config.js';
 import { chunkMessage } from '../../memory/chunk.js';
+import type { MemoryCitation } from '../../types.js';
 import {
   getHumanDelayMs,
   type HumanDelayConfig,
@@ -31,11 +32,22 @@ type ChunkedPayload = {
   components?: DiscordMessageComponents;
 };
 
-export function buildResponseText(text: string, toolsUsed?: string[]): string {
+export function buildResponseText(
+  text: string,
+  toolsUsed?: string[],
+  memoryCitations?: MemoryCitation[],
+): string {
   let body = text;
+  if (memoryCitations && memoryCitations.length > 0) {
+    const citationLines = memoryCitations.map(
+      (citation) =>
+        `${citation.ref}: ${citation.content} (${Math.round(citation.confidence * 100)}%)`,
+    );
+    body += `\n\n*Recalled memories:*\n${citationLines.join('\n')}`;
+  }
   if (toolsUsed && toolsUsed.length > 0) {
     const toolsLine = `\n*Tools: ${toolsUsed.join(', ')}*`;
-    body = `${text}${toolsLine}`;
+    body += toolsLine;
   }
   return body;
 }

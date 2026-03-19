@@ -79,6 +79,7 @@ import {
   isAudioMediaItem,
   prependAudioTranscriptionsToUserContent,
 } from '../media/audio-transcription.js';
+import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
   createFreshSessionInstance,
@@ -4406,6 +4407,13 @@ export async function handleGatewayMessage(
     }
 
     const resultText = output.result || 'No response from agent.';
+    const memoryCitations = extractMemoryCitations(
+      resultText,
+      memoryContext.citationIndex || [],
+    ).cited;
+    if (memoryCitations.length > 0) {
+      output.memoryCitations = memoryCitations;
+    }
     const durationMs = Date.now() - startedAt;
     logger.debug(
       {
@@ -4493,6 +4501,7 @@ export async function handleGatewayMessage(
       status: 'success',
       result: resultText,
       toolsUsed: output.toolsUsed || [],
+      memoryCitations: output.memoryCitations,
       artifacts: output.artifacts,
       toolExecutions,
       pendingApproval: output.pendingApproval,

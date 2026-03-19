@@ -839,6 +839,7 @@ async function startDiscordIntegration(): Promise<boolean> {
           const responseText = buildResponseText(
             renderedText,
             sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
+            result.memoryCitations,
           );
           if (pendingApproval) {
             let cleanup: { disableButtons: () => Promise<void> } | null = null;

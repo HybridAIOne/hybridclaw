@@ -12,8 +12,8 @@ import {
   decaySemanticMemories,
   deleteMemoryValue,
   forgetSemanticMemory,
-  getCanonicalContext,
   getAnyChatbotId,
+  getCanonicalContext,
   getMemoryValue,
   getOrCreateSession,
   getSessionById,
@@ -319,7 +319,9 @@ describe.sequential('schema migrations', () => {
       )
       .get() as { name: string } | undefined;
     const requestLogSql = inspect
-      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+      )
       .get('request_log') as { sql: string | null } | undefined;
     inspect.close();
 
@@ -502,7 +504,9 @@ describe.sequential('schema migrations', () => {
     const inspect = new Database(dbPath, { readonly: true });
     const schemaVersion = inspect.pragma('user_version', { simple: true });
     const requestLogSql = inspect
-      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+      )
       .get('request_log') as { sql: string | null } | undefined;
     const row = inspect
       .prepare(
@@ -1115,9 +1119,25 @@ describe('MemoryService', () => {
 
     expect(first.summaryConfidence).toBeLessThan(0.3);
     expect(first.promptSummary).toContain('Relevant Memory Recall');
+    expect(first.promptSummary).toContain(
+      'If you use any of these memories in your response, cite them inline using their tag (e.g. [mem:1]).',
+    );
+    expect(first.promptSummary).toContain(
+      '- [mem:1] (90%) User likes concise changelog entries.',
+    );
     expect(first.promptSummary).not.toContain(
       'Old summary that should be filtered out.',
     );
+    expect(first.citationIndex).toEqual([
+      {
+        ref: '[mem:1]',
+        memoryId: 1,
+        content: 'User likes concise changelog entries.',
+        confidence: 0.9,
+        source: 'conversation',
+        scope: 'episodic',
+      },
+    ]);
     expect(second.promptSummary).toContain('Relevant Memory Recall');
     expect(recallCalls).toBe(2);
   });
