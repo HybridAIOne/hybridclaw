@@ -1,18 +1,11 @@
 import type { MemoryCitation } from '../types.js';
 
-export interface ExtractedCitations {
-  /** Citations actually referenced in the response text */
-  cited: MemoryCitation[];
-  /** Response text with citation tags optionally cleaned or preserved */
-  text: string;
-}
-
 const CITATION_PATTERN = /\[mem:(\d+)\]/g;
 
 export function extractMemoryCitations(
   responseText: string,
   citationIndex: MemoryCitation[],
-): ExtractedCitations {
+): MemoryCitation[] {
   const seen = new Set<number>();
   const cited: MemoryCitation[] = [];
 
@@ -24,5 +17,5 @@ export function extractMemoryCitations(
     }
   }
 
-  return { cited, text: responseText };
+  return cited;
 }

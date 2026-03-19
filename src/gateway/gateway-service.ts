@@ -4410,7 +4410,7 @@ export async function handleGatewayMessage(
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex || [],
-    ).cited;
+    );
     if (memoryCitations.length > 0) {
       output.memoryCitations = memoryCitations;
     }

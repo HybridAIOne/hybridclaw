@@ -28,8 +28,7 @@ describe('extractMemoryCitations', () => {
       citationIndex,
     );
 
-    expect(result.text).toContain('[mem:1]');
-    expect(result.cited).toEqual(citationIndex);
+    expect(result).toEqual(citationIndex);
   });
 
   test('ignores out-of-range memory references', () => {
@@ -44,6 +43,6 @@ describe('extractMemoryCitations', () => {
       },
     ]);
 
-    expect(result.cited).toEqual([]);
+    expect(result).toEqual([]);
   });
 });
