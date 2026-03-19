@@ -277,11 +277,23 @@ export interface ArtifactMetadata {
   mimeType: string;
 }
 
+export interface MemoryCitation {
+  /** Stable reference tag used in the prompt, e.g. "[mem:3]" */
+  ref: string;
+  /** semantic_memories.id */
+  memoryId: number;
+  /** Truncated content preview */
+  content: string;
+  /** Decayed confidence at recall time */
+  confidence: number;
+}
+
 export interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
   artifacts?: ArtifactMetadata[];
+  memoryCitations?: MemoryCitation[];
   toolExecutions?: ToolExecution[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;

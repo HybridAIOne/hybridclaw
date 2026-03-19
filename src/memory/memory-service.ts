@@ -13,6 +13,7 @@ import type {
   KnowledgeGraphMatch,
   KnowledgeGraphPattern,
   KnowledgeRelationTypeValue,
+  MemoryCitation,
   SemanticMemoryEntry,
   Session,
   StoredMessage,
@@ -209,6 +210,7 @@ export interface BuildMemoryPromptResult {
   promptSummary: string | null;
   summaryConfidence: number | null;
   semanticMemories: SemanticMemoryEntry[];
+  citationIndex: MemoryCitation[];
 }
 
 export interface RecallSemanticMemoriesParams {
@@ -297,6 +299,10 @@ function truncateInline(content: string, maxChars: number): string {
   if (compact.length <= maxChars) return compact;
   return `${compact.slice(0, maxChars)}...`;
 }
+
+// Keep citation previews short so tagged memories stay readable in prompts and
+// channel footers without crowding out the main assistant response.
+const CITATION_CONTENT_MAX_CHARS = 220;
 
 class HashedTokenEmbeddingProvider implements EmbeddingProvider {
   private readonly dimensions: number;
@@ -670,6 +676,14 @@ export class MemoryService {
       limit: semanticLimit,
       minConfidence: this.config.semanticMinConfidence,
     });
+    const citationIndex: MemoryCitation[] = semanticMemories.map(
+      (memory, i) => ({
+        ref: `[mem:${i + 1}]`,
+        memoryId: memory.id,
+        content: truncateInline(memory.content, CITATION_CONTENT_MAX_CHARS),
+        confidence: Math.max(0, Math.min(1, memory.confidence)),
+      }),
+    );
 
     const sections: string[] = [];
     if (includeSummary) {
@@ -682,16 +696,15 @@ export class MemoryService {
     }
 
     if (semanticMemories.length > 0) {
-      const lines = semanticMemories.map((memory) => {
-        const confidence = Math.round(
-          Math.max(0, Math.min(1, memory.confidence)) * 100,
-        );
-        return `- (${confidence}%) ${truncateInline(memory.content, 220)}`;
+      const lines = citationIndex.map((citation) => {
+        const confidence = Math.round(citation.confidence * 100);
+        return `- ${citation.ref} (${confidence}%) ${citation.content}`;
       });
       sections.push(
         [
           '### Relevant Memory Recall',
-          'Topic-matched context from older turns (vector cosine search):',
+          'Topic-matched context from older turns (vector cosine search).',
+          'If you use any of these memories in your response, cite them inline using their tag (e.g. [mem:1]).',
           ...lines,
         ].join('\n'),
       );
@@ -702,6 +715,7 @@ export class MemoryService {
       promptSummary: promptSummary || null,
       summaryConfidence,
       semanticMemories,
+      citationIndex,
     };
   }
 

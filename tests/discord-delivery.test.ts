@@ -52,6 +52,22 @@ describe('discord delivery', () => {
     expect(delivery.buildResponseText('Hello', ['search', 'read'])).toBe(
       'Hello\n*Tools: search, read*',
     );
+    expect(
+      delivery.buildResponseText(
+        'Hello',
+        ['search'],
+        [
+          {
+            ref: '[mem:1]',
+            memoryId: 4,
+            content: 'User prefers concise changelog entries.',
+            confidence: 0.9,
+          },
+        ],
+      ),
+    ).toBe(
+      'Hello\n\n*Recalled memories:*\n[mem:1]: User prefers concise changelog entries. (90%)\n*Tools: search*',
+    );
     expect(delivery.formatInfo('Status', 'Ready')).toBe('**Status**\nReady');
     expect(delivery.formatError('Oops', 'Failed')).toBe('**Oops:** Failed');
   });
