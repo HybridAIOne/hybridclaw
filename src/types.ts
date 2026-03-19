@@ -135,6 +135,14 @@ export interface TaskModelPolicies {
   flush_memories?: TaskModelPolicy;
 }
 
+export interface ContextGuardConfig {
+  enabled: boolean;
+  perResultShare: number;
+  compactionRatio: number;
+  overflowRatio: number;
+  maxRetries: number;
+}
+
 export interface ContainerInput {
   sessionId: string;
   messages: ChatMessage[];
@@ -179,6 +187,7 @@ export interface ContainerInput {
   pluginTools?: PluginRuntimeToolDefinition[];
   mcpServers?: Record<string, McpServerConfig>;
   taskModels?: TaskModelPolicies;
+  contextGuard?: ContextGuardConfig;
   webSearch?: {
     provider:
       | 'auto'

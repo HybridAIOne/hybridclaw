@@ -2,9 +2,14 @@ import { describe, expect, test } from 'vitest';
 
 import {
   accumulateApiUsage,
+  createTokenEstimateCache,
   createTokenUsageStats,
+  estimateChatMessageTokens,
 } from '../container/src/token-usage.js';
-import type { ChatCompletionResponse } from '../container/src/types.js';
+import type {
+  ChatCompletionResponse,
+  ChatMessage,
+} from '../container/src/types.js';
 
 function buildResponse(usage: Record<string, unknown>): ChatCompletionResponse {
   return {
@@ -124,5 +129,41 @@ describe('accumulateApiUsage cache normalization', () => {
     expect(stats.apiCacheUsageAvailable).toBe(false);
     expect(stats.apiCacheReadTokens).toBe(0);
     expect(stats.apiCacheWriteTokens).toBe(0);
+  });
+});
+
+describe('message token estimation', () => {
+  test('uses denser estimates for tool results', () => {
+    const content = 'x'.repeat(200);
+    const userMessage: ChatMessage = {
+      role: 'user',
+      content,
+    };
+    const toolMessage: ChatMessage = {
+      role: 'tool',
+      content,
+    };
+
+    expect(estimateChatMessageTokens(toolMessage)).toBeGreaterThan(
+      estimateChatMessageTokens(userMessage),
+    );
+  });
+
+  test('reuses cached message estimates until the caller invalidates them', () => {
+    const cache = createTokenEstimateCache();
+    const message: ChatMessage = {
+      role: 'tool',
+      content: 'x'.repeat(240),
+      tool_call_id: 'call_1',
+    };
+
+    const original = estimateChatMessageTokens(message, cache);
+    message.content = 'short';
+
+    expect(estimateChatMessageTokens(message, cache)).toBe(original);
+
+    cache.delete(message);
+
+    expect(estimateChatMessageTokens(message, cache)).toBeLessThan(original);
   });
 });

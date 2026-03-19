@@ -2,6 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  CONTEXT_GUARD_DEFAULTS,
+  normalizeContextGuardConfig,
+} from '../../container/shared/context-guard-config.js';
+import {
   type AgentConfig,
   type AgentDefaultsConfig,
   type AgentModelConfig,
@@ -26,7 +30,7 @@ import type { McpServerConfig } from '../types.js';
 import { normalizeTrimmedStringSet } from '../utils/normalized-strings.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 16;
+export const CONFIG_VERSION = 17;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
@@ -458,6 +462,13 @@ export interface RuntimeConfig {
       maxMessages: number;
       maxChars: number;
     };
+    inLoopGuard: {
+      enabled: boolean;
+      perResultShare: number;
+      compactionRatio: number;
+      overflowRatio: number;
+      maxRetries: number;
+    };
   };
   sessionReset: {
     defaultPolicy: {
@@ -866,6 +877,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxMessages: 80,
       maxChars: 24_000,
     },
+    inLoopGuard: { ...CONTEXT_GUARD_DEFAULTS },
   },
   sessionReset: {
     defaultPolicy: {
@@ -2673,6 +2685,9 @@ function normalizeRuntimeConfig(
   const rawPreFlush = isRecord(rawSessionCompaction.preCompactionMemoryFlush)
     ? rawSessionCompaction.preCompactionMemoryFlush
     : {};
+  const rawInLoopGuard = isRecord(rawSessionCompaction.inLoopGuard)
+    ? rawSessionCompaction.inLoopGuard
+    : {};
   const rawSessionReset = isRecord(raw.sessionReset) ? raw.sessionReset : {};
   const rawDefaultResetPolicy = isRecord(rawSessionReset.defaultPolicy)
     ? rawSessionReset.defaultPolicy
@@ -3418,6 +3433,10 @@ function normalizeRuntimeConfig(
           { min: 4_000 },
         ),
       },
+      inLoopGuard: normalizeContextGuardConfig(
+        rawInLoopGuard,
+        DEFAULT_RUNTIME_CONFIG.sessionCompaction.inLoopGuard,
+      ),
     },
     sessionReset: {
       defaultPolicy: {

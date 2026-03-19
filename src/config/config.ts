@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  CONTEXT_GUARD_DEFAULTS,
+  normalizeContextGuardConfig,
+} from '../../container/shared/context-guard-config.js';
 import { loadRuntimeSecrets } from '../security/runtime-secrets.js';
 import {
   ensureRuntimeConfigFile,
@@ -306,6 +310,13 @@ export let SESSION_COMPACTION_SUMMARY_MAX_CHARS = 8_000;
 export let PRE_COMPACTION_MEMORY_FLUSH_ENABLED = true;
 export let PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES = 80;
 export let PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS = 24_000;
+export let CONTEXT_GUARD_ENABLED = CONTEXT_GUARD_DEFAULTS.enabled;
+export let CONTEXT_GUARD_PER_RESULT_SHARE =
+  CONTEXT_GUARD_DEFAULTS.perResultShare;
+export let CONTEXT_GUARD_COMPACTION_RATIO =
+  CONTEXT_GUARD_DEFAULTS.compactionRatio;
+export let CONTEXT_GUARD_OVERFLOW_RATIO = CONTEXT_GUARD_DEFAULTS.overflowRatio;
+export let CONTEXT_GUARD_MAX_RETRIES = CONTEXT_GUARD_DEFAULTS.maxRetries;
 
 export let PROACTIVE_ACTIVE_HOURS_ENABLED = false;
 export let PROACTIVE_ACTIVE_HOURS_TIMEZONE = '';
@@ -621,6 +632,15 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     4_000,
     config.sessionCompaction.preCompactionMemoryFlush.maxChars,
   );
+  const normalizedContextGuard = normalizeContextGuardConfig(
+    config.sessionCompaction.inLoopGuard,
+    CONTEXT_GUARD_DEFAULTS,
+  );
+  CONTEXT_GUARD_ENABLED = normalizedContextGuard.enabled;
+  CONTEXT_GUARD_PER_RESULT_SHARE = normalizedContextGuard.perResultShare;
+  CONTEXT_GUARD_COMPACTION_RATIO = normalizedContextGuard.compactionRatio;
+  CONTEXT_GUARD_OVERFLOW_RATIO = normalizedContextGuard.overflowRatio;
+  CONTEXT_GUARD_MAX_RETRIES = normalizedContextGuard.maxRetries;
 
   PROACTIVE_ACTIVE_HOURS_ENABLED = config.proactive.activeHours.enabled;
   PROACTIVE_ACTIVE_HOURS_TIMEZONE = config.proactive.activeHours.timezone;
