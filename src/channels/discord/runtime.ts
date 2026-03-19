@@ -1589,7 +1589,10 @@ export async function initDiscord(
   });
 
   client.on('error', (error) => {
-    logger.error({ error }, 'Discord client error (will reconnect automatically)');
+    logger.error(
+      { error },
+      'Discord client error (will reconnect automatically)',
+    );
   });
 
   client.on('clientReady', () => {

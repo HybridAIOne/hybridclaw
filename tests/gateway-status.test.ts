@@ -325,7 +325,7 @@ test('agent create warns when model validation is skipped because no models are 
   }
   expect(result.title).toBe('Agent Created');
   expect(result.text).toContain('Agent: research');
-  expect(result.text).toContain('Model: garbage/model');
+  expect(result.text).toContain('Model: hybridai/garbage/model');
   expect(warnMock).toHaveBeenCalledWith(
     expect.objectContaining({
       sessionId: 'session-create-agent',
@@ -381,8 +381,18 @@ test('model list includes discovered OpenRouter models', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Available Models');
+  expect(result.text).toContain('hybridai/gpt-5-nano');
   expect(result.text).toContain('openrouter/anthropic/claude-sonnet-4');
   expect(result.text).toContain('openrouter/openai/gpt-4.1-mini');
+  expect(result.modelCatalog).toEqual(
+    expect.arrayContaining([
+      {
+        value: 'gpt-5-nano',
+        label: 'hybridai/gpt-5-nano (current)',
+        isFree: false,
+      },
+    ]),
+  );
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
@@ -544,7 +554,7 @@ test('model info shows global, agent, and session scopes', async () => {
     sessionId: 'session-model-scopes',
     guildId: null,
     channelId: 'channel-model-scopes',
-    args: ['model', 'set', 'gpt-5-nano'],
+    args: ['model', 'set', 'hybridai/gpt-5-nano'],
   });
   const result = await handleGatewayCommand({
     sessionId: 'session-model-scopes',
@@ -558,10 +568,10 @@ test('model info shows global, agent, and session scopes', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Model Info');
-  expect(result.text).toContain('Effective model: gpt-5-nano');
-  expect(result.text).toContain('Global model: gpt-5');
-  expect(result.text).toContain('Agent model: gpt-5-mini');
-  expect(result.text).toContain('Session model: gpt-5-nano');
+  expect(result.text).toContain('Effective model: hybridai/gpt-5-nano');
+  expect(result.text).toContain('Global model: hybridai/gpt-5');
+  expect(result.text).toContain('Agent model: hybridai/gpt-5-mini');
+  expect(result.text).toContain('Session model: hybridai/gpt-5-nano');
 });
 
 test('model clear removes the session override and falls back to the agent model', async () => {
@@ -600,7 +610,7 @@ test('model clear removes the session override and falls back to the agent model
     sessionId: 'session-model-clear',
     guildId: null,
     channelId: 'channel-model-clear',
-    args: ['model', 'set', 'gpt-5-nano'],
+    args: ['model', 'set', 'hybridai/gpt-5-nano'],
   });
   const cleared = await handleGatewayCommand({
     sessionId: 'session-model-clear',
@@ -620,15 +630,15 @@ test('model clear removes the session override and falls back to the agent model
     throw new Error(`Unexpected result kind: ${cleared.kind}`);
   }
   expect(cleared.text).toContain(
-    'Session model override cleared. Effective model: `gpt-5-mini`.',
+    'Session model override cleared. Effective model: `hybridai/gpt-5-mini`.',
   );
   expect(info.kind).toBe('info');
   if (info.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${info.kind}`);
   }
-  expect(info.text).toContain('Effective model: gpt-5-mini');
-  expect(info.text).toContain('Global model: gpt-5');
-  expect(info.text).toContain('Agent model: gpt-5-mini');
+  expect(info.text).toContain('Effective model: hybridai/gpt-5-mini');
+  expect(info.text).toContain('Global model: hybridai/gpt-5');
+  expect(info.text).toContain('Agent model: hybridai/gpt-5-mini');
   expect(info.text).toContain('Session model: (none)');
 });
 
@@ -667,13 +677,13 @@ test('agent model sets the persistent model for the current session agent', asyn
     sessionId: 'session-agent-model',
     guildId: null,
     channelId: 'channel-agent-model',
-    args: ['model', 'set', 'gpt-5-nano'],
+    args: ['model', 'set', 'hybridai/gpt-5-nano'],
   });
   const updated = await handleGatewayCommand({
     sessionId: 'session-agent-model',
     guildId: null,
     channelId: 'channel-agent-model',
-    args: ['agent', 'model', 'gpt-5'],
+    args: ['agent', 'model', 'hybridai/gpt-5'],
   });
   const info = await handleGatewayCommand({
     sessionId: 'session-agent-model',
@@ -687,10 +697,10 @@ test('agent model sets the persistent model for the current session agent', asyn
     throw new Error(`Unexpected result kind: ${updated.kind}`);
   }
   expect(updated.title).toBe('Agent Model Updated');
-  expect(updated.text).toContain('Effective model: gpt-5-nano');
-  expect(updated.text).toContain('Global model: gpt-5');
-  expect(updated.text).toContain('Agent model: gpt-5');
-  expect(updated.text).toContain('Session model: gpt-5-nano');
+  expect(updated.text).toContain('Effective model: hybridai/gpt-5-nano');
+  expect(updated.text).toContain('Global model: hybridai/gpt-5');
+  expect(updated.text).toContain('Agent model: hybridai/gpt-5');
+  expect(updated.text).toContain('Session model: hybridai/gpt-5-nano');
   expect(updated.text).toContain(
     'Run `model clear` to use the updated agent model in this session.',
   );
@@ -701,8 +711,8 @@ test('agent model sets the persistent model for the current session agent', asyn
   }
   expect(info.title).toBe('Agent Model');
   expect(info.text).toContain('Current agent: research');
-  expect(info.text).toContain('Effective model: gpt-5-nano');
-  expect(info.text).toContain('Global model: gpt-5');
-  expect(info.text).toContain('Agent model: gpt-5');
-  expect(info.text).toContain('Session model: gpt-5-nano');
+  expect(info.text).toContain('Effective model: hybridai/gpt-5-nano');
+  expect(info.text).toContain('Global model: hybridai/gpt-5');
+  expect(info.text).toContain('Agent model: hybridai/gpt-5');
+  expect(info.text).toContain('Session model: hybridai/gpt-5-nano');
 });

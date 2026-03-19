@@ -64,6 +64,7 @@ test('bot set fails fast on HybridAI auth failure without mutating session state
     text: 'HybridAI bot commands require valid HybridAI API credentials. Run `hybridclaw hybridai login` and try again.',
   });
   expect(getSessionById('session-bot-set-auth')?.chatbot_id).toBeNull();
+  expect(getSessionById('session-bot-set-auth')?.model).toBeNull();
   expect(
     getRecentStructuredAuditForSession('session-bot-set-auth', 10),
   ).toEqual([]);

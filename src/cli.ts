@@ -65,6 +65,7 @@ import {
 import { ensureRuntimeCredentials } from './onboarding.js';
 import { formatPluginSummaryList } from './plugins/plugin-formatting.js';
 import type { LocalBackendType } from './providers/local-types.js';
+import { formatModelForDisplay } from './providers/model-names.js';
 import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
@@ -1575,7 +1576,9 @@ async function configureOpenRouter(args: string[]): Promise<void> {
   if (parsed.setDefault) {
     console.log(`Default model: ${fullModelName}`);
   } else {
-    console.log(`Default model unchanged: ${nextConfig.hybridai.defaultModel}`);
+    console.log(
+      `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
+    );
   }
   console.log('Next:');
   console.log('  hybridclaw gateway restart --foreground');
@@ -1779,7 +1782,9 @@ function printOpenRouterStatus(): void {
   console.log(`Config: ${runtimeConfigPath()}`);
   console.log(`Enabled: ${config.openrouter.enabled ? 'yes' : 'no'}`);
   console.log(`Base URL: ${config.openrouter.baseUrl}`);
-  console.log(`Default model: ${config.hybridai.defaultModel}`);
+  console.log(
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+  );
   console.log(
     `Models: ${config.openrouter.models.length > 0 ? config.openrouter.models.join(', ') : '(none configured)'}`,
   );
@@ -1861,12 +1866,16 @@ function clearLocalBackends(): void {
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   console.log('Disabled local backends: ollama, lmstudio, vllm.');
   if (isLocalProviderModel(nextConfig.hybridai.defaultModel)) {
-    console.log(`Default model unchanged: ${nextConfig.hybridai.defaultModel}`);
+    console.log(
+      `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
+    );
     console.log(
       'Hint: default model still points at a local backend. Configure another provider before starting new sessions.',
     );
   } else {
-    console.log(`Default model: ${nextConfig.hybridai.defaultModel}`);
+    console.log(
+      `Default model: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
+    );
   }
 }
 
@@ -2017,7 +2026,9 @@ function printLocalStatus(): void {
   ensureRuntimeConfigFile();
   const config = getRuntimeConfig();
   console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Default model: ${config.hybridai.defaultModel}`);
+  console.log(
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+  );
   for (const backend of ['ollama', 'lmstudio', 'vllm'] as const) {
     const settings = config.local.backends[backend];
     console.log(
@@ -2062,7 +2073,9 @@ function configureLocalBackend(args: string[]): void {
   if (parsed.setDefault) {
     console.log(`Default model: ${fullModelName}`);
   } else {
-    console.log(`Default model unchanged: ${nextConfig.hybridai.defaultModel}`);
+    console.log(
+      `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
+    );
   }
   console.log('Next:');
   console.log('  hybridclaw gateway restart --foreground --sandbox=host');

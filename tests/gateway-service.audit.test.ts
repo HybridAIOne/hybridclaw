@@ -120,6 +120,7 @@ test('bot set records a structured audit event for observability export', async 
         id: 'bot-research',
         name: 'Research Bot',
         description: 'Answers with research context',
+        model: 'gpt-4o-mini',
       },
     ]),
   }));
@@ -138,7 +139,7 @@ test('bot set records a structured audit event for observability export', async 
 
   expect(result).toMatchObject({
     kind: 'plain',
-    text: 'Chatbot set to `bot-research` for this session.',
+    text: 'Chatbot set to `bot-research` and model set to `hybridai/gpt-4o-mini` for this session.',
   });
 
   const events = getRecentStructuredAuditForSession(
@@ -160,6 +161,53 @@ test('bot set records a structured audit event for observability export', async 
   expect(getSessionById('session-bot-set-audit')?.chatbot_id).toBe(
     'bot-research',
   );
+  expect(getSessionById('session-bot-set-audit')?.model).toBe('gpt-4o-mini');
+});
+
+test('bot set leaves the session model unchanged when the bot exposes no model', async () => {
+  setupHome();
+
+  const {
+    getOrCreateSession,
+    getSessionById,
+    initDatabase,
+    updateSessionModel,
+  } = await import('../src/memory/db.ts');
+  initDatabase({ quiet: true });
+  getOrCreateSession(
+    'session-bot-set-no-model',
+    null,
+    'channel-bot-set-no-model',
+  );
+  updateSessionModel('session-bot-set-no-model', 'gpt-5-nano');
+
+  vi.doMock('../src/providers/hybridai-bots.ts', () => ({
+    fetchHybridAIBots: vi.fn(async () => [
+      {
+        id: 'bot-research',
+        name: 'Research Bot',
+      },
+    ]),
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-bot-set-no-model',
+    guildId: null,
+    channelId: 'channel-bot-set-no-model',
+    args: ['bot', 'set', 'Research Bot'],
+  });
+
+  expect(result).toMatchObject({
+    kind: 'plain',
+    text: 'Chatbot set to `bot-research` for this session.',
+  });
+  expect(getSessionById('session-bot-set-no-model')?.chatbot_id).toBe(
+    'bot-research',
+  );
+  expect(getSessionById('session-bot-set-no-model')?.model).toBe('gpt-5-nano');
 });
 
 test('handleGatewayMessage records agent handoff before agent-side timeouts', async () => {
@@ -422,10 +470,9 @@ test('handleGatewayMessage warns once and disables request logs for invalid env 
        FROM request_log
        WHERE session_id IN (?, ?)`,
     )
-    .get(
-      'session-request-log-invalid-a',
-      'session-request-log-invalid-b',
-    ) as { count: number };
+    .get('session-request-log-invalid-a', 'session-request-log-invalid-b') as {
+    count: number;
+  };
   inspect.close();
 
   expect(rowCount.count).toBe(0);

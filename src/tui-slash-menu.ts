@@ -12,6 +12,7 @@ import type {
   TuiSlashMenuEntry,
   TuiSlashMenuPalette,
 } from './tui-slash-menu-types.js';
+
 export type { TuiSlashMenuEntry, TuiSlashMenuPalette };
 
 interface TuiSlashMenuState {

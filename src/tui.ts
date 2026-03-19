@@ -43,6 +43,10 @@ import {
   parseModelNamesFromListText,
 } from './model-selection.js';
 import {
+  formatModelForDisplay,
+  normalizeHybridAIModelForRuntime,
+} from './providers/model-names.js';
+import {
   formatTuiApprovalSummary,
   parseTuiApprovalPrompt,
   type TuiApprovalDetails,
@@ -1053,14 +1057,24 @@ function parseCurrentModelFromInfo(
   return info?.current || null;
 }
 
+function getDisplayedDefaultHybridAIModel(): string {
+  return formatModelForDisplay(HYBRIDAI_MODEL);
+}
+
 function parseModelInfoFromInfo(
   result: GatewayCommandResult,
 ): { current: string; defaultModel: string } | null {
   const parsed = parseModelInfoSummaryFromText(result.text || '');
   if (!parsed) return null;
   return {
-    current: parsed.current || parsed.defaultModel || HYBRIDAI_MODEL,
-    defaultModel: parsed.defaultModel || parsed.current || HYBRIDAI_MODEL,
+    current:
+      parsed.current ||
+      parsed.defaultModel ||
+      getDisplayedDefaultHybridAIModel(),
+    defaultModel:
+      parsed.defaultModel ||
+      parsed.current ||
+      getDisplayedDefaultHybridAIModel(),
   };
 }
 
@@ -1075,10 +1089,11 @@ async function fetchCurrentSessionModel(): Promise<string | null> {
 }
 
 async function fetchSelectableModels(): Promise<
-  Array<{ name: string; isFree: boolean }>
+  Array<{ label: string; value: string; isFree: boolean }>
 > {
   const fallback = normalizeModelCandidates(CONFIGURED_MODELS).map((model) => ({
-    name: model,
+    label: formatModelForDisplay(model),
+    value: normalizeHybridAIModelForRuntime(model),
     isFree: false,
   }));
   try {
@@ -1086,13 +1101,16 @@ async function fetchSelectableModels(): Promise<
     if (result.kind === 'error') return fallback;
     if (Array.isArray(result.modelCatalog) && result.modelCatalog.length > 0) {
       const seen = new Set<string>();
-      const models: Array<{ name: string; isFree: boolean }> = [];
+      const models: Array<{ label: string; value: string; isFree: boolean }> =
+        [];
       for (const entry of result.modelCatalog) {
-        const name = String(entry.value || '').trim();
-        if (!name || seen.has(name)) continue;
-        seen.add(name);
+        const value = String(entry.value || '').trim();
+        if (!value || seen.has(value)) continue;
+        seen.add(value);
         models.push({
-          name,
+          label:
+            String(entry.label || '').trim() || formatModelForDisplay(value),
+          value,
           isFree: entry.isFree === true,
         });
       }
@@ -1100,7 +1118,11 @@ async function fetchSelectableModels(): Promise<
     }
     const models = parseModelNamesFromListText(result.text || '');
     return models.length > 0
-      ? models.map((model) => ({ name: model, isFree: false }))
+      ? models.map((model) => ({
+          label: model,
+          value: normalizeHybridAIModelForRuntime(model),
+          isFree: false,
+        }))
       : fallback;
   } catch {
     return fallback;
@@ -1111,7 +1133,10 @@ async function fetchSessionAndDefaultModel(): Promise<{
   current: string;
   defaultModel: string;
 }> {
-  const fallback = { current: HYBRIDAI_MODEL, defaultModel: HYBRIDAI_MODEL };
+  const fallback = {
+    current: getDisplayedDefaultHybridAIModel(),
+    defaultModel: getDisplayedDefaultHybridAIModel(),
+  };
   try {
     const result = await requestGatewayCommand(['model', 'info']);
     if (result.kind === 'error') return fallback;
@@ -1135,7 +1160,7 @@ async function promptModelSelection(
   console.log(`  ${BOLD}${GOLD}Model selector${RESET}`);
   if (currentModel) {
     const currentColor =
-      models.find((entry) => entry.name === currentModel)?.isFree === true
+      models.find((entry) => entry.label === currentModel)?.isFree === true
         ? GREEN
         : TEAL;
     console.log(
@@ -1144,10 +1169,10 @@ async function promptModelSelection(
   }
   for (const [index, entry] of models.entries()) {
     const suffix =
-      currentModel === entry.name ? ` ${MUTED}(current)${RESET}` : '';
+      currentModel === entry.label ? ` ${MUTED}(current)${RESET}` : '';
     const modelColor = entry.isFree ? GREEN : RESET;
     console.log(
-      `  ${TEAL}${index + 1}${RESET} ${modelColor}${entry.name}${RESET}${suffix}`,
+      `  ${TEAL}${index + 1}${RESET} ${modelColor}${entry.label}${RESET}${suffix}`,
     );
   }
 
@@ -1162,9 +1187,14 @@ async function promptModelSelection(
 
   const asNumber = Number.parseInt(trimmed, 10);
   if (Number.isFinite(asNumber) && asNumber >= 1 && asNumber <= models.length) {
-    return models[asNumber - 1]?.name || null;
+    return models[asNumber - 1]?.value || null;
   }
-  if (models.some((entry) => entry.name === trimmed)) return trimmed;
+  const matchedEntry = models.find(
+    (entry) =>
+      entry.label === trimmed ||
+      entry.value === normalizeHybridAIModelForRuntime(trimmed),
+  );
+  if (matchedEntry) return matchedEntry.value;
 
   printInfo('Invalid model selection.');
   return null;

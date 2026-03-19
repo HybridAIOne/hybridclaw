@@ -140,6 +140,10 @@ import {
   refreshAvailableModelCatalogs,
 } from '../providers/model-catalog.js';
 import {
+  formatModelForDisplay,
+  normalizeHybridAIModelForRuntime,
+} from '../providers/model-names.js';
+import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
 } from '../providers/openrouter-discovery.js';
@@ -1511,13 +1515,14 @@ function formatSkillObservationRun(observation: SkillObservation): string {
 
 function formatSessionModelOverride(model: string | null | undefined): string {
   const normalized = String(model || '').trim();
-  return normalized || '(none)';
+  return normalized ? formatModelForDisplay(normalized) : '(none)';
 }
 
 function formatConfiguredAgentModel(
   agent: AgentConfig | null | undefined,
 ): string {
-  return resolveAgentModel(agent) || '(none)';
+  const model = resolveAgentModel(agent);
+  return model ? formatModelForDisplay(model) : '(none)';
 }
 
 function enableFullAutoCommand(params: {
@@ -4807,8 +4812,8 @@ export async function handleGatewayCommand(
             [
               `Current agent: ${agent.id}`,
               ...(agent.name ? [`Name: ${agent.name}`] : []),
-              `Effective model: ${runtime.model}`,
-              `Global model: ${HYBRIDAI_MODEL}`,
+              `Effective model: ${formatModelForDisplay(runtime.model)}`,
+              `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(storedAgent)}`,
               `Session model: ${formatSessionModelOverride(session.model)}`,
               `Chatbot: ${runtime.chatbotId || '(none)'}`,
@@ -4825,8 +4830,8 @@ export async function handleGatewayCommand(
               agent.id === currentAgentId ? `${agent.id} (current)` : agent.id;
             const model = resolveAgentModel(agent) || HYBRIDAI_MODEL;
             return agent.name
-              ? `${label} — ${agent.name} · ${model}`
-              : `${label} — ${model}`;
+              ? `${label} — ${agent.name} · ${formatModelForDisplay(model)}`
+              : `${label} — ${formatModelForDisplay(model)}`;
           });
           return infoCommand(
             'Agents',
@@ -4849,7 +4854,7 @@ export async function handleGatewayCommand(
           updateSessionAgent(session.id, targetAgent.id);
           const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
           return plainCommand(
-            `Session agent set to \`${targetAgent.id}\` (model: \`${model}\`).`,
+            `Session agent set to \`${targetAgent.id}\` (model: \`${formatModelForDisplay(model)}\`).`,
           );
         }
 
@@ -4868,19 +4873,21 @@ export async function handleGatewayCommand(
               'Agent Model',
               [
                 `Current agent: ${resolvedAgent.id}`,
-                `Effective model: ${runtime.model}`,
-                `Global model: ${HYBRIDAI_MODEL}`,
+                `Effective model: ${formatModelForDisplay(runtime.model)}`,
+                `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
                 `Agent model: ${formatConfiguredAgentModel(storedAgent)}`,
                 `Session model: ${sessionOverride}`,
               ].join('\n'),
             );
           }
 
+          const normalizedModelName =
+            normalizeHybridAIModelForRuntime(modelName);
           await refreshAvailableModelCatalogs();
           const availableModels = getAvailableModelList();
           if (
             availableModels.length > 0 &&
-            !availableModels.includes(modelName)
+            !availableModels.includes(normalizedModelName)
           ) {
             return badCommand(
               'Unknown Model',
@@ -4890,7 +4897,7 @@ export async function handleGatewayCommand(
 
           const updated = upsertRegisteredAgent({
             ...storedAgent,
-            model: modelName,
+            model: normalizedModelName,
           });
           const effectiveModel = resolveAgentForRequest({ session }).model;
           const hasSessionOverride = sessionOverride !== '(none)';
@@ -4898,9 +4905,9 @@ export async function handleGatewayCommand(
             'Agent Model Updated',
             [
               `Current agent: ${updated.id}`,
-              `Effective model: ${effectiveModel}`,
-              `Global model: ${HYBRIDAI_MODEL}`,
-              `Agent model: ${resolveAgentModel(updated) || '(none)'}`,
+              `Effective model: ${formatModelForDisplay(effectiveModel)}`,
+              `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
+              `Agent model: ${formatConfiguredAgentModel(updated)}`,
               `Session model: ${sessionOverride}`,
               ...(hasSessionOverride
                 ? [
@@ -4945,7 +4952,7 @@ export async function handleGatewayCommand(
                 'Usage: `agent create <id> [--model <model>]`',
               );
             }
-            modelName = String(trailingArgs[1]).trim();
+            modelName = normalizeHybridAIModelForRuntime(trailingArgs[1]);
             await refreshAvailableModelCatalogs();
             const availableModels = getAvailableModelList();
             if (availableModels.length === 0) {
@@ -4973,7 +4980,7 @@ export async function handleGatewayCommand(
             'Agent Created',
             [
               `Agent: ${created.id}`,
-              `Model: ${resolveAgentModel(created) || HYBRIDAI_MODEL}`,
+              `Model: ${formatModelForDisplay(resolveAgentModel(created) || HYBRIDAI_MODEL)}`,
               `Workspace: ${path.resolve(agentWorkspaceDir(created.id))}`,
             ].join('\n'),
           );
@@ -4998,7 +5005,7 @@ export async function handleGatewayCommand(
             const list = bots
               .map(
                 (b) =>
-                  `• ${b.name} (${b.id})${b.model ? ` [${b.model}]` : ''}${b.description ? ` — ${b.description}` : ''}`,
+                  `• ${b.name} (${b.id})${b.model ? ` [${formatModelForDisplay(b.model)}]` : ''}${b.description ? ` — ${b.description}` : ''}`,
               )
               .join('\n');
             return infoCommand('Available Bots', list);
@@ -5012,7 +5019,9 @@ export async function handleGatewayCommand(
           if (!requested)
             return badCommand('Usage', 'Usage: `bot set <id|name>`');
           const previousBotId = session.chatbot_id;
+          const previousModel = session.model;
           let resolvedBotId = requested;
+          let syncedModel: string | null = null;
           try {
             const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
             const matched = bots.find(
@@ -5020,11 +5029,20 @@ export async function handleGatewayCommand(
                 b.id === requested ||
                 b.name.toLowerCase() === requested.toLowerCase(),
             );
-            if (matched) resolvedBotId = matched.id;
+            if (matched) {
+              resolvedBotId = matched.id;
+              const botModel = normalizeHybridAIModelForRuntime(
+                matched.model || '',
+              );
+              syncedModel = botModel || null;
+            }
           } catch (err) {
             return badCommand('Error', formatHybridAIBotFetchError(err));
           }
           updateSessionChatbot(session.id, resolvedBotId);
+          if (syncedModel) {
+            updateSessionModel(session.id, syncedModel);
+          }
           recordAuditEvent({
             sessionId: session.id,
             runId: makeAuditRunId('cmd'),
@@ -5035,12 +5053,16 @@ export async function handleGatewayCommand(
               previousBotId,
               resolvedBotId,
               changed: previousBotId !== resolvedBotId,
+              previousModel,
+              syncedModel,
               userId: boundAuditActorField(req.userId),
               username: boundAuditActorField(req.username),
             },
           });
           return plainCommand(
-            `Chatbot set to \`${resolvedBotId}\` for this session.`,
+            syncedModel
+              ? `Chatbot set to \`${resolvedBotId}\` and model set to \`${formatModelForDisplay(syncedModel)}\` for this session.`
+              : `Chatbot set to \`${resolvedBotId}\` for this session.`,
           );
         }
 
@@ -5061,8 +5083,10 @@ export async function handleGatewayCommand(
           const ragStatus = session.enable_rag ? 'Enabled' : 'Disabled';
           const lines = [
             `Chatbot: ${botLabel}`,
-            ...(botModel ? [`Bot Model: ${botModel}`] : []),
-            `Model: ${runtime.model}`,
+            ...(botModel
+              ? [`Bot Model: ${formatModelForDisplay(botModel)}`]
+              : []),
+            `Model: ${formatModelForDisplay(runtime.model)}`,
             `RAG: ${ragStatus}`,
           ];
           return infoCommand('Bot Info', lines.join('\n'));
@@ -5095,9 +5119,10 @@ export async function handleGatewayCommand(
           const listedModels = getAvailableModelList(providerFilterArg);
           const current = runtime.model;
           const modelCatalog = listedModels.map((model) => {
+            const label = formatModelForDisplay(model);
             return {
               value: model,
-              label: model === current ? `${model} (current)` : model,
+              label: model === current ? `${label} (current)` : label,
               isFree: isAvailableModelFree(model),
             };
           });
@@ -5123,18 +5148,23 @@ export async function handleGatewayCommand(
         if (sub === 'default') {
           const modelName = req.args[2];
           if (!modelName) {
-            const defaultLine = `Default model: ${HYBRIDAI_MODEL}`;
+            const defaultLine = `Default model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`;
             if (availableModels.length === 0) {
               return infoCommand('Default Model', defaultLine);
             }
             const list = availableModels
-              .map((m) => (m === HYBRIDAI_MODEL ? `${m} (default)` : m))
+              .map((m) => {
+                const label = formatModelForDisplay(m);
+                return m === HYBRIDAI_MODEL ? `${label} (default)` : label;
+              })
               .join('\n');
             return infoCommand('Default Model', `${defaultLine}\n\n${list}`);
           }
+          const normalizedModelName =
+            normalizeHybridAIModelForRuntime(modelName);
           if (
             availableModels.length > 0 &&
-            !availableModels.includes(modelName)
+            !availableModels.includes(normalizedModelName)
           ) {
             return badCommand(
               'Unknown Model',
@@ -5142,10 +5172,10 @@ export async function handleGatewayCommand(
             );
           }
           updateRuntimeConfig((draft) => {
-            draft.hybridai.defaultModel = modelName;
+            draft.hybridai.defaultModel = normalizedModelName;
           });
           return plainCommand(
-            `Default model set to \`${modelName}\` for new sessions.`,
+            `Default model set to \`${formatModelForDisplay(normalizedModelName)}\` for new sessions.`,
           );
         }
 
@@ -5153,18 +5183,20 @@ export async function handleGatewayCommand(
           const modelName = req.args[2];
           if (!modelName)
             return badCommand('Usage', 'Usage: `model set <name>`');
+          const normalizedModelName =
+            normalizeHybridAIModelForRuntime(modelName);
           if (
             availableModels.length > 0 &&
-            !availableModels.includes(modelName)
+            !availableModels.includes(normalizedModelName)
           ) {
             return badCommand(
               'Unknown Model',
               `\`${modelName}\` is not in the available models list.`,
             );
           }
-          updateSessionModel(session.id, modelName);
+          updateSessionModel(session.id, normalizedModelName);
           return plainCommand(
-            `Model set to \`${modelName}\` for this session.`,
+            `Model set to \`${formatModelForDisplay(normalizedModelName)}\` for this session.`,
           );
         }
 
@@ -5172,8 +5204,8 @@ export async function handleGatewayCommand(
           updateSessionModel(session.id, null);
           return plainCommand(
             sessionOverride === '(none)'
-              ? `Session model override is already clear. Effective model: \`${fallbackModel}\`.`
-              : `Session model override cleared. Effective model: \`${fallbackModel}\`.`,
+              ? `Session model override is already clear. Effective model: \`${formatModelForDisplay(fallbackModel)}\`.`
+              : `Session model override cleared. Effective model: \`${formatModelForDisplay(fallbackModel)}\`.`,
           );
         }
 
@@ -5181,8 +5213,8 @@ export async function handleGatewayCommand(
           return infoCommand(
             'Model Info',
             [
-              `Effective model: ${runtime.model}`,
-              `Global model: ${HYBRIDAI_MODEL}`,
+              `Effective model: ${formatModelForDisplay(runtime.model)}`,
+              `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
               `Session model: ${sessionOverride}`,
             ].join('\n'),
@@ -5740,7 +5772,7 @@ export async function handleGatewayCommand(
           'Confirm Reset',
           [
             `This will delete this session's history, reset per-session model/bot/show settings, and remove the current agent workspace.`,
-            `Model: ${runtime.model}`,
+            `Model: ${formatModelForDisplay(runtime.model)}`,
             `Agent workspace: ${runtime.workspacePath}`,
             resetComponents
               ? 'Use the buttons below to continue or cancel.'
@@ -5816,7 +5848,7 @@ export async function handleGatewayCommand(
         const showMode = normalizeSessionShowMode(session.show_mode);
         const lines = [
           `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
-          `🧠 Model: ${sessionModel}`,
+          `🧠 Model: ${formatModelForDisplay(sessionModel)}`,
           `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out`,
           cacheKnown
             ? `🗄️ Cache: ${cacheHitLabel} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
@@ -5879,7 +5911,7 @@ export async function handleGatewayCommand(
             );
           }
           const lines = rows.slice(0, 20).map((row) => {
-            return `${row.model} — ${formatCompactNumber(row.total_tokens)} tokens · ${row.call_count} calls · ${formatUsd(row.total_cost_usd)}`;
+            return `${formatModelForDisplay(row.model)} — ${formatCompactNumber(row.total_tokens)} tokens · ${row.call_count} calls · ${formatUsd(row.total_cost_usd)}`;
           });
           const scope = modelAgentId ? `agent ${modelAgentId}` : 'all agents';
           return infoCommand(
@@ -5919,7 +5951,7 @@ export async function handleGatewayCommand(
           lines.push(
             ...topModels.map(
               (row) =>
-                `- ${row.model}: ${formatCompactNumber(row.total_tokens)} tokens · ${formatUsd(row.total_cost_usd)}`,
+                `- ${formatModelForDisplay(row.model)}: ${formatCompactNumber(row.total_tokens)} tokens · ${formatUsd(row.total_cost_usd)}`,
             ),
           );
         }

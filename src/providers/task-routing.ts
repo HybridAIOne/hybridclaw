@@ -217,7 +217,9 @@ export async function resolveTaskModelPolicy(
     // from the catalog and return it as an override so the container never
     // attempts a vision call against a text-only model.
     if (task === 'vision' && params.sessionModel) {
-      let sessionModelIsVisionCapable = isModelVisionCapable(params.sessionModel);
+      let sessionModelIsVisionCapable = isModelVisionCapable(
+        params.sessionModel,
+      );
       let discoveredOpenRouterModels: string[] = [];
       if (!sessionModelIsVisionCapable) {
         discoveredOpenRouterModels = await discoverOpenRouterModels();

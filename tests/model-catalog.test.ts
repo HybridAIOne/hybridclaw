@@ -109,7 +109,7 @@ test('available model catalog merges configured and discovered local models', as
 
   expect(choices).toEqual(
     expect.arrayContaining([
-      { name: 'gpt-5-nano', value: 'gpt-5-nano' },
+      { name: 'hybridai/gpt-5-nano', value: 'gpt-5-nano' },
       {
         name: 'lmstudio/qwen/qwen3.5-9b',
         value: 'lmstudio/qwen/qwen3.5-9b',

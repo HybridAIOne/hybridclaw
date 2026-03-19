@@ -16,17 +16,18 @@ import {
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
-export { renderGatewayCommand };
+
 export type {
   GatewayAdminSkillsResponse,
-  GatewayChatResult,
-  GatewayCommandResult,
-  GatewayStatus,
   GatewayChatApprovalEvent,
+  GatewayChatResult,
   GatewayChatStreamEvent,
+  GatewayCommandResult,
   GatewayHistoryResponse,
   GatewayProactivePullResponse,
+  GatewayStatus,
 };
+export { renderGatewayCommand };
 export type GatewayChatRequest = GatewayChatRequestBody;
 
 function gatewayUrl(pathname: string): string {

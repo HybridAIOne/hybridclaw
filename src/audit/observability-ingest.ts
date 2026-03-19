@@ -279,6 +279,21 @@ function inferDenied(payload: Record<string, unknown>): boolean {
   return false;
 }
 
+function enrichObservabilityPayload(
+  eventType: string,
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  if (eventType !== 'bot.set') return payload;
+  if (typeof payload.modelChanged === 'boolean') return payload;
+
+  const previousModel = readNullableString(payload, 'previousModel');
+  const syncedModel = readNullableString(payload, 'syncedModel');
+  return {
+    ...payload,
+    modelChanged: syncedModel ? previousModel !== syncedModel : false,
+  };
+}
+
 function buildEventUid(
   config: ResolvedIngestConfig,
   row: StructuredAuditEntry,
@@ -299,7 +314,10 @@ function mapAuditRowToEvent(
   config: ResolvedIngestConfig,
   row: StructuredAuditEntry,
 ): Record<string, unknown> {
-  const payload = parsePayload(row.payload);
+  const payload = enrichObservabilityPayload(
+    row.event_type,
+    parsePayload(row.payload),
+  );
   return {
     session_id: row.session_id,
     run_id: row.run_id,

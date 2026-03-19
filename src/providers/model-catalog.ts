@@ -5,6 +5,7 @@ import {
   discoverAllLocalModels,
   getDiscoveredLocalModelNames,
 } from './local-discovery.js';
+import { formatModelForDisplay } from './model-names.js';
 import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
 import {
   discoverOpenRouterModels,
@@ -206,7 +207,7 @@ export async function getAvailableModelChoices(
   return getAvailableModelList()
     .slice(0, Math.max(0, limit))
     .map((model) => ({
-      name: model,
+      name: formatModelForDisplay(model),
       value: model,
     }));
 }
