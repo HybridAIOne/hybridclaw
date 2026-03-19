@@ -156,7 +156,7 @@ describe('local discovery', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  test('discoverLmStudioModels parses OpenAI-compatible /models output', async () => {
+  test('discoverLmStudioModels parses LM Studio /api/v1/models output', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
       config.local.backends.ollama.enabled = false;
@@ -166,18 +166,42 @@ describe('local discovery', () => {
     });
     const discovery = await importFreshDiscovery(homeDir);
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              data: [{ id: 'qwen2.5-coder:7b' }, { id: 'mistral-nemo' }],
-            }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } },
-          ),
-      ),
-    );
+    const fetchMock = vi.fn(async (input: string) => {
+      if (input.endsWith('/api/v1/models')) {
+        return new Response(
+          JSON.stringify({
+            models: [
+              {
+                key: 'qwen2.5-coder:7b',
+                display_name: 'Qwen 2.5 Coder 7B',
+                architecture: 'qwen2.5',
+                max_context_length: 131_072,
+                loaded_instances: [
+                  {
+                    id: 'qwen2.5-coder:7b',
+                    config: {
+                      context_length: 32_000,
+                    },
+                  },
+                ],
+                size_bytes: 4_294_967_296,
+                params_string: '7B',
+              },
+              {
+                key: 'mistral-nemo',
+                display_name: 'Mistral Nemo',
+                architecture: 'mistral',
+                max_context_length: 128_000,
+                loaded_instances: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
 
     const models = await discovery.discoverAllLocalModels({ force: true });
 
@@ -185,8 +209,56 @@ describe('local discovery', () => {
       ['lmstudio', 'qwen2.5-coder:7b'],
       ['lmstudio', 'mistral-nemo'],
     ]);
+    expect(models[0]?.name).toBe('Qwen 2.5 Coder 7B');
+    expect(models[0]?.contextWindow).toBe(32_000);
+    expect(models[0]?.family).toBe('qwen2.5');
+    expect(models[0]?.parameterSize).toBe('7B');
     expect(models[0]?.thinkingFormat).toBe('qwen');
+    expect(models[1]?.contextWindow).toBe(128_000);
     expect(models[1]?.thinkingFormat).toBeUndefined();
+  });
+
+  test('discoverLmStudioModels falls back to /models when /api/v1/models is unavailable', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = false;
+      config.local.backends.lmstudio.enabled = true;
+      config.local.backends.vllm.enabled = false;
+      config.local.backends.lmstudio.baseUrl = 'http://127.0.0.1:1234/v1';
+    });
+    const discovery = await importFreshDiscovery(homeDir);
+
+    const fetchMock = vi.fn(async (input: string) => {
+      if (input.endsWith('/api/v1/models')) {
+        return new Response('not found', { status: 404 });
+      }
+      if (input.endsWith('/v1/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'qwen3.5-4b',
+                context_length: 32_768,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const models = await discovery.discoverAllLocalModels({ force: true });
+
+    expect(models).toEqual([
+      expect.objectContaining({
+        backend: 'lmstudio',
+        id: 'qwen3.5-4b',
+        contextWindow: 32_768,
+        thinkingFormat: 'qwen',
+      }),
+    ]);
   });
 
   test('discoverVllmModels sends bearer auth only when configured', async () => {

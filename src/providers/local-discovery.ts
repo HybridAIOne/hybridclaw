@@ -111,6 +111,17 @@ async function fetchJson(
   return (await response.json()) as unknown;
 }
 
+function readPositiveInteger(value: unknown): number | undefined {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number.parseInt(value, 10)
+        : NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
+}
+
 function readContextWindowFromShowResponse(
   payload: unknown,
 ): number | undefined {
@@ -134,6 +145,29 @@ function readContextWindowFromShowResponse(
     }
   }
   return candidates.length > 0 ? Math.max(...candidates) : undefined;
+}
+
+function readContextWindowFromModelEntry(
+  entry: Record<string, unknown>,
+): number | undefined {
+  const loadedInstances = Array.isArray(entry.loaded_instances)
+    ? entry.loaded_instances
+    : [];
+
+  for (const instance of loadedInstances) {
+    if (!isRecord(instance) || !isRecord(instance.config)) continue;
+    const loadedContextLength = readPositiveInteger(
+      instance.config.context_length,
+    );
+    if (loadedContextLength) return loadedContextLength;
+  }
+
+  return (
+    readPositiveInteger(entry.loaded_context_length) ??
+    readPositiveInteger(entry.context_length) ??
+    readPositiveInteger(entry.max_context_length) ??
+    readPositiveInteger(entry.maxContextLength)
+  );
 }
 
 async function runWithConcurrency<TInput, TOutput>(
@@ -189,6 +223,11 @@ async function fetchOpenAICompatModels(
       createLocalModelInfo(
         backend,
         String((entry as Record<string, unknown>).id || '').trim(),
+        {
+          contextWindow: readContextWindowFromModelEntry(
+            entry as Record<string, unknown>,
+          ),
+        },
       ),
     )
     .filter((model) => Boolean(model.id));
@@ -260,7 +299,50 @@ async function discoverOllamaModels(
 async function discoverLmStudioModels(
   baseUrl = LOCAL_LMSTUDIO_BASE_URL,
 ): Promise<LocalModelInfo[]> {
-  return fetchOpenAICompatModels('lmstudio', baseUrl);
+  const apiBase = resolveOpenAICompatBaseUrl(baseUrl);
+  const restBase = apiBase.replace(/\/v1$/i, '');
+
+  try {
+    const payload = await fetchJson(`${restBase}/api/v1/models`, {}, 5_000);
+    const models =
+      isRecord(payload) && Array.isArray(payload.models) ? payload.models : [];
+
+    return models
+      .filter(
+        (entry) =>
+          isRecord(entry) &&
+          (typeof entry.key === 'string' || typeof entry.id === 'string'),
+      )
+      .slice(0, LOCAL_DISCOVERY_MAX_MODELS)
+      .map((entry) => {
+        const record = entry as Record<string, unknown>;
+        return createLocalModelInfo(
+          'lmstudio',
+          String(record.key || record.id || '').trim(),
+          {
+            contextWindow:
+              readContextWindowFromModelEntry(record) ||
+              LOCAL_DEFAULT_CONTEXT_WINDOW,
+            name:
+              typeof record.display_name === 'string'
+                ? String(record.display_name).trim()
+                : undefined,
+            sizeBytes: readPositiveInteger(record.size_bytes),
+            family:
+              typeof record.architecture === 'string'
+                ? String(record.architecture).trim()
+                : undefined,
+            parameterSize:
+              typeof record.params_string === 'string'
+                ? String(record.params_string).trim()
+                : undefined,
+          },
+        );
+      })
+      .filter((model) => Boolean(model.id));
+  } catch {
+    return fetchOpenAICompatModels('lmstudio', baseUrl);
+  }
 }
 
 async function discoverVllmModels(
