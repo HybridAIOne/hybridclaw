@@ -725,3 +725,81 @@ test('handleGatewayCommand reloads plugins without inlining the plugin list', as
   expect(result.text).toBe('Plugin runtime reloaded.');
   expect(result.text).not.toContain('demo-plugin');
 });
+
+test('getGatewayAdminPlugins summarizes plugin status for the admin console', async () => {
+  setupHome();
+
+  const { getGatewayAdminPlugins } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  pluginManagerMock.listPluginSummary.mockReset();
+  pluginManagerMock.listPluginSummary.mockReturnValue([
+    {
+      id: 'demo-plugin',
+      name: 'Demo Plugin',
+      version: '1.0.0',
+      description: 'Demo plugin for testing',
+      source: 'home',
+      enabled: true,
+      error: undefined,
+      commands: ['demo_status'],
+      tools: ['demo_tool'],
+      hooks: ['gateway_start'],
+    },
+    {
+      id: 'broken-plugin',
+      name: 'Broken Plugin',
+      version: undefined,
+      description: undefined,
+      source: 'project',
+      enabled: false,
+      error: 'Missing required env vars: DEMO_PLUGIN_TOKEN.',
+      commands: [],
+      tools: ['broken_tool'],
+      hooks: [],
+    },
+  ]);
+
+  const result = await getGatewayAdminPlugins();
+
+  expect(ensurePluginManagerInitializedMock).toHaveBeenCalled();
+  expect(result).toEqual({
+    totals: {
+      totalPlugins: 2,
+      enabledPlugins: 1,
+      failedPlugins: 1,
+      commands: 1,
+      tools: 2,
+      hooks: 1,
+    },
+    plugins: [
+      {
+        id: 'broken-plugin',
+        name: 'Broken Plugin',
+        version: null,
+        description: null,
+        source: 'project',
+        enabled: false,
+        status: 'failed',
+        error: 'Missing required env vars: DEMO_PLUGIN_TOKEN.',
+        commands: [],
+        tools: ['broken_tool'],
+        hooks: [],
+      },
+      {
+        id: 'demo-plugin',
+        name: 'Demo Plugin',
+        version: '1.0.0',
+        description: 'Demo plugin for testing',
+        source: 'home',
+        enabled: true,
+        status: 'loaded',
+        error: null,
+        commands: ['demo_status'],
+        tools: ['demo_tool'],
+        hooks: ['gateway_start'],
+      },
+    ],
+  });
+});

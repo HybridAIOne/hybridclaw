@@ -60,6 +60,7 @@ import {
   getGatewayAdminMcp,
   getGatewayAdminModels,
   getGatewayAdminOverview,
+  getGatewayAdminPlugins,
   getGatewayAdminScheduler,
   getGatewayAdminSessions,
   getGatewayAdminSkills,
@@ -1145,6 +1146,10 @@ function handleApiAdminTools(res: ServerResponse): void {
   sendJson(res, 200, getGatewayAdminTools());
 }
 
+async function handleApiAdminPlugins(res: ServerResponse): Promise<void> {
+  sendJson(res, 200, await getGatewayAdminPlugins());
+}
+
 async function handleApiAdminSkills(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1552,6 +1557,10 @@ export function startGatewayHttpServer(): void {
           }
           if (pathname === '/api/admin/tools' && method === 'GET') {
             handleApiAdminTools(res);
+            return;
+          }
+          if (pathname === '/api/admin/plugins' && method === 'GET') {
+            await handleApiAdminPlugins(res);
             return;
           }
           if (

@@ -262,6 +262,7 @@ import {
   type GatewayAdminDeleteSessionResult,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
+  type GatewayAdminPluginsResponse,
   type GatewayAdminModelUsageRow,
   type GatewayAdminOverview,
   type GatewayAdminSchedulerJob,
@@ -2901,6 +2902,41 @@ export function getGatewayAdminAudit(params?: {
       eventType,
       limit,
     }).map(mapAdminAuditEntry),
+  };
+}
+
+export async function getGatewayAdminPlugins(): Promise<GatewayAdminPluginsResponse> {
+  const pluginManager = await ensurePluginManagerInitialized();
+  const plugins = pluginManager
+    .listPluginSummary()
+    .map((plugin) => ({
+      id: plugin.id,
+      name: plugin.name || null,
+      version: plugin.version || null,
+      description: plugin.description || null,
+      source: plugin.source,
+      enabled: plugin.enabled,
+      status: plugin.error ? ('failed' as const) : ('loaded' as const),
+      error: plugin.error || null,
+      commands: [...plugin.commands].sort((left, right) =>
+        left.localeCompare(right),
+      ),
+      tools: [...plugin.tools].sort((left, right) => left.localeCompare(right)),
+      hooks: [...plugin.hooks].sort((left, right) => left.localeCompare(right)),
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+
+  return {
+    totals: {
+      totalPlugins: plugins.length,
+      enabledPlugins: plugins.filter((plugin) => plugin.enabled).length,
+      failedPlugins: plugins.filter((plugin) => plugin.status === 'failed')
+        .length,
+      commands: plugins.reduce((sum, plugin) => sum + plugin.commands.length, 0),
+      tools: plugins.reduce((sum, plugin) => sum + plugin.tools.length, 0),
+      hooks: plugins.reduce((sum, plugin) => sum + plugin.hooks.length, 0),
+    },
+    plugins,
   };
 }
 

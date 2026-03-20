@@ -361,6 +361,32 @@ export interface AdminSkillsResponse {
   skills: AdminSkill[];
 }
 
+export interface AdminPlugin {
+  id: string;
+  name: string | null;
+  version: string | null;
+  description: string | null;
+  source: 'home' | 'project' | 'config';
+  enabled: boolean;
+  status: 'loaded' | 'failed';
+  error: string | null;
+  commands: string[];
+  tools: string[];
+  hooks: string[];
+}
+
+export interface AdminPluginsResponse {
+  totals: {
+    totalPlugins: number;
+    enabledPlugins: number;
+    failedPlugins: number;
+    commands: number;
+    tools: number;
+    hooks: number;
+  };
+  plugins: AdminPlugin[];
+}
+
 export interface AdminAdaptiveSkillErrorCluster {
   category: string;
   count: number;

@@ -11,6 +11,7 @@ import type {
   AdminMcpResponse,
   AdminModelsResponse,
   AdminOverview,
+  AdminPluginsResponse,
   AdminSchedulerJob,
   AdminSchedulerResponse,
   AdminSession,
@@ -310,6 +311,10 @@ export function fetchAudit(
 
 export function fetchSkills(token: string): Promise<AdminSkillsResponse> {
   return requestJson<AdminSkillsResponse>('/api/admin/skills', { token });
+}
+
+export function fetchPlugins(token: string): Promise<AdminPluginsResponse> {
+  return requestJson<AdminPluginsResponse>('/api/admin/plugins', { token });
 }
 
 export function fetchAdaptiveSkillHealth(

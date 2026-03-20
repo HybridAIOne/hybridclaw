@@ -258,6 +258,44 @@ async function importFreshHealth(options?: {
       topModels: [],
     },
   }));
+  const getGatewayAdminPlugins = vi.fn(async () => ({
+    totals: {
+      totalPlugins: 2,
+      enabledPlugins: 1,
+      failedPlugins: 1,
+      commands: 1,
+      tools: 2,
+      hooks: 1,
+    },
+    plugins: [
+      {
+        id: 'demo-plugin',
+        name: 'Demo Plugin',
+        version: '1.0.0',
+        description: 'Demo plugin for testing',
+        source: 'home',
+        enabled: true,
+        status: 'loaded',
+        error: null,
+        commands: ['demo_status'],
+        tools: ['demo_tool'],
+        hooks: [],
+      },
+      {
+        id: 'broken-plugin',
+        name: 'Broken Plugin',
+        version: null,
+        description: null,
+        source: 'project',
+        enabled: false,
+        status: 'failed',
+        error: 'Missing required env vars: DEMO_PLUGIN_TOKEN.',
+        commands: [],
+        tools: ['broken_tool'],
+        hooks: ['gateway_start'],
+      },
+    ],
+  }));
   const getGatewayAgents = vi.fn(() => ({
     generatedAt: '2026-03-11T10:00:00.000Z',
     version: '0.7.1',
@@ -594,6 +632,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminMcp,
     getGatewayAdminModels,
     getGatewayAdminOverview,
+    getGatewayAdminPlugins,
     getGatewayAdminScheduler,
     getGatewayAdminSessions,
     getGatewayAdminSkills,
@@ -647,6 +686,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgents,
     runGatewayPluginTool,
     getGatewayAdminModels,
+    getGatewayAdminPlugins,
     getGatewayAdminScheduler,
     getGatewayAdminMcp,
     getGatewayAdminAudit,
@@ -1077,6 +1117,34 @@ describe('gateway HTTP server', () => {
       groups: [
         {
           label: 'Files',
+        },
+      ],
+    });
+  });
+
+  test('returns admin plugins for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/plugins' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminPlugins).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      totals: {
+        totalPlugins: 2,
+        failedPlugins: 1,
+      },
+      plugins: [
+        {
+          id: 'demo-plugin',
+          status: 'loaded',
+        },
+        {
+          id: 'broken-plugin',
+          status: 'failed',
         },
       ],
     });

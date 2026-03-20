@@ -587,6 +587,32 @@ export interface GatewayAdminSkillsResponse {
   skills: GatewayAdminSkill[];
 }
 
+export interface GatewayAdminPlugin {
+  id: string;
+  name: string | null;
+  version: string | null;
+  description: string | null;
+  source: 'home' | 'project' | 'config';
+  enabled: boolean;
+  status: 'loaded' | 'failed';
+  error: string | null;
+  commands: string[];
+  tools: string[];
+  hooks: string[];
+}
+
+export interface GatewayAdminPluginsResponse {
+  totals: {
+    totalPlugins: number;
+    enabledPlugins: number;
+    failedPlugins: number;
+    commands: number;
+    tools: number;
+    hooks: number;
+  };
+  plugins: GatewayAdminPlugin[];
+}
+
 export interface GatewayAdminToolCatalogEntry {
   name: string;
   group: string;

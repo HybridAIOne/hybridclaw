@@ -89,6 +89,7 @@ const NAV_ITEMS: ReadonlyArray<{
   { to: '/mcp', label: 'MCP' },
   { to: '/audit', label: 'Audit' },
   { to: '/skills', label: 'Skills' },
+  { to: '/plugins', label: 'Plugins' },
   { to: '/tools', label: 'Tools' },
   { to: '/config', label: 'Config', icon: 'cog' },
 ];

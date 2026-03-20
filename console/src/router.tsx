@@ -12,6 +12,7 @@ import { DashboardPage } from './routes/dashboard';
 import { GatewayPage } from './routes/gateway';
 import { McpPage } from './routes/mcp';
 import { ModelsPage } from './routes/models';
+import { PluginsPage } from './routes/plugins';
 import { SchedulerPage } from './routes/scheduler';
 import { SessionsPage } from './routes/sessions';
 import { SkillsPage } from './routes/skills';
@@ -89,6 +90,12 @@ const skillsRoute = createRoute({
   component: SkillsPage,
 });
 
+const pluginsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/plugins',
+  component: PluginsPage,
+});
+
 const toolsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/tools',
@@ -106,6 +113,7 @@ const routeTree = rootRoute.addChildren([
   mcpRoute,
   auditRoute,
   skillsRoute,
+  pluginsRoute,
   toolsRoute,
 ]);
 
