@@ -20,7 +20,7 @@ configSchema:
     searchMode:
       type: string
       enum: [search, vsearch, query]
-      default: search
+      default: query
     maxResults:
       type: number
       default: 10

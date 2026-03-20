@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-const DEFAULT_SEARCH_MODE = 'search';
+const DEFAULT_SEARCH_MODE = 'query';
 
 function normalizeString(value) {
   return typeof value === 'string' ? value.trim() : '';

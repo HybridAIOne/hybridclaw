@@ -26,6 +26,10 @@ test('registers plugin as a slash/text command', async () => {
           }),
           expect.objectContaining({
             kind: 'subcommand',
+            name: 'config',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
             name: 'install',
           }),
           expect.objectContaining({
@@ -66,6 +70,34 @@ test('parses /plugin reload into gateway args', async () => {
       getSubcommand: () => 'reload',
     }),
   ).toEqual(['plugin', 'reload']);
+});
+
+test('parses /plugin config into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'plugin',
+      getString: (name) =>
+        name === 'id'
+          ? 'qmd-memory'
+          : name === 'key'
+            ? 'searchMode'
+            : name === 'value'
+              ? 'query'
+              : null,
+      getSubcommand: () => 'config',
+    }),
+  ).toEqual(['plugin', 'config', 'qmd-memory', 'searchMode', 'query']);
+  expect(
+    mapCanonicalCommandToGatewayArgs([
+      'plugin',
+      'config',
+      'qmd-memory',
+      'searchMode',
+      'query',
+    ]),
+  ).toEqual(['plugin', 'config', 'qmd-memory', 'searchMode', 'query']);
 });
 
 test('parses /plugin install into gateway args', async () => {

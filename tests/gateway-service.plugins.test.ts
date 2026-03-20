@@ -7,9 +7,13 @@ const {
   reloadPluginManagerMock,
   shutdownPluginManagerMock,
   installPluginMock,
+  readPluginConfigEntryMock,
+  readPluginConfigValueMock,
   reinstallPluginMock,
+  unsetPluginConfigValueMock,
   uninstallPluginMock,
   pluginManagerMock,
+  writePluginConfigValueMock,
 } = vi.hoisted(() => {
   const pluginManager = {
     collectPromptContextDetails: vi.fn(async () => ({
@@ -52,6 +56,30 @@ const {
       requiresEnv: ['DEMO_PLUGIN_TOKEN'],
       requiredConfigKeys: ['workspaceId'],
     })),
+    readPluginConfigEntryMock: vi.fn((pluginId: string) => ({
+      pluginId,
+      configPath: '/tmp/config.json',
+      entry: {
+        id: pluginId,
+        enabled: true,
+        config: {
+          searchMode: 'query',
+        },
+      },
+    })),
+    readPluginConfigValueMock: vi.fn((pluginId: string, key: string) => ({
+      pluginId,
+      key,
+      value: 'query',
+      configPath: '/tmp/config.json',
+      entry: {
+        id: pluginId,
+        enabled: true,
+        config: {
+          [key]: 'query',
+        },
+      },
+    })),
     reinstallPluginMock: vi.fn(async (source: string) => ({
       pluginId: 'demo-plugin',
       pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
@@ -68,6 +96,32 @@ const {
       removedPluginDir: true,
       removedConfigOverrides: 1,
     })),
+    unsetPluginConfigValueMock: vi.fn(async (pluginId: string, key: string) => ({
+      pluginId,
+      key,
+      value: undefined,
+      changed: true,
+      removed: true,
+      configPath: '/tmp/config.json',
+      entry: null,
+    })),
+    writePluginConfigValueMock: vi.fn(
+      async (pluginId: string, key: string, rawValue: string) => ({
+        pluginId,
+        key,
+        value: rawValue,
+        changed: true,
+        removed: false,
+        configPath: '/tmp/config.json',
+        entry: {
+          id: pluginId,
+          enabled: true,
+          config: {
+            [key]: rawValue,
+          },
+        },
+      }),
+    ),
     pluginManagerMock: pluginManager,
   };
 });
@@ -88,6 +142,13 @@ vi.mock('../src/plugins/plugin-install.js', () => ({
   uninstallPlugin: uninstallPluginMock,
 }));
 
+vi.mock('../src/plugins/plugin-config.js', () => ({
+  readPluginConfigEntry: readPluginConfigEntryMock,
+  readPluginConfigValue: readPluginConfigValueMock,
+  unsetPluginConfigValue: unsetPluginConfigValueMock,
+  writePluginConfigValue: writePluginConfigValueMock,
+}));
+
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-plugins-',
   cleanup: () => {
@@ -106,8 +167,12 @@ const { setupHome } = setupGatewayTest({
     pluginManagerMock.findCommand.mockClear();
     shutdownPluginManagerMock.mockClear();
     installPluginMock.mockClear();
+    readPluginConfigEntryMock.mockClear();
+    readPluginConfigValueMock.mockClear();
     reinstallPluginMock.mockClear();
+    unsetPluginConfigValueMock.mockClear();
     uninstallPluginMock.mockClear();
+    writePluginConfigValueMock.mockClear();
   },
 });
 
@@ -294,6 +359,68 @@ test('handleGatewayCommand lists plugin summaries', async () => {
   expect(result.text).toContain('tools: demo_echo');
   expect(result.text).toContain('broken-plugin [home]');
   expect(result.text).toContain('error: register exploded');
+});
+
+test('handleGatewayCommand shows plugin config overrides', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-config-show',
+    guildId: null,
+    channelId: 'web',
+    args: ['plugin', 'config', 'qmd-memory'],
+  });
+
+  expect(readPluginConfigEntryMock).toHaveBeenCalledWith('qmd-memory');
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Config');
+  expect(result.text).toContain('Plugin: qmd-memory');
+  expect(result.text).toContain('Config file: /tmp/config.json');
+  expect(result.text).toContain('"searchMode": "query"');
+});
+
+test('handleGatewayCommand updates plugin config from a local TUI/web session and reloads plugins', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-config-set',
+    guildId: null,
+    channelId: 'tui',
+    args: ['plugin', 'config', 'qmd-memory', 'searchMode', 'query'],
+  });
+
+  expect(writePluginConfigValueMock).toHaveBeenCalledWith(
+    'qmd-memory',
+    'searchMode',
+    'query',
+  );
+  expect(reloadPluginManagerMock).toHaveBeenCalled();
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Config Updated');
+  expect(result.text).toContain('Plugin: qmd-memory');
+  expect(result.text).toContain('Key: searchMode');
+  expect(result.text).toContain('Value: "query"');
+  expect(result.text).toContain('Plugin runtime reloaded.');
 });
 
 test('handleGatewayCommand installs a plugin from a local TUI/web session and reloads plugins', async () => {
@@ -515,6 +642,9 @@ test('handleGatewayCommand help continues without plugins when plugin manager in
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('HybridClaw Commands');
+  expect(result.text).toContain(
+    '`plugin config <plugin-id> [key] [value|--unset]`',
+  );
   expect(result.text).toContain('`plugin install <path|npm-spec>`');
   expect(result.text).toContain('`plugin reinstall <path|npm-spec>`');
   expect(result.text).toContain('`plugin reload`');

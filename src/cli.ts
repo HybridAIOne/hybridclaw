@@ -813,12 +813,14 @@ function printPluginUsage(): void {
 
 Commands:
   hybridclaw plugin list
+  hybridclaw plugin config <plugin-id> [key] [value|--unset]
   hybridclaw plugin install <path|npm-spec>
   hybridclaw plugin reinstall <path|npm-spec>
   hybridclaw plugin uninstall <plugin-id>
 
 Examples:
   hybridclaw plugin list
+  hybridclaw plugin config qmd-memory searchMode query
   hybridclaw plugin install ./plugins/example-plugin
   hybridclaw plugin install @scope/hybridclaw-plugin-example
   hybridclaw plugin reinstall ./plugins/example-plugin
@@ -828,6 +830,7 @@ Notes:
   - Plugins install into \`~/.hybridclaw/plugins/<plugin-id>\`.
   - Valid plugins in \`~/.hybridclaw/plugins/\` or \`./.hybridclaw/plugins/\` auto-discover at runtime.
   - \`list\` shows discovered plugin status, source, description, commands, tools, hooks, and load errors.
+  - \`config\` edits top-level \`plugins.list[].config\` keys in ${runtimeConfigPath()}.
   - \`install\` validates \`hybridclaw.plugin.yaml\` and installs npm dependencies when needed.
   - \`reinstall\` replaces the home-installed plugin tree and preserves existing \`plugins.list[]\` overrides.
   - \`uninstall\` removes the home-installed plugin directory and matching \`plugins.list[]\` overrides.
@@ -3819,6 +3822,16 @@ async function handleSkillCommand(args: string[]): Promise<void> {
 }
 
 async function handlePluginCommand(args: string[]): Promise<void> {
+  function formatPluginConfigValue(value: unknown): string {
+    if (value === undefined) return '(not set)';
+    if (typeof value === 'string') return JSON.stringify(value);
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+
   const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printPluginUsage();
@@ -3839,6 +3852,63 @@ async function handlePluginCommand(args: string[]): Promise<void> {
     );
     const manager = await ensurePluginManagerInitialized();
     console.log(formatPluginSummaryList(manager.listPluginSummary()));
+    return;
+  }
+
+  if (sub === 'config') {
+    const pluginId = normalized[1];
+    const key = normalized[2];
+    const rawValue = normalized.slice(3).join(' ').trim();
+    if (!pluginId) {
+      printPluginUsage();
+      throw new Error(
+        'Missing plugin id for `hybridclaw plugin config <plugin-id> [key] [value|--unset]`.',
+      );
+    }
+
+    const {
+      readPluginConfigEntry,
+      readPluginConfigValue,
+      unsetPluginConfigValue,
+      writePluginConfigValue,
+    } = await import('./plugins/plugin-config.js');
+
+    if (!key) {
+      const result = readPluginConfigEntry(pluginId);
+      console.log(`Plugin: ${result.pluginId}`);
+      console.log(`Config file: ${result.configPath}`);
+      console.log(
+        `Override: ${result.entry ? formatPluginConfigValue(result.entry) : '(none)'}`,
+      );
+      return;
+    }
+
+    if (!rawValue) {
+      const result = readPluginConfigValue(pluginId, key);
+      console.log(`Plugin: ${result.pluginId}`);
+      console.log(`Key: ${result.key}`);
+      console.log(`Value: ${formatPluginConfigValue(result.value)}`);
+      console.log(`Config file: ${result.configPath}`);
+      return;
+    }
+
+    const result =
+      rawValue === '--unset'
+        ? await unsetPluginConfigValue(pluginId, key)
+        : await writePluginConfigValue(pluginId, key, rawValue);
+    console.log(
+      result.removed
+        ? result.changed
+          ? `Removed plugin config ${result.pluginId}.${result.key}.`
+          : `Plugin config ${result.pluginId}.${result.key} was already unset.`
+        : `Set plugin config ${result.pluginId}.${result.key} = ${formatPluginConfigValue(result.value)}.`,
+    );
+    console.log(`Updated runtime config at ${result.configPath}.`);
+    console.log(
+      'Restart the gateway to load plugin config changes if it is running:',
+    );
+    console.log('  hybridclaw gateway restart --foreground');
+    console.log('  hybridclaw gateway status');
     return;
   }
 
@@ -3990,7 +4060,7 @@ async function handlePluginCommand(args: string[]): Promise<void> {
   }
   printPluginUsage();
   throw new Error(
-    `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\`, \`hybridclaw plugin install <path|npm-spec>\`, \`hybridclaw plugin reinstall <path|npm-spec>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
+    `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\`, \`hybridclaw plugin config <plugin-id> [key] [value|--unset]\`, \`hybridclaw plugin install <path|npm-spec>\`, \`hybridclaw plugin reinstall <path|npm-spec>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
   );
 }
 

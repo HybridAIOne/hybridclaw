@@ -116,6 +116,12 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
 import {
+  readPluginConfigEntry,
+  readPluginConfigValue,
+  unsetPluginConfigValue,
+  writePluginConfigValue,
+} from '../plugins/plugin-config.js';
+import {
   installPlugin,
   reinstallPlugin,
   uninstallPlugin,
@@ -4802,6 +4808,16 @@ export async function handleGatewayCommand(
     }
   }
 
+  function formatPluginConfigValue(value: unknown): string {
+    if (value === undefined) return '(not set)';
+    if (typeof value === 'string') return JSON.stringify(value);
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+
   const result = await (async (): Promise<GatewayCommandResult> => {
     switch (cmd) {
       case 'help': {
@@ -4831,6 +4847,7 @@ export async function handleGatewayCommand(
           '`mcp toggle <name>` — Enable or disable an MCP server',
           '`mcp reconnect <name>` — Restart current session runtime so the server reconnects next turn',
           '`plugin list` — List discovered plugins, descriptions, commands, and load status',
+          '`plugin config <plugin-id> [key] [value|--unset]` — Show or change a plugin config override',
           '`plugin install <path|npm-spec>` — Install a plugin from a local TUI/web session',
           '`plugin reinstall <path|npm-spec>` — Replace an installed plugin from a local TUI/web session',
           '`plugin reload` — Reload all plugins (picks up code changes without gateway restart)',
@@ -4850,6 +4867,7 @@ export async function handleGatewayCommand(
           '`/model info` — Show effective, session, agent, and default model details',
           '`/model default [name]` — Show or set the default model for new sessions',
           '`/plugin list` — List discovered plugins, descriptions, commands, and load status',
+          '`/plugin config <plugin-id> [key] [value|--unset]` — Show or change a plugin config override',
           '`/plugin install <path|npm-spec>` — Install a plugin from a local TUI/web session',
           '`/plugin reinstall <path|npm-spec>` — Replace an installed plugin from a local TUI/web session',
           '`/plugin reload` — Reload all plugins (picks up code changes without gateway restart)',
@@ -5680,6 +5698,108 @@ export async function handleGatewayCommand(
             formatPluginSummaryList(pluginManager.listPluginSummary()),
           );
         }
+        if (sub === 'config') {
+          const pluginId = String(req.args[2] || '').trim();
+          const key = String(req.args[3] || '').trim();
+          const rawValue = req.args.slice(4).join(' ').trim();
+          if (!pluginId) {
+            return badCommand(
+              'Usage',
+              'Usage: `plugin config <plugin-id> [key] [value|--unset]`',
+            );
+          }
+          if (!key) {
+            const result = readPluginConfigEntry(pluginId);
+            if (!result.entry) {
+              return infoCommand(
+                'Plugin Config',
+                [
+                  `Plugin: ${result.pluginId}`,
+                  `Config file: ${result.configPath}`,
+                  'Override: (none)',
+                ].join('\n'),
+              );
+            }
+            return infoCommand(
+              'Plugin Config',
+              [
+                `Plugin: ${result.pluginId}`,
+                `Config file: ${result.configPath}`,
+                'Override:',
+                formatPluginConfigValue(result.entry),
+              ].join('\n'),
+            );
+          }
+          if (!rawValue) {
+            const result = readPluginConfigValue(pluginId, key);
+            return infoCommand(
+              'Plugin Config',
+              [
+                `Plugin: ${result.pluginId}`,
+                `Key: ${result.key}`,
+                `Value: ${formatPluginConfigValue(result.value)}`,
+                `Config file: ${result.configPath}`,
+              ].join('\n'),
+            );
+          }
+          if (
+            req.guildId !== null ||
+            (req.channelId !== 'web' && req.channelId !== 'tui')
+          ) {
+            return badCommand(
+              'Plugin Config Restricted',
+              '`plugin config` writes runtime config and is only available from local TUI/web sessions.',
+            );
+          }
+
+          const previousConfig = getRuntimeConfig();
+          try {
+            const result =
+              rawValue === '--unset'
+                ? await unsetPluginConfigValue(pluginId, key)
+                : await writePluginConfigValue(pluginId, key, rawValue);
+            const reloadResult = await reloadPluginRuntime();
+            if (!reloadResult.ok) {
+              saveRuntimeConfig(previousConfig);
+              await reloadPluginRuntime();
+              return badCommand(
+                'Plugin Config Failed',
+                [
+                  `Plugin: ${result.pluginId}`,
+                  `Key: ${result.key}`,
+                  `Updated runtime config at \`${result.configPath}\`, but plugin reload failed.`,
+                  'Previous runtime config was restored.',
+                ].join('\n'),
+              );
+            }
+            return infoCommand(
+              result.removed
+                ? result.changed
+                  ? 'Plugin Config Removed'
+                  : 'Plugin Config Unchanged'
+                : result.changed
+                  ? 'Plugin Config Updated'
+                  : 'Plugin Config Unchanged',
+              [
+                `Plugin: ${result.pluginId}`,
+                `Key: ${result.key}`,
+                result.removed
+                  ? result.changed
+                    ? 'Value: (unset)'
+                    : 'Value was already unset.'
+                  : `Value: ${formatPluginConfigValue(result.value)}`,
+                `Updated runtime config at \`${result.configPath}\`.`,
+                reloadResult.message,
+              ].join('\n'),
+            );
+          } catch (error) {
+            saveRuntimeConfig(previousConfig);
+            return badCommand(
+              'Plugin Config Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
         if (sub === 'install') {
           const source = String(req.args[2] || '').trim();
           if (!source) {
@@ -5805,7 +5925,7 @@ export async function handleGatewayCommand(
         }
         return badCommand(
           'Usage',
-          'Usage: `plugin list|install <path|npm-spec>|reinstall <path|npm-spec>|reload|uninstall <plugin-id>`',
+          'Usage: `plugin list|config <plugin-id> [key] [value|--unset]|install <path|npm-spec>|reinstall <path|npm-spec>|reload|uninstall <plugin-id>`',
         );
       }
 

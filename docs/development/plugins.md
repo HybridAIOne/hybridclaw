@@ -9,6 +9,7 @@ Use the CLI to install a plugin from a local directory or npm package:
 
 ```bash
 hybridclaw plugin list
+hybridclaw plugin config example-plugin workspaceId workspace-a
 hybridclaw plugin install ./plugins/example-plugin
 hybridclaw plugin install @scope/hybridclaw-plugin-example
 hybridclaw plugin reinstall ./plugins/example-plugin
@@ -18,6 +19,7 @@ hybridclaw plugin uninstall example-plugin
 From a local TUI/web session you can also run:
 
 ```text
+/plugin config example-plugin workspaceId workspace-a
 /plugin install ./plugins/example-plugin
 /plugin reinstall ./plugins/example-plugin
 /plugin reload
@@ -46,6 +48,57 @@ Project-local plugin directories still need to be deleted manually.
 
 Required secrets or plugin-specific config values still need to be filled in
 after install.
+
+Use `plugin config <plugin-id> [key] [value|--unset]` when you want to inspect
+or change one top-level `plugins.list[].config` key without editing
+`~/.hybridclaw/config.json` by hand.
+
+When a reply uses plugin-provided prompt context, the TUI shows a footer such
+as `🪼 plugins: qmd-memory`. For deeper verification, inspect
+`~/.hybridclaw/data/last_prompt.jsonl`; plugin-injected retrieval appears under
+its own `## Retrieved Context` section instead of being merged into generic
+session memory.
+
+## How-To
+
+### Change one plugin setting from the TUI
+
+```text
+/plugin config qmd-memory searchMode query
+/plugin config qmd-memory searchMode
+/plugin config qmd-memory searchMode --unset
+```
+
+Use `--unset` to remove the override and fall back to the plugin schema
+default.
+
+### Pick up local plugin code changes
+
+```text
+/plugin reinstall ./plugins/qmd-memory
+/plugin reload
+```
+
+`install` and `reinstall` copy the plugin into `~/.hybridclaw/plugins/`.
+`/plugin reload` reloads the installed copy; it does not sync edits directly
+from the repo working tree.
+
+### Know when reload is not enough
+
+- `/plugin reload` reloads plugin modules and runtime registrations.
+- Restart the gateway/TUI when HybridClaw core code changed under `src/`.
+- Rebuild/reinstall the global `hybridclaw` package if your running binary is
+  not using the current repo checkout.
+
+## Tips & Tricks
+
+- Use `/plugin list` first to separate discovery/config problems from retrieval
+  problems.
+- If a plugin is enabled but appears unused, inspect
+  `~/.hybridclaw/data/last_prompt.jsonl` rather than guessing. Prompt-injection
+  plugins leave evidence there even when the final answer is poor.
+- `plugins.list[]` is an override layer. Prefer `plugin config ...` for small
+  setting changes instead of hand-editing `~/.hybridclaw/config.json`.
 
 ## Discovery And Enablement
 

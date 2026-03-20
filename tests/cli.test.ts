@@ -241,6 +241,58 @@ async function importFreshCli(options?: {
       }
     );
   });
+  const readPluginConfigEntry = vi.fn((pluginId: string) => ({
+    pluginId,
+    configPath: '/tmp/config.json',
+    entry: {
+      id: pluginId,
+      enabled: true,
+      config: {
+        searchMode: 'query',
+      },
+    },
+  }));
+  const readPluginConfigValue = vi.fn((pluginId: string, key: string) => ({
+    pluginId,
+    key,
+    value: 'query',
+    configPath: '/tmp/config.json',
+    entry: {
+      id: pluginId,
+      enabled: true,
+      config: {
+        [key]: 'query',
+      },
+    },
+  }));
+  const unsetPluginConfigValue = vi.fn(
+    async (pluginId: string, key: string) => ({
+      pluginId,
+      key,
+      value: undefined,
+      changed: true,
+      removed: true,
+      configPath: '/tmp/config.json',
+      entry: null,
+    }),
+  );
+  const writePluginConfigValue = vi.fn(
+    async (pluginId: string, key: string, rawValue: string) => ({
+      pluginId,
+      key,
+      value: rawValue,
+      changed: true,
+      removed: false,
+      configPath: '/tmp/config.json',
+      entry: {
+        id: pluginId,
+        enabled: true,
+        config: {
+          [key]: rawValue,
+        },
+      },
+    }),
+  );
   const listPluginSummary = vi.fn(() => options?.pluginListSummary || []);
   const ensurePluginManagerInitialized = vi.fn(async () => ({
     listPluginSummary,
@@ -489,6 +541,12 @@ async function importFreshCli(options?: {
     reinstallPlugin,
     uninstallPlugin,
   }));
+  vi.doMock('../src/plugins/plugin-config.js', () => ({
+    readPluginConfigEntry,
+    readPluginConfigValue,
+    unsetPluginConfigValue,
+    writePluginConfigValue,
+  }));
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
     ensurePluginManagerInitialized,
     shutdownPluginManager: vi.fn(async () => {}),
@@ -521,6 +579,10 @@ async function importFreshCli(options?: {
     installPlugin,
     reinstallPlugin,
     uninstallPlugin,
+    readPluginConfigEntry,
+    readPluginConfigValue,
+    unsetPluginConfigValue,
+    writePluginConfigValue,
     listPluginSummary,
     ensurePluginManagerInitialized,
     whatsappStart,
@@ -570,6 +632,7 @@ afterEach(() => {
   vi.doUnmock('../src/tui.ts');
   vi.doUnmock('../src/plugins/plugin-install.ts');
   vi.doUnmock('../src/plugins/plugin-install.js');
+  vi.doUnmock('../src/plugins/plugin-config.js');
   vi.doUnmock('../src/plugins/plugin-manager.js');
   vi.doUnmock('../src/update.ts');
   vi.resetModules();
@@ -779,6 +842,39 @@ describe('CLI hybridai commands', () => {
 
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('hybridclaw auth login msteams'),
+    );
+  });
+
+  it('shows a plugin config override', async () => {
+    const { cli, readPluginConfigEntry } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'config', 'qmd-memory']);
+
+    expect(readPluginConfigEntry).toHaveBeenCalledWith('qmd-memory');
+    expect(logSpy).toHaveBeenCalledWith('Plugin: qmd-memory');
+    expect(logSpy).toHaveBeenCalledWith('Config file: /tmp/config.json');
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"searchMode": "query"'),
+    );
+  });
+
+  it('sets a plugin config override', async () => {
+    const { cli, writePluginConfigValue } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'config', 'qmd-memory', 'searchMode', 'query']);
+
+    expect(writePluginConfigValue).toHaveBeenCalledWith(
+      'qmd-memory',
+      'searchMode',
+      'query',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Set plugin config qmd-memory.searchMode = "query".',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Updated runtime config at /tmp/config.json.',
     );
   });
 

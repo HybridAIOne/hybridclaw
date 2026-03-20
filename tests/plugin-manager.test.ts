@@ -293,6 +293,59 @@ function writeJavaScriptCommandPlugin(
   return entrypoint;
 }
 
+function writeJavaScriptCommandPluginWithHelper(
+  rootDir: string,
+  exportName: string,
+  response: string,
+): string {
+  const pluginDir = path.join(
+    rootDir,
+    '.hybridclaw',
+    'plugins',
+    'js-command-plugin',
+  );
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    ['id: js-command-plugin', 'name: JS Command Plugin', 'kind: tool', ''].join(
+      '\n',
+    ),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'qmd-process.js'),
+    [
+      `export function ${exportName}() {`,
+      `  return ${JSON.stringify(response)};`,
+      '}',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  const entrypoint = path.join(pluginDir, 'index.js');
+  fs.writeFileSync(
+    entrypoint,
+    [
+      `import { ${exportName} } from './qmd-process.js';`,
+      'export default {',
+      "  id: 'js-command-plugin',",
+      '  register(api) {',
+      '    api.registerCommand({',
+      "      name: 'js_status',",
+      "      description: 'Show JS plugin status',",
+      '      handler() {',
+      `        return ${exportName}();`,
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  return entrypoint;
+}
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -537,6 +590,81 @@ test('plugin manager reloads JavaScript entrypoints without stale module cache',
   writeJavaScriptCommandPlugin(cwd, 'second');
   const nextTimestamp = new Date(fs.statSync(entrypoint).mtimeMs + 2000);
   fs.utimesSync(entrypoint, nextTimestamp, nextTimestamp);
+
+  const secondManager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await secondManager.ensureInitialized();
+
+  const secondCommand = secondManager.findCommand('js_status');
+  expect(secondCommand).toBeDefined();
+  if (!secondCommand) {
+    throw new Error('Expected js_status command to be registered');
+  }
+  await expect(
+    Promise.resolve(
+      secondCommand.handler([], {
+        sessionId: 'session-1',
+        channelId: 'web',
+      }),
+    ),
+  ).resolves.toBe('second');
+
+  await secondManager.shutdown();
+});
+
+test('plugin manager reloads JavaScript helper modules with the entrypoint', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const entrypoint = writeJavaScriptCommandPluginWithHelper(
+    cwd,
+    'buildQmdPromptContext',
+    'first',
+  );
+  const helperPath = path.join(
+    path.dirname(entrypoint),
+    'qmd-process.js',
+  );
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const firstManager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  await firstManager.ensureInitialized();
+
+  const firstCommand = firstManager.findCommand('js_status');
+  expect(firstCommand).toBeDefined();
+  if (!firstCommand) {
+    throw new Error('Expected js_status command to be registered');
+  }
+  await expect(
+    Promise.resolve(
+      firstCommand.handler([], {
+        sessionId: 'session-1',
+        channelId: 'web',
+      }),
+    ),
+  ).resolves.toBe('first');
+
+  await firstManager.shutdown();
+
+  writeJavaScriptCommandPluginWithHelper(
+    cwd,
+    'buildQmdPromptContextResult',
+    'second',
+  );
+  const nextTimestamp = new Date(fs.statSync(entrypoint).mtimeMs + 2000);
+  fs.utimesSync(entrypoint, nextTimestamp, nextTimestamp);
+  fs.utimesSync(helperPath, nextTimestamp, nextTimestamp);
 
   const secondManager = new PluginManager({
     homeDir,

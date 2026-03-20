@@ -222,6 +222,13 @@ test('QMD plugin injects external prompt context and exposes a status command', 
       channelId: 'web',
       userId: 'user-1',
     }),
+  ).resolves.toContain('Search mode: query');
+  await expect(
+    command?.handler(['status'], {
+      sessionId: 'session-1',
+      channelId: 'web',
+      userId: 'user-1',
+    }),
   ).resolves.toContain('Index ready');
   await expect(
     command?.handler(['collection', 'add', '.'], {

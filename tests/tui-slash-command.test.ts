@@ -114,6 +114,15 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(
     mapTuiSlashCommandToGatewayArgs([
       'plugin',
+      'config',
+      'qmd-memory',
+      'searchMode',
+      'query',
+    ]),
+  ).toEqual(['plugin', 'config', 'qmd-memory', 'searchMode', 'query']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'plugin',
       'install',
       './plugins/qmd-memory',
     ]),

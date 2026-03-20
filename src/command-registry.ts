@@ -256,6 +256,15 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'plugin': {
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub || sub === 'list') return ['plugin', 'list'];
+      if (sub === 'config') {
+        const pluginId = (parts[2] || '').trim();
+        const key = (parts[3] || '').trim();
+        const value = parts.slice(4).join(' ').trim();
+        if (!pluginId) return ['plugin', 'config'];
+        if (!key) return ['plugin', 'config', pluginId];
+        if (!value) return ['plugin', 'config', pluginId, key];
+        return ['plugin', 'config', pluginId, key, value];
+      }
       if (sub === 'install') {
         const source = parts.slice(2).join(' ').trim();
         return source ? ['plugin', 'install', source] : ['plugin', 'install'];
@@ -615,13 +624,41 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'plugin',
       description:
-        'List, install, reinstall, reload, or uninstall HybridClaw plugins',
+        'List, configure, install, reinstall, reload, or uninstall HybridClaw plugins',
       options: [
         {
           kind: 'subcommand',
           name: 'list',
           description:
             'List discovered plugins, descriptions, commands, tools, hooks, and load errors',
+        },
+        {
+          kind: 'subcommand',
+          name: 'config',
+          description:
+            'Show or set a top-level plugins.list[] config override',
+          tuiMenu: {
+            label: '/plugin config <id> [key] [value|--unset]',
+            insertText: '/plugin config ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Plugin id',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'key',
+              description: 'Top-level plugin config key',
+            },
+            {
+              kind: 'string',
+              name: 'value',
+              description: 'Config value or --unset',
+            },
+          ],
         },
         {
           kind: 'subcommand',
@@ -1364,6 +1401,15 @@ export function parseCanonicalSlashCommandArgs(
     case 'plugin': {
       const subcommand = normalizeSubcommand(interaction);
       if (subcommand === 'list') return ['plugin', 'list'];
+      if (subcommand === 'config') {
+        const pluginId = normalizeStringOption(interaction, 'id', true);
+        const key = normalizeStringOption(interaction, 'key');
+        const value = normalizeStringOption(interaction, 'value');
+        if (!pluginId) return null;
+        if (!key) return ['plugin', 'config', pluginId];
+        if (!value) return ['plugin', 'config', pluginId, key];
+        return ['plugin', 'config', pluginId, key, value];
+      }
       if (subcommand === 'install') {
         const source = normalizeStringOption(interaction, 'source', true);
         return source ? ['plugin', 'install', source] : null;

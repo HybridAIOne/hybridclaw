@@ -469,41 +469,84 @@ export function validatePluginConfig(
   return normalized;
 }
 
-async function importPluginModule(entrypoint: string): Promise<unknown> {
-  if (entrypoint.endsWith('.ts')) {
-    const source = fs.readFileSync(entrypoint, 'utf-8');
-    const stripped = stripTypeScriptTypes(source, { mode: 'strip' });
-    const compiledPath = path.join(
-      path.dirname(entrypoint),
-      `.${path.basename(entrypoint, '.ts')}.hybridclaw.mjs`,
+function createPluginImportSnapshot(
+  pluginDir: string,
+): { rootDir: string; snapshotDir: string } {
+  const rootDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-plugin-import-'),
+  );
+  const snapshotDir = path.join(rootDir, 'plugin');
+  fs.cpSync(pluginDir, snapshotDir, {
+    recursive: true,
+    force: true,
+    filter: (sourcePath) => {
+      const baseName = path.basename(sourcePath);
+      if (baseName === 'node_modules') return false;
+      if (sourcePath.endsWith('.hybridclaw.mjs')) return false;
+      return true;
+    },
+  });
+
+  const sourceNodeModules = path.join(pluginDir, 'node_modules');
+  if (fs.existsSync(sourceNodeModules)) {
+    fs.symlinkSync(
+      sourceNodeModules,
+      path.join(snapshotDir, 'node_modules'),
+      process.platform === 'win32' ? 'junction' : 'dir',
     );
-    fs.writeFileSync(
-      compiledPath,
-      `${stripped}\n//# sourceURL=${pathToFileURL(entrypoint).href}\n`,
-      'utf-8',
-    );
-    try {
-      return await import(
-        `${pathToFileURL(compiledPath).href}?t=${fs.statSync(compiledPath).mtimeMs}`
-      );
-    } finally {
-      try {
-        fs.rmSync(compiledPath, { force: true });
-      } catch (error) {
-        rootLogger.warn(
-          {
-            entrypoint,
-            compiledPath,
-            error,
-          },
-          'Failed to clean up temporary compiled plugin module',
-        );
-      }
-    }
   }
-  const entrypointUrl = pathToFileURL(entrypoint);
-  entrypointUrl.searchParams.set('t', String(fs.statSync(entrypoint).mtimeMs));
-  return import(entrypointUrl.href);
+
+  return { rootDir, snapshotDir };
+}
+
+function cleanupPluginImportSnapshot(rootDir: string): void {
+  try {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  } catch (error) {
+    rootLogger.warn(
+      { rootDir, error },
+      'Failed to clean up temporary plugin import snapshot',
+    );
+  }
+}
+
+async function importPluginModule(
+  entrypoint: string,
+  pluginDir: string,
+): Promise<{ module: unknown; snapshotRootDir: string }> {
+  const { rootDir, snapshotDir } = createPluginImportSnapshot(pluginDir);
+  const snapshotEntrypoint = path.join(
+    snapshotDir,
+    path.relative(pluginDir, entrypoint),
+  );
+
+  try {
+    if (entrypoint.endsWith('.ts')) {
+      const source = fs.readFileSync(snapshotEntrypoint, 'utf-8');
+      const stripped = stripTypeScriptTypes(source, { mode: 'strip' });
+      const compiledPath = path.join(
+        path.dirname(snapshotEntrypoint),
+        `.${path.basename(snapshotEntrypoint, '.ts')}.hybridclaw.mjs`,
+      );
+      fs.writeFileSync(
+        compiledPath,
+        `${stripped}\n//# sourceURL=${pathToFileURL(entrypoint).href}\n`,
+        'utf-8',
+      );
+      return {
+        module: await import(pathToFileURL(compiledPath).href),
+        snapshotRootDir: rootDir,
+      };
+    }
+
+    return {
+      module: await import(pathToFileURL(snapshotEntrypoint).href),
+      snapshotRootDir: rootDir,
+    };
+  } catch (error) {
+    cleanupPluginImportSnapshot(rootDir);
+    throw error;
+  }
 }
 
 function resolvePluginDefinition(mod: unknown): HybridClawPluginDefinition {
@@ -549,6 +592,7 @@ export class PluginManager {
   private channels: RegisteredChannel[] = [];
   private commands = new Map<string, RegisteredCommand>();
   private hooks = new Map<PluginHookName, RegisteredHook[]>();
+  private importSnapshotRoots: string[] = [];
 
   constructor(options?: PluginManagerOptions) {
     this.homeDir = options?.homeDir || os.homedir();
@@ -570,6 +614,7 @@ export class PluginManager {
       this.initialized = true;
     } catch (error) {
       this.restorePluginRegistrationSnapshot(snapshot);
+      this.cleanupImportSnapshots();
       throw error;
     } finally {
       this.initializing = null;
@@ -637,6 +682,14 @@ export class PluginManager {
           'Plugin service shutdown failed',
         );
       }
+    }
+
+    this.cleanupImportSnapshots();
+  }
+
+  private cleanupImportSnapshots(): void {
+    for (const rootDir of this.importSnapshotRoots.splice(0)) {
+      cleanupPluginImportSnapshot(rootDir);
     }
   }
 
@@ -836,7 +889,12 @@ export class PluginManager {
     let hooksRegistered: string[] = [];
 
     try {
-      const mod = await importPluginModule(candidate.entrypoint);
+      const importedModule = await importPluginModule(
+        candidate.entrypoint,
+        candidate.dir,
+      );
+      this.importSnapshotRoots.push(importedModule.snapshotRootDir);
+      const mod = importedModule.module;
       definition = resolvePluginDefinition(mod);
       if (definition.id.trim() !== candidate.id) {
         throw new Error(
