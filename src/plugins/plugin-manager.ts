@@ -1196,8 +1196,9 @@ export class PluginManager {
     }
 
     const beforePromptBuildHooks =
-      (this.hooks.get('before_prompt_build') as RegisteredHook<'before_prompt_build'>[] | undefined) ||
-      [];
+      (this.hooks.get('before_prompt_build') as
+        | RegisteredHook<'before_prompt_build'>[]
+        | undefined) || [];
     for (const entry of beforePromptBuildHooks) {
       const contextLengthBefore = hookContext.extraContext.length;
       try {

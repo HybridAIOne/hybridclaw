@@ -105,7 +105,9 @@ export default {
       name: 'qmd',
       description: 'Run QMD CLI commands (defaults to status)',
       async handler(args) {
-        const normalizedArgs = args.map((arg) => String(arg || '').trim()).filter(Boolean);
+        const normalizedArgs = args
+          .map((arg) => String(arg || '').trim())
+          .filter(Boolean);
         const subcommand = String(normalizedArgs[0] || 'status')
           .trim()
           .toLowerCase();
@@ -118,7 +120,9 @@ export default {
           const message =
             error instanceof Error ? error.message : String(error || 'unknown');
           return [
-            subcommand === 'status' ? 'QMD is unavailable.' : 'QMD command failed.',
+            subcommand === 'status'
+              ? 'QMD is unavailable.'
+              : 'QMD command failed.',
             `Command: ${config.command}`,
             `Working directory: ${config.workingDirectory}`,
             ...(normalizedArgs.length > 0

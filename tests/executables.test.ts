@@ -60,5 +60,9 @@ test('resolves relative executable paths against the provided cwd', async () => 
 
   const { hasExecutableCommand } = await import('../src/utils/executables.js');
   expect(hasExecutableCommand(relativePath, { cwd })).toBe(true);
-  expect(hasExecutableCommand(relativePath, { cwd: makeTempDir('hybridclaw-exec-other-') })).toBe(false);
+  expect(
+    hasExecutableCommand(relativePath, {
+      cwd: makeTempDir('hybridclaw-exec-other-'),
+    }),
+  ).toBe(false);
 });

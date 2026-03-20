@@ -265,12 +265,9 @@ function writeJavaScriptCommandPlugin(
   fs.mkdirSync(pluginDir, { recursive: true });
   fs.writeFileSync(
     path.join(pluginDir, 'hybridclaw.plugin.yaml'),
-    [
-      'id: js-command-plugin',
-      'name: JS Command Plugin',
-      'kind: tool',
-      '',
-    ].join('\n'),
+    ['id: js-command-plugin', 'name: JS Command Plugin', 'kind: tool', ''].join(
+      '\n',
+    ),
     'utf-8',
   );
   const entrypoint = path.join(pluginDir, 'index.js');
@@ -351,10 +348,7 @@ test('loadPluginManifest trims optional strings and normalizes nested sections',
     author: 'Example Author',
     entrypoint: 'dist/index.js',
     requires: {
-      bins: [
-        { name: 'qmd' },
-        { name: 'custom-bin', configKey: 'command' },
-      ],
+      bins: [{ name: 'qmd' }, { name: 'custom-bin', configKey: 'command' }],
       env: ['API_KEY', 'SECOND_KEY'],
       node: '>=22',
     },

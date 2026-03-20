@@ -137,7 +137,9 @@ function createOutputCollector(maxBytes) {
 }
 
 function appendOutputChunk(collector, chunk) {
-  const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf-8');
+  const buffer = Buffer.isBuffer(chunk)
+    ? chunk
+    : Buffer.from(String(chunk), 'utf-8');
   const remaining = collector.maxBytes - collector.totalBytes;
   if (remaining <= 0) {
     collector.truncated = true;
@@ -190,7 +192,7 @@ export async function runQmd(args, config) {
 
 async function runQmdWithOptions(args, config, options) {
   const timeoutMs =
-    options && Object.prototype.hasOwnProperty.call(options, 'timeoutMs')
+    options && Object.hasOwn(options, 'timeoutMs')
       ? options.timeoutMs
       : config.timeoutMs;
   return await new Promise((resolve) => {
@@ -222,7 +224,9 @@ async function runQmdWithOptions(args, config, options) {
     };
 
     const timer =
-      typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+      typeof timeoutMs === 'number' &&
+      Number.isFinite(timeoutMs) &&
+      timeoutMs > 0
         ? setTimeout(() => {
             timedOut = true;
             child.kill('SIGTERM');
@@ -346,14 +350,7 @@ function deriveFallbackSearchQuery(query) {
 
 async function searchQmd(query, config) {
   const result = await runQmd(
-    [
-      config.searchMode,
-      '--json',
-      '-n',
-      String(config.maxResults),
-      '--',
-      query,
-    ],
+    [config.searchMode, '--json', '-n', String(config.maxResults), '--', query],
     config,
   );
 
@@ -522,6 +519,6 @@ export async function runQmdCommandText(args, config) {
     result.stdoutTruncated || result.stderrTruncated
       ? appendTruncationNotice(result.stdout || result.stderr, 'output')
       : collapseTextWhitespace(result.stdout) ||
-          collapseTextWhitespace(result.stderr);
+        collapseTextWhitespace(result.stderr);
   return output || 'QMD command completed with no output.';
 }

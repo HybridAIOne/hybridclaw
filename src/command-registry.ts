@@ -620,7 +620,8 @@ function buildSlashCommandCatalogDefinitions(
         {
           kind: 'subcommand',
           name: 'reinstall',
-          description: 'Replace an installed plugin from a local TUI/web session',
+          description:
+            'Replace an installed plugin from a local TUI/web session',
           tuiMenu: {
             label: '/plugin reinstall <path|npm-spec>',
             insertText: '/plugin reinstall ',

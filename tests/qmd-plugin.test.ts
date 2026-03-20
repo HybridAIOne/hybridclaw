@@ -40,28 +40,27 @@ function writeQmdStub(
   },
 ): string {
   const scriptPath = path.join(rootDir, 'mock-qmd.mjs');
-  const searchPayload =
-    options?.searchPayload || [
-      {
-        title: 'Architecture Notes',
-        displayPath: 'notes/architecture.md',
-        snippet:
-          'Plugin commands are stored by the manager and need gateway dispatch.',
-        context: 'Project docs',
-        score: 0.93,
-      },
-      {
-        title: 'Session Export Plan',
-        displayPath: 'notes/session-export.md',
-        snippet:
-          'Export transcripts as markdown so QMD can index prior conversations.',
-        score: 0.81,
-      },
-    ];
+  const searchPayload = options?.searchPayload || [
+    {
+      title: 'Architecture Notes',
+      displayPath: 'notes/architecture.md',
+      snippet:
+        'Plugin commands are stored by the manager and need gateway dispatch.',
+      context: 'Project docs',
+      score: 0.93,
+    },
+    {
+      title: 'Session Export Plan',
+      displayPath: 'notes/session-export.md',
+      snippet:
+        'Export transcripts as markdown so QMD can index prior conversations.',
+      score: 0.81,
+    },
+  ];
   const searchPayloadByQuery = options?.searchPayloadByQuery || {};
-  const statusText = options?.statusText || 'Index ready\nCollections: notes, sessions';
-  const collectionAddText =
-    options?.collectionAddText || 'Collection added: .';
+  const statusText =
+    options?.statusText || 'Index ready\nCollections: notes, sessions';
+  const collectionAddText = options?.collectionAddText || 'Collection added: .';
   const embedText = options?.embedText || 'Embedding completed.';
   const embedDelayMs = Number(options?.embedDelayMs || 0);
   fs.writeFileSync(
@@ -208,9 +207,7 @@ test('QMD plugin injects external prompt context and exposes a status command', 
   expect(promptContext[0]).toContain(
     'These results come from an external indexed knowledge base',
   );
-  expect(promptContext[0]).toContain(
-    'do not claim the source file is missing',
-  );
+  expect(promptContext[0]).toContain('do not claim the source file is missing');
   expect(promptContext[0]).toContain('Architecture Notes');
   expect(promptContext[0]).toContain('notes/architecture.md');
   expect(promptContext[0]).toContain(
@@ -618,7 +615,9 @@ test('QMD plugin warns during startup when the QMD status probe fails', async ()
   const info = vi.fn();
   const memoryLayers: Array<{
     start?: () => Promise<void>;
-    getContextForPrompt?: (params: { recentMessages: unknown[] }) => Promise<string | null>;
+    getContextForPrompt?: (params: {
+      recentMessages: unknown[];
+    }) => Promise<string | null>;
   }> = [];
 
   const plugin = (await import('../plugins/qmd-memory/src/index.js')).default;
@@ -982,7 +981,9 @@ test('QMD plugin emits debug logs describing injected prompt context', async () 
   const warn = vi.fn();
   const info = vi.fn();
   const memoryLayers: Array<{
-    getContextForPrompt?: (params: { recentMessages: unknown[] }) => Promise<string | null>;
+    getContextForPrompt?: (params: {
+      recentMessages: unknown[];
+    }) => Promise<string | null>;
   }> = [];
 
   const plugin = (await import('../plugins/qmd-memory/src/index.js')).default;
@@ -1025,7 +1026,9 @@ test('QMD plugin emits debug logs describing injected prompt context', async () 
 
   const layer = memoryLayers[0];
   if (!layer?.getContextForPrompt) {
-    throw new Error('Expected qmd-memory layer to register getContextForPrompt');
+    throw new Error(
+      'Expected qmd-memory layer to register getContextForPrompt',
+    );
   }
 
   const promptContext = await layer.getContextForPrompt({

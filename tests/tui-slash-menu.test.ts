@@ -71,7 +71,11 @@ test('includes plugin commands in slash menu results', () => {
   ]);
 
   expect(entries.map((entry) => entry.label)).toContain('/qmd');
-  expect(rankTuiSlashMenuEntries(entries, 'q').some((entry) => entry.label === '/qmd')).toBe(true);
+  expect(
+    rankTuiSlashMenuEntries(entries, 'q').some(
+      (entry) => entry.label === '/qmd',
+    ),
+  ).toBe(true);
 });
 
 function buildControllerHarness() {

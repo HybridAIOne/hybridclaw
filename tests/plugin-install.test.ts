@@ -288,14 +288,18 @@ describe('plugin install', () => {
       'utf-8',
     );
 
-    let config = {
+    const config = {
       plugins: {
-        list: [{ id: 'demo-plugin', enabled: true, config: { workspaceId: 'a' } }],
+        list: [
+          { id: 'demo-plugin', enabled: true, config: { workspaceId: 'a' } },
+        ],
       },
     } as RuntimeConfig;
 
     const runCommand = vi.fn();
-    const { reinstallPlugin } = await import('../src/plugins/plugin-install.js');
+    const { reinstallPlugin } = await import(
+      '../src/plugins/plugin-install.js'
+    );
     const result = await reinstallPlugin(sourceDir, {
       homeDir,
       cwd,

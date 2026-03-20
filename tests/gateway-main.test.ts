@@ -331,7 +331,9 @@ async function importFreshGatewayMain(options?: {
 
   if (
     !options?.skipBootstrapHandlerCheck &&
-    (!state.commandHandler || !state.messageHandler || !state.configChangeListener)
+    (!state.commandHandler ||
+      !state.messageHandler ||
+      !state.configChangeListener)
   ) {
     throw new Error('Gateway bootstrap did not capture handlers.');
   }
@@ -420,7 +422,9 @@ describe('gateway bootstrap', () => {
       expect(capturedState).not.toBeNull();
       expect(capturedState?.startHealthServer).not.toHaveBeenCalled();
       expect(capturedState?.initDiscord).not.toHaveBeenCalled();
-      expect(capturedState?.resumeEnabledFullAutoSessions).not.toHaveBeenCalled();
+      expect(
+        capturedState?.resumeEnabledFullAutoSessions,
+      ).not.toHaveBeenCalled();
     } finally {
       releaseInit?.();
     }

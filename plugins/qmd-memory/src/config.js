@@ -37,7 +37,10 @@ export function resolveQmdPluginConfig(pluginConfig, runtime) {
       searchMode === 'vsearch' || searchMode === 'query'
         ? searchMode
         : DEFAULT_SEARCH_MODE,
-    maxResults: truncateValidatedInteger(pluginConfig?.maxResults, 'maxResults'),
+    maxResults: truncateValidatedInteger(
+      pluginConfig?.maxResults,
+      'maxResults',
+    ),
     maxSnippetChars: truncateValidatedInteger(
       pluginConfig?.maxSnippetChars,
       'maxSnippetChars',

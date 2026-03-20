@@ -74,8 +74,7 @@ test('parses /plugin install into gateway args', async () => {
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'plugin',
-      getString: (name) =>
-        name === 'source' ? './plugins/qmd-memory' : null,
+      getString: (name) => (name === 'source' ? './plugins/qmd-memory' : null),
       getSubcommand: () => 'install',
     }),
   ).toEqual(['plugin', 'install', './plugins/qmd-memory']);
@@ -94,8 +93,7 @@ test('parses /plugin reinstall into gateway args', async () => {
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'plugin',
-      getString: (name) =>
-        name === 'source' ? './plugins/qmd-memory' : null,
+      getString: (name) => (name === 'source' ? './plugins/qmd-memory' : null),
       getSubcommand: () => 'reinstall',
     }),
   ).toEqual(['plugin', 'reinstall', './plugins/qmd-memory']);
