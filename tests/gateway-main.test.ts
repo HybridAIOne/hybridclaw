@@ -420,7 +420,7 @@ describe('gateway bootstrap', () => {
       await settle();
 
       expect(capturedState).not.toBeNull();
-      expect(capturedState?.startHealthServer).not.toHaveBeenCalled();
+      expect(capturedState?.startGatewayHttpServer).not.toHaveBeenCalled();
       expect(capturedState?.initDiscord).not.toHaveBeenCalled();
       expect(
         capturedState?.resumeEnabledFullAutoSessions,
@@ -432,7 +432,7 @@ describe('gateway bootstrap', () => {
     const state = await bootstrapPromise;
 
     expect(state.initGatewayService).toHaveBeenCalledTimes(1);
-    expect(state.startHealthServer).toHaveBeenCalledTimes(1);
+    expect(state.startGatewayHttpServer).toHaveBeenCalledTimes(1);
     expect(state.initDiscord).toHaveBeenCalledTimes(1);
     expect(state.resumeEnabledFullAutoSessions).toHaveBeenCalledTimes(1);
   });
