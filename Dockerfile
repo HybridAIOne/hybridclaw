@@ -27,6 +27,9 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/console/dist ./console/dist
 
+# Shared JS modules required at runtime by gateway imports
+COPY --from=builder /app/container/shared ./container/shared
+
 EXPOSE 9090
 
 ENV HYBRIDCLAW_DATA_DIR=/workspace/.data
