@@ -88,6 +88,7 @@ import {
   normalizePlaceholderToolReply,
 } from './chat-result.js';
 import { classifyGatewayError } from './gateway-error-utils.js';
+import { startGatewayHttpServer } from './gateway-http-server.js';
 import {
   getGatewayStatus,
   handleGatewayCommand,
@@ -98,7 +99,6 @@ import {
   runGatewayScheduledTask,
   stopGatewayPlugins,
 } from './gateway-service.js';
-import { startGatewayHttpServer } from './gateway-http-server.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
   cleanupExpiredPendingApprovals,

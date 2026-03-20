@@ -620,7 +620,9 @@ async function importFreshHealth(options?: {
     runMessageToolAction,
   }));
   vi.doMock('../src/channels/discord/tool-actions.js', () => ({
-    createDiscordToolActionRunner: vi.fn(() => vi.fn(async () => ({ ok: true }))),
+    createDiscordToolActionRunner: vi.fn(() =>
+      vi.fn(async () => ({ ok: true })),
+    ),
     normalizeDiscordToolAction,
   }));
 
