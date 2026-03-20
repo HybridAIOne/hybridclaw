@@ -51,6 +51,7 @@ import {
   onConfigChange,
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
 } from '../config/config.js';
+import { startJobDispatcher } from '../jobs/dispatcher.js';
 import { logger } from '../logger.js';
 import {
   deleteQueuedProactiveMessage,
@@ -119,7 +120,6 @@ import {
   normalizeSessionShowMode,
   sessionShowModeShowsTools,
 } from './show-mode.js';
-import { startJobDispatcher } from '../jobs/dispatcher.js';
 
 let detachConfigListener: (() => void) | null = null;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;

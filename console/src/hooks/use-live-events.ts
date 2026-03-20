@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { adminEventsUrl } from '../api/client';
-import type { AdminJobsResponse, AdminOverview, GatewayStatus } from '../api/types';
+import type {
+  AdminJobsResponse,
+  AdminOverview,
+  GatewayStatus,
+} from '../api/types';
 
 interface LiveState {
   connection: 'idle' | 'connecting' | 'open' | 'error';

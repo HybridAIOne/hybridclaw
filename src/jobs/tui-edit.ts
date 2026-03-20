@@ -1,9 +1,9 @@
 import readline from 'node:readline';
 import type {
   GatewayAdminAgent,
-  GatewayHistoryMessage,
   GatewayAdminJob,
   GatewayAdminJobEvent,
+  GatewayHistoryMessage,
 } from '../gateway/gateway-types.js';
 import type { AgentJobPriority, AgentJobStatus } from '../types.js';
 
@@ -367,7 +367,9 @@ function summarizeEventPayload(action: string, payloadJson: string): string {
     if (action === 'dispatch_failed') {
       const attempt = parsed.attempt || 1;
       const error = String(parsed.error || '').trim();
-      return error ? `attempt ${attempt}: ${error}` : `attempt ${attempt} failed`;
+      return error
+        ? `attempt ${attempt}: ${error}`
+        : `attempt ${attempt} failed`;
     }
     if (action === 'dispatch_exhausted') {
       return `retries exhausted (${parsed.maxAttempts || parsed.attempt || 3})`;
@@ -427,10 +429,7 @@ export function renderTuiJobEditLines(params: {
       `  ${palette.bold}${palette.gold}Job Edit${palette.reset} ${palette.teal}#${params.job.id}${palette.reset}`,
       width,
     ),
-    truncateLine(
-      `  ${palette.muted}${controls}${palette.reset}`,
-      width,
-    ),
+    truncateLine(`  ${palette.muted}${controls}${palette.reset}`, width),
     truncateLine(
       `  ${palette.muted}Start = set status to ${palette.green}in progress${palette.reset}${palette.muted}. Save applies changes.${palette.reset}`,
       width,
@@ -525,7 +524,9 @@ export function renderTuiJobEditLines(params: {
 
 function wrapPlainText(value: string, width: number): string[] {
   const maxWidth = Math.max(10, width);
-  const sourceLines = String(value || '').replace(/\r\n?/g, '\n').split('\n');
+  const sourceLines = String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n');
   const wrapped: string[] = [];
 
   for (const sourceLine of sourceLines) {
@@ -580,8 +581,11 @@ function buildResultTranscriptLines(
   width: number,
   palette: TuiJobEditPalette,
 ): string[] {
-  const assistantMessages = messages.filter((message) => message.role === 'assistant');
-  const visibleMessages = assistantMessages.length > 0 ? assistantMessages : messages;
+  const assistantMessages = messages.filter(
+    (message) => message.role === 'assistant',
+  );
+  const visibleMessages =
+    assistantMessages.length > 0 ? assistantMessages : messages;
   const transcriptLines: string[] = [];
 
   for (const [index, message] of visibleMessages.entries()) {
@@ -596,14 +600,22 @@ function buildResultTranscriptLines(
         width,
       ),
     );
-    for (const line of wrapPlainText(message.content, Math.max(20, width - 2))) {
+    for (const line of wrapPlainText(
+      message.content,
+      Math.max(20, width - 2),
+    )) {
       transcriptLines.push(truncateLine(`  ${line}`, width));
     }
   }
 
   return transcriptLines.length > 0
     ? transcriptLines
-    : [truncateLine(`  ${palette.muted}No dispatch transcript available.${palette.reset}`, width)];
+    : [
+        truncateLine(
+          `  ${palette.muted}No dispatch transcript available.${palette.reset}`,
+          width,
+        ),
+      ];
 }
 
 export function renderTuiJobResultLines(params: {
@@ -629,8 +641,14 @@ export function renderTuiJobResultLines(params: {
   const chromeLines = 5;
   const bodyHeight = Math.max(4, height - chromeLines);
   const maxScrollOffset = Math.max(0, transcriptLines.length - bodyHeight);
-  const scrollOffset = Math.max(0, Math.min(maxScrollOffset, params.scrollOffset));
-  const visible = transcriptLines.slice(scrollOffset, scrollOffset + bodyHeight);
+  const scrollOffset = Math.max(
+    0,
+    Math.min(maxScrollOffset, params.scrollOffset),
+  );
+  const visible = transcriptLines.slice(
+    scrollOffset,
+    scrollOffset + bodyHeight,
+  );
   const lines = [
     truncateLine(
       `  ${palette.bold}${palette.gold}Job Result${palette.reset} ${palette.teal}#${params.job.id}${palette.reset}`,
@@ -825,7 +843,7 @@ export async function promptTuiJobEdit(params: {
     output.off('resize', render);
   };
 
-  const promptInline = async <T,>(work: () => Promise<T>): Promise<T> => {
+  const promptInline = async <T>(work: () => Promise<T>): Promise<T> => {
     prompting = true;
     clear();
     output.write('\x1b[?25h');

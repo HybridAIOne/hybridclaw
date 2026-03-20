@@ -1100,7 +1100,8 @@ function buildSlashCommandCatalogDefinitions(
             {
               kind: 'string',
               name: 'position',
-              description: 'Optional zero-based position in the destination lane',
+              description:
+                'Optional zero-based position in the destination lane',
             },
           ],
         },

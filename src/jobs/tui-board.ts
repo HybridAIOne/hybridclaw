@@ -116,7 +116,9 @@ function formatDetailText(
       job.status.replace(/_/g, ' '),
       job.priority,
       job.dispatch?.summary ||
-        (job.assigneeAgentId ? `assignee ${job.assigneeAgentId}` : 'unassigned'),
+        (job.assigneeAgentId
+          ? `assignee ${job.assigneeAgentId}`
+          : 'unassigned'),
       job.sourceSessionId ? `session ${job.sourceSessionId}` : 'no session',
     ].join(' · '),
     width,
@@ -339,10 +341,7 @@ export function renderTuiJobsBoardLines(params: {
     `${detailBorder}╭${'─'.repeat(detailInnerWidth + 2)}╮${palette.reset}`,
   );
   const selectedJob = activeJobs[activeCursor] || null;
-  const detailLines = formatDetailText(
-    selectedJob,
-    detailInnerWidth,
-  );
+  const detailLines = formatDetailText(selectedJob, detailInnerWidth);
   const detailContent = detailLines
     .slice(0, Math.max(1, detailRows - 2))
     .concat(

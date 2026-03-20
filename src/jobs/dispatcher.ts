@@ -6,14 +6,14 @@ import {
   moveAgentJob,
   recordAgentJobEvent,
 } from '../memory/db.js';
-import type { AgentJob } from '../types.js';
 import { buildSessionKey } from '../session/session-key.js';
-import { AGENT_JOB_BOARD_ID } from './gateway.js';
+import type { AgentJob } from '../types.js';
 import {
   inspectAgentJobDispatchState,
   JOB_DISPATCH_ACTOR_ID,
   JOB_DISPATCH_MAX_ATTEMPTS,
 } from './dispatch-state.js';
+import { AGENT_JOB_BOARD_ID } from './gateway.js';
 
 const JOB_DISPATCH_INTERVAL_MS = 5_000;
 const JOB_DISPATCH_SOURCE = 'scheduler';
@@ -412,10 +412,14 @@ export async function dispatchReadyAgentJobsOnce(): Promise<void> {
   }
 }
 
-export function startJobDispatcher(intervalMs = JOB_DISPATCH_INTERVAL_MS): void {
+export function startJobDispatcher(
+  intervalMs = JOB_DISPATCH_INTERVAL_MS,
+): void {
   if (jobDispatcherTimer) return;
   if (!jobDispatcherHost) {
-    logger.debug('Job dispatcher start skipped because the host is not configured');
+    logger.debug(
+      'Job dispatcher start skipped because the host is not configured',
+    );
     return;
   }
   logger.info({ intervalMs }, 'Job dispatcher started');

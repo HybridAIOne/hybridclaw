@@ -89,7 +89,9 @@ function summarizeEventPayload(action: string, payloadJson: string): string {
     if (action === 'dispatch_failed') {
       const attempt = parsed.attempt || 1;
       const error = String(parsed.error || '').trim();
-      return error ? `Attempt ${attempt}: ${error}` : `Attempt ${attempt} failed`;
+      return error
+        ? `Attempt ${attempt}: ${error}`
+        : `Attempt ${attempt} failed`;
     }
     if (action === 'dispatch_exhausted') {
       return `Retries exhausted (${parsed.maxAttempts || parsed.attempt || 3})`;
@@ -176,10 +178,14 @@ export function JobsPage() {
         if (draft.priority !== selectedJob.priority) {
           patch.priority = draft.priority;
         }
-        if ((draft.assigneeAgentId.trim() || null) !== selectedJob.assigneeAgentId) {
+        if (
+          (draft.assigneeAgentId.trim() || null) !== selectedJob.assigneeAgentId
+        ) {
           patch.assigneeAgentId = draft.assigneeAgentId.trim() || null;
         }
-        if ((draft.sourceSessionId.trim() || null) !== selectedJob.sourceSessionId) {
+        if (
+          (draft.sourceSessionId.trim() || null) !== selectedJob.sourceSessionId
+        ) {
           patch.sourceSessionId = draft.sourceSessionId.trim() || null;
         }
         const linkedTaskId =
@@ -272,7 +278,9 @@ export function JobsPage() {
 
       <div className="jobs-board">
         {(jobsData?.columns || []).map((column) => {
-          const laneJobs = filteredJobs.filter((job) => job.status === column.id);
+          const laneJobs = filteredJobs.filter(
+            (job) => job.status === column.id,
+          );
           return (
             <section
               className="jobs-lane"
@@ -319,7 +327,11 @@ export function JobsPage() {
                         <p className="job-card-body">{job.details}</p>
                       ) : null}
                       <div className="job-card-meta">
-                        <span>{job.dispatch?.summary || job.assigneeAgentId || 'unassigned'}</span>
+                        <span>
+                          {job.dispatch?.summary ||
+                            job.assigneeAgentId ||
+                            'unassigned'}
+                        </span>
                         <span>{formatRelativeTime(job.updatedAt)}</span>
                       </div>
                       <div className="job-card-meta">
@@ -502,7 +514,9 @@ export function JobsPage() {
                 </div>
                 <div>
                   <span>Dispatch</span>
-                  <strong>{selectedJob.dispatch?.summary || 'No agent activity yet'}</strong>
+                  <strong>
+                    {selectedJob.dispatch?.summary || 'No agent activity yet'}
+                  </strong>
                 </div>
                 <div>
                   <span>Attempts</span>
@@ -530,7 +544,9 @@ export function JobsPage() {
 
         <Panel title="History">
           {!selectedJob ? (
-            <div className="empty-state">Select a job to inspect its history.</div>
+            <div className="empty-state">
+              Select a job to inspect its history.
+            </div>
           ) : historyQuery.isLoading ? (
             <div className="empty-state">Loading job history...</div>
           ) : historyQuery.data?.events.length ? (
@@ -544,7 +560,9 @@ export function JobsPage() {
                         ? `${event.actorKind}:${event.actorId}`
                         : event.actorKind}
                     </small>
-                    <small>{summarizeEventPayload(event.action, event.payloadJson)}</small>
+                    <small>
+                      {summarizeEventPayload(event.action, event.payloadJson)}
+                    </small>
                   </div>
                   <span>{formatRelativeTime(event.createdAt)}</span>
                 </div>

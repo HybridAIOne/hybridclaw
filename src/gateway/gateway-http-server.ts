@@ -74,17 +74,17 @@ import {
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
+  moveGatewayAdminJob,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   removeGatewayAdminSchedulerJob,
   runGatewayPluginTool,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
-  updateGatewayAdminJob,
-  moveGatewayAdminJob,
   setGatewayAdminSchedulerJobPaused,
   setGatewayAdminSkillEnabled,
   updateGatewayAdminAgent,
+  updateGatewayAdminJob,
   upsertGatewayAdminChannel,
   upsertGatewayAdminMcpServer,
   upsertGatewayAdminSchedulerJob,
@@ -1114,11 +1114,15 @@ async function handleApiAdminJobs(
   const method = (req.method || 'GET').toUpperCase();
 
   if (parts.length === 3 && method === 'GET') {
-    sendJson(res, 200, getGatewayAdminJobs({
-      includeArchived:
-        (url.searchParams.get('archived') || '').trim().toLowerCase() ===
-        'true',
-    }));
+    sendJson(
+      res,
+      200,
+      getGatewayAdminJobs({
+        includeArchived:
+          (url.searchParams.get('archived') || '').trim().toLowerCase() ===
+          'true',
+      }),
+    );
     return;
   }
 

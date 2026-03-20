@@ -3,8 +3,8 @@ import { GATEWAY_API_TOKEN, GATEWAY_BASE_URL } from '../config/config.js';
 import type { AgentJobPriority, AgentJobStatus } from '../types.js';
 import {
   type GatewayAdminAgentsResponse,
-  type GatewayAdminJobsResponse,
   type GatewayAdminJobHistoryResponse,
+  type GatewayAdminJobsResponse,
   type GatewayAdminSkillsResponse,
   type GatewayChatApprovalEvent,
   type GatewayChatRequestBody,
@@ -24,8 +24,8 @@ import {
 
 export type {
   GatewayAdminAgentsResponse,
-  GatewayAdminJobsResponse,
   GatewayAdminJobHistoryResponse,
+  GatewayAdminJobsResponse,
   GatewayAdminSkillsResponse,
   GatewayChatApprovalEvent,
   GatewayChatResult,

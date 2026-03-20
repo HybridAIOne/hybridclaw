@@ -1,3 +1,10 @@
+import type {
+  GatewayAdminJob,
+  GatewayAdminJobHistoryResponse,
+  GatewayAdminJobsResponse,
+  GatewayCommandRequest,
+  GatewayCommandResult,
+} from '../gateway/gateway-types.js';
 import {
   createAgentJob,
   getAgentJobById,
@@ -7,13 +14,6 @@ import {
   setAgentJobArchived,
   updateAgentJob,
 } from '../memory/db.js';
-import type {
-  GatewayAdminJob,
-  GatewayAdminJobHistoryResponse,
-  GatewayAdminJobsResponse,
-  GatewayCommandRequest,
-  GatewayCommandResult,
-} from '../gateway/gateway-types.js';
 import {
   AGENT_JOB_PRIORITIES,
   AGENT_JOB_STATUSES,
@@ -100,9 +100,7 @@ function parseOptionalLanePosition(value: unknown): number | undefined {
   return Math.max(0, Math.trunc(parsed));
 }
 
-export function isAgentJobStatusValue(
-  value: string,
-): value is AgentJobStatus {
+export function isAgentJobStatusValue(value: string): value is AgentJobStatus {
   return (AGENT_JOB_STATUSES as readonly string[]).includes(value);
 }
 
@@ -239,7 +237,10 @@ function parseAgentJobPatchInput(value: unknown): {
 }
 
 function mapGatewayAdminJob(job: AgentJob): GatewayAdminJob {
-  const dispatch = inspectAgentJobDispatchState(job, listAgentJobEvents(job.id));
+  const dispatch = inspectAgentJobDispatchState(
+    job,
+    listAgentJobEvents(job.id),
+  );
   return {
     id: job.id,
     boardId: job.board_id,
@@ -339,9 +340,7 @@ function renderJobBoardCard(job: GatewayAdminJob): string[] {
     .filter(Boolean)
     .join(' · ');
 
-  const lines = [
-    `  ${truncateJobBoardLine(`#${job.id} ${job.title}`, 54)}`,
-  ];
+  const lines = [`  ${truncateJobBoardLine(`#${job.id} ${job.title}`, 54)}`];
   if (meta) {
     lines.push(`    ${truncateJobBoardLine(meta, 52)}`);
   }
@@ -536,7 +535,9 @@ export function handleGatewayJobCommand(
       createdById: req.username || req.userId || 'user',
       sourceSessionId: req.sessionId,
     });
-    return plainCommand(`Job #${created.id} created in backlog: ${created.title}`);
+    return plainCommand(
+      `Job #${created.id} created in backlog: ${created.title}`,
+    );
   }
 
   if (sub === 'edit' || sub === 'open' || sub === 'view') {

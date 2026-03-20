@@ -45,7 +45,9 @@ function parseJobEventPayload(event: AgentJobEvent): Record<string, unknown> {
   return {};
 }
 
-function isDispatchAction(action: string): action is Exclude<JobDispatchAction, 'none'> {
+function isDispatchAction(
+  action: string,
+): action is Exclude<JobDispatchAction, 'none'> {
   return (
     action === 'dispatch_started' ||
     action === 'dispatch_failed' ||
@@ -137,7 +139,10 @@ export function inspectAgentJobDispatchState(
   }
 
   if (job.status === 'in_progress') {
-    if (lastAction === 'dispatch_failed' && attemptCount < JOB_DISPATCH_MAX_ATTEMPTS) {
+    if (
+      lastAction === 'dispatch_failed' &&
+      attemptCount < JOB_DISPATCH_MAX_ATTEMPTS
+    ) {
       return {
         phase: 'retrying',
         label: `retry ${attemptCount}/${JOB_DISPATCH_MAX_ATTEMPTS}`,
@@ -149,7 +154,10 @@ export function inspectAgentJobDispatchState(
         sessionId,
       };
     }
-    if (lastAction === 'dispatch_started' || lastAction === 'dispatch_succeeded') {
+    if (
+      lastAction === 'dispatch_started' ||
+      lastAction === 'dispatch_succeeded'
+    ) {
       return {
         phase: 'working',
         label: 'working',

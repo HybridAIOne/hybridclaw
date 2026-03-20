@@ -75,13 +75,13 @@ import {
 } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import {
-  AGENT_JOB_BOARD_ID,
-  handleGatewayJobCommand,
-} from '../jobs/gateway.js';
-import {
   configureJobDispatcherRuntime,
   stopJobDispatcher,
 } from '../jobs/dispatcher.js';
+import {
+  AGENT_JOB_BOARD_ID,
+  handleGatewayJobCommand,
+} from '../jobs/gateway.js';
 import { logger } from '../logger.js';
 import {
   isAudioMediaItem,

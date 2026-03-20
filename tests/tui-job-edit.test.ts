@@ -263,7 +263,9 @@ test('renderTuiJobResultLines renders the dispatch transcript', () => {
   expect(output).toContain('Job Result #7');
   expect(output).toContain('Dispatch session sess_dispatch_1');
   expect(output).toContain('Assistant 2026-03-20T10:04:00.000Z');
-  expect(output).toContain('Here are 10 useful feature ideas for hybridclaw.io.');
+  expect(output).toContain(
+    'Here are 10 useful feature ideas for hybridclaw.io.',
+  );
 });
 
 test('promptTuiJobEdit saves changes from the modal form', async () => {

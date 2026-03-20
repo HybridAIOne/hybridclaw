@@ -8,7 +8,9 @@ const ORIGINAL_HOME = process.env.HOME;
 const tempDirs: string[] = [];
 
 function makeTempHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-job-dispatch-'));
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-job-dispatch-'),
+  );
   tempDirs.push(dir);
   return dir;
 }
@@ -44,10 +46,8 @@ test('dispatcher automatically starts and completes ready jobs with an assignee'
 
   const { initDatabase, createAgentJob, getAgentJobById, listAgentJobEvents } =
     await import('../src/memory/db.ts');
-  const {
-    configureJobDispatcherRuntime,
-    dispatchReadyAgentJobsOnce,
-  } = await import('../src/jobs/dispatcher.ts');
+  const { configureJobDispatcherRuntime, dispatchReadyAgentJobsOnce } =
+    await import('../src/jobs/dispatcher.ts');
 
   initDatabase({ quiet: true });
   const job = createAgentJob({
@@ -75,8 +75,7 @@ test('dispatcher automatically starts and completes ready jobs with an assignee'
       agentId: 'main',
       channelId: 'scheduler',
       source: 'scheduler',
-      sessionId:
-        'agent:main:channel:scheduler:chat:job:peer:job-1',
+      sessionId: 'agent:main:channel:scheduler:chat:job:peer:job-1',
     }),
   );
   expect(getAgentJobById(job.id)).toMatchObject({
@@ -84,7 +83,12 @@ test('dispatcher automatically starts and completes ready jobs with an assignee'
     assignee_agent_id: 'main',
   });
   expect(listAgentJobEvents(job.id).map((event) => event.action)).toEqual(
-    expect.arrayContaining(['created', 'moved', 'dispatch_started', 'dispatch_succeeded']),
+    expect.arrayContaining([
+      'created',
+      'moved',
+      'dispatch_started',
+      'dispatch_succeeded',
+    ]),
   );
 });
 
@@ -96,10 +100,8 @@ test('dispatcher picks up assigned in-progress jobs that have not started yet', 
   const { initDatabase, createAgentJob, getAgentJobById } = await import(
     '../src/memory/db.ts'
   );
-  const {
-    configureJobDispatcherRuntime,
-    dispatchReadyAgentJobsOnce,
-  } = await import('../src/jobs/dispatcher.ts');
+  const { configureJobDispatcherRuntime, dispatchReadyAgentJobsOnce } =
+    await import('../src/jobs/dispatcher.ts');
 
   initDatabase({ quiet: true });
   const job = createAgentJob({
@@ -133,10 +135,8 @@ test('dispatcher retries failed in-progress jobs before blocking them', async ()
 
   const { initDatabase, createAgentJob, getAgentJobById, listAgentJobEvents } =
     await import('../src/memory/db.ts');
-  const {
-    configureJobDispatcherRuntime,
-    dispatchReadyAgentJobsOnce,
-  } = await import('../src/jobs/dispatcher.ts');
+  const { configureJobDispatcherRuntime, dispatchReadyAgentJobsOnce } =
+    await import('../src/jobs/dispatcher.ts');
 
   initDatabase({ quiet: true });
   const job = createAgentJob({
@@ -170,7 +170,9 @@ test('dispatcher retries failed in-progress jobs before blocking them', async ()
     status: 'blocked',
   });
   expect(
-    listAgentJobEvents(job.id).filter((event) => event.action === 'dispatch_failed'),
+    listAgentJobEvents(job.id).filter(
+      (event) => event.action === 'dispatch_failed',
+    ),
   ).toHaveLength(3);
 });
 
@@ -181,10 +183,8 @@ test('dispatcher does not overwrite a manual status change made during the run',
 
   const { initDatabase, createAgentJob, getAgentJobById, moveAgentJob } =
     await import('../src/memory/db.ts');
-  const {
-    configureJobDispatcherRuntime,
-    dispatchReadyAgentJobsOnce,
-  } = await import('../src/jobs/dispatcher.ts');
+  const { configureJobDispatcherRuntime, dispatchReadyAgentJobsOnce } =
+    await import('../src/jobs/dispatcher.ts');
 
   initDatabase({ quiet: true });
   const job = createAgentJob({

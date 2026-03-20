@@ -27,9 +27,9 @@ import {
   gatewayChatStream,
   gatewayCommand,
   gatewayHistory,
-  moveGatewayAdminJob,
   gatewayPullProactive,
   gatewayStatus,
+  moveGatewayAdminJob,
   renderGatewayCommand,
   saveGatewayAdminSkillEnabled,
   updateGatewayAdminJob,
@@ -43,6 +43,8 @@ import {
   sessionShowModeShowsThinking,
   sessionShowModeShowsTools,
 } from './gateway/show-mode.js';
+import { promptTuiJobsBoard } from './jobs/tui-board.js';
+import { promptTuiJobEdit } from './jobs/tui-edit.js';
 import { logger } from './logger.js';
 import {
   normalizeModelCandidates,
@@ -71,8 +73,6 @@ import {
   buildTuiReadlineHistory,
   resolveTuiHistoryFetchLimit,
 } from './tui-history.js';
-import { promptTuiJobsBoard } from './jobs/tui-board.js';
-import { promptTuiJobEdit } from './jobs/tui-edit.js';
 import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
 import {
   buildTuiExitSummaryLines,
