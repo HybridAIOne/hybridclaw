@@ -50,6 +50,10 @@ const TOOL_GROUPS: ToolGroup[] = [
     tools: ['cron'],
   },
   {
+    label: 'Jobs',
+    tools: ['job'],
+  },
+  {
     label: 'Delegation',
     tools: ['delegate'],
   },

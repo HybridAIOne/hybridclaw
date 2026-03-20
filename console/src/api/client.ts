@@ -7,6 +7,9 @@ import type {
   AdminChannelTransport,
   AdminConfig,
   AdminConfigResponse,
+  AdminJob,
+  AdminJobHistoryResponse,
+  AdminJobsResponse,
   AdminMcpConfig,
   AdminMcpResponse,
   AdminModelsResponse,
@@ -49,7 +52,7 @@ async function requestJson<T>(
   pathname: string,
   options: {
     token: string;
-    method?: 'GET' | 'PUT' | 'DELETE' | 'POST';
+    method?: 'GET' | 'PUT' | 'PATCH' | 'DELETE' | 'POST';
     body?: unknown;
     onAuthError?: 'dispatch' | 'ignore';
   },
@@ -211,6 +214,87 @@ export function saveModels(
 
 export function fetchScheduler(token: string): Promise<AdminSchedulerResponse> {
   return requestJson<AdminSchedulerResponse>('/api/admin/scheduler', { token });
+}
+
+export function fetchJobs(token: string): Promise<AdminJobsResponse> {
+  return requestJson<AdminJobsResponse>('/api/admin/jobs', { token });
+}
+
+export function createJob(
+  token: string,
+  job: Pick<
+    AdminJob,
+    | 'title'
+    | 'details'
+    | 'status'
+    | 'priority'
+    | 'assigneeAgentId'
+    | 'sourceSessionId'
+    | 'linkedTaskId'
+  >,
+): Promise<AdminJobsResponse> {
+  return requestJson<AdminJobsResponse>('/api/admin/jobs', {
+    token,
+    method: 'POST',
+    body: { job },
+  });
+}
+
+export function updateJob(
+  token: string,
+  jobId: number,
+  patch: Partial<
+    Pick<
+      AdminJob,
+      | 'title'
+      | 'details'
+      | 'priority'
+      | 'assigneeAgentId'
+      | 'sourceSessionId'
+      | 'linkedTaskId'
+      | 'archivedAt'
+    >
+  > & { archived?: boolean },
+): Promise<AdminJobsResponse> {
+  return requestJson<AdminJobsResponse>(`/api/admin/jobs/${jobId}`, {
+    token,
+    method: 'PATCH',
+    body: { patch },
+  });
+}
+
+export function moveJob(
+  token: string,
+  payload: {
+    jobId: number;
+    status: AdminJob['status'];
+    position?: number;
+  },
+): Promise<AdminJobsResponse> {
+  return requestJson<AdminJobsResponse>(
+    `/api/admin/jobs/${payload.jobId}/move`,
+    {
+      token,
+      method: 'POST',
+      body: {
+        status: payload.status,
+        position: payload.position,
+      },
+    },
+  );
+}
+
+export function fetchJobHistory(
+  token: string,
+  jobId: number,
+): Promise<AdminJobHistoryResponse> {
+  return requestJson<AdminJobHistoryResponse>(
+    `/api/admin/jobs/${jobId}/history`,
+    {
+      token,
+      method: 'GET',
+    },
+  );
 }
 
 export function saveSchedulerJob(

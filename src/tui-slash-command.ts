@@ -50,6 +50,10 @@ export function mapTuiSlashCommandToGatewayArgs(
   },
 ): string[] | null {
   const cmd = (parts[0] || '').trim().toLowerCase();
+  if (cmd === 'job') {
+    const sub = (parts[1] || '').trim().toLowerCase();
+    if (sub === 'edit') return null;
+  }
   if (cmd === 'skill') {
     const sub = (parts[1] || '').trim().toLowerCase();
     if (

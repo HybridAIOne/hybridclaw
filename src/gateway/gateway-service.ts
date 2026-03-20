@@ -74,6 +74,14 @@ import {
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
+import {
+  AGENT_JOB_BOARD_ID,
+  handleGatewayJobCommand,
+} from '../jobs/gateway.js';
+import {
+  configureJobDispatcherRuntime,
+  stopJobDispatcher,
+} from '../jobs/dispatcher.js';
 import { logger } from '../logger.js';
 import {
   isAudioMediaItem,
@@ -98,6 +106,7 @@ import {
   getSessionUsageTotalsSince,
   getTasksForSession,
   getUsageTotals,
+  listAgentJobs,
   listStructuredAuditEntries,
   listUsageByAgent,
   listUsageByModel,
@@ -294,6 +303,14 @@ import {
   normalizeSessionShowMode,
   sessionShowModeShowsTools,
 } from './show-mode.js';
+
+export {
+  createGatewayAdminJob,
+  getGatewayAdminJobHistory,
+  getGatewayAdminJobs,
+  moveGatewayAdminJob,
+  updateGatewayAdminJob,
+} from '../jobs/gateway.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
@@ -686,6 +703,7 @@ export async function initGatewayService(): Promise<void> {
   gatewayServiceInitializing = (async () => {
     listAgents();
     configureFullAutoRuntime({ handleGatewayMessage });
+    configureJobDispatcherRuntime({ handleGatewayMessage });
     try {
       await ensurePluginManagerInitialized();
     } catch (error) {
@@ -701,6 +719,7 @@ export async function initGatewayService(): Promise<void> {
 }
 
 export async function stopGatewayPlugins(): Promise<void> {
+  stopJobDispatcher();
   await shutdownPluginManager();
 }
 
@@ -3294,6 +3313,7 @@ async function runDelegationTaskWithRetry(
         model: task.model,
         agentId,
         channelId,
+        jobs: listAgentJobs({ boardId: AGENT_JOB_BOARD_ID }),
         allowedTools,
       });
       const durationMs = Date.now() - startedAt;
@@ -4212,6 +4232,9 @@ export async function handleGatewayMessage(
 
   try {
     const scheduledTasks: ScheduledTask[] = getTasksForSession(req.sessionId);
+    const jobs = listAgentJobs({
+      boardId: AGENT_JOB_BOARD_ID,
+    });
     let firstTextDeltaMs: number | null = null;
     const onTextDelta = (delta: string): void => {
       if (firstTextDeltaMs == null && delta) {
@@ -4257,6 +4280,7 @@ export async function handleGatewayMessage(
     logger.debug(
       {
         ...debugMeta,
+        jobCount: jobs.length,
         scheduledTaskCount: scheduledTasks.length,
       },
       'Gateway chat invoking agent',
@@ -4268,6 +4292,7 @@ export async function handleGatewayMessage(
         type: 'agent.start',
         provider,
         model,
+        jobCount: jobs.length,
         scheduledTaskCount: scheduledTasks.length,
         promptMessages: messages.length,
       },
@@ -4294,6 +4319,7 @@ export async function handleGatewayMessage(
       fullAutoEnabled: isFullAutoEnabled(session),
       fullAutoNeverApproveTools: FULLAUTO_NEVER_APPROVE_TOOLS,
       scheduledTasks,
+      jobs,
       blockedTools: mediaPolicy.blockedTools,
       onTextDelta,
       onToolProgress,
@@ -4372,6 +4398,8 @@ export async function handleGatewayMessage(
     const parentDepth = extractDelegationDepth(req.sessionId);
     let acceptedDelegations = 0;
     processSideEffects(output, req.sessionId, req.channelId, {
+      actorKind: 'agent',
+      actorId: agentId,
       onDelegation: (effect) => {
         const normalized = normalizeDelegationEffect(effect, model);
         if (!normalized.plan) {
@@ -4920,6 +4948,15 @@ export async function handleGatewayCommand(
           '`skill runs <name>` — Show recent execution observations for a skill',
           '`skill amend <name> [--apply|--reject|--rollback]` — Stage or manage skill amendments',
           '`skill history <name>` — Show amendment history for a skill',
+          '`job list [status]` — List kanban jobs',
+          '`job board` — Show the kanban board',
+          '`job create <title>` — Create a new kanban job',
+          '`job edit <id>` — Inspect a job and recent history',
+          '`job start <id>` — Start a job and move it to in progress',
+          '`job move <id> <status> [position]` — Move a job across the board',
+          '`job done <id>` — Mark a job done',
+          '`job archive <id>` — Archive a job',
+          '`job unarchive <id>` — Restore a job to the board',
           '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
           '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
           '`schedule add every <ms> <prompt>` — Add interval task',
@@ -6698,6 +6735,10 @@ export async function handleGatewayCommand(
         }
 
         return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
+      }
+
+      case 'job': {
+        return handleGatewayJobCommand(req);
       }
 
       default: {

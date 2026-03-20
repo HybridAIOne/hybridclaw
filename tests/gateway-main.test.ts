@@ -543,6 +543,34 @@ describe('gateway bootstrap', () => {
     expect(reply).toHaveBeenNthCalledWith(3, 'rendered:plain output');
   });
 
+  test('formats preformatted Discord command replies as fenced blocks', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (draft) => {
+        draft.handleGatewayCommand.mockResolvedValue({
+          kind: 'info',
+          title: 'Jobs Board',
+          text: 'Backlog (0)\n  (empty)\n\nIn Progress (1)\n  #1 Polish onboarding copy',
+          preformatted: true,
+        });
+      },
+    });
+    const reply = vi.fn(async () => {});
+
+    await state.commandHandler?.(
+      'session',
+      null,
+      '123456789012345678',
+      'user',
+      'alice',
+      ['job', 'board'],
+      reply,
+    );
+
+    expect(reply).toHaveBeenCalledWith(
+      '**Jobs Board**\n```\nBacklog (0)\n  (empty)\n\nIn Progress (1)\n  #1 Polish onboarding copy\n```',
+    );
+  });
+
   test('finalizes Discord message responses using rendered gateway output', async () => {
     const state = await importFreshGatewayMain();
     const stream = {
@@ -997,6 +1025,49 @@ describe('gateway bootstrap', () => {
     );
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(reply).toHaveBeenCalledWith('rendered:plain output');
+  });
+
+  test('renders preformatted WhatsApp slash command replies as fenced blocks', async () => {
+    const state = await importFreshGatewayMain({
+      whatsappLinked: true,
+      onState: (draft) => {
+        draft.handleGatewayCommand.mockResolvedValue({
+          kind: 'info',
+          title: 'Jobs Board',
+          text: 'Backlog (1)\n#1 Polish onboarding copy',
+          preformatted: true,
+        });
+      },
+    });
+    const reply = vi.fn(async () => {});
+
+    await state.whatsappMessageHandler?.(
+      'wa:491701234567@s.whatsapp.net',
+      null,
+      '491701234567@s.whatsapp.net',
+      '+491701234567',
+      'alice',
+      '/job board',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        batchedMessages: [],
+        chatJid: '491701234567@s.whatsapp.net',
+        isGroup: false,
+        rawMessage: {},
+        senderJid: '491701234567@s.whatsapp.net',
+      },
+    );
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: ['job', 'board'],
+      }),
+    );
+    expect(reply).toHaveBeenCalledWith(
+      '**Jobs Board**\n```\nBacklog (1)\n#1 Polish onboarding copy\n```',
+    );
   });
 
   test('treats bare WhatsApp /model as model info', async () => {

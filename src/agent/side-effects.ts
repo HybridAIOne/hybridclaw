@@ -1,10 +1,23 @@
 import { logger } from '../logger.js';
-import { createTask, deleteTask } from '../memory/db.js';
+import {
+  createAgentJob,
+  createTask,
+  deleteTask,
+  moveAgentJob,
+  setAgentJobArchived,
+  updateAgentJob,
+} from '../memory/db.js';
 import { rearmScheduler } from '../scheduler/scheduler.js';
-import type { ContainerOutput, DelegationSideEffect } from '../types.js';
+import type {
+  AgentJobActorKind,
+  ContainerOutput,
+  DelegationSideEffect,
+} from '../types.js';
 
 interface SideEffectHandlers {
   onDelegation?: (effect: DelegationSideEffect) => void;
+  actorKind?: AgentJobActorKind;
+  actorId?: string | null;
 }
 
 export function processSideEffects(
@@ -15,10 +28,17 @@ export function processSideEffects(
 ): void {
   const schedules = output.sideEffects?.schedules;
   const delegations = output.sideEffects?.delegations || [];
-  if ((!schedules || schedules.length === 0) && delegations.length === 0)
+  const jobs = output.sideEffects?.jobs || [];
+  if (
+    (!schedules || schedules.length === 0) &&
+    delegations.length === 0 &&
+    jobs.length === 0
+  )
     return;
 
   let changed = false;
+  const actorKind = handlers.actorKind || 'agent';
+  const actorId = handlers.actorId || sessionId;
 
   if (schedules && schedules.length > 0) {
     for (const effect of schedules) {
@@ -88,6 +108,116 @@ export function processSideEffects(
           { effect, err },
           'Failed to process delegation side-effect',
         );
+      }
+    }
+  }
+
+  if (jobs.length > 0) {
+    for (const effect of jobs) {
+      try {
+        if (effect.action === 'create') {
+          const job = createAgentJob({
+            title: effect.title,
+            details: effect.details,
+            status: effect.status,
+            priority: effect.priority,
+            assigneeAgentId: effect.assigneeAgentId,
+            createdByKind: actorKind,
+            createdById: actorId,
+            sourceSessionId: effect.sourceSessionId || sessionId,
+            linkedTaskId: effect.linkedTaskId,
+          });
+          logger.info(
+            {
+              jobId: job.id,
+              sessionId,
+              channelId,
+              actorKind,
+              actorId,
+              status: job.status,
+            },
+            'Side-effect: created job',
+          );
+          continue;
+        }
+
+        if (effect.action === 'move') {
+          const job = moveAgentJob({
+            id: effect.jobId,
+            status: effect.status,
+            position: effect.position,
+            actorKind,
+            actorId,
+          });
+          logger.info(
+            {
+              jobId: job.id,
+              sessionId,
+              channelId,
+              actorKind,
+              actorId,
+              status: job.status,
+              lanePosition: job.lane_position,
+            },
+            'Side-effect: moved job',
+          );
+          continue;
+        }
+
+        if (effect.action === 'update') {
+          const job = updateAgentJob({
+            id: effect.jobId,
+            title: effect.title,
+            details: effect.details,
+            priority: effect.priority,
+            assigneeAgentId: effect.assigneeAgentId,
+            sourceSessionId: effect.sourceSessionId,
+            linkedTaskId: effect.linkedTaskId,
+            actorKind,
+            actorId,
+          });
+          logger.info(
+            { jobId: job.id, sessionId, channelId, actorKind, actorId },
+            'Side-effect: updated job',
+          );
+          continue;
+        }
+
+        if (effect.action === 'complete') {
+          const job = moveAgentJob({
+            id: effect.jobId,
+            status: 'done',
+            actorKind,
+            actorId,
+          });
+          logger.info(
+            { jobId: job.id, sessionId, channelId, actorKind, actorId },
+            'Side-effect: completed job',
+          );
+          continue;
+        }
+
+        const job = setAgentJobArchived({
+          id: effect.jobId,
+          archived: effect.action === 'archive',
+          actorKind,
+          actorId,
+        });
+        logger.info(
+          {
+            jobId: job.id,
+            sessionId,
+            channelId,
+            actorKind,
+            actorId,
+            archived: Boolean(job.archived_at),
+          },
+          effect.action === 'archive'
+            ? 'Side-effect: archived job'
+            : 'Side-effect: restored job',
+        );
+      } catch (err) {
+        logger.error({ effect, err }, 'Failed to process job side-effect');
       }
     }
   }

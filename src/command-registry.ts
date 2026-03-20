@@ -68,6 +68,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'export',
   'sessions',
   'audit',
+  'job',
   'schedule',
   'channel',
   'ralph',
@@ -129,6 +130,14 @@ const MODEL_PROVIDER_CHOICES = [
   { name: 'ollama', value: 'ollama' },
   { name: 'lmstudio', value: 'lmstudio' },
   { name: 'vllm', value: 'vllm' },
+] satisfies Array<{ name: string; value: string }>;
+
+const JOB_STATUS_CHOICES = [
+  { name: 'backlog', value: 'backlog' },
+  { name: 'ready', value: 'ready' },
+  { name: 'in_progress', value: 'in_progress' },
+  { name: 'blocked', value: 'blocked' },
+  { name: 'done', value: 'done' },
 ] satisfies Array<{ name: string; value: string }>;
 
 function tokenizeFreeformText(value: string): string[] {
@@ -308,6 +317,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'audit':
       return ['audit', ...parts.slice(1)];
+
+    case 'job':
+      return ['job', ...parts.slice(1)];
 
     case 'schedule':
       return ['schedule', ...parts.slice(1)];
@@ -999,6 +1011,141 @@ function buildSlashCommandCatalogDefinitions(
       ],
     },
     {
+      name: 'job',
+      description: 'Manage kanban jobs',
+      tuiMenuEntries: [
+        {
+          id: 'job.edit',
+          label: '/job edit <id>',
+          insertText: '/job edit ',
+          description: 'Open the interactive TUI job editor',
+        },
+      ],
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'list',
+          description: 'List jobs on the board',
+          options: [
+            {
+              kind: 'string',
+              name: 'status',
+              description: 'Optional status filter',
+              choices: JOB_STATUS_CHOICES,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'board',
+          description: 'Show the kanban board',
+        },
+        {
+          kind: 'subcommand',
+          name: 'create',
+          description: 'Create a new job',
+          options: [
+            {
+              kind: 'string',
+              name: 'title',
+              description: 'Job title',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'edit',
+          description: 'Inspect or edit a job',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Job id',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'start',
+          description: 'Start a job and move it to in progress',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Job id',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'move',
+          description: 'Move a job across the board',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Job id',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'status',
+              description: 'Destination status',
+              required: true,
+              choices: JOB_STATUS_CHOICES,
+            },
+            {
+              kind: 'string',
+              name: 'position',
+              description: 'Optional zero-based position in the destination lane',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'done',
+          description: 'Mark a job done',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Job id',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'archive',
+          description: 'Archive a job',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Job id',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'unarchive',
+          description: 'Restore an archived job',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Job id',
+              required: true,
+            },
+          ],
+        },
+      ],
+    },
+    {
       name: 'schedule',
       description: 'Manage scheduled tasks for this session',
       options: [
@@ -1478,6 +1625,40 @@ export function parseCanonicalSlashCommandArgs(
     case 'audit': {
       const sessionId = normalizeStringOption(interaction, 'session_id');
       return sessionId ? ['audit', sessionId] : ['audit'];
+    }
+
+    case 'job': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (subcommand === 'list') {
+        const status = normalizeStringOption(interaction, 'status');
+        return status ? ['job', 'list', status] : ['job', 'list'];
+      }
+      if (subcommand === 'board') return ['job', 'board'];
+      if (subcommand === 'create') {
+        const title = normalizeStringOption(interaction, 'title', true);
+        return title ? ['job', 'create', title] : null;
+      }
+      if (
+        subcommand === 'edit' ||
+        subcommand === 'open' ||
+        subcommand === 'start' ||
+        subcommand === 'done' ||
+        subcommand === 'archive' ||
+        subcommand === 'unarchive'
+      ) {
+        const id = normalizeStringOption(interaction, 'id', true);
+        return id ? ['job', subcommand, id] : null;
+      }
+      if (subcommand === 'move') {
+        const id = normalizeStringOption(interaction, 'id', true);
+        const status = normalizeStringOption(interaction, 'status', true);
+        const position = normalizeStringOption(interaction, 'position');
+        if (!id || !status) return null;
+        return position
+          ? ['job', 'move', id, status, position]
+          : ['job', 'move', id, status];
+      }
+      return null;
     }
 
     case 'schedule': {

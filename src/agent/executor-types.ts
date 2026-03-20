@@ -1,4 +1,5 @@
 import type {
+  AgentJob,
   ChatMessage,
   ContainerOutput,
   MediaContextItem,
@@ -20,6 +21,7 @@ export interface ExecutorRequest {
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];
   scheduledTasks?: ScheduledTask[];
+  jobs?: AgentJob[];
   allowedTools?: string[];
   blockedTools?: string[];
   onTextDelta?: (delta: string) => void;

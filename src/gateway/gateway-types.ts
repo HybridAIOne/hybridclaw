@@ -8,6 +8,9 @@ import type {
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
 import type {
+  AgentJobActorKind,
+  AgentJobPriority,
+  AgentJobStatus,
   McpServerConfig,
   MemoryCitation,
   PendingApproval,
@@ -28,6 +31,7 @@ export interface GatewayCommandResult {
   kind: 'plain' | 'info' | 'error';
   title?: string;
   text: string;
+  preformatted?: boolean;
   sessionId?: string;
   sessionKey?: string;
   mainSessionKey?: string;
@@ -511,6 +515,20 @@ export interface GatewayAdminModelsResponse {
   models: GatewayAdminModelCatalogEntry[];
 }
 
+export interface GatewayAdminAgent {
+  id: string;
+  name: string | null;
+  model: string | null;
+  chatbotId: string | null;
+  enableRag: boolean | null;
+  workspace: string | null;
+  workspacePath: string;
+}
+
+export interface GatewayAdminAgentsResponse {
+  agents: GatewayAdminAgent[];
+}
+
 export interface GatewayAdminSchedulerJob {
   id: string;
   source: 'config' | 'task';
@@ -533,6 +551,72 @@ export interface GatewayAdminSchedulerJob {
 
 export interface GatewayAdminSchedulerResponse {
   jobs: GatewayAdminSchedulerJob[];
+}
+
+export interface GatewayAdminJob {
+  id: number;
+  boardId: string;
+  title: string;
+  details: string;
+  status: AgentJobStatus;
+  priority: AgentJobPriority;
+  assigneeAgentId: string | null;
+  createdByKind: AgentJobActorKind;
+  createdById: string | null;
+  sourceSessionId: string | null;
+  linkedTaskId: number | null;
+  lanePosition: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  archivedAt: string | null;
+  dispatch?: {
+    phase:
+      | 'planning'
+      | 'unassigned'
+      | 'queued'
+      | 'working'
+      | 'retrying'
+      | 'blocked'
+      | 'completed';
+    label: string;
+    summary: string;
+    attemptCount: number;
+    maxAttempts: number;
+    lastAction:
+      | 'none'
+      | 'dispatch_started'
+      | 'dispatch_failed'
+      | 'dispatch_succeeded'
+      | 'dispatch_exhausted';
+    lastActionAt: string | null;
+    sessionId: string | null;
+  };
+}
+
+export interface GatewayAdminJobEvent {
+  id: number;
+  jobId: number;
+  actorKind: AgentJobActorKind;
+  actorId: string | null;
+  action: string;
+  payloadJson: string;
+  createdAt: string;
+}
+
+export interface GatewayAdminJobsResponse {
+  boardId: string;
+  columns: Array<{
+    id: AgentJobStatus;
+    label: string;
+    count: number;
+  }>;
+  jobs: GatewayAdminJob[];
+}
+
+export interface GatewayAdminJobHistoryResponse {
+  job: GatewayAdminJob | null;
+  events: GatewayAdminJobEvent[];
 }
 
 export interface GatewayAdminMcpServer {

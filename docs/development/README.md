@@ -21,6 +21,9 @@ top-level contributor quickstart.
   rules
 - [Plugin System](./plugins.md) for plugin manifests, runtime discovery,
   config wiring, install workflow, and runtime hooks
+- [Agent Jobs and Dispatch](./agent-jobs-kanban.md) for the persistent shared
+  workflow board spanning gateway APIs, the admin console, the TUI, and
+  agent-side job mutations
 - [QMD Memory Plugin](./qmd-memory-plugin.md) for the installable external
   markdown-search memory layer shipped in `plugins/qmd-memory`
 - [Adaptive Skills](./adaptive-skills.md) for the self-improving skill loop,

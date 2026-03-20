@@ -25,7 +25,7 @@ import {
 } from '../config/config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import { getTasksForSession } from '../memory/db.js';
+import { getTasksForSession, listAgentJobs } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
   modelRequiresChatbotId,
@@ -218,6 +218,7 @@ export function startHeartbeat(
       });
 
       const scheduledTasks = getTasksForSession(sessionId);
+      const jobs = listAgentJobs({ boardId: 'main' });
       const output = await runAgent({
         sessionId,
         messages,
@@ -227,6 +228,7 @@ export function startHeartbeat(
         agentId: resolvedAgentId,
         channelId: heartbeatChannelId,
         scheduledTasks,
+        jobs,
         allowedTools: HEARTBEAT_ALLOWED_TOOLS,
       });
       emitToolExecutionAuditEvents({
@@ -258,7 +260,10 @@ export function startHeartbeat(
           'Skill inspection failed',
         );
       }
-      processSideEffects(output, sessionId, heartbeatChannelId);
+      processSideEffects(output, sessionId, heartbeatChannelId, {
+        actorKind: 'agent',
+        actorId: resolvedAgentId,
+      });
 
       if (output.status === 'error') {
         logger.warn({ error: output.error }, 'Heartbeat agent error');

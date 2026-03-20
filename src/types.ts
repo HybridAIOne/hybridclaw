@@ -180,6 +180,7 @@ export interface ContainerInput {
     lastRun: string | null;
     createdAt: string;
   }[];
+  jobs?: AgentJob[];
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
@@ -302,6 +303,7 @@ export interface ContainerOutput {
   sideEffects?: {
     schedules?: ScheduleSideEffect[];
     delegations?: DelegationSideEffect[];
+    jobs?: JobSideEffect[];
   };
 }
 
@@ -334,6 +336,88 @@ export interface DelegationSideEffect {
 // --- Database types ---
 
 export type SessionShowMode = 'all' | 'thinking' | 'tools' | 'none';
+
+export const AGENT_JOB_STATUSES = [
+  'backlog',
+  'ready',
+  'in_progress',
+  'blocked',
+  'done',
+] as const;
+
+export type AgentJobStatus = (typeof AGENT_JOB_STATUSES)[number];
+
+export const AGENT_JOB_PRIORITIES = [
+  'low',
+  'normal',
+  'high',
+  'urgent',
+] as const;
+
+export type AgentJobPriority = (typeof AGENT_JOB_PRIORITIES)[number];
+
+export type AgentJobActorKind = 'user' | 'agent' | 'system';
+
+export interface AgentJob {
+  id: number;
+  board_id: string;
+  title: string;
+  details: string;
+  status: AgentJobStatus;
+  priority: AgentJobPriority;
+  assignee_agent_id: string | null;
+  created_by_kind: AgentJobActorKind;
+  created_by_id: string | null;
+  source_session_id: string | null;
+  linked_task_id: number | null;
+  lane_position: number;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  archived_at: string | null;
+}
+
+export interface AgentJobEvent {
+  id: number;
+  job_id: number;
+  actor_kind: AgentJobActorKind;
+  actor_id: string | null;
+  action: string;
+  payload_json: string;
+  created_at: string;
+}
+
+export type JobSideEffect =
+  | {
+      action: 'create';
+      title: string;
+      details?: string;
+      status?: AgentJobStatus;
+      priority?: AgentJobPriority;
+      assigneeAgentId?: string;
+      sourceSessionId?: string;
+      linkedTaskId?: number;
+    }
+  | {
+      action: 'move';
+      jobId: number;
+      status: AgentJobStatus;
+      position?: number;
+    }
+  | {
+      action: 'update';
+      jobId: number;
+      title?: string;
+      details?: string;
+      priority?: AgentJobPriority;
+      assigneeAgentId?: string | null;
+      sourceSessionId?: string | null;
+      linkedTaskId?: number | null;
+    }
+  | {
+      action: 'archive' | 'unarchive' | 'complete';
+      jobId: number;
+    };
 
 export interface Session {
   id: string;

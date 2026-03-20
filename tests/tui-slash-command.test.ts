@@ -138,6 +138,11 @@ test('maps Discord-style slash commands to gateway command args', () => {
     'plugin',
     'reload',
   ]);
+  expect(mapTuiSlashCommandToGatewayArgs(['job', 'start', '14'])).toEqual([
+    'job',
+    'start',
+    '14',
+  ]);
   expect(
     mapTuiSlashCommandToGatewayArgs(['plugin', 'uninstall', 'demo-plugin']),
   ).toEqual(['plugin', 'uninstall', 'demo-plugin']);
@@ -149,6 +154,7 @@ test('keeps explicit /skill invocations out of the slash-command path', () => {
   expect(
     mapTuiSlashCommandToGatewayArgs(['skill', 'demo-skill', 'fix', 'tests']),
   ).toBeNull();
+  expect(mapTuiSlashCommandToGatewayArgs(['job', 'edit', '7'])).toBeNull();
 });
 
 test('maps loaded plugin commands locally and leaves typos unresolved', () => {

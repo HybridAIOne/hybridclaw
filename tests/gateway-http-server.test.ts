@@ -406,6 +406,11 @@ async function importFreshHealth(options?: {
   const getGatewayAdminScheduler = vi.fn(() => ({
     jobs: [],
   }));
+  const getGatewayAdminJobs = vi.fn(() => ({
+    boardId: 'main',
+    columns: [],
+    jobs: [],
+  }));
   const getGatewayAdminChannels = vi.fn(() => ({
     groupPolicy: 'open',
     defaultTypingMode: 'thinking',
@@ -535,6 +540,61 @@ async function importFreshHealth(options?: {
   const removeGatewayAdminSchedulerJob = vi.fn(() => ({
     jobs: [],
   }));
+  const createGatewayAdminJob = vi.fn(() => ({
+    boardId: 'main',
+    columns: [],
+    jobs: [
+      {
+        id: 1,
+        boardId: 'main',
+        title: 'First job',
+        details: '',
+        status: 'backlog',
+        priority: 'normal',
+        assigneeAgentId: null,
+        createdByKind: 'user',
+        createdById: 'web-admin',
+        sourceSessionId: DEFAULT_WEB_SESSION_ID,
+        linkedTaskId: null,
+        lanePosition: 0,
+        createdAt: '2026-03-11T10:00:00.000Z',
+        updatedAt: '2026-03-11T10:00:00.000Z',
+        completedAt: null,
+        archivedAt: null,
+      },
+    ],
+  }));
+  const updateGatewayAdminJob = vi.fn(() => ({
+    boardId: 'main',
+    columns: [],
+    jobs: [],
+  }));
+  const moveGatewayAdminJob = vi.fn(() => ({
+    boardId: 'main',
+    columns: [],
+    jobs: [],
+  }));
+  const getGatewayAdminJobHistory = vi.fn((jobId: number) => ({
+    job: {
+      id: jobId,
+      boardId: 'main',
+      title: 'History job',
+      details: 'Has history',
+      status: 'ready',
+      priority: 'high',
+      assigneeAgentId: 'main',
+      createdByKind: 'user',
+      createdById: 'web-admin',
+      sourceSessionId: DEFAULT_WEB_SESSION_ID,
+      linkedTaskId: null,
+      lanePosition: 0,
+      createdAt: '2026-03-11T10:00:00.000Z',
+      updatedAt: '2026-03-11T10:05:00.000Z',
+      completedAt: null,
+      archivedAt: null,
+    },
+    events: [],
+  }));
   const removeGatewayAdminMcpServer = vi.fn(() => ({
     servers: [],
   }));
@@ -629,6 +689,9 @@ async function importFreshHealth(options?: {
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
+    createGatewayAdminJob,
+    getGatewayAdminJobHistory,
+    getGatewayAdminJobs,
     getGatewayAdminMcp,
     getGatewayAdminModels,
     getGatewayAdminOverview,
@@ -642,6 +705,7 @@ async function importFreshHealth(options?: {
     getGatewayStatus,
     handleGatewayCommand,
     handleGatewayMessage,
+    moveGatewayAdminJob,
     runGatewayPluginTool,
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
@@ -650,6 +714,7 @@ async function importFreshHealth(options?: {
     saveGatewayAdminModels,
     setGatewayAdminSchedulerJobPaused,
     setGatewayAdminSkillEnabled,
+    updateGatewayAdminJob,
     updateGatewayAdminAgent,
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
@@ -684,6 +749,8 @@ async function importFreshHealth(options?: {
     getGatewayAdminOverview,
     getGatewayAgents,
     getGatewayAdminAgents,
+    getGatewayAdminJobs,
+    getGatewayAdminJobHistory,
     runGatewayPluginTool,
     getGatewayAdminModels,
     getGatewayAdminPlugins,
@@ -693,7 +760,10 @@ async function importFreshHealth(options?: {
     getGatewayAdminSkills,
     getGatewayAdminTools,
     createGatewayAdminAgent,
+    createGatewayAdminJob,
     updateGatewayAdminAgent,
+    updateGatewayAdminJob,
+    moveGatewayAdminJob,
     deleteGatewayAdminAgent,
     GatewayRequestError,
     setGatewayAdminSkillEnabled,
@@ -1078,6 +1148,94 @@ describe('gateway HTTP server', () => {
     expect(state.getGatewayAdminScheduler).toHaveBeenCalledTimes(1);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ jobs: [] });
+  });
+
+  test('returns admin jobs for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/jobs' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminJobs).toHaveBeenCalledWith({
+      includeArchived: false,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      boardId: 'main',
+      columns: [],
+      jobs: [],
+    });
+  });
+
+  test('creates, updates, moves, and reads job history through admin job routes', async () => {
+    const state = await importFreshHealth();
+
+    const createReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/jobs',
+      body: { job: { title: 'First job' } },
+    });
+    const createRes = makeResponse();
+    state.handler(createReq as never, createRes as never);
+    await settle();
+
+    expect(state.createGatewayAdminJob).toHaveBeenCalledWith({
+      job: { title: 'First job' },
+      actorKind: 'user',
+      actorId: 'web-admin',
+    });
+    expect(createRes.statusCode).toBe(200);
+
+    const patchReq = makeRequest({
+      method: 'PATCH',
+      url: '/api/admin/jobs/7',
+      body: { patch: { title: 'Renamed job' } },
+    });
+    const patchRes = makeResponse();
+    state.handler(patchReq as never, patchRes as never);
+    await settle();
+
+    expect(state.updateGatewayAdminJob).toHaveBeenCalledWith({
+      jobId: '7',
+      patch: { title: 'Renamed job' },
+      actorKind: 'user',
+      actorId: 'web-admin',
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const moveReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/jobs/7/move',
+      body: { status: 'in_progress', position: 0 },
+    });
+    const moveRes = makeResponse();
+    state.handler(moveReq as never, moveRes as never);
+    await settle();
+
+    expect(state.moveGatewayAdminJob).toHaveBeenCalledWith({
+      jobId: '7',
+      move: { status: 'in_progress', position: 0 },
+      actorKind: 'user',
+      actorId: 'web-admin',
+    });
+    expect(moveRes.statusCode).toBe(200);
+
+    const historyReq = makeRequest({ url: '/api/admin/jobs/7/history' });
+    const historyRes = makeResponse();
+    state.handler(historyReq as never, historyRes as never);
+    await settle();
+
+    expect(state.getGatewayAdminJobHistory).toHaveBeenCalledWith(7);
+    expect(historyRes.statusCode).toBe(200);
+    expect(JSON.parse(historyRes.body)).toMatchObject({
+      job: {
+        id: 7,
+        title: 'History job',
+      },
+      events: [],
+    });
   });
 
   test('returns filtered admin audit entries for authorized API requests', async () => {

@@ -35,6 +35,11 @@ import type {
 } from '../skills/adaptive-skills-types.js';
 import type { SkillGuardVerdict } from '../skills/skills-guard.js';
 import type {
+  AgentJob,
+  AgentJobActorKind,
+  AgentJobEvent,
+  AgentJobPriority,
+  AgentJobStatus,
   ApprovalAuditEntry,
   AuditEntry,
   CanonicalSession,
@@ -63,7 +68,7 @@ import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 15;
+export const DATABASE_SCHEMA_VERSION = 16;
 const SCHEMA_VERSION = DATABASE_SCHEMA_VERSION;
 
 interface InitDatabaseOptions {
@@ -1446,6 +1451,55 @@ function migrateV15(database: Database.Database): void {
   );
 }
 
+function migrateV16(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS agent_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      board_id TEXT NOT NULL DEFAULT 'main',
+      title TEXT NOT NULL,
+      details TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL,
+      priority TEXT NOT NULL DEFAULT 'normal',
+      assignee_agent_id TEXT,
+      created_by_kind TEXT NOT NULL,
+      created_by_id TEXT,
+      source_session_id TEXT,
+      linked_task_id INTEGER,
+      lane_position INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      completed_at TEXT,
+      archived_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_jobs_board_status_lane
+      ON agent_jobs(board_id, status, lane_position);
+    CREATE INDEX IF NOT EXISTS idx_agent_jobs_source_session
+      ON agent_jobs(source_session_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_jobs_archived
+      ON agent_jobs(archived_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_jobs_assignee
+      ON agent_jobs(assignee_agent_id);
+
+    CREATE TABLE IF NOT EXISTS agent_job_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_id INTEGER NOT NULL,
+      actor_kind TEXT NOT NULL,
+      actor_id TEXT,
+      action TEXT NOT NULL,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_job_events_job_created
+      ON agent_job_events(job_id, created_at DESC);
+  `);
+
+  recordMigration(
+    database,
+    16,
+    'Add persistent kanban agent jobs and job history tables',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1482,6 +1536,7 @@ function runMigrations(
   if (currentVersion < 13) migrateV13(database, opts);
   if (currentVersion < 14) migrateV14(database);
   if (currentVersion < 15) migrateV15(database);
+  if (currentVersion < 16) migrateV16(database);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -4588,6 +4643,494 @@ export function resumeTask(taskId: number): void {
 
 export function deleteTask(taskId: number): void {
   db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
+}
+
+// --- Agent jobs ---
+
+const AGENT_JOB_STATUS_ORDER_SQL = `CASE status
+  WHEN 'backlog' THEN 0
+  WHEN 'ready' THEN 1
+  WHEN 'in_progress' THEN 2
+  WHEN 'blocked' THEN 3
+  WHEN 'done' THEN 4
+  ELSE 99
+END`;
+
+function normalizeOptionalAgentJobString(
+  value: string | null | undefined,
+): string | null {
+  const normalized = String(value || '').trim();
+  return normalized || null;
+}
+
+function normalizeOptionalLinkedTaskId(
+  value: number | null | undefined,
+): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const normalized = Math.max(0, Math.trunc(value));
+  return normalized > 0 ? normalized : null;
+}
+
+function normalizeOptionalSourceSessionId(
+  value: string | null | undefined,
+): string | null {
+  const normalized = normalizeOptionalAgentJobString(value);
+  return normalized ? resolveSessionIdCompat(normalized) : null;
+}
+
+function readAgentJobById(jobId: number): AgentJob | null {
+  const row = db.prepare('SELECT * FROM agent_jobs WHERE id = ?').get(jobId) as
+    | AgentJob
+    | undefined;
+  return row || null;
+}
+
+function requireAgentJobById(jobId: number): AgentJob {
+  const job = readAgentJobById(jobId);
+  if (!job) {
+    throw new Error(`Agent job #${jobId} was not found.`);
+  }
+  return job;
+}
+
+function listActiveLaneJobIds(params: {
+  boardId: string;
+  status: AgentJobStatus;
+  excludeJobId?: number;
+}): number[] {
+  const where = [
+    'board_id = ?',
+    'status = ?',
+    'archived_at IS NULL',
+    params.excludeJobId ? 'id != ?' : '',
+  ]
+    .filter(Boolean)
+    .join(' AND ');
+  const values: Array<string | number> = [params.boardId, params.status];
+  if (params.excludeJobId) {
+    values.push(params.excludeJobId);
+  }
+  const rows = db
+    .prepare(
+      `SELECT id
+       FROM agent_jobs
+       WHERE ${where}
+       ORDER BY lane_position ASC, id ASC`,
+    )
+    .all(...values) as Array<{ id: number }>;
+  return rows.map((row) => row.id);
+}
+
+function rewriteLanePositions(jobIds: number[]): void {
+  const update = db.prepare(
+    'UPDATE agent_jobs SET lane_position = ? WHERE id = ?',
+  );
+  jobIds.forEach((jobId, index) => {
+    update.run(index, jobId);
+  });
+}
+
+function appendAgentJobEvent(params: {
+  jobId: number;
+  actorKind: AgentJobActorKind;
+  actorId?: string | null;
+  action: string;
+  payload?: Record<string, unknown>;
+}): void {
+  db.prepare(
+    `INSERT INTO agent_job_events (
+       job_id,
+       actor_kind,
+       actor_id,
+       action,
+       payload_json,
+       created_at
+     ) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(
+    params.jobId,
+    params.actorKind,
+    normalizeOptionalAgentJobString(params.actorId),
+    params.action,
+    JSON.stringify(params.payload || {}),
+    new Date().toISOString(),
+  );
+}
+
+export function recordAgentJobEvent(params: {
+  jobId: number;
+  actorKind: AgentJobActorKind;
+  actorId?: string | null;
+  action: string;
+  payload?: Record<string, unknown>;
+}): void {
+  requireAgentJobById(params.jobId);
+  appendAgentJobEvent(params);
+}
+
+export function getAgentJobById(jobId: number): AgentJob | null {
+  return readAgentJobById(jobId);
+}
+
+export function listAgentJobs(params?: {
+  boardId?: string;
+  includeArchived?: boolean;
+  status?: AgentJobStatus;
+  sourceSessionId?: string | null;
+}): AgentJob[] {
+  const boardId = normalizeOptionalAgentJobString(params?.boardId) || 'main';
+  const where = ['board_id = ?'];
+  const values: Array<string> = [boardId];
+  if (!params?.includeArchived) {
+    where.push('archived_at IS NULL');
+  }
+  if (params?.status) {
+    where.push('status = ?');
+    values.push(params.status);
+  }
+  const sourceSessionId = normalizeOptionalSourceSessionId(
+    params?.sourceSessionId,
+  );
+  if (sourceSessionId) {
+    where.push('source_session_id = ?');
+    values.push(sourceSessionId);
+  }
+  return db
+    .prepare(
+      `SELECT *
+       FROM agent_jobs
+       WHERE ${where.join(' AND ')}
+       ORDER BY ${AGENT_JOB_STATUS_ORDER_SQL}, lane_position ASC, updated_at DESC, id DESC`,
+    )
+    .all(...values) as AgentJob[];
+}
+
+export function listAgentJobEvents(jobId: number): AgentJobEvent[] {
+  return db
+    .prepare(
+      `SELECT *
+       FROM agent_job_events
+       WHERE job_id = ?
+       ORDER BY created_at DESC, id DESC`,
+    )
+    .all(jobId) as AgentJobEvent[];
+}
+
+export function createAgentJob(params: {
+  boardId?: string;
+  title: string;
+  details?: string | null;
+  status?: AgentJobStatus;
+  priority?: AgentJobPriority;
+  assigneeAgentId?: string | null;
+  createdByKind: AgentJobActorKind;
+  createdById?: string | null;
+  sourceSessionId?: string | null;
+  linkedTaskId?: number | null;
+}): AgentJob {
+  const boardId = normalizeOptionalAgentJobString(params.boardId) || 'main';
+  const title = String(params.title || '').trim();
+  if (!title) {
+    throw new Error('Agent job title is required.');
+  }
+  const details = String(params.details || '').trim();
+  const status = params.status || 'backlog';
+  const priority = params.priority || 'normal';
+  const assigneeAgentId = normalizeOptionalAgentJobString(
+    params.assigneeAgentId,
+  );
+  const sourceSessionId = normalizeOptionalSourceSessionId(
+    params.sourceSessionId,
+  );
+  const linkedTaskId = normalizeOptionalLinkedTaskId(params.linkedTaskId);
+  const now = new Date().toISOString();
+
+  const transaction = db.transaction(() => {
+    const lanePosition = listActiveLaneJobIds({
+      boardId,
+      status,
+    }).length;
+    const result = db
+      .prepare(
+        `INSERT INTO agent_jobs (
+           board_id,
+           title,
+           details,
+           status,
+           priority,
+           assignee_agent_id,
+           created_by_kind,
+           created_by_id,
+           source_session_id,
+           linked_task_id,
+           lane_position,
+           created_at,
+           updated_at,
+           completed_at,
+           archived_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      )
+      .run(
+        boardId,
+        title,
+        details,
+        status,
+        priority,
+        assigneeAgentId,
+        params.createdByKind,
+        normalizeOptionalAgentJobString(params.createdById),
+        sourceSessionId,
+        linkedTaskId,
+        lanePosition,
+        now,
+        now,
+        status === 'done' ? now : null,
+      );
+    const jobId = result.lastInsertRowid as number;
+    appendAgentJobEvent({
+      jobId,
+      actorKind: params.createdByKind,
+      actorId: params.createdById,
+      action: 'created',
+      payload: {
+        status,
+        priority,
+        lanePosition,
+      },
+    });
+    return requireAgentJobById(jobId);
+  });
+
+  return transaction();
+}
+
+export function updateAgentJob(params: {
+  id: number;
+  title?: string;
+  details?: string;
+  priority?: AgentJobPriority;
+  assigneeAgentId?: string | null;
+  sourceSessionId?: string | null;
+  linkedTaskId?: number | null;
+  actorKind: AgentJobActorKind;
+  actorId?: string | null;
+}): AgentJob {
+  const transaction = db.transaction(() => {
+    const current = requireAgentJobById(params.id);
+    if (current.archived_at) {
+      throw new Error('Archived jobs must be unarchived before editing.');
+    }
+
+    const updates: string[] = [];
+    const values: unknown[] = [];
+    const changed: Record<string, unknown> = {};
+
+    if (params.title !== undefined) {
+      const title = String(params.title || '').trim();
+      if (!title) throw new Error('Agent job title is required.');
+      if (title !== current.title) {
+        updates.push('title = ?');
+        values.push(title);
+        changed.title = title;
+      }
+    }
+
+    if (params.details !== undefined) {
+      const details = String(params.details || '').trim();
+      if (details !== current.details) {
+        updates.push('details = ?');
+        values.push(details);
+        changed.details = details;
+      }
+    }
+
+    if (params.priority !== undefined && params.priority !== current.priority) {
+      updates.push('priority = ?');
+      values.push(params.priority);
+      changed.priority = params.priority;
+    }
+
+    if (params.assigneeAgentId !== undefined) {
+      const assigneeAgentId = normalizeOptionalAgentJobString(
+        params.assigneeAgentId,
+      );
+      if (assigneeAgentId !== current.assignee_agent_id) {
+        updates.push('assignee_agent_id = ?');
+        values.push(assigneeAgentId);
+        changed.assigneeAgentId = assigneeAgentId;
+      }
+    }
+
+    if (params.sourceSessionId !== undefined) {
+      const sourceSessionId = normalizeOptionalSourceSessionId(
+        params.sourceSessionId,
+      );
+      if (sourceSessionId !== current.source_session_id) {
+        updates.push('source_session_id = ?');
+        values.push(sourceSessionId);
+        changed.sourceSessionId = sourceSessionId;
+      }
+    }
+
+    if (params.linkedTaskId !== undefined) {
+      const linkedTaskId = normalizeOptionalLinkedTaskId(params.linkedTaskId);
+      if (linkedTaskId !== current.linked_task_id) {
+        updates.push('linked_task_id = ?');
+        values.push(linkedTaskId);
+        changed.linkedTaskId = linkedTaskId;
+      }
+    }
+
+    if (updates.length === 0) {
+      return current;
+    }
+
+    updates.push('updated_at = ?');
+    values.push(new Date().toISOString(), params.id);
+    db.prepare(
+      `UPDATE agent_jobs
+       SET ${updates.join(', ')}
+       WHERE id = ?`,
+    ).run(...values);
+    appendAgentJobEvent({
+      jobId: params.id,
+      actorKind: params.actorKind,
+      actorId: params.actorId,
+      action: 'updated',
+      payload: changed,
+    });
+    return requireAgentJobById(params.id);
+  });
+
+  return transaction();
+}
+
+export function moveAgentJob(params: {
+  id: number;
+  status: AgentJobStatus;
+  position?: number | null;
+  actorKind: AgentJobActorKind;
+  actorId?: string | null;
+}): AgentJob {
+  const transaction = db.transaction(() => {
+    const current = requireAgentJobById(params.id);
+    if (current.archived_at) {
+      throw new Error('Archived jobs must be unarchived before moving.');
+    }
+
+    const nextStatus = params.status;
+    const now = new Date().toISOString();
+    const sameLane = current.status === nextStatus;
+    const sourceIds = listActiveLaneJobIds({
+      boardId: current.board_id,
+      status: current.status,
+      excludeJobId: current.id,
+    });
+    const targetIds = sameLane
+      ? [...sourceIds]
+      : listActiveLaneJobIds({
+          boardId: current.board_id,
+          status: nextStatus,
+        });
+    const defaultPosition = sameLane
+      ? Math.max(0, Math.min(current.lane_position, targetIds.length))
+      : targetIds.length;
+    const nextPosition = Math.max(
+      0,
+      Math.min(
+        targetIds.length,
+        params.position == null ? defaultPosition : Math.trunc(params.position),
+      ),
+    );
+
+    if (!sameLane) {
+      rewriteLanePositions(sourceIds);
+    }
+    targetIds.splice(nextPosition, 0, current.id);
+    rewriteLanePositions(targetIds);
+
+    const completedAt =
+      nextStatus === 'done' ? current.completed_at || now : null;
+    db.prepare(
+      `UPDATE agent_jobs
+       SET status = ?,
+           lane_position = ?,
+           completed_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(nextStatus, nextPosition, completedAt, now, current.id);
+    appendAgentJobEvent({
+      jobId: current.id,
+      actorKind: params.actorKind,
+      actorId: params.actorId,
+      action: 'moved',
+      payload: {
+        fromStatus: current.status,
+        toStatus: nextStatus,
+        fromPosition: current.lane_position,
+        toPosition: nextPosition,
+      },
+    });
+    return requireAgentJobById(current.id);
+  });
+
+  return transaction();
+}
+
+export function setAgentJobArchived(params: {
+  id: number;
+  archived: boolean;
+  actorKind: AgentJobActorKind;
+  actorId?: string | null;
+}): AgentJob {
+  const transaction = db.transaction(() => {
+    const current = requireAgentJobById(params.id);
+    const currentlyArchived = Boolean(current.archived_at);
+    if (params.archived === currentlyArchived) {
+      return current;
+    }
+
+    const now = new Date().toISOString();
+    if (params.archived) {
+      rewriteLanePositions(
+        listActiveLaneJobIds({
+          boardId: current.board_id,
+          status: current.status,
+          excludeJobId: current.id,
+        }),
+      );
+      db.prepare(
+        `UPDATE agent_jobs
+         SET archived_at = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      ).run(now, now, current.id);
+    } else {
+      const lanePosition = listActiveLaneJobIds({
+        boardId: current.board_id,
+        status: current.status,
+      }).length;
+      db.prepare(
+        `UPDATE agent_jobs
+         SET archived_at = NULL,
+             lane_position = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      ).run(lanePosition, now, current.id);
+    }
+
+    appendAgentJobEvent({
+      jobId: current.id,
+      actorKind: params.actorKind,
+      actorId: params.actorId,
+      action: params.archived ? 'archived' : 'unarchived',
+      payload: {
+        status: current.status,
+      },
+    });
+    return requireAgentJobById(current.id);
+  });
+
+  return transaction();
 }
 
 function parseSkillMetricsJson(raw: string | null): SkillHealthMetrics | null {

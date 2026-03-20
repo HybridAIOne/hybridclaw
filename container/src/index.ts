@@ -72,6 +72,7 @@ import {
   getPluginToolDefinitions,
   resetSideEffects,
   setGatewayContext,
+  setJobs,
   setMcpClientManager,
   setMediaContext,
   setModelContext,
@@ -1438,6 +1439,7 @@ async function main(): Promise<void> {
   await syncMcpConfig(firstInput.mcpServers);
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
+  setJobs(firstInput.jobs);
   setSessionContext(firstInput.sessionId);
   setPluginTools(firstInput.pluginTools);
   setGatewayContext(
@@ -1579,6 +1581,7 @@ async function main(): Promise<void> {
     await syncMcpConfig(input.mcpServers);
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
+    setJobs(input.jobs);
     setSessionContext(input.sessionId);
     setPluginTools(input.pluginTools);
     setGatewayContext(

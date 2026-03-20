@@ -33,6 +33,7 @@ import {
   enqueueProactiveMessage,
   getEnabledFullAutoSessions,
   getSessionUsageTotals,
+  listAgentJobs,
   updateSessionFullAuto,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
@@ -706,6 +707,7 @@ async function generateFullAutoLearningState(params: {
       ralphMaxIterations: 0,
       fullAutoEnabled: false,
       scheduledTasks: [],
+      jobs: listAgentJobs({ boardId: 'main' }),
       allowedTools: [],
       blockedTools: [],
       onTextDelta: (delta) => {

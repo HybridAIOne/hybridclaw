@@ -48,6 +48,7 @@ import {
 } from './chat-result.js';
 import {
   createGatewayAdminAgent,
+  createGatewayAdminJob,
   deleteGatewayAdminAgent,
   deleteGatewayAdminSession,
   type GatewayChatRequest,
@@ -57,6 +58,8 @@ import {
   getGatewayAdminAudit,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
+  getGatewayAdminJobHistory,
+  getGatewayAdminJobs,
   getGatewayAdminMcp,
   getGatewayAdminModels,
   getGatewayAdminOverview,
@@ -77,6 +80,8 @@ import {
   runGatewayPluginTool,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
+  updateGatewayAdminJob,
+  moveGatewayAdminJob,
   setGatewayAdminSchedulerJobPaused,
   setGatewayAdminSkillEnabled,
   updateGatewayAdminAgent,
@@ -1097,6 +1102,83 @@ async function handleApiAdminScheduler(
   sendJson(res, 200, upsertGatewayAdminSchedulerJob({ job: body.job }));
 }
 
+async function handleApiAdminJobs(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  pathname: string,
+): Promise<void> {
+  const parts = pathname.split('/').filter(Boolean);
+  const jobId = parts[3] || '';
+  const tail = parts[4] || '';
+  const method = (req.method || 'GET').toUpperCase();
+
+  if (parts.length === 3 && method === 'GET') {
+    sendJson(res, 200, getGatewayAdminJobs({
+      includeArchived:
+        (url.searchParams.get('archived') || '').trim().toLowerCase() ===
+        'true',
+    }));
+    return;
+  }
+
+  if (parts.length === 3 && method === 'POST') {
+    const body = (await readJsonBody(req)) as { job?: unknown };
+    sendJson(
+      res,
+      200,
+      createGatewayAdminJob({
+        job: body.job,
+        actorKind: 'user',
+        actorId: 'web-admin',
+      }),
+    );
+    return;
+  }
+
+  if (parts.length === 4 && method === 'PATCH') {
+    const body = (await readJsonBody(req)) as { patch?: unknown };
+    sendJson(
+      res,
+      200,
+      updateGatewayAdminJob({
+        jobId,
+        patch: body.patch ?? body,
+        actorKind: 'user',
+        actorId: 'web-admin',
+      }),
+    );
+    return;
+  }
+
+  if (parts.length === 5 && tail === 'move' && method === 'POST') {
+    const body = (await readJsonBody(req)) as {
+      status?: unknown;
+      position?: unknown;
+    };
+    sendJson(
+      res,
+      200,
+      moveGatewayAdminJob({
+        jobId,
+        move: body,
+        actorKind: 'user',
+        actorId: 'web-admin',
+      }),
+    );
+    return;
+  }
+
+  if (parts.length === 5 && tail === 'history' && method === 'GET') {
+    sendJson(res, 200, getGatewayAdminJobHistory(Number.parseInt(jobId, 10)));
+    return;
+  }
+
+  sendJson(res, method === 'GET' ? 404 : 405, {
+    error: method === 'GET' ? 'Not Found' : 'Method Not Allowed',
+  });
+}
+
 async function handleApiAdminMcp(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1320,6 +1402,7 @@ function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
   const sendSnapshot = (): void => {
     sendEvent('overview', getGatewayAdminOverview());
     sendEvent('status', getGatewayStatus());
+    sendEvent('jobs', getGatewayAdminJobs());
   };
 
   sendSnapshot();
@@ -1528,6 +1611,15 @@ export function startGatewayHttpServer(): void {
               method === 'POST')
           ) {
             await handleApiAdminScheduler(req, res, url);
+            return;
+          }
+          if (
+            (pathname === '/api/admin/jobs' &&
+              (method === 'GET' || method === 'POST')) ||
+            (pathname.startsWith('/api/admin/jobs/') &&
+              (method === 'GET' || method === 'PATCH' || method === 'POST'))
+          ) {
+            await handleApiAdminJobs(req, res, url, pathname);
             return;
           }
           if (

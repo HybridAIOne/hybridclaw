@@ -15,6 +15,9 @@ import {
 } from './config/config.js';
 import { extractGatewayChatApprovalEvent } from './gateway/chat-approval.js';
 import {
+  fetchGatewayAdminAgents,
+  fetchGatewayAdminJobHistory,
+  fetchGatewayAdminJobs,
   fetchGatewayAdminSkills,
   type GatewayChatApprovalEvent,
   type GatewayChatResult,
@@ -24,11 +27,14 @@ import {
   gatewayChatStream,
   gatewayCommand,
   gatewayHistory,
+  moveGatewayAdminJob,
   gatewayPullProactive,
   gatewayStatus,
   renderGatewayCommand,
   saveGatewayAdminSkillEnabled,
+  updateGatewayAdminJob,
 } from './gateway/gateway-client.js';
+import type { GatewayHistoryMessage } from './gateway/gateway-types.js';
 import {
   DEFAULT_SESSION_SHOW_MODE,
   isSessionShowMode,
@@ -65,6 +71,8 @@ import {
   buildTuiReadlineHistory,
   resolveTuiHistoryFetchLimit,
 } from './tui-history.js';
+import { promptTuiJobsBoard } from './jobs/tui-board.js';
+import { promptTuiJobEdit } from './jobs/tui-edit.js';
 import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
 import {
   buildTuiExitSummaryLines,
@@ -165,6 +173,7 @@ const TEAL = PALETTE.teal;
 const GOLD = PALETTE.gold;
 const GREEN = PALETTE.green;
 const RED = PALETTE.red;
+const SELECTED = '\x1b[7m';
 const WORDMARK_RAMP =
   THEME === 'light'
     ? ([
@@ -523,6 +532,9 @@ function printHelp(): void {
     `  ${TEAL}/audit [sessionId]${RESET} Show recent structured audit events`,
   );
   console.log(
+    `  ${TEAL}/job [list [status]|board|edit <id>|create <title>|start <id>|move <id> <status> [position]|done <id>|archive <id>|unarchive <id>]${RESET} Manage kanban jobs`,
+  );
+  console.log(
     `  ${TEAL}/skill config|list|inspect <name>|inspect --all|runs <name>|amend <name> [--apply|--reject|--rollback]|history <name>${RESET} Manage skill config, health, runs, and amendments`,
   );
   console.log(
@@ -635,6 +647,18 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
   if (result.kind === 'error') {
     const prefix = result.title ? `${result.title}: ` : '';
     printError(`${prefix}${result.text}`);
+    return;
+  }
+  if (result.preformatted) {
+    clearTuiSlashMenu();
+    console.log();
+    if (result.title) {
+      console.log(`  ${GOLD}${result.title}${RESET}`);
+    }
+    for (const line of result.text.split('\n')) {
+      console.log(`  ${line}`);
+    }
+    console.log();
     return;
   }
   if (isModelCatalogCommandResult(result)) {
@@ -1283,6 +1307,132 @@ async function promptSkillConfigSelection(
   );
 }
 
+async function promptJobsBoardSelection(rl: readline.Interface): Promise<void> {
+  clearTuiSlashMenu();
+  const response = await fetchGatewayAdminJobs();
+  if (response.jobs.length === 0) {
+    printInfo('No jobs on the board.');
+    return;
+  }
+
+  const result = await promptTuiJobsBoard({
+    rl,
+    response,
+    palette: {
+      reset: RESET,
+      bold: BOLD,
+      muted: MUTED,
+      teal: TEAL,
+      gold: GOLD,
+      green: GREEN,
+      red: RED,
+      selected: SELECTED,
+    },
+  });
+  if (result.cancelled || !result.openedJobId) {
+    return;
+  }
+  await promptJobEditSelection(rl, String(result.openedJobId));
+}
+
+async function promptJobEditSelection(
+  rl: readline.Interface,
+  rawJobId: string,
+): Promise<void> {
+  clearTuiSlashMenu();
+  const jobId = Number.parseInt(rawJobId, 10);
+  if (!Number.isFinite(jobId) || jobId <= 0) {
+    printInfo('Usage: /job edit <id>');
+    return;
+  }
+
+  try {
+    const history = await fetchGatewayAdminJobHistory(jobId);
+    if (!history.job) {
+      printError(`Job #${jobId} was not found.`, { leadingBlank: false });
+      return;
+    }
+    if (history.job.archivedAt) {
+      printInfo(`Job #${jobId} is archived. Unarchive it before editing.`);
+      return;
+    }
+    const summarizeDispatchResult = (
+      messages: GatewayHistoryMessage[],
+    ): string | null => {
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message?.role !== 'assistant') continue;
+        const normalized = String(message.content || '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (normalized) return normalized;
+      }
+      return null;
+    };
+    const dispatchSessionId = history.job.dispatch?.sessionId;
+    const [agentsResponse, resultData] = await Promise.all([
+      fetchGatewayAdminAgents().catch(() => ({
+        agents: [],
+      })),
+      dispatchSessionId
+        ? gatewayHistory(dispatchSessionId, 100)
+            .then((response) => ({
+              preview: summarizeDispatchResult(response.history),
+              messages: response.history,
+            }))
+            .catch(() => ({
+              preview: null,
+              messages: [] as GatewayHistoryMessage[],
+            }))
+        : Promise.resolve({
+            preview: null,
+            messages: [] as GatewayHistoryMessage[],
+          }),
+    ]);
+
+    const result = await promptTuiJobEdit({
+      rl,
+      job: history.job,
+      agents: agentsResponse.agents,
+      events: history.events,
+      resultPreview: resultData.preview,
+      resultMessages: resultData.messages,
+      palette: {
+        reset: RESET,
+        bold: BOLD,
+        muted: MUTED,
+        teal: TEAL,
+        gold: GOLD,
+        green: GREEN,
+        red: RED,
+      },
+    });
+    if (result.cancelled) {
+      printInfo('Job edit cancelled.');
+      return;
+    }
+
+    const hasPatchChanges = Object.keys(result.patch).length > 0;
+    if (!result.status && !hasPatchChanges) {
+      printInfo('No job changes to save.');
+      return;
+    }
+
+    if (result.status) {
+      await moveGatewayAdminJob(jobId, {
+        status: result.status,
+      });
+    }
+    if (hasPatchChanges) {
+      await updateGatewayAdminJob(jobId, result.patch);
+    }
+    printInfo(`Job #${jobId} updated.`);
+    await runGatewayCommand(['job', 'edit', String(jobId)], rl);
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err));
+  }
+}
+
 async function handleSlashCommand(
   input: string,
   rl: readline.Interface,
@@ -1363,6 +1513,34 @@ async function handleSlashCommand(
       }
       await promptSkillConfigSelection(rl);
       return true;
+    }
+    case 'job': {
+      const subcommand = (parts[1] || '').trim().toLowerCase();
+      if (subcommand === 'board') {
+        if (parts.length > 2) {
+          printInfo('Usage: /job board');
+          return true;
+        }
+        await promptJobsBoardSelection(rl);
+        return true;
+      }
+      if (subcommand === 'edit') {
+        if (parts.length !== 3) {
+          printInfo('Usage: /job edit <id>');
+          return true;
+        }
+        await promptJobEditSelection(rl, parts[2] || '');
+        return true;
+      }
+      if (subcommand === 'start') {
+        if (parts.length !== 3) {
+          printInfo('Usage: /job start <id>');
+          return true;
+        }
+        await runGatewayCommand(['job', 'start', parts[2] || ''], rl);
+        return true;
+      }
+      break;
     }
     case 'info':
       await runGatewayCommand(['bot', 'info'], rl);

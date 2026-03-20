@@ -119,6 +119,7 @@ import {
   normalizeSessionShowMode,
   sessionShowModeShowsTools,
 } from './show-mode.js';
+import { startJobDispatcher } from '../jobs/dispatcher.js';
 
 let detachConfigListener: (() => void) | null = null;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
@@ -134,6 +135,20 @@ const EMAIL_INTERRUPTED_REPLY =
   'The request was interrupted before I could reply. Please send it again.';
 const EMAIL_TRANSIENT_FAILURE_REPLY =
   'The model request failed before I could reply. Please try again.';
+
+function formatPreformattedCommandReply(
+  title: string | undefined,
+  body: string,
+): string {
+  const trimmedBody = body.trimEnd();
+  if (!trimmedBody) {
+    return title ? `**${title}**` : '';
+  }
+  if (!title) {
+    return `\`\`\`\n${trimmedBody}\n\`\`\``;
+  }
+  return `**${title}**\n\`\`\`\n${trimmedBody}\n\`\`\``;
+}
 
 function buildArtifactAttachments(
   artifacts?: ArtifactMetadata[],
@@ -472,7 +487,9 @@ async function handleTextChannelCommand(params: {
     return;
   }
   if (result.kind === 'info') {
-    const text = formatInfo(result.title || 'Info', result.text);
+    const text = result.preformatted
+      ? formatPreformattedCommandReply(result.title || 'Info', result.text)
+      : formatInfo(result.title || 'Info', result.text);
     if (result.components !== undefined) {
       await reply(text, undefined, result.components);
     } else {
@@ -1609,6 +1626,7 @@ async function main(): Promise<void> {
   logger.info('Starting HybridClaw gateway');
   initDatabase();
   await initGatewayService();
+  startJobDispatcher();
   resumeEnabledFullAutoSessions();
   void runManagedMediaCleanup('startup').catch((error) => {
     logger.warn({ error }, 'Managed media cleanup failed during startup');

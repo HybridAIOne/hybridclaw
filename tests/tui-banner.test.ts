@@ -151,6 +151,7 @@ test('wraps panel rows for very narrow terminals and defaults provider to Hybrid
     '│ /fullauto                  │',
     '│ /help                      │',
     '│ /info                      │',
+    '│ /job                       │',
     '│ /mcp                       │',
     '│ /model                     │',
     '│ /rag                       │',

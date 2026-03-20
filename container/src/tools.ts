@@ -23,8 +23,14 @@ import {
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
 import {
+  AGENT_JOB_PRIORITIES,
+  AGENT_JOB_STATUSES,
+  type AgentJob,
+  type AgentJobPriority,
+  type AgentJobStatus,
   type DelegationSideEffect,
   type DelegationTaskSpec,
+  type JobSideEffect,
   type MediaContextItem,
   type PluginRuntimeToolDefinition,
   type ScheduleSideEffect,
@@ -84,7 +90,9 @@ type ScheduledTaskInfo = {
 
 let pendingSchedules: ScheduleSideEffect[] = [];
 let pendingDelegations: DelegationSideEffect[] = [];
+let pendingJobs: JobSideEffect[] = [];
 let injectedTasks: ScheduledTaskInfo[] = [];
+let injectedJobs: AgentJob[] = [];
 let currentSessionId = '';
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
@@ -249,19 +257,26 @@ function cloneTaskModelPolicies(
 export function resetSideEffects(): void {
   pendingSchedules = [];
   pendingDelegations = [];
+  pendingJobs = [];
 }
 
 export function getPendingSideEffects():
   | {
       schedules?: ScheduleSideEffect[];
       delegations?: DelegationSideEffect[];
+      jobs?: JobSideEffect[];
     }
   | undefined {
-  if (pendingSchedules.length === 0 && pendingDelegations.length === 0)
+  if (
+    pendingSchedules.length === 0 &&
+    pendingDelegations.length === 0 &&
+    pendingJobs.length === 0
+  )
     return undefined;
   return {
     schedules: pendingSchedules.length > 0 ? pendingSchedules : undefined,
     delegations: pendingDelegations.length > 0 ? pendingDelegations : undefined,
+    jobs: pendingJobs.length > 0 ? pendingJobs : undefined,
   };
 }
 
@@ -269,6 +284,10 @@ export function setScheduledTasks(
   tasks: ScheduledTaskInfo[] | undefined,
 ): void {
   injectedTasks = tasks || [];
+}
+
+export function setJobs(jobs: AgentJob[] | undefined): void {
+  injectedJobs = jobs || [];
 }
 
 export function setSessionContext(sessionId: string): void {
@@ -393,6 +412,56 @@ function readPositiveNumberValue(value: unknown): number | null {
   const parsed = Number(trimmed);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return parsed;
+}
+
+function readNonNegativeNumberValue(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return parsed;
+}
+
+function readAgentJobStatusValue(
+  value: unknown,
+  fallback?: AgentJobStatus,
+): AgentJobStatus | null {
+  const normalized = readStringValue(value)?.toLowerCase();
+  if (!normalized) return fallback ?? null;
+  return AGENT_JOB_STATUSES.includes(normalized as AgentJobStatus)
+    ? (normalized as AgentJobStatus)
+    : null;
+}
+
+function readAgentJobPriorityValue(
+  value: unknown,
+  fallback?: AgentJobPriority,
+): AgentJobPriority | null {
+  const normalized = readStringValue(value)?.toLowerCase();
+  if (!normalized) return fallback ?? null;
+  return AGENT_JOB_PRIORITIES.includes(normalized as AgentJobPriority)
+    ? (normalized as AgentJobPriority)
+    : null;
+}
+
+function readJobIdValue(value: unknown): number | null {
+  const parsed = readPositiveNumberValue(value);
+  return parsed == null ? null : Math.trunc(parsed);
+}
+
+function formatJobListItem(job: AgentJob): string {
+  const meta = [
+    job.priority !== 'normal' ? job.priority : '',
+    job.assignee_agent_id ? `assignee ${job.assignee_agent_id}` : '',
+    job.source_session_id ? `session ${job.source_session_id}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return `#${job.id} [${job.status}] ${job.title}${meta ? ` — ${meta}` : ''}`;
 }
 
 function resolveDiscordMessageAction(
@@ -2620,6 +2689,175 @@ async function executeToolInternal(
       );
     }
 
+    case 'job': {
+      const action = readStringValue(args.action)?.toLowerCase();
+      if (!action) return failTool('Error: action is required');
+
+      if (action === 'list') {
+        const status = readAgentJobStatusValue(args.status);
+        const jobs = injectedJobs
+          .filter((job) => !job.archived_at)
+          .filter((job) => (status ? job.status === status : true))
+          .sort((left, right) => {
+            if (left.status !== right.status) {
+              return (
+                AGENT_JOB_STATUSES.indexOf(left.status) -
+                AGENT_JOB_STATUSES.indexOf(right.status)
+              );
+            }
+            if (left.lane_position !== right.lane_position) {
+              return left.lane_position - right.lane_position;
+            }
+            return left.id - right.id;
+          });
+        if (jobs.length === 0) {
+          return status
+            ? `No active jobs in ${status}.`
+            : 'No active jobs on the board.';
+        }
+        return jobs.map(formatJobListItem).join('\n');
+      }
+
+      if (action === 'view' || action === 'show') {
+        const jobId = readJobIdValue(args.jobId ?? args.id);
+        if (!jobId) return failTool('Error: jobId is required');
+        const job = injectedJobs.find((entry) => entry.id === jobId);
+        if (!job) return failTool(`Error: job #${jobId} was not found.`);
+        return [
+          `#${job.id} ${job.title}`,
+          `status=${job.status} priority=${job.priority} lane=${job.lane_position}`,
+          `assignee=${job.assignee_agent_id || 'none'}`,
+          `session=${job.source_session_id || 'none'} task=${job.linked_task_id ?? 'none'}`,
+          `updated=${job.updated_at}`,
+          '',
+          job.details || '(no details)',
+        ].join('\n');
+      }
+
+      if (action === 'create') {
+        const title = readStringValue(args.title) || readStringValue(args.name);
+        if (!title) return failTool('Error: title is required');
+        const status = readAgentJobStatusValue(args.status, 'backlog');
+        if (!status) {
+          return failTool(
+            `Error: status must be one of ${AGENT_JOB_STATUSES.join(', ')}`,
+          );
+        }
+        const priority = readAgentJobPriorityValue(args.priority, 'normal');
+        if (!priority) {
+          return failTool(
+            `Error: priority must be one of ${AGENT_JOB_PRIORITIES.join(', ')}`,
+          );
+        }
+        pendingJobs.push({
+          action: 'create',
+          title,
+          details:
+            readStringValue(args.details) ||
+            readStringValue(args.description) ||
+            readStringValue(args.body),
+          status,
+          priority,
+          assigneeAgentId: readStringValue(args.assigneeAgentId),
+          sourceSessionId:
+            readStringValue(args.sourceSessionId) ||
+            currentSessionId ||
+            undefined,
+          linkedTaskId:
+            readJobIdValue(args.linkedTaskId ?? args.taskId) || undefined,
+        });
+        return `Job queued for creation in ${status}: ${title}`;
+      }
+
+      if (action === 'move') {
+        const jobId = readJobIdValue(args.jobId ?? args.id);
+        if (!jobId) return failTool('Error: jobId is required');
+        const status = readAgentJobStatusValue(args.status);
+        if (!status) {
+          return failTool(
+            `Error: status must be one of ${AGENT_JOB_STATUSES.join(', ')}`,
+          );
+        }
+        const position = readNonNegativeNumberValue(args.position);
+        pendingJobs.push({
+          action: 'move',
+          jobId,
+          status,
+          position: position == null ? undefined : Math.trunc(position),
+        });
+        return `Job #${jobId} queued to move to ${status}.`;
+      }
+
+      if (action === 'update') {
+        const jobId = readJobIdValue(args.jobId ?? args.id);
+        if (!jobId) return failTool('Error: jobId is required');
+        const title = readStringValue(args.title) || readStringValue(args.name);
+        const details =
+          readStringValue(args.details) ||
+          readStringValue(args.description) ||
+          readStringValue(args.body);
+        const priority = readAgentJobPriorityValue(args.priority);
+        const assigneeAgentId =
+          args.assigneeAgentId === ''
+            ? null
+            : readStringValue(args.assigneeAgentId);
+        const sourceSessionId =
+          args.sourceSessionId === ''
+            ? null
+            : readStringValue(args.sourceSessionId);
+        const hasLinkedTaskIdField = 'linkedTaskId' in args || 'taskId' in args;
+        const linkedTaskIdRaw = !hasLinkedTaskIdField
+          ? undefined
+          : args.linkedTaskId === 0 ||
+              args.linkedTaskId === '0' ||
+              args.taskId === 0 ||
+              args.taskId === '0'
+            ? null
+            : readJobIdValue(args.linkedTaskId ?? args.taskId);
+        if (
+          title === undefined &&
+          details === undefined &&
+          priority == null &&
+          assigneeAgentId === undefined &&
+          sourceSessionId === undefined &&
+          linkedTaskIdRaw === undefined
+        ) {
+          return failTool(
+            'Error: provide at least one field to update: title, details, priority, assigneeAgentId, sourceSessionId, or linkedTaskId.',
+          );
+        }
+        pendingJobs.push({
+          action: 'update',
+          jobId,
+          title,
+          details,
+          priority: priority ?? undefined,
+          assigneeAgentId,
+          sourceSessionId,
+          linkedTaskId: linkedTaskIdRaw ?? undefined,
+        });
+        return `Job #${jobId} queued for update.`;
+      }
+
+      if (action === 'complete' || action === 'done') {
+        const jobId = readJobIdValue(args.jobId ?? args.id);
+        if (!jobId) return failTool('Error: jobId is required');
+        pendingJobs.push({ action: 'complete', jobId });
+        return `Job #${jobId} queued for completion.`;
+      }
+
+      if (action === 'archive' || action === 'unarchive') {
+        const jobId = readJobIdValue(args.jobId ?? args.id);
+        if (!jobId) return failTool('Error: jobId is required');
+        pendingJobs.push({ action, jobId });
+        return `Job #${jobId} queued for ${action}.`;
+      }
+
+      return failTool(
+        'Error: unknown job action. Use "list", "view", "create", "move", "update", "complete", "archive", or "unarchive".',
+      );
+    }
+
     case 'delegate': {
       if (pendingDelegations.length >= MAX_PENDING_DELEGATIONS) {
         return failTool(
@@ -3317,6 +3555,68 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   ...BROWSER_TOOL_DEFINITIONS,
+  {
+    type: 'function',
+    function: {
+      name: 'job',
+      description:
+        'Manage persistent kanban jobs on the shared board. Use this to list current work, create new jobs, update details, or move jobs between backlog/ready/in_progress/blocked/done. Changes are queued and applied after the current turn.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            description:
+              'Action to perform: "list", "view", "create", "move", "update", "complete", "archive", or "unarchive".',
+          },
+          jobId: {
+            type: 'number',
+            description:
+              'Numeric job id for view/move/update/complete/archive/unarchive.',
+          },
+          status: {
+            type: 'string',
+            description: 'Target status for list filtering, create, or move.',
+            enum: [...AGENT_JOB_STATUSES],
+          },
+          position: {
+            type: 'number',
+            description:
+              'Optional zero-based target position within the destination lane for move.',
+          },
+          title: {
+            type: 'string',
+            description: 'Title for create or update.',
+          },
+          details: {
+            type: 'string',
+            description: 'Optional details/body for create or update.',
+          },
+          priority: {
+            type: 'string',
+            description: 'Priority for create or update.',
+            enum: [...AGENT_JOB_PRIORITIES],
+          },
+          assigneeAgentId: {
+            type: 'string',
+            description:
+              'Optional assignee agent id for create or update. Use an empty string to clear on update.',
+          },
+          sourceSessionId: {
+            type: 'string',
+            description:
+              'Optional source session id for create or update. Use an empty string to clear on update.',
+          },
+          linkedTaskId: {
+            type: 'number',
+            description:
+              'Optional linked scheduler task id for create or update. Use 0 to clear on update.',
+          },
+        },
+        required: ['action'],
+      },
+    },
+  },
   {
     type: 'function',
     function: {

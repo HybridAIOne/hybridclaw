@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { adminEventsUrl } from '../api/client';
-import type { AdminOverview, GatewayStatus } from '../api/types';
+import type { AdminJobsResponse, AdminOverview, GatewayStatus } from '../api/types';
 
 interface LiveState {
   connection: 'idle' | 'connecting' | 'open' | 'error';
   overview: AdminOverview | null;
+  jobs: AdminJobsResponse | null;
   status: GatewayStatus | null;
   lastEventAt: number | null;
 }
@@ -13,6 +14,7 @@ export function useLiveEvents(token: string): LiveState {
   const [state, setState] = useState<LiveState>({
     connection: token ? 'connecting' : 'idle',
     overview: null,
+    jobs: null,
     status: null,
     lastEventAt: null,
   });
@@ -22,6 +24,7 @@ export function useLiveEvents(token: string): LiveState {
       setState({
         connection: 'idle',
         overview: null,
+        jobs: null,
         status: null,
         lastEventAt: null,
       });
@@ -61,6 +64,18 @@ export function useLiveEvents(token: string): LiveState {
         ...current,
         connection: 'open',
         status: payload,
+        lastEventAt: Date.now(),
+      }));
+    });
+
+    source.addEventListener('jobs', (event) => {
+      const payload = JSON.parse(
+        (event as MessageEvent<string>).data,
+      ) as AdminJobsResponse;
+      setState((current) => ({
+        ...current,
+        connection: 'open',
+        jobs: payload,
         lastEventAt: Date.now(),
       }));
     });

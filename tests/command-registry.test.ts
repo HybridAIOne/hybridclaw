@@ -149,6 +149,83 @@ test('parses /plugin uninstall into gateway args', async () => {
   ).toEqual(['plugin', 'uninstall', 'demo-plugin']);
 });
 
+test('registers job as a slash/text command', async () => {
+  const { buildCanonicalSlashCommandDefinitions, isRegisteredTextCommandName } =
+    await importCommandRegistry();
+  expect(isRegisteredTextCommandName('job')).toBe(true);
+  expect(buildCanonicalSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'job',
+        options: expect.arrayContaining([
+          expect.objectContaining({ kind: 'subcommand', name: 'list' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'board' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'create' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'edit' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'start' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'move' }),
+        ]),
+      }),
+    ]),
+  );
+});
+
+test('parses /job move into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'job',
+      getString: (name) =>
+        name === 'id'
+          ? '14'
+          : name === 'status'
+            ? 'in_progress'
+            : name === 'position'
+              ? '0'
+              : null,
+      getSubcommand: () => 'move',
+    }),
+  ).toEqual(['job', 'move', '14', 'in_progress', '0']);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['job', 'move', '14', 'in_progress', '0']),
+  ).toEqual(['job', 'move', '14', 'in_progress', '0']);
+});
+
+test('parses /job start into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'job',
+      getString: (name) => (name === 'id' ? '14' : null),
+      getSubcommand: () => 'start',
+    }),
+  ).toEqual(['job', 'start', '14']);
+  expect(mapCanonicalCommandToGatewayArgs(['job', 'start', '14'])).toEqual([
+    'job',
+    'start',
+    '14',
+  ]);
+});
+
+test('parses /job edit into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'job',
+      getString: (name) => (name === 'id' ? '14' : null),
+      getSubcommand: () => 'edit',
+    }),
+  ).toEqual(['job', 'edit', '14']);
+  expect(mapCanonicalCommandToGatewayArgs(['job', 'edit', '14'])).toEqual([
+    'job',
+    'edit',
+    '14',
+  ]);
+});
+
 test('recognizes loaded plugin commands without hardcoding them in the registry', async () => {
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
     findLoadedPluginCommand: vi.fn((name: string) =>

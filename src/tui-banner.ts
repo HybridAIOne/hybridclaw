@@ -76,6 +76,7 @@ const SLASH_COMMANDS = [
   '/fullauto',
   '/help',
   '/info',
+  '/job',
   '/mcp',
   '/model',
   '/rag',

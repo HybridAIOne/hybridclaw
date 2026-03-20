@@ -1,6 +1,10 @@
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { GATEWAY_API_TOKEN, GATEWAY_BASE_URL } from '../config/config.js';
+import type { AgentJobPriority, AgentJobStatus } from '../types.js';
 import {
+  type GatewayAdminAgentsResponse,
+  type GatewayAdminJobsResponse,
+  type GatewayAdminJobHistoryResponse,
   type GatewayAdminSkillsResponse,
   type GatewayChatApprovalEvent,
   type GatewayChatRequestBody,
@@ -19,6 +23,9 @@ import {
 } from './gateway-types.js';
 
 export type {
+  GatewayAdminAgentsResponse,
+  GatewayAdminJobsResponse,
+  GatewayAdminJobHistoryResponse,
   GatewayAdminSkillsResponse,
   GatewayChatApprovalEvent,
   GatewayChatResult,
@@ -254,6 +261,77 @@ export async function fetchGatewayAdminSkills(): Promise<GatewayAdminSkillsRespo
     method: 'GET',
     headers: authHeaders(),
   });
+}
+
+export async function fetchGatewayAdminAgents(): Promise<GatewayAdminAgentsResponse> {
+  return requestJson<GatewayAdminAgentsResponse>('/api/admin/agents', {
+    method: 'GET',
+    headers: authHeaders(),
+  });
+}
+
+export async function fetchGatewayAdminJobs(): Promise<GatewayAdminJobsResponse> {
+  return requestJson<GatewayAdminJobsResponse>('/api/admin/jobs', {
+    method: 'GET',
+    headers: authHeaders(),
+  });
+}
+
+export async function fetchGatewayAdminJobHistory(
+  jobId: number,
+): Promise<GatewayAdminJobHistoryResponse> {
+  return requestJson<GatewayAdminJobHistoryResponse>(
+    `/api/admin/jobs/${Math.trunc(jobId)}/history`,
+    {
+      method: 'GET',
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function updateGatewayAdminJob(
+  jobId: number,
+  patch: {
+    title?: string;
+    details?: string;
+    priority?: AgentJobPriority;
+    assigneeAgentId?: string | null;
+    sourceSessionId?: string | null;
+    linkedTaskId?: number | null;
+    archived?: boolean;
+  },
+): Promise<GatewayAdminJobsResponse> {
+  return requestJson<GatewayAdminJobsResponse>(
+    `/api/admin/jobs/${Math.trunc(jobId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(),
+      },
+      body: JSON.stringify({ patch }),
+    },
+  );
+}
+
+export async function moveGatewayAdminJob(
+  jobId: number,
+  move: {
+    status: AgentJobStatus;
+    position?: number;
+  },
+): Promise<GatewayAdminJobsResponse> {
+  return requestJson<GatewayAdminJobsResponse>(
+    `/api/admin/jobs/${Math.trunc(jobId)}/move`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(),
+      },
+      body: JSON.stringify(move),
+    },
+  );
 }
 
 export async function saveGatewayAdminSkillEnabled(params: {

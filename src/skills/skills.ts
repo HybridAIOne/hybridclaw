@@ -121,6 +121,7 @@ const RESERVED_SKILL_COMMAND_NAMES = new Set<string>([
   'model',
   'sessions',
   'audit',
+  'job',
   'schedule',
   'skill',
 ]);

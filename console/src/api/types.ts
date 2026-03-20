@@ -299,6 +299,72 @@ export interface AdminSchedulerResponse {
   jobs: AdminSchedulerJob[];
 }
 
+export interface AdminJob {
+  id: number;
+  boardId: string;
+  title: string;
+  details: string;
+  status: 'backlog' | 'ready' | 'in_progress' | 'blocked' | 'done';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  assigneeAgentId: string | null;
+  createdByKind: 'user' | 'agent' | 'system';
+  createdById: string | null;
+  sourceSessionId: string | null;
+  linkedTaskId: number | null;
+  lanePosition: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  archivedAt: string | null;
+  dispatch?: {
+    phase:
+      | 'planning'
+      | 'unassigned'
+      | 'queued'
+      | 'working'
+      | 'retrying'
+      | 'blocked'
+      | 'completed';
+    label: string;
+    summary: string;
+    attemptCount: number;
+    maxAttempts: number;
+    lastAction:
+      | 'none'
+      | 'dispatch_started'
+      | 'dispatch_failed'
+      | 'dispatch_succeeded'
+      | 'dispatch_exhausted';
+    lastActionAt: string | null;
+    sessionId: string | null;
+  };
+}
+
+export interface AdminJobEvent {
+  id: number;
+  jobId: number;
+  actorKind: 'user' | 'agent' | 'system';
+  actorId: string | null;
+  action: string;
+  payloadJson: string;
+  createdAt: string;
+}
+
+export interface AdminJobsResponse {
+  boardId: string;
+  columns: Array<{
+    id: AdminJob['status'];
+    label: string;
+    count: number;
+  }>;
+  jobs: AdminJob[];
+}
+
+export interface AdminJobHistoryResponse {
+  job: AdminJob | null;
+  events: AdminJobEvent[];
+}
+
 export interface AdminMcpConfig {
   transport: 'stdio' | 'http' | 'sse';
   command?: string;

@@ -182,3 +182,144 @@ test('saveGatewayAdminSkillEnabled writes optional channel scope to the admin en
     }),
   );
 });
+
+test('admin agent and job helpers call the expected admin endpoints', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/admin/agents')) {
+        return new Response(
+          JSON.stringify({
+            agents: [
+              {
+                id: 'main',
+                name: 'Main Agent',
+                model: 'gpt-5',
+                chatbotId: null,
+                enableRag: true,
+                workspace: null,
+                workspacePath: '/tmp/main/workspace',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        );
+      }
+      if (url.endsWith('/api/admin/jobs/7/history')) {
+        return new Response(
+          JSON.stringify({
+            job: {
+              id: 7,
+              boardId: 'main',
+              title: 'History job',
+              details: '',
+              status: 'backlog',
+              priority: 'normal',
+              assigneeAgentId: null,
+              createdByKind: 'user',
+              createdById: 'web-admin',
+              sourceSessionId: null,
+              linkedTaskId: null,
+              lanePosition: 0,
+              createdAt: '2026-03-20T10:00:00.000Z',
+              updatedAt: '2026-03-20T10:00:00.000Z',
+              completedAt: null,
+              archivedAt: null,
+            },
+            events: [],
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          boardId: 'main',
+          columns: [],
+          jobs: [],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    }),
+  );
+
+  const {
+    fetchGatewayAdminAgents,
+    fetchGatewayAdminJobHistory,
+    moveGatewayAdminJob,
+    updateGatewayAdminJob,
+  } = await importGatewayClient();
+
+  await expect(fetchGatewayAdminAgents()).resolves.toEqual({
+    agents: [
+      expect.objectContaining({
+        id: 'main',
+        name: 'Main Agent',
+      }),
+    ],
+  });
+  await expect(fetchGatewayAdminJobHistory(7)).resolves.toMatchObject({
+    job: { id: 7, title: 'History job' },
+    events: [],
+  });
+  await updateGatewayAdminJob(7, {
+    title: 'Renamed job',
+    assigneeAgentId: 'worker-1',
+  });
+  await moveGatewayAdminJob(7, {
+    status: 'in_progress',
+  });
+
+  expect(fetch).toHaveBeenNthCalledWith(
+    1,
+    'http://gateway.test/api/admin/agents',
+    expect.objectContaining({
+      method: 'GET',
+    }),
+  );
+  expect(fetch).toHaveBeenNthCalledWith(
+    2,
+    'http://gateway.test/api/admin/jobs/7/history',
+    expect.objectContaining({
+      method: 'GET',
+    }),
+  );
+  expect(fetch).toHaveBeenNthCalledWith(
+    3,
+    'http://gateway.test/api/admin/jobs/7',
+    expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify({
+        patch: {
+          title: 'Renamed job',
+          assigneeAgentId: 'worker-1',
+        },
+      }),
+    }),
+  );
+  expect(fetch).toHaveBeenNthCalledWith(
+    4,
+    'http://gateway.test/api/admin/jobs/7/move',
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        status: 'in_progress',
+      }),
+    }),
+  );
+});
