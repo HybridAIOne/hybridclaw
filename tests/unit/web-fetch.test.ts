@@ -8,18 +8,22 @@ afterEach(() => {
 
 describe('web fetch Cloudflare challenge retry', () => {
   it('retries once with an honest bot user agent after a Cloudflare challenge', async () => {
+    const challengeResponse = new Response('challenge', {
+      status: 403,
+      statusText: 'Forbidden',
+      headers: {
+        'Cf-Mitigated': 'challenge',
+        'Content-Type': 'text/plain',
+      },
+    });
+    const challengeBody = challengeResponse.body;
+    if (!challengeBody) {
+      throw new Error('Expected challenge response body to exist');
+    }
+    const cancelSpy = vi.spyOn(challengeBody, 'cancel');
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        new Response('challenge', {
-          status: 403,
-          statusText: 'Forbidden',
-          headers: {
-            'Cf-Mitigated': 'challenge',
-            'Content-Type': 'text/plain',
-          },
-        }),
-      )
+      .mockResolvedValueOnce(challengeResponse)
       .mockResolvedValueOnce(
         new Response('Allowed content via bot allowlist.', {
           status: 200,
@@ -30,7 +34,9 @@ describe('web fetch Cloudflare challenge retry', () => {
       );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { webFetch } = await import('../../container/src/web-fetch.js');
+    const { BOT_USER_AGENT, webFetch } = await import(
+      '../../container/src/web-fetch.js'
+    );
     const result = await webFetch({
       url: 'https://example.com/cloudflare-challenge-retry',
       extractMode: 'text',
@@ -44,10 +50,10 @@ describe('web fetch Cloudflare challenge retry', () => {
     });
     expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
       headers: expect.objectContaining({
-        'User-Agent':
-          'hybridclaw/1.0 (+https://github.com/hybridaione/hybridclaw; AI assistant bot)',
+        'User-Agent': BOT_USER_AGENT,
       }),
     });
+    expect(cancelSpy).toHaveBeenCalledTimes(1);
     expect(result.status).toBe(200);
     expect(result.text).toBe('Allowed content via bot allowlist.');
   });

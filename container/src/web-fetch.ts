@@ -40,7 +40,7 @@ const JAVASCRIPT_REQUIRED_PATTERNS = [
 ];
 const BROWSER_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-const BOT_USER_AGENT =
+export const BOT_USER_AGENT =
   'hybridclaw/1.0 (+https://github.com/hybridaione/hybridclaw; AI assistant bot)';
 
 // ---------------------------------------------------------------------------
@@ -457,6 +457,8 @@ export async function webFetch(params: {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
+    // The initial fetch and optional Cloudflare retry share one overall timeout
+    // budget; we intentionally do not reset the timer per attempt.
     const doFetch = (userAgent: string) =>
       fetchWithRedirects(
         params.url,
@@ -467,6 +469,7 @@ export async function webFetch(params: {
 
     let { response: res, finalUrl } = await doFetch(BROWSER_USER_AGENT);
     if (isCloudflareChallenge(res)) {
+      void res.body?.cancel().catch(() => {});
       ({ response: res, finalUrl } = await doFetch(BOT_USER_AGENT));
     }
 
