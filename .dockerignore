@@ -1,0 +1,31 @@
+# Version control
+.git
+.github
+.gitignore
+
+# Build artifacts (rebuilt inside container)
+dist/
+container/dist/
+console/dist/
+
+# Dependencies (reinstalled inside container)
+node_modules/
+container/node_modules/
+
+# Development tooling
+.claude
+.husky
+.vscode
+docker/
+
+# Tests and docs
+tests/
+docs/
+packages/
+plugins/
+
+# IDE and OS
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
