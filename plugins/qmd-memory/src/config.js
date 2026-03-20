@@ -7,8 +7,8 @@ function normalizeString(value) {
 }
 
 // The manifest schema owns defaults and bounds for numeric settings.
-// This helper only normalizes validated numbers to integers.
-function truncateValidatedInteger(value, key) {
+// This helper only normalizes already-validated numbers to integers.
+function normalizeValidatedInteger(value, key) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new Error(`qmd-memory plugin config.${key} must be a number.`);
   }
@@ -37,19 +37,19 @@ export function resolveQmdPluginConfig(pluginConfig, runtime) {
       searchMode === 'vsearch' || searchMode === 'query'
         ? searchMode
         : DEFAULT_SEARCH_MODE,
-    maxResults: truncateValidatedInteger(
+    maxResults: normalizeValidatedInteger(
       pluginConfig?.maxResults,
       'maxResults',
     ),
-    maxSnippetChars: truncateValidatedInteger(
+    maxSnippetChars: normalizeValidatedInteger(
       pluginConfig?.maxSnippetChars,
       'maxSnippetChars',
     ),
-    maxInjectedChars: truncateValidatedInteger(
+    maxInjectedChars: normalizeValidatedInteger(
       pluginConfig?.maxInjectedChars,
       'maxInjectedChars',
     ),
-    timeoutMs: truncateValidatedInteger(pluginConfig?.timeoutMs, 'timeoutMs'),
+    timeoutMs: normalizeValidatedInteger(pluginConfig?.timeoutMs, 'timeoutMs'),
     sessionExport: pluginConfig?.sessionExport === true,
     sessionExportDir:
       resolveRuntimePath(pluginConfig?.sessionExportDir, runtime) ||

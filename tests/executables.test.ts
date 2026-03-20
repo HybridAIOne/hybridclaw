@@ -53,6 +53,22 @@ test('finds bare executables on PATH when they appear later under the same PATH'
   expect(hasExecutableCommand(binaryName)).toBe(true);
 });
 
+test('caches successful bare executable lookups for the same PATH', async () => {
+  const dir = makeTempDir('hybridclaw-exec-path-');
+  const binaryName = 'cached-demo-exec';
+  writeExecutable(dir, binaryName);
+
+  const { hasExecutableCommand } = await import('../src/utils/executables.js');
+  vi.stubEnv('PATH', dir);
+
+  const accessSpy = vi.spyOn(fs, 'accessSync');
+  expect(hasExecutableCommand(binaryName)).toBe(true);
+  const callCountAfterFirstLookup = accessSpy.mock.calls.length;
+
+  expect(hasExecutableCommand(binaryName)).toBe(true);
+  expect(accessSpy.mock.calls.length).toBe(callCountAfterFirstLookup);
+});
+
 test('resolves relative executable paths against the provided cwd', async () => {
   const cwd = makeTempDir('hybridclaw-exec-cwd-');
   const relativePath = path.join('bin', 'local-exec');

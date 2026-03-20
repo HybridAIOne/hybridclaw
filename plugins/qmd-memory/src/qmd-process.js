@@ -31,6 +31,7 @@ const FALLBACK_QUERY_EXCLUDED_TERMS = new Set([
 
 const MIN_CAPTURE_BYTES = 32_768;
 const CAPTURE_BYTES_PER_INJECTED_CHAR = 2;
+const MIN_PASSTHROUGH_TIMEOUT_MS = 15 * 60 * 1000;
 const QMD_TIMEOUT_KILL_GRACE_MS = 250;
 const QMD_ENV_ALLOWLIST = [
   'PATH',
@@ -92,14 +93,14 @@ function toFiniteNumber(value) {
 
 function normalizeResultItem(item) {
   const source = isRecord(item) ? item : {};
-  const path = firstNonEmptyString(
+  const resultPath = firstNonEmptyString(
     source.displayPath,
     source.path,
     source.file,
   );
   return {
-    title: firstNonEmptyString(source.title, path) || 'Untitled result',
-    path,
+    title: firstNonEmptyString(source.title, resultPath) || 'Untitled result',
+    path: resultPath,
     snippet: firstNonEmptyString(source.snippet),
     context: firstNonEmptyString(source.context, source.collection),
     score: toFiniteNumber(source.score),
@@ -480,11 +481,6 @@ export async function buildQmdPromptContextResult(params) {
   };
 }
 
-export async function buildQmdPromptContext(params) {
-  const result = await buildQmdPromptContextResult(params);
-  return result.promptContext;
-}
-
 export async function buildQmdStatusText(config) {
   const result = await runQmd(['status'], config);
   if (!result.ok) {
@@ -510,7 +506,9 @@ export async function buildQmdStatusText(config) {
 }
 
 export async function runQmdCommandText(args, config) {
-  const result = await runQmdWithOptions(args, config, { timeoutMs: null });
+  const result = await runQmdWithOptions(args, config, {
+    timeoutMs: Math.max(config.timeoutMs, MIN_PASSTHROUGH_TIMEOUT_MS),
+  });
   if (!result.ok) {
     throw result.error;
   }

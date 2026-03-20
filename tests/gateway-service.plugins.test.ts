@@ -430,7 +430,7 @@ test('handleGatewayCommand dispatches plugin-registered commands', async () => {
 
   const result = await handleGatewayCommand({
     sessionId: 'session-plugin-command',
-    guildId: null,
+    guildId: 'guild-123',
     channelId: 'web',
     userId: 'user-42',
     username: 'alice',
@@ -442,6 +442,8 @@ test('handleGatewayCommand dispatches plugin-registered commands', async () => {
     sessionId: 'session-plugin-command',
     channelId: 'web',
     userId: 'user-42',
+    username: 'alice',
+    guildId: 'guild-123',
   });
   expect(result.kind).toBe('plain');
   expect(result.text).toBe('QMD index is ready.');

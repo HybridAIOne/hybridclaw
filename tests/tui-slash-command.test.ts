@@ -142,6 +142,20 @@ test('keeps explicit /skill invocations out of the slash-command path', () => {
   ).toBeNull();
 });
 
+test('maps loaded plugin commands locally and leaves typos unresolved', () => {
+  expect(mapTuiSlashCommandToGatewayArgs(['qmd', 'status'])).toBeNull();
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['qmd', 'status'], {
+      dynamicTextCommands: ['qmd'],
+    }),
+  ).toEqual(['qmd', 'status']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['qmx', 'status'], {
+      dynamicTextCommands: ['qmd'],
+    }),
+  ).toBeNull();
+});
+
 test('maps /approve actions to explicit typed results', () => {
   expect(mapTuiApproveSlashToMessage(['approve', 'yes'], 'abc123')).toEqual({
     kind: 'message',

@@ -322,6 +322,91 @@ describe('plugin install', () => {
     ]);
   });
 
+  test('reinstalls an npm-spec plugin with a single staged fetch', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const installedDir = path.join(
+      homeDir,
+      '.hybridclaw',
+      'plugins',
+      'demo-plugin',
+    );
+    writePluginDir(installedDir, { packageName: '@scope/old-demo-plugin' });
+    fs.writeFileSync(path.join(installedDir, 'stale.txt'), 'old build artifact\n', 'utf-8');
+
+    const runCommand = vi.fn(
+      ({
+        args,
+        cwd: commandCwd,
+      }: {
+        command: string;
+        args: string[];
+        cwd: string;
+      }) => {
+        if (
+          args[0] === 'install' &&
+          args.includes('--no-package-lock') &&
+          args.includes('@scope/demo-plugin')
+        ) {
+          const packageDir = path.join(
+            commandCwd,
+            'node_modules',
+            '@scope',
+            'demo-plugin',
+          );
+          writePluginDir(packageDir, { packageName: '@scope/demo-plugin' });
+        }
+      },
+    );
+
+    const { reinstallPlugin } = await import('../src/plugins/plugin-install.js');
+    const result = await reinstallPlugin('@scope/demo-plugin', {
+      homeDir,
+      cwd,
+      runCommand,
+    });
+
+    expect(result).toEqual({
+      pluginId: 'demo-plugin',
+      pluginDir: installedDir,
+      source: '@scope/demo-plugin',
+      alreadyInstalled: false,
+      replacedExistingInstall: true,
+      dependenciesInstalled: true,
+      requiresEnv: ['DEMO_PLUGIN_KEY'],
+      requiredConfigKeys: ['workspaceId'],
+    });
+    expect(fs.existsSync(path.join(installedDir, 'stale.txt'))).toBe(false);
+    expect(runCommand).toHaveBeenCalledTimes(2);
+    expect(runCommand).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        command: 'npm',
+        args: [
+          'install',
+          '--ignore-scripts',
+          '--no-package-lock',
+          '--no-audit',
+          '--no-fund',
+          '@scope/demo-plugin',
+        ],
+      }),
+    );
+    expect(runCommand).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        command: 'npm',
+        args: [
+          'install',
+          '--ignore-scripts',
+          '--omit=dev',
+          '--no-audit',
+          '--no-fund',
+        ],
+      }),
+    );
+  });
+
   test('uninstalls a home plugin and removes matching runtime config overrides', async () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
     const pluginDir = path.join(

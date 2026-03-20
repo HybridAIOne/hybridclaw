@@ -958,6 +958,62 @@ test('QMD passthrough commands are not cut off by the short prompt-search timeou
   ).resolves.toBe('Embeddings updated.');
 });
 
+test('runQmdCommandText uses a larger but finite timeout for passthrough commands', async () => {
+  const cwd = makeTempDir('hybridclaw-qmd-project-');
+  const stdout = new EventEmitter();
+  const stderr = new EventEmitter();
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    kill: ReturnType<typeof vi.fn>;
+  };
+  child.stdout = stdout;
+  child.stderr = stderr;
+  child.kill = vi.fn((signal: string) => {
+    if (signal === 'SIGKILL') {
+      setTimeout(() => {
+        child.emit('close', null, 'SIGKILL');
+      }, 0);
+    }
+    return true;
+  });
+
+  vi.useFakeTimers();
+  vi.doMock('node:child_process', () => ({
+    spawn: vi.fn(() => child),
+  }));
+
+  try {
+    const { runQmdCommandText } = await import(
+      '../plugins/qmd-memory/src/qmd-process.js'
+    );
+    const resultPromise = runQmdCommandText(['embed'], {
+      command: 'qmd',
+      workingDirectory: cwd,
+      timeoutMs: 1_000,
+      maxInjectedChars: 500,
+    });
+    const rejection = expect(resultPromise).rejects.toThrow(
+      'QMD timed out after 900000ms.',
+    );
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(child.kill).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(840_000);
+    expect(child.kill).toHaveBeenNthCalledWith(1, 'SIGTERM');
+
+    await vi.advanceTimersByTimeAsync(250);
+    await vi.runAllTimersAsync();
+    expect(child.kill).toHaveBeenNthCalledWith(2, 'SIGKILL');
+
+    await rejection;
+  } finally {
+    vi.useRealTimers();
+    vi.doUnmock('node:child_process');
+  }
+});
+
 test('QMD plugin emits debug logs describing injected prompt context', async () => {
   const homeDir = makeTempDir('hybridclaw-qmd-home-');
   const cwd = makeTempDir('hybridclaw-qmd-project-');

@@ -291,7 +291,13 @@ export interface PluginCommandDefinition {
   description?: string;
   handler: (
     args: string[],
-    context: { sessionId: string; channelId: string; userId?: string | null },
+    context: {
+      sessionId: string;
+      channelId: string;
+      userId?: string | null;
+      username?: string | null;
+      guildId?: string | null;
+    },
   ) => Promise<unknown> | unknown;
 }
 

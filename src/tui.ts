@@ -318,6 +318,7 @@ let tuiSessionMode: 'new' | 'resume' = 'new';
 let tuiSessionStartedAtMs = Date.now();
 let tuiResumeCommand = 'hybridclaw tui --resume';
 let tuiExitInProgress = false;
+let tuiLoadedPluginCommandNames = new Set<string>();
 
 function mapApprovalSelectionToCommand(
   selection: string,
@@ -643,10 +644,6 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
   printInfo(renderGatewayCommand(result));
 }
 
-function isUnknownGatewayCommandResult(result: GatewayCommandResult): boolean {
-  return result.kind === 'error' && result.title === 'Unknown Command';
-}
-
 function pickOceanActivityVerb(): string {
   const index = Math.floor(Math.random() * OCEAN_ACTIVITY_VERBS.length);
   return OCEAN_ACTIVITY_VERBS[index] || 'floating';
@@ -905,6 +902,17 @@ function clearTuiSlashMenu(): void {
   tuiSlashMenu?.clear();
 }
 
+function setTuiLoadedPluginCommands(
+  pluginCommands: GatewayPluginCommandSummary[] | undefined,
+): void {
+  const names = new Set<string>();
+  for (const command of pluginCommands || []) {
+    const normalized = String(command?.name || '').trim().toLowerCase();
+    if (normalized) names.add(normalized);
+  }
+  tuiLoadedPluginCommandNames = names;
+}
+
 function syncTuiSlashMenu(): void {
   tuiSlashMenu?.sync();
 }
@@ -912,6 +920,7 @@ function syncTuiSlashMenu(): void {
 function syncTuiSlashMenuEntries(
   pluginCommands: GatewayPluginCommandSummary[] | undefined,
 ): void {
+  setTuiLoadedPluginCommands(pluginCommands);
   tuiSlashMenu?.setEntries(buildTuiSlashMenuEntries(pluginCommands || []));
 }
 
@@ -1375,20 +1384,12 @@ async function handleSlashCommand(
       break;
   }
 
-  const gatewayArgs = mapTuiSlashCommandToGatewayArgs(parts);
+  const gatewayArgs = mapTuiSlashCommandToGatewayArgs(parts, {
+    dynamicTextCommands: tuiLoadedPluginCommandNames,
+  });
   if (gatewayArgs) {
     await runGatewayCommand(gatewayArgs, rl);
     return true;
-  }
-
-  // Plugin-defined commands live on the gateway. Probe there before treating
-  // an unknown slash-prefixed line as normal chat text.
-  if (cmd && cmd !== 'skill') {
-    const result = await requestGatewayCommand(parts);
-    if (!isUnknownGatewayCommandResult(result)) {
-      printGatewayCommandResult(result);
-      return true;
-    }
   }
 
   return false;
@@ -1704,6 +1705,7 @@ async function main(): Promise<void> {
     shouldShow: () =>
       !activeRunAbortController || activeRunAbortController.signal.aborted,
   });
+  setTuiLoadedPluginCommands(status.pluginCommands);
   tuiSlashMenu.install();
   refreshPrompt(rl);
 

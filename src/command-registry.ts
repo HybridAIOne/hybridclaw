@@ -159,8 +159,24 @@ export function isRegisteredTextCommandName(name: string): boolean {
   );
 }
 
+function hasDynamicTextCommandName(
+  name: string,
+  dynamicTextCommands?: Iterable<string>,
+): boolean {
+  if (!dynamicTextCommands) return false;
+  for (const entry of dynamicTextCommands) {
+    if (String(entry || '').trim().toLowerCase() === name) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function mapCanonicalCommandToGatewayArgs(
   parts: string[],
+  options?: {
+    dynamicTextCommands?: Iterable<string>;
+  },
 ): string[] | null {
   const cmd = (parts[0] || '').trim().toLowerCase();
   if (!cmd) return null;
@@ -292,7 +308,10 @@ export function mapCanonicalCommandToGatewayArgs(
       return ['help'];
 
     default:
-      return findLoadedPluginCommand(cmd) ? [cmd, ...parts.slice(1)] : null;
+      return findLoadedPluginCommand(cmd) ||
+          hasDynamicTextCommandName(cmd, options?.dynamicTextCommands)
+        ? [cmd, ...parts.slice(1)]
+        : null;
   }
 }
 

@@ -45,6 +45,9 @@ export function parseTuiSlashCommand(input: string): ParsedTuiSlashCommand {
 
 export function mapTuiSlashCommandToGatewayArgs(
   parts: string[],
+  options?: {
+    dynamicTextCommands?: Iterable<string>;
+  },
 ): string[] | null {
   const cmd = (parts[0] || '').trim().toLowerCase();
   if (cmd === 'skill') {
@@ -60,7 +63,7 @@ export function mapTuiSlashCommandToGatewayArgs(
     }
     return null;
   }
-  return mapCanonicalCommandToGatewayArgs(parts);
+  return mapCanonicalCommandToGatewayArgs(parts, options);
 }
 
 export function mapTuiApproveSlashToMessage(

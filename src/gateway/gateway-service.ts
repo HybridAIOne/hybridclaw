@@ -4781,6 +4781,27 @@ export async function handleGatewayCommand(
     mainSessionKey: session.main_session_key,
   });
 
+  async function reloadPluginRuntime(): Promise<{
+    ok: boolean;
+    message: string;
+  }> {
+    try {
+      pluginManager = await reloadPluginManager();
+      pluginInitError = null;
+      return {
+        ok: true,
+        message: 'Plugin runtime reloaded.',
+      };
+    } catch (error) {
+      pluginManager = null;
+      pluginInitError = error;
+      return {
+        ok: false,
+        message: `Plugin runtime reload failed: ${error instanceof Error ? error.message : String(error)}.`,
+      };
+    }
+  }
+
   const result = await (async (): Promise<GatewayCommandResult> => {
     switch (cmd) {
       case 'help': {
@@ -5678,15 +5699,7 @@ export async function handleGatewayCommand(
           }
           try {
             const result = await installPlugin(source);
-            let reloadLine = 'Plugin runtime reloaded.';
-            try {
-              pluginManager = await reloadPluginManager();
-              pluginInitError = null;
-            } catch (error) {
-              pluginManager = null;
-              pluginInitError = error;
-              reloadLine = `Plugin runtime reload failed: ${error instanceof Error ? error.message : String(error)}.`;
-            }
+            const reloadResult = await reloadPluginRuntime();
             const lines = [
               result.alreadyInstalled
                 ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`
@@ -5701,7 +5714,7 @@ export async function handleGatewayCommand(
               result.requiredConfigKeys.length > 0
                 ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
                 : `No config entry is required unless you want plugin overrides in \`${runtimeConfigPath()}\`.`,
-              reloadLine,
+              reloadResult.message,
             ];
             return infoCommand('Plugin Installed', lines.join('\n'));
           } catch (error) {
@@ -5730,15 +5743,7 @@ export async function handleGatewayCommand(
           }
           try {
             const result = await reinstallPlugin(source);
-            let reloadLine = 'Plugin runtime reloaded.';
-            try {
-              pluginManager = await reloadPluginManager();
-              pluginInitError = null;
-            } catch (error) {
-              pluginManager = null;
-              pluginInitError = error;
-              reloadLine = `Plugin runtime reload failed: ${error instanceof Error ? error.message : String(error)}.`;
-            }
+            const reloadResult = await reloadPluginRuntime();
             const lines = [
               result.replacedExistingInstall
                 ? `Reinstalled plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`
@@ -5753,7 +5758,7 @@ export async function handleGatewayCommand(
               result.requiredConfigKeys.length > 0
                 ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
                 : `No config entry is required unless you want plugin overrides in \`${runtimeConfigPath()}\`.`,
-              reloadLine,
+              reloadResult.message,
             ];
             return infoCommand('Plugin Reinstalled', lines.join('\n'));
           } catch (error) {
@@ -5792,16 +5797,14 @@ export async function handleGatewayCommand(
           }
         }
         if (sub === 'reload') {
-          try {
-            pluginManager = await reloadPluginManager();
-            pluginInitError = null;
-            return infoCommand('Plugins Reloaded', 'Plugin runtime reloaded.');
-          } catch (error) {
+          const reloadResult = await reloadPluginRuntime();
+          if (!reloadResult.ok) {
             return badCommand(
               'Plugin Reload Failed',
-              error instanceof Error ? error.message : String(error),
+              reloadResult.message,
             );
           }
+          return infoCommand('Plugins Reloaded', reloadResult.message);
         }
         return badCommand(
           'Usage',
@@ -6550,6 +6553,8 @@ export async function handleGatewayCommand(
                 sessionId: req.sessionId,
                 channelId: req.channelId,
                 userId: req.userId,
+                username: req.username ?? null,
+                guildId: req.guildId ?? null,
               }),
             );
           } catch (error) {

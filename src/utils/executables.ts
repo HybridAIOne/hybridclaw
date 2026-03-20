@@ -1,6 +1,35 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+const executablePresenceCache = new Map<string, true>();
+
+function buildExecutableCacheKey(
+  command: string,
+  options?: {
+    cwd?: string;
+  },
+): { key: string; candidate?: string } {
+  const cwd = options?.cwd || process.cwd();
+  const isPathLike =
+    path.isAbsolute(command) || command.includes('/') || command.includes('\\');
+
+  if (isPathLike) {
+    const candidate = path.isAbsolute(command)
+      ? command
+      : path.resolve(cwd, command);
+    return {
+      key: `path:${candidate}`,
+      candidate,
+    };
+  }
+
+  const currentPath = process.env.PATH || '';
+  const currentPathExt = process.platform === 'win32' ? process.env.PATHEXT || '' : '';
+  return {
+    key: `cmd:${command}\0${currentPath}\0${currentPathExt}`,
+  };
+}
+
 export function hasExecutableCommand(
   command: string,
   options?: {
@@ -10,17 +39,16 @@ export function hasExecutableCommand(
   const normalized = String(command || '').trim();
   if (!normalized) return false;
 
-  const cwd = options?.cwd || process.cwd();
-  const isPathLike =
-    path.isAbsolute(normalized) ||
-    normalized.includes('/') ||
-    normalized.includes('\\');
+  const { key, candidate } = buildExecutableCacheKey(normalized, options);
+  if (executablePresenceCache.has(key)) {
+    return true;
+  }
+
+  const isPathLike = candidate !== undefined;
   if (isPathLike) {
-    const candidate = path.isAbsolute(normalized)
-      ? normalized
-      : path.resolve(cwd, normalized);
     try {
       fs.accessSync(candidate, fs.constants.X_OK);
+      executablePresenceCache.set(key, true);
       return true;
     } catch {
       return false;
@@ -46,6 +74,7 @@ export function hasExecutableCommand(
       const candidate = path.join(part, `${normalized}${ext}`);
       try {
         fs.accessSync(candidate, fs.constants.X_OK);
+        executablePresenceCache.set(key, true);
         return true;
       } catch {
         // continue scanning

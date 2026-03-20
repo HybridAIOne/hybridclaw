@@ -221,6 +221,24 @@ function fetchPluginDirFromNpmSpec(
   return findInstalledPluginDir(path.join(tempRoot, 'node_modules'));
 }
 
+function preparePluginSource(
+  sourceRef: PluginSource,
+  runCommand: PluginInstallCommandRunner,
+): { sourceDir: string; cleanupDirs: string[] } {
+  if (sourceRef.kind === 'local-dir') {
+    return {
+      sourceDir: sourceRef.path,
+      cleanupDirs: [],
+    };
+  }
+
+  const fetchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-plugin-fetch-'));
+  return {
+    sourceDir: fetchPluginDirFromNpmSpec(sourceRef.spec, fetchRoot, runCommand),
+    cleanupDirs: [fetchRoot],
+  };
+}
+
 function copyPluginTree(sourceDir: string, targetDir: string): void {
   fs.cpSync(sourceDir, targetDir, {
     recursive: true,
@@ -297,6 +315,83 @@ function countPluginConfigOverrides(
   ).length;
 }
 
+function installPreparedPlugin(
+  sourceDir: string,
+  sourceLabel: string,
+  options: {
+    homeDir: string;
+    runCommand: PluginInstallCommandRunner;
+    replaceExisting: boolean;
+  },
+): InstallPluginResult {
+  const installRoot = path.join(options.homeDir, '.hybridclaw', 'plugins');
+  fs.mkdirSync(installRoot, { recursive: true });
+
+  assertPluginManifestDir(sourceDir);
+  const manifest = loadPluginManifest(path.join(sourceDir, MANIFEST_FILE_NAME));
+  const pluginDir = path.join(installRoot, manifest.id);
+  const cleanupDirs: string[] = [];
+
+  try {
+    if (fs.existsSync(pluginDir)) {
+      if (options.replaceExisting) {
+        fs.rmSync(pluginDir, { recursive: true, force: true });
+      } else {
+        const sourceRealPath = fs.realpathSync(sourceDir);
+        const pluginRealPath = fs.realpathSync(pluginDir);
+        if (sourceRealPath !== pluginRealPath) {
+          throw new Error(
+            `Plugin "${manifest.id}" is already installed at ${pluginDir}.`,
+          );
+        }
+
+        const dependenciesInstalled = installPluginDependencies(
+          pluginDir,
+          manifest,
+          options.runCommand,
+        );
+        return {
+          pluginId: manifest.id,
+          pluginDir,
+          source: sourceLabel,
+          alreadyInstalled: true,
+          dependenciesInstalled,
+          requiresEnv: manifest.requires?.env ?? [],
+          requiredConfigKeys: getRequiredConfigKeys(manifest),
+        };
+      }
+    }
+
+    const stageDir = path.join(
+      installRoot,
+      `.${manifest.id}.install-${randomUUID().slice(0, 8)}`,
+    );
+    cleanupDirs.push(stageDir);
+    copyPluginTree(sourceDir, stageDir);
+    const dependenciesInstalled = installPluginDependencies(
+      stageDir,
+      manifest,
+      options.runCommand,
+    );
+    fs.renameSync(stageDir, pluginDir);
+    cleanupDirs.splice(cleanupDirs.indexOf(stageDir), 1);
+
+    return {
+      pluginId: manifest.id,
+      pluginDir,
+      source: sourceLabel,
+      alreadyInstalled: false,
+      dependenciesInstalled,
+      requiresEnv: manifest.requires?.env ?? [],
+      requiredConfigKeys: getRequiredConfigKeys(manifest),
+    };
+  } finally {
+    for (const dir of cleanupDirs.reverse()) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+}
+
 export async function installPlugin(
   source: string,
   options: InstallPluginOptions = {},
@@ -311,83 +406,17 @@ export async function installPlugin(
   const homeDir = options.homeDir ?? os.homedir();
   const cwd = options.cwd ?? process.cwd();
   const runCommand = options.runCommand ?? defaultRunCommand;
-  const installRoot = path.join(homeDir, '.hybridclaw', 'plugins');
-  fs.mkdirSync(installRoot, { recursive: true });
-
   const sourceRef = resolvePluginSource(trimmedSource, cwd);
-  const cleanupDirs: string[] = [];
-  let sourceDir =
-    sourceRef.kind === 'local-dir' ? sourceRef.path : sourceRef.spec;
+  const preparedSource = preparePluginSource(sourceRef, runCommand);
 
   try {
-    if (sourceRef.kind === 'npm-spec') {
-      const fetchRoot = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'hybridclaw-plugin-fetch-'),
-      );
-      cleanupDirs.push(fetchRoot);
-      sourceDir = fetchPluginDirFromNpmSpec(
-        sourceRef.spec,
-        fetchRoot,
-        runCommand,
-      );
-    }
-
-    assertPluginManifestDir(sourceDir);
-    const manifest = loadPluginManifest(
-      path.join(sourceDir, MANIFEST_FILE_NAME),
-    );
-    const pluginDir = path.join(installRoot, manifest.id);
-
-    if (fs.existsSync(pluginDir)) {
-      const sourceRealPath = fs.realpathSync(sourceDir);
-      const pluginRealPath = fs.realpathSync(pluginDir);
-      if (sourceRealPath !== pluginRealPath) {
-        throw new Error(
-          `Plugin "${manifest.id}" is already installed at ${pluginDir}.`,
-        );
-      }
-
-      const dependenciesInstalled = installPluginDependencies(
-        pluginDir,
-        manifest,
-        runCommand,
-      );
-      return {
-        pluginId: manifest.id,
-        pluginDir,
-        source: trimmedSource,
-        alreadyInstalled: true,
-        dependenciesInstalled,
-        requiresEnv: manifest.requires?.env ?? [],
-        requiredConfigKeys: getRequiredConfigKeys(manifest),
-      };
-    }
-
-    const stageDir = path.join(
-      installRoot,
-      `.${manifest.id}.install-${randomUUID().slice(0, 8)}`,
-    );
-    cleanupDirs.push(stageDir);
-    copyPluginTree(sourceDir, stageDir);
-    const dependenciesInstalled = installPluginDependencies(
-      stageDir,
-      manifest,
+    return installPreparedPlugin(preparedSource.sourceDir, trimmedSource, {
+      homeDir,
       runCommand,
-    );
-    fs.renameSync(stageDir, pluginDir);
-    cleanupDirs.splice(cleanupDirs.indexOf(stageDir), 1);
-
-    return {
-      pluginId: manifest.id,
-      pluginDir,
-      source: trimmedSource,
-      alreadyInstalled: false,
-      dependenciesInstalled,
-      requiresEnv: manifest.requires?.env ?? [],
-      requiredConfigKeys: getRequiredConfigKeys(manifest),
-    };
+      replaceExisting: false,
+    });
   } finally {
-    for (const dir of cleanupDirs.reverse()) {
+    for (const dir of preparedSource.cleanupDirs.reverse()) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }
@@ -408,41 +437,27 @@ export async function reinstallPlugin(
   const cwd = options.cwd ?? process.cwd();
   const runCommand = options.runCommand ?? defaultRunCommand;
   const sourceRef = resolvePluginSource(trimmedSource, cwd);
-  const cleanupDirs: string[] = [];
-  let sourceDir =
-    sourceRef.kind === 'local-dir' ? sourceRef.path : sourceRef.spec;
+  const preparedSource = preparePluginSource(sourceRef, runCommand);
 
   try {
-    if (sourceRef.kind === 'npm-spec') {
-      const fetchRoot = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'hybridclaw-plugin-fetch-'),
-      );
-      cleanupDirs.push(fetchRoot);
-      sourceDir = fetchPluginDirFromNpmSpec(
-        sourceRef.spec,
-        fetchRoot,
-        runCommand,
-      );
-    }
-
-    assertPluginManifestDir(sourceDir);
+    assertPluginManifestDir(preparedSource.sourceDir);
     const manifest = loadPluginManifest(
-      path.join(sourceDir, MANIFEST_FILE_NAME),
+      path.join(preparedSource.sourceDir, MANIFEST_FILE_NAME),
     );
     const pluginDir = path.join(homeDir, '.hybridclaw', 'plugins', manifest.id);
     const replacedExistingInstall = fs.existsSync(pluginDir);
-    if (replacedExistingInstall) {
-      fs.rmSync(pluginDir, { recursive: true, force: true });
-    }
-
-    const result = await installPlugin(trimmedSource, options);
+    const result = installPreparedPlugin(preparedSource.sourceDir, trimmedSource, {
+      homeDir,
+      runCommand,
+      replaceExisting: true,
+    });
     return {
       ...result,
       replacedExistingInstall,
       alreadyInstalled: false,
     };
   } finally {
-    for (const dir of cleanupDirs.reverse()) {
+    for (const dir of preparedSource.cleanupDirs.reverse()) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }

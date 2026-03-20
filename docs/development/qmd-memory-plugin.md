@@ -63,6 +63,7 @@ Supported config keys:
 - `maxSnippetChars`: per-result snippet/context cap before formatting.
 - `maxInjectedChars`: total prompt context budget for injected QMD results.
 - `timeoutMs`: timeout for background prompt searches and `qmd status`.
+  Explicit passthrough commands use a separate larger fixed timeout.
 - `sessionExport`: when `true`, rewrite the current session transcript as
   markdown after each turn.
 - `sessionExportDir`: optional override for transcript exports. Defaults to
@@ -84,5 +85,5 @@ Supported config keys:
 - Diagnostics are available through `qmd status`.
 - Other QMD CLI subcommands can be passed through from the TUI or gateway, for
   example `qmd collection add .`.
-- Explicit passthrough commands such as `qmd embed` run until completion rather
-  than using the short background search timeout.
+- Explicit passthrough commands such as `qmd embed` use a separate 15 minute
+  timeout rather than the short background search timeout.
