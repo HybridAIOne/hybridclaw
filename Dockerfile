@@ -12,6 +12,7 @@ RUN npm ci
 COPY . .
 RUN npm run build:console
 RUN npx tsc && node -e "require('node:fs').chmodSync('dist/cli.js', 0o755)"
+RUN npm --prefix container ci && npm --prefix container run build
 
 # ── Runtime stage ──────────────────────────────────────────────────────────────
 FROM node:22-slim
@@ -29,6 +30,9 @@ COPY --from=builder /app/console/dist ./console/dist
 
 # Shared JS modules required at runtime by gateway imports
 COPY --from=builder /app/container/shared ./container/shared
+# Container agent runtime (host sandbox mode)
+COPY --from=builder /app/container/dist ./container/dist
+COPY --from=builder /app/container/node_modules ./container/node_modules
 
 EXPOSE 9090
 
