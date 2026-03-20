@@ -38,8 +38,10 @@ const JAVASCRIPT_REQUIRED_PATTERNS = [
   'requires javascript',
   'turn on javascript',
 ];
-const USER_AGENT =
+const BROWSER_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+export const BOT_USER_AGENT =
+  'hybridclaw/1.0 (+https://github.com/hybridaione/hybridclaw; AI assistant bot)';
 
 // ---------------------------------------------------------------------------
 // Cache
@@ -298,6 +300,7 @@ async function fetchWithRedirects(
   url: string,
   maxRedirects: number,
   signal: AbortSignal,
+  userAgent: string,
 ): Promise<{ response: Response; finalUrl: string }> {
   let currentUrl = url;
   for (let i = 0; i <= maxRedirects; i++) {
@@ -305,7 +308,7 @@ async function fetchWithRedirects(
       redirect: 'manual',
       headers: {
         Accept: 'text/markdown, text/html;q=0.9, */*;q=0.1',
-        'User-Agent': USER_AGENT,
+        'User-Agent': userAgent,
         'Accept-Language': 'en-US,en;q=0.9',
       },
       signal,
@@ -334,6 +337,10 @@ function includesAny(haystack: string, needles: readonly string[]): boolean {
     if (haystack.includes(needle)) return true;
   }
   return false;
+}
+
+function isCloudflareChallenge(res: Response): boolean {
+  return res.status === 403 && res.headers.get('cf-mitigated') === 'challenge';
 }
 
 function detectEscalationHint(params: {
@@ -450,11 +457,21 @@ export async function webFetch(params: {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const { response: res, finalUrl } = await fetchWithRedirects(
-      params.url,
-      MAX_REDIRECTS,
-      controller.signal,
-    );
+    // The initial fetch and optional Cloudflare retry share one overall timeout
+    // budget; we intentionally do not reset the timer per attempt.
+    const doFetch = (userAgent: string) =>
+      fetchWithRedirects(
+        params.url,
+        MAX_REDIRECTS,
+        controller.signal,
+        userAgent,
+      );
+
+    let { response: res, finalUrl } = await doFetch(BROWSER_USER_AGENT);
+    if (isCloudflareChallenge(res)) {
+      void res.body?.cancel().catch(() => {});
+      ({ response: res, finalUrl } = await doFetch(BOT_USER_AGENT));
+    }
 
     const contentType =
       res.headers.get('content-type') ?? 'application/octet-stream';
