@@ -1,6 +1,6 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-config.js';
 
 const RUNTIME_SECRETS_FILE = 'credentials.json';
 
@@ -26,8 +26,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function readRuntimeSecrets(homeDir: string = os.homedir()): RuntimeSecrets {
-  const filePath = runtimeSecretsPath(homeDir);
+function readRuntimeSecrets(): RuntimeSecrets {
+  const filePath = runtimeSecretsPath();
   if (!fs.existsSync(filePath)) return {};
   try {
     const raw = fs.readFileSync(filePath, 'utf-8');
@@ -94,15 +94,14 @@ function readLegacyEnvSecrets(cwd: string = process.cwd()): RuntimeSecrets {
   }
 }
 
-export function runtimeSecretsPath(homeDir: string = os.homedir()): string {
-  return path.join(homeDir, '.hybridclaw', RUNTIME_SECRETS_FILE);
+export function runtimeSecretsPath(): string {
+  return path.join(DEFAULT_RUNTIME_HOME_DIR, RUNTIME_SECRETS_FILE);
 }
 
 export function loadRuntimeSecrets(
-  homeDir: string = os.homedir(),
   cwd: string = process.cwd(),
 ): void {
-  const secrets = readRuntimeSecrets(homeDir);
+  const secrets = readRuntimeSecrets();
   const legacySecrets = readLegacyEnvSecrets(cwd);
   const migratedSecrets: RuntimeSecrets = {};
 
@@ -112,10 +111,10 @@ export function loadRuntimeSecrets(
   }
 
   if (Object.keys(migratedSecrets).length > 0) {
-    const destination = runtimeSecretsPath(homeDir);
+    const destination = runtimeSecretsPath();
     console.info(`Migrating .env to ${destination}`);
     try {
-      saveRuntimeSecrets(migratedSecrets, homeDir);
+      saveRuntimeSecrets(migratedSecrets);
     } catch (err) {
       console.warn(
         `[runtime-secrets] failed to migrate legacy .env secrets to ${destination}: ${err instanceof Error ? err.message : String(err)}`,
@@ -133,10 +132,9 @@ export function loadRuntimeSecrets(
 
 export function saveRuntimeSecrets(
   updates: Partial<Record<RuntimeSecretKey, string | null>>,
-  homeDir: string = os.homedir(),
 ): string {
-  const filePath = runtimeSecretsPath(homeDir);
-  const next = readRuntimeSecrets(homeDir);
+  const filePath = runtimeSecretsPath();
+  const next = readRuntimeSecrets();
 
   for (const key of SECRET_KEYS) {
     if (!Object.hasOwn(updates, key)) continue;

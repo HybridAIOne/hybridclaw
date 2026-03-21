@@ -9,6 +9,7 @@ import {
 } from '../../container/shared/context-guard-config.js';
 import { loadRuntimeSecrets } from '../security/runtime-secrets.js';
 import {
+  DEFAULT_RUNTIME_HOME_DIR,
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   isContainerSandboxModeExplicit,
@@ -282,8 +283,7 @@ export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
 const INTERNAL_GATEWAY_API_TOKEN = randomBytes(24).toString('hex');
 export let GATEWAY_API_TOKEN = INTERNAL_GATEWAY_API_TOKEN;
 export let DB_PATH = path.join(
-  os.homedir(),
-  '.hybridclaw',
+  DEFAULT_RUNTIME_HOME_DIR,
   'data',
   'hybridclaw.db',
 );
