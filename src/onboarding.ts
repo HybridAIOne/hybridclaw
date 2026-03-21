@@ -845,7 +845,7 @@ export async function ensureRuntimeCredentials(
         ? 'openrouter'
         : 'hybridai');
   const force = options.force === true;
-  const securityAccepted = isSecurityTrustAccepted(runtimeConfig);
+  let securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
   const hasRequiredCredentials = currentProviderIsLocal
     ? true
@@ -858,9 +858,14 @@ export async function ensureRuntimeCredentials(
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     if (!securityAccepted) {
-      throw new Error(
-        'Security trust model is not accepted. Run `hybridclaw onboarding` in an interactive terminal to accept TRUST_MODEL.md.',
-      );
+      if (process.env.HYBRIDCLAW_ACCEPT_TRUST === 'true') {
+        acceptSecurityTrustModel();
+        securityAccepted = true;
+      } else {
+        throw new Error(
+          'Security trust model is not accepted. Run `hybridclaw onboarding` in an interactive terminal to accept TRUST_MODEL.md, or set HYBRIDCLAW_ACCEPT_TRUST=true to accept automatically.',
+        );
+      }
     }
     if (currentAuth === 'openai-codex') {
       throw new Error(
