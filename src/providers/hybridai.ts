@@ -1,6 +1,7 @@
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { HYBRIDAI_BASE_URL, HYBRIDAI_ENABLE_RAG } from '../config/config.js';
+import { getDiscoveredHybridAIModelContextWindow } from './hybridai-discovery.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
@@ -25,6 +26,8 @@ async function resolveHybridAIRuntimeCredentials(
     enableRag,
     requestHeaders: {},
     agentId,
+    contextWindow:
+      getDiscoveredHybridAIModelContextWindow(params.model) ?? undefined,
   };
 }
 

@@ -113,6 +113,28 @@ test('provider factory resolves HybridAI runtime credentials', async () => {
   });
 });
 
+test('provider factory includes discovered HybridAI context window metadata', async () => {
+  const homeDir = makeTempHome();
+  process.env.HYBRIDAI_API_KEY = 'hai-provider-test';
+  vi.doMock('../src/providers/hybridai-discovery.ts', () => ({
+    getDiscoveredHybridAIModelContextWindow: vi.fn((model: string) =>
+      model === 'gpt-5-ultra' ? 512_000 : null,
+    ),
+  }));
+  const factory = await importFreshFactory(homeDir);
+
+  const credentials = await factory.resolveModelRuntimeCredentials({
+    model: 'gpt-5-ultra',
+    chatbotId: 'bot_123',
+    agentId: 'main',
+  });
+
+  expect(credentials).toMatchObject({
+    provider: 'hybridai',
+    contextWindow: 512_000,
+  });
+});
+
 test('provider factory resolves OpenRouter runtime credentials', async () => {
   const homeDir = makeTempHome();
   vi.doMock('../src/providers/openrouter-discovery.ts', () => ({

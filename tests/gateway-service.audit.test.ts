@@ -115,6 +115,7 @@ test('bot set records a structured audit event for observability export', async 
   initDatabase({ quiet: true });
 
   vi.doMock('../src/providers/hybridai-bots.ts', () => ({
+    HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
     fetchHybridAIBots: vi.fn(async () => [
       {
         id: 'bot-research',
@@ -182,6 +183,7 @@ test('bot set leaves the session model unchanged when the bot exposes no model',
   updateSessionModel('session-bot-set-no-model', 'gpt-5-nano');
 
   vi.doMock('../src/providers/hybridai-bots.ts', () => ({
+    HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
     fetchHybridAIBots: vi.fn(async () => [
       {
         id: 'bot-research',

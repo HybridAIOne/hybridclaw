@@ -1084,7 +1084,9 @@ async function sendChunkedInteractionReply(
 }
 
 async function ensureSlashCommands(): Promise<void> {
-  const modelChoices = await getAvailableModelChoices(25);
+  const modelChoices = await getAvailableModelChoices(25, {
+    includeHybridAI: true,
+  });
   const definitions = buildSlashCommandDefinitions(modelChoices);
   const definitionNames = new Set(
     definitions.map((definition) => definition.name),

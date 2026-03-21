@@ -29,12 +29,45 @@ export interface NormalizedStreamCallArgs extends NormalizedCallArgs {
   onActivity?: () => void;
 }
 
+function summarizeErrorBody(body: string): string {
+  const trimmed = String(body || '').trim();
+  if (!trimmed) return 'Unknown error';
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (typeof parsed === 'string' && parsed.trim()) {
+      return parsed.trim();
+    }
+    if (isRecord(parsed)) {
+      if (typeof parsed.message === 'string' && parsed.message.trim()) {
+        return parsed.message.trim();
+      }
+      if (typeof parsed.error === 'string' && parsed.error.trim()) {
+        return parsed.error.trim();
+      }
+      const nested = parsed.error;
+      if (isRecord(nested)) {
+        if (typeof nested.message === 'string' && nested.message.trim()) {
+          return nested.message.trim();
+        }
+        if (typeof nested.error === 'string' && nested.error.trim()) {
+          return nested.error.trim();
+        }
+      }
+    }
+  } catch {
+    // Fall back to the raw body below.
+  }
+
+  return trimmed;
+}
+
 export class HybridAIRequestError extends Error {
   status: number;
   body: string;
 
   constructor(status: number, body: string) {
-    super(`HybridAI API error ${status}: ${body}`);
+    super(`HybridAI API error ${status}: ${summarizeErrorBody(body)}`);
     this.name = 'HybridAIRequestError';
     this.status = status;
     this.body = body;

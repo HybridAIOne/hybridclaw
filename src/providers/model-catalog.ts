@@ -1,5 +1,9 @@
 import { CONFIGURED_MODELS } from '../config/config.js';
 import { resolveModelProvider } from './factory.js';
+import {
+  discoverHybridAIModels,
+  getDiscoveredHybridAIModelNames,
+} from './hybridai-discovery.js';
 import { isStaticModelVisionCapable } from './hybridai-models.js';
 import {
   discoverAllLocalModels,
@@ -142,6 +146,7 @@ function dedupeModelList(models: string[]): string[] {
 export function getAvailableModelList(provider?: string): string[] {
   const models = dedupeModelList([
     ...CONFIGURED_MODELS,
+    ...getDiscoveredHybridAIModelNames(),
     ...getDiscoveredLocalModelNames(),
     ...getDiscoveredOpenRouterModelNames(),
   ]);
@@ -155,10 +160,13 @@ export function getAvailableModelList(provider?: string): string[] {
     .sort((left, right) => compareModelNames(left, right, normalizedProvider));
 }
 
-export async function refreshAvailableModelCatalogs(): Promise<void> {
+export async function refreshAvailableModelCatalogs(opts?: {
+  includeHybridAI?: boolean;
+}): Promise<void> {
   await Promise.allSettled([
     discoverAllLocalModels(),
     discoverOpenRouterModels(),
+    ...(opts?.includeHybridAI ? [discoverHybridAIModels()] : []),
   ]);
 }
 
@@ -202,8 +210,9 @@ export function findVisionCapableModel(preferredModel?: string): string | null {
 
 export async function getAvailableModelChoices(
   limit = 25,
+  opts?: { includeHybridAI?: boolean },
 ): Promise<Array<{ name: string; value: string }>> {
-  await refreshAvailableModelCatalogs();
+  await refreshAvailableModelCatalogs(opts);
   return getAvailableModelList()
     .slice(0, Math.max(0, limit))
     .map((model) => ({
