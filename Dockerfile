@@ -3,35 +3,59 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Install all deps (dev included — needed for tsc, vite)
+# Install root deps first (cached unless package.json changes)
 COPY package*.json ./
 COPY console/package*.json console/
 RUN npm ci
 
-# Build console SPA then compile gateway TypeScript
+# Install container agent deps (cached separately from source)
+COPY container/package*.json container/
+RUN npm --prefix container ci
+
+# Copy source and build everything
 COPY . .
 RUN npm run build:console
 RUN npx tsc && node -e "require('node:fs').chmodSync('dist/cli.js', 0o755)"
+RUN npm --prefix container run build
 
-# ── Runtime stage ──────────────────────────────────────────────────────────────
+# ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM node:22-slim
+
+# The agent runtime needs root to install packages, manage files, etc.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Production deps only (includes better-sqlite3 native binary)
+# Production deps — root
 COPY package*.json ./
 COPY console/package*.json console/
 RUN npm ci --omit=dev
 
-# Gateway compiled output + bundled console SPA
+# Production deps — container agent
+COPY container/package*.json container/
+RUN npm --prefix container ci --omit=dev
+
+# Gateway compiled output + console SPA
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/console/dist ./console/dist
 
-# Shared JS modules required at runtime by gateway imports
+# Container agent runtime (host sandbox mode) + shared modules
+COPY --from=builder /app/container/dist ./container/dist
 COPY --from=builder /app/container/shared ./container/shared
+
+# Runtime templates and skills
+COPY templates/ ./templates/
+COPY skills/ ./skills/
+COPY SECURITY.md TRUST_MODEL.md ./
 
 EXPOSE 9090
 
 ENV HYBRIDCLAW_DATA_DIR=/workspace/.data
+RUN mkdir -p /workspace/.data
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "dist/cli.js", "gateway"]
