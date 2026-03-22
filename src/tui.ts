@@ -1543,6 +1543,8 @@ async function processMessage(
         tuiPendingApproval = null;
       }
       if (hasStreamedText) {
+        // After usage footers, only a single newline is needed because the
+        // blank line after the streamed response was already written above.
         process.stdout.write(
           hasUsageFooters ? '\n' : streamedResponseTrailingBlank,
         );
