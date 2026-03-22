@@ -12,7 +12,8 @@ import {
   type AgentsConfig,
   DEFAULT_AGENT_ID,
 } from '../agents/agent-types.js';
-import { CODEX_DEFAULT_BASE_URL } from '../auth/codex-auth.js';
+// Inlined to avoid circular dependency with codex-auth.ts (which imports from this module).
+const CODEX_DEFAULT_BASE_URL = 'https://chatgpt.com/backend-api/codex';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
