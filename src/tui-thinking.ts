@@ -155,6 +155,12 @@ export function flushTuiStreamDelta(
   };
 }
 
+export function getTuiStreamTrailingBlankLine(
+  state: TuiStreamFormatState,
+): string {
+  return state.lineNeedsIndent ? '\n' : '\n\n';
+}
+
 function normalizeWrappedWhitespace(whitespace: string): string {
   if (whitespace === ' ') return '';
   return whitespace;

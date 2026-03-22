@@ -88,6 +88,7 @@ import {
   createTuiThinkingStreamState,
   flushTuiStreamDelta,
   formatTuiStreamDelta,
+  getTuiStreamTrailingBlankLine,
   wrapTuiBlock,
 } from './tui-thinking.js';
 import type { SessionShowMode } from './types.js';
@@ -654,6 +655,7 @@ function spinner(): {
   addTool: (toolName: string, preview?: string) => void;
   addVisibleTextDelta: (delta: string) => void;
   flushVisibleText: () => void;
+  trailingBlankLineAfterVisibleText: () => string;
   setThinkingPreview: (preview: string | null) => void;
   clearThinkingPreview: () => void;
   clearTools: () => void;
@@ -798,6 +800,8 @@ function spinner(): {
       }
       process.stdout.write(formatted.text);
     },
+    trailingBlankLineAfterVisibleText: () =>
+      getTuiStreamTrailingBlankLine(visibleTextState),
     setThinkingPreview,
     clearThinkingPreview,
     clearTools,
@@ -1484,11 +1488,14 @@ async function processMessage(
     s.flushVisibleText();
     s.stop();
     s.clearThinkingPreview();
+    const streamedResponseTrailingBlank = hasStreamedText
+      ? s.trailingBlankLineAfterVisibleText()
+      : '';
     if (hasUsageFooters) {
       if (!hasStreamedText) {
         s.clearTools();
       } else {
-        process.stdout.write('\n');
+        process.stdout.write(streamedResponseTrailingBlank);
       }
       printToolUsage(toolNames);
       printPluginUsage(pluginNames);
@@ -1536,7 +1543,9 @@ async function processMessage(
         tuiPendingApproval = null;
       }
       if (hasStreamedText) {
-        console.log();
+        process.stdout.write(
+          hasUsageFooters ? '\n' : streamedResponseTrailingBlank,
+        );
       } else {
         printResponse(finalText, {
           leadingBlank: hasUsageFooters,

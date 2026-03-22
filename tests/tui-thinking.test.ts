@@ -5,6 +5,7 @@ import {
   createTuiThinkingStreamState,
   flushTuiStreamDelta,
   formatTuiStreamDelta,
+  getTuiStreamTrailingBlankLine,
   indentTuiBlock,
   wrapTuiBlock,
 } from '../src/tui-thinking.js';
@@ -146,6 +147,25 @@ test('buffers an incomplete trailing token until the stream finishes', () => {
       pendingToken: '',
     },
   });
+});
+
+test('computes the trailing blank line needed after streamed output', () => {
+  expect(
+    getTuiStreamTrailingBlankLine({
+      lineNeedsIndent: false,
+      currentLineWidth: 4,
+      pendingWhitespace: '',
+      pendingToken: '',
+    }),
+  ).toBe('\n\n');
+  expect(
+    getTuiStreamTrailingBlankLine({
+      lineNeedsIndent: true,
+      currentLineWidth: 0,
+      pendingWhitespace: '',
+      pendingToken: '',
+    }),
+  ).toBe('\n');
 });
 
 test('keeps think blocks in the transient preview and streams visible text separately', () => {
