@@ -38,7 +38,7 @@ configSchema:
       maximum: 16000
     timeoutMs:
       type: number
-      default: 12000
+      default: 30000
       minimum: 1000
       maximum: 60000
     sessionExport:

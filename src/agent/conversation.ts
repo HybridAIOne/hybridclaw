@@ -5,9 +5,10 @@ import {
 } from '../session/token-efficiency.js';
 import {
   expandSkillInvocation,
+  expandSkillInvocationWithResolution,
   loadSkills,
-  resolveExplicitSkillInvocation,
   type Skill,
+  type SkillInvocation,
 } from '../skills/skills.js';
 import type { ChatMessage } from '../types.js';
 import {
@@ -27,7 +28,16 @@ export interface ConversationContext {
   historyStats: HistoryOptimizationStats;
 }
 
-export function buildConversationContext(params: {
+export interface ConversationPromptAssembly {
+  messages: ChatMessage[];
+  skills: Skill[];
+  historyStats: HistoryOptimizationStats;
+  currentUserContent: string;
+  explicitSkillInvocation: SkillInvocation | null;
+  explicitSkillName: string | null;
+}
+
+export function assembleConversationPromptContext(params: {
   agentId: string;
   sessionSummary?: string | null;
   retrievedContext?: string | null;
@@ -39,7 +49,7 @@ export function buildConversationContext(params: {
   allowedTools?: string[];
   blockedTools?: string[];
   currentUserContent?: string;
-}): ConversationContext {
+}): ConversationPromptAssembly {
   const {
     agentId,
     sessionSummary,
@@ -57,16 +67,21 @@ export function buildConversationContext(params: {
     agentId,
     normalizeSkillConfigChannelKind(runtimeInfo?.channel?.kind),
   );
-  const explicitSkillInvocation =
-    typeof currentUserContent === 'string' && currentUserContent.trim()
-      ? resolveExplicitSkillInvocation(currentUserContent, skills)
-      : null;
+  const resolvedCurrentUserContent =
+    typeof currentUserContent === 'string' ? currentUserContent : '';
+  const skillInvocation =
+    resolvedCurrentUserContent.trim().length > 0
+      ? expandSkillInvocationWithResolution(resolvedCurrentUserContent, skills)
+      : {
+          content: resolvedCurrentUserContent,
+          invocation: null,
+        };
   const systemPrompt = buildSystemPromptFromHooks({
     agentId,
     sessionSummary,
     retrievedContext,
     skills,
-    explicitSkillInvocation,
+    explicitSkillInvocation: skillInvocation.invocation,
     purpose: 'conversation',
     promptMode,
     extraSafetyText,
@@ -106,5 +121,29 @@ export function buildConversationContext(params: {
     messages,
     skills,
     historyStats: optimizedHistory.stats,
+    currentUserContent: skillInvocation.content,
+    explicitSkillInvocation: skillInvocation.invocation,
+    explicitSkillName: skillInvocation.invocation?.skill.name || null,
+  };
+}
+
+export function buildConversationContext(params: {
+  agentId: string;
+  sessionSummary?: string | null;
+  retrievedContext?: string | null;
+  history: HistoryMessage[];
+  expandLatestHistoryUser?: boolean;
+  promptMode?: PromptMode;
+  extraSafetyText?: string;
+  runtimeInfo?: PromptRuntimeInfo;
+  allowedTools?: string[];
+  blockedTools?: string[];
+  currentUserContent?: string;
+}): ConversationContext {
+  const promptContext = assembleConversationPromptContext(params);
+  return {
+    messages: promptContext.messages,
+    skills: promptContext.skills,
+    historyStats: promptContext.historyStats,
   };
 }

@@ -125,3 +125,29 @@ test('MiddlewareChain supports tool argument modification and explicit denial', 
     reason: 'rewritten args must not proceed',
   });
 });
+
+test('MiddlewareChain timeout errors include the middleware name and phase', async () => {
+  const chain = new MiddlewareChain<TestState, TestContext, TestToolContext>([
+    {
+      name: 'slow',
+      isEnabled: () => true,
+      timeoutsMs: {
+        beforeAgent: 10,
+      },
+      async beforeAgent() {
+        return await new Promise(() => {});
+      },
+    },
+  ]);
+
+  await expect(
+    chain.runBeforeAgent({
+      config: getRuntimeConfig(),
+      messages: [],
+      state: {
+        steps: [],
+        counter: 0,
+      },
+    }),
+  ).rejects.toThrow('Middleware "slow" beforeAgent timed out after 10ms.');
+});

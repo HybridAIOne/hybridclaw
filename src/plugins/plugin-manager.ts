@@ -182,6 +182,10 @@ function normalizeTrimmedString(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
 function normalizePluginKind(value: unknown): PluginManifest['kind'] {
   return value === 'memory' ||
     value === 'provider' ||
@@ -1205,6 +1209,7 @@ export class PluginManager {
     agentId: string;
     channelId: string;
     recentMessages: StoredMessage[];
+    abortSignal?: AbortSignal;
   }): Promise<PluginPromptContextResult> {
     await this.ensureInitialized();
 
@@ -1213,6 +1218,7 @@ export class PluginManager {
     for (const entry of [...this.memoryLayers].sort(
       (left, right) => left.layer.priority - right.layer.priority,
     )) {
+      if (params.abortSignal?.aborted) break;
       if (!entry.layer.getContextForPrompt) continue;
       try {
         const value = await entry.layer.getContextForPrompt({
@@ -1220,12 +1226,16 @@ export class PluginManager {
           userId: params.userId,
           agentId: params.agentId,
           recentMessages: params.recentMessages,
+          abortSignal: params.abortSignal,
         });
         if (typeof value === 'string' && value.trim()) {
           extraContext.push(value.trim());
           pluginIds.add(entry.pluginId);
         }
       } catch (error) {
+        if (params.abortSignal?.aborted || isAbortError(error)) {
+          break;
+        }
         this.logger.warn(
           { pluginId: entry.pluginId, layerId: entry.layer.id, error },
           'Plugin memory-layer prompt recall failed',
@@ -1240,6 +1250,7 @@ export class PluginManager {
     for (const entry of [...this.promptHooks].sort(
       (left, right) => (left.hook.priority ?? 0) - (right.hook.priority ?? 0),
     )) {
+      if (params.abortSignal?.aborted) break;
       try {
         const value = await entry.hook.render(hookContext);
         if (typeof value === 'string' && value.trim()) {
@@ -1247,6 +1258,9 @@ export class PluginManager {
           pluginIds.add(entry.pluginId);
         }
       } catch (error) {
+        if (params.abortSignal?.aborted || isAbortError(error)) {
+          break;
+        }
         this.logger.warn(
           { pluginId: entry.pluginId, promptHookId: entry.hook.id, error },
           'Plugin prompt hook failed',
@@ -1259,6 +1273,7 @@ export class PluginManager {
         | RegisteredHook<'before_prompt_build'>[]
         | undefined) || [];
     for (const entry of beforePromptBuildHooks) {
+      if (params.abortSignal?.aborted) break;
       const contextLengthBefore = hookContext.extraContext.length;
       try {
         await entry.handler(hookContext);
@@ -1266,6 +1281,9 @@ export class PluginManager {
           pluginIds.add(entry.pluginId);
         }
       } catch (error) {
+        if (params.abortSignal?.aborted || isAbortError(error)) {
+          break;
+        }
         this.logger.warn(
           { pluginId: entry.pluginId, hookName: 'before_prompt_build', error },
           'Plugin lifecycle hook failed',
@@ -1288,6 +1306,7 @@ export class PluginManager {
     agentId: string;
     channelId: string;
     recentMessages: StoredMessage[];
+    abortSignal?: AbortSignal;
   }): Promise<string[]> {
     const result = await this.collectPromptContextDetails(params);
     return result.sections;

@@ -272,6 +272,86 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
   );
 });
 
+test('handleGatewayMessage continues when plugin session-start hooks stall', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'session-start timeout fallback',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+  pluginManagerMock.notifySessionStart.mockImplementationOnce(
+    async () => await new Promise<void>(() => {}),
+  );
+
+  const result = await handleGatewayMessage({
+    sessionId: 'session-plugin-session-start-timeout',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'user-42',
+    username: 'alice',
+    content: 'Say hi.',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+  expect(result.result).toBe('session-start timeout fallback');
+  expect(runAgentMock).toHaveBeenCalled();
+  expect(pluginManagerMock.notifySessionStart).toHaveBeenCalledTimes(1);
+});
+
+test('handleGatewayMessage lets plugin prompt context collection use its own timeout budget', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'plugin-context slow success',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+  pluginManagerMock.collectPromptContextDetails.mockImplementationOnce(
+    async () => {
+      await new Promise((resolve) => setTimeout(resolve, 3_500));
+      return {
+        sections: ['plugin-memory-context'],
+        pluginIds: ['qmd-memory'],
+      };
+    },
+  );
+
+  const result = await handleGatewayMessage({
+    sessionId: 'session-plugin-context-timeout',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    content: 'What do you remember about me?',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+  expect(result.result).toBe('plugin-context slow success');
+  expect(result.pluginsUsed).toEqual(['qmd-memory']);
+  const agentMessages = runAgentMock.mock.calls.at(-1)?.[0]?.messages;
+  const systemPrompt = agentMessages?.[0]?.content;
+  expect(systemPrompt).toContain('plugin-memory-context');
+});
+
 test('handleGatewayMessage continues without plugins when plugin manager init fails', async () => {
   setupHome();
 

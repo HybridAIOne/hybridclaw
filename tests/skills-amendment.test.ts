@@ -61,6 +61,10 @@ Keep the response concise.
     agentId: 'main',
   });
 
+  const agentMessages = runAgentMock.mock.calls[0]?.[0]?.messages;
+  expect(agentMessages?.[0]?.role).toBe('system');
+  expect(agentMessages?.[0]?.content).toContain('## Runtime Metadata');
+
   expect(amendment.status).toBe('staged');
   expect(amendment.guard_verdict).toBe('safe');
   expect(amendment.diff_summary).toBe('8 line(s) (was 7).');

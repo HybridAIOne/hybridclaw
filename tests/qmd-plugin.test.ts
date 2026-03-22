@@ -97,7 +97,7 @@ function writeQmdStub(
       'const query = parseSearchQuery(args.slice(1));',
       'const writeStdout = async (text) => {',
       '  await new Promise((resolve, reject) => {',
-      '    process.stdout.write(`${String(text)}\\n`, (error) => {',
+      '    process.stdout.write(String(text) + "\\n", (error) => {',
       '      if (error) reject(error);',
       '      else resolve();',
       '    });',
@@ -105,7 +105,7 @@ function writeQmdStub(
       '};',
       'const writeStderr = async (text) => {',
       '  await new Promise((resolve, reject) => {',
-      '    process.stderr.write(`${String(text)}\\n`, (error) => {',
+      '    process.stderr.write(String(text) + "\\n", (error) => {',
       '      if (error) reject(error);',
       '      else resolve();',
       '    });',
@@ -136,7 +136,7 @@ function writeQmdStub(
       `  await writeStdout(${JSON.stringify(embedText)});`,
       '  process.exit(0);',
       '}',
-      'await writeStderr(`unexpected command: ${command}`);',
+      'await writeStderr("unexpected command: " + command);',
       'process.exit(1);',
       '',
     ].join('\n'),
@@ -153,6 +153,30 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
   vi.unstubAllGlobals();
+});
+
+test('QMD plugin manifest defaults background timeout to 30000ms', () => {
+  const manifest = parseYaml(
+    fs.readFileSync(
+      path.join(
+        process.cwd(),
+        'plugins',
+        'qmd-memory',
+        'hybridclaw.plugin.yaml',
+      ),
+      'utf-8',
+    ),
+  );
+
+  expect(manifest).toMatchObject({
+    configSchema: {
+      properties: {
+        timeoutMs: {
+          default: 30000,
+        },
+      },
+    },
+  });
 });
 
 test('QMD plugin injects external prompt context and exposes a status command', async () => {
@@ -521,6 +545,58 @@ test('runQmd sends SIGTERM before SIGKILL when a timed-out child does not exit',
   }
 });
 
+test('runQmd aborts the QMD child process when the caller aborts', async () => {
+  const cwd = makeTempDir('hybridclaw-qmd-project-');
+  const stdout = new EventEmitter();
+  const stderr = new EventEmitter();
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    kill: ReturnType<typeof vi.fn>;
+  };
+  child.stdout = stdout;
+  child.stderr = stderr;
+  child.kill = vi.fn((signal: string) => {
+    setTimeout(() => {
+      child.emit('close', null, signal);
+    }, 0);
+    return true;
+  });
+
+  vi.useFakeTimers();
+  vi.doMock('node:child_process', () => ({
+    spawn: vi.fn(() => child),
+  }));
+
+  try {
+    const { runQmd } = await import('../plugins/qmd-memory/src/qmd-process.js');
+    const controller = new AbortController();
+    const resultPromise = runQmd(
+      ['status'],
+      {
+        command: 'qmd',
+        workingDirectory: cwd,
+        timeoutMs: 30_000,
+        maxInjectedChars: 500,
+      },
+      {
+        abortSignal: controller.signal,
+      },
+    );
+
+    controller.abort();
+    await vi.runAllTimersAsync();
+
+    const result = await resultPromise;
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(result.ok).toBe(false);
+    expect(result.error.name).toBe('AbortError');
+  } finally {
+    vi.useRealTimers();
+    vi.doUnmock('node:child_process');
+  }
+});
+
 test('runQmd passes a reduced environment to the QMD child process', async () => {
   const cwd = makeTempDir('hybridclaw-qmd-project-');
   const scriptPath = path.join(cwd, 'mock-qmd-env.mjs');
@@ -535,7 +611,7 @@ test('runQmd passes a reduced environment to the QMD child process', async () =>
       '  secret: process.env.HYBRIDCLAW_QMD_SECRET_TEST || null,',
       '};',
       'await new Promise((resolve, reject) => {',
-      '  process.stdout.write(`${JSON.stringify(payload)}\\n`, (error) => {',
+      '  process.stdout.write(JSON.stringify(payload) + "\\n", (error) => {',
       '    if (error) reject(error);',
       '    else resolve();',
       '  });',

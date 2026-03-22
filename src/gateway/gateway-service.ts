@@ -10,9 +10,6 @@ import {
   getActiveExecutorSessionIds,
   getSandboxDiagnostics,
 } from '../agent/executor.js';
-import { buildSystemPromptFromHooks } from '../agent/prompt-hooks.js';
-import { processSideEffects } from '../agent/side-effects.js';
-import { isSilentReply } from '../agent/silent-reply.js';
 import {
   buildToolsSummary,
   getKnownToolGroupLabel,
@@ -31,19 +28,11 @@ import {
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import {
-  emitToolExecutionAuditEvents,
-  makeAuditRunId,
-  recordAuditEvent,
-} from '../audit/audit-events.js';
+import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
-import {
-  getChannel,
-  getChannelByContextId,
-  normalizeSkillConfigChannelKind,
-} from '../channels/channel-registry.js';
+import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -62,7 +51,6 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_DELEGATION_MAX_DEPTH,
-  PROACTIVE_DELEGATION_MAX_PER_TURN,
   PROACTIVE_RALPH_MAX_ITERATIONS,
   WEB_API_TOKEN,
 } from '../config/config.js';
@@ -76,11 +64,6 @@ import {
 } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import {
-  isAudioMediaItem,
-  prependAudioTranscriptionsToUserContent,
-} from '../media/audio-transcription.js';
-import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
   createFreshSessionInstance,
@@ -106,7 +89,6 @@ import {
   logAudit,
   pauseTask,
   recordRequestLog,
-  recordUsageEvent,
   resumeTask,
   updateSessionAgent,
   updateSessionChatbot,
@@ -114,16 +96,7 @@ import {
   updateSessionRag,
   updateSessionShowMode,
 } from '../memory/db.js';
-import type { BuildMemoryPromptResult } from '../memory/memory-service.js';
 import { memoryService } from '../memory/memory-service.js';
-import { MiddlewareChain } from '../middleware/chain.js';
-import type {
-  Middleware,
-  MiddlewareContext,
-  MiddlewareResult,
-  MiddlewareSessionState,
-  ToolMiddlewareContext,
-} from '../middleware/types.js';
 import {
   readPluginConfigEntry,
   readPluginConfigValue,
@@ -186,7 +159,6 @@ import {
 } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
 import { runtimeSecretsPath } from '../security/runtime-secrets.js';
-import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
 import {
   maybeCompactSession,
@@ -200,52 +172,30 @@ import {
   type SessionResetPolicy,
 } from '../session/session-reset.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
-import {
-  estimateTokenCountFromMessages,
-  estimateTokenCountFromText,
-  type HistoryOptimizationStats,
-  optimizeHistoryMessagesForPrompt,
-} from '../session/token-efficiency.js';
 import type {
   SkillAmendment,
   SkillHealthMetrics,
   SkillObservation,
 } from '../skills/adaptive-skills-types.js';
-import {
-  expandSkillInvocationWithResolution,
-  loadSkillCatalog,
-  loadSkills,
-  resolveObservedSkillName,
-  type Skill,
-} from '../skills/skills.js';
-import {
-  deriveSkillExecutionOutcome,
-  recordSkillExecution,
-} from '../skills/skills-observation.js';
+import { loadSkillCatalog } from '../skills/skills.js';
 import type {
   ArtifactMetadata,
-  CanonicalSessionContext,
   ChatMessage,
-  ContainerOutput,
   DelegationSideEffect,
   DelegationTaskSpec,
   McpServerConfig,
-  MediaContextItem,
   PendingApproval,
   ScheduledTask,
   Session,
   StoredMessage,
   StructuredAuditEntry,
-  TokenUsageStats,
   ToolExecution,
   ToolProgressEvent,
 } from '../types.js';
 import { sleep } from '../utils/sleep.js';
-import { ensureBootstrapFiles, resetWorkspace } from '../workspace.js';
+import { resetWorkspace } from '../workspace.js';
 import {
-  buildFullAutoOperatingContract,
   buildFullAutoStatusLines,
-  clearScheduledFullAutoContinuation,
   configureFullAutoRuntime,
   describeFullAutoWorkspaceSummary,
   disableFullAutoSession,
@@ -253,12 +203,9 @@ import {
   getFullAutoRuntimeState,
   isFullAutoEnabled,
   maybeScheduleFullAutoAfterSuccess,
-  noteFullAutoSupervisedIntervention,
   type ProactiveMessagePayload,
-  preemptRunningFullAutoTurn,
   resolveFullAutoPrompt,
   resolveSessionRalphIterations,
-  syncFullAutoRuntimeContext,
 } from './fullauto.js';
 import { mapLogicalAgentCard, mapSessionCard } from './gateway-agent-cards.js';
 import {
@@ -305,17 +252,29 @@ import {
   renderGatewayCommand,
 } from './gateway-types.js';
 import {
-  firstNumber,
-  numberFromUnknown,
-  parseAuditPayload,
-} from './gateway-utils.js';
+  buildGatewayCommandMiddlewareChain,
+  buildGatewayMiddlewareChain,
+  buildGatewayPluginToolMiddlewareChain,
+  buildGatewayScheduledTaskMiddlewareChain,
+} from './middleware/chains.js';
+
+export { resolveMediaToolPolicy } from './middleware/helpers.js';
+
+import type {
+  GatewayMiddlewareContext,
+  GatewayMiddlewareDependencies,
+  GatewayPluginToolRequest,
+} from './middleware/types.js';
+
+export type { MediaToolPolicy } from './middleware/types.js';
+
+import { numberFromUnknown, parseAuditPayload } from './gateway-utils.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
   describeSessionShowMode,
   isSessionShowMode,
   normalizeSessionShowMode,
-  sessionShowModeShowsTools,
 } from './show-mode.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
@@ -531,10 +490,6 @@ const MAX_RALPH_ITERATIONS = 64;
 const RESET_CONFIRMATION_TTL_MS = 120_000;
 const DISCORD_CHANNEL_MODE_VALUES = new Set(['off', 'mention', 'free']);
 const DISCORD_GROUP_POLICY_VALUES = new Set(['open', 'allowlist', 'disabled']);
-const IMAGE_QUESTION_RE =
-  /(what(?:'s| is)? on (?:the )?(?:image|picture|photo|screenshot)|describe (?:this|the) (?:image|picture|photo)|image|picture|photo|screenshot|ocr|diagram|chart|grafik|bild|foto|was steht|was ist auf dem bild)/i;
-const BROWSER_TAB_RE =
-  /(browser|tab|current tab|web page|website|seite im browser|aktuellen tab)/i;
 let cachedGitCommitShort: string | null | undefined;
 const pendingSessionResets = new Map<string, PendingSessionReset>();
 
@@ -633,31 +588,6 @@ function shouldForceNewTuiSession(
   return req.channelId === 'tui' && req.sessionMode === 'new';
 }
 
-function resolveChannelType(
-  req: Pick<GatewayChatRequest, 'channelId' | 'source'>,
-): string | undefined {
-  const source = String(req.source || '')
-    .trim()
-    .toLowerCase();
-  if (
-    source === 'discord' ||
-    source === 'whatsapp' ||
-    source === 'email' ||
-    source === 'msteams'
-  ) {
-    return source;
-  }
-  const inferredChannelType = resolveSessionResetChannelKind(req.channelId);
-  if (
-    inferredChannelType === 'discord' ||
-    inferredChannelType === 'whatsapp' ||
-    inferredChannelType === 'email'
-  ) {
-    return inferredChannelType;
-  }
-  return source && source !== 'unknown' ? source : undefined;
-}
-
 function resolveSessionAutoResetPolicy(channelId: string): SessionResetPolicy {
   return resolveResetPolicy({
     channelKind: resolveSessionResetChannelKind(channelId),
@@ -668,12 +598,14 @@ function resolveSessionAutoResetPolicy(channelId: string): SessionResetPolicy {
 async function prepareGatewaySessionRecord(params: {
   request: GatewaySessionBootstrapRequest;
   pluginManager: PluginManager | null;
+  sessionResetPolicy?: SessionResetPolicy;
 }): Promise<Session> {
   const req = params.request;
   const requestedAgentId = String(req.agentId || '').trim() || undefined;
   const requestedChatbotId = String(req.chatbotId || '').trim() || undefined;
   const requestedModel = String(req.model || '').trim() || undefined;
-  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
+  const sessionResetPolicy =
+    params.sessionResetPolicy || resolveSessionAutoResetPolicy(req.channelId);
   const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: req.sessionId,
     channelId: req.channelId,
@@ -972,143 +904,6 @@ function parseIntOrNull(raw: string | undefined): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function normalizeMediaContextItems(
-  raw: GatewayChatRequestBody['media'],
-): MediaContextItem[] {
-  if (!Array.isArray(raw) || raw.length === 0) return [];
-  const normalized: MediaContextItem[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue;
-    const path =
-      typeof item.path === 'string' && item.path.trim()
-        ? item.path.trim()
-        : null;
-    const url = typeof item.url === 'string' ? item.url.trim() : '';
-    const originalUrl =
-      typeof item.originalUrl === 'string' ? item.originalUrl.trim() : '';
-    const filename =
-      typeof item.filename === 'string' ? item.filename.trim() : '';
-    if (!url || !originalUrl || !filename) continue;
-    const sizeBytes =
-      typeof item.sizeBytes === 'number' && Number.isFinite(item.sizeBytes)
-        ? Math.max(0, Math.floor(item.sizeBytes))
-        : 0;
-    const mimeType =
-      typeof item.mimeType === 'string' && item.mimeType.trim()
-        ? item.mimeType.trim().toLowerCase()
-        : null;
-    normalized.push({
-      path,
-      url,
-      originalUrl,
-      mimeType,
-      sizeBytes,
-      filename,
-    });
-  }
-  return normalized;
-}
-
-function isImageMediaItem(item: MediaContextItem): boolean {
-  const mimeType = String(item.mimeType || '')
-    .trim()
-    .toLowerCase();
-  if (mimeType.startsWith('image/')) return true;
-  return /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif|tiff?)$/i.test(
-    item.filename || '',
-  );
-}
-
-function buildMediaPromptContext(media: MediaContextItem[]): string {
-  if (media.length === 0) return '';
-  const mediaPaths = media
-    .map((item) => item.path)
-    .filter((path): path is string => Boolean(path));
-  const imagePaths = media
-    .filter((item) => isImageMediaItem(item) && item.path)
-    .map((item) => item.path as string);
-  const audioPaths = media
-    .filter((item) => isAudioMediaItem(item) && item.path)
-    .map((item) => item.path as string);
-  const documentPaths = media
-    .filter(
-      (item) => !isImageMediaItem(item) && !isAudioMediaItem(item) && item.path,
-    )
-    .map((item) => item.path as string);
-  const mediaUrls = media.map((item) => item.url);
-  const mediaTypes = media.map((item) => item.mimeType || 'unknown');
-  const payload = media.map((item, index) => ({
-    order: index + 1,
-    path: item.path,
-    mime: item.mimeType || 'unknown',
-    size: item.sizeBytes,
-    filename: item.filename,
-    original_url: item.originalUrl,
-    url: item.url,
-  }));
-  return [
-    '[MediaContext]',
-    `MediaPaths: ${JSON.stringify(mediaPaths)}`,
-    `ImageMediaPaths: ${JSON.stringify(imagePaths)}`,
-    `AudioMediaPaths: ${JSON.stringify(audioPaths)}`,
-    `DocumentMediaPaths: ${JSON.stringify(documentPaths)}`,
-    `MediaUrls: ${JSON.stringify(mediaUrls)}`,
-    `MediaTypes: ${JSON.stringify(mediaTypes)}`,
-    `MediaItems: ${JSON.stringify(payload)}`,
-    'Prefer current-turn attachments and file inputs over `message` reads, `glob`, `find`, or workspace-wide discovery.',
-    'When the user asks about current-turn image attachments, use `vision_analyze` with local image paths from `ImageMediaPaths` first.',
-    'When the user asks about current-turn PDF/document attachments, prefer the injected `<file>` content or the supplied local path before reading chat history.',
-    'Use MediaUrls as fallback when a local path is missing or fails to open.',
-    'Use `browser_vision` only for questions about the active browser tab/page.',
-    '',
-    '',
-  ].join('\n');
-}
-
-function isImageQuestion(content: string): boolean {
-  const normalized = content.trim();
-  if (!normalized) return false;
-  return IMAGE_QUESTION_RE.test(normalized);
-}
-
-function isExplicitBrowserTabQuestion(content: string): boolean {
-  const normalized = content.trim();
-  if (!normalized) return false;
-  return BROWSER_TAB_RE.test(normalized);
-}
-
-export interface MediaToolPolicy {
-  blockedTools?: string[];
-  prioritizeVisionTool: boolean;
-}
-
-export function resolveMediaToolPolicy(
-  content: string,
-  media: MediaContextItem[],
-): MediaToolPolicy {
-  const imageMedia = media.filter((item) => isImageMediaItem(item));
-  if (imageMedia.length === 0) {
-    return {
-      blockedTools: undefined,
-      prioritizeVisionTool: false,
-    };
-  }
-
-  const imageQuestion = isImageQuestion(content);
-  const explicitBrowserTab = isExplicitBrowserTabQuestion(content);
-  if (imageQuestion && !explicitBrowserTab) {
-    return {
-      blockedTools: ['browser_vision'],
-      prioritizeVisionTool: true,
-    };
-  }
-
-  return {
-    blockedTools: undefined,
-    prioritizeVisionTool: false,
-  };
-}
-
 function resolveGitCommitShort(): string | null {
   if (cachedGitCommitShort !== undefined) return cachedGitCommitShort;
   try {
@@ -1317,68 +1112,6 @@ function resolveSessionAgentId(session: { agent_id: string }): string {
   return DEFAULT_AGENT_ID;
 }
 
-function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
-  if (!tokenUsage) return 0;
-  const costCarrier = tokenUsage as unknown as Record<string, unknown>;
-  const value = firstNumber([
-    costCarrier.costUsd,
-    costCarrier.costUSD,
-    costCarrier.cost_usd,
-    costCarrier.estimatedCostUsd,
-    costCarrier.estimated_cost_usd,
-  ]);
-  if (value == null) return 0;
-  return Math.max(0, value);
-}
-
-function formatCanonicalContextPrompt(params: {
-  summary: string | null;
-  recentMessages: Array<{
-    role: string;
-    content: string;
-    session_id: string;
-    channel_id: string | null;
-  }>;
-}): string | null {
-  const sections: string[] = [];
-  const summary = (params.summary || '').trim();
-  if (summary) {
-    sections.push(['### Canonical Session Summary', summary].join('\n'));
-  }
-
-  if (params.recentMessages.length > 0) {
-    const lines = params.recentMessages.slice(-6).map((entry) => {
-      const role = (entry.role || 'user').trim().toLowerCase();
-      const who = role === 'assistant' ? 'Assistant' : 'User';
-      const from = entry.channel_id?.trim()
-        ? `${entry.channel_id.trim()} (${entry.session_id})`
-        : entry.session_id;
-      const compact = entry.content.replace(/\s+/g, ' ').trim();
-      const short =
-        compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
-      return `- ${who} [${from}]: ${short}`;
-    });
-    sections.push(
-      [
-        '### Cross-Channel Recall',
-        'Recent context from other sessions/channels for this user:',
-        ...lines,
-      ].join('\n'),
-    );
-  }
-
-  const merged = sections.join('\n\n').trim();
-  return merged || null;
-}
-
-function formatPluginPromptContext(sections: string[]): string | null {
-  const normalized = sections
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
-  if (normalized.length === 0) return null;
-  return normalized.join('\n\n');
-}
-
 function resolveActivationModeLabel(): string {
   if (DISCORD_COMMANDS_ONLY) return 'commands-only';
   if (DISCORD_GROUP_POLICY === 'disabled') return 'disabled';
@@ -1582,36 +1315,6 @@ function recordSuccessfulTurn(opts: {
   });
 }
 
-function buildStoredTurnMessages(params: {
-  sessionId: string;
-  userId: string;
-  username: string | null;
-  userContent: string;
-  resultText: string;
-}): StoredMessage[] {
-  const timestamp = new Date().toISOString();
-  return [
-    {
-      id: 0,
-      session_id: params.sessionId,
-      user_id: params.userId,
-      username: params.username,
-      role: 'user',
-      content: params.userContent,
-      created_at: timestamp,
-    },
-    {
-      id: 0,
-      session_id: params.sessionId,
-      user_id: 'assistant',
-      username: null,
-      role: 'assistant',
-      content: params.resultText,
-      created_at: timestamp,
-    },
-  ];
-}
-
 function normalizeRalphIterations(value: number): number {
   if (!Number.isFinite(value)) return 0;
   const truncated = Math.trunc(value);
@@ -1628,7 +1331,7 @@ async function tryEnsurePluginManagerInitializedForGateway(params: {
   sessionId: string;
   channelId: string;
   agentId?: string | null;
-  surface: 'chat' | 'command';
+  surface: 'chat' | 'command' | 'scheduler';
 }): Promise<{
   pluginManager: PluginManager | null;
   pluginInitError: unknown;
@@ -1652,6 +1355,19 @@ async function tryEnsurePluginManagerInitializedForGateway(params: {
     return { pluginManager: null, pluginInitError };
   }
 }
+
+const gatewayMiddlewareDependencies: GatewayMiddlewareDependencies = {
+  maxHistoryMessages: MAX_HISTORY_MESSAGES,
+  prepareGatewaySessionRecord,
+  prepareSessionAutoReset,
+  shouldForceNewTuiSession,
+  resolveCanonicalContextScope,
+  recordSuccessfulTurn,
+  maybeRecordGatewayRequestLog,
+  normalizeDelegationEffect,
+  extractDelegationDepth,
+  enqueueDelegationFromSideEffect,
+};
 
 function infoCommand(
   title: string,
@@ -1900,74 +1616,6 @@ function prunePendingSessionResets(now = Date.now()): void {
 function getPendingSessionReset(sessionId: string): PendingSessionReset | null {
   prunePendingSessionResets();
   return pendingSessionResets.get(sessionId) ?? null;
-}
-
-function buildTokenUsageAuditPayload(
-  messages: ChatMessage[],
-  resultText: string | null | undefined,
-  tokenUsage?: TokenUsageStats,
-): Record<string, number | boolean> {
-  const promptChars = messages.reduce((total, message) => {
-    const content = typeof message.content === 'string' ? message.content : '';
-    return total + content.length;
-  }, 0);
-  const completionChars = (resultText || '').length;
-
-  const fallbackEstimatedPromptTokens =
-    estimateTokenCountFromMessages(messages);
-  const fallbackEstimatedCompletionTokens = estimateTokenCountFromText(
-    resultText || '',
-  );
-  const estimatedPromptTokens =
-    tokenUsage?.estimatedPromptTokens || fallbackEstimatedPromptTokens;
-  const estimatedCompletionTokens =
-    tokenUsage?.estimatedCompletionTokens || fallbackEstimatedCompletionTokens;
-  const estimatedTotalTokens =
-    tokenUsage?.estimatedTotalTokens ||
-    estimatedPromptTokens + estimatedCompletionTokens;
-
-  const apiUsageAvailable = tokenUsage?.apiUsageAvailable === true;
-  const apiPromptTokens = tokenUsage?.apiPromptTokens || 0;
-  const apiCompletionTokens = tokenUsage?.apiCompletionTokens || 0;
-  const apiTotalTokens =
-    tokenUsage?.apiTotalTokens || apiPromptTokens + apiCompletionTokens;
-  const apiCacheUsageAvailable = tokenUsage?.apiCacheUsageAvailable === true;
-  const apiCacheReadTokens = tokenUsage?.apiCacheReadTokens || 0;
-  const apiCacheWriteTokens = tokenUsage?.apiCacheWriteTokens || 0;
-  const promptTokens = apiUsageAvailable
-    ? apiPromptTokens
-    : estimatedPromptTokens;
-  const completionTokens = apiUsageAvailable
-    ? apiCompletionTokens
-    : estimatedCompletionTokens;
-  const totalTokens = apiUsageAvailable ? apiTotalTokens : estimatedTotalTokens;
-
-  return {
-    modelCalls: tokenUsage ? Math.max(1, tokenUsage.modelCalls) : 0,
-    promptChars,
-    completionChars,
-    promptTokens,
-    completionTokens,
-    totalTokens,
-    estimatedPromptTokens,
-    estimatedCompletionTokens,
-    estimatedTotalTokens,
-    apiUsageAvailable,
-    apiPromptTokens,
-    apiCompletionTokens,
-    apiTotalTokens,
-    ...(apiCacheUsageAvailable
-      ? {
-          apiCacheUsageAvailable,
-          apiCacheReadTokens,
-          apiCacheWriteTokens,
-          cacheReadTokens: apiCacheReadTokens,
-          cacheReadInputTokens: apiCacheReadTokens,
-          cacheWriteTokens: apiCacheWriteTokens,
-          cacheWriteInputTokens: apiCacheWriteTokens,
-        }
-      : {}),
-  };
 }
 
 export function getGatewayStatus(): GatewayStatus {
@@ -3915,1175 +3563,6 @@ async function prepareSessionAutoReset(params: {
   return expiryEvaluation;
 }
 
-interface GatewayMiddlewareState extends MiddlewareSessionState {
-  startedAt: number;
-  runId: string;
-  source: string;
-  pluginManager: PluginManager | null;
-  abortSignal?: AbortSignal;
-  requestLoggingEnabled: boolean;
-  session?: Session;
-  agentId?: string;
-  model?: string;
-  chatbotId?: string | null;
-  enableRag?: boolean;
-  provider?: ReturnType<typeof resolveModelProvider>;
-  channelType?: string;
-  channel?:
-    | ReturnType<typeof getChannel>
-    | ReturnType<typeof getChannelByContextId>;
-  sessionContext?: ReturnType<typeof buildSessionContext>;
-  shouldEmitTools?: boolean;
-  workspacePath?: string;
-  media?: MediaContextItem[];
-  mediaPolicy?: MediaToolPolicy;
-  userTurnContent?: string;
-  audioTranscriptCount?: number;
-  canonicalContextScope?: string;
-  turnIndex?: number;
-  pluginsUsed?: string[];
-  history?: StoredMessage[];
-  mergedSessionSummary?: string | null;
-  pluginPromptSummary?: string | null;
-  canonicalPromptSummary?: string | null;
-  canonicalRecentMessagesIncluded?: number;
-  memoryContext?: BuildMemoryPromptResult;
-  requestMessages?: ChatMessage[] | null;
-  explicitSkillName?: string | null;
-  historyStats?: HistoryOptimizationStats;
-  historyLength?: number;
-  skillCount?: number;
-  skills?: Skill[];
-  output?: ContainerOutput;
-  firstTextDeltaMs?: number | null;
-  durationMs?: number;
-  effectiveUserContent?: string;
-  toolExecutions?: ToolExecution[];
-  observedSkillName?: string | null;
-  usagePayload?: Record<string, number | boolean>;
-  resultText?: string;
-  errorMessage?: string;
-  storedTurnMessages?: StoredMessage[];
-  finalResult?: GatewayChatResult;
-}
-
-interface GatewayMiddlewareContext
-  extends MiddlewareContext<GatewayMiddlewareState> {
-  request: GatewayChatRequest;
-}
-
-interface GatewayCommandMiddlewareState extends MiddlewareSessionState {
-  pluginManager: PluginManager | null;
-  session?: Session;
-}
-
-interface GatewayCommandMiddlewareContext
-  extends MiddlewareContext<GatewayCommandMiddlewareState> {
-  request: GatewayCommandRequest;
-}
-
-type GatewayChainMiddleware = Middleware<
-  GatewayMiddlewareState,
-  GatewayMiddlewareContext,
-  ToolMiddlewareContext<GatewayMiddlewareState>
->;
-
-type GatewayCommandChainMiddleware = Middleware<
-  GatewayCommandMiddlewareState,
-  GatewayCommandMiddlewareContext,
-  ToolMiddlewareContext<GatewayCommandMiddlewareState>
->;
-
-class CommandSessionMiddleware implements GatewayCommandChainMiddleware {
-  readonly name = 'command-session';
-
-  isEnabled(): boolean {
-    return true;
-  }
-
-  async beforeAgent(ctx: GatewayCommandMiddlewareContext): Promise<{
-    stateUpdates: Partial<GatewayCommandMiddlewareState>;
-  }> {
-    const session = await prepareGatewaySessionRecord({
-      request: ctx.request,
-      pluginManager: ctx.state.pluginManager,
-    });
-    return {
-      stateUpdates: {
-        session,
-      },
-    };
-  }
-}
-
-class SessionMiddleware implements GatewayChainMiddleware {
-  readonly name = 'session';
-
-  isEnabled(): boolean {
-    return true;
-  }
-
-  async beforeAgent(ctx: GatewayMiddlewareContext): Promise<{
-    stateUpdates: Partial<GatewayMiddlewareState>;
-  }> {
-    const req = ctx.request;
-    const pluginManager = ctx.state.pluginManager;
-    const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
-    let session = await prepareGatewaySessionRecord({
-      request: req,
-      pluginManager,
-    });
-
-    if (ctx.state.source !== 'fullauto') {
-      preemptRunningFullAutoTurn(req.sessionId, ctx.state.source);
-      clearScheduledFullAutoContinuation(req.sessionId);
-      if (isFullAutoEnabled(session)) {
-        noteFullAutoSupervisedIntervention({
-          session,
-          content: req.content,
-          source: ctx.state.source,
-        });
-      }
-    }
-
-    const resolvedRequest = resolveAgentForRequest({
-      agentId: req.agentId,
-      session,
-      model: req.model,
-      chatbotId: req.chatbotId,
-    });
-    const { agentId, model, chatbotId } = resolvedRequest;
-    const channelType =
-      resolveChannelType(req) || resolveSessionResetChannelKind(req.channelId);
-    const channel =
-      (channelType ? getChannel(channelType) : undefined) ||
-      getChannelByContextId(req.channelId) ||
-      undefined;
-
-    if (session.agent_id !== agentId) {
-      const reboundExpiryEvaluation = await prepareSessionAutoReset({
-        sessionId: req.sessionId,
-        channelId: req.channelId,
-        agentId,
-        chatbotId,
-        model,
-        enableRag: req.enableRag ?? session.enable_rag === 1,
-        policy: sessionResetPolicy,
-      });
-      const reboundSession = memoryService.resetSessionIfExpired(
-        req.sessionId,
-        {
-          policy: sessionResetPolicy,
-          expiryEvaluation: reboundExpiryEvaluation,
-        },
-      );
-      if (reboundSession) {
-        const previousSessionId = req.sessionId;
-        req.sessionId = reboundSession.id;
-        if (pluginManager) {
-          await pluginManager.handleSessionReset({
-            previousSessionId,
-            sessionId: req.sessionId,
-            userId: req.userId,
-            agentId,
-            channelId: req.channelId,
-            reason: 'auto-reset',
-          });
-        }
-      }
-      session = memoryService.getOrCreateSession(
-        req.sessionId,
-        req.guildId,
-        req.channelId,
-        agentId,
-        { forceNewCurrent: shouldForceNewTuiSession(req) },
-      );
-      if (session.id !== req.sessionId) {
-        req.sessionId = session.id;
-      }
-    }
-
-    const workspacePath = path.resolve(agentWorkspaceDir(agentId));
-    const workspaceBootstrap = ensureBootstrapFiles(agentId);
-    if (
-      workspaceBootstrap.workspaceInitialized &&
-      (session.message_count > 0 || Boolean(session.session_summary))
-    ) {
-      const rotated = createFreshSessionInstance(req.sessionId);
-      req.sessionId = rotated.session.id;
-      session = rotated.session;
-      if (pluginManager) {
-        await pluginManager.handleSessionReset({
-          previousSessionId: rotated.previousSession.id,
-          sessionId: rotated.session.id,
-          userId: req.userId,
-          agentId,
-          channelId: req.channelId,
-          reason: 'workspace-reset',
-        });
-      }
-      logger.info(
-        {
-          sessionId: req.sessionId,
-          previousSessionId: rotated.previousSession.id,
-          sessionKey: session.session_key,
-          agentId,
-          workspacePath: workspaceBootstrap.workspacePath,
-          clearedMessages: rotated.deletedMessages,
-        },
-        'Cleared session history after workspace reset',
-      );
-    }
-
-    const sessionContext = buildSessionContext({
-      source: {
-        channelKind: channelType || channel?.kind,
-        chatId: req.channelId,
-        chatType:
-          channelType === 'heartbeat' || channelType === 'scheduler'
-            ? 'system'
-            : req.guildId
-              ? 'channel'
-              : 'dm',
-        userId: req.userId,
-        userName: req.username ?? undefined,
-        guildId: req.guildId,
-      },
-      agentId,
-      sessionId: session.id,
-      sessionKey: session.session_key,
-      mainSessionKey: session.main_session_key,
-    });
-    const showMode = normalizeSessionShowMode(session.show_mode);
-    const shouldEmitTools = sessionShowModeShowsTools(showMode);
-    const enableRag = req.enableRag ?? session.enable_rag === 1;
-    const provider = resolveModelProvider(model);
-    const canonicalContextScope = resolveCanonicalContextScope(session);
-
-    if (isFullAutoEnabled(session)) {
-      syncFullAutoRuntimeContext(req.sessionId, {
-        guildId: req.guildId,
-        userId: req.userId,
-        username: req.username ?? null,
-        chatbotId,
-        model,
-        enableRag,
-        onProactiveMessage: req.onProactiveMessage ?? null,
-      });
-    }
-
-    const turnIndex = session.message_count + 1;
-    if (turnIndex === 1 && pluginManager) {
-      await pluginManager.notifySessionStart({
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-      });
-    }
-
-    return {
-      stateUpdates: {
-        session,
-        agentId,
-        model,
-        chatbotId,
-        enableRag,
-        provider,
-        channelType,
-        channel,
-        sessionContext,
-        shouldEmitTools,
-        workspacePath,
-        canonicalContextScope,
-        turnIndex,
-      },
-    };
-  }
-}
-
-class MediaProcessingMiddleware implements GatewayChainMiddleware {
-  readonly name = 'media-processing';
-
-  isEnabled(): boolean {
-    return true;
-  }
-
-  async beforeAgent(ctx: GatewayMiddlewareContext): Promise<{
-    stateUpdates: Partial<GatewayMiddlewareState>;
-  }> {
-    const workspacePath = String(ctx.state.workspacePath || '').trim();
-    if (!workspacePath) {
-      throw new Error('Media middleware requires workspacePath.');
-    }
-
-    const media = normalizeMediaContextItems(ctx.request.media);
-    const audioPrelude = await prependAudioTranscriptionsToUserContent({
-      content: ctx.request.content,
-      media,
-      workspaceRoot: workspacePath,
-      abortSignal: ctx.state.abortSignal,
-    });
-    const userTurnContent = audioPrelude.content;
-
-    return {
-      stateUpdates: {
-        media,
-        mediaPolicy: resolveMediaToolPolicy(userTurnContent, media),
-        userTurnContent,
-        audioTranscriptCount: audioPrelude.transcripts.length,
-      },
-    };
-  }
-}
-
-class MemoryMiddleware implements GatewayChainMiddleware {
-  readonly name = 'memory';
-
-  isEnabled(): boolean {
-    return true;
-  }
-
-  async beforeAgent(ctx: GatewayMiddlewareContext): Promise<{
-    stateUpdates: Partial<GatewayMiddlewareState>;
-  }> {
-    const session = ctx.state.session;
-    const agentId = String(ctx.state.agentId || '').trim();
-    const userTurnContent = String(ctx.state.userTurnContent || '').trim();
-    if (!session || !agentId) {
-      throw new Error('Memory middleware requires session and agentId.');
-    }
-
-    const history = memoryService
-      .getConversationHistory(ctx.request.sessionId, MAX_HISTORY_MESSAGES * 2)
-      .filter((message) => !isSilentReply(message.content))
-      .slice(0, MAX_HISTORY_MESSAGES);
-
-    let pluginsUsed: string[] = [];
-    let canonicalContext: CanonicalSessionContext = {
-      summary: null,
-      recent_messages: [],
-    };
-    const canonicalContextScope = String(
-      ctx.state.canonicalContextScope || '',
-    ).trim();
-    if (canonicalContextScope) {
-      try {
-        canonicalContext = memoryService.getCanonicalContext({
-          agentId,
-          userId: canonicalContextScope,
-          windowSize: 12,
-          excludeSessionId: ctx.request.sessionId,
-        });
-        canonicalContext = {
-          ...canonicalContext,
-          recent_messages: canonicalContext.recent_messages.filter(
-            (message) => !isSilentReply(message.content),
-          ),
-        };
-      } catch (err) {
-        logger.debug(
-          { sessionId: ctx.request.sessionId, canonicalContextScope, err },
-          'Failed to load canonical session context',
-        );
-      }
-    }
-
-    const canonicalPromptSummary = formatCanonicalContextPrompt({
-      summary: canonicalContext.summary,
-      recentMessages: canonicalContext.recent_messages,
-    });
-    const pluginRecentMessages = [...history].reverse();
-    pluginRecentMessages.push({
-      id: 0,
-      session_id: ctx.request.sessionId,
-      user_id: ctx.request.userId,
-      username: ctx.request.username || null,
-      role: 'user',
-      content: userTurnContent,
-      created_at: new Date(ctx.state.startedAt).toISOString(),
-    });
-    const pluginPromptDetails = ctx.state.pluginManager
-      ? await ctx.state.pluginManager.collectPromptContextDetails({
-          sessionId: ctx.request.sessionId,
-          userId: ctx.request.userId,
-          agentId,
-          channelId: ctx.request.channelId,
-          recentMessages: pluginRecentMessages,
-        })
-      : { sections: [], pluginIds: [] };
-    pluginsUsed = pluginPromptDetails.pluginIds;
-    const pluginPromptSummary = formatPluginPromptContext(
-      pluginPromptDetails.sections,
-    );
-    const memoryContext = memoryService.buildPromptMemoryContext({
-      session,
-      query: userTurnContent,
-    });
-    const mergedSessionSummary =
-      [canonicalPromptSummary, memoryContext.promptSummary]
-        .filter(
-          (value): value is string =>
-            typeof value === 'string' && value.trim().length > 0,
-        )
-        .join('\n\n')
-        .trim() || null;
-
-    return {
-      stateUpdates: {
-        history,
-        mergedSessionSummary,
-        pluginPromptSummary,
-        canonicalPromptSummary,
-        canonicalRecentMessagesIncluded:
-          canonicalContext.recent_messages.length,
-        pluginsUsed,
-        memoryContext,
-      },
-    };
-  }
-}
-
-class PromptAssemblyMiddleware implements GatewayChainMiddleware {
-  readonly name = 'prompt-assembly';
-
-  isEnabled(): boolean {
-    return true;
-  }
-
-  async beforeAgent(ctx: GatewayMiddlewareContext): Promise<{
-    messages: ChatMessage[];
-    stateUpdates: Partial<GatewayMiddlewareState>;
-  }> {
-    const session = ctx.state.session;
-    const agentId = String(ctx.state.agentId || '').trim();
-    const model = String(ctx.state.model || '').trim();
-    const userTurnContent = String(ctx.state.userTurnContent || '').trim();
-    const workspacePath = String(ctx.state.workspacePath || '').trim();
-    const history = ctx.state.history || [];
-    const media = ctx.state.media || [];
-    const mediaPolicy = ctx.state.mediaPolicy || {
-      blockedTools: undefined,
-      prioritizeVisionTool: false,
-    };
-    if (!session || !agentId || !model || !workspacePath) {
-      throw new Error(
-        'Prompt assembly middleware requires session, agentId, model, and workspacePath.',
-      );
-    }
-
-    const fullAutoOperatingContract = isFullAutoEnabled(session)
-      ? buildFullAutoOperatingContract(
-          session,
-          ctx.state.source === 'fullauto' ? 'background' : 'supervised',
-        )
-      : undefined;
-    const skills = loadSkills(
-      agentId,
-      normalizeSkillConfigChannelKind(ctx.state.channel?.kind),
-    );
-    const skillInvocation = expandSkillInvocationWithResolution(
-      userTurnContent,
-      skills,
-    );
-    const systemPrompt = buildSystemPromptFromHooks({
-      agentId,
-      sessionSummary: ctx.state.mergedSessionSummary,
-      retrievedContext: ctx.state.pluginPromptSummary,
-      skills,
-      explicitSkillInvocation: skillInvocation.invocation,
-      purpose: 'conversation',
-      promptMode: 'full',
-      extraSafetyText: fullAutoOperatingContract,
-      runtimeInfo: {
-        chatbotId: ctx.state.chatbotId || undefined,
-        model,
-        defaultModel: HYBRIDAI_MODEL,
-        channel: ctx.state.channel,
-        channelType: ctx.state.channelType,
-        channelId: ctx.request.channelId,
-        guildId: ctx.request.guildId,
-        sessionContext: ctx.state.sessionContext,
-        workspacePath,
-      },
-      blockedTools: mediaPolicy.blockedTools,
-    });
-    const historyMessages = [...history].reverse().map(
-      (msg): ChatMessage => ({
-        role: msg.role as ChatMessage['role'],
-        content: msg.content,
-      }),
-    );
-    const optimizedHistory = optimizeHistoryMessagesForPrompt(
-      historyMessages.map((message) => ({
-        role: message.role,
-        content: typeof message.content === 'string' ? message.content : '',
-      })),
-    );
-    const mediaContextBlock = buildMediaPromptContext(media);
-    const expandedUserContent = skillInvocation.content;
-    const explicitSkillName = skillInvocation.invocation?.skill.name || null;
-    const agentUserContent = mediaContextBlock
-      ? `${expandedUserContent}\n\n${mediaContextBlock}`
-      : expandedUserContent;
-    const promptMessages = [
-      ...(systemPrompt
-        ? [{ role: 'system' as const, content: systemPrompt }]
-        : []),
-      ...optimizedHistory.messages,
-      {
-        role: 'user' as const,
-        content: agentUserContent,
-      },
-    ];
-
-    return {
-      messages: promptMessages,
-      stateUpdates: {
-        explicitSkillName,
-        requestMessages: ctx.state.requestLoggingEnabled
-          ? promptMessages.slice()
-          : null,
-        historyStats: optimizedHistory.stats,
-        historyLength: history.length,
-        skillCount: skills.length,
-        skills,
-      },
-    };
-  }
-}
-
-class AuditMiddleware implements GatewayChainMiddleware {
-  readonly name = 'audit';
-
-  isEnabled(): boolean {
-    return true;
-  }
-
-  async beforeAgent(ctx: GatewayMiddlewareContext): Promise<{
-    stateUpdates?: Partial<GatewayMiddlewareState>;
-  }> {
-    const session = ctx.state.session;
-    const model = String(ctx.state.model || '').trim();
-    const workspacePath = String(ctx.state.workspacePath || '').trim();
-    const userTurnContent = String(ctx.state.userTurnContent || '');
-    const turnIndex = Number(ctx.state.turnIndex || 0);
-    const media = ctx.state.media || [];
-    const historyStats = ctx.state.historyStats;
-    if (
-      !session ||
-      !model ||
-      !workspacePath ||
-      !historyStats ||
-      turnIndex <= 0
-    ) {
-      throw new Error('Audit middleware requires prepared session context.');
-    }
-
-    recordAuditEvent({
-      sessionId: ctx.request.sessionId,
-      runId: ctx.state.runId,
-      event: {
-        type: 'session.start',
-        userId: ctx.request.userId,
-        channel: ctx.request.channelId,
-        cwd: workspacePath,
-        model,
-        source: ctx.state.source,
-      },
-    });
-    recordAuditEvent({
-      sessionId: ctx.request.sessionId,
-      runId: ctx.state.runId,
-      event: {
-        type: 'turn.start',
-        turnIndex,
-        userInput: userTurnContent,
-        ...(userTurnContent !== ctx.request.content
-          ? { rawUserInput: ctx.request.content }
-          : {}),
-        username: ctx.request.username,
-        mediaCount: media.length,
-        source: ctx.state.source,
-      },
-    });
-
-    const historyStart =
-      ctx.messages.length > 0 && ctx.messages[0]?.role === 'system' ? 1 : 0;
-    recordAuditEvent({
-      sessionId: ctx.request.sessionId,
-      runId: ctx.state.runId,
-      event: {
-        type: 'context.optimization',
-        historyMessagesOriginal: historyStats.originalCount,
-        historyMessagesIncluded: historyStats.includedCount,
-        historyMessagesDropped: historyStats.droppedCount,
-        historyCharsOriginal: historyStats.originalChars,
-        historyCharsPreBudget: historyStats.preBudgetChars,
-        historyCharsIncluded: historyStats.includedChars,
-        historyCharsDropped: historyStats.droppedChars,
-        historyMaxChars: historyStats.maxTotalChars,
-        historyMaxMessageChars: historyStats.maxMessageChars,
-        perMessageTruncatedCount: historyStats.perMessageTruncatedCount,
-        middleCompressionApplied: historyStats.middleCompressionApplied,
-        historyEstimatedTokens: estimateTokenCountFromMessages(
-          ctx.messages.slice(historyStart),
-        ),
-        canonicalSummaryIncluded: Boolean(ctx.state.canonicalPromptSummary),
-        canonicalRecentMessagesIncluded:
-          ctx.state.canonicalRecentMessagesIncluded || 0,
-      },
-    });
-
-    return {};
-  }
-}
-
-class ToolAnalysisMiddleware implements GatewayChainMiddleware {
-  readonly name = 'tool-analysis';
-
-  isEnabled(): boolean {
-    return true;
-  }
-
-  async afterAgent(ctx: GatewayMiddlewareContext): Promise<{
-    stateUpdates: Partial<GatewayMiddlewareState>;
-  }> {
-    const output = ctx.state.output;
-    const provider = ctx.state.provider;
-    const model = String(ctx.state.model || '').trim();
-    const agentId = String(ctx.state.agentId || '').trim();
-    const durationMs = Number(ctx.state.durationMs || 0);
-    if (!output || !provider || !model || !agentId) {
-      throw new Error('Tool analysis middleware requires agent output state.');
-    }
-
-    const effectiveUserContent =
-      typeof output.effectiveUserPrompt === 'string' &&
-      output.effectiveUserPrompt.trim()
-        ? output.effectiveUserPrompt.trim()
-        : String(ctx.state.userTurnContent || '');
-    const toolExecutions = output.toolExecutions || [];
-    const observedSkillName = resolveObservedSkillName({
-      explicitSkillName: ctx.state.explicitSkillName || null,
-      toolExecutions,
-      skills: ctx.state.skills || [],
-    });
-    emitToolExecutionAuditEvents({
-      sessionId: ctx.request.sessionId,
-      runId: ctx.state.runId,
-      toolExecutions,
-    });
-    const usagePayload = buildTokenUsageAuditPayload(
-      ctx.messages,
-      output.result,
-      output.tokenUsage,
-    );
-    recordAuditEvent({
-      sessionId: ctx.request.sessionId,
-      runId: ctx.state.runId,
-      event: {
-        type: 'model.usage',
-        provider,
-        model,
-        durationMs,
-        toolCallCount: toolExecutions.length,
-        ...usagePayload,
-      },
-    });
-    recordUsageEvent({
-      sessionId: ctx.request.sessionId,
-      agentId,
-      model,
-      inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
-      outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
-      totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
-      toolCalls: toolExecutions.length,
-      costUsd: extractUsageCostUsd(output.tokenUsage),
-    });
-    if (observedSkillName) {
-      try {
-        recordSkillExecution({
-          skillName: observedSkillName,
-          sessionId: ctx.request.sessionId,
-          runId: ctx.state.runId,
-          toolExecutions,
-          outcome: deriveSkillExecutionOutcome({
-            outputStatus: output.status,
-            toolExecutions,
-          }),
-          durationMs,
-          errorDetail: output.error,
-        });
-      } catch (error) {
-        logger.warn(
-          {
-            sessionId: ctx.request.sessionId,
-            skillName: observedSkillName,
-            error,
-          },
-          'Failed to record skill execution observation',
-        );
-      }
-    }
-
-    let nextOutput = output;
-    let resultText: string | undefined;
-    if (output.status !== 'error') {
-      resultText = output.result || 'No response from agent.';
-      const memoryCitations = extractMemoryCitations(
-        resultText,
-        ctx.state.memoryContext?.citationIndex || [],
-      );
-      if (memoryCitations.length > 0) {
-        nextOutput = {
-          ...output,
-          memoryCitations,
-        };
-      }
-    }
-
-    return {
-      stateUpdates: {
-        output: nextOutput,
-        effectiveUserContent,
-        toolExecutions,
-        observedSkillName,
-        usagePayload,
-        ...(typeof resultText === 'string' ? { resultText } : {}),
-        ...(output.status === 'error'
-          ? { errorMessage: output.error || 'Unknown agent error.' }
-          : {}),
-      },
-    };
-  }
-}
-
-class SideEffectsMiddleware implements GatewayChainMiddleware {
-  readonly name = 'side-effects';
-
-  isEnabled(): boolean {
-    return true;
-  }
-
-  async afterAgent(
-    ctx: GatewayMiddlewareContext,
-  ): Promise<MiddlewareResult<GatewayMiddlewareState>> {
-    const output = ctx.state.output;
-    const model = String(ctx.state.model || '').trim();
-    const chatbotId = String(ctx.state.chatbotId || '').trim();
-    const agentId = String(ctx.state.agentId || '').trim();
-    if (!output || !model || !agentId) {
-      throw new Error('Side-effects middleware requires prepared agent state.');
-    }
-
-    const parentDepth = extractDelegationDepth(ctx.request.sessionId);
-    let acceptedDelegations = 0;
-    processSideEffects(output, ctx.request.sessionId, ctx.request.channelId, {
-      onDelegation: (effect) => {
-        const normalized = normalizeDelegationEffect(effect, model);
-        if (!normalized.plan) {
-          logger.warn(
-            {
-              sessionId: ctx.request.sessionId,
-              error: normalized.error || 'unknown',
-              effect,
-            },
-            'Delegation skipped — invalid payload',
-          );
-          return;
-        }
-
-        const childDepth = parentDepth + 1;
-        if (childDepth > PROACTIVE_DELEGATION_MAX_DEPTH) {
-          logger.info(
-            {
-              sessionId: ctx.request.sessionId,
-              childDepth,
-              maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH,
-            },
-            'Delegation skipped — depth limit reached',
-          );
-          return;
-        }
-
-        const requestedRuns = normalized.plan.tasks.length;
-        if (
-          acceptedDelegations + requestedRuns >
-          PROACTIVE_DELEGATION_MAX_PER_TURN
-        ) {
-          logger.info(
-            {
-              sessionId: ctx.request.sessionId,
-              limit: PROACTIVE_DELEGATION_MAX_PER_TURN,
-              requestedRuns,
-              acceptedDelegations,
-            },
-            'Delegation skipped — per-turn limit reached',
-          );
-          return;
-        }
-        acceptedDelegations += requestedRuns;
-        enqueueDelegationFromSideEffect({
-          plan: normalized.plan,
-          parentSessionId: ctx.request.sessionId,
-          channelId: ctx.request.channelId,
-          chatbotId,
-          enableRag: ctx.state.enableRag === true,
-          agentId,
-          onProactiveMessage: ctx.request.onProactiveMessage,
-          parentDepth,
-        });
-      },
-    });
-
-    return {};
-  }
-}
-
-class CompletionMiddleware implements GatewayChainMiddleware {
-  readonly name = 'completion';
-
-  isEnabled(): boolean {
-    return true;
-  }
-
-  async afterAgent(ctx: GatewayMiddlewareContext): Promise<{
-    stateUpdates: Partial<GatewayMiddlewareState>;
-  }> {
-    const output = ctx.state.output;
-    const session = ctx.state.session;
-    const agentId = String(ctx.state.agentId || '').trim();
-    const chatbotId = String(ctx.state.chatbotId || '').trim();
-    const model = String(ctx.state.model || '').trim();
-    const durationMs = Number(ctx.state.durationMs || 0);
-    const toolExecutions = ctx.state.toolExecutions || [];
-    const firstTextDeltaMs = ctx.state.firstTextDeltaMs ?? null;
-    if (!output || !session || !agentId || !model) {
-      throw new Error(
-        'Completion middleware requires prepared post-agent state.',
-      );
-    }
-
-    if (output.status === 'error') {
-      const errorMessage = ctx.state.errorMessage || 'Unknown agent error.';
-      logger.debug(
-        {
-          sessionId: ctx.request.sessionId,
-          guildId: ctx.request.guildId,
-          channelId: ctx.request.channelId,
-          userId: ctx.request.userId,
-          model,
-          provider: ctx.state.provider,
-          turnIndex: ctx.state.turnIndex,
-          mediaCount: ctx.state.media?.length || 0,
-          audioTranscriptCount: ctx.state.audioTranscriptCount || 0,
-          contentLength: String(ctx.state.userTurnContent || '').length,
-          streamingRequested: Boolean(
-            ctx.request.onTextDelta ||
-              ctx.request.onToolProgress ||
-              ctx.request.onApprovalProgress,
-          ),
-          durationMs,
-          toolCallCount: toolExecutions.length,
-          firstTextDeltaMs,
-          artifactCount: output.artifacts?.length || 0,
-        },
-        'Gateway chat completed with agent error',
-      );
-      recordAuditEvent({
-        sessionId: ctx.request.sessionId,
-        runId: ctx.state.runId,
-        event: {
-          type: 'error',
-          errorType: 'agent',
-          message: errorMessage,
-          recoverable: true,
-          stage: 'processing-agent-output',
-        },
-      });
-      recordAuditEvent({
-        sessionId: ctx.request.sessionId,
-        runId: ctx.state.runId,
-        event: {
-          type: 'turn.end',
-          turnIndex: Number(ctx.state.turnIndex || 0),
-          finishReason: 'error',
-        },
-      });
-      recordAuditEvent({
-        sessionId: ctx.request.sessionId,
-        runId: ctx.state.runId,
-        event: {
-          type: 'session.end',
-          reason: 'error',
-          stats: {
-            userMessages: 0,
-            assistantMessages: 0,
-            toolCalls: toolExecutions.length,
-            durationMs,
-          },
-        },
-      });
-      return {
-        stateUpdates: {
-          finalResult: {
-            status: 'error',
-            result: null,
-            toolsUsed: output.toolsUsed || [],
-            pluginsUsed: ctx.state.pluginsUsed,
-            artifacts: output.artifacts,
-            toolExecutions,
-            tokenUsage: output.tokenUsage,
-            error: errorMessage,
-          },
-        },
-      };
-    }
-
-    const resultText = ctx.state.resultText || 'No response from agent.';
-    logger.debug(
-      {
-        sessionId: ctx.request.sessionId,
-        guildId: ctx.request.guildId,
-        channelId: ctx.request.channelId,
-        userId: ctx.request.userId,
-        model,
-        provider: ctx.state.provider,
-        turnIndex: ctx.state.turnIndex,
-        mediaCount: ctx.state.media?.length || 0,
-        audioTranscriptCount: ctx.state.audioTranscriptCount || 0,
-        contentLength: String(ctx.state.userTurnContent || '').length,
-        streamingRequested: Boolean(
-          ctx.request.onTextDelta ||
-            ctx.request.onToolProgress ||
-            ctx.request.onApprovalProgress,
-        ),
-        durationMs,
-        toolCallCount: toolExecutions.length,
-        firstTextDeltaMs,
-        artifactCount: output.artifacts?.length || 0,
-      },
-      'Gateway chat completed successfully',
-    );
-    recordSuccessfulTurn({
-      sessionId: ctx.request.sessionId,
-      agentId,
-      chatbotId,
-      enableRag: ctx.state.enableRag === true,
-      model,
-      channelId: ctx.request.channelId,
-      runId: ctx.state.runId,
-      turnIndex: Number(ctx.state.turnIndex || 0),
-      userId: ctx.request.userId,
-      username: ctx.request.username,
-      canonicalScopeId: String(ctx.state.canonicalContextScope || ''),
-      userContent:
-        ctx.state.effectiveUserContent ||
-        String(ctx.state.userTurnContent || ''),
-      resultText,
-      toolCallCount: toolExecutions.length,
-      startedAt: ctx.state.startedAt,
-    });
-    const storedTurnMessages = buildStoredTurnMessages({
-      sessionId: ctx.request.sessionId,
-      userId: ctx.request.userId,
-      username: ctx.request.username,
-      userContent:
-        ctx.state.effectiveUserContent ||
-        String(ctx.state.userTurnContent || ''),
-      resultText,
-    });
-    return {
-      stateUpdates: {
-        resultText,
-        storedTurnMessages,
-        finalResult: {
-          status: 'success',
-          result: resultText,
-          toolsUsed: output.toolsUsed || [],
-          pluginsUsed: ctx.state.pluginsUsed,
-          memoryCitations: output.memoryCitations,
-          artifacts: output.artifacts,
-          toolExecutions,
-          pendingApproval: output.pendingApproval,
-          tokenUsage: output.tokenUsage,
-          effectiveUserPrompt: output.effectiveUserPrompt,
-        },
-      },
-    };
-  }
-}
-
-class PluginLifecycleMiddleware implements GatewayChainMiddleware {
-  readonly name = 'plugin-lifecycle';
-
-  isEnabled(): boolean {
-    return true;
-  }
-
-  async afterAgent(
-    ctx: GatewayMiddlewareContext,
-  ): Promise<MiddlewareResult<GatewayMiddlewareState>> {
-    const pluginManager = ctx.state.pluginManager;
-    const output = ctx.state.output;
-    const storedTurnMessages = ctx.state.storedTurnMessages;
-    const agentId = String(ctx.state.agentId || '').trim();
-    const model = String(ctx.state.model || '').trim();
-    if (
-      !pluginManager ||
-      !output ||
-      output.status === 'error' ||
-      !storedTurnMessages ||
-      !agentId
-    ) {
-      return {};
-    }
-
-    const resultText = ctx.state.resultText || 'No response from agent.';
-    const toolExecutions = ctx.state.toolExecutions || [];
-    const durationMs = Number(ctx.state.durationMs || 0);
-
-    void pluginManager
-      .notifyTurnComplete({
-        sessionId: ctx.request.sessionId,
-        userId: ctx.request.userId,
-        agentId,
-        messages: storedTurnMessages,
-      })
-      .catch((error) => {
-        logger.warn(
-          { sessionId: ctx.request.sessionId, agentId, error },
-          'Plugin turn-complete hooks failed',
-        );
-      });
-    void pluginManager
-      .notifyAgentEnd({
-        sessionId: ctx.request.sessionId,
-        userId: ctx.request.userId,
-        agentId,
-        channelId: ctx.request.channelId,
-        messages: storedTurnMessages,
-        resultText,
-        toolNames: toolExecutions.map((execution) => execution.name),
-        model: model || undefined,
-        durationMs,
-        tokenUsage: output.tokenUsage
-          ? {
-              promptTokens: output.tokenUsage.apiUsageAvailable
-                ? output.tokenUsage.apiPromptTokens
-                : output.tokenUsage.estimatedPromptTokens,
-              completionTokens: output.tokenUsage.apiUsageAvailable
-                ? output.tokenUsage.apiCompletionTokens
-                : output.tokenUsage.estimatedCompletionTokens,
-              totalTokens: output.tokenUsage.apiUsageAvailable
-                ? output.tokenUsage.apiTotalTokens
-                : output.tokenUsage.estimatedTotalTokens,
-              modelCalls: output.tokenUsage.modelCalls,
-            }
-          : undefined,
-      })
-      .catch((error) => {
-        logger.warn(
-          { sessionId: ctx.request.sessionId, agentId, error },
-          'Plugin agent-end hooks failed',
-        );
-      });
-
-    return {};
-  }
-}
-
-class FinalizeResponseMiddleware implements GatewayChainMiddleware {
-  readonly name = 'finalize-response';
-
-  isEnabled(): boolean {
-    return true;
-  }
-
-  async afterAgent(
-    ctx: GatewayMiddlewareContext,
-  ): Promise<MiddlewareResult<GatewayMiddlewareState>> {
-    const finalResult = ctx.state.finalResult;
-    const session = ctx.state.session;
-    const requestMessages = ctx.state.requestMessages;
-    const model = String(ctx.state.model || '').trim();
-    const chatbotId = String(ctx.state.chatbotId || '').trim();
-    const output = ctx.state.output;
-    const durationMs = Number(ctx.state.durationMs || 0);
-    if (!finalResult || !session || !output || !model) {
-      throw new Error(
-        'Finalize response middleware requires final result state.',
-      );
-    }
-
-    if (finalResult.status === 'success') {
-      maybeScheduleFullAutoAfterSuccess({
-        session,
-        req: ctx.request,
-        result: finalResult,
-      });
-    }
-
-    if (Array.isArray(requestMessages)) {
-      maybeRecordGatewayRequestLog({
-        sessionId: ctx.request.sessionId,
-        model,
-        chatbotId,
-        messages: requestMessages,
-        status: finalResult.status,
-        response:
-          finalResult.status === 'success' ? finalResult.result : undefined,
-        error: finalResult.status === 'error' ? finalResult.error : undefined,
-        toolExecutions: ctx.state.toolExecutions,
-        toolsUsed: output.toolsUsed || [],
-        durationMs,
-      });
-    }
-
-    return {};
-  }
-}
-
-function buildGatewayMiddlewareChain(
-  config: RuntimeConfig,
-): MiddlewareChain<
-  GatewayMiddlewareState,
-  GatewayMiddlewareContext,
-  ToolMiddlewareContext<GatewayMiddlewareState>
-> {
-  const middlewares: GatewayChainMiddleware[] = [
-    new SessionMiddleware(),
-    new MediaProcessingMiddleware(),
-    new MemoryMiddleware(),
-    new PromptAssemblyMiddleware(),
-    new AuditMiddleware(),
-    new ToolAnalysisMiddleware(),
-    new SideEffectsMiddleware(),
-    new CompletionMiddleware(),
-    new PluginLifecycleMiddleware(),
-    new FinalizeResponseMiddleware(),
-  ];
-  return new MiddlewareChain(
-    middlewares.filter((middleware) => middleware.isEnabled(config)),
-  );
-}
-
-function buildGatewayCommandMiddlewareChain(
-  config: RuntimeConfig,
-): MiddlewareChain<
-  GatewayCommandMiddlewareState,
-  GatewayCommandMiddlewareContext,
-  ToolMiddlewareContext<GatewayCommandMiddlewareState>
-> {
-  const middlewares: GatewayCommandChainMiddleware[] = [
-    new CommandSessionMiddleware(),
-  ];
-  return new MiddlewareChain(
-    middlewares.filter((middleware) => middleware.isEnabled(config)),
-  );
-}
-
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
@@ -5097,7 +3576,10 @@ export async function handleGatewayMessage(
   const runId = makeAuditRunId('turn');
   const source = req.source?.trim() || 'gateway.chat';
   const runtimeConfig = getRuntimeConfig();
-  const gatewayMiddlewareChain = buildGatewayMiddlewareChain(runtimeConfig);
+  const gatewayMiddlewareChain = buildGatewayMiddlewareChain(
+    runtimeConfig,
+    gatewayMiddlewareDependencies,
+  );
   const activeGatewayRequest = registerActiveGatewayRequest({
     sessionId: req.sessionId,
     abortSignal: req.abortSignal,
@@ -5497,11 +3979,35 @@ export async function runGatewayPluginTool(params: {
   channelId?: string;
 }): Promise<string> {
   const pluginManager = await ensurePluginManagerInitialized();
-  return pluginManager.executeTool({
+  const runtimeConfig = getRuntimeConfig();
+  const gatewayPluginToolMiddlewareChain =
+    buildGatewayPluginToolMiddlewareChain(
+      runtimeConfig,
+      gatewayMiddlewareDependencies,
+    );
+  const request: GatewayPluginToolRequest = {
     toolName: params.toolName,
     args: params.args,
     sessionId: String(params.sessionId || '').trim(),
     channelId: String(params.channelId || '').trim(),
+    guildId: null,
+    userId: 'plugin-tool',
+  };
+  const preparedContext = await gatewayPluginToolMiddlewareChain.runBeforeAgent(
+    {
+      config: runtimeConfig,
+      request,
+      messages: [],
+      state: {
+        pluginManager,
+      },
+    },
+  );
+  return pluginManager.executeTool({
+    toolName: params.toolName,
+    args: params.args,
+    sessionId: preparedContext.state.session?.id || request.sessionId,
+    channelId: request.channelId,
   });
 }
 
@@ -5515,31 +4021,40 @@ export async function runGatewayScheduledTask(
   runKey?: string,
 ): Promise<void> {
   let currentSessionId = origSessionId;
-  const sessionResetPolicy = {
-    ...resolveSessionAutoResetPolicy(channelId),
-    mode: 'none',
-  } satisfies SessionResetPolicy;
-  const expiryEvaluation = await prepareSessionAutoReset({
+  const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway({
     sessionId: currentSessionId,
     channelId,
-    policy: sessionResetPolicy,
+    surface: 'scheduler',
   });
-  const autoResetSession = memoryService.resetSessionIfExpired(
-    currentSessionId,
-    {
-      policy: sessionResetPolicy,
-      expiryEvaluation,
-    },
-  );
-  if (autoResetSession) {
-    currentSessionId = autoResetSession.id;
+  const runtimeConfig = getRuntimeConfig();
+  const gatewayScheduledTaskMiddlewareChain =
+    buildGatewayScheduledTaskMiddlewareChain(
+      runtimeConfig,
+      gatewayMiddlewareDependencies,
+    );
+  const preparedContext =
+    await gatewayScheduledTaskMiddlewareChain.runBeforeAgent({
+      config: runtimeConfig,
+      request: {
+        sessionId: currentSessionId,
+        guildId: null,
+        channelId,
+        userId: 'scheduler',
+        taskId,
+        prompt,
+      },
+      messages: [],
+      state: {
+        pluginManager,
+      },
+    });
+  const session = preparedContext.state.session;
+  if (!session) {
+    throw new Error(
+      'Scheduled task middleware returned incomplete session state.',
+    );
   }
-  const session = memoryService.getOrCreateSession(
-    currentSessionId,
-    null,
-    channelId,
-    undefined,
-  );
+  currentSessionId = session.id;
   const { agentId, chatbotId, model } = resolveAgentForRequest({ session });
   if (modelRequiresChatbotId(model) && !chatbotId) {
     logger.warn(
@@ -5583,8 +4098,10 @@ export async function handleGatewayCommand(
       channelId: req.channelId,
       surface: 'command',
     });
-  const gatewayCommandMiddlewareChain =
-    buildGatewayCommandMiddlewareChain(runtimeConfig);
+  const gatewayCommandMiddlewareChain = buildGatewayCommandMiddlewareChain(
+    runtimeConfig,
+    gatewayMiddlewareDependencies,
+  );
   const cmd = (req.args[0] || '').toLowerCase();
   const preparedContext = await gatewayCommandMiddlewareChain.runBeforeAgent({
     config: runtimeConfig,

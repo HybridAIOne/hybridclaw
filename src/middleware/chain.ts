@@ -17,13 +17,23 @@ export const DEFAULT_MIDDLEWARE_TIMEOUTS_MS: Record<MiddlewarePhase, number> = {
   afterAgent: 500,
 };
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label?: string,
+): Promise<T> {
   if (!(timeoutMs > 0)) return promise;
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<T>((_, reject) => {
     timeoutId = setTimeout(() => {
-      reject(new Error(`Middleware timed out after ${timeoutMs}ms.`));
+      reject(
+        new Error(
+          label
+            ? `${label} timed out after ${timeoutMs}ms.`
+            : `Middleware timed out after ${timeoutMs}ms.`,
+        ),
+      );
     }, timeoutMs);
   });
 
@@ -87,10 +97,12 @@ export class MiddlewareChain<
       if (!middleware.isEnabled(current.config)) continue;
       const hook = middleware[phase];
       if (!hook) continue;
+      const timeoutMs = resolveTimeoutMs(middleware, phase);
 
       const result = await withTimeout(
-        hook(current as never),
-        resolveTimeoutMs(middleware, phase),
+        hook.call(middleware, current as never),
+        timeoutMs,
+        `Middleware "${middleware.name}" ${phase}`,
       );
       current = applyMiddlewareResult(current, result);
       if (result.halt) break;
@@ -119,10 +131,12 @@ export class MiddlewareChain<
     for (const middleware of this.middlewares) {
       if (!middleware.isEnabled(current.config)) continue;
       if (!middleware.beforeTool) continue;
+      const timeoutMs = resolveTimeoutMs(middleware, 'beforeTool');
 
       const decision = await withTimeout(
-        middleware.beforeTool(current),
-        resolveTimeoutMs(middleware, 'beforeTool'),
+        middleware.beforeTool.call(middleware, current),
+        timeoutMs,
+        `Middleware "${middleware.name}" beforeTool`,
       );
       if (decision.action === 'modify') {
         current = {

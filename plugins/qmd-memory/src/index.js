@@ -7,6 +7,10 @@ import {
 } from './qmd-process.js';
 import { writeSessionExport } from './session-export.js';
 
+function isAbortError(error) {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
 export default {
   id: 'qmd-memory',
   kind: 'memory',
@@ -40,11 +44,12 @@ export default {
           );
         }
       },
-      async getContextForPrompt({ recentMessages }) {
+      async getContextForPrompt({ recentMessages, abortSignal }) {
         try {
           const result = await buildQmdPromptContextResult({
             config,
             recentMessages,
+            abortSignal,
           });
           api.logger.debug(
             {
@@ -60,6 +65,16 @@ export default {
           );
           return result.promptContext;
         } catch (error) {
+          if (abortSignal?.aborted || isAbortError(error)) {
+            api.logger.debug(
+              {
+                searchMode: config.searchMode,
+                workingDirectory: config.workingDirectory,
+              },
+              'QMD prompt search aborted',
+            );
+            return null;
+          }
           api.logger.warn(
             {
               error,

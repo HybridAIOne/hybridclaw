@@ -132,6 +132,7 @@ export interface PluginPromptBuildContext {
   channelId: string;
   recentMessages: StoredMessage[];
   extraContext: string[];
+  abortSignal?: AbortSignal;
 }
 
 export interface PluginPromptContextResult {
@@ -270,6 +271,7 @@ export interface MemoryLayerPlugin {
     userId: string;
     agentId: string;
     recentMessages: StoredMessage[];
+    abortSignal?: AbortSignal;
   }) => Promise<string | null>;
   onTurnComplete?: (params: {
     sessionId: string;

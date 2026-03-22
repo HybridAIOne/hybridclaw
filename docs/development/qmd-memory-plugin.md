@@ -70,7 +70,8 @@ Supported config keys:
 - `maxSnippetChars`: per-result snippet/context cap before formatting.
 - `maxInjectedChars`: total prompt context budget for injected QMD results.
 - `timeoutMs`: timeout for background prompt searches and `qmd status`.
-  Explicit passthrough commands use a separate larger fixed timeout.
+  Defaults to 30000ms. Explicit passthrough commands use a separate larger
+  fixed timeout.
 - `sessionExport`: when `true`, rewrite the current session transcript as
   markdown after each turn.
 - `sessionExportDir`: optional override for transcript exports. Defaults to

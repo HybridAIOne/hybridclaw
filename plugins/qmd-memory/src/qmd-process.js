@@ -55,6 +55,23 @@ const QMD_WINDOWS_ENV_ALLOWLIST = [
   'USERPROFILE',
 ];
 
+function createAbortError(message) {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+}
+
+function abortReasonToError(signal, fallbackMessage) {
+  const reason = signal?.reason;
+  if (reason instanceof Error) {
+    if (!reason.name) {
+      reason.name = 'AbortError';
+    }
+    return reason;
+  }
+  return createAbortError(fallbackMessage);
+}
+
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -186,9 +203,15 @@ function buildQmdProcessEnv() {
   return env;
 }
 
-export async function runQmd(args, config) {
-  const timeoutMs = config.timeoutMs;
-  return await runQmdWithOptions(args, config, { timeoutMs });
+export async function runQmd(args, config, options = {}) {
+  const timeoutMs =
+    options && Object.hasOwn(options, 'timeoutMs')
+      ? options.timeoutMs
+      : config.timeoutMs;
+  return await runQmdWithOptions(args, config, {
+    timeoutMs,
+    abortSignal: options.abortSignal,
+  });
 }
 
 async function runQmdWithOptions(args, config, options) {
@@ -196,6 +219,7 @@ async function runQmdWithOptions(args, config, options) {
     options && Object.hasOwn(options, 'timeoutMs')
       ? options.timeoutMs
       : config.timeoutMs;
+  const abortSignal = options?.abortSignal;
   return await new Promise((resolve) => {
     const captureLimitBytes = resolveCaptureLimitBytes(config);
     const child = spawn(config.command, args, {
@@ -208,13 +232,30 @@ async function runQmdWithOptions(args, config, options) {
     const stderrCollector = createOutputCollector(captureLimitBytes);
     let settled = false;
     let timedOut = false;
+    let aborted = false;
     let killTimer = null;
+
+    const terminateChild = () => {
+      child.kill('SIGTERM');
+      killTimer = setTimeout(() => {
+        if (!settled) {
+          child.kill('SIGKILL');
+        }
+      }, QMD_TIMEOUT_KILL_GRACE_MS);
+    };
+
+    const onAbort = () => {
+      if (settled || aborted) return;
+      aborted = true;
+      terminateChild();
+    };
 
     const finish = (result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       clearTimeout(killTimer);
+      abortSignal?.removeEventListener('abort', onAbort);
       resolve({
         ...result,
         stdout: readCollectedOutput(stdoutCollector),
@@ -230,14 +271,14 @@ async function runQmdWithOptions(args, config, options) {
       timeoutMs > 0
         ? setTimeout(() => {
             timedOut = true;
-            child.kill('SIGTERM');
-            killTimer = setTimeout(() => {
-              if (!settled) {
-                child.kill('SIGKILL');
-              }
-            }, QMD_TIMEOUT_KILL_GRACE_MS);
+            terminateChild();
           }, timeoutMs)
         : null;
+
+    if (abortSignal) {
+      abortSignal.addEventListener('abort', onAbort, { once: true });
+      if (abortSignal.aborted) onAbort();
+    }
 
     child.stdout?.on('data', (chunk) => {
       appendOutputChunk(stdoutCollector, chunk);
@@ -252,6 +293,13 @@ async function runQmdWithOptions(args, config, options) {
     });
 
     child.on('close', (code, signal) => {
+      if (aborted) {
+        finish({
+          ok: false,
+          error: abortReasonToError(abortSignal, 'QMD prompt search aborted.'),
+        });
+        return;
+      }
       if (timedOut) {
         finish({
           ok: false,
@@ -349,10 +397,13 @@ function deriveFallbackSearchQuery(query) {
   return terms.length >= 2 ? terms.join(' ') : '';
 }
 
-async function searchQmd(query, config) {
+async function searchQmd(query, config, abortSignal = config.abortSignal) {
   const result = await runQmd(
     [config.searchMode, '--json', '-n', String(config.maxResults), '--', query],
     config,
+    {
+      abortSignal,
+    },
   );
 
   if (!result.ok) {
@@ -461,8 +512,14 @@ export async function buildQmdPromptContextResult(params) {
   let searchQuery = userQuery;
   let normalized = [];
   for (const candidate of queries) {
+    if (params.abortSignal?.aborted) {
+      throw abortReasonToError(
+        params.abortSignal,
+        'QMD prompt search aborted.',
+      );
+    }
     searchQuery = candidate;
-    normalized = await searchQmd(candidate, params.config);
+    normalized = await searchQmd(candidate, params.config, params.abortSignal);
     if (normalized.length > 0) break;
   }
 
