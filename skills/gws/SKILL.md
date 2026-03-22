@@ -38,9 +38,8 @@ If `auth_method` is `"none"`, tell the user:
 
 > Run `gws auth login` in your terminal to connect your Google account.
 
-Nothing else. Don't explain OAuth, GCP projects, or scopes. If the user
-comes back saying login failed, then mention `gws auth setup` as a second
-step.
+That's it. Don't explain OAuth, GCP projects, scopes, or alternatives.
+The default login flow works for both personal Gmail and Workspace accounts.
 
 ## Step 2: Act immediately
 
