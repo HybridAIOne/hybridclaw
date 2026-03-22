@@ -1424,9 +1424,12 @@ interface ParsedHybridAILoginArgs {
   baseUrl?: string;
 }
 
-function parseHybridAILoginArgs(args: string[]): ParsedHybridAILoginArgs {
+function extractBaseUrlArg(args: string[]): {
+  baseUrl?: string;
+  remaining: string[];
+} {
   let baseUrl: string | undefined;
-  const normalizedFlags: string[] = [];
+  const remaining: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] || '';
@@ -1441,10 +1444,28 @@ function parseHybridAILoginArgs(args: string[]): ParsedHybridAILoginArgs {
       baseUrl = arg.slice('--base-url='.length);
       continue;
     }
-    normalizedFlags.push(arg);
+    remaining.push(arg);
   }
 
-  const flags = new Set(normalizedFlags.map((arg) => arg.trim().toLowerCase()));
+  return { baseUrl, remaining };
+}
+
+function parseHybridAILoginArgs(args: string[]): ParsedHybridAILoginArgs {
+  const { baseUrl, remaining } = extractBaseUrlArg(args);
+  for (const arg of remaining) {
+    if (arg.startsWith('-')) {
+      const normalized = arg.trim().toLowerCase();
+      if (
+        normalized !== '--device-code' &&
+        normalized !== '--browser' &&
+        normalized !== '--import'
+      ) {
+        throw new Error(`Unknown flag: ${arg}`);
+      }
+    }
+  }
+
+  const flags = new Set(remaining.map((arg) => arg.trim().toLowerCase()));
   const requested = [
     flags.has('--device-code') ? 'device-code' : null,
     flags.has('--browser') ? 'browser' : null,
@@ -1471,12 +1492,12 @@ interface ParsedOpenRouterLoginArgs {
 
 function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
   const positional: string[] = [];
-  let baseUrl: string | undefined;
+  const { baseUrl, remaining } = extractBaseUrlArg(args);
   let apiKey: string | undefined;
   let setDefault = true;
 
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index] || '';
+  for (let index = 0; index < remaining.length; index += 1) {
+    const arg = remaining[index] || '';
     if (arg === '--no-default') {
       setDefault = false;
       continue;
@@ -1485,19 +1506,8 @@ function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
       setDefault = true;
       continue;
     }
-    if (arg === '--base-url') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--base-url`.');
-      baseUrl = next;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--base-url=')) {
-      baseUrl = arg.slice('--base-url='.length);
-      continue;
-    }
     if (arg === '--api-key') {
-      const next = args[index + 1];
+      const next = remaining[index + 1];
       if (!next) throw new Error('Missing value for `--api-key`.');
       apiKey = next;
       index += 1;
@@ -1834,7 +1844,21 @@ function clearOpenRouterCredentials(): void {
 
 function normalizeHybridAIBaseUrl(rawBaseUrl: string): string {
   const trimmed = rawBaseUrl.trim().replace(/\/+$/g, '');
-  return trimmed || 'https://hybridai.one';
+  if (!trimmed) return 'https://hybridai.one';
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(
+      'Invalid HybridAI base URL. Expected an absolute http:// or https:// URL.',
+    );
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(
+      'Invalid HybridAI base URL. Expected an absolute http:// or https:// URL.',
+    );
+  }
+  return trimmed;
 }
 
 function printHybridAIStatus(): void {
@@ -2019,12 +2043,12 @@ interface ParsedLocalConfigureArgs {
 
 function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
   const positional: string[] = [];
-  let baseUrl: string | undefined;
+  const { baseUrl, remaining } = extractBaseUrlArg(args);
   let apiKey: string | undefined;
   let setDefault = true;
 
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index] || '';
+  for (let index = 0; index < remaining.length; index += 1) {
+    const arg = remaining[index] || '';
     if (arg === '--no-default') {
       setDefault = false;
       continue;
@@ -2033,19 +2057,8 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
       setDefault = true;
       continue;
     }
-    if (arg === '--base-url') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--base-url`.');
-      baseUrl = next;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--base-url=')) {
-      baseUrl = arg.slice('--base-url='.length);
-      continue;
-    }
     if (arg === '--api-key') {
-      const next = args[index + 1];
+      const next = remaining[index + 1];
       if (!next) throw new Error('Missing value for `--api-key`.');
       apiKey = next;
       index += 1;

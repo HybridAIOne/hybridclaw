@@ -1072,66 +1072,138 @@ function boundAuditActorField(
   return value.slice(0, 128);
 }
 
+const HYBRIDAI_AUTH_LIKE_RE = /invalid api key|unauthorized|authentication/i;
+const HYBRIDAI_NETWORK_LIKE_RE =
+  /fetch failed|econnrefused|enotfound|ehostunreach|timed out|timeout|network|socket/i;
+const HYBRIDAI_TLS_LIKE_RE =
+  /wrong version number|ssl3_get_record|ssl routines|eproto/i;
+
+type HybridAIBotFetchErrorClassification =
+  | 'auth'
+  | 'tls'
+  | 'network'
+  | 'unknown';
+
+type HybridAIBotFetchFailureKind =
+  | 'missing_credentials'
+  | 'auth'
+  | 'tls'
+  | 'network'
+  | 'other';
+
+interface HybridAIBotFetchFailureInput {
+  status?: unknown;
+  code?: unknown;
+  type?: unknown;
+  message: string;
+}
+
+function hasMatchingHttpStatus(
+  value: unknown,
+  statuses: readonly number[],
+): boolean {
+  return statuses.some(
+    (status) =>
+      value === status || String(value || '').trim() === String(status),
+  );
+}
+
+function classifyHybridAIBotFetchFailure(input: {
+  status?: unknown;
+  code?: unknown;
+  type?: unknown;
+  message: string;
+}): HybridAIBotFetchErrorClassification {
+  const message = input.message;
+  if (
+    hasMatchingHttpStatus(input.status, [401, 403]) ||
+    hasMatchingHttpStatus(input.code, [401, 403]) ||
+    /authentication_error/i.test(String(input.type || '')) ||
+    HYBRIDAI_AUTH_LIKE_RE.test(message)
+  ) {
+    return 'auth';
+  }
+
+  const networkLike =
+    hasMatchingHttpStatus(input.status, [0]) ||
+    /network_error/i.test(String(input.type || '')) ||
+    HYBRIDAI_NETWORK_LIKE_RE.test(message);
+  if (!networkLike) {
+    return 'unknown';
+  }
+
+  return HYBRIDAI_TLS_LIKE_RE.test(message) ? 'tls' : 'network';
+}
+
+function getHybridAIBotFetchFailureInput(
+  error: unknown,
+): HybridAIBotFetchFailureInput {
+  if (error instanceof HybridAIBotFetchError) {
+    return {
+      status: error.status,
+      code: error.code,
+      type: error.type,
+      message: error.message,
+    };
+  }
+
+  return {
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
+function describeHybridAIBotFetchFailure(error: unknown): {
+  kind: HybridAIBotFetchFailureKind;
+  message?: string;
+} {
+  if (error instanceof MissingRequiredEnvVarError) {
+    return { kind: 'missing_credentials' };
+  }
+
+  const input = getHybridAIBotFetchFailureInput(error);
+  const classification = classifyHybridAIBotFetchFailure(input);
+  if (classification === 'auth') {
+    return { kind: 'auth', message: input.message };
+  }
+  if (classification === 'tls') {
+    return { kind: 'tls' };
+  }
+  if (classification === 'network') {
+    return { kind: 'network' };
+  }
+  return { kind: 'other', message: input.message };
+}
+
+function formatHybridAIBotReachabilityError(
+  classification: Extract<
+    HybridAIBotFetchErrorClassification,
+    'tls' | 'network'
+  >,
+  reachabilityHint: string,
+): string {
+  if (classification === 'tls') {
+    const insecureBaseUrl = HYBRIDAI_BASE_URL.replace(/^https:/i, 'http:');
+    return `HybridAI is not reachable at \`${HYBRIDAI_BASE_URL}\`. If this local HybridAI server does not use TLS, run \`hybridclaw auth login hybridai --base-url ${insecureBaseUrl}\`.`;
+  }
+  return `HybridAI is not reachable at \`${HYBRIDAI_BASE_URL}\`. ${reachabilityHint}`;
+}
+
 function formatHybridAIBotFetchError(error: unknown): string {
   const keyHint = `Update \`HYBRIDAI_API_KEY\` in ${runtimeSecretsPath()} or in the shell that starts HybridClaw, then restart the gateway. You can also run \`hybridclaw auth login hybridai\` to store a new key.`;
   const reachabilityHint =
     'Check `hybridai.baseUrl` and confirm the HybridAI service is running.';
-  if (error instanceof MissingRequiredEnvVarError) {
+  const failure = describeHybridAIBotFetchFailure(error);
+
+  if (failure.kind === 'missing_credentials') {
     return `HybridAI bot commands require HybridAI API credentials. ${keyHint}`;
   }
-
-  if (error instanceof HybridAIBotFetchError) {
-    const authLike =
-      error.status === 401 ||
-      error.status === 403 ||
-      error.code === 401 ||
-      error.code === 403 ||
-      /authentication_error/i.test(String(error.type || '')) ||
-      /invalid api key|unauthorized|authentication/i.test(error.message);
-    if (authLike) {
-      return `HybridAI rejected the configured API key: ${error.message}. ${keyHint}`;
-    }
-    const networkLike =
-      error.status === 0 ||
-      /network_error/i.test(String(error.type || '')) ||
-      /fetch failed|econnrefused|enotfound|ehostunreach|timed out|timeout|network|socket/i.test(
-        error.message,
-      );
-    if (networkLike) {
-      if (
-        /wrong version number|ssl3_get_record|ssl routines|eproto/i.test(
-          error.message,
-        )
-      ) {
-        const insecureBaseUrl = HYBRIDAI_BASE_URL.replace(/^https:/i, 'http:');
-        return `HybridAI is not reachable at \`${HYBRIDAI_BASE_URL}\`. If this local HybridAI server does not use TLS, run \`hybridclaw auth login hybridai --base-url ${insecureBaseUrl}\`.`;
-      }
-      return `HybridAI is not reachable at \`${HYBRIDAI_BASE_URL}\`. ${reachabilityHint}`;
-    }
-    return `Failed to fetch bots: ${error.message}`;
+  if (failure.kind === 'auth') {
+    return `HybridAI rejected the configured API key: ${failure.message}. ${keyHint}`;
   }
-
-  const message = error instanceof Error ? error.message : String(error);
-  if (
-    /401\b|403\b|unauthorized|invalid api key|authentication/i.test(message)
-  ) {
-    return `HybridAI rejected the configured API key: ${message}. ${keyHint}`;
+  if (failure.kind === 'tls' || failure.kind === 'network') {
+    return formatHybridAIBotReachabilityError(failure.kind, reachabilityHint);
   }
-  if (
-    /fetch failed|econnrefused|enotfound|ehostunreach|timed out|timeout|network|socket/i.test(
-      message,
-    )
-  ) {
-    if (
-      /wrong version number|ssl3_get_record|ssl routines|eproto/i.test(message)
-    ) {
-      const insecureBaseUrl = HYBRIDAI_BASE_URL.replace(/^https:/i, 'http:');
-      return `HybridAI is not reachable at \`${HYBRIDAI_BASE_URL}\`. If this local HybridAI server does not use TLS, run \`hybridclaw auth login hybridai --base-url ${insecureBaseUrl}\`.`;
-    }
-    return `HybridAI is not reachable at \`${HYBRIDAI_BASE_URL}\`. ${reachabilityHint}`;
-  }
-
-  return `Failed to fetch bots: ${message}`;
+  return `Failed to fetch bots: ${failure.message}`;
 }
 
 function formatPercent(value: number | null): string {

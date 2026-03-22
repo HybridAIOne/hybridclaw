@@ -55,7 +55,7 @@ async function requestJson<T>(pathname: string, init: RequestInit): Promise<T> {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message =
-      typeof payload.text === 'string'
+      typeof payload.text === 'string' && payload.text.trim()
         ? payload.text
         : typeof payload.error === 'string'
           ? payload.error

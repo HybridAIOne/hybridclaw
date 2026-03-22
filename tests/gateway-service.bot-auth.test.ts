@@ -390,3 +390,36 @@ test('bot list suggests http when HybridAI baseUrl uses https for a local non-TL
     `HybridAI is not reachable at \`${HYBRIDAI_BASE_URL}\`. If this local HybridAI server does not use TLS, run \`hybridclaw auth login hybridai --base-url ${insecureBaseUrl}\`.`,
   );
 });
+
+test('bot list still classifies generic auth errors without HybridAIBotFetchError metadata', async () => {
+  setupHome();
+
+  vi.doMock('../src/providers/hybridai-bots.ts', () => ({
+    HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
+    fetchHybridAIBots: vi.fn(async () => {
+      throw new Error('Invalid API key provided');
+    }),
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  initDatabase({ quiet: true });
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-bot-generic-auth-failure',
+    guildId: null,
+    channelId: 'channel-bot-generic-auth-failure',
+    args: ['bot', 'list'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    'HybridAI rejected the configured API key: Invalid API key provided.',
+  );
+  expect(result.text).toContain('Update `HYBRIDAI_API_KEY`');
+});

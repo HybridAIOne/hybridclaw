@@ -217,3 +217,37 @@ test('gatewayCommand surfaces structured command error text instead of only HTTP
     'Gateway error: HybridAI rejected the configured API key: Invalid API key provided.',
   );
 });
+
+test('gatewayCommand prefers payload.error when payload.text is empty', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            kind: 'error',
+            title: 'Error',
+            text: '   ',
+            error: 'Meaningful fallback error',
+          }),
+          {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+    ),
+  );
+
+  const { gatewayCommand } = await importGatewayClient();
+
+  await expect(
+    gatewayCommand({
+      sessionId: 's1',
+      guildId: null,
+      channelId: 'web',
+      args: ['bot', 'list'],
+    }),
+  ).rejects.toThrow('Gateway error: Meaningful fallback error');
+});

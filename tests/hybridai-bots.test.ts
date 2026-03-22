@@ -65,6 +65,74 @@ test('fetchHybridAIBots preserves upstream auth error details', async () => {
   );
 });
 
+test('fetchHybridAIBots surfaces top-level string error payloads', async () => {
+  process.env.HOME = os.homedir();
+  process.env.HYBRIDAI_API_KEY = 'hai-bot-test';
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: 'rate_limited',
+            code: 429,
+            type: 'rate_limit_error',
+          }),
+          {
+            status: 429,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+    ),
+  );
+
+  const { fetchHybridAIBots } = await importFreshBots();
+
+  await expect(fetchHybridAIBots()).rejects.toMatchObject({
+    message: 'rate_limited',
+    status: 429,
+    code: 429,
+    type: 'rate_limit_error',
+  });
+});
+
+test('fetchHybridAIBots surfaces nested string error payloads', async () => {
+  process.env.HOME = os.homedir();
+  process.env.HYBRIDAI_API_KEY = 'hai-bot-test';
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              error: 'upstream unavailable',
+              code: 503,
+              type: 'server_error',
+            },
+          }),
+          {
+            status: 503,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+    ),
+  );
+
+  const { fetchHybridAIBots } = await importFreshBots();
+
+  await expect(fetchHybridAIBots()).rejects.toMatchObject({
+    message: 'upstream unavailable',
+    status: 503,
+    code: 503,
+    type: 'server_error',
+  });
+});
+
 test('fetchHybridAIBots logs and preserves nested transport failure details', async () => {
   process.env.HOME = os.homedir();
   process.env.HYBRIDAI_API_KEY = 'hai-bot-test';
@@ -101,5 +169,41 @@ test('fetchHybridAIBots logs and preserves nested transport failure details', as
       url: expect.stringContaining('/api/v1/bot-management/bots'),
     }),
     'HybridAI bot fetch failed before receiving a response',
+  );
+});
+
+test('fetchHybridAIBots applies a request timeout', async () => {
+  process.env.HOME = os.homedir();
+  process.env.HYBRIDAI_API_KEY = 'hai-bot-test';
+
+  const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+  const fetchSpy = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ data: [{ id: 'bot-1', name: 'Bot 1' }] }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+  );
+  vi.stubGlobal('fetch', fetchSpy);
+
+  const { fetchHybridAIBots } = await importFreshBots();
+
+  await expect(fetchHybridAIBots()).resolves.toEqual([
+    {
+      id: 'bot-1',
+      name: 'Bot 1',
+      description: undefined,
+      model: undefined,
+    },
+  ]);
+
+  expect(timeoutSpy).toHaveBeenCalledWith(5_000);
+  expect(fetchSpy).toHaveBeenCalledWith(
+    expect.stringContaining('/api/v1/bot-management/bots'),
+    expect.objectContaining({
+      signal: timeoutSpy.mock.results[0]?.value,
+    }),
   );
 });

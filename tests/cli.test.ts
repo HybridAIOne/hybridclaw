@@ -1205,6 +1205,18 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('  hybridclaw hybridai status');
   });
 
+  it('rejects invalid HybridAI base URLs from the deprecated hybridai command', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli();
+
+    await expect(
+      cli.main(['hybridai', 'base-url', 'javascript://alert(1)']),
+    ).rejects.toThrow(
+      'Invalid HybridAI base URL. Expected an absolute http:// or https:// URL.',
+    );
+
+    expect(updateRuntimeConfig).not.toHaveBeenCalled();
+  });
+
   it('routes auth login hybridai --base-url through the HybridAI auth flow and updates config', async () => {
     const { cli, loginHybridAIInteractive, updateRuntimeConfig } =
       await importFreshCli();
@@ -1231,6 +1243,27 @@ describe('CLI hybridai commands', () => {
       baseUrl: 'http://localhost:5000',
     });
     expect(logSpy).toHaveBeenCalledWith('Base URL: http://localhost:5000');
+  });
+
+  it('rejects invalid HybridAI login --base-url values before persisting config', async () => {
+    const { cli, loginHybridAIInteractive, updateRuntimeConfig } =
+      await importFreshCli();
+
+    await expect(
+      cli.main([
+        'auth',
+        'login',
+        'hybridai',
+        '--base-url',
+        '/relative',
+        '--browser',
+      ]),
+    ).rejects.toThrow(
+      'Invalid HybridAI base URL. Expected an absolute http:// or https:// URL.',
+    );
+
+    expect(updateRuntimeConfig).not.toHaveBeenCalled();
+    expect(loginHybridAIInteractive).not.toHaveBeenCalled();
   });
 
   it('runs hybridai login with auto mode by default', async () => {
@@ -1607,6 +1640,14 @@ describe('CLI hybridai commands', () => {
     ).rejects.toThrow(
       'Use only one of `--device-code`, `--browser`, or `--import`.',
     );
+  });
+
+  it('rejects unknown hybridai login flags', async () => {
+    const { cli } = await importFreshCli();
+
+    await expect(
+      cli.main(['hybridai', 'login', '--base-ur', 'http://localhost:5000']),
+    ).rejects.toThrow('Unknown flag: --base-ur');
   });
 
   it('prints help and exits for an unknown help topic', async () => {

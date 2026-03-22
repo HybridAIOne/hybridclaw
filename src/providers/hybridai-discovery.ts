@@ -8,16 +8,6 @@ import { isRecord, normalizeBaseUrl } from './utils.js';
 
 const HYBRIDAI_DISCOVERY_TTL_MS = 3_600_000;
 const HYBRIDAI_DISCOVERY_PATHS = ['/models', '/v1/models'] as const;
-const CONTEXT_WINDOW_KEYS = [
-  'context_length',
-  'contextLength',
-  'max_context_length',
-  'maxContextLength',
-  'max_context_tokens',
-  'maxContextTokens',
-  'context_window',
-  'contextWindow',
-] as const;
 
 function normalizeHybridAIModelName(modelId: string): string {
   return normalizeHybridAIModelForRuntime(String(modelId || '').trim());
@@ -35,38 +25,23 @@ function readPositiveInteger(value: unknown): number | null {
 }
 
 function readModelId(entry: Record<string, unknown>): string {
-  const rawId =
-    typeof entry.id === 'string'
-      ? entry.id
-      : typeof entry.model === 'string'
-        ? entry.model
-        : typeof entry.name === 'string'
-          ? entry.name
-          : typeof entry.key === 'string'
-            ? entry.key
-            : '';
-  return normalizeHybridAIModelName(rawId);
+  return normalizeHybridAIModelName(
+    typeof entry.id === 'string' ? entry.id : '',
+  );
 }
 
 function readHybridAIContextWindow(
   entry: Record<string, unknown>,
 ): number | null {
-  for (const key of CONTEXT_WINDOW_KEYS) {
-    const parsed = readPositiveInteger(entry[key]);
-    if (parsed != null) return parsed;
-  }
-
-  const limits = isRecord(entry.limits) ? entry.limits : null;
-  if (!limits) return null;
-  for (const key of CONTEXT_WINDOW_KEYS) {
-    const parsed = readPositiveInteger(limits[key]);
-    if (parsed != null) return parsed;
-  }
-
-  return null;
+  return readPositiveInteger(entry.context_length);
 }
 
 function getDiscoveryEntries(payload: unknown): unknown[] {
+  // Observed HybridAI discovery responses in
+  // tests/model-catalog.test.ts and tests/gateway-status.test.ts use
+  // `{ data: [...] }`. Keep the bare-array and `{ models: [...] }` branches as
+  // compatibility shims for older or self-hosted deployments that may not wrap
+  // entries the same way.
   if (Array.isArray(payload)) return payload;
   if (isRecord(payload) && Array.isArray(payload.data)) return payload.data;
   if (isRecord(payload) && Array.isArray(payload.models)) return payload.models;

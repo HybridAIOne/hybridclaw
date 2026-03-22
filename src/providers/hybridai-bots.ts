@@ -8,6 +8,8 @@ interface BotCacheEntry {
   fetchedAtMs: number;
 }
 
+const HYBRIDAI_BOT_FETCH_TIMEOUT_MS = 5_000;
+
 let botCache: BotCacheEntry | null = null;
 
 export class HybridAIBotFetchError extends Error {
@@ -64,6 +66,9 @@ function parseHybridAIErrorPayload(payload: unknown): {
   code?: number | string;
   type?: string;
 } {
+  if (typeof payload === 'string' && payload.trim()) {
+    return { message: payload.trim() };
+  }
   if (!payload || typeof payload !== 'object') {
     return { message: null };
   }
@@ -72,6 +77,16 @@ function parseHybridAIErrorPayload(payload: unknown): {
   if (typeof record.message === 'string' && record.message.trim()) {
     return {
       message: record.message.trim(),
+      code:
+        typeof record.code === 'number' || typeof record.code === 'string'
+          ? record.code
+          : undefined,
+      type: typeof record.type === 'string' ? record.type : undefined,
+    };
+  }
+  if (typeof record.error === 'string' && record.error.trim()) {
+    return {
+      message: record.error.trim(),
       code:
         typeof record.code === 'number' || typeof record.code === 'string'
           ? record.code
@@ -90,7 +105,9 @@ function parseHybridAIErrorPayload(payload: unknown): {
     message:
       typeof nestedRecord.message === 'string' && nestedRecord.message.trim()
         ? nestedRecord.message.trim()
-        : null,
+        : typeof nestedRecord.error === 'string' && nestedRecord.error.trim()
+          ? nestedRecord.error.trim()
+          : null,
     code:
       typeof nestedRecord.code === 'number' ||
       typeof nestedRecord.code === 'string'
@@ -143,6 +160,7 @@ export async function fetchHybridAIBots(options?: {
   try {
     res = await fetch(url, {
       headers: { Authorization: `Bearer ${getHybridAIApiKey()}` },
+      signal: AbortSignal.timeout(HYBRIDAI_BOT_FETCH_TIMEOUT_MS),
     });
   } catch (error) {
     logger.warn(
