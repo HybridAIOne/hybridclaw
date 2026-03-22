@@ -214,6 +214,16 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
 
   expect(result.status).toBe('success');
   expect(result.pluginsUsed).toEqual(['qmd-memory']);
+  const agentMessages = runAgentMock.mock.calls[0]?.[0]?.messages;
+  const systemPrompt = agentMessages?.[0]?.content;
+  expect(agentMessages?.[0]).toEqual(
+    expect.objectContaining({
+      role: 'system',
+    }),
+  );
+  expect(systemPrompt).toContain('## Runtime Metadata');
+  expect(systemPrompt).toContain('## Runtime Safety Guardrails');
+  expect(systemPrompt).toContain('plugin-memory-context');
   expect(pluginManagerMock.collectPromptContextDetails).toHaveBeenCalledWith(
     expect.objectContaining({
       sessionId: 'session-plugin-test',
@@ -234,12 +244,6 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
           name: 'memory_lookup',
         }),
       ],
-      messages: expect.arrayContaining([
-        expect.objectContaining({
-          role: 'system',
-          content: expect.stringContaining('plugin-memory-context'),
-        }),
-      ]),
     }),
   );
   expect(pluginManagerMock.notifyBeforeAgentStart).toHaveBeenCalled();

@@ -5,10 +5,10 @@ import {
   TrustedCoworkerApprovalRuntime,
 } from './approval-policy.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
-import { applyContextGuard } from './context-guard.js';
 import {
   emitRuntimeEvent,
   runAfterToolHooks,
+  runBeforeModelHooks,
   runBeforeToolHooks,
 } from './extensions.js';
 import { compactInLoop } from './in-loop-compaction.js';
@@ -707,7 +707,6 @@ async function callHybridAIWithRetry(params: {
     console.error(
       `[model] call start provider=${provider || 'hybridai'} model=${model} attempt=${attempt} streaming=${Boolean(onTextDelta)} messages=${history.length} tools=${tools.length}`,
     );
-    await emitRuntimeEvent({ event: 'before_model_call', attempt });
     try {
       let response: ChatCompletionResponse;
       if (onTextDelta) {
@@ -857,12 +856,13 @@ async function processRequest(
   const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
 
   while (stalledTurns < maxStalledTurns) {
-    const guardResult = applyContextGuard({
+    const beforeModel = await runBeforeModelHooks({
       history,
       contextWindowTokens: contextWindow,
-      config: contextGuard,
-      cache: tokenEstimateCache,
+      contextGuard,
+      tokenEstimateCache,
     });
+    const guardResult = beforeModel.contextBudget;
     if (
       guardResult.truncatedToolResults > 0 ||
       guardResult.compactedToolResults > 0

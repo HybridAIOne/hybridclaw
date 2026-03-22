@@ -1,8 +1,8 @@
 export const CONTEXT_GUARD_DEFAULTS = Object.freeze({
   enabled: true,
-  perResultShare: 0.5,
+  perResultShare: 0.3,
   compactionRatio: 0.75,
-  overflowRatio: 0.9,
+  overflowRatio: 0.75,
   maxRetries: 3,
 });
 

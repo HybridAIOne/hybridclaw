@@ -1,7 +1,10 @@
+import { applyContextGuard, type ContextGuardResult } from './context-guard.js';
+import type { TokenEstimateCache } from './token-usage.js';
 import {
   detectToolCallLoop,
   type ToolCallHistoryEntry,
 } from './tool-loop-detection.js';
+import type { ChatMessage, ContextGuardConfig, ToolCall } from './types.js';
 
 type RuntimeEventName =
   | 'before_agent_start'
@@ -42,6 +45,10 @@ interface RuntimeMiddlewareResult {
 
 interface RuntimeMiddlewareContext {
   event?: RuntimeEventPayload;
+  history?: ChatMessage[];
+  contextWindowTokens?: number;
+  contextGuard?: ContextGuardConfig;
+  tokenEstimateCache?: TokenEstimateCache;
 }
 
 interface RuntimeToolMiddlewareContext extends RuntimeMiddlewareContext {
@@ -112,6 +119,17 @@ const DANGEROUS_BASH_PATTERNS: Array<{ re: RegExp; reason: string }> = [
     reason: 'Command appears to exfiltrate environment variables.',
   },
 ];
+
+const DANGLING_TOOL_CALL_RESULT =
+  'Tool execution result was missing from history. Treat this prior tool call as interrupted and retry only if still needed.';
+
+const EMPTY_CONTEXT_BUDGET_RESULT: ContextGuardResult = {
+  totalTokensAfter: 0,
+  overflowBudgetTokens: 0,
+  truncatedToolResults: 0,
+  compactedToolResults: 0,
+  tier3Triggered: false,
+};
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   if (!(timeoutMs > 0)) return promise;
@@ -228,6 +246,66 @@ class RuntimeMiddlewareChain {
   }
 }
 
+function repairDanglingToolCalls(history: ChatMessage[]): {
+  repairedCount: number;
+  repairedCallIds: string[];
+} {
+  const repairedCallIds: string[] = [];
+
+  for (let index = 0; index < history.length; index += 1) {
+    const message = history[index];
+    if (
+      message?.role !== 'assistant' ||
+      !Array.isArray(message.tool_calls) ||
+      message.tool_calls.length === 0
+    ) {
+      continue;
+    }
+
+    const expectedCalls = message.tool_calls.filter(
+      (call): call is ToolCall =>
+        typeof call?.id === 'string' && call.id.trim().length > 0,
+    );
+    if (expectedCalls.length === 0) continue;
+
+    let insertIndex = index + 1;
+    const observedToolCallIds = new Set<string>();
+    while (
+      insertIndex < history.length &&
+      history[insertIndex]?.role === 'tool'
+    ) {
+      const toolCallId = String(
+        history[insertIndex]?.tool_call_id || '',
+      ).trim();
+      if (toolCallId) {
+        observedToolCallIds.add(toolCallId);
+      }
+      insertIndex += 1;
+    }
+
+    const missingCalls = expectedCalls.filter(
+      (call) => !observedToolCallIds.has(call.id),
+    );
+    if (missingCalls.length === 0) continue;
+
+    const syntheticToolResults = missingCalls.map(
+      (call): ChatMessage => ({
+        role: 'tool',
+        content: `${DANGLING_TOOL_CALL_RESULT} Missing tool: ${call.function.name}.`,
+        tool_call_id: call.id,
+      }),
+    );
+    history.splice(insertIndex, 0, ...syntheticToolResults);
+    repairedCallIds.push(...missingCalls.map((call) => call.id));
+    index = insertIndex + syntheticToolResults.length - 1;
+  }
+
+  return {
+    repairedCount: repairedCallIds.length,
+    repairedCallIds,
+  };
+}
+
 const securityHookMiddleware: RuntimeMiddleware = {
   name: 'security-hook',
   isEnabled: () => true,
@@ -257,6 +335,60 @@ const securityHookMiddleware: RuntimeMiddleware = {
   },
 };
 
+const danglingToolCallMiddleware: RuntimeMiddleware = {
+  name: 'dangling-tool-call',
+  isEnabled: () => true,
+  beforeModel: ({ event, history }) => {
+    if (!history || history.length === 0) {
+      return {};
+    }
+
+    const repaired = repairDanglingToolCalls(history);
+    if (repaired.repairedCount === 0) {
+      return {};
+    }
+
+    if (event) {
+      event.repairedDanglingToolCalls = repaired.repairedCount;
+      event.repairedToolCallIds = repaired.repairedCallIds;
+    }
+    console.error(
+      `[middleware] repaired ${repaired.repairedCount} dangling tool call(s): ${repaired.repairedCallIds.join(', ')}`,
+    );
+    return {};
+  },
+};
+
+const contextBudgetMiddleware: RuntimeMiddleware = {
+  name: 'context-budget',
+  isEnabled: () => true,
+  beforeModel: ({
+    event,
+    history,
+    contextWindowTokens,
+    contextGuard,
+    tokenEstimateCache,
+  }) => {
+    if (!history || history.length === 0) {
+      if (event) {
+        event.contextBudget = { ...EMPTY_CONTEXT_BUDGET_RESULT };
+      }
+      return {};
+    }
+
+    const result = applyContextGuard({
+      history,
+      contextWindowTokens,
+      config: contextGuard,
+      cache: tokenEstimateCache,
+    });
+    if (event) {
+      event.contextBudget = result;
+    }
+    return {};
+  },
+};
+
 const loopDetectionMiddleware: RuntimeMiddleware = {
   name: 'loop-detection',
   isEnabled: () => true,
@@ -277,6 +409,8 @@ const loopDetectionMiddleware: RuntimeMiddleware = {
 };
 
 const runtimeMiddlewares: RuntimeMiddleware[] = [
+  danglingToolCallMiddleware,
+  contextBudgetMiddleware,
   securityHookMiddleware,
   loopDetectionMiddleware,
 ];
@@ -296,8 +430,12 @@ function parseArgs(argsJson: string): Record<string, unknown> {
 
 export async function emitRuntimeEvent(
   payload: RuntimeEventPayload,
+  contextOverrides?: Partial<RuntimeMiddlewareContext>,
 ): Promise<void> {
-  const context: RuntimeMiddlewareContext = { event: payload };
+  const context: RuntimeMiddlewareContext = {
+    ...contextOverrides,
+    event: payload,
+  };
   if (payload.event === 'before_agent_start') {
     await runtimeMiddlewareChain.runBeforeAgent(context);
   } else if (payload.event === 'before_model_call') {
@@ -316,6 +454,49 @@ export async function emitRuntimeEvent(
       // Best effort: observer errors should not break request handling.
     }
   }
+}
+
+export async function runBeforeModelHooks(params: {
+  history: ChatMessage[];
+  attempt?: number;
+  contextWindowTokens?: number;
+  contextGuard?: ContextGuardConfig;
+  tokenEstimateCache?: TokenEstimateCache;
+}): Promise<{
+  repairedDanglingToolCalls: number;
+  contextBudget: ContextGuardResult;
+}> {
+  const event: RuntimeEventPayload = {
+    event: 'before_model_call',
+    attempt: params.attempt,
+  };
+  await emitRuntimeEvent(event, {
+    history: params.history,
+    contextWindowTokens: params.contextWindowTokens,
+    contextGuard: params.contextGuard,
+    tokenEstimateCache: params.tokenEstimateCache,
+  });
+  return {
+    repairedDanglingToolCalls:
+      typeof event.repairedDanglingToolCalls === 'number'
+        ? event.repairedDanglingToolCalls
+        : 0,
+    contextBudget: isContextBudgetResult(event.contextBudget)
+      ? event.contextBudget
+      : { ...EMPTY_CONTEXT_BUDGET_RESULT },
+  };
+}
+
+function isContextBudgetResult(value: unknown): value is ContextGuardResult {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.totalTokensAfter === 'number' &&
+    typeof record.overflowBudgetTokens === 'number' &&
+    typeof record.truncatedToolResults === 'number' &&
+    typeof record.compactedToolResults === 'number' &&
+    typeof record.tier3Triggered === 'boolean'
+  );
 }
 
 export async function runBeforeToolHooks(params: {

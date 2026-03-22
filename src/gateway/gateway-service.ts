@@ -2,7 +2,6 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
 import { runAgent } from '../agent/agent.js';
-import { buildConversationContext } from '../agent/conversation.js';
 import {
   delegationQueueStatus,
   enqueueDelegation,
@@ -11,6 +10,7 @@ import {
   getActiveExecutorSessionIds,
   getSandboxDiagnostics,
 } from '../agent/executor.js';
+import { buildSystemPromptFromHooks } from '../agent/prompt-hooks.js';
 import { processSideEffects } from '../agent/side-effects.js';
 import { isSilentReply } from '../agent/silent-reply.js';
 import {
@@ -204,6 +204,7 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
   type HistoryOptimizationStats,
+  optimizeHistoryMessagesForPrompt,
 } from '../session/token-efficiency.js';
 import type {
   SkillAmendment,
@@ -213,6 +214,7 @@ import type {
 import {
   expandSkillInvocationWithResolution,
   loadSkillCatalog,
+  loadSkills,
   resolveObservedSkillName,
   type Skill,
 } from '../skills/skills.js';
@@ -610,6 +612,18 @@ export interface GatewayChatRequest {
   source?: string;
 }
 
+type GatewaySessionBootstrapRequest = {
+  sessionId: string;
+  sessionMode?: 'new' | 'resume';
+  guildId: string | null;
+  channelId: string;
+  userId?: string | null;
+  agentId?: string | null;
+  chatbotId?: string | null;
+  model?: string | null;
+  enableRag?: boolean;
+};
+
 function shouldForceNewTuiSession(
   req: Pick<
     GatewayChatRequest | GatewayCommandRequest,
@@ -649,6 +663,57 @@ function resolveSessionAutoResetPolicy(channelId: string): SessionResetPolicy {
     channelKind: resolveSessionResetChannelKind(channelId),
     config: getRuntimeConfig(),
   });
+}
+
+async function prepareGatewaySessionRecord(params: {
+  request: GatewaySessionBootstrapRequest;
+  pluginManager: PluginManager | null;
+}): Promise<Session> {
+  const req = params.request;
+  const requestedAgentId = String(req.agentId || '').trim() || undefined;
+  const requestedChatbotId = String(req.chatbotId || '').trim() || undefined;
+  const requestedModel = String(req.model || '').trim() || undefined;
+  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
+  const expiryEvaluation = await prepareSessionAutoReset({
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    agentId: requestedAgentId,
+    chatbotId: requestedChatbotId,
+    model: requestedModel,
+    enableRag: req.enableRag,
+    policy: sessionResetPolicy,
+  });
+  const autoResetSession = memoryService.resetSessionIfExpired(req.sessionId, {
+    policy: sessionResetPolicy,
+    expiryEvaluation,
+  });
+  if (autoResetSession) {
+    const previousSessionId = req.sessionId;
+    req.sessionId = autoResetSession.id;
+    if (params.pluginManager) {
+      await params.pluginManager.handleSessionReset({
+        previousSessionId,
+        sessionId: req.sessionId,
+        userId: String(req.userId || ''),
+        agentId:
+          requestedAgentId || autoResetSession.agent_id || DEFAULT_AGENT_ID,
+        channelId: req.channelId,
+        reason: 'auto-reset',
+      });
+    }
+  }
+
+  const session = memoryService.getOrCreateSession(
+    req.sessionId,
+    req.guildId,
+    req.channelId,
+    requestedAgentId,
+    { forceNewCurrent: shouldForceNewTuiSession(req) },
+  );
+  if (session.id !== req.sessionId) {
+    req.sessionId = session.id;
+  }
+  return session;
 }
 
 function resolveCanonicalContextScope(
@@ -3907,11 +3972,49 @@ interface GatewayMiddlewareContext
   request: GatewayChatRequest;
 }
 
+interface GatewayCommandMiddlewareState extends MiddlewareSessionState {
+  pluginManager: PluginManager | null;
+  session?: Session;
+}
+
+interface GatewayCommandMiddlewareContext
+  extends MiddlewareContext<GatewayCommandMiddlewareState> {
+  request: GatewayCommandRequest;
+}
+
 type GatewayChainMiddleware = Middleware<
   GatewayMiddlewareState,
   GatewayMiddlewareContext,
   ToolMiddlewareContext<GatewayMiddlewareState>
 >;
+
+type GatewayCommandChainMiddleware = Middleware<
+  GatewayCommandMiddlewareState,
+  GatewayCommandMiddlewareContext,
+  ToolMiddlewareContext<GatewayCommandMiddlewareState>
+>;
+
+class CommandSessionMiddleware implements GatewayCommandChainMiddleware {
+  readonly name = 'command-session';
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async beforeAgent(ctx: GatewayCommandMiddlewareContext): Promise<{
+    stateUpdates: Partial<GatewayCommandMiddlewareState>;
+  }> {
+    const session = await prepareGatewaySessionRecord({
+      request: ctx.request,
+      pluginManager: ctx.state.pluginManager,
+    });
+    return {
+      stateUpdates: {
+        session,
+      },
+    };
+  }
+}
 
 class SessionMiddleware implements GatewayChainMiddleware {
   readonly name = 'session';
@@ -3926,50 +4029,10 @@ class SessionMiddleware implements GatewayChainMiddleware {
     const req = ctx.request;
     const pluginManager = ctx.state.pluginManager;
     const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
-    const expiryEvaluation = await prepareSessionAutoReset({
-      sessionId: req.sessionId,
-      channelId: req.channelId,
-      agentId: req.agentId,
-      chatbotId: req.chatbotId,
-      model: req.model,
-      enableRag: req.enableRag,
-      policy: sessionResetPolicy,
+    let session = await prepareGatewaySessionRecord({
+      request: req,
+      pluginManager,
     });
-    const autoResetSession = memoryService.resetSessionIfExpired(
-      req.sessionId,
-      {
-        policy: sessionResetPolicy,
-        expiryEvaluation,
-      },
-    );
-    if (autoResetSession) {
-      const previousSessionId = req.sessionId;
-      req.sessionId = autoResetSession.id;
-      if (pluginManager) {
-        await pluginManager.handleSessionReset({
-          previousSessionId,
-          sessionId: req.sessionId,
-          userId: req.userId,
-          agentId:
-            req.agentId?.trim() ||
-            autoResetSession.agent_id ||
-            DEFAULT_AGENT_ID,
-          channelId: req.channelId,
-          reason: 'auto-reset',
-        });
-      }
-    }
-
-    let session = memoryService.getOrCreateSession(
-      req.sessionId,
-      req.guildId,
-      req.channelId,
-      req.agentId ?? undefined,
-      { forceNewCurrent: shouldForceNewTuiSession(req) },
-    );
-    if (session.id !== req.sessionId) {
-      req.sessionId = session.id;
-    }
 
     if (ctx.state.source !== 'fullauto') {
       preemptRunningFullAutoTurn(req.sessionId, ctx.state.source);
@@ -4315,12 +4378,22 @@ class PromptAssemblyMiddleware implements GatewayChainMiddleware {
           ctx.state.source === 'fullauto' ? 'background' : 'supervised',
         )
       : undefined;
-    const { messages, skills, historyStats } = buildConversationContext({
+    const skills = loadSkills(
+      agentId,
+      normalizeSkillConfigChannelKind(ctx.state.channel?.kind),
+    );
+    const skillInvocation = expandSkillInvocationWithResolution(
+      userTurnContent,
+      skills,
+    );
+    const systemPrompt = buildSystemPromptFromHooks({
       agentId,
       sessionSummary: ctx.state.mergedSessionSummary,
       retrievedContext: ctx.state.pluginPromptSummary,
-      history,
-      currentUserContent: userTurnContent,
+      skills,
+      explicitSkillInvocation: skillInvocation.invocation,
+      purpose: 'conversation',
+      promptMode: 'full',
       extraSafetyText: fullAutoOperatingContract,
       runtimeInfo: {
         chatbotId: ctx.state.chatbotId || undefined,
@@ -4335,18 +4408,29 @@ class PromptAssemblyMiddleware implements GatewayChainMiddleware {
       },
       blockedTools: mediaPolicy.blockedTools,
     });
-    const mediaContextBlock = buildMediaPromptContext(media);
-    const skillInvocation = expandSkillInvocationWithResolution(
-      userTurnContent,
-      skills,
+    const historyMessages = [...history].reverse().map(
+      (msg): ChatMessage => ({
+        role: msg.role as ChatMessage['role'],
+        content: msg.content,
+      }),
     );
+    const optimizedHistory = optimizeHistoryMessagesForPrompt(
+      historyMessages.map((message) => ({
+        role: message.role,
+        content: typeof message.content === 'string' ? message.content : '',
+      })),
+    );
+    const mediaContextBlock = buildMediaPromptContext(media);
     const expandedUserContent = skillInvocation.content;
     const explicitSkillName = skillInvocation.invocation?.skill.name || null;
     const agentUserContent = mediaContextBlock
       ? `${expandedUserContent}\n\n${mediaContextBlock}`
       : expandedUserContent;
     const promptMessages = [
-      ...messages,
+      ...(systemPrompt
+        ? [{ role: 'system' as const, content: systemPrompt }]
+        : []),
+      ...optimizedHistory.messages,
       {
         role: 'user' as const,
         content: agentUserContent,
@@ -4360,7 +4444,7 @@ class PromptAssemblyMiddleware implements GatewayChainMiddleware {
         requestMessages: ctx.state.requestLoggingEnabled
           ? promptMessages.slice()
           : null,
-        historyStats,
+        historyStats: optimizedHistory.stats,
         historyLength: history.length,
         skillCount: skills.length,
         skills,
@@ -4985,6 +5069,21 @@ function buildGatewayMiddlewareChain(
   );
 }
 
+function buildGatewayCommandMiddlewareChain(
+  config: RuntimeConfig,
+): MiddlewareChain<
+  GatewayCommandMiddlewareState,
+  GatewayCommandMiddlewareContext,
+  ToolMiddlewareContext<GatewayCommandMiddlewareState>
+> {
+  const middlewares: GatewayCommandChainMiddleware[] = [
+    new CommandSessionMiddleware(),
+  ];
+  return new MiddlewareChain(
+    middlewares.filter((middleware) => middleware.isEnabled(config)),
+  );
+}
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
@@ -5477,47 +5576,31 @@ export async function runGatewayScheduledTask(
 export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
+  const runtimeConfig = getRuntimeConfig();
   let { pluginManager, pluginInitError } =
     await tryEnsurePluginManagerInitializedForGateway({
       sessionId: req.sessionId,
       channelId: req.channelId,
       surface: 'command',
     });
+  const gatewayCommandMiddlewareChain =
+    buildGatewayCommandMiddlewareChain(runtimeConfig);
   const cmd = (req.args[0] || '').toLowerCase();
-  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
-  const expiryEvaluation = await prepareSessionAutoReset({
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    policy: sessionResetPolicy,
+  const preparedContext = await gatewayCommandMiddlewareChain.runBeforeAgent({
+    config: runtimeConfig,
+    request: req,
+    messages: [],
+    state: {
+      pluginManager,
+    },
   });
-  const autoResetSession = memoryService.resetSessionIfExpired(req.sessionId, {
-    policy: sessionResetPolicy,
-    expiryEvaluation,
-  });
-  if (autoResetSession) {
-    const previousSessionId = req.sessionId;
-    req.sessionId = autoResetSession.id;
-    if (pluginManager) {
-      await pluginManager.handleSessionReset({
-        previousSessionId,
-        sessionId: req.sessionId,
-        userId: String(req.userId || ''),
-        agentId: autoResetSession.agent_id || DEFAULT_AGENT_ID,
-        channelId: req.channelId,
-        reason: 'auto-reset',
-      });
-    }
+  const preparedSession = preparedContext.state.session;
+  if (!preparedSession) {
+    throw new Error(
+      'Gateway command middleware returned incomplete session state.',
+    );
   }
-  let session = memoryService.getOrCreateSession(
-    req.sessionId,
-    req.guildId,
-    req.channelId,
-    undefined,
-    { forceNewCurrent: shouldForceNewTuiSession(req) },
-  );
-  if (session.id !== req.sessionId) {
-    req.sessionId = session.id;
-  }
+  let session: Session = preparedSession;
   const attachCommandSessionIdentity = (
     result: GatewayCommandResult,
   ): GatewayCommandResult => ({

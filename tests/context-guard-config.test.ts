@@ -6,6 +6,16 @@ import {
 } from '../container/shared/context-guard-config.js';
 
 describe('normalizeContextGuardConfig', () => {
+  test('shared defaults match the two-layer context budget policy', () => {
+    expect(CONTEXT_GUARD_DEFAULTS).toMatchObject({
+      enabled: true,
+      perResultShare: 0.3,
+      compactionRatio: 0.75,
+      overflowRatio: 0.75,
+      maxRetries: 3,
+    });
+  });
+
   test('clamps the shared guard bounds from one place', () => {
     expect(
       normalizeContextGuardConfig({

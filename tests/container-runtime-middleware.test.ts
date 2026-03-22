@@ -1,7 +1,12 @@
 import { expect, test } from 'vitest';
 
-import { runBeforeToolHooks } from '../container/src/extensions.js';
+import { CONTEXT_GUARD_DEFAULTS } from '../container/shared/context-guard-config.js';
+import {
+  runBeforeModelHooks,
+  runBeforeToolHooks,
+} from '../container/src/extensions.js';
 import { recordToolCallOutcome } from '../container/src/tool-loop-detection.js';
+import type { ChatMessage } from '../container/src/types.js';
 
 test('container runtime middleware denies dangerous bash exfiltration patterns', async () => {
   const result = await runBeforeToolHooks({
@@ -42,4 +47,121 @@ test('container runtime middleware denies repeated looped tool calls', async () 
   expect('reason' in result.decision ? result.decision.reason : '').toContain(
     'Tool loop guard',
   );
+});
+
+test('container runtime middleware repairs dangling tool calls before model invocation', async () => {
+  const history: ChatMessage[] = [
+    { role: 'system', content: 'System prompt' },
+    { role: 'user', content: 'List the files' },
+    {
+      role: 'assistant',
+      content: 'Calling shell.',
+      tool_calls: [
+        {
+          id: 'call_1',
+          type: 'function',
+          function: {
+            name: 'shell',
+            arguments: '{"command":"ls"}',
+          },
+        },
+      ],
+    },
+  ];
+
+  const result = await runBeforeModelHooks({
+    history,
+    attempt: 1,
+  });
+
+  expect(result.repairedDanglingToolCalls).toBe(1);
+  expect(history).toHaveLength(4);
+  expect(history[3]).toEqual({
+    role: 'tool',
+    content: expect.stringContaining('interrupted'),
+    tool_call_id: 'call_1',
+  });
+});
+
+test('container runtime middleware leaves complete tool call history unchanged', async () => {
+  const history: ChatMessage[] = [
+    { role: 'system', content: 'System prompt' },
+    { role: 'user', content: 'List the files' },
+    {
+      role: 'assistant',
+      content: 'Calling shell.',
+      tool_calls: [
+        {
+          id: 'call_1',
+          type: 'function',
+          function: {
+            name: 'shell',
+            arguments: '{"command":"ls"}',
+          },
+        },
+      ],
+    },
+    {
+      role: 'tool',
+      content: 'README.md',
+      tool_call_id: 'call_1',
+    },
+  ];
+
+  const result = await runBeforeModelHooks({
+    history,
+    attempt: 1,
+  });
+
+  expect(result.repairedDanglingToolCalls).toBe(0);
+  expect(history).toHaveLength(4);
+  expect(history[3]).toEqual({
+    role: 'tool',
+    content: 'README.md',
+    tool_call_id: 'call_1',
+  });
+});
+
+test('container runtime middleware applies context budget before model invocation', async () => {
+  const originalToolOutput = 'A'.repeat(1_600);
+  const history: ChatMessage[] = [
+    { role: 'system', content: 'System prompt' },
+    { role: 'user', content: 'Start the task' },
+    { role: 'assistant', content: 'Calling tools.' },
+    {
+      role: 'tool',
+      content: originalToolOutput,
+      tool_call_id: 'call_1',
+    },
+    { role: 'assistant', content: 'Continue.' },
+  ];
+
+  const result = await runBeforeModelHooks({
+    history,
+    contextWindowTokens: 1_024,
+    contextGuard: CONTEXT_GUARD_DEFAULTS,
+  });
+
+  expect(
+    result.contextBudget.truncatedToolResults +
+      result.contextBudget.compactedToolResults,
+  ).toBeGreaterThan(0);
+  expect(history[3]?.content).not.toBe(originalToolOutput);
+});
+
+test('container runtime middleware surfaces tier-3 overflow after context budgeting', async () => {
+  const history: ChatMessage[] = [
+    { role: 'system', content: 'System prompt' },
+    { role: 'user', content: 'U'.repeat(5_000) },
+    { role: 'assistant', content: 'A'.repeat(5_000) },
+  ];
+
+  const result = await runBeforeModelHooks({
+    history,
+    contextWindowTokens: 1_024,
+    contextGuard: CONTEXT_GUARD_DEFAULTS,
+  });
+
+  expect(result.contextBudget.tier3Triggered).toBe(true);
+  expect(result.contextBudget.compactedToolResults).toBe(0);
 });

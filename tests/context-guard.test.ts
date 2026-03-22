@@ -37,9 +37,10 @@ describe('applyContextGuard', () => {
     });
 
     expect(result.truncatedToolResults).toBeGreaterThan(0);
-    expect(result.compactedToolResults).toBeGreaterThan(0);
+    expect(result.compactedToolResults).toBe(0);
     expect(result.tier3Triggered).toBe(false);
-    expect(history[3]?.content).toBe(COMPACTED_TOOL_RESULT_PLACEHOLDER);
+    expect(typeof history[3]?.content).toBe('string');
+    expect(String(history[3]?.content).length).toBeLessThan(1_600);
   });
 
   test('triggers tier 3 when non-tool history still overflows the budget', () => {
