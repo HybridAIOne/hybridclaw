@@ -120,6 +120,7 @@ import { MiddlewareChain } from '../middleware/chain.js';
 import type {
   Middleware,
   MiddlewareContext,
+  MiddlewareResult,
   MiddlewareSessionState,
   ToolMiddlewareContext,
 } from '../middleware/types.js';
@@ -223,6 +224,7 @@ import type {
   ArtifactMetadata,
   CanonicalSessionContext,
   ChatMessage,
+  ContainerOutput,
   DelegationSideEffect,
   DelegationTaskSpec,
   McpServerConfig,
@@ -3887,6 +3889,17 @@ interface GatewayMiddlewareState extends MiddlewareSessionState {
   historyLength?: number;
   skillCount?: number;
   skills?: Skill[];
+  output?: ContainerOutput;
+  firstTextDeltaMs?: number | null;
+  durationMs?: number;
+  effectiveUserContent?: string;
+  toolExecutions?: ToolExecution[];
+  observedSkillName?: string | null;
+  usagePayload?: Record<string, number | boolean>;
+  resultText?: string;
+  errorMessage?: string;
+  storedTurnMessages?: StoredMessage[];
+  finalResult?: GatewayChatResult;
 }
 
 interface GatewayMiddlewareContext
@@ -4442,6 +4455,512 @@ class AuditMiddleware implements GatewayChainMiddleware {
   }
 }
 
+class ToolAnalysisMiddleware implements GatewayChainMiddleware {
+  readonly name = 'tool-analysis';
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async afterAgent(ctx: GatewayMiddlewareContext): Promise<{
+    stateUpdates: Partial<GatewayMiddlewareState>;
+  }> {
+    const output = ctx.state.output;
+    const provider = ctx.state.provider;
+    const model = String(ctx.state.model || '').trim();
+    const agentId = String(ctx.state.agentId || '').trim();
+    const durationMs = Number(ctx.state.durationMs || 0);
+    if (!output || !provider || !model || !agentId) {
+      throw new Error('Tool analysis middleware requires agent output state.');
+    }
+
+    const effectiveUserContent =
+      typeof output.effectiveUserPrompt === 'string' &&
+      output.effectiveUserPrompt.trim()
+        ? output.effectiveUserPrompt.trim()
+        : String(ctx.state.userTurnContent || '');
+    const toolExecutions = output.toolExecutions || [];
+    const observedSkillName = resolveObservedSkillName({
+      explicitSkillName: ctx.state.explicitSkillName || null,
+      toolExecutions,
+      skills: ctx.state.skills || [],
+    });
+    emitToolExecutionAuditEvents({
+      sessionId: ctx.request.sessionId,
+      runId: ctx.state.runId,
+      toolExecutions,
+    });
+    const usagePayload = buildTokenUsageAuditPayload(
+      ctx.messages,
+      output.result,
+      output.tokenUsage,
+    );
+    recordAuditEvent({
+      sessionId: ctx.request.sessionId,
+      runId: ctx.state.runId,
+      event: {
+        type: 'model.usage',
+        provider,
+        model,
+        durationMs,
+        toolCallCount: toolExecutions.length,
+        ...usagePayload,
+      },
+    });
+    recordUsageEvent({
+      sessionId: ctx.request.sessionId,
+      agentId,
+      model,
+      inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
+      outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
+      totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
+      toolCalls: toolExecutions.length,
+      costUsd: extractUsageCostUsd(output.tokenUsage),
+    });
+    if (observedSkillName) {
+      try {
+        recordSkillExecution({
+          skillName: observedSkillName,
+          sessionId: ctx.request.sessionId,
+          runId: ctx.state.runId,
+          toolExecutions,
+          outcome: deriveSkillExecutionOutcome({
+            outputStatus: output.status,
+            toolExecutions,
+          }),
+          durationMs,
+          errorDetail: output.error,
+        });
+      } catch (error) {
+        logger.warn(
+          {
+            sessionId: ctx.request.sessionId,
+            skillName: observedSkillName,
+            error,
+          },
+          'Failed to record skill execution observation',
+        );
+      }
+    }
+
+    let nextOutput = output;
+    let resultText: string | undefined;
+    if (output.status !== 'error') {
+      resultText = output.result || 'No response from agent.';
+      const memoryCitations = extractMemoryCitations(
+        resultText,
+        ctx.state.memoryContext?.citationIndex || [],
+      );
+      if (memoryCitations.length > 0) {
+        nextOutput = {
+          ...output,
+          memoryCitations,
+        };
+      }
+    }
+
+    return {
+      stateUpdates: {
+        output: nextOutput,
+        effectiveUserContent,
+        toolExecutions,
+        observedSkillName,
+        usagePayload,
+        ...(typeof resultText === 'string' ? { resultText } : {}),
+        ...(output.status === 'error'
+          ? { errorMessage: output.error || 'Unknown agent error.' }
+          : {}),
+      },
+    };
+  }
+}
+
+class SideEffectsMiddleware implements GatewayChainMiddleware {
+  readonly name = 'side-effects';
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async afterAgent(
+    ctx: GatewayMiddlewareContext,
+  ): Promise<MiddlewareResult<GatewayMiddlewareState>> {
+    const output = ctx.state.output;
+    const model = String(ctx.state.model || '').trim();
+    const chatbotId = String(ctx.state.chatbotId || '').trim();
+    const agentId = String(ctx.state.agentId || '').trim();
+    if (!output || !model || !agentId) {
+      throw new Error('Side-effects middleware requires prepared agent state.');
+    }
+
+    const parentDepth = extractDelegationDepth(ctx.request.sessionId);
+    let acceptedDelegations = 0;
+    processSideEffects(output, ctx.request.sessionId, ctx.request.channelId, {
+      onDelegation: (effect) => {
+        const normalized = normalizeDelegationEffect(effect, model);
+        if (!normalized.plan) {
+          logger.warn(
+            {
+              sessionId: ctx.request.sessionId,
+              error: normalized.error || 'unknown',
+              effect,
+            },
+            'Delegation skipped — invalid payload',
+          );
+          return;
+        }
+
+        const childDepth = parentDepth + 1;
+        if (childDepth > PROACTIVE_DELEGATION_MAX_DEPTH) {
+          logger.info(
+            {
+              sessionId: ctx.request.sessionId,
+              childDepth,
+              maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH,
+            },
+            'Delegation skipped — depth limit reached',
+          );
+          return;
+        }
+
+        const requestedRuns = normalized.plan.tasks.length;
+        if (
+          acceptedDelegations + requestedRuns >
+          PROACTIVE_DELEGATION_MAX_PER_TURN
+        ) {
+          logger.info(
+            {
+              sessionId: ctx.request.sessionId,
+              limit: PROACTIVE_DELEGATION_MAX_PER_TURN,
+              requestedRuns,
+              acceptedDelegations,
+            },
+            'Delegation skipped — per-turn limit reached',
+          );
+          return;
+        }
+        acceptedDelegations += requestedRuns;
+        enqueueDelegationFromSideEffect({
+          plan: normalized.plan,
+          parentSessionId: ctx.request.sessionId,
+          channelId: ctx.request.channelId,
+          chatbotId,
+          enableRag: ctx.state.enableRag === true,
+          agentId,
+          onProactiveMessage: ctx.request.onProactiveMessage,
+          parentDepth,
+        });
+      },
+    });
+
+    return {};
+  }
+}
+
+class CompletionMiddleware implements GatewayChainMiddleware {
+  readonly name = 'completion';
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async afterAgent(ctx: GatewayMiddlewareContext): Promise<{
+    stateUpdates: Partial<GatewayMiddlewareState>;
+  }> {
+    const output = ctx.state.output;
+    const session = ctx.state.session;
+    const agentId = String(ctx.state.agentId || '').trim();
+    const chatbotId = String(ctx.state.chatbotId || '').trim();
+    const model = String(ctx.state.model || '').trim();
+    const durationMs = Number(ctx.state.durationMs || 0);
+    const toolExecutions = ctx.state.toolExecutions || [];
+    const firstTextDeltaMs = ctx.state.firstTextDeltaMs ?? null;
+    if (!output || !session || !agentId || !model) {
+      throw new Error(
+        'Completion middleware requires prepared post-agent state.',
+      );
+    }
+
+    if (output.status === 'error') {
+      const errorMessage = ctx.state.errorMessage || 'Unknown agent error.';
+      logger.debug(
+        {
+          sessionId: ctx.request.sessionId,
+          guildId: ctx.request.guildId,
+          channelId: ctx.request.channelId,
+          userId: ctx.request.userId,
+          model,
+          provider: ctx.state.provider,
+          turnIndex: ctx.state.turnIndex,
+          mediaCount: ctx.state.media?.length || 0,
+          audioTranscriptCount: ctx.state.audioTranscriptCount || 0,
+          contentLength: String(ctx.state.userTurnContent || '').length,
+          streamingRequested: Boolean(
+            ctx.request.onTextDelta ||
+              ctx.request.onToolProgress ||
+              ctx.request.onApprovalProgress,
+          ),
+          durationMs,
+          toolCallCount: toolExecutions.length,
+          firstTextDeltaMs,
+          artifactCount: output.artifacts?.length || 0,
+        },
+        'Gateway chat completed with agent error',
+      );
+      recordAuditEvent({
+        sessionId: ctx.request.sessionId,
+        runId: ctx.state.runId,
+        event: {
+          type: 'error',
+          errorType: 'agent',
+          message: errorMessage,
+          recoverable: true,
+          stage: 'processing-agent-output',
+        },
+      });
+      recordAuditEvent({
+        sessionId: ctx.request.sessionId,
+        runId: ctx.state.runId,
+        event: {
+          type: 'turn.end',
+          turnIndex: Number(ctx.state.turnIndex || 0),
+          finishReason: 'error',
+        },
+      });
+      recordAuditEvent({
+        sessionId: ctx.request.sessionId,
+        runId: ctx.state.runId,
+        event: {
+          type: 'session.end',
+          reason: 'error',
+          stats: {
+            userMessages: 0,
+            assistantMessages: 0,
+            toolCalls: toolExecutions.length,
+            durationMs,
+          },
+        },
+      });
+      return {
+        stateUpdates: {
+          finalResult: {
+            status: 'error',
+            result: null,
+            toolsUsed: output.toolsUsed || [],
+            pluginsUsed: ctx.state.pluginsUsed,
+            artifacts: output.artifacts,
+            toolExecutions,
+            tokenUsage: output.tokenUsage,
+            error: errorMessage,
+          },
+        },
+      };
+    }
+
+    const resultText = ctx.state.resultText || 'No response from agent.';
+    logger.debug(
+      {
+        sessionId: ctx.request.sessionId,
+        guildId: ctx.request.guildId,
+        channelId: ctx.request.channelId,
+        userId: ctx.request.userId,
+        model,
+        provider: ctx.state.provider,
+        turnIndex: ctx.state.turnIndex,
+        mediaCount: ctx.state.media?.length || 0,
+        audioTranscriptCount: ctx.state.audioTranscriptCount || 0,
+        contentLength: String(ctx.state.userTurnContent || '').length,
+        streamingRequested: Boolean(
+          ctx.request.onTextDelta ||
+            ctx.request.onToolProgress ||
+            ctx.request.onApprovalProgress,
+        ),
+        durationMs,
+        toolCallCount: toolExecutions.length,
+        firstTextDeltaMs,
+        artifactCount: output.artifacts?.length || 0,
+      },
+      'Gateway chat completed successfully',
+    );
+    recordSuccessfulTurn({
+      sessionId: ctx.request.sessionId,
+      agentId,
+      chatbotId,
+      enableRag: ctx.state.enableRag === true,
+      model,
+      channelId: ctx.request.channelId,
+      runId: ctx.state.runId,
+      turnIndex: Number(ctx.state.turnIndex || 0),
+      userId: ctx.request.userId,
+      username: ctx.request.username,
+      canonicalScopeId: String(ctx.state.canonicalContextScope || ''),
+      userContent:
+        ctx.state.effectiveUserContent ||
+        String(ctx.state.userTurnContent || ''),
+      resultText,
+      toolCallCount: toolExecutions.length,
+      startedAt: ctx.state.startedAt,
+    });
+    const storedTurnMessages = buildStoredTurnMessages({
+      sessionId: ctx.request.sessionId,
+      userId: ctx.request.userId,
+      username: ctx.request.username,
+      userContent:
+        ctx.state.effectiveUserContent ||
+        String(ctx.state.userTurnContent || ''),
+      resultText,
+    });
+    return {
+      stateUpdates: {
+        resultText,
+        storedTurnMessages,
+        finalResult: {
+          status: 'success',
+          result: resultText,
+          toolsUsed: output.toolsUsed || [],
+          pluginsUsed: ctx.state.pluginsUsed,
+          memoryCitations: output.memoryCitations,
+          artifacts: output.artifacts,
+          toolExecutions,
+          pendingApproval: output.pendingApproval,
+          tokenUsage: output.tokenUsage,
+          effectiveUserPrompt: output.effectiveUserPrompt,
+        },
+      },
+    };
+  }
+}
+
+class PluginLifecycleMiddleware implements GatewayChainMiddleware {
+  readonly name = 'plugin-lifecycle';
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async afterAgent(
+    ctx: GatewayMiddlewareContext,
+  ): Promise<MiddlewareResult<GatewayMiddlewareState>> {
+    const pluginManager = ctx.state.pluginManager;
+    const output = ctx.state.output;
+    const storedTurnMessages = ctx.state.storedTurnMessages;
+    const agentId = String(ctx.state.agentId || '').trim();
+    const model = String(ctx.state.model || '').trim();
+    if (
+      !pluginManager ||
+      !output ||
+      output.status === 'error' ||
+      !storedTurnMessages ||
+      !agentId
+    ) {
+      return {};
+    }
+
+    const resultText = ctx.state.resultText || 'No response from agent.';
+    const toolExecutions = ctx.state.toolExecutions || [];
+    const durationMs = Number(ctx.state.durationMs || 0);
+
+    void pluginManager
+      .notifyTurnComplete({
+        sessionId: ctx.request.sessionId,
+        userId: ctx.request.userId,
+        agentId,
+        messages: storedTurnMessages,
+      })
+      .catch((error) => {
+        logger.warn(
+          { sessionId: ctx.request.sessionId, agentId, error },
+          'Plugin turn-complete hooks failed',
+        );
+      });
+    void pluginManager
+      .notifyAgentEnd({
+        sessionId: ctx.request.sessionId,
+        userId: ctx.request.userId,
+        agentId,
+        channelId: ctx.request.channelId,
+        messages: storedTurnMessages,
+        resultText,
+        toolNames: toolExecutions.map((execution) => execution.name),
+        model: model || undefined,
+        durationMs,
+        tokenUsage: output.tokenUsage
+          ? {
+              promptTokens: output.tokenUsage.apiUsageAvailable
+                ? output.tokenUsage.apiPromptTokens
+                : output.tokenUsage.estimatedPromptTokens,
+              completionTokens: output.tokenUsage.apiUsageAvailable
+                ? output.tokenUsage.apiCompletionTokens
+                : output.tokenUsage.estimatedCompletionTokens,
+              totalTokens: output.tokenUsage.apiUsageAvailable
+                ? output.tokenUsage.apiTotalTokens
+                : output.tokenUsage.estimatedTotalTokens,
+              modelCalls: output.tokenUsage.modelCalls,
+            }
+          : undefined,
+      })
+      .catch((error) => {
+        logger.warn(
+          { sessionId: ctx.request.sessionId, agentId, error },
+          'Plugin agent-end hooks failed',
+        );
+      });
+
+    return {};
+  }
+}
+
+class FinalizeResponseMiddleware implements GatewayChainMiddleware {
+  readonly name = 'finalize-response';
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async afterAgent(
+    ctx: GatewayMiddlewareContext,
+  ): Promise<MiddlewareResult<GatewayMiddlewareState>> {
+    const finalResult = ctx.state.finalResult;
+    const session = ctx.state.session;
+    const requestMessages = ctx.state.requestMessages;
+    const model = String(ctx.state.model || '').trim();
+    const chatbotId = String(ctx.state.chatbotId || '').trim();
+    const output = ctx.state.output;
+    const durationMs = Number(ctx.state.durationMs || 0);
+    if (!finalResult || !session || !output || !model) {
+      throw new Error(
+        'Finalize response middleware requires final result state.',
+      );
+    }
+
+    if (finalResult.status === 'success') {
+      maybeScheduleFullAutoAfterSuccess({
+        session,
+        req: ctx.request,
+        result: finalResult,
+      });
+    }
+
+    if (Array.isArray(requestMessages)) {
+      maybeRecordGatewayRequestLog({
+        sessionId: ctx.request.sessionId,
+        model,
+        chatbotId,
+        messages: requestMessages,
+        status: finalResult.status,
+        response:
+          finalResult.status === 'success' ? finalResult.result : undefined,
+        error: finalResult.status === 'error' ? finalResult.error : undefined,
+        toolExecutions: ctx.state.toolExecutions,
+        toolsUsed: output.toolsUsed || [],
+        durationMs,
+      });
+    }
+
+    return {};
+  }
+}
+
 function buildGatewayMiddlewareChain(
   config: RuntimeConfig,
 ): MiddlewareChain<
@@ -4455,6 +4974,11 @@ function buildGatewayMiddlewareChain(
     new MemoryMiddleware(),
     new PromptAssemblyMiddleware(),
     new AuditMiddleware(),
+    new ToolAnalysisMiddleware(),
+    new SideEffectsMiddleware(),
+    new CompletionMiddleware(),
+    new PluginLifecycleMiddleware(),
+    new FinalizeResponseMiddleware(),
   ];
   return new MiddlewareChain(
     middlewares.filter((middleware) => middleware.isEnabled(config)),
@@ -4474,15 +4998,14 @@ export async function handleGatewayMessage(
   const runId = makeAuditRunId('turn');
   const source = req.source?.trim() || 'gateway.chat';
   const runtimeConfig = getRuntimeConfig();
+  const gatewayMiddlewareChain = buildGatewayMiddlewareChain(runtimeConfig);
   const activeGatewayRequest = registerActiveGatewayRequest({
     sessionId: req.sessionId,
     abortSignal: req.abortSignal,
   });
   let preparedContext: GatewayMiddlewareContext;
   try {
-    preparedContext = await buildGatewayMiddlewareChain(
-      runtimeConfig,
-    ).runBeforeAgent({
+    preparedContext = await gatewayMiddlewareChain.runBeforeAgent({
       config: runtimeConfig,
       request: req,
       messages: [],
@@ -4538,19 +5061,9 @@ export async function handleGatewayMessage(
   ).trim();
   const turnIndex = Number(preparedContext.state.turnIndex || 0);
   const pluginsUsed = preparedContext.state.pluginsUsed || [];
-  const memoryContext = preparedContext.state.memoryContext;
-  const explicitSkillName = preparedContext.state.explicitSkillName || null;
-  const requestMessages = preparedContext.state.requestMessages || null;
-  const skills = preparedContext.state.skills || [];
+  const requestMessages = preparedContext.state.requestMessages;
   const messages = preparedContext.messages;
-  if (
-    !session ||
-    !agentId ||
-    !model ||
-    !provider ||
-    !workspacePath ||
-    !memoryContext
-  ) {
+  if (!session || !agentId || !model || !provider || !workspacePath) {
     return {
       status: 'error',
       result: null,
@@ -4791,321 +5304,22 @@ export async function handleGatewayMessage(
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
     agentStage = 'processing-agent-output';
-    const effectiveUserContent =
-      typeof output.effectiveUserPrompt === 'string' &&
-      output.effectiveUserPrompt.trim()
-        ? output.effectiveUserPrompt.trim()
-        : userTurnContent;
-    const toolExecutions = output.toolExecutions || [];
-    const observedSkillName = resolveObservedSkillName({
-      explicitSkillName,
-      toolExecutions,
-      skills,
-    });
-    emitToolExecutionAuditEvents({
-      sessionId: req.sessionId,
-      runId,
-      toolExecutions,
-    });
-    const usagePayload = buildTokenUsageAuditPayload(
-      messages,
-      output.result,
-      output.tokenUsage,
-    );
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'model.usage',
-        provider,
-        model,
-        durationMs: Date.now() - startedAt,
-        toolCallCount: toolExecutions.length,
-        ...usagePayload,
-      },
-    });
-    recordUsageEvent({
-      sessionId: req.sessionId,
-      agentId,
-      model,
-      inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
-      outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
-      totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
-      toolCalls: toolExecutions.length,
-      costUsd: extractUsageCostUsd(output.tokenUsage),
-    });
-    if (observedSkillName) {
-      try {
-        recordSkillExecution({
-          skillName: observedSkillName,
-          sessionId: req.sessionId,
-          runId,
-          toolExecutions,
-          outcome: deriveSkillExecutionOutcome({
-            outputStatus: output.status,
-            toolExecutions,
-          }),
-          durationMs: Date.now() - startedAt,
-          errorDetail: output.error,
-        });
-      } catch (error) {
-        logger.warn(
-          { sessionId: req.sessionId, skillName: observedSkillName, error },
-          'Failed to record skill execution observation',
-        );
-      }
-    }
-
-    const parentDepth = extractDelegationDepth(req.sessionId);
-    let acceptedDelegations = 0;
-    processSideEffects(output, req.sessionId, req.channelId, {
-      onDelegation: (effect) => {
-        const normalized = normalizeDelegationEffect(effect, model);
-        if (!normalized.plan) {
-          logger.warn(
-            {
-              sessionId: req.sessionId,
-              error: normalized.error || 'unknown',
-              effect,
-            },
-            'Delegation skipped — invalid payload',
-          );
-          return;
-        }
-
-        const childDepth = parentDepth + 1;
-        if (childDepth > PROACTIVE_DELEGATION_MAX_DEPTH) {
-          logger.info(
-            {
-              sessionId: req.sessionId,
-              childDepth,
-              maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH,
-            },
-            'Delegation skipped — depth limit reached',
-          );
-          return;
-        }
-
-        const requestedRuns = normalized.plan.tasks.length;
-        if (
-          acceptedDelegations + requestedRuns >
-          PROACTIVE_DELEGATION_MAX_PER_TURN
-        ) {
-          logger.info(
-            {
-              sessionId: req.sessionId,
-              limit: PROACTIVE_DELEGATION_MAX_PER_TURN,
-              requestedRuns,
-              acceptedDelegations,
-            },
-            'Delegation skipped — per-turn limit reached',
-          );
-          return;
-        }
-        acceptedDelegations += requestedRuns;
-        enqueueDelegationFromSideEffect({
-          plan: normalized.plan,
-          parentSessionId: req.sessionId,
-          channelId: req.channelId,
-          chatbotId,
-          enableRag,
-          agentId,
-          onProactiveMessage: req.onProactiveMessage,
-          parentDepth,
-        });
-      },
-    });
-
-    if (output.status === 'error') {
-      const errorMessage = output.error || 'Unknown agent error.';
-      const durationMs = Date.now() - startedAt;
-      logger.debug(
-        {
-          ...debugMeta,
-          durationMs,
-          toolCallCount: toolExecutions.length,
-          firstTextDeltaMs,
-          artifactCount: output.artifacts?.length || 0,
-        },
-        'Gateway chat completed with agent error',
-      );
-      recordAuditEvent({
-        sessionId: req.sessionId,
-        runId,
-        event: {
-          type: 'error',
-          errorType: 'agent',
-          message: errorMessage,
-          recoverable: true,
-          stage: agentStage,
-        },
-      });
-      recordAuditEvent({
-        sessionId: req.sessionId,
-        runId,
-        event: {
-          type: 'turn.end',
-          turnIndex,
-          finishReason: 'error',
-        },
-      });
-      recordAuditEvent({
-        sessionId: req.sessionId,
-        runId,
-        event: {
-          type: 'session.end',
-          reason: 'error',
-          stats: {
-            userMessages: 0,
-            assistantMessages: 0,
-            toolCalls: toolExecutions.length,
-            durationMs,
-          },
-        },
-      });
-      if (requestMessages !== null) {
-        maybeRecordGatewayRequestLog({
-          sessionId: req.sessionId,
-          model,
-          chatbotId,
-          messages: requestMessages,
-          status: 'error',
-          error: errorMessage,
-          toolExecutions,
-          toolsUsed: output.toolsUsed || [],
-          durationMs,
-        });
-      }
-      return attachSessionIdentity({
-        status: 'error',
-        result: null,
-        toolsUsed: output.toolsUsed || [],
-        pluginsUsed,
-        artifacts: output.artifacts,
-        toolExecutions,
-        tokenUsage: output.tokenUsage,
-        error: errorMessage,
-      });
-    }
-
-    const resultText = output.result || 'No response from agent.';
-    const memoryCitations = extractMemoryCitations(
-      resultText,
-      memoryContext.citationIndex,
-    );
-    if (memoryCitations.length > 0) {
-      output.memoryCitations = memoryCitations;
-    }
-    const durationMs = Date.now() - startedAt;
-    logger.debug(
-      {
-        ...debugMeta,
-        durationMs,
-        toolCallCount: toolExecutions.length,
+    const afterAgentContext = await gatewayMiddlewareChain.runAfterAgent({
+      ...preparedContext,
+      state: {
+        ...preparedContext.state,
+        output,
         firstTextDeltaMs,
-        artifactCount: output.artifacts?.length || 0,
+        durationMs: Date.now() - startedAt,
       },
-      'Gateway chat completed successfully',
-    );
-    recordSuccessfulTurn({
-      sessionId: req.sessionId,
-      agentId,
-      chatbotId,
-      enableRag,
-      model,
-      channelId: req.channelId,
-      runId,
-      turnIndex,
-      userId: req.userId,
-      username: req.username,
-      canonicalScopeId: canonicalContextScope,
-      userContent: effectiveUserContent,
-      resultText,
-      toolCallCount: toolExecutions.length,
-      startedAt,
     });
-    const storedTurnMessages = buildStoredTurnMessages({
-      sessionId: req.sessionId,
-      userId: req.userId,
-      username: req.username,
-      userContent: effectiveUserContent,
-      resultText,
-    });
-    if (pluginManager) {
-      void pluginManager
-        .notifyTurnComplete({
-          sessionId: req.sessionId,
-          userId: req.userId,
-          agentId,
-          messages: storedTurnMessages,
-        })
-        .catch((error) => {
-          logger.warn(
-            { sessionId: req.sessionId, agentId, error },
-            'Plugin turn-complete hooks failed',
-          );
-        });
-      void pluginManager
-        .notifyAgentEnd({
-          sessionId: req.sessionId,
-          userId: req.userId,
-          agentId,
-          channelId: req.channelId,
-          messages: storedTurnMessages,
-          resultText,
-          toolNames: toolExecutions.map((execution) => execution.name),
-          model: model || undefined,
-          durationMs: Date.now() - startedAt,
-          tokenUsage: output.tokenUsage
-            ? {
-                promptTokens: output.tokenUsage.apiUsageAvailable
-                  ? output.tokenUsage.apiPromptTokens
-                  : output.tokenUsage.estimatedPromptTokens,
-                completionTokens: output.tokenUsage.apiUsageAvailable
-                  ? output.tokenUsage.apiCompletionTokens
-                  : output.tokenUsage.estimatedCompletionTokens,
-                totalTokens: output.tokenUsage.apiUsageAvailable
-                  ? output.tokenUsage.apiTotalTokens
-                  : output.tokenUsage.estimatedTotalTokens,
-                modelCalls: output.tokenUsage.modelCalls,
-              }
-            : undefined,
-        })
-        .catch((error) => {
-          logger.warn(
-            { sessionId: req.sessionId, agentId, error },
-            'Plugin agent-end hooks failed',
-          );
-        });
+    const finalResult = afterAgentContext.state.finalResult;
+    if (!finalResult) {
+      throw new Error(
+        'Gateway afterAgent middleware did not produce a final result.',
+      );
     }
-
-    const result: GatewayChatResult = {
-      status: 'success',
-      result: resultText,
-      toolsUsed: output.toolsUsed || [],
-      pluginsUsed,
-      memoryCitations: output.memoryCitations,
-      artifacts: output.artifacts,
-      toolExecutions,
-      pendingApproval: output.pendingApproval,
-      tokenUsage: output.tokenUsage,
-      effectiveUserPrompt: output.effectiveUserPrompt,
-    };
-    maybeScheduleFullAutoAfterSuccess({ session, req, result });
-    if (requestMessages !== null) {
-      maybeRecordGatewayRequestLog({
-        sessionId: req.sessionId,
-        model,
-        chatbotId,
-        messages: requestMessages,
-        status: 'success',
-        response: resultText,
-        toolExecutions,
-        toolsUsed: output.toolsUsed || [],
-        durationMs,
-      });
-    }
-    return attachSessionIdentity(result);
+    return attachSessionIdentity(finalResult);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     const durationMs = Date.now() - startedAt;
@@ -5153,7 +5367,7 @@ export async function handleGatewayMessage(
         },
       },
     });
-    if (requestMessages !== null) {
+    if (Array.isArray(requestMessages)) {
       maybeRecordGatewayRequestLog({
         sessionId: req.sessionId,
         model,
