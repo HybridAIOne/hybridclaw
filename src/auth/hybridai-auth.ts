@@ -230,12 +230,15 @@ function saveApiKey(apiKey: string, homeDir: string): string {
 async function loginWithApiKeyPrompt(options: {
   homeDir: string;
   method: 'browser' | 'device-code';
+  baseUrl?: string;
 }): Promise<HybridAILoginResult> {
   requireInteractiveTerminal();
 
   const homeDir = options.homeDir;
   const method = options.method;
-  const baseUrl = normalizeBaseUrl(HYBRIDAI_BASE_URL || DEFAULT_BASE_URL);
+  const baseUrl = normalizeBaseUrl(
+    options.baseUrl || HYBRIDAI_BASE_URL || DEFAULT_BASE_URL,
+  );
   const loginUrl = resolveUrl(baseUrl, DEFAULT_LOGIN_PATH);
   const rl = readline.createInterface({
     input: process.stdin,
@@ -349,9 +352,11 @@ export function selectDefaultHybridAILoginMethod(): 'device-code' | 'browser' {
 export async function loginHybridAIInteractive(options?: {
   method?: 'auto' | 'device-code' | 'browser' | 'import';
   homeDir?: string;
+  baseUrl?: string;
 }): Promise<HybridAILoginResult> {
   const method = options?.method || 'auto';
   const homeDir = options?.homeDir || os.homedir();
+  const baseUrl = options?.baseUrl;
 
   if (method === 'import') {
     return importHybridAIEnvCredentials(homeDir);
@@ -359,7 +364,11 @@ export async function loginHybridAIInteractive(options?: {
 
   const selectedMethod =
     method === 'auto' ? selectDefaultHybridAILoginMethod() : method;
-  return loginWithApiKeyPrompt({ homeDir, method: selectedMethod });
+  return loginWithApiKeyPrompt({
+    homeDir,
+    method: selectedMethod,
+    ...(baseUrl ? { baseUrl } : {}),
+  });
 }
 
 export function getHybridAIAuthStatus(

@@ -109,6 +109,7 @@ HybridClaw uses a unified provider setup surface:
 
 ```bash
 hybridclaw auth login hybridai --browser
+hybridclaw auth login hybridai --base-url http://localhost:5000
 hybridclaw auth login codex --import
 hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
 hybridclaw auth login local ollama llama3.2
@@ -135,7 +136,7 @@ hybridclaw local configure ollama llama3.2
 ```
 
 - `hybridclaw auth login` without a provider runs the normal onboarding flow.
-- `hybridclaw auth login hybridai` auto-selects browser login on local GUI machines and a manual/headless API-key flow on SSH, CI, and container shells. `--import` copies the current `HYBRIDAI_API_KEY` from your shell into `~/.hybridclaw/credentials.json`.
+- `hybridclaw auth login hybridai` auto-selects browser login on local GUI machines and a manual/headless API-key flow on SSH, CI, and container shells. `--import` copies the current `HYBRIDAI_API_KEY` from your shell into `~/.hybridclaw/credentials.json`, and `--base-url` updates `hybridai.baseUrl` before login.
 - `hybridclaw auth login codex` auto-selects browser PKCE on local GUI machines and device code on headless or remote shells.
 - `hybridclaw auth login openrouter` accepts `--api-key`, falls back to `OPENROUTER_API_KEY`, or prompts you to paste the key, then enables the provider and can set the global default model.
 - `hybridclaw auth login local` configures Ollama, LM Studio, or vLLM in `~/.hybridclaw/config.json`.

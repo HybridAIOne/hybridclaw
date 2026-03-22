@@ -52,6 +52,7 @@ import {
   DISCORD_GROUP_POLICY,
   DISCORD_GUILDS,
   FULLAUTO_NEVER_APPROVE_TOOLS,
+  HYBRIDAI_BASE_URL,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
@@ -137,7 +138,14 @@ import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
-import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
+import {
+  fetchHybridAIBots,
+  HybridAIBotFetchError,
+} from '../providers/hybridai-bots.js';
+import {
+  getDiscoveredHybridAIModelContextWindow,
+  getDiscoveredHybridAIModelNames,
+} from '../providers/hybridai-discovery.js';
 import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
 import {
   getLocalModelInfo,
@@ -168,6 +176,7 @@ import {
   resumeConfigJob,
 } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
+import { runtimeSecretsPath } from '../security/runtime-secrets.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
 import {
@@ -801,6 +810,7 @@ function buildGatewayProviderHealth(params: {
       modelCount: dedupeStrings([
         runtimeConfig.hybridai.defaultModel,
         ...runtimeConfig.hybridai.models,
+        ...getDiscoveredHybridAIModelNames(),
       ]).length,
       detail: params.hybridai.authenticated
         ? `API key ready${params.hybridai.source ? ` via ${params.hybridai.source}` : ''}`
@@ -1062,17 +1072,138 @@ function boundAuditActorField(
   return value.slice(0, 128);
 }
 
-function formatHybridAIBotFetchError(error: unknown): string {
+const HYBRIDAI_AUTH_LIKE_RE = /invalid api key|unauthorized|authentication/i;
+const HYBRIDAI_NETWORK_LIKE_RE =
+  /fetch failed|econnrefused|enotfound|ehostunreach|timed out|timeout|network|socket/i;
+const HYBRIDAI_TLS_LIKE_RE =
+  /wrong version number|ssl3_get_record|ssl routines|eproto/i;
+
+type HybridAIBotFetchErrorClassification =
+  | 'auth'
+  | 'tls'
+  | 'network'
+  | 'unknown';
+
+type HybridAIBotFetchFailureKind =
+  | 'missing_credentials'
+  | 'auth'
+  | 'tls'
+  | 'network'
+  | 'other';
+
+interface HybridAIBotFetchFailureInput {
+  status?: unknown;
+  code?: unknown;
+  type?: unknown;
+  message: string;
+}
+
+function hasMatchingHttpStatus(
+  value: unknown,
+  statuses: readonly number[],
+): boolean {
+  return statuses.some(
+    (status) =>
+      value === status || String(value || '').trim() === String(status),
+  );
+}
+
+function classifyHybridAIBotFetchFailure(input: {
+  status?: unknown;
+  code?: unknown;
+  type?: unknown;
+  message: string;
+}): HybridAIBotFetchErrorClassification {
+  const message = input.message;
+  if (
+    hasMatchingHttpStatus(input.status, [401, 403]) ||
+    hasMatchingHttpStatus(input.code, [401, 403]) ||
+    /authentication_error/i.test(String(input.type || '')) ||
+    HYBRIDAI_AUTH_LIKE_RE.test(message)
+  ) {
+    return 'auth';
+  }
+
+  const networkLike =
+    hasMatchingHttpStatus(input.status, [0]) ||
+    /network_error/i.test(String(input.type || '')) ||
+    HYBRIDAI_NETWORK_LIKE_RE.test(message);
+  if (!networkLike) {
+    return 'unknown';
+  }
+
+  return HYBRIDAI_TLS_LIKE_RE.test(message) ? 'tls' : 'network';
+}
+
+function getHybridAIBotFetchFailureInput(
+  error: unknown,
+): HybridAIBotFetchFailureInput {
+  if (error instanceof HybridAIBotFetchError) {
+    return {
+      status: error.status,
+      code: error.code,
+      type: error.type,
+      message: error.message,
+    };
+  }
+
+  return {
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
+function describeHybridAIBotFetchFailure(error: unknown): {
+  kind: HybridAIBotFetchFailureKind;
+  message?: string;
+} {
   if (error instanceof MissingRequiredEnvVarError) {
-    return 'HybridAI bot commands require HybridAI API credentials. Run `hybridclaw hybridai login` and try again.';
+    return { kind: 'missing_credentials' };
   }
 
-  const message = error instanceof Error ? error.message : String(error);
-  if (/401\b|unauthorized/i.test(message)) {
-    return 'HybridAI bot commands require valid HybridAI API credentials. Run `hybridclaw hybridai login` and try again.';
+  const input = getHybridAIBotFetchFailureInput(error);
+  const classification = classifyHybridAIBotFetchFailure(input);
+  if (classification === 'auth') {
+    return { kind: 'auth', message: input.message };
   }
+  if (classification === 'tls') {
+    return { kind: 'tls' };
+  }
+  if (classification === 'network') {
+    return { kind: 'network' };
+  }
+  return { kind: 'other', message: input.message };
+}
 
-  return `Failed to fetch bots: ${message}`;
+function formatHybridAIBotReachabilityError(
+  classification: Extract<
+    HybridAIBotFetchErrorClassification,
+    'tls' | 'network'
+  >,
+  reachabilityHint: string,
+): string {
+  if (classification === 'tls') {
+    const insecureBaseUrl = HYBRIDAI_BASE_URL.replace(/^https:/i, 'http:');
+    return `HybridAI is not reachable at \`${HYBRIDAI_BASE_URL}\`. If this local HybridAI server does not use TLS, run \`hybridclaw auth login hybridai --base-url ${insecureBaseUrl}\`.`;
+  }
+  return `HybridAI is not reachable at \`${HYBRIDAI_BASE_URL}\`. ${reachabilityHint}`;
+}
+
+function formatHybridAIBotFetchError(error: unknown): string {
+  const keyHint = `Update \`HYBRIDAI_API_KEY\` in ${runtimeSecretsPath()} or in the shell that starts HybridClaw, then restart the gateway. You can also run \`hybridclaw auth login hybridai\` to store a new key.`;
+  const reachabilityHint =
+    'Check `hybridai.baseUrl` and confirm the HybridAI service is running.';
+  const failure = describeHybridAIBotFetchFailure(error);
+
+  if (failure.kind === 'missing_credentials') {
+    return `HybridAI bot commands require HybridAI API credentials. ${keyHint}`;
+  }
+  if (failure.kind === 'auth') {
+    return `HybridAI rejected the configured API key: ${failure.message}. ${keyHint}`;
+  }
+  if (failure.kind === 'tls' || failure.kind === 'network') {
+    return formatHybridAIBotReachabilityError(failure.kind, reachabilityHint);
+  }
+  return `Failed to fetch bots: ${failure.message}`;
 }
 
 function formatPercent(value: number | null): string {
@@ -2516,7 +2647,7 @@ export function getGatewayAdminTools(): GatewayAdminToolsResponse {
 }
 
 export async function getGatewayAdminModels(): Promise<GatewayAdminModelsResponse> {
-  await refreshAvailableModelCatalogs();
+  await refreshAvailableModelCatalogs({ includeHybridAI: true });
 
   const runtimeConfig = getRuntimeConfig();
   const hybridaiModels = dedupeStrings(runtimeConfig.hybridai.models);
@@ -2544,6 +2675,8 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     models: modelIds
       .map((modelId) => {
         const info = getLocalModelInfo(modelId);
+        const hybridaiContextWindow =
+          getDiscoveredHybridAIModelContextWindow(modelId);
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
         return {
@@ -2552,7 +2685,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
           configuredInCodex: configuredCodex.has(modelId),
           discovered: Boolean(info),
           backend: info?.backend || null,
-          contextWindow: info?.contextWindow ?? null,
+          contextWindow: info?.contextWindow ?? hybridaiContextWindow ?? null,
           maxTokens: info?.maxTokens ?? null,
           isReasoning: info?.isReasoning ?? false,
           thinkingFormat: info?.thinkingFormat || null,
@@ -5013,7 +5146,10 @@ export async function handleGatewayCommand(
 
           const normalizedModelName =
             normalizeHybridAIModelForRuntime(modelName);
-          await refreshAvailableModelCatalogs();
+          await refreshAvailableModelCatalogs({
+            includeHybridAI:
+              resolveModelProvider(normalizedModelName) === 'hybridai',
+          });
           const availableModels = getAvailableModelList();
           if (
             availableModels.length > 0 &&
@@ -5083,7 +5219,9 @@ export async function handleGatewayCommand(
               );
             }
             modelName = normalizeHybridAIModelForRuntime(trailingArgs[1]);
-            await refreshAvailableModelCatalogs();
+            await refreshAvailableModelCatalogs({
+              includeHybridAI: resolveModelProvider(modelName) === 'hybridai',
+            });
             const availableModels = getAvailableModelList();
             if (availableModels.length === 0) {
               logger.warn(
@@ -5124,9 +5262,6 @@ export async function handleGatewayCommand(
 
       case 'bot': {
         const runtime = resolveAgentForRequest({ session });
-        if (resolveModelProvider(runtime.model) !== 'hybridai') {
-          return plainCommand('Only for hybridai provider');
-        }
         const sub = req.args[1]?.toLowerCase();
         if (sub === 'list') {
           try {
@@ -5226,7 +5361,17 @@ export async function handleGatewayCommand(
       }
 
       case 'model': {
-        await refreshAvailableModelCatalogs();
+        const sub = req.args[1]?.toLowerCase();
+        const providerFilterArg = sub === 'list' ? req.args[2] : undefined;
+        const providerFilter = providerFilterArg
+          ? normalizeModelCatalogProviderFilter(providerFilterArg)
+          : null;
+        await refreshAvailableModelCatalogs({
+          includeHybridAI:
+            sub !== 'list' ||
+            !providerFilterArg ||
+            providerFilter === 'hybridai',
+        });
         const availableModels = getAvailableModelList();
         const runtime = resolveSessionRuntimeTarget(session);
         const currentAgentId = resolveSessionAgentId(session);
@@ -5234,13 +5379,8 @@ export async function handleGatewayCommand(
         const sessionOverride = formatSessionModelOverride(session.model);
         const fallbackModel =
           resolveAgentModel(resolvedAgent) || HYBRIDAI_MODEL;
-        const sub = req.args[1]?.toLowerCase();
         if (sub === 'list') {
-          const providerFilterArg = req.args[2];
-          if (
-            providerFilterArg &&
-            !normalizeModelCatalogProviderFilter(providerFilterArg)
-          ) {
+          if (providerFilterArg && !providerFilter) {
             return badCommand(
               'Unknown Provider',
               'Usage: `model list [hybridai|codex|openrouter|local|ollama|lmstudio|vllm]`',
@@ -6133,6 +6273,7 @@ export async function handleGatewayCommand(
         }
         const modelContextWindowTokens =
           resolveLocalModelContextWindow(sessionModel) ??
+          getDiscoveredHybridAIModelContextWindow(sessionModel) ??
           getDiscoveredOpenRouterModelContextWindow(sessionModel) ??
           resolveModelContextWindowFallback(sessionModel);
         const metrics = readSessionStatusSnapshot(session.id, {

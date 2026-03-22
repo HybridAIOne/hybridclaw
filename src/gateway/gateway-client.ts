@@ -55,9 +55,11 @@ async function requestJson<T>(pathname: string, init: RequestInit): Promise<T> {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message =
-      typeof payload.error === 'string'
-        ? payload.error
-        : `${response.status} ${response.statusText}`;
+      typeof payload.text === 'string' && payload.text.trim()
+        ? payload.text
+        : typeof payload.error === 'string'
+          ? payload.error
+          : `${response.status} ${response.statusText}`;
     throw new Error(`Gateway error: ${message}`);
   }
   return payload as T;

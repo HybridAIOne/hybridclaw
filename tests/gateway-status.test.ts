@@ -51,6 +51,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/plugins/plugin-manager.js');
+  vi.doUnmock('../src/providers/hybridai-discovery.js');
   vi.doUnmock('../src/providers/model-catalog.js');
   vi.doUnmock('../src/providers/local-discovery.js');
   vi.resetModules();
@@ -376,6 +377,7 @@ test('agent create warns when model validation is skipped because no models are 
 test('model list includes discovered OpenRouter models', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
+  delete process.env.HYBRIDAI_API_KEY;
   process.env.OPENROUTER_API_KEY = 'or-gateway-status-1234567890';
   writeRuntimeConfig(homeDir, (config) => {
     config.openrouter.enabled = true;
@@ -385,6 +387,11 @@ test('model list includes discovered OpenRouter models', async () => {
     config.local.backends.vllm.enabled = false;
   });
   vi.resetModules();
+  vi.doMock('../src/providers/hybridai-discovery.ts', () => ({
+    discoverHybridAIModels: vi.fn(async () => []),
+    getDiscoveredHybridAIModelContextWindow: vi.fn(() => null),
+    getDiscoveredHybridAIModelNames: vi.fn(() => []),
+  }));
 
   const fetchMock = vi.fn(async (input: string) => {
     if (input.endsWith('/models')) {
@@ -430,6 +437,58 @@ test('model list includes discovered OpenRouter models', async () => {
       },
     ]),
   );
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test('model list includes discovered HybridAI models', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDAI_API_KEY = 'hai-gateway-status-1234567890';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+
+  const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+    if (input.endsWith('/models')) {
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer hai-gateway-status-1234567890',
+      });
+      return new Response(
+        JSON.stringify({
+          data: [{ id: 'gpt-5-ultra', context_length: 512_000 }],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-list-hybridai',
+    guildId: null,
+    channelId: 'channel-model-list-hybridai',
+    args: ['model', 'list', 'hybridai'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Available Models (hybridai)');
+  expect(result.text).toContain('hybridai/gpt-5-nano');
+  expect(result.text).toContain('hybridai/gpt-5-ultra');
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 

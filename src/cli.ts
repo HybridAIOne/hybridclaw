@@ -629,6 +629,7 @@ Commands:
 Examples:
   hybridclaw auth login
   hybridclaw auth login hybridai --browser
+  hybridclaw auth login hybridai --base-url http://localhost:5000
   hybridclaw auth login codex --import
   hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
   hybridclaw auth login local ollama llama3.2
@@ -725,19 +726,18 @@ function printHybridAIUsage(): void {
   console.log(`Usage: hybridclaw hybridai <command> (deprecated)
 
 Commands:
-  hybridclaw hybridai login
-  hybridclaw hybridai login --device-code
-  hybridclaw hybridai login --browser
-  hybridclaw hybridai login --import
+  hybridclaw hybridai base-url [url]
+  hybridclaw hybridai login [--device-code|--browser|--import] [--base-url <url>]
   hybridclaw hybridai logout
   hybridclaw hybridai status
 
 Use Instead:
-  hybridclaw auth login hybridai ...
+  hybridclaw auth login hybridai [--device-code|--browser|--import] [--base-url <url>]
   hybridclaw auth logout hybridai
   hybridclaw auth status hybridai
 
 Notes:
+  - \`hybridclaw hybridai base-url\` updates \`hybridai.baseUrl\` in ${runtimeConfigPath()}.
   - \`hybridclaw hybridai ...\` is deprecated and will be removed in a future release.`);
 }
 
@@ -877,9 +877,11 @@ function printDeprecatedProviderAliasWarning(
         ? `hybridclaw auth status ${provider}`
         : sub === 'logout'
           ? `hybridclaw auth logout ${provider}`
-          : sub === 'help' || sub === '--help' || sub === '-h'
-            ? `hybridclaw help ${provider}`
-            : `hybridclaw auth login ${provider} ...`;
+          : provider === 'hybridai' && sub === 'base-url'
+            ? 'hybridclaw auth login hybridai --base-url <url>'
+            : sub === 'help' || sub === '--help' || sub === '-h'
+              ? `hybridclaw help ${provider}`
+              : `hybridclaw auth login ${provider} ...`;
   }
 
   console.warn(
@@ -1417,47 +1419,20 @@ function parseCodexLoginMethod(
   return requested[0] || 'auto';
 }
 
-function parseHybridAILoginMethod(
-  args: string[],
-): 'auto' | 'device-code' | 'browser' | 'import' {
-  const flags = new Set(args.map((arg) => arg.trim().toLowerCase()));
-  const requested = [
-    flags.has('--device-code') ? 'device-code' : null,
-    flags.has('--browser') ? 'browser' : null,
-    flags.has('--import') ? 'import' : null,
-  ].filter(Boolean) as Array<'device-code' | 'browser' | 'import'>;
-
-  if (requested.length > 1) {
-    throw new Error(
-      'Use only one of `--device-code`, `--browser`, or `--import`.',
-    );
-  }
-  return requested[0] || 'auto';
-}
-
-interface ParsedOpenRouterLoginArgs {
-  modelId?: string;
+interface ParsedHybridAILoginArgs {
+  method: 'auto' | 'device-code' | 'browser' | 'import';
   baseUrl?: string;
-  apiKey?: string;
-  setDefault: boolean;
 }
 
-function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
-  const positional: string[] = [];
+function extractBaseUrlArg(args: string[]): {
+  baseUrl?: string;
+  remaining: string[];
+} {
   let baseUrl: string | undefined;
-  let apiKey: string | undefined;
-  let setDefault = true;
+  const remaining: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] || '';
-    if (arg === '--no-default') {
-      setDefault = false;
-      continue;
-    }
-    if (arg === '--set-default') {
-      setDefault = true;
-      continue;
-    }
     if (arg === '--base-url') {
       const next = args[index + 1];
       if (!next) throw new Error('Missing value for `--base-url`.');
@@ -1469,8 +1444,70 @@ function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
       baseUrl = arg.slice('--base-url='.length);
       continue;
     }
+    remaining.push(arg);
+  }
+
+  return { baseUrl, remaining };
+}
+
+function parseHybridAILoginArgs(args: string[]): ParsedHybridAILoginArgs {
+  const { baseUrl, remaining } = extractBaseUrlArg(args);
+  for (const arg of remaining) {
+    if (arg.startsWith('-')) {
+      const normalized = arg.trim().toLowerCase();
+      if (
+        normalized !== '--device-code' &&
+        normalized !== '--browser' &&
+        normalized !== '--import'
+      ) {
+        throw new Error(`Unknown flag: ${arg}`);
+      }
+    }
+  }
+
+  const flags = new Set(remaining.map((arg) => arg.trim().toLowerCase()));
+  const requested = [
+    flags.has('--device-code') ? 'device-code' : null,
+    flags.has('--browser') ? 'browser' : null,
+    flags.has('--import') ? 'import' : null,
+  ].filter(Boolean) as Array<'device-code' | 'browser' | 'import'>;
+
+  if (requested.length > 1) {
+    throw new Error(
+      'Use only one of `--device-code`, `--browser`, or `--import`.',
+    );
+  }
+  return {
+    method: requested[0] || 'auto',
+    ...(baseUrl ? { baseUrl } : {}),
+  };
+}
+
+interface ParsedOpenRouterLoginArgs {
+  modelId?: string;
+  baseUrl?: string;
+  apiKey?: string;
+  setDefault: boolean;
+}
+
+function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
+  const positional: string[] = [];
+  const { baseUrl, remaining } = extractBaseUrlArg(args);
+  let apiKey: string | undefined;
+  let setDefault = true;
+
+  for (let index = 0; index < remaining.length; index += 1) {
+    const arg = remaining[index] || '';
+    if (arg === '--no-default') {
+      setDefault = false;
+      continue;
+    }
+    if (arg === '--set-default') {
+      setDefault = true;
+      continue;
+    }
     if (arg === '--api-key') {
-      const next = args[index + 1];
+      const next = remaining[index + 1];
       if (!next) throw new Error('Missing value for `--api-key`.');
       apiKey = next;
       index += 1;
@@ -1805,6 +1842,60 @@ function clearOpenRouterCredentials(): void {
   );
 }
 
+function normalizeHybridAIBaseUrl(rawBaseUrl: string): string {
+  const trimmed = rawBaseUrl.trim().replace(/\/+$/g, '');
+  if (!trimmed) return 'https://hybridai.one';
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(
+      'Invalid HybridAI base URL. Expected an absolute http:// or https:// URL.',
+    );
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(
+      'Invalid HybridAI base URL. Expected an absolute http:// or https:// URL.',
+    );
+  }
+  return trimmed;
+}
+
+function printHybridAIStatus(): void {
+  ensureRuntimeConfigFile();
+  const config = getRuntimeConfig();
+  const status = getHybridAIAuthStatus();
+
+  console.log(`Path: ${status.path}`);
+  console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
+  if (status.authenticated) {
+    console.log(`Source: ${status.source}`);
+    console.log(`API key: ${status.maskedApiKey}`);
+  }
+  console.log(`Config: ${runtimeConfigPath()}`);
+  console.log(`Base URL: ${config.hybridai.baseUrl}`);
+  console.log(
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+  );
+}
+
+function configureHybridAIBaseUrl(args: string[]): void {
+  ensureRuntimeConfigFile();
+  const requested = args.join(' ').trim();
+  const normalizedBaseUrl = normalizeHybridAIBaseUrl(requested);
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.hybridai.baseUrl = normalizedBaseUrl;
+  });
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(`Provider: hybridai`);
+  console.log(`Base URL: ${nextConfig.hybridai.baseUrl}`);
+  console.log('Next:');
+  console.log('  hybridclaw gateway restart --foreground');
+  console.log('  hybridclaw hybridai status');
+  console.log('  hybridclaw tui');
+}
+
 function printMSTeamsStatus(): void {
   ensureRuntimeConfigFile();
   const config = getRuntimeConfig();
@@ -1952,12 +2043,12 @@ interface ParsedLocalConfigureArgs {
 
 function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
   const positional: string[] = [];
-  let baseUrl: string | undefined;
+  const { baseUrl, remaining } = extractBaseUrlArg(args);
   let apiKey: string | undefined;
   let setDefault = true;
 
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index] || '';
+  for (let index = 0; index < remaining.length; index += 1) {
+    const arg = remaining[index] || '';
     if (arg === '--no-default') {
       setDefault = false;
       continue;
@@ -1966,19 +2057,8 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
       setDefault = true;
       continue;
     }
-    if (arg === '--base-url') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--base-url`.');
-      baseUrl = next;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--base-url=')) {
-      baseUrl = arg.slice('--base-url='.length);
-      continue;
-    }
     if (arg === '--api-key') {
-      const next = args[index + 1];
+      const next = remaining[index + 1];
       if (!next) throw new Error('Missing value for `--api-key`.');
       apiKey = next;
       index += 1;
@@ -3386,13 +3466,31 @@ async function handleHybridAICommand(args: string[]): Promise<void> {
   }
 
   const sub = normalized[0].toLowerCase();
+  if (sub === 'base-url') {
+    configureHybridAIBaseUrl(normalized.slice(1));
+    return;
+  }
   if (sub === 'login') {
-    const method = parseHybridAILoginMethod(normalized.slice(1));
-    const result = await loginHybridAIInteractive({ method });
+    const parsed = parseHybridAILoginArgs(normalized.slice(1));
+    const normalizedBaseUrl = parsed.baseUrl
+      ? normalizeHybridAIBaseUrl(parsed.baseUrl)
+      : undefined;
+    if (normalizedBaseUrl) {
+      updateRuntimeConfig((draft) => {
+        draft.hybridai.baseUrl = normalizedBaseUrl;
+      });
+    }
+    const result = await loginHybridAIInteractive({
+      method: parsed.method,
+      ...(normalizedBaseUrl ? { baseUrl: normalizedBaseUrl } : {}),
+    });
     console.log(`Saved HybridAI credentials to ${result.path}.`);
     console.log(`Login method: ${result.method}`);
     console.log(`API key: ${result.maskedApiKey}`);
     console.log(`Validated: ${result.validated ? 'yes' : 'no'}`);
+    if (normalizedBaseUrl) {
+      console.log(`Base URL: ${normalizedBaseUrl}`);
+    }
     return;
   }
 
@@ -3406,13 +3504,7 @@ async function handleHybridAICommand(args: string[]): Promise<void> {
   }
 
   if (sub === 'status') {
-    const status = getHybridAIAuthStatus();
-    console.log(`Path: ${status.path}`);
-    console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
-    if (status.authenticated) {
-      console.log(`Source: ${status.source}`);
-      console.log(`API key: ${status.maskedApiKey}`);
-    }
+    printHybridAIStatus();
     return;
   }
 

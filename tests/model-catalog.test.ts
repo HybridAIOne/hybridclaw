@@ -9,6 +9,7 @@ import type { RuntimeConfig } from '../src/config/runtime-config.js';
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 function makeTempHome(): string {
@@ -59,11 +60,68 @@ afterEach(async () => {
     process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
       ORIGINAL_DISABLE_CONFIG_WATCHER;
   }
+  if (ORIGINAL_HYBRIDAI_API_KEY === undefined) {
+    delete process.env.HYBRIDAI_API_KEY;
+  } else {
+    process.env.HYBRIDAI_API_KEY = ORIGINAL_HYBRIDAI_API_KEY;
+  }
   if (ORIGINAL_OPENROUTER_API_KEY === undefined) {
     delete process.env.OPENROUTER_API_KEY;
   } else {
     process.env.OPENROUTER_API_KEY = ORIGINAL_OPENROUTER_API_KEY;
   }
+});
+
+test('available model catalog falls back to HybridAI /v1/models when /models is unavailable', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDAI_API_KEY = 'hai-model-catalog-test-1234567890';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+    if (input.endsWith('/v1/models')) {
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer hai-model-catalog-test-1234567890',
+      });
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'hybridai/gpt-5-ultra',
+              context_length: 512_000,
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    if (input.endsWith('/models')) {
+      return new Response('<html>not found</html>', {
+        status: 404,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  const choices = await catalog.getAvailableModelChoices(25, {
+    includeHybridAI: true,
+  });
+
+  expect(choices).toEqual(
+    expect.arrayContaining([
+      { name: 'hybridai/gpt-5-ultra', value: 'gpt-5-ultra' },
+    ]),
+  );
+  expect(catalog.getAvailableModelList('hybridai')).toContain('gpt-5-ultra');
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
 test('available model catalog merges configured and discovered local models', async () => {

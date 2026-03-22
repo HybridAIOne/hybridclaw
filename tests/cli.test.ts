@@ -1105,7 +1105,9 @@ describe('CLI hybridai commands', () => {
       expect.stringContaining('`hybridclaw hybridai ...` is deprecated'),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('hybridclaw hybridai login --import'),
+      expect.stringContaining(
+        'hybridclaw auth login hybridai [--device-code|--browser|--import] [--base-url <url>]',
+      ),
     );
   });
 
@@ -1130,6 +1132,8 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
     expect(logSpy).toHaveBeenCalledWith('Source: runtime-secrets');
     expect(logSpy).toHaveBeenCalledWith('API key: hai-…1234');
+    expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
+    expect(logSpy).toHaveBeenCalledWith('Base URL: https://hybridai.one');
   });
 
   it('warns when using the deprecated local alias', async () => {
@@ -1175,6 +1179,91 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith('Login method: browser');
     expect(logSpy).toHaveBeenCalledWith('Validated: yes');
+  });
+
+  it('updates the HybridAI base URL from the deprecated hybridai command', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await cli.main(['hybridai', 'base-url', 'http://localhost:5000']);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      hybridai: {
+        baseUrl: string;
+      };
+    };
+    expect(nextConfig.hybridai.baseUrl).toBe('http://localhost:5000');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Use `hybridclaw auth login hybridai --base-url <url>` instead.',
+      ),
+    );
+    expect(logSpy).toHaveBeenCalledWith('Provider: hybridai');
+    expect(logSpy).toHaveBeenCalledWith('Base URL: http://localhost:5000');
+    expect(logSpy).toHaveBeenCalledWith('  hybridclaw hybridai status');
+  });
+
+  it('rejects invalid HybridAI base URLs from the deprecated hybridai command', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli();
+
+    await expect(
+      cli.main(['hybridai', 'base-url', 'javascript://alert(1)']),
+    ).rejects.toThrow(
+      'Invalid HybridAI base URL. Expected an absolute http:// or https:// URL.',
+    );
+
+    expect(updateRuntimeConfig).not.toHaveBeenCalled();
+  });
+
+  it('routes auth login hybridai --base-url through the HybridAI auth flow and updates config', async () => {
+    const { cli, loginHybridAIInteractive, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'auth',
+      'login',
+      'hybridai',
+      '--base-url',
+      'http://localhost:5000',
+      '--browser',
+    ]);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      hybridai: {
+        baseUrl: string;
+      };
+    };
+    expect(nextConfig.hybridai.baseUrl).toBe('http://localhost:5000');
+    expect(loginHybridAIInteractive).toHaveBeenCalledWith({
+      method: 'browser',
+      baseUrl: 'http://localhost:5000',
+    });
+    expect(logSpy).toHaveBeenCalledWith('Base URL: http://localhost:5000');
+  });
+
+  it('rejects invalid HybridAI login --base-url values before persisting config', async () => {
+    const { cli, loginHybridAIInteractive, updateRuntimeConfig } =
+      await importFreshCli();
+
+    await expect(
+      cli.main([
+        'auth',
+        'login',
+        'hybridai',
+        '--base-url',
+        '/relative',
+        '--browser',
+      ]),
+    ).rejects.toThrow(
+      'Invalid HybridAI base URL. Expected an absolute http:// or https:// URL.',
+    );
+
+    expect(updateRuntimeConfig).not.toHaveBeenCalled();
+    expect(loginHybridAIInteractive).not.toHaveBeenCalled();
   });
 
   it('runs hybridai login with auto mode by default', async () => {
@@ -1551,6 +1640,14 @@ describe('CLI hybridai commands', () => {
     ).rejects.toThrow(
       'Use only one of `--device-code`, `--browser`, or `--import`.',
     );
+  });
+
+  it('rejects unknown hybridai login flags', async () => {
+    const { cli } = await importFreshCli();
+
+    await expect(
+      cli.main(['hybridai', 'login', '--base-ur', 'http://localhost:5000']),
+    ).rejects.toThrow('Unknown flag: --base-ur');
   });
 
   it('prints help and exits for an unknown help topic', async () => {
