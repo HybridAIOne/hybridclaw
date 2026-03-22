@@ -5,7 +5,7 @@ import {
   createTuiThinkingStreamState,
   flushTuiStreamDelta,
   formatTuiStreamDelta,
-  getTuiStreamTrailingBlankLine,
+  getTuiStreamTrailingNewlines,
   indentTuiBlock,
   wrapTuiBlock,
 } from '../src/tui-thinking.js';
@@ -149,26 +149,27 @@ test('buffers an incomplete trailing token until the stream finishes', () => {
   });
 });
 
-test('computes the trailing blank line needed after streamed output', () => {
+test('returns two trailing newlines when streamed output ends mid-line', () => {
   expect(
-    getTuiStreamTrailingBlankLine({
+    getTuiStreamTrailingNewlines({
+      ...createTuiStreamFormatState(),
       lineNeedsIndent: false,
       currentLineWidth: 4,
-      pendingWhitespace: '',
-      pendingToken: '',
     }),
   ).toBe('\n\n');
+});
+
+test('returns one trailing newline when streamed output already ends on a newline', () => {
   expect(
-    getTuiStreamTrailingBlankLine({
-      lineNeedsIndent: true,
-      currentLineWidth: 0,
-      pendingWhitespace: '',
-      pendingToken: '',
-    }),
+    getTuiStreamTrailingNewlines(createTuiStreamFormatState()),
   ).toBe('\n');
+});
+
+test('derives trailing newlines from the post-flush stream state', () => {
   expect(
-    getTuiStreamTrailingBlankLine(
+    getTuiStreamTrailingNewlines(
       {
+        ...createTuiStreamFormatState(),
         lineNeedsIndent: false,
         currentLineWidth: 5,
         pendingWhitespace: ' ',

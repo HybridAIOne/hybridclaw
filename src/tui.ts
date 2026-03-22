@@ -88,7 +88,7 @@ import {
   createTuiThinkingStreamState,
   flushTuiStreamDelta,
   formatTuiStreamDelta,
-  getTuiStreamTrailingBlankLine,
+  getTuiStreamTrailingNewlines,
   wrapTuiBlock,
 } from './tui-thinking.js';
 import type { SessionShowMode } from './types.js';
@@ -655,7 +655,7 @@ function spinner(): {
   addTool: (toolName: string, preview?: string) => void;
   addVisibleTextDelta: (delta: string) => void;
   flushVisibleText: () => void;
-  trailingBlankLineAfterVisibleText: () => string;
+  trailingNewlinesAfterVisibleText: () => string;
   setThinkingPreview: (preview: string | null) => void;
   clearThinkingPreview: () => void;
   clearTools: () => void;
@@ -800,8 +800,8 @@ function spinner(): {
       }
       process.stdout.write(formatted.text);
     },
-    trailingBlankLineAfterVisibleText: () =>
-      getTuiStreamTrailingBlankLine(visibleTextState, terminalColumns()),
+    trailingNewlinesAfterVisibleText: () =>
+      getTuiStreamTrailingNewlines(visibleTextState, terminalColumns()),
     setThinkingPreview,
     clearThinkingPreview,
     clearTools,
@@ -1488,14 +1488,14 @@ async function processMessage(
     s.flushVisibleText();
     s.stop();
     s.clearThinkingPreview();
-    const streamedResponseTrailingBlank = hasStreamedText
-      ? s.trailingBlankLineAfterVisibleText()
+    const streamedResponseTrailingNewlines = hasStreamedText
+      ? s.trailingNewlinesAfterVisibleText()
       : '';
     if (hasUsageFooters) {
       if (!hasStreamedText) {
         s.clearTools();
       } else {
-        process.stdout.write(streamedResponseTrailingBlank);
+        process.stdout.write(streamedResponseTrailingNewlines);
       }
       printToolUsage(toolNames);
       printPluginUsage(pluginNames);
@@ -1546,7 +1546,7 @@ async function processMessage(
         // After usage footers, only a single newline is needed because the
         // blank line after the streamed response was already written above.
         process.stdout.write(
-          hasUsageFooters ? '\n' : streamedResponseTrailingBlank,
+          hasUsageFooters ? '\n' : streamedResponseTrailingNewlines,
         );
       } else {
         printResponse(finalText, {

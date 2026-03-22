@@ -155,7 +155,7 @@ export function flushTuiStreamDelta(
   };
 }
 
-export function getTuiStreamTrailingBlankLine(
+export function getTuiStreamTrailingNewlines(
   state: TuiStreamFormatState,
   columns = 0,
   indent = DEFAULT_TUI_INDENT,
