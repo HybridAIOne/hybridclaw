@@ -867,6 +867,8 @@ export async function ensureRuntimeCredentials(
         );
       }
     }
+    // After accepting trust via env var, credentials may already be present.
+    if (hasRequiredCredentials) return;
     if (currentAuth === 'openai-codex') {
       throw new Error(
         'OpenAI Codex credentials are missing. Run `hybridclaw codex login` or `hybridclaw onboarding` in an interactive terminal.',

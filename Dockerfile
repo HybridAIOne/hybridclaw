@@ -59,4 +59,4 @@ RUN mkdir -p /workspace/.data
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "dist/cli.js", "gateway"]
+CMD ["node", "dist/cli.js", "gateway", "start", "--foreground"]
