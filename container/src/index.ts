@@ -56,7 +56,6 @@ import {
 } from './token-usage.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
-  detectToolCallLoop,
   isLoopGuardedToolName,
   recordToolCallOutcome,
 } from './tool-loop-detection.js';
@@ -592,34 +591,40 @@ async function executePreparedToolCall(
     await sleep(approval.implicitDelayMs);
   }
 
-  const blockedReason = await runBeforeToolHooks(toolName, argsJson);
-  const loopGuard = blockedReason
-    ? { stuck: false as const }
-    : detectToolCallLoop(toolCallHistory, toolName, argsJson);
+  const beforeTool = await runBeforeToolHooks({
+    toolName,
+    argsJson,
+    toolCallHistory,
+  });
+  const effectiveArgsJson = JSON.stringify(beforeTool.args);
+  const blockedReason =
+    beforeTool.decision.action === 'deny' ||
+    beforeTool.decision.action === 'abort-turn'
+      ? beforeTool.decision.reason
+      : null;
   const runtimeResult = blockedReason
     ? {
-        output: `Tool blocked by security hook: ${blockedReason}`,
+        output: `Tool blocked by middleware: ${blockedReason}`,
         isError: true,
       }
-    : loopGuard.stuck
-      ? {
-          output: loopGuard.message,
-          isError: true,
-        }
-      : await executeToolWithMetadata(toolName, argsJson);
+    : await executeToolWithMetadata(toolName, effectiveArgsJson);
   const toolDuration = Date.now() - toolStart;
   const result = runtimeResult.output;
   const isError = runtimeResult.isError;
-  const executionBlockedReason =
-    blockedReason || (loopGuard.stuck ? loopGuard.message : null);
+  const executionBlockedReason = blockedReason;
   const succeeded = !isError;
 
   if (succeeded) {
-    captureSkillSelection(toolName, argsJson);
+    captureSkillSelection(toolName, effectiveArgsJson);
   }
   approvalRuntime.afterToolExecution(approval, succeeded);
   if (!executionBlockedReason) {
-    await runAfterToolHooks(toolName, argsJson, result);
+    await runAfterToolHooks({
+      toolName,
+      argsJson: effectiveArgsJson,
+      result,
+      toolCallHistory,
+    });
   }
 
   console.error(
@@ -628,13 +633,13 @@ async function executePreparedToolCall(
 
   return {
     toolName,
-    argsJson,
+    argsJson: effectiveArgsJson,
     result,
     isError,
     succeeded,
     execution: {
       name: toolName,
-      arguments: argsJson,
+      arguments: effectiveArgsJson,
       result,
       durationMs: toolDuration,
       isError,

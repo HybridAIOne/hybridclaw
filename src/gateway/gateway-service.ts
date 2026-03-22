@@ -114,7 +114,15 @@ import {
   updateSessionRag,
   updateSessionShowMode,
 } from '../memory/db.js';
+import type { BuildMemoryPromptResult } from '../memory/memory-service.js';
 import { memoryService } from '../memory/memory-service.js';
+import { MiddlewareChain } from '../middleware/chain.js';
+import type {
+  Middleware,
+  MiddlewareContext,
+  MiddlewareSessionState,
+  ToolMiddlewareContext,
+} from '../middleware/types.js';
 import {
   readPluginConfigEntry,
   readPluginConfigValue,
@@ -194,6 +202,7 @@ import { appendSessionTranscript } from '../session/session-transcripts.js';
 import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
+  type HistoryOptimizationStats,
 } from '../session/token-efficiency.js';
 import type {
   SkillAmendment,
@@ -204,6 +213,7 @@ import {
   expandSkillInvocationWithResolution,
   loadSkillCatalog,
   resolveObservedSkillName,
+  type Skill,
 } from '../skills/skills.js';
 import {
   deriveSkillExecutionOutcome,
@@ -3838,6 +3848,619 @@ async function prepareSessionAutoReset(params: {
   return expiryEvaluation;
 }
 
+interface GatewayMiddlewareState extends MiddlewareSessionState {
+  startedAt: number;
+  runId: string;
+  source: string;
+  pluginManager: PluginManager | null;
+  abortSignal?: AbortSignal;
+  requestLoggingEnabled: boolean;
+  session?: Session;
+  agentId?: string;
+  model?: string;
+  chatbotId?: string | null;
+  enableRag?: boolean;
+  provider?: ReturnType<typeof resolveModelProvider>;
+  channelType?: string;
+  channel?:
+    | ReturnType<typeof getChannel>
+    | ReturnType<typeof getChannelByContextId>;
+  sessionContext?: ReturnType<typeof buildSessionContext>;
+  shouldEmitTools?: boolean;
+  workspacePath?: string;
+  media?: MediaContextItem[];
+  mediaPolicy?: MediaToolPolicy;
+  userTurnContent?: string;
+  audioTranscriptCount?: number;
+  canonicalContextScope?: string;
+  turnIndex?: number;
+  pluginsUsed?: string[];
+  history?: StoredMessage[];
+  mergedSessionSummary?: string | null;
+  pluginPromptSummary?: string | null;
+  canonicalPromptSummary?: string | null;
+  canonicalRecentMessagesIncluded?: number;
+  memoryContext?: BuildMemoryPromptResult;
+  requestMessages?: ChatMessage[] | null;
+  explicitSkillName?: string | null;
+  historyStats?: HistoryOptimizationStats;
+  historyLength?: number;
+  skillCount?: number;
+  skills?: Skill[];
+}
+
+interface GatewayMiddlewareContext
+  extends MiddlewareContext<GatewayMiddlewareState> {
+  request: GatewayChatRequest;
+}
+
+type GatewayChainMiddleware = Middleware<
+  GatewayMiddlewareState,
+  GatewayMiddlewareContext,
+  ToolMiddlewareContext<GatewayMiddlewareState>
+>;
+
+class SessionMiddleware implements GatewayChainMiddleware {
+  readonly name = 'session';
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async beforeAgent(ctx: GatewayMiddlewareContext): Promise<{
+    stateUpdates: Partial<GatewayMiddlewareState>;
+  }> {
+    const req = ctx.request;
+    const pluginManager = ctx.state.pluginManager;
+    const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
+    const expiryEvaluation = await prepareSessionAutoReset({
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      agentId: req.agentId,
+      chatbotId: req.chatbotId,
+      model: req.model,
+      enableRag: req.enableRag,
+      policy: sessionResetPolicy,
+    });
+    const autoResetSession = memoryService.resetSessionIfExpired(
+      req.sessionId,
+      {
+        policy: sessionResetPolicy,
+        expiryEvaluation,
+      },
+    );
+    if (autoResetSession) {
+      const previousSessionId = req.sessionId;
+      req.sessionId = autoResetSession.id;
+      if (pluginManager) {
+        await pluginManager.handleSessionReset({
+          previousSessionId,
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId:
+            req.agentId?.trim() ||
+            autoResetSession.agent_id ||
+            DEFAULT_AGENT_ID,
+          channelId: req.channelId,
+          reason: 'auto-reset',
+        });
+      }
+    }
+
+    let session = memoryService.getOrCreateSession(
+      req.sessionId,
+      req.guildId,
+      req.channelId,
+      req.agentId ?? undefined,
+      { forceNewCurrent: shouldForceNewTuiSession(req) },
+    );
+    if (session.id !== req.sessionId) {
+      req.sessionId = session.id;
+    }
+
+    if (ctx.state.source !== 'fullauto') {
+      preemptRunningFullAutoTurn(req.sessionId, ctx.state.source);
+      clearScheduledFullAutoContinuation(req.sessionId);
+      if (isFullAutoEnabled(session)) {
+        noteFullAutoSupervisedIntervention({
+          session,
+          content: req.content,
+          source: ctx.state.source,
+        });
+      }
+    }
+
+    const resolvedRequest = resolveAgentForRequest({
+      agentId: req.agentId,
+      session,
+      model: req.model,
+      chatbotId: req.chatbotId,
+    });
+    const { agentId, model, chatbotId } = resolvedRequest;
+    const channelType =
+      resolveChannelType(req) || resolveSessionResetChannelKind(req.channelId);
+    const channel =
+      (channelType ? getChannel(channelType) : undefined) ||
+      getChannelByContextId(req.channelId) ||
+      undefined;
+
+    if (session.agent_id !== agentId) {
+      const reboundExpiryEvaluation = await prepareSessionAutoReset({
+        sessionId: req.sessionId,
+        channelId: req.channelId,
+        agentId,
+        chatbotId,
+        model,
+        enableRag: req.enableRag ?? session.enable_rag === 1,
+        policy: sessionResetPolicy,
+      });
+      const reboundSession = memoryService.resetSessionIfExpired(
+        req.sessionId,
+        {
+          policy: sessionResetPolicy,
+          expiryEvaluation: reboundExpiryEvaluation,
+        },
+      );
+      if (reboundSession) {
+        const previousSessionId = req.sessionId;
+        req.sessionId = reboundSession.id;
+        if (pluginManager) {
+          await pluginManager.handleSessionReset({
+            previousSessionId,
+            sessionId: req.sessionId,
+            userId: req.userId,
+            agentId,
+            channelId: req.channelId,
+            reason: 'auto-reset',
+          });
+        }
+      }
+      session = memoryService.getOrCreateSession(
+        req.sessionId,
+        req.guildId,
+        req.channelId,
+        agentId,
+        { forceNewCurrent: shouldForceNewTuiSession(req) },
+      );
+      if (session.id !== req.sessionId) {
+        req.sessionId = session.id;
+      }
+    }
+
+    const workspacePath = path.resolve(agentWorkspaceDir(agentId));
+    const workspaceBootstrap = ensureBootstrapFiles(agentId);
+    if (
+      workspaceBootstrap.workspaceInitialized &&
+      (session.message_count > 0 || Boolean(session.session_summary))
+    ) {
+      const rotated = createFreshSessionInstance(req.sessionId);
+      req.sessionId = rotated.session.id;
+      session = rotated.session;
+      if (pluginManager) {
+        await pluginManager.handleSessionReset({
+          previousSessionId: rotated.previousSession.id,
+          sessionId: rotated.session.id,
+          userId: req.userId,
+          agentId,
+          channelId: req.channelId,
+          reason: 'workspace-reset',
+        });
+      }
+      logger.info(
+        {
+          sessionId: req.sessionId,
+          previousSessionId: rotated.previousSession.id,
+          sessionKey: session.session_key,
+          agentId,
+          workspacePath: workspaceBootstrap.workspacePath,
+          clearedMessages: rotated.deletedMessages,
+        },
+        'Cleared session history after workspace reset',
+      );
+    }
+
+    const sessionContext = buildSessionContext({
+      source: {
+        channelKind: channelType || channel?.kind,
+        chatId: req.channelId,
+        chatType:
+          channelType === 'heartbeat' || channelType === 'scheduler'
+            ? 'system'
+            : req.guildId
+              ? 'channel'
+              : 'dm',
+        userId: req.userId,
+        userName: req.username ?? undefined,
+        guildId: req.guildId,
+      },
+      agentId,
+      sessionId: session.id,
+      sessionKey: session.session_key,
+      mainSessionKey: session.main_session_key,
+    });
+    const showMode = normalizeSessionShowMode(session.show_mode);
+    const shouldEmitTools = sessionShowModeShowsTools(showMode);
+    const enableRag = req.enableRag ?? session.enable_rag === 1;
+    const provider = resolveModelProvider(model);
+    const canonicalContextScope = resolveCanonicalContextScope(session);
+
+    if (isFullAutoEnabled(session)) {
+      syncFullAutoRuntimeContext(req.sessionId, {
+        guildId: req.guildId,
+        userId: req.userId,
+        username: req.username ?? null,
+        chatbotId,
+        model,
+        enableRag,
+        onProactiveMessage: req.onProactiveMessage ?? null,
+      });
+    }
+
+    const turnIndex = session.message_count + 1;
+    if (turnIndex === 1 && pluginManager) {
+      await pluginManager.notifySessionStart({
+        sessionId: req.sessionId,
+        userId: req.userId,
+        agentId,
+        channelId: req.channelId,
+      });
+    }
+
+    return {
+      stateUpdates: {
+        session,
+        agentId,
+        model,
+        chatbotId,
+        enableRag,
+        provider,
+        channelType,
+        channel,
+        sessionContext,
+        shouldEmitTools,
+        workspacePath,
+        canonicalContextScope,
+        turnIndex,
+      },
+    };
+  }
+}
+
+class MediaProcessingMiddleware implements GatewayChainMiddleware {
+  readonly name = 'media-processing';
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async beforeAgent(ctx: GatewayMiddlewareContext): Promise<{
+    stateUpdates: Partial<GatewayMiddlewareState>;
+  }> {
+    const workspacePath = String(ctx.state.workspacePath || '').trim();
+    if (!workspacePath) {
+      throw new Error('Media middleware requires workspacePath.');
+    }
+
+    const media = normalizeMediaContextItems(ctx.request.media);
+    const audioPrelude = await prependAudioTranscriptionsToUserContent({
+      content: ctx.request.content,
+      media,
+      workspaceRoot: workspacePath,
+      abortSignal: ctx.state.abortSignal,
+    });
+    const userTurnContent = audioPrelude.content;
+
+    return {
+      stateUpdates: {
+        media,
+        mediaPolicy: resolveMediaToolPolicy(userTurnContent, media),
+        userTurnContent,
+        audioTranscriptCount: audioPrelude.transcripts.length,
+      },
+    };
+  }
+}
+
+class MemoryMiddleware implements GatewayChainMiddleware {
+  readonly name = 'memory';
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async beforeAgent(ctx: GatewayMiddlewareContext): Promise<{
+    stateUpdates: Partial<GatewayMiddlewareState>;
+  }> {
+    const session = ctx.state.session;
+    const agentId = String(ctx.state.agentId || '').trim();
+    const userTurnContent = String(ctx.state.userTurnContent || '').trim();
+    if (!session || !agentId) {
+      throw new Error('Memory middleware requires session and agentId.');
+    }
+
+    const history = memoryService
+      .getConversationHistory(ctx.request.sessionId, MAX_HISTORY_MESSAGES * 2)
+      .filter((message) => !isSilentReply(message.content))
+      .slice(0, MAX_HISTORY_MESSAGES);
+
+    let pluginsUsed: string[] = [];
+    let canonicalContext: CanonicalSessionContext = {
+      summary: null,
+      recent_messages: [],
+    };
+    const canonicalContextScope = String(
+      ctx.state.canonicalContextScope || '',
+    ).trim();
+    if (canonicalContextScope) {
+      try {
+        canonicalContext = memoryService.getCanonicalContext({
+          agentId,
+          userId: canonicalContextScope,
+          windowSize: 12,
+          excludeSessionId: ctx.request.sessionId,
+        });
+        canonicalContext = {
+          ...canonicalContext,
+          recent_messages: canonicalContext.recent_messages.filter(
+            (message) => !isSilentReply(message.content),
+          ),
+        };
+      } catch (err) {
+        logger.debug(
+          { sessionId: ctx.request.sessionId, canonicalContextScope, err },
+          'Failed to load canonical session context',
+        );
+      }
+    }
+
+    const canonicalPromptSummary = formatCanonicalContextPrompt({
+      summary: canonicalContext.summary,
+      recentMessages: canonicalContext.recent_messages,
+    });
+    const pluginRecentMessages = [...history].reverse();
+    pluginRecentMessages.push({
+      id: 0,
+      session_id: ctx.request.sessionId,
+      user_id: ctx.request.userId,
+      username: ctx.request.username || null,
+      role: 'user',
+      content: userTurnContent,
+      created_at: new Date(ctx.state.startedAt).toISOString(),
+    });
+    const pluginPromptDetails = ctx.state.pluginManager
+      ? await ctx.state.pluginManager.collectPromptContextDetails({
+          sessionId: ctx.request.sessionId,
+          userId: ctx.request.userId,
+          agentId,
+          channelId: ctx.request.channelId,
+          recentMessages: pluginRecentMessages,
+        })
+      : { sections: [], pluginIds: [] };
+    pluginsUsed = pluginPromptDetails.pluginIds;
+    const pluginPromptSummary = formatPluginPromptContext(
+      pluginPromptDetails.sections,
+    );
+    const memoryContext = memoryService.buildPromptMemoryContext({
+      session,
+      query: userTurnContent,
+    });
+    const mergedSessionSummary =
+      [canonicalPromptSummary, memoryContext.promptSummary]
+        .filter(
+          (value): value is string =>
+            typeof value === 'string' && value.trim().length > 0,
+        )
+        .join('\n\n')
+        .trim() || null;
+
+    return {
+      stateUpdates: {
+        history,
+        mergedSessionSummary,
+        pluginPromptSummary,
+        canonicalPromptSummary,
+        canonicalRecentMessagesIncluded:
+          canonicalContext.recent_messages.length,
+        pluginsUsed,
+        memoryContext,
+      },
+    };
+  }
+}
+
+class PromptAssemblyMiddleware implements GatewayChainMiddleware {
+  readonly name = 'prompt-assembly';
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async beforeAgent(ctx: GatewayMiddlewareContext): Promise<{
+    messages: ChatMessage[];
+    stateUpdates: Partial<GatewayMiddlewareState>;
+  }> {
+    const session = ctx.state.session;
+    const agentId = String(ctx.state.agentId || '').trim();
+    const model = String(ctx.state.model || '').trim();
+    const userTurnContent = String(ctx.state.userTurnContent || '').trim();
+    const workspacePath = String(ctx.state.workspacePath || '').trim();
+    const history = ctx.state.history || [];
+    const media = ctx.state.media || [];
+    const mediaPolicy = ctx.state.mediaPolicy || {
+      blockedTools: undefined,
+      prioritizeVisionTool: false,
+    };
+    if (!session || !agentId || !model || !workspacePath) {
+      throw new Error(
+        'Prompt assembly middleware requires session, agentId, model, and workspacePath.',
+      );
+    }
+
+    const fullAutoOperatingContract = isFullAutoEnabled(session)
+      ? buildFullAutoOperatingContract(
+          session,
+          ctx.state.source === 'fullauto' ? 'background' : 'supervised',
+        )
+      : undefined;
+    const { messages, skills, historyStats } = buildConversationContext({
+      agentId,
+      sessionSummary: ctx.state.mergedSessionSummary,
+      retrievedContext: ctx.state.pluginPromptSummary,
+      history,
+      currentUserContent: userTurnContent,
+      extraSafetyText: fullAutoOperatingContract,
+      runtimeInfo: {
+        chatbotId: ctx.state.chatbotId || undefined,
+        model,
+        defaultModel: HYBRIDAI_MODEL,
+        channel: ctx.state.channel,
+        channelType: ctx.state.channelType,
+        channelId: ctx.request.channelId,
+        guildId: ctx.request.guildId,
+        sessionContext: ctx.state.sessionContext,
+        workspacePath,
+      },
+      blockedTools: mediaPolicy.blockedTools,
+    });
+    const mediaContextBlock = buildMediaPromptContext(media);
+    const skillInvocation = expandSkillInvocationWithResolution(
+      userTurnContent,
+      skills,
+    );
+    const expandedUserContent = skillInvocation.content;
+    const explicitSkillName = skillInvocation.invocation?.skill.name || null;
+    const agentUserContent = mediaContextBlock
+      ? `${expandedUserContent}\n\n${mediaContextBlock}`
+      : expandedUserContent;
+    const promptMessages = [
+      ...messages,
+      {
+        role: 'user' as const,
+        content: agentUserContent,
+      },
+    ];
+
+    return {
+      messages: promptMessages,
+      stateUpdates: {
+        explicitSkillName,
+        requestMessages: ctx.state.requestLoggingEnabled
+          ? promptMessages.slice()
+          : null,
+        historyStats,
+        historyLength: history.length,
+        skillCount: skills.length,
+        skills,
+      },
+    };
+  }
+}
+
+class AuditMiddleware implements GatewayChainMiddleware {
+  readonly name = 'audit';
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async beforeAgent(ctx: GatewayMiddlewareContext): Promise<{
+    stateUpdates?: Partial<GatewayMiddlewareState>;
+  }> {
+    const session = ctx.state.session;
+    const model = String(ctx.state.model || '').trim();
+    const workspacePath = String(ctx.state.workspacePath || '').trim();
+    const userTurnContent = String(ctx.state.userTurnContent || '');
+    const turnIndex = Number(ctx.state.turnIndex || 0);
+    const media = ctx.state.media || [];
+    const historyStats = ctx.state.historyStats;
+    if (
+      !session ||
+      !model ||
+      !workspacePath ||
+      !historyStats ||
+      turnIndex <= 0
+    ) {
+      throw new Error('Audit middleware requires prepared session context.');
+    }
+
+    recordAuditEvent({
+      sessionId: ctx.request.sessionId,
+      runId: ctx.state.runId,
+      event: {
+        type: 'session.start',
+        userId: ctx.request.userId,
+        channel: ctx.request.channelId,
+        cwd: workspacePath,
+        model,
+        source: ctx.state.source,
+      },
+    });
+    recordAuditEvent({
+      sessionId: ctx.request.sessionId,
+      runId: ctx.state.runId,
+      event: {
+        type: 'turn.start',
+        turnIndex,
+        userInput: userTurnContent,
+        ...(userTurnContent !== ctx.request.content
+          ? { rawUserInput: ctx.request.content }
+          : {}),
+        username: ctx.request.username,
+        mediaCount: media.length,
+        source: ctx.state.source,
+      },
+    });
+
+    const historyStart =
+      ctx.messages.length > 0 && ctx.messages[0]?.role === 'system' ? 1 : 0;
+    recordAuditEvent({
+      sessionId: ctx.request.sessionId,
+      runId: ctx.state.runId,
+      event: {
+        type: 'context.optimization',
+        historyMessagesOriginal: historyStats.originalCount,
+        historyMessagesIncluded: historyStats.includedCount,
+        historyMessagesDropped: historyStats.droppedCount,
+        historyCharsOriginal: historyStats.originalChars,
+        historyCharsPreBudget: historyStats.preBudgetChars,
+        historyCharsIncluded: historyStats.includedChars,
+        historyCharsDropped: historyStats.droppedChars,
+        historyMaxChars: historyStats.maxTotalChars,
+        historyMaxMessageChars: historyStats.maxMessageChars,
+        perMessageTruncatedCount: historyStats.perMessageTruncatedCount,
+        middleCompressionApplied: historyStats.middleCompressionApplied,
+        historyEstimatedTokens: estimateTokenCountFromMessages(
+          ctx.messages.slice(historyStart),
+        ),
+        canonicalSummaryIncluded: Boolean(ctx.state.canonicalPromptSummary),
+        canonicalRecentMessagesIncluded:
+          ctx.state.canonicalRecentMessagesIncluded || 0,
+      },
+    });
+
+    return {};
+  }
+}
+
+function buildGatewayMiddlewareChain(
+  config: RuntimeConfig,
+): MiddlewareChain<
+  GatewayMiddlewareState,
+  GatewayMiddlewareContext,
+  ToolMiddlewareContext<GatewayMiddlewareState>
+> {
+  const middlewares: GatewayChainMiddleware[] = [
+    new SessionMiddleware(),
+    new MediaProcessingMiddleware(),
+    new MemoryMiddleware(),
+    new PromptAssemblyMiddleware(),
+    new AuditMiddleware(),
+  ];
+  return new MiddlewareChain(
+    middlewares.filter((middleware) => middleware.isEnabled(config)),
+  );
+}
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
@@ -3850,44 +4473,90 @@ export async function handleGatewayMessage(
   });
   const runId = makeAuditRunId('turn');
   const source = req.source?.trim() || 'gateway.chat';
-  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
-  const expiryEvaluation = await prepareSessionAutoReset({
+  const runtimeConfig = getRuntimeConfig();
+  const activeGatewayRequest = registerActiveGatewayRequest({
     sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId: req.agentId,
-    chatbotId: req.chatbotId,
-    model: req.model,
-    enableRag: req.enableRag,
-    policy: sessionResetPolicy,
+    abortSignal: req.abortSignal,
   });
-  const autoResetSession = memoryService.resetSessionIfExpired(req.sessionId, {
-    policy: sessionResetPolicy,
-    expiryEvaluation,
-  });
-  if (autoResetSession) {
-    const previousSessionId = req.sessionId;
-    req.sessionId = autoResetSession.id;
-    if (pluginManager) {
-      await pluginManager.handleSessionReset({
-        previousSessionId,
+  let preparedContext: GatewayMiddlewareContext;
+  try {
+    preparedContext = await buildGatewayMiddlewareChain(
+      runtimeConfig,
+    ).runBeforeAgent({
+      config: runtimeConfig,
+      request: req,
+      messages: [],
+      state: {
+        startedAt,
+        runId,
+        source,
+        pluginManager,
+        abortSignal: activeGatewayRequest.signal,
+        requestLoggingEnabled: isGatewayRequestLoggingEnabled(),
+      },
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Failed to prepare gateway turn.';
+    logger.error(
+      {
         sessionId: req.sessionId,
-        userId: req.userId,
-        agentId:
-          req.agentId?.trim() || autoResetSession.agent_id || DEFAULT_AGENT_ID,
         channelId: req.channelId,
-        reason: 'auto-reset',
-      });
-    }
+        userId: req.userId,
+        error,
+      },
+      'Gateway middleware preparation failed',
+    );
+    return {
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: message,
+    };
   }
-  let session = memoryService.getOrCreateSession(
-    req.sessionId,
-    req.guildId,
-    req.channelId,
-    req.agentId ?? undefined,
-    { forceNewCurrent: shouldForceNewTuiSession(req) },
-  );
-  if (session.id !== req.sessionId) {
-    req.sessionId = session.id;
+
+  const session = preparedContext.state.session;
+  const agentId = String(preparedContext.state.agentId || '').trim();
+  const model = String(preparedContext.state.model || '').trim();
+  const chatbotId = String(preparedContext.state.chatbotId || '').trim();
+  const enableRag = preparedContext.state.enableRag === true;
+  const provider = preparedContext.state.provider;
+  const shouldEmitTools = preparedContext.state.shouldEmitTools === true;
+  const media = preparedContext.state.media || [];
+  const mediaPolicy = preparedContext.state.mediaPolicy || {
+    blockedTools: undefined,
+    prioritizeVisionTool: false,
+  };
+  const workspacePath = String(
+    preparedContext.state.workspacePath || '',
+  ).trim();
+  const userTurnContent = String(preparedContext.state.userTurnContent || '');
+  const canonicalContextScope = String(
+    preparedContext.state.canonicalContextScope || '',
+  ).trim();
+  const turnIndex = Number(preparedContext.state.turnIndex || 0);
+  const pluginsUsed = preparedContext.state.pluginsUsed || [];
+  const memoryContext = preparedContext.state.memoryContext;
+  const explicitSkillName = preparedContext.state.explicitSkillName || null;
+  const requestMessages = preparedContext.state.requestMessages || null;
+  const skills = preparedContext.state.skills || [];
+  const messages = preparedContext.messages;
+  if (
+    !session ||
+    !agentId ||
+    !model ||
+    !provider ||
+    !workspacePath ||
+    !memoryContext
+  ) {
+    return {
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: 'Gateway middleware returned incomplete request state.',
+    };
   }
   const attachSessionIdentity = (
     result: GatewayChatResult,
@@ -3897,158 +4566,6 @@ export async function handleGatewayMessage(
     sessionKey: session.session_key,
     mainSessionKey: session.main_session_key,
   });
-  if (source !== 'fullauto') {
-    preemptRunningFullAutoTurn(req.sessionId, source);
-    clearScheduledFullAutoContinuation(req.sessionId);
-    if (isFullAutoEnabled(session)) {
-      noteFullAutoSupervisedIntervention({
-        session,
-        content: req.content,
-        source,
-      });
-    }
-  }
-  const activeGatewayRequest = registerActiveGatewayRequest({
-    sessionId: req.sessionId,
-    abortSignal: req.abortSignal,
-  });
-  const resolvedRequest = resolveAgentForRequest({
-    agentId: req.agentId,
-    session,
-    model: req.model,
-    chatbotId: req.chatbotId,
-  });
-  const { agentId, model, chatbotId } = resolvedRequest;
-  const channelType =
-    resolveChannelType(req) || resolveSessionResetChannelKind(req.channelId);
-  const channel =
-    (channelType ? getChannel(channelType) : undefined) ||
-    getChannelByContextId(req.channelId) ||
-    undefined;
-  if (session.agent_id !== agentId) {
-    const reboundExpiryEvaluation = await prepareSessionAutoReset({
-      sessionId: req.sessionId,
-      channelId: req.channelId,
-      agentId,
-      chatbotId,
-      model,
-      enableRag: req.enableRag ?? session.enable_rag === 1,
-      policy: sessionResetPolicy,
-    });
-    const reboundSession = memoryService.resetSessionIfExpired(req.sessionId, {
-      policy: sessionResetPolicy,
-      expiryEvaluation: reboundExpiryEvaluation,
-    });
-    if (reboundSession) {
-      const previousSessionId = req.sessionId;
-      req.sessionId = reboundSession.id;
-      if (pluginManager) {
-        await pluginManager.handleSessionReset({
-          previousSessionId,
-          sessionId: req.sessionId,
-          userId: req.userId,
-          agentId,
-          channelId: req.channelId,
-          reason: 'auto-reset',
-        });
-      }
-    }
-    session = memoryService.getOrCreateSession(
-      req.sessionId,
-      req.guildId,
-      req.channelId,
-      agentId,
-      { forceNewCurrent: shouldForceNewTuiSession(req) },
-    );
-    if (session.id !== req.sessionId) {
-      req.sessionId = session.id;
-    }
-  }
-  const sessionContext = buildSessionContext({
-    source: {
-      channelKind: channelType || channel?.kind,
-      chatId: req.channelId,
-      chatType:
-        channelType === 'heartbeat' || channelType === 'scheduler'
-          ? 'system'
-          : req.guildId
-            ? 'channel'
-            : 'dm',
-      userId: req.userId,
-      userName: req.username ?? undefined,
-      guildId: req.guildId,
-    },
-    agentId,
-    sessionId: session.id,
-    sessionKey: session.session_key,
-    mainSessionKey: session.main_session_key,
-  });
-  const showMode = normalizeSessionShowMode(session.show_mode);
-  const shouldEmitTools = sessionShowModeShowsTools(showMode);
-  const enableRag = req.enableRag ?? session.enable_rag === 1;
-  const provider = resolveModelProvider(model);
-  const media = normalizeMediaContextItems(req.media);
-  const workspacePath = path.resolve(agentWorkspaceDir(agentId));
-  const workspaceBootstrap = ensureBootstrapFiles(agentId);
-  if (
-    workspaceBootstrap.workspaceInitialized &&
-    (session.message_count > 0 || Boolean(session.session_summary))
-  ) {
-    const rotated = createFreshSessionInstance(req.sessionId);
-    req.sessionId = rotated.session.id;
-    session = rotated.session;
-    if (pluginManager) {
-      await pluginManager.handleSessionReset({
-        previousSessionId: rotated.previousSession.id,
-        sessionId: rotated.session.id,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-        reason: 'workspace-reset',
-      });
-    }
-    logger.info(
-      {
-        sessionId: req.sessionId,
-        previousSessionId: rotated.previousSession.id,
-        sessionKey: session.session_key,
-        agentId,
-        workspacePath: workspaceBootstrap.workspacePath,
-        clearedMessages: rotated.deletedMessages,
-      },
-      'Cleared session history after workspace reset',
-    );
-  }
-  const audioPrelude = await prependAudioTranscriptionsToUserContent({
-    content: req.content,
-    media,
-    workspaceRoot: workspacePath,
-    abortSignal: activeGatewayRequest.signal,
-  });
-  const userTurnContent = audioPrelude.content;
-  const canonicalContextScope = resolveCanonicalContextScope(session);
-  if (isFullAutoEnabled(session)) {
-    syncFullAutoRuntimeContext(req.sessionId, {
-      guildId: req.guildId,
-      userId: req.userId,
-      username: req.username ?? null,
-      chatbotId,
-      model,
-      enableRag,
-      onProactiveMessage: req.onProactiveMessage ?? null,
-    });
-  }
-  const turnIndex = session.message_count + 1;
-  if (turnIndex === 1) {
-    if (pluginManager) {
-      await pluginManager.notifySessionStart({
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-      });
-    }
-  }
   const debugMeta = {
     sessionId: req.sessionId,
     guildId: req.guildId,
@@ -4058,7 +4575,7 @@ export async function handleGatewayMessage(
     provider,
     turnIndex,
     mediaCount: media.length,
-    audioTranscriptCount: audioPrelude.transcripts.length,
+    audioTranscriptCount: preparedContext.state.audioTranscriptCount || 0,
     contentLength: userTurnContent.length,
     streamingRequested: Boolean(
       req.onTextDelta || req.onToolProgress || req.onApprovalProgress,
@@ -4066,32 +4583,6 @@ export async function handleGatewayMessage(
   };
 
   logger.debug(debugMeta, 'Gateway chat request received');
-
-  recordAuditEvent({
-    sessionId: req.sessionId,
-    runId,
-    event: {
-      type: 'session.start',
-      userId: req.userId,
-      channel: req.channelId,
-      cwd: workspacePath,
-      model,
-      source,
-    },
-  });
-  recordAuditEvent({
-    sessionId: req.sessionId,
-    runId,
-    event: {
-      type: 'turn.start',
-      turnIndex,
-      userInput: userTurnContent,
-      ...(userTurnContent !== req.content ? { rawUserInput: req.content } : {}),
-      username: req.username,
-      mediaCount: media.length,
-      source,
-    },
-  });
 
   if (modelRequiresChatbotId(model) && !chatbotId) {
     const error =
@@ -4176,128 +4667,6 @@ export async function handleGatewayMessage(
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     return attachSessionIdentity(result);
   }
-
-  const history = memoryService
-    .getConversationHistory(req.sessionId, MAX_HISTORY_MESSAGES * 2)
-    .filter((message) => !isSilentReply(message.content))
-    .slice(0, MAX_HISTORY_MESSAGES);
-  let pluginsUsed: string[] = [];
-  let canonicalContext: CanonicalSessionContext = {
-    summary: null,
-    recent_messages: [],
-  };
-  if (canonicalContextScope) {
-    try {
-      canonicalContext = memoryService.getCanonicalContext({
-        agentId,
-        userId: canonicalContextScope,
-        windowSize: 12,
-        excludeSessionId: req.sessionId,
-      });
-      canonicalContext = {
-        ...canonicalContext,
-        recent_messages: canonicalContext.recent_messages.filter(
-          (message) => !isSilentReply(message.content),
-        ),
-      };
-    } catch (err) {
-      logger.debug(
-        { sessionId: req.sessionId, canonicalContextScope, err },
-        'Failed to load canonical session context',
-      );
-    }
-  }
-  const canonicalPromptSummary = formatCanonicalContextPrompt({
-    summary: canonicalContext.summary,
-    recentMessages: canonicalContext.recent_messages,
-  });
-  const pluginRecentMessages = [...history].reverse();
-  pluginRecentMessages.push({
-    id: 0,
-    session_id: req.sessionId,
-    user_id: req.userId,
-    username: req.username || null,
-    role: 'user',
-    content: userTurnContent,
-    created_at: new Date(startedAt).toISOString(),
-  });
-  const pluginPromptDetails = pluginManager
-    ? await pluginManager.collectPromptContextDetails({
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-        recentMessages: pluginRecentMessages,
-      })
-    : { sections: [], pluginIds: [] };
-  pluginsUsed = pluginPromptDetails.pluginIds;
-  const pluginPromptSummary = formatPluginPromptContext(
-    pluginPromptDetails.sections,
-  );
-  const memoryContext = memoryService.buildPromptMemoryContext({
-    session,
-    query: userTurnContent,
-  });
-  const mergedSessionSummary =
-    [canonicalPromptSummary, memoryContext.promptSummary]
-      .filter(
-        (value): value is string =>
-          typeof value === 'string' && value.trim().length > 0,
-      )
-      .join('\n\n')
-      .trim() || null;
-  const fullAutoOperatingContract = isFullAutoEnabled(session)
-    ? buildFullAutoOperatingContract(
-        session,
-        source === 'fullauto' ? 'background' : 'supervised',
-      )
-    : undefined;
-  const mediaPolicy = resolveMediaToolPolicy(userTurnContent, media);
-  const { messages, skills, historyStats } = buildConversationContext({
-    agentId,
-    sessionSummary: mergedSessionSummary,
-    retrievedContext: pluginPromptSummary,
-    history,
-    currentUserContent: userTurnContent,
-    extraSafetyText: fullAutoOperatingContract,
-    runtimeInfo: {
-      chatbotId,
-      model,
-      defaultModel: HYBRIDAI_MODEL,
-      channel,
-      channelType,
-      channelId: req.channelId,
-      guildId: req.guildId,
-      sessionContext,
-      workspacePath,
-    },
-    blockedTools: mediaPolicy.blockedTools,
-  });
-  const historyStart =
-    messages.length > 0 && messages[0].role === 'system' ? 1 : 0;
-  recordAuditEvent({
-    sessionId: req.sessionId,
-    runId,
-    event: {
-      type: 'context.optimization',
-      historyMessagesOriginal: historyStats.originalCount,
-      historyMessagesIncluded: historyStats.includedCount,
-      historyMessagesDropped: historyStats.droppedCount,
-      historyCharsOriginal: historyStats.originalChars,
-      historyCharsPreBudget: historyStats.preBudgetChars,
-      historyCharsIncluded: historyStats.includedChars,
-      historyCharsDropped: historyStats.droppedChars,
-      historyMaxChars: historyStats.maxTotalChars,
-      historyMaxMessageChars: historyStats.maxMessageChars,
-      perMessageTruncatedCount: historyStats.perMessageTruncatedCount,
-      middleCompressionApplied: historyStats.middleCompressionApplied,
-      historyEstimatedTokens: estimateTokenCountFromMessages(
-        messages.slice(historyStart),
-      ),
-      canonicalSummaryIncluded: Boolean(canonicalPromptSummary),
-      canonicalRecentMessagesIncluded: canonicalContext.recent_messages.length,
-    },
-  });
   if (mediaPolicy.prioritizeVisionTool) {
     logger.info(
       {
@@ -4308,35 +4677,19 @@ export async function handleGatewayMessage(
       'Routing Discord image question to vision_analyze tool',
     );
   }
-  const mediaContextBlock = buildMediaPromptContext(media);
-  const skillInvocation = expandSkillInvocationWithResolution(
-    userTurnContent,
-    skills,
-  );
-  const expandedUserContent = skillInvocation.content;
-  const explicitSkillName = skillInvocation.invocation?.skill.name || null;
-  const agentUserContent = mediaContextBlock
-    ? `${expandedUserContent}\n\n${mediaContextBlock}`
-    : expandedUserContent;
   logger.debug(
     {
       ...debugMeta,
       durationMs: Date.now() - startedAt,
-      historyMessages: history.length,
-      promptMessages: messages.length + 1,
-      skillsLoaded: skills.length,
+      historyMessages: preparedContext.state.historyLength || 0,
+      promptMessages: messages.length,
+      skillsLoaded: preparedContext.state.skillCount || 0,
       blockedTools: mediaPolicy.blockedTools || [],
-      scheduledTaskHistoryCount: historyStats.includedCount,
+      scheduledTaskHistoryCount:
+        preparedContext.state.historyStats?.includedCount || 0,
     },
     'Gateway chat context prepared',
   );
-  messages.push({
-    role: 'user',
-    content: agentUserContent,
-  });
-  const requestMessages = isGatewayRequestLoggingEnabled()
-    ? messages.slice()
-    : null;
 
   let agentStage:
     | 'pre-agent'
@@ -4433,7 +4786,8 @@ export async function handleGatewayMessage(
       onApprovalProgress,
       abortSignal: activeGatewayRequest.signal,
       media,
-      audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
+      audioTranscriptsPrepended:
+        (preparedContext.state.audioTranscriptCount || 0) > 0,
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
     agentStage = 'processing-agent-output';
