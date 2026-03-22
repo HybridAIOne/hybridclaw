@@ -155,6 +155,15 @@ export function flushTuiStreamDelta(
   };
 }
 
+export function getTuiStreamTrailingNewlines(
+  state: TuiStreamFormatState,
+  columns = 0,
+  indent = DEFAULT_TUI_INDENT,
+): string {
+  const flushed = flushTuiStreamDelta(state, columns, indent);
+  return flushed.state.lineNeedsIndent ? '\n' : '\n\n';
+}
+
 function normalizeWrappedWhitespace(whitespace: string): string {
   if (whitespace === ' ') return '';
   return whitespace;

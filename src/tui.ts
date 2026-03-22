@@ -88,6 +88,7 @@ import {
   createTuiThinkingStreamState,
   flushTuiStreamDelta,
   formatTuiStreamDelta,
+  getTuiStreamTrailingNewlines,
   wrapTuiBlock,
 } from './tui-thinking.js';
 import type { SessionShowMode } from './types.js';
@@ -654,6 +655,7 @@ function spinner(): {
   addTool: (toolName: string, preview?: string) => void;
   addVisibleTextDelta: (delta: string) => void;
   flushVisibleText: () => void;
+  trailingNewlinesAfterVisibleText: () => string;
   setThinkingPreview: (preview: string | null) => void;
   clearThinkingPreview: () => void;
   clearTools: () => void;
@@ -798,6 +800,8 @@ function spinner(): {
       }
       process.stdout.write(formatted.text);
     },
+    trailingNewlinesAfterVisibleText: () =>
+      getTuiStreamTrailingNewlines(visibleTextState, terminalColumns()),
     setThinkingPreview,
     clearThinkingPreview,
     clearTools,
@@ -1484,11 +1488,14 @@ async function processMessage(
     s.flushVisibleText();
     s.stop();
     s.clearThinkingPreview();
+    const streamedResponseTrailingNewlines = hasStreamedText
+      ? s.trailingNewlinesAfterVisibleText()
+      : '';
     if (hasUsageFooters) {
       if (!hasStreamedText) {
         s.clearTools();
       } else {
-        process.stdout.write('\n');
+        process.stdout.write(streamedResponseTrailingNewlines);
       }
       printToolUsage(toolNames);
       printPluginUsage(pluginNames);
@@ -1536,7 +1543,11 @@ async function processMessage(
         tuiPendingApproval = null;
       }
       if (hasStreamedText) {
-        console.log();
+        // After usage footers, only a single newline is needed because the
+        // blank line after the streamed response was already written above.
+        process.stdout.write(
+          hasUsageFooters ? '\n' : streamedResponseTrailingNewlines,
+        );
       } else {
         printResponse(finalText, {
           leadingBlank: hasUsageFooters,
