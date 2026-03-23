@@ -3580,10 +3580,9 @@ export async function handleGatewayMessage(
     runtimeConfig,
     gatewayMiddlewareDependencies,
   );
-  const activeGatewayRequest = registerActiveGatewayRequest({
-    sessionId: req.sessionId,
-    abortSignal: req.abortSignal,
-  });
+  let activeGatewayRequest:
+    | ReturnType<typeof registerActiveGatewayRequest>
+    | null = null;
   let preparedContext: GatewayPromptPreparedContext;
   try {
     preparedContext = await gatewayMiddlewareChain.runBeforeAgent({
@@ -3593,9 +3592,14 @@ export async function handleGatewayMessage(
       runId,
       source,
       pluginManager,
-      abortSignal: activeGatewayRequest.signal,
+      abortSignal: req.abortSignal,
       requestLoggingEnabled: isGatewayRequestLoggingEnabled(),
     });
+    if (preparedContext.session.id !== req.sessionId) {
+      throw new Error(
+        `Gateway session preparation finalized mismatched session IDs: request=${req.sessionId}, session=${preparedContext.session.id}.`,
+      );
+    }
   } catch (error) {
     const message =
       error instanceof Error
@@ -3617,6 +3621,12 @@ export async function handleGatewayMessage(
       error: message,
     };
   }
+
+  activeGatewayRequest = registerActiveGatewayRequest({
+    sessionId: req.sessionId,
+    abortSignal: req.abortSignal,
+    executionSessionId: req.sessionId,
+  });
 
   const session = preparedContext.session;
   const agentId = preparedContext.agentId;
@@ -3823,6 +3833,7 @@ export async function handleGatewayMessage(
     );
     const beforeModelContext = await gatewayMiddlewareChain.runBeforeModel({
       ...preparedContext,
+      abortSignal: activeGatewayRequest.signal,
       scheduledTaskCount: scheduledTasks.length,
     });
     agentStage = 'awaiting-agent-output';
@@ -3923,7 +3934,7 @@ export async function handleGatewayMessage(
       error: errorMsg,
     });
   } finally {
-    activeGatewayRequest.release();
+    activeGatewayRequest?.release();
   }
 }
 

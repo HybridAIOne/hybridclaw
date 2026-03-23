@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import { CONTEXT_GUARD_DEFAULTS } from '../container/shared/context-guard-config.js';
 import {
+  haveToolArgsChanged,
   runBeforeModelHooks,
   runBeforeToolHooks,
 } from '../container/src/extensions.js';
@@ -21,6 +22,20 @@ test('container runtime middleware denies dangerous bash exfiltration patterns',
     action: 'deny',
     reason: 'Command appears to exfiltrate environment variables.',
   });
+});
+
+test('container runtime middleware denies malformed tool argument JSON', async () => {
+  const result = await runBeforeToolHooks({
+    toolName: 'bash',
+    argsJson: '{"command"',
+    toolCallHistory: [],
+  });
+
+  expect(result.decision).toEqual({
+    action: 'deny',
+    reason: 'Tool arguments must be a valid JSON object.',
+  });
+  expect(result.args).toEqual({});
 });
 
 test('container runtime middleware denies repeated looped tool calls', async () => {
@@ -47,6 +62,16 @@ test('container runtime middleware denies repeated looped tool calls', async () 
   expect('reason' in result.decision ? result.decision.reason : '').toContain(
     'Tool loop guard',
   );
+});
+
+test('container runtime middleware reports modified tool args for modify decisions', () => {
+  expect(
+    haveToolArgsChanged(
+      { command: 'ls' },
+      { command: 'ls', rewritten: true },
+    ),
+  ).toBe(true);
+  expect(haveToolArgsChanged({ command: 'ls' }, { command: 'ls' })).toBe(false);
 });
 
 test('container runtime middleware repairs dangling tool calls before model invocation', async () => {

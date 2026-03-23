@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 
 import { MiddlewareChainCore } from '../container/shared/middleware-core.js';
-import { getRuntimeConfig } from '../src/config/runtime-config.js';
+import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { MiddlewareChain } from '../src/middleware/chain.js';
 import type {
   Middleware,
@@ -17,6 +17,8 @@ interface TestState extends MiddlewareSessionState {
 
 type TestContext = MiddlewareContext<TestState>;
 type TestToolContext = ToolMiddlewareContext<TestState>;
+
+const TEST_RUNTIME_CONFIG = {} as RuntimeConfig;
 
 test('MiddlewareChain applies ordered state updates and halts when requested', async () => {
   const chain = new MiddlewareChain<TestState, TestContext, TestToolContext>([
@@ -61,7 +63,7 @@ test('MiddlewareChain applies ordered state updates and halts when requested', a
   ]);
 
   const result = await chain.runBeforeAgent({
-    config: getRuntimeConfig(),
+    config: TEST_RUNTIME_CONFIG,
     messages: [],
     state: {
       steps: [],
@@ -105,7 +107,7 @@ test('MiddlewareChain supports tool argument modification and explicit denial', 
   ] satisfies Middleware<TestState, TestContext, TestToolContext>[]);
 
   const result = await chain.runBeforeTool({
-    config: getRuntimeConfig(),
+    config: TEST_RUNTIME_CONFIG,
     messages: [],
     state: {
       steps: [],
@@ -143,7 +145,7 @@ test('MiddlewareChain timeout errors include the middleware name and phase', asy
 
   await expect(
     chain.runBeforeAgent({
-      config: getRuntimeConfig(),
+      config: TEST_RUNTIME_CONFIG,
       messages: [],
       state: {
         steps: [],
@@ -223,5 +225,59 @@ test('MiddlewareChainCore supports best-effort phase errors and custom beforeToo
       action: 'deny',
       reason: 'Middleware broken-tool-guard failed: tool exploded',
     },
+  });
+});
+
+test('MiddlewareChainCore applies afterTool results through the result-phase path', async () => {
+  type CoreContext = {
+    toolName: string;
+    toolArgs: Record<string, unknown>;
+    steps: string[];
+  };
+  type CoreResult = {
+    halt?: boolean;
+    steps?: string[];
+  };
+
+  const chain = new MiddlewareChainCore<
+    {
+      name: string;
+      isEnabled(): boolean;
+      afterTool?: (ctx: CoreContext) => Promise<CoreResult> | CoreResult;
+    },
+    CoreContext,
+    CoreContext,
+    CoreResult
+  >(
+    [
+      {
+        name: 'after-tool-step',
+        isEnabled: () => true,
+        afterTool(ctx) {
+          return {
+            steps: [...ctx.steps, 'after-tool-step'],
+          };
+        },
+      },
+    ],
+    {
+      applyResult: (ctx, result) => ({
+        ...ctx,
+        steps: result.steps ?? ctx.steps,
+      }),
+      isEnabled: (middleware) => middleware.isEnabled(),
+    },
+  );
+
+  await expect(
+    chain.runAfterTool({
+      toolName: 'demo',
+      toolArgs: {},
+      steps: [],
+    }),
+  ).resolves.toEqual({
+    toolName: 'demo',
+    toolArgs: {},
+    steps: ['after-tool-step'],
   });
 });

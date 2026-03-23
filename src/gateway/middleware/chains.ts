@@ -180,6 +180,37 @@ async function runBestEffortPluginPreparation<T>(params: {
   }
 }
 
+function readGatewayStateString(
+  ctx: GatewayMiddlewareContext,
+  key: keyof GatewayMiddlewareState,
+): string {
+  const value = ctx.state[key];
+  return typeof value === 'string' ? value.trim() : String(value || '').trim();
+}
+
+function requireGatewayStateString(
+  ctx: GatewayMiddlewareContext,
+  key: keyof GatewayMiddlewareState,
+  middlewareName: string,
+): string {
+  const value = readGatewayStateString(ctx, key);
+  if (!value) {
+    throw new Error(`${middlewareName} requires ${String(key)}.`);
+  }
+  return value;
+}
+
+function requireGatewaySession(
+  ctx: GatewayMiddlewareContext,
+  middlewareName: string,
+): NonNullable<GatewayMiddlewareState['session']> {
+  const session = ctx.state.session;
+  if (!session) {
+    throw new Error(`${middlewareName} requires session.`);
+  }
+  return session;
+}
+
 class CommandSessionMiddleware implements GatewayCommandChainMiddleware {
   readonly name = 'command-session';
   readonly timeoutsMs = {
@@ -533,10 +564,11 @@ class MediaProcessingMiddleware implements GatewayChainMiddleware {
   async beforeAgent(ctx: GatewayMiddlewareContext): Promise<{
     stateUpdates: Partial<GatewayMiddlewareState>;
   }> {
-    const workspacePath = String(ctx.state.workspacePath || '').trim();
-    if (!workspacePath) {
-      throw new Error('Media middleware requires workspacePath.');
-    }
+    const workspacePath = requireGatewayStateString(
+      ctx,
+      'workspacePath',
+      this.name,
+    );
 
     const media = normalizeMediaContextItems(ctx.request.media);
     const audioPrelude = await prependAudioTranscriptionsToUserContent({
@@ -573,12 +605,9 @@ class MemoryMiddleware implements GatewayChainMiddleware {
   async beforeAgent(ctx: GatewayMiddlewareContext): Promise<{
     stateUpdates: Partial<GatewayMiddlewareState>;
   }> {
-    const session = ctx.state.session;
-    const agentId = String(ctx.state.agentId || '').trim();
-    const userTurnContent = String(ctx.state.userTurnContent || '').trim();
-    if (!session || !agentId) {
-      throw new Error('Memory middleware requires session and agentId.');
-    }
+    const session = requireGatewaySession(ctx, this.name);
+    const agentId = requireGatewayStateString(ctx, 'agentId', this.name);
+    const userTurnContent = readGatewayStateString(ctx, 'userTurnContent');
 
     const history = memoryService
       .getConversationHistory(
@@ -593,9 +622,10 @@ class MemoryMiddleware implements GatewayChainMiddleware {
       summary: null,
       recent_messages: [],
     };
-    const canonicalContextScope = String(
-      ctx.state.canonicalContextScope || '',
-    ).trim();
+    const canonicalContextScope = readGatewayStateString(
+      ctx,
+      'canonicalContextScope',
+    );
     if (canonicalContextScope) {
       try {
         canonicalContext = memoryService.getCanonicalContext({
@@ -701,23 +731,21 @@ class PromptAssemblyMiddleware implements GatewayChainMiddleware {
     messages: ChatMessage[];
     stateUpdates: Partial<GatewayMiddlewareState>;
   }> {
-    const session = ctx.state.session;
-    const agentId = String(ctx.state.agentId || '').trim();
-    const model = String(ctx.state.model || '').trim();
-    const userTurnContent = String(ctx.state.userTurnContent || '').trim();
-    const workspacePath = String(ctx.state.workspacePath || '').trim();
+    const session = requireGatewaySession(ctx, this.name);
+    const agentId = requireGatewayStateString(ctx, 'agentId', this.name);
+    const model = requireGatewayStateString(ctx, 'model', this.name);
+    const userTurnContent = readGatewayStateString(ctx, 'userTurnContent');
+    const workspacePath = requireGatewayStateString(
+      ctx,
+      'workspacePath',
+      this.name,
+    );
     const history = ctx.state.history || [];
     const media = ctx.state.media || [];
     const mediaPolicy = ctx.state.mediaPolicy || {
       blockedTools: undefined,
       prioritizeVisionTool: false,
     };
-    if (!session || !agentId || !model || !workspacePath) {
-      throw new Error(
-        'Prompt assembly middleware requires session, agentId, model, and workspacePath.',
-      );
-    }
-
     const fullAutoOperatingContract = isFullAutoEnabled(session)
       ? buildFullAutoOperatingContract(
           session,
@@ -784,20 +812,18 @@ class AuditMiddleware implements GatewayChainMiddleware {
   async beforeAgent(ctx: GatewayMiddlewareContext): Promise<{
     stateUpdates?: Partial<GatewayMiddlewareState>;
   }> {
-    const session = ctx.state.session;
-    const model = String(ctx.state.model || '').trim();
-    const workspacePath = String(ctx.state.workspacePath || '').trim();
-    const userTurnContent = String(ctx.state.userTurnContent || '');
+    requireGatewaySession(ctx, this.name);
+    const model = requireGatewayStateString(ctx, 'model', this.name);
+    const workspacePath = requireGatewayStateString(
+      ctx,
+      'workspacePath',
+      this.name,
+    );
+    const userTurnContent = readGatewayStateString(ctx, 'userTurnContent');
     const turnIndex = Number(ctx.state.turnIndex || 0);
     const media = ctx.state.media || [];
     const historyStats = ctx.state.historyStats;
-    if (
-      !session ||
-      !model ||
-      !workspacePath ||
-      !historyStats ||
-      turnIndex <= 0
-    ) {
+    if (!historyStats || turnIndex <= 0) {
       throw new Error('Audit middleware requires prepared session context.');
     }
 
@@ -874,8 +900,8 @@ class ModelLifecycleMiddleware implements GatewayChainMiddleware {
     ctx: GatewayMiddlewareContext,
   ): Promise<MiddlewareResult<GatewayMiddlewareState>> {
     const provider = ctx.state.provider;
-    const model = String(ctx.state.model || '').trim();
-    const agentId = String(ctx.state.agentId || '').trim();
+    const model = requireGatewayStateString(ctx, 'model', this.name);
+    const agentId = requireGatewayStateString(ctx, 'agentId', this.name);
     if (!provider || !model || !agentId) {
       throw new Error(
         'Model lifecycle middleware requires prepared model invocation state.',
@@ -937,8 +963,8 @@ class ToolAnalysisMiddleware implements GatewayChainMiddleware {
   }> {
     const output = ctx.state.output;
     const provider = ctx.state.provider;
-    const model = String(ctx.state.model || '').trim();
-    const agentId = String(ctx.state.agentId || '').trim();
+    const model = requireGatewayStateString(ctx, 'model', this.name);
+    const agentId = requireGatewayStateString(ctx, 'agentId', this.name);
     const durationMs = Number(ctx.state.durationMs || 0);
     if (!output || !provider || !model || !agentId) {
       throw new Error('Tool analysis middleware requires agent output state.');
@@ -948,7 +974,7 @@ class ToolAnalysisMiddleware implements GatewayChainMiddleware {
       typeof output.effectiveUserPrompt === 'string' &&
       output.effectiveUserPrompt.trim()
         ? output.effectiveUserPrompt.trim()
-        : String(ctx.state.userTurnContent || '');
+        : readGatewayStateString(ctx, 'userTurnContent');
     const toolExecutions = output.toolExecutions || [];
     const observedSkillName = resolveObservedSkillName({
       explicitSkillName: ctx.state.explicitSkillName || null,
@@ -1058,9 +1084,9 @@ class SideEffectsMiddleware implements GatewayChainMiddleware {
     ctx: GatewayMiddlewareContext,
   ): Promise<MiddlewareResult<GatewayMiddlewareState>> {
     const output = ctx.state.output;
-    const model = String(ctx.state.model || '').trim();
-    const chatbotId = String(ctx.state.chatbotId || '').trim();
-    const agentId = String(ctx.state.agentId || '').trim();
+    const model = requireGatewayStateString(ctx, 'model', this.name);
+    const chatbotId = readGatewayStateString(ctx, 'chatbotId');
+    const agentId = requireGatewayStateString(ctx, 'agentId', this.name);
     if (!output || !model || !agentId) {
       throw new Error('Side-effects middleware requires prepared agent state.');
     }
@@ -1146,13 +1172,13 @@ class CompletionMiddleware implements GatewayChainMiddleware {
     stateUpdates: Partial<GatewayMiddlewareState>;
   }> {
     const output = ctx.state.output;
-    const session = ctx.state.session;
-    const agentId = String(ctx.state.agentId || '').trim();
-    const model = String(ctx.state.model || '').trim();
+    requireGatewaySession(ctx, this.name);
+    requireGatewayStateString(ctx, 'agentId', this.name);
+    const model = requireGatewayStateString(ctx, 'model', this.name);
     const durationMs = Number(ctx.state.durationMs || 0);
     const toolExecutions = ctx.state.toolExecutions || [];
     const firstTextDeltaMs = ctx.state.firstTextDeltaMs ?? null;
-    if (!output || !session || !agentId || !model) {
+    if (!output) {
       throw new Error(
         'Completion middleware requires prepared post-agent state.',
       );
@@ -1171,7 +1197,7 @@ class CompletionMiddleware implements GatewayChainMiddleware {
           turnIndex: ctx.state.turnIndex,
           mediaCount: ctx.state.media?.length || 0,
           audioTranscriptCount: ctx.state.audioTranscriptCount || 0,
-          contentLength: String(ctx.state.userTurnContent || '').length,
+          contentLength: readGatewayStateString(ctx, 'userTurnContent').length,
           streamingRequested: Boolean(
             ctx.request.onTextDelta ||
               ctx.request.onToolProgress ||
@@ -1246,7 +1272,7 @@ class CompletionMiddleware implements GatewayChainMiddleware {
         turnIndex: ctx.state.turnIndex,
         mediaCount: ctx.state.media?.length || 0,
         audioTranscriptCount: ctx.state.audioTranscriptCount || 0,
-        contentLength: String(ctx.state.userTurnContent || '').length,
+        contentLength: readGatewayStateString(ctx, 'userTurnContent').length,
         streamingRequested: Boolean(
           ctx.request.onTextDelta ||
             ctx.request.onToolProgress ||
@@ -1268,7 +1294,7 @@ class CompletionMiddleware implements GatewayChainMiddleware {
           toolExecutions,
           userContent:
             ctx.state.effectiveUserContent ||
-            String(ctx.state.userTurnContent || ''),
+            readGatewayStateString(ctx, 'userTurnContent'),
           resultText,
         }),
       },
@@ -1314,7 +1340,7 @@ class GatewayLoopDetectionMiddleware implements GatewayChainMiddleware {
     const session = ctx.state.session;
     const output = ctx.state.output;
     const finalResult = ctx.state.finalResult;
-    const resultText = String(ctx.state.resultText || '').trim();
+    const resultText = readGatewayStateString(ctx, 'resultText');
     if (
       !session ||
       !output ||
@@ -1332,7 +1358,7 @@ class GatewayLoopDetectionMiddleware implements GatewayChainMiddleware {
       history: ctx.state.history || [],
       userContent:
         ctx.state.effectiveUserContent ||
-        String(ctx.state.userTurnContent || ''),
+        readGatewayStateString(ctx, 'userTurnContent'),
       resultText,
     });
     if (repeatCount < GATEWAY_TURN_LOOP_WARNING_THRESHOLD) {
@@ -1366,7 +1392,7 @@ class GatewayLoopDetectionMiddleware implements GatewayChainMiddleware {
           toolExecutions: ctx.state.toolExecutions || [],
           userContent:
             ctx.state.effectiveUserContent ||
-            String(ctx.state.userTurnContent || ''),
+            readGatewayStateString(ctx, 'userTurnContent'),
           resultText: nextResultText,
         }),
       },
@@ -1387,17 +1413,14 @@ class PersistenceMiddleware implements GatewayChainMiddleware {
     ctx: GatewayMiddlewareContext,
   ): Promise<MiddlewareResult<GatewayMiddlewareState>> {
     const finalResult = ctx.state.finalResult;
-    const session = ctx.state.session;
-    const agentId = String(ctx.state.agentId || '').trim();
-    const chatbotId = String(ctx.state.chatbotId || '').trim();
-    const model = String(ctx.state.model || '').trim();
-    const resultText = String(ctx.state.resultText || '').trim();
+    requireGatewaySession(ctx, this.name);
+    const agentId = requireGatewayStateString(ctx, 'agentId', this.name);
+    const chatbotId = readGatewayStateString(ctx, 'chatbotId');
+    const model = requireGatewayStateString(ctx, 'model', this.name);
+    const resultText = readGatewayStateString(ctx, 'resultText');
     const toolExecutions = ctx.state.toolExecutions || [];
     if (
       finalResult?.status !== 'success' ||
-      !session ||
-      !agentId ||
-      !model ||
       !resultText
     ) {
       return {};
@@ -1414,10 +1437,10 @@ class PersistenceMiddleware implements GatewayChainMiddleware {
       turnIndex: Number(ctx.state.turnIndex || 0),
       userId: ctx.request.userId,
       username: ctx.request.username,
-      canonicalScopeId: String(ctx.state.canonicalContextScope || ''),
+      canonicalScopeId: readGatewayStateString(ctx, 'canonicalContextScope'),
       userContent:
         ctx.state.effectiveUserContent ||
-        String(ctx.state.userTurnContent || ''),
+        readGatewayStateString(ctx, 'userTurnContent'),
       resultText,
       toolCallCount: toolExecutions.length,
       startedAt: ctx.state.startedAt,
@@ -1439,8 +1462,8 @@ class PluginLifecycleMiddleware implements GatewayChainMiddleware {
     const pluginManager = ctx.state.pluginManager;
     const output = ctx.state.output;
     const storedTurnMessages = ctx.state.storedTurnMessages;
-    const agentId = String(ctx.state.agentId || '').trim();
-    const model = String(ctx.state.model || '').trim();
+    const agentId = requireGatewayStateString(ctx, 'agentId', this.name);
+    const model = readGatewayStateString(ctx, 'model');
     if (
       !pluginManager ||
       !output ||
@@ -1518,13 +1541,13 @@ class FinalizeResponseMiddleware implements GatewayChainMiddleware {
     ctx: GatewayMiddlewareContext,
   ): Promise<MiddlewareResult<GatewayMiddlewareState>> {
     const finalResult = ctx.state.finalResult;
-    const session = ctx.state.session;
+    const session = requireGatewaySession(ctx, this.name);
     const requestMessages = ctx.state.requestMessages;
-    const model = String(ctx.state.model || '').trim();
-    const chatbotId = String(ctx.state.chatbotId || '').trim();
+    const model = requireGatewayStateString(ctx, 'model', this.name);
+    const chatbotId = readGatewayStateString(ctx, 'chatbotId');
     const output = ctx.state.output;
     const durationMs = Number(ctx.state.durationMs || 0);
-    if (!finalResult || !session || !output || !model) {
+    if (!finalResult || !output) {
       throw new Error(
         'Finalize response middleware requires final result state.',
       );

@@ -56,6 +56,26 @@ function defaultThrow(params) {
   throw params.error;
 }
 
+function selectBeforeAgentHook(middleware) {
+  return middleware.beforeAgent;
+}
+
+function selectBeforeModelHook(middleware) {
+  return middleware.beforeModel;
+}
+
+function selectAfterModelHook(middleware) {
+  return middleware.afterModel;
+}
+
+function selectAfterToolHook(middleware) {
+  return middleware.afterTool;
+}
+
+function selectAfterAgentHook(middleware) {
+  return middleware.afterAgent;
+}
+
 export class MiddlewareChainCore {
   constructor(middlewares, options = {}) {
     this.middlewares = middlewares;
@@ -66,12 +86,12 @@ export class MiddlewareChainCore {
     this.onBeforeToolError = options.onBeforeToolError || defaultThrow;
   }
 
-  async runPhase(phase, ctx) {
+  async runResultPhase(phase, ctx, selectHook) {
     let current = ctx;
 
     for (const middleware of this.middlewares) {
       if (!this.isEnabled(middleware, current)) continue;
-      const hook = middleware[phase];
+      const hook = selectHook(middleware);
       if (!hook) continue;
 
       try {
@@ -101,23 +121,31 @@ export class MiddlewareChainCore {
   }
 
   async runBeforeAgent(ctx) {
-    return await this.runPhase('beforeAgent', ctx);
+    return await this.runResultPhase(
+      'beforeAgent',
+      ctx,
+      selectBeforeAgentHook,
+    );
   }
 
   async runBeforeModel(ctx) {
-    return await this.runPhase('beforeModel', ctx);
+    return await this.runResultPhase(
+      'beforeModel',
+      ctx,
+      selectBeforeModelHook,
+    );
   }
 
   async runAfterModel(ctx) {
-    return await this.runPhase('afterModel', ctx);
+    return await this.runResultPhase('afterModel', ctx, selectAfterModelHook);
   }
 
   async runAfterTool(ctx) {
-    return await this.runPhase('afterTool', ctx);
+    return await this.runResultPhase('afterTool', ctx, selectAfterToolHook);
   }
 
   async runAfterAgent(ctx) {
-    return await this.runPhase('afterAgent', ctx);
+    return await this.runResultPhase('afterAgent', ctx, selectAfterAgentHook);
   }
 
   async runBeforeTool(ctx) {

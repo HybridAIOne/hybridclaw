@@ -1,11 +1,13 @@
 import type {
   MiddlewarePhase as SharedMiddlewarePhase,
+  ResultMiddlewarePhase as SharedResultMiddlewarePhase,
   ToolDecision as SharedToolDecision,
 } from '../../container/shared/middleware-types.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { ChatMessage } from '../types.js';
 
 export type MiddlewarePhase = SharedMiddlewarePhase;
+export type ResultMiddlewarePhase = SharedResultMiddlewarePhase;
 export type ToolDecision = SharedToolDecision;
 
 export interface MiddlewareSessionState {

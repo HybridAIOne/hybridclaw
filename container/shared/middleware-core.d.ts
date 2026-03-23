@@ -1,4 +1,32 @@
-import type { MiddlewarePhase, ToolDecision } from './middleware-types.js';
+import type {
+  MiddlewarePhase,
+  ResultMiddlewarePhase,
+  ToolDecision,
+} from './middleware-types.js';
+
+export interface ResultPhaseMiddlewareHooks<TContext, TToolContext, TResult> {
+  beforeAgent?: (ctx: TContext) => Promise<TResult> | TResult;
+  beforeModel?: (ctx: TContext) => Promise<TResult> | TResult;
+  afterModel?: (ctx: TContext) => Promise<TResult> | TResult;
+  afterTool?: (ctx: TToolContext) => Promise<TResult> | TResult;
+  afterAgent?: (ctx: TContext) => Promise<TResult> | TResult;
+}
+
+export interface BeforeToolMiddlewareHook<TToolContext, TToolDecision> {
+  beforeTool?: (ctx: TToolContext) => Promise<TToolDecision> | TToolDecision;
+}
+
+export interface MiddlewareChainCoreMiddleware<
+  TContext,
+  TToolContext,
+  TResult,
+  TToolDecision extends { action: string } = ToolDecision,
+> extends
+    ResultPhaseMiddlewareHooks<TContext, TToolContext, TResult>,
+    BeforeToolMiddlewareHook<TToolContext, TToolDecision> {
+  name: string;
+  timeoutsMs?: Partial<Record<MiddlewarePhase, number>>;
+}
 
 export declare const DEFAULT_MIDDLEWARE_TIMEOUTS_MS: Record<
   MiddlewarePhase,
@@ -12,22 +40,21 @@ export declare function withMiddlewareTimeout<T>(
 ): Promise<T>;
 
 export declare function resolveMiddlewareTimeoutMs<
-  TMiddleware extends {
-    timeoutsMs?: Partial<Record<MiddlewarePhase, number>>;
-  },
+  TMiddleware extends MiddlewareChainCoreMiddleware<
+    unknown,
+    unknown,
+    unknown,
+    ToolDecision
+  >,
 >(middleware: TMiddleware, phase: MiddlewarePhase): number;
 
 export interface MiddlewareChainCoreOptions<
-  TMiddleware extends {
-    name: string;
-    timeoutsMs?: Partial<Record<MiddlewarePhase, number>>;
-    beforeAgent?: (ctx: TContext) => Promise<TResult> | TResult;
-    beforeModel?: (ctx: TContext) => Promise<TResult> | TResult;
-    afterModel?: (ctx: TContext) => Promise<TResult> | TResult;
-    beforeTool?: (ctx: TToolContext) => Promise<TToolDecision> | TToolDecision;
-    afterTool?: (ctx: TToolContext) => Promise<TResult> | TResult;
-    afterAgent?: (ctx: TContext) => Promise<TResult> | TResult;
-  },
+  TMiddleware extends MiddlewareChainCoreMiddleware<
+    TContext,
+    TToolContext,
+    TResult,
+    TToolDecision
+  >,
   TContext,
   TToolContext,
   TResult extends { halt?: boolean },
@@ -48,7 +75,7 @@ export interface MiddlewareChainCoreOptions<
   onPhaseError?: (params: {
     error: unknown;
     middleware: TMiddleware;
-    phase: Exclude<MiddlewarePhase, 'beforeTool'>;
+    phase: ResultMiddlewarePhase;
     ctx: TContext | TToolContext;
   }) => Promise<TContext | TToolContext | void> | TContext | TToolContext | void;
   onBeforeToolError?: (params: {
@@ -59,16 +86,12 @@ export interface MiddlewareChainCoreOptions<
 }
 
 export declare class MiddlewareChainCore<
-  TMiddleware extends {
-    name: string;
-    timeoutsMs?: Partial<Record<MiddlewarePhase, number>>;
-    beforeAgent?: (ctx: TContext) => Promise<TResult> | TResult;
-    beforeModel?: (ctx: TContext) => Promise<TResult> | TResult;
-    afterModel?: (ctx: TContext) => Promise<TResult> | TResult;
-    beforeTool?: (ctx: TToolContext) => Promise<TToolDecision> | TToolDecision;
-    afterTool?: (ctx: TToolContext) => Promise<TResult> | TResult;
-    afterAgent?: (ctx: TContext) => Promise<TResult> | TResult;
-  },
+  TMiddleware extends MiddlewareChainCoreMiddleware<
+    TContext,
+    TToolContext,
+    TResult,
+    TToolDecision
+  >,
   TContext,
   TToolContext,
   TResult extends { halt?: boolean },

@@ -1,10 +1,11 @@
-export type MiddlewarePhase =
+export type ResultMiddlewarePhase =
   | 'beforeAgent'
   | 'beforeModel'
   | 'afterModel'
-  | 'beforeTool'
   | 'afterTool'
   | 'afterAgent';
+
+export type MiddlewarePhase = ResultMiddlewarePhase | 'beforeTool';
 
 export type ToolDecision =
   | { action: 'continue' }

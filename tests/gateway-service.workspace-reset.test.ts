@@ -4,12 +4,31 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
-const { runAgentMock } = vi.hoisted(() => ({
-  runAgentMock: vi.fn(),
-}));
+const {
+  runAgentMock,
+  registerActiveGatewayRequestMock,
+  interruptGatewaySessionExecutionMock,
+  releaseActiveGatewayRequestMock,
+} = vi.hoisted(() => {
+  const releaseActiveGatewayRequestMock = vi.fn();
+  return {
+    runAgentMock: vi.fn(),
+    registerActiveGatewayRequestMock: vi.fn(() => ({
+      signal: new AbortController().signal,
+      release: releaseActiveGatewayRequestMock,
+    })),
+    interruptGatewaySessionExecutionMock: vi.fn(() => false),
+    releaseActiveGatewayRequestMock,
+  };
+});
 
 vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
+}));
+
+vi.mock('../src/gateway/gateway-request-runtime.js', () => ({
+  registerActiveGatewayRequest: registerActiveGatewayRequestMock,
+  interruptGatewaySessionExecution: interruptGatewaySessionExecutionMock,
 }));
 
 const ORIGINAL_HOME = process.env.HOME;
@@ -31,6 +50,9 @@ function restoreEnvVar(name: string, value: string | undefined): void {
 
 afterEach(() => {
   runAgentMock.mockReset();
+  registerActiveGatewayRequestMock.mockClear();
+  interruptGatewaySessionExecutionMock.mockClear();
+  releaseActiveGatewayRequestMock.mockClear();
   vi.restoreAllMocks();
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
@@ -95,7 +117,17 @@ test('handleGatewayMessage clears session history when the agent workspace is re
   });
 
   expect(result.status).toBe('success');
+  expect(result.sessionId).toBeDefined();
+  expect(result.sessionId).not.toBe(sessionId);
   expect(runAgentMock).toHaveBeenCalledTimes(1);
+  expect(registerActiveGatewayRequestMock).toHaveBeenCalledTimes(1);
+  expect(registerActiveGatewayRequestMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sessionId: result.sessionId,
+      executionSessionId: result.sessionId,
+    }),
+  );
+  expect(releaseActiveGatewayRequestMock).toHaveBeenCalledTimes(1);
 
   const history = memoryService.getConversationHistory(sessionId, 10);
   expect(history).toHaveLength(2);

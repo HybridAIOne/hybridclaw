@@ -304,16 +304,34 @@ const runtimeMiddlewareChain = new MiddlewareChainCore<
   }),
 });
 
-function parseArgs(argsJson: string): Record<string, unknown> {
+function parseArgs(argsJson: string):
+  | { ok: true; args: Record<string, unknown> }
+  | { ok: false; reason: string } {
   try {
     const parsed = JSON.parse(argsJson) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return {};
+      return {
+        ok: false,
+        reason: 'Tool arguments must be a valid JSON object.',
+      };
     }
-    return parsed as Record<string, unknown>;
+    return {
+      ok: true,
+      args: parsed as Record<string, unknown>,
+    };
   } catch {
-    return {};
+    return {
+      ok: false,
+      reason: 'Tool arguments must be a valid JSON object.',
+    };
   }
+}
+
+export function haveToolArgsChanged(
+  originalArgs: Record<string, unknown>,
+  nextArgs: Record<string, unknown>,
+): boolean {
+  return JSON.stringify(originalArgs) !== JSON.stringify(nextArgs);
 }
 
 export async function emitRuntimeEvent(
@@ -395,7 +413,25 @@ export async function runBeforeToolHooks(params: {
   decision: RuntimeToolDecision;
   args: Record<string, unknown>;
 }> {
-  const args = parseArgs(params.argsJson);
+  const parsedArgs = parseArgs(params.argsJson);
+  if (!parsedArgs.ok) {
+    const decision: RuntimeToolDecision = {
+      action: 'deny',
+      reason: parsedArgs.reason,
+    };
+    await emitRuntimeEvent({
+      event: 'before_tool_call',
+      toolName: params.toolName,
+      blocked: true,
+      modified: false,
+      reason: parsedArgs.reason,
+    });
+    return {
+      decision,
+      args: {},
+    };
+  }
+  const args = parsedArgs.args;
   const { ctx, decision } = await runtimeMiddlewareChain.runBeforeTool({
     toolName: params.toolName,
     toolArgs: args,
@@ -407,9 +443,7 @@ export async function runBeforeToolHooks(params: {
     event: 'before_tool_call',
     toolName: params.toolName,
     blocked,
-    modified:
-      decision.action === 'continue' &&
-      JSON.stringify(args) !== JSON.stringify(ctx.toolArgs),
+    modified: haveToolArgsChanged(args, ctx.toolArgs),
     ...(blocked && 'reason' in decision ? { reason: decision.reason } : {}),
   });
   return {
@@ -424,7 +458,8 @@ export async function runAfterToolHooks(params: {
   result: string;
   toolCallHistory: ToolCallHistoryEntry[];
 }): Promise<void> {
-  const args = parseArgs(params.argsJson);
+  const parsedArgs = parseArgs(params.argsJson);
+  const args = parsedArgs.ok ? parsedArgs.args : {};
   await runtimeMiddlewareChain.runAfterTool({
     toolName: params.toolName,
     toolArgs: args,
