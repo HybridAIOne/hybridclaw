@@ -1,4 +1,5 @@
 import type { ChannelInfo } from '../../channels/channel.js';
+import type { RuntimeConfig } from '../../config/runtime-config.js';
 import type { BuildMemoryPromptResult } from '../../memory/memory-service.js';
 import type {
   Middleware,
@@ -182,6 +183,102 @@ export interface GatewayMiddlewareDependencies {
   ) => void;
 }
 
+export interface GatewayChatChainInput {
+  config: RuntimeConfig;
+  request: GatewayChatRequestLike;
+  startedAt: number;
+  runId: string;
+  source: string;
+  pluginManager: PluginManager | null;
+  abortSignal?: AbortSignal;
+  requestLoggingEnabled: boolean;
+}
+
+export interface GatewaySessionPreparedContext extends GatewayChatChainInput {
+  session: Session;
+  agentId: string;
+  model: string;
+  chatbotId: string;
+  enableRag: boolean;
+  provider: string;
+  channelType?: string;
+  channel?: ChannelInfo;
+  sessionContext: SessionContext;
+  shouldEmitTools: boolean;
+  workspacePath: string;
+  canonicalContextScope: string;
+  turnIndex: number;
+}
+
+export interface GatewayMediaPreparedContext
+  extends GatewaySessionPreparedContext {
+  media: MediaContextItem[];
+  mediaPolicy: MediaToolPolicy;
+  userTurnContent: string;
+  audioTranscriptCount: number;
+}
+
+export interface GatewayMemoryPreparedContext
+  extends GatewayMediaPreparedContext {
+  history: StoredMessage[];
+  mergedSessionSummary: string | null;
+  pluginPromptSummary: string | null;
+  canonicalPromptSummary: string | null;
+  canonicalRecentMessagesIncluded: number;
+  pluginsUsed: string[];
+  memoryContext: BuildMemoryPromptResult;
+}
+
+export interface GatewayPromptPreparedContext
+  extends GatewayMemoryPreparedContext {
+  messages: ChatMessage[];
+  requestMessages: ChatMessage[] | null;
+  explicitSkillName: string | null;
+  historyStats: HistoryOptimizationStats;
+  historyLength: number;
+  skillCount: number;
+  skills: Skill[];
+}
+
+export interface GatewayModelInvocationContext
+  extends GatewayPromptPreparedContext {
+  scheduledTaskCount: number;
+}
+
+export interface GatewayRawModelOutputContext
+  extends GatewayModelInvocationContext {
+  output: ContainerOutput;
+  firstTextDeltaMs: number | null;
+}
+
+export interface GatewayModelOutputContext
+  extends GatewayRawModelOutputContext {
+  durationMs: number;
+}
+
+export interface GatewayAnalyzedContext extends GatewayModelOutputContext {
+  effectiveUserContent: string;
+  toolExecutions: ToolExecution[];
+  observedSkillName: string | null;
+  usagePayload: Record<string, number | boolean>;
+  resultText?: string;
+  errorMessage?: string;
+}
+
+export interface GatewayCompletedContext extends GatewayAnalyzedContext {
+  finalResult: GatewayChatResult;
+  clarificationRequested: boolean;
+  turnLoopRepeatCount: number | null;
+  turnLoopAction: 'warn' | 'force-stop' | null;
+  storedTurnMessages?: StoredMessage[];
+}
+
+export interface GatewaySuccessResultState {
+  resultText: string;
+  storedTurnMessages: StoredMessage[];
+  finalResult: GatewayChatResult;
+}
+
 export interface GatewayMiddlewareState extends MiddlewareSessionState {
   startedAt: number;
   runId: string;
@@ -214,6 +311,7 @@ export interface GatewayMiddlewareState extends MiddlewareSessionState {
   canonicalRecentMessagesIncluded?: number;
   memoryContext?: BuildMemoryPromptResult;
   requestMessages?: ChatMessage[] | null;
+  scheduledTaskCount?: number;
   explicitSkillName?: string | null;
   historyStats?: HistoryOptimizationStats;
   historyLength?: number;
@@ -243,6 +341,7 @@ export interface GatewayMiddlewareContext
 export interface GatewayCommandMiddlewareState extends MiddlewareSessionState {
   pluginManager: PluginManager | null;
   session?: Session;
+  commandName?: string;
 }
 
 export interface GatewayCommandMiddlewareContext

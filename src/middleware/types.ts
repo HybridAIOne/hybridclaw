@@ -1,13 +1,12 @@
+import type {
+  MiddlewarePhase as SharedMiddlewarePhase,
+  ToolDecision as SharedToolDecision,
+} from '../../container/shared/middleware-types.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { ChatMessage } from '../types.js';
 
-export type MiddlewarePhase =
-  | 'beforeAgent'
-  | 'beforeModel'
-  | 'afterModel'
-  | 'beforeTool'
-  | 'afterTool'
-  | 'afterAgent';
+export type MiddlewarePhase = SharedMiddlewarePhase;
+export type ToolDecision = SharedToolDecision;
 
 export interface MiddlewareSessionState {
   [key: string]: unknown;
@@ -28,12 +27,6 @@ export interface ToolMiddlewareContext<
   toolArgs: Record<string, unknown>;
   toolResult?: string;
 }
-
-export type ToolDecision =
-  | { action: 'continue' }
-  | { action: 'modify'; args: Record<string, unknown> }
-  | { action: 'deny'; reason: string }
-  | { action: 'abort-turn'; reason: string };
 
 export interface MiddlewareResult<
   TState extends MiddlewareSessionState = MiddlewareSessionState,

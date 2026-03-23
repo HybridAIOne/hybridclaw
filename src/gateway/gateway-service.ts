@@ -253,17 +253,17 @@ import {
 } from './gateway-types.js';
 import {
   buildGatewayCommandMiddlewareChain,
-  buildGatewayMiddlewareChain,
   buildGatewayPluginToolMiddlewareChain,
   buildGatewayScheduledTaskMiddlewareChain,
 } from './middleware/chains.js';
+import { buildGatewayMiddlewareChain } from './middleware/chat-runner.js';
 
 export { resolveMediaToolPolicy } from './middleware/helpers.js';
 
 import type {
-  GatewayMiddlewareContext,
   GatewayMiddlewareDependencies,
   GatewayPluginToolRequest,
+  GatewayPromptPreparedContext,
 } from './middleware/types.js';
 
 export type { MediaToolPolicy } from './middleware/types.js';
@@ -3584,20 +3584,17 @@ export async function handleGatewayMessage(
     sessionId: req.sessionId,
     abortSignal: req.abortSignal,
   });
-  let preparedContext: GatewayMiddlewareContext;
+  let preparedContext: GatewayPromptPreparedContext;
   try {
     preparedContext = await gatewayMiddlewareChain.runBeforeAgent({
       config: runtimeConfig,
       request: req,
-      messages: [],
-      state: {
-        startedAt,
-        runId,
-        source,
-        pluginManager,
-        abortSignal: activeGatewayRequest.signal,
-        requestLoggingEnabled: isGatewayRequestLoggingEnabled(),
-      },
+      startedAt,
+      runId,
+      source,
+      pluginManager,
+      abortSignal: activeGatewayRequest.signal,
+      requestLoggingEnabled: isGatewayRequestLoggingEnabled(),
     });
   } catch (error) {
     const message =
@@ -3621,37 +3618,21 @@ export async function handleGatewayMessage(
     };
   }
 
-  const session = preparedContext.state.session;
-  const agentId = String(preparedContext.state.agentId || '').trim();
-  const model = String(preparedContext.state.model || '').trim();
-  const chatbotId = String(preparedContext.state.chatbotId || '').trim();
-  const enableRag = preparedContext.state.enableRag === true;
-  const provider = preparedContext.state.provider;
-  const shouldEmitTools = preparedContext.state.shouldEmitTools === true;
-  const media = preparedContext.state.media || [];
-  const mediaPolicy = preparedContext.state.mediaPolicy || {
-    blockedTools: undefined,
-    prioritizeVisionTool: false,
-  };
-  const workspacePath = String(
-    preparedContext.state.workspacePath || '',
-  ).trim();
-  const userTurnContent = String(preparedContext.state.userTurnContent || '');
-  const canonicalContextScope = String(
-    preparedContext.state.canonicalContextScope || '',
-  ).trim();
-  const turnIndex = Number(preparedContext.state.turnIndex || 0);
-  const pluginsUsed = preparedContext.state.pluginsUsed || [];
-  const requestMessages = preparedContext.state.requestMessages;
+  const session = preparedContext.session;
+  const agentId = preparedContext.agentId;
+  const model = preparedContext.model;
+  const chatbotId = preparedContext.chatbotId;
+  const enableRag = preparedContext.enableRag;
+  const provider = preparedContext.provider;
+  const shouldEmitTools = preparedContext.shouldEmitTools;
+  const media = preparedContext.media;
+  const mediaPolicy = preparedContext.mediaPolicy;
+  const userTurnContent = preparedContext.userTurnContent;
+  const canonicalContextScope = preparedContext.canonicalContextScope;
+  const turnIndex = preparedContext.turnIndex;
+  const pluginsUsed = preparedContext.pluginsUsed;
+  const requestMessages = preparedContext.requestMessages;
   const messages = preparedContext.messages;
-  if (!session || !agentId || !model || !provider || !workspacePath) {
-    return {
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      error: 'Gateway middleware returned incomplete request state.',
-    };
-  }
   const attachSessionIdentity = (
     result: GatewayChatResult,
   ): GatewayChatResult => ({
@@ -3669,7 +3650,7 @@ export async function handleGatewayMessage(
     provider,
     turnIndex,
     mediaCount: media.length,
-    audioTranscriptCount: preparedContext.state.audioTranscriptCount || 0,
+    audioTranscriptCount: preparedContext.audioTranscriptCount,
     contentLength: userTurnContent.length,
     streamingRequested: Boolean(
       req.onTextDelta || req.onToolProgress || req.onApprovalProgress,
@@ -3775,12 +3756,11 @@ export async function handleGatewayMessage(
     {
       ...debugMeta,
       durationMs: Date.now() - startedAt,
-      historyMessages: preparedContext.state.historyLength || 0,
+      historyMessages: preparedContext.historyLength,
       promptMessages: messages.length,
-      skillsLoaded: preparedContext.state.skillCount || 0,
+      skillsLoaded: preparedContext.skillCount,
       blockedTools: mediaPolicy.blockedTools || [],
-      scheduledTaskHistoryCount:
-        preparedContext.state.historyStats?.includedCount || 0,
+      scheduledTaskHistoryCount: preparedContext.historyStats.includedCount,
     },
     'Gateway chat context prepared',
   );
@@ -3841,66 +3821,41 @@ export async function handleGatewayMessage(
       },
       'Gateway chat invoking agent',
     );
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'agent.start',
-        provider,
-        model,
-        scheduledTaskCount: scheduledTasks.length,
-        promptMessages: messages.length,
-      },
+    const beforeModelContext = await gatewayMiddlewareChain.runBeforeModel({
+      ...preparedContext,
+      scheduledTaskCount: scheduledTasks.length,
     });
-    if (pluginManager) {
-      await pluginManager.notifyBeforeAgentStart({
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-        model: model || undefined,
-      });
-    }
     agentStage = 'awaiting-agent-output';
     const output = await runAgent({
       sessionId: req.sessionId,
-      messages,
-      chatbotId,
-      enableRag,
-      model,
-      agentId,
+      messages: beforeModelContext.messages,
+      chatbotId: beforeModelContext.chatbotId,
+      enableRag: beforeModelContext.enableRag,
+      model: beforeModelContext.model,
+      agentId: beforeModelContext.agentId,
       channelId: req.channelId,
       ralphMaxIterations: resolveSessionRalphIterations(session),
       fullAutoEnabled: isFullAutoEnabled(session),
       fullAutoNeverApproveTools: FULLAUTO_NEVER_APPROVE_TOOLS,
       scheduledTasks,
-      blockedTools: mediaPolicy.blockedTools,
+      blockedTools: beforeModelContext.mediaPolicy.blockedTools,
       onTextDelta,
       onToolProgress,
       onApprovalProgress,
       abortSignal: activeGatewayRequest.signal,
-      media,
-      audioTranscriptsPrepended:
-        (preparedContext.state.audioTranscriptCount || 0) > 0,
-      pluginTools: pluginManager?.getToolDefinitions() ?? [],
+      media: beforeModelContext.media,
+      audioTranscriptsPrepended: beforeModelContext.audioTranscriptCount > 0,
+      pluginTools: beforeModelContext.pluginManager?.getToolDefinitions() ?? [],
     });
     agentStage = 'processing-agent-output';
-    const afterAgentContext = await gatewayMiddlewareChain.runAfterAgent({
-      ...preparedContext,
-      state: {
-        ...preparedContext.state,
-        output,
-        firstTextDeltaMs,
-        durationMs: Date.now() - startedAt,
-      },
+    const afterModelContext = await gatewayMiddlewareChain.runAfterModel({
+      ...beforeModelContext,
+      output,
+      firstTextDeltaMs,
     });
-    const finalResult = afterAgentContext.state.finalResult;
-    if (!finalResult) {
-      throw new Error(
-        'Gateway afterAgent middleware did not produce a final result.',
-      );
-    }
-    return attachSessionIdentity(finalResult);
+    const afterAgentContext =
+      await gatewayMiddlewareChain.runAfterAgent(afterModelContext);
+    return attachSessionIdentity(afterAgentContext.finalResult);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     const durationMs = Date.now() - startedAt;
@@ -4102,7 +4057,6 @@ export async function handleGatewayCommand(
     runtimeConfig,
     gatewayMiddlewareDependencies,
   );
-  const cmd = (req.args[0] || '').toLowerCase();
   const preparedContext = await gatewayCommandMiddlewareChain.runBeforeAgent({
     config: runtimeConfig,
     request: req,
@@ -4117,6 +4071,7 @@ export async function handleGatewayCommand(
       'Gateway command middleware returned incomplete session state.',
     );
   }
+  const cmd = String(preparedContext.state.commandName || '').trim();
   let session: Session = preparedSession;
   const attachCommandSessionIdentity = (
     result: GatewayCommandResult,

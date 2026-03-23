@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 
+import { MiddlewareChainCore } from '../container/shared/middleware-core.js';
 import { getRuntimeConfig } from '../src/config/runtime-config.js';
 import { MiddlewareChain } from '../src/middleware/chain.js';
 import type {
@@ -150,4 +151,77 @@ test('MiddlewareChain timeout errors include the middleware name and phase', asy
       },
     }),
   ).rejects.toThrow('Middleware "slow" beforeAgent timed out after 10ms.');
+});
+
+test('MiddlewareChainCore supports best-effort phase errors and custom beforeTool failures', async () => {
+  type CoreContext = { toolName?: string; toolArgs?: Record<string, unknown> };
+  type CoreToolContext = {
+    toolName: string;
+    toolArgs: Record<string, unknown>;
+  };
+  type CoreResult = { halt?: boolean };
+
+  const chain = new MiddlewareChainCore<
+    {
+      name: string;
+      isEnabled(): boolean;
+      beforeModel?: (ctx: CoreContext) => Promise<CoreResult> | CoreResult;
+      beforeTool?: (
+        ctx: CoreToolContext,
+      ) =>
+        | Promise<{ action: string; reason?: string }>
+        | { action: string; reason?: string };
+    },
+    CoreContext,
+    CoreToolContext,
+    CoreResult,
+    { action: 'deny'; reason: string } | { action: 'continue' }
+  >(
+    [
+      {
+        name: 'broken-observer',
+        isEnabled: () => true,
+        beforeModel() {
+          throw new Error('observer exploded');
+        },
+      },
+      {
+        name: 'broken-tool-guard',
+        isEnabled: () => true,
+        beforeTool() {
+          throw new Error('tool exploded');
+        },
+      },
+    ],
+    {
+      applyResult: (ctx) => ctx,
+      isEnabled: (middleware) => middleware.isEnabled(),
+      timeoutLabel: () => undefined,
+      onPhaseError: ({ ctx }) => ctx,
+      onBeforeToolError: ({ error, middleware }) => ({
+        action: 'deny',
+        reason:
+          error instanceof Error
+            ? `Middleware ${middleware.name} failed: ${error.message}`
+            : `Middleware ${middleware.name} failed.`,
+      }),
+    },
+  );
+
+  await expect(chain.runBeforeModel({})).resolves.toEqual({});
+  await expect(
+    chain.runBeforeTool({
+      toolName: 'demo',
+      toolArgs: {},
+    }),
+  ).resolves.toEqual({
+    ctx: {
+      toolName: 'demo',
+      toolArgs: {},
+    },
+    decision: {
+      action: 'deny',
+      reason: 'Middleware broken-tool-guard failed: tool exploded',
+    },
+  });
 });

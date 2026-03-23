@@ -14,7 +14,7 @@ import type {
 } from '../../types.js';
 import type {
   GatewayChatRequestLike,
-  GatewayMiddlewareState,
+  GatewaySuccessResultState,
   MediaToolPolicy,
 } from './types.js';
 
@@ -282,10 +282,7 @@ export function buildGatewaySuccessResultState(params: {
   toolExecutions: ToolExecution[];
   userContent: string;
   resultText: string;
-}): Pick<
-  GatewayMiddlewareState,
-  'resultText' | 'storedTurnMessages' | 'finalResult'
-> {
+}): GatewaySuccessResultState {
   return {
     resultText: params.resultText,
     storedTurnMessages: buildStoredTurnMessages({

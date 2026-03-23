@@ -207,6 +207,26 @@ class CommandSessionMiddleware implements GatewayCommandChainMiddleware {
   }
 }
 
+class CommandMetadataMiddleware implements GatewayCommandChainMiddleware {
+  readonly name = 'command-metadata';
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async beforeAgent(ctx: GatewayCommandMiddlewareContext): Promise<{
+    stateUpdates: Partial<GatewayCommandMiddlewareState>;
+  }> {
+    return {
+      stateUpdates: {
+        commandName: String(ctx.request.args[0] || '')
+          .trim()
+          .toLowerCase(),
+      },
+    };
+  }
+}
+
 class PluginToolSessionMiddleware implements GatewayPluginToolChainMiddleware {
   readonly name = 'plugin-tool-session';
   readonly timeoutsMs = {
@@ -837,6 +857,71 @@ class AuditMiddleware implements GatewayChainMiddleware {
     });
 
     return {};
+  }
+}
+
+class ModelLifecycleMiddleware implements GatewayChainMiddleware {
+  readonly name = 'model-lifecycle';
+  readonly timeoutsMs = {
+    beforeModel: 0,
+  } as const;
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async beforeModel(
+    ctx: GatewayMiddlewareContext,
+  ): Promise<MiddlewareResult<GatewayMiddlewareState>> {
+    const provider = ctx.state.provider;
+    const model = String(ctx.state.model || '').trim();
+    const agentId = String(ctx.state.agentId || '').trim();
+    if (!provider || !model || !agentId) {
+      throw new Error(
+        'Model lifecycle middleware requires prepared model invocation state.',
+      );
+    }
+
+    recordAuditEvent({
+      sessionId: ctx.request.sessionId,
+      runId: ctx.state.runId,
+      event: {
+        type: 'agent.start',
+        provider,
+        model,
+        scheduledTaskCount: Number(ctx.state.scheduledTaskCount || 0),
+        promptMessages: ctx.messages.length,
+      },
+    });
+
+    if (ctx.state.pluginManager) {
+      await ctx.state.pluginManager.notifyBeforeAgentStart({
+        sessionId: ctx.request.sessionId,
+        userId: ctx.request.userId,
+        agentId,
+        channelId: ctx.request.channelId,
+        model,
+      });
+    }
+
+    return {};
+  }
+
+  async afterModel(
+    ctx: GatewayMiddlewareContext,
+  ): Promise<MiddlewareResult<GatewayMiddlewareState>> {
+    if (!ctx.state.output) {
+      throw new Error(
+        'Model lifecycle middleware requires agent output before afterModel.',
+      );
+    }
+
+    return {
+      stateUpdates: {
+        firstTextDeltaMs: ctx.state.firstTextDeltaMs ?? null,
+        durationMs: Math.max(0, Date.now() - ctx.state.startedAt),
+      },
+    };
   }
 }
 
@@ -1491,6 +1576,7 @@ export function buildGatewayMiddlewareChain(
     new MemoryMiddleware(deps),
     new PromptAssemblyMiddleware(),
     new AuditMiddleware(),
+    new ModelLifecycleMiddleware(),
     new ToolAnalysisMiddleware(),
     new CompletionMiddleware(),
     new ClarificationMiddleware(),
@@ -1514,6 +1600,7 @@ export function buildGatewayCommandMiddlewareChain(
   ToolMiddlewareContext<GatewayCommandMiddlewareState>
 > {
   const middlewares: GatewayCommandChainMiddleware[] = [
+    new CommandMetadataMiddleware(),
     new CommandSessionMiddleware(deps),
   ];
   return new MiddlewareChain(

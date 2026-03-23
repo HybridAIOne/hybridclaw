@@ -1,3 +1,8 @@
+import { MiddlewareChainCore } from '../shared/middleware-core.js';
+import type {
+  MiddlewarePhase as RuntimeMiddlewarePhase,
+  ToolDecision as RuntimeToolDecision,
+} from '../shared/middleware-types.js';
 import { applyContextGuard, type ContextGuardResult } from './context-guard.js';
 import type { TokenEstimateCache } from './token-usage.js';
 import {
@@ -24,20 +29,6 @@ interface RuntimeEventPayload {
   event: RuntimeEventName;
   [key: string]: unknown;
 }
-
-type RuntimeMiddlewarePhase =
-  | 'beforeAgent'
-  | 'beforeModel'
-  | 'afterModel'
-  | 'beforeTool'
-  | 'afterTool'
-  | 'afterAgent';
-
-type RuntimeToolDecision =
-  | { action: 'continue' }
-  | { action: 'modify'; args: Record<string, unknown> }
-  | { action: 'deny'; reason: string }
-  | { action: 'abort-turn'; reason: string };
 
 interface RuntimeMiddlewareResult {
   halt?: boolean;
@@ -83,15 +74,6 @@ interface RuntimeMiddleware {
   ) => RuntimeMiddlewareResult | Promise<RuntimeMiddlewareResult>;
 }
 
-const DEFAULT_TIMEOUTS_MS: Record<RuntimeMiddlewarePhase, number> = {
-  beforeAgent: 5_000,
-  beforeModel: 5_000,
-  afterModel: 500,
-  beforeTool: 5_000,
-  afterTool: 500,
-  afterAgent: 500,
-};
-
 const DANGEROUS_FILE_CONTENT_PATTERNS: Array<{ re: RegExp; reason: string }> = [
   {
     re: /\brm\s+-rf\s+\/(\s|$)/i,
@@ -130,121 +112,6 @@ const EMPTY_CONTEXT_BUDGET_RESULT: ContextGuardResult = {
   compactedToolResults: 0,
   tier3Triggered: false,
 };
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  if (!(timeoutMs > 0)) return promise;
-
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<T>((_, reject) => {
-    timeoutId = setTimeout(() => {
-      reject(new Error(`Middleware timed out after ${timeoutMs}ms.`));
-    }, timeoutMs);
-  });
-
-  return Promise.race([promise, timeoutPromise]).finally(() => {
-    if (timeoutId !== undefined) clearTimeout(timeoutId);
-  });
-}
-
-function resolveTimeoutMs(
-  middleware: RuntimeMiddleware,
-  phase: RuntimeMiddlewarePhase,
-): number {
-  const override = middleware.timeoutsMs?.[phase];
-  if (
-    typeof override === 'number' &&
-    Number.isFinite(override) &&
-    override >= 0
-  ) {
-    return override;
-  }
-  return DEFAULT_TIMEOUTS_MS[phase];
-}
-
-class RuntimeMiddlewareChain {
-  constructor(private readonly middlewares: RuntimeMiddleware[]) {}
-
-  private async runPhase(
-    phase: Exclude<RuntimeMiddlewarePhase, 'beforeTool'>,
-    ctx: RuntimeMiddlewareContext | RuntimeToolMiddlewareContext,
-  ): Promise<void> {
-    for (const middleware of this.middlewares) {
-      if (!middleware.isEnabled()) continue;
-      const hook = middleware[phase];
-      if (!hook) continue;
-      try {
-        const result = await withTimeout(
-          Promise.resolve(hook(ctx as never)),
-          resolveTimeoutMs(middleware, phase),
-        );
-        if (result.halt) break;
-      } catch {
-        // Observers are best-effort. Broken middleware should not break the turn.
-      }
-    }
-  }
-
-  async runBeforeAgent(ctx: RuntimeMiddlewareContext): Promise<void> {
-    await this.runPhase('beforeAgent', ctx);
-  }
-
-  async runBeforeModel(ctx: RuntimeMiddlewareContext): Promise<void> {
-    await this.runPhase('beforeModel', ctx);
-  }
-
-  async runAfterModel(ctx: RuntimeMiddlewareContext): Promise<void> {
-    await this.runPhase('afterModel', ctx);
-  }
-
-  async runAfterTool(ctx: RuntimeToolMiddlewareContext): Promise<void> {
-    await this.runPhase('afterTool', ctx);
-  }
-
-  async runAfterAgent(ctx: RuntimeMiddlewareContext): Promise<void> {
-    await this.runPhase('afterAgent', ctx);
-  }
-
-  async runBeforeTool(ctx: RuntimeToolMiddlewareContext): Promise<{
-    ctx: RuntimeToolMiddlewareContext;
-    decision: RuntimeToolDecision;
-  }> {
-    let current = ctx;
-
-    for (const middleware of this.middlewares) {
-      if (!middleware.isEnabled()) continue;
-      if (!middleware.beforeTool) continue;
-      try {
-        const decision = await withTimeout(
-          Promise.resolve(middleware.beforeTool(current)),
-          resolveTimeoutMs(middleware, 'beforeTool'),
-        );
-        if (decision.action === 'modify') {
-          current = {
-            ...current,
-            toolArgs: { ...decision.args },
-          };
-          continue;
-        }
-        if (decision.action !== 'continue') {
-          return { ctx: current, decision };
-        }
-      } catch (error) {
-        return {
-          ctx: current,
-          decision: {
-            action: 'deny',
-            reason:
-              error instanceof Error
-                ? `Middleware ${middleware.name} failed: ${error.message}`
-                : `Middleware ${middleware.name} failed.`,
-          },
-        };
-      }
-    }
-
-    return { ctx: current, decision: { action: 'continue' } };
-  }
-}
 
 function repairDanglingToolCalls(history: ChatMessage[]): {
   repairedCount: number;
@@ -414,7 +281,28 @@ const runtimeMiddlewares: RuntimeMiddleware[] = [
   securityHookMiddleware,
   loopDetectionMiddleware,
 ];
-const runtimeMiddlewareChain = new RuntimeMiddlewareChain(runtimeMiddlewares);
+const runtimeMiddlewareChain = new MiddlewareChainCore<
+  RuntimeMiddleware,
+  RuntimeMiddlewareContext,
+  RuntimeToolMiddlewareContext,
+  RuntimeMiddlewareResult,
+  RuntimeToolDecision
+>(runtimeMiddlewares, {
+  applyResult: (ctx) => ctx,
+  isEnabled: (middleware) => middleware.isEnabled(),
+  timeoutLabel: () => undefined,
+  onPhaseError: ({ ctx }) => {
+    // Observers are best-effort. Broken middleware should not break the turn.
+    return ctx;
+  },
+  onBeforeToolError: ({ error, middleware }) => ({
+    action: 'deny',
+    reason:
+      error instanceof Error
+        ? `Middleware ${middleware.name} failed: ${error.message}`
+        : `Middleware ${middleware.name} failed.`,
+  }),
+});
 
 function parseArgs(argsJson: string): Record<string, unknown> {
   try {

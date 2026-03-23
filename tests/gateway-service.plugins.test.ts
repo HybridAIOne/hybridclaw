@@ -247,6 +247,9 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
     }),
   );
   expect(pluginManagerMock.notifyBeforeAgentStart).toHaveBeenCalled();
+  expect(
+    pluginManagerMock.notifyBeforeAgentStart.mock.invocationCallOrder[0],
+  ).toBeLessThan(runAgentMock.mock.invocationCallOrder[0]);
   expect(pluginManagerMock.notifyTurnComplete).toHaveBeenCalledWith(
     expect.objectContaining({
       sessionId: 'session-plugin-test',
@@ -734,6 +737,29 @@ test('handleGatewayCommand help continues without plugins when plugin manager in
   expect(result.text).toContain('`plugin install <path|npm-spec>`');
   expect(result.text).toContain('`plugin reinstall <path|npm-spec>`');
   expect(result.text).toContain('`plugin reload`');
+});
+
+test('handleGatewayCommand normalizes uppercase command names through middleware', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-help-uppercase',
+    guildId: null,
+    channelId: 'web',
+    args: ['HELP'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('HybridClaw Commands');
 });
 
 test('handleGatewayCommand uninstalls a plugin and reloads the plugin manager', async () => {
