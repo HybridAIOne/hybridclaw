@@ -8,10 +8,10 @@ import { resolveInstallPath } from '../infra/install-root.js';
 
 const SITE_DIR = resolveInstallPath('docs');
 const DEVELOPMENT_DOCS_DIR = resolveInstallPath('docs', 'development');
-const INSTALL_ROOT = resolveInstallPath('.');
 const GITHUB_REPO_URL = 'https://github.com/HybridAIOne/hybridclaw';
 const DISCORD_URL = 'https://discord.gg/jsVW4vJw27';
 const SEARCH_RESULT_LIMIT = 10;
+const DEVELOPMENT_DOCS_CACHE_TTL_MS = 1_000;
 
 export const DEVELOPMENT_DOCS_ROUTE = '/development';
 
@@ -56,16 +56,19 @@ const DEVELOPMENT_DOCS_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     h4: ['id'],
     h5: ['id'],
     h6: ['id'],
-    img: ['alt', 'src', 'title'],
+    img: ['src', 'alt', 'title'],
   },
   allowedSchemes: ['http', 'https', 'mailto'],
+  allowedSchemesAppliedToAttributes: ['href', 'src'],
+  allowedSchemesByTag: {
+    img: ['https'],
+  },
   allowProtocolRelative: false,
 };
 
 type DevelopmentDocMetadata = {
   description?: unknown;
   sidebar_position?: unknown;
-  slug?: unknown;
   title?: unknown;
 };
 
@@ -109,6 +112,21 @@ type SidebarNode = {
   routePath: string | null;
 };
 
+type CategoryMetadataReader = (
+  relativeDirPath: string,
+) => DevelopmentDocCategoryMetadata | null;
+
+type DevelopmentDocsSnapshot = {
+  cachedAt: number;
+  docs: DevelopmentDocPage[];
+  docsByRelativePath: Map<string, DevelopmentDocPage>;
+  readCategoryMetadataCached: CategoryMetadataReader;
+  searchEntries: DevelopmentDocSearchEntry[];
+  sidebarTree: SidebarNode;
+};
+
+let developmentDocsSnapshotCache: DevelopmentDocsSnapshot | null = null;
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
@@ -126,7 +144,10 @@ function humanizeSegment(segment: string): string {
     .join(' ');
 }
 
-function parseDevelopmentDoc(raw: string): {
+function parseDevelopmentDoc(
+  raw: string,
+  relativePath: string,
+): {
   body: string;
   metadata: DevelopmentDocMetadata;
 } {
@@ -138,8 +159,9 @@ function parseDevelopmentDoc(raw: string): {
   let metadata: DevelopmentDocMetadata = {};
   try {
     metadata = (parseYaml(match[1]) as DevelopmentDocMetadata | null) || {};
-  } catch {
-    metadata = {};
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid frontmatter in ${relativePath}: ${message}`);
   }
   return {
     body: normalized.slice(match[0].length),
@@ -155,26 +177,64 @@ function readCategoryMetadata(
     relativeDirPath,
     '_category_.json',
   );
-  if (!categoryPath.startsWith(DEVELOPMENT_DOCS_DIR)) return null;
-  if (!fs.existsSync(categoryPath) || !fs.statSync(categoryPath).isFile()) {
-    return null;
-  }
+  const resolvedCategoryPath = resolveContainedFilePath(
+    DEVELOPMENT_DOCS_DIR,
+    categoryPath,
+  );
+  if (!resolvedCategoryPath) return null;
   try {
     return JSON.parse(
-      fs.readFileSync(categoryPath, 'utf8'),
+      fs.readFileSync(resolvedCategoryPath, 'utf8'),
     ) as DevelopmentDocCategoryMetadata;
   } catch {
     return null;
   }
 }
 
-function resolveDevelopmentDocFile(relativePath: string): string | null {
-  const candidate = path.resolve(DEVELOPMENT_DOCS_DIR, relativePath);
-  if (!candidate.startsWith(DEVELOPMENT_DOCS_DIR)) return null;
-  if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) {
+function resolveContainedFilePath(
+  rootDir: string,
+  candidatePath: string,
+): string | null {
+  if (!candidatePath.startsWith(rootDir)) return null;
+
+  let candidateStats: fs.Stats;
+  try {
+    candidateStats = fs.lstatSync(candidatePath);
+  } catch {
     return null;
   }
-  return candidate;
+  if (!candidateStats.isFile()) return null;
+
+  try {
+    const realRootDir = fs.realpathSync.native(rootDir);
+    const realCandidatePath = fs.realpathSync.native(candidatePath);
+    if (
+      realCandidatePath !== realRootDir &&
+      !realCandidatePath.startsWith(`${realRootDir}${path.sep}`)
+    ) {
+      return null;
+    }
+    return realCandidatePath;
+  } catch {
+    return null;
+  }
+}
+
+function createCategoryMetadataReader(): CategoryMetadataReader {
+  const cache = new Map<string, DevelopmentDocCategoryMetadata | null>();
+  return (relativeDirPath) => {
+    if (cache.has(relativeDirPath)) {
+      return cache.get(relativeDirPath) ?? null;
+    }
+    const metadata = readCategoryMetadata(relativeDirPath);
+    cache.set(relativeDirPath, metadata);
+    return metadata;
+  };
+}
+
+function resolveDevelopmentDocFile(relativePath: string): string | null {
+  const candidate = path.resolve(DEVELOPMENT_DOCS_DIR, relativePath);
+  return resolveContainedFilePath(DEVELOPMENT_DOCS_DIR, candidate);
 }
 
 function normalizeDevelopmentDocRelativePath(pathname: string): string | null {
@@ -217,17 +277,7 @@ function normalizeDevelopmentDocRelativePath(pathname: string): string | null {
   return candidates[0] || null;
 }
 
-function routePathForDevelopmentDoc(
-  relativePath: string,
-  metadata?: DevelopmentDocMetadata,
-): string {
-  if (
-    typeof metadata?.slug === 'string' &&
-    metadata.slug.trim().startsWith(DEVELOPMENT_DOCS_ROUTE)
-  ) {
-    const slug = metadata.slug.trim().replace(/\/+$/, '');
-    return slug || DEVELOPMENT_DOCS_ROUTE;
-  }
+function routePathForDevelopmentDoc(relativePath: string): string {
   const normalized = path.posix.normalize(relativePath);
   const trimmed = normalized
     .replace(/\/?README\.md$/i, '')
@@ -306,7 +356,7 @@ function readDevelopmentDoc(relativePath: string): DevelopmentDocPage | null {
   if (!candidate) return null;
 
   const raw = fs.readFileSync(candidate, 'utf8');
-  const { body, metadata } = parseDevelopmentDoc(raw);
+  const { body, metadata } = parseDevelopmentDoc(raw, relativePath);
 
   return {
     body,
@@ -316,7 +366,7 @@ function readDevelopmentDoc(relativePath: string): DevelopmentDocPage | null {
         : '',
     headings: extractHeadingsFromMarkdown(body),
     relativePath,
-    routePath: routePathForDevelopmentDoc(relativePath, metadata),
+    routePath: routePathForDevelopmentDoc(relativePath),
     sidebarPosition:
       typeof metadata.sidebar_position === 'number'
         ? metadata.sidebar_position
@@ -350,27 +400,74 @@ function collectDevelopmentDocPaths(
   return paths;
 }
 
-function listDevelopmentDocs(): DevelopmentDocPage[] {
-  return collectDevelopmentDocPaths(DEVELOPMENT_DOCS_DIR)
-    .map((relativePath) => readDevelopmentDoc(relativePath))
-    .filter((entry): entry is DevelopmentDocPage => entry !== null)
-    .sort((left, right) => {
-      const leftPosition = left.sidebarPosition ?? Number.POSITIVE_INFINITY;
-      const rightPosition = right.sidebarPosition ?? Number.POSITIVE_INFINITY;
-      if (leftPosition !== rightPosition) return leftPosition - rightPosition;
-      return left.title.localeCompare(right.title);
-    });
+function sortDevelopmentDocs(
+  left: DevelopmentDocPage,
+  right: DevelopmentDocPage,
+): number {
+  const leftPosition = left.sidebarPosition ?? Number.POSITIVE_INFINITY;
+  const rightPosition = right.sidebarPosition ?? Number.POSITIVE_INFINITY;
+  if (leftPosition !== rightPosition) return leftPosition - rightPosition;
+  return left.title.localeCompare(right.title);
 }
 
-function resolvePathWithinInstallRoot(absolutePath: string): string | null {
-  const resolved = path.resolve(absolutePath);
+function getCachedDevelopmentDocsSnapshot(): DevelopmentDocsSnapshot | null {
+  if (!developmentDocsSnapshotCache) return null;
   if (
-    resolved === INSTALL_ROOT ||
-    resolved.startsWith(`${INSTALL_ROOT}${path.sep}`)
+    Date.now() - developmentDocsSnapshotCache.cachedAt >
+    DEVELOPMENT_DOCS_CACHE_TTL_MS
   ) {
-    return resolved;
+    developmentDocsSnapshotCache = null;
+    return null;
   }
-  return null;
+  return developmentDocsSnapshotCache;
+}
+
+function buildDevelopmentDocsSnapshot(
+  preloadedPage?: DevelopmentDocPage,
+): DevelopmentDocsSnapshot {
+  const docs = collectDevelopmentDocPaths(DEVELOPMENT_DOCS_DIR)
+    .map((relativePath) =>
+      preloadedPage?.relativePath === relativePath
+        ? preloadedPage
+        : readDevelopmentDoc(relativePath),
+    )
+    .filter((entry): entry is DevelopmentDocPage => entry !== null)
+    .sort(sortDevelopmentDocs);
+  const docsByRelativePath = new Map(
+    docs.map((entry) => [entry.relativePath, entry] as const),
+  );
+  const readCategoryMetadataCached = createCategoryMetadataReader();
+  const snapshot: DevelopmentDocsSnapshot = {
+    cachedAt: Date.now(),
+    docs,
+    docsByRelativePath,
+    readCategoryMetadataCached,
+    searchEntries: buildSearchIndex(docs),
+    sidebarTree: buildSidebarTree(docs, readCategoryMetadataCached),
+  };
+  developmentDocsSnapshotCache = snapshot;
+  return snapshot;
+}
+
+function getDevelopmentDocsSnapshot(
+  preloadedPage?: DevelopmentDocPage,
+): DevelopmentDocsSnapshot {
+  const cachedSnapshot = getCachedDevelopmentDocsSnapshot();
+  return cachedSnapshot || buildDevelopmentDocsSnapshot(preloadedPage);
+}
+
+function buildUrlSuffix(
+  queryString: string | undefined,
+  hashFragment: string | undefined,
+): string {
+  return [
+    queryString ? `?${queryString}` : '',
+    hashFragment ? `#${hashFragment}` : '',
+  ].join('');
+}
+
+function isAllowedDevelopmentImageSrc(src: string): boolean {
+  return src.startsWith('/') || src.startsWith('https://');
 }
 
 function rewriteRelativeHref(
@@ -394,10 +491,10 @@ function rewriteRelativeHref(
     DEVELOPMENT_DOCS_DIR,
     currentRelativePath,
   );
-  const resolvedAbsolutePath = resolvePathWithinInstallRoot(
-    path.resolve(path.dirname(currentAbsolutePath), hrefPath),
+  const resolvedAbsolutePath = path.resolve(
+    path.dirname(currentAbsolutePath),
+    hrefPath,
   );
-  if (!resolvedAbsolutePath) return href;
 
   if (
     resolvedAbsolutePath === DEVELOPMENT_DOCS_DIR ||
@@ -413,17 +510,13 @@ function rewriteRelativeHref(
       const relativeToSite = path
         .relative(SITE_DIR, resolvedAbsolutePath)
         .replaceAll(path.sep, '/');
-      return `/${relativeToSite}`;
+      return `/${relativeToSite}${buildUrlSuffix(queryString, hashFragment)}`;
     }
     const relativePath = path
       .relative(DEVELOPMENT_DOCS_DIR, resolvedAbsolutePath)
       .replaceAll(path.sep, '/');
     const routePath = routePathForDevelopmentDoc(relativePath);
-    const suffix = [
-      queryString ? `?${queryString}` : '',
-      hashFragment ? `#${hashFragment}` : '',
-    ].join('');
-    return `${routePath}${suffix}`;
+    return `${routePath}${buildUrlSuffix(queryString, hashFragment)}`;
   }
 
   if (
@@ -437,27 +530,17 @@ function rewriteRelativeHref(
       const relativePath = path
         .relative(SITE_DIR, resolvedAbsolutePath)
         .replaceAll(path.sep, '/');
-      const suffix = [
-        queryString ? `?${queryString}` : '',
-        hashFragment ? `#${hashFragment}` : '',
-      ].join('');
-      return `/${relativePath}${suffix}`;
+      return `/${relativePath}${buildUrlSuffix(queryString, hashFragment)}`;
     }
   }
-
-  const repoRelativePath = path
-    .relative(INSTALL_ROOT, resolvedAbsolutePath)
-    .replaceAll(path.sep, '/');
-  const baseUrl =
-    fs.existsSync(resolvedAbsolutePath) &&
-    fs.statSync(resolvedAbsolutePath).isDirectory()
-      ? `${GITHUB_REPO_URL}/tree/main`
-      : `${GITHUB_REPO_URL}/blob/main`;
-  return `${baseUrl}/${repoRelativePath}`;
+  return href;
 }
 
-function buildSidebarTree(docs: DevelopmentDocPage[]): SidebarNode {
-  const rootMeta = readCategoryMetadata('') || {};
+function buildSidebarTree(
+  docs: DevelopmentDocPage[],
+  readCategoryMetadataCached: CategoryMetadataReader,
+): SidebarNode {
+  const rootMeta = readCategoryMetadataCached('') || {};
   const root: SidebarNode = {
     children: [],
     description: '',
@@ -484,7 +567,7 @@ function buildSidebarTree(docs: DevelopmentDocPage[]): SidebarNode {
         (entry) => !entry.isPage && entry.pathKey === currentPath,
       );
       if (!group) {
-        const categoryMeta = readCategoryMetadata(currentPath) || {};
+        const categoryMeta = readCategoryMetadataCached(currentPath) || {};
         group = {
           children: [],
           description: '',
@@ -596,6 +679,7 @@ function buildBreadcrumbs(
   page: DevelopmentDocPage,
   docsByRelativePath: Map<string, DevelopmentDocPage>,
   rootLabel: string,
+  readCategoryMetadataCached: CategoryMetadataReader,
 ): Array<{ href: string | null; label: string }> {
   const items: Array<{ href: string | null; label: string }> = [
     { href: '/', label: 'Home' },
@@ -606,7 +690,7 @@ function buildBreadcrumbs(
   let currentPath = '';
   for (const segment of parts.slice(0, -1)) {
     currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-    const categoryMeta = readCategoryMetadata(currentPath) || {};
+    const categoryMeta = readCategoryMetadataCached(currentPath) || {};
     const label =
       typeof categoryMeta.label === 'string' && categoryMeta.label.trim()
         ? categoryMeta.label.trim()
@@ -626,8 +710,14 @@ function renderBreadcrumbs(
   page: DevelopmentDocPage,
   docsByRelativePath: Map<string, DevelopmentDocPage>,
   rootLabel: string,
+  readCategoryMetadataCached: CategoryMetadataReader,
 ): string {
-  return buildBreadcrumbs(page, docsByRelativePath, rootLabel)
+  return buildBreadcrumbs(
+    page,
+    docsByRelativePath,
+    rootLabel,
+    readCategoryMetadataCached,
+  )
     .map((item, index, items) => {
       const renderedLabel = escapeHtml(item.label);
       const body = item.href
@@ -860,11 +950,18 @@ function renderMarkdownBody(page: DevelopmentDocPage): string {
     const fallbackText = stripMarkdownFormatting(
       this.parser.parseInline(tokens),
     );
-    const heading = plannedHeadings[headingIndex++] || {
-      depth,
-      id: slugifyHeadingText(fallbackText),
-      text: fallbackText,
-    };
+    const heading =
+      depth <= 4
+        ? plannedHeadings[headingIndex++] || {
+            depth,
+            id: slugifyHeadingText(fallbackText),
+            text: fallbackText,
+          }
+        : {
+            depth,
+            id: slugifyHeadingText(fallbackText),
+            text: fallbackText,
+          };
     const content = this.parser.parseInline(tokens);
     const anchor = `<a class="docs-heading-anchor" href="#${escapeHtml(
       heading.id,
@@ -886,6 +983,9 @@ function renderMarkdownBody(page: DevelopmentDocPage): string {
 
   renderer.image = ({ href, title, text }) => {
     const resolvedHref = rewriteRelativeHref(href || '', page.relativePath);
+    if (!isAllowedDevelopmentImageSrc(resolvedHref)) {
+      return `<span>${escapeHtml(text || '')}</span>`;
+    }
     const alt = escapeHtml(text || '');
     const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
     return `<img src="${escapeHtml(resolvedHref)}" alt="${alt}"${titleAttr}>`;
@@ -918,18 +1018,14 @@ function renderTableOfContents(page: DevelopmentDocPage): string {
 
 function renderPage(
   page: DevelopmentDocPage,
-  docs: DevelopmentDocPage[],
+  snapshot: DevelopmentDocsSnapshot,
 ): string {
-  const docsByRelativePath = new Map(
-    docs.map((entry) => [entry.relativePath, entry] as const),
-  );
-  const sidebarTree = buildSidebarTree(docs);
-  const searchEntries = buildSearchIndex(docs);
-  const sidebarMarkup = renderSidebarNode(sidebarTree, page.routePath);
+  const sidebarMarkup = renderSidebarNode(snapshot.sidebarTree, page.routePath);
   const breadcrumbsMarkup = renderBreadcrumbs(
     page,
-    docsByRelativePath,
-    sidebarTree.label,
+    snapshot.docsByRelativePath,
+    snapshot.sidebarTree.label,
+    snapshot.readCategoryMetadataCached,
   );
   const tocMarkup = renderTableOfContents(page);
   const markdownHtml = renderMarkdownBody(page);
@@ -1643,8 +1739,62 @@ function renderPage(
     </aside>
   </div>
   <div class="docs-overlay" data-doc-overlay></div>
-  ${renderSearchDataScript(searchEntries)}
+  ${renderSearchDataScript(snapshot.searchEntries)}
   ${renderInteractiveScript()}
+</body>
+</html>`;
+}
+
+function renderDevelopmentDocsErrorPage(message: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Development Docs Error | HybridClaw Docs</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      background: #f8fafc;
+      color: #1f2937;
+    }
+
+    main {
+      max-width: 840px;
+      margin: 0 auto;
+      padding: 64px 24px;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      font-size: 2rem;
+      line-height: 1.1;
+    }
+
+    p {
+      margin: 0 0 16px;
+      color: #4b5563;
+    }
+
+    pre {
+      margin: 0;
+      padding: 18px 20px;
+      border-radius: 16px;
+      background: #111827;
+      color: #e5edf7;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Development docs failed to render</h1>
+    <p>Fix the documentation source and reload this page.</p>
+    <pre>${escapeHtml(message)}</pre>
+  </main>
 </body>
 </html>`;
 }
@@ -1656,14 +1806,39 @@ export function serveDevelopmentDocs(
   const relativePath = normalizeDevelopmentDocRelativePath(pathname);
   if (!relativePath) return false;
 
-  const page = readDevelopmentDoc(relativePath);
-  if (!page) return false;
+  try {
+    const cachedSnapshot = getCachedDevelopmentDocsSnapshot();
+    if (cachedSnapshot) {
+      const cachedPage = cachedSnapshot.docsByRelativePath.get(relativePath);
+      if (!cachedPage) return false;
 
-  const html = renderPage(page, listDevelopmentDocs());
-  res.writeHead(200, {
-    'Cache-Control': 'no-cache',
-    'Content-Type': 'text/html; charset=utf-8',
-  });
-  res.end(html);
-  return true;
+      const html = renderPage(cachedPage, cachedSnapshot);
+      res.writeHead(200, {
+        'Cache-Control': 'no-cache',
+        'Content-Type': 'text/html; charset=utf-8',
+      });
+      res.end(html);
+      return true;
+    }
+
+    const page = readDevelopmentDoc(relativePath);
+    if (!page) return false;
+
+    const snapshot = getDevelopmentDocsSnapshot(page);
+    const html = renderPage(page, snapshot);
+    res.writeHead(200, {
+      'Cache-Control': 'no-cache',
+      'Content-Type': 'text/html; charset=utf-8',
+    });
+    res.end(html);
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.writeHead(500, {
+      'Cache-Control': 'no-cache',
+      'Content-Type': 'text/html; charset=utf-8',
+    });
+    res.end(renderDevelopmentDocsErrorPage(message));
+    return true;
+  }
 }

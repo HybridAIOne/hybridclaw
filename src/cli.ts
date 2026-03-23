@@ -4898,9 +4898,10 @@ async function handleAgentPackageCommand(args: string[]): Promise<void> {
       );
     }
 
+    const { getAgentById } = await import('./agents/agent-registry.js');
+    const existingAgent = getAgentById(targetAgentId);
+
     if (!yes) {
-      const { getAgentById } = await import('./agents/agent-registry.js');
-      const existingAgent = getAgentById(targetAgentId);
       const targetLabel =
         existingAgent?.name && existingAgent.name !== targetAgentId
           ? `${existingAgent.name} (${targetAgentId})`
@@ -4924,7 +4925,7 @@ async function handleAgentPackageCommand(args: string[]): Promise<void> {
     }
 
     const { uninstallAgent } = await import('./agents/claw-archive.js');
-    const result = uninstallAgent(targetAgentId);
+    const result = uninstallAgent(targetAgentId, { existingAgent });
     console.log(`Uninstalled agent ${result.agentId}.`);
     console.log(
       result.removedAgentRoot

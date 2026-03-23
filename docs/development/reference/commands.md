@@ -63,5 +63,6 @@ hybridclaw audit verify [sessionId]
 - Discord supports `!claw` plus slash command equivalents for the same core
   actions
 
-For the full command inventory, keep [README.md](../../../README.md) open
-alongside this page.
+For the full command inventory, keep
+[README.md](https://github.com/HybridAIOne/hybridclaw/blob/main/README.md)
+open alongside this page.

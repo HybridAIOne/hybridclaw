@@ -161,6 +161,8 @@ afterEach(async () => {
   vi.doUnmock('../../src/plugins/plugin-manager.js');
   vi.doUnmock('../../src/plugins/plugin-install.ts');
   vi.doUnmock('../../src/plugins/plugin-install.js');
+  vi.doUnmock('../../src/infra/ipc.ts');
+  vi.doUnmock('../../src/infra/ipc.js');
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
@@ -175,6 +177,8 @@ beforeEach(() => {
   vi.doUnmock('../../src/plugins/plugin-manager.js');
   vi.doUnmock('../../src/plugins/plugin-install.ts');
   vi.doUnmock('../../src/plugins/plugin-install.js');
+  vi.doUnmock('../../src/infra/ipc.ts');
+  vi.doUnmock('../../src/infra/ipc.js');
 });
 
 describe('.claw archive support', () => {
@@ -621,6 +625,40 @@ describe('.claw archive support', () => {
     expect(() => uninstallAgent('main')).toThrow(
       'The main agent cannot be uninstalled.',
     );
+  });
+
+  test('uninstall refuses to remove agent roots outside the agents data directory', async () => {
+    const homeDir = makeTempDir('hybridclaw-claw-home-');
+    const cwd = makeTempDir('hybridclaw-claw-cwd-');
+    const outsideRoot = makeTempDir('hybridclaw-claw-outside-');
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+    process.chdir(cwd);
+
+    fs.mkdirSync(path.join(outsideRoot, 'workspace'), { recursive: true });
+    fs.writeFileSync(path.join(outsideRoot, 'notes.md'), 'do not delete\n');
+
+    vi.doMock('../../src/infra/ipc.js', async () => {
+      const actual = await vi.importActual<typeof import('../../src/infra/ipc.js')>(
+        '../../src/infra/ipc.js',
+      );
+      return {
+        ...actual,
+        agentWorkspaceDir: vi.fn(() =>
+          path.join(outsideRoot, 'workspace'),
+        ),
+      };
+    });
+
+    const { uninstallAgent } = await import('../../src/agents/claw-archive.js');
+
+    expect(() =>
+      uninstallAgent('writer', {
+        existingAgent: { id: 'writer', name: 'Writer Agent' },
+      }),
+    ).toThrow(`Refusing to remove agent files outside`);
+    expect(fs.existsSync(outsideRoot)).toBe(true);
+    expect(fs.existsSync(path.join(outsideRoot, 'notes.md'))).toBe(true);
   });
 
   test('pack can bundle only active workspace skills', async () => {

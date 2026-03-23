@@ -210,7 +210,8 @@ interface ClawManifest {
 }
 ```
 
-Implementation lives in [src/agents/claw-manifest.ts](../../../src/agents/claw-manifest.ts).
+Implementation lives in
+[src/agents/claw-manifest.ts](https://github.com/HybridAIOne/hybridclaw/blob/main/src/agents/claw-manifest.ts).
 
 ## Bundled vs External
 
@@ -370,7 +371,8 @@ plugins during import.
   - 100 MB compressed
   - 512 MB uncompressed
 
-Implementation lives in [src/agents/claw-security.ts](../../../src/agents/claw-security.ts).
+Implementation lives in
+[src/agents/claw-security.ts](https://github.com/HybridAIOne/hybridclaw/blob/main/src/agents/claw-security.ts).
 
 ## Generating `.claw` Files Programmatically
 

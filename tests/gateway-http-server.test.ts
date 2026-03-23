@@ -25,7 +25,9 @@ function signAuthPayload(
   return `${payloadSegment}.${signature}`;
 }
 
-function makeTempDocsDir(): string {
+function makeTempDocsDir(options?: {
+  includeMalformedFrontmatter?: boolean;
+}): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-'));
   const docsDir = path.join(root, 'docs');
   const developmentDocsDir = path.join(docsDir, 'development');
@@ -69,7 +71,6 @@ function makeTempDocsDir(): string {
       '---',
       'title: Development Docs',
       'description: Development index page.',
-      'slug: /development',
       'sidebar_position: 1',
       '---',
       '',
@@ -109,6 +110,30 @@ function makeTempDocsDir(): string {
     'utf8',
   );
   fs.writeFileSync(
+    path.join(guidesDir, 'heading-order.md'),
+    [
+      '---',
+      'title: Heading Order',
+      'description: Covers mixed heading depths.',
+      'sidebar_position: 3',
+      '---',
+      '',
+      '# Heading Order',
+      '',
+      '##### Deep internal heading',
+      '',
+      '## Repeated Section',
+      '',
+      'Visible content for the first section.',
+      '',
+      '## Repeated Section',
+      '',
+      'Visible content for the second section.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
     path.join(referenceDir, 'README.md'),
     [
       '---',
@@ -128,6 +153,23 @@ function makeTempDocsDir(): string {
     ].join('\n'),
     'utf8',
   );
+  if (options?.includeMalformedFrontmatter) {
+    fs.writeFileSync(
+      path.join(referenceDir, 'broken.md'),
+      [
+        '---',
+        'title: [broken',
+        'description: should fail',
+        '---',
+        '',
+        '# Broken',
+        '',
+        'This page should not render.',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+  }
   fs.writeFileSync(
     path.join(extensibilityDir, 'README.md'),
     [
@@ -919,6 +961,168 @@ describe('gateway HTTP server', () => {
       );
       expect(res.body).toContain(`href="${anchor}"`);
     }
+  });
+
+  test('reuses the cached development docs snapshot across repeated requests', async () => {
+    const installRoot = makeTempDocsDir();
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const guidesReadmePath = path.join(
+      installRoot,
+      'docs',
+      'development',
+      'guides',
+      'README.md',
+    );
+
+    const firstReq = makeRequest({ url: '/development/guides' });
+    const firstRes = makeResponse();
+    state.handler(firstReq as never, firstRes as never);
+
+    expect(firstRes.statusCode).toBe(200);
+    expect(firstRes.body).toContain('Browse the practical docs from here.');
+
+    fs.writeFileSync(
+      guidesReadmePath,
+      [
+        '---',
+        'title: Guides',
+        'description: Workflow guides and practical walkthroughs.',
+        'sidebar_position: 2',
+        '---',
+        '',
+        '# Guides',
+        '',
+        'This should only appear after the cache expires.',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const secondReq = makeRequest({ url: '/development/guides' });
+    const secondRes = makeResponse();
+    state.handler(secondReq as never, secondRes as never);
+
+    expect(secondRes.statusCode).toBe(200);
+    expect(secondRes.body).toContain('Browse the practical docs from here.');
+    expect(secondRes.body).not.toContain(
+      'This should only appear after the cache expires.',
+    );
+  });
+
+  test('rejects symlinked development markdown pages', async () => {
+    const installRoot = makeTempDocsDir();
+    const secretPath = path.join(installRoot, 'outside-secret.md');
+    fs.writeFileSync(secretPath, '# Secret\n', 'utf8');
+    fs.symlinkSync(
+      secretPath,
+      path.join(installRoot, 'docs', 'development', 'guides', 'secret.md'),
+    );
+
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const req = makeRequest({ url: '/development/guides/secret' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toBe('Not Found');
+  });
+
+  test('ignores symlinked category metadata files outside the docs tree', async () => {
+    const installRoot = makeTempDocsDir();
+    const externalCategoryPath = path.join(installRoot, 'outside-category.json');
+    fs.writeFileSync(
+      externalCategoryPath,
+      JSON.stringify({ label: 'Compromised' }),
+      'utf8',
+    );
+    fs.symlinkSync(
+      externalCategoryPath,
+      path.join(
+        installRoot,
+        'docs',
+        'development',
+        'guides',
+        '_category_.json',
+      ),
+    );
+
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const req = makeRequest({ url: '/development/guides/heading-order' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain('Compromised');
+    expect(res.body).toContain('<summary>Guides</summary>');
+  });
+
+  test('does not render non-http image sources in development docs', async () => {
+    const installRoot = makeTempDocsDir();
+    fs.writeFileSync(
+      path.join(
+        installRoot,
+        'docs',
+        'development',
+        'guides',
+        'image-schemes.md',
+      ),
+      [
+        '---',
+        'title: Image Schemes',
+        'description: Image scheme validation.',
+        'sidebar_position: 4',
+        '---',
+        '',
+        '# Image Schemes',
+        '',
+        '![Bad](javascript:alert(1))',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const req = makeRequest({ url: '/development/guides/image-schemes' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain('<img src="javascript:alert(1)"');
+    expect(res.body).toContain('Bad');
+    expect(res.body).not.toContain('javascript:alert(1)');
+  });
+
+  test('returns a visible error for malformed development doc frontmatter', async () => {
+    const installRoot = makeTempDocsDir({ includeMalformedFrontmatter: true });
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const req = makeRequest({ url: '/development/reference/broken' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(500);
+    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(res.body).toContain('Development docs failed to render');
+    expect(res.body).toContain('Invalid frontmatter in reference/broken.md');
+  });
+
+  test('keeps heading anchors aligned when deep headings appear before repeated sections', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/development/guides/heading-order' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('href="#repeated-section"');
+    expect(res.body).toContain('href="#repeated-section-2"');
+    expect(res.body).toContain('<h2 id="repeated-section">Repeated Section');
+    expect(res.body).toContain(
+      '<h2 id="repeated-section-2">Repeated Section',
+    );
   });
 
   test('renders individual development docs pages by slug', async () => {

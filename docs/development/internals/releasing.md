@@ -6,9 +6,10 @@ sidebar_position: 6
 
 # Release And Publishing
 
-The root [AGENTS.md](../../../AGENTS.md) contains the canonical "bump release"
-procedure used by coding agents. This document covers the packaging and publish
-side of a release.
+The root
+[AGENTS.md](https://github.com/HybridAIOne/hybridclaw/blob/main/AGENTS.md)
+contains the canonical "bump release" procedure used by coding agents. This
+document covers the packaging and publish side of a release.
 
 ## Release Prep
 

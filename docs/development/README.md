@@ -1,7 +1,6 @@
 ---
 title: HybridClaw Docs
 description: User-facing HybridClaw documentation for installation, setup, operations, extensibility, and runtime internals.
-slug: /development
 sidebar_position: 1
 ---
 

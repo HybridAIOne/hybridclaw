@@ -2432,7 +2432,13 @@ describe('CLI hybridai commands', () => {
 
     await cli.main(['agent', 'uninstall', 'writer', '--yes']);
 
-    expect(uninstallAgent).toHaveBeenCalledWith('writer');
+    expect(uninstallAgent).toHaveBeenCalledWith('writer', {
+      existingAgent: {
+        id: 'writer',
+        name: 'Writer Agent',
+        model: 'gpt-5-mini',
+      },
+    });
     expect(logSpy).toHaveBeenCalledWith('Uninstalled agent writer.');
     expect(logSpy).toHaveBeenCalledWith(
       'Removed agent files at /tmp/.hybridclaw/data/agents/writer.',

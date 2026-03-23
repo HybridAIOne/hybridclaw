@@ -7,7 +7,7 @@ sidebar_position: 6
 # QMD Memory Plugin
 
 HybridClaw ships an installable QMD memory plugin source at
-[`plugins/qmd-memory`](../../../plugins/qmd-memory).
+[`plugins/qmd-memory`](https://github.com/HybridAIOne/hybridclaw/tree/main/plugins/qmd-memory).
 The plugin complements the built-in SQLite session memory with external QMD
 search over markdown notes, docs, and optional exported session transcripts.
 
