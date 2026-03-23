@@ -14,6 +14,7 @@ const ORIGINAL_MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD;
 const ORIGINAL_MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ORIGINAL_HYBRIDCLAW_LOG_REQUESTS = process.env.HYBRIDCLAW_LOG_REQUESTS;
+const ORIGINAL_CI = process.env.CI;
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
 
@@ -153,6 +154,7 @@ async function importFreshCli(options?: {
 }) {
   vi.resetModules();
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
+  delete process.env.CI;
   Object.defineProperty(process.stdin, 'isTTY', {
     configurable: true,
     value: true,
@@ -804,6 +806,11 @@ afterEach(() => {
     delete process.env.MSTEAMS_TENANT_ID;
   } else {
     process.env.MSTEAMS_TENANT_ID = ORIGINAL_MSTEAMS_TENANT_ID;
+  }
+  if (ORIGINAL_CI === undefined) {
+    delete process.env.CI;
+  } else {
+    process.env.CI = ORIGINAL_CI;
   }
   Object.defineProperty(process.stdin, 'isTTY', {
     configurable: true,
