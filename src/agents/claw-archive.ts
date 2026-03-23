@@ -153,6 +153,14 @@ export interface UnpackAgentResult {
   runtimeConfigChanged: boolean;
 }
 
+export interface UninstallAgentResult {
+  agentId: string;
+  agentRootPath: string;
+  workspacePath: string;
+  removedAgentRoot: boolean;
+  removedRegistration: boolean;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -1268,5 +1276,45 @@ export async function unpackAgent(
     throw error;
   } finally {
     fs.rmSync(extractionRoot, { recursive: true, force: true });
+  }
+}
+
+export function uninstallAgent(agentId: string): UninstallAgentResult {
+  const normalizedAgentId = normalizeString(agentId);
+  if (!normalizedAgentId) {
+    throw new Error('Agent id is required.');
+  }
+  if (normalizedAgentId === DEFAULT_AGENT_ID) {
+    throw new Error('The main agent cannot be uninstalled.');
+  }
+
+  const workspacePath = agentWorkspaceDir(normalizedAgentId);
+  const agentRootPath = path.dirname(workspacePath);
+  const existingAgent = getAgentById(normalizedAgentId);
+  const agentRootExists = fs.existsSync(agentRootPath);
+  if (!existingAgent && !agentRootExists) {
+    throw new Error(`Agent "${normalizedAgentId}" is not installed.`);
+  }
+
+  let removedRegistration = false;
+  try {
+    if (existingAgent) {
+      removedRegistration = deleteRegisteredAgent(normalizedAgentId);
+    }
+    if (agentRootExists) {
+      fs.rmSync(agentRootPath, { recursive: true, force: true });
+    }
+    return {
+      agentId: normalizedAgentId,
+      agentRootPath,
+      workspacePath,
+      removedAgentRoot: agentRootExists,
+      removedRegistration,
+    };
+  } catch (error) {
+    if (removedRegistration && existingAgent) {
+      upsertRegisteredAgent(existingAgent);
+    }
+    throw error;
   }
 }

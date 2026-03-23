@@ -46,6 +46,7 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
+import { serveDevelopmentDocs } from './development-docs.js';
 import {
   createGatewayAdminAgent,
   deleteGatewayAdminAgent,
@@ -407,6 +408,7 @@ function resolveStaticFile(rootDir: string, pathname: string): string | null {
 }
 
 function serveStatic(pathname: string, res: ServerResponse): boolean {
+  if (serveDevelopmentDocs(pathname, res)) return true;
   const filePath = resolveSiteFile(
     pathname === '/chat'
       ? '/chat.html'

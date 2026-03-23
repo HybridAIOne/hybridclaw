@@ -547,6 +547,82 @@ describe('.claw archive support', () => {
     );
   });
 
+  test('uninstall removes a non-main agent registration and workspace root', async () => {
+    const homeDir = makeTempDir('hybridclaw-claw-home-');
+    const cwd = makeTempDir('hybridclaw-claw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+    process.chdir(cwd);
+
+    const { initDatabase } = await import('../../src/memory/db.js');
+    const { getAgentById, initAgentRegistry } = await import(
+      '../../src/agents/agent-registry.js'
+    );
+    const { agentWorkspaceDir } = await import('../../src/infra/ipc.js');
+    const { ensureBootstrapFiles } = await import('../../src/workspace.js');
+    const { uninstallAgent } = await import('../../src/agents/claw-archive.js');
+
+    initDatabase({ quiet: true });
+    initAgentRegistry({
+      list: [
+        { id: 'main', name: 'Main Agent' },
+        { id: 'writer', name: 'Writer Agent' },
+      ],
+    });
+
+    const workspacePath = agentWorkspaceDir('writer');
+    const agentRootPath = path.dirname(workspacePath);
+    ensureBootstrapFiles('writer');
+    fs.writeFileSync(
+      path.join(workspacePath, 'notes.md'),
+      '# Writer\n',
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(agentRootPath, 'metadata.json'),
+      '{"name":"Writer Agent"}\n',
+      'utf-8',
+    );
+
+    expect(getAgentById('writer')).toMatchObject({ id: 'writer' });
+    expect(fs.existsSync(agentRootPath)).toBe(true);
+
+    const result = uninstallAgent('writer');
+
+    expect(result).toMatchObject({
+      agentId: 'writer',
+      agentRootPath,
+      workspacePath,
+      removedAgentRoot: true,
+      removedRegistration: true,
+    });
+    expect(getAgentById('writer')).toBeNull();
+    expect(fs.existsSync(agentRootPath)).toBe(false);
+  });
+
+  test('uninstall rejects the main agent', async () => {
+    const homeDir = makeTempDir('hybridclaw-claw-home-');
+    const cwd = makeTempDir('hybridclaw-claw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+    process.chdir(cwd);
+
+    const { initDatabase } = await import('../../src/memory/db.js');
+    const { initAgentRegistry } = await import(
+      '../../src/agents/agent-registry.js'
+    );
+    const { uninstallAgent } = await import('../../src/agents/claw-archive.js');
+
+    initDatabase({ quiet: true });
+    initAgentRegistry({
+      list: [{ id: 'main', name: 'Main Agent' }],
+    });
+
+    expect(() => uninstallAgent('main')).toThrow(
+      'The main agent cannot be uninstalled.',
+    );
+  });
+
   test('pack can bundle only active workspace skills', async () => {
     const homeDir = makeTempDir('hybridclaw-claw-home-');
     const cwd = makeTempDir('hybridclaw-claw-cwd-');

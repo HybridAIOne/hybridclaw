@@ -1,3 +1,9 @@
+---
+title: Testing Reference
+description: Local test commands, suite boundaries, and validation expectations for HybridClaw changes.
+sidebar_position: 5
+---
+
 # Testing Reference
 
 ## Code Quality Checks

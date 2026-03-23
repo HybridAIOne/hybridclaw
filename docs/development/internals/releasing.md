@@ -1,6 +1,12 @@
+---
+title: Release And Publishing
+description: Release checklist, publishing flow, and versioned documentation expectations for HybridClaw releases.
+sidebar_position: 6
+---
+
 # Release And Publishing
 
-The root [AGENTS.md](../../AGENTS.md) contains the canonical "bump release"
+The root [AGENTS.md](../../../AGENTS.md) contains the canonical "bump release"
 procedure used by coding agents. This document covers the packaging and publish
 side of a release.
 
@@ -10,7 +16,7 @@ Before creating the release commit or tag:
 
 1. Update `CHANGELOG.md` and move the shipped notes out of `Unreleased`.
 2. Refresh `README.md`, `docs/index.html`, and any affected
-   `docs/development/*.md` pages so the published docs describe the current
+   `docs/development/**/*.md` pages so the published docs describe the current
    shipped state instead of the previous release.
 3. Bump the root and container package versions plus both lockfiles.
 4. Run the release validation commands from the repo root:

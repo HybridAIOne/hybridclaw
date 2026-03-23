@@ -1,3 +1,9 @@
+---
+title: Session Routing
+description: Canonical session keys, routing boundaries, and identity isolation across HybridClaw channels.
+sidebar_position: 4
+---
+
 # Session Routing
 
 ## Canonical Keys

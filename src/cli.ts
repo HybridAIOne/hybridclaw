@@ -445,7 +445,7 @@ function printMainUsage(): void {
   console.log(`Usage: hybridclaw <command>
 
   Commands:
-  agent      Pack, inspect, or unpack portable agent archives
+  agent      Export, inspect, install, or uninstall portable agent archives
   auth       Unified provider login/logout/status
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   tui        Start terminal adapter (starts gateway automatically when needed)
@@ -862,29 +862,32 @@ function printAgentUsage(): void {
 
 Commands:
   hybridclaw agent list
-  hybridclaw agent pack [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
+  hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
   hybridclaw agent inspect <file.claw>
-  hybridclaw agent unpack <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]
+  hybridclaw agent install <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]
+  hybridclaw agent uninstall <agent-id> [--yes]
 
 Notes:
   - \`list\` prints registered agents in a script-friendly tab-separated format.
-  - \`pack\` exports an agent workspace, bundled workspace skills, and bundled home plugins into a portable \`.claw\` archive.
-  - Use \`--description\`, \`--author\`, and \`--version\` to set optional manifest metadata during pack.
+  - \`export\` exports an agent workspace, bundled workspace skills, and bundled home plugins into a portable \`.claw\` archive.
+  - Use \`--description\`, \`--author\`, and \`--version\` to set optional manifest metadata during export.
   - Use \`--dry-run\` to preview the generated manifest path and archive entries without writing a file.
   - Use \`--skills active\` to bundle only enabled workspace skills, \`--skills all\` to bundle all workspace skills, or \`--skills some --skill <name>\` to bundle a selected subset.
   - Use \`--plugins active\` to bundle only enabled home plugins, \`--plugins all\` to bundle all installed home plugins, or \`--plugins some --plugin <id>\` to bundle a selected subset.
-  - Interactive pack defaults to \`--skills ask\` and \`--plugins ask\`; non-interactive pack defaults to \`--skills all\` and \`--plugins active\`.
+  - Interactive export defaults to \`--skills ask\` and \`--plugins ask\`; non-interactive export defaults to \`--skills all\` and \`--plugins active\`.
   - \`inspect\` validates the archive manifest and prints a summary without extracting files.
-  - \`unpack\` validates ZIP safety, confirms the manifest, registers the agent, restores bundled content, and fills missing bootstrap files.
-  - Use \`--yes\` to skip the unpack confirmation prompt.
-  - Use \`--force\` to replace an existing agent workspace or bundled plugin install during unpack.`);
+  - \`install\` validates ZIP safety, confirms the manifest, registers the agent, restores bundled content, and fills missing bootstrap files.
+  - \`uninstall\` removes a non-main agent registration and its workspace root.
+  - Use \`--yes\` to skip the install or uninstall confirmation prompt.
+  - Use \`--force\` to replace an existing agent workspace or bundled plugin install during install.
+  - Legacy aliases remain accepted: \`pack\` maps to \`export\`, and \`unpack\` maps to \`install\`.`);
 }
 
 function printHelpUsage(): void {
   console.log(`Usage: hybridclaw help <topic>
 
 Topics:
-  agent       Help for portable agent package commands
+  agent       Help for portable agent archive commands
   auth        Help for unified provider login/logout/status
   gateway     Help for gateway lifecycle and passthrough commands
   tui         Help for terminal client
@@ -4398,7 +4401,9 @@ async function handleAgentPackageCommand(args: string[]): Promise<void> {
 
   await ensureAgentPackagingRuntime();
 
-  const sub = normalized[0].toLowerCase();
+  const rawSub = normalized[0].toLowerCase();
+  const sub =
+    rawSub === 'pack' ? 'export' : rawSub === 'unpack' ? 'install' : rawSub;
   if (sub === 'list') {
     if (normalized.length !== 1) {
       printAgentUsage();
@@ -4444,7 +4449,7 @@ async function handleAgentPackageCommand(args: string[]): Promise<void> {
     return;
   }
 
-  if (sub === 'pack') {
+  if (sub === 'export') {
     let agentId = 'main';
     let outputPath = '';
     let description = '';
@@ -4576,7 +4581,7 @@ async function handleAgentPackageCommand(args: string[]): Promise<void> {
       }
       printAgentUsage();
       throw new Error(
-        `Unexpected argument for \`hybridclaw agent pack\`: ${arg}`,
+        `Unexpected argument for \`hybridclaw agent export\`: ${arg}`,
       );
     }
 
@@ -4732,21 +4737,23 @@ async function handleAgentPackageCommand(args: string[]): Promise<void> {
       });
 
       console.log(
-        `${dryRun ? 'Dry run:' : 'Packed'} agent ${result.manifest.name} to ${result.archivePath}.`,
+        dryRun
+          ? `📦 Dry run export for agent ${result.manifest.name}: ${result.archivePath}.`
+          : `📦 Exported agent ${result.manifest.name} to ${result.archivePath}.`,
       );
-      console.log(`Workspace: ${result.workspacePath}`);
-      console.log(`Bundled skills: ${result.bundledSkills.length}`);
-      console.log(`Bundled plugins: ${result.bundledPlugins.length}`);
+      console.log(`🧠 Workspace: ${result.workspacePath}`);
+      console.log(`🧩 Bundled skills: ${result.bundledSkills.length}`);
+      console.log(`🔌 Bundled plugins: ${result.bundledPlugins.length}`);
       if (
         result.externalSkills.length > 0 ||
         result.externalPlugins.length > 0
       ) {
         console.log(
-          `External refs: ${result.externalSkills.length + result.externalPlugins.length}`,
+          `🔗 External refs: ${result.externalSkills.length + result.externalPlugins.length}`,
         );
       }
       if (dryRun) {
-        console.log('Archive entries:');
+        console.log('📄 Archive entries:');
         for (const entry of result.archiveEntries) {
           console.log(`  ${entry}`);
         }
@@ -4757,7 +4764,7 @@ async function handleAgentPackageCommand(args: string[]): Promise<void> {
     }
   }
 
-  if (sub === 'unpack') {
+  if (sub === 'install') {
     let archivePath = '';
     let requestedId = '';
     let force = false;
@@ -4796,20 +4803,20 @@ async function handleAgentPackageCommand(args: string[]): Promise<void> {
       }
       printAgentUsage();
       throw new Error(
-        `Unexpected argument for \`hybridclaw agent unpack\`: ${arg}`,
+        `Unexpected argument for \`hybridclaw agent install\`: ${arg}`,
       );
     }
 
     if (!archivePath) {
       printAgentUsage();
       throw new Error(
-        'Missing archive path for `hybridclaw agent unpack <file.claw>`.',
+        'Missing archive path for `hybridclaw agent install <file.claw>`.',
       );
     }
 
     if (!yes && (!process.stdin.isTTY || !process.stdout.isTTY)) {
       throw new Error(
-        'Unpack confirmation requires an interactive terminal. Re-run with --yes to skip the prompt.',
+        'Install confirmation requires an interactive terminal. Re-run with --yes to skip the prompt.',
       );
     }
 
@@ -4839,14 +4846,18 @@ async function handleAgentPackageCommand(args: string[]): Promise<void> {
       },
     });
 
-    console.log(`Unpacked agent ${result.agentId} to ${result.workspacePath}.`);
-    console.log(`Bundled skills restored: ${result.bundledSkills.length}`);
-    console.log(`Bundled plugins installed: ${result.installedPlugins.length}`);
+    console.log(
+      `📥 Installed agent ${result.agentId} to ${result.workspacePath}.`,
+    );
+    console.log(`🧩 Bundled skills restored: ${result.bundledSkills.length}`);
+    console.log(
+      `🔌 Bundled plugins installed: ${result.installedPlugins.length}`,
+    );
     if (result.runtimeConfigChanged) {
-      console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+      console.log(`⚙️ Updated runtime config at ${runtimeConfigPath()}.`);
     }
     if (result.externalActions.length > 0) {
-      console.log('External references were not installed automatically:');
+      console.log('🔗 External references were not installed automatically:');
       for (const action of result.externalActions) {
         console.log(`  ${action}`);
       }
@@ -4854,9 +4865,78 @@ async function handleAgentPackageCommand(args: string[]): Promise<void> {
     return;
   }
 
+  if (sub === 'uninstall') {
+    let targetAgentId = '';
+    let yes = false;
+
+    for (let index = 1; index < normalized.length; index += 1) {
+      const arg = normalized[index];
+      if (!targetAgentId && !arg.startsWith('-')) {
+        targetAgentId = arg;
+        continue;
+      }
+      if (arg === '--yes') {
+        yes = true;
+        continue;
+      }
+      printAgentUsage();
+      throw new Error(
+        `Unexpected argument for \`hybridclaw agent uninstall\`: ${arg}`,
+      );
+    }
+
+    if (!targetAgentId) {
+      printAgentUsage();
+      throw new Error(
+        'Missing agent id for `hybridclaw agent uninstall <agent-id>`.',
+      );
+    }
+
+    if (!yes && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+      throw new Error(
+        'Uninstall confirmation requires an interactive terminal. Re-run with --yes to skip the prompt.',
+      );
+    }
+
+    if (!yes) {
+      const { getAgentById } = await import('./agents/agent-registry.js');
+      const existingAgent = getAgentById(targetAgentId);
+      const targetLabel =
+        existingAgent?.name && existingAgent.name !== targetAgentId
+          ? `${existingAgent.name} (${targetAgentId})`
+          : targetAgentId;
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      try {
+        const confirmed = await promptYesNo(
+          rl,
+          `Uninstall agent "${targetLabel}" and remove its workspace?`,
+          false,
+        );
+        if (!confirmed) {
+          throw new Error('Agent uninstall cancelled.');
+        }
+      } finally {
+        rl.close();
+      }
+    }
+
+    const { uninstallAgent } = await import('./agents/claw-archive.js');
+    const result = uninstallAgent(targetAgentId);
+    console.log(`Uninstalled agent ${result.agentId}.`);
+    console.log(
+      result.removedAgentRoot
+        ? `Removed agent files at ${result.agentRootPath}.`
+        : `No agent files were present at ${result.agentRootPath}.`,
+    );
+    return;
+  }
+
   printAgentUsage();
   throw new Error(
-    `Unknown agent subcommand: ${sub}. Use \`hybridclaw agent pack\`, \`hybridclaw agent inspect\`, or \`hybridclaw agent unpack\`.`,
+    `Unknown agent subcommand: ${rawSub}. Use \`hybridclaw agent export\`, \`hybridclaw agent inspect\`, \`hybridclaw agent install\`, or \`hybridclaw agent uninstall\`.`,
   );
 }
 

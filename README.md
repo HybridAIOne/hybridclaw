@@ -215,7 +215,7 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - `sessionRouting.*` controls DM continuity scope. The default `per-channel-peer` mode keeps direct messages isolated by transport and peer identity; `per-linked-identity` plus `sessionRouting.identityLinks` can collapse verified aliases onto one shared main session.
 - `skills.disabled` and `skills.channelDisabled.{discord,msteams,whatsapp,email}` control global and per-channel skill availability. Use `hybridclaw skill enable|disable <name> [--channel <kind>]` or the TUI `/skill config` checklist to manage them.
 - `plugins.list[]` controls plugin overrides such as `enabled`, custom `path`, and top-level `config` values. Use `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused edits without rewriting the full config file.
-- `adaptiveSkills.*` controls observation, inspection, amendment staging, and rollback for the self-improving skill loop. See [docs/development/adaptive-skills.md](./docs/development/adaptive-skills.md) for the operator workflow.
+- `adaptiveSkills.*` controls observation, inspection, amendment staging, and rollback for the self-improving skill loop. See [docs/development/extensibility/adaptive-skills.md](./docs/development/extensibility/adaptive-skills.md) for the operator workflow.
 - `email.pollIntervalMs` defaults to `30000` (30 seconds) and is clamped to a minimum of `1000`.
 - `ops.webApiToken` (or `WEB_API_TOKEN`) gates the built-in `/chat`, `/agents`, and `/admin` surfaces plus the admin API. When unset, localhost browser access stays open without a login prompt.
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently written to `~/.hybridclaw/config.json` as plain text. Use low-privilege tokens only, set `chmod 700 ~/.hybridclaw && chmod 600 ~/.hybridclaw/config.json`, and prefer `host` sandbox mode for stdio MCP servers that depend on host-installed tools.
@@ -444,6 +444,8 @@ CLI runtime commands:
 - `hybridclaw gateway agent [list|switch <id>|create <id> [--model <model>]|model [name]]` — Inspect or change the current session-to-agent binding and persistent agent model
 - `hybridclaw gateway compact` — Archive older session history into semantic memory while preserving a recent active context tail
 - `hybridclaw gateway reset [yes|no]` — Clear session history, reset per-session model/chatbot/RAG settings, and remove the current agent workspace (confirmation required)
+- `hybridclaw agent list` — Show registered agents in a script-friendly tab-separated format
+- `hybridclaw agent export [agent-id] [-o <path>]`, `inspect <file.claw>`, `install <file.claw> [--id <id>]`, `uninstall <agent-id> [--yes]` — Manage portable `.claw` agent archives
 - `hybridclaw tui` — Start terminal client connected to gateway
 - `hybridclaw tui --resume <sessionId>` / `hybridclaw --resume <sessionId>` — Resume an earlier TUI session by canonical session id
 - `hybridclaw onboarding` — Run trust-model acceptance plus interactive provider onboarding

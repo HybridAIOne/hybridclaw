@@ -1,4 +1,10 @@
-# AdaptiveSkills
+---
+title: Adaptive Skills
+description: The self-improving skill loop, operator workflow, amendment flow, and retention behavior.
+sidebar_position: 5
+---
+
+# Adaptive Skills
 
 "AdaptiveSkills" is the self-improving skill loop in HybridClaw. It keeps
 observation data in SQLite, inspects that data for degraded skills, stages

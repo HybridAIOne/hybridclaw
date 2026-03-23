@@ -28,9 +28,17 @@ function signAuthPayload(
 function makeTempDocsDir(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-'));
   const docsDir = path.join(root, 'docs');
+  const developmentDocsDir = path.join(docsDir, 'development');
+  const extensibilityDir = path.join(developmentDocsDir, 'extensibility');
+  const guidesDir = path.join(developmentDocsDir, 'guides');
+  const referenceDir = path.join(developmentDocsDir, 'reference');
   const consoleDistDir = path.join(root, 'console', 'dist');
   tempDirs.push(root);
   fs.mkdirSync(docsDir, { recursive: true });
+  fs.mkdirSync(developmentDocsDir, { recursive: true });
+  fs.mkdirSync(extensibilityDir, { recursive: true });
+  fs.mkdirSync(guidesDir, { recursive: true });
+  fs.mkdirSync(referenceDir, { recursive: true });
   fs.mkdirSync(consoleDistDir, { recursive: true });
   fs.writeFileSync(path.join(docsDir, 'index.html'), '<h1>Docs</h1>', 'utf8');
   fs.writeFileSync(path.join(docsDir, 'chat.html'), '<h1>Chat</h1>', 'utf8');
@@ -48,6 +56,96 @@ function makeTempDocsDir(): string {
   fs.writeFileSync(
     path.join(consoleDistDir, 'assets', 'app.js'),
     'console.log("admin")',
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(developmentDocsDir, '_category_.json'),
+    JSON.stringify({ label: 'Development', position: 1, collapsed: false }),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(developmentDocsDir, 'README.md'),
+    [
+      '---',
+      'title: Development Docs',
+      'description: Development index page.',
+      'slug: /development',
+      'sidebar_position: 1',
+      '---',
+      '',
+      '# Development Docs',
+      '',
+      'Start with [Guides](./guides), [Reference](./reference), or [Extensibility](./extensibility).',
+      '',
+      '## Getting Started',
+      '',
+      'This section introduces the development docs.',
+      '',
+      '### First Steps',
+      '',
+      'Read the overview, then pick a subsystem.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(guidesDir, 'README.md'),
+    [
+      '---',
+      'title: Guides',
+      'description: Workflow guides and practical walkthroughs.',
+      'sidebar_position: 2',
+      '---',
+      '',
+      '# Guides',
+      '',
+      'Browse the practical docs from here.',
+      '',
+      '## Tutorials',
+      '',
+      'Start with the main workflow walkthroughs.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(referenceDir, 'README.md'),
+    [
+      '---',
+      'title: Reference',
+      'description: Configuration and command reference.',
+      'sidebar_position: 3',
+      '---',
+      '',
+      '# Reference',
+      '',
+      'Look up commands, settings, and operational details.',
+      '',
+      '## Commands',
+      '',
+      'This section summarizes the CLI surface.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(extensibilityDir, 'README.md'),
+    [
+      '---',
+      'title: Extensibility',
+      'description: Extend HybridClaw with tools and skills.',
+      'sidebar_position: 4',
+      '---',
+      '',
+      '# Extensibility',
+      '',
+      'This page documents the extension surface.',
+      '',
+      '## Tools',
+      '',
+      'Built-in tools and external tool surfaces live here.',
+      '',
+    ].join('\n'),
     'utf8',
   );
   return root;
@@ -770,6 +868,72 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
     expect(res.body).toContain('<h1>Docs</h1>');
+  });
+
+  test('renders development docs markdown as a browsable HTML page', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/development' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(res.body).toContain(
+      '<title>Development Docs | HybridClaw Docs</title>',
+    );
+    expect(res.body).toContain('<h1 id="development-docs">Development Docs');
+    expect(res.body).toContain('href="/development/guides"');
+    expect(res.body).toContain('href="/development/reference"');
+    expect(res.body).toContain('href="/development/extensibility"');
+    expect(res.body).toContain('aria-label="Search docs"');
+    expect(res.body).toContain('>Home</a>');
+    expect(res.body).toContain('>GitHub');
+    expect(res.body).toContain('>Discord');
+    expect(res.body).toContain('On this page');
+    expect(res.body).toContain('href="#getting-started"');
+    expect(res.body).not.toContain(
+      'class="docs-sidebar-link is-active" href="/development"',
+    );
+    expect(res.body).not.toContain('><span>Development Docs</span></a>');
+  });
+
+  test('renders section index pages from folder-based routes', async () => {
+    const state = await importFreshHealth();
+
+    for (const [pathname, title, heading, anchor] of [
+      ['/development/guides', 'Guides', 'Guides', '#tutorials'],
+      ['/development/reference', 'Reference', 'Reference', '#commands'],
+      ['/development/guides/', 'Guides', 'Guides', '#tutorials'],
+    ] as const) {
+      const req = makeRequest({ url: pathname });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+      expect(res.body).toContain(`<title>${title} | HybridClaw Docs</title>`);
+      expect(res.body).toContain(`<h1 id="${heading.toLowerCase()}">${heading}`);
+      expect(res.body).toContain(`href="${anchor}"`);
+    }
+  });
+
+  test('renders individual development docs pages by slug', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/development/extensibility' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(res.body).toContain(
+      '<title>Extensibility | HybridClaw Docs</title>',
+    );
+    expect(res.body).toContain('<h1 id="extensibility">Extensibility');
+    expect(res.body).toContain('This page documents the extension surface.');
+    expect(res.body).toContain('href="#tools"');
   });
 
   test('serves /chat, /agents, and /admin without a session cookie outside Docker', async () => {

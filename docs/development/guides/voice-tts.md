@@ -1,3 +1,9 @@
+---
+title: Voice And TTS
+description: Voice-reply setup, speech backend expectations, and the current audio delivery path for HybridClaw.
+sidebar_position: 5
+---
+
 # Voice And TTS
 
 HybridClaw has shared inbound audio transcription, but it does not currently

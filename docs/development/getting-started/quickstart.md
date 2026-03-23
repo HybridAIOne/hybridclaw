@@ -1,0 +1,68 @@
+---
+title: Quick Start
+description: Launch the gateway, TUI, and built-in web surfaces after onboarding.
+sidebar_position: 3
+---
+
+# Quick Start
+
+## Onboarding
+
+HybridClaw onboarding walks through:
+
+1. accepting `TRUST_MODEL.md`
+2. choosing whether to create a new account
+3. opening HybridAI registration/login in the browser when needed
+4. saving the API key and default bot configuration
+
+Run it explicitly with:
+
+```bash
+hybridclaw onboarding
+```
+
+## Start The Gateway
+
+```bash
+hybridclaw gateway
+```
+
+Common variants:
+
+```bash
+hybridclaw gateway start --foreground
+hybridclaw gateway start --foreground --sandbox=host
+```
+
+Use `--sandbox=host` for stdio MCP servers that depend on host binaries such
+as `docker`, `node`, or `npx`.
+
+## Start The TUI
+
+In a second terminal:
+
+```bash
+hybridclaw tui
+```
+
+## Open The Built-In Web Surfaces
+
+With the gateway running locally:
+
+- chat UI: `http://127.0.0.1:9090/chat`
+- agent/session dashboard: `http://127.0.0.1:9090/agents`
+- admin console: `http://127.0.0.1:9090/admin`
+- docs: `http://127.0.0.1:9090/development`
+
+If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt. If
+it is set, `/chat`, `/agents`, and `/admin` all reuse the same token gate.
+
+## Channel Integrations
+
+The gateway auto-connects configured channels:
+
+- Microsoft Teams when `msteams.enabled` is true and
+  `MSTEAMS_APP_PASSWORD` is saved
+- Discord when `DISCORD_TOKEN` is set
+- Email when `email.enabled` is true and `EMAIL_PASSWORD` is saved
+- WhatsApp when linked auth exists under `~/.hybridclaw/credentials/whatsapp`

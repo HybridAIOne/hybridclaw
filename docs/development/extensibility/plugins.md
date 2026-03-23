@@ -1,3 +1,9 @@
+---
+title: Plugin System
+description: Plugin manifests, discovery, install flow, config wiring, and runtime hooks in HybridClaw.
+sidebar_position: 4
+---
+
 # Plugin System
 
 HybridClaw plugins are local runtime extensions discovered from plugin

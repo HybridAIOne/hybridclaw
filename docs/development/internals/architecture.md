@@ -1,3 +1,9 @@
+---
+title: Architecture
+description: High-level map of the HybridClaw runtime, repository layout, and core data flows.
+sidebar_position: 2
+---
+
 # Architecture
 
 ## Runtime Components
