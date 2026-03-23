@@ -1441,7 +1441,32 @@ export function startGatewayHttpServer(): void {
       try {
         const payload = verifyLaunchToken(token);
         setSessionCookie(res, payload);
-        sendRedirect(res, 302, '/admin');
+        // Respond with a small HTML page that stores the WEB_API_TOKEN in
+        // localStorage before redirecting.  This lets the console make
+        // Bearer-authenticated API calls without ever showing the manual
+        // token prompt.  The token never appears in the URL (avoiding
+        // leaks via browser history, referrer headers, or server logs).
+        if (WEB_API_TOKEN) {
+          // Escape for safe inline-script embedding: JSON.stringify handles
+          // JS-level escaping, then replace `<` to prevent the HTML parser
+          // from closing the <script> block early (e.g. a token containing
+          // "</script>").
+          const escaped = JSON.stringify(WEB_API_TOKEN).replace(/</g, '\\u003c');
+          res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+            'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'",
+            'X-Content-Type-Options': 'nosniff',
+          });
+          res.end(
+            `<!DOCTYPE html><html><body><script>` +
+              `localStorage.setItem('hybridclaw_token',${escaped});` +
+              `window.location.replace('/admin');` +
+              `</script></body></html>`,
+          );
+        } else {
+          sendRedirect(res, 302, '/admin');
+        }
       } catch {
         sendText(res, 401, 'Unauthorized. Invalid or expired auth token.');
       }
