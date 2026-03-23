@@ -53,9 +53,11 @@ COPY SECURITY.md TRUST_MODEL.md ./
 EXPOSE 9090
 
 ENV HYBRIDCLAW_DATA_DIR=/workspace/.data
+# Operators must set HYBRIDCLAW_ACCEPT_TRUST=true at runtime to accept the
+# security trust model in headless mode (e.g. docker run -e HYBRIDCLAW_ACCEPT_TRUST=true).
 RUN mkdir -p /workspace/.data
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "dist/cli.js", "gateway"]
+CMD ["node", "dist/cli.js", "gateway", "start", "--foreground"]

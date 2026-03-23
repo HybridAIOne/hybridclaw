@@ -49,6 +49,7 @@ import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
+import { getBrowserProfileDir } from '../browser/browser-login.js';
 import { redactSecrets } from '../security/redact.js';
 import type {
   AdditionalMount,
@@ -134,6 +135,12 @@ export function collectConfiguredDiscordChannelIds(
 
 export function resolveDiscordMediaCacheHostDir(): string {
   return path.resolve(path.join(DATA_DIR, 'discord-media-cache'));
+}
+
+const CONTAINER_BROWSER_PROFILE_PATH = '/browser-profiles';
+
+export function resolveBrowserProfileHostDir(): string {
+  return path.resolve(getBrowserProfileDir(DATA_DIR));
 }
 
 function emitTextDelta(entry: PoolEntry, line: string): void {
@@ -382,6 +389,16 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
   const { ipcPath, workspacePath } = getSessionPaths(sessionId, agentId);
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
+  const browserProfileHostPath = resolveBrowserProfileHostDir();
+  fs.mkdirSync(browserProfileHostPath, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(browserProfileHostPath, 0o700);
+  } catch (err) {
+    logger.warn(
+      { err, dir: browserProfileHostPath },
+      'Failed to set permissions on browser profile directory',
+    );
+  }
   const containerName = `hybridclaw-${sessionId.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
 
   const args = [
@@ -409,6 +426,10 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     `${ipcPath}:/ipc:rw`,
     '-v',
     `${mediaCacheHostPath}:${CONTAINER_DISCORD_MEDIA_CACHE_ROOT}:ro`,
+    '-v',
+    `${browserProfileHostPath}:${CONTAINER_BROWSER_PROFILE_PATH}:rw`,
+    '-e',
+    `BROWSER_SHARED_PROFILE_DIR=${CONTAINER_BROWSER_PROFILE_PATH}`,
     '-e',
     `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
     '-e',

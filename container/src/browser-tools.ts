@@ -305,6 +305,31 @@ function resolveProfileRoot(): string {
   return ensureWritableDir(resolved);
 }
 
+/**
+ * Return the shared (pre-authenticated) profile directory when the gateway
+ * has mounted one.  All sessions reuse this single profile so that manual
+ * logins performed via `hybridclaw browser login` are available to the agent
+ * without per-session isolation overhead.
+ *
+ * When `BROWSER_SHARED_PROFILE_DIR` is unset the function returns
+ * `undefined` and the regular per-session profile logic applies.
+ */
+function resolveSharedProfileDir(): string | undefined {
+  const dir = String(process.env.BROWSER_SHARED_PROFILE_DIR || '').trim();
+  if (!dir) return undefined;
+  const resolved = path.isAbsolute(dir)
+    ? dir
+    : path.resolve(WORKSPACE_ROOT, dir);
+  try {
+    return ensureWritableDir(resolved);
+  } catch (err) {
+    process.stderr.write(
+      `[browser-tools] Warning: shared profile dir ${resolved} is not writable, falling back to per-session profile: ${err}\n`,
+    );
+    return undefined;
+  }
+}
+
 function resolveCdpUrl(explicit?: string): string | undefined {
   const direct = String(explicit || '').trim();
   if (direct) return direct;
@@ -364,7 +389,17 @@ function getSession(sessionId: string): BrowserSession {
   fs.mkdirSync(socketDir, { recursive: true, mode: 0o700 });
 
   let profileDir: string | undefined;
-  if (shouldPersistProfiles()) {
+  // Prefer a shared (pre-authenticated) profile root mounted by the gateway.
+  // Derive a per-session subdirectory to avoid Chromium profile lock conflicts
+  // when multiple sessions run in parallel.
+  const sharedDir = resolveSharedProfileDir();
+  if (sharedDir) {
+    try {
+      profileDir = ensureWritableDir(path.join(sharedDir, runtimeKey));
+    } catch {
+      profileDir = undefined;
+    }
+  } else if (shouldPersistProfiles()) {
     try {
       profileDir = ensureWritableDir(
         path.join(resolveProfileRoot(), runtimeKey),

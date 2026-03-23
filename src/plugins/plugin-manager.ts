@@ -12,6 +12,7 @@ import {
   unregisterChannel,
 } from '../channels/channel-registry.js';
 import {
+  DEFAULT_RUNTIME_HOME_DIR,
   getRuntimeConfig,
   type RuntimeConfig,
 } from '../config/runtime-config.js';
@@ -600,7 +601,7 @@ export class PluginManager {
   private importSnapshotRoots: string[] = [];
 
   constructor(options?: PluginManagerOptions) {
-    this.homeDir = options?.homeDir || os.homedir();
+    this.homeDir = options?.homeDir || DEFAULT_RUNTIME_HOME_DIR;
     this.cwd = options?.cwd || process.cwd();
     this.getConfig = options?.getRuntimeConfig || getRuntimeConfig;
     this.logger = options?.logger || rootLogger;
@@ -704,7 +705,7 @@ export class PluginManager {
     const configuredEntries = toPluginConfigEntries(config);
     const discovered = new Map<string, PluginCandidate>();
     for (const candidate of this.scanDirectory(
-      path.join(this.homeDir, '.hybridclaw', 'plugins'),
+      path.join(this.homeDir, 'plugins'),
       'home',
     )) {
       if (!discovered.has(candidate.id))
@@ -1526,7 +1527,6 @@ let singleton: PluginManager | null = null;
 
 export function getPluginManager(): PluginManager {
   singleton ??= new PluginManager({
-    homeDir: os.homedir(),
     cwd: process.cwd(),
     getRuntimeConfig,
   });

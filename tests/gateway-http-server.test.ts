@@ -897,6 +897,127 @@ describe('gateway HTTP server', () => {
     expect(res.body).toBe('Unauthorized. Invalid or expired auth token.');
   });
 
+  test('returns 401 from /auth/callback when the token query parameter is missing', async () => {
+    const state = await importFreshHealth({ authSecret: 'health-secret' });
+    const req = makeRequest({
+      url: '/auth/callback',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body).toBe('Unauthorized. Invalid or expired auth token.');
+  });
+
+  test('/auth/callback returns HTML with localStorage script when WEB_API_TOKEN is set', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'my-web-token',
+    });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(res.body).toContain('localStorage.setItem');
+    expect(res.body).toContain('hybridclaw_token');
+    expect(res.body).toContain('my-web-token');
+    expect(res.body).toContain("window.location.replace('/admin')");
+    // Session cookie should still be set
+    expect(res.headers['Set-Cookie']).toEqual(
+      expect.stringContaining('hybridclaw_session='),
+    );
+  });
+
+  test('/auth/callback includes CSP and X-Content-Type-Options headers when WEB_API_TOKEN is set', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'my-web-token',
+    });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Security-Policy']).toBe(
+      "default-src 'none'; script-src 'unsafe-inline'",
+    );
+    expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
+    expect(res.headers['Cache-Control']).toBe('no-store');
+  });
+
+  test('/auth/callback escapes angle brackets in WEB_API_TOKEN to prevent script injection', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'token-with-<script>-in-it',
+    });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    // Raw `<` must not appear inside the <script> block payload
+    expect(res.body).not.toMatch(/<script>.*<(?!\/script>).*<\/script>/s);
+    // The escaped form should be present instead
+    expect(res.body).toContain('\\u003c');
+  });
+
+  test('/auth/callback returns 302 redirect when WEB_API_TOKEN is not set', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/admin');
+  });
+
   test('returns history for authorized loopback API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/history?sessionId=s1&limit=2' });

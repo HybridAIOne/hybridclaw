@@ -1,8 +1,12 @@
+export function normalizeTrimmedString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 export function normalizeTrimmedStringArray(
   values: readonly unknown[] | undefined,
 ): string[] {
   return (values ?? [])
-    .map((value) => String(value || '').trim())
+    .map((value) => normalizeTrimmedString(value))
     .filter(Boolean);
 }
 

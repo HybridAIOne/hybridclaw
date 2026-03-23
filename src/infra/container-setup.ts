@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { APP_VERSION, CONTAINER_IMAGE } from '../config/config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-config.js';
 
 export type ContainerRebuildPolicy = 'if-stale' | 'always' | 'never';
 export type ContainerImageAcquisitionMode = 'pull-or-build' | 'build-only';
@@ -94,7 +94,7 @@ interface ContainerImageState {
 }
 
 const CONTAINER_FINGERPRINT_VERSION = 'v1';
-const STATE_ROOT_DIR = path.join(os.homedir(), '.hybridclaw');
+const STATE_ROOT_DIR = DEFAULT_RUNTIME_HOME_DIR;
 const STATE_DIRNAME = 'container-image-state';
 const STATE_FILENAME = 'container-image-state.json';
 const DEFAULT_CONTAINER_IMAGE = 'hybridclaw-agent';

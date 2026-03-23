@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import readline from 'node:readline/promises';
 
 import {
@@ -220,21 +219,19 @@ function requireInteractiveTerminal(): void {
   }
 }
 
-function saveApiKey(apiKey: string, homeDir: string): string {
-  const filePath = saveRuntimeSecrets({ HYBRIDAI_API_KEY: apiKey }, homeDir);
+function saveApiKey(apiKey: string): string {
+  const filePath = saveRuntimeSecrets({ HYBRIDAI_API_KEY: apiKey });
   process.env.HYBRIDAI_API_KEY = apiKey;
   refreshRuntimeSecretsFromEnv();
   return filePath;
 }
 
 async function loginWithApiKeyPrompt(options: {
-  homeDir: string;
   method: 'browser' | 'device-code';
   baseUrl?: string;
 }): Promise<HybridAILoginResult> {
   requireInteractiveTerminal();
 
-  const homeDir = options.homeDir;
   const method = options.method;
   const baseUrl = normalizeBaseUrl(
     options.baseUrl || HYBRIDAI_BASE_URL || DEFAULT_BASE_URL,
@@ -289,7 +286,7 @@ async function loginWithApiKeyPrompt(options: {
       }
     }
 
-    const path = saveApiKey(apiKey, homeDir);
+    const path = saveApiKey(apiKey);
     return {
       path,
       apiKey,
@@ -302,22 +299,18 @@ async function loginWithApiKeyPrompt(options: {
   }
 }
 
-export function clearHybridAICredentials(
-  homeDir: string = os.homedir(),
-): string {
-  const filePath = saveRuntimeSecrets({ HYBRIDAI_API_KEY: null }, homeDir);
+export function clearHybridAICredentials(): string {
+  const filePath = saveRuntimeSecrets({ HYBRIDAI_API_KEY: null });
   delete process.env.HYBRIDAI_API_KEY;
   refreshRuntimeSecretsFromEnv();
   return filePath;
 }
 
-export function importHybridAIEnvCredentials(
-  homeDir: string = os.homedir(),
-): HybridAILoginResult {
+export function importHybridAIEnvCredentials(): HybridAILoginResult {
   const apiKey = (process.env.HYBRIDAI_API_KEY || '').trim();
   if (!apiKey) throw new MissingRequiredEnvVarError('HYBRIDAI_API_KEY');
 
-  const path = saveApiKey(apiKey, homeDir);
+  const path = saveApiKey(apiKey);
   return {
     path,
     apiKey,
@@ -351,30 +344,25 @@ export function selectDefaultHybridAILoginMethod(): 'device-code' | 'browser' {
 
 export async function loginHybridAIInteractive(options?: {
   method?: 'auto' | 'device-code' | 'browser' | 'import';
-  homeDir?: string;
   baseUrl?: string;
 }): Promise<HybridAILoginResult> {
   const method = options?.method || 'auto';
-  const homeDir = options?.homeDir || os.homedir();
   const baseUrl = options?.baseUrl;
 
   if (method === 'import') {
-    return importHybridAIEnvCredentials(homeDir);
+    return importHybridAIEnvCredentials();
   }
 
   const selectedMethod =
     method === 'auto' ? selectDefaultHybridAILoginMethod() : method;
   return loginWithApiKeyPrompt({
-    homeDir,
     method: selectedMethod,
     ...(baseUrl ? { baseUrl } : {}),
   });
 }
 
-export function getHybridAIAuthStatus(
-  homeDir: string = os.homedir(),
-): HybridAIAuthStatus {
-  const path = runtimeSecretsPath(homeDir);
+export function getHybridAIAuthStatus(): HybridAIAuthStatus {
+  const path = runtimeSecretsPath();
   const apiKey = readCurrentApiKey();
   if (!apiKey) {
     return {

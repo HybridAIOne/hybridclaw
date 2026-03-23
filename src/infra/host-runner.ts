@@ -43,6 +43,7 @@ import type {
 import {
   collectConfiguredDiscordChannelIds,
   remapOutputArtifacts,
+  resolveBrowserProfileHostDir,
   resolveDiscordMediaCacheHostDir,
 } from './container-runner.js';
 import {
@@ -326,6 +327,7 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
     HYBRIDCLAW_AGENT_MEDIA_ROOT: mediaCacheHostPath,
     HYBRIDCLAW_AGENT_IPC_DIR: ipcPath,
+    BROWSER_SHARED_PROFILE_DIR: resolveBrowserProfileHostDir(),
   };
 
   logger.info(

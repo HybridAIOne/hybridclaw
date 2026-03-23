@@ -9,6 +9,7 @@ import {
 } from '../../container/shared/context-guard-config.js';
 import { loadRuntimeSecrets } from '../security/runtime-secrets.js';
 import {
+  DEFAULT_RUNTIME_HOME_DIR,
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   isContainerSandboxModeExplicit,
@@ -282,8 +283,7 @@ export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
 const INTERNAL_GATEWAY_API_TOKEN = randomBytes(24).toString('hex');
 export let GATEWAY_API_TOKEN = INTERNAL_GATEWAY_API_TOKEN;
 export let DB_PATH = path.join(
-  os.homedir(),
-  '.hybridclaw',
+  DEFAULT_RUNTIME_HOME_DIR,
   'data',
   'hybridclaw.db',
 );
@@ -569,7 +569,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   MEMORY_CONSOLIDATION_INTERVAL_HOURS =
     config.memory.consolidationIntervalHours;
 
-  HEALTH_HOST = config.ops.healthHost;
+  HEALTH_HOST = process.env.HEALTH_HOST || config.ops.healthHost;
   HEALTH_PORT = config.ops.healthPort;
   WEB_API_TOKEN = process.env.WEB_API_TOKEN || config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
