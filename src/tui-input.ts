@@ -30,10 +30,20 @@ export function isTuiMultilineEnterKey(key: readline.Key | undefined): boolean {
     return true;
   }
 
-  return (
-    key.name === 'enter' &&
+  if (
     key.sequence === '\n' &&
+    key.name === 'enter' &&
     key.ctrl !== true &&
+    key.meta !== true &&
+    key.shift !== true
+  ) {
+    return true;
+  }
+
+  return (
+    key.sequence === '\n' &&
+    key.ctrl === true &&
+    key.name === 'j' &&
     key.meta !== true &&
     key.shift !== true
   );

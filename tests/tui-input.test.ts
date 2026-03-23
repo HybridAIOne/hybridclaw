@@ -31,6 +31,18 @@ test('treats readline linefeed enter (Ctrl-J) as a multiline insert', () => {
   ).toBe(true);
 });
 
+test('treats explicit ctrl-j keypresses as multiline inserts', () => {
+  expect(
+    isTuiMultilineEnterKey({
+      name: 'j',
+      sequence: '\n',
+      ctrl: true,
+      meta: false,
+      shift: false,
+    }),
+  ).toBe(true);
+});
+
 test('treats shifted return sequences as multiline inserts', () => {
   expect(
     isTuiMultilineEnterKey({
