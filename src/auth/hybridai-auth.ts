@@ -228,11 +228,14 @@ function saveApiKey(apiKey: string): string {
 
 async function loginWithApiKeyPrompt(options: {
   method: 'browser' | 'device-code';
+  baseUrl?: string;
 }): Promise<HybridAILoginResult> {
   requireInteractiveTerminal();
 
   const method = options.method;
-  const baseUrl = normalizeBaseUrl(HYBRIDAI_BASE_URL || DEFAULT_BASE_URL);
+  const baseUrl = normalizeBaseUrl(
+    options.baseUrl || HYBRIDAI_BASE_URL || DEFAULT_BASE_URL,
+  );
   const loginUrl = resolveUrl(baseUrl, DEFAULT_LOGIN_PATH);
   const rl = readline.createInterface({
     input: process.stdin,
@@ -341,8 +344,10 @@ export function selectDefaultHybridAILoginMethod(): 'device-code' | 'browser' {
 
 export async function loginHybridAIInteractive(options?: {
   method?: 'auto' | 'device-code' | 'browser' | 'import';
+  baseUrl?: string;
 }): Promise<HybridAILoginResult> {
   const method = options?.method || 'auto';
+  const baseUrl = options?.baseUrl;
 
   if (method === 'import') {
     return importHybridAIEnvCredentials();
@@ -350,7 +355,10 @@ export async function loginHybridAIInteractive(options?: {
 
   const selectedMethod =
     method === 'auto' ? selectDefaultHybridAILoginMethod() : method;
-  return loginWithApiKeyPrompt({ method: selectedMethod });
+  return loginWithApiKeyPrompt({
+    method: selectedMethod,
+    ...(baseUrl ? { baseUrl } : {}),
+  });
 }
 
 export function getHybridAIAuthStatus(): HybridAIAuthStatus {
