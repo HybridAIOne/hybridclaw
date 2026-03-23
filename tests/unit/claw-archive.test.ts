@@ -289,6 +289,25 @@ describe('.claw archive support', () => {
     ).toThrow(/escapes the output directory/i);
   });
 
+  test('safe extraction strips executable mode bits from ZIP entries', async () => {
+    const archivePath = path.join(makeTempDir('hybridclaw-claw-zip-'), 'exec.claw');
+    const outputDir = makeTempDir('hybridclaw-claw-out-');
+
+    await writeZipArchive(archivePath, [
+      {
+        name: 'script.sh',
+        content: '#!/bin/sh\necho hello\n',
+        mode: 0o755,
+      },
+    ]);
+
+    const { safeExtractZip } = await import('../../src/agents/claw-security.js');
+    await safeExtractZip(archivePath, outputDir);
+
+    const extractedPath = path.join(outputDir, 'script.sh');
+    expect(fs.statSync(extractedPath).mode & 0o777).toBe(0o644);
+  });
+
   test('manifest validation rejects unknown format versions', async () => {
     const { validateClawManifest } = await import(
       '../../src/agents/claw-manifest.js'

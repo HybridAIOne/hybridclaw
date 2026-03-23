@@ -322,10 +322,7 @@ async function extractZipEntry(
         `ZIP entry "${entry.fileName}" size mismatch (${bytesRead} != ${entry.uncompressedSize}).`,
       );
     }
-    const mode = getZipEntryMode(entry);
-    if (mode != null) {
-      fs.chmodSync(tempPath, mode & 0o777);
-    }
+    fs.chmodSync(tempPath, 0o644);
     fs.renameSync(tempPath, destination);
   } catch (error) {
     fs.rmSync(tempPath, { force: true });
