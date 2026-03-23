@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as yazl from 'yazl';
 
 const originalCwd = process.cwd();
@@ -120,11 +120,19 @@ afterEach(async () => {
   vi.resetModules();
   vi.unstubAllEnvs();
   vi.doUnmock('../../src/agents/claw-security.js');
+  vi.doUnmock('../../src/plugins/plugin-manager.js');
   vi.doUnmock('../../src/plugins/plugin-install.js');
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+beforeEach(() => {
+  vi.resetModules();
+  vi.doUnmock('../../src/agents/claw-security.js');
+  vi.doUnmock('../../src/plugins/plugin-manager.js');
+  vi.doUnmock('../../src/plugins/plugin-install.js');
 });
 
 describe('.claw archive support', () => {
