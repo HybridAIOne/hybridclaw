@@ -690,7 +690,8 @@ Notes:
   - Log into any sites you want the agent to access (Google, GitHub, etc.).
   - Close the browser when done — sessions persist automatically.
   - The agent reuses these sessions for browser automation without needing credentials.
-  - Profile data is stored in ~/.hybridclaw/data/browser-profiles/.
+  - Profile data is stored under the HybridClaw data directory (configurable via DATA_DIR; default: ~/.hybridclaw/data/browser-profiles/).
+  - This directory contains persistent authenticated browser sessions — treat it as sensitive data.
   - Use \`browser reset\` to clear all saved sessions and start fresh.`);
 }
 
@@ -3472,7 +3473,7 @@ async function handleBrowserCommand(args: string[]): Promise<void> {
 
   if (sub === 'reset') {
     if (fs.existsSync(profileDir)) {
-      fs.rmSync(profileDir, { recursive: true, force: true });
+      fs.rmSync(profileDir, { recursive: true });
       console.log(`Deleted browser profile at ${profileDir}.`);
       console.log('Run `hybridclaw browser login` to create a fresh profile.');
     } else {

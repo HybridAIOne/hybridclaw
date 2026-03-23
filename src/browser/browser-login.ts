@@ -7,15 +7,14 @@
  * agent containers, giving the agent access to authenticated browser sessions
  * without needing credentials in chat.
  */
-import { type ChildProcess, execFile, spawnSync } from 'node:child_process';
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 export interface BrowserLoginOptions {
   /** URL to open when the browser starts (default: about:blank). */
   url?: string;
-  /** Override the profile directory. */
-  profileDir?: string;
 }
 
 function resolvePlaywrightChromium(): string | null {
@@ -51,17 +50,34 @@ function resolvePlaywrightChromium(): string | null {
 }
 
 function resolveChromeBinary(): string {
-  // Prefer system Chrome/Chromium for headed login (better UX)
-  const systemBrowsers = [
-    'google-chrome',
-    'google-chrome-stable',
-    'chromium-browser',
-    'chromium',
-  ];
+  // Allow explicit override via env var
+  const envBrowser = process.env.CHROME_BIN?.trim();
+  if (envBrowser) return envBrowser;
+
+  const platform = os.platform();
+
+  // Platform-specific system browser candidates
+  const systemBrowsers: string[] =
+    platform === 'darwin'
+      ? [
+          '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+          '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        ]
+      : [
+          'google-chrome',
+          'google-chrome-stable',
+          'chromium-browser',
+          'chromium',
+        ];
+
   for (const browser of systemBrowsers) {
-    const result = spawnSync('which', [browser], { encoding: 'utf-8' });
-    if (result.status === 0 && result.stdout?.trim()) {
-      return result.stdout.trim();
+    if (platform === 'darwin') {
+      if (fs.existsSync(browser)) return browser;
+    } else {
+      const result = spawnSync('which', [browser], { encoding: 'utf-8' });
+      if (result.status === 0 && result.stdout?.trim()) {
+        return result.stdout.trim();
+      }
     }
   }
 
@@ -70,7 +86,7 @@ function resolveChromeBinary(): string {
   if (playwrightChromium) return playwrightChromium;
 
   throw new Error(
-    'No Chrome or Chromium browser found. Install google-chrome, chromium, or run `npx playwright install chromium`.',
+    'No Chrome or Chromium browser found. Install google-chrome, chromium, or set CHROME_BIN.',
   );
 }
 
@@ -94,9 +110,16 @@ export async function launchBrowserLogin(
     url,
   ];
 
-  const child = execFile(chromeBin, args, {
-    timeout: 0, // no timeout — user controls the session
-    env: { ...process.env, DISPLAY: process.env.DISPLAY || ':0' },
+  const env = { ...process.env };
+  // Only set DISPLAY fallback on Linux where X11 is expected
+  if (os.platform() === 'linux' && !env.DISPLAY) {
+    env.DISPLAY = ':0';
+  }
+
+  const child = spawn(chromeBin, args, {
+    stdio: 'ignore',
+    detached: false,
+    env,
   });
 
   return child;
