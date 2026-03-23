@@ -20,7 +20,10 @@ docker/
 
 # Tests and docs
 tests/
-docs/
+docs/development/
+docs/tools/
+docs/*.md
+docs/CNAME
 packages/
 plugins/
 

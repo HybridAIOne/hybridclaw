@@ -45,6 +45,9 @@ COPY --from=builder /app/console/dist ./console/dist
 COPY --from=builder /app/container/dist ./container/dist
 COPY --from=builder /app/container/shared ./container/shared
 
+# SPA pages served by the gateway (/chat, /agents, /)
+COPY docs/ ./docs/
+
 # Runtime templates and skills
 COPY templates/ ./templates/
 COPY skills/ ./skills/
