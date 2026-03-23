@@ -77,6 +77,7 @@ test('intercepts multiline enter and inserts a newline into the readline buffer'
   const closeHandlers: Array<() => void> = [];
   const off = vi.fn();
   const rl = {
+    line: '',
     _insertString: vi.fn((value: string) => {
       inserted.push(value);
     }),
@@ -100,7 +101,7 @@ test('intercepts multiline enter and inserts a newline into the readline buffer'
     shift: false,
   });
 
-  expect(inserted).toEqual(['\n']);
+  expect(inserted).toEqual(['\n    ']);
   expect(originalTtyWrite).not.toHaveBeenCalled();
 
   for (const handler of closeHandlers) {
@@ -112,6 +113,7 @@ test('intercepts multiline enter and inserts a newline into the readline buffer'
 test('passes plain return through to readline submit handling', () => {
   const originalTtyWrite = vi.fn();
   const rl = {
+    line: '',
     _insertString: vi.fn(),
     _ttyWrite: originalTtyWrite,
     on: vi.fn(),
@@ -144,6 +146,7 @@ test('consumes split shift-return sequences and inserts a newline', () => {
   const inserted: string[] = [];
   const originalTtyWrite = vi.fn();
   const rl = {
+    line: '',
     _insertString: vi.fn((value: string) => {
       inserted.push(value);
     }),
@@ -185,6 +188,39 @@ test('consumes split shift-return sequences and inserts a newline', () => {
     shift: false,
   });
 
-  expect(inserted).toEqual(['\n']);
+  expect(inserted).toEqual(['\n    ']);
   expect(originalTtyWrite).not.toHaveBeenCalled();
+});
+
+test('normalizes continuation indent before submission', () => {
+  const rl = {
+    line: '',
+    _insertString: vi.fn(),
+    _ttyWrite: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  } as unknown as readline.Interface;
+
+  const controller = new TuiMultilineInputController({ rl });
+  controller.install();
+
+  (
+    rl as unknown as {
+      _ttyWrite: (chunk: string, key: readline.Key) => void;
+      line: string;
+    }
+  )._ttyWrite('', {
+    name: 'enter',
+    sequence: '\n',
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+
+  expect(controller.normalizeSubmittedInput('first\n    second')).toBe(
+    'first\nsecond',
+  );
+  expect(controller.normalizeSubmittedInput('first\n    second')).toBe(
+    'first\n    second',
+  );
 });

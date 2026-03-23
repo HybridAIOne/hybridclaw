@@ -1798,7 +1798,9 @@ async function main(): Promise<void> {
       pendingInputTimer = null;
     }
     if (pendingInputLines.length === 0) return;
-    const combined = pendingInputLines.join('\n');
+    const combined = multilineInputController.normalizeSubmittedInput(
+      pendingInputLines.join('\n'),
+    );
     pendingInputLines = [];
     enqueueInput(combined);
   };
