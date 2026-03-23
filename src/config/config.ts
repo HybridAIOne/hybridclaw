@@ -500,7 +500,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
 
   HYBRIDAI_BASE_URL = config.hybridai.baseUrl;
   HYBRIDAI_MODEL = config.hybridai.defaultModel;
-  HYBRIDAI_CHATBOT_ID = config.hybridai.defaultChatbotId;
+  HYBRIDAI_CHATBOT_ID = process.env.HYBRIDAI_CHATBOT_ID || config.hybridai.defaultChatbotId;
   HYBRIDAI_MAX_TOKENS = Math.max(
     256,
     Math.min(32_768, config.hybridai.maxTokens),
