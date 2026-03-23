@@ -39,6 +39,8 @@ async function importFreshConfig(homeDir: string) {
   return import('../src/config/config.ts');
 }
 
+const ORIGINAL_HYBRIDAI_CHATBOT_ID = process.env.HYBRIDAI_CHATBOT_ID;
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
@@ -53,6 +55,43 @@ afterEach(() => {
     process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
       ORIGINAL_DISABLE_CONFIG_WATCHER;
   }
+  if (ORIGINAL_HYBRIDAI_CHATBOT_ID === undefined) {
+    delete process.env.HYBRIDAI_CHATBOT_ID;
+  } else {
+    process.env.HYBRIDAI_CHATBOT_ID = ORIGINAL_HYBRIDAI_CHATBOT_ID;
+  }
+});
+
+describe('env var overrides', () => {
+  it('HYBRIDAI_CHATBOT_ID env var overrides config.json value', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.hybridai.defaultChatbotId = 'from-config';
+    });
+    process.env.HYBRIDAI_CHATBOT_ID = 'from-env';
+    const config = await importFreshConfig(homeDir);
+    expect(config.HYBRIDAI_CHATBOT_ID).toBe('from-env');
+  });
+
+  it('falls back to config.json when HYBRIDAI_CHATBOT_ID is not set', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.hybridai.defaultChatbotId = 'from-config';
+    });
+    delete process.env.HYBRIDAI_CHATBOT_ID;
+    const config = await importFreshConfig(homeDir);
+    expect(config.HYBRIDAI_CHATBOT_ID).toBe('from-config');
+  });
+
+  it('treats whitespace-only HYBRIDAI_CHATBOT_ID as unset', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.hybridai.defaultChatbotId = 'from-config';
+    });
+    process.env.HYBRIDAI_CHATBOT_ID = '   ';
+    const config = await importFreshConfig(homeDir);
+    expect(config.HYBRIDAI_CHATBOT_ID).toBe('from-config');
+  });
 });
 
 describe('configured model catalog', () => {
