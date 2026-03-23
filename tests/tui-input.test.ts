@@ -34,6 +34,13 @@ test('treats shifted return sequences as multiline inserts', () => {
       shift: false,
     }),
   ).toBe(true);
+  expect(
+    isTuiMultilineEnterKey({
+      name: 'undefined',
+      sequence: '\x1b[13;2~',
+      shift: false,
+    }),
+  ).toBe(true);
 });
 
 test('keeps plain return mapped to submit', () => {
@@ -115,4 +122,57 @@ test('passes plain return through to readline submit handling', () => {
     meta: false,
     shift: false,
   });
+});
+
+test('consumes split shift-return sequences and inserts a newline', () => {
+  const inserted: string[] = [];
+  const originalTtyWrite = vi.fn();
+  const rl = {
+    _insertString: vi.fn((value: string) => {
+      inserted.push(value);
+    }),
+    _ttyWrite: originalTtyWrite,
+    on: vi.fn(),
+    off: vi.fn(),
+  } as unknown as readline.Interface;
+
+  const controller = new TuiMultilineInputController({ rl });
+  controller.install();
+
+  const ttyWrite = (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite;
+
+  ttyWrite('', {
+    name: 'undefined',
+    sequence: '\x1b[27;2;',
+    ctrl: false,
+    meta: false,
+    shift: false,
+    code: '[27;2;',
+  });
+  ttyWrite('1', {
+    name: '1',
+    sequence: '1',
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+  ttyWrite('3', {
+    name: '3',
+    sequence: '3',
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+  ttyWrite('~', {
+    name: undefined,
+    sequence: '~',
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+
+  expect(inserted).toEqual(['\n']);
+  expect(originalTtyWrite).not.toHaveBeenCalled();
 });
