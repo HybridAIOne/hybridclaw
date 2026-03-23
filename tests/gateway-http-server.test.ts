@@ -331,6 +331,10 @@ async function importFreshHealth(options?: {
   });
 
   const getGatewayStatus = vi.fn(() => ({ status: 'ok', sessions: 2 }));
+  const loggerDebug = vi.fn();
+  const loggerError = vi.fn();
+  const loggerInfo = vi.fn();
+  const loggerWarn = vi.fn();
   const getGatewayHistory = vi.fn(() => [
     { role: 'user', content: 'hello' },
     { role: 'assistant', content: 'world' },
@@ -373,6 +377,10 @@ async function importFreshHealth(options?: {
     kind: 'plain' as const,
     text: 'ok',
   }));
+  const renderGatewayCommand = vi.fn(
+    (result: { title?: string; text: string }) =>
+      result.title ? `${result.title}\n${result.text}` : result.text,
+  );
   const runGatewayPluginTool = vi.fn(async () => 'plugin-tool-result');
   const getGatewayAdminOverview = vi.fn(() => ({
     status: { status: 'ok', sessions: 2, version: '0.7.1', uptime: 60 },
@@ -745,10 +753,10 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/logger.js', () => ({
     logger: {
-      debug: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
+      debug: loggerDebug,
+      error: loggerError,
+      info: loggerInfo,
+      warn: loggerWarn,
     },
   }));
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
@@ -782,6 +790,7 @@ async function importFreshHealth(options?: {
     getGatewayStatus,
     handleGatewayCommand,
     handleGatewayMessage,
+    renderGatewayCommand,
     runGatewayPluginTool,
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
@@ -839,7 +848,9 @@ async function importFreshHealth(options?: {
     setGatewayAdminSkillEnabled,
     handleGatewayMessage,
     handleGatewayCommand,
+    renderGatewayCommand,
     getSessionById,
+    loggerDebug,
     runMessageToolAction,
     normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
@@ -1845,6 +1856,235 @@ describe('gateway HTTP server', () => {
     );
     expect(res.body).toContain('event: overview');
     expect(res.body).toContain('event: status');
+  });
+
+  test('routes web slash commands from /api/chat through handleGatewayCommand', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({
+      kind: 'info',
+      title: 'Runtime Status',
+      text: 'All systems nominal.',
+      sessionId: 'session-web-slash',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-slash',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/status',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-slash',
+        channelId: 'web',
+        args: ['status'],
+        userId: 'user-web',
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      result: '**Runtime Status**\nAll systems nominal.',
+      sessionId: 'session-web-slash',
+    });
+  });
+
+  test('routes web slash commands through the streaming /api/chat path', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({
+      kind: 'info',
+      title: 'Runtime Status',
+      text: 'All systems nominal.',
+      sessionId: 'session-web-slash-stream',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-slash-stream',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/status',
+        stream: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-slash-stream',
+        channelId: 'web',
+        args: ['status'],
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(
+      res.body
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line)),
+    ).toEqual([
+      {
+        type: 'result',
+        result: expect.objectContaining({
+          status: 'success',
+          result: '**Runtime Status**\nAll systems nominal.',
+          sessionId: 'session-web-slash-stream',
+        }),
+      },
+    ]);
+  });
+
+  test('threads updated session ids through expanded web slash commands', async () => {
+    const state = await importFreshHealth();
+    const seenSessionIds: string[] = [];
+    state.handleGatewayCommand.mockImplementation(
+      async (request: { args: string[]; sessionId: string }) => {
+        seenSessionIds.push(request.sessionId);
+        if (request.args[0] === 'bot') {
+          return {
+            kind: 'info' as const,
+            title: 'Bot',
+            text: 'bot details',
+            sessionId: 'session-web-info-new',
+          };
+        }
+        if (request.args[0] === 'model') {
+          return {
+            kind: 'info' as const,
+            title: 'Model',
+            text: 'model details',
+            sessionId: request.sessionId,
+          };
+        }
+        return {
+          kind: 'info' as const,
+          title: 'Runtime Status',
+          text: 'status details',
+          sessionId: request.sessionId,
+        };
+      },
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-info',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/info',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(seenSessionIds).toEqual([
+      'session-web-info',
+      'session-web-info-new',
+      'session-web-info-new',
+    ]);
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      sessionId: 'session-web-info-new',
+      result: [
+        '**Bot**\nbot details',
+        '**Model**\nmodel details',
+        '**Runtime Status**\nstatus details',
+      ].join('\n\n'),
+    });
+  });
+
+  test('logs debug details when expanded web slash commands produce no visible output', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValue({
+      kind: 'plain',
+      text: '',
+      sessionId: 'session-web-empty',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-empty',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/info',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      result: 'Done.',
+      sessionId: 'session-web-empty',
+    });
+    expect(state.loggerDebug).toHaveBeenCalledWith(
+      {
+        sessionId: 'session-web-empty',
+        channelId: 'web',
+        slashCommands: [['bot', 'info'], ['model', 'info'], ['status']],
+      },
+      'Expanded web slash commands produced no visible output',
+    );
+  });
+
+  test('handles /approve view from the web chat path', async () => {
+    const state = await importFreshHealth();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval('session-web-approve', {
+      approvalId: 'approve-123',
+      prompt: 'I need approval before continuing.',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-web',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-approve',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/approve view',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      result: '**Pending Approval**\nI need approval before continuing.',
+      sessionId: 'session-web-approve',
+    });
+
+    await pendingApprovals.clearPendingApproval('session-web-approve');
   });
 
   test('normalizes silent message-send chat responses', async () => {

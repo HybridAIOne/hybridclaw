@@ -171,6 +171,8 @@ Session behavior matches the routing rules above:
 
 - `/api/chat` can mint a fresh canonical web session id when the caller omits
   `sessionId`
+- recognized slash-text commands submitted to `/api/chat` for web sessions are
+  routed through the same gateway command path used by TUI/other text channels
 - `/api/command` and `/api/history` require an explicit `sessionId`
 - malformed canonical session ids are rejected instead of being treated as
   opaque legacy ids
@@ -322,7 +324,8 @@ Current resolution order for a turn:
 Operational surfaces:
 
 - `agent`, `agent list`, `agent switch <id>`, `agent create <id> [--model <model>]`
-  are available through gateway commands, TUI, and Discord slash/text commands
+  are available through gateway commands, TUI, web chat slash-text, and
+  Discord slash/text commands
 - `status` now includes the current session agent
 - `/agents` shows both logical agents and per-session runtime cards
 

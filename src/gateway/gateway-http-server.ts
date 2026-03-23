@@ -85,7 +85,15 @@ import {
   upsertGatewayAdminMcpServer,
   upsertGatewayAdminSchedulerJob,
 } from './gateway-service.js';
-import type { GatewayChatRequestBody } from './gateway-types.js';
+import type {
+  GatewayChatRequestBody,
+  GatewayChatResult,
+} from './gateway-types.js';
+import {
+  handleTextChannelApprovalCommand,
+  renderTextChannelCommandResult,
+  resolveTextChannelSlashCommands,
+} from './text-channel-commands.js';
 
 const SITE_DIR = resolveInstallPath('docs');
 const CONSOLE_DIST_DIR = resolveInstallPath('console', 'dist');
@@ -150,6 +158,86 @@ function generateDefaultWebSessionId(agentId?: string | null): string {
     'dm',
     randomUUID().replace(/-/g, '').slice(0, 16),
   );
+}
+
+async function resolveApiChatSlashCommandResult(
+  chatRequest: GatewayChatRequest,
+): Promise<GatewayChatResult | null> {
+  const slashCommands = resolveTextChannelSlashCommands(chatRequest.content);
+  if (!slashCommands) return null;
+
+  const textParts: string[] = [];
+  const artifacts: NonNullable<GatewayChatResult['artifacts']> = [];
+  let sessionId = chatRequest.sessionId;
+  let sessionKey: string | undefined;
+  let mainSessionKey: string | undefined;
+  let handledApprovalCommand = false;
+
+  for (const args of slashCommands) {
+    if ((args[0] || '').trim().toLowerCase() === 'approve') {
+      const handled = await handleTextChannelApprovalCommand({
+        sessionId,
+        guildId: chatRequest.guildId,
+        channelId: chatRequest.channelId,
+        userId: chatRequest.userId,
+        username: chatRequest.username,
+        args,
+      });
+      if (!handled) continue;
+      handledApprovalCommand = true;
+      sessionId = handled.sessionId || sessionId;
+      sessionKey = handled.sessionKey || sessionKey;
+      mainSessionKey = handled.mainSessionKey || mainSessionKey;
+      if (handled.text?.trim()) {
+        textParts.push(handled.text);
+      }
+      if (handled.artifacts.length > 0) {
+        artifacts.push(...handled.artifacts);
+      }
+      continue;
+    }
+
+    const commandResult = await handleGatewayCommand({
+      sessionId,
+      sessionMode: chatRequest.sessionMode,
+      guildId: chatRequest.guildId,
+      channelId: chatRequest.channelId,
+      args,
+      userId: chatRequest.userId,
+      username: chatRequest.username,
+    });
+    sessionId = commandResult.sessionId || sessionId;
+    sessionKey = commandResult.sessionKey || sessionKey;
+    mainSessionKey = commandResult.mainSessionKey || mainSessionKey;
+    const text = renderTextChannelCommandResult(commandResult).trim();
+    if (text) {
+      textParts.push(text);
+    }
+  }
+
+  const renderedText = textParts.join('\n\n').trim();
+  if (!renderedText && !handledApprovalCommand) {
+    logger.debug(
+      {
+        sessionId,
+        channelId: chatRequest.channelId,
+        slashCommands,
+      },
+      'Expanded web slash commands produced no visible output',
+    );
+  }
+
+  return {
+    status: 'success',
+    result:
+      renderedText ||
+      (handledApprovalCommand ? 'Approval submitted.' : 'Done.'),
+    toolsUsed: [],
+    sessionId,
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(mainSessionKey ? { mainSessionKey } : {}),
+    ...(artifacts.length > 0 ? { artifacts } : {}),
+  };
 }
 
 function isMalformedCanonicalSessionId(value: string | undefined): boolean {
@@ -499,11 +587,15 @@ async function handleApiChat(
     return;
   }
 
-  const processedResult = normalizePendingApprovalReply(
-    normalizePlaceholderToolReply(
-      normalizeSilentMessageSendReply(await handleGatewayMessage(chatRequest)),
-    ),
-  );
+  const processedResult =
+    (await resolveApiChatSlashCommandResult(chatRequest)) ||
+    normalizePendingApprovalReply(
+      normalizePlaceholderToolReply(
+        normalizeSilentMessageSendReply(
+          await handleGatewayMessage(chatRequest),
+        ),
+      ),
+    );
   const result = filterChatResultForSession(
     processedResult.sessionId || chatRequest.sessionId,
     processedResult,
@@ -526,6 +618,20 @@ async function handleApiChatStream(
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
   });
+
+  const slashResult = await resolveApiChatSlashCommandResult(chatRequest);
+  if (slashResult) {
+    const filteredResult = filterChatResultForSession(
+      slashResult.sessionId || chatRequest.sessionId,
+      slashResult,
+    );
+    sendEvent({
+      type: 'result',
+      result: filteredResult,
+    });
+    res.end();
+    return;
+  }
 
   const onToolProgress = (event: ToolProgressEvent): void => {
     sendEvent({
@@ -1446,8 +1552,7 @@ export function startGatewayHttpServer(): void {
       // invalid in HTTP headers (e.g. CR/LF from `%0d%0a`).
       const rawNext = url.searchParams.get('next');
       const safeNext =
-        rawNext &&
-        rawNext.startsWith('/') &&
+        rawNext?.startsWith('/') &&
         !rawNext.startsWith('//') &&
         !/[\r\n\0]/.test(rawNext)
           ? rawNext

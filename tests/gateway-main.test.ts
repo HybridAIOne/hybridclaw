@@ -563,7 +563,7 @@ describe('gateway bootstrap', () => {
     await state.messageHandler?.(
       'session',
       null,
-      'channel',
+      '123456789012345678',
       'user',
       'alice',
       'hello',
@@ -831,7 +831,7 @@ describe('gateway bootstrap', () => {
     await state.commandHandler?.(
       'session',
       null,
-      'channel',
+      '123456789012345678',
       'user',
       'alice',
       ['approve', 'view'],
