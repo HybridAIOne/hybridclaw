@@ -290,7 +290,10 @@ describe('.claw archive support', () => {
   });
 
   test('safe extraction strips executable mode bits from ZIP entries', async () => {
-    const archivePath = path.join(makeTempDir('hybridclaw-claw-zip-'), 'exec.claw');
+    const archivePath = path.join(
+      makeTempDir('hybridclaw-claw-zip-'),
+      'exec.claw',
+    );
     const outputDir = makeTempDir('hybridclaw-claw-out-');
 
     await writeZipArchive(archivePath, [
@@ -301,7 +304,9 @@ describe('.claw archive support', () => {
       },
     ]);
 
-    const { safeExtractZip } = await import('../../src/agents/claw-security.js');
+    const { safeExtractZip } = await import(
+      '../../src/agents/claw-security.js'
+    );
     await safeExtractZip(archivePath, outputDir);
 
     const extractedPath = path.join(outputDir, 'script.sh');
