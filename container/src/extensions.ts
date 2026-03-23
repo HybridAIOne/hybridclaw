@@ -304,9 +304,9 @@ const runtimeMiddlewareChain = new MiddlewareChainCore<
   }),
 });
 
-function parseArgs(argsJson: string):
-  | { ok: true; args: Record<string, unknown> }
-  | { ok: false; reason: string } {
+function parseArgs(
+  argsJson: string,
+): { ok: true; args: Record<string, unknown> } | { ok: false; reason: string } {
   try {
     const parsed = JSON.parse(argsJson) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {

@@ -121,19 +121,11 @@ export class MiddlewareChainCore {
   }
 
   async runBeforeAgent(ctx) {
-    return await this.runResultPhase(
-      'beforeAgent',
-      ctx,
-      selectBeforeAgentHook,
-    );
+    return await this.runResultPhase('beforeAgent', ctx, selectBeforeAgentHook);
   }
 
   async runBeforeModel(ctx) {
-    return await this.runResultPhase(
-      'beforeModel',
-      ctx,
-      selectBeforeModelHook,
-    );
+    return await this.runResultPhase('beforeModel', ctx, selectBeforeModelHook);
   }
 
   async runAfterModel(ctx) {

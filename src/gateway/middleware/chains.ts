@@ -1419,10 +1419,7 @@ class PersistenceMiddleware implements GatewayChainMiddleware {
     const model = requireGatewayStateString(ctx, 'model', this.name);
     const resultText = readGatewayStateString(ctx, 'resultText');
     const toolExecutions = ctx.state.toolExecutions || [];
-    if (
-      finalResult?.status !== 'success' ||
-      !resultText
-    ) {
+    if (finalResult?.status !== 'success' || !resultText) {
       return {};
     }
 

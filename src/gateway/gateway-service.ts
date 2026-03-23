@@ -3580,9 +3580,9 @@ export async function handleGatewayMessage(
     runtimeConfig,
     gatewayMiddlewareDependencies,
   );
-  let activeGatewayRequest:
-    | ReturnType<typeof registerActiveGatewayRequest>
-    | null = null;
+  let activeGatewayRequest: ReturnType<
+    typeof registerActiveGatewayRequest
+  > | null = null;
   let preparedContext: GatewayPromptPreparedContext;
   try {
     preparedContext = await gatewayMiddlewareChain.runBeforeAgent({

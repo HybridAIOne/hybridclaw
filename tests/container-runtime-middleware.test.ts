@@ -66,10 +66,7 @@ test('container runtime middleware denies repeated looped tool calls', async () 
 
 test('container runtime middleware reports modified tool args for modify decisions', () => {
   expect(
-    haveToolArgsChanged(
-      { command: 'ls' },
-      { command: 'ls', rewritten: true },
-    ),
+    haveToolArgsChanged({ command: 'ls' }, { command: 'ls', rewritten: true }),
   ).toBe(true);
   expect(haveToolArgsChanged({ command: 'ls' }, { command: 'ls' })).toBe(false);
 });
