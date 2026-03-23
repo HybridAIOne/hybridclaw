@@ -106,6 +106,44 @@ async function importFreshCli(options?: {
     tools: string[];
     hooks: string[];
   }>;
+  agentPackError?: Error | null;
+  agentPackResult?: {
+    archivePath: string;
+    manifest: {
+      name: string;
+    };
+    workspacePath: string;
+    bundledSkills: string[];
+    bundledPlugins: string[];
+    externalSkills: Array<{ kind: string; ref: string }>;
+    externalPlugins: Array<{ kind: string; ref: string }>;
+  };
+  agentInspectError?: Error | null;
+  agentInspectResult?: {
+    archivePath: string;
+    manifest: {
+      name: string;
+      id?: string;
+    };
+    entryCount: number;
+    totalCompressedBytes: number;
+    totalUncompressedBytes: number;
+    entryNames: string[];
+  };
+  agentUnpackError?: Error | null;
+  agentUnpackResult?: {
+    archivePath: string;
+    manifest: {
+      name: string;
+      id?: string;
+    };
+    agentId: string;
+    workspacePath: string;
+    bundledSkills: string[];
+    installedPlugins: Array<{ pluginId: string }>;
+    externalActions: string[];
+    runtimeConfigChanged: boolean;
+  };
   promptResponses?: string[];
 }) {
   vi.resetModules();
@@ -297,6 +335,63 @@ async function importFreshCli(options?: {
   const ensurePluginManagerInitialized = vi.fn(async () => ({
     listPluginSummary,
   }));
+  const initDatabase = vi.fn();
+  const isDatabaseInitialized = vi.fn(() => false);
+  const initAgentRegistry = vi.fn();
+  const packAgent = vi.fn(async () => {
+    if (options?.agentPackError) throw options.agentPackError;
+    return (
+      options?.agentPackResult || {
+        archivePath: '/tmp/main.claw',
+        manifest: {
+          name: 'Main Agent',
+        },
+        workspacePath: '/tmp/.hybridclaw/data/agents/main/workspace',
+        bundledSkills: ['custom-skill'],
+        bundledPlugins: ['demo-plugin'],
+        externalSkills: [],
+        externalPlugins: [],
+      }
+    );
+  });
+  const inspectClawArchive = vi.fn(async () => {
+    if (options?.agentInspectError) throw options.agentInspectError;
+    return (
+      options?.agentInspectResult || {
+        archivePath: '/tmp/main.claw',
+        manifest: {
+          name: 'Main Agent',
+          id: 'main',
+        },
+        entryCount: 12,
+        totalCompressedBytes: 1024,
+        totalUncompressedBytes: 2048,
+        entryNames: ['manifest.json'],
+      }
+    );
+  });
+  const formatClawArchiveSummary = vi.fn((inspection: { manifest: { name: string } }) => [
+    `Name: ${inspection.manifest.name}`,
+    'Bundled skills: 1',
+  ]);
+  const unpackAgent = vi.fn(async () => {
+    if (options?.agentUnpackError) throw options.agentUnpackError;
+    return (
+      options?.agentUnpackResult || {
+        archivePath: '/tmp/main.claw',
+        manifest: {
+          name: 'Main Agent',
+          id: 'main',
+        },
+        agentId: 'imported-agent',
+        workspacePath: '/tmp/.hybridclaw/data/agents/imported-agent/workspace',
+        bundledSkills: ['custom-skill'],
+        installedPlugins: [{ pluginId: 'demo-plugin' }],
+        externalActions: [],
+        runtimeConfigChanged: true,
+      }
+    );
+  });
   const ensureRuntimeConfigFile = vi.fn(() => false);
   const onRuntimeConfigChange = vi.fn(() => () => {});
   const actualRuntimeConfig = await import('../src/config/runtime-config.ts');
@@ -531,6 +626,19 @@ async function importFreshCli(options?: {
       runTui,
     };
   });
+  vi.doMock('../src/memory/db.js', () => ({
+    initDatabase,
+    isDatabaseInitialized,
+  }));
+  vi.doMock('../src/agents/agent-registry.js', () => ({
+    initAgentRegistry,
+  }));
+  vi.doMock('../src/agents/claw-archive.js', () => ({
+    formatClawArchiveSummary,
+    inspectClawArchive,
+    packAgent,
+    unpackAgent,
+  }));
   vi.doMock('../src/plugins/plugin-install.ts', () => ({
     installPlugin,
     reinstallPlugin,
@@ -603,6 +711,13 @@ async function importFreshCli(options?: {
     isPidRunning,
     gatewayModuleLoaded,
     loadSkillCatalog,
+    initDatabase,
+    isDatabaseInitialized,
+    initAgentRegistry,
+    packAgent,
+    inspectClawArchive,
+    formatClawArchiveSummary,
+    unpackAgent,
     readlineCreateInterface,
     readlineQuestion,
     readlineClose,
@@ -630,6 +745,9 @@ afterEach(() => {
   vi.doUnmock('../src/security/instruction-integrity.ts');
   vi.doUnmock('../src/security/runtime-secrets.ts');
   vi.doUnmock('../src/tui.ts');
+  vi.doUnmock('../src/memory/db.js');
+  vi.doUnmock('../src/agents/agent-registry.js');
+  vi.doUnmock('../src/agents/claw-archive.js');
   vi.doUnmock('../src/plugins/plugin-install.ts');
   vi.doUnmock('../src/plugins/plugin-install.js');
   vi.doUnmock('../src/plugins/plugin-config.js');
@@ -1921,6 +2039,77 @@ describe('CLI hybridai commands', () => {
       discord: ['docx'],
     });
     expect(logSpy).toHaveBeenCalledWith('Enabled pdf in global scope.');
+  });
+
+  it('prints agent help from the help topic', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['help', 'agent']);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Usage: hybridclaw agent <command>'),
+    );
+  });
+
+  it('runs agent inspect and prints the archive summary', async () => {
+    const { cli, inspectClawArchive, formatClawArchiveSummary } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['agent', 'inspect', '/tmp/demo.claw']);
+
+    expect(inspectClawArchive).toHaveBeenCalledWith(
+      path.resolve('/tmp/demo.claw'),
+    );
+    expect(formatClawArchiveSummary).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Name: Main Agent'),
+    );
+  });
+
+  it('runs agent pack and reports bundled content counts', async () => {
+    const { cli, packAgent, initDatabase, initAgentRegistry } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['agent', 'pack', 'main', '-o', '/tmp/export.claw']);
+
+    expect(initDatabase).toHaveBeenCalledWith({ quiet: true });
+    expect(initAgentRegistry).toHaveBeenCalled();
+    expect(packAgent).toHaveBeenCalledWith(
+      'main',
+      expect.objectContaining({
+        outputPath: path.resolve('/tmp/export.claw'),
+      }),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Packed agent Main Agent to /tmp/main.claw.'),
+    );
+    expect(logSpy).toHaveBeenCalledWith('Bundled skills: 1');
+    expect(logSpy).toHaveBeenCalledWith('Bundled plugins: 1');
+  });
+
+  it('runs agent unpack with --yes and prints runtime config updates', async () => {
+    const { cli, unpackAgent, readlineQuestion } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['agent', 'unpack', '/tmp/demo.claw', '--id', 'imported', '--yes']);
+
+    expect(unpackAgent).toHaveBeenCalledWith(
+      path.resolve('/tmp/demo.claw'),
+      expect.objectContaining({
+        agentId: 'imported',
+        yes: true,
+      }),
+    );
+    expect(readlineQuestion).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Unpacked agent imported-agent'),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Updated runtime config at'),
+    );
   });
 
   it('treats a symlinked bin path as direct execution', async () => {

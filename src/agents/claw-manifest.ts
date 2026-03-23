@@ -1,0 +1,418 @@
+import type { AgentModelConfig } from './agent-types.js';
+
+export const CLAW_FORMAT_VERSION = 1 as const;
+
+export interface ClawSkillExternalRef {
+  kind: 'clawhub' | 'npm' | 'git' | 'url';
+  ref: string;
+  name?: string;
+}
+
+export interface ClawPluginExternalRef {
+  kind: 'npm' | 'local';
+  ref: string;
+  id?: string;
+}
+
+export interface ClawManifest {
+  formatVersion: typeof CLAW_FORMAT_VERSION;
+  name: string;
+  id?: string;
+  description?: string;
+  author?: string;
+  version?: string;
+  createdAt?: string;
+  agent?: {
+    model?: AgentModelConfig;
+    enableRag?: boolean;
+  };
+  skills?: {
+    bundled?: string[];
+    external?: ClawSkillExternalRef[];
+  };
+  plugins?: {
+    bundled?: string[];
+    external?: ClawPluginExternalRef[];
+  };
+  config?: {
+    skills?: {
+      extraDirs?: string[];
+      disabled?: string[];
+    };
+    plugins?: {
+      list?: Array<{
+        id: string;
+        enabled: boolean;
+        config?: Record<string, unknown>;
+      }>;
+    };
+  };
+}
+
+export interface ValidateClawManifestOptions {
+  archiveEntries?: string[];
+}
+
+function normalizeString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of value) {
+    const normalized = normalizeString(entry);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function normalizeModelConfig(value: unknown): AgentModelConfig | undefined {
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    return normalized || undefined;
+  }
+  if (!isRecord(value)) return undefined;
+
+  const primary = normalizeString(value.primary);
+  if (!primary) return undefined;
+  const fallbacks = normalizeStringArray(value.fallbacks).filter(
+    (entry) => entry !== primary,
+  );
+  return fallbacks.length > 0 ? { primary, fallbacks } : { primary };
+}
+
+function normalizeBundledDirectoryNames(
+  value: unknown,
+  label: string,
+): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must be an array of directory names.`);
+  }
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of value) {
+    const normalized = normalizeString(entry);
+    if (!normalized) continue;
+    if (
+      normalized.includes('/') ||
+      normalized.includes('\\') ||
+      normalized === '.' ||
+      normalized === '..'
+    ) {
+      throw new Error(
+        `${label} entry "${normalized}" must be a single directory name.`,
+      );
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function normalizeSkillExternalRefs(
+  value: unknown,
+): ClawSkillExternalRef[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error('manifest.skills.external must be an array.');
+  }
+
+  const out: ClawSkillExternalRef[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) {
+      throw new Error('manifest.skills.external entries must be objects.');
+    }
+    const kind = normalizeString(entry.kind);
+    if (
+      kind !== 'clawhub' &&
+      kind !== 'npm' &&
+      kind !== 'git' &&
+      kind !== 'url'
+    ) {
+      throw new Error(`Unsupported skill external kind "${kind}".`);
+    }
+    const ref = normalizeString(entry.ref);
+    if (!ref) {
+      throw new Error('manifest.skills.external entries require `ref`.');
+    }
+    const name = normalizeString(entry.name);
+    out.push({
+      kind,
+      ref,
+      ...(name ? { name } : {}),
+    });
+  }
+  return out;
+}
+
+function normalizePluginExternalRefs(
+  value: unknown,
+): ClawPluginExternalRef[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error('manifest.plugins.external must be an array.');
+  }
+
+  const out: ClawPluginExternalRef[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) {
+      throw new Error('manifest.plugins.external entries must be objects.');
+    }
+    const kind = normalizeString(entry.kind);
+    if (kind !== 'npm' && kind !== 'local') {
+      throw new Error(`Unsupported plugin external kind "${kind}".`);
+    }
+    const ref = normalizeString(entry.ref);
+    if (!ref) {
+      throw new Error('manifest.plugins.external entries require `ref`.');
+    }
+    const id = normalizeString(entry.id);
+    out.push({
+      kind,
+      ref,
+      ...(id ? { id } : {}),
+    });
+  }
+  return out;
+}
+
+function normalizePluginConfigList(
+  value: unknown,
+): ClawManifest['config'] extends { plugins?: infer T }
+  ? T extends { list?: infer L }
+    ? L
+    : never
+  : never {
+  if (value === undefined) return undefined as never;
+  if (!Array.isArray(value)) {
+    throw new Error('manifest.config.plugins.list must be an array.');
+  }
+
+  const seen = new Set<string>();
+  const out: Array<{
+    id: string;
+    enabled: boolean;
+    config?: Record<string, unknown>;
+  }> = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) {
+      throw new Error('manifest.config.plugins.list entries must be objects.');
+    }
+    const id = normalizeString(entry.id);
+    if (!id) {
+      throw new Error('manifest.config.plugins.list entries require `id`.');
+    }
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      enabled: entry.enabled !== false,
+      ...(isRecord(entry.config) ? { config: { ...entry.config } } : {}),
+    });
+  }
+  return out as never;
+}
+
+function listBundledArchiveDirectories(
+  archiveEntries: string[],
+  prefix: 'skills' | 'plugins',
+): string[] {
+  const discovered = new Set<string>();
+  for (const entry of archiveEntries) {
+    const normalized = entry.replace(/\\/g, '/');
+    if (!normalized.startsWith(`${prefix}/`)) continue;
+    const remainder = normalized.slice(prefix.length + 1);
+    const [dirName] = remainder.split('/');
+    if (dirName) discovered.add(dirName);
+  }
+  return [...discovered].sort((left, right) => left.localeCompare(right));
+}
+
+function validateBundledArchiveDirectories(
+  archiveEntries: string[] | undefined,
+  prefix: 'skills' | 'plugins',
+  declared: string[] | undefined,
+): void {
+  if (!archiveEntries) return;
+
+  const actual = listBundledArchiveDirectories(archiveEntries, prefix);
+  const expected = [...(declared ?? [])].sort((left, right) =>
+    left.localeCompare(right),
+  );
+  if (actual.length !== expected.length) {
+    throw new Error(
+      `manifest.${prefix}.bundled does not match the ${prefix}/ entries in the archive.`,
+    );
+  }
+  for (let index = 0; index < actual.length; index += 1) {
+    if (actual[index] !== expected[index]) {
+      throw new Error(
+        `manifest.${prefix}.bundled does not match the ${prefix}/ entries in the archive.`,
+      );
+    }
+  }
+}
+
+export function sanitizeClawAgentId(value: string, fallback = 'agent'): string {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-_]+|[-_]+$/g, '');
+  return normalized || fallback;
+}
+
+export function validateClawManifest(
+  input: unknown,
+  options: ValidateClawManifestOptions = {},
+): ClawManifest {
+  if (!isRecord(input)) {
+    throw new Error('manifest.json must contain a JSON object.');
+  }
+
+  if (input.formatVersion !== CLAW_FORMAT_VERSION) {
+    throw new Error(
+      `Unsupported .claw formatVersion "${String(input.formatVersion ?? '')}".`,
+    );
+  }
+
+  const name = normalizeString(input.name);
+  if (!name) {
+    throw new Error('manifest.json is missing `name`.');
+  }
+
+  const id = normalizeString(input.id);
+  const description = normalizeString(input.description);
+  const author = normalizeString(input.author);
+  const version = normalizeString(input.version);
+  const createdAt = normalizeString(input.createdAt);
+  if (createdAt && Number.isNaN(Date.parse(createdAt))) {
+    throw new Error('manifest.json `createdAt` must be a valid ISO timestamp.');
+  }
+
+  const agent = isRecord(input.agent)
+    ? {
+        ...(normalizeModelConfig(input.agent.model)
+          ? { model: normalizeModelConfig(input.agent.model) }
+          : {}),
+        ...(typeof input.agent.enableRag === 'boolean'
+          ? { enableRag: input.agent.enableRag }
+          : {}),
+      }
+    : undefined;
+
+  const skills = isRecord(input.skills)
+    ? {
+        ...(normalizeBundledDirectoryNames(
+          input.skills.bundled,
+          'manifest.skills.bundled',
+        )
+          ? {
+              bundled: normalizeBundledDirectoryNames(
+                input.skills.bundled,
+                'manifest.skills.bundled',
+              ),
+            }
+          : {}),
+        ...(normalizeSkillExternalRefs(input.skills.external)
+          ? { external: normalizeSkillExternalRefs(input.skills.external) }
+          : {}),
+      }
+    : undefined;
+
+  const plugins = isRecord(input.plugins)
+    ? {
+        ...(normalizeBundledDirectoryNames(
+          input.plugins.bundled,
+          'manifest.plugins.bundled',
+        )
+          ? {
+              bundled: normalizeBundledDirectoryNames(
+                input.plugins.bundled,
+                'manifest.plugins.bundled',
+              ),
+            }
+          : {}),
+        ...(normalizePluginExternalRefs(input.plugins.external)
+          ? { external: normalizePluginExternalRefs(input.plugins.external) }
+          : {}),
+      }
+    : undefined;
+
+  const config = isRecord(input.config)
+    ? {
+        ...(isRecord(input.config.skills)
+          ? {
+              skills: {
+                ...(normalizeStringArray(input.config.skills.extraDirs).length >
+                0
+                  ? {
+                      extraDirs: normalizeStringArray(
+                        input.config.skills.extraDirs,
+                      ),
+                    }
+                  : {}),
+                ...(normalizeStringArray(input.config.skills.disabled).length >
+                0
+                  ? {
+                      disabled: normalizeStringArray(
+                        input.config.skills.disabled,
+                      ),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+        ...(isRecord(input.config.plugins)
+          ? {
+              plugins: {
+                ...(normalizePluginConfigList(input.config.plugins.list)
+                  ? {
+                      list: normalizePluginConfigList(
+                        input.config.plugins.list,
+                      ),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+      }
+    : undefined;
+
+  validateBundledArchiveDirectories(
+    options.archiveEntries,
+    'skills',
+    skills?.bundled,
+  );
+  validateBundledArchiveDirectories(
+    options.archiveEntries,
+    'plugins',
+    plugins?.bundled,
+  );
+
+  return {
+    formatVersion: CLAW_FORMAT_VERSION,
+    name,
+    ...(id ? { id } : {}),
+    ...(description ? { description } : {}),
+    ...(author ? { author } : {}),
+    ...(version ? { version } : {}),
+    ...(createdAt ? { createdAt } : {}),
+    ...(agent && Object.keys(agent).length > 0 ? { agent } : {}),
+    ...(skills && Object.keys(skills).length > 0 ? { skills } : {}),
+    ...(plugins && Object.keys(plugins).length > 0 ? { plugins } : {}),
+    ...(config && Object.keys(config).length > 0 ? { config } : {}),
+  };
+}

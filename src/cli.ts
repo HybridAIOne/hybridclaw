@@ -445,6 +445,7 @@ function printMainUsage(): void {
   console.log(`Usage: hybridclaw <command>
 
   Commands:
+  agent      Pack, inspect, or unpack portable agent archives
   auth       Unified provider login/logout/status
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   tui        Start terminal adapter (starts gateway automatically when needed)
@@ -837,10 +838,27 @@ Notes:
   - Use ${runtimeConfigPath()} only for plugin overrides such as disable flags, config values, or custom paths.`);
 }
 
+function printAgentUsage(): void {
+  console.log(`Usage: hybridclaw agent <command>
+
+Commands:
+  hybridclaw agent pack [agent-id] [-o <path>]
+  hybridclaw agent inspect <file.claw>
+  hybridclaw agent unpack <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]
+
+Notes:
+  - \`pack\` exports an agent workspace, bundled workspace skills, and bundled home plugins into a portable \`.claw\` archive.
+  - \`inspect\` validates the archive manifest and prints a summary without extracting files.
+  - \`unpack\` validates ZIP safety, confirms the manifest, registers the agent, restores bundled content, and fills missing bootstrap files.
+  - Use \`--yes\` to skip the unpack confirmation prompt.
+  - Use \`--force\` to replace an existing agent workspace or bundled plugin install during unpack.`);
+}
+
 function printHelpUsage(): void {
   console.log(`Usage: hybridclaw help <topic>
 
 Topics:
+  agent       Help for portable agent package commands
   auth        Help for unified provider login/logout/status
   gateway     Help for gateway lifecycle and passthrough commands
   tui         Help for terminal client
@@ -897,6 +915,9 @@ function isHelpRequest(args: string[]): boolean {
 
 function printHelpTopic(topic: string): boolean {
   switch (topic.trim().toLowerCase()) {
+    case 'agent':
+      printAgentUsage();
+      return true;
     case 'auth':
       printAuthUsage();
       return true;
@@ -4156,6 +4177,318 @@ async function handlePluginCommand(args: string[]): Promise<void> {
   );
 }
 
+async function handleAgentPackageCommand(args: string[]): Promise<void> {
+  async function ensureAgentPackagingRuntime(): Promise<void> {
+    ensureRuntimeConfigFile();
+    const { initDatabase, isDatabaseInitialized } = await import(
+      './memory/db.js'
+    );
+    const { initAgentRegistry } = await import('./agents/agent-registry.js');
+    if (!isDatabaseInitialized()) {
+      initDatabase({ quiet: true });
+    }
+    initAgentRegistry(getRuntimeConfig().agents);
+  }
+
+  async function promptYesNo(
+    rl: readline.Interface,
+    question: string,
+    defaultYes = true,
+  ): Promise<boolean> {
+    const suffix = defaultYes ? ' [Y/n]: ' : ' [y/N]: ';
+    const answer = (await rl.question(`${question}${suffix}`))
+      .trim()
+      .toLowerCase();
+    if (!answer) return defaultYes;
+    return answer === 'y' || answer === 'yes';
+  }
+
+  async function promptTrimmed(
+    rl: readline.Interface,
+    question: string,
+    fallback = '',
+  ): Promise<string> {
+    const suffix = fallback ? ` [${fallback}]` : '';
+    const answer = (await rl.question(`${question}${suffix}: `)).trim();
+    return answer || fallback;
+  }
+
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printAgentUsage();
+    return;
+  }
+
+  await ensureAgentPackagingRuntime();
+
+  const sub = normalized[0].toLowerCase();
+  if (sub === 'inspect') {
+    const archivePath = normalized[1];
+    if (!archivePath) {
+      printAgentUsage();
+      throw new Error(
+        'Missing archive path for `hybridclaw agent inspect <file.claw>`.',
+      );
+    }
+    if (normalized.length !== 2) {
+      printAgentUsage();
+      throw new Error(
+        'Unexpected extra arguments for `hybridclaw agent inspect <file.claw>`.',
+      );
+    }
+
+    const { formatClawArchiveSummary, inspectClawArchive } = await import(
+      './agents/claw-archive.js'
+    );
+    const inspection = await inspectClawArchive(path.resolve(archivePath));
+    console.log(formatClawArchiveSummary(inspection).join('\n'));
+    return;
+  }
+
+  if (sub === 'pack') {
+    let agentId = 'main';
+    let outputPath = '';
+    let positionalConsumed = false;
+
+    for (let index = 1; index < normalized.length; index += 1) {
+      const arg = normalized[index];
+      if (arg === '-o' || arg === '--output') {
+        outputPath = String(normalized[index + 1] || '').trim();
+        if (!outputPath) {
+          throw new Error('Missing value for `-o`. Use `-o <path>`.');
+        }
+        index += 1;
+        continue;
+      }
+      if (arg.startsWith('--output=')) {
+        outputPath = arg.slice('--output='.length).trim();
+        if (!outputPath) {
+          throw new Error('Missing value for `--output=<path>`.');
+        }
+        continue;
+      }
+      if (!positionalConsumed && !arg.startsWith('-')) {
+        agentId = arg;
+        positionalConsumed = true;
+        continue;
+      }
+      printAgentUsage();
+      throw new Error(
+        `Unexpected argument for \`hybridclaw agent pack\`: ${arg}`,
+      );
+    }
+
+    const { packAgent } = await import('./agents/claw-archive.js');
+    const interactive =
+      process.stdin.isTTY && process.stdout.isTTY && process.env.CI !== 'true';
+    const result = await packAgent(agentId, {
+      ...(outputPath ? { outputPath: path.resolve(outputPath) } : {}),
+      ...(interactive
+        ? {
+            promptSelection: async (input) => {
+              const rl = readline.createInterface({
+                input: process.stdin,
+                output: process.stdout,
+              });
+              try {
+                const shouldBundle = await promptYesNo(
+                  rl,
+                  input.kind === 'skill'
+                    ? `Bundle workspace skill "${input.directoryName}"?`
+                    : `Bundle installed plugin "${input.pluginId}"?`,
+                  true,
+                );
+                if (shouldBundle) {
+                  return { mode: 'bundle' as const };
+                }
+
+                if (input.kind === 'skill') {
+                  const kind = (
+                    await promptTrimmed(
+                      rl,
+                      `External kind for skill "${input.directoryName}" (clawhub|npm|git|url)`,
+                      'url',
+                    )
+                  ).toLowerCase();
+                  const ref = await promptTrimmed(
+                    rl,
+                    `Reference for skill "${input.directoryName}"`,
+                  );
+                  if (!ref) {
+                    throw new Error(
+                      `Missing external reference for skill "${input.directoryName}".`,
+                    );
+                  }
+                  const name = await promptTrimmed(
+                    rl,
+                    `Display name for skill "${input.directoryName}"`,
+                    input.directoryName,
+                  );
+                  return {
+                    mode: 'external' as const,
+                    reference: {
+                      kind: kind as 'clawhub' | 'npm' | 'git' | 'url',
+                      ref,
+                      ...(name ? { name } : {}),
+                    },
+                  };
+                }
+
+                const defaultKind = input.packageName ? 'npm' : 'local';
+                const defaultRef = input.packageName || input.sourceDir;
+                const kind = (
+                  await promptTrimmed(
+                    rl,
+                    `External kind for plugin "${input.pluginId}" (npm|local)`,
+                    defaultKind,
+                  )
+                ).toLowerCase();
+                const ref = await promptTrimmed(
+                  rl,
+                  `Reference for plugin "${input.pluginId}"`,
+                  defaultRef,
+                );
+                const pluginId = await promptTrimmed(
+                  rl,
+                  `Plugin id for "${input.pluginId}"`,
+                  input.pluginId,
+                );
+                return {
+                  mode: 'external' as const,
+                  reference: {
+                    kind: kind as 'npm' | 'local',
+                    ref,
+                    ...(pluginId ? { id: pluginId } : {}),
+                  },
+                };
+              } finally {
+                rl.close();
+              }
+            },
+          }
+        : {}),
+    });
+
+    console.log(
+      `Packed agent ${result.manifest.name} to ${result.archivePath}.`,
+    );
+    console.log(`Workspace: ${result.workspacePath}`);
+    console.log(`Bundled skills: ${result.bundledSkills.length}`);
+    console.log(`Bundled plugins: ${result.bundledPlugins.length}`);
+    if (result.externalSkills.length > 0 || result.externalPlugins.length > 0) {
+      console.log(
+        `External refs: ${result.externalSkills.length + result.externalPlugins.length}`,
+      );
+    }
+    return;
+  }
+
+  if (sub === 'unpack') {
+    let archivePath = '';
+    let requestedId = '';
+    let force = false;
+    let skipExternals = false;
+    let yes = false;
+
+    for (let index = 1; index < normalized.length; index += 1) {
+      const arg = normalized[index];
+      if (!archivePath && !arg.startsWith('-')) {
+        archivePath = arg;
+        continue;
+      }
+      if (arg === '--id') {
+        requestedId = String(normalized[index + 1] || '').trim();
+        if (!requestedId) {
+          throw new Error('Missing value for `--id`. Use `--id <agent-id>`.');
+        }
+        index += 1;
+        continue;
+      }
+      if (arg.startsWith('--id=')) {
+        requestedId = arg.slice('--id='.length).trim();
+        if (!requestedId) {
+          throw new Error('Missing value for `--id=<agent-id>`.');
+        }
+        continue;
+      }
+      if (arg === '--force') {
+        force = true;
+        continue;
+      }
+      if (arg === '--skip-externals') {
+        skipExternals = true;
+        continue;
+      }
+      if (arg === '--yes') {
+        yes = true;
+        continue;
+      }
+      printAgentUsage();
+      throw new Error(
+        `Unexpected argument for \`hybridclaw agent unpack\`: ${arg}`,
+      );
+    }
+
+    if (!archivePath) {
+      printAgentUsage();
+      throw new Error(
+        'Missing archive path for `hybridclaw agent unpack <file.claw>`.',
+      );
+    }
+
+    if (!yes && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+      throw new Error(
+        'Unpack confirmation requires an interactive terminal. Re-run with --yes to skip the prompt.',
+      );
+    }
+
+    const { formatClawArchiveSummary, unpackAgent } = await import(
+      './agents/claw-archive.js'
+    );
+    const result = await unpackAgent(path.resolve(archivePath), {
+      ...(requestedId ? { agentId: requestedId } : {}),
+      force,
+      skipExternals,
+      yes,
+      confirm: async (inspection) => {
+        console.log(formatClawArchiveSummary(inspection).join('\n'));
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+        try {
+          return await promptYesNo(
+            rl,
+            `Import this agent as "${requestedId || inspection.manifest.id || inspection.manifest.name}"?`,
+            false,
+          );
+        } finally {
+          rl.close();
+        }
+      },
+    });
+
+    console.log(`Unpacked agent ${result.agentId} to ${result.workspacePath}.`);
+    console.log(`Bundled skills restored: ${result.bundledSkills.length}`);
+    console.log(`Bundled plugins installed: ${result.installedPlugins.length}`);
+    if (result.runtimeConfigChanged) {
+      console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+    }
+    if (result.externalActions.length > 0) {
+      console.log('External references were not installed automatically:');
+      for (const action of result.externalActions) {
+        console.log(`  ${action}`);
+      }
+    }
+    return;
+  }
+
+  printAgentUsage();
+  throw new Error(
+    `Unknown agent subcommand: ${sub}. Use \`hybridclaw agent pack\`, \`hybridclaw agent inspect\`, or \`hybridclaw agent unpack\`.`,
+  );
+}
+
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<void> {
@@ -4183,6 +4516,9 @@ export async function main(
     case '--version':
     case '-v':
       console.log(APP_VERSION);
+      break;
+    case 'agent':
+      await handleAgentPackageCommand(subargs);
       break;
     case 'auth':
       await handleAuthCommand(subargs);
