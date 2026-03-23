@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Personal AI assistant bot for Discord, powered by HybridAI",
   "workspaces": [
-    "console"
+    "console",
+    "container"
   ],
   "engines": {
     "node": "22.x"
