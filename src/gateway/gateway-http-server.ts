@@ -389,12 +389,12 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   }
 }
 
-function resolveSiteFile(pathname: string): string | null {
-  return resolveStaticFile(
-    SITE_DIR,
-    pathname === '/' ? '/index.html' : pathname,
-  );
-}
+/** Map clean route names to their HTML files in docs/. */
+const SITE_PAGE_ROUTES: Record<string, string> = {
+  '/': '/index.html',
+  '/chat': '/chat.html',
+  '/agents': '/agents.html',
+};
 
 function resolveStaticFile(rootDir: string, pathname: string): string | null {
   const cleanPath = pathname === '/' ? '/index.html' : pathname;
@@ -406,14 +406,22 @@ function resolveStaticFile(rootDir: string, pathname: string): string | null {
   return candidate;
 }
 
+function resolveSiteFile(pathname: string): string | null {
+  const mapped = SITE_PAGE_ROUTES[pathname];
+  if (mapped) {
+    return resolveStaticFile(SITE_DIR, mapped);
+  }
+  // Try the pathname as-is (e.g. /static/app.css), then with .html fallback
+  const direct = resolveStaticFile(SITE_DIR, pathname);
+  if (direct) return direct;
+  if (!path.extname(pathname)) {
+    return resolveStaticFile(SITE_DIR, `${pathname}.html`);
+  }
+  return null;
+}
+
 function serveStatic(pathname: string, res: ServerResponse): boolean {
-  const filePath = resolveSiteFile(
-    pathname === '/chat'
-      ? '/chat.html'
-      : pathname === '/agents'
-        ? '/agents.html'
-        : pathname,
-  );
+  const filePath = resolveSiteFile(pathname);
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
   const mimeType = SITE_MIME_TYPES[ext] || 'application/octet-stream';
