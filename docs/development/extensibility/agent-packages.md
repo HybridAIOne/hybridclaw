@@ -1,3 +1,9 @@
+---
+title: Agent Packages
+description: Portable `.claw` archive format, CLI workflow, manifest fields, and security rules for packaging agents.
+sidebar_position: 2
+---
+
 # Agent Packages (`.claw`)
 
 HybridClaw can package an agent workspace into a portable `.claw` archive.
@@ -16,58 +22,62 @@ Use it when you want to:
 
 ```bash
 hybridclaw agent list
-hybridclaw agent pack [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
+hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
 hybridclaw agent inspect <file.claw>
-hybridclaw agent unpack <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]
+hybridclaw agent install <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]
+hybridclaw agent uninstall <agent-id> [--yes]
 ```
 
 Examples:
 
 ```bash
 # Export the main agent
-hybridclaw agent pack main -o /tmp/main.claw
+hybridclaw agent export main -o /tmp/main.claw
 
 # Inspect a package without extracting it
 hybridclaw agent inspect /tmp/main.claw
 
 # Import it as a new agent id
-hybridclaw agent unpack /tmp/main.claw --id demo-agent
+hybridclaw agent install /tmp/main.claw --id demo-agent
+
+# Remove an installed non-main agent
+hybridclaw agent uninstall demo-agent --yes
 ```
 
-You can control workspace skill bundling during `pack`:
+You can control workspace skill bundling during `export`:
 
 ```bash
 # Ask about each workspace skill (interactive default)
-hybridclaw agent pack main --skills ask
+hybridclaw agent export main --skills ask
 
 # Bundle only enabled workspace skills
-hybridclaw agent pack main --skills active
+hybridclaw agent export main --skills active
 
 # Bundle all workspace skills
-hybridclaw agent pack main --skills all
+hybridclaw agent export main --skills all
 
 # Bundle only a named subset
-hybridclaw agent pack main --skills some --skill 1password --skill apple-calendar
+hybridclaw agent export main --skills some --skill 1password --skill apple-calendar
 
 # Bundle only enabled home plugins
-hybridclaw agent pack main --plugins active
+hybridclaw agent export main --plugins active
 
 # Bundle all installed home plugins
-hybridclaw agent pack main --plugins all
+hybridclaw agent export main --plugins all
 
 # Bundle only a named plugin subset
-hybridclaw agent pack main --plugins some --plugin demo-plugin --plugin qmd-memory
+hybridclaw agent export main --plugins some --plugin demo-plugin --plugin qmd-memory
 ```
 
 ## Bootstrapping from GitHub Artifacts
 
-`hybridclaw agent unpack` currently accepts a local `.claw` file path only.
+`hybridclaw agent install` currently accepts a local `.claw` file path only.
 If your agent packages are published from a private GitHub repository, the
 recommended workflow is:
 
 1. download the built `.claw` artifact
 2. inspect it locally
-3. unpack it into HybridClaw
+3. install it into HybridClaw
 
 Release assets are the best fit for stable bootstrap links:
 
@@ -78,7 +88,7 @@ gh release download v1.2.3 \
   --dir /tmp/agent-artifacts
 
 hybridclaw agent inspect /tmp/agent-artifacts/research-agent.claw
-hybridclaw agent unpack /tmp/agent-artifacts/research-agent.claw --id research-agent --yes
+hybridclaw agent install /tmp/agent-artifacts/research-agent.claw --id research-agent --yes
 ```
 
 If you publish packages as GitHub Actions artifacts instead:
@@ -90,11 +100,11 @@ gh run download <run-id> \
   --dir /tmp/agent-artifacts
 
 hybridclaw agent inspect /tmp/agent-artifacts/research-agent.claw
-hybridclaw agent unpack /tmp/agent-artifacts/research-agent.claw --id research-agent --yes
+hybridclaw agent install /tmp/agent-artifacts/research-agent.claw --id research-agent --yes
 ```
 
 If you only have a direct authenticated asset URL, download it first and then
-unpack the local file:
+install the local file:
 
 ```bash
 curl -L \
@@ -103,7 +113,7 @@ curl -L \
   'https://github.com/.../releases/download/.../research-agent.claw'
 
 hybridclaw agent inspect /tmp/research-agent.claw
-hybridclaw agent unpack /tmp/research-agent.claw --id research-agent --yes
+hybridclaw agent install /tmp/research-agent.claw --id research-agent --yes
 ```
 
 For private distribution, prefer GitHub Release assets over Actions artifacts
@@ -200,7 +210,8 @@ interface ClawManifest {
 }
 ```
 
-Implementation lives in [src/agents/claw-manifest.ts](../../src/agents/claw-manifest.ts).
+Implementation lives in
+[src/agents/claw-manifest.ts](https://github.com/HybridAIOne/hybridclaw/blob/main/src/agents/claw-manifest.ts).
 
 ## Bundled vs External
 
@@ -228,13 +239,13 @@ Example:
 
 Current behavior:
 
-- bundled skills are unpacked into the agent workspace under `skills/`
-- unpack also adds that workspace `skills/` directory to `skills.extraDirs`
+- bundled skills are installed into the agent workspace under `skills/`
+- install also adds that workspace `skills/` directory to `skills.extraDirs`
   so imported bundled skills are discoverable
 - bundled plugins are installed through the normal plugin installer
 - bundled plugin config overrides are only imported for bundled plugins and are
   validated against the bundled plugin manifest `configSchema`
-- external git refs are shown after unpack as `git clone` commands; they are
+- external git refs are shown after install as `git clone` commands; they are
   not auto-installed
 
 ## Important External URL Limitation
@@ -275,9 +286,9 @@ Not currently accepted:
 }
 ```
 
-## What `pack` Includes
+## What `export` Includes
 
-`hybridclaw agent pack` currently:
+`hybridclaw agent export` currently:
 
 - supports optional `--description`, `--author`, and `--version` manifest
   metadata
@@ -304,15 +315,15 @@ Not currently accepted:
 - stores matching `plugins.list[]` overrides only for bundled plugins, and only
   when they have a manifest `configSchema` or a non-default enabled flag
 
-By default, interactive `pack` behaves like `--skills ask --plugins ask`.
+By default, interactive `export` behaves like `--skills ask --plugins ask`.
 In that mode, each prompt offers `yes`, `no`, or `external`: `yes` bundles the
 entry, `no` skips it, and `external` records an external reference. Non-
-interactive `pack` behaves like `--skills all --plugins active`. The CLI
-reuses one readline session for the whole pack flow.
+interactive `export` behaves like `--skills all --plugins active`. The CLI
+reuses one readline session for the whole export flow.
 
-## What `unpack` Does
+## What `install` Does
 
-`hybridclaw agent unpack` currently:
+`hybridclaw agent install` currently:
 
 1. validates ZIP safety and archive limits
 2. reads and validates `manifest.json`
@@ -330,6 +341,15 @@ reuses one readline session for the whole pack flow.
 Use `--force` to replace an existing agent workspace or reinstall bundled
 plugins during import.
 
+## What `uninstall` Does
+
+`hybridclaw agent uninstall` currently:
+
+1. requires a non-main agent id
+2. confirms removal unless `--yes` is set
+3. removes the registered agent entry
+4. removes the agent workspace root under the normal runtime path
+
 ## What `list` Does
 
 `hybridclaw agent list` prints registered agents in a tab-separated format:
@@ -340,7 +360,7 @@ plugins during import.
 
 ## Security Rules
 
-`.claw` unpack rejects:
+`.claw` install rejects:
 
 - absolute paths
 - `..` traversal segments
@@ -351,7 +371,8 @@ plugins during import.
   - 100 MB compressed
   - 512 MB uncompressed
 
-Implementation lives in [src/agents/claw-security.ts](../../src/agents/claw-security.ts).
+Implementation lives in
+[src/agents/claw-security.ts](https://github.com/HybridAIOne/hybridclaw/blob/main/src/agents/claw-security.ts).
 
 ## Generating `.claw` Files Programmatically
 

@@ -145,6 +145,14 @@ async function importFreshCli(options?: {
     externalActions: string[];
     runtimeConfigChanged: boolean;
   };
+  agentUninstallError?: Error | null;
+  agentUninstallResult?: {
+    agentId: string;
+    agentRootPath: string;
+    workspacePath: string;
+    removedAgentRoot: boolean;
+    removedRegistration: boolean;
+  };
   agentListResult?: Array<{
     id: string;
     name: string;
@@ -407,6 +415,18 @@ async function importFreshCli(options?: {
       }
     );
   });
+  const uninstallAgent = vi.fn((agentId: string) => {
+    if (options?.agentUninstallError) throw options.agentUninstallError;
+    return (
+      options?.agentUninstallResult || {
+        agentId,
+        agentRootPath: `/tmp/.hybridclaw/data/agents/${agentId}`,
+        workspacePath: `/tmp/.hybridclaw/data/agents/${agentId}/workspace`,
+        removedAgentRoot: true,
+        removedRegistration: true,
+      }
+    );
+  });
   const ensureRuntimeConfigFile = vi.fn(() => false);
   const onRuntimeConfigChange = vi.fn(() => () => {});
   const actualRuntimeConfig = await import('../src/config/runtime-config.ts');
@@ -648,12 +668,17 @@ async function importFreshCli(options?: {
   vi.doMock('../src/agents/agent-registry.js', () => ({
     initAgentRegistry,
     listAgents,
+    getAgentById: vi.fn(
+      (agentId: string) =>
+        listAgents().find((agent) => agent.id === agentId) || null,
+    ),
   }));
   vi.doMock('../src/agents/claw-archive.js', () => ({
     formatClawArchiveSummary,
     inspectClawArchive,
     packAgent,
     unpackAgent,
+    uninstallAgent,
   }));
   vi.doMock('../src/plugins/plugin-install.ts', () => ({
     installPlugin,
@@ -735,6 +760,7 @@ async function importFreshCli(options?: {
     inspectClawArchive,
     formatClawArchiveSummary,
     unpackAgent,
+    uninstallAgent,
     readlineCreateInterface,
     readlineQuestion,
     readlineClose,
@@ -2106,12 +2132,12 @@ describe('CLI hybridai commands', () => {
     );
   });
 
-  it('runs agent pack and reports bundled content counts', async () => {
+  it('runs agent export and reports bundled content counts', async () => {
     const { cli, packAgent, initDatabase, initAgentRegistry } =
       await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cli.main(['agent', 'pack', 'main', '-o', '/tmp/export.claw']);
+    await cli.main(['agent', 'export', 'main', '-o', '/tmp/export.claw']);
 
     expect(initDatabase).toHaveBeenCalledWith({ quiet: true });
     expect(initAgentRegistry).toHaveBeenCalled();
@@ -2122,13 +2148,13 @@ describe('CLI hybridai commands', () => {
       }),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Packed agent Main Agent to /tmp/main.claw.'),
+      expect.stringContaining('Exported agent Main Agent to /tmp/main.claw.'),
     );
-    expect(logSpy).toHaveBeenCalledWith('Bundled skills: 1');
-    expect(logSpy).toHaveBeenCalledWith('Bundled plugins: 1');
+    expect(logSpy).toHaveBeenCalledWith('🧩 Bundled skills: 1');
+    expect(logSpy).toHaveBeenCalledWith('🔌 Bundled plugins: 1');
   });
 
-  it('passes pack metadata and dry-run flags through to packAgent', async () => {
+  it('passes export metadata and dry-run flags through to packAgent', async () => {
     const { cli, packAgent } = await importFreshCli({
       agentPackResult: {
         archivePath: '/tmp/preview.claw',
@@ -2147,7 +2173,7 @@ describe('CLI hybridai commands', () => {
 
     await cli.main([
       'agent',
-      'pack',
+      'export',
       'main',
       '--description',
       'Portable starter',
@@ -2171,17 +2197,17 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining(
-        'Dry run: agent Main Agent to /tmp/preview.claw.',
+        'Dry run export for agent Main Agent: /tmp/preview.claw.',
       ),
     );
-    expect(logSpy).toHaveBeenCalledWith('Archive entries:');
+    expect(logSpy).toHaveBeenCalledWith('📄 Archive entries:');
     expect(logSpy).toHaveBeenCalledWith('  manifest.json');
   });
 
-  it('passes --skills active through to packAgent', async () => {
+  it('passes --skills active through to packAgent during export', async () => {
     const { cli, packAgent } = await importFreshCli();
 
-    await cli.main(['agent', 'pack', 'main', '--skills', 'active']);
+    await cli.main(['agent', 'export', 'main', '--skills', 'active']);
 
     expect(packAgent).toHaveBeenCalledWith(
       'main',
@@ -2193,12 +2219,12 @@ describe('CLI hybridai commands', () => {
     );
   });
 
-  it('passes explicit skill selections through to packAgent', async () => {
+  it('passes explicit skill selections through to packAgent during export', async () => {
     const { cli, packAgent } = await importFreshCli();
 
     await cli.main([
       'agent',
-      'pack',
+      'export',
       'main',
       '--skills',
       'some',
@@ -2223,15 +2249,15 @@ describe('CLI hybridai commands', () => {
     const { cli, packAgent } = await importFreshCli();
 
     await expect(
-      cli.main(['agent', 'pack', 'main', '--skill', '1password']),
+      cli.main(['agent', 'export', 'main', '--skill', '1password']),
     ).rejects.toThrow('`--skill <name>` requires `--skills some`.');
     expect(packAgent).not.toHaveBeenCalled();
   });
 
-  it('passes --plugins active through to packAgent', async () => {
+  it('passes --plugins active through to packAgent during export', async () => {
     const { cli, packAgent } = await importFreshCli();
 
-    await cli.main(['agent', 'pack', 'main', '--plugins', 'active']);
+    await cli.main(['agent', 'export', 'main', '--plugins', 'active']);
 
     expect(packAgent).toHaveBeenCalledWith(
       'main',
@@ -2243,12 +2269,12 @@ describe('CLI hybridai commands', () => {
     );
   });
 
-  it('passes explicit plugin selections through to packAgent', async () => {
+  it('passes explicit plugin selections through to packAgent during export', async () => {
     const { cli, packAgent } = await importFreshCli();
 
     await cli.main([
       'agent',
-      'pack',
+      'export',
       'main',
       '--plugins',
       'some',
@@ -2273,12 +2299,12 @@ describe('CLI hybridai commands', () => {
     const { cli, packAgent } = await importFreshCli();
 
     await expect(
-      cli.main(['agent', 'pack', 'main', '--plugin', 'demo-plugin']),
+      cli.main(['agent', 'export', 'main', '--plugin', 'demo-plugin']),
     ).rejects.toThrow('`--plugin <id>` requires `--plugins some`.');
     expect(packAgent).not.toHaveBeenCalled();
   });
 
-  it('reuses one readline interface across pack prompts', async () => {
+  it('reuses one readline interface across export prompts', async () => {
     const { cli, packAgent, readlineCreateInterface, readlineClose } =
       await importFreshCli({
         promptResponses: [
@@ -2318,13 +2344,13 @@ describe('CLI hybridai commands', () => {
       };
     });
 
-    await cli.main(['agent', 'pack', 'main']);
+    await cli.main(['agent', 'export', 'main']);
 
     expect(readlineCreateInterface).toHaveBeenCalledTimes(1);
     expect(readlineClose).toHaveBeenCalledTimes(1);
   });
 
-  it('treats n as skip during interactive pack prompts', async () => {
+  it('treats n as skip during interactive export prompts', async () => {
     const { cli, packAgent, readlineQuestion } = await importFreshCli({
       promptResponses: ['n', 'n'],
     });
@@ -2360,19 +2386,19 @@ describe('CLI hybridai commands', () => {
       };
     });
 
-    await cli.main(['agent', 'pack', 'main']);
+    await cli.main(['agent', 'export', 'main']);
 
     expect(selections).toEqual([{ mode: 'skip' }, { mode: 'skip' }]);
     expect(readlineQuestion).toHaveBeenCalledTimes(2);
   });
 
-  it('runs agent unpack with --yes and prints runtime config updates', async () => {
+  it('runs agent install with --yes and prints runtime config updates', async () => {
     const { cli, unpackAgent, readlineQuestion } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await cli.main([
       'agent',
-      'unpack',
+      'install',
       '/tmp/demo.claw',
       '--id',
       'imported',
@@ -2388,10 +2414,34 @@ describe('CLI hybridai commands', () => {
     );
     expect(readlineQuestion).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Unpacked agent imported-agent'),
+      expect.stringContaining('Installed agent imported-agent'),
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Updated runtime config at'),
+    );
+  });
+
+  it('runs agent uninstall with --yes and removes the installed agent', async () => {
+    const { cli, uninstallAgent } = await importFreshCli({
+      agentListResult: [
+        { id: 'main', name: 'Main Agent', model: 'gpt-5-mini' },
+        { id: 'writer', name: 'Writer Agent', model: 'gpt-5-mini' },
+      ],
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['agent', 'uninstall', 'writer', '--yes']);
+
+    expect(uninstallAgent).toHaveBeenCalledWith('writer', {
+      existingAgent: {
+        id: 'writer',
+        name: 'Writer Agent',
+        model: 'gpt-5-mini',
+      },
+    });
+    expect(logSpy).toHaveBeenCalledWith('Uninstalled agent writer.');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Removed agent files at /tmp/.hybridclaw/data/agents/writer.',
     );
   });
 

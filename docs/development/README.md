@@ -1,31 +1,35 @@
-# Development Docs
+---
+title: HybridClaw Docs
+description: User-facing HybridClaw documentation for installation, setup, operations, extensibility, and runtime internals.
+sidebar_position: 1
+---
 
-These docs hold the deeper reference material that does not belong in the
-top-level contributor quickstart.
+# HybridClaw Docs
 
-- [Extensibility: Tools, Skills, and Plugins](./extensibility.md) for when to
-  use each extension mechanism and how they compose
-- [Agent Packages (`.claw`)](./agent-packages.md) for the portable archive
-  format, manifest fields, CLI flow, security rules, and generation rules
-- [Architecture](./architecture.md) for the major runtime pieces and repository
-  layout
-- [Runtime Internals](./runtime.md) for sandboxing, configuration, diagnostics,
-  audit, and observability behavior
-- [Session Routing](./session-routing.md) for canonical session keys, DM
-  isolation scope, and identity-link behavior
-- [Voice and TTS](./voice-tts.md) for outbound voice-reply setup and local
-  speech backend expectations
-- [Testing Reference](./testing.md) for local checks, hooks, and test-suite
-  boundaries
-- [Release and Publishing](./releasing.md) for release tags and container
-  publish flow
-- [Skills Internals](./skills.md) for skill roots, precedence, and invocation
-  rules
-- [Plugin System](./plugins.md) for plugin manifests, runtime discovery,
-  config wiring, install workflow, and runtime hooks
-- [QMD Memory Plugin](./qmd-memory-plugin.md) for the installable external
-  markdown-search memory layer shipped in `plugins/qmd-memory`
-- [Adaptive Skills](./adaptive-skills.md) for the self-improving skill loop,
-  retention, and operator workflows
-- [OpenTelemetry Tracing Plugin](./otel-plugin.md) for emitting OTLP traces
-  to Langfuse, Jaeger, Grafana Tempo, or any OTLP backend
+This section turns the repo-shipped markdown docs into a browsable manual for
+operators, contributors, and advanced users. Start with the section that best
+matches what you need right now.
+
+## Browse By Section
+
+- [Getting Started](./getting-started/README.md) for installation,
+  onboarding, provider authentication, and first-run setup
+- [Guides](./guides/README.md) for local providers, MCP, bundled skills,
+  voice/TTS, and optional office tooling
+- [Reference](./reference/README.md) for model selection, configuration,
+  diagnostics, commands, and FAQ
+- [Extensibility](./extensibility/README.md) for tools, skills, plugins,
+  agent packages, and extension-specific operator workflows
+- [Internals](./internals/README.md) for architecture, runtime behavior,
+  session routing, testing, and release mechanics
+
+## Fast Paths
+
+- Need to install HybridClaw quickly? Go to
+  [Installation](./getting-started/installation.md).
+- Need the shortest path to a running gateway and chat UI? Go to
+  [Quick Start](./getting-started/quickstart.md).
+- Need command lookup or troubleshooting help? Go to
+  [Commands](./reference/commands.md) and
+  [Diagnostics](./reference/diagnostics.md).
+- Need setup answers before deploying? Go to [FAQ](./reference/faq.md).

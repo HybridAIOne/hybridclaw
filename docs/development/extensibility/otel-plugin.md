@@ -1,3 +1,9 @@
+---
+title: OpenTelemetry Tracing Plugin
+description: Emit HybridClaw traces to OTLP-compatible backends such as Langfuse, Jaeger, and Grafana Tempo.
+sidebar_position: 7
+---
+
 # OpenTelemetry Tracing Plugin
 
 This guide shows how to build a HybridClaw plugin that emits OpenTelemetry

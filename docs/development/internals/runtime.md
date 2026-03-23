@@ -1,3 +1,9 @@
+---
+title: Runtime Internals
+description: Sandboxing, configuration, diagnostics, audit paths, and operational behavior inside the HybridClaw runtime.
+sidebar_position: 3
+---
+
 # Runtime Internals
 
 ## Container Runtime Image

@@ -1,3 +1,9 @@
+---
+title: Extensibility
+description: How HybridClaw tools, skills, and plugins differ, when to use each one, and how they compose.
+sidebar_position: 1
+---
+
 # Extensibility: Tools, Skills, and Plugins
 
 HybridClaw has three extension mechanisms. They serve different purposes,
@@ -144,8 +150,8 @@ Another example:
 | Tools | `container/src/tools.ts` |
 | Skills | `skills/<name>/SKILL.md`, agent workspace, `config.skills.extraDirs` |
 | Plugins | `~/.hybridclaw/plugins/<id>/`, `.hybridclaw/plugins/<id>/` |
-| Plugin docs | `docs/development/plugins.md` |
-| Skill docs | `docs/development/skills.md` |
+| Plugin docs | `docs/development/extensibility/plugins.md` |
+| Skill docs | `docs/development/extensibility/skills.md` |
 
 ## CLI and Session Commands
 
@@ -157,9 +163,10 @@ hybridclaw skill disable <name>
 /skill-name [input]              # invoke in session
 
 # Agent packages
-hybridclaw agent pack [agent-id] [-o <path>]
+hybridclaw agent export [agent-id] [-o <path>]
 hybridclaw agent inspect <file.claw>
-hybridclaw agent unpack <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]
+hybridclaw agent install <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]
+hybridclaw agent uninstall <agent-id> [--yes]
 
 # Plugins
 hybridclaw plugin list

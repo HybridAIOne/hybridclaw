@@ -1,3 +1,9 @@
+---
+title: Skills Internals
+description: Skill roots, precedence, invocation rules, and runtime behavior for HybridClaw skills.
+sidebar_position: 3
+---
+
 # Skills Internals
 
 HybridClaw supports `SKILL.md`-based skills in `<skill-name>/SKILL.md`.
