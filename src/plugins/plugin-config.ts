@@ -1,9 +1,9 @@
-import os from 'node:os';
 import type {
   RuntimeConfig,
   RuntimePluginConfigEntry,
 } from '../config/runtime-config.js';
 import {
+  DEFAULT_RUNTIME_HOME_DIR,
   getRuntimeConfig,
   runtimeConfigPath,
   saveRuntimeConfig,
@@ -82,7 +82,7 @@ async function validatePluginOverride(
   config: RuntimeConfig,
 ): Promise<void> {
   const manager = new PluginManager({
-    homeDir: os.homedir(),
+    homeDir: DEFAULT_RUNTIME_HOME_DIR,
     cwd: process.cwd(),
     getRuntimeConfig: () => config,
   });

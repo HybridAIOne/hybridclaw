@@ -89,7 +89,7 @@ afterEach(() => {
 });
 
 describe('plugin install', () => {
-  test('installs a local plugin directory into ~/.hybridclaw/plugins', async () => {
+  test('installs a local plugin directory into homeDir/plugins', async () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
     const cwd = makeTempDir('hybridclaw-plugin-cwd-');
     const sourceDir = path.join(cwd, 'demo-plugin');
@@ -117,7 +117,6 @@ describe('plugin install', () => {
 
     const installedDir = path.join(
       homeDir,
-      '.hybridclaw',
       'plugins',
       'demo-plugin',
     );
@@ -184,7 +183,6 @@ describe('plugin install', () => {
 
     const installedDir = path.join(
       homeDir,
-      '.hybridclaw',
       'plugins',
       'demo-plugin',
     );
@@ -240,7 +238,6 @@ describe('plugin install', () => {
 
     const installedDir = path.join(
       homeDir,
-      '.hybridclaw',
       'plugins',
       'manifest-only-plugin',
     );
@@ -277,7 +274,6 @@ describe('plugin install', () => {
 
     const installedDir = path.join(
       homeDir,
-      '.hybridclaw',
       'plugins',
       'demo-plugin',
     );
@@ -327,7 +323,6 @@ describe('plugin install', () => {
     const cwd = makeTempDir('hybridclaw-plugin-cwd-');
     const installedDir = path.join(
       homeDir,
-      '.hybridclaw',
       'plugins',
       'demo-plugin',
     );
@@ -417,7 +412,6 @@ describe('plugin install', () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
     const pluginDir = path.join(
       homeDir,
-      '.hybridclaw',
       'plugins',
       'demo-plugin',
     );
@@ -489,7 +483,7 @@ describe('plugin install', () => {
 
     expect(result).toEqual({
       pluginId: 'demo-plugin',
-      pluginDir: path.join(homeDir, '.hybridclaw', 'plugins', 'demo-plugin'),
+      pluginDir: path.join(homeDir, 'plugins', 'demo-plugin'),
       removedPluginDir: false,
       removedConfigOverrides: 1,
     });

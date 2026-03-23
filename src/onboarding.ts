@@ -7,6 +7,7 @@ import {
 import { refreshRuntimeSecretsFromEnv } from './config/config.js';
 import {
   acceptSecurityTrustModel,
+  DEFAULT_RUNTIME_HOME_DIR,
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   isSecurityTrustAccepted,
@@ -845,7 +846,7 @@ export async function ensureRuntimeCredentials(
         ? 'openrouter'
         : 'hybridai');
   const force = options.force === true;
-  const securityAccepted = isSecurityTrustAccepted(runtimeConfig);
+  let securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
   const hasRequiredCredentials = currentProviderIsLocal
     ? true
@@ -858,10 +859,27 @@ export async function ensureRuntimeCredentials(
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     if (!securityAccepted) {
-      throw new Error(
-        'Security trust model is not accepted. Run `hybridclaw onboarding` in an interactive terminal to accept TRUST_MODEL.md.',
-      );
+      if (process.env.HYBRIDCLAW_ACCEPT_TRUST === 'true') {
+        try {
+          acceptSecurityTrustModel({
+            acceptedBy: 'env:HYBRIDCLAW_ACCEPT_TRUST',
+          });
+        } catch (err) {
+          throw new Error(
+            `Failed to persist trust acceptance (HYBRIDCLAW_ACCEPT_TRUST=true). ` +
+              `Check that ${DEFAULT_RUNTIME_HOME_DIR} is writable. ` +
+              `Cause: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        securityAccepted = true;
+      } else {
+        throw new Error(
+          'Security trust model is not accepted. Run `hybridclaw onboarding` in an interactive terminal to accept TRUST_MODEL.md, or set HYBRIDCLAW_ACCEPT_TRUST=true to accept automatically.',
+        );
+      }
     }
+    // After accepting trust via env var, credentials may already be present.
+    if (hasRequiredCredentials) return;
     if (currentAuth === 'openai-codex') {
       throw new Error(
         'OpenAI Codex credentials are missing. Run `hybridclaw codex login` or `hybridclaw onboarding` in an interactive terminal.',

@@ -1,13 +1,11 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-config.js';
 import {
   resolveInstallPath,
   resolveInstallRoot,
 } from '../infra/install-root.js';
-
-const RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
 
 const INSTRUCTION_SPECS = [
   {
@@ -22,7 +20,7 @@ const INSTRUCTION_SPECS = [
 
 export const INSTRUCTION_FILES = INSTRUCTION_SPECS.map((spec) => spec.path);
 export const INSTRUCTION_RUNTIME_DIR = path.join(
-  RUNTIME_HOME_DIR,
+  DEFAULT_RUNTIME_HOME_DIR,
   'instructions',
 );
 
