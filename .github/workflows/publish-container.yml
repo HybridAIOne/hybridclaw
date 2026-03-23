@@ -4,6 +4,14 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >
+          Version tag to publish (e.g. v1.2.3). Must match package.json.
+          Leave empty to use the version from package.json.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -23,30 +31,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22
-
       - name: Validate tag and resolve shared metadata
         id: check
         shell: bash
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
 
-          TAG="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            EXPECTED_TAG="v$(jq -r .version package.json)"
+            TAG="${INPUT_VERSION:-${EXPECTED_TAG}}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            EXPECTED_TAG="v$(jq -r .version package.json)"
+          fi
+
           if [[ "${TAG}" != v* ]]; then
             echo "Expected a v-prefixed release tag, got '${TAG}'." >&2
             exit 1
           fi
 
-          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
-          EXPECTED_TAG="v${PACKAGE_VERSION}"
           if [[ "${TAG}" != "${EXPECTED_TAG}" ]]; then
-            echo "Tag/package mismatch: git tag '${TAG}' != package.json '${EXPECTED_TAG}'." >&2
+            echo "Tag/package mismatch: tag '${TAG}' != package.json '${EXPECTED_TAG}'." >&2
             exit 1
           fi
 
