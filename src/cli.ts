@@ -445,6 +445,7 @@ function printMainUsage(): void {
   console.log(`Usage: hybridclaw <command>
 
   Commands:
+  agent      Pack, inspect, or unpack portable agent archives
   auth       Unified provider login/logout/status
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   tui        Start terminal adapter (starts gateway automatically when needed)
@@ -856,10 +857,34 @@ Notes:
   - Use ${runtimeConfigPath()} only for plugin overrides such as disable flags, config values, or custom paths.`);
 }
 
+function printAgentUsage(): void {
+  console.log(`Usage: hybridclaw agent <command>
+
+Commands:
+  hybridclaw agent list
+  hybridclaw agent pack [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
+  hybridclaw agent inspect <file.claw>
+  hybridclaw agent unpack <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]
+
+Notes:
+  - \`list\` prints registered agents in a script-friendly tab-separated format.
+  - \`pack\` exports an agent workspace, bundled workspace skills, and bundled home plugins into a portable \`.claw\` archive.
+  - Use \`--description\`, \`--author\`, and \`--version\` to set optional manifest metadata during pack.
+  - Use \`--dry-run\` to preview the generated manifest path and archive entries without writing a file.
+  - Use \`--skills active\` to bundle only enabled workspace skills, \`--skills all\` to bundle all workspace skills, or \`--skills some --skill <name>\` to bundle a selected subset.
+  - Use \`--plugins active\` to bundle only enabled home plugins, \`--plugins all\` to bundle all installed home plugins, or \`--plugins some --plugin <id>\` to bundle a selected subset.
+  - Interactive pack defaults to \`--skills ask\` and \`--plugins ask\`; non-interactive pack defaults to \`--skills all\` and \`--plugins active\`.
+  - \`inspect\` validates the archive manifest and prints a summary without extracting files.
+  - \`unpack\` validates ZIP safety, confirms the manifest, registers the agent, restores bundled content, and fills missing bootstrap files.
+  - Use \`--yes\` to skip the unpack confirmation prompt.
+  - Use \`--force\` to replace an existing agent workspace or bundled plugin install during unpack.`);
+}
+
 function printHelpUsage(): void {
   console.log(`Usage: hybridclaw help <topic>
 
 Topics:
+  agent       Help for portable agent package commands
   auth        Help for unified provider login/logout/status
   gateway     Help for gateway lifecycle and passthrough commands
   tui         Help for terminal client
@@ -916,6 +941,9 @@ function isHelpRequest(args: string[]): boolean {
 
 function printHelpTopic(topic: string): boolean {
   switch (topic.trim().toLowerCase()) {
+    case 'agent':
+      printAgentUsage();
+      return true;
     case 'auth':
       printAuthUsage();
       return true;
@@ -4265,6 +4293,573 @@ async function handlePluginCommand(args: string[]): Promise<void> {
   );
 }
 
+async function handleAgentPackageCommand(args: string[]): Promise<void> {
+  async function ensureAgentPackagingRuntime(): Promise<void> {
+    ensureRuntimeConfigFile();
+    const { initDatabase, isDatabaseInitialized } = await import(
+      './memory/db.js'
+    );
+    const { initAgentRegistry } = await import('./agents/agent-registry.js');
+    if (!isDatabaseInitialized()) {
+      initDatabase({ quiet: true });
+    }
+    initAgentRegistry(getRuntimeConfig().agents);
+  }
+
+  async function promptYesNo(
+    rl: readline.Interface,
+    question: string,
+    defaultYes = true,
+  ): Promise<boolean> {
+    const suffix = defaultYes ? ' [Y/n]: ' : ' [y/N]: ';
+    const answer = (await rl.question(`${question}${suffix}`))
+      .trim()
+      .toLowerCase();
+    if (!answer) return defaultYes;
+    return answer === 'y' || answer === 'yes';
+  }
+
+  async function promptBundleMode(
+    rl: readline.Interface,
+    question: string,
+  ): Promise<'bundle' | 'skip' | 'external'> {
+    while (true) {
+      const answer = (
+        await rl.question(`${question} [yes/no/external] [yes]: `)
+      )
+        .trim()
+        .toLowerCase();
+      if (!answer || answer === 'y' || answer === 'yes') {
+        return 'bundle';
+      }
+      if (answer === 'n' || answer === 'no') {
+        return 'skip';
+      }
+      if (answer === 'e' || answer === 'external') {
+        return 'external';
+      }
+      console.log('Please answer yes, no, or external.');
+    }
+  }
+
+  async function promptTrimmed(
+    rl: readline.Interface,
+    question: string,
+    fallback = '',
+  ): Promise<string> {
+    const suffix = fallback ? ` [${fallback}]` : '';
+    const answer = (await rl.question(`${question}${suffix}: `)).trim();
+    return answer || fallback;
+  }
+
+  function parseValueFlag(params: {
+    arg: string;
+    args: string[];
+    index: number;
+    names: string[];
+    placeholder: string;
+  }): { value: string; nextIndex: number } | null {
+    const { arg, args, index, names, placeholder } = params;
+
+    for (const name of names) {
+      if (arg === name) {
+        const value = String(args[index + 1] || '').trim();
+        if (!value) {
+          throw new Error(
+            `Missing value for \`${name}\`. Use \`${name} ${placeholder}\`.`,
+          );
+        }
+        return {
+          value,
+          nextIndex: index + 1,
+        };
+      }
+
+      if (arg.startsWith(`${name}=`)) {
+        const value = arg.slice(`${name}=`.length).trim();
+        if (!value) {
+          throw new Error(`Missing value for \`${name}=${placeholder}\`.`);
+        }
+        return {
+          value,
+          nextIndex: index,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printAgentUsage();
+    return;
+  }
+
+  await ensureAgentPackagingRuntime();
+
+  const sub = normalized[0].toLowerCase();
+  if (sub === 'list') {
+    if (normalized.length !== 1) {
+      printAgentUsage();
+      throw new Error(
+        'Unexpected extra arguments for `hybridclaw agent list`.',
+      );
+    }
+    const { listAgents } = await import('./agents/agent-registry.js');
+    for (const agent of listAgents()) {
+      console.log(
+        [
+          agent.id,
+          agent.name,
+          typeof agent.model === 'string'
+            ? agent.model
+            : agent.model?.primary || '',
+        ].join('\t'),
+      );
+    }
+    return;
+  }
+
+  if (sub === 'inspect') {
+    const archivePath = normalized[1];
+    if (!archivePath) {
+      printAgentUsage();
+      throw new Error(
+        'Missing archive path for `hybridclaw agent inspect <file.claw>`.',
+      );
+    }
+    if (normalized.length !== 2) {
+      printAgentUsage();
+      throw new Error(
+        'Unexpected extra arguments for `hybridclaw agent inspect <file.claw>`.',
+      );
+    }
+
+    const { formatClawArchiveSummary, inspectClawArchive } = await import(
+      './agents/claw-archive.js'
+    );
+    const inspection = await inspectClawArchive(path.resolve(archivePath));
+    console.log(formatClawArchiveSummary(inspection).join('\n'));
+    return;
+  }
+
+  if (sub === 'pack') {
+    let agentId = 'main';
+    let outputPath = '';
+    let description = '';
+    let author = '';
+    let version = '';
+    let dryRun = false;
+    let skillMode = '';
+    const selectedSkills: string[] = [];
+    let pluginMode = '';
+    const selectedPlugins: string[] = [];
+    let positionalConsumed = false;
+
+    for (let index = 1; index < normalized.length; index += 1) {
+      const arg = normalized[index];
+      const outputFlag = parseValueFlag({
+        arg,
+        args: normalized,
+        index,
+        names: ['-o', '--output'],
+        placeholder: '<path>',
+      });
+      if (outputFlag) {
+        outputPath = outputFlag.value;
+        index = outputFlag.nextIndex;
+        continue;
+      }
+      const descriptionFlag = parseValueFlag({
+        arg,
+        args: normalized,
+        index,
+        names: ['--description'],
+        placeholder: '<text>',
+      });
+      if (descriptionFlag) {
+        description = descriptionFlag.value;
+        index = descriptionFlag.nextIndex;
+        continue;
+      }
+      const authorFlag = parseValueFlag({
+        arg,
+        args: normalized,
+        index,
+        names: ['--author'],
+        placeholder: '<text>',
+      });
+      if (authorFlag) {
+        author = authorFlag.value;
+        index = authorFlag.nextIndex;
+        continue;
+      }
+      const versionFlag = parseValueFlag({
+        arg,
+        args: normalized,
+        index,
+        names: ['--version'],
+        placeholder: '<value>',
+      });
+      if (versionFlag) {
+        version = versionFlag.value;
+        index = versionFlag.nextIndex;
+        continue;
+      }
+      const skillsFlag = parseValueFlag({
+        arg,
+        args: normalized,
+        index,
+        names: ['--skills'],
+        placeholder: '<ask|active|all|some>',
+      });
+      if (skillsFlag) {
+        skillMode = skillsFlag.value;
+        index = skillsFlag.nextIndex;
+        continue;
+      }
+      const skillFlag = parseValueFlag({
+        arg,
+        args: normalized,
+        index,
+        names: ['--skill'],
+        placeholder: '<name>',
+      });
+      if (skillFlag) {
+        selectedSkills.push(
+          ...skillFlag.value
+            .split(',')
+            .map((value) => value.trim())
+            .filter(Boolean),
+        );
+        index = skillFlag.nextIndex;
+        continue;
+      }
+      const pluginsFlag = parseValueFlag({
+        arg,
+        args: normalized,
+        index,
+        names: ['--plugins'],
+        placeholder: '<ask|active|all|some>',
+      });
+      if (pluginsFlag) {
+        pluginMode = pluginsFlag.value;
+        index = pluginsFlag.nextIndex;
+        continue;
+      }
+      const pluginFlag = parseValueFlag({
+        arg,
+        args: normalized,
+        index,
+        names: ['--plugin'],
+        placeholder: '<id>',
+      });
+      if (pluginFlag) {
+        selectedPlugins.push(
+          ...pluginFlag.value
+            .split(',')
+            .map((value) => value.trim())
+            .filter(Boolean),
+        );
+        index = pluginFlag.nextIndex;
+        continue;
+      }
+      if (arg === '--dry-run') {
+        dryRun = true;
+        continue;
+      }
+      if (!positionalConsumed && !arg.startsWith('-')) {
+        agentId = arg;
+        positionalConsumed = true;
+        continue;
+      }
+      printAgentUsage();
+      throw new Error(
+        `Unexpected argument for \`hybridclaw agent pack\`: ${arg}`,
+      );
+    }
+
+    const { packAgent } = await import('./agents/claw-archive.js');
+    const interactive =
+      process.stdin.isTTY && process.stdout.isTTY && process.env.CI !== 'true';
+    const effectiveSkillMode = (skillMode || (interactive ? 'ask' : 'all'))
+      .trim()
+      .toLowerCase();
+    const effectivePluginMode = (pluginMode || (interactive ? 'ask' : 'active'))
+      .trim()
+      .toLowerCase();
+    if (
+      effectiveSkillMode !== 'ask' &&
+      effectiveSkillMode !== 'active' &&
+      effectiveSkillMode !== 'all' &&
+      effectiveSkillMode !== 'some'
+    ) {
+      throw new Error(
+        `Unsupported \`--skills\` mode "${skillMode}". Use ask, active, all, or some.`,
+      );
+    }
+    if (selectedSkills.length > 0 && effectiveSkillMode !== 'some') {
+      throw new Error('`--skill <name>` requires `--skills some`.');
+    }
+    if (effectiveSkillMode === 'some' && selectedSkills.length === 0) {
+      throw new Error(
+        '`--skills some` requires at least one `--skill <name>` value.',
+      );
+    }
+    if (effectiveSkillMode === 'ask' && !interactive) {
+      throw new Error('`--skills ask` requires an interactive TTY.');
+    }
+    if (
+      effectivePluginMode !== 'ask' &&
+      effectivePluginMode !== 'active' &&
+      effectivePluginMode !== 'all' &&
+      effectivePluginMode !== 'some'
+    ) {
+      throw new Error(
+        `Unsupported \`--plugins\` mode "${pluginMode}". Use ask, active, all, or some.`,
+      );
+    }
+    if (selectedPlugins.length > 0 && effectivePluginMode !== 'some') {
+      throw new Error('`--plugin <id>` requires `--plugins some`.');
+    }
+    if (effectivePluginMode === 'some' && selectedPlugins.length === 0) {
+      throw new Error(
+        '`--plugins some` requires at least one `--plugin <id>` value.',
+      );
+    }
+    if (effectivePluginMode === 'ask' && !interactive) {
+      throw new Error('`--plugins ask` requires an interactive TTY.');
+    }
+    const rl = interactive
+      ? readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        })
+      : null;
+    try {
+      const result = await packAgent(agentId, {
+        ...(outputPath ? { outputPath: path.resolve(outputPath) } : {}),
+        ...(description || author || version
+          ? {
+              manifestMetadata: {
+                ...(description ? { description } : {}),
+                ...(author ? { author } : {}),
+                ...(version ? { version } : {}),
+              },
+            }
+          : {}),
+        ...(dryRun ? { dryRun: true } : {}),
+        skillSelection: {
+          mode: effectiveSkillMode,
+          ...(selectedSkills.length > 0 ? { names: selectedSkills } : {}),
+        },
+        pluginSelection: {
+          mode: effectivePluginMode,
+          ...(selectedPlugins.length > 0 ? { names: selectedPlugins } : {}),
+        },
+        ...(rl
+          ? {
+              promptSelection: async (input) => {
+                const bundleMode = await promptBundleMode(
+                  rl,
+                  input.kind === 'skill'
+                    ? `Bundle workspace skill "${input.directoryName}"?`
+                    : `Bundle installed plugin "${input.pluginId}"?`,
+                );
+                if (bundleMode === 'bundle') {
+                  return { mode: 'bundle' as const };
+                }
+                if (bundleMode === 'skip') {
+                  return { mode: 'skip' as const };
+                }
+
+                if (input.kind === 'skill') {
+                  const ref = await promptTrimmed(
+                    rl,
+                    `Git reference for skill "${input.directoryName}"`,
+                  );
+                  if (!ref) {
+                    throw new Error(
+                      `Missing external reference for skill "${input.directoryName}".`,
+                    );
+                  }
+                  const name = await promptTrimmed(
+                    rl,
+                    `Display name for skill "${input.directoryName}"`,
+                    input.directoryName,
+                  );
+                  return {
+                    mode: 'external' as const,
+                    reference: {
+                      kind: 'git',
+                      ref,
+                      ...(name ? { name } : {}),
+                    },
+                  };
+                }
+
+                const defaultKind = input.packageName ? 'npm' : 'local';
+                const defaultRef = input.packageName || input.sourceDir;
+                const kind = (
+                  await promptTrimmed(
+                    rl,
+                    `External kind for plugin "${input.pluginId}" (npm|local)`,
+                    defaultKind,
+                  )
+                ).toLowerCase();
+                const ref = await promptTrimmed(
+                  rl,
+                  `Reference for plugin "${input.pluginId}"`,
+                  defaultRef,
+                );
+                const pluginId = await promptTrimmed(
+                  rl,
+                  `Plugin id for "${input.pluginId}"`,
+                  input.pluginId,
+                );
+                return {
+                  mode: 'external' as const,
+                  reference: {
+                    kind: kind as 'npm' | 'local',
+                    ref,
+                    ...(pluginId ? { id: pluginId } : {}),
+                  },
+                };
+              },
+            }
+          : {}),
+      });
+
+      console.log(
+        `${dryRun ? 'Dry run:' : 'Packed'} agent ${result.manifest.name} to ${result.archivePath}.`,
+      );
+      console.log(`Workspace: ${result.workspacePath}`);
+      console.log(`Bundled skills: ${result.bundledSkills.length}`);
+      console.log(`Bundled plugins: ${result.bundledPlugins.length}`);
+      if (
+        result.externalSkills.length > 0 ||
+        result.externalPlugins.length > 0
+      ) {
+        console.log(
+          `External refs: ${result.externalSkills.length + result.externalPlugins.length}`,
+        );
+      }
+      if (dryRun) {
+        console.log('Archive entries:');
+        for (const entry of result.archiveEntries) {
+          console.log(`  ${entry}`);
+        }
+      }
+      return;
+    } finally {
+      rl?.close();
+    }
+  }
+
+  if (sub === 'unpack') {
+    let archivePath = '';
+    let requestedId = '';
+    let force = false;
+    let skipExternals = false;
+    let yes = false;
+
+    for (let index = 1; index < normalized.length; index += 1) {
+      const arg = normalized[index];
+      if (!archivePath && !arg.startsWith('-')) {
+        archivePath = arg;
+        continue;
+      }
+      const idFlag = parseValueFlag({
+        arg,
+        args: normalized,
+        index,
+        names: ['--id'],
+        placeholder: '<agent-id>',
+      });
+      if (idFlag) {
+        requestedId = idFlag.value;
+        index = idFlag.nextIndex;
+        continue;
+      }
+      if (arg === '--force') {
+        force = true;
+        continue;
+      }
+      if (arg === '--skip-externals') {
+        skipExternals = true;
+        continue;
+      }
+      if (arg === '--yes') {
+        yes = true;
+        continue;
+      }
+      printAgentUsage();
+      throw new Error(
+        `Unexpected argument for \`hybridclaw agent unpack\`: ${arg}`,
+      );
+    }
+
+    if (!archivePath) {
+      printAgentUsage();
+      throw new Error(
+        'Missing archive path for `hybridclaw agent unpack <file.claw>`.',
+      );
+    }
+
+    if (!yes && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+      throw new Error(
+        'Unpack confirmation requires an interactive terminal. Re-run with --yes to skip the prompt.',
+      );
+    }
+
+    const { formatClawArchiveSummary, unpackAgent } = await import(
+      './agents/claw-archive.js'
+    );
+    const result = await unpackAgent(path.resolve(archivePath), {
+      ...(requestedId ? { agentId: requestedId } : {}),
+      force,
+      skipExternals,
+      yes,
+      confirm: async (inspection) => {
+        console.log(formatClawArchiveSummary(inspection).join('\n'));
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+        try {
+          return await promptYesNo(
+            rl,
+            `Import this agent as "${requestedId || inspection.manifest.id || inspection.manifest.name}"?`,
+            false,
+          );
+        } finally {
+          rl.close();
+        }
+      },
+    });
+
+    console.log(`Unpacked agent ${result.agentId} to ${result.workspacePath}.`);
+    console.log(`Bundled skills restored: ${result.bundledSkills.length}`);
+    console.log(`Bundled plugins installed: ${result.installedPlugins.length}`);
+    if (result.runtimeConfigChanged) {
+      console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+    }
+    if (result.externalActions.length > 0) {
+      console.log('External references were not installed automatically:');
+      for (const action of result.externalActions) {
+        console.log(`  ${action}`);
+      }
+    }
+    return;
+  }
+
+  printAgentUsage();
+  throw new Error(
+    `Unknown agent subcommand: ${sub}. Use \`hybridclaw agent pack\`, \`hybridclaw agent inspect\`, or \`hybridclaw agent unpack\`.`,
+  );
+}
+
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<void> {
@@ -4292,6 +4887,9 @@ export async function main(
     case '--version':
     case '-v':
       console.log(APP_VERSION);
+      break;
+    case 'agent':
+      await handleAgentPackageCommand(subargs);
       break;
     case 'auth':
       await handleAuthCommand(subargs);

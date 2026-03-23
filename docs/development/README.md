@@ -5,6 +5,8 @@ top-level contributor quickstart.
 
 - [Extensibility: Tools, Skills, and Plugins](./extensibility.md) for when to
   use each extension mechanism and how they compose
+- [Agent Packages (`.claw`)](./agent-packages.md) for the portable archive
+  format, manifest fields, CLI flow, security rules, and generation rules
 - [Architecture](./architecture.md) for the major runtime pieces and repository
   layout
 - [Runtime Internals](./runtime.md) for sandboxing, configuration, diagnostics,

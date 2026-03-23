@@ -156,6 +156,11 @@ hybridclaw skill enable <name>
 hybridclaw skill disable <name>
 /skill-name [input]              # invoke in session
 
+# Agent packages
+hybridclaw agent pack [agent-id] [-o <path>]
+hybridclaw agent inspect <file.claw>
+hybridclaw agent unpack <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]
+
 # Plugins
 hybridclaw plugin list
 hybridclaw plugin config <plugin-id> [key] [value|--unset]
@@ -167,3 +172,6 @@ hybridclaw plugin uninstall <plugin-id>
 /plugin reload                   # in session — hot reload after code changes
 /plugin uninstall <plugin-id>    # in session
 ```
+
+For the `.claw` archive layout and manifest fields, see
+[Agent Packages (`.claw`)](./agent-packages.md).
