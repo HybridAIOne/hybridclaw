@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import * as yazl from 'yazl';
-
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import * as yazl from 'yazl';
 
 const originalCwd = process.cwd();
 const tempDirs: string[] = [];
@@ -99,11 +98,9 @@ describe('.claw archive support', () => {
     const { ensureBootstrapFiles } = await import('../../src/workspace.js');
     const { agentWorkspaceDir } = await import('../../src/infra/ipc.js');
     const { loadSkillCatalog } = await import('../../src/skills/skills.js');
-    const {
-      inspectClawArchive,
-      packAgent,
-      unpackAgent,
-    } = await import('../../src/agents/claw-archive.js');
+    const { inspectClawArchive, packAgent, unpackAgent } = await import(
+      '../../src/agents/claw-archive.js'
+    );
 
     initDatabase({ quiet: true });
     initAgentRegistry({
@@ -125,9 +122,17 @@ describe('.claw archive support', () => {
       'portable memory\n',
       'utf-8',
     );
-    writeSkillDir(path.join(sourceWorkspace, 'skills', 'custom-skill'), 'custom-skill');
+    writeSkillDir(
+      path.join(sourceWorkspace, 'skills', 'custom-skill'),
+      'custom-skill',
+    );
 
-    const pluginDir = path.join(homeDir, '.hybridclaw', 'plugins', 'demo-plugin');
+    const pluginDir = path.join(
+      homeDir,
+      '.hybridclaw',
+      'plugins',
+      'demo-plugin',
+    );
     writePluginDir(pluginDir, 'demo-plugin');
 
     updateRuntimeConfig((draft) => {
@@ -195,9 +200,12 @@ describe('.claw archive support', () => {
     });
 
     expect(unpacked.agentId).toBe('imported-agent');
-    expect(fs.readFileSync(path.join(unpacked.workspacePath, 'notes', 'bio.md'), 'utf-8')).toBe(
-      'portable memory\n',
-    );
+    expect(
+      fs.readFileSync(
+        path.join(unpacked.workspacePath, 'notes', 'bio.md'),
+        'utf-8',
+      ),
+    ).toBe('portable memory\n');
     expect(
       fs.existsSync(
         path.join(unpacked.workspacePath, 'skills', 'custom-skill', 'SKILL.md'),
@@ -225,7 +233,8 @@ describe('.claw archive support', () => {
       loadSkillCatalog().some(
         (skill) =>
           skill.name === 'custom-skill' &&
-          skill.baseDir === path.join(unpacked.workspacePath, 'skills', 'custom-skill'),
+          skill.baseDir ===
+            path.join(unpacked.workspacePath, 'skills', 'custom-skill'),
       ),
     ).toBe(true);
   });
@@ -263,7 +272,9 @@ describe('.claw archive support', () => {
       },
     ]);
 
-    const { inspectClawArchive } = await import('../../src/agents/claw-archive.js');
+    const { inspectClawArchive } = await import(
+      '../../src/agents/claw-archive.js'
+    );
     await expect(inspectClawArchive(archivePath)).rejects.toThrow(
       /manifest\.skills\.bundled does not match/i,
     );

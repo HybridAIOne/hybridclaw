@@ -370,10 +370,12 @@ async function importFreshCli(options?: {
       }
     );
   });
-  const formatClawArchiveSummary = vi.fn((inspection: { manifest: { name: string } }) => [
-    `Name: ${inspection.manifest.name}`,
-    'Bundled skills: 1',
-  ]);
+  const formatClawArchiveSummary = vi.fn(
+    (inspection: { manifest: { name: string } }) => [
+      `Name: ${inspection.manifest.name}`,
+      'Bundled skills: 1',
+    ],
+  );
   const unpackAgent = vi.fn(async () => {
     if (options?.agentUnpackError) throw options.agentUnpackError;
     return (
@@ -2094,7 +2096,14 @@ describe('CLI hybridai commands', () => {
     const { cli, unpackAgent, readlineQuestion } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cli.main(['agent', 'unpack', '/tmp/demo.claw', '--id', 'imported', '--yes']);
+    await cli.main([
+      'agent',
+      'unpack',
+      '/tmp/demo.claw',
+      '--id',
+      'imported',
+      '--yes',
+    ]);
 
     expect(unpackAgent).toHaveBeenCalledWith(
       path.resolve('/tmp/demo.claw'),
