@@ -155,6 +155,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ needs.validate.outputs.labels }}
+          cache-from: type=gha,scope=agent-release
+          cache-to: type=gha,mode=max,scope=agent-release
 
   # Gateway image — runs as a permanent claw sandbox (hybridclaw gateway start).
   publish-gateway:
@@ -221,3 +223,5 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ needs.validate.outputs.labels }}
+          cache-from: type=gha,scope=gateway-release
+          cache-to: type=gha,mode=max,scope=gateway-release
