@@ -4463,7 +4463,10 @@ export async function handleGatewayMessage(
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
     agentStage = 'processing-agent-output';
-    const storedUserContent = buildStoredUserTurnContent(userTurnContent, media);
+    const storedUserContent = buildStoredUserTurnContent(
+      userTurnContent,
+      media,
+    );
     const toolExecutions = output.toolExecutions || [];
     const observedSkillName = resolveObservedSkillName({
       explicitSkillName,

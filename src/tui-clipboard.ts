@@ -263,7 +263,9 @@ function parseClipboardPayload(
         .map((value) => value.trim())
         .filter(Boolean)
         .map((value) => mapFilePath?.(value) ?? value)
-        .filter((value): value is string => typeof value === 'string' && !!value)
+        .filter(
+          (value): value is string => typeof value === 'string' && !!value,
+        )
     : [];
   const imageBase64 =
     typeof parsed.imageBase64 === 'string' && parsed.imageBase64.trim()
@@ -342,7 +344,9 @@ function stripWrappingQuotes(value: string): string {
 
 export function parseClipboardUriList(raw: string): string[] {
   const paths: string[] = [];
-  for (const line of String(raw || '').replace(/\r\n/g, '\n').split('\n')) {
+  for (const line of String(raw || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')) {
     const trimmed = stripWrappingQuotes(line);
     if (!trimmed || trimmed.startsWith('#')) continue;
     if (trimmed.startsWith('file://')) {
@@ -364,11 +368,9 @@ function parseClipboardTextPaths(raw: string): string[] {
   return parseClipboardUriList(raw);
 }
 
-async function readWindowsClipboardPayload(
-  options?: {
-    mapFilePath?: (value: string) => string | null;
-  },
-): Promise<DarwinClipboardPayload | null> {
+async function readWindowsClipboardPayload(options?: {
+  mapFilePath?: (value: string) => string | null;
+}): Promise<DarwinClipboardPayload | null> {
   for (const command of ['powershell.exe', 'pwsh', 'powershell']) {
     try {
       const { stdout } = await execFileUtf8(command, [
@@ -379,9 +381,7 @@ async function readWindowsClipboardPayload(
         WINDOWS_CLIPBOARD_SCRIPT,
       ]);
       return parseWindowsClipboardPayload(stdout, options);
-    } catch {
-      continue;
-    }
+    } catch {}
   }
   return null;
 }
@@ -446,7 +446,10 @@ async function readWaylandClipboardPayload(): Promise<DarwinClipboardPayload | n
   }
 
   for (const mimeType of LINUX_TEXT_PLAIN_MIME_CANDIDATES) {
-    const rawText = await maybeReadClipboardText('wl-paste', ['--type', mimeType]);
+    const rawText = await maybeReadClipboardText('wl-paste', [
+      '--type',
+      mimeType,
+    ]);
     const plainPaths = parseClipboardTextPaths(rawText || '');
     if (plainPaths.length > 0) {
       return {
@@ -600,7 +603,8 @@ export async function loadTuiClipboardUploadCandidates(): Promise<
   if (process.platform === 'linux') {
     if (isProbablyWsl()) {
       const windowsPayload = await readWindowsClipboardPayload({
-        mapFilePath: (filePath) => convertWindowsPathToWsl(filePath) || filePath,
+        mapFilePath: (filePath) =>
+          convertWindowsPathToWsl(filePath) || filePath,
       });
       const windowsCandidates = await payloadToUploadCandidates(windowsPayload);
       if (windowsCandidates.length > 0) {
