@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { ContextReference } from './parser.js';
 import {
@@ -282,13 +282,9 @@ export async function expandFileReference(
   const allowedRoot = options.allowedRoot ?? cwd;
   let resolvedPath: string;
   try {
-    resolvedPath = resolveAndValidatePath(cwd, ref.path, allowedRoot);
+    resolvedPath = await resolveAndValidatePath(cwd, ref.path, allowedRoot);
   } catch {
     return [formatWarning(ref, 'path escapes the allowed root'), null];
-  }
-
-  if (isSensitiveFile(resolvedPath)) {
-    return [formatWarning(ref, 'access to sensitive files is blocked'), null];
   }
 
   const fileStats = await stat(resolvedPath).catch(() => null);
@@ -299,11 +295,16 @@ export async function expandFileReference(
     return [formatWarning(ref, 'target is not a file'), null];
   }
 
-  if (await isBinaryFile(resolvedPath)) {
+  const realPath = await realpath(resolvedPath).catch(() => resolvedPath);
+  if (isSensitiveFile(realPath)) {
+    return [formatWarning(ref, 'access to sensitive files is blocked'), null];
+  }
+
+  if (await isBinaryFile(realPath)) {
     return [formatWarning(ref, 'binary files cannot be injected'), null];
   }
 
-  const fileText = await readFile(resolvedPath, 'utf8');
+  const fileText = await readFile(realPath, 'utf8');
   let body = fileText;
   let title = `File: ${displayPath(allowedRoot, resolvedPath)}`;
 
@@ -338,13 +339,9 @@ export async function expandFolderReference(
   const allowedRoot = options.allowedRoot ?? cwd;
   let resolvedPath: string;
   try {
-    resolvedPath = resolveAndValidatePath(cwd, ref.path, allowedRoot);
+    resolvedPath = await resolveAndValidatePath(cwd, ref.path, allowedRoot);
   } catch {
     return [formatWarning(ref, 'path escapes the allowed root'), null];
-  }
-
-  if (isSensitiveFile(resolvedPath)) {
-    return [formatWarning(ref, 'access to sensitive folders is blocked'), null];
   }
 
   const folderStats = await stat(resolvedPath).catch(() => null);
@@ -355,7 +352,12 @@ export async function expandFolderReference(
     return [formatWarning(ref, 'target is not a folder'), null];
   }
 
-  const listing = await listFolderEntries(resolvedPath);
+  const realPath = await realpath(resolvedPath).catch(() => resolvedPath);
+  if (isSensitiveFile(realPath)) {
+    return [formatWarning(ref, 'access to sensitive folders is blocked'), null];
+  }
+
+  const listing = await listFolderEntries(realPath);
   const lines = listing.entries.length > 0 ? listing.entries : ['(empty)'];
   if (listing.truncated) {
     lines.push(`... (${MAX_FOLDER_ENTRIES} entries max)`);

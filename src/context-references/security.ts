@@ -1,4 +1,4 @@
-import { open } from 'node:fs/promises';
+import { open, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 const TEXT_EXTENSIONS = new Set([
@@ -92,16 +92,30 @@ function isWithinRoot(targetPath: string, rootPath: string): boolean {
   );
 }
 
-export function resolveAndValidatePath(
+export async function resolveAndValidatePath(
   cwd: string,
   target: string,
   allowedRoot = cwd,
-): string {
+): Promise<string> {
   const resolvedRoot = path.resolve(allowedRoot);
   const resolvedTarget = path.resolve(cwd, target);
   if (!isWithinRoot(resolvedTarget, resolvedRoot)) {
     throw new Error(`Path escapes allowed root: ${target}`);
   }
+
+  const realRoot = await realpath(resolvedRoot).catch(() => resolvedRoot);
+  const realTarget = await realpath(resolvedTarget).catch((error) => {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  });
+
+  if (realTarget && !isWithinRoot(realTarget, realRoot)) {
+    throw new Error(`Path escapes allowed root: ${target}`);
+  }
+
   return resolvedTarget;
 }
 

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -65,11 +65,13 @@ async function loadResolverModule(execFileHandler?: ExecFileHandler) {
 
 describe('context references', () => {
   let workspacePath = '';
+  const tempPaths: string[] = [];
 
   beforeEach(async () => {
     workspacePath = await mkdtemp(
       path.join(os.tmpdir(), 'hybridclaw-context-references-'),
     );
+    tempPaths.push(workspacePath);
 
     await mkdir(path.join(workspacePath, 'src'), { recursive: true });
     await mkdir(path.join(workspacePath, 'folder', 'nested'), {
@@ -108,8 +110,11 @@ describe('context references', () => {
     vi.resetModules();
     vi.unstubAllGlobals();
     vi.doUnmock('node:child_process');
-    if (workspacePath) {
-      await rm(workspacePath, { force: true, recursive: true });
+    while (tempPaths.length > 0) {
+      const tempPath = tempPaths.pop();
+      if (tempPath) {
+        await rm(tempPath, { force: true, recursive: true });
+      }
     }
   });
 
@@ -205,16 +210,36 @@ describe('context references', () => {
   });
 
   describe('security', () => {
-    test('resolves paths inside the allowed root', () => {
-      expect(
+    test('resolves paths inside the allowed root', async () => {
+      await expect(
         resolveAndValidatePath(workspacePath, 'src/app.ts', workspacePath),
-      ).toBe(path.join(workspacePath, 'src', 'app.ts'));
+      ).resolves.toBe(path.join(workspacePath, 'src', 'app.ts'));
     });
 
-    test('blocks traversal outside the allowed root', () => {
-      expect(() =>
+    test('blocks traversal outside the allowed root', async () => {
+      await expect(
         resolveAndValidatePath(workspacePath, '../outside.txt', workspacePath),
-      ).toThrow('Path escapes allowed root');
+      ).rejects.toThrow('Path escapes allowed root');
+    });
+
+    test('blocks symlink escapes outside the allowed root', async () => {
+      const externalPath = await mkdtemp(
+        path.join(os.tmpdir(), 'hybridclaw-context-references-external-'),
+      );
+      tempPaths.push(externalPath);
+      await writeFile(path.join(externalPath, 'secret.txt'), 'secret\n');
+      await symlink(
+        path.join(externalPath, 'secret.txt'),
+        path.join(workspacePath, 'src', 'secret-link.txt'),
+      );
+
+      await expect(
+        resolveAndValidatePath(
+          workspacePath,
+          'src/secret-link.txt',
+          workspacePath,
+        ),
+      ).rejects.toThrow('Path escapes allowed root');
     });
 
     test('marks dotenv files as sensitive', () => {
@@ -281,6 +306,26 @@ describe('context references', () => {
         allowedRoot: workspacePath,
       });
       expect(warning).toContain('file not found');
+      expect(block).toBeNull();
+    });
+
+    test('warns when a file reference symlink escapes the allowed root', async () => {
+      const externalPath = await mkdtemp(
+        path.join(os.tmpdir(), 'hybridclaw-context-references-external-'),
+      );
+      tempPaths.push(externalPath);
+      await writeFile(path.join(externalPath, 'secret.txt'), 'secret\n');
+      await symlink(
+        path.join(externalPath, 'secret.txt'),
+        path.join(workspacePath, 'src', 'secret-link.txt'),
+      );
+
+      const { expandReference } = await loadResolverModule();
+      const ref = parseContextReferences('Inspect @file:src/secret-link.txt')[0];
+      const [warning, block] = await expandReference(ref, workspacePath, {
+        allowedRoot: workspacePath,
+      });
+      expect(warning).toContain('path escapes the allowed root');
       expect(block).toBeNull();
     });
 
