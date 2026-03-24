@@ -291,11 +291,12 @@ Commands:
   hybridclaw skill inspect <skill-name>
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
-  hybridclaw skill amend <skill-name>
-  hybridclaw skill amend <skill-name> --apply
-  hybridclaw skill amend <skill-name> --reject
-  hybridclaw skill amend <skill-name> --rollback
+  hybridclaw skill learn <skill-name>
+  hybridclaw skill learn <skill-name> --apply
+  hybridclaw skill learn <skill-name> --reject
+  hybridclaw skill learn <skill-name> --rollback
   hybridclaw skill history <skill-name>
+  hybridclaw skill import [--force] <source>
   hybridclaw skill install <skill-name> [install-id]
 
 Notes:
@@ -304,8 +305,11 @@ Notes:
   - \`--channel teams\` is normalized to \`msteams\`.
   - \`inspect\` shows observation-based health metrics for a skill or all observed skills.
   - \`runs\` shows recent execution observations for one skill.
-  - \`amend\` stages, applies, rejects, or rolls back skill amendments.
+  - \`learn\` stages, applies, rejects, or rolls back skill amendments.
   - \`history\` shows amendment versions for one skill, not execution runs.
+  - \`import\` installs a packaged community skill with \`official/<skill-name>\` or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
+  - Examples: \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
+  - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.
   - \`install\` runs one declared installer (brew, uv, npm, go, download).`);
 }
 

@@ -101,6 +101,18 @@ async function importFreshCli(options?: {
     removedPluginDir: boolean;
     removedConfigOverrides: number;
   };
+  skillImportError?: Error | null;
+  skillImportResult?: {
+    skillName: string;
+    skillDir: string;
+    source: string;
+    resolvedSource: string;
+    replacedExisting: boolean;
+    filesImported: number;
+    guardOverrideApplied?: boolean;
+    guardVerdict?: 'safe' | 'caution' | 'dangerous';
+    guardFindingsCount?: number;
+  };
   pluginListSummary?: Array<{
     id: string;
     name?: string;
@@ -301,6 +313,26 @@ async function importFreshCli(options?: {
       }
     );
   });
+  const importSkill = vi.fn(
+    async (source: string, importOptions?: { force?: boolean }) => {
+      if (options?.skillImportError) {
+        throw options.skillImportError;
+      }
+      return (
+        options?.skillImportResult || {
+          skillName: 'demo-skill',
+          skillDir: '/tmp/.hybridclaw/skills/demo-skill',
+          source,
+          resolvedSource: source,
+          replacedExisting: false,
+          filesImported: 1,
+          guardOverrideApplied: importOptions?.force === true,
+          guardVerdict: importOptions?.force === true ? 'caution' : 'safe',
+          guardFindingsCount: importOptions?.force === true ? 1 : 0,
+        }
+      );
+    },
+  );
   const readPluginConfigEntry = vi.fn((pluginId: string) => ({
     pluginId,
     configPath: '/tmp/config.json',
@@ -656,6 +688,12 @@ async function importFreshCli(options?: {
   vi.doMock('../src/skills/skills.ts', () => ({
     loadSkillCatalog,
   }));
+  vi.doMock('../src/skills/skills-import.ts', () => ({
+    importSkill,
+  }));
+  vi.doMock('../src/skills/skills-import.js', () => ({
+    importSkill,
+  }));
   vi.doMock('../src/security/instruction-approval-audit.ts', () => ({
     beginInstructionApprovalAudit: vi.fn(() => ({
       sessionId: 'tui:local',
@@ -745,6 +783,7 @@ async function importFreshCli(options?: {
     installPlugin,
     reinstallPlugin,
     uninstallPlugin,
+    importSkill,
     readPluginConfigEntry,
     readPluginConfigValue,
     unsetPluginConfigValue,
@@ -801,6 +840,8 @@ afterEach(() => {
   vi.doUnmock('node:readline/promises');
   vi.doUnmock('../src/onboarding.ts');
   vi.doUnmock('../src/skills/skills.ts');
+  vi.doUnmock('../src/skills/skills-import.ts');
+  vi.doUnmock('../src/skills/skills-import.js');
   vi.doUnmock('../src/security/instruction-approval-audit.ts');
   vi.doUnmock('../src/security/instruction-integrity.ts');
   vi.doUnmock('../src/security/runtime-secrets.ts');
@@ -1170,6 +1211,101 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith(
       'Restart the gateway to unload plugin changes if it is running:',
+    );
+  });
+
+  it('imports a community skill from a remote source', async () => {
+    const { cli, importSkill } = await importFreshCli({
+      skillImportResult: {
+        skillName: 'brand-guidelines',
+        skillDir: '/tmp/.hybridclaw/skills/brand-guidelines',
+        source: 'anthropics/skills/skills/brand-guidelines',
+        resolvedSource:
+          'https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
+        replacedExisting: false,
+        filesImported: 2,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'skill',
+      'import',
+      'anthropics/skills/skills/brand-guidelines',
+    ]);
+
+    expect(importSkill).toHaveBeenCalledWith(
+      'anthropics/skills/skills/brand-guidelines',
+      { force: false },
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Imported brand-guidelines from https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Installed to /tmp/.hybridclaw/skills/brand-guidelines',
+    );
+  });
+
+  it('imports a packaged community skill with an explicit official source', async () => {
+    const { cli, importSkill } = await importFreshCli({
+      skillImportResult: {
+        skillName: 'himalaya',
+        skillDir: '/tmp/.hybridclaw/skills/himalaya',
+        source: 'official/himalaya',
+        resolvedSource: 'official/himalaya',
+        replacedExisting: false,
+        filesImported: 1,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['skill', 'import', 'official/himalaya']);
+
+    expect(importSkill).toHaveBeenCalledWith('official/himalaya', {
+      force: false,
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      'Imported himalaya from official/himalaya',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Installed to /tmp/.hybridclaw/skills/himalaya',
+    );
+  });
+
+  it('allows forcing a caution import', async () => {
+    const { cli, importSkill } = await importFreshCli({
+      skillImportResult: {
+        skillName: 'brand-guidelines',
+        skillDir: '/tmp/.hybridclaw/skills/brand-guidelines',
+        source: 'anthropics/skills/skills/brand-guidelines',
+        resolvedSource:
+          'https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
+        replacedExisting: false,
+        filesImported: 2,
+        guardOverrideApplied: true,
+        guardVerdict: 'caution',
+        guardFindingsCount: 1,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await cli.main([
+      'skill',
+      'import',
+      'anthropics/skills/skills/brand-guidelines',
+      '--force',
+    ]);
+
+    expect(importSkill).toHaveBeenCalledWith(
+      'anthropics/skills/skills/brand-guidelines',
+      { force: true },
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Security scanner reported caution findings for brand-guidelines (1 finding); proceeding because --force was set.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Imported brand-guidelines from https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
     );
   });
 

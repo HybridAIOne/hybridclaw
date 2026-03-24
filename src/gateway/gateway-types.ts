@@ -195,6 +195,17 @@ export interface GatewayHistoryResponse {
   summary?: GatewayHistorySummary;
 }
 
+export interface GatewayRecentChatSession {
+  sessionId: string;
+  title: string | null;
+  lastActive: string;
+  messageCount: number;
+}
+
+export interface GatewayRecentChatSessionsResponse {
+  sessions: GatewayRecentChatSession[];
+}
+
 export interface GatewaySchedulerJobStatus {
   id: string;
   name: string;

@@ -80,6 +80,7 @@ import {
   getGatewayAgents,
   getGatewayHistory,
   getGatewayHistorySummary,
+  getGatewayRecentChatSessions,
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
@@ -1257,6 +1258,24 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
   sendJson(res, 200, { sessionId, history, summary });
 }
 
+function handleApiChatRecent(res: ServerResponse, url: URL): void {
+  const userId = (url.searchParams.get('userId') || '').trim();
+  if (!userId) {
+    sendJson(res, 400, { error: 'Missing `userId` query parameter.' });
+    return;
+  }
+  const channelId = (url.searchParams.get('channelId') || 'web').trim();
+  const parsedLimit = parseInt(url.searchParams.get('limit') || '10', 10);
+  const limit = Number.isNaN(parsedLimit) ? 10 : parsedLimit;
+  sendJson(res, 200, {
+    sessions: getGatewayRecentChatSessions({
+      userId,
+      channelId,
+      limit,
+    }),
+  });
+}
+
 async function handleApiAgents(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAgents());
 }
@@ -2126,6 +2145,10 @@ export function startGatewayHttpServer(): void {
           }
           if (pathname === '/api/history' && method === 'GET') {
             handleApiHistory(res, url);
+            return;
+          }
+          if (pathname === '/api/chat/recent' && method === 'GET') {
+            handleApiChatRecent(res, url);
             return;
           }
           if (pathname === '/api/agents' && method === 'GET') {

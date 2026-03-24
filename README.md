@@ -402,7 +402,7 @@ such as `filesystem__read_file` or `github__list_issues`.
 
 ## Bundled Skills
 
-HybridClaw currently ships with 28 bundled skills. Notable workflow and app
+HybridClaw currently ships with 27 bundled skills. Notable workflow and app
 integrations include:
 
 - `pdf` is bundled and supports text extraction, page rendering, fillable form inspection/filling, and non-fillable overlay workflows.
@@ -419,7 +419,6 @@ integrations include:
 - `github-pr-workflow` is bundled for branch creation, commits, PR authoring, CI follow-up, and merge-readiness workflows with GitHub.
 - `write-blog-post` is bundled for audience-aware blog post outlines and drafts built from briefs, notes, transcripts, or source material.
 - `discord` is bundled for Discord channel operations through the `message` tool, including reads, sends, reactions, pins, and threads.
-- `himalaya` is bundled for host-side IMAP/SMTP email workflows through the Himalaya CLI.
 - `google-workspace` is bundled for Gmail, Calendar, Drive, Docs, and Sheets setup guidance plus browser/API workflow coordination.
 - `1password` is bundled for secure `op`-based secret lookup and command injection workflows.
 - `stripe` is bundled for Stripe API, CLI, Dashboard, checkout, billing, and webhook-debugging workflows with a test-mode-first default.
@@ -428,11 +427,14 @@ integrations include:
 - `apple-passwords` is bundled for Passwords.app and Keychain-backed credential lookup on macOS.
 - `apple-music` is bundled for macOS Music app playback control, now-playing checks, and Apple Music URL workflows.
 - Use `hybridclaw skill list` to inspect available installers and `hybridclaw skill install pdf [install-id]` when a bundled skill advertises optional setup helpers.
+- Use `hybridclaw skill import official/himalaya` to install the packaged Himalaya community skill into `~/.hybridclaw/skills` for host-side IMAP/SMTP email workflows.
+- Use `hybridclaw skill import <source>` to install community skills into `~/.hybridclaw/skills` from `skills-sh/anthropics/skills/brand-guidelines`, `clawhub/brand-voice`, `lobehub/github-issue-helper`, `claude-marketplace/brand-guidelines@anthropic-agent-skills`, `well-known:https://mintlify.com/docs`, or explicit GitHub repo/path refs such as `anthropics/skills/skills/brand-guidelines`.
+- Use `hybridclaw skill import --force <source>` to override a `caution` scanner verdict for a reviewed community skill. `dangerous` verdicts stay blocked.
 
 Skills can be disabled globally or per channel kind (`discord`, `msteams`,
 `whatsapp`, `email`) with `hybridclaw skill enable|disable <name> [--channel <kind>]`
 or via the TUI `/skill config` screen. For observation-driven health and
-amendment workflows, use `hybridclaw skill inspect|runs|amend|history` or the
+amendment workflows, use `hybridclaw skill inspect|runs|learn|history` or the
 admin `Skills` page.
 
 ## Optional Office Dependencies
@@ -512,7 +514,8 @@ CLI runtime commands:
 - `hybridclaw doctor [--fix|--json|<component>]` — Diagnose runtime, gateway, config, credentials, database, providers, local backends, Docker, channels, skills, security, and disk state
 - `hybridclaw skill list` — Show skills and any declared installer options
 - `hybridclaw skill enable <skill-name> [--channel <kind>]`, `disable`, `toggle` — Manage global and per-channel skill availability
-- `hybridclaw skill inspect <skill-name>` / `hybridclaw skill inspect --all`, `runs`, `amend`, `history` — Review adaptive skill health, observations, and amendment history
+- `hybridclaw skill inspect <skill-name>` / `hybridclaw skill inspect --all`, `runs`, `learn`, `history` — Review adaptive skill health, observations, and amendment history
+- `hybridclaw skill import [--force] <source>` — Import a packaged community skill with `official/<skill-name>` or a community skill from `skills-sh`, `clawhub`, `lobehub`, `claude-marketplace`, `well-known`, or an explicit GitHub repo/path into `~/.hybridclaw/skills`; `--force` only overrides `caution`, never `dangerous`
 - `hybridclaw skill install <skill> [install-id]` — Run a declared skill dependency installer
 - `hybridclaw plugin list` — Show discovered plugins, enabled state, registered tools/hooks, and load errors
 - `hybridclaw plugin config <plugin-id> [key] [value|--unset]` — Inspect or change one top-level `plugins.list[].config` override

@@ -17,6 +17,8 @@ afterEach(() => {
   runAgentMock.mockReset();
   context?.cleanup();
   context = null;
+  vi.doUnmock('../src/skills/skills-import.js');
+  vi.resetModules();
 });
 
 test('skill inspect command reports observed skill health', async () => {
@@ -95,7 +97,7 @@ test('skill runs command reports recent execution observations', async () => {
   expect(result.text).toContain('Error detail: approval denied');
 });
 
-test('skill amend and history commands stage and show amendments', async () => {
+test('skill learn and history commands stage and show amendments', async () => {
   context = await createAdaptiveSkillsTestContext();
   context.dbModule.recordSkillObservation({
     skillName: context.skillName,
@@ -133,7 +135,7 @@ Keep the response concise.
     sessionId: 'session-skill-amend',
     guildId: null,
     channelId: 'web',
-    args: ['skill', 'amend', context.skillName],
+    args: ['skill', 'learn', context.skillName],
   });
 
   expect(staged.kind).toBe('info');
@@ -160,7 +162,7 @@ Keep the response concise.
   expect(history.text).toContain('Status: staged');
 });
 
-test('skill amend --apply command applies the latest staged amendment', async () => {
+test('skill learn --apply command applies the latest staged amendment', async () => {
   context = await createAdaptiveSkillsTestContext();
   context.dbModule.recordSkillObservation({
     skillName: context.skillName,
@@ -198,18 +200,129 @@ Keep the response concise.
     sessionId: 'session-skill-apply',
     guildId: null,
     channelId: 'web',
-    args: ['skill', 'amend', context.skillName],
+    args: ['skill', 'learn', context.skillName],
   });
   const applied = await handleGatewayCommand({
     sessionId: 'session-skill-apply',
     guildId: null,
     channelId: 'web',
-    args: ['skill', 'amend', context.skillName, '--apply'],
+    args: ['skill', 'learn', context.skillName, '--apply'],
   });
 
   expect(applied.kind).toBe('plain');
   expect(applied.text).toContain('Applied staged amendment');
   expect(fs.readFileSync(context.skillFilePath, 'utf-8')).toContain(
     'List the requested steps before acting.',
+  );
+});
+
+test('skill amend is rejected after the rename to learn', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-learn-rename',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'amend', context.skillName],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Usage');
+  expect(result.text).toContain('skill list|inspect');
+  expect(result.text).not.toContain('skill amend');
+});
+
+test('skill import imports a community skill through the gateway command path', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const importSkillMock = vi.fn().mockResolvedValue({
+    skillName: 'brand-guidelines',
+    skillDir: '/tmp/.hybridclaw/skills/brand-guidelines',
+    source: 'anthropics/skills/skills/brand-guidelines',
+    resolvedSource:
+      'https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
+    replacedExisting: false,
+    filesImported: 2,
+  });
+  vi.doMock('../src/skills/skills-import.js', () => ({
+    importSkill: importSkillMock,
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-import',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'import', 'anthropics/skills/skills/brand-guidelines'],
+  });
+
+  expect(importSkillMock).toHaveBeenCalledWith(
+    'anthropics/skills/skills/brand-guidelines',
+    { force: false },
+  );
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Skill Import');
+  expect(result.text).toContain(
+    'Imported brand-guidelines from https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
+  );
+  expect(result.text).toContain(
+    'Installed to /tmp/.hybridclaw/skills/brand-guidelines',
+  );
+});
+
+test('skill import forwards --force and reports caution overrides', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const importSkillMock = vi.fn().mockResolvedValue({
+    skillName: 'pdf',
+    skillDir: '/tmp/.hybridclaw/skills/pdf',
+    source: 'claude-marketplace/pdf@anthropic-agent-skills',
+    resolvedSource: 'https://github.com/anthropics/skills/tree/main/skills/pdf',
+    replacedExisting: false,
+    filesImported: 1,
+    guardOverrideApplied: true,
+    guardVerdict: 'caution',
+    guardFindingsCount: 1,
+  });
+  vi.doMock('../src/skills/skills-import.js', () => ({
+    importSkill: importSkillMock,
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-import-force',
+    guildId: null,
+    channelId: 'web',
+    args: [
+      'skill',
+      'import',
+      '--force',
+      'claude-marketplace/pdf@anthropic-agent-skills',
+    ],
+  });
+
+  expect(importSkillMock).toHaveBeenCalledWith(
+    'claude-marketplace/pdf@anthropic-agent-skills',
+    { force: true },
+  );
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    'Security scanner reported caution findings for pdf (1 finding); proceeding because --force was set.',
   );
 });

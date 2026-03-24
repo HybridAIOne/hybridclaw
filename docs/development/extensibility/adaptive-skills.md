@@ -16,7 +16,7 @@ AdaptiveSkills runs four steps:
 
 1. `observe` records skill executions and feedback in `skill_observations`
 2. `inspect` computes health metrics from a trailing observation window
-3. `amend` stages a guarded `SKILL.md` proposal when a skill degrades
+3. `learn` stages a guarded `SKILL.md` proposal when a skill degrades
 4. `evaluate` decides whether an applied amendment improved outcomes enough to
    keep
 
@@ -92,8 +92,8 @@ while preserving the amendment history table as the durable review log.
 
 Adaptive Skills can be managed from:
 
-- CLI: `hybridclaw skill inspect`, `hybridclaw skill runs`, `hybridclaw skill amend`, `hybridclaw skill history`
-- Gateway/TUI slash commands: `skill inspect`, `skill runs`, `skill amend`, `skill history`
+- CLI: `hybridclaw skill inspect`, `hybridclaw skill runs`, `hybridclaw skill learn`, `hybridclaw skill history`
+- Gateway/TUI slash commands: `skill inspect`, `skill runs`, `skill learn`, `skill history`
 - TUI: `/skill config` manages global and per-channel skill availability, separate from observation/amendment review
 - Admin console: the `Skills` page now shows observed health, staged
   amendments, and amendment history
@@ -111,7 +111,7 @@ Adaptive Skills can be managed from:
 health metrics, including success rate, tool breakage, positive feedback,
 negative feedback, and degradation reasons.
 
-`skill amend <name>` stages a guarded proposal using recent failures plus the
+`skill learn <name>` stages a guarded proposal using recent failures plus the
 current `SKILL.md`. `--apply`, `--reject`, and `--rollback` then manage the
 latest staged or applied amendment for that skill.
 

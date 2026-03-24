@@ -94,19 +94,30 @@ test('maps Discord-style slash commands to gateway command args', () => {
     mapTuiSlashCommandToGatewayArgs(['skill', 'runs', 'demo-skill']),
   ).toEqual(['skill', 'runs', 'demo-skill']);
   expect(
-    mapTuiSlashCommandToGatewayArgs(['skill', 'amend', 'demo-skill']),
-  ).toEqual(['skill', 'amend', 'demo-skill']);
+    mapTuiSlashCommandToGatewayArgs(['skill', 'learn', 'demo-skill']),
+  ).toEqual(['skill', 'learn', 'demo-skill']);
   expect(
     mapTuiSlashCommandToGatewayArgs([
       'skill',
-      'amend',
+      'learn',
       'demo-skill',
       '--apply',
     ]),
-  ).toEqual(['skill', 'amend', 'demo-skill', '--apply']);
+  ).toEqual(['skill', 'learn', 'demo-skill', '--apply']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['skill', 'history', 'demo-skill']),
   ).toEqual(['skill', 'history', 'demo-skill']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['skill', 'import', 'official/himalaya']),
+  ).toEqual(['skill', 'import', 'official/himalaya']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'skill',
+      'import',
+      '--force',
+      'clawhub/brand-voice',
+    ]),
+  ).toEqual(['skill', 'import', '--force', 'clawhub/brand-voice']);
   expect(mapTuiSlashCommandToGatewayArgs(['plugin', 'list'])).toEqual([
     'plugin',
     'list',
@@ -145,6 +156,9 @@ test('maps Discord-style slash commands to gateway command args', () => {
 
 test('keeps explicit /skill invocations out of the slash-command path', () => {
   expect(mapTuiSlashCommandToGatewayArgs(['skill', 'config'])).toBeNull();
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['skill', 'amend', 'demo-skill']),
+  ).toBeNull();
   expect(mapTuiSlashCommandToGatewayArgs(['skill', 'demo-skill'])).toBeNull();
   expect(
     mapTuiSlashCommandToGatewayArgs(['skill', 'demo-skill', 'fix', 'tests']),

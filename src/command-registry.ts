@@ -1086,7 +1086,7 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'skill',
       description:
-        'Inspect skill health, review recent runs, and manage amendments',
+        'Inspect skill health, review recent runs, manage amendments, and import community skills',
       tuiOnly: true,
       options: [
         {
@@ -1136,7 +1136,7 @@ function buildSlashCommandCatalogDefinitions(
         },
         {
           kind: 'subcommand',
-          name: 'amend',
+          name: 'learn',
           description: 'Stage, apply, reject, or roll back a skill amendment',
           options: [
             {
@@ -1148,21 +1148,21 @@ function buildSlashCommandCatalogDefinitions(
           ],
           tuiMenuEntries: [
             {
-              id: 'skill.amend.apply',
-              label: '/skill amend <name> --apply',
-              insertText: '/skill amend ',
+              id: 'skill.learn.apply',
+              label: '/skill learn <name> --apply',
+              insertText: '/skill learn ',
               description: 'Apply the latest staged amendment for a skill',
             },
             {
-              id: 'skill.amend.reject',
-              label: '/skill amend <name> --reject',
-              insertText: '/skill amend ',
+              id: 'skill.learn.reject',
+              label: '/skill learn <name> --reject',
+              insertText: '/skill learn ',
               description: 'Reject the latest staged amendment for a skill',
             },
             {
-              id: 'skill.amend.rollback',
-              label: '/skill amend <name> --rollback',
-              insertText: '/skill amend ',
+              id: 'skill.learn.rollback',
+              label: '/skill learn <name> --rollback',
+              insertText: '/skill learn ',
               description: 'Roll back the latest applied amendment for a skill',
             },
           ],
@@ -1177,6 +1177,34 @@ function buildSlashCommandCatalogDefinitions(
               name: 'name',
               description: 'Skill name',
               required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'import',
+          description: 'Import a packaged or community skill',
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description: 'Skill source identifier or URL',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'force',
+              description: 'Optional --force override for caution findings',
+              choices: [{ name: '--force', value: '--force' }],
+            },
+          ],
+          tuiMenuEntries: [
+            {
+              id: 'skill.import.force',
+              label: '/skill import --force <source>',
+              insertText: '/skill import --force ',
+              description:
+                'Import a reviewed community skill and override caution findings',
             },
           ],
         },

@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { DATA_DIR } from '../config/config.js';
 import {
+  DEFAULT_RUNTIME_HOME_DIR,
   getRuntimeConfig,
   getRuntimeDisabledSkillNames,
 } from '../config/runtime-config.js';
@@ -1314,6 +1315,12 @@ function getDisabledSkillNames(
   return getRuntimeDisabledSkillNames(getRuntimeConfig(), channelKind);
 }
 
+function resolveManagedCommunitySkillsDir(
+  homeDir = DEFAULT_RUNTIME_HOME_DIR,
+): string {
+  return path.join(homeDir, 'skills');
+}
+
 function collectResolvedSkillCandidates(): SkillCandidate[] {
   const config = getRuntimeConfig();
   const extraDirs = (config.skills?.extraDirs ?? [])
@@ -1323,6 +1330,7 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   const codexDirs = resolveCodexSkillsDirs();
   const claudeSkillsDir = path.join(os.homedir(), '.claude', 'skills');
   const agentsPersonalSkillsDir = path.join(os.homedir(), '.agents', 'skills');
+  const managedCommunitySkillsDir = resolveManagedCommunitySkillsDir();
   const projectSkillsDir = resolveProjectSkillsDir();
   const projectAgentsSkillsDir = resolveProjectAgentsSkillsDir();
 
@@ -1335,6 +1343,10 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   const agentsPersonalSkills = scanSkillsDir(
     agentsPersonalSkillsDir,
     'agents-personal',
+  );
+  const managedCommunitySkills = scanSkillsDir(
+    managedCommunitySkillsDir,
+    'community',
   );
   const projectAgentsSkills = scanSkillsDir(
     projectAgentsSkillsDir,
@@ -1353,6 +1365,7 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
 
   mergeSkills(extraSkills);
   mergeSkills(bundledSkills);
+  mergeSkills(managedCommunitySkills);
   mergeSkills(codexSkills);
   mergeSkills(claudeSkills);
   mergeSkills(agentsPersonalSkills);
@@ -1412,7 +1425,7 @@ export function loadSkillCatalog(): SkillCatalogEntry[] {
 
 /**
  * Load all skills with precedence:
- * extra < bundled < codex < claude < agents-personal < agents-project < workspace.
+ * extra < bundled < community < codex < claude < agents-personal < agents-project < workspace.
  * Any non-workspace skill selected by precedence is mirrored into workspace so
  * the container can read it via /workspace/... paths.
  */

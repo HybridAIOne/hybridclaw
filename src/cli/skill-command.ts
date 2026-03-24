@@ -247,11 +247,11 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     return;
   }
 
-  if (sub === 'amend') {
+  if (sub === 'learn') {
     const skillName = normalized[1];
     if (!skillName) {
       printSkillUsage();
-      throw new Error('Missing skill name for `hybridclaw skill amend`.');
+      throw new Error('Missing skill name for `hybridclaw skill learn`.');
     }
 
     const { DEFAULT_AGENT_ID } = await import('../agents/agent-types.js');
@@ -365,6 +365,50 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
       throw new Error(result.message);
     }
     console.log(result.message);
+    return;
+  }
+
+  if (sub === 'import') {
+    let source: string | null = null;
+    let force = false;
+    for (const arg of normalized.slice(1)) {
+      if (arg === '--force') {
+        force = true;
+        continue;
+      }
+      if (arg.startsWith('--')) {
+        printSkillUsage();
+        throw new Error(
+          `Unknown option for \`hybridclaw skill import\`: ${arg}`,
+        );
+      }
+      if (source === null) {
+        source = arg;
+        continue;
+      }
+      printSkillUsage();
+      throw new Error(
+        'Unexpected extra arguments for `hybridclaw skill import [--force] <source>`.',
+      );
+    }
+
+    if (!source) {
+      printSkillUsage();
+      throw new Error('Missing source for `hybridclaw skill import`.');
+    }
+
+    const { importSkill } = await import('../skills/skills-import.js');
+    const result = await importSkill(source, { force });
+    if (result.guardOverrideApplied) {
+      const findingCount = result.guardFindingsCount ?? 0;
+      console.warn(
+        `Security scanner reported caution findings for ${result.skillName} (${findingCount} finding${findingCount === 1 ? '' : 's'}); proceeding because --force was set.`,
+      );
+    }
+    console.log(
+      `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
+    );
+    console.log(`Installed to ${result.skillDir}`);
     return;
   }
 

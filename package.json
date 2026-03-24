@@ -22,6 +22,7 @@
     "console/package.json",
     "container/dist/",
     "skills/",
+    "community-skills/",
     "templates/",
     "docs/",
     "container/Dockerfile",
