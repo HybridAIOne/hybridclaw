@@ -230,7 +230,7 @@ export async function cleanupUploadedMediaCache(params?: {
   }
 }
 
-function startUploadedMediaCacheCleanup(params?: {
+export function startUploadedMediaCacheCleanup(params?: {
   force?: boolean;
   nowMs?: number;
   rootDir?: string;
@@ -265,15 +265,6 @@ function startUploadedMediaCacheCleanup(params?: {
   return cleanupPromise;
 }
 
-export function triggerUploadedMediaCacheCleanup(params?: {
-  force?: boolean;
-  nowMs?: number;
-  rootDir?: string;
-  ttlMs?: number;
-}): Promise<void> | null {
-  return startUploadedMediaCacheCleanup(params);
-}
-
 export async function writeUploadedMediaCacheFile(params: {
   attachmentName: string;
   buffer: Buffer;
@@ -302,7 +293,7 @@ export async function writeUploadedMediaCacheFile(params: {
     throw new Error(`uploaded_media_cache_path_error:${hostPath}`);
   }
 
-  triggerUploadedMediaCacheCleanup();
+  startUploadedMediaCacheCleanup();
   return {
     hostPath,
     runtimePath,

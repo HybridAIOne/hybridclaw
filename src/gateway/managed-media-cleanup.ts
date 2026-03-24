@@ -1,13 +1,13 @@
 import { triggerDiscordMediaCacheCleanup } from '../channels/discord/media-cache.js';
 import { logger } from '../logger.js';
 import { cleanupManagedTempMediaDirectories } from '../media/managed-temp-media.js';
-import { triggerUploadedMediaCacheCleanup } from '../media/uploaded-media-cache.js';
+import { startUploadedMediaCacheCleanup } from '../media/uploaded-media-cache.js';
 
 export async function runManagedMediaCleanup(
   reason: 'startup' | 'shutdown',
 ): Promise<void> {
   const discordTask = triggerDiscordMediaCacheCleanup({ force: true });
-  const uploadedMediaTask = triggerUploadedMediaCacheCleanup({ force: true });
+  const uploadedMediaTask = startUploadedMediaCacheCleanup({ force: true });
   const managedTempTask =
     reason === 'startup' ? cleanupManagedTempMediaDirectories() : null;
 

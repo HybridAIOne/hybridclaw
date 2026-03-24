@@ -12,7 +12,7 @@ afterEach(() => {
 describe('runManagedMediaCleanup', () => {
   test('runs Discord cache and managed temp cleanup on startup', async () => {
     const triggerDiscordMediaCacheCleanup = vi.fn(() => Promise.resolve());
-    const triggerUploadedMediaCacheCleanup = vi.fn(() => Promise.resolve());
+    const startUploadedMediaCacheCleanup = vi.fn(() => Promise.resolve());
     const cleanupManagedTempMediaDirectories = vi.fn(() => Promise.resolve());
     const logger = {
       debug: vi.fn(),
@@ -25,7 +25,7 @@ describe('runManagedMediaCleanup', () => {
       triggerDiscordMediaCacheCleanup,
     }));
     vi.doMock('../src/media/uploaded-media-cache.ts', () => ({
-      triggerUploadedMediaCacheCleanup,
+      startUploadedMediaCacheCleanup,
     }));
     vi.doMock('../src/media/managed-temp-media.ts', () => ({
       cleanupManagedTempMediaDirectories,
@@ -41,7 +41,7 @@ describe('runManagedMediaCleanup', () => {
     expect(triggerDiscordMediaCacheCleanup).toHaveBeenCalledWith({
       force: true,
     });
-    expect(triggerUploadedMediaCacheCleanup).toHaveBeenCalledWith({
+    expect(startUploadedMediaCacheCleanup).toHaveBeenCalledWith({
       force: true,
     });
     expect(cleanupManagedTempMediaDirectories).toHaveBeenCalledWith();
@@ -50,14 +50,14 @@ describe('runManagedMediaCleanup', () => {
 
   test('runs only Discord cache cleanup on shutdown', async () => {
     const triggerDiscordMediaCacheCleanup = vi.fn(() => Promise.resolve());
-    const triggerUploadedMediaCacheCleanup = vi.fn(() => Promise.resolve());
+    const startUploadedMediaCacheCleanup = vi.fn(() => Promise.resolve());
     const cleanupManagedTempMediaDirectories = vi.fn(() => Promise.resolve());
 
     vi.doMock('../src/channels/discord/media-cache.ts', () => ({
       triggerDiscordMediaCacheCleanup,
     }));
     vi.doMock('../src/media/uploaded-media-cache.ts', () => ({
-      triggerUploadedMediaCacheCleanup,
+      startUploadedMediaCacheCleanup,
     }));
     vi.doMock('../src/media/managed-temp-media.ts', () => ({
       cleanupManagedTempMediaDirectories,
@@ -80,7 +80,7 @@ describe('runManagedMediaCleanup', () => {
     expect(triggerDiscordMediaCacheCleanup).toHaveBeenCalledWith({
       force: true,
     });
-    expect(triggerUploadedMediaCacheCleanup).toHaveBeenCalledWith({
+    expect(startUploadedMediaCacheCleanup).toHaveBeenCalledWith({
       force: true,
     });
     expect(cleanupManagedTempMediaDirectories).not.toHaveBeenCalled();
@@ -93,7 +93,7 @@ describe('runManagedMediaCleanup', () => {
     const triggerDiscordMediaCacheCleanup = vi.fn(() =>
       Promise.reject(discordError),
     );
-    const triggerUploadedMediaCacheCleanup = vi.fn(() =>
+    const startUploadedMediaCacheCleanup = vi.fn(() =>
       Promise.reject(uploadedError),
     );
     const cleanupManagedTempMediaDirectories = vi.fn(() =>
@@ -110,7 +110,7 @@ describe('runManagedMediaCleanup', () => {
       triggerDiscordMediaCacheCleanup,
     }));
     vi.doMock('../src/media/uploaded-media-cache.ts', () => ({
-      triggerUploadedMediaCacheCleanup,
+      startUploadedMediaCacheCleanup,
     }));
     vi.doMock('../src/media/managed-temp-media.ts', () => ({
       cleanupManagedTempMediaDirectories,
