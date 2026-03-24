@@ -523,10 +523,9 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
       `📥 Installed agent ${result.agentId} to ${result.workspacePath}.`,
     );
     console.log(`🧩 Bundled skills restored: ${result.bundledSkills.length}`);
-    if (result.importedSkills.length > 0) {
-      console.log(
-        `🌐 Skill imports installed: ${result.importedSkills.length}`,
-      );
+    const importedSkillsCount = result.importedSkills?.length ?? 0;
+    if (importedSkillsCount > 0) {
+      console.log(`🌐 Skill imports installed: ${importedSkillsCount}`);
     }
     console.log(
       `🔌 Bundled plugins installed: ${result.installedPlugins.length}`,
