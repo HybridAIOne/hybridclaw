@@ -394,14 +394,14 @@ export async function expandGitReference(
       title = 'Git Staged Diff';
       output = await runGitCommand(cwd, ['diff', '--staged', '--no-ext-diff']);
     } else {
-      const requestedCount =
-        typeof ref.commitCount === 'number' && Number.isFinite(ref.commitCount)
-          ? ref.commitCount
-          : Number.NaN;
-      if (!Number.isFinite(requestedCount)) {
+      const commitCountValue = ref.commitCount;
+      if (!Number.isFinite(commitCountValue)) {
         return [formatWarning(ref, 'expected @git:<count>'), null];
       }
-      const commitCount = Math.max(1, Math.min(10, Math.trunc(requestedCount)));
+      const commitCount = Math.max(
+        1,
+        Math.min(10, Math.trunc(commitCountValue as number)),
+      );
       title = `Git Log (${commitCount} commit${commitCount === 1 ? '' : 's'})`;
       output = await runGitCommand(cwd, [
         'log',
