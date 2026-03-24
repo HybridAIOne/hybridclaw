@@ -57,8 +57,8 @@ export function mapTuiSlashCommandToGatewayArgs(
       sub === 'inspect' ||
       sub === 'runs' ||
       sub === 'learn' ||
-      sub === 'amend' ||
-      sub === 'history'
+      sub === 'history' ||
+      sub === 'import'
     ) {
       return ['skill', ...parts.slice(1)];
     }

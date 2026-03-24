@@ -247,7 +247,7 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     return;
   }
 
-  if (sub === 'learn' || sub === 'amend') {
+  if (sub === 'learn') {
     const skillName = normalized[1];
     if (!skillName) {
       printSkillUsage();
@@ -369,20 +369,42 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   }
 
   if (sub === 'import') {
-    const source = normalized[1];
+    let source: string | null = null;
+    let force = false;
+    for (const arg of normalized.slice(1)) {
+      if (arg === '--force') {
+        force = true;
+        continue;
+      }
+      if (arg.startsWith('--')) {
+        printSkillUsage();
+        throw new Error(
+          `Unknown option for \`hybridclaw skill import\`: ${arg}`,
+        );
+      }
+      if (source === null) {
+        source = arg;
+        continue;
+      }
+      printSkillUsage();
+      throw new Error(
+        'Unexpected extra arguments for `hybridclaw skill import [--force] <source>`.',
+      );
+    }
+
     if (!source) {
       printSkillUsage();
       throw new Error('Missing source for `hybridclaw skill import`.');
     }
-    if (normalized.length > 2) {
-      printSkillUsage();
-      throw new Error(
-        'Unexpected extra arguments for `hybridclaw skill import <source>`.',
-      );
-    }
 
     const { importSkill } = await import('../skills/skills-import.js');
-    const result = await importSkill(source);
+    const result = await importSkill(source, { force });
+    if (result.guardOverrideApplied) {
+      const findingCount = result.guardFindingsCount ?? 0;
+      console.warn(
+        `Security scanner reported caution findings for ${result.skillName} (${findingCount} finding${findingCount === 1 ? '' : 's'}); proceeding because --force was set.`,
+      );
+    }
     console.log(
       `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
     );

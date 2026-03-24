@@ -60,6 +60,38 @@ Operator surfaces:
 
 `--channel teams` is normalized to `msteams`.
 
+## Community Skill Imports
+
+Community skills install into `~/.hybridclaw/skills`. Supported import sources
+are:
+
+- `official/<skill-name>` for packaged community skills shipped with HybridClaw
+- `skills-sh/<owner>/<repo>/<skill>`
+- `clawhub/<skill-slug>`
+- `lobehub/<agent-id>`
+- `claude-marketplace/<skill>[@<marketplace>]`
+- `claude-marketplace/<plugin>/<skill>[@<marketplace>]`
+- `well-known:https://example.com/docs`
+- `<owner>/<repo>/<path>`
+- `https://github.com/<owner>/<repo>[/path]`
+
+Examples:
+
+- `hybridclaw skill import official/himalaya`
+- `hybridclaw skill import skills-sh/anthropics/skills/brand-guidelines`
+- `hybridclaw skill import clawhub/brand-voice`
+- `hybridclaw skill import lobehub/github-issue-helper`
+- `hybridclaw skill import claude-marketplace/brand-guidelines@anthropic-agent-skills`
+- `hybridclaw skill import well-known:https://mintlify.com/docs`
+- `hybridclaw skill import anthropics/skills/skills/brand-guidelines`
+- TUI or web slash surface: `/skill import official/himalaya`
+
+Guard behavior:
+
+- imported skills are treated as community trust, not bundled trust
+- `--force` only overrides a `caution` scanner verdict
+- `dangerous` verdicts stay blocked
+
 ## Adaptive Skills
 
 Observation, inspection, and guarded amendment workflows are configured under

@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { DATA_DIR } from '../config/config.js';
 import {
+  DEFAULT_RUNTIME_HOME_DIR,
   getRuntimeConfig,
   getRuntimeDisabledSkillNames,
 } from '../config/runtime-config.js';
@@ -21,7 +22,6 @@ import { logger } from '../logger.js';
 import type { ToolExecution } from '../types.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { guardSkillDirectory } from './skills-guard.js';
-import { resolveManagedCommunitySkillsDir } from './skills-roots.js';
 
 type SkillSource =
   | 'extra'
@@ -1313,6 +1313,12 @@ function getDisabledSkillNames(
   channelKind?: SkillConfigChannelKind,
 ): Set<string> {
   return getRuntimeDisabledSkillNames(getRuntimeConfig(), channelKind);
+}
+
+function resolveManagedCommunitySkillsDir(
+  homeDir = DEFAULT_RUNTIME_HOME_DIR,
+): string {
+  return path.join(homeDir, 'skills');
 }
 
 function collectResolvedSkillCandidates(): SkillCandidate[] {

@@ -427,8 +427,9 @@ integrations include:
 - `apple-passwords` is bundled for Passwords.app and Keychain-backed credential lookup on macOS.
 - `apple-music` is bundled for macOS Music app playback control, now-playing checks, and Apple Music URL workflows.
 - Use `hybridclaw skill list` to inspect available installers and `hybridclaw skill install pdf [install-id]` when a bundled skill advertises optional setup helpers.
-- Use `hybridclaw skill import himalaya` to install the packaged Himalaya community skill into `~/.hybridclaw/skills` for host-side IMAP/SMTP email workflows.
-- Use `hybridclaw skill import <source>` to install community skills into `~/.hybridclaw/skills` from packaged community skill names, `skills.sh`, GitHub repo/path refs such as `openai/skills/k8s`, or well-known skill endpoints such as `well-known:https://mintlify.com/docs`.
+- Use `hybridclaw skill import official/himalaya` to install the packaged Himalaya community skill into `~/.hybridclaw/skills` for host-side IMAP/SMTP email workflows.
+- Use `hybridclaw skill import <source>` to install community skills into `~/.hybridclaw/skills` from `skills-sh/anthropics/skills/brand-guidelines`, `clawhub/brand-voice`, `lobehub/github-issue-helper`, `claude-marketplace/brand-guidelines@anthropic-agent-skills`, `well-known:https://mintlify.com/docs`, or explicit GitHub repo/path refs such as `anthropics/skills/skills/brand-guidelines`.
+- Use `hybridclaw skill import --force <source>` to override a `caution` scanner verdict for a reviewed community skill. `dangerous` verdicts stay blocked.
 
 Skills can be disabled globally or per channel kind (`discord`, `msteams`,
 `whatsapp`, `email`) with `hybridclaw skill enable|disable <name> [--channel <kind>]`
@@ -514,7 +515,7 @@ CLI runtime commands:
 - `hybridclaw skill list` — Show skills and any declared installer options
 - `hybridclaw skill enable <skill-name> [--channel <kind>]`, `disable`, `toggle` — Manage global and per-channel skill availability
 - `hybridclaw skill inspect <skill-name>` / `hybridclaw skill inspect --all`, `runs`, `learn`, `history` — Review adaptive skill health, observations, and amendment history
-- `hybridclaw skill import <source>` — Import a packaged community skill by name or a community skill from `skills.sh`, GitHub, or a `/.well-known/skills` endpoint into `~/.hybridclaw/skills`
+- `hybridclaw skill import [--force] <source>` — Import a packaged community skill with `official/<skill-name>` or a community skill from `skills-sh`, `clawhub`, `lobehub`, `claude-marketplace`, `well-known`, or an explicit GitHub repo/path into `~/.hybridclaw/skills`; `--force` only overrides `caution`, never `dangerous`
 - `hybridclaw skill install <skill> [install-id]` — Run a declared skill dependency installer
 - `hybridclaw plugin list` — Show discovered plugins, enabled state, registered tools/hooks, and load errors
 - `hybridclaw plugin config <plugin-id> [key] [value|--unset]` — Inspect or change one top-level `plugins.list[].config` override

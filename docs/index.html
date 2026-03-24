@@ -665,7 +665,6 @@
       <span class="nav-logo-text">HybridClaw</span>
     </div>
     <div class="nav-links">
-      <a href="#hybridai">HybridAI</a>
       <a href="#features">Features</a>
       <a href="#comparison">Comparison</a>
       <a href="#architecture">Architecture</a>
@@ -681,6 +680,7 @@
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><title>GitHub</title><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
         GitHub
       </a>
+      <a href="/development" class="nav-gh">Docs</a>
     </div>
   </div>
 </nav>
@@ -1052,7 +1052,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Skills Engine</h3>
-      <p>HybridClaw ships with 28 bundled skills and also supports OpenClaw/CLAUDE-compatible <code>SKILL.md</code> discovery, prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning.</p>
+      <p>HybridClaw ships with 28 bundled skills and also supports OpenClaw/CLAUDE-compatible <code>SKILL.md</code> discovery, prompt embedding modes (<code>always</code>/<code>summary</code>/<code>hidden</code>), eligibility checks, and trust-aware security scanning. Community imports support packaged <code>official/&lt;skill&gt;</code> skills, <code>skills-sh</code>, <code>clawhub</code>, <code>lobehub</code>, <code>claude-marketplace</code>, <code>well-known</code>, and explicit GitHub repo/path sources via <code>hybridclaw skill import</code> or <code>/skill import</code>.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Agent Packaging</h3>
@@ -1380,7 +1380,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use skills from CLAUDE.md or OpenClaw?</div>
-      <div class="faq-a">Yes. HybridClaw supports OpenClaw/CLAUDE-compatible <code>SKILL.md</code> frontmatter, including <code>always</code>, <code>requires</code>, and metadata fields. Skills can be loaded from workspace, project <code>.agents/skills</code>, personal (<code>~/.codex</code>/<code>~/.claude</code>/<code>~/.agents</code>), bundled, or enterprise extra directories; higher-priority tiers override lower ones. Trust-aware scanning blocks risky personal/community skills while allowing vetted bundled skills.</div>
+      <div class="faq-a">Yes. HybridClaw supports OpenClaw/CLAUDE-compatible <code>SKILL.md</code> frontmatter, including <code>always</code>, <code>requires</code>, and metadata fields. Skills can be loaded from workspace, project <code>.agents/skills</code>, personal (<code>~/.codex</code>/<code>~/.claude</code>/<code>~/.agents</code>), bundled, or enterprise extra directories; higher-priority tiers override lower ones. Community skills can also be imported from packaged <code>official/&lt;skill&gt;</code> sources, <code>skills-sh</code>, <code>clawhub</code>, <code>lobehub</code>, <code>claude-marketplace</code>, <code>well-known</code>, and explicit GitHub repo/path refs. Trust-aware scanning blocks risky personal/community skills while allowing vetted bundled skills.</div>
     </div>
   </div>
 </section>
@@ -1390,6 +1390,7 @@
   <div class="footer-inner">
     <div class="footer-links">
       <a href="https://github.com/HybridAIOne/hybridclaw">GitHub</a>
+      <a href="/development">Docs</a>
       <a href="https://discord.gg/jsVW4vJw27">Discord</a>
       <a href="#features">Features</a>
       <a href="#architecture">Architecture</a>

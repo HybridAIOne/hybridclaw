@@ -3635,6 +3635,111 @@ export function getAllSessions(): Session[] {
   return db.prepare(sql).all() as Session[];
 }
 
+export interface RecentUserSessionSummary {
+  sessionId: string;
+  lastActive: string;
+  messageCount: number;
+  title: string | null;
+}
+
+interface RecentUserSessionRow {
+  id: string;
+  last_active: string;
+  message_count: number;
+}
+
+function summarizeRecentSessionTitle(raw: unknown): string | null {
+  const text = String(raw || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return null;
+  return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+}
+
+export function getRecentSessionsForUser(params: {
+  userId: string;
+  channelId?: string | null;
+  limit?: number;
+}): RecentUserSessionSummary[] {
+  const userId = params.userId.trim();
+  if (!userId) return [];
+  const channelId = String(params.channelId || '').trim();
+  const limit =
+    typeof params.limit === 'number' && Number.isFinite(params.limit)
+      ? Math.max(1, Math.floor(params.limit))
+      : 10;
+
+  const rows = (
+    channelId
+      ? db
+          .prepare(
+            `SELECT DISTINCT s.id, s.last_active, s.message_count
+             FROM sessions s
+             INNER JOIN messages m
+               ON m.session_id = s.id
+             WHERE m.user_id = ?
+               AND s.channel_id = ?`,
+          )
+          .all(userId, channelId)
+      : db
+          .prepare(
+            `SELECT DISTINCT s.id, s.last_active, s.message_count
+             FROM sessions s
+             INNER JOIN messages m
+               ON m.session_id = s.id
+             WHERE m.user_id = ?`,
+          )
+          .all(userId)
+  ) as RecentUserSessionRow[];
+
+  const firstUserMessageForSession = db.prepare(
+    `SELECT content
+     FROM messages
+     WHERE session_id = ?
+       AND user_id = ?
+       AND role = 'user'
+     ORDER BY id ASC
+     LIMIT 1`,
+  );
+  const firstMessageForSession = db.prepare(
+    `SELECT content
+     FROM messages
+     WHERE session_id = ?
+     ORDER BY id ASC
+     LIMIT 1`,
+  );
+
+  return rows
+    .sort((left, right) => {
+      const rightTimestamp = parseTimestamp(right.last_active);
+      const leftTimestamp = parseTimestamp(left.last_active);
+      if (rightTimestamp !== leftTimestamp) {
+        return rightTimestamp - leftTimestamp;
+      }
+      return right.id.localeCompare(left.id);
+    })
+    .slice(0, limit)
+    .map((row) => {
+      const firstUserMessage = firstUserMessageForSession.get(row.id, userId) as
+        | { content?: string }
+        | undefined;
+      const fallbackMessage = firstUserMessage
+        ? null
+        : (firstMessageForSession.get(row.id) as
+            | { content?: string }
+            | undefined);
+
+      return {
+        sessionId: row.id,
+        lastActive: row.last_active,
+        messageCount: normalizeUsageNumber(row.message_count),
+        title: summarizeRecentSessionTitle(
+          firstUserMessage?.content || fallbackMessage?.content || null,
+        ),
+      };
+    });
+}
+
 export function getFullAutoSessionCount(): number {
   const row = db
     .prepare(

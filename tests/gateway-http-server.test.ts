@@ -347,6 +347,20 @@ async function importFreshHealth(options?: {
     { role: 'user', content: 'hello' },
     { role: 'assistant', content: 'world' },
   ]);
+  const getGatewayRecentChatSessions = vi.fn(() => [
+    {
+      sessionId: 'web-session-2',
+      title: 'Follow-up question from user A',
+      lastActive: '2026-03-24T10:00:00.000Z',
+      messageCount: 1,
+    },
+    {
+      sessionId: 'web-session-1',
+      title: 'First web question from user A',
+      lastActive: '2026-03-24T09:01:00.000Z',
+      messageCount: 2,
+    },
+  ]);
   const getGatewayHistorySummary = vi.fn(() => ({
     messageCount: 2,
     userMessageCount: 1,
@@ -802,6 +816,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminSkills,
     getGatewayAdminTools,
     getGatewayHistory,
+    getGatewayRecentChatSessions,
     getGatewayHistorySummary,
     getGatewayStatus,
     handleGatewayCommand,
@@ -848,6 +863,7 @@ async function importFreshHealth(options?: {
     listenArgs,
     getGatewayStatus,
     getGatewayHistory,
+    getGatewayRecentChatSessions,
     getGatewayHistorySummary,
     getGatewayAdminOverview,
     getGatewayAgents,
@@ -1549,6 +1565,40 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('returns recent chat sessions for authorized loopback API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/chat/recent?userId=web-user-a&channelId=web&limit=10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getGatewayRecentChatSessions).toHaveBeenCalledWith({
+      userId: 'web-user-a',
+      channelId: 'web',
+      limit: 10,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      sessions: [
+        {
+          sessionId: 'web-session-2',
+          title: 'Follow-up question from user A',
+          lastActive: '2026-03-24T10:00:00.000Z',
+          messageCount: 1,
+        },
+        {
+          sessionId: 'web-session-1',
+          title: 'First web question from user A',
+          lastActive: '2026-03-24T09:01:00.000Z',
+          messageCount: 2,
+        },
+      ],
+    });
+  });
+
   test('rejects history requests without an explicit session id', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/history?limit=2' });
@@ -1562,6 +1612,21 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Missing `sessionId` query parameter.',
+    });
+  });
+
+  test('rejects recent chat requests without an explicit user id', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/chat/recent?limit=10' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayRecentChatSessions).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Missing `userId` query parameter.',
     });
   });
 

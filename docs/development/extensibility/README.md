@@ -160,7 +160,9 @@ Another example:
 hybridclaw skill list
 hybridclaw skill enable <name>
 hybridclaw skill disable <name>
+hybridclaw skill import [--force] <source>
 /skill-name [input]              # invoke in session
+/skill import [--force] <source> # TUI/web slash import
 
 # Agent packages
 hybridclaw agent export [agent-id] [-o <path>]

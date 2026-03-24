@@ -92,6 +92,7 @@ import {
   getAllTasks,
   getFullAutoSessionCount,
   getQueuedProactiveMessageCount,
+  getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
   getSessionCount,
   getSessionFileChangeCounts,
@@ -294,6 +295,7 @@ import {
   type GatewayCommandResult,
   type GatewayHistorySummary,
   type GatewayProviderHealthEntry,
+  type GatewayRecentChatSession,
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
@@ -3191,6 +3193,18 @@ export function getGatewayHistory(
     .reverse();
 }
 
+export function getGatewayRecentChatSessions(params: {
+  userId: string;
+  channelId?: string | null;
+  limit?: number;
+}): GatewayRecentChatSession[] {
+  return getRecentSessionsForUser({
+    userId: params.userId,
+    channelId: params.channelId || 'web',
+    limit: params.limit,
+  });
+}
+
 function resolveHistorySummarySinceMs(
   session: Session | undefined,
   sinceMs?: number | null,
@@ -5123,6 +5137,7 @@ export async function handleGatewayCommand(
           '`skill runs <name>` — Show recent execution observations for a skill',
           '`skill learn <name> [--apply|--reject|--rollback]` — Stage or manage skill amendments',
           '`skill history <name>` — Show amendment history for a skill',
+          '`skill import [--force] <source>` — Import a packaged or community skill into ~/.hybridclaw/skills',
           '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
           '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
           '`schedule add every <ms> <prompt>` — Add interval task',
@@ -6545,7 +6560,7 @@ export async function handleGatewayCommand(
         if (!sub) {
           return badCommand(
             'Usage',
-            'Usage: `skill list|inspect <name>|inspect --all|learn <name> [--apply|--reject|--rollback]|history <name>`',
+            'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|import [--force] <source>`',
           );
         }
 
@@ -6599,7 +6614,7 @@ export async function handleGatewayCommand(
           return infoCommand('Skill Health', formatSkillHealthMetrics(metrics));
         }
 
-        if (sub === 'learn' || sub === 'amend') {
+        if (sub === 'learn') {
           const skillName = String(req.args[2] || '').trim();
           if (!skillName) {
             return badCommand(
@@ -6769,9 +6784,58 @@ export async function handleGatewayCommand(
           );
         }
 
+        if (sub === 'import') {
+          let source: string | null = null;
+          let force = false;
+
+          for (const arg of req.args.slice(2)) {
+            const normalized = String(arg || '').trim();
+            if (!normalized) continue;
+            if (normalized === '--force') {
+              force = true;
+              continue;
+            }
+            if (normalized.startsWith('--')) {
+              return badCommand(
+                'Usage',
+                `Unknown option for \`skill import\`: ${normalized}. Use \`skill import [--force] <source>\`.`,
+              );
+            }
+            if (source === null) {
+              source = normalized;
+              continue;
+            }
+            return badCommand(
+              'Usage',
+              'Usage: `skill import [--force] <source>`',
+            );
+          }
+
+          if (!source) {
+            return badCommand(
+              'Usage',
+              'Usage: `skill import [--force] <source>`',
+            );
+          }
+
+          const { importSkill } = await import('../skills/skills-import.js');
+          const result = await importSkill(source, { force });
+          const lines = [
+            `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
+            `Installed to ${result.skillDir}`,
+          ];
+          if (result.guardOverrideApplied) {
+            const findingCount = result.guardFindingsCount ?? 0;
+            lines.unshift(
+              `Security scanner reported caution findings for ${result.skillName} (${findingCount} finding${findingCount === 1 ? '' : 's'}); proceeding because --force was set.`,
+            );
+          }
+          return infoCommand('Skill Import', lines.join('\n'));
+        }
+
         return badCommand(
           'Usage',
-          'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>`',
+          'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|import [--force] <source>`',
         );
       }
 

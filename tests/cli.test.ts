@@ -109,6 +109,9 @@ async function importFreshCli(options?: {
     resolvedSource: string;
     replacedExisting: boolean;
     filesImported: number;
+    guardOverrideApplied?: boolean;
+    guardVerdict?: 'safe' | 'caution' | 'dangerous';
+    guardFindingsCount?: number;
   };
   pluginListSummary?: Array<{
     id: string;
@@ -310,7 +313,8 @@ async function importFreshCli(options?: {
       }
     );
   });
-  const importSkill = vi.fn(async (source: string) => {
+  const importSkill = vi.fn(
+    async (source: string, importOptions?: { force?: boolean }) => {
     if (options?.skillImportError) {
       throw options.skillImportError;
     }
@@ -322,9 +326,13 @@ async function importFreshCli(options?: {
         resolvedSource: source,
         replacedExisting: false,
         filesImported: 1,
+        guardOverrideApplied: importOptions?.force === true,
+        guardVerdict: importOptions?.force === true ? 'caution' : 'safe',
+        guardFindingsCount: importOptions?.force === true ? 1 : 0,
       }
     );
-  });
+    },
+  );
   const readPluginConfigEntry = vi.fn((pluginId: string) => ({
     pluginId,
     configPath: '/tmp/config.json',
@@ -1209,12 +1217,11 @@ describe('CLI hybridai commands', () => {
   it('imports a community skill from a remote source', async () => {
     const { cli, importSkill } = await importFreshCli({
       skillImportResult: {
-        skillName: 'vercel-react-best-practices',
-        skillDir: '/tmp/.hybridclaw/skills/vercel-react-best-practices',
-        source:
-          'skills-sh/vercel-labs/agent-skills/vercel-react-best-practices',
+        skillName: 'brand-guidelines',
+        skillDir: '/tmp/.hybridclaw/skills/brand-guidelines',
+        source: 'anthropics/skills/skills/brand-guidelines',
         resolvedSource:
-          'https://github.com/vercel-labs/agent-skills/tree/main/skills/react-best-practices',
+          'https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
         replacedExisting: false,
         filesImported: 2,
       },
@@ -1224,26 +1231,27 @@ describe('CLI hybridai commands', () => {
     await cli.main([
       'skill',
       'import',
-      'skills-sh/vercel-labs/agent-skills/vercel-react-best-practices',
+      'anthropics/skills/skills/brand-guidelines',
     ]);
 
     expect(importSkill).toHaveBeenCalledWith(
-      'skills-sh/vercel-labs/agent-skills/vercel-react-best-practices',
+      'anthropics/skills/skills/brand-guidelines',
+      { force: false },
     );
     expect(logSpy).toHaveBeenCalledWith(
-      'Imported vercel-react-best-practices from https://github.com/vercel-labs/agent-skills/tree/main/skills/react-best-practices',
+      'Imported brand-guidelines from https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
     );
     expect(logSpy).toHaveBeenCalledWith(
-      'Installed to /tmp/.hybridclaw/skills/vercel-react-best-practices',
+      'Installed to /tmp/.hybridclaw/skills/brand-guidelines',
     );
   });
 
-  it('imports a packaged community skill by name', async () => {
+  it('imports a packaged community skill with an explicit official source', async () => {
     const { cli, importSkill } = await importFreshCli({
       skillImportResult: {
         skillName: 'himalaya',
         skillDir: '/tmp/.hybridclaw/skills/himalaya',
-        source: 'himalaya',
+        source: 'official/himalaya',
         resolvedSource: 'official/himalaya',
         replacedExisting: false,
         filesImported: 1,
@@ -1251,14 +1259,53 @@ describe('CLI hybridai commands', () => {
     });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cli.main(['skill', 'import', 'himalaya']);
+    await cli.main(['skill', 'import', 'official/himalaya']);
 
-    expect(importSkill).toHaveBeenCalledWith('himalaya');
+    expect(importSkill).toHaveBeenCalledWith('official/himalaya', {
+      force: false,
+    });
     expect(logSpy).toHaveBeenCalledWith(
       'Imported himalaya from official/himalaya',
     );
     expect(logSpy).toHaveBeenCalledWith(
       'Installed to /tmp/.hybridclaw/skills/himalaya',
+    );
+  });
+
+  it('allows forcing a caution import', async () => {
+    const { cli, importSkill } = await importFreshCli({
+      skillImportResult: {
+        skillName: 'brand-guidelines',
+        skillDir: '/tmp/.hybridclaw/skills/brand-guidelines',
+        source: 'anthropics/skills/skills/brand-guidelines',
+        resolvedSource:
+          'https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
+        replacedExisting: false,
+        filesImported: 2,
+        guardOverrideApplied: true,
+        guardVerdict: 'caution',
+        guardFindingsCount: 1,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await cli.main([
+      'skill',
+      'import',
+      'anthropics/skills/skills/brand-guidelines',
+      '--force',
+    ]);
+
+    expect(importSkill).toHaveBeenCalledWith(
+      'anthropics/skills/skills/brand-guidelines',
+      { force: true },
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Security scanner reported caution findings for brand-guidelines (1 finding); proceeding because --force was set.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Imported brand-guidelines from https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
     );
   });
 
