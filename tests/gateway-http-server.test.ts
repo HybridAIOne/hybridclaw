@@ -2413,9 +2413,9 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual({
       error: 'Unsupported media type: text/html.',
     });
-    expect(
-      fs.existsSync(path.join(dataDir, 'uploaded-media-cache')),
-    ).toBe(false);
+    expect(fs.existsSync(path.join(dataDir, 'uploaded-media-cache'))).toBe(
+      false,
+    );
   });
 
   test('starts with an empty DATA_DIR and returns 503 for media uploads', async () => {
