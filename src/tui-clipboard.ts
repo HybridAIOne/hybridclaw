@@ -356,10 +356,6 @@ export function parseClipboardUriList(raw: string): string[] {
   return Array.from(new Set(paths));
 }
 
-function parseClipboardTextPaths(raw: string): string[] {
-  return parseClipboardUriList(raw);
-}
-
 async function readWindowsClipboardPayload(options?: {
   mapFilePath?: (value: string) => string | null;
 }): Promise<ClipboardPayload | null> {
@@ -443,7 +439,7 @@ async function readLinuxBackendClipboardPayload(
 
   for (const mimeType of LINUX_TEXT_PLAIN_MIME_CANDIDATES) {
     const rawText = await reader.readText(mimeType);
-    const plainPaths = parseClipboardTextPaths(rawText || '');
+    const plainPaths = parseClipboardUriList(rawText || '');
     if (plainPaths.length > 0) {
       return {
         filePaths: plainPaths,
