@@ -19,6 +19,7 @@ import {
   printOnboardingUsage,
   printTuiUsage,
 } from './cli/help.js';
+import { ensureOnboardingApi } from './cli/onboarding-api.js';
 import {
   findUnsupportedGatewayLifecycleFlag,
   parseGatewayFlags,
@@ -48,16 +49,11 @@ let foregroundGatewayExitHandler: (() => void) | null = null;
 let foregroundGatewaySigintHandler: (() => void) | null = null;
 let foregroundGatewaySigtermHandler: (() => void) | null = null;
 type ConfigApi = typeof import('./config/config.js');
-type OnboardingApi = typeof import('./onboarding.js');
 
 let cachedAppVersion: string | null = null;
 const configApiState = makeLazyApi<ConfigApi>(
   () => import('./config/config.js'),
   'Config API accessed before initialization.',
-);
-const onboardingApiState = makeLazyApi<OnboardingApi>(
-  () => import('./onboarding.js'),
-  'Onboarding API accessed before it was initialized. Call ensureOnboardingApi() first.',
 );
 
 function readVersionFromPackageJson(packageJsonPath: string): string | null {
@@ -118,10 +114,6 @@ function getConfigApi(): ConfigApi {
 
 function getGatewayBaseUrl(): string {
   return getConfigApi().GATEWAY_BASE_URL;
-}
-
-async function ensureOnboardingApi(): Promise<OnboardingApi> {
-  return onboardingApiState.ensure();
 }
 
 function resolveInstallRoot(): string {

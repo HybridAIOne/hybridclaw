@@ -24,11 +24,11 @@ import {
   printOpenRouterUsage,
   printWhatsAppUsage,
 } from './help.js';
+import { ensureOnboardingApi } from './onboarding-api.js';
 import { ensureWhatsAppAuthApi, getWhatsAppAuthApi } from './whatsapp-api.js';
 
 type HybridAIAuthApi = typeof import('../auth/hybridai-auth.js');
 type CodexAuthApi = typeof import('../auth/codex-auth.js');
-type OnboardingApi = typeof import('../onboarding.js');
 
 const hybridAIAuthApiState = makeLazyApi<HybridAIAuthApi>(
   () => import('../auth/hybridai-auth.js'),
@@ -37,10 +37,6 @@ const hybridAIAuthApiState = makeLazyApi<HybridAIAuthApi>(
 const codexAuthApiState = makeLazyApi<CodexAuthApi>(
   () => import('../auth/codex-auth.js'),
   'Codex auth API accessed before it was initialized. Call ensureCodexAuthApi() first.',
-);
-const onboardingApiState = makeLazyApi<OnboardingApi>(
-  () => import('../onboarding.js'),
-  'Onboarding API accessed before it was initialized. Call ensureOnboardingApi() first.',
 );
 
 async function ensureHybridAIAuthApi(): Promise<HybridAIAuthApi> {
@@ -57,10 +53,6 @@ async function ensureCodexAuthApi(): Promise<CodexAuthApi> {
 
 function getCodexAuthApi(): CodexAuthApi {
   return codexAuthApiState.get();
-}
-
-async function ensureOnboardingApi(): Promise<OnboardingApi> {
-  return onboardingApiState.ensure();
 }
 
 function parseCodexLoginMethod(
