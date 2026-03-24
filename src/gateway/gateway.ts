@@ -1512,7 +1512,7 @@ async function main(): Promise<void> {
 
   logger.info(
     {
-      ...getGatewayStatus(),
+      ...(await getGatewayStatus()),
       discord: discordActive,
       msteams: msteamsActive,
       email: emailActive,
