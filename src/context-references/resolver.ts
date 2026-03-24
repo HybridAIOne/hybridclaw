@@ -194,7 +194,14 @@ async function listFolderEntries(folderPath: string): Promise<{
 
 async function defaultUrlFetcher(url: string): Promise<string> {
   const response = await fetch(url, { redirect: 'manual' });
-  if (response.type === 'opaqueredirect' || response.status === 301 || response.status === 302 || response.status === 303 || response.status === 307 || response.status === 308) {
+  if (
+    response.type === 'opaqueredirect' ||
+    response.status === 301 ||
+    response.status === 302 ||
+    response.status === 303 ||
+    response.status === 307 ||
+    response.status === 308
+  ) {
     throw new Error('redirects are blocked for URL references');
   }
   if (!response.ok) {
