@@ -42,7 +42,11 @@ function buildAttachedContext(blocks: string[]): string | null {
 }
 
 function normalizeContextLength(contextLength: number | undefined): number {
-  if (!Number.isFinite(contextLength) || !contextLength || contextLength <= 0) {
+  if (
+    contextLength === undefined ||
+    !Number.isFinite(contextLength) ||
+    contextLength <= 0
+  ) {
     return DEFAULT_CONTEXT_LENGTH;
   }
   return Math.floor(contextLength);
