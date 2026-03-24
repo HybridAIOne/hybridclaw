@@ -179,6 +179,9 @@ interface ClawManifest {
 
   skills?: {
     bundled?: string[];
+    imports?: Array<{
+      source: string;
+    }>;
     external?: Array<{
       kind: 'git';
       ref: string;
@@ -215,8 +218,9 @@ Implementation lives in
 
 ## Bundled vs External
 
-Bundled entries are copied into the archive. External entries are only recorded
-in `manifest.json`.
+Bundled entries are copied into the archive. Imported entries are resolved at
+install time with the normal `hybridclaw skill import` source grammar.
+External entries are only recorded in `manifest.json`.
 
 Example:
 
@@ -226,6 +230,11 @@ Example:
   "name": "Support Agent",
   "skills": {
     "bundled": ["triage"],
+    "imports": [
+      {
+        "source": "skills-sh/anthropics/skills/pdf"
+      }
+    ],
     "external": [
       {
         "kind": "git",
@@ -240,8 +249,11 @@ Example:
 Current behavior:
 
 - bundled skills are installed into the agent workspace under `skills/`
+- imported skills are installed into the agent workspace under `skills/`
+- `skills.imports[].source` accepts the same source strings as
+  `hybridclaw skill import`
 - install also adds that workspace `skills/` directory to `skills.extraDirs`
-  so imported bundled skills are discoverable
+  so bundled and imported workspace skills are discoverable
 - bundled plugins are installed through the normal plugin installer
 - bundled plugin config overrides are only imported for bundled plugins and are
   validated against the bundled plugin manifest `configSchema`
@@ -333,10 +345,11 @@ reuses one readline session for the whole export flow.
 5. registers the agent in the normal agent registry
 6. copies `workspace/` into the agent workspace path
 7. restores bundled skills into `workspace/skills/`
-8. installs bundled plugins with the normal plugin installer
-9. merges packaged skill config and validated bundled-plugin overrides into
+8. installs manifest-declared skill imports into `workspace/skills/`
+9. installs bundled plugins with the normal plugin installer
+10. merges packaged skill config and validated bundled-plugin overrides into
    runtime config
-10. calls `ensureBootstrapFiles()` to fill any missing templates
+11. calls `ensureBootstrapFiles()` to fill any missing templates
 
 Use `--force` to replace an existing agent workspace or reinstall bundled
 plugins during import.
@@ -385,9 +398,11 @@ If you are generating `.claw` files from a script or another tool:
    directory names in `manifest.skills.bundled`
 5. if bundling plugins, store each one at `plugins/<id>/...` and list the same
    ids in `manifest.plugins.bundled`
-6. if using external skill URLs, use `kind: "git"`; other skill kinds are not
+6. if using install-time skill imports, add `manifest.skills.imports[]`
+   entries with normal `hybridclaw skill import` source strings
+7. if using external skill URLs, use `kind: "git"`; other skill kinds are not
    supported in v1
-7. do not rely on a separate `documents/` section in v1; store extra docs under
+8. do not rely on a separate `documents/` section in v1; store extra docs under
    `workspace/`
 
 The bundled directory lists in the manifest must match the archive contents

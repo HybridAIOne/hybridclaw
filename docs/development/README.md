@@ -8,7 +8,9 @@ sidebar_position: 1
 
 This section turns the repo-shipped markdown docs into a browsable manual for
 operators, contributors, and advanced users. Start with the section that best
-matches what you need right now.
+matches what you need right now. In the browser docs shell, each page can open
+its raw `.md` source directly or copy the full page markdown from the document
+header.
 
 ## Browse By Section
 

@@ -20,6 +20,10 @@ import {
   validatePluginConfig,
 } from '../plugins/plugin-manager.js';
 import type { PluginManifest } from '../plugins/plugin-types.js';
+import {
+  importSkill,
+  type SkillImportResult,
+} from '../skills/skills-import.js';
 import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import {
@@ -34,6 +38,7 @@ import {
   type ClawManifest,
   type ClawPluginExternalRef,
   type ClawSkillExternalRef,
+  type ClawSkillImportRef,
   sanitizeClawAgentId,
   validateClawManifest,
 } from './claw-manifest.js';
@@ -149,6 +154,7 @@ export interface UnpackAgentResult {
   agentId: string;
   workspacePath: string;
   bundledSkills: string[];
+  importedSkills: SkillImportResult[];
   installedPlugins: InstallPluginResult[];
   externalActions: string[];
   runtimeConfigChanged: boolean;
@@ -651,6 +657,10 @@ function buildExternalActionLines(
   return lines;
 }
 
+function formatSkillImportSources(imports: ClawSkillImportRef[]): string {
+  return imports.map((entry) => entry.source).join(', ');
+}
+
 function formatHumanSize(bytes: number): string {
   if (bytes >= 1024 * 1024) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -665,6 +675,7 @@ export function formatClawArchiveSummary(
   inspection: ClawArchiveInspection,
 ): string[] {
   const bundledSkills = inspection.manifest.skills?.bundled ?? [];
+  const importedSkills = inspection.manifest.skills?.imports ?? [];
   const bundledPlugins = inspection.manifest.plugins?.bundled ?? [];
   const externalSkills = inspection.manifest.skills?.external ?? [];
   const externalPlugins = inspection.manifest.plugins?.external ?? [];
@@ -695,6 +706,7 @@ export function formatClawArchiveSummary(
       ? [`RAG: ${inspection.manifest.agent.enableRag ? 'enabled' : 'disabled'}`]
       : []),
     `Bundled skills: ${bundledSkills.length}`,
+    `Skill imports: ${importedSkills.length}`,
     `Bundled plugins: ${bundledPlugins.length}`,
     `External refs: ${externalSkills.length + externalPlugins.length}`,
     `Archive: ${inspection.entryNames.length} entries, ${formatHumanSize(
@@ -704,6 +716,11 @@ export function formatClawArchiveSummary(
 
   if (bundledSkills.length > 0) {
     lines.push(`Skill dirs: ${bundledSkills.join(', ')}`);
+  }
+  if (importedSkills.length > 0) {
+    lines.push(
+      `Skill import sources: ${formatSkillImportSources(importedSkills)}`,
+    );
   }
   if (bundledPlugins.length > 0) {
     lines.push(`Plugin dirs: ${bundledPlugins.join(', ')}`);
@@ -1055,6 +1072,7 @@ export async function unpackAgent(
   const workspaceExists = fs.existsSync(workspacePath);
   const previousRuntimeConfig = structuredClone(getRuntimeConfig());
   const previousAgentConfig = existing ? structuredClone(existing) : null;
+  const importedSkills: SkillImportResult[] = [];
   const installedPlugins: InstallPluginResult[] = [];
   let runtimeConfigChanged = false;
   const rollbackPluginInstalls: PluginInstallRollbackState[] = [];
@@ -1108,6 +1126,18 @@ export async function unpackAgent(
       );
       fs.rmSync(destinationDir, { recursive: true, force: true });
       copyDirectoryContents(sourceDir, destinationDir);
+    }
+
+    const importedSkillSources = manifest.skills?.imports ?? [];
+    if (importedSkillSources.length > 0) {
+      const workspaceSkillsDir = path.join(stagedWorkspacePath, 'skills');
+      for (const entry of importedSkillSources) {
+        const importResult = await importSkill(entry.source, {
+          installRootDir: workspaceSkillsDir,
+          replaceExisting: false,
+        });
+        importedSkills.push(importResult);
+      }
     }
 
     const pluginHomeDir = options.homeDir ?? os.homedir();
@@ -1185,12 +1215,13 @@ export async function unpackAgent(
 
     if (
       bundledSkills.length > 0 ||
+      importedSkills.length > 0 ||
       nextDisabledSkills.length !==
         previousRuntimeConfig.skills.disabled.length ||
       incomingPluginConfig.length > 0
     ) {
       updateRuntimeConfig((draft) => {
-        if (bundledSkills.length > 0) {
+        if (bundledSkills.length > 0 || importedSkills.length > 0) {
           draft.skills.extraDirs = mergeUniqueSorted(draft.skills.extraDirs, [
             workspaceSkillsDir,
           ]);
@@ -1240,6 +1271,7 @@ export async function unpackAgent(
       agentId: resolvedAgentId,
       workspacePath,
       bundledSkills,
+      importedSkills,
       installedPlugins,
       externalActions: options.skipExternals
         ? []

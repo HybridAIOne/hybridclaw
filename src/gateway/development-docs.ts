@@ -91,6 +91,7 @@ type DevelopmentDocPage = {
   relativePath: string;
   routePath: string;
   sidebarPosition: number | null;
+  source: string;
   title: string;
 };
 
@@ -286,6 +287,11 @@ function routePathForDevelopmentDoc(relativePath: string): string {
   return `${DEVELOPMENT_DOCS_ROUTE}/${trimmed}`;
 }
 
+function markdownPathForDevelopmentDoc(relativePath: string): string {
+  const normalized = path.posix.normalize(relativePath).replace(/^\/+/, '');
+  return `${DEVELOPMENT_DOCS_ROUTE}/${normalized}`;
+}
+
 function stripMarkdownFormatting(value: string): string {
   return value
     .replace(/\s+\{#.+\}\s*$/, '')
@@ -371,6 +377,7 @@ function readDevelopmentDoc(relativePath: string): DevelopmentDocPage | null {
       typeof metadata.sidebar_position === 'number'
         ? metadata.sidebar_position
         : null,
+    source: raw,
     title:
       typeof metadata.title === 'string' && metadata.title.trim()
         ? metadata.title.trim()
@@ -741,12 +748,19 @@ function renderSearchDataScript(entries: DevelopmentDocSearchEntry[]): string {
   return `<script id="docs-search-data" type="application/json">${json}</script>`;
 }
 
+function renderMarkdownSourceScript(source: string): string {
+  const json = JSON.stringify(source).replace(/</g, '\\u003c');
+  return `<script id="docs-markdown-source" type="application/json">${json}</script>`;
+}
+
 function renderInteractiveScript(): string {
   return `<script>
 (() => {
   const body = document.body;
+  const copyMarkdownButton = document.querySelector('[data-doc-copy-markdown]');
   const searchInput = document.querySelector('[data-doc-search-input]');
   const searchResults = document.querySelector('[data-doc-search-results]');
+  const markdownSource = JSON.parse(document.getElementById('docs-markdown-source')?.textContent || '""');
   const searchData = JSON.parse(document.getElementById('docs-search-data')?.textContent || '[]');
   const searchEmpty = document.querySelector('[data-doc-search-empty]');
   const searchList = document.querySelector('[data-doc-search-list]');
@@ -763,11 +777,50 @@ function renderInteractiveScript(): string {
       target.tagName === 'TEXTAREA' ||
       target.tagName === 'SELECT');
 
+  const copyWithFallback = (text) => {
+    const helper = document.createElement('textarea');
+    helper.value = text;
+    helper.setAttribute('readonly', '');
+    helper.style.position = 'absolute';
+    helper.style.left = '-9999px';
+    document.body.appendChild(helper);
+    helper.select();
+    document.execCommand('copy');
+    document.body.removeChild(helper);
+  };
+
+  const copyText = async (text) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    copyWithFallback(text);
+  };
+
   const closeSidebar = () => body.classList.remove('docs-sidebar-open');
   sidebarToggle?.addEventListener('click', () => {
     body.classList.toggle('docs-sidebar-open');
   });
   overlay?.addEventListener('click', closeSidebar);
+
+  copyMarkdownButton?.addEventListener('click', async () => {
+    if (!markdownSource) return;
+    const previousText = copyMarkdownButton.textContent || 'Copy Markdown';
+    try {
+      await copyText(markdownSource);
+      copyMarkdownButton.textContent = 'Copied';
+      copyMarkdownButton.classList.add('is-copied');
+      window.setTimeout(() => {
+        copyMarkdownButton.textContent = previousText;
+        copyMarkdownButton.classList.remove('is-copied');
+      }, 1400);
+    } catch {
+      copyMarkdownButton.textContent = 'Copy failed';
+      window.setTimeout(() => {
+        copyMarkdownButton.textContent = previousText;
+      }, 1400);
+    }
+  });
 
   const applyTheme = (theme) => {
     document.documentElement.dataset.theme = theme;
@@ -1029,6 +1082,7 @@ function renderPage(
   );
   const tocMarkup = renderTableOfContents(page);
   const markdownHtml = renderMarkdownBody(page);
+  const markdownPath = markdownPathForDevelopmentDoc(page.relativePath);
   const descriptionMeta = page.description
     ? `<meta name="description" content="${escapeHtml(page.description)}">`
     : '';
@@ -1054,6 +1108,8 @@ function renderPage(
       --brand-blue: #4a6cf7;
       --brand-blue-2: #3657e9;
       --brand-blue-soft: rgba(74, 108, 247, 0.1);
+      --success: #15803d;
+      --success-soft: rgba(21, 128, 61, 0.12);
       --shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
       --nav-height: 64px;
       --sidebar-width: 300px;
@@ -1076,6 +1132,8 @@ function renderPage(
       --brand-blue: #7da2ff;
       --brand-blue-2: #9ab6ff;
       --brand-blue-soft: rgba(125, 162, 255, 0.14);
+      --success: #7ee3a5;
+      --success-soft: rgba(126, 227, 165, 0.16);
       --shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
     }
 
@@ -1419,9 +1477,57 @@ function renderPage(
       flex-wrap: wrap;
       gap: 6px;
       align-items: center;
-      margin-bottom: 22px;
       color: var(--muted);
       font-size: 0.88rem;
+    }
+
+    .docs-page-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    .docs-page-actions {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      flex: 0 0 auto;
+    }
+
+    .docs-page-action,
+    .docs-page-source-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: var(--panel-bg);
+      color: var(--muted-strong);
+      font: inherit;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+      white-space: nowrap;
+    }
+
+    .docs-page-action:hover,
+    .docs-page-source-link:hover {
+      border-color: var(--brand-blue);
+      color: var(--brand-blue);
+      background: var(--brand-blue-soft);
+      text-decoration: none;
+    }
+
+    .docs-page-action.is-copied {
+      border-color: var(--success);
+      color: var(--success);
+      background: var(--success-soft);
     }
 
     .docs-breadcrumb-item a:hover {
@@ -1656,6 +1762,16 @@ function renderPage(
         padding: 22px 18px 48px;
       }
 
+      .docs-page-head {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .docs-page-actions {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+      }
+
       .docs-overlay {
         position: fixed;
         inset: var(--nav-height) 0 0 0;
@@ -1724,8 +1840,14 @@ function renderPage(
       ${sidebarMarkup}
     </aside>
     <main class="docs-main">
-      <div class="docs-breadcrumbs" aria-label="Breadcrumb">
-        ${breadcrumbsMarkup}
+      <div class="docs-page-head">
+        <div class="docs-breadcrumbs" aria-label="Breadcrumb">
+          ${breadcrumbsMarkup}
+        </div>
+        <div class="docs-page-actions">
+          <button class="docs-page-action" type="button" data-doc-copy-markdown>Copy Markdown</button>
+          <a class="docs-page-source-link" href="${escapeHtml(markdownPath)}">View .md</a>
+        </div>
       </div>
       <article class="docs-article">
         ${markdownHtml}
@@ -1739,6 +1861,7 @@ function renderPage(
     </aside>
   </div>
   <div class="docs-overlay" data-doc-overlay></div>
+  ${renderMarkdownSourceScript(page.source)}
   ${renderSearchDataScript(snapshot.searchEntries)}
   ${renderInteractiveScript()}
 </body>
@@ -1805,8 +1928,21 @@ export function serveDevelopmentDocs(
 ): boolean {
   const relativePath = normalizeDevelopmentDocRelativePath(pathname);
   if (!relativePath) return false;
+  const wantsMarkdown = pathname.endsWith('.md');
 
   try {
+    if (wantsMarkdown) {
+      const candidate = resolveDevelopmentDocFile(relativePath);
+      if (!candidate) return false;
+
+      res.writeHead(200, {
+        'Cache-Control': 'no-cache',
+        'Content-Type': 'text/markdown; charset=utf-8',
+      });
+      res.end(fs.readFileSync(candidate, 'utf8'));
+      return true;
+    }
+
     const cachedSnapshot = getCachedDevelopmentDocsSnapshot();
     if (cachedSnapshot) {
       const cachedPage = cachedSnapshot.docsByRelativePath.get(relativePath);

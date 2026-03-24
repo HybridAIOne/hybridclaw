@@ -361,7 +361,7 @@ Notes:
   - Use \`--plugins active\` to bundle only enabled home plugins, \`--plugins all\` to bundle all installed home plugins, or \`--plugins some --plugin <id>\` to bundle a selected subset.
   - Interactive export defaults to \`--skills ask\` and \`--plugins ask\`; non-interactive export defaults to \`--skills all\` and \`--plugins active\`.
   - \`inspect\` validates the archive manifest and prints a summary without extracting files.
-  - \`install\` validates ZIP safety, confirms the manifest, registers the agent, restores bundled content, and fills missing bootstrap files.
+  - \`install\` validates ZIP safety, confirms the manifest, registers the agent, restores bundled content, installs manifest-declared skill imports into the agent workspace, and fills missing bootstrap files.
   - \`uninstall\` removes a non-main agent registration and its workspace root.
   - Use \`--yes\` to skip the install or uninstall confirmation prompt.
   - Use \`--force\` to replace an existing agent workspace or bundled plugin install during install.

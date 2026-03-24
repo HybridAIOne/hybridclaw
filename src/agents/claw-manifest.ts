@@ -9,6 +9,10 @@ export interface ClawSkillExternalRef {
   name?: string;
 }
 
+export interface ClawSkillImportRef {
+  source: string;
+}
+
 export interface ClawPluginExternalRef {
   kind: 'npm' | 'local';
   ref: string;
@@ -29,6 +33,7 @@ export interface ClawManifest {
   };
   skills?: {
     bundled?: string[];
+    imports?: ClawSkillImportRef[];
     external?: ClawSkillExternalRef[];
   };
   plugins?: {
@@ -149,6 +154,31 @@ function normalizeSkillExternalRefs(
       ref,
       ...(name ? { name } : {}),
     });
+  }
+  return out;
+}
+
+function normalizeSkillImportRefs(
+  value: unknown,
+): ClawSkillImportRef[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error('manifest.skills.imports must be an array.');
+  }
+
+  const seen = new Set<string>();
+  const out: ClawSkillImportRef[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) {
+      throw new Error('manifest.skills.imports entries must be objects.');
+    }
+    const source = normalizeString(entry.source);
+    if (!source) {
+      throw new Error('manifest.skills.imports entries require `source`.');
+    }
+    if (seen.has(source)) continue;
+    seen.add(source);
+    out.push({ source });
   }
   return out;
 }
@@ -308,9 +338,11 @@ export function validateClawManifest(
       input.skills.bundled,
       'manifest.skills.bundled',
     );
+    const imports = normalizeSkillImportRefs(input.skills.imports);
     const external = normalizeSkillExternalRefs(input.skills.external);
     skills = {
       ...(bundled ? { bundled } : {}),
+      ...(imports ? { imports } : {}),
       ...(external ? { external } : {}),
     };
   }

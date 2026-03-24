@@ -982,6 +982,8 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('>Discord');
     expect(res.body).toContain('On this page');
     expect(res.body).toContain('href="#getting-started"');
+    expect(res.body).toContain('data-doc-copy-markdown');
+    expect(res.body).toContain('href="/development/README.md"');
     expect(res.body).not.toContain(
       'class="docs-sidebar-link is-active" href="/development"',
     );
@@ -1009,6 +1011,20 @@ describe('gateway HTTP server', () => {
       );
       expect(res.body).toContain(`href="${anchor}"`);
     }
+  });
+
+  test('serves raw markdown when requesting a development doc .md path', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/development/extensibility/README.md' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/markdown; charset=utf-8');
+    expect(res.body).toContain('title: Extensibility');
+    expect(res.body).toContain('# Extensibility');
+    expect(res.body).not.toContain('<!doctype html>');
   });
 
   test('reuses the cached development docs snapshot across repeated requests', async () => {
@@ -1143,7 +1159,8 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).not.toContain('<img src="javascript:alert(1)"');
     expect(res.body).toContain('Bad');
-    expect(res.body).not.toContain('javascript:alert(1)');
+    expect(res.body).toContain('id="docs-markdown-source"');
+    expect(res.body).toContain('javascript:alert(1)');
   });
 
   test('returns a visible error for malformed development doc frontmatter', async () => {

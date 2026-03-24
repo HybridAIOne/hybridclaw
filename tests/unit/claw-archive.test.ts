@@ -355,6 +355,85 @@ describe('.claw archive support', () => {
     ).toBe(true);
   });
 
+  test('unpack installs manifest skill imports into the agent workspace', async () => {
+    const homeDir = makeTempDir('hybridclaw-claw-home-');
+    const cwd = makeTempDir('hybridclaw-claw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+    process.chdir(cwd);
+
+    const { initDatabase } = await import('../../src/memory/db.js');
+    const { initAgentRegistry } = await import(
+      '../../src/agents/agent-registry.js'
+    );
+    const { getRuntimeConfig } = await import(
+      '../../src/config/runtime-config.js'
+    );
+    const { loadSkillCatalog } = await import('../../src/skills/skills.js');
+    const { unpackAgent } = await import('../../src/agents/claw-archive.js');
+
+    initDatabase({ quiet: true });
+    initAgentRegistry({
+      list: [{ id: 'main', name: 'Main Agent' }],
+    });
+
+    const archivePath = path.join(cwd, 'skill-imports.claw');
+    await writeZipArchive(archivePath, [
+      {
+        name: 'manifest.json',
+        content: JSON.stringify(
+          {
+            formatVersion: 1,
+            name: 'Imported Skills Agent',
+            id: 'imported-skills-agent',
+            skills: {
+              imports: [{ source: 'official/himalaya' }],
+            },
+          },
+          null,
+          2,
+        ),
+      },
+      {
+        name: 'workspace/SOUL.md',
+        content: '# Soul\n',
+      },
+    ]);
+
+    const unpacked = await unpackAgent(archivePath, {
+      yes: true,
+      homeDir,
+      cwd,
+    });
+
+    expect(unpacked.importedSkills).toHaveLength(1);
+    expect(unpacked.importedSkills[0]).toMatchObject({
+      skillName: 'himalaya',
+      source: 'official/himalaya',
+      resolvedSource: 'official/himalaya',
+      replacedExisting: false,
+    });
+    expect(
+      fs.existsSync(
+        path.join(unpacked.workspacePath, 'skills', 'himalaya', 'SKILL.md'),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(homeDir, '.hybridclaw', 'skills', 'himalaya')),
+    ).toBe(false);
+    expect(getRuntimeConfig().skills.extraDirs).toContain(
+      path.join(unpacked.workspacePath, 'skills'),
+    );
+    expect(
+      loadSkillCatalog().some(
+        (skill) =>
+          skill.name === 'himalaya' &&
+          skill.baseDir ===
+            path.join(unpacked.workspacePath, 'skills', 'himalaya'),
+      ),
+    ).toBe(true);
+  });
+
   test('pack supports minimal archives and excludes transient workspace files', async () => {
     const homeDir = makeTempDir('hybridclaw-claw-home-');
     const cwd = makeTempDir('hybridclaw-claw-cwd-');
@@ -1686,6 +1765,82 @@ describe('.claw archive support', () => {
     expect(fs.existsSync(path.join(existingPluginDir, 'new.txt'))).toBe(false);
   });
 
+  test('unpack force leaves the existing workspace untouched when a skill import fails', async () => {
+    const homeDir = makeTempDir('hybridclaw-claw-home-');
+    const cwd = makeTempDir('hybridclaw-claw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+    process.chdir(cwd);
+
+    const { initDatabase } = await import('../../src/memory/db.js');
+    const { initAgentRegistry, getAgentById } = await import(
+      '../../src/agents/agent-registry.js'
+    );
+    const { agentWorkspaceDir } = await import('../../src/infra/ipc.js');
+    const { unpackAgent } = await import('../../src/agents/claw-archive.js');
+
+    initDatabase({ quiet: true });
+    initAgentRegistry({
+      list: [
+        { id: 'main', name: 'Main Agent' },
+        { id: 'imported-agent', name: 'Existing Agent' },
+      ],
+    });
+
+    const existingWorkspace = agentWorkspaceDir('imported-agent');
+    fs.mkdirSync(existingWorkspace, { recursive: true });
+    fs.writeFileSync(
+      path.join(existingWorkspace, 'keep.txt'),
+      'original\n',
+      'utf-8',
+    );
+
+    const archivePath = path.join(cwd, 'rollback-skill-import.claw');
+    await writeZipArchive(archivePath, [
+      {
+        name: 'manifest.json',
+        content: JSON.stringify(
+          {
+            formatVersion: 1,
+            name: 'Broken Skill Import Agent',
+            id: 'imported-agent',
+            skills: {
+              imports: [{ source: 'official/missing-skill' }],
+            },
+          },
+          null,
+          2,
+        ),
+      },
+      {
+        name: 'workspace/SOUL.md',
+        content: '# Soul\n',
+      },
+      {
+        name: 'workspace/new.txt',
+        content: 'replacement\n',
+      },
+    ]);
+
+    await expect(
+      unpackAgent(archivePath, {
+        yes: true,
+        force: true,
+        homeDir,
+        cwd,
+      }),
+    ).rejects.toThrow(/No packaged community skill matching/i);
+
+    expect(getAgentById('imported-agent')).toMatchObject({
+      id: 'imported-agent',
+      name: 'Existing Agent',
+    });
+    expect(
+      fs.readFileSync(path.join(existingWorkspace, 'keep.txt'), 'utf-8'),
+    ).toBe('original\n');
+    expect(fs.existsSync(path.join(existingWorkspace, 'new.txt'))).toBe(false);
+  });
+
   test('manifest validation rejects unknown format versions', async () => {
     const { sanitizeClawAgentId, validateClawManifest } = await import(
       '../../src/agents/claw-manifest.js'
@@ -1714,6 +1869,15 @@ describe('.claw archive support', () => {
         },
       }),
     ).toThrow(/Unsupported skill external kind "clawhub"/i);
+    expect(() =>
+      validateClawManifest({
+        formatVersion: 1,
+        name: 'Bad',
+        skills: {
+          imports: [{}],
+        },
+      }),
+    ).toThrow(/manifest\.skills\.imports entries require `source`/i);
 
     expect(sanitizeClawAgentId('  Main Agent!!!  ')).toBe('main-agent');
     expect(sanitizeClawAgentId('___', 'fallback-id')).toBe('fallback-id');
@@ -1736,6 +1900,7 @@ describe('.claw archive support', () => {
           },
           skills: {
             bundled: ['alpha'],
+            imports: [{ source: 'skills-sh/anthropics/skills/pdf' }],
             external: [{ kind: 'git', ref: 'https://example.com/alpha.git' }],
           },
           plugins: {
@@ -1756,9 +1921,11 @@ describe('.claw archive support', () => {
         'Model: gpt-5-mini',
         'RAG: enabled',
         'Bundled skills: 1',
+        'Skill imports: 1',
         'Bundled plugins: 1',
         'External refs: 1',
         'Skill dirs: alpha',
+        'Skill import sources: skills-sh/anthropics/skills/pdf',
       ]),
     );
   });

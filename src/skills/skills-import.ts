@@ -46,6 +46,14 @@ export interface SkillImportResult {
   guardFindingsCount?: number;
 }
 
+export interface ImportSkillOptions {
+  homeDir?: string;
+  fetchImpl?: typeof fetch;
+  force?: boolean;
+  installRootDir?: string;
+  replaceExisting?: boolean;
+}
+
 class SkillImportError extends Error {}
 
 function resolveManagedCommunitySkillsDir(
@@ -528,16 +536,13 @@ function countFiles(rootDir: string): number {
 
 export async function importSkill(
   source: string,
-  options: {
-    homeDir?: string;
-    fetchImpl?: typeof fetch;
-    force?: boolean;
-  } = {},
+  options: ImportSkillOptions = {},
 ): Promise<SkillImportResult> {
   const resolvedSource = resolveSkillImportSource(source);
   const fetchImpl = options.fetchImpl ?? fetch;
   const homeDir = options.homeDir ?? DEFAULT_RUNTIME_HOME_DIR;
-  const communityRoot = resolveManagedCommunitySkillsDir(homeDir);
+  const installRoot =
+    options.installRootDir ?? resolveManagedCommunitySkillsDir(homeDir);
   const tempRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-skill-import-'),
   );
@@ -592,15 +597,20 @@ export async function importSkill(
     }
 
     const targetDirName = sanitizeInstalledSkillDirName(skillName);
-    const targetDir = path.join(communityRoot, targetDirName);
+    const targetDir = path.join(installRoot, targetDirName);
     stageDir = path.join(
-      communityRoot,
+      installRoot,
       `.${targetDirName}.import-${randomUUID().slice(0, 8)}`,
     );
-    fs.mkdirSync(communityRoot, { recursive: true });
+    fs.mkdirSync(installRoot, { recursive: true });
     copyDirectoryContents(tempSkillDir, stageDir);
     const replacedExisting = fs.existsSync(targetDir);
     if (replacedExisting) {
+      if (options.replaceExisting === false) {
+        throw new SkillImportError(
+          `Imported skill "${skillName}" would overwrite existing content at ${targetDir}.`,
+        );
+      }
       fs.rmSync(targetDir, { recursive: true, force: true });
     }
     fs.renameSync(stageDir, targetDir);
