@@ -256,8 +256,5 @@ describe('local health checks', () => {
       reachable: true,
       modelCount: 1,
     });
-    expect(health.getBackendHealth('ollama')).toMatchObject({
-      reachable: true,
-    });
   });
 });

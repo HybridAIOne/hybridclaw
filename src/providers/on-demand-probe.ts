@@ -1,5 +1,3 @@
-import { logger } from '../logger.js';
-
 export interface OnDemandProbe<T> {
   /** Async — returns cached value if fresh, otherwise probes and caches. Concurrent calls coalesce. */
   get(): Promise<T>;
@@ -21,9 +19,6 @@ export function createOnDemandProbe<T>(
       const value = await probeFn();
       cached = { value, at: Date.now() };
       return value;
-    } catch (error) {
-      logger.warn({ err: error }, 'On-demand probe failed');
-      throw error;
     } finally {
       inflight = null;
     }

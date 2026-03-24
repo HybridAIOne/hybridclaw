@@ -1943,7 +1943,7 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
   const hybridaiHealth: HybridAIHealthResult =
     hybridaiResult.status === 'fulfilled'
       ? hybridaiResult.value
-      : { reachable: false, detail: 'probe failed', error: 'probe failed', latencyMs: 0 };
+      : { reachable: false, error: 'probe failed', latencyMs: 0 };
   const sandbox = getSandboxDiagnostics();
   const codex = getCodexAuthStatus();
   const localBackends = Object.fromEntries(

@@ -34,7 +34,6 @@ describe('hybridai-health', () => {
   test('peek() returns null before any probe', async () => {
     const mod = await importFreshModule();
     expect(mod.hybridAIProbe.peek()).toBeNull();
-    expect(mod.getHybridAIHealth()).toBeNull();
   });
 
   test('get() probes and returns a successful result', async () => {
@@ -49,7 +48,6 @@ describe('hybridai-health', () => {
     const result = await mod.hybridAIProbe.get();
     expect(result).toMatchObject({
       reachable: true,
-      detail: '42ms',
       modelCount: 5,
     });
     expect(typeof result.latencyMs).toBe('number');
@@ -65,10 +63,7 @@ describe('hybridai-health', () => {
     });
 
     const result = await mod.hybridAIProbe.get();
-    expect(result).toMatchObject({
-      reachable: false,
-      detail: 'API key missing',
-    });
+    expect(result.reachable).toBe(false);
   });
 
   test('get() returns error result when probe throws', async () => {
@@ -81,7 +76,6 @@ describe('hybridai-health', () => {
     const result = await mod.hybridAIProbe.get();
     expect(result).toMatchObject({
       reachable: false,
-      detail: 'connect ECONNREFUSED',
       error: 'connect ECONNREFUSED',
     });
     expect(typeof result.latencyMs).toBe('number');
@@ -124,22 +118,7 @@ describe('hybridai-health', () => {
     const result = await mod.hybridAIProbe.get();
     expect(result).toMatchObject({
       reachable: false,
-      detail: 'string error',
       error: 'string error',
     });
-  });
-
-  test('getHybridAIHealth delegates to peek()', async () => {
-    const mod = await importFreshModule();
-
-    probeHybridAIMock.mockResolvedValueOnce({
-      reachable: true,
-      detail: '5ms',
-      modelCount: 2,
-    });
-
-    expect(mod.getHybridAIHealth()).toBeNull();
-    await mod.hybridAIProbe.get();
-    expect(mod.getHybridAIHealth()).toMatchObject({ reachable: true });
   });
 });

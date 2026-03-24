@@ -20,8 +20,6 @@ import { isRecord, normalizeBaseUrl } from './utils.js';
 
 const PROBE_TTL_MS = 30_000;
 
-const backendHealth = new Map<LocalBackendType, HealthCheckResult>();
-
 function hasEnabledLocalBackend(): boolean {
   return LOCAL_OLLAMA_ENABLED || LOCAL_LMSTUDIO_ENABLED || LOCAL_VLLM_ENABLED;
 }
@@ -159,7 +157,6 @@ export async function checkAllBackends(): Promise<
 > {
   const next = new Map<LocalBackendType, HealthCheckResult>();
   if (!hasEnabledLocalBackend() || !LOCAL_HEALTH_CHECK_ENABLED) {
-    backendHealth.clear();
     return next;
   }
 
@@ -184,28 +181,10 @@ export async function checkAllBackends(): Promise<
   for (const result of await Promise.all(tasks)) {
     next.set(result.backend, result);
   }
-
-  backendHealth.clear();
-  for (const [backend, result] of next) {
-    backendHealth.set(backend, result);
-  }
-  return new Map(backendHealth);
+  return next;
 }
 
 export const localBackendsProbe = createOnDemandProbe(
   checkAllBackends,
   PROBE_TTL_MS,
 );
-
-export function getBackendHealth(
-  backend: LocalBackendType,
-): HealthCheckResult | null {
-  return backendHealth.get(backend) || null;
-}
-
-export function getAllBackendHealth(): Map<
-  LocalBackendType,
-  HealthCheckResult
-> {
-  return localBackendsProbe.peek() ?? new Map();
-}

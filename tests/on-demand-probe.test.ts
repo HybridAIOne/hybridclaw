@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-vi.mock('../src/logger.js', () => ({
-  logger: { warn: vi.fn() },
-}));
-
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -11,9 +7,6 @@ afterEach(() => {
 
 async function importFreshModule() {
   vi.resetModules();
-  vi.doMock('../src/logger.js', () => ({
-    logger: { warn: vi.fn() },
-  }));
   return import('../src/providers/on-demand-probe.js');
 }
 
