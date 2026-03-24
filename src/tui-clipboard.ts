@@ -178,9 +178,9 @@ function execFileWithEncoding<TEncoding extends 'utf8' | 'buffer'>(
         resolve({
           stdout:
             encoding === 'buffer'
-              ? (Buffer.isBuffer(stdout)
-                  ? stdout
-                  : Buffer.from(stdout || '', 'utf8'))
+              ? Buffer.isBuffer(stdout)
+                ? stdout
+                : Buffer.from(stdout || '', 'utf8')
               : String(stdout || ''),
           stderr: String(stderr || ''),
         } as {
