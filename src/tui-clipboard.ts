@@ -89,7 +89,7 @@ if let tiffData = pasteboard.data(forType: .tiff),
 emit(Payload(filePaths: [], imageBase64: nil, mimeType: nil, filename: nil))
 `;
 
-const WINDOWS_CLIPBOARD_SCRIPT = String.raw`
+const WINDOWS_CLIPBOARD_SCRIPT = `
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 

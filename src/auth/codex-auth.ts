@@ -288,24 +288,18 @@ export function loadCodexAuthStore(): CodexAuthStore {
   };
 }
 
-export function saveCodexAuthStore(
-  store: CodexAuthStore,
-): string {
+export function saveCodexAuthStore(store: CodexAuthStore): string {
   const filePath = codexAuthPath();
   ensurePrivateJsonFile(filePath, `${JSON.stringify(store, null, 2)}\n`);
   return filePath;
 }
 
-function saveCredentials(
-  credentials: CodexStoredCredentials | null,
-): string {
-  return saveCodexAuthStore(
-    {
-      version: 1,
-      credentials,
-      updatedAt: nowIso(),
-    },
-  );
+function saveCredentials(credentials: CodexStoredCredentials | null): string {
+  return saveCodexAuthStore({
+    version: 1,
+    credentials,
+    updatedAt: nowIso(),
+  });
 }
 
 export function clearCodexCredentials(): string {
@@ -982,7 +976,10 @@ async function pollDeviceAuthorizationCode(
   );
 }
 
-export async function loginWithDeviceCode(): Promise<{ credentials: CodexStoredCredentials; path: string }> {
+export async function loginWithDeviceCode(): Promise<{
+  credentials: CodexStoredCredentials;
+  path: string;
+}> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('Device code login requires an interactive terminal.');
   }
@@ -1156,7 +1153,10 @@ async function waitForBrowserCallback(
   }
 }
 
-export async function loginWithBrowserPkce(): Promise<{ credentials: CodexStoredCredentials; path: string }> {
+export async function loginWithBrowserPkce(): Promise<{
+  credentials: CodexStoredCredentials;
+  path: string;
+}> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('Browser login requires an interactive terminal.');
   }

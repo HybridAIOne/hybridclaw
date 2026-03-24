@@ -403,7 +403,9 @@ function normalizeConfiguredBaseUrl(
   raw: string | undefined,
   fallback: string,
 ): string {
-  const trimmed = String(raw || '').trim().replace(/\/+$/, '');
+  const trimmed = String(raw || '')
+    .trim()
+    .replace(/\/+$/, '');
   return trimmed || fallback;
 }
 
@@ -512,7 +514,8 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   HYBRIDAI_MODEL = config.hybridai.defaultModel;
   HYBRIDAI_CHATBOT_ID =
-    (process.env.HYBRIDAI_CHATBOT_ID?.trim() || '') ||
+    process.env.HYBRIDAI_CHATBOT_ID?.trim() ||
+    '' ||
     config.hybridai.defaultChatbotId;
   HYBRIDAI_MAX_TOKENS = Math.max(
     256,
