@@ -28,19 +28,6 @@ function joinSections(sections: Array<string | null | undefined>): string {
     .trim();
 }
 
-function buildWarningsSection(warnings: string[]): string | null {
-  if (warnings.length === 0) return null;
-  return [
-    '--- Context Warnings ---',
-    ...warnings.map((warning) => `- ${warning}`),
-  ].join('\n');
-}
-
-function buildAttachedContext(blocks: string[]): string | null {
-  if (blocks.length === 0) return null;
-  return ['--- Attached Context ---', blocks.join('\n\n')].join('\n');
-}
-
 function normalizeContextLength(contextLength: number | undefined): number {
   if (
     contextLength === undefined ||
@@ -104,7 +91,12 @@ export async function preprocessContextReferences(
       strippedMessage,
       message: joinSections([
         strippedMessage,
-        buildWarningsSection(finalWarnings),
+        finalWarnings.length === 0
+          ? null
+          : [
+              '--- Context Warnings ---',
+              ...finalWarnings.map((warning) => `- ${warning}`),
+            ].join('\n'),
       ]),
       references,
       warnings: finalWarnings,
@@ -124,8 +116,15 @@ export async function preprocessContextReferences(
     strippedMessage,
     message: joinSections([
       strippedMessage,
-      buildWarningsSection(finalWarnings),
-      buildAttachedContext(blocks),
+      finalWarnings.length === 0
+        ? null
+        : [
+            '--- Context Warnings ---',
+            ...finalWarnings.map((warning) => `- ${warning}`),
+          ].join('\n'),
+      blocks.length === 0
+        ? null
+        : ['--- Attached Context ---', blocks.join('\n\n')].join('\n'),
     ]),
     references,
     warnings: finalWarnings,
