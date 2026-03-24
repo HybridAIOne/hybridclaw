@@ -338,7 +338,7 @@ async function importFreshHealth(options?: {
     };
   });
 
-  const getGatewayStatus = vi.fn(() => ({ status: 'ok', sessions: 2 }));
+  const getGatewayStatus = vi.fn(async () => ({ status: 'ok', sessions: 2 }));
   const loggerDebug = vi.fn();
   const loggerError = vi.fn();
   const loggerInfo = vi.fn();
@@ -390,7 +390,7 @@ async function importFreshHealth(options?: {
       result.title ? `${result.title}\n${result.text}` : result.text,
   );
   const runGatewayPluginTool = vi.fn(async () => 'plugin-tool-result');
-  const getGatewayAdminOverview = vi.fn(() => ({
+  const getGatewayAdminOverview = vi.fn(async () => ({
     status: { status: 'ok', sessions: 2, version: '0.7.1', uptime: 60 },
     configPath: '/tmp/config.json',
     recentSessions: [],
@@ -452,7 +452,7 @@ async function importFreshHealth(options?: {
       },
     ],
   }));
-  const getGatewayAgents = vi.fn(() => ({
+  const getGatewayAgents = vi.fn(async () => ({
     generatedAt: '2026-03-11T10:00:00.000Z',
     version: '0.7.1',
     uptime: 60,
@@ -909,9 +909,9 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
+    await vi.waitFor(() => expect(res.statusCode).toBe(200));
 
     expect(state.listenArgs).toEqual({ host: '127.0.0.1', port: 9090 });
-    expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ status: 'ok', sessions: 2 });
   });
 

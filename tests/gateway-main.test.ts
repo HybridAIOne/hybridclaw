@@ -118,7 +118,8 @@ function createGatewayMainTestState(options?: {
     startGatewayHttpServer: vi.fn(),
     startHeartbeat: vi.fn(),
     startDiscoveryLoop: vi.fn(),
-    startHealthCheckLoop: vi.fn(),
+    hybridAIProbeGet: vi.fn(async () => ({})),
+    localBackendsProbeGet: vi.fn(async () => new Map()),
     startObservabilityIngest: vi.fn(),
     startScheduler: vi.fn(),
     whatsappLinked: options?.whatsappLinked === true,
@@ -281,8 +282,18 @@ async function importFreshGatewayMain(options?: {
     stopDiscoveryLoop: vi.fn(),
   }));
   vi.doMock('../src/providers/local-health.js', () => ({
-    startHealthCheckLoop: state.startHealthCheckLoop,
-    stopHealthCheckLoop: vi.fn(),
+    localBackendsProbe: {
+      get: state.localBackendsProbeGet,
+      peek: vi.fn(() => new Map()),
+      invalidate: vi.fn(),
+    },
+  }));
+  vi.doMock('../src/providers/hybridai-health.js', () => ({
+    hybridAIProbe: {
+      get: state.hybridAIProbeGet,
+      peek: vi.fn(() => null),
+      invalidate: vi.fn(),
+    },
   }));
   vi.doMock('../src/scheduler/heartbeat.js', () => ({
     startHeartbeat: state.startHeartbeat,
@@ -391,7 +402,6 @@ describe('gateway bootstrap', () => {
       expect.any(Function),
     );
     expect(state.startDiscoveryLoop).toHaveBeenCalledTimes(1);
-    expect(state.startHealthCheckLoop).toHaveBeenCalledTimes(1);
     expect(state.startObservabilityIngest).toHaveBeenCalledTimes(1);
     expect(state.startScheduler).toHaveBeenCalledTimes(1);
     expect(state.onConfigChange).toHaveBeenCalledTimes(1);

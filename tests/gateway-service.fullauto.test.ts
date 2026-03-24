@@ -42,6 +42,32 @@ vi.mock('../src/agent/executor.js', () => ({
   stopSessionExecution: stopSessionExecutionMock,
 }));
 
+vi.mock('../src/providers/hybridai-health.js', () => ({
+  hybridAIProbe: {
+    get: vi.fn(async () => ({
+      reachable: false,
+      latencyMs: 0,
+      error: 'mocked',
+    })),
+    peek: vi.fn(() => null),
+    invalidate: vi.fn(),
+  },
+}));
+
+vi.mock('../src/providers/local-health.js', async () => {
+  const actual = await vi.importActual<
+    typeof import('../src/providers/local-health.js')
+  >('../src/providers/local-health.js');
+  return {
+    ...actual,
+    localBackendsProbe: {
+      get: vi.fn(async () => new Map()),
+      peek: vi.fn(() => null),
+      invalidate: vi.fn(),
+    },
+  };
+});
+
 const ORIGINAL_HOME = process.env.HOME;
 const tempDirs: string[] = [];
 
@@ -215,7 +241,7 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
   expect(enabled.text).toContain('fullauto/LEARNING_');
   expect(enabled.text).toContain('fullauto/RUN_LOG_');
   expect(
-    getGatewayAgents().sessions.find(
+    (await getGatewayAgents()).sessions.find(
       (session) => session.sessionId === sessionId,
     )?.fullAutoEnabled,
   ).toBe(true);
@@ -344,7 +370,7 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
   const session = memoryService.getSessionById(sessionId);
   expect(session?.full_auto_enabled).toBe(0);
   expect(
-    getGatewayAgents().sessions.find(
+    (await getGatewayAgents()).sessions.find(
       (session) => session.sessionId === sessionId,
     )?.fullAutoEnabled,
   ).toBe(false);

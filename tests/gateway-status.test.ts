@@ -54,17 +54,46 @@ afterEach(() => {
   vi.doUnmock('../src/providers/hybridai-discovery.js');
   vi.doUnmock('../src/providers/model-catalog.js');
   vi.doUnmock('../src/providers/local-discovery.js');
+  vi.doUnmock('../src/providers/hybridai-health.js');
+  vi.doUnmock('../src/providers/local-health.js');
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
 });
 
+function mockHealthProbes(options?: { hybridaiReachable?: boolean }): void {
+  const reachable = options?.hybridaiReachable ?? false;
+  vi.doMock('../src/providers/hybridai-health.js', () => ({
+    hybridAIProbe: {
+      get: vi.fn(async () => ({
+        reachable,
+        latencyMs: 10,
+        modelCount: 3,
+        ...(reachable ? {} : { error: 'mocked' }),
+      })),
+      peek: vi.fn(() => null),
+      invalidate: vi.fn(),
+    },
+  }));
+  vi.doMock('../src/providers/local-health.js', () => ({
+    localBackendsProbe: {
+      get: vi.fn(async () => new Map()),
+      peek: vi.fn(() => null),
+      invalidate: vi.fn(),
+    },
+    checkConnection: vi.fn(),
+    checkModelConnection: vi.fn(),
+    checkAllBackends: vi.fn(async () => new Map()),
+  }));
+}
+
 test('getGatewayStatus includes Codex auth state', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   process.env.HYBRIDAI_API_KEY = 'hai-test-gateway-status-1234567890';
   vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
 
   const { saveCodexAuthStore, extractExpiresAtFromJwt } = await import(
     '../src/auth/codex-auth.ts'
@@ -97,7 +126,7 @@ test('getGatewayStatus includes Codex auth state', async () => {
   const { getGatewayStatus } = await import(
     '../src/gateway/gateway-service.ts'
   );
-  const status = getGatewayStatus();
+  const status = await getGatewayStatus();
 
   expect(status.codex).toMatchObject({
     authenticated: true,
@@ -166,6 +195,7 @@ test('getGatewayStatus includes loaded plugin commands for TUI discovery', async
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
+  mockHealthProbes();
 
   vi.doMock('../src/plugins/plugin-manager.js', async () => {
     const actual = await vi.importActual<
@@ -188,7 +218,7 @@ test('getGatewayStatus includes loaded plugin commands for TUI discovery', async
   );
 
   initDatabase({ quiet: true });
-  const status = getGatewayStatus();
+  const status = await getGatewayStatus();
 
   expect(status.pluginCommands).toEqual([
     {

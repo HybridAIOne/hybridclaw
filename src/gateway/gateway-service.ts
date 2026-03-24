@@ -38,7 +38,6 @@ import {
 } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
-import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import {
   getChannel,
   getChannelByContextId,
@@ -153,7 +152,11 @@ import {
   getLocalModelInfo,
   resolveLocalModelContextWindow,
 } from '../providers/local-discovery.js';
-import { getAllBackendHealth } from '../providers/local-health.js';
+import {
+  type HybridAIHealthResult,
+  hybridAIProbe,
+} from '../providers/hybridai-health.js';
+import { localBackendsProbe } from '../providers/local-health.js';
 import {
   getAvailableModelList,
   isAvailableModelFree,
@@ -290,6 +293,7 @@ import {
   type GatewayCommandRequest,
   type GatewayCommandResult,
   type GatewayHistorySummary,
+  type GatewayProviderHealthEntry,
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
@@ -799,26 +803,36 @@ function getAdminChannelDisabledSkills(
   );
 }
 
+function buildHybridAIProviderEntry(
+  probe: HybridAIHealthResult,
+  runtimeConfig: RuntimeConfig,
+): GatewayProviderHealthEntry {
+  const configModelCount = dedupeStrings([
+    runtimeConfig.hybridai.defaultModel,
+    ...runtimeConfig.hybridai.models,
+    ...getDiscoveredHybridAIModelNames(),
+  ]).length;
+
+  return {
+    kind: 'remote',
+    reachable: probe.reachable,
+    ...(probe.error ? { error: probe.error } : {}),
+    latencyMs: probe.latencyMs,
+    modelCount: probe.modelCount ?? configModelCount,
+    detail: probe.reachable
+      ? `${probe.latencyMs}ms`
+      : probe.error || 'unreachable',
+  };
+}
+
 function buildGatewayProviderHealth(params: {
   localBackends: GatewayStatus['localBackends'];
   codex: ReturnType<typeof getCodexAuthStatus>;
-  hybridai: ReturnType<typeof getHybridAIAuthStatus>;
+  hybridaiHealth: HybridAIHealthResult;
 }): NonNullable<GatewayStatus['providerHealth']> {
   const runtimeConfig = getRuntimeConfig();
   const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
-    hybridai: {
-      kind: 'remote',
-      reachable: params.hybridai.authenticated,
-      ...(params.hybridai.authenticated ? {} : { error: 'API key missing' }),
-      modelCount: dedupeStrings([
-        runtimeConfig.hybridai.defaultModel,
-        ...runtimeConfig.hybridai.models,
-        ...getDiscoveredHybridAIModelNames(),
-      ]).length,
-      detail: params.hybridai.authenticated
-        ? `API key ready${params.hybridai.source ? ` via ${params.hybridai.source}` : ''}`
-        : 'API key missing',
-    },
+    hybridai: buildHybridAIProviderEntry(params.hybridaiHealth, runtimeConfig),
     codex: {
       kind: 'remote',
       reachable: params.codex.authenticated && !params.codex.reloginRequired,
@@ -1917,12 +1931,23 @@ function buildTokenUsageAuditPayload(
   };
 }
 
-export function getGatewayStatus(): GatewayStatus {
+export async function getGatewayStatus(): Promise<GatewayStatus> {
+  const [localBackendsResult, hybridaiResult] = await Promise.allSettled([
+    localBackendsProbe.get(),
+    hybridAIProbe.get(),
+  ]);
+  const localBackendsMap =
+    localBackendsResult.status === 'fulfilled'
+      ? localBackendsResult.value
+      : new Map();
+  const hybridaiHealth: HybridAIHealthResult =
+    hybridaiResult.status === 'fulfilled'
+      ? hybridaiResult.value
+      : { reachable: false, error: 'probe failed', latencyMs: 0 };
   const sandbox = getSandboxDiagnostics();
   const codex = getCodexAuthStatus();
-  const hybridai = getHybridAIAuthStatus();
   const localBackends = Object.fromEntries(
-    [...getAllBackendHealth().entries()].map(([backend, status]) => [
+    [...localBackendsMap.entries()].map(([backend, status]) => [
       backend,
       {
         reachable: status.reachable,
@@ -1937,7 +1962,7 @@ export function getGatewayStatus(): GatewayStatus {
   const providerHealth = buildGatewayProviderHealth({
     localBackends,
     codex,
-    hybridai,
+    hybridaiHealth,
   });
   return {
     status: 'ok',
@@ -1971,9 +1996,9 @@ export function getGatewayStatus(): GatewayStatus {
   };
 }
 
-export function getGatewayAdminOverview(): GatewayAdminOverview {
+export async function getGatewayAdminOverview(): Promise<GatewayAdminOverview> {
   return {
-    status: getGatewayStatus(),
+    status: await getGatewayStatus(),
     configPath: runtimeConfigPath(),
     recentSessions: getAllSessions().slice(0, 8).map(mapAdminSession),
     usage: {
@@ -2071,8 +2096,8 @@ export function deleteGatewayAdminAgent(agentId: string): {
   };
 }
 
-export function getGatewayAgents(): GatewayAgentsResponse {
-  const status = getGatewayStatus();
+export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
+  const status = await getGatewayStatus();
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
   const usageByAgent = new Map(
     listUsageByAgent({ window: 'all' }).map(
@@ -2689,7 +2714,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     runtimeConfig.hybridai.defaultModel,
     ...getAvailableModelList(),
   ]);
-  const status = getGatewayStatus();
+  const status = await getGatewayStatus();
 
   return {
     defaultModel: runtimeConfig.hybridai.defaultModel,
@@ -6308,7 +6333,7 @@ export async function handleGatewayCommand(
       }
 
       case 'status': {
-        const status = getGatewayStatus();
+        const status = await getGatewayStatus();
         const delegationStatus = delegationQueueStatus();
         const commitShort = resolveGitCommitShort();
         const runtime = resolveSessionRuntimeTarget(session);

@@ -1257,8 +1257,8 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
   sendJson(res, 200, { sessionId, history, summary });
 }
 
-function handleApiAgents(res: ServerResponse): void {
-  sendJson(res, 200, getGatewayAgents());
+async function handleApiAgents(res: ServerResponse): Promise<void> {
+  sendJson(res, 200, await getGatewayAgents());
 }
 
 function handleApiProactivePull(res: ServerResponse, url: URL): void {
@@ -1283,8 +1283,8 @@ function handleApiShutdown(res: ServerResponse): void {
   }, 50);
 }
 
-function handleApiAdminOverview(res: ServerResponse): void {
-  sendJson(res, 200, getGatewayAdminOverview());
+async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
+  sendJson(res, 200, await getGatewayAdminOverview());
 }
 
 async function handleApiAdminAgents(
@@ -1800,13 +1800,19 @@ function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
     Connection: 'keep-alive',
   });
 
-  const sendSnapshot = (): void => {
-    sendEvent('overview', getGatewayAdminOverview());
-    sendEvent('status', getGatewayStatus());
+  const sendSnapshot = async (): Promise<void> => {
+    try {
+      sendEvent('overview', await getGatewayAdminOverview());
+      sendEvent('status', await getGatewayStatus());
+    } catch (err) {
+      logger.debug({ err }, 'SSE snapshot failed');
+    }
   };
 
-  sendSnapshot();
-  const timer = setInterval(sendSnapshot, 10_000);
+  void sendSnapshot();
+  const timer = setInterval(() => {
+    void sendSnapshot();
+  }, 10_000);
 
   req.on('close', () => {
     clearInterval(timer);
@@ -1905,7 +1911,16 @@ export function startGatewayHttpServer(): void {
     const pathname = url.pathname;
 
     if (pathname === '/health' && method === 'GET') {
-      sendJson(res, 200, getGatewayStatus());
+      void getGatewayStatus().then(
+        (status) => sendJson(res, 200, status),
+        (err) => {
+          logger.error({ err }, 'Health check failed');
+          sendJson(res, 503, {
+            status: 'error',
+            error: err instanceof Error ? err.message : String(err),
+          });
+        },
+      );
       return;
     }
 
@@ -2019,7 +2034,7 @@ export function startGatewayHttpServer(): void {
             return;
           }
           if (pathname === '/api/status' && method === 'GET') {
-            sendJson(res, 200, getGatewayStatus());
+            sendJson(res, 200, await getGatewayStatus());
             return;
           }
           if (
@@ -2032,7 +2047,7 @@ export function startGatewayHttpServer(): void {
             return;
           }
           if (pathname === '/api/admin/overview' && method === 'GET') {
-            handleApiAdminOverview(res);
+            await handleApiAdminOverview(res);
             return;
           }
           if (
@@ -2114,7 +2129,7 @@ export function startGatewayHttpServer(): void {
             return;
           }
           if (pathname === '/api/agents' && method === 'GET') {
-            handleApiAgents(res);
+            await handleApiAgents(res);
             return;
           }
           if (pathname === '/api/proactive/pull' && method === 'GET') {
