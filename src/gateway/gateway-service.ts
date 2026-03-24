@@ -74,6 +74,7 @@ import {
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import { preprocessContextReferences } from '../context-references/index.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import {
@@ -4026,6 +4027,14 @@ export async function handleGatewayMessage(
     abortSignal: activeGatewayRequest.signal,
   });
   const userTurnContent = audioPrelude.content;
+  const contextRefResult = await preprocessContextReferences({
+    message: userTurnContent,
+    cwd: workspacePath,
+    contextLength: 128_000,
+    allowedRoot: workspacePath,
+  });
+  const userTurnContentExpanded = contextRefResult.message;
+  const userTurnContentStripped = contextRefResult.strippedMessage;
   const canonicalContextScope = resolveCanonicalContextScope(session);
   if (isFullAutoEnabled(session)) {
     syncFullAutoRuntimeContext(req.sessionId, {
@@ -4059,7 +4068,7 @@ export async function handleGatewayMessage(
     turnIndex,
     mediaCount: media.length,
     audioTranscriptCount: audioPrelude.transcripts.length,
-    contentLength: userTurnContent.length,
+    contentLength: userTurnContentExpanded.length,
     streamingRequested: Boolean(
       req.onTextDelta || req.onToolProgress || req.onApprovalProgress,
     ),
@@ -4218,7 +4227,7 @@ export async function handleGatewayMessage(
     user_id: req.userId,
     username: req.username || null,
     role: 'user',
-    content: userTurnContent,
+    content: contextRefResult.originalMessage,
     created_at: new Date(startedAt).toISOString(),
   });
   const pluginPromptDetails = pluginManager
@@ -4236,7 +4245,7 @@ export async function handleGatewayMessage(
   );
   const memoryContext = memoryService.buildPromptMemoryContext({
     session,
-    query: userTurnContent,
+    query: userTurnContentStripped,
   });
   const mergedSessionSummary =
     [canonicalPromptSummary, memoryContext.promptSummary]
@@ -4258,7 +4267,7 @@ export async function handleGatewayMessage(
     sessionSummary: mergedSessionSummary,
     retrievedContext: pluginPromptSummary,
     history,
-    currentUserContent: userTurnContent,
+    currentUserContent: userTurnContentExpanded,
     extraSafetyText: fullAutoOperatingContract,
     runtimeInfo: {
       chatbotId,
@@ -4313,7 +4322,10 @@ export async function handleGatewayMessage(
     userTurnContent,
     skills,
   );
-  const expandedUserContent = skillInvocation.content;
+  const expandedUserContent = skillInvocation.invocation
+    ? expandSkillInvocationWithResolution(userTurnContentExpanded, skills)
+        .content
+    : userTurnContentExpanded;
   const explicitSkillName = skillInvocation.invocation?.skill.name || null;
   const agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`

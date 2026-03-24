@@ -295,6 +295,7 @@ function renderPanel(
   pushWrappedRow('TAB  accept slash suggestion');
   pushWrappedRow('↑↓   navigate slash menu');
   pushWrappedRow('ESC  close menu or interrupt run');
+  pushWrappedRow('Context injection: @file @folder @diff @staged @git');
 
   pushBorder('├', '─', '┤');
   pushRow('Slash Commands', `${palette.bold}${palette.gold}`);

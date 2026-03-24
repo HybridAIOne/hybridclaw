@@ -484,6 +484,9 @@ function printHelp(): void {
   console.log(
     `  ${TEAL}TAB${RESET} accept suggestion ${MUTED}|${RESET} ${TEAL}↑↓${RESET} navigate slash menu ${MUTED}|${RESET} ${TEAL}Shift+Return${RESET}/${TEAL}Ctrl-J${RESET} line break ${MUTED}|${RESET} ${TEAL}ESC${RESET} close menu`,
   );
+  console.log(
+    `  ${TEAL}Context injection:${RESET} ${TEAL}@file${RESET} ${TEAL}@folder${RESET} ${TEAL}@diff${RESET} ${TEAL}@staged${RESET} ${TEAL}@git${RESET}`,
+  );
   console.log(`  ${TEAL}/help${RESET}             Show this help`);
   console.log(
     `  ${TEAL}/agent [info|list|switch|create|model] [id] [--model <model>]${RESET} Inspect or manage agents`,
