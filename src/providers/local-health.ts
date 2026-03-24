@@ -207,5 +207,5 @@ export function getAllBackendHealth(): Map<
   LocalBackendType,
   HealthCheckResult
 > {
-  return localBackendsProbe.peek() ?? new Map(backendHealth);
+  return localBackendsProbe.peek() ?? new Map();
 }

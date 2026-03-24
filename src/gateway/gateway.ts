@@ -1221,7 +1221,6 @@ function setupShutdown(): void {
     stopHeartbeat();
     stopObservabilityIngest();
     stopDiscoveryLoop();
-    // On-demand probes have no timers to stop.
     stopAllExecutions();
     await stopGatewayPlugins().catch((error) => {
       logger.debug({ error }, 'Failed to stop plugins during shutdown');

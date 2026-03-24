@@ -152,7 +152,10 @@ import {
   getLocalModelInfo,
   resolveLocalModelContextWindow,
 } from '../providers/local-discovery.js';
-import { hybridAIProbe } from '../providers/hybridai-health.js';
+import {
+  type HybridAIHealthResult,
+  hybridAIProbe,
+} from '../providers/hybridai-health.js';
 import { localBackendsProbe } from '../providers/local-health.js';
 import {
   getAvailableModelList,
@@ -801,7 +804,7 @@ function getAdminChannelDisabledSkills(
 }
 
 function buildHybridAIProviderEntry(
-  probe: import('../providers/hybridai-health.js').HybridAIHealthResult,
+  probe: HybridAIHealthResult,
   runtimeConfig: RuntimeConfig,
 ): GatewayProviderHealthEntry {
   const configModelCount = dedupeStrings([
@@ -825,7 +828,7 @@ function buildHybridAIProviderEntry(
 function buildGatewayProviderHealth(params: {
   localBackends: GatewayStatus['localBackends'];
   codex: ReturnType<typeof getCodexAuthStatus>;
-  hybridaiHealth: import('../providers/hybridai-health.js').HybridAIHealthResult;
+  hybridaiHealth: HybridAIHealthResult;
 }): NonNullable<GatewayStatus['providerHealth']> {
   const runtimeConfig = getRuntimeConfig();
   const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
