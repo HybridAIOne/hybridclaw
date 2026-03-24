@@ -1,8 +1,6 @@
 const MEDIA_SUMMARY_PREVIEW_LIMIT = 3;
 
-export function summarizeMediaFilenames(
-  filenames: readonly string[],
-): string {
+export function summarizeMediaFilenames(filenames: readonly string[]): string {
   if (filenames.length === 0) return '';
 
   const preview = filenames

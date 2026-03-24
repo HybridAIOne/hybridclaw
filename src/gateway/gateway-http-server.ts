@@ -27,8 +27,8 @@ import type {
 } from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
-import { normalizeMimeType } from '../media/mime-utils.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
+import { normalizeMimeType } from '../media/mime-utils.js';
 import {
   resolveUploadedMediaCacheHostDir,
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
