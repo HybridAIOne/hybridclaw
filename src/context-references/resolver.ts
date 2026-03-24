@@ -256,7 +256,11 @@ async function resolveContextPath(
 
   let resolvedPath: string;
   try {
-    resolvedPath = await resolveAndValidatePath(cwd, ref.path || '', allowedRoot);
+    resolvedPath = await resolveAndValidatePath(
+      cwd,
+      ref.path || '',
+      allowedRoot,
+    );
   } catch {
     return {
       warning: formatWarning(ref, 'path escapes the allowed root'),
@@ -362,11 +366,7 @@ export async function expandFileReference(
 
   return [
     null,
-    formatFencedBlock(
-      title,
-      body,
-      codeFenceLanguage(resolved.resolvedPath),
-    ),
+    formatFencedBlock(title, body, codeFenceLanguage(resolved.resolvedPath)),
   ];
 }
 
