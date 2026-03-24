@@ -28,7 +28,7 @@ Use this skill for Google Workspace workflows that go beyond HybridClaw's built-
 
 ## Default Strategy
 
-1. For email-only tasks, prefer `himalaya` or the existing email channel when that is simpler.
+1. For email-only tasks, prefer the optional `himalaya` community skill if it is installed, or the existing email channel when that is simpler.
 2. For Calendar, Drive, Docs, or Sheets tasks, **default to browser automation** using the persistent browser profile. Do not ask which method to use — just try the browser first.
 3. If the browser hits a login page, tell the user to run `hybridclaw browser login` to sign in once, then retry. Do not ask for credentials in chat.
 4. Only fall back to API-based access if the user explicitly requests it or browser automation is unavailable.

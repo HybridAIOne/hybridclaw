@@ -95,7 +95,7 @@ test('skill runs command reports recent execution observations', async () => {
   expect(result.text).toContain('Error detail: approval denied');
 });
 
-test('skill amend and history commands stage and show amendments', async () => {
+test('skill learn and history commands stage and show amendments', async () => {
   context = await createAdaptiveSkillsTestContext();
   context.dbModule.recordSkillObservation({
     skillName: context.skillName,
@@ -133,7 +133,7 @@ Keep the response concise.
     sessionId: 'session-skill-amend',
     guildId: null,
     channelId: 'web',
-    args: ['skill', 'amend', context.skillName],
+    args: ['skill', 'learn', context.skillName],
   });
 
   expect(staged.kind).toBe('info');
@@ -160,7 +160,7 @@ Keep the response concise.
   expect(history.text).toContain('Status: staged');
 });
 
-test('skill amend --apply command applies the latest staged amendment', async () => {
+test('skill learn --apply command applies the latest staged amendment', async () => {
   context = await createAdaptiveSkillsTestContext();
   context.dbModule.recordSkillObservation({
     skillName: context.skillName,
@@ -198,13 +198,13 @@ Keep the response concise.
     sessionId: 'session-skill-apply',
     guildId: null,
     channelId: 'web',
-    args: ['skill', 'amend', context.skillName],
+    args: ['skill', 'learn', context.skillName],
   });
   const applied = await handleGatewayCommand({
     sessionId: 'session-skill-apply',
     guildId: null,
     channelId: 'web',
-    args: ['skill', 'amend', context.skillName, '--apply'],
+    args: ['skill', 'learn', context.skillName, '--apply'],
   });
 
   expect(applied.kind).toBe('plain');

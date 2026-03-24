@@ -101,6 +101,15 @@ async function importFreshCli(options?: {
     removedPluginDir: boolean;
     removedConfigOverrides: number;
   };
+  skillImportError?: Error | null;
+  skillImportResult?: {
+    skillName: string;
+    skillDir: string;
+    source: string;
+    resolvedSource: string;
+    replacedExisting: boolean;
+    filesImported: number;
+  };
   pluginListSummary?: Array<{
     id: string;
     name?: string;
@@ -298,6 +307,21 @@ async function importFreshCli(options?: {
         pluginDir: `/tmp/.hybridclaw/plugins/${pluginId}`,
         removedPluginDir: true,
         removedConfigOverrides: 0,
+      }
+    );
+  });
+  const importSkill = vi.fn(async (source: string) => {
+    if (options?.skillImportError) {
+      throw options.skillImportError;
+    }
+    return (
+      options?.skillImportResult || {
+        skillName: 'demo-skill',
+        skillDir: '/tmp/.hybridclaw/skills/demo-skill',
+        source,
+        resolvedSource: source,
+        replacedExisting: false,
+        filesImported: 1,
       }
     );
   });
@@ -656,6 +680,12 @@ async function importFreshCli(options?: {
   vi.doMock('../src/skills/skills.ts', () => ({
     loadSkillCatalog,
   }));
+  vi.doMock('../src/skills/skills-import.ts', () => ({
+    importSkill,
+  }));
+  vi.doMock('../src/skills/skills-import.js', () => ({
+    importSkill,
+  }));
   vi.doMock('../src/security/instruction-approval-audit.ts', () => ({
     beginInstructionApprovalAudit: vi.fn(() => ({
       sessionId: 'tui:local',
@@ -745,6 +775,7 @@ async function importFreshCli(options?: {
     installPlugin,
     reinstallPlugin,
     uninstallPlugin,
+    importSkill,
     readPluginConfigEntry,
     readPluginConfigValue,
     unsetPluginConfigValue,
@@ -801,6 +832,8 @@ afterEach(() => {
   vi.doUnmock('node:readline/promises');
   vi.doUnmock('../src/onboarding.ts');
   vi.doUnmock('../src/skills/skills.ts');
+  vi.doUnmock('../src/skills/skills-import.ts');
+  vi.doUnmock('../src/skills/skills-import.js');
   vi.doUnmock('../src/security/instruction-approval-audit.ts');
   vi.doUnmock('../src/security/instruction-integrity.ts');
   vi.doUnmock('../src/security/runtime-secrets.ts');
@@ -1170,6 +1203,62 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith(
       'Restart the gateway to unload plugin changes if it is running:',
+    );
+  });
+
+  it('imports a community skill from a remote source', async () => {
+    const { cli, importSkill } = await importFreshCli({
+      skillImportResult: {
+        skillName: 'vercel-react-best-practices',
+        skillDir: '/tmp/.hybridclaw/skills/vercel-react-best-practices',
+        source:
+          'skills-sh/vercel-labs/agent-skills/vercel-react-best-practices',
+        resolvedSource:
+          'https://github.com/vercel-labs/agent-skills/tree/main/skills/react-best-practices',
+        replacedExisting: false,
+        filesImported: 2,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'skill',
+      'import',
+      'skills-sh/vercel-labs/agent-skills/vercel-react-best-practices',
+    ]);
+
+    expect(importSkill).toHaveBeenCalledWith(
+      'skills-sh/vercel-labs/agent-skills/vercel-react-best-practices',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Imported vercel-react-best-practices from https://github.com/vercel-labs/agent-skills/tree/main/skills/react-best-practices',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Installed to /tmp/.hybridclaw/skills/vercel-react-best-practices',
+    );
+  });
+
+  it('imports a packaged community skill by name', async () => {
+    const { cli, importSkill } = await importFreshCli({
+      skillImportResult: {
+        skillName: 'himalaya',
+        skillDir: '/tmp/.hybridclaw/skills/himalaya',
+        source: 'himalaya',
+        resolvedSource: 'official/himalaya',
+        replacedExisting: false,
+        filesImported: 1,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['skill', 'import', 'himalaya']);
+
+    expect(importSkill).toHaveBeenCalledWith('himalaya');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Imported himalaya from official/himalaya',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Installed to /tmp/.hybridclaw/skills/himalaya',
     );
   });
 

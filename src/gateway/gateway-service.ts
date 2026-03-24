@@ -5121,7 +5121,7 @@ export async function handleGatewayCommand(
           '`skill list` — List available skills and availability',
           '`skill inspect <name>|--all` — Show observation-based skill health',
           '`skill runs <name>` — Show recent execution observations for a skill',
-          '`skill amend <name> [--apply|--reject|--rollback]` — Stage or manage skill amendments',
+          '`skill learn <name> [--apply|--reject|--rollback]` — Stage or manage skill amendments',
           '`skill history <name>` — Show amendment history for a skill',
           '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
           '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
@@ -6545,7 +6545,7 @@ export async function handleGatewayCommand(
         if (!sub) {
           return badCommand(
             'Usage',
-            'Usage: `skill list|inspect <name>|inspect --all|amend <name> [--apply|--reject|--rollback]|history <name>`',
+            'Usage: `skill list|inspect <name>|inspect --all|learn <name> [--apply|--reject|--rollback]|history <name>`',
           );
         }
 
@@ -6599,12 +6599,12 @@ export async function handleGatewayCommand(
           return infoCommand('Skill Health', formatSkillHealthMetrics(metrics));
         }
 
-        if (sub === 'amend') {
+        if (sub === 'learn' || sub === 'amend') {
           const skillName = String(req.args[2] || '').trim();
           if (!skillName) {
             return badCommand(
               'Usage',
-              'Usage: `skill amend <name> [--apply|--reject|--rollback]`',
+              'Usage: `skill learn <name> [--apply|--reject|--rollback]`',
             );
           }
 
@@ -6771,7 +6771,7 @@ export async function handleGatewayCommand(
 
         return badCommand(
           'Usage',
-          'Usage: `skill list|inspect <name>|inspect --all|runs <name>|amend <name> [--apply|--reject|--rollback]|history <name>`',
+          'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>`',
         );
       }
 

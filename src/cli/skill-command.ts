@@ -247,11 +247,11 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     return;
   }
 
-  if (sub === 'amend') {
+  if (sub === 'learn' || sub === 'amend') {
     const skillName = normalized[1];
     if (!skillName) {
       printSkillUsage();
-      throw new Error('Missing skill name for `hybridclaw skill amend`.');
+      throw new Error('Missing skill name for `hybridclaw skill learn`.');
     }
 
     const { DEFAULT_AGENT_ID } = await import('../agents/agent-types.js');
@@ -365,6 +365,28 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
       throw new Error(result.message);
     }
     console.log(result.message);
+    return;
+  }
+
+  if (sub === 'import') {
+    const source = normalized[1];
+    if (!source) {
+      printSkillUsage();
+      throw new Error('Missing source for `hybridclaw skill import`.');
+    }
+    if (normalized.length > 2) {
+      printSkillUsage();
+      throw new Error(
+        'Unexpected extra arguments for `hybridclaw skill import <source>`.',
+      );
+    }
+
+    const { importSkill } = await import('../skills/skills-import.js');
+    const result = await importSkill(source);
+    console.log(
+      `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
+    );
+    console.log(`Installed to ${result.skillDir}`);
     return;
   }
 

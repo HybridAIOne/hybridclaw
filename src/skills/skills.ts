@@ -21,6 +21,7 @@ import { logger } from '../logger.js';
 import type { ToolExecution } from '../types.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { guardSkillDirectory } from './skills-guard.js';
+import { resolveManagedCommunitySkillsDir } from './skills-roots.js';
 
 type SkillSource =
   | 'extra'
@@ -1323,6 +1324,7 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   const codexDirs = resolveCodexSkillsDirs();
   const claudeSkillsDir = path.join(os.homedir(), '.claude', 'skills');
   const agentsPersonalSkillsDir = path.join(os.homedir(), '.agents', 'skills');
+  const managedCommunitySkillsDir = resolveManagedCommunitySkillsDir();
   const projectSkillsDir = resolveProjectSkillsDir();
   const projectAgentsSkillsDir = resolveProjectAgentsSkillsDir();
 
@@ -1335,6 +1337,10 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   const agentsPersonalSkills = scanSkillsDir(
     agentsPersonalSkillsDir,
     'agents-personal',
+  );
+  const managedCommunitySkills = scanSkillsDir(
+    managedCommunitySkillsDir,
+    'community',
   );
   const projectAgentsSkills = scanSkillsDir(
     projectAgentsSkillsDir,
@@ -1353,6 +1359,7 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
 
   mergeSkills(extraSkills);
   mergeSkills(bundledSkills);
+  mergeSkills(managedCommunitySkills);
   mergeSkills(codexSkills);
   mergeSkills(claudeSkills);
   mergeSkills(agentsPersonalSkills);
@@ -1412,7 +1419,7 @@ export function loadSkillCatalog(): SkillCatalogEntry[] {
 
 /**
  * Load all skills with precedence:
- * extra < bundled < codex < claude < agents-personal < agents-project < workspace.
+ * extra < bundled < community < codex < claude < agents-personal < agents-project < workspace.
  * Any non-workspace skill selected by precedence is mirrored into workspace so
  * the container can read it via /workspace/... paths.
  */
