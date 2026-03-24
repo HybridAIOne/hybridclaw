@@ -9,6 +9,7 @@ import type {
 } from '../config/runtime-config.js';
 import type {
   McpServerConfig,
+  MediaContextItem,
   MemoryCitation,
   PendingApproval,
   TokenUsageStats,
@@ -96,6 +97,8 @@ export interface GatewayChatTextDeltaEvent {
   delta: string;
 }
 
+export type GatewayMediaItem = MediaContextItem;
+
 export interface GatewayChatApprovalEvent extends PendingApproval {
   type: 'approval';
 }
@@ -119,18 +122,15 @@ export interface GatewayChatRequestBody {
   userId: string;
   username: string | null;
   content: string;
-  media?: Array<{
-    path: string | null;
-    url: string;
-    originalUrl: string;
-    mimeType: string | null;
-    sizeBytes: number;
-    filename: string;
-  }>;
+  media?: GatewayMediaItem[];
   agentId?: string | null;
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
+}
+
+export interface GatewayMediaUploadResult {
+  media: GatewayMediaItem;
 }
 
 export interface GatewayCommandRequest {

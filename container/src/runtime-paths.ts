@@ -4,6 +4,7 @@ import path from 'node:path';
 
 export const WORKSPACE_ROOT_DISPLAY = '/workspace';
 export const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
+export const UPLOADED_MEDIA_CACHE_ROOT_DISPLAY = '/uploaded-media-cache';
 const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-'] as const;
 
 export const WORKSPACE_ROOT = path.resolve(
@@ -11,6 +12,10 @@ export const WORKSPACE_ROOT = path.resolve(
 );
 export const DISCORD_MEDIA_CACHE_ROOT = path.resolve(
   process.env.HYBRIDCLAW_AGENT_MEDIA_ROOT || DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+);
+export const UPLOADED_MEDIA_CACHE_ROOT = path.resolve(
+  process.env.HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT ||
+    UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
 );
 export const IPC_DIR = path.resolve(
   process.env.HYBRIDCLAW_AGENT_IPC_DIR || '/ipc',
@@ -218,6 +223,11 @@ export function resolveMediaPath(rawPath: string): string | null {
       rawPath,
       DISCORD_MEDIA_CACHE_ROOT,
       DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+    ) ||
+    resolveRootBoundPath(
+      rawPath,
+      UPLOADED_MEDIA_CACHE_ROOT,
+      UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
     )
   );
 }

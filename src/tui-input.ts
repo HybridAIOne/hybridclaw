@@ -52,17 +52,31 @@ export function isTuiMultilineEnterKey(key: readline.Key | undefined): boolean {
   );
 }
 
+export function isTuiPasteShortcutKey(key: readline.Key | undefined): boolean {
+  if (!key) return false;
+  return (
+    (key.name === 'v' || key.sequence === '\x16') &&
+    key.ctrl === true &&
+    key.shift !== true
+  );
+}
+
 export class TuiMultilineInputController {
   private readonly rl: InternalReadline;
   private readonly originalTtyWrite: InternalReadline['_ttyWrite'] | undefined;
   private readonly closeHandler: () => void;
+  private readonly onPasteShortcut?: () => void;
   private installedTtyWrite: InternalReadline['_ttyWrite'] | undefined;
   private pendingSplitShiftReturnSequence = '';
   private insertedContinuationLineBreakCount = 0;
 
-  constructor(params: { rl: readline.Interface }) {
+  constructor(params: {
+    rl: readline.Interface;
+    onPasteShortcut?: () => void;
+  }) {
     this.rl = params.rl as InternalReadline;
     this.originalTtyWrite = this.rl._ttyWrite?.bind(this.rl);
+    this.onPasteShortcut = params.onPasteShortcut;
     this.closeHandler = () => {
       this.dispose();
     };
@@ -103,6 +117,11 @@ export class TuiMultilineInputController {
 
       if (rawSequence === SPLIT_SHIFT_RETURN_PREFIX) {
         this.pendingSplitShiftReturnSequence = rawSequence;
+        return;
+      }
+
+      if (isTuiPasteShortcutKey(key)) {
+        this.onPasteShortcut?.();
         return;
       }
 

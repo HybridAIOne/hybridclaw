@@ -211,9 +211,11 @@ function makeRequest(params: {
       ? []
       : [
           Buffer.from(
-            typeof params.body === 'string'
+            Buffer.isBuffer(params.body)
               ? params.body
-              : JSON.stringify(params.body),
+              : typeof params.body === 'string'
+                ? params.body
+                : JSON.stringify(params.body),
           ),
         ];
   return Object.assign(Readable.from(chunks), {
@@ -301,6 +303,12 @@ async function importFreshHealth(options?: {
   authSecret?: string;
   hybridAiBaseUrl?: string;
   runningInsideContainer?: boolean;
+  mediaUploadQuotaDecision?: {
+    allowed: boolean;
+    remainingBytes: number;
+    retryAfterMs: number;
+    usedBytes: number;
+  };
 }) {
   vi.resetModules();
 
@@ -311,7 +319,7 @@ async function importFreshHealth(options?: {
   }
 
   const installRoot = options?.docsDir || makeTempDocsDir();
-  const dataDir = options?.dataDir || makeTempDataDir();
+  const dataDir = options?.dataDir ?? makeTempDataDir();
   let handler:
     | ((
         req: Parameters<Parameters<typeof createServer>[0]>[0],
@@ -728,12 +736,20 @@ async function importFreshHealth(options?: {
   const claimQueuedProactiveMessages = vi.fn(() => [
     { id: 1, text: 'queued message' },
   ]);
+  const consumeGatewayMediaUploadQuota = vi.fn((params: { bytes: number }) => ({
+    allowed: true,
+    remainingBytes: Number.POSITIVE_INFINITY,
+    retryAfterMs: 0,
+    usedBytes: params.bytes,
+    ...options?.mediaUploadQuotaDecision,
+  }));
 
   vi.doMock('node:http', () => ({
     default: { createServer },
     createServer,
   }));
   vi.doMock('../src/config/config.ts', () => ({
+    CONTAINER_SANDBOX_MODE: 'container',
     DATA_DIR: dataDir,
     GATEWAY_API_TOKEN: options?.gatewayApiToken || '',
     HEALTH_HOST: '127.0.0.1',
@@ -813,6 +829,9 @@ async function importFreshHealth(options?: {
     ),
     normalizeDiscordToolAction,
   }));
+  vi.doMock('../src/gateway/media-upload-quota.ts', () => ({
+    consumeGatewayMediaUploadQuota,
+  }));
 
   const gatewayHttpServer = await import(
     '../src/gateway/gateway-http-server.js'
@@ -854,6 +873,7 @@ async function importFreshHealth(options?: {
     runMessageToolAction,
     normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
+    consumeGatewayMediaUploadQuota,
   };
 }
 
@@ -868,6 +888,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/msteams/runtime.js');
   vi.doUnmock('../src/channels/message/tool-actions.js');
   vi.doUnmock('../src/channels/discord/tool-actions.js');
+  vi.doUnmock('../src/gateway/media-upload-quota.ts');
   vi.resetModules();
   if (ORIGINAL_HYBRIDCLAW_AUTH_SECRET === undefined) {
     delete process.env.HYBRIDCLAW_AUTH_SECRET;
@@ -903,7 +924,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (next) => next.writableEnded);
 
     expect(res.statusCode).toBe(401);
     expect(JSON.parse(res.body)).toEqual({
@@ -1493,7 +1514,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (next) => next.writableEnded);
 
     expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2);
     expect(state.getGatewayHistorySummary).toHaveBeenCalledWith('s1', {
@@ -1880,7 +1901,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (next) => next.writableEnded);
 
     expect(state.handleGatewayCommand).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2132,6 +2153,156 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('accepts media-only chat requests and forwards media to the gateway handler', async () => {
+    const state = await importFreshHealth();
+    const media = [
+      {
+        path: '/uploaded-media-cache/2026-03-24/1710000000000-abcd-report.pdf',
+        url: '/api/artifact?path=%2Fuploaded-media-cache%2F2026-03-24%2F1710000000000-abcd-report.pdf',
+        originalUrl:
+          '/api/artifact?path=%2Fuploaded-media-cache%2F2026-03-24%2F1710000000000-abcd-report.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 2048,
+        filename: 'report.pdf',
+      },
+    ];
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        content: '',
+        media,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'Attached file: report.pdf',
+        media,
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('accepts uploaded-cache absolute paths for media-only chat requests', async () => {
+    const dataDir = makeTempDataDir();
+    const hostPath = path.join(
+      dataDir,
+      'uploaded-media-cache',
+      '2026-03-24',
+      '1710000000000-abcd-report.pdf',
+    );
+    fs.mkdirSync(path.dirname(hostPath), { recursive: true });
+    fs.writeFileSync(hostPath, 'pdf payload', 'utf8');
+
+    const state = await importFreshHealth({ dataDir });
+    const media = [
+      {
+        path: hostPath,
+        url: `/api/artifact?path=${encodeURIComponent(hostPath)}`,
+        originalUrl: `/api/artifact?path=${encodeURIComponent(hostPath)}`,
+        mimeType: 'application/pdf',
+        sizeBytes: 2048,
+        filename: 'report.pdf',
+      },
+    ];
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        content: '',
+        media,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'Attached file: report.pdf',
+        media,
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('rejects media-only chat requests with malformed media items', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        content: '',
+        media: [
+          {
+            path: 42,
+            url: '/api/artifact?path=%2Fuploaded-media-cache%2Fbad.png',
+            originalUrl: '/api/artifact?path=%2Fuploaded-media-cache%2Fbad.png',
+            mimeType: 'image/png',
+            sizeBytes: 123,
+            filename: 'bad.png',
+          },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Missing `media[0].path`.',
+    });
+  });
+
+  test('rejects media-only chat requests with forged non-cache media paths', async () => {
+    const dataDir = makeTempDataDir();
+    const forgedPath = path.join(
+      dataDir,
+      'agents',
+      'agent-1',
+      'workspace',
+      'secret.png',
+    );
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        content: '',
+        media: [
+          {
+            path: forgedPath,
+            url: `/api/artifact?path=${encodeURIComponent(forgedPath)}`,
+            originalUrl: `/api/artifact?path=${encodeURIComponent(forgedPath)}`,
+            mimeType: 'image/png',
+            sizeBytes: 123,
+            filename: 'secret.png',
+          },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Invalid `media[0].path`. Only uploaded or Discord media cache files are accepted.',
+    });
+  });
+
   test('rejects api command requests without an explicit session id', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -2190,6 +2361,140 @@ describe('gateway HTTP server', () => {
       error: 'Invalid JSON body',
     });
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+  });
+
+  test('stores uploaded media in the managed cache and returns a media descriptor', async () => {
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        'content-type': 'image/png',
+        'x-hybridclaw-filename': encodeURIComponent('Screen Shot.png'),
+      },
+      body: Buffer.from('png-bytes'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    const payload = JSON.parse(res.body) as {
+      media: {
+        path: string;
+        filename: string;
+        mimeType: string;
+        sizeBytes: number;
+        url: string;
+      };
+    };
+    expect(payload.media).toMatchObject({
+      path: expect.stringMatching(
+        /^\/uploaded-media-cache\/\d{4}-\d{2}-\d{2}\//,
+      ),
+      filename: 'Screen-Shot.png',
+      mimeType: 'image/png',
+      sizeBytes: 'png-bytes'.length,
+      url: expect.stringContaining('/api/artifact?path='),
+    });
+
+    const storedPath = path.join(
+      dataDir,
+      payload.media.path.replace(
+        /^\/uploaded-media-cache/,
+        'uploaded-media-cache',
+      ),
+    );
+    expect(fs.readFileSync(storedPath, 'utf8')).toBe('png-bytes');
+  });
+
+  test('rejects unsupported upload media types like text/html', async () => {
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'x-hybridclaw-filename': encodeURIComponent('index.html'),
+      },
+      body: Buffer.from('<script>alert(1)</script>'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(415);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unsupported media type: text/html.',
+    });
+    expect(fs.existsSync(path.join(dataDir, 'uploaded-media-cache'))).toBe(
+      false,
+    );
+  });
+
+  test('returns 429 when the media upload quota is exhausted', async () => {
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({
+      dataDir,
+      mediaUploadQuotaDecision: {
+        allowed: false,
+        remainingBytes: 0,
+        retryAfterMs: 12_000,
+        usedBytes: 100 * 1024 * 1024,
+      },
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        'content-type': 'image/png',
+        'x-hybridclaw-filename': encodeURIComponent('Screen Shot.png'),
+      },
+      body: Buffer.from('png-bytes'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.consumeGatewayMediaUploadQuota).toHaveBeenCalledWith({
+      key: 'loopback:127.0.0.1',
+      bytes: 'png-bytes'.length,
+    });
+    expect(res.statusCode).toBe(429);
+    expect(res.headers['Retry-After']).toBe('12');
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Media upload quota exceeded. Try again later.',
+    });
+    expect(fs.existsSync(path.join(dataDir, 'uploaded-media-cache'))).toBe(
+      false,
+    );
+  });
+
+  test('starts with an empty DATA_DIR and returns 503 for media uploads', async () => {
+    const state = await importFreshHealth({ dataDir: '' });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        'content-type': 'image/png',
+        'x-hybridclaw-filename': encodeURIComponent('Screen Shot.png'),
+      },
+      body: Buffer.from('png-bytes'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(503);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Uploaded media cache unavailable.',
+    });
   });
 
   test('requires reviewedBy for adaptive skill amendment review actions', async () => {
@@ -2624,6 +2929,58 @@ describe('gateway HTTP server', () => {
     expect(res.headers['Content-Length']).toBe(String('docx payload'.length));
     expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
     expect(res.body).toBe('docx payload');
+  });
+
+  test('serves uploaded-media-cache artifacts by runtime display path', async () => {
+    const dataDir = makeTempDataDir();
+    const relativePath = path.join(
+      '2026-03-24',
+      '1710000000000-abcd-upload.png',
+    );
+    const artifactPath = path.join(
+      dataDir,
+      'uploaded-media-cache',
+      relativePath,
+    );
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    fs.writeFileSync(artifactPath, 'image payload', 'utf8');
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: `/api/artifact?path=${encodeURIComponent(`/uploaded-media-cache/${relativePath.replace(/\\/g, '/')}`)}&token=web-token`,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('image/png');
+    expect(res.body).toBe('image payload');
+  });
+
+  test('returns 503 for uploaded-media-cache artifacts when DATA_DIR is empty', async () => {
+    const state = await importFreshHealth({
+      dataDir: '',
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: `/api/artifact?path=${encodeURIComponent('/uploaded-media-cache/2026-03-24/1710000000000-abcd-upload.png')}&token=web-token`,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(503);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Uploaded media cache unavailable.',
+    });
   });
 
   test('forces active artifact types to download with defensive headers', async () => {

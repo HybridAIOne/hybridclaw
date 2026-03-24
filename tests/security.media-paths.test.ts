@@ -40,6 +40,7 @@ function buildParams(
     rawPath: string;
     workspaceRoot: string;
     mediaCacheRoot: string;
+    uploadedMediaRoot: string;
     mountAliases: ValidatedMountAlias[];
     allowHostAbsolutePaths: boolean;
   }> = {},
@@ -47,12 +48,16 @@ function buildParams(
   const workspaceRoot = overrides.workspaceRoot || makeTempDir('hc-workspace-');
   const mediaCacheRoot =
     overrides.mediaCacheRoot || makeTempDir('hc-discord-cache-');
+  const uploadedMediaRoot =
+    overrides.uploadedMediaRoot || makeTempDir('hc-uploaded-cache-');
   return {
     rawPath: overrides.rawPath || '',
     workspaceRoot,
     workspaceRootDisplay: '/workspace',
     mediaCacheRoot,
     mediaCacheRootDisplay: '/discord-media-cache',
+    uploadedMediaRoot,
+    uploadedMediaRootDisplay: '/uploaded-media-cache',
     mountAliases: overrides.mountAliases || [],
     managedTempDirPrefixes: ['hybridclaw-wa-'],
     allowHostAbsolutePaths: overrides.allowHostAbsolutePaths === true,
@@ -118,6 +123,22 @@ test('allows managed temp media paths outside standard roots', async () => {
     buildParams({
       rawPath: filePath,
       workspaceRoot,
+    }),
+  );
+
+  expect(resolved).toBe(canonicalPath(filePath));
+});
+
+test('allows uploaded-media cache display paths', async () => {
+  const workspaceRoot = makeTempDir('hc-workspace-');
+  const uploadedMediaRoot = makeTempDir('hc-uploaded-cache-');
+  const filePath = writeFile(uploadedMediaRoot, 'images/upload.png');
+
+  const resolved = await resolveAllowedHostMediaPath(
+    buildParams({
+      rawPath: '/uploaded-media-cache/images/upload.png',
+      workspaceRoot,
+      uploadedMediaRoot,
     }),
   );
 

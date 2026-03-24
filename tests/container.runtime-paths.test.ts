@@ -55,4 +55,34 @@ describe.sequential('container runtime path aliases', () => {
 
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
+
+  test('resolves uploaded-media cache display paths', async () => {
+    const { resolveMediaPath } = await import(
+      '../container/src/runtime-paths.ts'
+    );
+
+    expect(
+      resolveMediaPath('/uploaded-media-cache/2026-03-24/upload.pdf'),
+    ).toBe('/uploaded-media-cache/2026-03-24/upload.pdf');
+  });
+
+  test('resolves absolute uploaded-media cache host paths when the runtime root is configured', async () => {
+    const uploadedRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-uploaded-media-'),
+    );
+    const uploadedFile = path.join(uploadedRoot, '2026-03-24', 'upload.png');
+    fs.mkdirSync(path.dirname(uploadedFile), { recursive: true });
+    fs.writeFileSync(uploadedFile, 'image');
+
+    vi.stubEnv('HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT', uploadedRoot);
+    vi.resetModules();
+
+    const { resolveMediaPath } = await import(
+      '../container/src/runtime-paths.ts'
+    );
+
+    expect(resolveMediaPath(uploadedFile)).toBe(path.resolve(uploadedFile));
+
+    fs.rmSync(uploadedRoot, { recursive: true, force: true });
+  });
 });

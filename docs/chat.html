@@ -568,6 +568,60 @@
       position: relative;
     }
 
+    .pending-media {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .pending-media[hidden] {
+      display: none;
+    }
+
+    .pending-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      max-width: 100%;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid #d9e2ef;
+      background: #f8fbff;
+      color: #395071;
+      font-size: 13px;
+      line-height: 1;
+    }
+
+    .pending-chip-name {
+      max-width: min(280px, 52vw);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .pending-chip-remove {
+      border: none;
+      background: transparent;
+      color: #75839a;
+      cursor: pointer;
+      padding: 0;
+      font: inherit;
+      line-height: 1;
+    }
+
+    .pending-chip-remove:hover {
+      color: #23344e;
+    }
+
+    .pending-chip.is-status {
+      background: #eef5ff;
+      border-color: #cddcf8;
+      color: #46607f;
+    }
+
     .composer textarea {
       width: 100%;
       min-height: 56px;
@@ -577,15 +631,14 @@
       border-radius: 12px;
       background: #ffffff;
       color: var(--text);
-      padding: 11px 74px 14px 12px;
+      padding: 11px 74px 14px 62px;
       font: inherit;
       line-height: 1.45;
       box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.02);
     }
 
-    #send {
+    .composer-action {
       position: absolute;
-      right: 10px;
       bottom: 10px;
       border: none;
       border-radius: 999px;
@@ -596,14 +649,39 @@
       color: #ffffff;
       display: grid;
       place-items: center;
-      transition: background-color 0.2s ease;
+      transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
     }
 
-    #send:hover {
+    .composer-action:disabled {
+      cursor: default;
+      opacity: 0.55;
+    }
+
+    #attach {
+      left: 10px;
+      border: 1px solid #dbe4f0;
+      background: #ffffff;
+      color: #5c6b81;
+      font-size: 26px;
+      line-height: 1;
+    }
+
+    #attach:hover:not(:disabled) {
+      border-color: #bfd0e6;
+      color: #23344e;
+    }
+
+    #send {
+      right: 10px;
+      background: #8e95a4;
+      color: #ffffff;
+    }
+
+    #send:hover:not(:disabled) {
       background: #7c8393;
     }
 
-    #send svg {
+    .composer-action svg {
       width: 22px;
       height: 22px;
       display: block;
@@ -751,13 +829,18 @@
         <h1 class="empty-greeting">Ready to claw through your to-do list? 🦞</h1>
         <div class="composer">
           <div class="prompt-wrap">
-            <button id="send" type="button" aria-label="Send message">
+            <div id="pendingMedia" class="pending-media" hidden></div>
+            <button id="attach" type="button" class="composer-action" aria-label="Attach files">
+              <span aria-hidden="true">+</span>
+            </button>
+            <button id="send" type="button" class="composer-action" aria-label="Send message">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 19V5"></path>
                 <path d="m5 12 7-7 7 7"></path>
               </svg>
             </button>
             <textarea id="message" placeholder="Message HybridClaw"></textarea>
+            <input id="attachmentInput" type="file" hidden multiple>
           </div>
         </div>
       </div>
@@ -773,6 +856,10 @@
     const messageEl = document.getElementById('message');
     const messagesEl = document.getElementById('messages');
     const errorEl = document.getElementById('error');
+    const sendEl = document.getElementById('send');
+    const attachEl = document.getElementById('attach');
+    const attachmentInputEl = document.getElementById('attachmentInput');
+    const pendingMediaEl = document.getElementById('pendingMedia');
     const urlParams = new URLSearchParams(window.location.search);
     const queryToken = urlParams.get('token') || '';
 
@@ -815,6 +902,8 @@
       lastSessionNumber = activeSessionNumber;
     }
     const apiToken = queryToken || localStorage.getItem('hybridclaw_token') || '';
+    let pendingMedia = [];
+    let pendingUploadCount = 0;
     if (queryToken) {
       localStorage.setItem('hybridclaw_token', queryToken);
     }
@@ -852,12 +941,41 @@
       document.title = `HybridClaw - (${activeSessionNumber})`;
     }
 
-    function apiHeaders() {
-      const headers = { 'Content-Type': 'application/json' };
+    function apiHeaders(contentType = 'application/json') {
+      const headers = {};
+      if (contentType) {
+        headers['Content-Type'] = contentType;
+      }
       if (apiToken) {
         headers.Authorization = `Bearer ${apiToken}`;
       }
       return headers;
+    }
+
+    function buildPendingMediaSummary(media) {
+      if (!Array.isArray(media) || media.length === 0) return '';
+      const names = media
+        .slice(0, 3)
+        .map((item) => String(item?.filename || 'attachment'))
+        .join(', ');
+      const suffix = media.length > 3 ? `, and ${media.length - 3} more` : '';
+      return media.length === 1
+        ? `Attached file: ${names}`
+        : `Attached files: ${names}${suffix}`;
+    }
+
+    function buildOutgoingPreviewText(content, media) {
+      const text = String(content || '').trim();
+      const attachmentText = buildPendingMediaSummary(media);
+      if (!attachmentText) return text;
+      return text ? `${text}\n\n${attachmentText}` : attachmentText;
+    }
+
+    function updateComposerState() {
+      const hasContent = messageEl.value.trim().length > 0;
+      const hasMedia = pendingMedia.length > 0;
+      sendEl.disabled = pendingUploadCount > 0 || (!hasContent && !hasMedia);
+      attachEl.disabled = pendingUploadCount > 0;
     }
 
     function setError(text) {
@@ -1067,6 +1185,51 @@
       return `/api/artifact?${params.toString()}`;
     }
 
+    function renderPendingMedia() {
+      pendingMediaEl.innerHTML = '';
+      const showPending = pendingMedia.length > 0 || pendingUploadCount > 0;
+      pendingMediaEl.hidden = !showPending;
+
+      pendingMedia.forEach((media, index) => {
+        const chip = document.createElement('div');
+        chip.className = 'pending-chip';
+
+        const name = media.path ? document.createElement('a') : document.createElement('span');
+        name.className = 'pending-chip-name';
+        name.textContent = media.filename || 'attachment';
+        if (media.path) {
+          name.href = buildArtifactUrl(media.path);
+          name.target = '_blank';
+          name.rel = 'noopener noreferrer';
+        }
+        chip.appendChild(name);
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'pending-chip-remove';
+        remove.setAttribute('aria-label', `Remove ${media.filename || 'attachment'}`);
+        remove.textContent = '×';
+        remove.addEventListener('click', () => {
+          pendingMedia.splice(index, 1);
+          renderPendingMedia();
+        });
+        chip.appendChild(remove);
+        pendingMediaEl.appendChild(chip);
+      });
+
+      if (pendingUploadCount > 0) {
+        const statusChip = document.createElement('div');
+        statusChip.className = 'pending-chip is-status';
+        statusChip.textContent =
+          pendingUploadCount === 1
+            ? 'Uploading 1 file...'
+            : `Uploading ${pendingUploadCount} files...`;
+        pendingMediaEl.appendChild(statusChip);
+      }
+
+      updateComposerState();
+    }
+
     function renderArtifactCards(artifacts) {
       if (!Array.isArray(artifacts) || artifacts.length === 0) return null;
       const wrapper = document.createElement('div');
@@ -1182,6 +1345,101 @@
       return payload;
     }
 
+    function buildClipboardUploadFilename(file) {
+      const existingName = String(file?.name || '').trim();
+      if (existingName) return existingName;
+
+      const mimeType = String(file?.type || '').trim().toLowerCase();
+      const extensionMap = {
+        'application/pdf': '.pdf',
+        'image/gif': '.gif',
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/webp': '.webp',
+        'text/plain': '.txt',
+      };
+      const extension = extensionMap[mimeType] || '';
+      return `clipboard${extension}`;
+    }
+
+    function normalizeUploadFile(file) {
+      if (!(file instanceof File)) return null;
+      const filename = buildClipboardUploadFilename(file);
+      if (file.name === filename) return file;
+      return new File([file], filename, {
+        type: file.type || 'application/octet-stream',
+        lastModified: Number.isFinite(file.lastModified) ? file.lastModified : Date.now(),
+      });
+    }
+
+    function extractClipboardFiles(clipboardData) {
+      if (!clipboardData) return [];
+
+      const files = [];
+      const directFiles = Array.from(clipboardData.files || []);
+      for (const file of directFiles) {
+        const normalized = normalizeUploadFile(file);
+        if (normalized) files.push(normalized);
+      }
+      if (files.length > 0) {
+        return files;
+      }
+
+      const seen = new Set();
+      for (const item of Array.from(clipboardData.items || [])) {
+        if (item.kind !== 'file') continue;
+        const file = item.getAsFile();
+        const normalized = normalizeUploadFile(file);
+        if (!normalized) continue;
+        const dedupeKey = `${normalized.name}:${normalized.size}:${normalized.type}:${normalized.lastModified}`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        files.push(normalized);
+      }
+      return files;
+    }
+
+    async function uploadSelectedFiles(fileList) {
+      const files = Array.from(fileList || []).filter(Boolean);
+      if (files.length === 0) return;
+
+      pendingUploadCount += files.length;
+      renderPendingMedia();
+      setError('');
+
+      const uploaded = [];
+      const errors = [];
+
+      for (const file of files) {
+        try {
+          const payload = await requestJson('/api/media/upload', {
+            method: 'POST',
+            headers: {
+              ...apiHeaders(file.type || 'application/octet-stream'),
+              'X-Hybridclaw-Filename': encodeURIComponent(file.name || 'upload'),
+            },
+            body: file,
+          });
+          if (payload?.media) {
+            uploaded.push(payload.media);
+          }
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : String(err);
+          errors.push(`${file.name || 'upload'}: ${detail}`);
+        }
+      }
+
+      pendingUploadCount = Math.max(0, pendingUploadCount - files.length);
+      if (uploaded.length > 0) {
+        pendingMedia.push(...uploaded);
+      }
+      renderPendingMedia();
+      if (errors.length > 0) {
+        setError(errors.join(' '));
+      }
+      attachmentInputEl.value = '';
+    }
+
     async function loadHistory() {
       savePrefs();
       setError('');
@@ -1219,12 +1477,16 @@
 
     async function sendMessage() {
       const content = messageEl.value.trim();
-      if (!content) return;
+      const queuedMedia = pendingMedia.slice();
+      if (pendingUploadCount > 0) return;
+      if (!content && queuedMedia.length === 0) return;
 
       savePrefs();
       setError('');
-      addMessage('user', content);
+      addMessage('user', buildOutgoingPreviewText(content, queuedMedia));
       messageEl.value = '';
+      pendingMedia = [];
+      renderPendingMedia();
       const thinkingItem = addThinkingMessage();
 
       try {
@@ -1237,6 +1499,7 @@
             userId: activeUserId,
             username: 'web',
             content,
+            ...(queuedMedia.length > 0 ? { media: queuedMedia } : {}),
           }),
         });
         if (payload.status === 'error') {
@@ -1251,6 +1514,8 @@
       } catch (err) {
         thinkingItem.remove();
         const text = err instanceof Error ? err.message : String(err);
+        pendingMedia = [...queuedMedia, ...pendingMedia];
+        renderPendingMedia();
         setError(text);
         addMessage('system', `Error: ${text}`);
       }
@@ -1262,6 +1527,9 @@
       activeSessionId = generateWebSessionId();
       messageEl.value = '';
       messagesEl.innerHTML = '';
+      pendingMedia = [];
+      pendingUploadCount = 0;
+      renderPendingMedia();
       updateEmptyState();
       updateWindowTitle();
       savePrefs();
@@ -1269,21 +1537,35 @@
       messageEl.focus();
     }
 
-    document.getElementById('send').addEventListener('click', () => {
+    sendEl.addEventListener('click', () => {
       void sendMessage();
+    });
+    attachEl.addEventListener('click', () => {
+      attachmentInputEl.click();
+    });
+    attachmentInputEl.addEventListener('change', () => {
+      void uploadSelectedFiles(attachmentInputEl.files);
     });
     document.getElementById('newChat').addEventListener('click', newChat);
     document.getElementById('sidebarToggle').addEventListener('click', () => {
       layoutEl.classList.toggle('is-sidebar-collapsed');
     });
+    messageEl.addEventListener('input', updateComposerState);
     messageEl.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
         void sendMessage();
       }
     });
+    messageEl.addEventListener('paste', (event) => {
+      const pastedFiles = extractClipboardFiles(event.clipboardData);
+      if (pastedFiles.length === 0) return;
+      event.preventDefault();
+      void uploadSelectedFiles(pastedFiles);
+    });
     introIndex = Math.floor(Math.random() * introLines.length);
     renderIntro();
+    renderPendingMedia();
     updateEmptyState();
     updateWindowTitle();
     savePrefs();

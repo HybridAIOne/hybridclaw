@@ -796,7 +796,7 @@ async function readVisionImageFromLocalPath(
   const normalizedPath = normalizeVisionLocalPath(localPath);
   if (!normalizedPath) {
     throw new Error(
-      `local image path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}, or a local temp directory`,
+      `local image path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}, /uploaded-media-cache, or a local temp directory`,
     );
   }
   if (
@@ -3258,14 +3258,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'vision_analyze',
       description:
-        'Analyze an image attachment using vision. Use for Discord-uploaded files (local /discord-media-cache paths first, Discord CDN URLs as fallback).',
+        'Analyze a current-turn image attachment using vision. Prefer local attachment paths from /workspace, /discord-media-cache, or /uploaded-media-cache; use a Discord CDN fallback URL only when no local path is readable.',
       parameters: {
         type: 'object',
         properties: {
           image_url: {
             type: 'string',
             description:
-              'Local image path (preferred) or Discord CDN HTTPS URL.',
+              'Local image path (preferred) from /workspace, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.',
           },
           question: {
             type: 'string',
@@ -3274,7 +3274,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           fallback_url: {
             type: 'string',
             description:
-              'Optional fallback Discord CDN URL if image_url cannot be read.',
+              'Optional fallback Discord CDN URL if the local image path cannot be read.',
           },
           original_url: {
             type: 'string',
@@ -3296,7 +3296,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           image_url: {
             type: 'string',
             description:
-              'Local image path (preferred) or Discord CDN HTTPS URL.',
+              'Local image path (preferred) from /workspace, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.',
           },
           question: {
             type: 'string',

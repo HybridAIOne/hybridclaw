@@ -4,6 +4,7 @@ import { expect, test, vi } from 'vitest';
 
 import {
   isTuiMultilineEnterKey,
+  isTuiPasteShortcutKey,
   TuiMultilineInputController,
 } from '../src/tui-input.js';
 
@@ -64,6 +65,36 @@ test('keeps plain return mapped to submit', () => {
     isTuiMultilineEnterKey({
       name: 'return',
       sequence: '\r',
+      ctrl: false,
+      meta: false,
+      shift: false,
+    }),
+  ).toBe(false);
+});
+
+test('recognizes ctrl-v as the attachment paste shortcut', () => {
+  expect(
+    isTuiPasteShortcutKey({
+      name: 'v',
+      sequence: '\x16',
+      ctrl: true,
+      meta: false,
+      shift: false,
+    }),
+  ).toBe(true);
+  expect(
+    isTuiPasteShortcutKey({
+      name: 'v',
+      sequence: 'v',
+      ctrl: true,
+      meta: true,
+      shift: false,
+    }),
+  ).toBe(true);
+  expect(
+    isTuiPasteShortcutKey({
+      name: 'v',
+      sequence: 'v',
       ctrl: false,
       meta: false,
       shift: false,
@@ -189,6 +220,68 @@ test('consumes split shift-return sequences and inserts a newline', () => {
   });
 
   expect(inserted).toEqual(['\n    ']);
+  expect(originalTtyWrite).not.toHaveBeenCalled();
+});
+
+test('intercepts ctrl-v and triggers the paste shortcut callback', () => {
+  const onPasteShortcut = vi.fn();
+  const originalTtyWrite = vi.fn();
+  const rl = {
+    line: '',
+    _insertString: vi.fn(),
+    _ttyWrite: originalTtyWrite,
+    on: vi.fn(),
+    off: vi.fn(),
+  } as unknown as readline.Interface;
+
+  const controller = new TuiMultilineInputController({
+    rl,
+    onPasteShortcut,
+  });
+  controller.install();
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', {
+    name: 'v',
+    sequence: '\x16',
+    ctrl: true,
+    meta: false,
+    shift: false,
+  });
+
+  expect(onPasteShortcut).toHaveBeenCalledTimes(1);
+  expect(originalTtyWrite).not.toHaveBeenCalled();
+});
+
+test('intercepts ctrl-alt-v and triggers the paste shortcut callback', () => {
+  const onPasteShortcut = vi.fn();
+  const originalTtyWrite = vi.fn();
+  const rl = {
+    line: '',
+    _insertString: vi.fn(),
+    _ttyWrite: originalTtyWrite,
+    on: vi.fn(),
+    off: vi.fn(),
+  } as unknown as readline.Interface;
+
+  const controller = new TuiMultilineInputController({
+    rl,
+    onPasteShortcut,
+  });
+  controller.install();
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', {
+    name: 'v',
+    sequence: 'v',
+    ctrl: true,
+    meta: true,
+    shift: false,
+  });
+
+  expect(onPasteShortcut).toHaveBeenCalledTimes(1);
   expect(originalTtyWrite).not.toHaveBeenCalled();
 });
 

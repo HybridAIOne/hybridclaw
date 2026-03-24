@@ -81,6 +81,7 @@ import {
   isAudioMediaItem,
   prependAudioTranscriptionsToUserContent,
 } from '../media/audio-transcription.js';
+import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
@@ -942,6 +943,27 @@ function isImageMediaItem(item: MediaContextItem): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif|tiff?)$/i.test(
     item.filename || '',
   );
+}
+
+function buildVisibleMediaSummary(media: MediaContextItem[]): string {
+  if (media.length === 0) return '';
+  const summary = summarizeMediaFilenames(media.map((item) => item.filename));
+  return media.length === 1
+    ? `Attached file: ${summary}`
+    : `Attached files: ${summary}`;
+}
+
+function buildStoredUserTurnContent(
+  userContent: string,
+  media: MediaContextItem[],
+): string {
+  const text = String(userContent || '').trim();
+  const mediaSummary = buildVisibleMediaSummary(media);
+  if (!mediaSummary) return text;
+  if (text === mediaSummary || text.endsWith(`\n\n${mediaSummary}`)) {
+    return text;
+  }
+  return text ? `${text}\n\n${mediaSummary}` : mediaSummary;
 }
 
 function buildMediaPromptContext(media: MediaContextItem[]): string {
@@ -4461,11 +4483,10 @@ export async function handleGatewayMessage(
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
     agentStage = 'processing-agent-output';
-    const effectiveUserContent =
-      typeof output.effectiveUserPrompt === 'string' &&
-      output.effectiveUserPrompt.trim()
-        ? output.effectiveUserPrompt.trim()
-        : userTurnContent;
+    const storedUserContent = buildStoredUserTurnContent(
+      userTurnContent,
+      media,
+    );
     const toolExecutions = output.toolExecutions || [];
     const observedSkillName = resolveObservedSkillName({
       explicitSkillName,
@@ -4689,7 +4710,7 @@ export async function handleGatewayMessage(
       userId: req.userId,
       username: req.username,
       canonicalScopeId: canonicalContextScope,
-      userContent: effectiveUserContent,
+      userContent: storedUserContent,
       resultText,
       toolCallCount: toolExecutions.length,
       startedAt,
@@ -4698,7 +4719,7 @@ export async function handleGatewayMessage(
       sessionId: req.sessionId,
       userId: req.userId,
       username: req.username,
-      userContent: effectiveUserContent,
+      userContent: storedUserContent,
       resultText,
     });
     if (pluginManager) {

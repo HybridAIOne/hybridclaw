@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { getBrowserProfileDir } from '../browser/browser-login.js';
 import {
   ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
@@ -45,11 +46,11 @@ import {
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
 import { logger } from '../logger.js';
+import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
-import { getBrowserProfileDir } from '../browser/browser-login.js';
 import { redactSecrets } from '../security/redact.js';
 import type {
   AdditionalMount,
@@ -108,6 +109,7 @@ const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
+const CONTAINER_UPLOADED_MEDIA_CACHE_ROOT = '/uploaded-media-cache';
 const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
 
 export function collectConfiguredDiscordChannelIds(
@@ -389,6 +391,8 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
   const { ipcPath, workspacePath } = getSessionPaths(sessionId, agentId);
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
+  const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
+  fs.mkdirSync(uploadedMediaCacheHostPath, { recursive: true });
   const browserProfileHostPath = resolveBrowserProfileHostDir();
   fs.mkdirSync(browserProfileHostPath, { recursive: true, mode: 0o700 });
   try {
@@ -426,6 +430,8 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     `${ipcPath}:/ipc:rw`,
     '-v',
     `${mediaCacheHostPath}:${CONTAINER_DISCORD_MEDIA_CACHE_ROOT}:ro`,
+    '-v',
+    `${uploadedMediaCacheHostPath}:${CONTAINER_UPLOADED_MEDIA_CACHE_ROOT}:ro`,
     '-v',
     `${browserProfileHostPath}:${CONTAINER_BROWSER_PROFILE_PATH}:rw`,
     '-e',

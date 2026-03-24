@@ -18,6 +18,10 @@ import type {
   ChatMessageContent,
   MediaContextItem,
 } from '../types.js';
+import {
+  resolveUploadedMediaCacheHostDir,
+  UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
+} from './uploaded-media-cache.js';
 
 const PDF_CONTEXT_HEADER = '[PDFContext]';
 const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
@@ -30,6 +34,7 @@ const SESSION_PDF_CONTEXT_CACHE_TTL_MS = 10 * 60_000;
 const DISCORD_MEDIA_CACHE_ROOT = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );
+const UPLOADED_MEDIA_CACHE_ROOT = resolveUploadedMediaCacheHostDir();
 const PDF_FILE_URL_RE = /file:\/\/[^\s<>"'`\\\]]+\.pdf\b/gi;
 const QUOTED_PDF_PATH_RE =
   /(["'`])((?:\.{1,2}[\\/]|~[\\/]|\/|[A-Za-z]:[\\/])[^\n"'`]*?\.pdf)\1/gi;
@@ -263,6 +268,18 @@ function resolveDisplayPathToHost(
       : path.resolve(DISCORD_MEDIA_CACHE_ROOT);
   }
 
+  if (
+    normalized === UPLOADED_MEDIA_CACHE_ROOT_DISPLAY ||
+    normalized.startsWith(`${UPLOADED_MEDIA_CACHE_ROOT_DISPLAY}/`)
+  ) {
+    const relative = normalized
+      .slice(UPLOADED_MEDIA_CACHE_ROOT_DISPLAY.length)
+      .replace(/^\/+/, '');
+    return relative
+      ? path.resolve(UPLOADED_MEDIA_CACHE_ROOT, relative)
+      : path.resolve(UPLOADED_MEDIA_CACHE_ROOT);
+  }
+
   return null;
 }
 
@@ -332,6 +349,7 @@ async function resolveAllowedHostPdfPath(params: {
     [
       workspaceRoot,
       DISCORD_MEDIA_CACHE_ROOT,
+      UPLOADED_MEDIA_CACHE_ROOT,
       ...mountAliases.map((alias) => alias.hostPath),
     ].map((entry) => resolveCanonicalPath(entry)),
   );

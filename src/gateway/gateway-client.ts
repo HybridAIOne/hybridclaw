@@ -12,6 +12,8 @@ import {
   type GatewayCommandRequest,
   type GatewayCommandResult,
   type GatewayHistoryResponse,
+  type GatewayMediaItem,
+  type GatewayMediaUploadResult,
   type GatewayPluginCommandSummary,
   type GatewayProactivePullResponse,
   type GatewayStatus,
@@ -25,6 +27,8 @@ export type {
   GatewayChatStreamEvent,
   GatewayCommandResult,
   GatewayHistoryResponse,
+  GatewayMediaItem,
+  GatewayMediaUploadResult,
   GatewayPluginCommandSummary,
   GatewayProactivePullResponse,
   GatewayStatus,
@@ -90,6 +94,29 @@ export async function gatewayChat(
     },
     body: JSON.stringify(params),
     signal,
+  });
+}
+
+export async function gatewayUploadMedia(params: {
+  filename: string;
+  body: ArrayBuffer | Blob | Buffer;
+  mimeType?: string | null;
+  signal?: AbortSignal;
+}): Promise<GatewayMediaUploadResult> {
+  const body =
+    params.body instanceof Blob || params.body instanceof ArrayBuffer
+      ? params.body
+      : new Uint8Array(params.body);
+  return requestJson<GatewayMediaUploadResult>('/api/media/upload', {
+    method: 'POST',
+    headers: {
+      'Content-Type':
+        String(params.mimeType || '').trim() || 'application/octet-stream',
+      'X-Hybridclaw-Filename': encodeURIComponent(params.filename),
+      ...authHeaders(),
+    },
+    body,
+    signal: params.signal,
   });
 }
 

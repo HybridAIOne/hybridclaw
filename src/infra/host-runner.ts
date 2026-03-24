@@ -31,6 +31,7 @@ import {
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
 import { logger } from '../logger.js';
+import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { redactSecrets } from '../security/redact.js';
@@ -299,7 +300,9 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
   const { ipcPath, workspacePath } = getSessionPaths(sessionId, agentId);
   ensureWorkspaceNodeModulesLink(workspacePath);
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
+  const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
+  fs.mkdirSync(uploadedMediaCacheHostPath, { recursive: true });
 
   const runtime = resolveHostAgentCommand();
   const env: NodeJS.ProcessEnv = {
@@ -326,6 +329,7 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
     HYBRIDCLAW_AGENT_MEDIA_ROOT: mediaCacheHostPath,
+    HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT: uploadedMediaCacheHostPath,
     HYBRIDCLAW_AGENT_IPC_DIR: ipcPath,
     BROWSER_SHARED_PROFILE_DIR: resolveBrowserProfileHostDir(),
   };

@@ -27,12 +27,23 @@ import type {
 } from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
+import { summarizeMediaFilenames } from '../media/media-summary.js';
+import { normalizeMimeType } from '../media/mime-utils.js';
+import {
+  resolveUploadedMediaCacheHostDir,
+  UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
+  writeUploadedMediaCacheFile,
+} from '../media/uploaded-media-cache.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
 import {
   buildSessionKey,
   classifySessionKeyShape,
 } from '../session/session-key.js';
-import type { PendingApproval, ToolProgressEvent } from '../types.js';
+import type {
+  MediaContextItem,
+  PendingApproval,
+  ToolProgressEvent,
+} from '../types.js';
 import {
   hasSessionAuth,
   setSessionCookie,
@@ -89,6 +100,7 @@ import type {
   GatewayChatRequestBody,
   GatewayChatResult,
 } from './gateway-types.js';
+import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
 import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
@@ -98,10 +110,12 @@ import {
 const SITE_DIR = resolveInstallPath('docs');
 const CONSOLE_DIST_DIR = resolveInstallPath('console', 'dist');
 const AGENT_ARTIFACT_ROOT = path.resolve(path.join(DATA_DIR, 'agents'));
+const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );
 const MAX_REQUEST_BYTES = 1_000_000; // 1MB
+const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 
 const SITE_MIME_TYPES: Record<string, string> = {
@@ -136,6 +150,17 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
   '.webp': 'image/webp',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
+const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
+  'application/json',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/csv',
+  'text/markdown',
+  'text/plain',
+  'text/xml',
+]);
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
@@ -347,6 +372,24 @@ function hasApiAuth(
   return gatewayTokenMatch;
 }
 
+function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
+  const authHeader = req.headers.authorization || '';
+  if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) {
+    return 'web-token';
+  }
+  if (GATEWAY_API_TOKEN && authHeader === `Bearer ${GATEWAY_API_TOKEN}`) {
+    return 'gateway-token';
+  }
+
+  const normalizedAddress = String(req.socket.remoteAddress || '')
+    .replace(/^::ffff:/, '')
+    .trim();
+  if (isLoopbackAddress(req.socket.remoteAddress)) {
+    return `loopback:${normalizedAddress || 'unknown'}`;
+  }
+  return 'authenticated';
+}
+
 function sendJson(
   res: ServerResponse,
   statusCode: number,
@@ -430,10 +473,211 @@ function resolvePathForContainmentCheck(filePath: string): string {
   }
 }
 
+function resolveDisplayPathAlias(
+  rawPath: string,
+  displayRoot: string,
+  hostRoot: string,
+): string | null {
+  const normalized = rawPath.replace(/\\/g, '/').trim();
+  const cleanDisplayRoot = displayRoot.replace(/\/+$/, '');
+  if (
+    normalized !== cleanDisplayRoot &&
+    !normalized.startsWith(`${cleanDisplayRoot}/`)
+  ) {
+    return null;
+  }
+
+  const relative = path.posix
+    .normalize(normalized.slice(cleanDisplayRoot.length).replace(/^\/+/, ''))
+    .replace(/^\/+/, '');
+  if (relative === '..' || relative.startsWith('../')) {
+    return null;
+  }
+  return relative ? path.resolve(hostRoot, relative) : path.resolve(hostRoot);
+}
+
+function matchesDisplayPathAlias(
+  rawPath: string,
+  displayRoot: string,
+): boolean {
+  const normalized = rawPath.replace(/\\/g, '/').trim();
+  const cleanDisplayRoot = displayRoot.replace(/\/+$/, '');
+  return (
+    normalized === cleanDisplayRoot ||
+    normalized.startsWith(`${cleanDisplayRoot}/`)
+  );
+}
+
+function getUploadedMediaCacheDirOrNull(): string | null {
+  try {
+    return resolveUploadedMediaCacheHostDir();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === 'uploaded_media_cache_dir_unavailable'
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function resolveArtifactRequestPath(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
+  if (matchesDisplayPathAlias(trimmed, UPLOADED_MEDIA_CACHE_ROOT_DISPLAY)) {
+    if (!uploadedMediaCacheDir) {
+      throw new HttpRequestError(503, 'Uploaded media cache unavailable.');
+    }
+    return resolveDisplayPathAlias(
+      trimmed,
+      UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
+      uploadedMediaCacheDir,
+    );
+  }
+  return (
+    resolveDisplayPathAlias(
+      trimmed,
+      DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+      DISCORD_MEDIA_CACHE_DIR,
+    ) || path.resolve(trimmed)
+  );
+}
+
+function resolveValidatedApiChatMediaHostPath(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+
+  if (matchesDisplayPathAlias(trimmed, DISCORD_MEDIA_CACHE_ROOT_DISPLAY)) {
+    const resolved = resolveDisplayPathAlias(
+      trimmed,
+      DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+      DISCORD_MEDIA_CACHE_DIR,
+    );
+    return resolved ? resolvePathForContainmentCheck(resolved) : null;
+  }
+
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
+  if (matchesDisplayPathAlias(trimmed, UPLOADED_MEDIA_CACHE_ROOT_DISPLAY)) {
+    if (!uploadedMediaCacheDir) {
+      throw new HttpRequestError(503, 'Uploaded media cache unavailable.');
+    }
+    const resolved = resolveDisplayPathAlias(
+      trimmed,
+      UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
+      uploadedMediaCacheDir,
+    );
+    return resolved ? resolvePathForContainmentCheck(resolved) : null;
+  }
+
+  if (!path.isAbsolute(trimmed)) {
+    return null;
+  }
+
+  return resolvePathForContainmentCheck(trimmed);
+}
+
+function isAllowedApiChatMediaHostPath(hostPath: string): boolean {
+  const normalizedHostPath = resolvePathForContainmentCheck(hostPath);
+  if (
+    isWithinRoot(
+      normalizedHostPath,
+      resolvePathForContainmentCheck(DISCORD_MEDIA_CACHE_DIR),
+    )
+  ) {
+    return true;
+  }
+
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
+  if (!uploadedMediaCacheDir) {
+    return false;
+  }
+  return isWithinRoot(
+    normalizedHostPath,
+    resolvePathForContainmentCheck(uploadedMediaCacheDir),
+  );
+}
+
+function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) {
+    throw new HttpRequestError(400, 'Invalid `media` in request body.');
+  }
+  if (raw.length === 0) return [];
+
+  const normalized: MediaContextItem[] = [];
+  for (const [index, item] of raw.entries()) {
+    if (!item || typeof item !== 'object') {
+      throw new HttpRequestError(400, `Invalid \`media[${index}]\` item.`);
+    }
+    const mediaItem = item as Record<string, unknown>;
+
+    const pathValue = normalizeOptionalString(mediaItem.path);
+    const url = normalizeOptionalString(mediaItem.url);
+    const originalUrl = normalizeOptionalString(mediaItem.originalUrl);
+    const filename = normalizeOptionalString(mediaItem.filename);
+    if (!pathValue) {
+      throw new HttpRequestError(400, `Missing \`media[${index}].path\`.`);
+    }
+    if (!url) {
+      throw new HttpRequestError(400, `Missing \`media[${index}].url\`.`);
+    }
+    if (!originalUrl) {
+      throw new HttpRequestError(
+        400,
+        `Missing \`media[${index}].originalUrl\`.`,
+      );
+    }
+    if (!filename) {
+      throw new HttpRequestError(400, `Missing \`media[${index}].filename\`.`);
+    }
+
+    const resolvedHostPath = resolveValidatedApiChatMediaHostPath(pathValue);
+    if (!resolvedHostPath || !isAllowedApiChatMediaHostPath(resolvedHostPath)) {
+      throw new HttpRequestError(
+        400,
+        `Invalid \`media[${index}].path\`. Only uploaded or Discord media cache files are accepted.`,
+      );
+    }
+
+    const rawSizeBytes = mediaItem.sizeBytes;
+    if (rawSizeBytes != null && typeof rawSizeBytes !== 'number') {
+      throw new HttpRequestError(400, `Invalid \`media[${index}].sizeBytes\`.`);
+    }
+    if (typeof rawSizeBytes === 'number' && !Number.isFinite(rawSizeBytes)) {
+      throw new HttpRequestError(400, `Invalid \`media[${index}].sizeBytes\`.`);
+    }
+
+    const rawMimeType = mediaItem.mimeType;
+    if (rawMimeType != null && typeof rawMimeType !== 'string') {
+      throw new HttpRequestError(400, `Invalid \`media[${index}].mimeType\`.`);
+    }
+
+    normalized.push({
+      path: pathValue,
+      url,
+      originalUrl,
+      filename,
+      sizeBytes:
+        typeof rawSizeBytes === 'number'
+          ? Math.max(0, Math.floor(rawSizeBytes))
+          : 0,
+      mimeType:
+        typeof rawMimeType === 'string'
+          ? normalizeMimeType(rawMimeType.trim())
+          : null,
+    });
+  }
+  return normalized;
+}
+
 function resolveArtifactFile(url: URL): string | null {
   const raw = (url.searchParams.get('path') || '').trim();
   if (!raw) return null;
-  const resolved = path.resolve(raw);
+  const resolved = resolveArtifactRequestPath(raw);
+  if (!resolved) return null;
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
   let realFilePath: string;
   try {
     realFilePath = fs.realpathSync(resolved);
@@ -448,6 +692,13 @@ function resolveArtifactFile(url: URL): string | null {
     !isWithinRoot(
       realFilePath,
       resolvePathForContainmentCheck(DISCORD_MEDIA_CACHE_DIR),
+    ) &&
+    !(
+      uploadedMediaCacheDir &&
+      isWithinRoot(
+        realFilePath,
+        resolvePathForContainmentCheck(uploadedMediaCacheDir),
+      )
     )
   ) {
     return null;
@@ -457,25 +708,58 @@ function resolveArtifactFile(url: URL): string | null {
   return realFilePath;
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+async function readRequestBody(
+  req: IncomingMessage,
+  maxBytes: number,
+): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
-    if (total > MAX_REQUEST_BYTES) {
+    if (total > maxBytes) {
       throw new HttpRequestError(413, 'Request body too large.');
     }
     chunks.push(buffer);
   }
-  if (chunks.length === 0) return {};
-  const raw = Buffer.concat(chunks).toString('utf-8');
+  return chunks.length > 0 ? Buffer.concat(chunks) : Buffer.alloc(0);
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const rawBuffer = await readRequestBody(req, MAX_REQUEST_BYTES);
+  if (rawBuffer.length === 0) return {};
+  const raw = rawBuffer.toString('utf-8');
   if (!raw.trim()) return {};
   try {
     return JSON.parse(raw) as unknown;
   } catch {
     throw new HttpRequestError(400, 'Invalid JSON body');
   }
+}
+
+function normalizeHeaderValue(
+  value: string | string[] | undefined,
+): string | null {
+  if (Array.isArray(value)) {
+    return normalizeHeaderValue(value[0]);
+  }
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function buildMediaOnlyPromptContent(media: { filename: string }[]): string {
+  if (media.length === 0) return '';
+  const summary = summarizeMediaFilenames(media.map((item) => item.filename));
+  return media.length === 1
+    ? `Attached file: ${summary}`
+    : `Attached files: ${summary}`;
+}
+
+function isAllowedMediaUploadMimeType(mimeType: string): boolean {
+  return (
+    mimeType.startsWith('audio/') ||
+    mimeType.startsWith('image/') ||
+    ALLOWED_MEDIA_UPLOAD_MIME_TYPES.has(mimeType)
+  );
 }
 
 function resolveSiteFile(pathname: string): string | null {
@@ -540,10 +824,13 @@ async function handleApiChat(
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
   const wantsStream = body.stream === true;
+  const media = normalizeApiChatMediaItems(body.media);
 
-  const content = body.content?.trim();
+  const content = body.content?.trim() || buildMediaOnlyPromptContent(media);
   if (!content) {
-    sendJson(res, 400, { error: 'Missing `content` in request body.' });
+    sendJson(res, 400, {
+      error: 'Missing `content` or `media` in request body.',
+    });
     return;
   }
 
@@ -565,6 +852,7 @@ async function handleApiChat(
     userId: normalizeOptionalString(body.userId) || sessionId,
     username: body.username ?? 'web',
     content,
+    ...(media.length > 0 ? { media } : {}),
     agentId: body.agentId,
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
@@ -578,6 +866,7 @@ async function handleApiChat(
       model: chatRequest.model || null,
       stream: wantsStream,
       contentLength: chatRequest.content.length,
+      mediaCount: media.length,
     },
     'Received gateway API chat request',
   );
@@ -601,6 +890,92 @@ async function handleApiChat(
     processedResult,
   );
   sendJson(res, result.status === 'success' ? 200 : 500, result);
+}
+
+async function handleApiMediaUpload(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const encodedFilename = normalizeHeaderValue(
+    req.headers['x-hybridclaw-filename'],
+  );
+  if (!encodedFilename) {
+    sendJson(res, 400, {
+      error: 'Missing `X-Hybridclaw-Filename` header.',
+    });
+    return;
+  }
+
+  let decodedFilename = encodedFilename;
+  try {
+    decodedFilename = decodeURIComponent(encodedFilename);
+  } catch {
+    sendJson(res, 400, {
+      error: 'Invalid `X-Hybridclaw-Filename` header.',
+    });
+    return;
+  }
+
+  const buffer = await readRequestBody(req, MAX_MEDIA_UPLOAD_BYTES);
+  if (buffer.length === 0) {
+    sendJson(res, 400, { error: 'Uploaded file is empty.' });
+    return;
+  }
+
+  const mimeType =
+    normalizeMimeType(normalizeHeaderValue(req.headers['content-type'])) ||
+    'application/octet-stream';
+  if (!isAllowedMediaUploadMimeType(mimeType)) {
+    sendJson(res, 415, {
+      error: `Unsupported media type: ${mimeType}.`,
+    });
+    return;
+  }
+
+  const quotaDecision = consumeGatewayMediaUploadQuota({
+    key: resolveApiMediaUploadQuotaKey(req),
+    bytes: buffer.length,
+  });
+  if (!quotaDecision.allowed) {
+    res.setHeader(
+      'Retry-After',
+      String(Math.max(1, Math.ceil(quotaDecision.retryAfterMs / 1_000))),
+    );
+    sendJson(res, 429, {
+      error: 'Media upload quota exceeded. Try again later.',
+    });
+    return;
+  }
+
+  let stored: Awaited<ReturnType<typeof writeUploadedMediaCacheFile>>;
+  try {
+    stored = await writeUploadedMediaCacheFile({
+      attachmentName: decodedFilename,
+      buffer,
+      mimeType,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === 'uploaded_media_cache_dir_unavailable'
+    ) {
+      sendJson(res, 503, { error: 'Uploaded media cache unavailable.' });
+      return;
+    }
+    throw error;
+  }
+  const artifactUrl = `/api/artifact?path=${encodeURIComponent(stored.runtimePath)}`;
+
+  sendJson(res, 200, {
+    media: {
+      path: stored.runtimePath,
+      url: artifactUrl,
+      originalUrl: artifactUrl,
+      mimeType,
+      sizeBytes: buffer.length,
+      filename: stored.filename,
+    },
+  });
 }
 
 async function handleApiChatStream(
@@ -1612,7 +1987,17 @@ export function startGatewayHttpServer(): void {
         return;
       }
       if (pathname === '/api/artifact' && method === 'GET') {
-        handleApiArtifact(req, res, url);
+        try {
+          handleApiArtifact(req, res, url);
+        } catch (err) {
+          const errorText = err instanceof Error ? err.message : String(err);
+          const statusCode =
+            err instanceof HttpRequestError ||
+            err instanceof GatewayRequestError
+              ? err.statusCode
+              : 500;
+          sendJson(res, statusCode, { error: errorText });
+        }
         return;
       }
 
@@ -1742,6 +2127,10 @@ export function startGatewayHttpServer(): void {
           }
           if (pathname === '/api/chat' && method === 'POST') {
             await handleApiChat(req, res);
+            return;
+          }
+          if (pathname === '/api/media/upload' && method === 'POST') {
+            await handleApiMediaUpload(req, res);
             return;
           }
           if (pathname === '/api/command' && method === 'POST') {
