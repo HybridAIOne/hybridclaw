@@ -897,10 +897,6 @@ function sessionGatewayContext(): {
   };
 }
 
-function cloneGatewayMediaItems(media: GatewayMediaItem[]): GatewayMediaItem[] {
-  return media.map((item) => ({ ...item }));
-}
-
 function summarizeGatewayMediaItems(media: GatewayMediaItem[]): string {
   if (media.length === 0) return '0 attachments';
   const preview = summarizeMediaFilenames(
@@ -928,7 +924,7 @@ function buildPendingMediaPromptLabel(): string | null {
 
 function consumePendingMedia(rl: readline.Interface): GatewayMediaItem[] {
   if (tuiPendingMedia.length === 0) return [];
-  const media = cloneGatewayMediaItems(tuiPendingMedia);
+  const media = tuiPendingMedia;
   tuiPendingMedia = [];
   refreshPrompt(rl);
   return media;
@@ -939,7 +935,7 @@ function restorePendingMedia(
   media: GatewayMediaItem[],
 ): void {
   if (media.length === 0) return;
-  tuiPendingMedia = [...cloneGatewayMediaItems(media), ...tuiPendingMedia];
+  tuiPendingMedia = [...media, ...tuiPendingMedia];
   refreshPrompt(rl);
 }
 
@@ -961,9 +957,7 @@ function buildGatewayChatRequest(
     userId: TUI_USER_ID,
     username: TUI_USERNAME,
     content,
-    ...(media && media.length > 0
-      ? { media: cloneGatewayMediaItems(media) }
-      : {}),
+    ...(media && media.length > 0 ? { media } : {}),
   };
 }
 
