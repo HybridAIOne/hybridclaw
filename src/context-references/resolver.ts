@@ -116,6 +116,7 @@ async function listFolderEntriesWithRipgrep(folderPath: string): Promise<{
   entries: string[];
   truncated: boolean;
 }> {
+  // Prefer rg when available so folder listings honor .gitignore patterns.
   const result = await execFileAsync('rg', ['--files', '.'], {
     cwd: folderPath,
     encoding: 'utf8',
