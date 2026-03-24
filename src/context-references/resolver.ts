@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import type { Stats } from 'node:fs';
 import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import type { ContextReference } from './parser.js';
 import {
   isBinaryFile,
@@ -13,6 +14,7 @@ const MAX_FOLDER_ENTRIES = 200;
 const GIT_MAX_BUFFER = 2 * 1024 * 1024;
 const URL_FETCH_TIMEOUT_MS = 10_000;
 const URL_FETCH_MAX_BYTES = 512 * 1024;
+const execFileAsync = promisify(execFile);
 
 export type ContextReferenceUrlFetcher = (url: string) => Promise<string>;
 
@@ -101,35 +103,8 @@ export function codeFenceLanguage(filePath: string): string {
   return '';
 }
 
-async function execFileText(
-  file: string,
-  args: string[],
-  options: {
-    cwd?: string;
-    encoding?: BufferEncoding;
-    maxBuffer?: number;
-  },
-): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(file, args, options, (error, stdout, stderr) => {
-      if (error) {
-        const failure = error as Error & { stdout?: string; stderr?: string };
-        failure.stdout = typeof stdout === 'string' ? stdout : '';
-        failure.stderr = typeof stderr === 'string' ? stderr : '';
-        reject(failure);
-        return;
-      }
-
-      resolve({
-        stdout: typeof stdout === 'string' ? stdout : '',
-        stderr: typeof stderr === 'string' ? stderr : '',
-      });
-    });
-  });
-}
-
 async function runGitCommand(cwd: string, args: string[]): Promise<string> {
-  const result = await execFileText('git', args, {
+  const result = await execFileAsync('git', args, {
     cwd,
     encoding: 'utf8',
     maxBuffer: GIT_MAX_BUFFER,
@@ -141,7 +116,7 @@ async function listFolderEntriesWithRipgrep(folderPath: string): Promise<{
   entries: string[];
   truncated: boolean;
 }> {
-  const result = await execFileText('rg', ['--files', '.'], {
+  const result = await execFileAsync('rg', ['--files', '.'], {
     cwd: folderPath,
     encoding: 'utf8',
     maxBuffer: GIT_MAX_BUFFER,

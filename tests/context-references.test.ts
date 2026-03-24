@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
   parseContextReferences,
@@ -23,7 +24,7 @@ type ExecFileResult = {
 type ExecFileHandler = (file: string, args: string[]) => ExecFileResult;
 
 function createExecFileMock(handler: ExecFileHandler) {
-  return vi.fn(
+  const execFileMock = vi.fn(
     (
       file: string,
       args: string[],
@@ -48,6 +49,30 @@ function createExecFileMock(handler: ExecFileHandler) {
       done(null, result.stdout || '', result.stderr || '');
     },
   );
+
+  execFileMock[promisify.custom] = (
+    file: string,
+    args: string[],
+    _options?: Record<string, unknown>,
+  ) => {
+    const result = handler(file, args);
+    if (result.error) {
+      const error = result.error as Error & {
+        stderr?: string;
+        stdout?: string;
+      };
+      error.stdout = result.stdout || '';
+      error.stderr = result.stderr || '';
+      return Promise.reject(error);
+    }
+
+    return Promise.resolve({
+      stdout: result.stdout || '',
+      stderr: result.stderr || '',
+    });
+  };
+
+  return execFileMock;
 }
 
 async function loadResolverModule(execFileHandler?: ExecFileHandler) {
