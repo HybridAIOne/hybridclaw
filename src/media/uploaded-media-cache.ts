@@ -38,12 +38,20 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
 
 let cleanupPromise: Promise<void> | null = null;
 let lastCleanupStartedAt = 0;
+let cachedUploadedMediaCacheDirDataDir: string | null = null;
+let cachedUploadedMediaCacheDir: string | null = null;
 
 function getUploadedMediaCacheDir(): string | null {
   const dataDir =
     typeof config.DATA_DIR === 'string' ? config.DATA_DIR.trim() : '';
-  if (!dataDir) return null;
-  return path.resolve(path.join(dataDir, 'uploaded-media-cache'));
+  if (dataDir === cachedUploadedMediaCacheDirDataDir) {
+    return cachedUploadedMediaCacheDir;
+  }
+  cachedUploadedMediaCacheDirDataDir = dataDir;
+  cachedUploadedMediaCacheDir = dataDir
+    ? path.resolve(path.join(dataDir, 'uploaded-media-cache'))
+    : null;
+  return cachedUploadedMediaCacheDir;
 }
 
 export function resolveUploadedMediaCacheHostDir(): string {
@@ -286,7 +294,6 @@ export async function writeUploadedMediaCacheFile(params: {
   await fs.promises.writeFile(hostPath, params.buffer, {
     mode: UPLOADED_MEDIA_CACHE_FILE_MODE,
   });
-  await enforcePathMode(hostPath, UPLOADED_MEDIA_CACHE_FILE_MODE);
 
   const runtimePath = normalizeUploadedMediaPathForRuntime(hostPath);
   if (!runtimePath) {
