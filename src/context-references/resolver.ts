@@ -33,6 +33,10 @@ function formatWarning(ref: ContextReference, reason: string): string {
   return `${ref.raw}: ${reason}`;
 }
 
+function toErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 function displayPath(rootPath: string, targetPath: string): string {
   const relativePath = path.relative(rootPath, targetPath);
   if (!relativePath) return '.';
@@ -441,10 +445,7 @@ export async function expandGitReference(
     }
     return [null, formatFencedBlock(title, output, 'diff')];
   } catch (error) {
-    const message =
-      error instanceof Error && error.message
-        ? error.message
-        : 'git command failed';
+    const message = toErrorMessage(error, 'git command failed');
     return [formatWarning(ref, message), null];
   }
 }
@@ -474,10 +475,7 @@ export async function expandUrlReference(
       formatFencedBlock(`URL: ${parsedUrl.toString()}`, body, language),
     ];
   } catch (error) {
-    const message =
-      error instanceof Error && error.message
-        ? error.message
-        : 'failed to fetch URL';
+    const message = toErrorMessage(error, 'failed to fetch URL');
     return [formatWarning(ref, message), null];
   }
 }
