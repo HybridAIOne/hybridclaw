@@ -14,13 +14,9 @@ export function makeLazyApi<T>(
   return {
     async ensure(): Promise<T> {
       if (api) return api;
-      if (!promise) {
-        promise = importer().then((loadedApi) => {
-          api = loadedApi;
-          return loadedApi;
-        });
-      }
-      return promise;
+      promise ??= importer();
+      api = await promise;
+      return api;
     },
     get(): T {
       if (!api) {
