@@ -52,7 +52,7 @@ function formatFencedBlock(
   return `${title}\n\`\`\`${language}\n${body}\n\`\`\``;
 }
 
-function normalizeFileLanguage(filePath: string): string {
+export function codeFenceLanguage(filePath: string): string {
   const extension = path.extname(filePath).toLowerCase();
   const basename = path.basename(filePath);
 
@@ -99,10 +99,6 @@ function normalizeFileLanguage(filePath: string): string {
   if (basename === 'Dockerfile') return 'dockerfile';
   if (basename === 'Makefile') return 'make';
   return '';
-}
-
-export function codeFenceLanguage(filePath: string): string {
-  return normalizeFileLanguage(filePath);
 }
 
 async function execFileText(
