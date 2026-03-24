@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import type { Stats } from 'node:fs';
 import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { ContextReference } from './parser.js';
@@ -19,6 +20,14 @@ export interface ExpandReferenceOptions {
   allowedRoot?: string;
   urlFetcher?: ContextReferenceUrlFetcher;
 }
+
+type ResolvedContextPath =
+  | {
+      resolvedPath: string;
+      realPath: string;
+      pathStats: Stats;
+    }
+  | { warning: string };
 
 function formatWarning(ref: ContextReference, reason: string): string {
   return `${ref.raw}: ${reason}`;
@@ -237,6 +246,47 @@ async function readResponseTextLimited(
   }
 }
 
+async function resolveContextPath(
+  ref: ContextReference,
+  cwd: string,
+  allowedRoot: string,
+): Promise<ResolvedContextPath> {
+  const targetLabel = ref.kind === 'folder' ? 'folder' : 'file';
+  const sensitiveLabel = ref.kind === 'folder' ? 'folders' : 'files';
+
+  let resolvedPath: string;
+  try {
+    resolvedPath = await resolveAndValidatePath(cwd, ref.path || '', allowedRoot);
+  } catch {
+    return {
+      warning: formatWarning(ref, 'path escapes the allowed root'),
+    };
+  }
+
+  const pathStats = await stat(resolvedPath).catch(() => null);
+  if (!pathStats) {
+    return {
+      warning: formatWarning(ref, `${targetLabel} not found`),
+    };
+  }
+
+  const realPath = await realpath(resolvedPath).catch(() => resolvedPath);
+  if (isSensitiveFile(realPath)) {
+    return {
+      warning: formatWarning(
+        ref,
+        `access to sensitive ${sensitiveLabel} is blocked`,
+      ),
+    };
+  }
+
+  return {
+    resolvedPath,
+    realPath,
+    pathStats,
+  };
+}
+
 async function defaultUrlFetcher(url: string): Promise<string> {
   let response: Response;
   try {
@@ -280,33 +330,22 @@ export async function expandFileReference(
   }
 
   const allowedRoot = options.allowedRoot ?? cwd;
-  let resolvedPath: string;
-  try {
-    resolvedPath = await resolveAndValidatePath(cwd, ref.path, allowedRoot);
-  } catch {
-    return [formatWarning(ref, 'path escapes the allowed root'), null];
+  const resolved = await resolveContextPath(ref, cwd, allowedRoot);
+  if ('warning' in resolved) {
+    return [resolved.warning, null];
   }
 
-  const fileStats = await stat(resolvedPath).catch(() => null);
-  if (!fileStats) {
-    return [formatWarning(ref, 'file not found'), null];
-  }
-  if (!fileStats.isFile()) {
+  if (!resolved.pathStats.isFile()) {
     return [formatWarning(ref, 'target is not a file'), null];
   }
 
-  const realPath = await realpath(resolvedPath).catch(() => resolvedPath);
-  if (isSensitiveFile(realPath)) {
-    return [formatWarning(ref, 'access to sensitive files is blocked'), null];
-  }
-
-  if (await isBinaryFile(realPath)) {
+  if (await isBinaryFile(resolved.realPath)) {
     return [formatWarning(ref, 'binary files cannot be injected'), null];
   }
 
-  const fileText = await readFile(realPath, 'utf8');
+  const fileText = await readFile(resolved.realPath, 'utf8');
   let body = fileText;
-  let title = `File: ${displayPath(allowedRoot, resolvedPath)}`;
+  let title = `File: ${displayPath(allowedRoot, resolved.resolvedPath)}`;
 
   if (typeof ref.lineStart === 'number') {
     const lines = fileText.split(/\r?\n/u);
@@ -323,7 +362,11 @@ export async function expandFileReference(
 
   return [
     null,
-    formatFencedBlock(title, body, codeFenceLanguage(resolvedPath)),
+    formatFencedBlock(
+      title,
+      body,
+      codeFenceLanguage(resolved.resolvedPath),
+    ),
   ];
 }
 
@@ -337,27 +380,16 @@ export async function expandFolderReference(
   }
 
   const allowedRoot = options.allowedRoot ?? cwd;
-  let resolvedPath: string;
-  try {
-    resolvedPath = await resolveAndValidatePath(cwd, ref.path, allowedRoot);
-  } catch {
-    return [formatWarning(ref, 'path escapes the allowed root'), null];
+  const resolved = await resolveContextPath(ref, cwd, allowedRoot);
+  if ('warning' in resolved) {
+    return [resolved.warning, null];
   }
 
-  const folderStats = await stat(resolvedPath).catch(() => null);
-  if (!folderStats) {
-    return [formatWarning(ref, 'folder not found'), null];
-  }
-  if (!folderStats.isDirectory()) {
+  if (!resolved.pathStats.isDirectory()) {
     return [formatWarning(ref, 'target is not a folder'), null];
   }
 
-  const realPath = await realpath(resolvedPath).catch(() => resolvedPath);
-  if (isSensitiveFile(realPath)) {
-    return [formatWarning(ref, 'access to sensitive folders is blocked'), null];
-  }
-
-  const listing = await listFolderEntries(realPath);
+  const listing = await listFolderEntries(resolved.realPath);
   const lines = listing.entries.length > 0 ? listing.entries : ['(empty)'];
   if (listing.truncated) {
     lines.push(`... (${MAX_FOLDER_ENTRIES} entries max)`);
@@ -366,7 +398,7 @@ export async function expandFolderReference(
   return [
     null,
     formatFencedBlock(
-      `Folder: ${displayPath(allowedRoot, resolvedPath)}`,
+      `Folder: ${displayPath(allowedRoot, resolved.resolvedPath)}`,
       lines.join('\n'),
       'text',
     ),
