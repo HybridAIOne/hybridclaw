@@ -17,6 +17,11 @@ const ORIGINAL_HYBRIDCLAW_LOG_REQUESTS = process.env.HYBRIDCLAW_LOG_REQUESTS;
 const ORIGINAL_CI = process.env.CI;
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
+const REPO_VERSION = (
+  JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf-8'),
+  ) as { version: string }
+).version;
 
 function createTempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-cli-'));
@@ -57,6 +62,7 @@ async function importFreshCli(options?: {
   };
   gatewayReachable?: boolean;
   sandboxMode?: 'host' | 'container';
+  configModuleError?: Error | null;
   gatewayFlags?: {
     foreground?: boolean;
     sandboxMode?: 'host' | 'container' | null;
@@ -159,6 +165,7 @@ async function importFreshCli(options?: {
     model?: string | { primary: string };
   }>;
   promptResponses?: string[];
+  whatsAppConnectionModuleError?: Error | null;
 }) {
   vi.resetModules();
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
@@ -577,14 +584,19 @@ async function importFreshCli(options?: {
       passthrough: options?.gatewayFlags?.passthrough ?? [],
     })),
   }));
-  vi.doMock('../src/config/config.ts', () => ({
-    APP_VERSION: '0.4.1',
-    DATA_DIR: '/tmp/hybridclaw-data',
-    GATEWAY_BASE_URL: 'http://127.0.0.1:9090',
-    MissingRequiredEnvVarError,
-    getResolvedSandboxMode: vi.fn(() => options?.sandboxMode || 'host'),
-    setSandboxModeOverride: vi.fn(),
-  }));
+  vi.doMock('../src/config/config.ts', () => {
+    if (options?.configModuleError) {
+      throw options.configModuleError;
+    }
+    return {
+      APP_VERSION: '0.4.1',
+      DATA_DIR: '/tmp/hybridclaw-data',
+      GATEWAY_BASE_URL: 'http://127.0.0.1:9090',
+      MissingRequiredEnvVarError,
+      getResolvedSandboxMode: vi.fn(() => options?.sandboxMode || 'host'),
+      setSandboxModeOverride: vi.fn(),
+    };
+  });
   vi.doMock('../src/config/runtime-config.ts', async () => ({
     ...actualRuntimeConfig,
     ensureRuntimeConfigFile,
@@ -625,9 +637,14 @@ async function importFreshCli(options?: {
     WHATSAPP_AUTH_DIR: '/tmp/whatsapp-auth',
     WhatsAppAuthLockError: class WhatsAppAuthLockError extends Error {},
   }));
-  vi.doMock('../src/channels/whatsapp/connection.ts', () => ({
-    createWhatsAppConnectionManager,
-  }));
+  vi.doMock('../src/channels/whatsapp/connection.ts', () => {
+    if (options?.whatsAppConnectionModuleError) {
+      throw options.whatsAppConnectionModuleError;
+    }
+    return {
+      createWhatsAppConnectionManager,
+    };
+  });
   vi.doMock('node:readline/promises', () => ({
     default: {
       createInterface: readlineCreateInterface,
@@ -881,6 +898,17 @@ describe('CLI hybridai commands', () => {
     expect(output).not.toContain('Deprecated alias for Codex provider');
   });
 
+  it('prints the CLI version without loading the runtime config module', async () => {
+    const { cli } = await importFreshCli({
+      configModuleError: new Error('config module should stay lazy'),
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['--version']);
+
+    expect(logSpy).toHaveBeenCalledWith(REPO_VERSION);
+  });
+
   it('runs bare auth login through onboarding', async () => {
     const { cli, ensureRuntimeCredentials } = await importFreshCli();
 
@@ -889,6 +917,20 @@ describe('CLI hybridai commands', () => {
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw auth login',
     });
+  });
+
+  it('resets WhatsApp auth without loading the connection manager', async () => {
+    const { cli, getWhatsAppAuthStatus, resetWhatsAppAuthState } =
+      await importFreshCli({
+        whatsAppConnectionModuleError: new Error(
+          'whatsapp connection module should stay lazy',
+        ),
+      });
+
+    await cli.main(['auth', 'whatsapp', 'reset']);
+
+    expect(getWhatsAppAuthStatus).toHaveBeenCalled();
+    expect(resetWhatsAppAuthState).toHaveBeenCalled();
   });
 
   it('prints hybridai help', async () => {
