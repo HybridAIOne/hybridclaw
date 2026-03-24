@@ -1245,13 +1245,20 @@ export function expandSkillInvocation(
   const invocation = resolveExplicitSkillInvocation(content, skills);
   if (!invocation) return content;
 
+  return expandResolvedSkillInvocation(invocation, invocation.args);
+}
+
+export function expandResolvedSkillInvocation(
+  invocation: SkillInvocation,
+  args: string,
+): string {
   const body = loadSkillBody(invocation.skill, MAX_INVOKED_SKILL_CHARS);
-  const args = invocation.args || '(none)';
+  const skillInput = args || '(none)';
 
   const lines = [
     `[Explicit skill invocation] Use the "${invocation.skill.name}" skill for this request.`,
     `Skill file: ${invocation.skill.location}`,
-    `Skill input: ${args}`,
+    `Skill input: ${skillInput}`,
   ];
 
   if (body) {
@@ -1269,7 +1276,9 @@ export function expandSkillInvocationWithResolution(
 ): ExpandedSkillInvocation {
   const invocation = resolveExplicitSkillInvocation(content, skills);
   return {
-    content: invocation ? expandSkillInvocation(content, skills) : content,
+    content: invocation
+      ? expandResolvedSkillInvocation(invocation, invocation.args)
+      : content,
     invocation,
   };
 }

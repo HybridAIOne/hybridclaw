@@ -202,6 +202,7 @@ import type {
   SkillObservation,
 } from '../skills/adaptive-skills-types.js';
 import {
+  expandResolvedSkillInvocation,
   expandSkillInvocationWithResolution,
   loadSkillCatalog,
   resolveObservedSkillName,
@@ -4027,11 +4028,14 @@ export async function handleGatewayMessage(
     abortSignal: activeGatewayRequest.signal,
   });
   const userTurnContent = audioPrelude.content;
-  const contextRefResult = await preprocessContextReferences({
-    message: userTurnContent,
+  const contextReferenceOptions = {
     cwd: workspacePath,
     contextLength: 128_000,
     allowedRoot: workspacePath,
+  };
+  const contextRefResult = await preprocessContextReferences({
+    message: userTurnContent,
+    ...contextReferenceOptions,
   });
   const userTurnContentExpanded = contextRefResult.message;
   const userTurnContentStripped = contextRefResult.strippedMessage;
@@ -4267,7 +4271,7 @@ export async function handleGatewayMessage(
     sessionSummary: mergedSessionSummary,
     retrievedContext: pluginPromptSummary,
     history,
-    currentUserContent: userTurnContentExpanded,
+    currentUserContent: userTurnContent,
     extraSafetyText: fullAutoOperatingContract,
     runtimeInfo: {
       chatbotId,
@@ -4322,9 +4326,17 @@ export async function handleGatewayMessage(
     userTurnContent,
     skills,
   );
+  const skillArgsContext = skillInvocation.invocation
+    ? await preprocessContextReferences({
+        message: skillInvocation.invocation.args,
+        ...contextReferenceOptions,
+      })
+    : null;
   const expandedUserContent = skillInvocation.invocation
-    ? expandSkillInvocationWithResolution(userTurnContentExpanded, skills)
-        .content
+    ? expandResolvedSkillInvocation(
+        skillInvocation.invocation,
+        skillArgsContext?.message ?? '',
+      )
     : userTurnContentExpanded;
   const explicitSkillName = skillInvocation.invocation?.skill.name || null;
   const agentUserContent = mediaContextBlock

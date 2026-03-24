@@ -99,3 +99,63 @@ test('handleGatewayMessage expands context references only for llm-facing paths'
 
   expect(turnStart?.userInput).toBe(content);
 });
+
+test('handleGatewayMessage keeps explicit skill expansion when skill args inject context', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'agent result',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { DEFAULT_AGENT_ID } = await import('../src/agents/agent-types.ts');
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const workspacePath = agentWorkspaceDir(DEFAULT_AGENT_ID);
+  fs.mkdirSync(path.join(workspacePath, 'src'), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspacePath, 'src', 'app.ts'),
+    'export const answer = 42;\n',
+    'utf8',
+  );
+
+  const result = await handleGatewayMessage({
+    sessionId: 'session-context-refs-skill',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    content: '/skill pdf summarize @file:src/app.ts',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | {
+        messages?: Array<{ content: string; role: string }>;
+      }
+    | undefined;
+  const systemMessage = request?.messages?.[0];
+  const userMessage = request?.messages?.at(-1);
+
+  expect(systemMessage?.role).toBe('system');
+  expect(systemMessage?.content).not.toContain('## Skills (mandatory)');
+  expect(userMessage?.role).toBe('user');
+  expect(userMessage?.content).toContain('[Explicit skill invocation]');
+  expect(userMessage?.content).toContain('Use the "pdf" skill for this request.');
+  expect(userMessage?.content).toContain('Skill input: summarize');
+  expect(userMessage?.content).toContain('--- Attached Context ---');
+  expect(userMessage?.content).toContain('File: src/app.ts');
+  expect(userMessage?.content).toContain('export const answer = 42;');
+  expect(userMessage?.content).not.toContain('@file:src/app.ts');
+});
