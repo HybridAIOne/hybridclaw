@@ -430,11 +430,15 @@ async function maybeReadClipboardBytes(
   }
 }
 
-async function readWaylandClipboardPayload(): Promise<DarwinClipboardPayload | null> {
-  const uriList = await maybeReadClipboardText('wl-paste', [
-    '--type',
-    LINUX_TEXT_URI_MIME,
-  ]);
+interface LinuxClipboardBackendReader {
+  readText: (mimeType: string) => Promise<string | null>;
+  readBytes: (mimeType: string) => Promise<Buffer | null>;
+}
+
+async function readLinuxBackendClipboardPayload(
+  reader: LinuxClipboardBackendReader,
+): Promise<DarwinClipboardPayload | null> {
+  const uriList = await reader.readText(LINUX_TEXT_URI_MIME);
   const filePaths = parseClipboardUriList(uriList || '');
   if (filePaths.length > 0) {
     return {
@@ -446,10 +450,7 @@ async function readWaylandClipboardPayload(): Promise<DarwinClipboardPayload | n
   }
 
   for (const mimeType of LINUX_TEXT_PLAIN_MIME_CANDIDATES) {
-    const rawText = await maybeReadClipboardText('wl-paste', [
-      '--type',
-      mimeType,
-    ]);
+    const rawText = await reader.readText(mimeType);
     const plainPaths = parseClipboardTextPaths(rawText || '');
     if (plainPaths.length > 0) {
       return {
@@ -462,10 +463,7 @@ async function readWaylandClipboardPayload(): Promise<DarwinClipboardPayload | n
   }
 
   for (const candidate of LINUX_IMAGE_MIME_CANDIDATES) {
-    const body = await maybeReadClipboardBytes('wl-paste', [
-      '--type',
-      candidate.mimeType,
-    ]);
+    const body = await reader.readBytes(candidate.mimeType);
     if (!body) continue;
     return {
       filePaths: [],
@@ -478,61 +476,34 @@ async function readWaylandClipboardPayload(): Promise<DarwinClipboardPayload | n
   return null;
 }
 
+async function readWaylandClipboardPayload(): Promise<DarwinClipboardPayload | null> {
+  return readLinuxBackendClipboardPayload({
+    readText: (mimeType) =>
+      maybeReadClipboardText('wl-paste', ['--type', mimeType]),
+    readBytes: (mimeType) =>
+      maybeReadClipboardBytes('wl-paste', ['--type', mimeType]),
+  });
+}
+
 async function readXclipClipboardPayload(): Promise<DarwinClipboardPayload | null> {
-  const uriList = await maybeReadClipboardText('xclip', [
-    '-selection',
-    'clipboard',
-    '-t',
-    LINUX_TEXT_URI_MIME,
-    '-o',
-  ]);
-  const filePaths = parseClipboardUriList(uriList || '');
-  if (filePaths.length > 0) {
-    return {
-      filePaths,
-      imageBase64: null,
-      mimeType: null,
-      filename: null,
-    };
-  }
-
-  for (const mimeType of LINUX_TEXT_PLAIN_MIME_CANDIDATES) {
-    const rawText = await maybeReadClipboardText('xclip', [
-      '-selection',
-      'clipboard',
-      '-t',
-      mimeType,
-      '-o',
-    ]);
-    const plainPaths = parseClipboardTextPaths(rawText || '');
-    if (plainPaths.length > 0) {
-      return {
-        filePaths: plainPaths,
-        imageBase64: null,
-        mimeType: null,
-        filename: null,
-      };
-    }
-  }
-
-  for (const candidate of LINUX_IMAGE_MIME_CANDIDATES) {
-    const body = await maybeReadClipboardBytes('xclip', [
-      '-selection',
-      'clipboard',
-      '-t',
-      candidate.mimeType,
-      '-o',
-    ]);
-    if (!body) continue;
-    return {
-      filePaths: [],
-      imageBase64: body.toString('base64'),
-      mimeType: candidate.mimeType,
-      filename: `clipboard.${candidate.extension}`,
-    };
-  }
-
-  return null;
+  return readLinuxBackendClipboardPayload({
+    readText: (mimeType) =>
+      maybeReadClipboardText('xclip', [
+        '-selection',
+        'clipboard',
+        '-t',
+        mimeType,
+        '-o',
+      ]),
+    readBytes: (mimeType) =>
+      maybeReadClipboardBytes('xclip', [
+        '-selection',
+        'clipboard',
+        '-t',
+        mimeType,
+        '-o',
+      ]),
+  });
 }
 
 async function readLinuxClipboardPayload(): Promise<DarwinClipboardPayload | null> {
