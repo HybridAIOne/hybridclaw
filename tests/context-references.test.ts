@@ -397,12 +397,13 @@ describe('context references', () => {
     });
 
     test('blocks oversized URL responses in the default fetcher', async () => {
-      const fetchMock = vi.fn(async () =>
-        new Response('x'.repeat(600_000), {
-          headers: {
-            'content-type': 'text/plain; charset=utf-8',
-          },
-        }),
+      const fetchMock = vi.fn(
+        async () =>
+          new Response('x'.repeat(600_000), {
+            headers: {
+              'content-type': 'text/plain; charset=utf-8',
+            },
+          }),
       );
       vi.stubGlobal('fetch', fetchMock);
 

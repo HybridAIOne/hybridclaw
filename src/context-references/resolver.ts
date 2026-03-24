@@ -249,9 +249,7 @@ async function defaultUrlFetcher(url: string): Promise<string> {
       error instanceof Error &&
       (error.name === 'TimeoutError' || error.name === 'AbortError')
     ) {
-      throw new Error(
-        `URL fetch timed out after ${URL_FETCH_TIMEOUT_MS}ms`,
-      );
+      throw new Error(`URL fetch timed out after ${URL_FETCH_TIMEOUT_MS}ms`);
     }
     throw error;
   }
