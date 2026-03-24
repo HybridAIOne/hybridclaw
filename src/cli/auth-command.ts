@@ -334,17 +334,16 @@ function parseUnifiedProviderArgs(args: string[]): {
   provider: UnifiedProvider | null;
   remaining: string[];
 } {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0) {
+  if (args.length === 0) {
     return {
       provider: null,
       remaining: [],
     };
   }
 
-  const first = normalized[0] || '';
+  const first = args[0] || '';
   if (first === '--provider') {
-    const rawProvider = normalized[1];
+    const rawProvider = args[1];
     if (!rawProvider) {
       throw new Error('Missing value for `--provider`.');
     }
@@ -356,7 +355,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     }
     return {
       provider,
-      remaining: normalized.slice(2),
+      remaining: args.slice(2),
     };
   }
 
@@ -370,16 +369,14 @@ function parseUnifiedProviderArgs(args: string[]): {
     }
     return {
       provider,
-      remaining: normalized.slice(1),
+      remaining: args.slice(1),
     };
   }
 
+  const provider = normalizeUnifiedProvider(first);
   return {
-    provider: normalizeUnifiedProvider(first),
-    remaining:
-      normalizeUnifiedProvider(first) == null
-        ? normalized
-        : normalized.slice(1),
+    provider,
+    remaining: provider == null ? args : args.slice(1),
   };
 }
 
@@ -805,24 +802,23 @@ export async function handleLocalCommand(args: string[]): Promise<void> {
   throw new Error(`Unknown local subcommand: ${sub}`);
 }
 
-async function handleAuthLoginCommand(args: string[]): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0) {
+async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
+  if (normalizedArgs.length === 0) {
     const { ensureRuntimeCredentials } = await ensureOnboardingApi();
     await ensureRuntimeCredentials({
       commandName: 'hybridclaw auth login',
     });
     return;
   }
-  if (isHelpRequest(normalized)) {
+  if (isHelpRequest(normalizedArgs)) {
     printAuthUsage();
     return;
   }
 
-  const parsed = parseUnifiedProviderArgs(normalized);
+  const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalized[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -898,20 +894,21 @@ export async function handleAuthCommand(args: string[]): Promise<void> {
   );
 }
 
-async function handleAuthWhatsAppCommand(args: string[]): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
+async function handleAuthWhatsAppCommand(
+  normalizedArgs: string[],
+): Promise<void> {
+  if (normalizedArgs.length === 0 || isHelpRequest(normalizedArgs)) {
     printWhatsAppUsage();
     return;
   }
 
-  const sub = normalized[0].toLowerCase();
+  const sub = normalizedArgs[0].toLowerCase();
   if (sub !== 'reset') {
     throw new Error(
       `Unknown auth whatsapp subcommand: ${sub}. Use \`hybridclaw auth whatsapp reset\`.`,
     );
   }
-  if (normalized.length > 1) {
+  if (normalizedArgs.length > 1) {
     throw new Error(
       'Unexpected arguments for `hybridclaw auth whatsapp reset`.',
     );
@@ -968,20 +965,19 @@ async function dispatchProviderAction(
 }
 
 async function handleProviderActionCommand(
-  args: string[],
+  normalizedArgs: string[],
   commandName: string,
   action: ProviderAction,
 ): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
+  if (normalizedArgs.length === 0 || isHelpRequest(normalizedArgs)) {
     printAuthUsage();
     return;
   }
 
-  const parsed = parseUnifiedProviderArgs(normalized);
+  const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalized[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
     );
   }
   if (parsed.remaining.length > 0) {
