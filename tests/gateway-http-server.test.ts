@@ -313,7 +313,7 @@ async function importFreshHealth(options?: {
   }
 
   const installRoot = options?.docsDir || makeTempDocsDir();
-  const dataDir = options?.dataDir || makeTempDataDir();
+  const dataDir = options?.dataDir ?? makeTempDataDir();
   let handler:
     | ((
         req: Parameters<Parameters<typeof createServer>[0]>[0],
@@ -2277,6 +2277,28 @@ describe('gateway HTTP server', () => {
     expect(fs.readFileSync(storedPath, 'utf8')).toBe('png-bytes');
   });
 
+  test('starts with an empty DATA_DIR and returns 503 for media uploads', async () => {
+    const state = await importFreshHealth({ dataDir: '' });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        'content-type': 'image/png',
+        'x-hybridclaw-filename': encodeURIComponent('Screen Shot.png'),
+      },
+      body: Buffer.from('png-bytes'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(503);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Uploaded media cache unavailable.',
+    });
+  });
+
   test('requires reviewedBy for adaptive skill amendment review actions', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -2741,6 +2763,26 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['Content-Type']).toBe('image/png');
     expect(res.body).toBe('image payload');
+  });
+
+  test('returns 503 for uploaded-media-cache artifacts when DATA_DIR is empty', async () => {
+    const state = await importFreshHealth({
+      dataDir: '',
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: `/api/artifact?path=${encodeURIComponent('/uploaded-media-cache/2026-03-24/1710000000000-abcd-upload.png')}&token=web-token`,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(503);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Uploaded media cache unavailable.',
+    });
   });
 
   test('forces active artifact types to download with defensive headers', async () => {

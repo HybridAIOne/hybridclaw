@@ -108,7 +108,6 @@ const AGENT_ARTIFACT_ROOT = path.resolve(path.join(DATA_DIR, 'agents'));
 const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );
-const UPLOADED_MEDIA_CACHE_DIR = resolveUploadedMediaCacheHostDir();
 const MAX_REQUEST_BYTES = 1_000_000; // 1MB
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
@@ -462,19 +461,48 @@ function resolveDisplayPathAlias(
   return relative ? path.resolve(hostRoot, relative) : path.resolve(hostRoot);
 }
 
+function matchesDisplayPathAlias(rawPath: string, displayRoot: string): boolean {
+  const normalized = rawPath.replace(/\\/g, '/').trim();
+  const cleanDisplayRoot = displayRoot.replace(/\/+$/, '');
+  return (
+    normalized === cleanDisplayRoot ||
+    normalized.startsWith(`${cleanDisplayRoot}/`)
+  );
+}
+
+function getUploadedMediaCacheDirOrNull(): string | null {
+  try {
+    return resolveUploadedMediaCacheHostDir();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === 'uploaded_media_cache_dir_unavailable'
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 function resolveArtifactRequestPath(rawPath: string): string | null {
   const trimmed = rawPath.trim();
   if (!trimmed) return null;
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
+  if (matchesDisplayPathAlias(trimmed, UPLOADED_MEDIA_CACHE_ROOT_DISPLAY)) {
+    if (!uploadedMediaCacheDir) {
+      throw new HttpRequestError(503, 'Uploaded media cache unavailable.');
+    }
+    return resolveDisplayPathAlias(
+      trimmed,
+      UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
+      uploadedMediaCacheDir,
+    );
+  }
   return (
     resolveDisplayPathAlias(
       trimmed,
       '/discord-media-cache',
       DISCORD_MEDIA_CACHE_DIR,
-    ) ||
-    resolveDisplayPathAlias(
-      trimmed,
-      UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
-      UPLOADED_MEDIA_CACHE_DIR,
     ) ||
     path.resolve(trimmed)
   );
@@ -485,6 +513,7 @@ function resolveArtifactFile(url: URL): string | null {
   if (!raw) return null;
   const resolved = resolveArtifactRequestPath(raw);
   if (!resolved) return null;
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
   let realFilePath: string;
   try {
     realFilePath = fs.realpathSync(resolved);
@@ -500,9 +529,12 @@ function resolveArtifactFile(url: URL): string | null {
       realFilePath,
       resolvePathForContainmentCheck(DISCORD_MEDIA_CACHE_DIR),
     ) &&
-    !isWithinRoot(
-      realFilePath,
-      resolvePathForContainmentCheck(UPLOADED_MEDIA_CACHE_DIR),
+    !(
+      uploadedMediaCacheDir &&
+      isWithinRoot(
+        realFilePath,
+        resolvePathForContainmentCheck(uploadedMediaCacheDir),
+      )
     )
   ) {
     return null;
@@ -721,11 +753,23 @@ async function handleApiMediaUpload(
   const mimeType =
     normalizeMimeType(normalizeHeaderValue(req.headers['content-type'])) ||
     'application/octet-stream';
-  const stored = await writeUploadedMediaCacheFile({
-    attachmentName: decodedFilename,
-    buffer,
-    mimeType,
-  });
+  let stored: Awaited<ReturnType<typeof writeUploadedMediaCacheFile>>;
+  try {
+    stored = await writeUploadedMediaCacheFile({
+      attachmentName: decodedFilename,
+      buffer,
+      mimeType,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === 'uploaded_media_cache_dir_unavailable'
+    ) {
+      sendJson(res, 503, { error: 'Uploaded media cache unavailable.' });
+      return;
+    }
+    throw error;
+  }
   const artifactUrl = `/api/artifact?path=${encodeURIComponent(stored.runtimePath)}`;
 
   sendJson(res, 200, {
@@ -1749,7 +1793,17 @@ export function startGatewayHttpServer(): void {
         return;
       }
       if (pathname === '/api/artifact' && method === 'GET') {
-        handleApiArtifact(req, res, url);
+        try {
+          handleApiArtifact(req, res, url);
+        } catch (err) {
+          const errorText = err instanceof Error ? err.message : String(err);
+          const statusCode =
+            err instanceof HttpRequestError ||
+            err instanceof GatewayRequestError
+              ? err.statusCode
+              : 500;
+          sendJson(res, statusCode, { error: errorText });
+        }
         return;
       }
 
