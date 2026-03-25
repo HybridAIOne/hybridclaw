@@ -1,5 +1,15 @@
 import { useAuth } from '../auth';
-import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
+import {
+  Banner,
+  BooleanPill,
+  EmptyState,
+  KeyValueGrid,
+  KeyValueItem,
+  ListRow,
+  MetricCard,
+  PageHeader,
+  Panel,
+} from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
 import {
   formatDateTime,
@@ -17,7 +27,7 @@ export function GatewayPage() {
   const schedulerJobs = status?.scheduler?.jobs || [];
 
   if (!status) {
-    return <div className="empty-state">Gateway status is unavailable.</div>;
+    return <EmptyState>Gateway status is unavailable.</EmptyState>;
   }
 
   return (
@@ -63,94 +73,99 @@ export function GatewayPage() {
 
       <div className="two-column-grid">
         <Panel title="Runtime">
-          <div className="key-value-grid">
-            <div>
-              <span>Version</span>
-              <strong>{status.version}</strong>
-            </div>
-            <div>
-              <span>PID</span>
-              <strong>{status.pid ?? 'n/a'}</strong>
-            </div>
-            <div>
-              <span>Timestamp</span>
-              <strong>{formatDateTime(status.timestamp)}</strong>
-            </div>
-            <div>
-              <span>Default model</span>
-              <strong>{status.defaultModel}</strong>
-            </div>
-            <div>
-              <span>Web API auth</span>
-              <BooleanPill
-                value={status.webAuthConfigured}
-                trueLabel="on"
-                falseLabel="off"
-              />
-            </div>
-            <div>
-              <span>RAG default</span>
-              <BooleanPill
-                value={status.ragDefault}
-                trueLabel="on"
-                falseLabel="off"
-              />
-            </div>
-          </div>
+          <KeyValueGrid>
+            <KeyValueItem label="Version" value={status.version} />
+            <KeyValueItem label="PID" value={status.pid ?? 'n/a'} />
+            <KeyValueItem
+              label="Timestamp"
+              value={formatDateTime(status.timestamp)}
+            />
+            <KeyValueItem
+              label="Default model"
+              value={status.defaultModel}
+            />
+            <KeyValueItem
+              label="Web API auth"
+              value={
+                <BooleanPill
+                  value={status.webAuthConfigured}
+                  trueLabel="on"
+                  falseLabel="off"
+                />
+              }
+            />
+            <KeyValueItem
+              label="RAG default"
+              value={
+                <BooleanPill
+                  value={status.ragDefault}
+                  trueLabel="on"
+                  falseLabel="off"
+                />
+              }
+            />
+          </KeyValueGrid>
         </Panel>
 
         <Panel title="Services" accent="warm">
-          <div className="key-value-grid">
-            <div>
-              <span>Sandbox mode</span>
-              <strong>{status.sandbox?.mode || 'unknown'}</strong>
-            </div>
-            <div>
-              <span>Sandbox sessions</span>
-              <strong>
-                {status.sandbox?.activeSessions ?? status.activeContainers}
-              </strong>
-            </div>
-            <div>
-              <span>Codex auth</span>
-              <BooleanPill
-                value={Boolean(
-                  status.codex?.authenticated && !status.codex?.reloginRequired,
-                )}
-                trueLabel="active"
-                falseLabel="inactive"
-              />
-            </div>
-            <div>
-              <span>Codex source</span>
-              <strong>{status.codex?.source || 'none'}</strong>
-            </div>
-            <div>
-              <span>Observability</span>
-              <BooleanPill
-                value={Boolean(
-                  status.observability?.enabled &&
-                    status.observability?.running,
-                )}
-                trueLabel="active"
-                falseLabel="inactive"
-              />
-            </div>
-            <div>
-              <span>Last observability success</span>
-              <strong>
-                {formatDateTime(status.observability?.lastSuccessAt || null)}
-              </strong>
-            </div>
-          </div>
+          <KeyValueGrid>
+            <KeyValueItem
+              label="Sandbox mode"
+              value={status.sandbox?.mode || 'unknown'}
+            />
+            <KeyValueItem
+              label="Sandbox sessions"
+              value={
+                status.sandbox?.activeSessions ?? status.activeContainers
+              }
+            />
+            <KeyValueItem
+              label="Codex auth"
+              value={
+                <BooleanPill
+                  value={Boolean(
+                    status.codex?.authenticated &&
+                      !status.codex?.reloginRequired,
+                  )}
+                  trueLabel="active"
+                  falseLabel="inactive"
+                />
+              }
+            />
+            <KeyValueItem
+              label="Codex source"
+              value={status.codex?.source || 'none'}
+            />
+            <KeyValueItem
+              label="Observability"
+              value={
+                <BooleanPill
+                  value={Boolean(
+                    status.observability?.enabled &&
+                      status.observability?.running,
+                  )}
+                  trueLabel="active"
+                  falseLabel="inactive"
+                />
+              }
+            />
+            <KeyValueItem
+              label="Last observability success"
+              value={formatDateTime(
+                status.observability?.lastSuccessAt || null,
+              )}
+            />
+          </KeyValueGrid>
           {status.sandbox?.warning ? (
-            <p className="error-banner">{status.sandbox.warning}</p>
+            <Banner variant="error">{status.sandbox.warning}</Banner>
           ) : null}
           {status.codex?.reloginRequired ? (
-            <p className="error-banner">Codex login is required again.</p>
+            <Banner variant="error">Codex login is required again.</Banner>
           ) : null}
           {status.observability?.lastError ? (
-            <p className="error-banner">{status.observability.lastError}</p>
+            <Banner variant="error">
+              {status.observability.lastError}
+            </Banner>
           ) : null}
         </Panel>
       </div>
@@ -158,31 +173,30 @@ export function GatewayPage() {
       <div className="two-column-grid">
         <Panel title="Provider health">
           {providerEntries.length === 0 ? (
-            <div className="empty-state">
-              No provider health data is available.
-            </div>
+            <EmptyState>No provider health data is available.</EmptyState>
           ) : (
             <div className="list-stack">
               {providerEntries.map(([name, provider]) => (
-                <div className="list-row" key={name}>
-                  <div>
-                    <strong>{name}</strong>
-                    <small>
-                      {provider.detail ||
-                        (provider.reachable
-                          ? `${provider.latencyMs ?? 0}ms`
-                          : provider.error || 'unreachable')}
-                    </small>
-                  </div>
-                  <div className="row-status-stack">
-                    <BooleanPill
-                      value={provider.reachable}
-                      trueLabel="healthy"
-                      falseLabel="down"
-                    />
-                    <small>{provider.modelCount ?? 0} models</small>
-                  </div>
-                </div>
+                <ListRow
+                  key={name}
+                  title={name}
+                  meta={
+                    provider.detail ||
+                    (provider.reachable
+                      ? `${provider.latencyMs ?? 0}ms`
+                      : provider.error || 'unreachable')
+                  }
+                  status={
+                    <div className="row-status-stack">
+                      <BooleanPill
+                        value={provider.reachable}
+                        trueLabel="healthy"
+                        falseLabel="down"
+                      />
+                      <small>{provider.modelCount ?? 0} models</small>
+                    </div>
+                  }
+                />
               ))}
             </div>
           )}
@@ -190,28 +204,29 @@ export function GatewayPage() {
 
         <Panel title="Scheduler snapshot" accent="warm">
           {schedulerJobs.length === 0 ? (
-            <div className="empty-state">No scheduler jobs are registered.</div>
+            <EmptyState>No scheduler jobs are registered.</EmptyState>
           ) : (
             <div className="list-stack">
               {schedulerJobs.slice(0, 8).map((job) => (
-                <div className="list-row" key={job.id}>
-                  <div>
-                    <strong>{job.name}</strong>
-                    <small>
-                      {job.nextRunAt
-                        ? `next ${formatDateTime(job.nextRunAt)}`
-                        : 'no next run scheduled'}
-                    </small>
-                  </div>
-                  <div className="row-status-stack">
-                    <BooleanPill
-                      value={job.enabled && !job.disabled}
-                      trueLabel="active"
-                      falseLabel="inactive"
-                    />
-                    <small>{job.lastStatus || 'ready'}</small>
-                  </div>
-                </div>
+                <ListRow
+                  key={job.id}
+                  title={job.name}
+                  meta={
+                    job.nextRunAt
+                      ? `next ${formatDateTime(job.nextRunAt)}`
+                      : 'no next run scheduled'
+                  }
+                  status={
+                    <div className="row-status-stack">
+                      <BooleanPill
+                        value={job.enabled && !job.disabled}
+                        trueLabel="active"
+                        falseLabel="inactive"
+                      />
+                      <small>{job.lastStatus || 'ready'}</small>
+                    </div>
+                  }
+                />
               ))}
             </div>
           )}

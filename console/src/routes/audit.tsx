@@ -2,7 +2,15 @@ import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useState } from 'react';
 import { fetchAudit } from '../api/client';
 import { useAuth } from '../auth';
-import { PageHeader, Panel } from '../components/ui';
+import {
+  EmptyState,
+  FormField,
+  KeyValueGrid,
+  KeyValueItem,
+  PageHeader,
+  Panel,
+  SelectableRow,
+} from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
 function prettifyPayload(raw: string): string {
@@ -58,31 +66,28 @@ export function AuditPage() {
 
       <Panel title="Filters">
         <div className="field-grid">
-          <label className="field">
-            <span>Search</span>
+          <FormField label="Search">
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="approval, tool, error"
             />
-          </label>
-          <label className="field">
-            <span>Session ID</span>
+          </FormField>
+          <FormField label="Session ID">
             <input
               value={sessionId}
               onChange={(event) => setSessionId(event.target.value)}
               placeholder="web:default"
             />
-          </label>
+          </FormField>
         </div>
-        <label className="field">
-          <span>Event type</span>
+        <FormField label="Event type">
           <input
             value={eventType}
             onChange={(event) => setEventType(event.target.value)}
             placeholder="approval.response"
           />
-        </label>
+        </FormField>
       </Panel>
 
       <div className="two-column-grid">
@@ -91,18 +96,13 @@ export function AuditPage() {
           subtitle={`${auditQuery.data?.entries.length || 0} matching event${auditQuery.data?.entries.length === 1 ? '' : 's'}`}
         >
           {auditQuery.isLoading ? (
-            <div className="empty-state">Loading audit entries...</div>
+            <EmptyState>Loading audit entries...</EmptyState>
           ) : auditQuery.data?.entries.length ? (
             <div className="list-stack selectable-list">
               {auditQuery.data.entries.map((entry) => (
-                <button
+                <SelectableRow
                   key={entry.id}
-                  className={
-                    entry.id === selectedEntry?.id
-                      ? 'selectable-row active'
-                      : 'selectable-row'
-                  }
-                  type="button"
+                  active={entry.id === selectedEntry?.id}
                   onClick={() => setSelectedId(entry.id)}
                 >
                   <div>
@@ -112,49 +112,39 @@ export function AuditPage() {
                     </small>
                   </div>
                   <span>#{entry.id}</span>
-                </button>
+                </SelectableRow>
               ))}
             </div>
           ) : (
-            <div className="empty-state">
-              No audit entries match these filters.
-            </div>
+            <EmptyState>No audit entries match these filters.</EmptyState>
           )}
         </Panel>
 
         <Panel title="Inspection" accent="warm">
           {!selectedEntry ? (
-            <div className="empty-state">
-              Select an audit event to inspect it.
-            </div>
+            <EmptyState>Select an audit event to inspect it.</EmptyState>
           ) : (
             <div className="detail-stack">
-              <div className="key-value-grid">
-                <div>
-                  <span>Event type</span>
-                  <strong>{selectedEntry.eventType}</strong>
-                </div>
-                <div>
-                  <span>Session</span>
-                  <strong>{selectedEntry.sessionId}</strong>
-                </div>
-                <div>
-                  <span>Timestamp</span>
-                  <strong>{formatDateTime(selectedEntry.timestamp)}</strong>
-                </div>
-                <div>
-                  <span>Run ID</span>
-                  <strong>{selectedEntry.runId}</strong>
-                </div>
-                <div>
-                  <span>Seq</span>
-                  <strong>{selectedEntry.seq}</strong>
-                </div>
-                <div>
-                  <span>Parent run</span>
-                  <strong>{selectedEntry.parentRunId || 'none'}</strong>
-                </div>
-              </div>
+              <KeyValueGrid>
+                <KeyValueItem
+                  label="Event type"
+                  value={selectedEntry.eventType}
+                />
+                <KeyValueItem
+                  label="Session"
+                  value={selectedEntry.sessionId}
+                />
+                <KeyValueItem
+                  label="Timestamp"
+                  value={formatDateTime(selectedEntry.timestamp)}
+                />
+                <KeyValueItem label="Run ID" value={selectedEntry.runId} />
+                <KeyValueItem label="Seq" value={selectedEntry.seq} />
+                <KeyValueItem
+                  label="Parent run"
+                  value={selectedEntry.parentRunId || 'none'}
+                />
+              </KeyValueGrid>
               <div className="summary-block">
                 <span>Payload</span>
                 <pre className="payload-block">

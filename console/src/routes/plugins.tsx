@@ -3,7 +3,13 @@ import { useDeferredValue, useState } from 'react';
 import { fetchPlugins } from '../api/client';
 import type { AdminPlugin } from '../api/types';
 import { useAuth } from '../auth';
-import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
+import {
+  BooleanPill,
+  EmptyState,
+  MetricCard,
+  PageHeader,
+  Panel,
+} from '../components/ui';
 
 function formatList(values: string[]): string {
   return values.length > 0 ? values.join(', ') : 'none';
@@ -87,9 +93,9 @@ export function PluginsPage() {
           subtitle={`${plugins.length} plugin${plugins.length === 1 ? '' : 's'} visible`}
         >
           {pluginsQuery.isLoading ? (
-            <div className="empty-state">Loading plugins...</div>
+            <EmptyState>Loading plugins...</EmptyState>
           ) : plugins.length === 0 ? (
-            <div className="empty-state">No plugins match this filter.</div>
+            <EmptyState>No plugins match this filter.</EmptyState>
           ) : (
             <div className="table-shell">
               <table>
@@ -155,7 +161,7 @@ export function PluginsPage() {
 
         <Panel title="Failures" accent="warm">
           {pluginsQuery.isLoading ? (
-            <div className="empty-state">Loading plugin status...</div>
+            <EmptyState>Loading plugin status...</EmptyState>
           ) : failedPlugins.length > 0 ? (
             <div className="list-stack selectable-list">
               {failedPlugins.map((plugin) => (
@@ -178,9 +184,7 @@ export function PluginsPage() {
               ))}
             </div>
           ) : (
-            <div className="empty-state">
-              No plugin load failures were reported.
-            </div>
+            <EmptyState>No plugin load failures were reported.</EmptyState>
           )}
         </Panel>
       </div>

@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+/*
+ * `@theme inline` substitutes these values directly into each generated
+ * utility class instead of emitting them as separate --color-* custom
+ * properties on :root. Required here because the values reference runtime
+ * :root variables (e.g. --page-bg) that must appear in the utility
+ * declarations themselves.
+ */
+@theme inline {
+  --color-page-bg: var(--page-bg);
+  --color-sidebar-bg: var(--sidebar-bg);
+  --color-panel: var(--panel-bg);
+  --color-panel-muted: var(--panel-muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-foreground: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-border: var(--danger-border);
+  --color-success-border: var(--success-border);
+}
+
+/* Static values — no var() refs, so plain @theme lets Tailwind tree-shake unused utilities */
+@theme {
+  --radius-lg: 14px;
+  --radius-md: 10px;
+  --radius-sm: 8px;
+  --font-sans: system-ui, ui-sans-serif, -apple-system, BlinkMacSystemFont, Inter, NotoSansHans, sans-serif;
+}

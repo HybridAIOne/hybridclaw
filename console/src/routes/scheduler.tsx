@@ -8,7 +8,19 @@ import {
 } from '../api/client';
 import type { AdminSchedulerJob, AdminSchedulerResponse } from '../api/types';
 import { useAuth } from '../auth';
-import { BooleanField, BooleanPill, PageHeader, Panel } from '../components/ui';
+import {
+  Banner,
+  BooleanField,
+  BooleanPill,
+  Button,
+  EmptyState,
+  FormField,
+  KeyValueGrid,
+  KeyValueItem,
+  PageHeader,
+  Panel,
+  SelectableRow,
+} from '../components/ui';
 import { formatDateTime } from '../lib/format';
 
 interface SchedulerDraft {
@@ -163,54 +175,54 @@ function SchedulerTaskDetail(props: {
   return (
     <Panel title="Task" accent="warm">
       <div className="stack-form">
-        <div className="key-value-grid">
-          <div>
-            <span>Task</span>
-            <strong>#{props.job.taskId ?? 'n/a'}</strong>
-          </div>
-          <div>
-            <span>State</span>
-            <BooleanPill
-              value={props.job.enabled && !props.job.disabled}
-              trueLabel="active"
-              falseLabel="inactive"
-            />
-          </div>
-          <div>
-            <span>Session</span>
-            <strong>{props.job.sessionId || 'n/a'}</strong>
-          </div>
-          <div>
-            <span>Channel</span>
-            <strong>{props.job.channelId || 'n/a'}</strong>
-          </div>
-          <div>
-            <span>Created</span>
-            <strong>{formatDateTime(props.job.createdAt)}</strong>
-          </div>
-          <div>
-            <span>Next run</span>
-            <strong>{formatDateTime(props.job.nextRunAt)}</strong>
-          </div>
-          <div>
-            <span>Last run</span>
-            <strong>{formatDateTime(props.job.lastRun)}</strong>
-          </div>
-          <div>
-            <span>Last status</span>
-            <strong>{props.job.lastStatus || 'n/a'}</strong>
-          </div>
-        </div>
+        <KeyValueGrid>
+          <KeyValueItem
+            label="Task"
+            value={`#${props.job.taskId ?? 'n/a'}`}
+          />
+          <KeyValueItem
+            label="State"
+            value={
+              <BooleanPill
+                value={props.job.enabled && !props.job.disabled}
+                trueLabel="active"
+                falseLabel="inactive"
+              />
+            }
+          />
+          <KeyValueItem
+            label="Session"
+            value={props.job.sessionId || 'n/a'}
+          />
+          <KeyValueItem
+            label="Channel"
+            value={props.job.channelId || 'n/a'}
+          />
+          <KeyValueItem
+            label="Created"
+            value={formatDateTime(props.job.createdAt)}
+          />
+          <KeyValueItem
+            label="Next run"
+            value={formatDateTime(props.job.nextRunAt)}
+          />
+          <KeyValueItem
+            label="Last run"
+            value={formatDateTime(props.job.lastRun)}
+          />
+          <KeyValueItem
+            label="Last status"
+            value={props.job.lastStatus || 'n/a'}
+          />
+        </KeyValueGrid>
 
-        <label className="field">
-          <span>Message</span>
+        <FormField label="Message">
           <textarea readOnly rows={6} value={props.job.action.message} />
-        </label>
+        </FormField>
 
         <div className="button-row">
-          <button
-            className="ghost-button"
-            type="button"
+          <Button
+            variant="ghost"
             disabled={props.pausePending}
             onClick={props.onPauseToggle}
           >
@@ -219,22 +231,21 @@ function SchedulerTaskDetail(props: {
               : props.job.disabled
                 ? 'Resume task'
                 : 'Pause task'}
-          </button>
-          <button
-            className="danger-button"
-            type="button"
+          </Button>
+          <Button
+            variant="danger"
             disabled={props.deletePending}
             onClick={props.onDelete}
           >
             {props.deletePending ? 'Deleting...' : 'Delete task'}
-          </button>
+          </Button>
         </div>
 
         {props.pauseError ? (
-          <p className="error-banner">{props.pauseError.message}</p>
+          <Banner variant="error">{props.pauseError.message}</Banner>
         ) : null}
         {props.deleteError ? (
-          <p className="error-banner">{props.deleteError.message}</p>
+          <Banner variant="error">{props.deleteError.message}</Banner>
         ) : null}
       </div>
     </Panel>
@@ -262,8 +273,7 @@ function SchedulerJobEditor(props: {
     <Panel title="Job" accent="warm">
       <div className="stack-form">
         <div className="field-grid">
-          <label className="field">
-            <span>ID</span>
+          <FormField label="ID">
             <input
               value={draft.id}
               onChange={(event) =>
@@ -274,9 +284,8 @@ function SchedulerJobEditor(props: {
               }
               placeholder="nightly-research"
             />
-          </label>
-          <label className="field">
-            <span>Name</span>
+          </FormField>
+          <FormField label="Name">
             <input
               value={draft.name}
               onChange={(event) =>
@@ -287,11 +296,10 @@ function SchedulerJobEditor(props: {
               }
               placeholder="Nightly research"
             />
-          </label>
+          </FormField>
         </div>
 
-        <label className="field">
-          <span>Description</span>
+        <FormField label="Description">
           <input
             value={draft.description}
             onChange={(event) =>
@@ -302,7 +310,7 @@ function SchedulerJobEditor(props: {
             }
             placeholder="Optional"
           />
-        </label>
+        </FormField>
 
         <BooleanField
           label="State"
@@ -318,8 +326,7 @@ function SchedulerJobEditor(props: {
         />
 
         <div className="field-grid">
-          <label className="field">
-            <span>Schedule</span>
+          <FormField label="Schedule">
             <select
               value={draft.scheduleKind}
               onChange={(event) =>
@@ -334,9 +341,8 @@ function SchedulerJobEditor(props: {
               <option value="every">every</option>
               <option value="at">at</option>
             </select>
-          </label>
-          <label className="field">
-            <span>Timezone</span>
+          </FormField>
+          <FormField label="Timezone">
             <input
               value={draft.scheduleTz}
               onChange={(event) =>
@@ -347,12 +353,11 @@ function SchedulerJobEditor(props: {
               }
               placeholder="Europe/Berlin"
             />
-          </label>
+          </FormField>
         </div>
 
         {draft.scheduleKind === 'cron' ? (
-          <label className="field">
-            <span>Cron</span>
+          <FormField label="Cron">
             <input
               value={draft.scheduleExpr}
               onChange={(event) =>
@@ -363,12 +368,11 @@ function SchedulerJobEditor(props: {
               }
               placeholder="0 * * * *"
             />
-          </label>
+          </FormField>
         ) : null}
 
         {draft.scheduleKind === 'every' ? (
-          <label className="field">
-            <span>Every ms</span>
+          <FormField label="Every ms">
             <input
               value={draft.scheduleEveryMs}
               onChange={(event) =>
@@ -379,12 +383,11 @@ function SchedulerJobEditor(props: {
               }
               placeholder="60000"
             />
-          </label>
+          </FormField>
         ) : null}
 
         {draft.scheduleKind === 'at' ? (
-          <label className="field">
-            <span>Run at</span>
+          <FormField label="Run at">
             <input
               type="datetime-local"
               value={draft.scheduleAt}
@@ -395,12 +398,11 @@ function SchedulerJobEditor(props: {
                 }))
               }
             />
-          </label>
+          </FormField>
         ) : null}
 
         <div className="field-grid">
-          <label className="field">
-            <span>Action</span>
+          <FormField label="Action">
             <select
               value={draft.actionKind}
               onChange={(event) =>
@@ -414,9 +416,8 @@ function SchedulerJobEditor(props: {
               <option value="agent_turn">agent_turn</option>
               <option value="system_event">system_event</option>
             </select>
-          </label>
-          <label className="field">
-            <span>Delivery</span>
+          </FormField>
+          <FormField label="Delivery">
             <select
               value={draft.deliveryKind}
               onChange={(event) =>
@@ -431,11 +432,10 @@ function SchedulerJobEditor(props: {
               <option value="last-channel">last-channel</option>
               <option value="webhook">webhook</option>
             </select>
-          </label>
+          </FormField>
         </div>
 
-        <label className="field">
-          <span>Message</span>
+        <FormField label="Message">
           <textarea
             rows={4}
             value={draft.actionMessage}
@@ -447,12 +447,11 @@ function SchedulerJobEditor(props: {
             }
             placeholder="Prompt or system-event message"
           />
-        </label>
+        </FormField>
 
         {draft.deliveryKind === 'channel' ? (
           <div className="field-grid">
-            <label className="field">
-              <span>Channel type</span>
+            <FormField label="Channel type">
               <input
                 value={draft.deliveryChannel}
                 onChange={(event) =>
@@ -463,9 +462,8 @@ function SchedulerJobEditor(props: {
                 }
                 placeholder="discord"
               />
-            </label>
-            <label className="field">
-              <span>Channel ID</span>
+            </FormField>
+            <FormField label="Channel ID">
               <input
                 value={draft.deliveryTo}
                 onChange={(event) =>
@@ -476,13 +474,12 @@ function SchedulerJobEditor(props: {
                 }
                 placeholder="1234567890"
               />
-            </label>
+            </FormField>
           </div>
         ) : null}
 
         {draft.deliveryKind === 'webhook' ? (
-          <label className="field">
-            <span>Webhook URL</span>
+          <FormField label="Webhook URL">
             <input
               value={draft.deliveryWebhookUrl}
               onChange={(event) =>
@@ -493,43 +490,41 @@ function SchedulerJobEditor(props: {
               }
               placeholder="https://example.test/hook"
             />
-          </label>
+          </FormField>
         ) : null}
 
         {selectedJob ? (
-          <div className="key-value-grid">
-            <div>
-              <span>Next run</span>
-              <strong>{formatDateTime(selectedJob.nextRunAt)}</strong>
-            </div>
-            <div>
-              <span>Last run</span>
-              <strong>{formatDateTime(selectedJob.lastRun)}</strong>
-            </div>
-            <div>
-              <span>Last status</span>
-              <strong>{selectedJob.lastStatus || 'n/a'}</strong>
-            </div>
-            <div>
-              <span>Errors</span>
-              <strong>{selectedJob.consecutiveErrors}</strong>
-            </div>
-          </div>
+          <KeyValueGrid>
+            <KeyValueItem
+              label="Next run"
+              value={formatDateTime(selectedJob.nextRunAt)}
+            />
+            <KeyValueItem
+              label="Last run"
+              value={formatDateTime(selectedJob.lastRun)}
+            />
+            <KeyValueItem
+              label="Last status"
+              value={selectedJob.lastStatus || 'n/a'}
+            />
+            <KeyValueItem
+              label="Errors"
+              value={selectedJob.consecutiveErrors}
+            />
+          </KeyValueGrid>
         ) : null}
 
         <div className="button-row">
-          <button
-            className="primary-button"
-            type="button"
+          <Button
+            variant="primary"
             disabled={props.savePending}
             onClick={props.onSave}
           >
             {props.savePending ? 'Saving...' : 'Save job'}
-          </button>
+          </Button>
           {selectedJob ? (
-            <button
-              className="ghost-button"
-              type="button"
+            <Button
+              variant="ghost"
               disabled={props.pausePending}
               onClick={props.onPauseToggle}
             >
@@ -538,36 +533,35 @@ function SchedulerJobEditor(props: {
                 : selectedJob.disabled
                   ? 'Resume job'
                   : 'Pause job'}
-            </button>
+            </Button>
           ) : null}
           {selectedJob ? (
-            <button
-              className="danger-button"
-              type="button"
+            <Button
+              variant="danger"
               disabled={props.deletePending}
               onClick={props.onDelete}
             >
               {props.deletePending ? 'Deleting...' : 'Delete job'}
-            </button>
+            </Button>
           ) : null}
         </div>
 
         {props.saveResult ? (
-          <p className="success-banner">
+          <Banner variant="success">
             Saved{' '}
             {props.saveResult.jobs.find((job) => job.id === draft.id)?.name ||
               draft.id}
             .
-          </p>
+          </Banner>
         ) : null}
         {props.saveError ? (
-          <p className="error-banner">{props.saveError.message}</p>
+          <Banner variant="error">{props.saveError.message}</Banner>
         ) : null}
         {props.pauseError ? (
-          <p className="error-banner">{props.pauseError.message}</p>
+          <Banner variant="error">{props.pauseError.message}</Banner>
         ) : null}
         {props.deleteError ? (
-          <p className="error-banner">{props.deleteError.message}</p>
+          <Banner variant="error">{props.deleteError.message}</Banner>
         ) : null}
       </div>
     </Panel>
@@ -669,16 +663,15 @@ export function SchedulerPage() {
       <PageHeader
         title="Scheduler"
         actions={
-          <button
-            className="ghost-button"
-            type="button"
+          <Button
+            variant="ghost"
             onClick={() => {
               setSelectedId(null);
               setDraft(createDraft());
             }}
           >
             New job
-          </button>
+          </Button>
         }
       />
 
@@ -688,18 +681,13 @@ export function SchedulerPage() {
           subtitle={`${schedulerQuery.data?.jobs.length || 0} item${schedulerQuery.data?.jobs.length === 1 ? '' : 's'}`}
         >
           {schedulerQuery.isLoading ? (
-            <div className="empty-state">Loading scheduler items...</div>
+            <EmptyState>Loading scheduler items...</EmptyState>
           ) : schedulerQuery.data?.jobs.length ? (
             <div className="list-stack selectable-list">
               {schedulerQuery.data.jobs.map((job) => (
-                <button
+                <SelectableRow
                   key={job.id}
-                  className={
-                    job.id === selectedId
-                      ? 'selectable-row active'
-                      : 'selectable-row'
-                  }
-                  type="button"
+                  active={job.id === selectedId}
                   onClick={() => setSelectedId(job.id)}
                 >
                   <div>
@@ -714,11 +702,11 @@ export function SchedulerPage() {
                     />
                     <small>{formatRuntimeState(job)}</small>
                   </div>
-                </button>
+                </SelectableRow>
               ))}
             </div>
           ) : (
-            <div className="empty-state">No scheduled work yet.</div>
+            <EmptyState>No scheduled work yet.</EmptyState>
           )}
         </Panel>
 
