@@ -27,6 +27,7 @@ function Button({
   return (
     <button
       data-slot="button"
+      type="button"
       className={cn(buttonVariants({ variant, className }))}
       {...props}
     />

@@ -1,10 +1,11 @@
 @import "tailwindcss";
 
 /*
- * Use `@theme inline` so that var() references to :root tokens are
- * embedded directly into each generated utility class. Without `inline`,
- * Tailwind resolves var() at definition-site (the @theme block) instead
- * of at usage-site (the utility class on the element).
+ * `@theme inline` substitutes these values directly into each generated
+ * utility class instead of emitting them as separate --color-* custom
+ * properties on :root. Required here because the values reference runtime
+ * :root variables (e.g. --page-bg) that must appear in the utility
+ * declarations themselves.
  */
 @theme inline {
   --color-page-bg: var(--page-bg);
@@ -21,10 +22,11 @@
   --color-success-soft: var(--success-soft);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
-  --color-danger-border: #fecaca;
-  --color-success-border: #bbf7d0;
+  --color-danger-border: var(--danger-border);
+  --color-success-border: var(--success-border);
 }
 
+/* Static values — no var() refs, so plain @theme lets Tailwind tree-shake unused utilities */
 @theme {
   --radius-lg: 14px;
   --radius-md: 10px;
