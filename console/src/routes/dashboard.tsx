@@ -1,7 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchOverview } from '../api/client';
 import { useAuth } from '../auth';
-import { MetricCard, PageHeader, Panel } from '../components/ui';
+import {
+  EmptyState,
+  ListRow,
+  MetricCard,
+  PageHeader,
+  Panel,
+} from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
 import {
   formatCompactNumber,
@@ -24,19 +30,19 @@ export function DashboardPage() {
   const status = live.status || overview?.status || auth.gatewayStatus;
 
   if (overviewQuery.isLoading && !overview) {
-    return <div className="empty-state">Loading overview...</div>;
+    return <EmptyState>Loading overview...</EmptyState>;
   }
 
   if (overviewQuery.isError && !overview) {
     return (
-      <div className="empty-state error">
+      <EmptyState variant="error">
         {(overviewQuery.error as Error).message}
-      </div>
+      </EmptyState>
     );
   }
 
   if (!overview || !status) {
-    return <div className="empty-state">Gateway overview unavailable.</div>;
+    return <EmptyState>Gateway overview unavailable.</EmptyState>;
   }
 
   const schedulerJobs = status.scheduler?.jobs.length || 0;
@@ -139,19 +145,20 @@ export function DashboardPage() {
               </p>
             ) : (
               overview.usage.topModels.map((row) => (
-                <div className="list-row" key={row.model}>
-                  <div>
-                    <strong>{row.model}</strong>
-                    <small>
+                <ListRow
+                  key={row.model}
+                  title={row.model}
+                  meta={
+                    <>
                       {formatTokenBreakdown({
                         inputTokens: row.totalInputTokens ?? 0,
                         outputTokens: row.totalOutputTokens ?? 0,
                       })}{' '}
                       · {row.callCount} calls this month
-                    </small>
-                  </div>
-                  <span>{formatUsd(row.totalCostUsd)}</span>
-                </div>
+                    </>
+                  }
+                  status={formatUsd(row.totalCostUsd)}
+                />
               ))
             )}
           </div>
@@ -160,18 +167,17 @@ export function DashboardPage() {
         <Panel title="Backend health">
           <div className="list-stack">
             {backendEntries.map(([name, backend]) => (
-              <div className="list-row" key={name}>
-                <div>
-                  <strong>{name}</strong>
-                  <small>
-                    {backend.detail ||
-                      (backend.reachable
-                        ? `${backend.latencyMs ?? 0}ms`
-                        : backend.error || 'unreachable')}
-                  </small>
-                </div>
-                <span>{backend.modelCount ?? 0} models</span>
-              </div>
+              <ListRow
+                key={name}
+                title={name}
+                meta={
+                  backend.detail ||
+                  (backend.reachable
+                    ? `${backend.latencyMs ?? 0}ms`
+                    : backend.error || 'unreachable')
+                }
+                status={`${backend.modelCount ?? 0} models`}
+              />
             ))}
             {backendEntries.length === 0 ? (
               <p className="supporting-text">

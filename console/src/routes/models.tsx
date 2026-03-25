@@ -2,7 +2,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { fetchModels, saveModels } from '../api/client';
 import { useAuth } from '../auth';
-import { PageHeader, Panel } from '../components/ui';
+import {
+  Banner,
+  Button,
+  EmptyState,
+  FormField,
+  ListRow,
+  PageHeader,
+  Panel,
+} from '../components/ui';
 import {
   formatCompactNumber,
   formatRelativeTime,
@@ -122,48 +130,48 @@ export function ModelsPage() {
         <Panel title="Provider status">
           <div className="list-stack">
             {providerEntries.map(([name, status]) => (
-              <div className="list-row" key={name}>
-                <div>
-                  <strong>{name}</strong>
-                  <small>
-                    {status?.reachable
-                      ? `${status.detail || (typeof status.latencyMs === 'number' ? `${status.latencyMs}ms` : 'ready')} · ${status.modelCount ?? 0} models`
-                      : status?.error || 'unreachable'}
-                  </small>
-                </div>
-                <span
-                  className={
-                    status?.reachable
-                      ? 'list-status list-status-success'
-                      : 'list-status list-status-danger'
-                  }
-                >
+              <ListRow
+                key={name}
+                title={name}
+                meta={
+                  status?.reachable
+                    ? `${status.detail || (typeof status.latencyMs === 'number' ? `${status.latencyMs}ms` : 'ready')} · ${status.modelCount ?? 0} models`
+                    : status?.error || 'unreachable'
+                }
+                status={
                   <span
                     className={
                       status?.reachable
-                        ? 'status-dot status-dot-success'
-                        : 'status-dot status-dot-danger'
+                        ? 'list-status list-status-success'
+                        : 'list-status list-status-danger'
                     }
-                  />
-                  {status?.reachable ? 'healthy' : 'down'}
-                </span>
-              </div>
+                  >
+                    <span
+                      className={
+                        status?.reachable
+                          ? 'status-dot status-dot-success'
+                          : 'status-dot status-dot-danger'
+                      }
+                    />
+                    {status?.reachable ? 'healthy' : 'down'}
+                  </span>
+                }
+              />
             ))}
             {providerEntries.length === 0 ? (
-              <div className="empty-state">
+              <EmptyState>
                 No provider health checks available.
-              </div>
+              </EmptyState>
             ) : null}
           </div>
         </Panel>
 
         <Panel title="Selection" accent="warm">
           {modelsQuery.isLoading ? (
-            <div className="empty-state">Loading model catalog...</div>
+            <EmptyState>Loading model catalog...</EmptyState>
           ) : (
             <div className="stack-form">
-              <label className="field">
-                <span>Default model</span>
+              <FormField label="Default model">
                 <select
                   value={draft.defaultModel}
                   onChange={(event) =>
@@ -180,10 +188,9 @@ export function ModelsPage() {
                     </option>
                   ))}
                 </select>
-              </label>
+              </FormField>
 
-              <label className="field">
-                <span>Configured HybridAI models</span>
+              <FormField label="Configured HybridAI models">
                 <textarea
                   rows={4}
                   value={draft.hybridaiModels}
@@ -195,10 +202,9 @@ export function ModelsPage() {
                   }
                   placeholder="One or more models, comma or newline separated"
                 />
-              </label>
+              </FormField>
 
-              <label className="field">
-                <span>Configured Codex models</span>
+              <FormField label="Configured Codex models">
                 <textarea
                   rows={4}
                   value={draft.codexModels}
@@ -210,28 +216,27 @@ export function ModelsPage() {
                   }
                   placeholder="One or more models, comma or newline separated"
                 />
-              </label>
+              </FormField>
 
               <div className="button-row">
-                <button
-                  className="primary-button"
-                  type="button"
+                <Button
+                  variant="primary"
                   disabled={saveMutation.isPending}
                   onClick={() => saveMutation.mutate()}
                 >
                   {saveMutation.isPending ? 'Saving...' : 'Save selection'}
-                </button>
+                </Button>
               </div>
 
               {saveMutation.isSuccess ? (
-                <p className="success-banner">
+                <Banner variant="success">
                   Default model is now {saveMutation.data.defaultModel}.
-                </p>
+                </Banner>
               ) : null}
               {saveMutation.isError ? (
-                <p className="error-banner">
+                <Banner variant="error">
                   {(saveMutation.error as Error).message}
-                </p>
+                </Banner>
               ) : null}
             </div>
           )}
@@ -243,7 +248,7 @@ export function ModelsPage() {
         subtitle={`${filteredModels.length} model${filteredModels.length === 1 ? '' : 's'} visible`}
       >
         {modelsQuery.isLoading ? (
-          <div className="empty-state">Loading model catalog...</div>
+          <EmptyState>Loading model catalog...</EmptyState>
         ) : (
           <div className="table-shell">
             <table>
@@ -314,9 +319,9 @@ export function ModelsPage() {
                 {filteredModels.length === 0 ? (
                   <tr>
                     <td colSpan={5}>
-                      <div className="empty-state">
+                      <EmptyState>
                         No models match this filter.
-                      </div>
+                      </EmptyState>
                     </td>
                   </tr>
                 ) : null}
@@ -339,19 +344,15 @@ export function ModelsPage() {
               )
               .slice(0, 6)
               .map((model) => (
-                <div className="list-row" key={`${model.id}-daily`}>
-                  <div>
-                    <strong>{model.id}</strong>
-                    <small>
-                      {formatTokenBreakdown({
-                        inputTokens: model.usageDaily.totalInputTokens ?? 0,
-                        outputTokens: model.usageDaily.totalOutputTokens ?? 0,
-                      })}{' '}
-                      · {model.usageDaily.callCount} calls today
-                    </small>
-                  </div>
-                  <span>{formatUsd(model.usageDaily.totalCostUsd ?? 0)}</span>
-                </div>
+                <ListRow
+                  key={`${model.id}-daily`}
+                  title={model.id}
+                  meta={`${formatTokenBreakdown({
+                    inputTokens: model.usageDaily.totalInputTokens ?? 0,
+                    outputTokens: model.usageDaily.totalOutputTokens ?? 0,
+                  })} · ${model.usageDaily.callCount} calls today`}
+                  status={formatUsd(model.usageDaily.totalCostUsd ?? 0)}
+                />
               ))}
           </div>
         </Panel>

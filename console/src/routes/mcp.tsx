@@ -3,7 +3,17 @@ import { useEffect, useState } from 'react';
 import { deleteMcpServer, fetchMcp, saveMcpServer } from '../api/client';
 import type { AdminMcpConfig, AdminMcpServer } from '../api/types';
 import { useAuth } from '../auth';
-import { BooleanField, BooleanPill, PageHeader, Panel } from '../components/ui';
+import {
+  Banner,
+  BooleanField,
+  BooleanPill,
+  Button,
+  EmptyState,
+  FormField,
+  PageHeader,
+  Panel,
+  SelectableRow,
+} from '../components/ui';
 
 interface McpDraft {
   originalName: string | null;
@@ -143,16 +153,15 @@ export function McpPage() {
       <PageHeader
         title="MCP"
         actions={
-          <button
-            className="ghost-button"
-            type="button"
+          <Button
+            variant="ghost"
             onClick={() => {
               setSelectedName(null);
               setDraft(createDraft());
             }}
           >
             New server
-          </button>
+          </Button>
         }
       />
 
@@ -162,18 +171,13 @@ export function McpPage() {
           subtitle={`${mcpQuery.data?.servers.length || 0} configured server${mcpQuery.data?.servers.length === 1 ? '' : 's'}`}
         >
           {mcpQuery.isLoading ? (
-            <div className="empty-state">Loading MCP servers...</div>
+            <EmptyState>Loading MCP servers...</EmptyState>
           ) : mcpQuery.data?.servers.length ? (
             <div className="list-stack selectable-list">
               {mcpQuery.data.servers.map((server) => (
-                <button
+                <SelectableRow
                   key={server.name}
-                  className={
-                    server.name === selectedName
-                      ? 'selectable-row active'
-                      : 'selectable-row'
-                  }
-                  type="button"
+                  active={server.name === selectedName}
                   onClick={() => setSelectedName(server.name)}
                 >
                   <div>
@@ -185,21 +189,20 @@ export function McpPage() {
                     trueLabel="active"
                     falseLabel="inactive"
                   />
-                </button>
+                </SelectableRow>
               ))}
             </div>
           ) : (
-            <div className="empty-state">
+            <EmptyState>
               No MCP servers are configured yet.
-            </div>
+            </EmptyState>
           )}
         </Panel>
 
         <Panel title="Server editor" accent="warm">
           <div className="stack-form">
             <div className="field-grid">
-              <label className="field">
-                <span>Name</span>
+              <FormField label="Name">
                 <input
                   value={draft.name}
                   onChange={(event) =>
@@ -210,9 +213,8 @@ export function McpPage() {
                   }
                   placeholder="github"
                 />
-              </label>
-              <label className="field">
-                <span>Transport</span>
+              </FormField>
+              <FormField label="Transport">
                 <select
                   value={draft.transport}
                   onChange={(event) =>
@@ -226,7 +228,7 @@ export function McpPage() {
                   <option value="http">http</option>
                   <option value="sse">sse</option>
                 </select>
-              </label>
+              </FormField>
             </div>
 
             <BooleanField
@@ -244,8 +246,7 @@ export function McpPage() {
 
             {draft.transport === 'stdio' ? (
               <>
-                <label className="field">
-                  <span>Command</span>
+                <FormField label="Command">
                   <input
                     value={draft.command}
                     onChange={(event) =>
@@ -256,10 +257,9 @@ export function McpPage() {
                     }
                     placeholder="docker"
                   />
-                </label>
+                </FormField>
                 <div className="field-grid">
-                  <label className="field">
-                    <span>Arguments</span>
+                  <FormField label="Arguments">
                     <textarea
                       rows={4}
                       value={draft.args}
@@ -271,9 +271,8 @@ export function McpPage() {
                       }
                       placeholder="One argument per line"
                     />
-                  </label>
-                  <label className="field">
-                    <span>Working directory</span>
+                  </FormField>
+                  <FormField label="Working directory">
                     <input
                       value={draft.cwd}
                       onChange={(event) =>
@@ -284,10 +283,9 @@ export function McpPage() {
                       }
                       placeholder="/workspace"
                     />
-                  </label>
+                  </FormField>
                 </div>
-                <label className="field">
-                  <span>Environment JSON</span>
+                <FormField label="Environment JSON">
                   <textarea
                     rows={5}
                     value={draft.envJson}
@@ -299,12 +297,11 @@ export function McpPage() {
                     }
                     placeholder='{"GITHUB_TOKEN":"..."}'
                   />
-                </label>
+                </FormField>
               </>
             ) : (
               <>
-                <label className="field">
-                  <span>URL</span>
+                <FormField label="URL">
                   <input
                     value={draft.url}
                     onChange={(event) =>
@@ -315,9 +312,8 @@ export function McpPage() {
                     }
                     placeholder="https://example.test/mcp"
                   />
-                </label>
-                <label className="field">
-                  <span>Headers JSON</span>
+                </FormField>
+                <FormField label="Headers JSON">
                   <textarea
                     rows={5}
                     value={draft.headersJson}
@@ -329,28 +325,26 @@ export function McpPage() {
                     }
                     placeholder='{"Authorization":"Bearer ..."}'
                   />
-                </label>
+                </FormField>
               </>
             )}
 
             <div className="button-row">
-              <button
-                className="primary-button"
-                type="button"
+              <Button
+                variant="primary"
                 disabled={saveMutation.isPending}
                 onClick={() => saveMutation.mutate()}
               >
                 {saveMutation.isPending ? 'Saving...' : 'Save server'}
-              </button>
+              </Button>
               {selectedServer ? (
-                <button
-                  className="danger-button"
-                  type="button"
+                <Button
+                  variant="danger"
                   disabled={deleteMutation.isPending}
                   onClick={() => deleteMutation.mutate()}
                 >
                   {deleteMutation.isPending ? 'Deleting...' : 'Delete server'}
-                </button>
+                </Button>
               ) : null}
             </div>
 
@@ -362,19 +356,19 @@ export function McpPage() {
             ) : null}
 
             {saveMutation.isError ? (
-              <p className="error-banner">
+              <Banner variant="error">
                 {(saveMutation.error as Error).message}
-              </p>
+              </Banner>
             ) : null}
             {deleteMutation.isError ? (
-              <p className="error-banner">
+              <Banner variant="error">
                 {(deleteMutation.error as Error).message}
-              </p>
+              </Banner>
             ) : null}
             {saveMutation.isSuccess ? (
-              <p className="success-banner">
+              <Banner variant="success">
                 Saved MCP server {draft.name.trim()}.
-              </p>
+              </Banner>
             ) : null}
           </div>
         </Panel>

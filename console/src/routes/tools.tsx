@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useMemo, useState } from 'react';
 import { fetchTools } from '../api/client';
 import { useAuth } from '../auth';
-import { MetricCard, PageHeader, Panel } from '../components/ui';
+import { EmptyState, ListRow, MetricCard, PageHeader, Panel } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
 function ToolErrorPreview(props: {
@@ -126,9 +126,9 @@ export function ToolsPage() {
           subtitle={`${filteredToolCount} tool${filteredToolCount === 1 ? '' : 's'} visible`}
         >
           {toolsQuery.isLoading ? (
-            <div className="empty-state">Loading tool catalog...</div>
+            <EmptyState>Loading tool catalog...</EmptyState>
           ) : filteredToolCount === 0 ? (
-            <div className="empty-state">No tools match this filter.</div>
+            <EmptyState>No tools match this filter.</EmptyState>
           ) : (
             <div className="table-shell">
               <table>
@@ -167,47 +167,50 @@ export function ToolsPage() {
 
         <Panel title="Recent executions" accent="warm">
           {toolsQuery.isLoading ? (
-            <div className="empty-state">Loading recent executions...</div>
+            <EmptyState>Loading recent executions...</EmptyState>
           ) : toolsQuery.data?.recentExecutions.length ? (
             <div className="list-stack selectable-list">
               {toolsQuery.data.recentExecutions.map((execution) => (
-                <div className="list-row" key={execution.id}>
-                  <div>
-                    <strong>{execution.toolName}</strong>
-                    <small>
+                <ListRow
+                  key={execution.id}
+                  title={execution.toolName}
+                  meta={
+                    <>
                       {execution.sessionId} ·{' '}
                       {formatRelativeTime(execution.timestamp)}
                       {execution.durationMs == null
                         ? ''
                         : ` · ${execution.durationMs}ms`}
-                    </small>
-                    {execution.isError && execution.summary ? (
-                      <small>{execution.summary}</small>
-                    ) : null}
-                  </div>
-                  <span
-                    className={
-                      execution.isError
-                        ? 'list-status list-status-danger'
-                        : 'list-status list-status-success'
-                    }
-                  >
+                      {execution.isError && execution.summary
+                        ? ` — ${execution.summary}`
+                        : ''}
+                    </>
+                  }
+                  status={
                     <span
                       className={
                         execution.isError
-                          ? 'status-dot status-dot-danger'
-                          : 'status-dot status-dot-success'
+                          ? 'list-status list-status-danger'
+                          : 'list-status list-status-success'
                       }
-                    />
-                    {execution.isError ? 'error' : 'ok'}
-                  </span>
-                </div>
+                    >
+                      <span
+                        className={
+                          execution.isError
+                            ? 'status-dot status-dot-danger'
+                            : 'status-dot status-dot-success'
+                        }
+                      />
+                      {execution.isError ? 'error' : 'ok'}
+                    </span>
+                  }
+                />
               ))}
             </div>
           ) : (
-            <div className="empty-state">
+            <EmptyState>
               No recent tool executions were found in structured audit events.
-            </div>
+            </EmptyState>
           )}
         </Panel>
       </div>

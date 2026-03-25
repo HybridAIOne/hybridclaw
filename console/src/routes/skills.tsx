@@ -15,8 +15,13 @@ import type {
 } from '../api/types';
 import { useAuth } from '../auth';
 import {
+  Banner,
   BooleanPill,
   BooleanToggle,
+  Button,
+  EmptyState,
+  KeyValueGrid,
+  KeyValueItem,
   MetricCard,
   PageHeader,
   Panel,
@@ -204,24 +209,24 @@ export function SkillsPage() {
 
       <div className="two-column-grid">
         <Panel title="Discovery">
-          <div className="key-value-grid">
-            <div>
-              <span>Extra dirs</span>
-              <strong>
-                {skillsQuery.data?.extraDirs.length
+          <KeyValueGrid>
+            <KeyValueItem
+              label="Extra dirs"
+              value={
+                skillsQuery.data?.extraDirs.length
                   ? skillsQuery.data.extraDirs.join(', ')
-                  : 'none'}
-              </strong>
-            </div>
-            <div>
-              <span>Disabled skills</span>
-              <strong>
-                {skillsQuery.data?.disabled.length
+                  : 'none'
+              }
+            />
+            <KeyValueItem
+              label="Disabled skills"
+              value={
+                skillsQuery.data?.disabled.length
                   ? skillsQuery.data.disabled.join(', ')
-                  : 'none'}
-              </strong>
-            </div>
-          </div>
+                  : 'none'
+              }
+            />
+          </KeyValueGrid>
         </Panel>
 
         <Panel
@@ -234,30 +239,28 @@ export function SkillsPage() {
           accent="warm"
         >
           {selectedMetrics ? (
-            <div className="key-value-grid">
-              <div>
-                <span>Status</span>
-                <strong>
-                  {selectedMetrics.degraded ? 'degraded' : 'healthy'}
-                </strong>
-              </div>
-              <div>
-                <span>Executions</span>
-                <strong>{selectedMetrics.total_executions}</strong>
-              </div>
-              <div>
-                <span>Success rate</span>
-                <strong>{formatPercent(selectedMetrics.success_rate)}</strong>
-              </div>
-              <div>
-                <span>Feedback</span>
-                <strong>{formatFeedbackCounts(selectedMetrics)}</strong>
-              </div>
-            </div>
+            <KeyValueGrid>
+              <KeyValueItem
+                label="Status"
+                value={selectedMetrics.degraded ? 'degraded' : 'healthy'}
+              />
+              <KeyValueItem
+                label="Executions"
+                value={selectedMetrics.total_executions}
+              />
+              <KeyValueItem
+                label="Success rate"
+                value={formatPercent(selectedMetrics.success_rate)}
+              />
+              <KeyValueItem
+                label="Feedback"
+                value={formatFeedbackCounts(selectedMetrics)}
+              />
+            </KeyValueGrid>
           ) : (
-            <div className="empty-state">
+            <EmptyState>
               No AdaptiveSkills observations are available yet.
-            </div>
+            </EmptyState>
           )}
         </Panel>
       </div>
@@ -267,7 +270,7 @@ export function SkillsPage() {
         subtitle={`${filteredSkills.length} skill${filteredSkills.length === 1 ? '' : 's'} visible`}
       >
         {skillsQuery.isLoading ? (
-          <div className="empty-state">Loading skill catalog...</div>
+          <EmptyState>Loading skill catalog...</EmptyState>
         ) : (
           <div className="table-shell">
             <table>
@@ -289,13 +292,12 @@ export function SkillsPage() {
                   return (
                     <tr key={skill.name}>
                       <td>
-                        <button
-                          type="button"
-                          className="table-link-button"
+                        <Button
+                          variant="link"
                           onClick={() => setSelectedSkillName(skill.name)}
                         >
                           {skill.name}
-                        </button>
+                        </Button>
                         <small>{skill.description}</small>
                       </td>
                       <td>{skill.source}</td>
@@ -350,9 +352,9 @@ export function SkillsPage() {
                 {filteredSkills.length === 0 ? (
                   <tr>
                     <td colSpan={6}>
-                      <div className="empty-state">
+                      <EmptyState>
                         No skills match this filter.
-                      </div>
+                      </EmptyState>
                     </td>
                   </tr>
                 ) : null}
@@ -361,9 +363,9 @@ export function SkillsPage() {
           </div>
         )}
         {toggleMutation.isError ? (
-          <p className="error-banner">
+          <Banner variant="error">
             {(toggleMutation.error as Error).message}
-          </p>
+          </Banner>
         ) : null}
       </Panel>
 
@@ -373,11 +375,11 @@ export function SkillsPage() {
           subtitle={`${filteredHealthMetrics.length} observed skill${filteredHealthMetrics.length === 1 ? '' : 's'} visible`}
         >
           {healthQuery.isLoading ? (
-            <div className="empty-state">Loading AdaptiveSkills health...</div>
+            <EmptyState>Loading AdaptiveSkills health...</EmptyState>
           ) : filteredHealthMetrics.length === 0 ? (
-            <div className="empty-state">
+            <EmptyState>
               No observed skills match this filter.
-            </div>
+            </EmptyState>
           ) : (
             <div className="table-shell">
               <table>
@@ -396,15 +398,14 @@ export function SkillsPage() {
                   {filteredHealthMetrics.map((metrics) => (
                     <tr key={metrics.skill_name}>
                       <td>
-                        <button
-                          type="button"
-                          className="table-link-button"
+                        <Button
+                          variant="link"
                           onClick={() =>
                             setSelectedSkillName(metrics.skill_name)
                           }
                         >
                           {metrics.skill_name}
-                        </button>
+                        </Button>
                         <small>
                           Window ending{' '}
                           {formatDateTime(metrics.window_ended_at)}
@@ -440,23 +441,22 @@ export function SkillsPage() {
           accent="warm"
         >
           {stagedAmendmentsQuery.isLoading ? (
-            <div className="empty-state">Loading staged amendments...</div>
+            <EmptyState>Loading staged amendments...</EmptyState>
           ) : stagedAmendments.length === 0 ? (
-            <div className="empty-state">
+            <EmptyState>
               No staged amendments are waiting for review.
-            </div>
+            </EmptyState>
           ) : (
             <div className="list-stack selectable-list">
               {stagedAmendments.map((amendment) => (
                 <div className="list-row" key={amendment.id}>
                   <div>
-                    <button
-                      type="button"
-                      className="table-link-button"
+                    <Button
+                      variant="link"
                       onClick={() => setSelectedSkillName(amendment.skill_name)}
                     >
                       {amendment.skill_name}
-                    </button>
+                    </Button>
                     <small>
                       {formatAmendmentStatus(amendment)} ·{' '}
                       {formatAmendmentTiming(amendment)} · guard{' '}
@@ -467,16 +467,14 @@ export function SkillsPage() {
                     </small>
                   </div>
                   <div className="skill-review-actions">
-                    <button
-                      type="button"
-                      className="ghost-button"
+                    <Button
+                      variant="ghost"
                       onClick={() => setSelectedSkillName(amendment.skill_name)}
                     >
                       History
-                    </button>
-                    <button
-                      type="button"
-                      className="primary-button"
+                    </Button>
+                    <Button
+                      variant="primary"
                       disabled={reviewMutation.isPending}
                       onClick={() =>
                         reviewMutation.mutate({
@@ -486,10 +484,9 @@ export function SkillsPage() {
                       }
                     >
                       Apply
-                    </button>
-                    <button
-                      type="button"
-                      className="danger-button"
+                    </Button>
+                    <Button
+                      variant="danger"
                       disabled={reviewMutation.isPending}
                       onClick={() =>
                         reviewMutation.mutate({
@@ -499,16 +496,16 @@ export function SkillsPage() {
                       }
                     >
                       Reject
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))}
             </div>
           )}
           {reviewMutation.isError ? (
-            <p className="error-banner">
+            <Banner variant="error">
               {(reviewMutation.error as Error).message}
-            </p>
+            </Banner>
           ) : null}
         </Panel>
       </div>
@@ -522,15 +519,15 @@ export function SkillsPage() {
         subtitle="Full review trail for the selected skill"
       >
         {!effectiveSelectedSkillName ? (
-          <div className="empty-state">
+          <EmptyState>
             Select a skill to inspect its amendment history.
-          </div>
+          </EmptyState>
         ) : historyQuery.isLoading ? (
-          <div className="empty-state">Loading amendment history...</div>
+          <EmptyState>Loading amendment history...</EmptyState>
         ) : historyEntries.length === 0 ? (
-          <div className="empty-state">
+          <EmptyState>
             No amendment history exists for this skill yet.
-          </div>
+          </EmptyState>
         ) : (
           <div className="list-stack selectable-list">
             {historyEntries.map((amendment) => (

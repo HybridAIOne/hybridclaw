@@ -3,7 +3,15 @@ import { useEffect, useState } from 'react';
 import { fetchConfig, saveConfig } from '../api/client';
 import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
-import { BooleanField, PageHeader, Panel } from '../components/ui';
+import {
+  Banner,
+  BooleanField,
+  Button,
+  EmptyState,
+  FormField,
+  PageHeader,
+  Panel,
+} from '../components/ui';
 
 function cloneConfig<T>(value: T): T {
   return structuredClone(value);
@@ -37,11 +45,11 @@ export function ConfigPage() {
   }, [configQuery.data, draft]);
 
   if (configQuery.isLoading && !draft) {
-    return <div className="empty-state">Loading runtime config...</div>;
+    return <EmptyState>Loading runtime config...</EmptyState>;
   }
 
   if (!draft || !configQuery.data) {
-    return <div className="empty-state">Runtime config is unavailable.</div>;
+    return <EmptyState>Runtime config is unavailable.</EmptyState>;
   }
 
   return (
@@ -49,9 +57,8 @@ export function ConfigPage() {
       <PageHeader
         title="Config"
         actions={
-          <button
-            className="ghost-button"
-            type="button"
+          <Button
+            variant="ghost"
             onClick={() => {
               const nextMode = !rawMode;
               setRawMode(nextMode);
@@ -61,7 +68,7 @@ export function ConfigPage() {
             }}
           >
             {rawMode ? 'Back to forms' : 'Raw JSON'}
-          </button>
+          </Button>
         }
       />
 
@@ -72,19 +79,17 @@ export function ConfigPage() {
       >
         {rawMode ? (
           <div className="stack-form">
-            <label className="field textarea-field">
-              <span>config.json</span>
+            <FormField label="config.json">
               <textarea
                 className="code-editor"
                 rows={24}
                 value={rawJson}
                 onChange={(event) => setRawJson(event.target.value)}
               />
-            </label>
+            </FormField>
             <div className="button-row">
-              <button
-                className="primary-button"
-                type="button"
+              <Button
+                variant="primary"
                 onClick={() => {
                   try {
                     const parsed = JSON.parse(rawJson) as AdminConfig;
@@ -98,15 +103,14 @@ export function ConfigPage() {
                 }}
               >
                 Save JSON
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
           <div className="config-grid">
             <section className="config-section">
               <h4>Operations</h4>
-              <label className="field">
-                <span>Health host</span>
+              <FormField label="Health host">
                 <input
                   value={draft.ops.healthHost}
                   onChange={(event) =>
@@ -123,9 +127,8 @@ export function ConfigPage() {
                     )
                   }
                 />
-              </label>
-              <label className="field">
-                <span>Health port</span>
+              </FormField>
+              <FormField label="Health port">
                 <input
                   value={String(draft.ops.healthPort)}
                   onChange={(event) =>
@@ -143,9 +146,8 @@ export function ConfigPage() {
                     )
                   }
                 />
-              </label>
-              <label className="field">
-                <span>Log level</span>
+              </FormField>
+              <FormField label="Log level">
                 <input
                   value={draft.ops.logLevel}
                   onChange={(event) =>
@@ -162,13 +164,12 @@ export function ConfigPage() {
                     )
                   }
                 />
-              </label>
+              </FormField>
             </section>
 
             <section className="config-section">
               <h4>HybridAI</h4>
-              <label className="field">
-                <span>Base URL</span>
+              <FormField label="Base URL">
                 <input
                   value={draft.hybridai.baseUrl}
                   onChange={(event) =>
@@ -185,9 +186,8 @@ export function ConfigPage() {
                     )
                   }
                 />
-              </label>
-              <label className="field">
-                <span>Default model</span>
+              </FormField>
+              <FormField label="Default model">
                 <input
                   value={draft.hybridai.defaultModel}
                   onChange={(event) =>
@@ -204,7 +204,7 @@ export function ConfigPage() {
                     )
                   }
                 />
-              </label>
+              </FormField>
               <BooleanField
                 label="RAG default"
                 value={draft.hybridai.enableRag}
@@ -228,8 +228,7 @@ export function ConfigPage() {
 
             <section className="config-section">
               <h4>Discord</h4>
-              <label className="field">
-                <span>Prefix</span>
+              <FormField label="Prefix">
                 <input
                   value={draft.discord.prefix}
                   onChange={(event) =>
@@ -246,9 +245,8 @@ export function ConfigPage() {
                     )
                   }
                 />
-              </label>
-              <label className="field">
-                <span>Group policy</span>
+              </FormField>
+              <FormField label="Group policy">
                 <select
                   value={draft.discord.groupPolicy}
                   onChange={(event) =>
@@ -270,7 +268,7 @@ export function ConfigPage() {
                   <option value="allowlist">allowlist</option>
                   <option value="disabled">disabled</option>
                 </select>
-              </label>
+              </FormField>
               <BooleanField
                 label="Respond to all messages"
                 value={draft.discord.respondToAllMessages}
@@ -313,8 +311,7 @@ export function ConfigPage() {
 
             <section className="config-section">
               <h4>Container</h4>
-              <label className="field">
-                <span>Sandbox mode</span>
+              <FormField label="Sandbox mode">
                 <select
                   value={draft.container.sandboxMode}
                   onChange={(event) =>
@@ -335,9 +332,8 @@ export function ConfigPage() {
                   <option value="container">container</option>
                   <option value="host">host</option>
                 </select>
-              </label>
-              <label className="field">
-                <span>Image</span>
+              </FormField>
+              <FormField label="Image">
                 <input
                   value={draft.container.image}
                   onChange={(event) =>
@@ -354,9 +350,8 @@ export function ConfigPage() {
                     )
                   }
                 />
-              </label>
-              <label className="field">
-                <span>Memory</span>
+              </FormField>
+              <FormField label="Memory">
                 <input
                   value={draft.container.memory}
                   onChange={(event) =>
@@ -373,28 +368,27 @@ export function ConfigPage() {
                     )
                   }
                 />
-              </label>
+              </FormField>
             </section>
           </div>
         )}
 
         <div className="button-row">
-          <button
-            className="primary-button"
-            type="button"
+          <Button
+            variant="primary"
             disabled={saveMutation.isPending}
             onClick={() => saveMutation.mutate(draft)}
           >
             {saveMutation.isPending ? 'Saving...' : 'Save config'}
-          </button>
+          </Button>
         </div>
         {saveMutation.isSuccess ? (
-          <p className="success-banner">Runtime config saved.</p>
+          <Banner variant="success">Runtime config saved.</Banner>
         ) : null}
         {saveMutation.isError ? (
-          <p className="error-banner">
+          <Banner variant="error">
             {(saveMutation.error as Error).message}
-          </p>
+          </Banner>
         ) : null}
       </Panel>
     </div>

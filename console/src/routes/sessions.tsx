@@ -2,7 +2,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useState } from 'react';
 import { deleteSession, fetchSessions } from '../api/client';
 import { useAuth } from '../auth';
-import { BooleanPill, PageHeader, Panel } from '../components/ui';
+import {
+  Banner,
+  BooleanPill,
+  Button,
+  EmptyState,
+  KeyValueGrid,
+  KeyValueItem,
+  PageHeader,
+  Panel,
+  SelectableRow,
+} from '../components/ui';
 import { formatRelativeTime } from '../lib/format';
 
 export function SessionsPage() {
@@ -72,20 +82,15 @@ export function SessionsPage() {
           subtitle={`${filtered.length} result${filtered.length === 1 ? '' : 's'}`}
         >
           {sessionsQuery.isLoading ? (
-            <div className="empty-state">Loading sessions...</div>
+            <EmptyState>Loading sessions...</EmptyState>
           ) : filtered.length === 0 ? (
-            <div className="empty-state">No sessions match this filter.</div>
+            <EmptyState>No sessions match this filter.</EmptyState>
           ) : (
             <div className="list-stack selectable-list">
               {filtered.map((session) => (
-                <button
+                <SelectableRow
                   key={session.id}
-                  className={
-                    session.id === selectedSession?.id
-                      ? 'selectable-row active'
-                      : 'selectable-row'
-                  }
-                  type="button"
+                  active={session.id === selectedSession?.id}
                   onClick={() => setSelectedId(session.id)}
                 >
                   <div className="session-row-main">
@@ -97,7 +102,7 @@ export function SessionsPage() {
                   <span className="session-row-time">
                     {formatRelativeTime(session.lastActive)}
                   </span>
-                </button>
+                </SelectableRow>
               ))}
             </div>
           )}
@@ -105,49 +110,49 @@ export function SessionsPage() {
 
         <Panel title="Inspection" accent="warm">
           {!selectedSession ? (
-            <div className="empty-state">Select a session to inspect it.</div>
+            <EmptyState>Select a session to inspect it.</EmptyState>
           ) : (
             <div className="detail-stack">
-              <div className="key-value-grid">
-                <div>
-                  <span>Session</span>
-                  <strong>{selectedSession.id}</strong>
-                </div>
-                <div>
-                  <span>Channel</span>
-                  <strong>{selectedSession.channelId}</strong>
-                </div>
-                <div>
-                  <span>Guild</span>
-                  <strong>{selectedSession.guildId || 'direct/web'}</strong>
-                </div>
-                <div>
-                  <span>Model</span>
-                  <strong>{selectedSession.effectiveModel}</strong>
-                </div>
-                <div>
-                  <span>Messages</span>
-                  <strong>{selectedSession.messageCount}</strong>
-                </div>
-                <div>
-                  <span>Scheduled tasks</span>
-                  <strong>{selectedSession.taskCount}</strong>
-                </div>
-                <div>
-                  <span>RAG</span>
-                  <BooleanPill
-                    value={selectedSession.ragEnabled}
-                    trueLabel="on"
-                    falseLabel="off"
-                  />
-                </div>
-                <div>
-                  <span>Last active</span>
-                  <strong>
-                    {formatRelativeTime(selectedSession.lastActive)}
-                  </strong>
-                </div>
-              </div>
+              <KeyValueGrid>
+                <KeyValueItem
+                  label="Session"
+                  value={selectedSession.id}
+                />
+                <KeyValueItem
+                  label="Channel"
+                  value={selectedSession.channelId}
+                />
+                <KeyValueItem
+                  label="Guild"
+                  value={selectedSession.guildId || 'direct/web'}
+                />
+                <KeyValueItem
+                  label="Model"
+                  value={selectedSession.effectiveModel}
+                />
+                <KeyValueItem
+                  label="Messages"
+                  value={selectedSession.messageCount}
+                />
+                <KeyValueItem
+                  label="Scheduled tasks"
+                  value={selectedSession.taskCount}
+                />
+                <KeyValueItem
+                  label="RAG"
+                  value={
+                    <BooleanPill
+                      value={selectedSession.ragEnabled}
+                      trueLabel="on"
+                      falseLabel="off"
+                    />
+                  }
+                />
+                <KeyValueItem
+                  label="Last active"
+                  value={formatRelativeTime(selectedSession.lastActive)}
+                />
+              </KeyValueGrid>
               <div className="summary-block">
                 <span>Summary</span>
                 <p>
@@ -155,9 +160,8 @@ export function SessionsPage() {
                     'No summary stored for this session.'}
                 </p>
               </div>
-              <button
-                className="danger-button"
-                type="button"
+              <Button
+                variant="danger"
                 disabled={deleteMutation.isPending}
                 onClick={() => {
                   const confirmed = window.confirm(
@@ -168,17 +172,17 @@ export function SessionsPage() {
                 }}
               >
                 {deleteMutation.isPending ? 'Deleting...' : 'Delete session'}
-              </button>
+              </Button>
               {deleteMutation.isSuccess ? (
-                <p className="success-banner">
+                <Banner variant="success">
                   Removed {deleteMutation.data.deletedMessages} messages and{' '}
                   {deleteMutation.data.deletedTasks} tasks.
-                </p>
+                </Banner>
               ) : null}
               {deleteMutation.isError ? (
-                <p className="error-banner">
+                <Banner variant="error">
                   {(deleteMutation.error as Error).message}
-                </p>
+                </Banner>
               ) : null}
             </div>
           )}

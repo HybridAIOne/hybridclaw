@@ -8,7 +8,16 @@ import type {
   AdminMSTeamsChannelConfig,
 } from '../api/types';
 import { useAuth } from '../auth';
-import { BooleanField, PageHeader, Panel } from '../components/ui';
+import {
+  Banner,
+  BooleanField,
+  Button,
+  EmptyState,
+  FormField,
+  PageHeader,
+  Panel,
+  SelectableRow,
+} from '../components/ui';
 import { joinStringList, parseStringList } from '../lib/format';
 
 interface ChannelDraft {
@@ -248,16 +257,15 @@ export function ChannelsPage() {
       <PageHeader
         title="Bindings"
         actions={
-          <button
-            className="ghost-button"
-            type="button"
+          <Button
+            variant="ghost"
             onClick={() => {
               setSelectedId(null);
               setDraft(createDraft());
             }}
           >
             New binding
-          </button>
+          </Button>
         }
       />
 
@@ -267,18 +275,13 @@ export function ChannelsPage() {
           subtitle={`Discord policy: ${channelsQuery.data?.groupPolicy || 'open'} · Teams policy: ${channelsQuery.data?.msteams.groupPolicy || 'open'}`}
         >
           {channelsQuery.isLoading ? (
-            <div className="empty-state">Loading bindings...</div>
+            <EmptyState>Loading bindings...</EmptyState>
           ) : channelsQuery.data?.channels.length ? (
             <div className="list-stack selectable-list">
               {channelsQuery.data.channels.map((entry) => (
-                <button
+                <SelectableRow
                   key={entry.id}
-                  className={
-                    entry.id === selectedId
-                      ? 'selectable-row active'
-                      : 'selectable-row'
-                  }
-                  type="button"
+                  active={entry.id === selectedId}
                   onClick={() => setSelectedId(entry.id)}
                 >
                   <div>
@@ -288,18 +291,17 @@ export function ChannelsPage() {
                     </small>
                   </div>
                   <span>{summarizeEntry(entry)}</span>
-                </button>
+                </SelectableRow>
               ))}
             </div>
           ) : (
-            <div className="empty-state">No explicit bindings exist yet.</div>
+            <EmptyState>No explicit bindings exist yet.</EmptyState>
           )}
         </Panel>
 
         <Panel title="Binding editor" accent="warm">
           <div className="stack-form">
-            <label className="field">
-              <span>Transport</span>
+            <FormField label="Transport">
               <select
                 value={draft.transport}
                 onChange={(event) =>
@@ -312,11 +314,12 @@ export function ChannelsPage() {
                 <option value="discord">discord</option>
                 <option value="msteams">msteams</option>
               </select>
-            </label>
-            <label className="field">
-              <span>
-                {draft.transport === 'msteams' ? 'Team ID' : 'Guild ID'}
-              </span>
+            </FormField>
+            <FormField
+              label={
+                draft.transport === 'msteams' ? 'Team ID' : 'Guild ID'
+              }
+            >
               <input
                 value={draft.guildId}
                 onChange={(event) =>
@@ -327,9 +330,8 @@ export function ChannelsPage() {
                 }
                 placeholder="1234567890"
               />
-            </label>
-            <label className="field">
-              <span>Channel ID</span>
+            </FormField>
+            <FormField label="Channel ID">
               <input
                 value={draft.channelId}
                 onChange={(event) =>
@@ -340,13 +342,12 @@ export function ChannelsPage() {
                 }
                 placeholder="0987654321"
               />
-            </label>
+            </FormField>
 
             {draft.transport === 'discord' ? (
               <>
                 <div className="field-grid">
-                  <label className="field">
-                    <span>Mode</span>
+                  <FormField label="Mode">
                     <select
                       value={draft.mode}
                       onChange={(event) =>
@@ -360,9 +361,8 @@ export function ChannelsPage() {
                       <option value="mention">mention</option>
                       <option value="free">free</option>
                     </select>
-                  </label>
-                  <label className="field">
-                    <span>Typing mode</span>
+                  </FormField>
+                  <FormField label="Typing mode">
                     <select
                       value={draft.typingMode}
                       onChange={(event) =>
@@ -378,11 +378,10 @@ export function ChannelsPage() {
                       <option value="streaming">streaming</option>
                       <option value="never">never</option>
                     </select>
-                  </label>
+                  </FormField>
                 </div>
                 <div className="field-grid">
-                  <label className="field">
-                    <span>Debounce ms</span>
+                  <FormField label="Debounce ms">
                     <input
                       value={draft.debounceMs}
                       onChange={(event) =>
@@ -395,9 +394,8 @@ export function ChannelsPage() {
                         channelsQuery.data?.defaultDebounceMs || 2500,
                       )}
                     />
-                  </label>
-                  <label className="field">
-                    <span>Ack reaction</span>
+                  </FormField>
+                  <FormField label="Ack reaction">
                     <input
                       value={draft.ackReaction}
                       onChange={(event) =>
@@ -410,11 +408,10 @@ export function ChannelsPage() {
                         channelsQuery.data?.defaultAckReaction || 'none'
                       }
                     />
-                  </label>
+                  </FormField>
                 </div>
                 <div className="field-grid">
-                  <label className="field">
-                    <span>Rate limit per user</span>
+                  <FormField label="Rate limit per user">
                     <input
                       value={draft.rateLimitPerUser}
                       onChange={(event) =>
@@ -427,9 +424,8 @@ export function ChannelsPage() {
                         channelsQuery.data?.defaultRateLimitPerUser || 0,
                       )}
                     />
-                  </label>
-                  <label className="field">
-                    <span>Max concurrent</span>
+                  </FormField>
+                  <FormField label="Max concurrent">
                     <input
                       value={draft.maxConcurrentPerChannel}
                       onChange={(event) =>
@@ -442,10 +438,9 @@ export function ChannelsPage() {
                         channelsQuery.data?.defaultMaxConcurrentPerChannel || 2,
                       )}
                     />
-                  </label>
+                  </FormField>
                 </div>
-                <label className="field textarea-field">
-                  <span>Suppress patterns</span>
+                <FormField label="Suppress patterns">
                   <textarea
                     rows={3}
                     value={draft.suppressPatterns}
@@ -457,10 +452,9 @@ export function ChannelsPage() {
                     }
                     placeholder="comma or newline separated"
                   />
-                </label>
+                </FormField>
                 <div className="field-grid">
-                  <label className="field textarea-field">
-                    <span>Allowed user IDs</span>
+                  <FormField label="Allowed user IDs">
                     <textarea
                       rows={3}
                       value={draft.sendAllowedUserIds}
@@ -471,9 +465,8 @@ export function ChannelsPage() {
                         }))
                       }
                     />
-                  </label>
-                  <label className="field textarea-field">
-                    <span>Allowed role IDs</span>
+                  </FormField>
+                  <FormField label="Allowed role IDs">
                     <textarea
                       rows={3}
                       value={draft.sendAllowedRoleIds}
@@ -484,7 +477,7 @@ export function ChannelsPage() {
                         }))
                       }
                     />
-                  </label>
+                  </FormField>
                 </div>
                 <BooleanField
                   label="Send actions"
@@ -502,8 +495,7 @@ export function ChannelsPage() {
             ) : (
               <>
                 <div className="field-grid">
-                  <label className="field">
-                    <span>Reply style</span>
+                  <FormField label="Reply style">
                     <select
                       value={draft.replyStyle}
                       onChange={(event) =>
@@ -518,9 +510,8 @@ export function ChannelsPage() {
                       <option value="thread">thread</option>
                       <option value="top-level">top-level</option>
                     </select>
-                  </label>
-                  <label className="field">
-                    <span>Group policy</span>
+                  </FormField>
+                  <FormField label="Group policy">
                     <select
                       value={draft.groupPolicy}
                       onChange={(event) =>
@@ -536,10 +527,9 @@ export function ChannelsPage() {
                       <option value="allowlist">allowlist</option>
                       <option value="disabled">disabled</option>
                     </select>
-                  </label>
+                  </FormField>
                 </div>
-                <label className="field textarea-field">
-                  <span>Allowed AAD object IDs</span>
+                <FormField label="Allowed AAD object IDs">
                   <textarea
                     rows={4}
                     value={draft.allowFrom}
@@ -551,9 +541,8 @@ export function ChannelsPage() {
                     }
                     placeholder="comma or newline separated"
                   />
-                </label>
-                <label className="field textarea-field">
-                  <span>Allowed tools</span>
+                </FormField>
+                <FormField label="Allowed tools">
                   <textarea
                     rows={3}
                     value={draft.tools}
@@ -565,7 +554,7 @@ export function ChannelsPage() {
                     }
                     placeholder="comma or newline separated"
                   />
-                </label>
+                </FormField>
                 <BooleanField
                   label="Require mention"
                   value={draft.requireMention}
@@ -592,17 +581,15 @@ export function ChannelsPage() {
             )}
 
             <div className="button-row">
-              <button
-                className="primary-button"
-                type="button"
+              <Button
+                variant="primary"
                 disabled={saveMutation.isPending}
                 onClick={() => saveMutation.mutate()}
               >
                 {saveMutation.isPending ? 'Saving...' : 'Save binding'}
-              </button>
-              <button
-                className="ghost-button"
-                type="button"
+              </Button>
+              <Button
+                variant="ghost"
                 disabled={!draft.originalId || deleteMutation.isPending}
                 onClick={() => {
                   const confirmed = window.confirm(
@@ -613,20 +600,20 @@ export function ChannelsPage() {
                 }}
               >
                 {deleteMutation.isPending ? 'Removing...' : 'Remove binding'}
-              </button>
+              </Button>
             </div>
             {saveMutation.isSuccess ? (
-              <p className="success-banner">Binding saved.</p>
+              <Banner variant="success">Binding saved.</Banner>
             ) : null}
             {saveMutation.isError ? (
-              <p className="error-banner">
+              <Banner variant="error">
                 {(saveMutation.error as Error).message}
-              </p>
+              </Banner>
             ) : null}
             {deleteMutation.isError ? (
-              <p className="error-banner">
+              <Banner variant="error">
                 {(deleteMutation.error as Error).message}
-              </p>
+              </Banner>
             ) : null}
           </div>
         </Panel>
