@@ -14,6 +14,7 @@ import {
   type WhatsAppInboundBatch,
 } from './debounce.js';
 import {
+  clearWhatsAppReaction,
   sendChunkedWhatsAppText,
   sendWhatsAppMedia,
   sendWhatsAppReaction,
@@ -65,6 +66,7 @@ export interface WhatsAppRuntime {
 }
 
 const SELF_CHAT_REPLY_PREFIX = '[hybridclaw]';
+const APPEND_RECENT_GRACE_MS = 60_000;
 const SELF_CHAT_REPLY_PREFIX_RE = new RegExp(
   `^${SELF_CHAT_REPLY_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$)`,
   'i',
@@ -78,6 +80,34 @@ function formatSelfChatReply(content: string): string {
   return trimmed
     ? `${SELF_CHAT_REPLY_PREFIX} ${trimmed}`
     : SELF_CHAT_REPLY_PREFIX;
+}
+
+function parseMessageTimestampMs(message: WAMessage): number | null {
+  const raw = message.messageTimestamp;
+  if (raw == null) return null;
+  const parsed =
+    typeof raw === 'number'
+      ? raw
+      : Number(typeof raw === 'object' ? raw.toString() : raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed * 1000;
+}
+
+function buildReactionCleanupTargets(
+  messages: WAMessage[],
+): Array<{ jid: string; key: WAMessage['key'] }> {
+  const seen = new Set<string>();
+  const targets: Array<{ jid: string; key: WAMessage['key'] }> = [];
+  for (const message of messages) {
+    const jid = message.key.remoteJid?.trim();
+    const id = message.key.id?.trim();
+    if (!jid || !id) continue;
+    const dedupeKey = `${jid}:${id}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    targets.push({ jid, key: message.key });
+  }
+  return targets;
 }
 
 export function createWhatsAppRuntime(): WhatsAppRuntime {
@@ -130,7 +160,7 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
         socket.ev.on('messages.upsert', ({ messages, type }) => {
           if (type !== 'notify' && type !== 'append') return;
           for (const message of messages) {
-            void handleUpsertedMessage(message, messages, messageHandler);
+            void handleUpsertedMessage(message, messages, type, messageHandler);
           }
         });
       },
@@ -163,6 +193,9 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
         batch.isSelfChat ? formatSelfChatReply(content) : content,
       );
     };
+    const reactionCleanupTargets = batch.ackReaction
+      ? buildReactionCleanupTargets(batch.batchedMessages)
+      : [];
     typingController.start();
     try {
       await messageHandler(
@@ -185,6 +218,23 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
       );
     } finally {
       typingController.stop();
+      const socket = ensureConnectionManager().getSocket();
+      if (socket && reactionCleanupTargets.length > 0) {
+        await Promise.all(
+          reactionCleanupTargets.map(({ jid, key }) =>
+            clearWhatsAppReaction({
+              sock: socket,
+              jid,
+              key,
+            }).catch((error) => {
+              logger.debug(
+                { error, jid, messageId: key.id ?? null },
+                'WhatsApp ack reaction cleanup failed',
+              );
+            }),
+          ),
+        );
+      }
       await cleanupWhatsAppInboundMedia(batch.media).catch((error) => {
         logger.debug(
           {
@@ -201,8 +251,19 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
   const handleUpsertedMessage = async (
     message: WAMessage,
     batchedMessages: WAMessage[],
+    upsertType: 'notify' | 'append',
     messageHandler: WhatsAppMessageHandler,
   ): Promise<void> => {
+    if (upsertType === 'append') {
+      const messageTimestampMs = parseMessageTimestampMs(message);
+      if (
+        messageTimestampMs == null ||
+        messageTimestampMs < Date.now() - APPEND_RECENT_GRACE_MS
+      ) {
+        return;
+      }
+    }
+
     const remoteJid = message.key.remoteJid?.trim();
     const messageId = message.key.id?.trim();
     if (
@@ -256,6 +317,7 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
 
     const batch: WhatsAppInboundBatch = {
       ...inbound,
+      ackReaction: config.ackReaction.trim(),
       batchedMessages,
     };
     if (

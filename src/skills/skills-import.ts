@@ -637,7 +637,8 @@ export async function importSkill(
       guardSkipped: guardSkipped || undefined,
       guardOverrideApplied: guardOverrideApplied || undefined,
       guardVerdict,
-      guardFindingsCount: guardFindingsCount > 0 ? guardFindingsCount : undefined,
+      guardFindingsCount:
+        guardFindingsCount > 0 ? guardFindingsCount : undefined,
     };
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });

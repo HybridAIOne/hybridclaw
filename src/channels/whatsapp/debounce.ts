@@ -12,6 +12,7 @@ export interface WhatsAppInboundBatch {
   userId: string;
   username: string;
   content: string;
+  ackReaction: string;
   media: MediaContextItem[];
   chatJid: string;
   senderJid: string;

@@ -14,6 +14,7 @@ import type {
   WhatsAppDmPolicy,
   WhatsAppGroupPolicy,
 } from '../../config/runtime-config.js';
+import { logger } from '../../logger.js';
 import {
   resolveManagedTempMediaDir,
   WHATSAPP_MEDIA_TMP_PREFIX,
@@ -339,7 +340,22 @@ export async function processInboundWhatsAppMessage(params: {
     selfJids: params.selfJids,
     fromMe: Boolean(params.message.key.fromMe),
   });
-  if (!access.allowed) return null;
+  if (!access.allowed) {
+    logger.debug(
+      {
+        channel: 'whatsapp',
+        chatJid,
+        senderJid,
+        fromMe: Boolean(params.message.key.fromMe),
+        isGroup: access.isGroup,
+        isSelfChat: access.isSelfChat,
+        dmPolicy: params.config.dmPolicy,
+        groupPolicy: params.config.groupPolicy,
+      },
+      'Dropped WhatsApp inbound message by access policy',
+    );
+    return null;
+  }
 
   const media = await downloadInboundMedia({
     sock: params.sock,
