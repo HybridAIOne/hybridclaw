@@ -218,6 +218,7 @@ export function createWhatsAppConnectionManager(params?: {
     saveCreds: () => Promise<void> | void,
   ): Promise<void> => {
     credsSaveQueue = credsSaveQueue
+      // Recover from any previous save error so the queue remains alive.
       .catch(() => undefined)
       .then(() => Promise.resolve(saveCreds()))
       .catch((error) => {
