@@ -644,7 +644,7 @@ export class TuiSlashMenuController {
     if (!state) return { handled: false };
 
     if (key.name === 'down' || (key.ctrl === true && key.name === 'n')) {
-      if (state.entries.length === 0) return { handled: true, state };
+      if (state.entries.length === 0) return { handled: false };
       this.selectedIndex = (this.selectedIndex + 1) % state.entries.length;
       return { handled: true, state };
     }
@@ -654,7 +654,7 @@ export class TuiSlashMenuController {
       (key.ctrl === true && key.name === 'p') ||
       (key.name === 'tab' && key.shift === true)
     ) {
-      if (state.entries.length === 0) return { handled: true, state };
+      if (state.entries.length === 0) return { handled: false };
       this.selectedIndex =
         (this.selectedIndex - 1 + state.entries.length) % state.entries.length;
       return { handled: true, state };

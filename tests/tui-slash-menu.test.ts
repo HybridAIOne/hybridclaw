@@ -204,3 +204,45 @@ test('second escape clears the current prompt line after dismissing the menu', (
   expect(rl.cursor).toBe(0);
   expect(operations).toContain('refresh');
 });
+
+test('arrow up falls through to readline history when slash query has no matches', () => {
+  const { rl, operations } = buildControllerHarness();
+
+  rl.line = '/mcp reconnect datalion';
+  rl.cursor = rl.line.length;
+  operations.length = 0;
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'up' });
+
+  expect(operations).toContain('tty:');
+});
+
+test('arrow down falls through to readline history when slash query has no matches', () => {
+  const { rl, operations } = buildControllerHarness();
+
+  rl.line = '/mcp reconnect datalion';
+  rl.cursor = rl.line.length;
+  operations.length = 0;
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'down' });
+
+  expect(operations).toContain('tty:');
+});
+
+test('arrow up still navigates slash menu entries when matches exist', () => {
+  const { rl, operations } = buildControllerHarness();
+
+  rl.line = '/mo';
+  rl.cursor = rl.line.length;
+  operations.length = 0;
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'up' });
+
+  expect(operations).not.toContain('tty:');
+});
