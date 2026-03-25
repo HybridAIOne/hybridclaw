@@ -634,10 +634,10 @@ export async function importSkill(
       resolvedSource: resolvedRemoteSource,
       replacedExisting,
       filesImported: countFiles(targetDir),
-      ...(guardSkipped ? { guardSkipped: true } : {}),
-      ...(guardOverrideApplied ? { guardOverrideApplied: true } : {}),
-      ...(guardVerdict ? { guardVerdict } : {}),
-      ...(guardFindingsCount > 0 ? { guardFindingsCount } : {}),
+      guardSkipped: guardSkipped || undefined,
+      guardOverrideApplied: guardOverrideApplied || undefined,
+      guardVerdict,
+      guardFindingsCount: guardFindingsCount > 0 ? guardFindingsCount : undefined,
     };
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
