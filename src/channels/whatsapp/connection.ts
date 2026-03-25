@@ -67,54 +67,12 @@ function attachWhatsAppTransportErrorSinks(
 
   attachWhatsAppEmitterErrorSink(target, transport, 'WhatsApp websocket error');
 
-  const rawSocket = (
-    transport as {
-      socket?: {
-        _req?: {
-          socket?: unknown;
-          on?: (
-            event: string,
-            handler: (...args: unknown[]) => void,
-          ) => unknown;
-        };
-      };
-    }
-  ).socket;
+  const rawSocket = (transport as { socket?: unknown }).socket;
 
   attachWhatsAppEmitterErrorSink(
     target,
     rawSocket,
     'WhatsApp raw websocket error',
-  );
-
-  const request = rawSocket?._req;
-  attachWhatsAppEmitterErrorSink(
-    target,
-    request,
-    'WhatsApp handshake request error',
-  );
-
-  if (isEventEmitterLike(request)) {
-    request.on('timeout', () => {
-      logWhatsAppMessage(
-        target,
-        'warn',
-        'WhatsApp handshake request timed out',
-      );
-    });
-    request.on('socket', (requestSocket: unknown) => {
-      attachWhatsAppEmitterErrorSink(
-        target,
-        requestSocket,
-        'WhatsApp TLS socket error',
-      );
-    });
-  }
-
-  attachWhatsAppEmitterErrorSink(
-    target,
-    request?.socket,
-    'WhatsApp TLS socket error',
   );
 }
 
