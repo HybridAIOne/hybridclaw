@@ -115,24 +115,24 @@ async function importFreshRuntimeModule(options?: {
     createWhatsAppConnectionManager,
   }));
 
-  let pendingBatch:
-    | {
-        item: unknown;
-        onFlush: (item: unknown) => Promise<void>;
-      }
-    | null = null;
+  let pendingBatch: {
+    item: unknown;
+    onFlush: (item: unknown) => Promise<void>;
+  } | null = null;
   vi.doMock('../src/channels/whatsapp/debounce.ts', () => ({
-    createWhatsAppDebouncer: vi.fn((onFlush: (item: unknown) => Promise<void>) => ({
-      enqueue: vi.fn((item: unknown) => {
-        pendingBatch = { item, onFlush };
+    createWhatsAppDebouncer: vi.fn(
+      (onFlush: (item: unknown) => Promise<void>) => ({
+        enqueue: vi.fn((item: unknown) => {
+          pendingBatch = { item, onFlush };
+        }),
+        flushAll: vi.fn(async () => {
+          if (!pendingBatch) return;
+          const batch = pendingBatch;
+          pendingBatch = null;
+          await batch.onFlush(batch.item);
+        }),
       }),
-      flushAll: vi.fn(async () => {
-        if (!pendingBatch) return;
-        const batch = pendingBatch;
-        pendingBatch = null;
-        await batch.onFlush(batch.item);
-      }),
-    })),
+    ),
     shouldDebounceWhatsAppInbound: vi.fn(() => debounceInbound),
   }));
 
