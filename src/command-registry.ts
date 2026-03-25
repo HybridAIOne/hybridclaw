@@ -1086,7 +1086,7 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'skill',
       description:
-        'Inspect skill health, review recent runs, manage amendments, and import community skills',
+        'Inspect skill health, review recent runs, manage amendments, and import or sync community skills',
       tuiOnly: true,
       options: [
         {
@@ -1182,6 +1182,44 @@ function buildSlashCommandCatalogDefinitions(
         },
         {
           kind: 'subcommand',
+          name: 'sync',
+          description: 'Reinstall a packaged or community skill',
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description: 'Skill source identifier or URL',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'skip-skill-scan',
+              description:
+                'Optional --skip-skill-scan override to bypass the scanner',
+              choices: [
+                { name: '--skip-skill-scan', value: '--skip-skill-scan' },
+              ],
+            },
+          ],
+          tuiMenuEntries: [
+            {
+              id: 'skill.sync',
+              label: '/skill sync <source>',
+              insertText: '/skill sync ',
+              description:
+                'Reinstall a packaged or community skill from its source',
+            },
+            {
+              id: 'skill.sync.skip-skill-scan',
+              label: '/skill sync --skip-skill-scan <source>',
+              insertText: '/skill sync --skip-skill-scan ',
+              description:
+                'Reinstall a skill without running the security scanner',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
           name: 'import',
           description: 'Import a packaged or community skill',
           options: [
@@ -1197,6 +1235,15 @@ function buildSlashCommandCatalogDefinitions(
               description: 'Optional --force override for caution findings',
               choices: [{ name: '--force', value: '--force' }],
             },
+            {
+              kind: 'string',
+              name: 'skip-skill-scan',
+              description:
+                'Optional --skip-skill-scan override to bypass the scanner',
+              choices: [
+                { name: '--skip-skill-scan', value: '--skip-skill-scan' },
+              ],
+            },
           ],
           tuiMenuEntries: [
             {
@@ -1205,6 +1252,13 @@ function buildSlashCommandCatalogDefinitions(
               insertText: '/skill import --force ',
               description:
                 'Import a reviewed community skill and override caution findings',
+            },
+            {
+              id: 'skill.import.skip-skill-scan',
+              label: '/skill import --skip-skill-scan <source>',
+              insertText: '/skill import --skip-skill-scan ',
+              description:
+                'Import a community skill without running the security scanner',
             },
           ],
         },

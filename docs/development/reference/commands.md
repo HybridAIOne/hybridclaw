@@ -38,7 +38,7 @@ hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <k
 hybridclaw agent list
 hybridclaw agent export [agent-id] [-o <path>]
 hybridclaw agent inspect <file.claw>
-hybridclaw agent install <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]
+hybridclaw agent install <file.claw> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]
 hybridclaw agent uninstall <agent-id> [--yes]
 hybridclaw gateway agent [list|switch <id>|create <id>|model [name]]
 ```
@@ -59,7 +59,7 @@ hybridclaw skill inspect --all
 hybridclaw skill runs <skill-name>
 hybridclaw skill learn <skill-name> [--apply|--reject|--rollback]
 hybridclaw skill history <skill-name>
-hybridclaw skill import [--force] <source>
+hybridclaw skill import [--force] [--skip-skill-scan] <source>
 hybridclaw skill install <skill-name> [install-id]
 hybridclaw plugin list
 hybridclaw plugin config <plugin-id> [key] [value|--unset]
@@ -73,7 +73,7 @@ hybridclaw audit verify [sessionId]
 hybridclaw audit instructions [--sync]
 ```
 
-`skill import [--force]` supports packaged `official/<skill-name>` sources plus
+`skill import [--force] [--skip-skill-scan]` supports packaged `official/<skill-name>` sources plus
 community imports from `skills-sh`, `clawhub`, `lobehub`,
 `claude-marketplace`, `well-known`, and explicit GitHub repo/path refs.
 

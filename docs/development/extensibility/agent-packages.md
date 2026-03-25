@@ -24,7 +24,7 @@ Use it when you want to:
 hybridclaw agent list
 hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
 hybridclaw agent inspect <file.claw>
-hybridclaw agent install <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]
+hybridclaw agent install <file.claw> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]
 hybridclaw agent uninstall <agent-id> [--yes]
 ```
 

@@ -36,6 +36,89 @@ interface WhatsAppLogger {
   error: (obj: unknown, msg?: string) => void;
 }
 
+interface EventEmitterLike {
+  on: (event: string, handler: (...args: unknown[]) => void) => unknown;
+}
+
+function isEventEmitterLike(value: unknown): value is EventEmitterLike {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { on?: unknown }).on === 'function'
+  );
+}
+
+function attachWhatsAppEmitterErrorSink(
+  target: WhatsAppLogger,
+  emitter: unknown,
+  message: string,
+): void {
+  if (!isEventEmitterLike(emitter)) return;
+  emitter.on('error', (error: unknown) => {
+    logWhatsAppMessage(target, 'warn', message, { error });
+  });
+}
+
+function attachWhatsAppTransportErrorSinks(
+  target: WhatsAppLogger,
+  transport: unknown,
+): void {
+  if (!isEventEmitterLike(transport)) return;
+
+  attachWhatsAppEmitterErrorSink(
+    target,
+    transport,
+    'WhatsApp websocket error',
+  );
+
+  const rawSocket = (
+    transport as {
+      socket?: {
+        _req?: {
+          socket?: unknown;
+          on?: (event: string, handler: (...args: unknown[]) => void) => unknown;
+        };
+      };
+    }
+  ).socket;
+
+  attachWhatsAppEmitterErrorSink(
+    target,
+    rawSocket,
+    'WhatsApp raw websocket error',
+  );
+
+  const request = rawSocket?._req;
+  attachWhatsAppEmitterErrorSink(
+    target,
+    request,
+    'WhatsApp handshake request error',
+  );
+
+  if (isEventEmitterLike(request)) {
+    request.on('timeout', () => {
+      logWhatsAppMessage(
+        target,
+        'warn',
+        'WhatsApp handshake request timed out',
+      );
+    });
+    request.on('socket', (requestSocket: unknown) => {
+      attachWhatsAppEmitterErrorSink(
+        target,
+        requestSocket,
+        'WhatsApp TLS socket error',
+      );
+    });
+  }
+
+  attachWhatsAppEmitterErrorSink(
+    target,
+    request?.socket,
+    'WhatsApp TLS socket error',
+  );
+}
+
 function isVerboseWhatsAppLogging(
   target: Pick<WhatsAppLogger, 'level'>,
 ): boolean {
@@ -208,6 +291,7 @@ export function createWhatsAppConnectionManager(params?: {
       }
 
       socket = nextSocket;
+      attachWhatsAppTransportErrorSinks(childLogger, nextSocket.ws);
       params?.onSocketCreated?.(nextSocket);
 
       nextSocket.ev.on('creds.update', () => {
@@ -227,14 +311,6 @@ export function createWhatsAppConnectionManager(params?: {
           void handleConnectionUpdate(nextSocket, update);
         },
       );
-
-      if (typeof nextSocket.ws?.on === 'function') {
-        nextSocket.ws.on('error', (error: Error) => {
-          logWhatsAppMessage(childLogger, 'warn', 'WhatsApp websocket error', {
-            error,
-          });
-        });
-      }
     })()
       .catch((error) => {
         logWhatsAppMessage(

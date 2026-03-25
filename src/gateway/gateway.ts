@@ -31,7 +31,10 @@ import {
 } from '../channels/email/runtime.js';
 import { buildTeamsArtifactAttachments } from '../channels/msteams/attachments.js';
 import { initMSTeams } from '../channels/msteams/runtime.js';
-import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
+import {
+  getWhatsAppAuthStatus,
+  WhatsAppAuthLockError,
+} from '../channels/whatsapp/auth.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import {
   initWhatsApp,
@@ -753,6 +756,25 @@ function isDiscordInvalidTokenError(error: unknown): boolean {
   return message.toLowerCase().includes('invalid token');
 }
 
+function isWhatsAppAuthLockError(
+  error: unknown,
+): error is Pick<WhatsAppAuthLockError, 'lockPath' | 'ownerPid'> {
+  if (error instanceof WhatsAppAuthLockError) return true;
+  if (!error || typeof error !== 'object') return false;
+  const name =
+    'name' in error && typeof error.name === 'string' ? error.name : '';
+  const lockPath =
+    'lockPath' in error && typeof error.lockPath === 'string'
+      ? error.lockPath
+      : '';
+  if (name !== 'WhatsAppAuthLockError' || !lockPath) return false;
+  return (
+    !('ownerPid' in error) ||
+    typeof error.ownerPid === 'number' ||
+    error.ownerPid === null
+  );
+}
+
 async function startMSTeamsIntegration(): Promise<boolean> {
   const teamsConfig = getConfigSnapshot().msteams;
   const hasCredentials =
@@ -966,109 +988,126 @@ async function startWhatsAppIntegration(): Promise<boolean> {
     return false;
   }
 
-  await initWhatsApp(
-    async (
-      sessionId,
-      guildId,
-      channelId,
-      userId,
-      username,
-      content,
-      media,
-      reply,
-      context,
-    ) => {
-      try {
-        const slashCommands = resolveTextChannelSlashCommands(content);
-        if (slashCommands) {
-          const textReply: ReplyFn = async (message) => {
-            await reply(message);
-          };
-          for (const args of slashCommands) {
-            await handleTextChannelCommand({
+  try {
+    await initWhatsApp(
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content,
+        media,
+        reply,
+        context,
+      ) => {
+        try {
+          const slashCommands = resolveTextChannelSlashCommands(content);
+          if (slashCommands) {
+            const textReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            for (const args of slashCommands) {
+              await handleTextChannelCommand({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                args,
+                reply: textReply,
+              });
+            }
+            return;
+          }
+
+          const result = normalizePlaceholderToolReply(
+            await handleGatewayMessage({
               sessionId,
               guildId,
               channelId,
               userId,
               username,
-              args,
-              reply: textReply,
-            });
-          }
-          return;
-        }
-
-        const result = normalizePlaceholderToolReply(
-          await handleGatewayMessage({
-            sessionId,
-            guildId,
-            channelId,
-            userId,
-            username,
-            content,
-            media,
-            onProactiveMessage: async (message) => {
-              await deliverProactiveMessage(
-                channelId,
-                message.text,
-                'delegate',
-                message.artifacts,
-              );
-            },
-            abortSignal: context.abortSignal,
-            source: 'whatsapp',
-          }),
-        );
-        if (result.status === 'error') {
-          await reply(formatWhatsAppGatewayFailure(result.error));
-          return;
-        }
-
-        const cleanedResultText = stripSilentToken(String(result.result || ''));
-        const artifacts = result.artifacts || [];
-        if (isSilentReply(result.result)) {
-          return;
-        }
-        if (!cleanedResultText.trim() && artifacts.length === 0) {
-          return;
-        }
-
-        const effectiveSessionId = result.sessionId || sessionId;
-        const showMode = normalizeSessionShowMode(
-          memoryService.getSessionById(effectiveSessionId)?.show_mode,
-        );
-        if (cleanedResultText.trim()) {
-          const responseText = buildResponseText(
-            cleanedResultText,
-            sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
+              content,
+              media,
+              onProactiveMessage: async (message) => {
+                await deliverProactiveMessage(
+                  channelId,
+                  message.text,
+                  'delegate',
+                  message.artifacts,
+                );
+              },
+              abortSignal: context.abortSignal,
+              source: 'whatsapp',
+            }),
           );
-          await reply(responseText);
-        }
-        for (const artifact of artifacts) {
-          try {
-            await sendWhatsAppMediaToChat({
-              jid: channelId,
-              filePath: artifact.path,
-              mimeType: artifact.mimeType,
-              filename: artifact.filename,
-            });
-          } catch (error) {
-            logger.warn(
-              { error, channelId, artifactPath: artifact.path },
-              'Failed to send WhatsApp artifact',
-            );
+          if (result.status === 'error') {
+            await reply(formatWhatsAppGatewayFailure(result.error));
+            return;
           }
+
+          const cleanedResultText = stripSilentToken(
+            String(result.result || ''),
+          );
+          const artifacts = result.artifacts || [];
+          if (isSilentReply(result.result)) {
+            return;
+          }
+          if (!cleanedResultText.trim() && artifacts.length === 0) {
+            return;
+          }
+
+          const effectiveSessionId = result.sessionId || sessionId;
+          const showMode = normalizeSessionShowMode(
+            memoryService.getSessionById(effectiveSessionId)?.show_mode,
+          );
+          if (cleanedResultText.trim()) {
+            const responseText = buildResponseText(
+              cleanedResultText,
+              sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
+            );
+            await reply(responseText);
+          }
+          for (const artifact of artifacts) {
+            try {
+              await sendWhatsAppMediaToChat({
+                jid: channelId,
+                filePath: artifact.path,
+                mimeType: artifact.mimeType,
+                filename: artifact.filename,
+              });
+            } catch (error) {
+              logger.warn(
+                { error, channelId, artifactPath: artifact.path },
+                'Failed to send WhatsApp artifact',
+              );
+            }
+          }
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          logger.error(
+            { error, sessionId, channelId },
+            'WhatsApp message handling failed',
+          );
+          await reply(formatWhatsAppGatewayFailure(text));
         }
-      } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
-        logger.error(
-          { error, sessionId, channelId },
-          'WhatsApp message handling failed',
-        );
-        await reply(formatWhatsAppGatewayFailure(text));
-      }
-    },
-  );
+      },
+    );
+  } catch (error) {
+    if (isWhatsAppAuthLockError(error)) {
+      logger.warn(
+        {
+          lockPath: error.lockPath,
+          ownerPid: error.ownerPid ?? null,
+        },
+        'WhatsApp integration disabled: auth state is locked by another HybridClaw process',
+      );
+      return false;
+    }
+    logger.error({ error }, 'WhatsApp integration failed to start');
+    return false;
+  }
   logger.info('WhatsApp integration started inside gateway');
   return true;
 }

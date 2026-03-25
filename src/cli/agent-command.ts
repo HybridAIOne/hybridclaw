@@ -441,6 +441,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
     let archivePath = '';
     let requestedId = '';
     let force = false;
+    let skipSkillScan = false;
     let skipExternals = false;
     let yes = false;
 
@@ -464,6 +465,10 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
       }
       if (arg === '--force') {
         force = true;
+        continue;
+      }
+      if (arg === '--skip-skill-scan') {
+        skipSkillScan = true;
         continue;
       }
       if (arg === '--skip-externals') {
@@ -499,6 +504,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
     const result = await unpackAgent(path.resolve(archivePath), {
       ...(requestedId ? { agentId: requestedId } : {}),
       force,
+      skipSkillScan,
       skipExternals,
       yes,
       confirm: async (inspection) => {
@@ -526,6 +532,12 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
     const importedSkillsCount = result.importedSkills?.length ?? 0;
     if (importedSkillsCount > 0) {
       console.log(`🌐 Skill imports installed: ${importedSkillsCount}`);
+      const skippedSkillScans = result.importedSkills.filter((skill) => skill.guardSkipped).length;
+      if (skippedSkillScans > 0) {
+        console.warn(
+          `⚠️ Skill scanner skipped for ${skippedSkillScans} imported skill${skippedSkillScans === 1 ? '' : 's'} because --skip-skill-scan was set.`,
+        );
+      }
     }
     console.log(
       `🔌 Bundled plugins installed: ${result.installedPlugins.length}`,

@@ -296,7 +296,8 @@ Commands:
   hybridclaw skill learn <skill-name> --reject
   hybridclaw skill learn <skill-name> --rollback
   hybridclaw skill history <skill-name>
-  hybridclaw skill import [--force] <source>
+  hybridclaw skill sync [--skip-skill-scan] <source>
+  hybridclaw skill import [--force] [--skip-skill-scan] <source>
   hybridclaw skill install <skill-name> [install-id]
 
 Notes:
@@ -307,6 +308,7 @@ Notes:
   - \`runs\` shows recent execution observations for one skill.
   - \`learn\` stages, applies, rejects, or rolls back skill amendments.
   - \`history\` shows amendment versions for one skill, not execution runs.
+  - \`sync\` is a convenience alias for \`import --force\` when you want to refresh an installed skill from the source without changing the source syntax.
   - \`import\` installs a packaged community skill with \`official/<skill-name>\` or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
   - Examples: \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
   - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.

@@ -140,6 +140,7 @@ export interface UnpackAgentOptions {
   agentId?: string;
   force?: boolean;
   yes?: boolean;
+  skipSkillScan?: boolean;
   skipExternals?: boolean;
   cwd?: string;
   homeDir?: string;
@@ -1134,7 +1135,8 @@ export async function unpackAgent(
       for (const entry of importedSkillSources) {
         const importResult = await importSkill(entry.source, {
           installRootDir: workspaceSkillsDir,
-          replaceExisting: false,
+          replaceExisting: true,
+          skipGuard: options.skipSkillScan,
         });
         importedSkills.push(importResult);
       }

@@ -164,15 +164,15 @@ hybridclaw skill inspect <name>
 hybridclaw skill runs <name>
 hybridclaw skill learn <name> [--apply|--reject|--rollback]
 hybridclaw skill history <name>
-hybridclaw skill import [--force] <source>
+hybridclaw skill import [--force] [--skip-skill-scan] <source>
 /skill-name [input]              # invoke in session
-/skill import [--force] <source> # TUI/web slash import
+/skill import [--force] [--skip-skill-scan] <source> # TUI/web slash import
 /skill learn <name> [--apply|--reject|--rollback] # TUI/web slash amendment flow
 
 # Agent packages
 hybridclaw agent export [agent-id] [-o <path>]
 hybridclaw agent inspect <file.claw>
-hybridclaw agent install <file.claw> [--id <id>] [--force] [--skip-externals] [--yes]
+hybridclaw agent install <file.claw> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]
 hybridclaw agent uninstall <agent-id> [--yes]
 
 # Plugins

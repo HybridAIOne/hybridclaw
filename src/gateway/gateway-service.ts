@@ -1697,6 +1697,52 @@ function formatSkillAmendment(amendment: SkillAmendment): string {
   return lines.join('\n');
 }
 
+function parseSkillImportArgs(
+  commandName: string,
+  args: readonly unknown[],
+): { source: string; force: boolean; skipSkillScan: boolean } {
+  const usage =
+    commandName === 'sync'
+      ? `skill ${commandName} [--skip-skill-scan] <source>`
+      : `skill ${commandName} [--force] [--skip-skill-scan] <source>`;
+  let source: string | null = null;
+  let force = false;
+  let skipSkillScan = false;
+
+  for (const arg of args) {
+    const normalized = String(arg || '').trim();
+    if (!normalized) continue;
+    if (normalized === '--force') {
+      force = true;
+      continue;
+    }
+    if (normalized === '--skip-skill-scan') {
+      skipSkillScan = true;
+      continue;
+    }
+    if (normalized.startsWith('--')) {
+      throw new Error(
+        `Unknown option for \`skill ${commandName}\`: ${normalized}. Use \`${usage}\`.`,
+      );
+    }
+    if (source === null) {
+      source = normalized;
+      continue;
+    }
+    throw new Error(
+      `Usage: \`${usage}\``,
+    );
+  }
+
+  if (!source) {
+    throw new Error(
+      `Usage: \`${usage}\``,
+    );
+  }
+
+  return { source, force, skipSkillScan };
+}
+
 function formatSkillObservationRun(observation: SkillObservation): string {
   const lines = [
     `Run: ${observation.run_id}`,
@@ -5137,7 +5183,8 @@ export async function handleGatewayCommand(
           '`skill runs <name>` — Show recent execution observations for a skill',
           '`skill learn <name> [--apply|--reject|--rollback]` — Stage or manage skill amendments',
           '`skill history <name>` — Show amendment history for a skill',
-          '`skill import [--force] <source>` — Import a packaged or community skill into ~/.hybridclaw/skills',
+          '`skill sync [--skip-skill-scan] <source>` — Reinstall a packaged or community skill',
+          '`skill import [--force] [--skip-skill-scan] <source>` — Import a packaged or community skill into ~/.hybridclaw/skills',
           '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
           '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
           '`schedule add every <ms> <prompt>` — Add interval task',
@@ -6560,7 +6607,7 @@ export async function handleGatewayCommand(
         if (!sub) {
           return badCommand(
             'Usage',
-            'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|import [--force] <source>`',
+            'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`',
           );
         }
 
@@ -6785,45 +6832,25 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'import') {
-          let source: string | null = null;
-          let force = false;
-
-          for (const arg of req.args.slice(2)) {
-            const normalized = String(arg || '').trim();
-            if (!normalized) continue;
-            if (normalized === '--force') {
-              force = true;
-              continue;
-            }
-            if (normalized.startsWith('--')) {
-              return badCommand(
-                'Usage',
-                `Unknown option for \`skill import\`: ${normalized}. Use \`skill import [--force] <source>\`.`,
-              );
-            }
-            if (source === null) {
-              source = normalized;
-              continue;
-            }
-            return badCommand(
-              'Usage',
-              'Usage: `skill import [--force] <source>`',
-            );
-          }
-
-          if (!source) {
-            return badCommand(
-              'Usage',
-              'Usage: `skill import [--force] <source>`',
-            );
-          }
+          const { source, force, skipSkillScan } = parseSkillImportArgs(
+            'import',
+            req.args.slice(2),
+          );
 
           const { importSkill } = await import('../skills/skills-import.js');
-          const result = await importSkill(source, { force });
+          const result = await importSkill(source, {
+            force,
+            skipGuard: skipSkillScan,
+          });
           const lines = [
             `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
             `Installed to ${result.skillDir}`,
           ];
+          if (result.guardSkipped) {
+            lines.unshift(
+              `Security scanner skipped for ${result.skillName} because --skip-skill-scan was set.`,
+            );
+          }
           if (result.guardOverrideApplied) {
             const findingCount = result.guardFindingsCount ?? 0;
             lines.unshift(
@@ -6833,9 +6860,38 @@ export async function handleGatewayCommand(
           return infoCommand('Skill Import', lines.join('\n'));
         }
 
+        if (sub === 'sync') {
+          const { source, skipSkillScan } = parseSkillImportArgs(
+            'sync',
+            req.args.slice(2),
+          );
+
+          const { importSkill } = await import('../skills/skills-import.js');
+          const result = await importSkill(source, {
+            force: true,
+            skipGuard: skipSkillScan,
+          });
+          const lines = [
+            `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
+            `Installed to ${result.skillDir}`,
+          ];
+          if (result.guardSkipped) {
+            lines.unshift(
+              `Security scanner skipped for ${result.skillName} because --skip-skill-scan was set.`,
+            );
+          }
+          if (result.guardOverrideApplied) {
+            const findingCount = result.guardFindingsCount ?? 0;
+            lines.unshift(
+              `Security scanner reported caution findings for ${result.skillName} (${findingCount} finding${findingCount === 1 ? '' : 's'}); proceeding because --force was set.`,
+            );
+          }
+          return infoCommand('Skill Sync', lines.join('\n'));
+        }
+
         return badCommand(
           'Usage',
-          'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|import [--force] <source>`',
+          'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`',
         );
       }
 

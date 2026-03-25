@@ -27,8 +27,11 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/skill runs <name>');
   expect(labels).toContain('/skill learn <name> --apply');
   expect(labels).toContain('/skill history <name>');
-  expect(labels).toContain('/skill import <source> [--force]');
+  expect(labels).toContain('/skill sync <source>');
+  expect(labels).toContain('/skill sync --skip-skill-scan <source>');
+  expect(labels).toContain('/skill import <source> [--force] [--skip-skill-scan]');
   expect(labels).toContain('/skill import --force <source>');
+  expect(labels).toContain('/skill import --skip-skill-scan <source>');
 });
 
 test('resolves slash menu queries only at the end of the active line', () => {

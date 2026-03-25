@@ -77,6 +77,51 @@ function printSkillObservationRun(observation: SkillObservation): void {
   }
 }
 
+function parseSkillImportArgs(
+  commandName: string,
+  args: string[],
+): { source: string; force: boolean; skipSkillScan: boolean } {
+  const usage =
+    commandName === 'sync'
+      ? `hybridclaw skill ${commandName} [--skip-skill-scan] <source>`
+      : `hybridclaw skill ${commandName} [--force] [--skip-skill-scan] <source>`;
+  let source: string | null = null;
+  let force = false;
+  let skipSkillScan = false;
+
+  for (const arg of args) {
+    if (arg === '--force') {
+      force = true;
+      continue;
+    }
+    if (arg === '--skip-skill-scan') {
+      skipSkillScan = true;
+      continue;
+    }
+    if (arg.startsWith('--')) {
+      printSkillUsage();
+      throw new Error(
+        `Unknown option for \`hybridclaw skill ${commandName}\`: ${arg}. Use \`${usage}\`.`,
+      );
+    }
+    if (source === null) {
+      source = arg;
+      continue;
+    }
+    printSkillUsage();
+    throw new Error(
+      `Unexpected extra arguments for \`${usage}\`.`,
+    );
+  }
+
+  if (!source) {
+    printSkillUsage();
+    throw new Error(`Missing source for \`${usage}\`.`);
+  }
+
+  return { source, force, skipSkillScan };
+}
+
 export async function handleSkillCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
@@ -369,37 +414,46 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   }
 
   if (sub === 'import') {
-    let source: string | null = null;
-    let force = false;
-    for (const arg of normalized.slice(1)) {
-      if (arg === '--force') {
-        force = true;
-        continue;
-      }
-      if (arg.startsWith('--')) {
-        printSkillUsage();
-        throw new Error(
-          `Unknown option for \`hybridclaw skill import\`: ${arg}`,
-        );
-      }
-      if (source === null) {
-        source = arg;
-        continue;
-      }
-      printSkillUsage();
-      throw new Error(
-        'Unexpected extra arguments for `hybridclaw skill import [--force] <source>`.',
-      );
-    }
-
-    if (!source) {
-      printSkillUsage();
-      throw new Error('Missing source for `hybridclaw skill import`.');
-    }
+    const { source, force, skipSkillScan } = parseSkillImportArgs(
+      'import',
+      normalized.slice(1),
+    );
 
     const { importSkill } = await import('../skills/skills-import.js');
-    const result = await importSkill(source, { force });
-    if (result.guardOverrideApplied) {
+    const result = await importSkill(source, { force, skipGuard: skipSkillScan });
+    if (result.guardSkipped) {
+      console.warn(
+        `Security scanner skipped for ${result.skillName} because --skip-skill-scan was set.`,
+      );
+    } else if (result.guardOverrideApplied) {
+      const findingCount = result.guardFindingsCount ?? 0;
+      console.warn(
+        `Security scanner reported caution findings for ${result.skillName} (${findingCount} finding${findingCount === 1 ? '' : 's'}); proceeding because --force was set.`,
+      );
+    }
+    console.log(
+      `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
+    );
+    console.log(`Installed to ${result.skillDir}`);
+    return;
+  }
+
+  if (sub === 'sync') {
+    const { source, skipSkillScan } = parseSkillImportArgs(
+      'sync',
+      normalized.slice(1),
+    );
+
+    const { importSkill } = await import('../skills/skills-import.js');
+    const result = await importSkill(source, {
+      force: true,
+      skipGuard: skipSkillScan,
+    });
+    if (result.guardSkipped) {
+      console.warn(
+        `Security scanner skipped for ${result.skillName} because --skip-skill-scan was set.`,
+      );
+    } else if (result.guardOverrideApplied) {
       const findingCount = result.guardFindingsCount ?? 0;
       console.warn(
         `Security scanner reported caution findings for ${result.skillName} (${findingCount} finding${findingCount === 1 ? '' : 's'}); proceeding because --force was set.`,
