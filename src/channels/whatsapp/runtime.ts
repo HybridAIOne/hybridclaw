@@ -258,7 +258,7 @@ export function createWhatsAppRuntime(): WhatsAppRuntime {
     if (upsertType === 'append') {
       const messageTimestampMs = parseMessageTimestampMs(message);
       if (
-        messageTimestampMs != null &&
+        messageTimestampMs == null ||
         messageTimestampMs < Date.now() - APPEND_RECENT_GRACE_MS
       ) {
         return;

@@ -197,6 +197,34 @@ test('skips stale append catch-up messages', async () => {
   expect(messageHandler).not.toHaveBeenCalled();
 });
 
+test('skips append catch-up messages when timestamp is missing', async () => {
+  const { processInboundWhatsAppMessage, runtime, upsertHandlers } =
+    await importFreshRuntimeModule();
+  const messageHandler = vi.fn(async () => {});
+
+  await runtime.initWhatsApp(messageHandler);
+  expect(upsertHandlers).toHaveLength(1);
+
+  await upsertHandlers[0]?.({
+    type: 'append',
+    messages: [
+      {
+        key: {
+          id: 'append-no-timestamp-1',
+          fromMe: false,
+          remoteJid: '491703330161@s.whatsapp.net',
+        },
+        message: {
+          conversation: 'history message without timestamp',
+        },
+      },
+    ],
+  });
+
+  expect(processInboundWhatsAppMessage).not.toHaveBeenCalled();
+  expect(messageHandler).not.toHaveBeenCalled();
+});
+
 test('createWhatsAppRuntime isolates runtime state per instance', async () => {
   const { createWhatsAppConnectionManager, runtime } =
     await importFreshRuntimeModule();
