@@ -1209,13 +1209,6 @@ function buildSlashCommandCatalogDefinitions(
               description:
                 'Reinstall a packaged or community skill from its source',
             },
-            {
-              id: 'skill.sync.skip-skill-scan',
-              label: '/skill sync --skip-skill-scan <source>',
-              insertText: '/skill sync --skip-skill-scan ',
-              description:
-                'Reinstall a skill without running the security scanner',
-            },
           ],
         },
         {
