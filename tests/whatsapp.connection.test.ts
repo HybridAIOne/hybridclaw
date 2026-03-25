@@ -21,35 +21,15 @@ async function importFreshConnectionModule(options?: {
   logLevel?: string;
   rootLevel?: string;
   deferAuthState?: boolean;
-  whatsappConfig?: {
-    dmPolicy?: string;
-    groupPolicy?: string;
-    allowFrom?: string[];
-    groupAllowFrom?: string[];
-  };
 }) {
   vi.resetModules();
   const configModule = await import('../src/config/config.js');
   const APP_VERSION = configModule.APP_VERSION;
-  const baseSnapshot = configModule.getConfigSnapshot();
-  const effectiveWhatsAppConfig = {
-    ...baseSnapshot.whatsapp,
-    ...(options?.whatsappConfig ?? {}),
-  };
-
-  vi.doMock('../src/config/config.js', () => ({
-    ...configModule,
-    getConfigSnapshot: () => ({
-      ...baseSnapshot,
-      whatsapp: effectiveWhatsAppConfig,
-    }),
-  }));
 
   const sockets: Array<{
     config: {
       browser?: unknown[];
       getMessage?: (key: unknown) => Promise<unknown>;
-      shouldIgnoreJid?: (jid: string) => boolean | undefined;
       logger: { info: (obj: unknown, msg?: string) => void };
     };
     evHandlers: Map<string, Array<(payload: unknown) => void>>;
