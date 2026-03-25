@@ -11,6 +11,7 @@ import type {
   SkillHealthMetrics,
   SkillObservation,
 } from '../skills/adaptive-skills-types.js';
+import { parseSkillImportArgs } from '../skills/skill-import-args.js';
 import { normalizeArgs, parseSkillScopeArgs } from './common.js';
 import { isHelpRequest, printSkillUsage } from './help.js';
 
@@ -75,49 +76,6 @@ function printSkillObservationRun(observation: SkillObservation): void {
   if (observation.error_detail) {
     console.log(`Error detail: ${observation.error_detail}`);
   }
-}
-
-function parseSkillImportArgs(
-  commandName: string,
-  args: string[],
-): { source: string; force: boolean; skipSkillScan: boolean } {
-  const usage =
-    commandName === 'sync'
-      ? `hybridclaw skill ${commandName} [--skip-skill-scan] <source>`
-      : `hybridclaw skill ${commandName} [--force] [--skip-skill-scan] <source>`;
-  let source: string | null = null;
-  let force = false;
-  let skipSkillScan = false;
-
-  for (const arg of args) {
-    if (arg === '--force') {
-      force = true;
-      continue;
-    }
-    if (arg === '--skip-skill-scan') {
-      skipSkillScan = true;
-      continue;
-    }
-    if (arg.startsWith('--')) {
-      printSkillUsage();
-      throw new Error(
-        `Unknown option for \`hybridclaw skill ${commandName}\`: ${arg}. Use \`${usage}\`.`,
-      );
-    }
-    if (source === null) {
-      source = arg;
-      continue;
-    }
-    printSkillUsage();
-    throw new Error(`Unexpected extra arguments for \`${usage}\`.`);
-  }
-
-  if (!source) {
-    printSkillUsage();
-    throw new Error(`Missing source for \`${usage}\`.`);
-  }
-
-  return { source, force, skipSkillScan };
 }
 
 export async function handleSkillCommand(args: string[]): Promise<void> {
@@ -413,8 +371,12 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
 
   if (sub === 'import') {
     const { source, force, skipSkillScan } = parseSkillImportArgs(
-      'import',
       normalized.slice(1),
+      {
+        commandPrefix: 'hybridclaw skill',
+        commandName: 'import',
+        allowForce: true,
+      },
     );
 
     const { importSkill } = await import('../skills/skills-import.js');
@@ -441,8 +403,12 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
 
   if (sub === 'sync') {
     const { source, skipSkillScan } = parseSkillImportArgs(
-      'sync',
       normalized.slice(1),
+      {
+        commandPrefix: 'hybridclaw skill',
+        commandName: 'sync',
+        allowForce: false,
+      },
     );
 
     const { importSkill } = await import('../skills/skills-import.js');

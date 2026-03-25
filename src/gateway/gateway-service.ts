@@ -216,6 +216,7 @@ import {
   deriveSkillExecutionOutcome,
   recordSkillExecution,
 } from '../skills/skills-observation.js';
+import { parseSkillImportArgs } from '../skills/skill-import-args.js';
 import type {
   ArtifactMetadata,
   CanonicalSessionContext,
@@ -1695,48 +1696,6 @@ function formatSkillAmendment(amendment: SkillAmendment): string {
     lines.push(`Diff: ${amendment.diff_summary}`);
   }
   return lines.join('\n');
-}
-
-function parseSkillImportArgs(
-  commandName: string,
-  args: readonly unknown[],
-): { source: string; force: boolean; skipSkillScan: boolean } {
-  const usage =
-    commandName === 'sync'
-      ? `skill ${commandName} [--skip-skill-scan] <source>`
-      : `skill ${commandName} [--force] [--skip-skill-scan] <source>`;
-  let source: string | null = null;
-  let force = false;
-  let skipSkillScan = false;
-
-  for (const arg of args) {
-    const normalized = String(arg || '').trim();
-    if (!normalized) continue;
-    if (normalized === '--force') {
-      force = true;
-      continue;
-    }
-    if (normalized === '--skip-skill-scan') {
-      skipSkillScan = true;
-      continue;
-    }
-    if (normalized.startsWith('--')) {
-      throw new Error(
-        `Unknown option for \`skill ${commandName}\`: ${normalized}. Use \`${usage}\`.`,
-      );
-    }
-    if (source === null) {
-      source = normalized;
-      continue;
-    }
-    throw new Error(`Usage: \`${usage}\``);
-  }
-
-  if (!source) {
-    throw new Error(`Usage: \`${usage}\``);
-  }
-
-  return { source, force, skipSkillScan };
 }
 
 function formatSkillObservationRun(observation: SkillObservation): string {
@@ -6829,8 +6788,12 @@ export async function handleGatewayCommand(
 
         if (sub === 'import') {
           const { source, force, skipSkillScan } = parseSkillImportArgs(
-            'import',
             req.args.slice(2),
+            {
+              commandPrefix: 'skill',
+              commandName: 'import',
+              allowForce: true,
+            },
           );
 
           const { importSkill } = await import('../skills/skills-import.js');
@@ -6858,8 +6821,12 @@ export async function handleGatewayCommand(
 
         if (sub === 'sync') {
           const { source, skipSkillScan } = parseSkillImportArgs(
-            'sync',
             req.args.slice(2),
+            {
+              commandPrefix: 'skill',
+              commandName: 'sync',
+              allowForce: false,
+            },
           );
 
           const { importSkill } = await import('../skills/skills-import.js');
