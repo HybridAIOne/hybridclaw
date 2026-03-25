@@ -119,6 +119,20 @@ export async function sendWhatsAppReaction(params: {
   return true;
 }
 
+export async function clearWhatsAppReaction(params: {
+  sock: Pick<WASocket, 'sendMessage'>;
+  jid: string;
+  key: WAMessageKey;
+}): Promise<boolean> {
+  await params.sock.sendMessage(params.jid, {
+    react: {
+      text: '',
+      key: params.key,
+    },
+  });
+  return true;
+}
+
 export async function sendWhatsAppReadReceipt(
   sock: Pick<WASocket, 'readMessages'>,
   message: WAMessage,

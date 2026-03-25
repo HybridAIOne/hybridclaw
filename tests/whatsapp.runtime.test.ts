@@ -3,9 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 
-async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
+async function importFreshRuntimeModule(options?: {
+  isSelfChat?: boolean;
+  ackReaction?: string;
+}) {
   vi.resetModules();
   const isSelfChat = options?.isSelfChat ?? true;
+  const ackReaction = options?.ackReaction ?? '';
 
   const upsertHandlers: Array<
     (payload: { messages?: unknown[]; type?: string }) => void | Promise<void>
@@ -93,7 +97,7 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
         textChunkLimit: 4000,
         debounceMs: 2500,
         sendReadReceipts: false,
-        ackReaction: '',
+        ackReaction,
         mediaMaxMb: 20,
       },
     })),
@@ -117,13 +121,16 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
     shouldDebounceWhatsAppInbound: vi.fn(() => false),
   }));
 
+  const sendWhatsAppReaction = vi.fn(async () => true);
+  const clearWhatsAppReaction = vi.fn(async () => true);
   vi.doMock('../src/channels/whatsapp/delivery.ts', async () => {
     const actual = await vi.importActual(
       '../src/channels/whatsapp/delivery.ts',
     );
     return {
       ...actual,
-      sendWhatsAppReaction: vi.fn(async () => true),
+      clearWhatsAppReaction,
+      sendWhatsAppReaction,
       sendWhatsAppReadReceipt: vi.fn(async () => true),
     };
   });
@@ -137,9 +144,11 @@ async function importFreshRuntimeModule(options?: { isSelfChat?: boolean }) {
   return {
     manager,
     cleanupWhatsAppInboundMedia,
+    clearWhatsAppReaction,
     createWhatsAppConnectionManager,
     processInboundWhatsAppMessage,
     runtime,
+    sendWhatsAppReaction,
     socket,
     upsertHandlers,
   };
@@ -322,6 +331,57 @@ test('shows WhatsApp composing presence while processing an inbound turn', async
   expect(socket.sendPresenceUpdate).toHaveBeenLastCalledWith(
     'paused',
     '491703330161@s.whatsapp.net',
+  );
+});
+
+test('clears WhatsApp ack reactions after the turn completes', async () => {
+  const {
+    clearWhatsAppReaction,
+    runtime,
+    sendWhatsAppReaction,
+    upsertHandlers,
+  } = await importFreshRuntimeModule({
+    ackReaction: '👀',
+  });
+  const messageHandler = vi.fn(async () => {});
+
+  await runtime.initWhatsApp(messageHandler);
+  expect(upsertHandlers).toHaveLength(1);
+
+  await upsertHandlers[0]?.({
+    type: 'notify',
+    messages: [
+      {
+        key: {
+          id: 'phone-ack-1',
+          fromMe: false,
+          remoteJid: '491703330161@s.whatsapp.net',
+        },
+        message: {
+          conversation: 'hello',
+        },
+      },
+    ],
+  });
+
+  await flushAsyncWork();
+
+  expect(sendWhatsAppReaction).toHaveBeenCalledWith(
+    expect.objectContaining({
+      jid: '491703330161@s.whatsapp.net',
+      emoji: '👀',
+      key: expect.objectContaining({
+        id: 'phone-ack-1',
+      }),
+    }),
+  );
+  expect(clearWhatsAppReaction).toHaveBeenCalledWith(
+    expect.objectContaining({
+      jid: '491703330161@s.whatsapp.net',
+      key: expect.objectContaining({
+        id: 'phone-ack-1',
+      }),
+    }),
   );
 });
 
