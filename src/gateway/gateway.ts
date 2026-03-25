@@ -758,21 +758,8 @@ function isDiscordInvalidTokenError(error: unknown): boolean {
 
 function isWhatsAppAuthLockError(
   error: unknown,
-): error is Pick<WhatsAppAuthLockError, 'lockPath' | 'ownerPid'> {
-  if (error instanceof WhatsAppAuthLockError) return true;
-  if (!error || typeof error !== 'object') return false;
-  const name =
-    'name' in error && typeof error.name === 'string' ? error.name : '';
-  const lockPath =
-    'lockPath' in error && typeof error.lockPath === 'string'
-      ? error.lockPath
-      : '';
-  if (name !== 'WhatsAppAuthLockError' || !lockPath) return false;
-  return (
-    !('ownerPid' in error) ||
-    typeof error.ownerPid === 'number' ||
-    error.ownerPid === null
-  );
+): error is WhatsAppAuthLockError {
+  return error instanceof WhatsAppAuthLockError;
 }
 
 async function startMSTeamsIntegration(): Promise<boolean> {
