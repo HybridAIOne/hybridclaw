@@ -610,7 +610,7 @@ function isMirroredAgentWorkspaceSkillDir(dir: string): boolean {
   if (!pathWithin(agentsRoot, skillDir)) return false;
   const relParts = path.relative(agentsRoot, skillDir).split(path.sep);
   return (
-    relParts.length >= 4 &&
+    relParts.length >= 3 &&
     Boolean(relParts[0]) &&
     relParts[1] === 'workspace' &&
     relParts[2] === 'skills'
@@ -621,6 +621,13 @@ function shouldPreserveExistingSkill(
   existing: SkillCandidate,
   candidate: SkillCandidate,
 ): boolean {
+  if (
+    existing.source === 'extra' &&
+    candidate.source === 'workspace' &&
+    isMirroredAgentWorkspaceSkillDir(candidate.baseDir)
+  ) {
+    return false;
+  }
   if (
     resolveComparablePath(existing.baseDir) ===
     resolveComparablePath(candidate.baseDir)
@@ -1334,7 +1341,12 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   const projectSkillsDir = resolveProjectSkillsDir();
   const projectAgentsSkillsDir = resolveProjectAgentsSkillsDir();
 
-  const extraSkills = extraDirs.flatMap((dir) => scanSkillsDir(dir, 'extra'));
+  const extraSkills = extraDirs.flatMap((dir) =>
+    scanSkillsDir(
+      dir,
+      isMirroredAgentWorkspaceSkillDir(dir) ? 'workspace' : 'extra',
+    ),
+  );
   const bundledSkills = bundledSkillsDir
     ? scanSkillsDir(bundledSkillsDir, 'bundled')
     : [];

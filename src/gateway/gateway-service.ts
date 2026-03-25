@@ -148,15 +148,15 @@ import {
   getDiscoveredHybridAIModelContextWindow,
   getDiscoveredHybridAIModelNames,
 } from '../providers/hybridai-discovery.js';
+import {
+  type HybridAIHealthResult,
+  hybridAIProbe,
+} from '../providers/hybridai-health.js';
 import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
 import {
   getLocalModelInfo,
   resolveLocalModelContextWindow,
 } from '../providers/local-discovery.js';
-import {
-  type HybridAIHealthResult,
-  hybridAIProbe,
-} from '../providers/hybridai-health.js';
 import { localBackendsProbe } from '../providers/local-health.js';
 import {
   getAvailableModelList,
@@ -206,6 +206,8 @@ import type {
   SkillHealthMetrics,
   SkillObservation,
 } from '../skills/adaptive-skills-types.js';
+import { parseSkillImportArgs } from '../skills/skill-import-args.js';
+import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
 import {
   expandResolvedSkillInvocation,
   expandSkillInvocationWithResolution,
@@ -5137,7 +5139,8 @@ export async function handleGatewayCommand(
           '`skill runs <name>` — Show recent execution observations for a skill',
           '`skill learn <name> [--apply|--reject|--rollback]` — Stage or manage skill amendments',
           '`skill history <name>` — Show amendment history for a skill',
-          '`skill import [--force] <source>` — Import a packaged or community skill into ~/.hybridclaw/skills',
+          '`skill sync [--skip-skill-scan] <source>` — Reinstall a packaged or community skill',
+          '`skill import [--force] [--skip-skill-scan] <source>` — Import a packaged or community skill into ~/.hybridclaw/skills',
           '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
           '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
           '`schedule add every <ms> <prompt>` — Add interval task',
@@ -6560,7 +6563,7 @@ export async function handleGatewayCommand(
         if (!sub) {
           return badCommand(
             'Usage',
-            'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|import [--force] <source>`',
+            'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`',
           );
         }
 
@@ -6785,57 +6788,54 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'import') {
-          let source: string | null = null;
-          let force = false;
-
-          for (const arg of req.args.slice(2)) {
-            const normalized = String(arg || '').trim();
-            if (!normalized) continue;
-            if (normalized === '--force') {
-              force = true;
-              continue;
-            }
-            if (normalized.startsWith('--')) {
-              return badCommand(
-                'Usage',
-                `Unknown option for \`skill import\`: ${normalized}. Use \`skill import [--force] <source>\`.`,
-              );
-            }
-            if (source === null) {
-              source = normalized;
-              continue;
-            }
-            return badCommand(
-              'Usage',
-              'Usage: `skill import [--force] <source>`',
-            );
-          }
-
-          if (!source) {
-            return badCommand(
-              'Usage',
-              'Usage: `skill import [--force] <source>`',
-            );
-          }
+          const { source, force, skipSkillScan } = parseSkillImportArgs(
+            req.args.slice(2),
+            {
+              commandPrefix: 'skill',
+              commandName: 'import',
+              allowForce: true,
+            },
+          );
 
           const { importSkill } = await import('../skills/skills-import.js');
-          const result = await importSkill(source, { force });
+          const result = await importSkill(source, {
+            force,
+            skipGuard: skipSkillScan,
+          });
           const lines = [
+            ...buildGuardWarningLines(result),
             `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
             `Installed to ${result.skillDir}`,
           ];
-          if (result.guardOverrideApplied) {
-            const findingCount = result.guardFindingsCount ?? 0;
-            lines.unshift(
-              `Security scanner reported caution findings for ${result.skillName} (${findingCount} finding${findingCount === 1 ? '' : 's'}); proceeding because --force was set.`,
-            );
-          }
           return infoCommand('Skill Import', lines.join('\n'));
+        }
+
+        if (sub === 'sync') {
+          const { source, skipSkillScan } = parseSkillImportArgs(
+            req.args.slice(2),
+            {
+              commandPrefix: 'skill',
+              commandName: 'sync',
+              allowForce: false,
+            },
+          );
+
+          const { importSkill } = await import('../skills/skills-import.js');
+          const result = await importSkill(source, {
+            force: true,
+            skipGuard: skipSkillScan,
+          });
+          const lines = [
+            ...buildGuardWarningLines(result),
+            `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
+            `Installed to ${result.skillDir}`,
+          ];
+          return infoCommand('Skill Sync', lines.join('\n'));
         }
 
         return badCommand(
           'Usage',
-          'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|import [--force] <source>`',
+          'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`',
         );
       }
 

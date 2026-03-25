@@ -434,6 +434,128 @@ describe('.claw archive support', () => {
     ).toBe(true);
   });
 
+  test('unpack rejects staged skill-import collisions without force', async () => {
+    const homeDir = makeTempDir('hybridclaw-claw-home-');
+    const cwd = makeTempDir('hybridclaw-claw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+    process.chdir(cwd);
+
+    const { initDatabase } = await import('../../src/memory/db.js');
+    const { initAgentRegistry, getAgentById } = await import(
+      '../../src/agents/agent-registry.js'
+    );
+    const { unpackAgent } = await import('../../src/agents/claw-archive.js');
+
+    initDatabase({ quiet: true });
+    initAgentRegistry({
+      list: [{ id: 'main', name: 'Main Agent' }],
+    });
+
+    const archivePath = path.join(cwd, 'skill-import-collision.claw');
+    await writeZipArchive(archivePath, [
+      {
+        name: 'manifest.json',
+        content: JSON.stringify(
+          {
+            formatVersion: 1,
+            name: 'Skill Import Collision Agent',
+            id: 'skill-import-collision-agent',
+            skills: {
+              imports: [{ source: 'official/himalaya' }],
+            },
+          },
+          null,
+          2,
+        ),
+      },
+      {
+        name: 'workspace/SOUL.md',
+        content: '# Soul\n',
+      },
+      {
+        name: 'workspace/skills/himalaya/SKILL.md',
+        content:
+          '---\nname: himalaya\ndescription: Placeholder\nauthor: local\n---\n\nplaceholder\n',
+      },
+    ]);
+
+    await expect(
+      unpackAgent(archivePath, {
+        yes: true,
+        homeDir,
+        cwd,
+      }),
+    ).rejects.toThrow(/would overwrite existing content/i);
+
+    expect(getAgentById('skill-import-collision-agent')).toBeNull();
+  });
+
+  test('unpack force allows skill imports to replace staged collisions', async () => {
+    const homeDir = makeTempDir('hybridclaw-claw-home-');
+    const cwd = makeTempDir('hybridclaw-claw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+    process.chdir(cwd);
+
+    const { initDatabase } = await import('../../src/memory/db.js');
+    const { initAgentRegistry } = await import(
+      '../../src/agents/agent-registry.js'
+    );
+    const { unpackAgent } = await import('../../src/agents/claw-archive.js');
+
+    initDatabase({ quiet: true });
+    initAgentRegistry({
+      list: [{ id: 'main', name: 'Main Agent' }],
+    });
+
+    const archivePath = path.join(cwd, 'skill-import-collision-force.claw');
+    await writeZipArchive(archivePath, [
+      {
+        name: 'manifest.json',
+        content: JSON.stringify(
+          {
+            formatVersion: 1,
+            name: 'Skill Import Collision Agent',
+            id: 'skill-import-collision-force-agent',
+            skills: {
+              imports: [{ source: 'official/himalaya' }],
+            },
+          },
+          null,
+          2,
+        ),
+      },
+      {
+        name: 'workspace/SOUL.md',
+        content: '# Soul\n',
+      },
+      {
+        name: 'workspace/skills/himalaya/SKILL.md',
+        content:
+          '---\nname: himalaya\ndescription: Placeholder\nauthor: local\n---\n\nplaceholder\n',
+      },
+    ]);
+
+    const unpacked = await unpackAgent(archivePath, {
+      yes: true,
+      force: true,
+      homeDir,
+      cwd,
+    });
+
+    expect(unpacked.importedSkills).toHaveLength(1);
+    expect(unpacked.importedSkills[0]?.replacedExisting).toBe(true);
+    expect(
+      fs
+        .readFileSync(
+          path.join(unpacked.workspacePath, 'skills', 'himalaya', 'SKILL.md'),
+          'utf-8',
+        )
+        .includes('placeholder'),
+    ).toBe(false);
+  });
+
   test('pack supports minimal archives and excludes transient workspace files', async () => {
     const homeDir = makeTempDir('hybridclaw-claw-home-');
     const cwd = makeTempDir('hybridclaw-claw-cwd-');

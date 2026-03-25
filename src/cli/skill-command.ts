@@ -11,6 +11,8 @@ import type {
   SkillHealthMetrics,
   SkillObservation,
 } from '../skills/adaptive-skills-types.js';
+import { parseSkillImportArgs } from '../skills/skill-import-args.js';
+import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
 import { normalizeArgs, parseSkillScopeArgs } from './common.js';
 import { isHelpRequest, printSkillUsage } from './help.js';
 
@@ -369,41 +371,47 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   }
 
   if (sub === 'import') {
-    let source: string | null = null;
-    let force = false;
-    for (const arg of normalized.slice(1)) {
-      if (arg === '--force') {
-        force = true;
-        continue;
-      }
-      if (arg.startsWith('--')) {
-        printSkillUsage();
-        throw new Error(
-          `Unknown option for \`hybridclaw skill import\`: ${arg}`,
-        );
-      }
-      if (source === null) {
-        source = arg;
-        continue;
-      }
-      printSkillUsage();
-      throw new Error(
-        'Unexpected extra arguments for `hybridclaw skill import [--force] <source>`.',
-      );
-    }
-
-    if (!source) {
-      printSkillUsage();
-      throw new Error('Missing source for `hybridclaw skill import`.');
-    }
+    const { source, force, skipSkillScan } = parseSkillImportArgs(
+      normalized.slice(1),
+      {
+        commandPrefix: 'hybridclaw skill',
+        commandName: 'import',
+        allowForce: true,
+      },
+    );
 
     const { importSkill } = await import('../skills/skills-import.js');
-    const result = await importSkill(source, { force });
-    if (result.guardOverrideApplied) {
-      const findingCount = result.guardFindingsCount ?? 0;
-      console.warn(
-        `Security scanner reported caution findings for ${result.skillName} (${findingCount} finding${findingCount === 1 ? '' : 's'}); proceeding because --force was set.`,
-      );
+    const result = await importSkill(source, {
+      force,
+      skipGuard: skipSkillScan,
+    });
+    for (const warning of buildGuardWarningLines(result)) {
+      console.warn(warning);
+    }
+    console.log(
+      `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
+    );
+    console.log(`Installed to ${result.skillDir}`);
+    return;
+  }
+
+  if (sub === 'sync') {
+    const { source, skipSkillScan } = parseSkillImportArgs(
+      normalized.slice(1),
+      {
+        commandPrefix: 'hybridclaw skill',
+        commandName: 'sync',
+        allowForce: false,
+      },
+    );
+
+    const { importSkill } = await import('../skills/skills-import.js');
+    const result = await importSkill(source, {
+      force: true,
+      skipGuard: skipSkillScan,
+    });
+    for (const warning of buildGuardWarningLines(result)) {
+      console.warn(warning);
     }
     console.log(
       `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,

@@ -314,7 +314,10 @@ async function importFreshCli(options?: {
     );
   });
   const importSkill = vi.fn(
-    async (source: string, importOptions?: { force?: boolean }) => {
+    async (
+      source: string,
+      importOptions?: { force?: boolean; skipGuard?: boolean },
+    ) => {
       if (options?.skillImportError) {
         throw options.skillImportError;
       }
@@ -1236,7 +1239,7 @@ describe('CLI hybridai commands', () => {
 
     expect(importSkill).toHaveBeenCalledWith(
       'anthropics/skills/skills/brand-guidelines',
-      { force: false },
+      { force: false, skipGuard: false },
     );
     expect(logSpy).toHaveBeenCalledWith(
       'Imported brand-guidelines from https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
@@ -1263,6 +1266,7 @@ describe('CLI hybridai commands', () => {
 
     expect(importSkill).toHaveBeenCalledWith('official/himalaya', {
       force: false,
+      skipGuard: false,
     });
     expect(logSpy).toHaveBeenCalledWith(
       'Imported himalaya from official/himalaya',
@@ -1299,7 +1303,7 @@ describe('CLI hybridai commands', () => {
 
     expect(importSkill).toHaveBeenCalledWith(
       'anthropics/skills/skills/brand-guidelines',
-      { force: true },
+      { force: true, skipGuard: false },
     );
     expect(warnSpy).toHaveBeenCalledWith(
       'Security scanner reported caution findings for brand-guidelines (1 finding); proceeding because --force was set.',

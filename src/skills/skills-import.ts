@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
-import type { SkillGuardVerdict } from './skills-guard.js';
+import type { SkillGuardDecision, SkillGuardVerdict } from './skills-guard.js';
 import { guardSkillDirectory } from './skills-guard.js';
 import {
   type GitHubSkillImportSource,
@@ -42,6 +42,7 @@ export interface SkillImportResult {
   replacedExisting: boolean;
   filesImported: number;
   guardOverrideApplied?: boolean;
+  guardSkipped?: boolean;
   guardVerdict?: SkillGuardVerdict;
   guardFindingsCount?: number;
 }
@@ -52,6 +53,7 @@ export interface ImportSkillOptions {
   force?: boolean;
   installRootDir?: string;
   replaceExisting?: boolean;
+  skipGuard?: boolean;
 }
 
 class SkillImportError extends Error {}
@@ -575,25 +577,35 @@ export async function importSkill(
     }
 
     const skillName = readSkillNameFromFile(skillFilePath);
-    const guardDecision = guardSkillDirectory({
-      skillName,
-      skillPath: tempSkillDir,
-      sourceTag: 'community',
-    });
-    const guardVerdict = guardDecision.result.verdict;
-    const guardFindingsCount = guardDecision.result.findings.length;
-    const guardOverrideApplied =
-      options.force === true &&
-      !guardDecision.allowed &&
-      guardVerdict === 'caution';
-    if (!guardDecision.allowed && !guardOverrideApplied) {
-      const forceSuffix =
-        options.force === true && guardVerdict === 'dangerous'
-          ? ' Dangerous verdicts cannot be overridden with --force.'
-          : '';
-      throw new SkillImportError(
-        `Imported skill "${skillName}" was blocked by the security scanner: ${guardDecision.reason}.${forceSuffix}`,
-      );
+    let guardDecision: SkillGuardDecision | null = null;
+    let guardVerdict: SkillGuardVerdict | undefined;
+    let guardFindingsCount = 0;
+    let guardOverrideApplied = false;
+    let guardSkipped = false;
+
+    if (!options.skipGuard) {
+      guardDecision = guardSkillDirectory({
+        skillName,
+        skillPath: tempSkillDir,
+        sourceTag: 'community',
+      });
+      guardVerdict = guardDecision.result.verdict;
+      guardFindingsCount = guardDecision.result.findings.length;
+      guardOverrideApplied =
+        options.force === true &&
+        !guardDecision.allowed &&
+        guardVerdict === 'caution';
+      if (!guardDecision.allowed && !guardOverrideApplied) {
+        const forceSuffix =
+          options.force === true && guardVerdict === 'dangerous'
+            ? ' Dangerous verdicts cannot be overridden with --force.'
+            : '';
+        throw new SkillImportError(
+          `Imported skill "${skillName}" was blocked by the security scanner: ${guardDecision.reason}.${forceSuffix}`,
+        );
+      }
+    } else {
+      guardSkipped = true;
     }
 
     const targetDirName = sanitizeInstalledSkillDirName(skillName);
@@ -622,9 +634,10 @@ export async function importSkill(
       resolvedSource: resolvedRemoteSource,
       replacedExisting,
       filesImported: countFiles(targetDir),
-      guardOverrideApplied,
+      guardSkipped: guardSkipped || undefined,
+      guardOverrideApplied: guardOverrideApplied || undefined,
       guardVerdict,
-      guardFindingsCount,
+      guardFindingsCount: guardFindingsCount > 0 ? guardFindingsCount : undefined,
     };
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });

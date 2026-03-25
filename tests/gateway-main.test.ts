@@ -128,6 +128,12 @@ function createGatewayMainTestState(options?: {
 
 async function importFreshGatewayMain(options?: {
   discordInitError?: Error;
+  whatsappInitError?: Error;
+  whatsappAuthLockError?: {
+    lockPath: string;
+    ownerPid?: number | null;
+    message?: string;
+  };
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
   hasMSTeamsCredentials?: boolean;
@@ -165,7 +171,34 @@ async function importFreshGatewayMain(options?: {
     state.teamsMessageHandler = messageHandler;
     state.teamsCommandHandler = commandHandler;
   });
+  class MockWhatsAppAuthLockError extends Error {
+    readonly lockPath: string;
+    readonly ownerPid: number | null;
+
+    constructor(
+      message: string,
+      options: { lockPath: string; ownerPid?: number | null },
+    ) {
+      super(message);
+      this.name = 'WhatsAppAuthLockError';
+      this.lockPath = options.lockPath;
+      this.ownerPid = options.ownerPid ?? null;
+    }
+  }
   state.initWhatsApp.mockImplementation((messageHandler) => {
+    if (options?.whatsappAuthLockError) {
+      throw new MockWhatsAppAuthLockError(
+        options.whatsappAuthLockError.message ||
+          'WhatsApp auth state is already in use',
+        {
+          lockPath: options.whatsappAuthLockError.lockPath,
+          ownerPid: options.whatsappAuthLockError.ownerPid ?? null,
+        },
+      );
+    }
+    if (options?.whatsappInitError) {
+      throw options.whatsappInitError;
+    }
     state.whatsappMessageHandler = messageHandler;
   });
   state.startScheduler.mockImplementation((listener) => {
@@ -229,6 +262,7 @@ async function importFreshGatewayMain(options?: {
     shutdownWhatsApp: vi.fn(async () => {}),
   }));
   vi.doMock('../src/channels/whatsapp/auth.js', () => ({
+    WhatsAppAuthLockError: MockWhatsAppAuthLockError,
     getWhatsAppAuthStatus: vi.fn(async () => ({
       linked: state.whatsappLinked,
       jid: state.whatsappLinked ? '491701234567:16@s.whatsapp.net' : null,
@@ -452,6 +486,60 @@ describe('gateway bootstrap', () => {
 
     expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
     expect(state.whatsappMessageHandler).not.toBeNull();
+  });
+
+  test('keeps the gateway running when WhatsApp auth is locked by another process', async () => {
+    const state = await importFreshGatewayMain({
+      whatsappLinked: true,
+      whatsappAuthLockError: {
+        lockPath: '/tmp/whatsapp.lock',
+        ownerPid: 35685,
+      },
+    });
+
+    expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
+    expect(state.startGatewayHttpServer).toHaveBeenCalledTimes(1);
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      {
+        lockPath: '/tmp/whatsapp.lock',
+        ownerPid: 35685,
+      },
+      'WhatsApp integration disabled: auth state is locked by another HybridClaw process',
+    );
+    expect(
+      state.loggerError.mock.calls.some(
+        (call) => call[1] === 'WhatsApp integration failed to start',
+      ),
+    ).toBe(false);
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ok',
+        whatsapp: false,
+      }),
+      'HybridClaw gateway started',
+    );
+  });
+
+  test('logs non-lock WhatsApp startup failures as errors without aborting gateway startup', async () => {
+    const whatsappInitError = new Error('WhatsApp bootstrap failed');
+    const state = await importFreshGatewayMain({
+      whatsappLinked: true,
+      whatsappInitError,
+    });
+
+    expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
+    expect(state.startGatewayHttpServer).toHaveBeenCalledTimes(1);
+    expect(state.loggerError).toHaveBeenCalledWith(
+      { error: whatsappInitError },
+      'WhatsApp integration failed to start',
+    );
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ok',
+        whatsapp: false,
+      }),
+      'HybridClaw gateway started',
+    );
   });
 
   test('keeps the gateway running when Discord startup rejects', async () => {

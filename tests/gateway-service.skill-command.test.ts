@@ -266,7 +266,7 @@ test('skill import imports a community skill through the gateway command path', 
 
   expect(importSkillMock).toHaveBeenCalledWith(
     'anthropics/skills/skills/brand-guidelines',
-    { force: false },
+    { force: false, skipGuard: false },
   );
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -316,7 +316,7 @@ test('skill import forwards --force and reports caution overrides', async () => 
 
   expect(importSkillMock).toHaveBeenCalledWith(
     'claude-marketplace/pdf@anthropic-agent-skills',
-    { force: true },
+    { force: true, skipGuard: false },
   );
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -324,5 +324,47 @@ test('skill import forwards --force and reports caution overrides', async () => 
   }
   expect(result.text).toContain(
     'Security scanner reported caution findings for pdf (1 finding); proceeding because --force was set.',
+  );
+});
+
+test('skill sync forces a reinstall without requiring --force', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const importSkillMock = vi.fn().mockResolvedValue({
+    skillName: 'brand-guidelines',
+    skillDir: '/tmp/.hybridclaw/skills/brand-guidelines',
+    source: 'official/brand-guidelines',
+    resolvedSource: 'official/brand-guidelines',
+    replacedExisting: true,
+    filesImported: 2,
+  });
+  vi.doMock('../src/skills/skills-import.js', () => ({
+    importSkill: importSkillMock,
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-sync',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'sync', 'official/brand-guidelines'],
+  });
+
+  expect(importSkillMock).toHaveBeenCalledWith('official/brand-guidelines', {
+    force: true,
+    skipGuard: false,
+  });
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Skill Sync');
+  expect(result.text).toContain(
+    'Replaced brand-guidelines from official/brand-guidelines',
+  );
+  expect(result.text).toContain(
+    'Installed to /tmp/.hybridclaw/skills/brand-guidelines',
   );
 });

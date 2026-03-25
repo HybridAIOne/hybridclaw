@@ -90,6 +90,7 @@ Guard behavior:
 
 - imported skills are treated as community trust, not bundled trust
 - `--force` only overrides a `caution` scanner verdict
+- `--skip-skill-scan` bypasses the scanner entirely for trusted operators
 - `dangerous` verdicts stay blocked
 
 ## Adaptive Skills
