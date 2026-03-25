@@ -38,7 +38,7 @@ subpages managed under a report.
 
 - Run HybridClaw in host sandbox mode for this local Node-based MCP server.
 - Install the bridge dependencies before first use:
-  `npm --prefix /Users/bkoehler/src/datalion/mcp install`
+  `npm --prefix <path-to-your-datalion-repo>/mcp install`
 - Keep `DATALION_API_TOKEN` inside MCP server config `env`, never in tracked
   files or chat.
 - Use the MCP server name `datalion` so tools appear as `datalion__...`.
