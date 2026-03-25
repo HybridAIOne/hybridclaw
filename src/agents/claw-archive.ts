@@ -1135,7 +1135,7 @@ export async function unpackAgent(
       for (const entry of importedSkillSources) {
         const importResult = await importSkill(entry.source, {
           installRootDir: workspaceSkillsDir,
-          replaceExisting: true,
+          replaceExisting: options.force === true,
           skipGuard: options.skipSkillScan,
         });
         importedSkills.push(importResult);
