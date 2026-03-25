@@ -6,7 +6,6 @@ import { useAuth } from '../auth';
 import {
   BooleanPill,
   EmptyState,
-  ListRow,
   MetricCard,
   PageHeader,
   Panel,
@@ -166,24 +165,22 @@ export function PluginsPage() {
           ) : failedPlugins.length > 0 ? (
             <div className="list-stack selectable-list">
               {failedPlugins.map((plugin) => (
-                <ListRow
-                  key={plugin.id}
-                  title={plugin.name || plugin.id}
-                  meta={
-                    <>
+                <div className="list-row" key={plugin.id}>
+                  <div>
+                    <strong>{plugin.name || plugin.id}</strong>
+                    <small>
                       {plugin.id}
                       {plugin.version ? ` · v${plugin.version}` : ''}
-                      {' — '}
+                    </small>
+                    <small>
                       {plugin.error || 'Unknown plugin load error.'}
-                    </>
-                  }
-                  status={
-                    <span className="list-status list-status-danger">
-                      <span className="status-dot status-dot-danger" />
-                      failed
-                    </span>
-                  }
-                />
+                    </small>
+                  </div>
+                  <span className="list-status list-status-danger">
+                    <span className="status-dot status-dot-danger" />
+                    failed
+                  </span>
+                </div>
               ))}
             </div>
           ) : (
