@@ -63,6 +63,27 @@ describe.sequential('container glob tool', () => {
     expect(result).toContain('extra/buchhaltung/invoice.pdf');
   });
 
+  test('short-circuits when the literal glob prefix does not exist', async () => {
+    workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-glob-workspace-'),
+    );
+    fs.mkdirSync(path.join(workspaceRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(workspaceRoot, 'src', 'keep.ts'), 'keep');
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+
+    const { executeTool } = await import('../container/src/tools.js');
+    const readdirSpy = vi.spyOn(fs, 'readdirSync');
+    const result = await executeTool(
+      'glob',
+      JSON.stringify({
+        pattern: 'nonexistent/src/**/*.ts',
+      }),
+    );
+
+    expect(result).toBe('No files matched pattern: nonexistent/src/**/*.ts');
+    expect(readdirSpy).not.toHaveBeenCalled();
+  });
+
   test('skips noisy directories such as node_modules', async () => {
     workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-glob-workspace-'),
