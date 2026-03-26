@@ -4,7 +4,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { AgentConfig, AgentModelConfig } from '../agents/agent-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import type { AuditEventPayload, WireRecord } from '../audit/audit-trail.js';
+import type { WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
