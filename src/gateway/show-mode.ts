@@ -1,4 +1,4 @@
-import type { SessionShowMode } from '../types.js';
+import type { SessionShowMode } from '../types/session.js';
 import type { GatewayChatResult } from './gateway-types.js';
 
 export const DEFAULT_SESSION_SHOW_MODE: SessionShowMode = 'all';

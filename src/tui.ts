@@ -100,7 +100,7 @@ import {
   getTuiStreamTrailingNewlines,
   wrapTuiBlock,
 } from './tui-thinking.js';
-import type { SessionShowMode } from './types.js';
+import type { SessionShowMode } from './types/session.js';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';

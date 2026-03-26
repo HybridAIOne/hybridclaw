@@ -8,7 +8,7 @@ import {
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
 } from '../tui-slash-command.js';
-import type { ArtifactMetadata } from '../types.js';
+import type { ArtifactMetadata } from '../types/container.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   normalizePendingApprovalReply,

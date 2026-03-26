@@ -3,7 +3,8 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import type { ChatMessage, TokenUsageStats } from '../types.js';
+import type { ChatMessage } from '../types/api.js';
+import type { TokenUsageStats } from '../types/usage.js';
 
 export interface ModelUsageAuditStats {
   modelCalls: number;

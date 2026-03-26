@@ -2,7 +2,7 @@ import type { Logger } from 'pino';
 import type { ChannelInfo } from '../channels/channel.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { AIProvider } from '../providers/types.js';
-import type { StoredMessage } from '../types.js';
+import type { StoredMessage } from '../types/session.js';
 
 export type PluginKind =
   | 'memory'

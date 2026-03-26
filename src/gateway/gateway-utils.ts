@@ -1,4 +1,4 @@
-import type { StructuredAuditEntry } from '../types.js';
+import type { StructuredAuditEntry } from '../types/audit.js';
 
 export function numberFromUnknown(value: unknown): number | null {
   if (

@@ -43,7 +43,7 @@ import type {
   MediaContextItem,
   PendingApproval,
   ToolProgressEvent,
-} from '../types.js';
+} from '../types/container.js';
 import {
   hasSessionAuth,
   setSessionCookie,

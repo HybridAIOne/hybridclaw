@@ -16,8 +16,8 @@ import type {
   ChatContentPart,
   ChatMessage,
   ChatMessageContent,
-  MediaContextItem,
-} from '../types.js';
+} from '../types/api.js';
+import type { MediaContextItem } from '../types/container.js';
 import {
   resolveUploadedMediaCacheHostDir,
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,

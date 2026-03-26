@@ -10,7 +10,7 @@ import {
   clampText,
   injectPdfContextMessages,
 } from '../src/media/pdf-context.js';
-import type { ChatMessage } from '../src/types.js';
+import type { ChatMessage } from '../src/types/api.js';
 
 async function createPdf(filePath: string, text: string): Promise<void> {
   const pdf = await PDFDocument.create();

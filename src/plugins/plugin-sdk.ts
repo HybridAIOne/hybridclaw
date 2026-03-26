@@ -1,7 +1,7 @@
 export type { ChannelInfo } from '../channels/channel.js';
 export type { RuntimeConfig } from '../config/runtime-config.js';
 export type { AIProvider } from '../providers/types.js';
-export type { StoredMessage } from '../types.js';
+export type { StoredMessage } from '../types/session.js';
 export type {
   HybridClawPluginApi,
   HybridClawPluginDefinition,

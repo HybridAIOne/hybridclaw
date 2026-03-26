@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { compactConversation } from '../src/memory/compaction.js';
 import { listArchives } from '../src/memory/compaction-archive.js';
-import type { Session, StoredMessage } from '../src/types.js';
+import type { Session, StoredMessage } from '../src/types/session.js';
 
 function makeSession(partial?: Partial<Session>): Session {
   return {

@@ -47,7 +47,7 @@ import { logger } from '../../logger.js';
 import { getSessionById, resolveSessionIdCompat } from '../../memory/db.js';
 import { getAvailableModelChoices } from '../../providers/model-catalog.js';
 import { recordSkillFeedback } from '../../skills/skills-observation.js';
-import type { MediaContextItem } from '../../types.js';
+import type { MediaContextItem } from '../../types/container.js';
 import { sleep } from '../../utils/sleep.js';
 import { DISCORD_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';

@@ -30,7 +30,7 @@ import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from './security/runtime-secrets.js';
-import type { HybridAIBot } from './types.js';
+import type { HybridAIBot } from './types/api.js';
 
 interface ApiKeyValidationResult {
   ok: boolean;

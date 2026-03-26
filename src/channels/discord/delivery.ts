@@ -9,7 +9,7 @@ import {
   DISCORD_TEXT_CHUNK_LIMIT,
 } from '../../config/config.js';
 import { chunkMessage } from '../../memory/chunk.js';
-import type { MemoryCitation } from '../../types.js';
+import type { MemoryCitation } from '../../types/memory.js';
 import {
   getHumanDelayMs,
   type HumanDelayConfig,

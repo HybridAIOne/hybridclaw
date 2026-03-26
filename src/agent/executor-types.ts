@@ -1,12 +1,12 @@
+import type { ChatMessage } from '../types/api.js';
 import type {
-  ChatMessage,
   ContainerOutput,
   MediaContextItem,
   PendingApproval,
   PluginRuntimeToolDefinition,
-  ScheduledTask,
   ToolProgressEvent,
-} from '../types.js';
+} from '../types/container.js';
+import type { ScheduledTask } from '../types/scheduler.js';
 
 export interface ExecutorRequest {
   sessionId: string;

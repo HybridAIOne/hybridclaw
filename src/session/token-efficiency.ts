@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../types.js';
+import type { ChatMessage } from '../types/api.js';
 
 export const DEFAULT_CHARS_PER_TOKEN = 4;
 export const DEFAULT_HISTORY_MAX_TOTAL_CHARS = 24_000;

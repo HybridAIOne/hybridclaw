@@ -20,7 +20,7 @@ import {
   WHATSAPP_MEDIA_TMP_PREFIX,
 } from '../../media/managed-temp-media.js';
 import { buildSessionKey } from '../../session/session-key.js';
-import type { MediaContextItem } from '../../types.js';
+import type { MediaContextItem } from '../../types/container.js';
 import { guessWhatsAppExtensionFromMimeType } from './mime-utils.js';
 import {
   canonicalizeWhatsAppUserJid,

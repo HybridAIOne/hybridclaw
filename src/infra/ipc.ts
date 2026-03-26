@@ -8,7 +8,7 @@ import {
   type ContainerInput,
   type ContainerOutput,
   TASK_MODEL_KEYS,
-} from '../types.js';
+} from '../types/container.js';
 
 /**
  * Get session directory, creating it if needed.
