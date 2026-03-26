@@ -74,10 +74,7 @@ function getBlockedBinaryOfficeFileReason(
 const securityHookExtension: RuntimeExtension = {
   name: 'security-hook',
   onBeforeToolCall: (toolName, args) => {
-    const binaryOfficeReason = getBlockedBinaryOfficeFileReason(
-      toolName,
-      args,
-    );
+    const binaryOfficeReason = getBlockedBinaryOfficeFileReason(toolName, args);
     if (binaryOfficeReason) return binaryOfficeReason;
 
     if (toolName === 'write' || toolName === 'edit') {

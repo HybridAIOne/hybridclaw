@@ -3444,7 +3444,9 @@ export function forkSessionBranch(params: {
   session: Session;
   copiedMessageCount: number;
 } {
-  const sourceSession = requireSessionById(resolveSessionIdCompat(params.sessionId));
+  const sourceSession = requireSessionById(
+    resolveSessionIdCompat(params.sessionId),
+  );
   const beforeMessageId = Math.max(1, Math.floor(params.beforeMessageId));
   const branchTarget = db
     .prepare(
@@ -3462,7 +3464,9 @@ export function forkSessionBranch(params: {
 
   const nextSessionId = resolveFreshSessionInstanceId(params.nextSessionId);
   const nextMainSessionKey =
-    sourceSession.main_session_key || sourceSession.session_key || sourceSession.id;
+    sourceSession.main_session_key ||
+    sourceSession.session_key ||
+    sourceSession.id;
   const nowIso = new Date().toISOString();
   const prefixMessages = db
     .prepare(
@@ -3473,12 +3477,12 @@ export function forkSessionBranch(params: {
        ORDER BY id ASC`,
     )
     .all(sourceSession.id, beforeMessageId) as Array<{
-      user_id: string;
-      username: string | null;
-      role: string;
-      content: string;
-      created_at: string;
-    }>;
+    user_id: string;
+    username: string | null;
+    role: string;
+    content: string;
+    created_at: string;
+  }>;
 
   const fork = db.transaction(() => {
     db.prepare(

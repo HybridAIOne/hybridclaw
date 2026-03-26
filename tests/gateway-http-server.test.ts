@@ -1640,7 +1640,8 @@ describe('gateway HTTP server', () => {
     expect(state.forkGatewayChatBranch).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({
-      error: 'Missing valid positive integer `beforeMessageId` in request body.',
+      error:
+        'Missing valid positive integer `beforeMessageId` in request body.',
     });
   });
 

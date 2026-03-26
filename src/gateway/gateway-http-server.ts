@@ -62,6 +62,7 @@ import {
   createGatewayAdminAgent,
   deleteGatewayAdminAgent,
   deleteGatewayAdminSession,
+  forkGatewayChatBranch,
   type GatewayChatRequest,
   type GatewayCommandRequest,
   GatewayRequestError,
@@ -77,7 +78,6 @@ import {
   getGatewayAdminSessions,
   getGatewayAdminSkills,
   getGatewayAdminTools,
-  forkGatewayChatBranch,
   getGatewayAgents,
   getGatewayHistory,
   getGatewayHistorySummary,
@@ -910,10 +910,14 @@ async function handleApiChatBranch(
     sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
     return;
   }
-  const beforeMessageId = Number.parseInt(String(body.beforeMessageId || ''), 10);
+  const beforeMessageId = Number.parseInt(
+    String(body.beforeMessageId || ''),
+    10,
+  );
   if (!Number.isFinite(beforeMessageId) || beforeMessageId < 1) {
     sendJson(res, 400, {
-      error: 'Missing valid positive integer `beforeMessageId` in request body.',
+      error:
+        'Missing valid positive integer `beforeMessageId` in request body.',
     });
     return;
   }

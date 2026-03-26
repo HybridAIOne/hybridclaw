@@ -834,20 +834,21 @@ test('model list refreshes local backend health before filtering models', async 
   }));
   vi.doMock('../src/providers/local-health.js', () => ({
     localBackendsProbe: {
-      get: vi.fn(async () =>
-        new Map([
-          [
-            'lmstudio',
-            {
-              backend: 'lmstudio',
-              reachable: useFreshState ? false : true,
-              latencyMs: 10,
-              ...(useFreshState
-                ? { error: 'connection refused' }
-                : { modelCount: 1 }),
-            },
-          ],
-        ]),
+      get: vi.fn(
+        async () =>
+          new Map([
+            [
+              'lmstudio',
+              {
+                backend: 'lmstudio',
+                reachable: useFreshState ? false : true,
+                latencyMs: 10,
+                ...(useFreshState
+                  ? { error: 'connection refused' }
+                  : { modelCount: 1 }),
+              },
+            ],
+          ]),
       ),
       peek: vi.fn(() => null),
       invalidate,
@@ -868,9 +869,7 @@ test('model list refreshes local backend health before filtering models', async 
     return {
       ...actual,
       discoverAllLocalModels: vi.fn(async () => []),
-      getDiscoveredLocalModelNames: vi.fn(() => [
-        'lmstudio/qwen/qwen3.5-9b',
-      ]),
+      getDiscoveredLocalModelNames: vi.fn(() => ['lmstudio/qwen/qwen3.5-9b']),
     };
   });
 

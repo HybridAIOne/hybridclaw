@@ -7,7 +7,9 @@ describe('container runtime extensions', () => {
   });
 
   test('blocks write tool for binary office and pdf targets', async () => {
-    const { runBeforeToolHooks } = await import('../container/src/extensions.js');
+    const { runBeforeToolHooks } = await import(
+      '../container/src/extensions.js'
+    );
 
     await expect(
       runBeforeToolHooks(
@@ -17,7 +19,9 @@ describe('container runtime extensions', () => {
           contents: 'Created fake-sales-data.xlsx with 10 rows...',
         }),
       ),
-    ).resolves.toContain('Refusing to write plain text into binary Office/PDF file');
+    ).resolves.toContain(
+      'Refusing to write plain text into binary Office/PDF file',
+    );
 
     await expect(
       runBeforeToolHooks(
@@ -51,7 +55,9 @@ describe('container runtime extensions', () => {
   });
 
   test('blocks edit tool for binary office and pdf targets', async () => {
-    const { runBeforeToolHooks } = await import('../container/src/extensions.js');
+    const { runBeforeToolHooks } = await import(
+      '../container/src/extensions.js'
+    );
 
     await expect(
       runBeforeToolHooks(
@@ -62,11 +68,15 @@ describe('container runtime extensions', () => {
           new: 'new',
         }),
       ),
-    ).resolves.toContain('Refusing to edit plain text into binary Office/PDF file');
+    ).resolves.toContain(
+      'Refusing to edit plain text into binary Office/PDF file',
+    );
   });
 
   test('does not block normal text file writes', async () => {
-    const { runBeforeToolHooks } = await import('../container/src/extensions.js');
+    const { runBeforeToolHooks } = await import(
+      '../container/src/extensions.js'
+    );
 
     await expect(
       runBeforeToolHooks(
