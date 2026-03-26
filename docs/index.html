@@ -741,28 +741,28 @@
   <div class="section-center">
     <div class="section-label">Latest Release</div>
     <h2 class="section-title">Version 0.9.2</h2>
-    <p class="section-desc">Patch release focused on grounded prompt context, portable skill workflows, built-in docs discoverability, and runtime hardening.</p>
+    <p class="section-desc">Patch release focused on community-skill workflows, safer workspace search, and reliability fixes across web chat, WhatsApp, TUI, and docs publishing.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4ce;</div>
-      <h3>Prompt context references</h3>
-      <p>Ground prompts with <code>@file</code>, <code>@folder</code>, <code>@diff</code>, <code>@staged</code>, <code>@git</code>, and <code>@url</code>, plus current-turn uploads from web chat and TUI.</p>
-    </div>
-    <div class="feature-card">
       <div class="feature-icon">&#x1f9f0;</div>
-      <h3>Community skill imports</h3>
-      <p>Install skills from packaged <code>official/&lt;skill&gt;</code> sources, <code>skills-sh</code>, <code>clawhub</code>, <code>lobehub</code>, <code>claude-marketplace</code>, <code>well-known</code>, and GitHub repo/path refs.</p>
+      <h3>Skill sync and Datalion</h3>
+      <p><code>skill sync</code>, updated import parsing, and the packaged Datalion community skill make imported-skill workflows easier to reinstall and operate.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4e6;</div>
-      <h3>Portable agent setup</h3>
-      <p><code>.claw</code> archives can restore manifest-declared skill imports during <code>hybridclaw agent install</code>, which keeps transferred agents closer to a working setup.</p>
+      <div class="feature-icon">&#x1f3a8;</div>
+      <h3>Meme generation skill</h3>
+      <p>A new packaged meme-generation skill ships with reusable scripts, cached outputs, and tighter file/network safety for repeat runs.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4d6;</div>
-      <h3>Browsable docs and tighter runtime checks</h3>
-      <p>The built-in <code>/development</code> docs shell can open raw markdown or copy each page as markdown, while status probes, base-URL reporting, and uploaded-media validation follow stricter runtime rules.</p>
+      <div class="feature-icon">&#x1f50d;</div>
+      <h3>Safer workspace search</h3>
+      <p>Workspace <code>glob</code> and <code>grep</code> handling was hardened and moved onto a cleaner container search-tools path.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f6e0;&#xfe0f;</div>
+      <h3>Reliability fixes across surfaces</h3>
+      <p>Web chat branching, WhatsApp restart recovery, TUI history arrows, QMD paging, and static docs publishing all received patch-level fixes.</p>
     </div>
   </div>
 </section>

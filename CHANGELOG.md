@@ -6,39 +6,48 @@
 
 ### Added
 
-- **Prompt-side context references and current-turn uploads**: Added inline
-  `@file:`, `@folder:`, `@diff`, `@staged`, `@git:<count>`, and `@url:`
-  context references so prompts can pull workspace or web context directly,
-  plus web chat and TUI uploads/paste support for current-turn files.
-- **Community skill imports and package-declared skill imports**: Added
-  `hybridclaw skill import [--force] <source>` and `/skill import` for
-  packaged `official/<skill>` sources plus `skills-sh`, `clawhub`, `lobehub`,
-  `claude-marketplace`, `well-known`, and GitHub repo/path refs. `.claw`
-  agent installs can now resolve manifest-declared skill imports into the
-  agent workspace.
-- **Browsable development docs shell**: Added the built-in `/development` docs
-  browser with raw-markdown and copy-as-markdown actions for repo-shipped
-  docs.
+- **Skill sync and Datalion workflow wiring**: Added `skill sync`, TUI help
+  wiring, shared import-argument parsing, and the repo-shipped Datalion
+  community skill so operators can reinstall or refine imported skills more
+  reliably.
+- **Meme generation community skill**: Added a packaged meme-generation skill
+  with reusable scripts, cached output handling, and safer fetch/file paths
+  for community image workflows.
+- **Workspace `glob` and `grep` hardening**: Added stricter workspace search
+  handling and split the container search-tool implementation into a dedicated
+  module so path filtering is easier to maintain.
 
 ### Changed
 
-- **Adaptive skill and agent archive command naming**: Standardized the
-  adaptive-skill workflow on `skill learn` (`--apply`, `--reject`,
-  `--rollback`) and promoted `agent export` / `agent install` as the primary
-  `.claw` archive verbs while keeping `pack` / `unpack` aliases.
-- **On-demand gateway/provider health probing**: Gateway status and
-  `/api/status` now use TTL-cached on-demand probes for HybridAI and local
-  backends instead of background polling loops.
+- **Web chat history and branching behavior**: Tightened branch paging,
+  branch-aware history routing, stdin error handling clarity, and related web
+  chat controls so browser sessions behave more predictably.
+- **Shared type boundaries and memory typing cleanup**: Split the old shared
+  type barrel into focused modules, refined type boundaries across gateway and
+  container code, and tightened memory-db query typing in the same pass.
+- **Skill import UX cleanup**: Removed skip-scan quick entries from skill
+  menus, centralized guard-warning text, and simplified optional guard fields
+  around import flows.
 
 ### Fixed
 
-- **HybridAI base-url reachability reporting**: HybridAI reachability checks,
-  `/api/status`, and operator hints now honor `HYBRIDAI_BASE_URL`
-  consistently, including preview or local deployments.
-- **Uploaded media and context-reference hardening**: Tightened uploaded-media
-  cache validation, MIME filtering, per-auth upload quotas, symlink escape
-  blocking, URL redirect blocking, and bounded remote fetches for attached
-  prompt context.
+- **WhatsApp restart and ack recovery**: Reduced restart replay failures,
+  captured and cleared ack reactions more reliably, and hardened queue/history
+  handling around reconnect flows.
+- **TUI history-arrow behavior**: Restored arrow-key prompt history when the
+  slash menu has no matches while keeping those keys reserved for history
+  navigation.
+- **Agent import overwrite guard**: Import-time skill overwrites are now gated
+  behind `--force` instead of silently replacing existing content.
+- **Static docs shell publishing**: Synced the static docs shell with the
+  gateway renderer and added `.nojekyll` so the published docs site serves the
+  shipped assets consistently.
+- **QMD timeout and paging noise**: Persisted branch paging state and quieted
+  QMD timeout behavior so branch navigation and plugin-backed reads fail more
+  cleanly.
+- **Meme skill file/network safety**: Hardened meme fetch error handling,
+  file-path validation, and cache reuse so the packaged skill is safer and
+  cheaper to run repeatedly.
 
 ## [0.9.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.0)
 

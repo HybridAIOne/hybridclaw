@@ -14,21 +14,19 @@ header.
 
 ## Version 0.9.2 Highlights
 
-- Prompt context can be grounded directly from inline references such as
-  `@file`, `@folder`, `@diff`, `@staged`, `@git:<count>`, and `@url`, plus
-  current-turn uploads from the web chat and TUI.
-- Community skills can be imported with `hybridclaw skill import` from
-  packaged `official/<skill>` sources, `skills-sh`, `clawhub`, `lobehub`,
-  `claude-marketplace`, `well-known`, and explicit GitHub repo/path sources.
-- Portable `.claw` archives can declare skill imports that are restored during
-  `hybridclaw agent install`, which keeps transferred agents closer to their
-  original working setup.
-- The built-in `/development` docs shell exposes raw-markdown and
-  copy-as-markdown actions so repo docs are easier to browse from a running
-  gateway.
-- Gateway status surfaces use TTL-cached on-demand health probes, and the
-  HybridAI/upload hardening in this patch aligns reachability and attachment
-  validation with the configured runtime base URL and stricter media checks.
+- `skill sync` and the packaged Datalion community skill landed in this patch,
+  alongside cleaner import-argument parsing and updated TUI help for imported
+  skill workflows.
+- The new meme-generation community skill ships with reusable scripts and
+  safer file/network handling for repeated image-generation runs.
+- Workspace `glob` and `grep` handling was hardened and the container search
+  implementation was split into a dedicated module to keep path filtering more
+  predictable.
+- Web chat branching/history flows, WhatsApp restart recovery, TUI history
+  arrows, and QMD-backed branch paging all received reliability fixes in the
+  same release window.
+- The static docs shell was synced with the gateway renderer and GitHub Pages
+  publishing now keeps `.nojekyll` in the docs output.
 
 ## Browse By Section
 
