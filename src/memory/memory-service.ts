@@ -8,8 +8,8 @@ import type {
 import type {
   CanonicalSession,
   CanonicalSessionContext,
-  ConversationBranchFamily,
   CompactionResult,
+  ConversationBranchFamily,
   ConversationHistoryPage,
   ForkSessionBranchParams,
   ForkSessionBranchResult,

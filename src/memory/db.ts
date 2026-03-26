@@ -39,8 +39,8 @@ import type {
   AuditEntry,
   CanonicalSession,
   CanonicalSessionContext,
-  ConversationBranchFamily,
   CanonicalSessionMessage,
+  ConversationBranchFamily,
   ConversationHistoryPage,
   ForkSessionBranchParams,
   ForkSessionBranchResult,
@@ -3603,12 +3603,7 @@ export function forkSessionBranch(
          parent_message_id,
          copied_message_count
        ) VALUES (?, ?, ?, ?)`,
-    ).run(
-      nextSessionId,
-      sourceSession.id,
-      beforeMessageId,
-      copiedMessageCount,
-    );
+    ).run(nextSessionId, sourceSession.id, beforeMessageId, copiedMessageCount);
     copySessionKvStore(sourceSession.id, nextSessionId);
     db.prepare(
       `INSERT INTO messages (session_id, user_id, username, role, content, created_at)

@@ -1,7 +1,7 @@
-import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { expect, test, vi } from 'vitest';
 
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
@@ -83,7 +83,9 @@ test('getGatewayHistory omits silent message-send placeholders', async () => {
   setupHome();
 
   const { initDatabase } = await import('../src/memory/db.ts');
-  const { getGatewayHistory } = await import('../src/gateway/gateway-service.ts');
+  const { getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
   const { memoryService } = await import('../src/memory/memory-service.ts');
 
   initDatabase({ quiet: true });
@@ -130,7 +132,9 @@ test('getGatewayHistory reconstructs branch families for reload-safe paging', as
   setupHome();
 
   const { initDatabase } = await import('../src/memory/db.ts');
-  const { getGatewayHistory } = await import('../src/gateway/gateway-service.ts');
+  const { getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
   const { memoryService } = await import('../src/memory/memory-service.ts');
 
   initDatabase({ quiet: true });
@@ -228,7 +232,9 @@ test('getGatewayHistory tolerates databases without session_branches', async () 
     'history.db',
   );
   const { initDatabase } = await import('../src/memory/db.ts');
-  const { getGatewayHistory } = await import('../src/gateway/gateway-service.ts');
+  const { getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
   const { memoryService } = await import('../src/memory/memory-service.ts');
 
   initDatabase({ quiet: true, dbPath });
