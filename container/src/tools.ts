@@ -964,8 +964,6 @@ async function runVisionAnalyze(
   );
 }
 
-const PREVIEW_MAX_OUTPUT_LINES = 6;
-const PREVIEW_MAX_LINE_LENGTH = 200;
 const BASH_MAX_OUTPUT_LINES = 400;
 const BASH_MAX_OUTPUT_BYTES = 128 * 1024;
 const BASH_EXEC_DEFAULT_TIMEOUT_MS = 4 * 60 * 1000;
@@ -974,23 +972,81 @@ const BASH_EXEC_MAX_TIMEOUT_MS = 15 * 60 * 1000;
 const BASH_EXEC_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 const READ_MAX_LINES = 2000;
 const READ_MAX_BYTES = 50 * 1024;
-
-function abbreviatePreview(text: string): string {
-  const lines = text.split('\n');
-  const truncated = lines
-    .slice(0, PREVIEW_MAX_OUTPUT_LINES)
-    .map((line) =>
-      line.length > PREVIEW_MAX_LINE_LENGTH
-        ? `${line.slice(0, PREVIEW_MAX_LINE_LENGTH)}...`
-        : line,
-    );
-  if (lines.length > PREVIEW_MAX_OUTPUT_LINES) {
-    truncated.push(
-      `... (${lines.length - PREVIEW_MAX_OUTPUT_LINES} more lines)`,
-    );
-  }
-  return truncated.join('\n');
-}
+const SEARCH_SKIP_DIRS = new Set([
+  '.git',
+  '.svn',
+  '.hg',
+  'node_modules',
+  '__pycache__',
+  '.tox',
+  '.nox',
+  '.mypy_cache',
+  '.pytest_cache',
+  '.ruff_cache',
+  '.venv',
+  'venv',
+  '.eggs',
+  'dist',
+  'build',
+  '.next',
+  '.nuxt',
+  'coverage',
+]);
+const SEARCH_BINARY_EXTENSIONS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.bmp',
+  '.ico',
+  '.webp',
+  '.svg',
+  '.mp3',
+  '.mp4',
+  '.avi',
+  '.mov',
+  '.mkv',
+  '.flac',
+  '.wav',
+  '.zip',
+  '.tar',
+  '.gz',
+  '.bz2',
+  '.7z',
+  '.rar',
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.ppt',
+  '.pptx',
+  '.exe',
+  '.dll',
+  '.so',
+  '.dylib',
+  '.bin',
+  '.dat',
+  '.woff',
+  '.woff2',
+  '.ttf',
+  '.eot',
+  '.otf',
+  '.pyc',
+  '.pyo',
+  '.class',
+  '.o',
+  '.a',
+]);
+const SEARCH_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+const GLOB_SEARCH_MAX_RESULTS = 50;
+const GLOB_SEARCH_MAX_FILES_SCANNED = 10_000;
+const GLOB_SEARCH_TIMEOUT_MS = 15_000;
+const GREP_SEARCH_MAX_MATCHES = 200;
+const GREP_SEARCH_MAX_CONTEXT_LINES = 5;
+const GREP_SEARCH_MAX_FILES_SCANNED = 10_000;
+const GREP_SEARCH_MAX_OUTPUT_CHARS = 50_000;
+const GREP_SEARCH_TIMEOUT_MS = 30_000;
 
 type ReadTruncationResult = {
   content: string;
@@ -1111,6 +1167,18 @@ function safeJoin(userPath: string): string {
   throw new Error(`Path escapes workspace: ${userPath}`);
 }
 
+function readNonNegativeIntegerValue(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
+  }
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.floor(parsed);
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -1158,6 +1226,320 @@ function globPatternToRegExp(pattern: string): RegExp {
 
   regex += '$';
   return new RegExp(regex);
+}
+
+type SearchStatus = 'ok' | 'timeout' | `truncated: ${string}`;
+
+function normalizeSearchPath(pathValue: string): string {
+  return pathValue.replace(/\\/g, '/');
+}
+
+function displaySearchPath(filePath: string): string {
+  return replaceWorkspaceRootInOutput(normalizeSearchPath(filePath));
+}
+
+function shouldSkipSearchDir(dirName: string): boolean {
+  return SEARCH_SKIP_DIRS.has(dirName);
+}
+
+function isSearchableTextFile(filePath: string): boolean {
+  const extension = path.extname(filePath).toLowerCase();
+  if (SEARCH_BINARY_EXTENSIONS.has(extension)) return false;
+  try {
+    return fs.statSync(filePath).size <= SEARCH_MAX_FILE_SIZE_BYTES;
+  } catch {
+    return false;
+  }
+}
+
+function shouldAbortSearch(startedAt: number, timeoutMs: number): boolean {
+  return Date.now() - startedAt >= timeoutMs;
+}
+
+function buildSearchStatusNote(
+  status: SearchStatus,
+  toolName: 'glob' | 'grep',
+  timeoutMs: number,
+): string | null {
+  if (status === 'ok') return null;
+  if (status === 'timeout') {
+    return `${toolName} search timed out after ${Math.floor(timeoutMs / 1000)}s. Try narrowing the search scope.`;
+  }
+  return `Results truncated due to ${status.slice('truncated: '.length)}. Try narrowing the search scope.`;
+}
+
+function matchesIncludePattern(
+  relativePath: string,
+  includePattern?: string,
+): boolean {
+  const normalizedPattern = readStringValue(includePattern)?.replace(
+    /^\.\/+/,
+    '',
+  );
+  if (!normalizedPattern) return true;
+  const matcher = globPatternToRegExp(normalizedPattern.replace(/\\/g, '/'));
+  const normalizedRelativePath = normalizeSearchPath(relativePath);
+  const basename = path.posix.basename(normalizedRelativePath);
+  if (normalizedPattern.includes('/')) {
+    return matcher.test(normalizedRelativePath);
+  }
+  return (
+    matcher.test(basename) || matcher.test(normalizedRelativePath)
+  );
+}
+
+function resolveGlobSearchRoot(pattern: string): string {
+  const firstMetaIndex = pattern.search(/[*?[{]/);
+  if (firstMetaIndex === -1) return pattern;
+
+  const prefixEnd = pattern.lastIndexOf('/', firstMetaIndex);
+  let candidate =
+    prefixEnd > 0 ? pattern.slice(0, prefixEnd) : WORKSPACE_ROOT;
+  while (candidate && candidate !== path.dirname(candidate)) {
+    try {
+      const stats = fs.statSync(candidate);
+      return stats.isDirectory() ? candidate : path.dirname(candidate);
+    } catch {
+      candidate = path.dirname(candidate);
+    }
+  }
+  return WORKSPACE_ROOT;
+}
+
+type CollectWorkspaceFilesOptions = {
+  matcher?: RegExp;
+  includePattern?: string;
+  maxFilesScanned: number;
+  maxResults?: number;
+  timeoutMs: number;
+  textOnly?: boolean;
+};
+
+function collectWorkspaceFiles(
+  searchRoot: string,
+  opts: CollectWorkspaceFilesOptions,
+): {
+  files: string[];
+  status: SearchStatus;
+} {
+  const startedAt = Date.now();
+  const files: string[] = [];
+  let status: SearchStatus = 'ok';
+  let scannedFiles = 0;
+
+  const includeFile = (filePath: string): void => {
+    scannedFiles += 1;
+    if (scannedFiles > opts.maxFilesScanned) {
+      status = `truncated: scanned more than ${opts.maxFilesScanned} files`;
+      return;
+    }
+    if (opts.textOnly && !isSearchableTextFile(filePath)) return;
+
+    const workspaceRelative = stripWorkspaceRootPrefix(filePath);
+    if (!matchesIncludePattern(workspaceRelative, opts.includePattern)) return;
+
+    const normalizedFilePath = normalizeSearchPath(filePath);
+    if (opts.matcher && !opts.matcher.test(normalizedFilePath)) return;
+
+    files.push(filePath);
+    if (opts.maxResults && files.length >= opts.maxResults) {
+      status = `truncated: result limit (${opts.maxResults})`;
+    }
+  };
+
+  try {
+    const stats = fs.statSync(searchRoot);
+    if (stats.isFile()) {
+      includeFile(searchRoot);
+      return { files, status };
+    }
+  } catch {
+    return { files, status };
+  }
+
+  const stack = [searchRoot];
+  while (stack.length > 0) {
+    if (shouldAbortSearch(startedAt, opts.timeoutMs)) {
+      status = 'timeout';
+      break;
+    }
+
+    const currentDir = stack.pop() as string;
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    const directoriesToVisit: string[] = [];
+
+    for (const entry of entries) {
+      if (shouldAbortSearch(startedAt, opts.timeoutMs)) {
+        status = 'timeout';
+        break;
+      }
+
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        if (!shouldSkipSearchDir(entry.name)) directoriesToVisit.push(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      includeFile(fullPath);
+      if (status !== 'ok') break;
+    }
+
+    if (status !== 'ok') break;
+    for (let index = directoriesToVisit.length - 1; index >= 0; index -= 1) {
+      stack.push(directoriesToVisit[index]);
+    }
+  }
+
+  files.sort((left, right) => left.localeCompare(right));
+  return { files, status };
+}
+
+function runGlobSearch(pattern: string): string {
+  const normalizedWorkspacePattern = resolveWorkspaceGlobPattern(pattern);
+  if (!normalizedWorkspacePattern) {
+    return failTool(
+      'Error: glob only searches inside the workspace or configured external bind mounts. For other absolute paths, use bash.',
+    );
+  }
+
+  const normalizedPattern = normalizeSearchPath(normalizedWorkspacePattern);
+  const matcher = globPatternToRegExp(normalizedPattern);
+  const searchRoot = resolveGlobSearchRoot(normalizedWorkspacePattern);
+  const result = collectWorkspaceFiles(searchRoot, {
+    matcher,
+    maxFilesScanned: GLOB_SEARCH_MAX_FILES_SCANNED,
+    maxResults: GLOB_SEARCH_MAX_RESULTS,
+    timeoutMs: GLOB_SEARCH_TIMEOUT_MS,
+  });
+
+  const note = buildSearchStatusNote(
+    result.status,
+    'glob',
+    GLOB_SEARCH_TIMEOUT_MS,
+  );
+  if (result.files.length === 0) {
+    return note
+      ? `No files matched pattern: ${pattern}\n\n(${note})`
+      : `No files matched pattern: ${pattern}`;
+  }
+
+  let text = result.files.map(displaySearchPath).join('\n');
+  if (note) text += `\n\n(${note})`;
+  return text;
+}
+
+function runGrepSearch(args: Record<string, unknown>): string {
+  const pattern = readStringValue(args.pattern);
+  if (!pattern) return failTool('Error: pattern is required');
+
+  const includePattern =
+    readStringValue(args.include) ||
+    readStringValue(args.include_pattern) ||
+    readStringValue(args.includePattern);
+  const contextLines = Math.min(
+    readNonNegativeIntegerValue(args.context) ??
+      readNonNegativeIntegerValue(args.context_lines) ??
+      readNonNegativeIntegerValue(args.contextLines) ??
+      0,
+    GREP_SEARCH_MAX_CONTEXT_LINES,
+  );
+  const searchPathArg = readStringValue(args.path);
+  const searchPath = searchPathArg ? safeJoin(searchPathArg) : WORKSPACE_ROOT;
+
+  let regex: RegExp;
+  try {
+    regex = new RegExp(pattern);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return failTool(`Error: invalid regex pattern: ${message}`);
+  }
+
+  const fileCollection = collectWorkspaceFiles(searchPath, {
+    includePattern,
+    maxFilesScanned: GREP_SEARCH_MAX_FILES_SCANNED,
+    timeoutMs: GREP_SEARCH_TIMEOUT_MS,
+    textOnly: true,
+  });
+
+  const matches: string[] = [];
+  let status = fileCollection.status;
+  let totalChars = 0;
+  let matchCount = 0;
+  const startedAt = Date.now();
+
+  for (const filePath of fileCollection.files) {
+    if (shouldAbortSearch(startedAt, GREP_SEARCH_TIMEOUT_MS)) {
+      status = 'timeout';
+      break;
+    }
+
+    let content = '';
+    try {
+      content = fs.readFileSync(filePath, 'utf-8');
+    } catch {
+      continue;
+    }
+    const lines = content.split('\n');
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      if (shouldAbortSearch(startedAt, GREP_SEARCH_TIMEOUT_MS)) {
+        status = 'timeout';
+        break;
+      }
+
+      if (!regex.test(lines[lineIndex])) continue;
+
+      matchCount += 1;
+      if (matchCount > GREP_SEARCH_MAX_MATCHES) {
+        status = `truncated: match limit (${GREP_SEARCH_MAX_MATCHES})`;
+        break;
+      }
+
+      const start = Math.max(0, lineIndex - contextLines);
+      const end = Math.min(lines.length, lineIndex + contextLines + 1);
+      const displayPath = displaySearchPath(filePath);
+      for (let ctx = start; ctx < end; ctx += 1) {
+        const prefix = ctx === lineIndex ? '>' : ' ';
+        const entry = `${displayPath}:${ctx + 1}:${prefix} ${lines[ctx]}`;
+        if (totalChars + entry.length + 1 > GREP_SEARCH_MAX_OUTPUT_CHARS) {
+          status = `truncated: output size limit (${formatBytes(GREP_SEARCH_MAX_OUTPUT_CHARS)})`;
+          break;
+        }
+        matches.push(entry);
+        totalChars += entry.length + 1;
+      }
+      if (status !== 'ok') break;
+      if (contextLines > 0) {
+        if (totalChars + 4 > GREP_SEARCH_MAX_OUTPUT_CHARS) {
+          status = `truncated: output size limit (${formatBytes(GREP_SEARCH_MAX_OUTPUT_CHARS)})`;
+          break;
+        }
+        matches.push('---');
+        totalChars += 4;
+      }
+    }
+
+    if (status !== 'ok') break;
+  }
+
+  const note = buildSearchStatusNote(
+    status,
+    'grep',
+    GREP_SEARCH_TIMEOUT_MS,
+  );
+  if (matches.length === 0) {
+    return note ? `No matches found.\n\n(${note})` : 'No matches found.';
+  }
+
+  let text = matches.join('\n');
+  if (note) text += `\n\n(${note})`;
+  return text;
 }
 
 const MEMORY_ROOT_FILES = new Set(['MEMORY.md', 'USER.md']);
@@ -1816,47 +2198,13 @@ async function executeToolInternal(
     }
 
     case 'glob': {
-      const pattern = String(args.pattern || '').trim();
-      try {
-        const normalizedWorkspacePattern = resolveWorkspaceGlobPattern(pattern);
-        if (!normalizedWorkspacePattern) {
-          return failTool(
-            'Error: glob only searches inside the workspace or configured external bind mounts. For other absolute paths, use bash.',
-          );
-        }
-        const matcher = globPatternToRegExp(
-          normalizedWorkspacePattern.replace(/\\/g, '/'),
-        );
-        const cmd = `find "${WORKSPACE_ROOT.replace(/"/g, '\\"')}" -type f 2>/dev/null | head -5000`;
-        const result = execSync(cmd, { timeout: 10000, encoding: 'utf-8' });
-        if (!result.trim()) return 'No files found.';
-        const files = result
-          .trim()
-          .split('\n')
-          .map((filePath) => filePath.trim())
-          .filter(Boolean)
-          .filter((filePath) => matcher.test(filePath.replace(/\\/g, '/')))
-          .slice(0, 50)
-          .map((filePath) => replaceWorkspaceRootInOutput(filePath));
-        if (files.length === 0) return 'No files found.';
-        return abbreviatePreview(files.join('\n'));
-      } catch (err) {
-        if (err instanceof ToolExecutionFailure) throw err;
-        return 'No files found.';
-      }
+      const pattern = readStringValue(args.pattern);
+      if (!pattern) return failTool('Error: pattern is required');
+      return runGlobSearch(pattern);
     }
 
     case 'grep': {
-      const searchPath = args.path ? safeJoin(args.path) : WORKSPACE_ROOT;
-      try {
-        const cmd = `rg --no-heading --line-number "${args.pattern.replace(/"/g, '\\"')}" "${searchPath}" 2>/dev/null | head -30`;
-        const result = execSync(cmd, { timeout: 10000, encoding: 'utf-8' });
-        if (!result.trim()) return 'No matches found.';
-        // Convert absolute paths to relative
-        return abbreviatePreview(replaceWorkspaceRootInOutput(result));
-      } catch {
-        return 'No matches found.';
-      }
+      return runGrepSearch(args);
     }
 
     case 'bash': {
@@ -2841,14 +3189,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'glob',
       description:
-        'List files matching a glob pattern inside the workspace only. For absolute paths outside the workspace, use bash instead.',
+        'List files matching a glob pattern inside the workspace only, with skip-dir protections and truncation guidance. For absolute paths outside the workspace, use bash instead.',
       parameters: {
         type: 'object',
         properties: {
           pattern: {
             type: 'string',
             description:
-              'Glob pattern to match files inside the workspace (relative paths preferred)',
+              'Glob pattern to match files inside the workspace (relative paths preferred, use ** for recursive matches)',
           },
         },
         required: ['pattern'],
@@ -2859,7 +3207,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'grep',
-      description: 'Search for a regex pattern in files',
+      description:
+        'Search for a regex pattern in workspace files, with optional filename filters and context lines.',
       parameters: {
         type: 'object',
         properties: {
@@ -2871,6 +3220,16 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'string',
             description:
               'Directory or file to search in (default: workspace root)',
+          },
+          include: {
+            type: 'string',
+            description:
+              'Optional glob filter for filenames or relative paths, for example *.ts or src/**/*.ts',
+          },
+          context: {
+            type: 'number',
+            description:
+              'Optional number of context lines to include before and after each match (max 5)',
           },
         },
         required: ['pattern'],
