@@ -1184,6 +1184,11 @@ function buildSlashCommandCatalogDefinitions(
           kind: 'subcommand',
           name: 'sync',
           description: 'Reinstall a packaged or community skill',
+          tuiMenu: {
+            label: '/skill sync <source>',
+            insertText: '/skill sync ',
+            aliases: ['/skill sync <source> [--skip-skill-scan]'],
+          },
           options: [
             {
               kind: 'string',
@@ -1204,10 +1209,10 @@ function buildSlashCommandCatalogDefinitions(
           tuiMenuEntries: [
             {
               id: 'skill.sync',
-              label: '/skill sync <source>',
-              insertText: '/skill sync ',
+              label: '/skill sync <source> --skip-skill-scan',
+              insertText: '/skill sync --skip-skill-scan ',
               description:
-                'Reinstall a packaged or community skill from its source',
+                'Reinstall a packaged or community skill from its source and bypass the scanner',
             },
           ],
         },
@@ -1215,6 +1220,11 @@ function buildSlashCommandCatalogDefinitions(
           kind: 'subcommand',
           name: 'import',
           description: 'Import a packaged or community skill',
+          tuiMenu: {
+            label: '/skill import <source>',
+            insertText: '/skill import ',
+            aliases: ['/skill import <source> [--force] [--skip-skill-scan]'],
+          },
           options: [
             {
               kind: 'string',

@@ -117,6 +117,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'If the user has already asked you to perform an action, do not ask for a separate natural-language "yes" just to trigger approvals; attempt the tool call and let the runtime approval flow interrupt if approval is required.',
   );
   expect(prompt).toContain(
+    'If a requested action is blocked only by a missing dependency or another narrow prerequisite, attempt the minimal prerequisite step needed to complete the request instead of turning it into a follow-up multiple-choice question; let the runtime approval flow interrupt if approval is required.',
+  );
+  expect(prompt).toContain(
     'If the relevant content is already available directly in the current turn, injected `<file>` content, or `[PDFContext]`, answer from that content first before reading skills or searching for the same artifact again.',
   );
   expect(prompt).toContain(
