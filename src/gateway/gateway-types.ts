@@ -82,6 +82,8 @@ export interface GatewayChatResult {
   tokenUsage?: TokenUsageStats;
   error?: string;
   effectiveUserPrompt?: string;
+  userMessageId?: number;
+  assistantMessageId?: number;
 }
 
 export interface GatewayChatToolProgressEvent {
@@ -191,8 +193,22 @@ export interface GatewayHistorySummary {
 
 export interface GatewayHistoryResponse {
   sessionId: string;
+  sessionKey?: string;
+  mainSessionKey?: string;
   history: GatewayHistoryMessage[];
   summary?: GatewayHistorySummary;
+}
+
+export interface GatewayChatBranchRequestBody {
+  sessionId: string;
+  beforeMessageId: number;
+}
+
+export interface GatewayChatBranchResponse {
+  sessionId: string;
+  sessionKey: string;
+  mainSessionKey: string;
+  copiedMessageCount: number;
 }
 
 export interface GatewayRecentChatSession {

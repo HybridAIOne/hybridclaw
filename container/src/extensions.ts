@@ -59,9 +59,27 @@ const DANGEROUS_BASH_PATTERNS: Array<{ re: RegExp; reason: string }> = [
   },
 ];
 
+const BINARY_OFFICE_FILE_RE = /\.(docx|xlsx|pptx|pdf)$/i;
+
+function getBlockedBinaryOfficeFileReason(
+  toolName: string,
+  args: Record<string, unknown>,
+): string | null {
+  if (toolName !== 'write' && toolName !== 'edit') return null;
+  const targetPath = String(args.path || '').trim();
+  if (!BINARY_OFFICE_FILE_RE.test(targetPath)) return null;
+  return `Refusing to ${toolName} plain text into binary Office/PDF file \`${targetPath}\`. Generate the artifact with a real tool or script instead of the file ${toolName} tool.`;
+}
+
 const securityHookExtension: RuntimeExtension = {
   name: 'security-hook',
   onBeforeToolCall: (toolName, args) => {
+    const binaryOfficeReason = getBlockedBinaryOfficeFileReason(
+      toolName,
+      args,
+    );
+    if (binaryOfficeReason) return binaryOfficeReason;
+
     if (toolName === 'write' || toolName === 'edit') {
       const content =
         toolName === 'write'

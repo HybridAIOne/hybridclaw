@@ -3435,6 +3435,125 @@ function copySessionKvStore(
   }
 }
 
+export function forkSessionBranch(params: {
+  sessionId: string;
+  beforeMessageId: number;
+  nextSessionId?: string | null;
+}): {
+  sourceSession: Session;
+  session: Session;
+  copiedMessageCount: number;
+} {
+  const sourceSession = requireSessionById(resolveSessionIdCompat(params.sessionId));
+  const beforeMessageId = Math.max(1, Math.floor(params.beforeMessageId));
+  const branchTarget = db
+    .prepare(
+      `SELECT id
+       FROM messages
+       WHERE session_id = ?
+         AND id = ?`,
+    )
+    .get(sourceSession.id, beforeMessageId) as { id: number } | undefined;
+  if (!branchTarget) {
+    throw new Error(
+      `Message ${beforeMessageId} was not found in session ${sourceSession.id}.`,
+    );
+  }
+
+  const nextSessionId = resolveFreshSessionInstanceId(params.nextSessionId);
+  const nextMainSessionKey =
+    sourceSession.main_session_key || sourceSession.session_key || sourceSession.id;
+  const nowIso = new Date().toISOString();
+  const prefixMessages = db
+    .prepare(
+      `SELECT user_id, username, role, content, created_at
+       FROM messages
+       WHERE session_id = ?
+         AND id < ?
+       ORDER BY id ASC`,
+    )
+    .all(sourceSession.id, beforeMessageId) as Array<{
+      user_id: string;
+      username: string | null;
+      role: string;
+      content: string;
+      created_at: string;
+    }>;
+
+  const fork = db.transaction(() => {
+    db.prepare(
+      `INSERT INTO sessions (
+         id,
+         session_key,
+         main_session_key,
+         is_current,
+         guild_id,
+         channel_id,
+         agent_id,
+         chatbot_id,
+         model,
+         enable_rag,
+         message_count,
+         session_summary,
+         summary_updated_at,
+         compaction_count,
+         memory_flush_at,
+         full_auto_enabled,
+         full_auto_prompt,
+         full_auto_started_at,
+         show_mode,
+         created_at,
+         last_active,
+         reset_count,
+         reset_at,
+         legacy_session_id
+       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+    ).run(
+      nextSessionId,
+      nextSessionId,
+      nextMainSessionKey,
+      sourceSession.guild_id,
+      sourceSession.channel_id,
+      sourceSession.agent_id,
+      sourceSession.chatbot_id,
+      sourceSession.model,
+      sourceSession.enable_rag,
+      prefixMessages.length,
+      sourceSession.full_auto_enabled,
+      sourceSession.full_auto_prompt,
+      sourceSession.full_auto_started_at,
+      sourceSession.show_mode,
+      nowIso,
+      nowIso,
+      sourceSession.reset_count,
+      sourceSession.reset_at,
+    );
+    copySessionKvStore(sourceSession.id, nextSessionId);
+    if (prefixMessages.length === 0) return;
+    const insertMessage = db.prepare(
+      `INSERT INTO messages (session_id, user_id, username, role, content, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    for (const message of prefixMessages) {
+      insertMessage.run(
+        nextSessionId,
+        message.user_id,
+        message.username,
+        message.role,
+        message.content,
+        message.created_at,
+      );
+    }
+  });
+  fork();
+
+  return {
+    sourceSession,
+    session: requireSessionById(nextSessionId),
+    copiedMessageCount: prefixMessages.length,
+  };
+}
+
 export function createFreshSessionInstance(
   sessionId: string,
   params?: {

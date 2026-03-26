@@ -381,10 +381,18 @@ async function importFreshHealth(options?: {
     },
   }));
   const getSessionById = vi.fn(() => ({ show_mode: 'all' }));
+  const forkGatewayChatBranch = vi.fn(() => ({
+    sessionId: 'branch-session-1',
+    sessionKey: 'branch-session-1',
+    mainSessionKey: 'agent:main:channel:web:chat:dm:peer:family-a',
+    copiedMessageCount: 2,
+  }));
   const handleGatewayMessage = vi.fn(async () => ({
     status: 'success' as const,
     result: '__MESSAGE_SEND_HANDLED__',
     toolsUsed: [],
+    userMessageId: 11,
+    assistantMessageId: 12,
     toolExecutions: [
       {
         name: 'message',
@@ -815,6 +823,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminSessions,
     getGatewayAdminSkills,
     getGatewayAdminTools,
+    forkGatewayChatBranch,
     getGatewayHistory,
     getGatewayRecentChatSessions,
     getGatewayHistorySummary,
@@ -865,6 +874,7 @@ async function importFreshHealth(options?: {
     getGatewayHistory,
     getGatewayRecentChatSessions,
     getGatewayHistorySummary,
+    forkGatewayChatBranch,
     getGatewayAdminOverview,
     getGatewayAgents,
     getGatewayAdminAgents,
@@ -1556,6 +1566,8 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       sessionId: 's1',
+      sessionKey: undefined,
+      mainSessionKey: undefined,
       history: [
         { role: 'user', content: 'hello' },
         { role: 'assistant', content: 'world' },
@@ -1579,6 +1591,56 @@ describe('gateway HTTP server', () => {
           deletedCount: 1,
         },
       },
+    });
+  });
+
+  test('forks a web chat branch from a message cutoff', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/branch',
+      body: {
+        sessionId: 's1',
+        beforeMessageId: 9,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.forkGatewayChatBranch).toHaveBeenCalledWith({
+      sessionId: 's1',
+      beforeMessageId: 9,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      sessionId: 'branch-session-1',
+      sessionKey: 'branch-session-1',
+      mainSessionKey: 'agent:main:channel:web:chat:dm:peer:family-a',
+      copiedMessageCount: 2,
+    });
+  });
+
+  test('rejects invalid branch requests without a positive cutoff message id', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/branch',
+      body: {
+        sessionId: 's1',
+        beforeMessageId: 0,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.forkGatewayChatBranch).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Missing valid positive integer `beforeMessageId` in request body.',
     });
   });
 

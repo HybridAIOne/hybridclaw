@@ -172,6 +172,7 @@ import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
 } from '../providers/openrouter-discovery.js';
+import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
 import {
   getScheduledTaskNextRunAt,
@@ -875,6 +876,53 @@ function buildGatewayProviderHealth(params: {
   return providerHealth;
 }
 
+function isOpenRouterAvailableForModelCommands(): boolean {
+  const runtimeConfig = getRuntimeConfig();
+  return (
+    runtimeConfig.openrouter.enabled &&
+    Boolean(readOpenRouterApiKey({ required: false }))
+  );
+}
+
+function isModelAvailableForCurrentGatewayState(
+  model: string,
+  providerHealth: GatewayStatus['providerHealth'],
+): boolean {
+  switch (resolveModelProvider(model)) {
+    case 'hybridai':
+      return providerHealth?.hybridai?.reachable === true;
+    case 'openai-codex':
+      return providerHealth?.codex?.reachable === true;
+    case 'openrouter':
+      return isOpenRouterAvailableForModelCommands();
+    case 'ollama':
+      return providerHealth?.ollama?.reachable === true;
+    case 'lmstudio':
+      return providerHealth?.lmstudio?.reachable === true;
+    case 'vllm':
+      return providerHealth?.vllm?.reachable === true;
+    default:
+      return true;
+  }
+}
+
+function filterModelsForCurrentGatewayState(
+  models: string[],
+  providerHealth: GatewayStatus['providerHealth'],
+): string[] {
+  return models.filter((model) =>
+    isModelAvailableForCurrentGatewayState(model, providerHealth),
+  );
+}
+
+async function getFreshGatewayStatusForModelCommands(): Promise<GatewayStatus> {
+  // Model commands are expected to reflect the current live provider state,
+  // not a recently cached health snapshot.
+  localBackendsProbe.invalidate();
+  hybridAIProbe.invalidate();
+  return await getGatewayStatus();
+}
+
 function mapModelUsageRow(
   value: ReturnType<typeof listUsageByModel>[number],
 ): GatewayAdminModelUsageRow {
@@ -1446,8 +1494,11 @@ function recordSuccessfulTurn(opts: {
   resultText: string;
   toolCallCount: number;
   startedAt: number;
-}): void {
-  memoryService.storeTurn({
+}): {
+  userMessageId: number;
+  assistantMessageId: number;
+} {
+  const storedTurn = memoryService.storeTurn({
     sessionId: opts.sessionId,
     user: {
       userId: opts.userId,
@@ -1545,6 +1596,8 @@ function recordSuccessfulTurn(opts: {
       },
     },
   });
+
+  return storedTurn;
 }
 
 function buildStoredTurnMessages(params: {
@@ -3207,6 +3260,27 @@ export function getGatewayRecentChatSessions(params: {
   });
 }
 
+export function forkGatewayChatBranch(params: {
+  sessionId: string;
+  beforeMessageId: number;
+}): {
+  sessionId: string;
+  sessionKey: string;
+  mainSessionKey: string;
+  copiedMessageCount: number;
+} {
+  const branch = memoryService.forkSessionBranch({
+    sessionId: params.sessionId,
+    beforeMessageId: params.beforeMessageId,
+  });
+  return {
+    sessionId: branch.session.id,
+    sessionKey: branch.session.session_key,
+    mainSessionKey: branch.session.main_session_key,
+    copiedMessageCount: branch.copiedMessageCount,
+  };
+}
+
 function resolveHistorySummarySinceMs(
   session: Session | undefined,
   sinceMs?: number | null,
@@ -4227,7 +4301,7 @@ export async function handleGatewayMessage(
 
   if (isVersionOnlyQuestion(req.content)) {
     const resultText = `HybridClaw v${APP_VERSION}`;
-    recordSuccessfulTurn({
+    const storedTurn = recordSuccessfulTurn({
       sessionId: req.sessionId,
       agentId,
       chatbotId,
@@ -4248,6 +4322,8 @@ export async function handleGatewayMessage(
       status: 'success',
       result: resultText,
       toolsUsed: [],
+      userMessageId: storedTurn.userMessageId,
+      assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     return attachSessionIdentity(result);
@@ -4739,7 +4815,7 @@ export async function handleGatewayMessage(
       },
       'Gateway chat completed successfully',
     );
-    recordSuccessfulTurn({
+    const storedTurn = recordSuccessfulTurn({
       sessionId: req.sessionId,
       agentId,
       chatbotId,
@@ -4822,6 +4898,8 @@ export async function handleGatewayMessage(
       pendingApproval: output.pendingApproval,
       tokenUsage: output.tokenUsage,
       effectiveUserPrompt: output.effectiveUserPrompt,
+      userMessageId: storedTurn.userMessageId,
+      assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     if (requestMessages !== null) {
@@ -5460,7 +5538,11 @@ export async function handleGatewayCommand(
             !providerFilterArg ||
             providerFilter === 'hybridai',
         });
-        const availableModels = getAvailableModelList();
+        const gatewayStatus = await getFreshGatewayStatusForModelCommands();
+        const availableModels = filterModelsForCurrentGatewayState(
+          getAvailableModelList(),
+          gatewayStatus.providerHealth,
+        );
         const runtime = resolveSessionRuntimeTarget(session);
         const currentAgentId = resolveSessionAgentId(session);
         const resolvedAgent = resolveAgentConfig(currentAgentId);
@@ -5474,7 +5556,10 @@ export async function handleGatewayCommand(
               'Usage: `model list [hybridai|codex|openrouter|local|ollama|lmstudio|vllm]`',
             );
           }
-          const listedModels = getAvailableModelList(providerFilterArg);
+          const listedModels = filterModelsForCurrentGatewayState(
+            getAvailableModelList(providerFilterArg),
+            gatewayStatus.providerHealth,
+          );
           const current = runtime.model;
           const modelCatalog = listedModels.map((model) => {
             const label = formatModelForDisplay(model);
@@ -5568,6 +5653,14 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'info') {
+          const modelCatalog = availableModels.map((model) => ({
+            value: model,
+            label:
+              model === runtime.model
+                ? `${formatModelForDisplay(model)} (current)`
+                : formatModelForDisplay(model),
+            isFree: isAvailableModelFree(model),
+          }));
           return infoCommand(
             'Model Info',
             [
@@ -5575,7 +5668,14 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
               `Session model: ${sessionOverride}`,
+              '',
+              'Available now:',
+              modelCatalog.length > 0
+                ? modelCatalog.map((entry) => entry.label).join('\n')
+                : '(none)',
             ].join('\n'),
+            undefined,
+            modelCatalog.length > 0 ? { modelCatalog } : undefined,
           );
         }
 

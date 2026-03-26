@@ -29,6 +29,7 @@ import {
   deleteMemoryValue as dbDeleteMemoryValue,
   deleteMessagesBeforeId as dbDeleteMessagesBeforeId,
   deleteMessagesByIds as dbDeleteMessagesByIds,
+  forkSessionBranch as dbForkSessionBranch,
   forgetSemanticMemory as dbForgetSemanticMemory,
   getCanonicalContext as dbGetCanonicalContext,
   getCompactionCandidateMessages as dbGetCompactionCandidateMessages,
@@ -83,6 +84,15 @@ export interface MemoryBackend {
     limit?: number,
   ) => StoredMessage[];
   getRecentMessages: (sessionId: string, limit?: number) => StoredMessage[];
+  forkSessionBranch: (params: {
+    sessionId: string;
+    beforeMessageId: number;
+    nextSessionId?: string | null;
+  }) => {
+    sourceSession: Session;
+    session: Session;
+    copiedMessageCount: number;
+  };
   get: (sessionId: string, key: string) => unknown | null;
   set: (sessionId: string, key: string, value: unknown) => void;
   delete: (sessionId: string, key: string) => boolean;
@@ -240,6 +250,7 @@ const DEFAULT_BACKEND: MemoryBackend = {
   getSessionById: dbGetSessionById,
   getConversationHistory: dbGetConversationHistory,
   getRecentMessages: dbGetRecentMessages,
+  forkSessionBranch: dbForkSessionBranch,
   get: dbGetMemoryValue,
   set: dbSetMemoryValue,
   delete: dbDeleteMemoryValue,
@@ -418,6 +429,18 @@ export class MemoryService {
 
   getRecentMessages(sessionId: string, limit?: number): StoredMessage[] {
     return this.backend.getRecentMessages(sessionId, limit);
+  }
+
+  forkSessionBranch(params: {
+    sessionId: string;
+    beforeMessageId: number;
+    nextSessionId?: string | null;
+  }): {
+    sourceSession: Session;
+    session: Session;
+    copiedMessageCount: number;
+  } {
+    return this.backend.forkSessionBranch(params);
   }
 
   get(sessionId: string, key: string): unknown | null {
@@ -612,8 +635,11 @@ export class MemoryService {
     );
   }
 
-  storeTurn(params: StoreTurnParams): void {
-    this.storeMessage({
+  storeTurn(params: StoreTurnParams): {
+    userMessageId: number;
+    assistantMessageId: number;
+  } {
+    const userMessageId = this.storeMessage({
       sessionId: params.sessionId,
       userId: params.user.userId,
       username: params.user.username,
@@ -631,7 +657,12 @@ export class MemoryService {
     const interactionText = this.normalizeSemanticContent(
       `User asked: ${params.user.content.trim()}\nI responded: ${params.assistant.content.trim()}`,
     );
-    if (!interactionText) return;
+    if (!interactionText) {
+      return {
+        userMessageId,
+        assistantMessageId,
+      };
+    }
 
     this.backend.storeSemanticMemory({
       sessionId: params.sessionId,
@@ -644,6 +675,11 @@ export class MemoryService {
       embedding: this.embeddingProvider.embed(interactionText),
       sourceMessageId: assistantMessageId,
     });
+
+    return {
+      userMessageId,
+      assistantMessageId,
+    };
   }
 
   buildPromptMemoryContext(

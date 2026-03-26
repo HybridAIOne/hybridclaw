@@ -34,7 +34,7 @@ import {
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
   writeUploadedMediaCacheFile,
 } from '../media/uploaded-media-cache.js';
-import { claimQueuedProactiveMessages } from '../memory/db.js';
+import { claimQueuedProactiveMessages, getSessionById } from '../memory/db.js';
 import {
   buildSessionKey,
   classifySessionKeyShape,
@@ -77,6 +77,7 @@ import {
   getGatewayAdminSessions,
   getGatewayAdminSkills,
   getGatewayAdminTools,
+  forkGatewayChatBranch,
   getGatewayAgents,
   getGatewayHistory,
   getGatewayHistorySummary,
@@ -98,6 +99,7 @@ import {
   upsertGatewayAdminSchedulerJob,
 } from './gateway-service.js';
 import type {
+  GatewayChatBranchRequestBody,
   GatewayChatRequestBody,
   GatewayChatResult,
 } from './gateway-types.js';
@@ -164,6 +166,7 @@ const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
 ]);
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
+type ApiChatBranchRequestBody = Partial<GatewayChatBranchRequestBody>;
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
 type ApiPluginToolRequestBody = {
   toolName?: unknown;
@@ -893,6 +896,38 @@ async function handleApiChat(
   sendJson(res, result.status === 'success' ? 200 : 500, result);
 }
 
+async function handleApiChatBranch(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as ApiChatBranchRequestBody;
+  const sessionId = normalizeOptionalString(body.sessionId);
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` in request body.' });
+    return;
+  }
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
+  const beforeMessageId = Number.parseInt(String(body.beforeMessageId || ''), 10);
+  if (!Number.isFinite(beforeMessageId) || beforeMessageId < 1) {
+    sendJson(res, 400, {
+      error: 'Missing valid positive integer `beforeMessageId` in request body.',
+    });
+    return;
+  }
+
+  try {
+    sendJson(res, 200, forkGatewayChatBranch({ sessionId, beforeMessageId }));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    sendJson(res, /was not found/i.test(message) ? 404 : 400, {
+      error: message,
+    });
+  }
+}
+
 async function handleApiMediaUpload(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1255,7 +1290,14 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
   const summary = getGatewayHistorySummary(sessionId, {
     sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
   });
-  sendJson(res, 200, { sessionId, history, summary });
+  const session = getSessionById(sessionId);
+  sendJson(res, 200, {
+    sessionId,
+    sessionKey: session?.session_key,
+    mainSessionKey: session?.main_session_key,
+    history,
+    summary,
+  });
 }
 
 function handleApiChatRecent(res: ServerResponse, url: URL): void {
@@ -2165,6 +2207,10 @@ export function startGatewayHttpServer(): void {
           }
           if (pathname === '/api/chat' && method === 'POST') {
             await handleApiChat(req, res);
+            return;
+          }
+          if (pathname === '/api/chat/branch' && method === 'POST') {
+            await handleApiChatBranch(req, res);
             return;
           }
           if (pathname === '/api/media/upload' && method === 'POST') {
