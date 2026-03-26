@@ -13,7 +13,7 @@ import urllib.request
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
-from typing import Any, NotRequired, TypedDict, cast
+from typing import Any, Callable, NotRequired, TypedDict, cast
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -81,6 +81,7 @@ def _fetch_url(url: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> bytes:
         raise RuntimeError(f'Failed to fetch {url}') from exc
 
 
+@lru_cache(maxsize=1)
 def load_curated_templates() -> dict[str, MemeTemplate]:
     with TEMPLATES_FILE.open(encoding='utf-8') as handle:
         raw = json.load(handle)
@@ -133,6 +134,10 @@ def _default_fields(box_count: int) -> list[TemplateField]:
             }
         )
     return fields
+
+
+def _normalize_box_count(value: Any) -> int:
+    return value if isinstance(value, int) else 2
 
 
 def fetch_imgflip_templates() -> list[dict[str, Any]]:
@@ -265,8 +270,7 @@ def resolve_template(identifier: str) -> ResolvedTemplate | None:
             or str(meme.get('id', '')) == identifier.strip()
             or normalized in meme_name.lower()
         ):
-            box_count_raw = meme.get('box_count', 2)
-            box_count = box_count_raw if isinstance(box_count_raw, int) else 2
+            box_count = _normalize_box_count(meme.get('box_count', 2))
             dynamic_template: MemeTemplate = {
                 'name': meme_name,
                 'best_for': 'dynamic imgflip template',
@@ -486,6 +490,44 @@ def _prepare_output_path(output_path: str) -> Path:
     return output
 
 
+def _save_image(result: Image.Image, output: Path) -> str:
+    if output.suffix.lower() in ('.jpg', '.jpeg'):
+        result = result.convert('RGB')
+    result.save(output, quality=95)
+    return str(output)
+
+
+def _print_curated_matches(
+    matches: list[tuple[str, MemeTemplate]],
+    *,
+    title: str,
+    detail_label: str,
+    detail_getter: Callable[[MemeTemplate], str],
+    show_source: bool,
+) -> None:
+    print(title)
+    if show_source:
+        print(
+            f"{'ID':<28} {'Pack':<12} {'Fields':<8} {detail_label:<22} {'Source':<16} Best for"
+        )
+        print('-' * 138)
+    else:
+        print(f"{'ID':<28} {'Pack':<12} {'Fields':<8} {detail_label:<22} Best for")
+        print('-' * 120)
+
+    for template_id, template in matches:
+        source_label = _template_source_label(template)
+        detail = str(detail_getter(template))
+        if show_source:
+            print(
+                f"{template_id:<28} {template.get('pack', 'classic'):<12} {len(template['fields']):<8} {detail:<22} {source_label:<16} {template['best_for']}"
+            )
+        else:
+            print(
+                f"{template_id:<28} {template.get('pack', 'classic'):<12} {len(template['fields']):<8} {detail:<22} {template['best_for']}"
+            )
+
+
 def generate_meme(
     template_id: str,
     texts: list[str],
@@ -504,10 +546,7 @@ def generate_meme(
     image = generate_template_art(template)
     result = _overlay_on_image(image, texts, template['fields'])
     output = _prepare_output_path(output_path)
-    if output.suffix.lower() in ('.jpg', '.jpeg'):
-        result = result.convert('RGB')
-    result.save(output, quality=95)
-    return str(output)
+    return _save_image(result, output)
 
 
 def generate_from_image(
@@ -523,10 +562,7 @@ def generate_from_image(
     )
     result = _add_bars(image, texts) if use_bars else _overlay_on_image(image, texts, _default_fields(len(texts)))
     output = _prepare_output_path(output_path)
-    if output.suffix.lower() in ('.jpg', '.jpeg'):
-        result = result.convert('RGB')
-    result.save(output, quality=95)
-    return str(output)
+    return _save_image(result, output)
 
 
 def _template_source_label(template: MemeTemplate) -> str:
@@ -606,26 +642,13 @@ def search_templates(
             curated_matches.append((template_id, template))
 
     if curated_matches:
-        print('Curated templates')
-        if show_source:
-            print(
-                f"{'ID':<28} {'Pack':<12} {'Fields':<8} {'People':<22} {'Source':<16} Best for"
-            )
-            print('-' * 138)
-        else:
-            print(f"{'ID':<28} {'Pack':<12} {'Fields':<8} {'People':<22} Best for")
-            print('-' * 120)
-        for template_id, template in curated_matches:
-            people = ', '.join(template.get('people', [])[:2])
-            source_label = _template_source_label(template)
-            if show_source:
-                print(
-                    f"{template_id:<28} {template.get('pack', 'classic'):<12} {len(template['fields']):<8} {people:<22} {source_label:<16} {template['best_for']}"
-                )
-            else:
-                print(
-                    f"{template_id:<28} {template.get('pack', 'classic'):<12} {len(template['fields']):<8} {people:<22} {template['best_for']}"
-                )
+        _print_curated_matches(
+            curated_matches,
+            title='Curated templates',
+            detail_label='People',
+            detail_getter=lambda template: ', '.join(template.get('people', [])[:2]),
+            show_source=show_source,
+        )
 
     if curated_only:
         if not curated_matches:
@@ -638,8 +661,7 @@ def search_templates(
         name = str(meme.get('name', ''))
         if query_lower not in name.lower():
             continue
-        box_count_raw = meme.get('box_count', 2)
-        box_count = box_count_raw if isinstance(box_count_raw, int) else 2
+        box_count = _normalize_box_count(meme.get('box_count', 2))
         imgflip_matches.append((name, str(meme.get('id', '')), box_count))
 
     if curated_matches and imgflip_matches:
