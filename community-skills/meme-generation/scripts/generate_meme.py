@@ -15,11 +15,6 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict, cast
 
-try:
-    import requests as _requests
-except ImportError:
-    _requests = None
-
 from PIL import Image, ImageDraw, ImageFont
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -78,11 +73,6 @@ class ResolvedTemplate(TypedDict):
 
 
 def _fetch_url(url: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> bytes:
-    if _requests is not None:
-        response = _requests.get(url, timeout=timeout, headers=HTTP_HEADERS)
-        response.raise_for_status()
-        return response.content
-
     try:
         request = urllib.request.Request(url, headers=HTTP_HEADERS)
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -195,8 +185,24 @@ def _searchable_terms(template_id: str, template: MemeTemplate) -> set[str]:
         if not normalized:
             continue
         terms.add(normalized)
-        terms.add(_slugify(normalized))
+        slug = _slugify(normalized)
+        if slug and slug != normalized:
+            terms.add(slug)
     return terms
+
+
+def _matches_query(query: str, terms: set[str]) -> bool:
+    query_lower = query.lower().strip()
+    if not query_lower:
+        return True
+
+    query_slug = _slugify(query_lower)
+    for term in terms:
+        if query_lower in term:
+            return True
+        if query_slug and query_slug in _slugify(term):
+            return True
+    return False
 
 
 def _normalize_template(template_id: str, template: MemeTemplate, source: str) -> ResolvedTemplate:
@@ -235,10 +241,7 @@ def _matches_filters(
         return False
 
     if query:
-        query_slug = _slugify(query)
-        query_lower = query.lower().strip()
-        haystack = ' '.join(sorted(_searchable_terms(template_id, template)))
-        return query_lower in haystack or query_slug in haystack
+        return _matches_query(query, _searchable_terms(template_id, template))
 
     return True
 
