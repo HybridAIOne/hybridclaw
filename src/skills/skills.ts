@@ -459,7 +459,9 @@ function mergeUniqueStrings(values: string[][]): string[] {
   return merged;
 }
 
-function mergeUniqueInstallSpecs(groups: SkillInstallSpec[][]): SkillInstallSpec[] {
+function mergeUniqueInstallSpecs(
+  groups: SkillInstallSpec[][],
+): SkillInstallSpec[] {
   const merged: SkillInstallSpec[] = [];
   const seen = new Set<string>();
   for (const group of groups) {
@@ -489,7 +491,9 @@ function normalizeCompatibleMetadata(raw: Record<string, unknown>): {
 } {
   const records = resolveCompatibleMetadataRecords(raw);
   return {
-    tags: mergeUniqueStrings(records.map((record) => normalizeStringList(record.tags))),
+    tags: mergeUniqueStrings(
+      records.map((record) => normalizeStringList(record.tags)),
+    ),
     relatedSkills: mergeUniqueStrings(
       records.map((record) =>
         normalizeStringList(record.related_skills ?? record.relatedSkills),
@@ -509,12 +513,16 @@ function parseRequiresFromMetadataRecord(raw: Record<string, unknown>): {
   return {
     bins: mergeUniqueStrings(
       records.map((record) =>
-        isRecord(record.requires) ? normalizeStringList(record.requires.bins) : [],
+        isRecord(record.requires)
+          ? normalizeStringList(record.requires.bins)
+          : [],
       ),
     ),
     env: mergeUniqueStrings(
       records.map((record) =>
-        isRecord(record.requires) ? normalizeStringList(record.requires.env) : [],
+        isRecord(record.requires)
+          ? normalizeStringList(record.requires.env)
+          : [],
       ),
     ),
   };
@@ -611,7 +619,8 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
   if (!metadataSection) return { tags: [], relatedSkills: [], install: [] };
 
   const metadataInlineJson = tryParseJsonObject(metadataSection.inline);
-  if (metadataInlineJson) return normalizeCompatibleMetadata(metadataInlineJson);
+  if (metadataInlineJson)
+    return normalizeCompatibleMetadata(metadataInlineJson);
 
   const metadataFields = parseSectionChildren(metadataSection.children);
   const hybridSection =

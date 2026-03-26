@@ -234,72 +234,67 @@ describe('office bundled skills', () => {
     expect(buildSkillsPrompt(skills)).not.toContain('<name>office</name>');
   });
 
-  test(
-    'syncs community skills into workspace/skills with stable read paths',
-    async () => {
-      const { DEFAULT_RUNTIME_HOME_DIR } = await import(
-        '../src/config/runtime-config.ts'
-      );
-      const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
-      const { loadSkillCatalog, loadSkills } = await import(
-        '../src/skills/skills.ts'
-      );
+  test('syncs community skills into workspace/skills with stable read paths', async () => {
+    const { DEFAULT_RUNTIME_HOME_DIR } = await import(
+      '../src/config/runtime-config.ts'
+    );
+    const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+    const { loadSkillCatalog, loadSkills } = await import(
+      '../src/skills/skills.ts'
+    );
 
-      const communitySkillDir = path.join(
-        DEFAULT_RUNTIME_HOME_DIR,
-        'skills',
-        'openhue',
-      );
-      fs.mkdirSync(communitySkillDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(communitySkillDir, 'SKILL.md'),
-        [
-          '---',
-          'name: openhue',
-          'description: Control Philips Hue lights.',
-          'user-invocable: true',
-          '---',
-          '',
-          '# OpenHue',
-        ].join('\n'),
-        'utf8',
-      );
+    const communitySkillDir = path.join(
+      DEFAULT_RUNTIME_HOME_DIR,
+      'skills',
+      'openhue',
+    );
+    fs.mkdirSync(communitySkillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(communitySkillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: openhue',
+        'description: Control Philips Hue lights.',
+        'user-invocable: true',
+        '---',
+        '',
+        '# OpenHue',
+      ].join('\n'),
+      'utf8',
+    );
 
-      const agentId = 'community-skill-agent';
-      const workspaceDir = agentWorkspaceDir(agentId);
-      const legacySyncedDir = path.join(
-        workspaceDir,
-        '.synced-skills',
-        'openhue-legacy',
-      );
-      fs.mkdirSync(legacySyncedDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(legacySyncedDir, 'SKILL.md'),
-        '---\nname: stale\ndescription: stale\n---\n',
-        'utf8',
-      );
+    const agentId = 'community-skill-agent';
+    const workspaceDir = agentWorkspaceDir(agentId);
+    const legacySyncedDir = path.join(
+      workspaceDir,
+      '.synced-skills',
+      'openhue-legacy',
+    );
+    fs.mkdirSync(legacySyncedDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(legacySyncedDir, 'SKILL.md'),
+      '---\nname: stale\ndescription: stale\n---\n',
+      'utf8',
+    );
 
-      expect(
-        loadSkillCatalog().find((skill) => skill.name === 'openhue'),
-      ).toMatchObject({
-        source: 'community',
-        available: true,
-        enabled: true,
-      });
+    expect(
+      loadSkillCatalog().find((skill) => skill.name === 'openhue'),
+    ).toMatchObject({
+      source: 'community',
+      available: true,
+      enabled: true,
+    });
 
-      const skills = loadSkills(agentId);
+    const skills = loadSkills(agentId);
 
-      expect(skills.find((skill) => skill.name === 'openhue')?.location).toBe(
-        'skills/openhue/SKILL.md',
-      );
-      expect(
-        fs.existsSync(
-          path.join(workspaceDir, 'skills', 'openhue', 'SKILL.md'),
-        ),
-      ).toBe(true);
-      expect(fs.existsSync(legacySyncedDir)).toBe(false);
-    },
-  );
+    expect(skills.find((skill) => skill.name === 'openhue')?.location).toBe(
+      'skills/openhue/SKILL.md',
+    );
+    expect(
+      fs.existsSync(path.join(workspaceDir, 'skills', 'openhue', 'SKILL.md')),
+    ).toBe(true);
+    expect(fs.existsSync(legacySyncedDir)).toBe(false);
+  });
 
   test('prunes stale mirrored bundled skills from agent workspaces', async () => {
     const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
