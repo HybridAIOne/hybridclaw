@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { agentWorkspaceDir, ensureAgentDirs } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import type { StoredMessage } from '../types.js';
+import type { StoredMessage } from '../types/session.js';
 
 const SESSION_EXPORTS_DIR_NAME = '.session-exports';
 

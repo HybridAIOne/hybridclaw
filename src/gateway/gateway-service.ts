@@ -218,23 +218,25 @@ import {
   deriveSkillExecutionOutcome,
   recordSkillExecution,
 } from '../skills/skills-observation.js';
+import type { ChatMessage } from '../types/api.js';
+import type { StructuredAuditEntry } from '../types/audit.js';
 import type {
   ArtifactMetadata,
-  CanonicalSessionContext,
-  ChatMessage,
   DelegationSideEffect,
   DelegationTaskSpec,
   McpServerConfig,
   MediaContextItem,
   PendingApproval,
-  ScheduledTask,
-  Session,
-  StoredMessage,
-  StructuredAuditEntry,
-  TokenUsageStats,
   ToolExecution,
   ToolProgressEvent,
-} from '../types.js';
+} from '../types/container.js';
+import type { ScheduledTask } from '../types/scheduler.js';
+import type {
+  CanonicalSessionContext,
+  Session,
+  StoredMessage,
+} from '../types/session.js';
+import type { TokenUsageStats } from '../types/usage.js';
 import { sleep } from '../utils/sleep.js';
 import { ensureBootstrapFiles, resetWorkspace } from '../workspace.js';
 import {

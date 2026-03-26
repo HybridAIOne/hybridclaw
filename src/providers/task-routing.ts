@@ -9,7 +9,7 @@ import {
   type TaskModelKey,
   type TaskModelPolicies,
   type TaskModelPolicy,
-} from '../types.js';
+} from '../types/container.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
 import {
   findVisionCapableModel,

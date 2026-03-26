@@ -53,13 +53,13 @@ import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
 import { redactSecrets } from '../security/redact.js';
 import type {
-  AdditionalMount,
   ArtifactMetadata,
   ContainerInput,
   ContainerOutput,
   PendingApproval,
   ToolProgressEvent,
-} from '../types.js';
+} from '../types/container.js';
+import type { AdditionalMount } from '../types/security.js';
 import {
   agentWorkspaceDir,
   cleanupIpc,

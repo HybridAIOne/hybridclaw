@@ -1,7 +1,7 @@
 import type { WAMessage } from '@whiskeysockets/baileys';
 import { getConfigSnapshot } from '../../config/config.js';
 import { logger } from '../../logger.js';
-import type { MediaContextItem } from '../../types.js';
+import type { MediaContextItem } from '../../types/container.js';
 import { WHATSAPP_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
 import {

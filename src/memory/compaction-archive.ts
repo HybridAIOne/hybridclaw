@@ -4,7 +4,9 @@ import path from 'node:path';
 import { DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
-import type { ArchiveEntry, ChatMessage, StoredMessage } from '../types.js';
+import type { ChatMessage } from '../types/api.js';
+import type { ArchiveEntry } from '../types/memory.js';
+import type { StoredMessage } from '../types/session.js';
 
 const DEFAULT_ARCHIVE_ROOT = path.join(DATA_DIR, 'compaction-archives');
 

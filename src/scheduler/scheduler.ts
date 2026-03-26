@@ -20,7 +20,7 @@ import {
   markTaskSuccess,
   updateTaskLastRun,
 } from '../memory/db.js';
-import type { ScheduledTask } from '../types.js';
+import type { ScheduledTask } from '../types/scheduler.js';
 
 const MAX_TIMER_DELAY_MS = 300_000; // 5 min safety net for clock drift
 const MAX_CONSECUTIVE_FAILURES = 5;

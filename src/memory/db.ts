@@ -37,29 +37,38 @@ import type { SkillGuardVerdict } from '../skills/skills-guard.js';
 import type {
   ApprovalAuditEntry,
   AuditEntry,
+  StructuredAuditEntry,
+} from '../types/audit.js';
+import {
+  type KnowledgeEntity,
+  KnowledgeEntityType,
+  type KnowledgeEntityTypeValue,
+  type KnowledgeGraphMatch,
+  type KnowledgeGraphPattern,
+  KnowledgeRelationType,
+  type KnowledgeRelationTypeValue,
+} from '../types/knowledge.js';
+import type {
+  SemanticMemoryEntry,
+  StructuredMemoryEntry,
+} from '../types/memory.js';
+import type { ScheduledTask } from '../types/scheduler.js';
+import type {
   CanonicalSession,
   CanonicalSessionContext,
   CanonicalSessionMessage,
-  KnowledgeEntity,
-  KnowledgeEntityTypeValue,
-  KnowledgeGraphMatch,
-  KnowledgeGraphPattern,
-  KnowledgeRelationTypeValue,
-  ScheduledTask,
-  SemanticMemoryEntry,
   Session,
   SessionShowMode,
   StoredMessage,
-  StructuredAuditEntry,
-  StructuredMemoryEntry,
+} from '../types/session.js';
+import type {
   UsageAgentAggregate,
   UsageDailyAggregate,
   UsageModelAggregate,
   UsageSessionAggregate,
   UsageTotals,
   UsageWindow,
-} from '../types.js';
-import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
+} from '../types/usage.js';
 
 let db: Database.Database;
 let databaseInitialized = false;

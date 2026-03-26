@@ -10,10 +10,10 @@ import type {
 import type {
   McpServerConfig,
   MediaContextItem,
-  MemoryCitation,
   PendingApproval,
-  TokenUsageStats,
-} from '../types.js';
+} from '../types/container.js';
+import type { MemoryCitation } from '../types/memory.js';
+import type { TokenUsageStats } from '../types/usage.js';
 
 export type GatewayMessageComponents = NonNullable<
   BaseMessageOptions['components']

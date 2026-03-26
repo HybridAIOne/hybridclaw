@@ -9,7 +9,7 @@ import {
   resolveExplicitSkillInvocation,
   type Skill,
 } from '../skills/skills.js';
-import type { ChatMessage } from '../types.js';
+import type { ChatMessage } from '../types/api.js';
 import {
   buildSystemPromptFromHooks,
   type PromptMode,

@@ -18,7 +18,7 @@ import {
 } from '../config/runtime-config.js';
 import { logger as rootLogger } from '../logger.js';
 import type { AIProvider } from '../providers/types.js';
-import type { StoredMessage } from '../types.js';
+import type { StoredMessage } from '../types/session.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { createPluginApi } from './plugin-api.js';
 import type {

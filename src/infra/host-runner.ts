@@ -40,7 +40,7 @@ import type {
   ContainerOutput,
   PendingApproval,
   ToolProgressEvent,
-} from '../types.js';
+} from '../types/container.js';
 import {
   collectConfiguredDiscordChannelIds,
   remapOutputArtifacts,

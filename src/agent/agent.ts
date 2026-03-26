@@ -4,11 +4,8 @@ import path from 'node:path';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { DATA_DIR, HYBRIDAI_MODEL } from '../config/config.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
-import type {
-  ChatMessage,
-  ContainerOutput,
-  MediaContextItem,
-} from '../types.js';
+import type { ChatMessage } from '../types/api.js';
+import type { ContainerOutput, MediaContextItem } from '../types/container.js';
 import { getExecutor } from './executor.js';
 import type { ExecutorRequest } from './executor-types.js';
 

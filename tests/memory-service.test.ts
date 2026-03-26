@@ -38,10 +38,9 @@ import {
 import {
   KnowledgeEntityType,
   KnowledgeRelationType,
-  type SemanticMemoryEntry,
-  type Session,
-  type StoredMessage,
-} from '../src/types.js';
+} from '../src/types/knowledge.js';
+import type { SemanticMemoryEntry } from '../src/types/memory.js';
+import type { Session, StoredMessage } from '../src/types/session.js';
 
 function createTempDbPath(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-memory-'));
