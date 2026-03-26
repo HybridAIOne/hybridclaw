@@ -895,6 +895,61 @@ test('model list refreshes local backend health before filtering models', async 
   expect(result.text).not.toContain('lmstudio/qwen/qwen3.5-9b');
 });
 
+test('model clear does not refresh provider health probes', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = true;
+    config.local.backends.lmstudio.baseUrl = 'http://127.0.0.1:1234/v1';
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+
+  const invalidateLocal = vi.fn();
+  const invalidateHybridAI = vi.fn();
+  vi.doMock('../src/providers/hybridai-health.js', () => ({
+    hybridAIProbe: {
+      get: vi.fn(async () => ({
+        reachable: true,
+        latencyMs: 10,
+        modelCount: 3,
+      })),
+      peek: vi.fn(() => null),
+      invalidate: invalidateHybridAI,
+    },
+  }));
+  vi.doMock('../src/providers/local-health.js', () => ({
+    localBackendsProbe: {
+      get: vi.fn(async () => new Map()),
+      peek: vi.fn(() => null),
+      invalidate: invalidateLocal,
+    },
+    checkConnection: vi.fn(),
+    checkModelConnection: vi.fn(),
+    checkAllBackends: vi.fn(async () => new Map()),
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-clear-no-refresh',
+    guildId: null,
+    channelId: 'channel-model-clear-no-refresh',
+    args: ['model', 'clear'],
+  });
+
+  expect(result.kind).toBe('plain');
+  expect(invalidateLocal).not.toHaveBeenCalled();
+  expect(invalidateHybridAI).not.toHaveBeenCalled();
+});
+
 test('model clear removes the session override and falls back to the agent model', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

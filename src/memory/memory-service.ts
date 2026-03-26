@@ -9,6 +9,9 @@ import type {
   CanonicalSession,
   CanonicalSessionContext,
   CompactionResult,
+  ConversationHistoryPage,
+  ForkSessionBranchParams,
+  ForkSessionBranchResult,
   KnowledgeEntityTypeValue,
   KnowledgeGraphMatch,
   KnowledgeGraphPattern,
@@ -34,6 +37,7 @@ import {
   getCanonicalContext as dbGetCanonicalContext,
   getCompactionCandidateMessages as dbGetCompactionCandidateMessages,
   getConversationHistory as dbGetConversationHistory,
+  getConversationHistoryPage as dbGetConversationHistoryPage,
   getMemoryValue as dbGetMemoryValue,
   getOrCreateSession as dbGetOrCreateSession,
   getRecentMessages as dbGetRecentMessages,
@@ -83,16 +87,12 @@ export interface MemoryBackend {
     sessionId: string,
     limit?: number,
   ) => StoredMessage[];
+  getConversationHistoryPage: (
+    sessionId: string,
+    limit?: number,
+  ) => ConversationHistoryPage;
   getRecentMessages: (sessionId: string, limit?: number) => StoredMessage[];
-  forkSessionBranch: (params: {
-    sessionId: string;
-    beforeMessageId: number;
-    nextSessionId?: string | null;
-  }) => {
-    sourceSession: Session;
-    session: Session;
-    copiedMessageCount: number;
-  };
+  forkSessionBranch: (params: ForkSessionBranchParams) => ForkSessionBranchResult;
   get: (sessionId: string, key: string) => unknown | null;
   set: (sessionId: string, key: string, value: unknown) => void;
   delete: (sessionId: string, key: string) => boolean;
@@ -249,6 +249,7 @@ const DEFAULT_BACKEND: MemoryBackend = {
   getOrCreateSession: dbGetOrCreateSession,
   getSessionById: dbGetSessionById,
   getConversationHistory: dbGetConversationHistory,
+  getConversationHistoryPage: dbGetConversationHistoryPage,
   getRecentMessages: dbGetRecentMessages,
   forkSessionBranch: dbForkSessionBranch,
   get: dbGetMemoryValue,
@@ -427,19 +428,18 @@ export class MemoryService {
     return this.backend.getConversationHistory(sessionId, limit);
   }
 
+  getConversationHistoryPage(
+    sessionId: string,
+    limit = 50,
+  ): ConversationHistoryPage {
+    return this.backend.getConversationHistoryPage(sessionId, limit);
+  }
+
   getRecentMessages(sessionId: string, limit?: number): StoredMessage[] {
     return this.backend.getRecentMessages(sessionId, limit);
   }
 
-  forkSessionBranch(params: {
-    sessionId: string;
-    beforeMessageId: number;
-    nextSessionId?: string | null;
-  }): {
-    sourceSession: Session;
-    session: Session;
-    copiedMessageCount: number;
-  } {
+  forkSessionBranch(params: ForkSessionBranchParams): ForkSessionBranchResult {
     return this.backend.forkSessionBranch(params);
   }
 

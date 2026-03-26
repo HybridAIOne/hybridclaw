@@ -1069,8 +1069,6 @@
     let pendingMedia = [];
     let pendingUploadCount = 0;
     let activeChatRequest = null;
-    let activeSessionKey = '';
-    let activeMainSessionKey = '';
     let activeEditState = null;
     const messageMetaByBlock = new WeakMap();
     const sessionBranchAnchors = new Map();
@@ -1147,9 +1145,9 @@
       return media.map((item) => ({ ...item }));
     }
 
-    function normalizePositiveInteger(value) {
-      const parsed = Number.parseInt(String(value || ''), 10);
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    function normalizeMessageId(value) {
+      const id = Number(value);
+      return Number.isInteger(id) && id > 0 ? id : null;
     }
 
     function getMessageMeta(block) {
@@ -1188,13 +1186,13 @@
     }
 
     function getBranchKeyForMessage(sessionId, messageId) {
-      const normalizedMessageId = normalizePositiveInteger(messageId);
+      const normalizedMessageId = normalizeMessageId(messageId);
       if (!sessionId || !normalizedMessageId) return null;
       return ensureSessionBranchAnchorMap(sessionId).get(normalizedMessageId) || null;
     }
 
     function prepareBranchFamily(sourceSessionId, sourceMessageId, branchSessionId) {
-      const normalizedSourceMessageId = normalizePositiveInteger(sourceMessageId);
+      const normalizedSourceMessageId = normalizeMessageId(sourceMessageId);
       if (!sourceSessionId || !normalizedSourceMessageId || !branchSessionId) {
         return null;
       }
@@ -1221,8 +1219,8 @@
       branchSessionId,
       branchMessageId,
     }) {
-      const normalizedSourceMessageId = normalizePositiveInteger(sourceMessageId);
-      const normalizedBranchMessageId = normalizePositiveInteger(branchMessageId);
+      const normalizedSourceMessageId = normalizeMessageId(sourceMessageId);
+      const normalizedBranchMessageId = normalizeMessageId(branchMessageId);
       if (!sourceSessionId || !normalizedSourceMessageId || !branchSessionId || !normalizedBranchMessageId) {
         return null;
       }
@@ -1240,6 +1238,45 @@
       family.messageIdsBySession.set(sourceSessionId, normalizedSourceMessageId);
       family.messageIdsBySession.set(branchSessionId, normalizedBranchMessageId);
       return branchKey;
+    }
+
+    function pruneBranchStateForSession(sessionId) {
+      const normalizedSessionId = String(sessionId || '').trim();
+      if (!normalizedSessionId) {
+        sessionBranchAnchors.clear();
+        branchFamilies.clear();
+        return;
+      }
+
+      const keepBranchKeys = new Set();
+      const keepSessionIds = new Set([normalizedSessionId]);
+      for (const [branchKey, family] of branchFamilies.entries()) {
+        if (!family?.sessionIds?.includes(normalizedSessionId)) continue;
+        keepBranchKeys.add(branchKey);
+        for (const familySessionId of family.sessionIds) {
+          const nextSessionId = String(familySessionId || '').trim();
+          if (nextSessionId) {
+            keepSessionIds.add(nextSessionId);
+          }
+        }
+      }
+
+      if (keepBranchKeys.size === 0) {
+        sessionBranchAnchors.clear();
+        branchFamilies.clear();
+        return;
+      }
+
+      for (const branchKey of Array.from(branchFamilies.keys())) {
+        if (!keepBranchKeys.has(branchKey)) {
+          branchFamilies.delete(branchKey);
+        }
+      }
+      for (const key of Array.from(sessionBranchAnchors.keys())) {
+        if (!keepSessionIds.has(key)) {
+          sessionBranchAnchors.delete(key);
+        }
+      }
     }
 
     function formatRelativeTime(timestamp) {
@@ -1844,7 +1881,7 @@
           actionsEl: actions,
           role,
           sessionId: options.sessionId || activeSessionId,
-          messageId: normalizePositiveInteger(options.messageId),
+          messageId: normalizeMessageId(options.messageId),
           content: content || '',
           copyText: options.copyText ?? content ?? '',
           rawContent: options.rawContent ?? content ?? '',
@@ -1960,15 +1997,17 @@
       try {
         setError('');
         const branch = await createPromptBranch(sourceSessionId, sourceMessageId);
+        const nextSessionId = String(branch?.sessionId || '').trim();
+        if (!nextSessionId) {
+          throw new Error('Branch response did not include a sessionId.');
+        }
         const branchKey = prepareBranchFamily(
           sourceSessionId,
           sourceMessageId,
-          String(branch.sessionId || ''),
+          nextSessionId,
         );
         activeEditState = null;
-        activeSessionId = String(branch.sessionId || activeSessionId);
-        activeSessionKey = String(branch.sessionKey || '');
-        activeMainSessionKey = String(branch.mainSessionKey || '');
+        activeSessionId = nextSessionId;
         savePrefs();
         messagesEl.innerHTML = '';
         updateEmptyState();
@@ -2116,13 +2155,11 @@
           activeSessionId = nextSessionId;
           savePrefs();
         }
-        activeSessionKey = String(payload.sessionKey || '');
-        activeMainSessionKey = String(payload.mainSessionKey || '');
         let lastUserPrompt = null;
         for (const msg of payload.history || []) {
           const role = String(msg.role || '');
           const content = msg.content || '';
-          const messageId = normalizePositiveInteger(msg.id);
+          const messageId = normalizeMessageId(msg.id);
           if (role === 'user') {
             lastUserPrompt = {
               content,
@@ -2224,11 +2261,9 @@
         }
         if (payload.sessionId) {
           activeSessionId = String(payload.sessionId);
-          activeSessionKey = String(payload.sessionKey || '');
-          activeMainSessionKey = String(payload.mainSessionKey || '');
           savePrefs();
         }
-        const userMessageId = normalizePositiveInteger(payload.userMessageId);
+        const userMessageId = normalizeMessageId(payload.userMessageId);
         if (requestState.userBlock) {
           setMessageMeta(requestState.userBlock, {
             sessionId: activeSessionId,
@@ -2238,7 +2273,7 @@
         }
         const assistantView = addMessage('assistant', payload.result || '', payload.artifacts || [], {
           sessionId: activeSessionId,
-          messageId: normalizePositiveInteger(payload.assistantMessageId),
+          messageId: normalizeMessageId(payload.assistantMessageId),
           replayRequest: {
             content,
             media: queuedMedia,
@@ -2249,7 +2284,7 @@
           payload,
           sessionId: activeSessionId,
           userMessageId,
-          assistantMessageId: normalizePositiveInteger(payload.assistantMessageId),
+          assistantMessageId: normalizeMessageId(payload.assistantMessageId),
           userBlock: requestState.userBlock,
           assistantBlock: assistantView?.block || null,
         };
@@ -2325,12 +2360,11 @@
       }
       activeSessionId = String(sessionId || '').trim();
       if (!activeSessionId) return;
+      pruneBranchStateForSession(activeSessionId);
       messageEl.value = '';
       messagesEl.innerHTML = '';
       pendingMedia = [];
       pendingUploadCount = 0;
-      activeSessionKey = '';
-      activeMainSessionKey = '';
       renderPendingMedia();
       updateEmptyState();
       updateWindowTitle();
@@ -2352,8 +2386,7 @@
       lastSessionNumber += 1;
       activeSessionNumber = lastSessionNumber;
       activeSessionId = generateWebSessionId();
-      activeSessionKey = '';
-      activeMainSessionKey = '';
+      pruneBranchStateForSession(null);
       messageEl.value = '';
       messagesEl.innerHTML = '';
       pendingMedia = [];

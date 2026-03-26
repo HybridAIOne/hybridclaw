@@ -343,10 +343,14 @@ async function importFreshHealth(options?: {
   const loggerError = vi.fn();
   const loggerInfo = vi.fn();
   const loggerWarn = vi.fn();
-  const getGatewayHistory = vi.fn(() => [
-    { role: 'user', content: 'hello' },
-    { role: 'assistant', content: 'world' },
-  ]);
+  const getGatewayHistory = vi.fn(() => ({
+    sessionKey: null,
+    mainSessionKey: null,
+    history: [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'world' },
+    ],
+  }));
   const getGatewayRecentChatSessions = vi.fn(() => [
     {
       sessionId: 'web-session-2',
@@ -381,10 +385,12 @@ async function importFreshHealth(options?: {
     },
   }));
   const getSessionById = vi.fn(() => ({ show_mode: 'all' }));
-  const forkGatewayChatBranch = vi.fn(() => ({
-    sessionId: 'branch-session-1',
-    sessionKey: 'branch-session-1',
-    mainSessionKey: 'agent:main:channel:web:chat:dm:peer:family-a',
+  const forkSessionBranch = vi.fn(() => ({
+    session: {
+      id: 'branch-session-1',
+      session_key: 'branch-session-1',
+      main_session_key: 'agent:main:channel:web:chat:dm:peer:family-a',
+    },
     copiedMessageCount: 2,
   }));
   const handleGatewayMessage = vi.fn(async () => ({
@@ -805,6 +811,11 @@ async function importFreshHealth(options?: {
     getSessionById,
     resetSessionIfExpired: vi.fn(() => null),
   }));
+  vi.doMock('../src/memory/memory-service.js', () => ({
+    memoryService: {
+      forkSessionBranch,
+    },
+  }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
     createGatewayAdminAgent,
     deleteGatewayAdminAgent,
@@ -823,7 +834,6 @@ async function importFreshHealth(options?: {
     getGatewayAdminSessions,
     getGatewayAdminSkills,
     getGatewayAdminTools,
-    forkGatewayChatBranch,
     getGatewayHistory,
     getGatewayRecentChatSessions,
     getGatewayHistorySummary,
@@ -874,7 +884,7 @@ async function importFreshHealth(options?: {
     getGatewayHistory,
     getGatewayRecentChatSessions,
     getGatewayHistorySummary,
-    forkGatewayChatBranch,
+    forkSessionBranch,
     getGatewayAdminOverview,
     getGatewayAgents,
     getGatewayAdminAgents,
@@ -1609,7 +1619,7 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
     await waitForResponse(res, (next) => next.writableEnded);
 
-    expect(state.forkGatewayChatBranch).toHaveBeenCalledWith({
+    expect(state.forkSessionBranch).toHaveBeenCalledWith({
       sessionId: 's1',
       beforeMessageId: 9,
     });
@@ -1637,11 +1647,58 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
     await waitForResponse(res, (next) => next.writableEnded);
 
-    expect(state.forkGatewayChatBranch).not.toHaveBeenCalled();
+    expect(state.forkSessionBranch).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({
       error:
         'Missing valid positive integer `beforeMessageId` in request body.',
+    });
+  });
+
+  test('rejects branch requests with trailing non-numeric characters', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/branch',
+      body: {
+        sessionId: 's1',
+        beforeMessageId: '9abc',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.forkSessionBranch).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Missing valid positive integer `beforeMessageId` in request body.',
+    });
+  });
+
+  test('returns 500 when branch creation fails unexpectedly', async () => {
+    const state = await importFreshHealth();
+    state.forkSessionBranch.mockImplementation(() => {
+      throw new Error('sqlite busy');
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/branch',
+      body: {
+        sessionId: 's1',
+        beforeMessageId: 9,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(500);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'sqlite busy',
     });
   });
 

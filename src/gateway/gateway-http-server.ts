@@ -34,7 +34,8 @@ import {
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
   writeUploadedMediaCacheFile,
 } from '../media/uploaded-media-cache.js';
-import { claimQueuedProactiveMessages, getSessionById } from '../memory/db.js';
+import { claimQueuedProactiveMessages } from '../memory/db.js';
+import { memoryService } from '../memory/memory-service.js';
 import {
   buildSessionKey,
   classifySessionKeyShape,
@@ -62,7 +63,6 @@ import {
   createGatewayAdminAgent,
   deleteGatewayAdminAgent,
   deleteGatewayAdminSession,
-  forkGatewayChatBranch,
   type GatewayChatRequest,
   type GatewayCommandRequest,
   GatewayRequestError,
@@ -178,6 +178,17 @@ type ApiPluginToolRequestBody = {
 function normalizeOptionalString(value: unknown): string | undefined {
   const normalized = typeof value === 'string' ? value.trim() : '';
   return normalized || undefined;
+}
+
+function parsePositiveInteger(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function generateDefaultWebSessionId(agentId?: string | null): string {
@@ -910,11 +921,8 @@ async function handleApiChatBranch(
     sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
     return;
   }
-  const beforeMessageId = Number.parseInt(
-    String(body.beforeMessageId || ''),
-    10,
-  );
-  if (!Number.isFinite(beforeMessageId) || beforeMessageId < 1) {
+  const beforeMessageId = parsePositiveInteger(body.beforeMessageId);
+  if (beforeMessageId == null) {
     sendJson(res, 400, {
       error:
         'Missing valid positive integer `beforeMessageId` in request body.',
@@ -923,10 +931,16 @@ async function handleApiChatBranch(
   }
 
   try {
-    sendJson(res, 200, forkGatewayChatBranch({ sessionId, beforeMessageId }));
+    const branch = memoryService.forkSessionBranch({ sessionId, beforeMessageId });
+    sendJson(res, 200, {
+      sessionId: branch.session.id,
+      sessionKey: branch.session.session_key,
+      mainSessionKey: branch.session.main_session_key,
+      copiedMessageCount: branch.copiedMessageCount,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    sendJson(res, /was not found/i.test(message) ? 404 : 400, {
+    sendJson(res, /was not found/i.test(message) ? 404 : 500, {
       error: message,
     });
   }
@@ -1290,16 +1304,19 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
     10,
   );
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
-  const history = getGatewayHistory(sessionId, limit);
+  const historyPage = getGatewayHistory(sessionId, limit);
   const summary = getGatewayHistorySummary(sessionId, {
     sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
   });
-  const session = getSessionById(sessionId);
+  // These keys are returned only as chat-routing metadata for the web client.
+  // Auth stays anchored to the existing API/session auth checks above, never to
+  // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
+  // remove them from this response instead of widening their meaning here.
   sendJson(res, 200, {
     sessionId,
-    sessionKey: session?.session_key,
-    mainSessionKey: session?.main_session_key,
-    history,
+    sessionKey: historyPage.sessionKey || undefined,
+    mainSessionKey: historyPage.mainSessionKey || undefined,
+    history: historyPage.history,
     summary,
   });
 }

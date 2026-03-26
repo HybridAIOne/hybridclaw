@@ -555,22 +555,40 @@ describe.sequential('schema migrations', () => {
     const fork = forkSessionBranch({
       sessionId: 'branch-source',
       beforeMessageId: editedPromptId,
-      nextSessionId: 'branch-session-2',
     });
 
-    expect(fork.sourceSession.id).toBe(sourceSession.id);
-    expect(fork.session.id).toBe('branch-session-2');
-    expect(fork.session.session_key).toBe('branch-session-2');
+    expect(fork.session.id).not.toBe(sourceSession.id);
+    expect(fork.session.session_key).toBe(fork.session.id);
     expect(fork.session.main_session_key).toBe(sourceSession.main_session_key);
     expect(fork.copiedMessageCount).toBe(2);
-    expect(getSessionById('branch-session-2')?.message_count).toBe(2);
+    expect(getSessionById(fork.session.id)?.message_count).toBe(2);
     expect(
       getRecentSessionsForUser({
         userId: 'user-a',
         channelId: 'web',
         limit: 10,
       }).map((session) => session.sessionId),
-    ).toEqual(expect.arrayContaining(['branch-source', 'branch-session-2']));
+    ).toEqual(expect.arrayContaining(['branch-source', fork.session.id]));
+  });
+
+  test('forkSessionBranch rejects invalid cutoff ids', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('branch-source', null, 'web');
+
+    expect(() =>
+      forkSessionBranch({
+        sessionId: 'branch-source',
+        beforeMessageId: 0,
+      }),
+    ).toThrow('Expected a positive integer');
+    expect(() =>
+      forkSessionBranch({
+        sessionId: 'branch-source',
+        beforeMessageId: Number.NaN,
+      }),
+    ).toThrow('Expected a positive integer');
   });
 
   test('migrates request_log to remove the created_at default', () => {
@@ -1188,6 +1206,11 @@ describe('MemoryService', () => {
         }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+      }),
       getRecentMessages: () => [] as StoredMessage[],
       get: () => null,
       set: () => {},
@@ -1285,6 +1308,11 @@ describe('MemoryService', () => {
         }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+      }),
       getRecentMessages: () => [] as StoredMessage[],
       get: () => null,
       set: () => {},
@@ -1377,6 +1405,11 @@ describe('MemoryService', () => {
         }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+      }),
       getRecentMessages: () => [] as StoredMessage[],
       get: () => null,
       set: () => {},
@@ -1583,6 +1616,11 @@ describe('MemoryService', () => {
         }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+      }),
       getRecentMessages: () => [] as StoredMessage[],
       get: (_sessionId, key) =>
         key === 'release.codename' ? 'AtlasFox' : null,

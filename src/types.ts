@@ -372,6 +372,22 @@ export interface StoredMessage {
   created_at: string;
 }
 
+export interface ForkSessionBranchParams {
+  sessionId: string;
+  beforeMessageId: number;
+}
+
+export interface ForkSessionBranchResult {
+  session: Session;
+  copiedMessageCount: number;
+}
+
+export interface ConversationHistoryPage {
+  sessionKey: string | null;
+  mainSessionKey: string | null;
+  history: StoredMessage[];
+}
+
 export interface SemanticMemoryEntry {
   id: number;
   session_id: string;

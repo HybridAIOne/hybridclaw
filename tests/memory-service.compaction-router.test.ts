@@ -33,6 +33,11 @@ function makeBackend(): MemoryBackend {
     getOrCreateSession: () => makeSession(),
     getSessionById: () => makeSession(),
     getConversationHistory: () => [] as StoredMessage[],
+    getConversationHistoryPage: () => ({
+      sessionKey: null,
+      mainSessionKey: null,
+      history: [] as StoredMessage[],
+    }),
     getRecentMessages: () => [] as StoredMessage[],
     get: () => null,
     set: () => {},

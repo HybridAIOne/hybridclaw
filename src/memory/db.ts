@@ -40,6 +40,9 @@ import type {
   CanonicalSession,
   CanonicalSessionContext,
   CanonicalSessionMessage,
+  ConversationHistoryPage,
+  ForkSessionBranchParams,
+  ForkSessionBranchResult,
   KnowledgeEntity,
   KnowledgeEntityTypeValue,
   KnowledgeGraphMatch,
@@ -84,6 +87,18 @@ interface AgentRow {
   workspace: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface ConversationHistoryPageRow {
+  session_key: string | null;
+  main_session_key: string | null;
+  id: number | null;
+  session_id: string | null;
+  user_id: string | null;
+  username: string | null;
+  role: string | null;
+  content: string | null;
+  created_at: string | null;
 }
 
 interface SkillObservationRow {
@@ -3435,19 +3450,18 @@ function copySessionKvStore(
   }
 }
 
-export function forkSessionBranch(params: {
-  sessionId: string;
-  beforeMessageId: number;
-  nextSessionId?: string | null;
-}): {
-  sourceSession: Session;
-  session: Session;
-  copiedMessageCount: number;
-} {
+export function forkSessionBranch(
+  params: ForkSessionBranchParams,
+): ForkSessionBranchResult {
   const sourceSession = requireSessionById(
     resolveSessionIdCompat(params.sessionId),
   );
-  const beforeMessageId = Math.max(1, Math.floor(params.beforeMessageId));
+  const beforeMessageId = params.beforeMessageId;
+  if (!Number.isInteger(beforeMessageId) || beforeMessageId < 1) {
+    throw new Error(
+      `Invalid beforeMessageId ${String(params.beforeMessageId)}. Expected a positive integer.`,
+    );
+  }
   const branchTarget = db
     .prepare(
       `SELECT id
@@ -3462,29 +3476,25 @@ export function forkSessionBranch(params: {
     );
   }
 
-  const nextSessionId = resolveFreshSessionInstanceId(params.nextSessionId);
+  const nextSessionId = resolveFreshSessionInstanceId();
   const nextMainSessionKey =
     sourceSession.main_session_key ||
     sourceSession.session_key ||
     sourceSession.id;
   const nowIso = new Date().toISOString();
-  const prefixMessages = db
-    .prepare(
-      `SELECT user_id, username, role, content, created_at
-       FROM messages
-       WHERE session_id = ?
-         AND id < ?
-       ORDER BY id ASC`,
-    )
-    .all(sourceSession.id, beforeMessageId) as Array<{
-    user_id: string;
-    username: string | null;
-    role: string;
-    content: string;
-    created_at: string;
-  }>;
 
   const fork = db.transaction(() => {
+    const copiedMessageCount =
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS count
+             FROM messages
+             WHERE session_id = ?
+               AND id < ?`,
+          )
+          .get(sourceSession.id, beforeMessageId) as { count: number }
+      ).count || 0;
     db.prepare(
       `INSERT INTO sessions (
          id,
@@ -3522,7 +3532,7 @@ export function forkSessionBranch(params: {
       sourceSession.chatbot_id,
       sourceSession.model,
       sourceSession.enable_rag,
-      prefixMessages.length,
+      copiedMessageCount,
       sourceSession.full_auto_enabled,
       sourceSession.full_auto_prompt,
       sourceSession.full_auto_started_at,
@@ -3533,28 +3543,21 @@ export function forkSessionBranch(params: {
       sourceSession.reset_at,
     );
     copySessionKvStore(sourceSession.id, nextSessionId);
-    if (prefixMessages.length === 0) return;
-    const insertMessage = db.prepare(
+    db.prepare(
       `INSERT INTO messages (session_id, user_id, username, role, content, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    );
-    for (const message of prefixMessages) {
-      insertMessage.run(
-        nextSessionId,
-        message.user_id,
-        message.username,
-        message.role,
-        message.content,
-        message.created_at,
-      );
-    }
+       SELECT ?, user_id, username, role, content, created_at
+       FROM messages
+       WHERE session_id = ?
+         AND id < ?
+       ORDER BY id ASC`,
+    ).run(nextSessionId, sourceSession.id, beforeMessageId);
+    return copiedMessageCount;
   });
-  fork();
+  const copiedMessageCount = fork();
 
   return {
-    sourceSession,
     session: requireSessionById(nextSessionId),
-    copiedMessageCount: prefixMessages.length,
+    copiedMessageCount,
   };
 }
 
@@ -4007,6 +4010,78 @@ export function getConversationHistory(
       'SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
     )
     .all(resolvedSessionId, limit) as StoredMessage[];
+}
+
+export function getConversationHistoryPage(
+  sessionId: string,
+  limit = 50,
+): ConversationHistoryPage {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  const rows = db
+    .prepare(
+      `SELECT
+         s.session_key,
+         s.main_session_key,
+         m.id,
+         m.session_id,
+         m.user_id,
+         m.username,
+         m.role,
+         m.content,
+         m.created_at
+       FROM sessions s
+       LEFT JOIN (
+         SELECT *
+         FROM messages
+         WHERE session_id = ?
+         ORDER BY id DESC
+         LIMIT ?
+       ) m ON m.session_id = s.id
+       WHERE s.id = ?
+       ORDER BY m.id DESC`,
+    )
+    .all(
+      resolvedSessionId,
+      Math.max(1, Math.floor(limit)),
+      resolvedSessionId,
+    ) as ConversationHistoryPageRow[];
+
+  if (rows.length === 0) {
+    return {
+      sessionKey: null,
+      mainSessionKey: null,
+      history: [],
+    };
+  }
+
+  const history: StoredMessage[] = [];
+  for (const row of rows) {
+    if (
+      row.id == null ||
+      row.session_id == null ||
+      row.user_id == null ||
+      row.role == null ||
+      row.content == null ||
+      row.created_at == null
+    ) {
+      continue;
+    }
+    history.push({
+      id: row.id,
+      session_id: row.session_id,
+      user_id: row.user_id,
+      username: row.username,
+      role: row.role,
+      content: row.content,
+      created_at: row.created_at,
+    });
+  }
+
+  return {
+    sessionKey: rows[0]?.session_key || null,
+    mainSessionKey: rows[0]?.main_session_key || null,
+    history,
+  };
 }
 
 export function getRecentMessages(

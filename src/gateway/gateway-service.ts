@@ -223,6 +223,7 @@ import type {
   ArtifactMetadata,
   CanonicalSessionContext,
   ChatMessage,
+  ConversationHistoryPage,
   DelegationSideEffect,
   DelegationTaskSpec,
   McpServerConfig,
@@ -915,11 +916,15 @@ function filterModelsForCurrentGatewayState(
   );
 }
 
-async function getFreshGatewayStatusForModelCommands(): Promise<GatewayStatus> {
-  // Model commands are expected to reflect the current live provider state,
-  // not a recently cached health snapshot.
-  localBackendsProbe.invalidate();
-  hybridAIProbe.invalidate();
+async function getGatewayStatusForModelSubcommand(
+  subcommand: string | undefined,
+): Promise<GatewayStatus> {
+  if (subcommand === 'list' || subcommand === 'info') {
+    // These commands are expected to reflect the current live provider state,
+    // not a recently cached health snapshot.
+    localBackendsProbe.invalidate();
+    hybridAIProbe.invalidate();
+  }
   return await getGatewayStatus();
 }
 
@@ -3242,10 +3247,16 @@ export function setGatewayAdminSkillEnabled(input: {
 export function getGatewayHistory(
   sessionId: string,
   limit = MAX_HISTORY_MESSAGES,
-): StoredMessage[] {
-  return memoryService
-    .getConversationHistory(sessionId, Math.max(1, Math.min(limit, 200)))
-    .reverse();
+): ConversationHistoryPage {
+  const page = memoryService.getConversationHistoryPage(
+    sessionId,
+    Math.max(1, Math.min(limit, 200)),
+  );
+  return {
+    sessionKey: page.sessionKey,
+    mainSessionKey: page.mainSessionKey,
+    history: page.history.reverse(),
+  };
 }
 
 export function getGatewayRecentChatSessions(params: {
@@ -3258,27 +3269,6 @@ export function getGatewayRecentChatSessions(params: {
     channelId: params.channelId || 'web',
     limit: params.limit,
   });
-}
-
-export function forkGatewayChatBranch(params: {
-  sessionId: string;
-  beforeMessageId: number;
-}): {
-  sessionId: string;
-  sessionKey: string;
-  mainSessionKey: string;
-  copiedMessageCount: number;
-} {
-  const branch = memoryService.forkSessionBranch({
-    sessionId: params.sessionId,
-    beforeMessageId: params.beforeMessageId,
-  });
-  return {
-    sessionId: branch.session.id,
-    sessionKey: branch.session.session_key,
-    mainSessionKey: branch.session.main_session_key,
-    copiedMessageCount: branch.copiedMessageCount,
-  };
 }
 
 function resolveHistorySummarySinceMs(
@@ -5532,17 +5522,29 @@ export async function handleGatewayCommand(
         const providerFilter = providerFilterArg
           ? normalizeModelCatalogProviderFilter(providerFilterArg)
           : null;
-        await refreshAvailableModelCatalogs({
-          includeHybridAI:
-            sub !== 'list' ||
-            !providerFilterArg ||
-            providerFilter === 'hybridai',
-        });
-        const gatewayStatus = await getFreshGatewayStatusForModelCommands();
-        const availableModels = filterModelsForCurrentGatewayState(
-          getAvailableModelList(),
-          gatewayStatus.providerHealth,
-        );
+        const needsAvailableModels =
+          sub === 'list' ||
+          sub === 'info' ||
+          sub === 'default' ||
+          sub === 'set';
+        if (needsAvailableModels) {
+          await refreshAvailableModelCatalogs({
+            includeHybridAI:
+              sub !== 'list' ||
+              !providerFilterArg ||
+              providerFilter === 'hybridai',
+          });
+        }
+        const gatewayStatus = needsAvailableModels
+          ? await getGatewayStatusForModelSubcommand(sub)
+          : null;
+        const availableModels =
+          gatewayStatus == null
+            ? []
+            : filterModelsForCurrentGatewayState(
+                getAvailableModelList(),
+                gatewayStatus.providerHealth,
+              );
         const runtime = resolveSessionRuntimeTarget(session);
         const currentAgentId = resolveSessionAgentId(session);
         const resolvedAgent = resolveAgentConfig(currentAgentId);
@@ -5556,10 +5558,13 @@ export async function handleGatewayCommand(
               'Usage: `model list [hybridai|codex|openrouter|local|ollama|lmstudio|vllm]`',
             );
           }
-          const listedModels = filterModelsForCurrentGatewayState(
-            getAvailableModelList(providerFilterArg),
-            gatewayStatus.providerHealth,
-          );
+          const listedModels =
+            gatewayStatus == null
+              ? []
+              : filterModelsForCurrentGatewayState(
+                  getAvailableModelList(providerFilterArg),
+                  gatewayStatus.providerHealth,
+                );
           const current = runtime.model;
           const modelCatalog = listedModels.map((model) => {
             const label = formatModelForDisplay(model);
