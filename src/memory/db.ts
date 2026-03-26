@@ -1724,7 +1724,10 @@ function parseMemoryKvValue(raw: unknown): unknown {
 export function getMemoryValue(sessionId: string, key: string): unknown | null {
   const normalizedKey = normalizeMemoryKvKey(key);
   if (!normalizedKey) return null;
-  const row = queryOne<{ value: Buffer | Uint8Array | string }, [string, string]>(
+  const row = queryOne<
+    { value: Buffer | Uint8Array | string },
+    [string, string]
+  >(
     db,
     `SELECT value
      FROM kv_store
@@ -3046,11 +3049,7 @@ export function queryKnowledgeGraph(
   // OpenFang-compatible v1 query semantics: single-hop relation scan, max 100.
   sql.push('LIMIT 100');
 
-  const rows = queryAll<RawKnowledgeGraphRow>(
-    db,
-    sql.join('\n'),
-    ...args,
-  );
+  const rows = queryAll<RawKnowledgeGraphRow>(db, sql.join('\n'), ...args);
   return rows.map(mapKnowledgeMatchRow);
 }
 
