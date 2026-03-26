@@ -78,7 +78,6 @@ let db: Database.Database;
 let databaseInitialized = false;
 
 export const DATABASE_SCHEMA_VERSION = 16;
-const SCHEMA_VERSION = DATABASE_SCHEMA_VERSION;
 
 interface InitDatabaseOptions {
   quiet?: boolean;
