@@ -29,7 +29,7 @@ import {
   type SessionDmScope,
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
-import type { McpServerConfig } from '../types/container.js';
+import type { McpServerConfig } from '../types/models.js';
 import { normalizeTrimmedStringSet } from '../utils/normalized-strings.js';
 
 export const CONFIG_FILE_NAME = 'config.json';

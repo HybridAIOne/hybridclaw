@@ -4,11 +4,8 @@ import path from 'node:path';
 import { resolveAgentWorkspaceId } from '../agents/agent-registry.js';
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
-import {
-  type ContainerInput,
-  type ContainerOutput,
-  TASK_MODEL_KEYS,
-} from '../types/container.js';
+import type { ContainerInput, ContainerOutput } from '../types/container.js';
+import { TASK_MODEL_KEYS } from '../types/models.js';
 
 /**
  * Get session directory, creating it if needed.

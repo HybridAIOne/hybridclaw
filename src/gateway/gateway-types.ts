@@ -7,12 +7,10 @@ import type {
   RuntimeMSTeamsChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
-import type {
-  McpServerConfig,
-  MediaContextItem,
-  PendingApproval,
-} from '../types/container.js';
+import type { MediaContextItem } from '../types/container.js';
+import type { PendingApproval } from '../types/execution.js';
 import type { MemoryCitation } from '../types/memory.js';
+import type { McpServerConfig } from '../types/models.js';
 import type { TokenUsageStats } from '../types/usage.js';
 
 export type GatewayMessageComponents = NonNullable<

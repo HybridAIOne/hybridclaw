@@ -40,7 +40,7 @@ import type { ChatMessage } from '../types/api.js';
 import type {
   ArtifactMetadata,
   ToolProgressEvent,
-} from '../types/container.js';
+} from '../types/execution.js';
 import type { Session } from '../types/session.js';
 import { sleep } from '../utils/sleep.js';
 import {

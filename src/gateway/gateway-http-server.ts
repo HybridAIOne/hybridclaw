@@ -39,11 +39,8 @@ import {
   buildSessionKey,
   classifySessionKeyShape,
 } from '../session/session-key.js';
-import type {
-  MediaContextItem,
-  PendingApproval,
-  ToolProgressEvent,
-} from '../types/container.js';
+import type { MediaContextItem } from '../types/container.js';
+import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
 import {
   hasSessionAuth,
   setSessionCookie,

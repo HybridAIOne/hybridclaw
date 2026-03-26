@@ -220,22 +220,24 @@ import {
 } from '../skills/skills-observation.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
+import type { MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
-  DelegationSideEffect,
-  DelegationTaskSpec,
-  McpServerConfig,
-  MediaContextItem,
   PendingApproval,
   ToolExecution,
   ToolProgressEvent,
-} from '../types/container.js';
+} from '../types/execution.js';
+import type { McpServerConfig } from '../types/models.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import type {
   CanonicalSessionContext,
   Session,
   StoredMessage,
 } from '../types/session.js';
+import type {
+  DelegationSideEffect,
+  DelegationTaskSpec,
+} from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import { sleep } from '../utils/sleep.js';
 import { ensureBootstrapFiles, resetWorkspace } from '../workspace.js';

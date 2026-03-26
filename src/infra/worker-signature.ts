@@ -1,4 +1,4 @@
-import { TASK_MODEL_KEYS, type TaskModelKey } from '../types/container.js';
+import { TASK_MODEL_KEYS, type TaskModelKey } from '../types/models.js';
 
 interface WorkerSignatureTaskModel {
   provider?: string;

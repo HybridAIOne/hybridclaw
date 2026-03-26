@@ -14,10 +14,8 @@ import {
   MSTEAMS_TENANT_ID,
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
-import type {
-  ArtifactMetadata,
-  MediaContextItem,
-} from '../../types/container.js';
+import type { MediaContextItem } from '../../types/container.js';
+import type { ArtifactMetadata } from '../../types/execution.js';
 import { isRecord, normalizeValue } from './utils.js';
 
 const OUTBOUND_MIME_TYPE_BY_EXTENSION: Record<string, string> = {
