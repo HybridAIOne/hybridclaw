@@ -36,12 +36,12 @@ import {
   updateSessionFullAuto,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
+import type { ChatMessage } from '../types/api.js';
 import type {
   ArtifactMetadata,
-  ChatMessage,
-  Session,
   ToolProgressEvent,
-} from '../types.js';
+} from '../types/execution.js';
+import type { Session } from '../types/session.js';
 import { sleep } from '../utils/sleep.js';
 import {
   classifyGatewayError,

@@ -6,23 +6,27 @@ import type {
   SessionResetPolicy,
 } from '../session/session-reset.js';
 import type {
-  CanonicalSession,
-  CanonicalSessionContext,
-  CompactionResult,
-  ConversationBranchFamily,
-  ConversationHistoryPage,
-  ForkSessionBranchParams,
-  ForkSessionBranchResult,
   KnowledgeEntityTypeValue,
   KnowledgeGraphMatch,
   KnowledgeGraphPattern,
   KnowledgeRelationTypeValue,
+} from '../types/knowledge.js';
+import type {
+  CompactionResult,
   MemoryCitation,
   SemanticMemoryEntry,
+  StructuredMemoryEntry,
+} from '../types/memory.js';
+import type {
+  CanonicalSession,
+  CanonicalSessionContext,
+  ConversationBranchFamily,
+  ConversationHistoryPage,
+  ForkSessionBranchParams,
+  ForkSessionBranchResult,
   Session,
   StoredMessage,
-  StructuredMemoryEntry,
-} from '../types.js';
+} from '../types/session.js';
 import { compactConversation } from './compaction.js';
 import {
   addKnowledgeEntity as dbAddKnowledgeEntity,

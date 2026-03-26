@@ -1,7 +1,7 @@
 import { getProviderContextError } from '../../container/shared/provider-context.js';
 import { extractResponseTextContent } from '../../container/shared/response-text.js';
 import { logger } from '../logger.js';
-import type { ChatMessage } from '../types.js';
+import type { ChatMessage } from '../types/api.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
 import {
   type AuxiliaryTask,

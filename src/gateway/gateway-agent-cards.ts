@@ -13,7 +13,8 @@ import {
   getRecentStructuredAuditForSession,
 } from '../memory/db.js';
 import { parseSessionKey } from '../session/session-key.js';
-import type { Session, StoredMessage, StructuredAuditEntry } from '../types.js';
+import type { StructuredAuditEntry } from '../types/audit.js';
+import type { Session, StoredMessage } from '../types/session.js';
 import { isFullAutoEnabled } from './fullauto.js';
 import { formatRelativeTimeFromMs, parseTimestamp } from './gateway-time.js';
 import type {

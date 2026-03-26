@@ -1,7 +1,8 @@
 import { logger } from '../logger.js';
 import { createTask, deleteTask } from '../memory/db.js';
 import { rearmScheduler } from '../scheduler/scheduler.js';
-import type { ContainerOutput, DelegationSideEffect } from '../types.js';
+import type { ContainerOutput } from '../types/container.js';
+import type { DelegationSideEffect } from '../types/side-effects.js';
 
 interface SideEffectHandlers {
   onDelegation?: (effect: DelegationSideEffect) => void;

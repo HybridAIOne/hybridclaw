@@ -35,12 +35,9 @@ import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { redactSecrets } from '../security/redact.js';
-import type {
-  ContainerInput,
-  ContainerOutput,
-  PendingApproval,
-  ToolProgressEvent,
-} from '../types.js';
+import type { ContainerInput, ContainerOutput } from '../types/container.js';
+import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import type { ScheduledTaskInput } from '../types/scheduler.js';
 import {
   collectConfiguredDiscordChannelIds,
   remapOutputArtifacts,
@@ -541,16 +538,18 @@ export async function runHostProcess(
     maxTokens: HYBRIDAI_MAX_TOKENS,
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
-    scheduledTasks: scheduledTasks?.map((task) => ({
-      id: task.id,
-      cronExpr: task.cron_expr,
-      runAt: task.run_at,
-      everyMs: task.every_ms,
-      prompt: task.prompt,
-      enabled: task.enabled,
-      lastRun: task.last_run,
-      createdAt: task.created_at,
-    })),
+    scheduledTasks: scheduledTasks?.map(
+      (task): ScheduledTaskInput => ({
+        id: task.id,
+        cronExpr: task.cron_expr,
+        runAt: task.run_at,
+        everyMs: task.every_ms,
+        prompt: task.prompt,
+        enabled: task.enabled,
+        lastRun: task.last_run,
+        createdAt: task.created_at,
+      }),
+    ),
     allowedTools,
     blockedTools,
     media,

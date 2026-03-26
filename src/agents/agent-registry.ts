@@ -15,7 +15,7 @@ import {
   upsertAgent as dbUpsertAgent,
   isDatabaseInitialized,
 } from '../memory/db.js';
-import type { Session } from '../types.js';
+import type { Session } from '../types/session.js';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,

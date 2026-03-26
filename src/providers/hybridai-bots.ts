@@ -1,7 +1,7 @@
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { HYBRIDAI_BASE_URL } from '../config/config.js';
 import { logger } from '../logger.js';
-import type { HybridAIBot } from '../types.js';
+import type { HybridAIBot } from '../types/hybridai.js';
 
 interface BotCacheEntry {
   bots: HybridAIBot[];

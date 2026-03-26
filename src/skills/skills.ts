@@ -19,7 +19,7 @@ import {
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import type { ToolExecution } from '../types.js';
+import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { guardSkillDirectory } from './skills-guard.js';
 

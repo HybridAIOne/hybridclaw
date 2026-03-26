@@ -6,7 +6,7 @@ import {
   incrementAmendmentRunCount,
   recordSkillObservation as insertSkillObservation,
 } from '../memory/db.js';
-import type { ToolExecution } from '../types.js';
+import type { ToolExecution } from '../types/execution.js';
 import type {
   AdaptiveSkillsConfig,
   SkillErrorCategory,

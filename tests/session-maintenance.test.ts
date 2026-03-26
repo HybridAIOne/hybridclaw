@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import type { StoredMessage } from '../src/types.js';
+import type { StoredMessage } from '../src/types/session.js';
 
 const {
   callAuxiliaryModelMock,

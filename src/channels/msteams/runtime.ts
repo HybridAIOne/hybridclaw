@@ -23,7 +23,7 @@ import {
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import { getMemoryValue, setMemoryValue } from '../../memory/db.js';
-import type { MediaContextItem } from '../../types.js';
+import type { MediaContextItem } from '../../types/container.js';
 import { MSTEAMS_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
 import {

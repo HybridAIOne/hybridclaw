@@ -12,7 +12,7 @@ import {
   buildValidatedMountAliases,
   resolveAllowedHostMediaPath,
 } from '../security/media-paths.js';
-import type { MediaContextItem } from '../types.js';
+import type { MediaContextItem } from '../types/container.js';
 import {
   resolveAudioTranscriptionModels,
   transcribeAudioWithFallback,

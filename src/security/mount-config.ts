@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { RuntimeConfig } from '../config/runtime-config.js';
-import type { AdditionalMount } from '../types.js';
+import type { AdditionalMount } from '../types/security.js';
 
 export interface ConfiguredMountParseResult {
   mounts: AdditionalMount[];

@@ -1,4 +1,4 @@
-import type { MemoryCitation } from '../types.js';
+import type { MemoryCitation } from '../types/memory.js';
 
 const CITATION_PATTERN = /\[mem:(\d+)\]/g;
 

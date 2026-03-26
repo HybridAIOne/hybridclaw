@@ -1,7 +1,7 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import { EMAIL_PASSWORD, getConfigSnapshot } from '../../config/config.js';
 import { logger } from '../../logger.js';
-import type { MediaContextItem } from '../../types.js';
+import type { MediaContextItem } from '../../types/container.js';
 import { EMAIL_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
 import { createEmailConnectionManager } from './connection.js';

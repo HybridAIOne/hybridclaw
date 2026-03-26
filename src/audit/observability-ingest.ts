@@ -25,7 +25,7 @@ import {
   setObservabilityIngestToken,
   setObservabilityOffset,
 } from '../memory/db.js';
-import type { StructuredAuditEntry } from '../types.js';
+import type { StructuredAuditEntry } from '../types/audit.js';
 
 const PLATFORM_MAX_EVENTS = 1_000;
 const PLATFORM_MAX_PAYLOAD_BYTES = 2_000_000;

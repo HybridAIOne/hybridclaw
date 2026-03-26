@@ -5,7 +5,7 @@ import type {
 
 import { logger } from '../../logger.js';
 import { AUDIO_FILE_EXTENSION_RE } from '../../media/mime-utils.js';
-import type { MediaContextItem } from '../../types.js';
+import type { MediaContextItem } from '../../types/container.js';
 import {
   fetchDiscordCdnBuffer,
   fetchDiscordCdnText,
