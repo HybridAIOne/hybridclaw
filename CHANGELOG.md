@@ -49,6 +49,44 @@
   file-path validation, and cache reuse so the packaged skill is safer and
   cheaper to run repeatedly.
 
+## [0.9.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.1)
+
+### Added
+
+- **Prompt-side context references and current-turn uploads**: Added inline
+  `@file:`, `@folder:`, `@diff`, `@staged`, `@git:<count>`, and `@url:`
+  context references so prompts can pull workspace or web context directly,
+  plus web chat and TUI uploads/paste support for current-turn files.
+- **Community skill imports and package-declared skill imports**: Added
+  `hybridclaw skill import [--force] <source>` and `/skill import` for
+  packaged `official/<skill>` sources plus `skills-sh`, `clawhub`, `lobehub`,
+  `claude-marketplace`, `well-known`, and GitHub repo/path refs. `.claw`
+  agent installs can now resolve manifest-declared skill imports into the
+  agent workspace.
+- **Browsable development docs shell**: Added the built-in `/development` docs
+  browser with raw-markdown and copy-as-markdown actions for repo-shipped
+  docs.
+
+### Changed
+
+- **Adaptive skill and agent archive command naming**: Standardized the
+  adaptive-skill workflow on `skill learn` (`--apply`, `--reject`,
+  `--rollback`) and promoted `agent export` / `agent install` as the primary
+  `.claw` archive verbs while keeping `pack` / `unpack` aliases.
+- **On-demand gateway/provider health probing**: Gateway status and
+  `/api/status` now use TTL-cached on-demand probes for HybridAI and local
+  backends instead of background polling loops.
+
+### Fixed
+
+- **HybridAI base-url reachability reporting**: HybridAI reachability checks,
+  `/api/status`, and operator hints now honor `HYBRIDAI_BASE_URL`
+  consistently, including preview or local deployments.
+- **Uploaded media and context-reference hardening**: Tightened uploaded-media
+  cache validation, MIME filtering, per-auth upload quotas, symlink escape
+  blocking, URL redirect blocking, and bounded remote fetches for attached
+  prompt context.
+
 ## [0.9.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.0)
 
 ### Added
