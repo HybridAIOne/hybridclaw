@@ -931,7 +931,10 @@ async function handleApiChatBranch(
   }
 
   try {
-    const branch = memoryService.forkSessionBranch({ sessionId, beforeMessageId });
+    const branch = memoryService.forkSessionBranch({
+      sessionId,
+      beforeMessageId,
+    });
     sendJson(res, 200, {
       sessionId: branch.session.id,
       sessionKey: branch.session.session_key,

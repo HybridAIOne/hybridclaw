@@ -92,7 +92,9 @@ export interface MemoryBackend {
     limit?: number,
   ) => ConversationHistoryPage;
   getRecentMessages: (sessionId: string, limit?: number) => StoredMessage[];
-  forkSessionBranch: (params: ForkSessionBranchParams) => ForkSessionBranchResult;
+  forkSessionBranch: (
+    params: ForkSessionBranchParams,
+  ) => ForkSessionBranchResult;
   get: (sessionId: string, key: string) => unknown | null;
   set: (sessionId: string, key: string, value: unknown) => void;
   delete: (sessionId: string, key: string) => boolean;
