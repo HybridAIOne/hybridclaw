@@ -39,10 +39,3 @@ export interface ToolCall {
     arguments: string;
   };
 }
-
-export interface HybridAIBot {
-  id: string;
-  name: string;
-  description?: string;
-  model?: string;
-}

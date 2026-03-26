@@ -1,6 +1,6 @@
 import { logger } from '../logger.js';
 import { logStructuredAuditEvent } from '../memory/db.js';
-import type { ToolExecution } from '../types/container.js';
+import type { ToolExecution } from '../types/execution.js';
 import {
   type AuditEventPayload,
   appendAuditEvent,

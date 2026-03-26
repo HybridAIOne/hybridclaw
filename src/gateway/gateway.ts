@@ -76,7 +76,7 @@ import {
   startScheduler,
   stopScheduler,
 } from '../scheduler/scheduler.js';
-import type { ArtifactMetadata } from '../types/container.js';
+import type { ArtifactMetadata } from '../types/execution.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {

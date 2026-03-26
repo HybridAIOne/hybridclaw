@@ -1,11 +1,10 @@
 import type { ChatMessage } from '../types/api.js';
+import type { ContainerOutput, MediaContextItem } from '../types/container.js';
 import type {
-  ContainerOutput,
-  MediaContextItem,
   PendingApproval,
   PluginRuntimeToolDefinition,
   ToolProgressEvent,
-} from '../types/container.js';
+} from '../types/execution.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 
 export interface ExecutorRequest {

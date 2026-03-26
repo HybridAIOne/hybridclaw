@@ -52,13 +52,13 @@ import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
 import { redactSecrets } from '../security/redact.js';
+import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import type {
   ArtifactMetadata,
-  ContainerInput,
-  ContainerOutput,
   PendingApproval,
   ToolProgressEvent,
-} from '../types/container.js';
+} from '../types/execution.js';
+import type { ScheduledTaskInput } from '../types/scheduler.js';
 import type { AdditionalMount } from '../types/security.js';
 import {
   agentWorkspaceDir,
@@ -676,16 +676,18 @@ export async function runContainer(
     maxTokens: HYBRIDAI_MAX_TOKENS,
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
-    scheduledTasks: scheduledTasks?.map((t) => ({
-      id: t.id,
-      cronExpr: t.cron_expr,
-      runAt: t.run_at,
-      everyMs: t.every_ms,
-      prompt: t.prompt,
-      enabled: t.enabled,
-      lastRun: t.last_run,
-      createdAt: t.created_at,
-    })),
+    scheduledTasks: scheduledTasks?.map(
+      (task): ScheduledTaskInput => ({
+        id: task.id,
+        cronExpr: task.cron_expr,
+        runAt: task.run_at,
+        everyMs: task.every_ms,
+        prompt: task.prompt,
+        enabled: task.enabled,
+        lastRun: task.last_run,
+        createdAt: task.created_at,
+      }),
+    ),
     allowedTools,
     blockedTools,
     media,
