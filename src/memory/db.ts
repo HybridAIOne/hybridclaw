@@ -39,6 +39,7 @@ import type {
   AuditEntry,
   CanonicalSession,
   CanonicalSessionContext,
+  ConversationBranchFamily,
   CanonicalSessionMessage,
   ConversationHistoryPage,
   ForkSessionBranchParams,
@@ -66,7 +67,7 @@ import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 15;
+export const DATABASE_SCHEMA_VERSION = 16;
 const SCHEMA_VERSION = DATABASE_SCHEMA_VERSION;
 
 interface InitDatabaseOptions {
@@ -99,6 +100,13 @@ interface ConversationHistoryPageRow {
   role: string | null;
   content: string | null;
   created_at: string | null;
+}
+
+interface SessionBranchRow {
+  session_id: string;
+  parent_session_id: string;
+  parent_message_id: number;
+  copied_message_count: number;
 }
 
 interface SkillObservationRow {
@@ -182,6 +190,20 @@ function tableExists(database: Database.Database, table: string): boolean {
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
     .get(table) as { name: string } | undefined;
   return Boolean(row?.name);
+}
+
+function ensureSessionBranchesTable(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS session_branches (
+      session_id TEXT PRIMARY KEY,
+      parent_session_id TEXT NOT NULL,
+      parent_message_id INTEGER NOT NULL,
+      copied_message_count INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_branches_parent
+      ON session_branches(parent_session_id, parent_message_id);
+  `);
 }
 
 function getTableSql(database: Database.Database, table: string): string {
@@ -318,6 +340,16 @@ function migrateV1(database: Database.Database): void {
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
+
+    CREATE TABLE IF NOT EXISTS session_branches (
+      session_id TEXT PRIMARY KEY,
+      parent_session_id TEXT NOT NULL,
+      parent_message_id INTEGER NOT NULL,
+      copied_message_count INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_branches_parent
+      ON session_branches(parent_session_id, parent_message_id);
 
     CREATE TABLE IF NOT EXISTS semantic_memories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1461,6 +1493,26 @@ function migrateV15(database: Database.Database): void {
   );
 }
 
+function migrateV16(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS session_branches (
+      session_id TEXT PRIMARY KEY,
+      parent_session_id TEXT NOT NULL,
+      parent_message_id INTEGER NOT NULL,
+      copied_message_count INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_branches_parent
+      ON session_branches(parent_session_id, parent_message_id);
+  `);
+
+  recordMigration(
+    database,
+    16,
+    'Persist web chat branch ancestry for reload-safe branch navigation',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1497,6 +1549,7 @@ function runMigrations(
   if (currentVersion < 13) migrateV13(database, opts);
   if (currentVersion < 14) migrateV14(database);
   if (currentVersion < 15) migrateV15(database);
+  if (currentVersion < 16) migrateV16(database);
 
   setSchemaVersion(database, SCHEMA_VERSION);
   if (!quiet && currentVersion < SCHEMA_VERSION) {
@@ -3484,6 +3537,7 @@ export function forkSessionBranch(
   const nowIso = new Date().toISOString();
 
   const fork = db.transaction(() => {
+    ensureSessionBranchesTable(db);
     const copiedMessageCount =
       (
         db
@@ -3541,6 +3595,19 @@ export function forkSessionBranch(
       nowIso,
       sourceSession.reset_count,
       sourceSession.reset_at,
+    );
+    db.prepare(
+      `INSERT INTO session_branches (
+         session_id,
+         parent_session_id,
+         parent_message_id,
+         copied_message_count
+       ) VALUES (?, ?, ?, ?)`,
+    ).run(
+      nextSessionId,
+      sourceSession.id,
+      beforeMessageId,
+      copiedMessageCount,
     );
     copySessionKvStore(sourceSession.id, nextSessionId);
     db.prepare(
@@ -4012,6 +4079,115 @@ export function getConversationHistory(
     .all(resolvedSessionId, limit) as StoredMessage[];
 }
 
+function getBranchVariantMessageId(
+  sessionId: string,
+  copiedMessageCount: number,
+): number | null {
+  const row = db
+    .prepare(
+      `SELECT id
+       FROM messages
+       WHERE session_id = ?
+       ORDER BY id ASC
+       LIMIT 1 OFFSET ?`,
+    )
+    .get(sessionId, copiedMessageCount) as { id: number } | undefined;
+  return row?.id ?? null;
+}
+
+function buildConversationBranchFamily(
+  parentSessionId: string,
+  parentMessageId: number,
+): ConversationBranchFamily | null {
+  const childRows = db
+    .prepare(
+      `SELECT
+         sb.session_id,
+         sb.parent_session_id,
+         sb.parent_message_id,
+         sb.copied_message_count
+       FROM session_branches sb
+       JOIN sessions s ON s.id = sb.session_id
+       WHERE sb.parent_session_id = ?
+         AND sb.parent_message_id = ?
+       ORDER BY s.created_at ASC, sb.session_id ASC`,
+    )
+    .all(parentSessionId, parentMessageId) as SessionBranchRow[];
+  if (childRows.length === 0) return null;
+
+  const variants = [
+    {
+      sessionId: parentSessionId,
+      messageId: parentMessageId,
+    },
+  ];
+  for (const row of childRows) {
+    const messageId = getBranchVariantMessageId(
+      row.session_id,
+      row.copied_message_count,
+    );
+    if (!messageId) continue;
+    variants.push({
+      sessionId: row.session_id,
+      messageId,
+    });
+  }
+
+  return variants.length < 2
+    ? null
+    : {
+        anchorSessionId: parentSessionId,
+        anchorMessageId: parentMessageId,
+        variants,
+      };
+}
+
+export function getConversationBranchFamilies(
+  sessionId: string,
+): ConversationBranchFamily[] {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  ensureSessionBranchesTable(db);
+  const families: ConversationBranchFamily[] = [];
+  const seen = new Set<string>();
+  const addFamily = (parentSessionId: string, parentMessageId: number) => {
+    const familyKey = `${parentSessionId}:${parentMessageId}`;
+    if (seen.has(familyKey)) return;
+    seen.add(familyKey);
+    const family = buildConversationBranchFamily(
+      parentSessionId,
+      parentMessageId,
+    );
+    if (family) {
+      families.push(family);
+    }
+  };
+
+  const currentBranch = db
+    .prepare(
+      `SELECT session_id, parent_session_id, parent_message_id, copied_message_count
+       FROM session_branches
+       WHERE session_id = ?`,
+    )
+    .get(resolvedSessionId) as SessionBranchRow | undefined;
+  if (currentBranch) {
+    addFamily(currentBranch.parent_session_id, currentBranch.parent_message_id);
+  }
+
+  const childAnchors = db
+    .prepare(
+      `SELECT DISTINCT parent_message_id
+       FROM session_branches
+       WHERE parent_session_id = ?
+       ORDER BY parent_message_id ASC`,
+    )
+    .all(resolvedSessionId) as Array<{ parent_message_id: number }>;
+  for (const row of childAnchors) {
+    addFamily(resolvedSessionId, row.parent_message_id);
+  }
+
+  return families;
+}
+
 export function getConversationHistoryPage(
   sessionId: string,
   limit = 50,
@@ -4051,6 +4227,7 @@ export function getConversationHistoryPage(
       sessionKey: null,
       mainSessionKey: null,
       history: [],
+      branchFamilies: [],
     };
   }
 
@@ -4081,6 +4258,7 @@ export function getConversationHistoryPage(
     sessionKey: rows[0]?.session_key || null,
     mainSessionKey: rows[0]?.main_session_key || null,
     history,
+    branchFamilies: getConversationBranchFamilies(resolvedSessionId),
   };
 }
 

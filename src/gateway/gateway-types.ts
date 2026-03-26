@@ -191,6 +191,17 @@ export interface GatewayHistorySummary {
   fileChanges: GatewayHistoryFileChanges;
 }
 
+export interface GatewayHistoryBranchVariant {
+  sessionId: string;
+  messageId: number;
+}
+
+export interface GatewayHistoryBranchFamily {
+  anchorSessionId: string;
+  anchorMessageId: number;
+  variants: GatewayHistoryBranchVariant[];
+}
+
 export interface GatewayHistoryResponse {
   sessionId: string;
   // Routing metadata for related chat session instances. These are not bearer
@@ -200,6 +211,7 @@ export interface GatewayHistoryResponse {
   sessionKey?: string;
   mainSessionKey?: string;
   history: GatewayHistoryMessage[];
+  branchFamilies?: GatewayHistoryBranchFamily[];
   summary?: GatewayHistorySummary;
 }
 

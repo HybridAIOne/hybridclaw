@@ -382,10 +382,22 @@ export interface ForkSessionBranchResult {
   copiedMessageCount: number;
 }
 
+export interface ConversationBranchVariant {
+  sessionId: string;
+  messageId: number;
+}
+
+export interface ConversationBranchFamily {
+  anchorSessionId: string;
+  anchorMessageId: number;
+  variants: ConversationBranchVariant[];
+}
+
 export interface ConversationHistoryPage {
   sessionKey: string | null;
   mainSessionKey: string | null;
   history: StoredMessage[];
+  branchFamilies: ConversationBranchFamily[];
 }
 
 export interface SemanticMemoryEntry {

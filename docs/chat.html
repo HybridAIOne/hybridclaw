@@ -1240,6 +1240,34 @@
       return branchKey;
     }
 
+    function hydrateBranchFamilies(families) {
+      if (!Array.isArray(families)) return;
+      for (const family of families) {
+        const anchorSessionId = String(family?.anchorSessionId || '').trim();
+        const anchorMessageId = normalizeMessageId(family?.anchorMessageId);
+        if (!anchorSessionId || !anchorMessageId) continue;
+        const normalizedVariants = Array.isArray(family?.variants)
+          ? family.variants
+              .map((variant) => ({
+                sessionId: String(variant?.sessionId || '').trim(),
+                messageId: normalizeMessageId(variant?.messageId),
+              }))
+              .filter((variant) => variant.sessionId && variant.messageId)
+          : [];
+        if (normalizedVariants.length < 2) continue;
+
+        const branchKey = `branch:${anchorSessionId}:${anchorMessageId}`;
+        const branchFamily = ensureBranchFamily(branchKey);
+        branchFamily.sessionIds = normalizedVariants.map((variant) => variant.sessionId);
+        branchFamily.messageIdsBySession = new Map();
+
+        for (const variant of normalizedVariants) {
+          ensureSessionBranchAnchorMap(variant.sessionId).set(variant.messageId, branchKey);
+          branchFamily.messageIdsBySession.set(variant.sessionId, variant.messageId);
+        }
+      }
+    }
+
     function pruneBranchStateForSession(sessionId) {
       const normalizedSessionId = String(sessionId || '').trim();
       if (!normalizedSessionId) {
@@ -2142,6 +2170,7 @@
       activeEditState = null;
       savePrefs();
       setError('');
+      pruneBranchStateForSession(activeSessionId);
       messagesEl.innerHTML = '';
       updateEmptyState();
       try {
@@ -2155,6 +2184,7 @@
           activeSessionId = nextSessionId;
           savePrefs();
         }
+        hydrateBranchFamilies(payload.branchFamilies);
         let lastUserPrompt = null;
         for (const msg of payload.history || []) {
           const role = String(msg.role || '');

@@ -7,6 +7,12 @@ import {
 } from './qmd-process.js';
 import { writeSessionExport } from './session-export.js';
 
+function isQmdPromptSearchTimeout(error) {
+  const message =
+    error instanceof Error ? error.message : String(error || '').trim();
+  return /^QMD timed out after \d+ms\.$/.test(message);
+}
+
 export default {
   id: 'qmd-memory',
   kind: 'memory',
@@ -60,14 +66,20 @@ export default {
           );
           return result.promptContext;
         } catch (error) {
-          api.logger.warn(
-            {
-              error,
-              searchMode: config.searchMode,
-              workingDirectory: config.workingDirectory,
-            },
-            'QMD prompt search failed',
-          );
+          const logPayload = {
+            error,
+            searchMode: config.searchMode,
+            timeoutMs: config.timeoutMs,
+            workingDirectory: config.workingDirectory,
+          };
+          if (isQmdPromptSearchTimeout(error)) {
+            api.logger.debug(
+              logPayload,
+              'QMD prompt search timed out; skipping context injection',
+            );
+          } else {
+            api.logger.warn(logPayload, 'QMD prompt search failed');
+          }
           return null;
         }
       },

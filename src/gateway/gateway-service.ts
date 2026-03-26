@@ -12,7 +12,7 @@ import {
   getSandboxDiagnostics,
 } from '../agent/executor.js';
 import { processSideEffects } from '../agent/side-effects.js';
-import { isSilentReply } from '../agent/silent-reply.js';
+import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import {
   buildToolsSummary,
   getKnownToolGroupLabel,
@@ -3252,10 +3252,28 @@ export function getGatewayHistory(
     sessionId,
     Math.max(1, Math.min(limit, 200)),
   );
+  const history = page.history
+    .filter((message) => {
+      if (message.role !== 'assistant') return true;
+      return !isSilentReply(message.content);
+    })
+    .map((message) => {
+      if (message.role !== 'assistant') return message;
+      const content = stripSilentToken(message.content);
+      return content === message.content
+        ? message
+        : {
+            ...message,
+            content,
+          };
+    })
+    .filter((message) => message.content.trim().length > 0)
+    .reverse();
   return {
     sessionKey: page.sessionKey,
     mainSessionKey: page.mainSessionKey,
-    history: page.history.reverse(),
+    history,
+    branchFamilies: page.branchFamilies,
   };
 }
 

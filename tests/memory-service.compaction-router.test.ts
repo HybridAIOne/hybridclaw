@@ -37,6 +37,7 @@ function makeBackend(): MemoryBackend {
       sessionKey: null,
       mainSessionKey: null,
       history: [] as StoredMessage[],
+      branchFamilies: [],
     }),
     getRecentMessages: () => [] as StoredMessage[],
     get: () => null,

@@ -8,6 +8,7 @@ import type {
 import type {
   CanonicalSession,
   CanonicalSessionContext,
+  ConversationBranchFamily,
   CompactionResult,
   ConversationHistoryPage,
   ForkSessionBranchParams,
@@ -36,6 +37,7 @@ import {
   forkSessionBranch as dbForkSessionBranch,
   getCanonicalContext as dbGetCanonicalContext,
   getCompactionCandidateMessages as dbGetCompactionCandidateMessages,
+  getConversationBranchFamilies as dbGetConversationBranchFamilies,
   getConversationHistory as dbGetConversationHistory,
   getConversationHistoryPage as dbGetConversationHistoryPage,
   getMemoryValue as dbGetMemoryValue,
@@ -91,6 +93,9 @@ export interface MemoryBackend {
     sessionId: string,
     limit?: number,
   ) => ConversationHistoryPage;
+  getConversationBranchFamilies: (
+    sessionId: string,
+  ) => ConversationBranchFamily[];
   getRecentMessages: (sessionId: string, limit?: number) => StoredMessage[];
   forkSessionBranch: (
     params: ForkSessionBranchParams,
@@ -252,6 +257,7 @@ const DEFAULT_BACKEND: MemoryBackend = {
   getSessionById: dbGetSessionById,
   getConversationHistory: dbGetConversationHistory,
   getConversationHistoryPage: dbGetConversationHistoryPage,
+  getConversationBranchFamilies: dbGetConversationBranchFamilies,
   getRecentMessages: dbGetRecentMessages,
   forkSessionBranch: dbForkSessionBranch,
   get: dbGetMemoryValue,
@@ -435,6 +441,10 @@ export class MemoryService {
     limit = 50,
   ): ConversationHistoryPage {
     return this.backend.getConversationHistoryPage(sessionId, limit);
+  }
+
+  getConversationBranchFamilies(sessionId: string): ConversationBranchFamily[] {
+    return this.backend.getConversationBranchFamilies(sessionId);
   }
 
   getRecentMessages(sessionId: string, limit?: number): StoredMessage[] {

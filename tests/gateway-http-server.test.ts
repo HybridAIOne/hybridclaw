@@ -346,6 +346,7 @@ async function importFreshHealth(options?: {
   const getGatewayHistory = vi.fn(() => ({
     sessionKey: null,
     mainSessionKey: null,
+    branchFamilies: [],
     history: [
       { role: 'user', content: 'hello' },
       { role: 'assistant', content: 'world' },

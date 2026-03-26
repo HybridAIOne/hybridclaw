@@ -1320,6 +1320,9 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
+    ...(historyPage.branchFamilies.length > 0
+      ? { branchFamilies: historyPage.branchFamilies }
+      : {}),
     summary,
   });
 }
