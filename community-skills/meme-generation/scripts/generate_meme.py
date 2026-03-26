@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -315,17 +316,24 @@ def generate_template_art(template: ResolvedTemplate) -> Image.Image:
     return get_template_image(url)
 
 
+def _cache_path_for_url(url: str) -> Path:
+    parsed = urllib.parse.urlparse(url)
+    source_path = Path(parsed.path)
+    stem = source_path.stem or 'template'
+    suffix = source_path.suffix or '.img'
+    digest = hashlib.sha256(url.encode('utf-8')).hexdigest()[:12]
+    return CACHE_DIR / f'{stem}-{digest}{suffix}'
+
+
 def get_template_image(url: str) -> Image.Image:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    parsed = urllib.parse.urlparse(url)
-    filename = Path(parsed.path).name or 'template'
-    cache_path = (CACHE_DIR / filename).with_suffix('.png')
+    cache_path = _cache_path_for_url(url)
     if cache_path.exists():
         return Image.open(cache_path).convert('RGBA')
 
-    image = Image.open(BytesIO(_fetch_url(url))).convert('RGBA')
-    image.save(cache_path, 'PNG')
-    return image
+    payload = _fetch_url(url)
+    cache_path.write_bytes(payload)
+    return Image.open(BytesIO(payload)).convert('RGBA')
 
 
 @lru_cache(maxsize=1)
@@ -386,11 +394,13 @@ def draw_outlined_text(
     size = font_size
     wrapped = text
     font: ImageFont.FreeTypeFont | ImageFont.ImageFont = find_font(size)
+    bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, align=align)
 
     while size > 12:
         font = find_font(size)
         wrapped = _wrap_text(text, font, max_width)
-        bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, align=align)
+        current_bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, align=align)
+        bbox = current_bbox
         text_width = bbox[2] - bbox[0]
         line_count = wrapped.count('\n') + 1
         if text_width <= max_width * 1.05 and line_count <= 4:
@@ -399,8 +409,8 @@ def draw_outlined_text(
     else:
         font = find_font(size)
         wrapped = _wrap_text(text, font, max_width)
+        bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, align=align)
 
-    bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, align=align)
     text_width = bbox[2] - bbox[0]
     text_height = bbox[3] - bbox[1]
     text_x = x_pos - text_width // 2
