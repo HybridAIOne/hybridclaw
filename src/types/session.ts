@@ -37,6 +37,34 @@ export interface StoredMessage {
   created_at: string;
 }
 
+export interface ForkSessionBranchParams {
+  sessionId: string;
+  beforeMessageId: number;
+}
+
+export interface ForkSessionBranchResult {
+  session: Session;
+  copiedMessageCount: number;
+}
+
+export interface ConversationBranchVariant {
+  sessionId: string;
+  messageId: number;
+}
+
+export interface ConversationBranchFamily {
+  anchorSessionId: string;
+  anchorMessageId: number;
+  variants: ConversationBranchVariant[];
+}
+
+export interface ConversationHistoryPage {
+  sessionKey: string | null;
+  mainSessionKey: string | null;
+  history: StoredMessage[];
+  branchFamilies: ConversationBranchFamily[];
+}
+
 export interface CanonicalSessionMessage {
   role: string;
   content: string;

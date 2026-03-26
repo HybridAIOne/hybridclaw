@@ -80,6 +80,8 @@ export interface GatewayChatResult {
   tokenUsage?: TokenUsageStats;
   error?: string;
   effectiveUserPrompt?: string;
+  userMessageId?: number;
+  assistantMessageId?: number;
 }
 
 export interface GatewayChatToolProgressEvent {
@@ -187,10 +189,40 @@ export interface GatewayHistorySummary {
   fileChanges: GatewayHistoryFileChanges;
 }
 
+export interface GatewayHistoryBranchVariant {
+  sessionId: string;
+  messageId: number;
+}
+
+export interface GatewayHistoryBranchFamily {
+  anchorSessionId: string;
+  anchorMessageId: number;
+  variants: GatewayHistoryBranchVariant[];
+}
+
 export interface GatewayHistoryResponse {
   sessionId: string;
+  // Routing metadata for related chat session instances. These are not bearer
+  // credentials and must never be used for authorization decisions.
+  // If they ever become auth-relevant, remove them from web responses instead
+  // of silently repurposing them.
+  sessionKey?: string;
+  mainSessionKey?: string;
   history: GatewayHistoryMessage[];
+  branchFamilies?: GatewayHistoryBranchFamily[];
   summary?: GatewayHistorySummary;
+}
+
+export interface GatewayChatBranchRequestBody {
+  sessionId: string;
+  beforeMessageId: number;
+}
+
+export interface GatewayChatBranchResponse {
+  sessionId: string;
+  sessionKey: string;
+  mainSessionKey: string;
+  copiedMessageCount: number;
 }
 
 export interface GatewayRecentChatSession {

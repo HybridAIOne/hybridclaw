@@ -35,6 +35,7 @@ import {
   writeUploadedMediaCacheFile,
 } from '../media/uploaded-media-cache.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
+import { memoryService } from '../memory/memory-service.js';
 import {
   buildSessionKey,
   classifySessionKeyShape,
@@ -95,6 +96,7 @@ import {
   upsertGatewayAdminSchedulerJob,
 } from './gateway-service.js';
 import type {
+  GatewayChatBranchRequestBody,
   GatewayChatRequestBody,
   GatewayChatResult,
 } from './gateway-types.js';
@@ -161,6 +163,7 @@ const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
 ]);
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
+type ApiChatBranchRequestBody = Partial<GatewayChatBranchRequestBody>;
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
 type ApiPluginToolRequestBody = {
   toolName?: unknown;
@@ -172,6 +175,17 @@ type ApiPluginToolRequestBody = {
 function normalizeOptionalString(value: unknown): string | undefined {
   const normalized = typeof value === 'string' ? value.trim() : '';
   return normalized || undefined;
+}
+
+function parsePositiveInteger(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function generateDefaultWebSessionId(agentId?: string | null): string {
@@ -890,6 +904,48 @@ async function handleApiChat(
   sendJson(res, result.status === 'success' ? 200 : 500, result);
 }
 
+async function handleApiChatBranch(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as ApiChatBranchRequestBody;
+  const sessionId = normalizeOptionalString(body.sessionId);
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` in request body.' });
+    return;
+  }
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
+  const beforeMessageId = parsePositiveInteger(body.beforeMessageId);
+  if (beforeMessageId == null) {
+    sendJson(res, 400, {
+      error:
+        'Missing valid positive integer `beforeMessageId` in request body.',
+    });
+    return;
+  }
+
+  try {
+    const branch = memoryService.forkSessionBranch({
+      sessionId,
+      beforeMessageId,
+    });
+    sendJson(res, 200, {
+      sessionId: branch.session.id,
+      sessionKey: branch.session.session_key,
+      mainSessionKey: branch.session.main_session_key,
+      copiedMessageCount: branch.copiedMessageCount,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    sendJson(res, /was not found/i.test(message) ? 404 : 500, {
+      error: message,
+    });
+  }
+}
+
 async function handleApiMediaUpload(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1248,11 +1304,24 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
     10,
   );
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
-  const history = getGatewayHistory(sessionId, limit);
+  const historyPage = getGatewayHistory(sessionId, limit);
   const summary = getGatewayHistorySummary(sessionId, {
     sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
   });
-  sendJson(res, 200, { sessionId, history, summary });
+  // These keys are returned only as chat-routing metadata for the web client.
+  // Auth stays anchored to the existing API/session auth checks above, never to
+  // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
+  // remove them from this response instead of widening their meaning here.
+  sendJson(res, 200, {
+    sessionId,
+    sessionKey: historyPage.sessionKey || undefined,
+    mainSessionKey: historyPage.mainSessionKey || undefined,
+    history: historyPage.history,
+    ...(historyPage.branchFamilies.length > 0
+      ? { branchFamilies: historyPage.branchFamilies }
+      : {}),
+    summary,
+  });
 }
 
 function handleApiChatRecent(res: ServerResponse, url: URL): void {
@@ -2162,6 +2231,10 @@ export function startGatewayHttpServer(): void {
           }
           if (pathname === '/api/chat' && method === 'POST') {
             await handleApiChat(req, res);
+            return;
+          }
+          if (pathname === '/api/chat/branch' && method === 'POST') {
+            await handleApiChatBranch(req, res);
             return;
           }
           if (pathname === '/api/media/upload' && method === 'POST') {

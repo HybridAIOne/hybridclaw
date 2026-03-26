@@ -62,8 +62,31 @@ afterEach(() => {
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
 });
 
-function mockHealthProbes(options?: { hybridaiReachable?: boolean }): void {
+function mockHealthProbes(options?: {
+  hybridaiReachable?: boolean;
+  localBackends?: Array<{
+    backend: 'ollama' | 'lmstudio' | 'vllm';
+    reachable: boolean;
+    latencyMs?: number;
+    error?: string;
+    modelCount?: number;
+  }>;
+}): void {
   const reachable = options?.hybridaiReachable ?? false;
+  const localBackends = new Map(
+    (options?.localBackends || []).map((entry) => [
+      entry.backend,
+      {
+        backend: entry.backend,
+        reachable: entry.reachable,
+        latencyMs: entry.latencyMs ?? 10,
+        ...(entry.error ? { error: entry.error } : {}),
+        ...(typeof entry.modelCount === 'number'
+          ? { modelCount: entry.modelCount }
+          : {}),
+      },
+    ]),
+  );
   vi.doMock('../src/providers/hybridai-health.js', () => ({
     hybridAIProbe: {
       get: vi.fn(async () => ({
@@ -78,8 +101,8 @@ function mockHealthProbes(options?: { hybridaiReachable?: boolean }): void {
   }));
   vi.doMock('../src/providers/local-health.js', () => ({
     localBackendsProbe: {
-      get: vi.fn(async () => new Map()),
-      peek: vi.fn(() => null),
+      get: vi.fn(async () => new Map(localBackends)),
+      peek: vi.fn(() => new Map(localBackends)),
       invalidate: vi.fn(),
     },
     checkConnection: vi.fn(),
@@ -417,6 +440,7 @@ test('model list includes discovered OpenRouter models', async () => {
     config.local.backends.vllm.enabled = false;
   });
   vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
   vi.doMock('../src/providers/hybridai-discovery.ts', () => ({
     discoverHybridAIModels: vi.fn(async () => []),
     getDiscoveredHybridAIModelContextWindow: vi.fn(() => null),
@@ -481,6 +505,7 @@ test('model list includes discovered HybridAI models', async () => {
     config.local.backends.vllm.enabled = false;
   });
   vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
 
   const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
     if (input.endsWith('/models')) {
@@ -537,6 +562,7 @@ test('model list filters by provider alias', async () => {
     config.local.backends.vllm.enabled = false;
   });
   vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
 
   const fetchMock = vi.fn(async (input: string) => {
     if (input.endsWith('/models')) {
@@ -698,6 +724,230 @@ test('model info shows global, agent, and session scopes', async () => {
   expect(result.text).toContain('Global model: hybridai/gpt-5');
   expect(result.text).toContain('Agent model: hybridai/gpt-5-mini');
   expect(result.text).toContain('Session model: hybridai/gpt-5-nano');
+});
+
+test('model info filters unavailable provider models from available now', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDAI_API_KEY = 'hai-model-info-1234567890';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'gpt-5';
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = true;
+    config.local.backends.lmstudio.baseUrl = 'http://127.0.0.1:1234/v1';
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+  mockHealthProbes({
+    hybridaiReachable: true,
+    localBackends: [
+      {
+        backend: 'lmstudio',
+        reachable: false,
+        error: 'connection refused',
+      },
+    ],
+  });
+
+  const fetchMock = vi.fn(async (input: string) => {
+    if (input.endsWith('/models')) {
+      return new Response(
+        JSON.stringify({
+          data: [{ id: 'gpt-5-ultra', context_length: 512_000 }],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    if (input.endsWith('/v1/models')) {
+      return new Response(
+        JSON.stringify({
+          data: [{ id: 'qwen/qwen3.5-9b' }],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-info-state',
+    guildId: null,
+    channelId: 'channel-model-info-state',
+    args: ['model', 'info'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('Available now:');
+  expect(result.text).toContain('hybridai/gpt-5');
+  expect(result.text).toContain('hybridai/gpt-5-ultra');
+  expect(result.text).not.toContain('openai-codex/');
+  expect(result.text).not.toContain('lmstudio/qwen/qwen3.5-9b');
+  expect(result.modelCatalog).toEqual(
+    expect.arrayContaining([
+      {
+        value: 'gpt-5',
+        label: 'hybridai/gpt-5 (current)',
+        isFree: false,
+      },
+    ]),
+  );
+});
+
+test('model list refreshes local backend health before filtering models', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = true;
+    config.local.backends.lmstudio.baseUrl = 'http://127.0.0.1:1234/v1';
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+
+  let useFreshState = false;
+  const invalidate = vi.fn(() => {
+    useFreshState = true;
+  });
+  vi.doMock('../src/providers/hybridai-health.js', () => ({
+    hybridAIProbe: {
+      get: vi.fn(async () => ({
+        reachable: true,
+        latencyMs: 10,
+        modelCount: 3,
+      })),
+      peek: vi.fn(() => null),
+      invalidate: vi.fn(),
+    },
+  }));
+  vi.doMock('../src/providers/local-health.js', () => ({
+    localBackendsProbe: {
+      get: vi.fn(
+        async () =>
+          new Map([
+            [
+              'lmstudio',
+              {
+                backend: 'lmstudio',
+                reachable: useFreshState ? false : true,
+                latencyMs: 10,
+                ...(useFreshState
+                  ? { error: 'connection refused' }
+                  : { modelCount: 1 }),
+              },
+            ],
+          ]),
+      ),
+      peek: vi.fn(() => null),
+      invalidate,
+    },
+    checkConnection: vi.fn(),
+    checkModelConnection: vi.fn(),
+    checkAllBackends: vi.fn(async () => new Map()),
+  }));
+  vi.doMock('../src/providers/hybridai-discovery.ts', () => ({
+    discoverHybridAIModels: vi.fn(async () => []),
+    getDiscoveredHybridAIModelContextWindow: vi.fn(() => null),
+    getDiscoveredHybridAIModelNames: vi.fn(() => []),
+  }));
+  vi.doMock('../src/providers/local-discovery.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/local-discovery.ts')
+    >('../src/providers/local-discovery.ts');
+    return {
+      ...actual,
+      discoverAllLocalModels: vi.fn(async () => []),
+      getDiscoveredLocalModelNames: vi.fn(() => ['lmstudio/qwen/qwen3.5-9b']),
+    };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-list-fresh-local-health',
+    guildId: null,
+    channelId: 'channel-model-list-fresh-local-health',
+    args: ['model', 'list'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(invalidate).toHaveBeenCalledTimes(1);
+  expect(result.text).not.toContain('lmstudio/qwen/qwen3.5-9b');
+});
+
+test('model clear does not refresh provider health probes', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = true;
+    config.local.backends.lmstudio.baseUrl = 'http://127.0.0.1:1234/v1';
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+
+  const invalidateLocal = vi.fn();
+  const invalidateHybridAI = vi.fn();
+  vi.doMock('../src/providers/hybridai-health.js', () => ({
+    hybridAIProbe: {
+      get: vi.fn(async () => ({
+        reachable: true,
+        latencyMs: 10,
+        modelCount: 3,
+      })),
+      peek: vi.fn(() => null),
+      invalidate: invalidateHybridAI,
+    },
+  }));
+  vi.doMock('../src/providers/local-health.js', () => ({
+    localBackendsProbe: {
+      get: vi.fn(async () => new Map()),
+      peek: vi.fn(() => null),
+      invalidate: invalidateLocal,
+    },
+    checkConnection: vi.fn(),
+    checkModelConnection: vi.fn(),
+    checkAllBackends: vi.fn(async () => new Map()),
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-clear-no-refresh',
+    guildId: null,
+    channelId: 'channel-model-clear-no-refresh',
+    args: ['model', 'clear'],
+  });
+
+  expect(result.kind).toBe('plain');
+  expect(invalidateLocal).not.toHaveBeenCalled();
+  expect(invalidateHybridAI).not.toHaveBeenCalled();
 });
 
 test('model clear removes the session override and falls back to the agent model', async () => {

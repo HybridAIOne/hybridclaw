@@ -87,6 +87,31 @@ interface PoolEntry {
 
 const pool = new Map<string, PoolEntry>();
 
+function interruptedHostOutput(): ContainerOutput {
+  return {
+    status: 'error',
+    result: null,
+    toolsUsed: [],
+    error: 'Interrupted by user.',
+  };
+}
+
+function isStdinWriteInterrupt(
+  error: unknown,
+  proc: Pick<ChildProcess, 'killed' | 'exitCode'>,
+  abortSignal?: AbortSignal,
+): boolean {
+  if (abortSignal?.aborted) return true;
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: unknown }).code || '')
+      : '';
+  return (
+    (code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED') &&
+    (proc.killed || proc.exitCode !== null)
+  );
+}
+
 export function getActiveHostSessionIds(): string[] {
   return Array.from(pool.keys()).sort((left, right) =>
     left.localeCompare(right),
@@ -414,6 +439,17 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     logger.error({ sessionId, error: err }, 'Host agent process error');
   });
 
+  proc.stdin?.on('error', (err) => {
+    if (isStdinWriteInterrupt(err, proc)) {
+      logger.debug(
+        { sessionId, error: err },
+        'Ignoring host agent stdin error after process shutdown',
+      );
+      return;
+    }
+    logger.error({ sessionId, error: err }, 'Host agent stdin error');
+  });
+
   pool.set(sessionId, entry);
   return entry;
 }
@@ -592,8 +628,22 @@ export async function runHostProcess(
   }
 
   try {
+    if (abortSignal?.aborted) {
+      return interruptedHostOutput();
+    }
     if (isNewProcess) {
-      entry.process.stdin?.write(`${JSON.stringify(input)}\n`);
+      try {
+        entry.process.stdin?.write(`${JSON.stringify(input)}\n`);
+      } catch (err) {
+        if (isStdinWriteInterrupt(err, entry.process, abortSignal)) {
+          logger.info(
+            { sessionId, error: err },
+            'Host agent input write interrupted by process shutdown',
+          );
+          return interruptedHostOutput();
+        }
+        throw err;
+      }
     } else {
       writeInput(sessionId, input, { omitApiKey: true });
     }

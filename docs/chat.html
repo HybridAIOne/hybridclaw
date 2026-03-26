@@ -433,9 +433,19 @@
       gap: 5px;
     }
 
+    .msg-block.user-block {
+      margin-left: auto;
+      align-items: flex-end;
+    }
+
     .msg-actions {
       display: flex;
       justify-content: flex-start;
+      gap: 4px;
+    }
+
+    .msg-block.user-block .msg-actions {
+      justify-content: flex-end;
     }
 
     .artifact-list {
@@ -502,22 +512,97 @@
       background: #ffffff;
     }
 
-    .copy-btn {
+    .msg-action-btn {
       border: none;
       background: transparent;
       color: #8b98ab;
-      font-size: 14px;
+      font-size: 16px;
       line-height: 1;
-      padding: 2px 4px;
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.16s ease, color 0.16s ease;
     }
 
-    .copy-btn:hover {
+    .msg-action-btn:hover {
+      background: #eef3fb;
       color: #4b5563;
     }
 
-    .copy-btn.copied {
+    .msg-action-btn.copied {
       color: #3657e9;
+      background: #e9efff;
+    }
+
+    .msg-action-btn.is-text {
+      width: auto;
+      min-width: 0;
+      height: 36px;
+      padding: 0 16px;
+      border: 1px solid #dbe4f0;
+      border-radius: 12px;
+      background: #ffffff;
+      color: #1f304d;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .msg-action-btn.is-text:hover:not(:disabled) {
+      background: #f6f8fc;
+      color: #18253d;
+    }
+
+    .msg-action-btn.is-primary {
+      border-color: #111827;
+      background: #111827;
+      color: #ffffff;
+    }
+
+    .msg-action-btn.is-primary:hover:not(:disabled) {
+      background: #1f2937;
+      color: #ffffff;
+    }
+
+    .msg-action-btn:disabled {
+      opacity: 0.42;
+      cursor: default;
+    }
+
+    .branch-switcher {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 2px;
+    }
+
+    .branch-count {
+      min-width: 34px;
+      font-size: 13px;
+      color: #5f6f88;
+      text-align: center;
+    }
+
+    .msg.user.is-editing {
+      background: #ffffff;
+      border-color: #dbe4f0;
+      color: #18253d;
+    }
+
+    .msg-inline-editor {
+      width: 100%;
+      min-height: 92px;
+      padding: 0;
+      border: none;
+      outline: none;
+      resize: vertical;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      line-height: 1.45;
     }
 
     .msg.user {
@@ -684,7 +769,7 @@
       border-radius: 12px;
       background: #ffffff;
       color: var(--text);
-      padding: 11px 74px 14px 62px;
+      padding: 11px 68px 14px 58px;
       font: inherit;
       line-height: 1.45;
       box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.02);
@@ -692,11 +777,11 @@
 
     .composer-action {
       position: absolute;
-      bottom: 10px;
+      bottom: 12px;
       border: none;
       border-radius: 999px;
-      width: 44px;
-      height: 44px;
+      width: 40px;
+      height: 40px;
       padding: 0;
       background: #8e95a4;
       color: #ffffff;
@@ -711,11 +796,11 @@
     }
 
     #attach {
-      left: 10px;
+      left: 12px;
       border: 1px solid #dbe4f0;
       background: #ffffff;
       color: #5c6b81;
-      font-size: 26px;
+      font-size: 22px;
       line-height: 1;
     }
 
@@ -725,7 +810,7 @@
     }
 
     #send {
-      right: 10px;
+      right: 12px;
       background: #8e95a4;
       color: #ffffff;
     }
@@ -734,9 +819,17 @@
       background: #7c8393;
     }
 
+    #send.is-stop {
+      background: #bf5b4d;
+    }
+
+    #send.is-stop:hover:not(:disabled) {
+      background: #aa4d40;
+    }
+
     .composer-action svg {
-      width: 22px;
-      height: 22px;
+      width: 18px;
+      height: 18px;
       display: block;
     }
 
@@ -907,6 +1000,17 @@
     const urlParams = new URLSearchParams(window.location.search);
     const queryToken = urlParams.get('token') || '';
     const MAX_RECENT_SESSIONS = 10;
+    const SEND_ICON = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 19V5"></path>
+        <path d="m5 12 7-7 7 7"></path>
+      </svg>
+    `;
+    const STOP_ICON = `
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <rect x="7" y="7" width="10" height="10" rx="2"></rect>
+      </svg>
+    `;
 
     function randomHex(byteCount) {
       const bytes = new Uint8Array(byteCount);
@@ -964,6 +1068,11 @@
     const apiToken = queryToken || localStorage.getItem('hybridclaw_token') || '';
     let pendingMedia = [];
     let pendingUploadCount = 0;
+    let activeChatRequest = null;
+    let activeEditState = null;
+    const messageMetaByBlock = new WeakMap();
+    const sessionBranchAnchors = new Map();
+    const branchFamilies = new Map();
     if (queryToken) {
       localStorage.setItem('hybridclaw_token', queryToken);
     }
@@ -1029,6 +1138,173 @@
       const attachmentText = buildPendingMediaSummary(media);
       if (!attachmentText) return text;
       return text ? `${text}\n\n${attachmentText}` : attachmentText;
+    }
+
+    function cloneMediaList(media) {
+      if (!Array.isArray(media) || media.length === 0) return [];
+      return media.map((item) => ({ ...item }));
+    }
+
+    function normalizeMessageId(value) {
+      const id = Number(value);
+      return Number.isInteger(id) && id > 0 ? id : null;
+    }
+
+    function getMessageMeta(block) {
+      return messageMetaByBlock.get(block) || null;
+    }
+
+    function setMessageMeta(block, patch) {
+      const next = {
+        ...(getMessageMeta(block) || {}),
+        ...(patch || {}),
+      };
+      messageMetaByBlock.set(block, next);
+      return next;
+    }
+
+    function ensureSessionBranchAnchorMap(sessionId) {
+      const key = String(sessionId || '').trim();
+      let map = sessionBranchAnchors.get(key);
+      if (!map) {
+        map = new Map();
+        sessionBranchAnchors.set(key, map);
+      }
+      return map;
+    }
+
+    function ensureBranchFamily(branchKey) {
+      let family = branchFamilies.get(branchKey);
+      if (!family) {
+        family = {
+          sessionIds: [],
+          messageIdsBySession: new Map(),
+        };
+        branchFamilies.set(branchKey, family);
+      }
+      return family;
+    }
+
+    function getBranchKeyForMessage(sessionId, messageId) {
+      const normalizedMessageId = normalizeMessageId(messageId);
+      if (!sessionId || !normalizedMessageId) return null;
+      return ensureSessionBranchAnchorMap(sessionId).get(normalizedMessageId) || null;
+    }
+
+    function prepareBranchFamily(sourceSessionId, sourceMessageId, branchSessionId) {
+      const normalizedSourceMessageId = normalizeMessageId(sourceMessageId);
+      if (!sourceSessionId || !normalizedSourceMessageId || !branchSessionId) {
+        return null;
+      }
+      const sourceAnchors = ensureSessionBranchAnchorMap(sourceSessionId);
+      const branchKey =
+        sourceAnchors.get(normalizedSourceMessageId) ||
+        `branch:${sourceSessionId}:${normalizedSourceMessageId}`;
+      sourceAnchors.set(normalizedSourceMessageId, branchKey);
+
+      const family = ensureBranchFamily(branchKey);
+      if (!family.sessionIds.includes(sourceSessionId)) {
+        family.sessionIds.push(sourceSessionId);
+      }
+      if (!family.sessionIds.includes(branchSessionId)) {
+        family.sessionIds.push(branchSessionId);
+      }
+      family.messageIdsBySession.set(sourceSessionId, normalizedSourceMessageId);
+      return branchKey;
+    }
+
+    function registerBranchVariant({
+      sourceSessionId,
+      sourceMessageId,
+      branchSessionId,
+      branchMessageId,
+    }) {
+      const normalizedSourceMessageId = normalizeMessageId(sourceMessageId);
+      const normalizedBranchMessageId = normalizeMessageId(branchMessageId);
+      if (!sourceSessionId || !normalizedSourceMessageId || !branchSessionId || !normalizedBranchMessageId) {
+        return null;
+      }
+      const branchKey = prepareBranchFamily(
+        sourceSessionId,
+        normalizedSourceMessageId,
+        branchSessionId,
+      );
+      if (!branchKey) return null;
+
+      const branchAnchors = ensureSessionBranchAnchorMap(branchSessionId);
+      branchAnchors.set(normalizedBranchMessageId, branchKey);
+
+      const family = ensureBranchFamily(branchKey);
+      family.messageIdsBySession.set(sourceSessionId, normalizedSourceMessageId);
+      family.messageIdsBySession.set(branchSessionId, normalizedBranchMessageId);
+      return branchKey;
+    }
+
+    function hydrateBranchFamilies(families) {
+      if (!Array.isArray(families)) return;
+      for (const family of families) {
+        const anchorSessionId = String(family?.anchorSessionId || '').trim();
+        const anchorMessageId = normalizeMessageId(family?.anchorMessageId);
+        if (!anchorSessionId || !anchorMessageId) continue;
+        const normalizedVariants = Array.isArray(family?.variants)
+          ? family.variants
+              .map((variant) => ({
+                sessionId: String(variant?.sessionId || '').trim(),
+                messageId: normalizeMessageId(variant?.messageId),
+              }))
+              .filter((variant) => variant.sessionId && variant.messageId)
+          : [];
+        if (normalizedVariants.length < 2) continue;
+
+        const branchKey = `branch:${anchorSessionId}:${anchorMessageId}`;
+        const branchFamily = ensureBranchFamily(branchKey);
+        branchFamily.sessionIds = normalizedVariants.map((variant) => variant.sessionId);
+        branchFamily.messageIdsBySession = new Map();
+
+        for (const variant of normalizedVariants) {
+          ensureSessionBranchAnchorMap(variant.sessionId).set(variant.messageId, branchKey);
+          branchFamily.messageIdsBySession.set(variant.sessionId, variant.messageId);
+        }
+      }
+    }
+
+    function pruneBranchStateForSession(sessionId) {
+      const normalizedSessionId = String(sessionId || '').trim();
+      if (!normalizedSessionId) {
+        sessionBranchAnchors.clear();
+        branchFamilies.clear();
+        return;
+      }
+
+      const keepBranchKeys = new Set();
+      const keepSessionIds = new Set([normalizedSessionId]);
+      for (const [branchKey, family] of branchFamilies.entries()) {
+        if (!family?.sessionIds?.includes(normalizedSessionId)) continue;
+        keepBranchKeys.add(branchKey);
+        for (const familySessionId of family.sessionIds) {
+          const nextSessionId = String(familySessionId || '').trim();
+          if (nextSessionId) {
+            keepSessionIds.add(nextSessionId);
+          }
+        }
+      }
+
+      if (keepBranchKeys.size === 0) {
+        sessionBranchAnchors.clear();
+        branchFamilies.clear();
+        return;
+      }
+
+      for (const branchKey of Array.from(branchFamilies.keys())) {
+        if (!keepBranchKeys.has(branchKey)) {
+          branchFamilies.delete(branchKey);
+        }
+      }
+      for (const key of Array.from(sessionBranchAnchors.keys())) {
+        if (!keepSessionIds.has(key)) {
+          sessionBranchAnchors.delete(key);
+        }
+      }
     }
 
     function formatRelativeTime(timestamp) {
@@ -1107,10 +1383,23 @@
     }
 
     function updateComposerState() {
+      const isRunning = Boolean(activeChatRequest);
+      const isStopping = Boolean(activeChatRequest?.stopping);
       const hasContent = messageEl.value.trim().length > 0;
       const hasMedia = pendingMedia.length > 0;
-      sendEl.disabled = pendingUploadCount > 0 || (!hasContent && !hasMedia);
-      attachEl.disabled = pendingUploadCount > 0;
+      sendEl.disabled =
+        isStopping ||
+        (!isRunning && (pendingUploadCount > 0 || (!hasContent && !hasMedia)));
+      sendEl.classList.toggle('is-stop', isRunning);
+      sendEl.setAttribute(
+        'aria-label',
+        isRunning ? 'Stop current message' : 'Send message',
+      );
+      sendEl.title = isRunning ? 'Stop current message' : 'Send message';
+      sendEl.innerHTML = isRunning ? STOP_ICON : SEND_ICON;
+      attachEl.disabled = pendingUploadCount > 0 || isRunning;
+      attachmentInputEl.disabled = pendingUploadCount > 0 || isRunning;
+      messageEl.disabled = isRunning;
     }
 
     function setError(text) {
@@ -1281,16 +1570,20 @@
     }
 
     async function copyMessage(content, button) {
+      const originalLabel = button?.dataset?.label || button?.textContent || '⧉';
       try {
         if (navigator.clipboard?.writeText) {
           await navigator.clipboard.writeText(content);
         } else {
           copyTextFallback(content);
         }
-        button.textContent = '✓';
-        button.classList.add('copied');
+        if (button) {
+          button.textContent = '✓';
+          button.classList.add('copied');
+        }
         window.setTimeout(() => {
-          button.textContent = '⧉';
+          if (!button) return;
+          button.textContent = originalLabel;
           button.classList.remove('copied');
         }, 900);
       } catch {
@@ -1417,7 +1710,173 @@
       return wrapper;
     }
 
-    function addMessage(role, content, artifacts) {
+    function createMessageActionButton({ label, title, ariaLabel, onClick }) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'msg-action-btn';
+      button.dataset.label = label;
+      button.setAttribute('aria-label', ariaLabel || title);
+      button.title = title;
+      button.textContent = label;
+      button.addEventListener('click', onClick);
+      return button;
+    }
+
+    function createTextActionButton({
+      label,
+      title,
+      ariaLabel,
+      onClick,
+      primary = false,
+    }) {
+      const button = createMessageActionButton({
+        label,
+        title,
+        ariaLabel,
+        onClick,
+      });
+      button.classList.add('is-text');
+      if (primary) {
+        button.classList.add('is-primary');
+      }
+      return button;
+    }
+
+    function renderBranchSwitcher(actions, meta) {
+      const branchKey = meta.branchKey || getBranchKeyForMessage(meta.sessionId, meta.messageId);
+      if (!branchKey) return;
+      const family = branchFamilies.get(branchKey);
+      if (!family || family.sessionIds.length < 2) return;
+      const currentIndex = family.sessionIds.indexOf(meta.sessionId);
+      if (currentIndex < 0) return;
+
+      const switcher = document.createElement('div');
+      switcher.className = 'branch-switcher';
+
+      const previousButton = createMessageActionButton({
+        label: '‹',
+        title: 'Previous branch',
+        ariaLabel: 'Previous branch',
+        onClick: () => {
+          if (currentIndex <= 0) return;
+          void openSessionById(family.sessionIds[currentIndex - 1]);
+        },
+      });
+      previousButton.disabled = currentIndex <= 0;
+      switcher.appendChild(previousButton);
+
+      const count = document.createElement('span');
+      count.className = 'branch-count';
+      count.textContent = `${currentIndex + 1}/${family.sessionIds.length}`;
+      switcher.appendChild(count);
+
+      const nextButton = createMessageActionButton({
+        label: '›',
+        title: 'Next branch',
+        ariaLabel: 'Next branch',
+        onClick: () => {
+          if (currentIndex >= family.sessionIds.length - 1) return;
+          void openSessionById(family.sessionIds[currentIndex + 1]);
+        },
+      });
+      nextButton.disabled = currentIndex >= family.sessionIds.length - 1;
+      switcher.appendChild(nextButton);
+
+      actions.appendChild(switcher);
+    }
+
+    function renderMessageActions(block) {
+      const meta = getMessageMeta(block);
+      if (!meta?.actionsEl) return;
+      const actions = meta.actionsEl;
+      actions.innerHTML = '';
+
+      if (meta.role === 'assistant') {
+        if (meta.replayRequest) {
+          const regenerate = createMessageActionButton({
+            label: '↻',
+            title: 'Regenerate response',
+            ariaLabel: 'Regenerate response',
+            onClick: () => {
+              if (activeChatRequest) {
+                setError('Stop the current run before regenerating a reply.');
+                return;
+              }
+              void submitPrompt(
+                meta.replayRequest.content || '',
+                meta.replayRequest.media || [],
+                {
+                  clearComposer: false,
+                  clearPendingMedia: false,
+                  sessionId: meta.sessionId || activeSessionId,
+                },
+              );
+            },
+          });
+          actions.appendChild(regenerate);
+        }
+
+        const copy = createMessageActionButton({
+          label: '⧉',
+          title: 'Copy response',
+          ariaLabel: 'Copy response',
+          onClick: () => {
+            void copyMessage(meta.copyText ?? meta.content ?? '', copy);
+          },
+        });
+        actions.appendChild(copy);
+        return;
+      }
+
+      if (meta.role !== 'user') return;
+
+      if (meta.isEditing) {
+        const cancel = createTextActionButton({
+          label: 'Cancel',
+          title: 'Cancel editing',
+          ariaLabel: 'Cancel editing',
+          onClick: () => {
+            cancelEditingUserMessage(block);
+          },
+        });
+        actions.appendChild(cancel);
+
+        const save = createTextActionButton({
+          label: 'Save',
+          title: 'Save edited prompt',
+          ariaLabel: 'Save edited prompt',
+          primary: true,
+          onClick: () => {
+            void saveEditedUserMessage(block);
+          },
+        });
+        actions.appendChild(save);
+        return;
+      }
+
+      const edit = createMessageActionButton({
+        label: '✎',
+        title: 'Edit prompt',
+        ariaLabel: 'Edit prompt',
+        onClick: () => {
+          startEditingUserMessage(block);
+        },
+      });
+      actions.appendChild(edit);
+
+      const copy = createMessageActionButton({
+        label: '⧉',
+        title: 'Copy prompt',
+        ariaLabel: 'Copy prompt',
+        onClick: () => {
+          void copyMessage(meta.copyText ?? meta.content ?? '', copy);
+        },
+      });
+      actions.appendChild(copy);
+      renderBranchSwitcher(actions, meta);
+    }
+
+    function addMessage(role, content, artifacts, options = {}) {
       const item = document.createElement('div');
       item.className = `msg ${role}`;
       if (role === 'assistant') {
@@ -1426,34 +1885,49 @@
       } else {
         item.textContent = content || '';
       }
+      const block = document.createElement('div');
+      block.className = 'msg-block';
+      if (role === 'user') {
+        block.classList.add('user-block');
+      }
+      block.appendChild(item);
+
       if (role === 'assistant') {
-        const block = document.createElement('div');
-        block.className = 'msg-block';
-        block.appendChild(item);
         const artifactsBlock = renderArtifactCards(artifacts);
         if (artifactsBlock) {
           block.appendChild(artifactsBlock);
         }
+      }
 
+      if (role === 'assistant' || role === 'user') {
         const actions = document.createElement('div');
         actions.className = 'msg-actions';
-        const copy = document.createElement('button');
-        copy.type = 'button';
-        copy.className = 'copy-btn';
-        copy.setAttribute('aria-label', 'Copy response');
-        copy.title = 'Copy response';
-        copy.textContent = '⧉';
-        copy.addEventListener('click', () => {
-          void copyMessage(content || '', copy);
-        });
-        actions.appendChild(copy);
         block.appendChild(actions);
-        messagesEl.appendChild(block);
-      } else {
-        messagesEl.appendChild(item);
+        setMessageMeta(block, {
+          block,
+          itemEl: item,
+          actionsEl: actions,
+          role,
+          sessionId: options.sessionId || activeSessionId,
+          messageId: normalizeMessageId(options.messageId),
+          content: content || '',
+          copyText: options.copyText ?? content ?? '',
+          rawContent: options.rawContent ?? content ?? '',
+          media: cloneMediaList(options.media),
+          replayRequest: options.replayRequest || null,
+          branchKey: options.branchKey || null,
+          isEditing: false,
+        });
+        renderMessageActions(block);
       }
+
+      messagesEl.appendChild(block);
       updateEmptyState();
       messagesEl.scrollTop = messagesEl.scrollHeight;
+      return {
+        block,
+        item,
+      };
     }
 
     function addThinkingMessage() {
@@ -1469,6 +1943,123 @@
       updateEmptyState();
       messagesEl.scrollTop = messagesEl.scrollHeight;
       return item;
+    }
+
+    function cancelEditingUserMessage(block) {
+      const meta = getMessageMeta(block);
+      if (!meta || meta.role !== 'user') return;
+      meta.itemEl.classList.remove('is-editing');
+      meta.itemEl.textContent = meta.content || '';
+      setMessageMeta(block, {
+        isEditing: false,
+      });
+      if (activeEditState?.block === block) {
+        activeEditState = null;
+      }
+      renderMessageActions(block);
+    }
+
+    function startEditingUserMessage(block) {
+      if (activeChatRequest) {
+        setError('Stop the current run before editing a prompt.');
+        return;
+      }
+      const meta = getMessageMeta(block);
+      if (!meta || meta.role !== 'user') return;
+      if (activeEditState?.block && activeEditState.block !== block) {
+        cancelEditingUserMessage(activeEditState.block);
+      }
+      meta.itemEl.classList.add('is-editing');
+      meta.itemEl.textContent = '';
+      const editor = document.createElement('textarea');
+      editor.className = 'msg-inline-editor';
+      editor.value = meta.rawContent || '';
+      editor.setAttribute('aria-label', 'Edit prompt');
+      meta.itemEl.appendChild(editor);
+      setMessageMeta(block, {
+        isEditing: true,
+      });
+      activeEditState = { block };
+      renderMessageActions(block);
+      editor.focus();
+      editor.setSelectionRange(editor.value.length, editor.value.length);
+    }
+
+    async function createPromptBranch(sessionId, beforeMessageId) {
+      return requestJson('/api/chat/branch', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({
+          sessionId,
+          beforeMessageId,
+        }),
+      });
+    }
+
+    async function saveEditedUserMessage(block) {
+      const meta = getMessageMeta(block);
+      if (!meta || meta.role !== 'user') return;
+      if (activeChatRequest) {
+        setError('Stop the current run before editing a prompt.');
+        return;
+      }
+      const editor = meta.itemEl.querySelector('.msg-inline-editor');
+      const nextContent = String(editor?.value || '').trim();
+      const queuedMedia = cloneMediaList(meta.media);
+      if (!nextContent && queuedMedia.length === 0) {
+        setError('Edited prompt cannot be empty.');
+        return;
+      }
+      if (!meta.sessionId || !meta.messageId) {
+        setError('Reload this chat before editing that prompt.');
+        return;
+      }
+      if (nextContent === String(meta.rawContent || '').trim()) {
+        cancelEditingUserMessage(block);
+        return;
+      }
+
+      const sourceSessionId = meta.sessionId;
+      const sourceMessageId = meta.messageId;
+
+      try {
+        setError('');
+        const branch = await createPromptBranch(sourceSessionId, sourceMessageId);
+        const nextSessionId = String(branch?.sessionId || '').trim();
+        if (!nextSessionId) {
+          throw new Error('Branch response did not include a sessionId.');
+        }
+        const branchKey = prepareBranchFamily(
+          sourceSessionId,
+          sourceMessageId,
+          nextSessionId,
+        );
+        activeEditState = null;
+        activeSessionId = nextSessionId;
+        savePrefs();
+        messagesEl.innerHTML = '';
+        updateEmptyState();
+        await loadHistory();
+        const result = await submitPrompt(nextContent, queuedMedia, {
+          sessionId: activeSessionId,
+          clearComposer: false,
+          clearPendingMedia: false,
+          branchKey,
+        });
+        if (result?.userMessageId) {
+          registerBranchVariant({
+            sourceSessionId,
+            sourceMessageId,
+            branchSessionId: result.sessionId,
+            branchMessageId: result.userMessageId,
+          });
+          renderMessageActions(result.userBlock);
+        }
+        void refreshRecentSessions();
+      } catch (err) {
+        const text = err instanceof Error ? err.message : String(err);
+        setError(text);
+      }
     }
 
     async function requestJson(url, options) {
@@ -1576,8 +2167,10 @@
     }
 
     async function loadHistory() {
+      activeEditState = null;
       savePrefs();
       setError('');
+      pruneBranchStateForSession(activeSessionId);
       messagesEl.innerHTML = '';
       updateEmptyState();
       try {
@@ -1591,8 +2184,35 @@
           activeSessionId = nextSessionId;
           savePrefs();
         }
+        hydrateBranchFamilies(payload.branchFamilies);
+        let lastUserPrompt = null;
         for (const msg of payload.history || []) {
-          addMessage(msg.role, msg.content);
+          const role = String(msg.role || '');
+          const content = msg.content || '';
+          const messageId = normalizeMessageId(msg.id);
+          if (role === 'user') {
+            lastUserPrompt = {
+              content,
+              media: [],
+            };
+            addMessage(role, content, undefined, {
+              sessionId: activeSessionId,
+              messageId,
+              copyText: content,
+              rawContent: content,
+              media: [],
+            });
+            continue;
+          }
+          if (role === 'assistant') {
+            addMessage(role, content, undefined, {
+              sessionId: activeSessionId,
+              messageId,
+              replayRequest: lastUserPrompt,
+            });
+            continue;
+          }
+          addMessage(role, content);
         }
         renderRecentSessions();
       } catch (err) {
@@ -1612,32 +2232,59 @@
       }
     }
 
-    async function sendMessage() {
-      const content = messageEl.value.trim();
-      const queuedMedia = pendingMedia.slice();
-      if (pendingUploadCount > 0) return;
+    async function submitPrompt(rawContent, media, options = {}) {
+      if (activeChatRequest) return;
+      if (activeEditState?.block) {
+        cancelEditingUserMessage(activeEditState.block);
+      }
+      const targetSessionId = String(options.sessionId || activeSessionId || '').trim();
+      const content = String(rawContent || '').trim();
+      const queuedMedia = cloneMediaList(media);
       if (!content && queuedMedia.length === 0) return;
+      const previewText = buildOutgoingPreviewText(content, queuedMedia);
 
       savePrefs();
       setError('');
-      addMessage('user', buildOutgoingPreviewText(content, queuedMedia));
-      messageEl.value = '';
-      pendingMedia = [];
-      renderPendingMedia();
+      const userView = addMessage('user', previewText, undefined, {
+        sessionId: targetSessionId,
+        copyText: previewText,
+        rawContent: content,
+        media: queuedMedia,
+        branchKey: options.branchKey || null,
+      });
+      if (options.clearComposer !== false) {
+        messageEl.value = '';
+      }
+      if (options.clearPendingMedia !== false) {
+        pendingMedia = [];
+        renderPendingMedia();
+      }
       const thinkingItem = addThinkingMessage();
+      const requestState = {
+        controller: new AbortController(),
+        sessionId: targetSessionId,
+        thinkingItem,
+        queuedMedia,
+        userBlock: userView?.block || null,
+        stopRequested: false,
+        stopping: false,
+      };
+      activeChatRequest = requestState;
+      updateComposerState();
 
       try {
         const payload = await requestJson('/api/chat', {
           method: 'POST',
           headers: apiHeaders(),
           body: JSON.stringify({
-            sessionId: activeSessionId,
+            sessionId: requestState.sessionId,
             channelId: 'web',
             userId: activeUserId,
             username: 'web',
             content,
             ...(queuedMedia.length > 0 ? { media: queuedMedia } : {}),
           }),
+          signal: requestState.controller.signal,
         });
         if (payload.status === 'error') {
           throw new Error(payload.error || 'Unknown error');
@@ -1646,23 +2293,130 @@
           activeSessionId = String(payload.sessionId);
           savePrefs();
         }
-        thinkingItem.remove();
-        addMessage('assistant', payload.result || '', payload.artifacts || []);
+        const userMessageId = normalizeMessageId(payload.userMessageId);
+        if (requestState.userBlock) {
+          setMessageMeta(requestState.userBlock, {
+            sessionId: activeSessionId,
+            messageId: userMessageId,
+          });
+          renderMessageActions(requestState.userBlock);
+        }
+        const assistantView = addMessage('assistant', payload.result || '', payload.artifacts || [], {
+          sessionId: activeSessionId,
+          messageId: normalizeMessageId(payload.assistantMessageId),
+          replayRequest: {
+            content,
+            media: queuedMedia,
+          },
+        });
         void refreshRecentSessions();
+        return {
+          payload,
+          sessionId: activeSessionId,
+          userMessageId,
+          assistantMessageId: normalizeMessageId(payload.assistantMessageId),
+          userBlock: requestState.userBlock,
+          assistantBlock: assistantView?.block || null,
+        };
       } catch (err) {
-        thinkingItem.remove();
+        if (requestState.stopRequested) {
+          setError('');
+          return null;
+        }
         const text = err instanceof Error ? err.message : String(err);
-        pendingMedia = [...queuedMedia, ...pendingMedia];
-        renderPendingMedia();
+        if (options.clearPendingMedia !== false) {
+          pendingMedia = [...queuedMedia, ...pendingMedia];
+          renderPendingMedia();
+        }
         setError(text);
         addMessage('system', `Error: ${text}`);
+      } finally {
+        if (requestState.thinkingItem?.isConnected) {
+          requestState.thinkingItem.remove();
+        }
+        if (activeChatRequest === requestState) {
+          activeChatRequest = null;
+        }
+        updateComposerState();
+      }
+
+      return null;
+    }
+
+    async function sendMessage() {
+      if (pendingUploadCount > 0) return;
+      await submitPrompt(messageEl.value, pendingMedia);
+    }
+
+    async function stopActiveChatRequest() {
+      const requestState = activeChatRequest;
+      if (!requestState || requestState.stopping) return;
+
+      requestState.stopRequested = true;
+      requestState.stopping = true;
+      setError('');
+      updateComposerState();
+
+      try {
+        await requestJson('/api/command', {
+          method: 'POST',
+          headers: apiHeaders(),
+          body: JSON.stringify({
+            sessionId: requestState.sessionId,
+            guildId: null,
+            channelId: 'web',
+            userId: activeUserId,
+            username: 'web',
+            args: ['stop'],
+          }),
+        });
+        requestState.controller.abort();
+      } catch (err) {
+        requestState.stopRequested = false;
+        requestState.stopping = false;
+        const text = err instanceof Error ? err.message : String(err);
+        setError(`Failed to stop current run: ${text}`);
+        updateComposerState();
       }
     }
 
+    async function openSessionById(sessionId) {
+      if (activeChatRequest) {
+        setError('Stop the current run before switching chats.');
+        return;
+      }
+      if (activeEditState?.block) {
+        cancelEditingUserMessage(activeEditState.block);
+      }
+      activeSessionId = String(sessionId || '').trim();
+      if (!activeSessionId) return;
+      pruneBranchStateForSession(activeSessionId);
+      messageEl.value = '';
+      messagesEl.innerHTML = '';
+      pendingMedia = [];
+      pendingUploadCount = 0;
+      renderPendingMedia();
+      updateEmptyState();
+      updateWindowTitle();
+      savePrefs();
+      renderRecentSessions();
+      setError('');
+      await loadHistory();
+      messageEl.focus();
+    }
+
     function newChat() {
+      if (activeChatRequest) {
+        setError('Stop the current run before starting a new chat.');
+        return;
+      }
+      if (activeEditState?.block) {
+        cancelEditingUserMessage(activeEditState.block);
+      }
       lastSessionNumber += 1;
       activeSessionNumber = lastSessionNumber;
       activeSessionId = generateWebSessionId();
+      pruneBranchStateForSession(null);
       messageEl.value = '';
       messagesEl.innerHTML = '';
       pendingMedia = [];
@@ -1678,23 +2432,15 @@
 
     async function openRecentSession(sessionId) {
       const target = recentSessions.find((session) => session.sessionId === sessionId);
-      if (!target) return;
-      activeSessionId = target.sessionId;
-      messageEl.value = '';
-      messagesEl.innerHTML = '';
-      pendingMedia = [];
-      pendingUploadCount = 0;
-      renderPendingMedia();
-      updateEmptyState();
-      updateWindowTitle();
-      savePrefs();
-      renderRecentSessions();
-      setError('');
-      await loadHistory();
-      messageEl.focus();
+      if (!target && !sessionId) return;
+      await openSessionById(target?.sessionId || sessionId);
     }
 
     sendEl.addEventListener('click', () => {
+      if (activeChatRequest) {
+        void stopActiveChatRequest();
+        return;
+      }
       void sendMessage();
     });
     attachEl.addEventListener('click', () => {
@@ -1711,6 +2457,7 @@
     messageEl.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
+        if (activeChatRequest) return;
         void sendMessage();
       }
     });

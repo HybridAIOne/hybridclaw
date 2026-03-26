@@ -12,6 +12,7 @@ import {
   decaySemanticMemories,
   deleteMemoryValue,
   forgetSemanticMemory,
+  forkSessionBranch,
   getAnyChatbotId,
   getCanonicalContext,
   getMemoryValue,
@@ -28,6 +29,7 @@ import {
   recallSemanticMemories,
   recordUsageEvent,
   setMemoryValue,
+  storeMessage,
   storeSemanticMemory,
 } from '../src/memory/db.js';
 import {
@@ -531,6 +533,61 @@ describe.sequential('schema migrations', () => {
         title: 'First web question from user A',
       },
     ]);
+  });
+
+  test('forkSessionBranch copies the prefix into a new sibling session', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    const sourceSession = getOrCreateSession('branch-source', null, 'web');
+    storeMessage('branch-source', 'user-a', 'web', 'user', 'Prompt 1');
+    storeMessage('branch-source', 'assistant', null, 'assistant', 'Reply 1');
+    const editedPromptId = storeMessage(
+      'branch-source',
+      'user-a',
+      'web',
+      'user',
+      'Prompt 2',
+    );
+    storeMessage('branch-source', 'assistant', null, 'assistant', 'Reply 2');
+
+    const fork = forkSessionBranch({
+      sessionId: 'branch-source',
+      beforeMessageId: editedPromptId,
+    });
+
+    expect(fork.session.id).not.toBe(sourceSession.id);
+    expect(fork.session.session_key).toBe(fork.session.id);
+    expect(fork.session.main_session_key).toBe(sourceSession.main_session_key);
+    expect(fork.copiedMessageCount).toBe(2);
+    expect(getSessionById(fork.session.id)?.message_count).toBe(2);
+    expect(
+      getRecentSessionsForUser({
+        userId: 'user-a',
+        channelId: 'web',
+        limit: 10,
+      }).map((session) => session.sessionId),
+    ).toEqual(expect.arrayContaining(['branch-source', fork.session.id]));
+  });
+
+  test('forkSessionBranch rejects invalid cutoff ids', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('branch-source', null, 'web');
+
+    expect(() =>
+      forkSessionBranch({
+        sessionId: 'branch-source',
+        beforeMessageId: 0,
+      }),
+    ).toThrow('Expected a positive integer');
+    expect(() =>
+      forkSessionBranch({
+        sessionId: 'branch-source',
+        beforeMessageId: Number.NaN,
+      }),
+    ).toThrow('Expected a positive integer');
   });
 
   test('migrates request_log to remove the created_at default', () => {
@@ -1148,6 +1205,12 @@ describe('MemoryService', () => {
         }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+        branchFamilies: [],
+      }),
       getRecentMessages: () => [] as StoredMessage[],
       get: () => null,
       set: () => {},
@@ -1245,6 +1308,12 @@ describe('MemoryService', () => {
         }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+        branchFamilies: [],
+      }),
       getRecentMessages: () => [] as StoredMessage[],
       get: () => null,
       set: () => {},
@@ -1337,6 +1406,12 @@ describe('MemoryService', () => {
         }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+        branchFamilies: [],
+      }),
       getRecentMessages: () => [] as StoredMessage[],
       get: () => null,
       set: () => {},
@@ -1543,6 +1618,12 @@ describe('MemoryService', () => {
         }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+        branchFamilies: [],
+      }),
       getRecentMessages: () => [] as StoredMessage[],
       get: (_sessionId, key) =>
         key === 'release.codename' ? 'AtlasFox' : null,
