@@ -270,17 +270,28 @@ test('send action routes email targets through email transport', async () => {
     action: 'send',
     channelId: 'ops@example.com',
     content: '[Subject: Deploy complete]\n\nDeployment is complete.',
+    subject: 'Quarterly update',
+    cc: ['finance@example.com'],
+    bcc: ['audit@example.com'],
   });
 
   expect(state.sendToEmail).toHaveBeenCalledWith(
     'ops@example.com',
     '[Subject: Deploy complete]\n\nDeployment is complete.',
+    {
+      subject: 'Quarterly update',
+      cc: ['finance@example.com'],
+      bcc: ['audit@example.com'],
+    },
   );
   expect(result).toMatchObject({
     ok: true,
     action: 'send',
     channelId: 'ops@example.com',
     transport: 'email',
+    subject: 'Quarterly update',
+    cc: ['finance@example.com'],
+    bcc: ['audit@example.com'],
   });
 });
 
@@ -293,12 +304,18 @@ test('send action routes email attachments through email delivery', async () => 
     channelId: 'email:ops@example.com',
     content: 'attached report',
     filePath: 'notes/report.pdf',
+    subject: 'Quarterly update',
+    cc: ['finance@example.com'],
+    bcc: ['audit@example.com'],
   });
 
   expect(state.sendEmailAttachmentTo).toHaveBeenCalledWith({
     to: 'ops@example.com',
     filePath: '/tmp/hybridclaw-agent-workspace/notes/report.pdf',
     body: 'attached report',
+    subject: 'Quarterly update',
+    cc: ['finance@example.com'],
+    bcc: ['audit@example.com'],
   });
   expect(result).toMatchObject({
     ok: true,
@@ -306,6 +323,9 @@ test('send action routes email attachments through email delivery', async () => 
     channelId: 'ops@example.com',
     transport: 'email',
     attachmentCount: 1,
+    subject: 'Quarterly update',
+    cc: ['finance@example.com'],
+    bcc: ['audit@example.com'],
   });
 });
 

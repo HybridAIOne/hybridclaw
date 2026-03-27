@@ -36,13 +36,26 @@ export interface EmailAttachmentSendParams {
   to: string;
   filePath: string;
   body?: string;
+  subject?: string | null;
+  cc?: string[] | null;
+  bcc?: string[] | null;
   filename?: string | null;
   mimeType?: string | null;
 }
 
+export interface EmailTextSendOptions {
+  subject?: string | null;
+  cc?: string[] | null;
+  bcc?: string[] | null;
+}
+
 export interface EmailRuntime {
   initEmail: (messageHandler: EmailMessageHandler) => Promise<void>;
-  sendToEmail: (to: string, text: string) => Promise<void>;
+  sendToEmail: (
+    to: string,
+    text: string,
+    options?: EmailTextSendOptions,
+  ) => Promise<void>;
   sendEmailAttachmentTo: (params: EmailAttachmentSendParams) => Promise<void>;
   shutdownEmail: () => Promise<void>;
 }
@@ -157,10 +170,17 @@ export function createEmailRuntime(): EmailRuntime {
     }
   };
 
-  const sendTextToAddress = async (to: string, text: string): Promise<void> => {
+  const sendTextToAddress = async (
+    to: string,
+    text: string,
+    options?: EmailTextSendOptions,
+  ): Promise<void> => {
     await sendWithTracking({
       to,
       body: text,
+      subject: options?.subject,
+      cc: options?.cc,
+      bcc: options?.bcc,
     });
   };
 
@@ -170,6 +190,9 @@ export function createEmailRuntime(): EmailRuntime {
     await sendWithTracking({
       to: params.to,
       body: params.body || '',
+      subject: params.subject,
+      cc: params.cc,
+      bcc: params.bcc,
       attachment: {
         filePath: params.filePath,
         filename: params.filename || null,
@@ -270,8 +293,12 @@ export function createEmailRuntime(): EmailRuntime {
       await ensureTransport();
       await ensureConnectionManager(messageHandler).start();
     },
-    async sendToEmail(to: string, text: string): Promise<void> {
-      await sendTextToAddress(to, text);
+    async sendToEmail(
+      to: string,
+      text: string,
+      options?: EmailTextSendOptions,
+    ): Promise<void> {
+      await sendTextToAddress(to, text, options);
     },
     async sendEmailAttachmentTo(
       params: EmailAttachmentSendParams,
@@ -306,8 +333,12 @@ export async function initEmail(
   await ensureDefaultRuntime().initEmail(messageHandler);
 }
 
-export async function sendToEmail(to: string, text: string): Promise<void> {
-  await ensureDefaultRuntime().sendToEmail(to, text);
+export async function sendToEmail(
+  to: string,
+  text: string,
+  options?: EmailTextSendOptions,
+): Promise<void> {
+  await ensureDefaultRuntime().sendToEmail(to, text, options);
 }
 
 export async function sendEmailAttachmentTo(

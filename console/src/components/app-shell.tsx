@@ -114,9 +114,10 @@ const NAV_ITEMS: ReadonlyArray<{
   { to: '/', label: 'Dashboard' },
   { to: '/gateway', label: 'Gateway' },
   { to: '/sessions', label: 'Sessions' },
-  { to: '/channels', label: 'Bindings' },
+  { to: '/channels', label: 'Channels' },
   { to: '/models', label: 'Models' },
   { to: '/scheduler', label: 'Scheduler' },
+  { to: '/jobs', label: 'Jobs' },
   { to: '/mcp', label: 'MCP' },
   { to: '/audit', label: 'Audit' },
   { to: '/skills', label: 'Skills' },
@@ -197,6 +198,11 @@ export function AppShell(props: { children: ReactNode }) {
         </div>
 
         <div className="sidebar-footer">
+          {auth.gatewayStatus?.version ? (
+            <span className="meta-chip sidebar-meta-chip">
+              {auth.gatewayStatus.version}
+            </span>
+          ) : null}
           {auth.token ? (
             <button
               className="ghost-button"
@@ -210,10 +216,7 @@ export function AppShell(props: { children: ReactNode }) {
       </aside>
 
       <main className="main-panel">
-        <div className="topbar">
-          <div>
-            <h2>Admin</h2>
-          </div>
+        <div className="topbar topbar-compact">
           <div className="topbar-actions">
             <nav className="view-switch" aria-label="Switch view">
               {VIEW_SWITCH_ITEMS.map((item) => {
@@ -247,9 +250,6 @@ export function AppShell(props: { children: ReactNode }) {
                 );
               })}
             </nav>
-            {auth.gatewayStatus?.version ? (
-              <span className="meta-chip">{auth.gatewayStatus.version}</span>
-            ) : null}
           </div>
         </div>
         <div className="page-content">{props.children}</div>

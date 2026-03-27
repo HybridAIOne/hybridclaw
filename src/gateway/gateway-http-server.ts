@@ -8,6 +8,7 @@ import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
 } from '../channels/discord/tool-actions.js';
+import { normalizeEmailAddress } from '../channels/email/allowlist.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
 import { handleMSTeamsWebhook } from '../channels/msteams/runtime.js';
 import {
@@ -25,6 +26,7 @@ import type {
   RuntimeDiscordChannelConfig,
   RuntimeMSTeamsChannelConfig,
 } from '../config/runtime-config.js';
+import { parseSchedulerBoardStatus } from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
@@ -67,6 +69,7 @@ import {
   getGatewayAdminAudit,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
+  getGatewayAdminJobsContext,
   getGatewayAdminMcp,
   getGatewayAdminModels,
   getGatewayAdminOverview,
@@ -82,6 +85,7 @@ import {
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
+  moveGatewayAdminSchedulerJob,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   removeGatewayAdminSchedulerJob,
@@ -165,6 +169,39 @@ const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiChatBranchRequestBody = Partial<GatewayChatBranchRequestBody>;
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
+
+// Keep this local instead of importing the container helper. The gateway and
+// container ship as separate packages and intentionally normalize request
+// payloads at their own trust boundaries.
+function normalizeStringListInput(value: unknown): string[] | undefined {
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    return normalized ? [normalized] : undefined;
+  }
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry) => entry.length > 0);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function parseEmailRecipientListInput(
+  value: unknown,
+  label: 'cc' | 'bcc',
+): string[] | undefined {
+  const normalized = normalizeStringListInput(value);
+  if (!normalized) return undefined;
+
+  const recipients: string[] = [];
+  for (const entry of normalized) {
+    const address = normalizeEmailAddress(entry);
+    if (!address) {
+      throw new Error(`Invalid \`${label}\` email address: ${entry}`);
+    }
+    recipients.push(address);
+  }
+  return recipients.length > 0 ? recipients : undefined;
+}
 type ApiPluginToolRequestBody = {
   toolName?: unknown;
   args?: unknown;
@@ -1214,6 +1251,18 @@ async function handleApiMessageAction(
     return;
   }
 
+  let cc: string[] | undefined;
+  let bcc: string[] | undefined;
+  try {
+    cc = parseEmailRecipientListInput(body.cc, 'cc');
+    bcc = parseEmailRecipientListInput(body.bcc, 'bcc');
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
   const request: DiscordToolActionRequest = {
     action,
     sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
@@ -1232,6 +1281,9 @@ async function handleApiMessageAction(
     after: typeof body.after === 'string' ? body.after : undefined,
     around: typeof body.around === 'string' ? body.around : undefined,
     content: typeof body.content === 'string' ? body.content : undefined,
+    subject: typeof body.subject === 'string' ? body.subject : undefined,
+    cc,
+    bcc,
     filePath: typeof body.filePath === 'string' ? body.filePath : undefined,
     components:
       Array.isArray(body.components) ||
@@ -1344,6 +1396,10 @@ function handleApiChatRecent(res: ServerResponse, url: URL): void {
 
 async function handleApiAgents(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAgents());
+}
+
+function handleApiAdminJobsContext(res: ServerResponse): void {
+  sendJson(res, 200, getGatewayAdminJobsContext());
 }
 
 function handleApiProactivePull(res: ServerResponse, url: URL): void {
@@ -1630,6 +1686,8 @@ async function handleApiAdminScheduler(
       taskId?: unknown;
       source?: unknown;
       action?: unknown;
+      beforeJobId?: unknown;
+      boardStatus?: unknown;
     };
     const source =
       String(body.source || '')
@@ -1643,9 +1701,30 @@ async function handleApiAdminScheduler(
     const action = String(body.action || '')
       .trim()
       .toLowerCase();
+    if (action === 'move') {
+      let boardStatus = null;
+      try {
+        boardStatus = parseSchedulerBoardStatus(body.boardStatus) ?? null;
+      } catch (error) {
+        sendJson(res, 400, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      sendJson(
+        res,
+        200,
+        moveGatewayAdminSchedulerJob({
+          jobId,
+          beforeJobId: String(body.beforeJobId || '').trim() || null,
+          boardStatus,
+        }),
+      );
+      return;
+    }
     if (action !== 'pause' && action !== 'resume') {
       sendJson(res, 400, {
-        error: 'Expected scheduler action `pause` or `resume`.',
+        error: 'Expected scheduler action `pause`, `resume`, or `move`.',
       });
       return;
     }
@@ -2207,6 +2286,10 @@ export function startGatewayHttpServer(): void {
             (method === 'GET' || method === 'PUT')
           ) {
             await handleApiAdminSkills(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/jobs/context' && method === 'GET') {
+            handleApiAdminJobsContext(res);
             return;
           }
           if (pathname === '/api/history' && method === 'GET') {

@@ -10,6 +10,7 @@ import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
 import { DashboardPage } from './routes/dashboard';
 import { GatewayPage } from './routes/gateway';
+import { JobsPage } from './routes/jobs';
 import { McpPage } from './routes/mcp';
 import { ModelsPage } from './routes/models';
 import { PluginsPage } from './routes/plugins';
@@ -72,6 +73,12 @@ const schedulerRoute = createRoute({
   component: SchedulerPage,
 });
 
+const jobsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/jobs',
+  component: JobsPage,
+});
+
 const mcpRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/mcp',
@@ -110,6 +117,7 @@ const routeTree = rootRoute.addChildren([
   configRoute,
   modelsRoute,
   schedulerRoute,
+  jobsRoute,
   mcpRoute,
   auditRoute,
   skillsRoute,

@@ -45,6 +45,7 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
     getGatewayAdminScheduler,
     removeGatewayAdminSchedulerJob,
     setGatewayAdminSchedulerJobPaused,
+    upsertGatewayAdminSchedulerJob,
   } = await import('../src/gateway/gateway-service.ts');
 
   initDatabase({ quiet: true });
@@ -109,4 +110,33 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
   expect(
     getGatewayAdminScheduler().jobs.find((job) => job.id === `task:${taskId}`),
   ).toBeUndefined();
+
+  expect(() =>
+    upsertGatewayAdminSchedulerJob({
+      job: {
+        id: 'invalid-board-status',
+        schedule: {
+          kind: 'at',
+          at: runAt,
+          everyMs: null,
+          expr: null,
+          tz: 'UTC',
+        },
+        action: {
+          kind: 'agent_turn',
+          message: 'Reply exactly with: Drink water',
+        },
+        delivery: {
+          kind: 'channel',
+          channel: '1475079601968648386',
+          to: '',
+          webhookUrl: '',
+        },
+        enabled: true,
+        boardStatus: 'bogus',
+      },
+    }),
+  ).toThrow(
+    'Scheduler board status must be `backlog`, `in_progress`, `review`, `done`, or `cancelled`.',
+  );
 });

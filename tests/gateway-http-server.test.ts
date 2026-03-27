@@ -720,6 +720,9 @@ async function importFreshHealth(options?: {
   const removeGatewayAdminSchedulerJob = vi.fn(() => ({
     jobs: [],
   }));
+  const moveGatewayAdminSchedulerJob = vi.fn(() => ({
+    jobs: [],
+  }));
   const removeGatewayAdminMcpServer = vi.fn(() => ({
     servers: [],
   }));
@@ -756,6 +759,20 @@ async function importFreshHealth(options?: {
     disabled: [],
     channelDisabled: {},
     skills: [],
+  }));
+  const getGatewayAdminJobsContext = vi.fn(() => ({
+    agents: [{ id: 'main', name: 'Main Agent' }],
+    sessions: [
+      {
+        sessionId: 'scheduler:job-1',
+        agentId: 'main',
+        startedAt: '2026-03-27T08:00:00.000Z',
+        lastActive: '2026-03-27T08:05:00.000Z',
+        status: 'active',
+        lastAnswer: 'Done.',
+        output: ['recent output'],
+      },
+    ],
   }));
   const runMessageToolAction = vi.fn(async () => ({ ok: true }));
   const normalizeDiscordToolAction = vi.fn((value: string) =>
@@ -827,6 +844,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
+    getGatewayAdminJobsContext,
     getGatewayAdminMcp,
     getGatewayAdminModels,
     getGatewayAdminOverview,
@@ -841,6 +859,7 @@ async function importFreshHealth(options?: {
     getGatewayStatus,
     handleGatewayCommand,
     handleGatewayMessage,
+    moveGatewayAdminSchedulerJob,
     renderGatewayCommand,
     runGatewayPluginTool,
     removeGatewayAdminChannel,
@@ -896,7 +915,9 @@ async function importFreshHealth(options?: {
     getGatewayAdminMcp,
     getGatewayAdminAudit,
     getGatewayAdminSkills,
+    getGatewayAdminJobsContext,
     getGatewayAdminTools,
+    moveGatewayAdminSchedulerJob,
     createGatewayAdminAgent,
     updateGatewayAdminAgent,
     deleteGatewayAdminAgent,
@@ -1892,6 +1913,56 @@ describe('gateway HTTP server', () => {
     expect(state.getGatewayAdminScheduler).toHaveBeenCalledTimes(1);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ jobs: [] });
+  });
+
+  test('returns lightweight jobs context for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/jobs/context' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminJobsContext).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agents: [{ id: 'main', name: 'Main Agent' }],
+      sessions: [
+        {
+          sessionId: 'scheduler:job-1',
+          agentId: 'main',
+          startedAt: '2026-03-27T08:00:00.000Z',
+          lastActive: '2026-03-27T08:05:00.000Z',
+          status: 'active',
+          lastAnswer: 'Done.',
+          output: ['recent output'],
+        },
+      ],
+    });
+  });
+
+  test('rejects invalid scheduler move boardStatus values', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/scheduler',
+      body: {
+        action: 'move',
+        jobId: 'job-1',
+        boardStatus: 'bogus',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.moveGatewayAdminSchedulerJob).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Scheduler board status must be `backlog`, `in_progress`, `review`, `done`, or `cancelled`.',
+    });
   });
 
   test('returns filtered admin audit entries for authorized API requests', async () => {
@@ -3037,6 +3108,30 @@ describe('gateway HTTP server', () => {
     );
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ ok: true });
+  });
+
+  test('rejects malformed cc email addresses for message actions', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/message/action',
+      body: {
+        action: 'reply',
+        channelId: 'ops@example.com',
+        content: 'hello',
+        cc: ['not-an-email'],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.runMessageToolAction).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Invalid `cc` email address: not-an-email',
+    });
   });
 
   test('keeps /api/discord/action as a compatibility alias for message actions', async () => {

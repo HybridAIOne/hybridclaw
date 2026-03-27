@@ -1378,6 +1378,7 @@ async function runScheduledTask(
       );
     },
     runKey,
+    request.agentId,
   );
 }
 

@@ -108,6 +108,15 @@ export type DiscordPresenceActivityType =
 export type SchedulerScheduleKind = 'at' | 'every' | 'cron';
 export type SchedulerActionKind = 'agent_turn' | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
+export const SCHEDULER_BOARD_STATUSES = [
+  'backlog',
+  'in_progress',
+  'review',
+  'done',
+  'cancelled',
+] as const;
+export type SchedulerBoardStatus = (typeof SCHEDULER_BOARD_STATUSES)[number];
+const SCHEDULER_BOARD_STATUS_SET = new Set<string>(SCHEDULER_BOARD_STATUSES);
 export type ContainerSandboxMode = 'container' | 'host';
 export type RuntimeWebSearchProvider =
   | 'auto'
@@ -304,6 +313,8 @@ export interface RuntimeSchedulerJob {
   id: string;
   name?: string;
   description?: string;
+  agentId?: string;
+  boardStatus?: SchedulerBoardStatus;
   schedule: {
     kind: SchedulerScheduleKind;
     at: string | null;
@@ -2225,6 +2236,33 @@ function normalizeSchedulerDeliveryKind(
   return fallback;
 }
 
+export function normalizeSchedulerBoardStatus(
+  value: unknown,
+): SchedulerBoardStatus | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (SCHEDULER_BOARD_STATUS_SET.has(normalized)) {
+    return normalized as SchedulerBoardStatus;
+  }
+  return undefined;
+}
+
+export function parseSchedulerBoardStatus(
+  value: unknown,
+  label = 'Scheduler board status',
+): SchedulerBoardStatus | undefined {
+  const trimmed =
+    value === null || value === undefined ? '' : String(value).trim();
+  if (!trimmed) return undefined;
+
+  const normalized = normalizeSchedulerBoardStatus(trimmed);
+  if (normalized) return normalized;
+
+  throw new Error(
+    `${label} must be \`backlog\`, \`in_progress\`, \`review\`, \`done\`, or \`cancelled\`.`,
+  );
+}
+
 function normalizeSchedulerJobList(
   value: unknown,
   fallback: RuntimeSchedulerJob[],
@@ -2281,19 +2319,24 @@ function normalizeSchedulerJobList(
     );
     if (deliveryKind === 'channel' && !to) continue;
     if (deliveryKind === 'webhook' && !webhookUrl) continue;
-    const actionMessage = normalizeString(rawAction.message, '', {
-      allowEmpty: false,
-    });
-    if (!actionMessage) continue;
     const name = normalizeString(item.name, '', { allowEmpty: true });
     const description = normalizeString(item.description, '', {
       allowEmpty: true,
     });
+    const actionMessage =
+      normalizeString(rawAction.message, '', {
+        allowEmpty: true,
+      }) || description;
+    if (!actionMessage) continue;
+    const agentId = normalizeString(item.agentId, '', { allowEmpty: false });
+    const boardStatus = normalizeSchedulerBoardStatus(item.boardStatus);
 
     jobs.push({
       id: jobId,
       ...(name ? { name } : {}),
       ...(description ? { description } : {}),
+      ...(agentId ? { agentId } : {}),
+      ...(boardStatus ? { boardStatus } : {}),
       schedule: {
         kind: scheduleKind,
         at: atIso,

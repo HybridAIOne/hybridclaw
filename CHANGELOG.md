@@ -1,6 +1,23 @@
 # Changelog
 
-## [Unreleased]
+## [Coming up]
+
+### Changed
+
+- **Skill metadata parsing cleanup**: Consolidated frontmatter traversal and
+  metadata grouping in the skill loader so HybridClaw prefers native
+  HybridClaw metadata while still handling OpenClaw-compatible skill manifests
+  more predictably.
+
+### Fixed
+
+- **Skill install/sync path stability**: Stabilized installed and synced skill
+  paths, prevented path collisions during sync, and deduplicated install specs
+  independent of key order so repeated skill installs are safer and more
+  consistent.
+- **Malformed `requires` handling for skills**: HybridClaw now warns when a
+  skill declares malformed `requires` metadata instead of silently accepting
+  broken dependency declarations.
 
 ## [0.9.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.2)
 

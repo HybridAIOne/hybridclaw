@@ -16,6 +16,8 @@ interface SchedulerDraft {
   id: string;
   name: string;
   description: string;
+  agentId: string;
+  boardStatus: 'backlog' | 'in_progress' | 'review' | 'done' | 'cancelled';
   enabled: boolean;
   scheduleKind: 'cron' | 'every' | 'at';
   scheduleExpr: string;
@@ -73,12 +75,25 @@ function formatRuntimeState(job: AdminSchedulerJob): string {
   return job.enabled ? 'ready' : 'inactive';
 }
 
+function deriveDraftBoardStatus(
+  job: AdminSchedulerJob | undefined,
+): SchedulerDraft['boardStatus'] {
+  if (job?.boardStatus) return job.boardStatus;
+  if (!job) return 'backlog';
+  if (!job.enabled || job.disabled) return 'cancelled';
+  if (job.lastStatus === 'success') return 'done';
+  if (job.lastStatus === 'error') return 'cancelled';
+  return 'backlog';
+}
+
 function createDraft(source?: AdminSchedulerJob): SchedulerDraft {
   return {
     originalId: source?.id || null,
     id: source?.id || '',
     name: source?.name || '',
     description: source?.description || '',
+    agentId: source?.agentId || '',
+    boardStatus: deriveDraftBoardStatus(source),
     enabled: source?.enabled ?? true,
     scheduleKind: source?.schedule.kind || 'cron',
     scheduleExpr: source?.schedule.expr || '0 * * * *',
@@ -97,12 +112,45 @@ function createDraft(source?: AdminSchedulerJob): SchedulerDraft {
   };
 }
 
+function slugifySchedulerId(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+}
+
+function prepareDraftForSave(draft: SchedulerDraft): SchedulerDraft {
+  const explicitId = draft.id.trim();
+  if (explicitId) {
+    return {
+      ...draft,
+      id: explicitId,
+    };
+  }
+
+  const base =
+    slugifySchedulerId(draft.name) ||
+    slugifySchedulerId(draft.description) ||
+    slugifySchedulerId(draft.actionMessage);
+  const generatedId =
+    base || `job-${Date.now().toString(36).slice(-8).toLowerCase()}`;
+
+  return {
+    ...draft,
+    id: generatedId,
+  };
+}
+
 function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
   return {
     id: draft.id.trim(),
     source: 'config',
     name: draft.name.trim() || draft.id.trim(),
     description: draft.description.trim() || null,
+    agentId: draft.agentId.trim() || null,
+    boardStatus: draft.boardStatus,
     enabled: draft.enabled,
     schedule: {
       kind: draft.scheduleKind,
@@ -253,6 +301,7 @@ function SchedulerJobEditor(props: {
   saveResult: AdminSchedulerResponse | undefined;
   onDraftChange: (update: (current: SchedulerDraft) => SchedulerDraft) => void;
   onSave: () => void;
+  onCancel: () => void;
   onPauseToggle: () => void;
   onDelete: () => void;
 }) {
@@ -272,7 +321,7 @@ function SchedulerJobEditor(props: {
                   id: event.target.value,
                 }))
               }
-              placeholder="nightly-research"
+              placeholder="Auto-generated from name if blank"
             />
           </label>
           <label className="field">
@@ -304,18 +353,39 @@ function SchedulerJobEditor(props: {
           />
         </label>
 
-        <BooleanField
-          label="State"
-          value={draft.enabled}
-          trueLabel="on"
-          falseLabel="off"
-          onChange={(enabled) =>
-            props.onDraftChange((current) => ({
-              ...current,
-              enabled,
-            }))
-          }
-        />
+        <div className="field-grid">
+          <label className="field">
+            <span>Status</span>
+            <select
+              value={draft.boardStatus}
+              onChange={(event) =>
+                props.onDraftChange((current) => ({
+                  ...current,
+                  boardStatus: event.target
+                    .value as SchedulerDraft['boardStatus'],
+                }))
+              }
+            >
+              <option value="backlog">backlog</option>
+              <option value="in_progress">in progress</option>
+              <option value="review">review</option>
+              <option value="done">done</option>
+              <option value="cancelled">cancelled</option>
+            </select>
+          </label>
+          <BooleanField
+            label="State"
+            value={draft.enabled}
+            trueLabel="on"
+            falseLabel="off"
+            onChange={(enabled) =>
+              props.onDraftChange((current) => ({
+                ...current,
+                enabled,
+              }))
+            }
+          />
+        </div>
 
         <div className="field-grid">
           <label className="field">
@@ -526,6 +596,14 @@ function SchedulerJobEditor(props: {
           >
             {props.savePending ? 'Saving...' : 'Save job'}
           </button>
+          <button
+            className="ghost-button"
+            type="button"
+            disabled={props.savePending}
+            onClick={props.onCancel}
+          >
+            Cancel
+          </button>
           {selectedJob ? (
             <button
               className="ghost-button"
@@ -590,14 +668,12 @@ export function SchedulerPage() {
   const selectedConfigJob = isConfigJob(selectedJob) ? selectedJob : null;
 
   const saveMutation = useMutation({
-    mutationFn: () => saveSchedulerJob(auth.token, normalizeDraft(draft)),
-    onSuccess: (payload) => {
+    mutationFn: (nextDraft: SchedulerDraft) =>
+      saveSchedulerJob(auth.token, normalizeDraft(nextDraft)),
+    onSuccess: (payload, nextDraft) => {
       replaceSchedulerJobs(payload, auth.token, queryClient);
-      setSelectedId(draft.id.trim());
-      const refreshed = payload.jobs.find((job) => job.id === draft.id.trim());
-      if (isConfigJob(refreshed)) {
-        setDraft(createDraft(refreshed));
-      }
+      setSelectedId(nextDraft.id.trim());
+      window.location.href = '/admin/jobs';
     },
   });
 
@@ -746,7 +822,20 @@ export function SchedulerPage() {
             deleteError={deleteMutation.error as Error | null}
             saveResult={saveMutation.isSuccess ? saveMutation.data : undefined}
             onDraftChange={(update) => setDraft((current) => update(current))}
-            onSave={() => saveMutation.mutate()}
+            onSave={() => {
+              const nextDraft = prepareDraftForSave(draft);
+              setDraft(nextDraft);
+              saveMutation.mutate(nextDraft);
+            }}
+            onCancel={() => {
+              if (selectedConfigJob) {
+                setDraft(createDraft(selectedConfigJob));
+                return;
+              }
+              setSelectedId(null);
+              setDraft(createDraft());
+              window.location.href = '/admin/jobs';
+            }}
             onPauseToggle={() =>
               pauseMutation.mutate(
                 selectedConfigJob?.disabled ? 'resume' : 'pause',

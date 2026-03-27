@@ -387,6 +387,21 @@ function readStringValue(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+// Duplicated on purpose instead of importing the gateway helper. The container
+// runtime is packaged independently and should keep its input normalization
+// self-contained at the sandbox boundary.
+function readStringListValue(value: unknown): string[] | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : undefined;
+  }
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .map((entry) => readStringValue(entry))
+    .filter((entry): entry is string => Boolean(entry));
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 function readPositiveNumberValue(value: unknown): number | null {
   if (typeof value === 'number') {
     return Number.isFinite(value) && value > 0 ? value : null;
@@ -2047,6 +2062,10 @@ async function executeToolInternal(
           readStringValue(args.content) ||
           readStringValue(args.text) ||
           readStringValue(args.message);
+        const subject =
+          readStringValue(args.subject) || readStringValue(args.title);
+        const cc = readStringListValue(args.cc);
+        const bcc = readStringListValue(args.bcc);
         const filePath =
           readStringValue(args.filePath) ||
           readStringValue(args.attachmentPath) ||
@@ -2084,6 +2103,9 @@ async function executeToolInternal(
         if (channelId) payload.channelId = channelId;
         if (userLookupTarget) payload.user = userLookupTarget;
         if (content) payload.content = content;
+        if (subject) payload.subject = subject;
+        if (cc) payload.cc = cc;
+        if (bcc) payload.bcc = bcc;
         if (filePath) payload.filePath = filePath;
         if (components !== undefined) payload.components = components;
 
@@ -2898,6 +2920,27 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           content: {
             type: 'string',
             description: 'Message text payload (required for action="send").',
+          },
+          subject: {
+            type: 'string',
+            description:
+              'Optional email subject override for action="send" when channelId/to targets an email address. If omitted, email can still use an inline `[Subject: ...]` prefix in content.',
+          },
+          cc: {
+            type: ['string', 'array'],
+            items: {
+              type: 'string',
+            },
+            description:
+              'Optional email CC recipient or list of recipients for action="send" when channelId/to targets an email address.',
+          },
+          bcc: {
+            type: ['string', 'array'],
+            items: {
+              type: 'string',
+            },
+            description:
+              'Optional email BCC recipient or list of recipients for action="send" when channelId/to targets an email address.',
           },
           filePath: {
             type: 'string',

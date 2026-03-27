@@ -175,6 +175,34 @@ function hasMessageComponents(request: DiscordToolActionRequest): boolean {
   );
 }
 
+function normalizeEmailRecipientList(
+  value: string[] | undefined,
+  label: 'cc' | 'bcc',
+): string[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const normalized: string[] = [];
+  for (const entry of value) {
+    const candidate = normalizeEmailAddress(entry);
+    if (!candidate) {
+      throw new Error(`${label} must contain valid email addresses.`);
+    }
+    normalized.push(candidate);
+  }
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function buildEmailSendResultMeta(params: {
+  subject: string | null;
+  cc: string[] | undefined;
+  bcc: string[] | undefined;
+}): Record<string, unknown> {
+  return {
+    ...(params.subject ? { subject: params.subject } : {}),
+    ...(params.cc ? { cc: params.cc } : {}),
+    ...(params.bcc ? { bcc: params.bcc } : {}),
+  };
+}
+
 async function runWhatsAppMessageSendAction(
   request: DiscordToolActionRequest,
   channelId: string,
@@ -229,6 +257,10 @@ async function runEmailMessageSendAction(
   const content = String(request.content || '').trim();
   const filePath = resolveMessageToolSendFilePath(request);
   const hasComponents = hasMessageComponents(request);
+  const subject = String(request.subject || '').trim() || null;
+  const cc = normalizeEmailRecipientList(request.cc, 'cc');
+  const bcc = normalizeEmailRecipientList(request.bcc, 'bcc');
+  const emailMeta = buildEmailSendResultMeta({ subject, cc, bcc });
   if (!content && !filePath) {
     throw new Error(
       'content is required for email send unless filePath is provided.',
@@ -243,6 +275,9 @@ async function runEmailMessageSendAction(
       to: channelId,
       filePath,
       body: content || '',
+      subject,
+      cc,
+      bcc,
     });
     return {
       ok: true,
@@ -251,16 +286,22 @@ async function runEmailMessageSendAction(
       transport: 'email',
       attachmentCount: 1,
       contentLength: content.length,
+      ...emailMeta,
     };
   }
 
-  await sendToEmail(channelId, content);
+  await sendToEmail(channelId, content, {
+    subject,
+    cc,
+    bcc,
+  });
   return {
     ok: true,
     action: 'send',
     channelId,
     transport: 'email',
     contentLength: content.length,
+    ...emailMeta,
   };
 }
 

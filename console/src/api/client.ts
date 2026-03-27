@@ -7,16 +7,20 @@ import type {
   AdminChannelTransport,
   AdminConfig,
   AdminConfigResponse,
+  AdminJobsContextResponse,
   AdminMcpConfig,
   AdminMcpResponse,
   AdminModelsResponse,
   AdminOverview,
   AdminPluginsResponse,
+  AdminSchedulerBoardStatus,
   AdminSchedulerJob,
   AdminSchedulerResponse,
   AdminSession,
   AdminSkillsResponse,
   AdminToolsResponse,
+  AgentsOverview,
+  AgentsOverviewResponse,
   DeleteSessionResult,
   GatewayStatus,
 } from './types';
@@ -115,6 +119,18 @@ export function fetchHealth(): Promise<GatewayStatus> {
 
 export function fetchOverview(token: string): Promise<AdminOverview> {
   return requestJson<AdminOverview>('/api/admin/overview', { token });
+}
+
+export function fetchAgentsOverview(token: string): Promise<AgentsOverview> {
+  return requestJson<AgentsOverviewResponse>('/api/agents', { token });
+}
+
+export function fetchJobsContext(
+  token: string,
+): Promise<AdminJobsContextResponse> {
+  return requestJson<AdminJobsContextResponse>('/api/admin/jobs/context', {
+    token,
+  });
 }
 
 export async function fetchSessions(token: string): Promise<AdminSession[]> {
@@ -257,6 +273,24 @@ export function setSchedulerJobPaused(
     token,
     method: 'POST',
     body: payload,
+  });
+}
+
+export function moveSchedulerJob(
+  token: string,
+  payload: {
+    jobId: string;
+    beforeJobId?: string | null;
+    boardStatus?: AdminSchedulerBoardStatus | null;
+  },
+): Promise<AdminSchedulerResponse> {
+  return requestJson<AdminSchedulerResponse>('/api/admin/scheduler', {
+    token,
+    method: 'POST',
+    body: {
+      action: 'move',
+      ...payload,
+    },
   });
 }
 

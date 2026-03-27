@@ -59,6 +59,9 @@ export interface EmailSendParams {
   transport: MailTransport;
   to: string;
   body: string;
+  subject?: string | null;
+  cc?: string[] | null;
+  bcc?: string[] | null;
   selfAddress: string;
   threadContext: ThreadContext | null;
   attachment?:
@@ -167,6 +170,7 @@ function buildThreadHeaders(threadContext: ThreadContext | null): {
 function resolveSubjectAndBody(
   text: string,
   threadContext: ThreadContext | null,
+  explicitSubject?: string | null,
 ): {
   subject: string;
   body: string;
@@ -179,7 +183,10 @@ function resolveSubjectAndBody(
     };
   }
   return {
-    subject: extracted.subject || DEFAULT_EMAIL_SUBJECT,
+    subject:
+      String(explicitSubject || '').trim() ||
+      extracted.subject ||
+      DEFAULT_EMAIL_SUBJECT,
     body: extracted.body,
   };
 }
@@ -211,10 +218,18 @@ export function prepareEmailTextChunks(
 export async function sendEmail(
   params: EmailSendParams,
 ): Promise<EmailSendResult> {
-  const resolved = resolveSubjectAndBody(params.body, params.threadContext);
+  const resolved = resolveSubjectAndBody(
+    params.body,
+    params.threadContext,
+    params.subject,
+  );
   const chunks = prepareEmailTextChunks(resolved.body, {
     allowEmpty: Boolean(params.attachment),
   });
+  const cc =
+    Array.isArray(params.cc) && params.cc.length > 0 ? params.cc : undefined;
+  const bcc =
+    Array.isArray(params.bcc) && params.bcc.length > 0 ? params.bcc : undefined;
 
   // Attachment-only sends still need a single outbound message when the body
   // is intentionally empty.
@@ -232,6 +247,8 @@ export async function sendEmail(
     const info = (await params.transport.sendMail({
       from: params.selfAddress,
       to: params.to,
+      ...(cc ? { cc } : {}),
+      ...(bcc ? { bcc } : {}),
       subject: resolved.subject,
       text: text || undefined,
       html,
@@ -258,6 +275,8 @@ export async function sendEmail(
     const deliveryLog = {
       channel: 'email',
       to: params.to,
+      ...(cc ? { cc } : {}),
+      ...(bcc ? { bcc } : {}),
       subject: resolved.subject,
       messageId: messageId || null,
       chunkIndex: index + 1,
