@@ -575,7 +575,9 @@ function parseRequiresSection(sectionFields: Map<string, FrontmatterSection>): {
   };
 }
 
-function hasSectionContent(section: FrontmatterSection | null | undefined): boolean {
+function hasSectionContent(
+  section: FrontmatterSection | null | undefined,
+): boolean {
   if (!section) return false;
   if (section.inline.trim()) return true;
   return section.children.some((line) => line.trim().length > 0);
