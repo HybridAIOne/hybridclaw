@@ -446,13 +446,14 @@ function parseSectionObjectList(
   return values;
 }
 
-function mergeUniqueStrings(values: string[][]): string[] {
-  const merged: string[] = [];
+function mergeUnique<T>(groups: T[][], keyFn: (value: T) => string): T[] {
+  const merged: T[] = [];
   const seen = new Set<string>();
-  for (const group of values) {
+  for (const group of groups) {
     for (const value of group) {
-      if (!value || seen.has(value)) continue;
-      seen.add(value);
+      const key = keyFn(value);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
       merged.push(value);
     }
   }
@@ -476,17 +477,7 @@ function stableSerialize(value: unknown): string {
 function mergeUniqueInstallSpecs(
   groups: SkillInstallSpec[][],
 ): SkillInstallSpec[] {
-  const merged: SkillInstallSpec[] = [];
-  const seen = new Set<string>();
-  for (const group of groups) {
-    for (const spec of group) {
-      const fingerprint = stableSerialize(spec);
-      if (seen.has(fingerprint)) continue;
-      seen.add(fingerprint);
-      merged.push(spec);
-    }
-  }
-  return merged;
+  return mergeUnique(groups, (spec) => stableSerialize(spec));
 }
 
 function resolveCompatibleMetadataRecords(
@@ -505,13 +496,15 @@ function normalizeCompatibleMetadata(raw: Record<string, unknown>): {
 } {
   const records = resolveCompatibleMetadataRecords(raw);
   return {
-    tags: mergeUniqueStrings(
+    tags: mergeUnique(
       records.map((record) => normalizeStringList(record.tags)),
+      (value) => value,
     ),
-    relatedSkills: mergeUniqueStrings(
+    relatedSkills: mergeUnique(
       records.map((record) =>
         normalizeStringList(record.related_skills ?? record.relatedSkills),
       ),
+      (value) => value,
     ),
     install: mergeUniqueInstallSpecs(
       records.map((record) => normalizeInstallSpecs(record.install)),
@@ -525,19 +518,21 @@ function parseRequiresFromMetadataRecord(raw: Record<string, unknown>): {
 } {
   const records = resolveCompatibleMetadataRecords(raw);
   return {
-    bins: mergeUniqueStrings(
+    bins: mergeUnique(
       records.map((record) =>
         isRecord(record.requires)
           ? normalizeStringList(record.requires.bins)
           : [],
       ),
+      (value) => value,
     ),
-    env: mergeUniqueStrings(
+    env: mergeUnique(
       records.map((record) =>
         isRecord(record.requires)
           ? normalizeStringList(record.requires.env)
           : [],
       ),
+      (value) => value,
     ),
   };
 }
@@ -662,14 +657,17 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
     tags: parseSectionStringList(
       metadataLookup.compatibleSectionFields.get('tags'),
     ),
-    relatedSkills: mergeUniqueStrings([
-      parseSectionStringList(
-        metadataLookup.compatibleSectionFields.get('related_skills'),
-      ),
-      parseSectionStringList(
-        metadataLookup.compatibleSectionFields.get('relatedSkills'),
-      ),
-    ]),
+    relatedSkills: mergeUnique(
+      [
+        parseSectionStringList(
+          metadataLookup.compatibleSectionFields.get('related_skills'),
+        ),
+        parseSectionStringList(
+          metadataLookup.compatibleSectionFields.get('relatedSkills'),
+        ),
+      ],
+      (value) => value,
+    ),
     install: normalizeInstallSpecs(
       installInlineJson ?? parseSectionObjectList(installSection),
     ),
