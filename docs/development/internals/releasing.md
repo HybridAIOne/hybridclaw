@@ -64,6 +64,11 @@ Docker push:
 3. The workflow checks out that tag ref, validates the tag/package match, and
    then pushes GHCR images plus Docker Hub images when Docker Hub credentials
    are present.
+4. If the repository has `GHCR_USERNAME` and `GHCR_TOKEN` secrets configured,
+   the workflow uses them for GHCR pushes. Otherwise it falls back to the
+   workflow `GITHUB_TOKEN`.
+5. After each image push, the workflow verifies that every published tag is
+   readable from GHCR before the job completes.
 
 ## Manual Publish Fallback
 
