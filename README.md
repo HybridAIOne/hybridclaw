@@ -208,8 +208,8 @@ Runtime model:
 - `hybridclaw gateway` and `hybridclaw tui` validate the container image at startup.
 - `container.sandboxMode` defaults to `container`, but if HybridClaw is already running inside a container and the setting is not explicitly pinned, the gateway auto-switches to `host` to avoid Docker-in-Docker.
 - Use `hybridclaw gateway start --sandbox=host` or `hybridclaw gateway restart --sandbox=host` to force host execution for a given launch.
-- On first run, HybridClaw automatically prepares that image (pulls a prebuilt image first, then falls back to local build if needed).
-- If container setup fails, run `npm run build:container` in the project root and retry.
+- On first run from an installed package, HybridClaw pulls a published container image automatically. In a source checkout, it builds the local container image instead.
+- If Docker is unavailable, install Docker or switch to `container.sandboxMode=host`.
 
 ## Configuration
 

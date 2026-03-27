@@ -141,8 +141,8 @@ jobs:
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GHCR_USERNAME || github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || github.token }}
 
       - name: Build and push agent image
         id: push
@@ -157,6 +157,17 @@ jobs:
           labels: ${{ needs.validate.outputs.labels }}
           cache-from: type=gha,scope=agent-release
           cache-to: type=gha,mode=max,scope=agent-release
+
+      - name: Verify published agent tags
+        shell: bash
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [[ -n "${tag}" ]] || continue
+            docker buildx imagetools inspect "${tag}" >/dev/null
+          done <<< "${TAGS}"
 
   # Gateway image — runs as a permanent claw sandbox (hybridclaw gateway start).
   publish-gateway:
@@ -208,8 +219,8 @@ jobs:
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GHCR_USERNAME || github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || github.token }}
 
       - name: Build and push gateway image
         id: push
@@ -225,3 +236,14 @@ jobs:
           labels: ${{ needs.validate.outputs.labels }}
           cache-from: type=gha,scope=gateway-release
           cache-to: type=gha,mode=max,scope=gateway-release
+
+      - name: Verify published gateway tags
+        shell: bash
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [[ -n "${tag}" ]] || continue
+            docker buildx imagetools inspect "${tag}" >/dev/null
+          done <<< "${TAGS}"

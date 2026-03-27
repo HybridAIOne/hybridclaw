@@ -165,7 +165,7 @@ describe('resolveContainerImageAcquisitionMode', () => {
         cwd,
         'hybridclaw-agent',
       ),
-    ).toBe('pull-or-build');
+    ).toBe('pull-only');
   });
 
   test('treats explicit remote image names as pull-first', async () => {
@@ -227,6 +227,9 @@ describe('ensureContainerImageReady', () => {
     });
 
     const spawnMock = vi.fn((command: string, args: string[]) => {
+      if (command === 'docker' && args[0] === '--version') {
+        return makeSpawnResult({ code: 0 });
+      }
       if (
         command === 'docker' &&
         args[0] === 'image' &&
@@ -256,7 +259,7 @@ describe('ensureContainerImageReady', () => {
         cwd,
       }),
     ).resolves.toBeUndefined();
-    expect(spawnMock).toHaveBeenCalledTimes(2);
+    expect(spawnMock).toHaveBeenCalledTimes(3);
     expect(warnSpy).toHaveBeenCalledWith(
       "hybridclaw gateway restart: Unable to refresh image automatically. Continuing with existing container image 'hybridclaw-agent'.",
     );
@@ -276,6 +279,9 @@ describe('ensureContainerImageReady', () => {
     });
 
     const spawnMock = vi.fn((command: string, args: string[]) => {
+      if (command === 'docker' && args[0] === '--version') {
+        return makeSpawnResult({ code: 0 });
+      }
       if (
         command === 'docker' &&
         args[0] === 'image' &&
@@ -306,6 +312,124 @@ describe('ensureContainerImageReady', () => {
     ).rejects.toThrow(
       "hybridclaw gateway restart: Required container image 'hybridclaw-agent' not found.",
     );
-    expect(spawnMock).toHaveBeenCalledTimes(2);
+    expect(spawnMock).toHaveBeenCalledTimes(3);
+  });
+
+  test('does not fall back to local build for packaged installs when pulls fail', async () => {
+    const cwd = createTempDir();
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      if (command === 'docker' && args[0] === '--version') {
+        return makeSpawnResult({ code: 0 });
+      }
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect'
+      ) {
+        return makeSpawnResult({ code: 1, err: 'missing image' });
+      }
+      if (command === 'docker' && args[0] === 'pull') {
+        return makeSpawnResult({ code: 1, err: 'pull failed' });
+      }
+      if (
+        command === 'npm' &&
+        args[0] === 'run' &&
+        args[1] === 'build:container'
+      ) {
+        return makeSpawnResult({ code: 0 });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+
+    await expect(
+      containerSetup.ensureContainerImageReady({
+        commandName: 'hybridclaw gateway restart',
+        cwd,
+      }),
+    ).rejects.toThrow('Published container image pull attempts failed.');
+    expect(
+      spawnMock.mock.calls.some(
+        ([command, args]) =>
+          command === 'npm' &&
+          Array.isArray(args) &&
+          args[0] === 'run' &&
+          args[1] === 'build:container',
+      ),
+    ).toBe(false);
+  });
+
+  test('warns once and returns early when docker is missing for optional setup', async () => {
+    const cwd = createTempDir();
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      if (command === 'docker' && args[0] === '--version') {
+        return makeSpawnResult({
+          error: Object.assign(new Error('spawn docker ENOENT'), {
+            code: 'ENOENT',
+          }),
+        });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(
+      containerSetup.ensureContainerImageReady({
+        commandName: 'hybridclaw onboarding',
+        cwd,
+        required: false,
+      }),
+    ).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      'hybridclaw onboarding: Install docker to use sandbox. Or start with --sandbox host.',
+    );
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('fails fast when docker is missing for required setup', async () => {
+    const cwd = createTempDir();
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      if (command === 'docker' && args[0] === '--version') {
+        return makeSpawnResult({
+          error: Object.assign(new Error('spawn docker ENOENT'), {
+            code: 'ENOENT',
+          }),
+        });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+
+    await expect(
+      containerSetup.ensureContainerImageReady({
+        commandName: 'hybridclaw gateway restart',
+        cwd,
+      }),
+    ).rejects.toThrow(
+      'hybridclaw gateway restart: Install docker to use sandbox. Or start with --sandbox host.',
+    );
+    expect(spawnMock).toHaveBeenCalledTimes(1);
   });
 });

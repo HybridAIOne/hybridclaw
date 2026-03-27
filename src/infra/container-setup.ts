@@ -7,7 +7,10 @@ import { APP_VERSION, CONTAINER_IMAGE } from '../config/config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-config.js';
 
 export type ContainerRebuildPolicy = 'if-stale' | 'always' | 'never';
-export type ContainerImageAcquisitionMode = 'pull-or-build' | 'build-only';
+export type ContainerImageAcquisitionMode =
+  | 'pull-only'
+  | 'pull-or-build'
+  | 'build-only';
 
 interface EnsureContainerImageOptions {
   commandName?: string;
@@ -109,6 +112,10 @@ const TRACKED_FILES = [
 ];
 const TRACKED_SOURCE_ROOT = 'container/src';
 
+function isSourceCheckout(cwd: string): boolean {
+  return fs.existsSync(path.join(cwd, '.git'));
+}
+
 function resolveContainerPullImages(imageName: string): string[] {
   const explicit = (process.env.HYBRIDCLAW_CONTAINER_PULL_IMAGE || '').trim();
   if (explicit) return [explicit];
@@ -128,15 +135,18 @@ export function resolveContainerImageAcquisitionMode(
   cwd: string,
   imageName: string,
 ): ContainerImageAcquisitionMode {
+  const sourceCheckout = isSourceCheckout(cwd);
   if ((process.env.HYBRIDCLAW_CONTAINER_PULL_IMAGE || '').trim()) {
-    return 'pull-or-build';
+    return sourceCheckout ? 'pull-or-build' : 'pull-only';
   }
-  if (imageName.includes('/')) return 'pull-or-build';
+  if (imageName.includes('/')) {
+    return sourceCheckout ? 'pull-or-build' : 'pull-only';
+  }
   if (imageName !== DEFAULT_CONTAINER_IMAGE) return 'build-only';
 
   // In a local checkout, published images can lag the working tree.
-  if (fs.existsSync(path.join(cwd, '.git'))) return 'build-only';
-  return 'pull-or-build';
+  if (sourceCheckout) return 'build-only';
+  return 'pull-only';
 }
 
 function normalizeRebuildPolicy(
@@ -153,6 +163,26 @@ function resolveRebuildPolicy(): ContainerRebuildPolicy {
     process.env.HYBRIDCLAW_CONTAINER_REBUILD ||
       process.env.HYBRIDCLAW_CONTAINER_REBUILD_POLICY,
   );
+}
+
+async function ensureDockerAvailable(
+  commandName: string,
+  required: boolean,
+): Promise<boolean> {
+  const result = await runCommand('docker', ['--version']);
+  if (result.code === 0) return true;
+
+  const detail = result.err?.trim() || '';
+  const dockerMissing =
+    result.code === null && /enoent|not found/i.test(detail);
+  if (!dockerMissing) return true;
+
+  const message = `${commandName}: Install docker to use sandbox. Or start with --sandbox host.`;
+  if (required) {
+    throw new Error(message);
+  }
+  console.warn(message);
+  return false;
 }
 
 function stateScopeKey(cwd: string): string {
@@ -341,7 +371,10 @@ async function buildAndValidateImage(params: {
   }
 
   try {
-    if (acquisitionMode === 'pull-or-build') {
+    if (
+      acquisitionMode === 'pull-or-build' ||
+      acquisitionMode === 'pull-only'
+    ) {
       const pullImages = resolveContainerPullImages(imageName);
       for (const pullImage of pullImages) {
         console.log(
@@ -367,6 +400,9 @@ async function buildAndValidateImage(params: {
           console.warn(`Details: ${pullMessage}`);
         }
       }
+      if (acquisitionMode === 'pull-only') {
+        throw new Error('Published container image pull attempts failed.');
+      }
     }
 
     console.log(
@@ -385,9 +421,11 @@ async function buildAndValidateImage(params: {
       return;
     }
     if (!required) {
-      console.warn(
-        `${commandName}: Unable to build image automatically. ${hint}`,
-      );
+      const failurePrefix =
+        acquisitionMode === 'pull-only'
+          ? 'Unable to prepare image automatically.'
+          : 'Unable to build image automatically.';
+      console.warn(`${commandName}: ${failurePrefix} ${hint}`);
       console.warn(`Details: ${message}`);
       return;
     }
@@ -402,15 +440,27 @@ export async function ensureContainerImageReady(
   const required = options.required !== false;
   const cwd = options.cwd || process.cwd();
   const imageName = CONTAINER_IMAGE;
+  const acquisitionMode = resolveContainerImageAcquisitionMode(cwd, imageName);
   const rebuildPolicy = resolveRebuildPolicy();
   const fingerprint = computeContainerFingerprint(cwd, imageName);
 
+  if (!(await ensureDockerAvailable(commandName, required))) {
+    return;
+  }
+
   const exists = await containerImageExists(imageName);
-  const missingImageHint = [
-    `${commandName}: Required container image '${imageName}' not found.`,
-    'Run `npm run build:container` in the project root to build it.',
-    'HybridClaw also attempts to pull published images automatically before local build.',
-  ].join(' ');
+  const missingImageHint =
+    acquisitionMode === 'pull-only'
+      ? [
+          `${commandName}: Required container image '${imageName}' not found.`,
+          'HybridClaw could not pull a published runtime image automatically.',
+          'Check Docker connectivity and the published image tag, or set `container.sandboxMode` to `host` to run without Docker.',
+        ].join(' ')
+      : [
+          `${commandName}: Required container image '${imageName}' not found.`,
+          'Run `npm run build:container` in the project root to build it.',
+          'HybridClaw also attempts to pull published images automatically before local build.',
+        ].join(' ');
   const rebuildImageHint = [
     `${commandName}: Unable to rebuild container image '${imageName}' automatically.`,
     'Run `npm run build:container` in the project root to rebuild it manually.',
@@ -426,7 +476,7 @@ export async function ensureContainerImageReady(
       required,
       cwd,
       imageName,
-      acquisitionMode: resolveContainerImageAcquisitionMode(cwd, imageName),
+      acquisitionMode,
       reason: 'Container image not found.',
       hint: missingImageHint,
       fingerprint,
