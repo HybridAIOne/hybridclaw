@@ -67,8 +67,10 @@ import {
 } from '../config/config.js';
 import {
   getRuntimeConfig,
+  parseSchedulerBoardStatus,
   type RuntimeConfig,
   runtimeConfigPath,
+  type SchedulerBoardStatus,
   saveRuntimeConfig,
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
@@ -284,6 +286,7 @@ import {
   type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
   type GatewayAdminDeleteSessionResult,
+  type GatewayAdminJobsContextResponse,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
@@ -2288,6 +2291,56 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
   };
 }
 
+export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
+  const activeSessionIds = new Set(getActiveExecutorSessionIds());
+  const sandboxMode = getRuntimeConfig().container.sandboxMode || 'container';
+  const sessions = getAllSessions()
+    .map((session) =>
+      mapSessionCard({
+        session,
+        activeSessionIds,
+        usageBySession: new Map(),
+        sandboxMode,
+      }),
+    )
+    .sort((left, right) => {
+      const rank = { active: 0, idle: 1, stopped: 2 } as const;
+      const byStatus = rank[left.status] - rank[right.status];
+      if (byStatus !== 0) return byStatus;
+      return (
+        (parseTimestamp(right.lastActive)?.getTime() || 0) -
+        (parseTimestamp(left.lastActive)?.getTime() || 0)
+      );
+    })
+    .map((session) => ({
+      sessionId: session.sessionId,
+      agentId: session.agentId,
+      startedAt: session.startedAt,
+      lastActive: session.lastActive,
+      status: session.status,
+      lastAnswer: session.lastAnswer,
+      output: session.output,
+    }));
+
+  const agentIds = Array.from(
+    new Set([
+      ...listAgents().map((agent) => agent.id),
+      ...sessions.map((session) => session.agentId),
+    ]),
+  ).sort((left, right) => left.localeCompare(right));
+
+  return {
+    agents: agentIds.map((agentId) => {
+      const agent = getAgentById(agentId) ?? resolveAgentConfig(agentId);
+      return {
+        id: agent.id,
+        name: agent.name || null,
+      };
+    }),
+    sessions,
+  };
+}
+
 export function getGatewayAdminSessions(): GatewayAdminSession[] {
   return getAllSessions().map(mapAdminSession);
 }
@@ -2471,33 +2524,10 @@ function parseAdminSchedulerJob(
   const name = String(value.name || '').trim();
   const description = String(value.description || '').trim();
   const agentId = String(value.agentId || '').trim();
-  const boardStatusRaw = String(value.boardStatus || '')
-    .trim()
-    .toLowerCase();
+  const boardStatus = parseSchedulerBoardStatus(value.boardStatus);
   const rawSchedule = isRecord(value.schedule) ? value.schedule : {};
   const rawAction = isRecord(value.action) ? value.action : {};
   const rawDelivery = isRecord(value.delivery) ? value.delivery : {};
-  let boardStatus:
-    | 'backlog'
-    | 'in_progress'
-    | 'review'
-    | 'done'
-    | 'cancelled'
-    | undefined;
-  if (boardStatusRaw) {
-    if (
-      boardStatusRaw !== 'backlog' &&
-      boardStatusRaw !== 'in_progress' &&
-      boardStatusRaw !== 'review' &&
-      boardStatusRaw !== 'done' &&
-      boardStatusRaw !== 'cancelled'
-    ) {
-      throw new Error(
-        'Scheduler board status must be `backlog`, `in_progress`, `review`, `done`, or `cancelled`.',
-      );
-    }
-    boardStatus = boardStatusRaw;
-  }
 
   const scheduleKind = String(rawSchedule.kind || 'cron')
     .trim()
@@ -3111,27 +3141,25 @@ export function setGatewayAdminSchedulerJobPaused(params: {
 export function moveGatewayAdminSchedulerJob(params: {
   jobId: string;
   beforeJobId?: string | null;
-  boardStatus?:
-    | 'backlog'
-    | 'in_progress'
-    | 'review'
-    | 'done'
-    | 'cancelled'
-    | null;
+  boardStatus?: SchedulerBoardStatus | null;
 }): GatewayAdminSchedulerResponse {
   const normalizedJobId = params.jobId.trim();
   if (!normalizedJobId) {
     throw new Error('Expected non-empty scheduler `jobId`.');
   }
   const normalizedBeforeJobId = String(params.beforeJobId || '').trim() || null;
-  let found = false;
+  const exists = getRuntimeConfig().scheduler.jobs.some(
+    (job) => job.id === normalizedJobId,
+  );
+  if (!exists) {
+    throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
+  }
 
   updateRuntimeConfig((draft) => {
     const fromIndex = draft.scheduler.jobs.findIndex(
       (job) => job.id === normalizedJobId,
     );
     if (fromIndex < 0) return;
-    found = true;
     const [job] = draft.scheduler.jobs.splice(fromIndex, 1);
     if (params.boardStatus) {
       job.boardStatus = params.boardStatus;
@@ -3147,10 +3175,6 @@ export function moveGatewayAdminSchedulerJob(params: {
     }
     draft.scheduler.jobs.splice(insertIndex, 0, job);
   });
-
-  if (!found) {
-    throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
-  }
 
   rearmScheduler();
   return getGatewayAdminScheduler();

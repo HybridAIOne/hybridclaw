@@ -8,26 +8,22 @@ import {
   useState,
 } from 'react';
 import {
-  fetchAgentsOverview,
+  fetchJobsContext,
   fetchScheduler,
   moveSchedulerJob,
   saveSchedulerJob,
 } from '../api/client';
-import type {
-  AdminSchedulerJob,
-  AgentCard,
-  AgentSessionCard,
-} from '../api/types';
+import type { AdminSchedulerJob, JobAgent, JobSession } from '../api/types';
 import { useAuth } from '../auth';
 import { PageHeader } from '../components/ui';
-import { formatDateTime, formatRelativeTime } from '../lib/format';
+import { formatDateTime } from '../lib/format';
 
 type JobColumnId = 'backlog' | 'in_progress' | 'review' | 'done' | 'cancelled';
 
 interface JobBoardItem {
   key: string;
   job: AdminSchedulerJob;
-  session: AgentSessionCard | null;
+  session: JobSession | null;
   agentKey: string;
   agentLabel: string;
   column: JobColumnId;
@@ -37,11 +33,10 @@ interface JobBoardItem {
   searchIndex: string;
 }
 
-interface JobHistoryEntry {
+interface JobRuntimeEntry {
   key: string;
-  title: string;
-  detail: string;
-  timestamp: string | null;
+  label: string;
+  value: string;
 }
 
 const JOB_COLUMNS: ReadonlyArray<{
@@ -72,7 +67,7 @@ function resolveSchedulerSessionId(job: AdminSchedulerJob): string | null {
 
 function deriveColumn(
   job: AdminSchedulerJob,
-  session: AgentSessionCard | null,
+  session: JobSession | null,
 ): JobColumnId {
   if (job.boardStatus) return job.boardStatus;
   if (session?.status === 'active') return 'in_progress';
@@ -94,30 +89,19 @@ function deriveTone(column: JobColumnId): JobBoardItem['tone'] {
   return 'default';
 }
 
-function deriveStateLabel(
-  job: AdminSchedulerJob,
-  session: AgentSessionCard | null,
-  column: JobColumnId,
-): string {
+function deriveStateLabel(job: AdminSchedulerJob, column: JobColumnId): string {
   if (isJobPaused(job)) return 'paused';
-  if (job.boardStatus === 'in_progress' || column === 'in_progress') {
-    return 'running';
-  }
-  if (
-    job.boardStatus === 'review' ||
-    job.boardStatus === 'done' ||
-    column === 'review' ||
-    column === 'done' ||
-    job.lastStatus === 'success' ||
-    session?.status === 'idle'
-  ) {
-    return 'ready';
-  }
-  return 'queued';
+  if (column === 'in_progress') return 'running';
+  if (column === 'backlog' || column === 'cancelled') return 'queued';
+  return 'ready';
 }
 
 function isJobPaused(job: AdminSchedulerJob): boolean {
-  return job.disabled || !job.enabled;
+  if (job.source === 'task') return job.disabled;
+  // Config jobs have two distinct flags:
+  // - enabled: persisted config switch
+  // - disabled: runtime pause / auto-disable state
+  return !job.enabled || job.disabled;
 }
 
 function hashString(value: string): number {
@@ -204,117 +188,40 @@ function replaceSchedulerJob(
   );
 }
 
-function buildJobHistory(item: JobBoardItem): JobHistoryEntry[] {
-  const entries: JobHistoryEntry[] = [];
-  const push = (
-    title: string,
-    detail: string,
-    timestamp: string | null,
-    suffix: string,
-  ) => {
+function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
+  const entries: JobRuntimeEntry[] = [];
+  const push = (label: string, value: string | null | undefined): void => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return;
     entries.push({
-      key: `${item.job.id}:${suffix}:${entries.length}`,
-      title,
-      detail,
-      timestamp,
+      key: `${item.job.id}:${label.toLowerCase().replace(/\s+/g, '-')}`,
+      label,
+      value: normalized,
     });
   };
 
-  if (item.job.createdAt) {
-    push(
-      'Created',
-      'Job was created and added to the board.',
-      item.job.createdAt,
-      'created',
-    );
-  } else if (item.job.source === 'config') {
-    push(
-      'Registered',
-      'Config-backed job is registered in the scheduler.',
-      null,
-      'registered',
-    );
-  }
+  push('Created', formatDateTime(item.job.createdAt));
+  push('Last run', formatDateTime(item.job.lastRun));
+  push(
+    'Last status',
+    item.job.lastStatus
+      ? item.job.lastStatus === 'success'
+        ? 'Success'
+        : 'Error'
+      : null,
+  );
+  push(
+    'Next run',
+    item.job.schedule.kind !== 'at' ? formatDateTime(item.job.nextRunAt) : null,
+  );
+  push(
+    'Consecutive errors',
+    item.job.consecutiveErrors > 0 ? String(item.job.consecutiveErrors) : null,
+  );
+  push('Session started', formatDateTime(item.session?.startedAt || null));
+  push('Session last active', formatDateTime(item.session?.lastActive || null));
 
-  if (item.agentLabel !== 'Unassigned') {
-    push(
-      'Assigned',
-      `Assigned to ${item.agentLabel}.`,
-      item.session?.startedAt || item.job.createdAt || null,
-      'assigned',
-    );
-  }
-
-  if (item.session?.startedAt) {
-    push(
-      item.session.status === 'active' ? 'Started working' : 'Worked on job',
-      `Session ${item.session.sessionId} opened for ${item.agentLabel}.`,
-      item.session.startedAt,
-      'started',
-    );
-  } else if (item.job.lastRun) {
-    push(
-      'Started working',
-      'Latest run started from the scheduler.',
-      item.job.lastRun,
-      'started',
-    );
-  }
-
-  if (item.job.lastStatus === 'success') {
-    push(
-      item.column === 'review' ? 'Ready for review' : 'Finished',
-      item.column === 'review'
-        ? 'Latest run completed successfully and is waiting for review.'
-        : 'Latest run completed successfully.',
-      item.job.lastRun,
-      'finished',
-    );
-  } else if (item.job.lastStatus === 'error') {
-    push(
-      'Failed',
-      item.job.disabled || !item.job.enabled
-        ? 'Latest run failed and the job is currently paused.'
-        : 'Latest run failed.',
-      item.job.lastRun,
-      'failed',
-    );
-  }
-
-  if (!item.job.enabled || item.job.disabled) {
-    push(
-      'Paused',
-      item.job.lastStatus === 'error'
-        ? 'The job is paused after a failed run.'
-        : 'The job is currently paused.',
-      item.job.lastStatus === 'error' ? item.job.lastRun : null,
-      'paused',
-    );
-  }
-
-  if (!entries.length) {
-    push('Registered', 'Job is available on the board.', null, 'fallback');
-  }
-
-  if (item.job.boardStatus) {
-    push(
-      'Status set',
-      `Board status is ${item.job.boardStatus.replace('_', ' ')}.`,
-      item.job.createdAt,
-      'status',
-    );
-  }
-
-  return entries.sort((left, right) => {
-    if (left.timestamp && right.timestamp) {
-      return (
-        new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime()
-      );
-    }
-    if (left.timestamp) return -1;
-    if (right.timestamp) return 1;
-    return 0;
-  });
+  return entries;
 }
 
 function collectJobOutputs(item: JobBoardItem): string[] {
@@ -340,8 +247,8 @@ function outputKey(prefix: string, value: string): string {
 
 function JobDetailCard(props: {
   item: JobBoardItem;
-  history: JobHistoryEntry[];
-  agents: AgentCard[];
+  runtime: JobRuntimeEntry[];
+  agents: JobAgent[];
   savePending: boolean;
   onUpdate: (nextJob: AdminSchedulerJob & { source: 'config' }) => void;
 }) {
@@ -539,23 +446,18 @@ function JobDetailCard(props: {
         </div>
 
         <div className="summary-block">
-          <span>History</span>
-          {props.history.length ? (
-            <div className="jobs-history-list">
-              {props.history.map((entry) => (
-                <div className="jobs-history-row" key={entry.key}>
-                  <strong>{entry.title}</strong>
-                  <small>
-                    {entry.timestamp
-                      ? formatRelativeTime(entry.timestamp)
-                      : 'Time not tracked'}
-                  </small>
-                  <p>{entry.detail}</p>
+          <span>Runtime</span>
+          {props.runtime.length ? (
+            <div className="jobs-runtime-list">
+              {props.runtime.map((entry) => (
+                <div className="jobs-runtime-row" key={entry.key}>
+                  <strong>{entry.label}</strong>
+                  <small>{entry.value}</small>
                 </div>
               ))}
             </div>
           ) : (
-            <p>No job history yet.</p>
+            <p>No runtime details recorded yet.</p>
           )}
         </div>
       </div>
@@ -581,9 +483,9 @@ export function JobsPage() {
     refetchInterval: 15_000,
   });
 
-  const agentsQuery = useQuery({
-    queryKey: ['agents-overview', auth.token],
-    queryFn: () => fetchAgentsOverview(auth.token),
+  const jobsContextQuery = useQuery({
+    queryKey: ['jobs-context', auth.token],
+    queryFn: () => fetchJobsContext(auth.token),
     refetchInterval: 15_000,
   });
 
@@ -637,18 +539,18 @@ export function JobsPage() {
 
   const sessionsById = useMemo(() => {
     return new Map(
-      (agentsQuery.data?.sessions || []).map((session) => [
+      (jobsContextQuery.data?.sessions || []).map((session) => [
         session.sessionId,
         session,
       ]),
     );
-  }, [agentsQuery.data?.sessions]);
+  }, [jobsContextQuery.data?.sessions]);
 
   const agentsById = useMemo(() => {
     return new Map(
-      (agentsQuery.data?.agents || []).map((agent) => [agent.id, agent]),
+      (jobsContextQuery.data?.agents || []).map((agent) => [agent.id, agent]),
     );
-  }, [agentsQuery.data?.agents]);
+  }, [jobsContextQuery.data?.agents]);
 
   const allItems = useMemo(() => {
     return (schedulerQuery.data?.jobs || []).map((job): JobBoardItem => {
@@ -676,7 +578,7 @@ export function JobsPage() {
         agentLabel,
         column,
         tone: deriveTone(column),
-        stateLabel: deriveStateLabel(job, session, column),
+        stateLabel: deriveStateLabel(job, column),
         summary,
         searchIndex: [
           job.id,
@@ -700,6 +602,16 @@ export function JobsPage() {
     return allItems.filter((item) => item.searchIndex.includes(needle));
   }, [allItems, deferredSearch]);
 
+  const allItemsByKey = useMemo(
+    () => new Map(allItems.map((item) => [item.key, item])),
+    [allItems],
+  );
+
+  const visibleItemKeys = useMemo(
+    () => new Set(visibleItems.map((item) => item.key)),
+    [visibleItems],
+  );
+
   const itemsByColumn = useMemo(() => {
     return JOB_COLUMNS.map((column) => ({
       ...column,
@@ -707,20 +619,27 @@ export function JobsPage() {
     }));
   }, [visibleItems]);
 
-  const selectedItem =
-    visibleItems.find((item) => item.key === selectedKey) || null;
+  const selectedItem = useMemo(
+    () => (selectedKey ? allItemsByKey.get(selectedKey) || null : null),
+    [allItemsByKey, selectedKey],
+  );
 
   useEffect(() => {
     if (selectedKey === null) return;
-    if (!selectedItem) setSelectedKey(null);
-  }, [selectedItem, selectedKey]);
+    if (!selectedItem || !visibleItemKeys.has(selectedKey)) {
+      setSelectedKey(null);
+    }
+  }, [selectedItem, selectedKey, visibleItemKeys]);
 
-  const selectedHistory = useMemo(
-    () => (selectedItem ? buildJobHistory(selectedItem) : []),
+  const selectedRuntime = useMemo(
+    () => (selectedItem ? buildJobRuntimeEntries(selectedItem) : []),
     [selectedItem],
   );
 
-  const draggedItem = allItems.find((item) => item.key === draggedKey) || null;
+  const draggedItem = useMemo(
+    () => allItems.find((item) => item.key === draggedKey) || null,
+    [allItems, draggedKey],
+  );
 
   function handleDrop(
     column: JobColumnId,
@@ -774,8 +693,10 @@ export function JobsPage() {
         }
       />
 
-      {agentsQuery.isError ? (
-        <p className="error-banner">{(agentsQuery.error as Error).message}</p>
+      {jobsContextQuery.isError ? (
+        <p className="error-banner">
+          {(jobsContextQuery.error as Error).message}
+        </p>
       ) : null}
       {saveJobMutation.isError ? (
         <p className="error-banner">
@@ -913,8 +834,8 @@ export function JobsPage() {
         {selectedItem ? (
           <JobDetailCard
             item={selectedItem}
-            history={selectedHistory}
-            agents={agentsQuery.data?.agents || []}
+            runtime={selectedRuntime}
+            agents={jobsContextQuery.data?.agents || []}
             savePending={saveJobMutation.isPending}
             onUpdate={(job) => saveJobMutation.mutate(job)}
           />

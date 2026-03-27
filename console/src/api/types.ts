@@ -262,19 +262,20 @@ export interface AdminModelsResponse {
   models: AdminModelCatalogEntry[];
 }
 
+export type AdminSchedulerBoardStatus =
+  | 'backlog'
+  | 'in_progress'
+  | 'review'
+  | 'done'
+  | 'cancelled';
+
 export interface AdminSchedulerJob {
   id: string;
   source: 'config' | 'task';
   name: string;
   description: string | null;
   agentId: string | null;
-  boardStatus:
-    | 'backlog'
-    | 'in_progress'
-    | 'review'
-    | 'done'
-    | 'cancelled'
-    | null;
+  boardStatus: AdminSchedulerBoardStatus | null;
   enabled: boolean;
   schedule: {
     kind: 'at' | 'every' | 'cron';
@@ -352,7 +353,7 @@ export interface AgentSessionCard {
   output: string[];
 }
 
-export interface AgentsOverview {
+export interface AgentsOverviewResponse {
   generatedAt: string;
   version: string;
   uptime: number;
@@ -387,6 +388,31 @@ export interface AgentsOverview {
   };
   agents: AgentCard[];
   sessions: AgentSessionCard[];
+}
+
+export type AgentsOverview = Pick<
+  AgentsOverviewResponse,
+  'agents' | 'sessions'
+>;
+
+export interface JobAgent {
+  id: string;
+  name: string | null;
+}
+
+export interface JobSession {
+  sessionId: string;
+  agentId: string;
+  startedAt: string;
+  lastActive: string;
+  status: 'active' | 'idle' | 'stopped';
+  lastAnswer: string | null;
+  output: string[];
+}
+
+export interface AdminJobsContextResponse {
+  agents: JobAgent[];
+  sessions: JobSession[];
 }
 
 export interface AdminMcpConfig {

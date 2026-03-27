@@ -387,6 +387,9 @@ function readStringValue(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+// Duplicated on purpose instead of importing the gateway helper. The container
+// runtime is packaged independently and should keep its input normalization
+// self-contained at the sandbox boundary.
 function readStringListValue(value: unknown): string[] | undefined {
   if (typeof value === 'string') {
     const trimmed = value.trim();

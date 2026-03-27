@@ -456,6 +456,26 @@ export interface GatewayAgentsResponse {
   sessions: GatewaySessionCard[];
 }
 
+export interface GatewayAdminJobAgent {
+  id: string;
+  name: string | null;
+}
+
+export interface GatewayAdminJobSession {
+  sessionId: string;
+  agentId: string;
+  startedAt: string;
+  lastActive: string;
+  status: GatewaySessionCard['status'];
+  lastAnswer: string | null;
+  output: string[];
+}
+
+export interface GatewayAdminJobsContextResponse {
+  agents: GatewayAdminJobAgent[];
+  sessions: GatewayAdminJobSession[];
+}
+
 export interface GatewayAdminDeleteSessionResult {
   deleted: boolean;
   sessionId: string;
@@ -558,13 +578,7 @@ export interface GatewayAdminSchedulerJob {
   name: string;
   description: string | null;
   agentId: string | null;
-  boardStatus:
-    | 'backlog'
-    | 'in_progress'
-    | 'review'
-    | 'done'
-    | 'cancelled'
-    | null;
+  boardStatus: NonNullable<RuntimeSchedulerJob['boardStatus']> | null;
   enabled: boolean;
   schedule: RuntimeSchedulerJob['schedule'];
   action: RuntimeSchedulerJob['action'];

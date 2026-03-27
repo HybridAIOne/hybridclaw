@@ -754,6 +754,8 @@ async function tick(): Promise<void> {
               markConfigJobSuccess(runningJob || job, false);
             })
             .catch((err) => {
+              // Backlog-assigned jobs share the same failure counter and
+              // auto-disable threshold as other config-backed scheduler jobs.
               const failure = markConfigJobFailure(runningJob || job);
               logger.error(
                 { jobId: job.id, jobLabel, agentId: job.agentId, err },

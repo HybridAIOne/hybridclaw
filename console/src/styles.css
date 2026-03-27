@@ -1218,12 +1218,12 @@ th {
 }
 
 .jobs-detail-stack,
-.jobs-history-list {
+.jobs-runtime-list {
   display: grid;
   gap: 14px;
 }
 
-.jobs-history-row {
+.jobs-runtime-row {
   display: grid;
   gap: 4px;
   padding: 10px 12px;
@@ -1232,16 +1232,14 @@ th {
   background: var(--panel-muted);
 }
 
-.jobs-history-row strong,
-.jobs-history-row small,
-.jobs-history-row p {
+.jobs-runtime-row strong,
+.jobs-runtime-row small {
   margin: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
-.jobs-history-row small,
-.jobs-history-row p {
+.jobs-runtime-row small {
   color: var(--muted);
 }
 

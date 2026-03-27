@@ -191,6 +191,18 @@ function normalizeEmailRecipientList(
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function buildEmailSendResultMeta(params: {
+  subject: string | null;
+  cc: string[] | undefined;
+  bcc: string[] | undefined;
+}): Record<string, unknown> {
+  return {
+    ...(params.subject ? { subject: params.subject } : {}),
+    ...(params.cc ? { cc: params.cc } : {}),
+    ...(params.bcc ? { bcc: params.bcc } : {}),
+  };
+}
+
 async function runWhatsAppMessageSendAction(
   request: DiscordToolActionRequest,
   channelId: string,
@@ -248,6 +260,7 @@ async function runEmailMessageSendAction(
   const subject = String(request.subject || '').trim() || null;
   const cc = normalizeEmailRecipientList(request.cc, 'cc');
   const bcc = normalizeEmailRecipientList(request.bcc, 'bcc');
+  const emailMeta = buildEmailSendResultMeta({ subject, cc, bcc });
   if (!content && !filePath) {
     throw new Error(
       'content is required for email send unless filePath is provided.',
@@ -273,9 +286,7 @@ async function runEmailMessageSendAction(
       transport: 'email',
       attachmentCount: 1,
       contentLength: content.length,
-      ...(subject ? { subject } : {}),
-      ...(cc ? { cc } : {}),
-      ...(bcc ? { bcc } : {}),
+      ...emailMeta,
     };
   }
 
@@ -290,9 +301,7 @@ async function runEmailMessageSendAction(
     channelId,
     transport: 'email',
     contentLength: content.length,
-    ...(subject ? { subject } : {}),
-    ...(cc ? { cc } : {}),
-    ...(bcc ? { bcc } : {}),
+    ...emailMeta,
   };
 }
 

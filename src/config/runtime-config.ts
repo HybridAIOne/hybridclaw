@@ -108,12 +108,15 @@ export type DiscordPresenceActivityType =
 export type SchedulerScheduleKind = 'at' | 'every' | 'cron';
 export type SchedulerActionKind = 'agent_turn' | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
-export type SchedulerBoardStatus =
-  | 'backlog'
-  | 'in_progress'
-  | 'review'
-  | 'done'
-  | 'cancelled';
+export const SCHEDULER_BOARD_STATUSES = [
+  'backlog',
+  'in_progress',
+  'review',
+  'done',
+  'cancelled',
+] as const;
+export type SchedulerBoardStatus = (typeof SCHEDULER_BOARD_STATUSES)[number];
+const SCHEDULER_BOARD_STATUS_SET = new Set<string>(SCHEDULER_BOARD_STATUSES);
 export type ContainerSandboxMode = 'container' | 'host';
 export type RuntimeWebSearchProvider =
   | 'auto'
@@ -2233,21 +2236,31 @@ function normalizeSchedulerDeliveryKind(
   return fallback;
 }
 
-function normalizeSchedulerBoardStatus(
+export function normalizeSchedulerBoardStatus(
   value: unknown,
 ): SchedulerBoardStatus | undefined {
   if (typeof value !== 'string') return undefined;
   const normalized = value.trim().toLowerCase();
-  if (
-    normalized === 'backlog' ||
-    normalized === 'in_progress' ||
-    normalized === 'review' ||
-    normalized === 'done' ||
-    normalized === 'cancelled'
-  ) {
-    return normalized;
+  if (SCHEDULER_BOARD_STATUS_SET.has(normalized)) {
+    return normalized as SchedulerBoardStatus;
   }
   return undefined;
+}
+
+export function parseSchedulerBoardStatus(
+  value: unknown,
+  label = 'Scheduler board status',
+): SchedulerBoardStatus | undefined {
+  const trimmed =
+    value === null || value === undefined ? '' : String(value).trim();
+  if (!trimmed) return undefined;
+
+  const normalized = normalizeSchedulerBoardStatus(trimmed);
+  if (normalized) return normalized;
+
+  throw new Error(
+    `${label} must be \`backlog\`, \`in_progress\`, \`review\`, \`done\`, or \`cancelled\`.`,
+  );
 }
 
 function normalizeSchedulerJobList(
