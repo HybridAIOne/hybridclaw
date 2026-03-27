@@ -542,81 +542,101 @@ function parseRequiresFromMetadataRecord(raw: Record<string, unknown>): {
   };
 }
 
+function resolveTopLevelSectionLookup(
+  frontmatter: FrontmatterParseResult,
+  key: string,
+): {
+  inlineObject: Record<string, unknown> | null;
+  sectionFields: Map<string, FrontmatterSection>;
+} {
+  const inlineObject = frontmatter.meta[key]
+    ? tryParseJsonObject(frontmatter.meta[key])
+    : null;
+  const section = extractTopLevelSection(frontmatter.block, key);
+  const sectionInlineObject = section
+    ? tryParseJsonObject(section.inline)
+    : null;
+
+  return {
+    inlineObject: inlineObject || sectionInlineObject,
+    sectionFields: section ? parseSectionChildren(section.children) : new Map(),
+  };
+}
+
+function resolveMetadataSectionLookup(frontmatter: FrontmatterParseResult): {
+  inlineObject: Record<string, unknown> | null;
+  compatibleSectionFields: Map<string, FrontmatterSection>;
+  compatibleInlineObject: Record<string, unknown> | null;
+} {
+  const { inlineObject, sectionFields } = resolveTopLevelSectionLookup(
+    frontmatter,
+    'metadata',
+  );
+  const compatibleSection =
+    sectionFields.get('hybridclaw') || sectionFields.get('openclaw');
+
+  return {
+    inlineObject,
+    compatibleSectionFields: compatibleSection
+      ? parseSectionChildren(compatibleSection.children)
+      : new Map(),
+    compatibleInlineObject: compatibleSection
+      ? tryParseJsonObject(compatibleSection.inline)
+      : null,
+  };
+}
+
+function parseRequiresSection(
+  sectionFields: Map<string, FrontmatterSection>,
+): {
+  bins: string[];
+  env: string[];
+} {
+  return {
+    bins: parseSectionStringList(sectionFields.get('bins')),
+    env: parseSectionStringList(sectionFields.get('env')),
+  };
+}
+
 function parseRequiresFromFrontmatter(frontmatter: FrontmatterParseResult): {
   bins: string[];
   env: string[];
 } {
-  const fromInlineJson = frontmatter.meta.requires
-    ? tryParseJsonObject(frontmatter.meta.requires)
-    : null;
-  if (fromInlineJson) {
+  const directRequiresLookup = resolveTopLevelSectionLookup(
+    frontmatter,
+    'requires',
+  );
+  if (directRequiresLookup.inlineObject) {
     return {
-      bins: normalizeStringList(fromInlineJson.bins),
-      env: normalizeStringList(fromInlineJson.env),
+      bins: normalizeStringList(directRequiresLookup.inlineObject.bins),
+      env: normalizeStringList(directRequiresLookup.inlineObject.env),
     };
   }
 
-  const section = extractTopLevelSection(frontmatter.block, 'requires');
-  let requires: { bins: string[]; env: string[] } = { bins: [], env: [] };
-  if (section) {
-    const inlineJson = tryParseJsonObject(section.inline);
-    if (inlineJson) {
-      return {
-        bins: normalizeStringList(inlineJson.bins),
-        env: normalizeStringList(inlineJson.env),
-      };
-    }
-
-    const fields = parseSectionChildren(section.children);
-    requires = {
-      bins: parseSectionStringList(fields.get('bins')),
-      env: parseSectionStringList(fields.get('env')),
-    };
-  }
+  let requires = parseRequiresSection(directRequiresLookup.sectionFields);
   if (requires.bins.length > 0 || requires.env.length > 0) {
     return requires;
   }
 
-  const metadataInlineJson = frontmatter.meta.metadata
-    ? tryParseJsonObject(frontmatter.meta.metadata)
-    : null;
-  if (metadataInlineJson) {
-    return parseRequiresFromMetadataRecord(metadataInlineJson);
+  const metadataLookup = resolveMetadataSectionLookup(frontmatter);
+  if (metadataLookup.inlineObject) {
+    return parseRequiresFromMetadataRecord(metadataLookup.inlineObject);
+  }
+  if (metadataLookup.compatibleInlineObject) {
+    return parseRequiresFromMetadataRecord(metadataLookup.compatibleInlineObject);
   }
 
-  const metadataSection = extractTopLevelSection(frontmatter.block, 'metadata');
-  if (!metadataSection) return requires;
-
-  const metadataSectionInlineJson = tryParseJsonObject(metadataSection.inline);
-  if (metadataSectionInlineJson) {
-    return parseRequiresFromMetadataRecord(metadataSectionInlineJson);
-  }
-
-  const metadataFields = parseSectionChildren(metadataSection.children);
-  const hybridSection =
-    metadataFields.get('hybridclaw') || metadataFields.get('openclaw');
-  if (!hybridSection) return requires;
-
-  const hybridInlineJson = tryParseJsonObject(hybridSection.inline);
-  if (hybridInlineJson) {
-    return parseRequiresFromMetadataRecord(hybridInlineJson);
-  }
-
-  const hybridFields = parseSectionChildren(hybridSection.children);
-  const nestedRequires = hybridFields.get('requires');
+  const nestedRequires = metadataLookup.compatibleSectionFields.get('requires');
   if (!nestedRequires) return requires;
-  const nestedRequiresInlineJson = tryParseJsonObject(nestedRequires.inline);
-  if (nestedRequiresInlineJson) {
+  const nestedRequiresInlineObject = tryParseJsonObject(nestedRequires.inline);
+  if (nestedRequiresInlineObject) {
     return {
-      bins: normalizeStringList(nestedRequiresInlineJson.bins),
-      env: normalizeStringList(nestedRequiresInlineJson.env),
+      bins: normalizeStringList(nestedRequiresInlineObject.bins),
+      env: normalizeStringList(nestedRequiresInlineObject.env),
     };
   }
-  const nestedRequiresFields = parseSectionChildren(nestedRequires.children);
-  return {
-    bins: parseSectionStringList(nestedRequiresFields.get('bins')),
-    env: parseSectionStringList(nestedRequiresFields.get('env')),
-  };
+  requires = parseRequiresSection(parseSectionChildren(nestedRequires.children));
+  return requires;
 }
 
 function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
@@ -624,36 +644,27 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
   relatedSkills: string[];
   install: SkillInstallSpec[];
 } {
-  const fromInlineJson = frontmatter.meta.metadata
-    ? tryParseJsonObject(frontmatter.meta.metadata)
-    : null;
-  if (fromInlineJson) return normalizeCompatibleMetadata(fromInlineJson);
+  const metadataLookup = resolveMetadataSectionLookup(frontmatter);
+  if (metadataLookup.inlineObject) {
+    return normalizeCompatibleMetadata(metadataLookup.inlineObject);
+  }
+  if (metadataLookup.compatibleInlineObject) {
+    return normalizeCompatibleMetadata(metadataLookup.compatibleInlineObject);
+  }
 
-  const metadataSection = extractTopLevelSection(frontmatter.block, 'metadata');
-  if (!metadataSection) return { tags: [], relatedSkills: [], install: [] };
-
-  const metadataInlineJson = tryParseJsonObject(metadataSection.inline);
-  if (metadataInlineJson)
-    return normalizeCompatibleMetadata(metadataInlineJson);
-
-  const metadataFields = parseSectionChildren(metadataSection.children);
-  const hybridSection =
-    metadataFields.get('hybridclaw') || metadataFields.get('openclaw');
-  if (!hybridSection) return { tags: [], relatedSkills: [], install: [] };
-
-  const hybridInlineJson = tryParseJsonObject(hybridSection.inline);
-  if (hybridInlineJson) return normalizeCompatibleMetadata(hybridInlineJson);
-
-  const hybridFields = parseSectionChildren(hybridSection.children);
-  const installSection = hybridFields.get('install');
+  const installSection = metadataLookup.compatibleSectionFields.get('install');
   const installInlineJson = installSection
     ? tryParseJsonArray(installSection.inline)
     : null;
   return {
-    tags: parseSectionStringList(hybridFields.get('tags')),
+    tags: parseSectionStringList(metadataLookup.compatibleSectionFields.get('tags')),
     relatedSkills: mergeUniqueStrings([
-      parseSectionStringList(hybridFields.get('related_skills')),
-      parseSectionStringList(hybridFields.get('relatedSkills')),
+      parseSectionStringList(
+        metadataLookup.compatibleSectionFields.get('related_skills'),
+      ),
+      parseSectionStringList(
+        metadataLookup.compatibleSectionFields.get('relatedSkills'),
+      ),
     ]),
     install: normalizeInstallSpecs(
       installInlineJson ?? parseSectionObjectList(installSection),
