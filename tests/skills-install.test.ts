@@ -7,11 +7,13 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 describe('skill install metadata', () => {
   const originalHome = process.env.HOME;
   const originalDisableWatcher = process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+  const tempHomes: string[] = [];
 
   beforeEach(() => {
     const tempHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-skills-install-'),
     );
+    tempHomes.push(tempHome);
     vi.stubEnv('HOME', tempHome);
     vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
     vi.resetModules();
@@ -30,6 +32,11 @@ describe('skill install metadata', () => {
       delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
     } else {
       process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = originalDisableWatcher;
+    }
+    while (tempHomes.length > 0) {
+      const tempHome = tempHomes.pop();
+      if (!tempHome) continue;
+      fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
 
@@ -106,6 +113,7 @@ describe('skill install metadata', () => {
       bins: ['openhue'],
       env: [],
     });
+    // openclaw input is normalized into the hybridclaw-shaped output metadata.
     expect(skill?.metadata.hybridclaw.install).toEqual([
       {
         id: 'brew',
