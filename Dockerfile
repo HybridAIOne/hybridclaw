@@ -24,6 +24,7 @@ FROM node:22-slim
 # The agent runtime needs root to install packages, manage files, etc.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
+      iptables \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
