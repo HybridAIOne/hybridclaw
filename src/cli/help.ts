@@ -14,6 +14,7 @@ export function printMainUsage(): void {
   browser    Manage persistent browser profiles for agent web automation
   plugin     Manage HybridClaw plugins
   skill      List skill dependency installers or run one
+  tool       List or disable built-in agent tools
   update     Check and apply HybridClaw CLI updates
   audit      Inspect/verify structured audit trail
   doctor     Run environment and runtime diagnostics
@@ -315,6 +316,20 @@ Notes:
   - \`install\` runs one declared installer (brew, uv, npm, go, download).`);
 }
 
+export function printToolUsage(): void {
+  console.log(`Usage: hybridclaw tool <command>
+
+Commands:
+  hybridclaw tool list
+  hybridclaw tool enable <tool-name>
+  hybridclaw tool disable <tool-name>
+
+Notes:
+  - Tool disables are global and remove the tool from future agent turns.
+  - Use \`list\` to see the built-in tool catalog and current enabled/disabled state.
+  - MCP tools are managed through \`hybridclaw gateway mcp ...\`, not \`hybridclaw tool ...\`.`);
+}
+
 export function printPluginUsage(): void {
   console.log(`Usage: hybridclaw plugin <command>
 
@@ -385,6 +400,7 @@ Topics:
   openrouter  Help for OpenRouter setup/status/logout commands
   whatsapp    Help for WhatsApp setup/reset commands
   skill       Help for skill installer commands
+  tool        Help for built-in tool toggles
   update      Help for checking/applying CLI updates
   audit       Help for audit commands
   doctor      Help for diagnostics and auto-remediation
@@ -476,6 +492,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'skill':
       printSkillUsage();
+      return true;
+    case 'tool':
+      printToolUsage();
       return true;
     case 'update': {
       const { printUpdateUsage } = await import('../update.js');

@@ -355,6 +355,9 @@ export interface RuntimeConfig {
     disabled: string[];
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
   };
+  tools: {
+    disabled: string[];
+  };
   plugins: RuntimePluginsConfig;
   adaptiveSkills: AdaptiveSkillsConfig;
   discord: {
@@ -562,6 +565,18 @@ export interface RuntimeSkillScopeConfigView {
   };
 }
 
+export interface RuntimeToolScopeConfigDraft {
+  tools: {
+    disabled: string[];
+  };
+}
+
+export interface RuntimeToolScopeConfigView {
+  tools?: {
+    disabled?: string[];
+  };
+}
+
 export type RuntimeConfigChangeListener = (
   next: RuntimeConfig,
   prev: RuntimeConfig,
@@ -598,6 +613,9 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     extraDirs: [],
     disabled: [],
     channelDisabled: {},
+  },
+  tools: {
+    disabled: [],
   },
   plugins: {
     list: [],
@@ -1161,6 +1179,28 @@ export function getRuntimeDisabledSkillNames(
     disabled.add(name);
   }
   return disabled;
+}
+
+export function setRuntimeToolEnabled(
+  draft: RuntimeToolScopeConfigDraft,
+  toolName: string,
+  enabled: boolean,
+): void {
+  const disabled = getRuntimeDisabledToolNames(draft);
+  if (enabled) {
+    disabled.delete(toolName);
+  } else {
+    disabled.add(toolName);
+  }
+  draft.tools.disabled = [...disabled].sort((left, right) =>
+    left.localeCompare(right),
+  );
+}
+
+export function getRuntimeDisabledToolNames(
+  config: RuntimeToolScopeConfigView,
+): Set<string> {
+  return normalizeTrimmedStringSet(config.tools?.disabled ?? []);
 }
 
 function cloneAgentModelConfig(
@@ -2873,6 +2913,12 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.skills.disabled,
       ),
       channelDisabled: normalizeSkillChannelDisabled(rawSkills.channelDisabled),
+    },
+    tools: {
+      disabled: normalizeStringArray(
+        raw.tools && isRecord(raw.tools) ? raw.tools.disabled : undefined,
+        DEFAULT_RUNTIME_CONFIG.tools.disabled,
+      ),
     },
     plugins: normalizeRuntimePluginsConfig(
       rawPlugins,

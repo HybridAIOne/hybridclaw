@@ -1600,6 +1600,11 @@ export function isDatabaseInitialized(): boolean {
   return databaseInitialized;
 }
 
+function ensureDatabaseReady(): void {
+  if (databaseInitialized) return;
+  initDatabase({ quiet: true });
+}
+
 function serializeAgentModelConfig(
   model: AgentModelConfig | undefined,
 ): string | null {
@@ -2476,6 +2481,47 @@ export function getSessionToolCallBreakdown(
       (left, right) =>
         right.count - left.count || left.toolName.localeCompare(right.toolName),
     );
+}
+
+export interface ToolUsageSummary {
+  toolName: string;
+  callsSinceCutoff: number;
+  lastUsedAt: string | null;
+}
+
+export function getToolUsageSummary(params?: {
+  sinceTimestamp?: string | null;
+}): ToolUsageSummary[] {
+  ensureDatabaseReady();
+  const normalizedSince =
+    typeof params?.sinceTimestamp === 'string' && params.sinceTimestamp.trim()
+      ? params.sinceTimestamp.trim()
+      : null;
+  return queryAll<
+    {
+      toolName: string;
+      callsSinceCutoff: number;
+      lastUsedAt: string | null;
+    },
+    [string | null, string | null]
+  >(
+    db,
+    `SELECT toolName, callsSinceCutoff, lastUsedAt
+     FROM (
+       SELECT
+         TRIM(CAST(JSON_EXTRACT(payload, '$.toolName') AS TEXT)) AS toolName,
+         SUM(CASE WHEN ? IS NULL OR timestamp >= ? THEN 1 ELSE 0 END) AS callsSinceCutoff,
+         MAX(timestamp) AS lastUsedAt
+       FROM audit_events
+       WHERE event_type = 'tool.call'
+         AND json_valid(payload)
+       GROUP BY TRIM(CAST(JSON_EXTRACT(payload, '$.toolName') AS TEXT))
+     )
+     WHERE toolName != ''
+     ORDER BY toolName ASC`,
+    normalizedSince,
+    normalizedSince,
+  );
 }
 
 function extractToolFilePath(argumentsValue: unknown): string | null {
@@ -5421,6 +5467,7 @@ export function getSkillObservationSummary(params?: {
   skillName?: string;
   createdAfter?: string | null;
 }): SkillObservationSummary[] {
+  ensureDatabaseReady();
   const clauses: string[] = [];
   const args: Array<string | number> = [];
   const skillName = params?.skillName?.trim() || '';

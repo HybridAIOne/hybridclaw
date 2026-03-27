@@ -2281,6 +2281,32 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('Enabled pdf in global scope.');
   });
 
+  it('disables a built-in tool globally', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['tool', 'disable', 'browser_navigate']);
+
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      tools: {
+        disabled: string[];
+      };
+    };
+    expect(nextConfig.tools.disabled).toEqual(['browser_navigate']);
+    expect(logSpy).toHaveBeenCalledWith('Disabled browser_navigate.');
+  });
+
+  it('prints tool help from the help topic', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['help', 'tool']);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Usage: hybridclaw tool <command>'),
+    );
+  });
+
   it('prints agent help from the help topic', async () => {
     const { cli } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});

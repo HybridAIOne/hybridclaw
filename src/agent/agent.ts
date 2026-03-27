@@ -8,6 +8,7 @@ import type { ChatMessage } from '../types/api.js';
 import type { ContainerOutput, MediaContextItem } from '../types/container.js';
 import { getExecutor } from './executor.js';
 import type { ExecutorRequest } from './executor-types.js';
+import { mergeBlockedToolNames } from './tool-policy.js';
 
 /** Write full prompt context to data/last_prompt.jsonl for debugging (Pi-Mono style). */
 function dumpPrompt(
@@ -47,7 +48,7 @@ export async function runAgent(
   const channelId = params.channelId || '';
   const media = params.media;
   const allowedTools = params.allowedTools;
-  const blockedTools = params.blockedTools;
+  const blockedTools = mergeBlockedToolNames({ explicit: params.blockedTools });
   const workspaceRoot = getExecutor().getWorkspacePath(agentId);
   const preparedMessages = await injectPdfContextMessages({
     sessionId,
@@ -73,5 +74,6 @@ export async function runAgent(
     agentId,
     channelId,
     media,
+    blockedTools,
   });
 }

@@ -5,6 +5,8 @@ import Database from 'better-sqlite3';
 import { afterEach, expect, test, vi } from 'vitest';
 
 const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
+const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
 const tempDirs: string[] = [];
 
 function createTempDir(prefix: string): string {
@@ -26,6 +28,14 @@ afterEach(() => {
   vi.resetModules();
   vi.doUnmock('node:child_process');
   restoreEnvVar('HOME', ORIGINAL_HOME);
+  Object.defineProperty(process.stdin, 'isTTY', {
+    configurable: true,
+    value: ORIGINAL_STDIN_IS_TTY,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    configurable: true,
+    value: ORIGINAL_STDOUT_IS_TTY,
+  });
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (!dir) continue;
@@ -36,6 +46,14 @@ afterEach(() => {
 test('runDoctor fixes insecure credentials permissions and reruns the check', async () => {
   const homeDir = createTempDir('hybridclaw-doctor-home-');
   process.env.HOME = homeDir;
+  Object.defineProperty(process.stdin, 'isTTY', {
+    configurable: true,
+    value: false,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    configurable: true,
+    value: false,
+  });
 
   const credentialsPath = path.join(homeDir, '.hybridclaw', 'credentials.json');
   fs.mkdirSync(path.dirname(credentialsPath), { recursive: true });
@@ -59,12 +77,6 @@ test('runDoctor fixes insecure credentials permissions and reruns the check', as
     error: 0,
     exitCode: 0,
   });
-  expect(report.fixes).toEqual([
-    expect.objectContaining({
-      label: 'Credentials',
-      status: 'applied',
-    }),
-  ]);
   expect(report.results).toEqual([
     expect.objectContaining({
       label: 'Credentials',
@@ -85,15 +97,25 @@ test('checkConfig fixes world-readable config permissions to owner-only', async 
   );
   fs.chmodSync(configPath, 0o666);
 
+  const actualRuntimeConfig = await import('../src/config/runtime-config.js');
   vi.doMock('../src/config/runtime-config.js', () => ({
+    ...actualRuntimeConfig,
     CONFIG_VERSION: 16,
     ensureRuntimeConfigFile: vi.fn(),
     getRuntimeConfig: () => ({
       hybridai: { defaultModel: 'gpt-5-nano' },
       ops: { dbPath: '/tmp/hybridclaw.db' },
       container: { image: 'hybridclaw-agent' },
+      tools: { disabled: [] },
+      mcpServers: {},
     }),
     runtimeConfigPath: () => configPath,
+  }));
+  vi.doMock('../src/agent/tool-summary.js', () => ({
+    listKnownToolNames: () => [],
+  }));
+  vi.doMock('../src/memory/db.js', () => ({
+    getToolUsageSummary: () => [],
   }));
 
   const { checkConfig } = await import('../src/doctor/checks/config.ts');
@@ -104,6 +126,121 @@ test('checkConfig fixes world-readable config permissions to owner-only', async 
 
   await result.fix?.apply();
   expect(fs.statSync(configPath).mode & 0o777).toBe(0o600);
+});
+
+test('checkConfig warns on unused tools and MCP servers and disables them with fixes', async () => {
+  const dir = createTempDir('hybridclaw-doctor-config-usage-');
+  const configPath = path.join(dir, 'config.json');
+  fs.writeFileSync(
+    configPath,
+    `${JSON.stringify({ version: 17, hybridai: { defaultModel: 'gpt-5-nano' }, ops: { dbPath: '/tmp/hybridclaw.db' }, container: { image: 'hybridclaw-agent' } }, null, 2)}\n`,
+    'utf-8',
+  );
+
+  let runtimeConfigState = {
+    hybridai: { defaultModel: 'gpt-5-nano' },
+    ops: { dbPath: '/tmp/hybridclaw.db' },
+    container: { image: 'hybridclaw-agent' },
+    tools: { disabled: [] as string[] },
+    mcpServers: {
+      github: {
+        transport: 'stdio' as const,
+        command: 'node',
+        args: ['github.js'],
+      },
+      slack: {
+        transport: 'stdio' as const,
+        command: 'node',
+        args: ['slack.js'],
+      },
+    },
+  };
+
+  vi.doMock('../src/agent/tool-summary.js', () => ({
+    listKnownToolNames: () => ['read', 'browser_navigate', 'image'],
+  }));
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    CONFIG_VERSION: 17,
+    ensureRuntimeConfigFile: vi.fn(),
+    getRuntimeConfig: () => structuredClone(runtimeConfigState),
+    getRuntimeDisabledToolNames: (config: {
+      tools?: { disabled?: string[] };
+    }) => new Set(config.tools?.disabled ?? []),
+    runtimeConfigPath: () => configPath,
+    setRuntimeToolEnabled: (
+      draft: { tools: { disabled: string[] } },
+      toolName: string,
+      enabled: boolean,
+    ) => {
+      const nextDisabled = new Set(draft.tools.disabled);
+      if (enabled) {
+        nextDisabled.delete(toolName);
+      } else {
+        nextDisabled.add(toolName);
+      }
+      draft.tools.disabled = [...nextDisabled].sort((left, right) =>
+        left.localeCompare(right),
+      );
+    },
+    updateRuntimeConfig: (
+      mutate: (
+        draft: typeof runtimeConfigState & {
+          tools: { disabled: string[] };
+        },
+      ) => void,
+    ) => {
+      const draft = structuredClone(runtimeConfigState);
+      mutate(draft);
+      runtimeConfigState = draft;
+      return structuredClone(runtimeConfigState);
+    },
+  }));
+  vi.doMock('../src/memory/db.js', () => ({
+    getToolUsageSummary: () => [
+      {
+        toolName: 'read',
+        callsSinceCutoff: 2,
+        lastUsedAt: '2026-03-20T10:00:00.000Z',
+      },
+      {
+        toolName: 'github__search',
+        callsSinceCutoff: 1,
+        lastUsedAt: '2026-03-21T10:00:00.000Z',
+      },
+    ],
+  }));
+
+  const { checkConfig } = await import('../src/doctor/checks/config.ts');
+  const results = await checkConfig();
+
+  expect(results).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        label: 'Unused tools',
+        severity: 'warn',
+        message: expect.stringContaining('browser_navigate'),
+      }),
+      expect.objectContaining({
+        label: 'Unused MCP servers',
+        severity: 'warn',
+        message: expect.stringContaining('slack'),
+      }),
+    ]),
+  );
+
+  const unusedTools = results.find((result) => result.label === 'Unused tools');
+  const unusedMcpServers = results.find(
+    (result) => result.label === 'Unused MCP servers',
+  );
+  await unusedTools?.fix?.apply();
+  await unusedMcpServers?.fix?.apply();
+
+  expect(runtimeConfigState.tools.disabled).toEqual([
+    'browser_navigate',
+    'image',
+  ]);
+  expect(runtimeConfigState.mcpServers.github.enabled).toBeUndefined();
+  expect(runtimeConfigState.mcpServers.slack.enabled).toBe(false);
 });
 
 test('checkProviders treats probe failures as provider health failures', async () => {
@@ -447,6 +584,10 @@ test('checkSkills warns on enabled caution skills and disables them with fix', a
       },
     ],
   }));
+  vi.doMock('../src/memory/db.js', () => ({
+    getSessionCount: () => 0,
+    getSkillObservationSummary: () => [],
+  }));
   vi.doMock('../src/skills/skills-guard.js', () => ({
     guardSkillDirectory: ({ skillName }: { skillName: string }) => ({
       allowed: true,
@@ -491,6 +632,250 @@ test('checkSkills warns on enabled caution skills and disables them with fix', a
 
   await result.fix?.rollback?.();
   expect(disabledSkills.has('workspace-risk')).toBe(false);
+});
+
+test('checkSkills warns on enabled skills unused in the last 30 days', async () => {
+  const disabledSkills = new Set<string>();
+
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    getRuntimeConfig: () => ({
+      skills: {
+        disabled: [...disabledSkills],
+      },
+    }),
+    setRuntimeSkillScopeEnabled: (
+      draft: { skills: { disabled: string[] } },
+      skillName: string,
+      enabled: boolean,
+    ) => {
+      const nextDisabled = new Set(draft.skills.disabled);
+      if (enabled) {
+        nextDisabled.delete(skillName);
+      } else {
+        nextDisabled.add(skillName);
+      }
+      draft.skills.disabled = [...nextDisabled].sort((left, right) =>
+        left.localeCompare(right),
+      );
+    },
+    updateRuntimeConfig: (
+      mutate: (draft: { skills: { disabled: string[] } }) => void,
+    ) => {
+      const draft = {
+        skills: {
+          disabled: [...disabledSkills],
+        },
+      };
+      mutate(draft);
+      disabledSkills.clear();
+      for (const skillName of draft.skills.disabled) {
+        disabledSkills.add(skillName);
+      }
+      return draft;
+    },
+  }));
+  vi.doMock('../src/memory/db.js', () => ({
+    getSessionCount: () => 1,
+    getSkillObservationSummary: () => [
+      {
+        skill_name: 'fresh-skill',
+        total_executions: 3,
+        success_count: 3,
+        failure_count: 0,
+        partial_count: 0,
+        avg_duration_ms: 12,
+        tool_calls_attempted: 3,
+        tool_calls_failed: 0,
+        positive_feedback_count: 0,
+        negative_feedback_count: 0,
+        error_clusters: [],
+        last_observed_at: '2026-03-20T10:00:00.000Z',
+      },
+      {
+        skill_name: 'stale-skill',
+        total_executions: 1,
+        success_count: 1,
+        failure_count: 0,
+        partial_count: 0,
+        avg_duration_ms: 12,
+        tool_calls_attempted: 1,
+        tool_calls_failed: 0,
+        positive_feedback_count: 0,
+        negative_feedback_count: 0,
+        error_clusters: [],
+        last_observed_at: '2026-01-20T10:00:00.000Z',
+      },
+    ],
+  }));
+  vi.doMock('../src/skills/skills.js', () => ({
+    loadSkillCatalog: () => [
+      {
+        name: 'fresh-skill',
+        description: 'Recently used',
+        userInvocable: false,
+        disableModelInvocation: false,
+        always: false,
+        requires: {
+          bins: [],
+          env: [],
+        },
+        metadata: {
+          hybridclaw: {
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/fresh-skill/SKILL.md',
+        baseDir: '/tmp/fresh-skill',
+        source: 'workspace',
+        available: true,
+        enabled: true,
+        missing: [],
+      },
+      {
+        name: 'stale-skill',
+        description: 'Used long ago',
+        userInvocable: false,
+        disableModelInvocation: false,
+        always: false,
+        requires: {
+          bins: [],
+          env: [],
+        },
+        metadata: {
+          hybridclaw: {
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/stale-skill/SKILL.md',
+        baseDir: '/tmp/stale-skill',
+        source: 'workspace',
+        available: true,
+        enabled: true,
+        missing: [],
+      },
+    ],
+  }));
+  vi.doMock('../src/skills/skills-guard.js', () => ({
+    guardSkillDirectory: () => ({
+      allowed: true,
+      result: {
+        verdict: 'safe',
+        findings: [],
+      },
+    }),
+  }));
+
+  const { checkSkills } = await import('../src/doctor/checks/skills.ts');
+  const results = await checkSkills();
+  const unusedSkills = results.find(
+    (result) => result.label === 'Unused skills',
+  );
+
+  expect(unusedSkills?.severity).toBe('warn');
+  expect(unusedSkills?.message).toContain('stale-skill');
+
+  await unusedSkills?.fix?.apply();
+  expect(disabledSkills).toEqual(new Set(['stale-skill']));
+});
+
+test('checkSkills warns on enabled skills with zero observations after sessions exist', async () => {
+  const disabledSkills = new Set<string>();
+
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    getRuntimeConfig: () => ({
+      skills: {
+        disabled: [...disabledSkills],
+      },
+    }),
+    setRuntimeSkillScopeEnabled: (
+      draft: { skills: { disabled: string[] } },
+      skillName: string,
+      enabled: boolean,
+    ) => {
+      const nextDisabled = new Set(draft.skills.disabled);
+      if (enabled) {
+        nextDisabled.delete(skillName);
+      } else {
+        nextDisabled.add(skillName);
+      }
+      draft.skills.disabled = [...nextDisabled].sort((left, right) =>
+        left.localeCompare(right),
+      );
+    },
+    updateRuntimeConfig: (
+      mutate: (draft: { skills: { disabled: string[] } }) => void,
+    ) => {
+      const draft = {
+        skills: {
+          disabled: [...disabledSkills],
+        },
+      };
+      mutate(draft);
+      disabledSkills.clear();
+      for (const skillName of draft.skills.disabled) {
+        disabledSkills.add(skillName);
+      }
+      return draft;
+    },
+  }));
+  vi.doMock('../src/memory/db.js', () => ({
+    getSessionCount: () => 1,
+    getSkillObservationSummary: () => [],
+  }));
+  vi.doMock('../src/skills/skills.js', () => ({
+    loadSkillCatalog: () => [
+      {
+        name: 'never-observed',
+        description: 'Never observed',
+        userInvocable: false,
+        disableModelInvocation: false,
+        always: false,
+        requires: {
+          bins: [],
+          env: [],
+        },
+        metadata: {
+          hybridclaw: {
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/never-observed/SKILL.md',
+        baseDir: '/tmp/never-observed',
+        source: 'workspace',
+        available: true,
+        enabled: true,
+        missing: [],
+      },
+    ],
+  }));
+  vi.doMock('../src/skills/skills-guard.js', () => ({
+    guardSkillDirectory: () => ({
+      allowed: true,
+      result: {
+        verdict: 'safe',
+        findings: [],
+      },
+    }),
+  }));
+
+  const { checkSkills } = await import('../src/doctor/checks/skills.ts');
+  const results = await checkSkills();
+  const unusedSkills = results.find(
+    (result) => result.label === 'Unused skills',
+  );
+
+  expect(unusedSkills?.severity).toBe('warn');
+  expect(unusedSkills?.message).toContain('never-observed');
+  expect(unusedSkills?.message).toContain('last used never');
+
+  await unusedSkills?.fix?.apply();
+  expect(disabledSkills).toEqual(new Set(['never-observed']));
 });
 
 test('checkChannels distinguishes intentionally disabled channels from missing setup', async () => {

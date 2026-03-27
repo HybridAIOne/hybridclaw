@@ -16,6 +16,9 @@
       "email": []
     }
   },
+  "tools": {
+    "disabled": []
+  },
   "adaptiveSkills": {
     "enabled": false,
     "observationEnabled": true,

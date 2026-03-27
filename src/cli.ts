@@ -1110,6 +1110,11 @@ async function handleSkillCommand(args: string[]): Promise<void> {
   await cliSkill.handleSkillCommand(args);
 }
 
+async function handleToolCommand(args: string[]): Promise<void> {
+  const cliTool = await import('./cli/tool-command.js');
+  await cliTool.handleToolCommand(args);
+}
+
 async function handlePluginCommand(args: string[]): Promise<void> {
   const cliPlugin = await import('./cli/plugin-command.js');
   await cliPlugin.handlePluginCommand(args);
@@ -1196,6 +1201,9 @@ export async function main(
       break;
     case 'skill':
       await handleSkillCommand(subargs);
+      break;
+    case 'tool':
+      await handleToolCommand(subargs);
       break;
     case 'update': {
       if (isHelpRequest(subargs)) {
