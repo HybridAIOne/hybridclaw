@@ -186,6 +186,16 @@ export interface RuntimeMediaAudioConfig {
   models: RuntimeAudioTranscriptionModelConfig[];
 }
 
+export interface RuntimeRoutingConciergeConfig {
+  enabled: boolean;
+  model: string;
+  profiles: {
+    asap: string;
+    balanced: string;
+    noHurry: string;
+  };
+}
+
 export interface RuntimeDiscordHumanDelayConfig {
   mode: DiscordHumanDelayMode;
   minMs: number;
@@ -470,6 +480,9 @@ export interface RuntimeConfig {
   };
   media: {
     audio: RuntimeMediaAudioConfig;
+  };
+  routing: {
+    concierge: RuntimeRoutingConciergeConfig;
   };
   heartbeat: {
     enabled: boolean;
@@ -932,6 +945,17 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       prompt: 'Transcribe the audio.',
       language: '',
       models: [],
+    },
+  },
+  routing: {
+    concierge: {
+      enabled: false,
+      model: 'gemini-3-flash',
+      profiles: {
+        asap: 'gpt-5',
+        balanced: 'gpt-5-mini',
+        noHurry: 'gpt-5-nano',
+      },
     },
   },
   heartbeat: {
@@ -2876,6 +2900,39 @@ function normalizeMediaConfig(
   };
 }
 
+function normalizeRoutingConciergeConfig(
+  value: unknown,
+  fallback: RuntimeRoutingConciergeConfig,
+): RuntimeRoutingConciergeConfig {
+  const raw = isRecord(value) ? value : {};
+  const rawProfiles = isRecord(raw.profiles) ? raw.profiles : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    model: normalizeString(raw.model, fallback.model, {
+      allowEmpty: false,
+    }),
+    profiles: {
+      asap: normalizeString(rawProfiles.asap, fallback.profiles.asap, {
+        allowEmpty: false,
+      }),
+      balanced: normalizeString(
+        rawProfiles.balanced,
+        fallback.profiles.balanced,
+        {
+          allowEmpty: false,
+        },
+      ),
+      noHurry: normalizeString(
+        rawProfiles.noHurry ?? rawProfiles.no_hurry,
+        fallback.profiles.noHurry,
+        {
+          allowEmpty: false,
+        },
+      ),
+    },
+  };
+}
+
 function normalizeTavilySearchDepth(
   value: unknown,
   fallback: 'basic' | 'advanced',
@@ -2963,6 +3020,7 @@ function normalizeRuntimeConfig(
   const rawWeb = isRecord(raw.web) ? raw.web : {};
   const rawWebSearch = isRecord(rawWeb.search) ? rawWeb.search : {};
   const rawMedia = isRecord(raw.media) ? raw.media : {};
+  const rawRouting = isRecord(raw.routing) ? raw.routing : {};
   const rawHeartbeat = isRecord(raw.heartbeat) ? raw.heartbeat : {};
   const rawMemory = isRecord(raw.memory) ? raw.memory : {};
   const rawOps = isRecord(raw.ops) ? raw.ops : {};
@@ -3641,6 +3699,12 @@ function normalizeRuntimeConfig(
       },
     },
     media: normalizeMediaConfig(rawMedia, DEFAULT_RUNTIME_CONFIG.media),
+    routing: {
+      concierge: normalizeRoutingConciergeConfig(
+        rawRouting.concierge,
+        DEFAULT_RUNTIME_CONFIG.routing.concierge,
+      ),
+    },
     heartbeat: {
       enabled: normalizeBoolean(
         rawHeartbeat.enabled,
