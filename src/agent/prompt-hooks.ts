@@ -457,7 +457,10 @@ function formatRuntimeModelForPrompt(model: string, provider: string): string {
     }
     return formatted;
   }
-  if (provider === 'hybridai' && formatted.toLowerCase().startsWith('hybridai/')) {
+  if (
+    provider === 'hybridai' &&
+    formatted.toLowerCase().startsWith('hybridai/')
+  ) {
     return formatUpstreamModelLabel(formatted.slice('hybridai/'.length));
   }
   const providerPrefix = `${provider}/`;
