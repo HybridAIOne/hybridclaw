@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { listAgents } from '../agents/agent-registry.js';
-import { agentWorkspaceDir } from '../infra/ipc.js';
 import { resolveInstallPath } from '../infra/install-root.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import type { MemoryBackend } from './memory-service.js';
 
 export interface MemoryConsolidationConfig {
@@ -69,7 +69,10 @@ function currentDateStamp(now = new Date()): string {
 
 function readMemoryTemplate(): string {
   try {
-    return fs.readFileSync(resolveInstallPath('templates', 'MEMORY.md'), 'utf-8');
+    return fs.readFileSync(
+      resolveInstallPath('templates', 'MEMORY.md'),
+      'utf-8',
+    );
   } catch {
     return DEFAULT_MEMORY_TEMPLATE;
   }
@@ -79,7 +82,10 @@ function compactWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-function truncateLine(value: string, maxChars = DAILY_MEMORY_LINE_MAX_CHARS): string {
+function truncateLine(
+  value: string,
+  maxChars = DAILY_MEMORY_LINE_MAX_CHARS,
+): string {
   const compact = compactWhitespace(value);
   if (compact.length <= maxChars) return compact;
   return `${compact.slice(0, maxChars - 3).trimEnd()}...`;
@@ -159,9 +165,18 @@ function buildDailyDigest(entries: DailyMemoryEntry[]): string {
 
 function replaceDailyDigestBlock(memoryContent: string, block: string): string {
   const normalized = memoryContent.replace(/\r\n/g, '\n').trimEnd();
-  const escapedStart = DAILY_MEMORY_BLOCK_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const escapedEnd = DAILY_MEMORY_BLOCK_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const blockPattern = new RegExp(`${escapedStart}[\\s\\S]*?${escapedEnd}\\n*`, 'm');
+  const escapedStart = DAILY_MEMORY_BLOCK_START.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    '\\$&',
+  );
+  const escapedEnd = DAILY_MEMORY_BLOCK_END.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    '\\$&',
+  );
+  const blockPattern = new RegExp(
+    `${escapedStart}[\\s\\S]*?${escapedEnd}\\n*`,
+    'm',
+  );
   const stripped = normalized.replace(blockPattern, '').trimEnd();
   if (!block) return stripped ? `${stripped}\n` : '';
   if (!stripped) return `${block}\n`;
@@ -179,7 +194,9 @@ function dedupeMemorySections(memoryContent: string): string {
     const headingMatch = /^##\s+(.+?)\s*$/.exec(trimmed);
     if (headingMatch) {
       const sectionName = headingMatch[1]?.trim() || '';
-      activeSection = MEMORY_SECTION_NAMES.has(sectionName) ? sectionName : null;
+      activeSection = MEMORY_SECTION_NAMES.has(sectionName)
+        ? sectionName
+        : null;
       seenBullets = new Set<string>();
       output.push(line);
       continue;
@@ -197,7 +214,10 @@ function dedupeMemorySections(memoryContent: string): string {
     output.push(line);
   }
 
-  return `${output.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`;
+  return `${output
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd()}\n`;
 }
 
 function buildMemoryContent(params: {
@@ -210,10 +230,7 @@ function buildMemoryContent(params: {
   for (;;) {
     const digest = buildDailyDigest(candidateEntries);
     const next = replaceDailyDigestBlock(normalized, digest);
-    if (
-      next.length <= MEMORY_FILE_MAX_CHARS ||
-      candidateEntries.length === 0
-    ) {
+    if (next.length <= MEMORY_FILE_MAX_CHARS || candidateEntries.length === 0) {
       return next;
     }
     candidateEntries.shift();
@@ -226,9 +243,9 @@ function collectDailyMemoryEntries(workspaceDir: string): DailyMemoryEntry[] {
 
   const today = currentDateStamp();
   const entries: DailyMemoryEntry[] = [];
-  for (const name of fs.readdirSync(dailyDir).sort((left, right) =>
-    right.localeCompare(left),
-  )) {
+  for (const name of fs
+    .readdirSync(dailyDir)
+    .sort((left, right) => right.localeCompare(left))) {
     const match = DAILY_MEMORY_FILE_RE.exec(name);
     if (!match) continue;
     const date = match[1];

@@ -232,10 +232,12 @@ describe.sequential('memory consolidation', () => {
     expect(memoryContent.match(/User prefers concise replies\./g)).toHaveLength(
       1,
     );
-    expect(memoryContent.match(/Keep compaction deterministic\./g)).toHaveLength(
+    expect(
+      memoryContent.match(/Keep compaction deterministic\./g),
+    ).toHaveLength(1);
+    expect(memoryContent.match(/Use small targeted patches\./g)).toHaveLength(
       1,
     );
-    expect(memoryContent.match(/Use small targeted patches\./g)).toHaveLength(1);
   });
 
   test('drops oldest daily digest entries first to keep MEMORY.md bounded', async () => {
