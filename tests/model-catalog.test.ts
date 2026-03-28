@@ -498,3 +498,74 @@ test('vision fallback ignores OpenRouter models with image output only', async (
     'openrouter/zeus/vision-chat',
   );
 });
+
+test('available model catalog cache invalidates when source lists change', async () => {
+  let discoveredHuggingFaceModels = ['huggingface/meta-llama/Llama-3.1-8B-Instruct'];
+
+  vi.doMock('../src/config/config.js', () => ({
+    CONFIGURED_MODELS: ['gpt-5-nano'],
+  }));
+  vi.doMock('../src/providers/factory.js', () => ({
+    resolveModelProvider: vi.fn(() => 'hybridai'),
+  }));
+  vi.doMock('../src/providers/huggingface-discovery.js', () => ({
+    discoverHuggingFaceModels: vi.fn(),
+    getDiscoveredHuggingFaceModelNames: vi.fn(() => discoveredHuggingFaceModels),
+  }));
+  vi.doMock('../src/providers/huggingface-utils.js', () => ({
+    HUGGINGFACE_MODEL_PREFIX: 'huggingface/',
+  }));
+  vi.doMock('../src/providers/hybridai-discovery.js', () => ({
+    discoverHybridAIModels: vi.fn(),
+    getDiscoveredHybridAIModelNames: vi.fn(() => []),
+  }));
+  vi.doMock('../src/providers/hybridai-models.js', () => ({
+    isStaticModelVisionCapable: vi.fn(() => false),
+  }));
+  vi.doMock('../src/providers/local-discovery.js', () => ({
+    discoverAllLocalModels: vi.fn(),
+    getDiscoveredLocalModelNames: vi.fn(() => []),
+  }));
+  vi.doMock('../src/providers/model-names.js', () => ({
+    formatModelForDisplay: vi.fn((model: string) => model),
+  }));
+  vi.doMock('../src/providers/openai.js', () => ({
+    OPENAI_CODEX_MODEL_PREFIX: 'openai-codex/',
+  }));
+  vi.doMock('../src/providers/openrouter-discovery.js', () => ({
+    discoverOpenRouterModels: vi.fn(),
+    getDiscoveredOpenRouterModelNames: vi.fn(() => []),
+    isDiscoveredOpenRouterModelFree: vi.fn(() => false),
+    isDiscoveredOpenRouterModelVisionCapable: vi.fn(() => false),
+  }));
+  vi.doMock('../src/providers/openrouter-utils.js', () => ({
+    OPENROUTER_MODEL_PREFIX: 'openrouter/',
+  }));
+
+  vi.resetModules();
+  const catalog = await import('../src/providers/model-catalog.ts');
+
+  const first = catalog.getAvailableModelList();
+  first.push('poisoned-local-copy');
+  expect(catalog.getAvailableModelList()).not.toContain('poisoned-local-copy');
+
+  discoveredHuggingFaceModels = [
+    'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+    'huggingface/Qwen/Qwen3.5-27B-FP8',
+  ];
+  expect(catalog.getAvailableModelList()).toContain(
+    'huggingface/Qwen/Qwen3.5-27B-FP8',
+  );
+
+  vi.doUnmock('../src/config/config.js');
+  vi.doUnmock('../src/providers/factory.js');
+  vi.doUnmock('../src/providers/huggingface-discovery.js');
+  vi.doUnmock('../src/providers/huggingface-utils.js');
+  vi.doUnmock('../src/providers/hybridai-discovery.js');
+  vi.doUnmock('../src/providers/hybridai-models.js');
+  vi.doUnmock('../src/providers/local-discovery.js');
+  vi.doUnmock('../src/providers/model-names.js');
+  vi.doUnmock('../src/providers/openai.js');
+  vi.doUnmock('../src/providers/openrouter-discovery.js');
+  vi.doUnmock('../src/providers/openrouter-utils.js');
+});

@@ -156,6 +156,46 @@ function dedupeModelList(models: string[]): string[] {
   return deduped;
 }
 
+let cachedAvailableModelList:
+  | {
+      key: string;
+      models: string[];
+    }
+  | null = null;
+
+function buildAvailableModelListCacheKey(modelLists: readonly string[][]): string {
+  return modelLists
+    .map((models) => `${models.length}:${models.join('\u0000')}`)
+    .join('\u0001');
+}
+
+function getDedupedAvailableModelList(): string[] {
+  const modelLists = [
+    CONFIGURED_MODELS,
+    getDiscoveredHuggingFaceModelNames(),
+    getDiscoveredHybridAIModelNames(),
+    getDiscoveredLocalModelNames(),
+    getDiscoveredOpenRouterModelNames(),
+  ];
+  const cacheKey = buildAvailableModelListCacheKey(modelLists);
+  if (cachedAvailableModelList?.key === cacheKey) {
+    return [...cachedAvailableModelList.models];
+  }
+
+  const models = dedupeModelList([
+    ...modelLists[0],
+    ...modelLists[1],
+    ...modelLists[2],
+    ...modelLists[3],
+    ...modelLists[4],
+  ]);
+  cachedAvailableModelList = {
+    key: cacheKey,
+    models,
+  };
+  return [...models];
+}
+
 export function getAvailableModelList(provider?: string): string[] {
   return getAvailableModelListWithOptions(provider);
 }
@@ -164,13 +204,7 @@ export function getAvailableModelListWithOptions(
   provider?: string,
   _opts?: { expanded?: boolean },
 ): string[] {
-  const models = dedupeModelList([
-    ...CONFIGURED_MODELS,
-    ...getDiscoveredHuggingFaceModelNames(),
-    ...getDiscoveredHybridAIModelNames(),
-    ...getDiscoveredLocalModelNames(),
-    ...getDiscoveredOpenRouterModelNames(),
-  ]);
+  const models = getDedupedAvailableModelList();
   const normalizedProvider = normalizeModelCatalogProviderFilter(provider);
   if (!provider) {
     return models.sort((left, right) => compareModelNames(left, right));
