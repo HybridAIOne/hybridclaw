@@ -692,10 +692,7 @@
     }
 
     .composer {
-      border-top: 1px solid var(--line);
       padding: 14px 20px 16px;
-      display: block;
-      background: #ffffff;
     }
 
     .chat.is-empty .chat-body {
@@ -733,19 +730,37 @@
       background: transparent;
     }
 
+    /* ── Prompt wrap: always-expanded card ── */
     .prompt-wrap {
-      position: relative;
+      display: flex;
+      flex-direction: column;
+      padding: 14px 16px 10px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: #ffffff;
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
     }
 
+    .composer-bar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding-top: 8px;
+    }
+
+    .composer-bar-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* ── Pending media (attachments) ── */
     .pending-media {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-bottom: 10px;
-    }
-
-    .pending-media[hidden] {
-      display: none;
+      margin-bottom: 8px;
     }
 
     .pending-chip {
@@ -791,63 +806,67 @@
       color: #46607f;
     }
 
+    /* ── Textarea ── */
     .composer textarea {
       width: 100%;
-      min-height: 56px;
+      min-height: 24px;
       max-height: 180px;
-      resize: vertical;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: #ffffff;
+      resize: none;
+      border: none;
+      background: transparent;
       color: var(--text);
-      padding: 11px 68px 14px 58px;
+      padding: 2px 4px;
       font: inherit;
-      line-height: 1.45;
-      box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.02);
+      font-size: 16px;
+      line-height: 24px;
+      outline: none;
     }
 
+    .composer textarea:focus-visible {
+      outline: 2px solid var(--brand-blue);
+      outline-offset: 4px;
+      border-radius: 10px;
+    }
+
+    /* ── Action buttons ── */
     .composer-action {
-      position: absolute;
-      bottom: 12px;
+      flex-shrink: 0;
       border: none;
       border-radius: 999px;
-      width: 40px;
-      height: 40px;
+      width: 36px;
+      height: 36px;
       padding: 0;
-      background: #8e95a4;
-      color: #ffffff;
+      background: transparent;
+      color: #8e95a4;
       display: grid;
       place-items: center;
-      transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+      cursor: pointer;
+      transition: background-color 0.15s ease, color 0.15s ease;
     }
 
     .composer-action:disabled {
       cursor: default;
-      opacity: 0.55;
+      opacity: 0.45;
     }
 
     #attach {
-      left: 12px;
-      border: 1px solid #dbe4f0;
-      background: #ffffff;
-      color: #5c6b81;
+      color: #8e95a4;
       font-size: 22px;
       line-height: 1;
     }
 
     #attach:hover:not(:disabled) {
-      border-color: #bfd0e6;
-      color: #23344e;
+      background: #f0f4f8;
+      color: #5c6b81;
     }
 
     #send {
-      right: 12px;
-      background: #8e95a4;
+      background: #d1d5db;
       color: #ffffff;
     }
 
     #send:hover:not(:disabled) {
-      background: #7c8393;
+      background: #9ca3af;
     }
 
     #send.is-stop {
@@ -997,16 +1016,20 @@
         <div class="composer">
           <div class="prompt-wrap">
             <div id="pendingMedia" class="pending-media" hidden></div>
-            <button id="attach" type="button" class="composer-action" aria-label="Attach files">
-              <span aria-hidden="true">+</span>
-            </button>
-            <button id="send" type="button" class="composer-action" aria-label="Send message">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 19V5"></path>
-                <path d="m5 12 7-7 7 7"></path>
-              </svg>
-            </button>
-            <textarea id="message" placeholder="Message HybridClaw"></textarea>
+            <textarea id="message" rows="1" placeholder="Message HybridClaw"></textarea>
+            <div class="composer-bar">
+              <button id="attach" type="button" class="composer-action" aria-label="Attach files">
+                <span aria-hidden="true">+</span>
+              </button>
+              <div class="composer-bar-right">
+                <button id="send" type="button" class="composer-action" aria-label="Send message">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 19V5"></path>
+                    <path d="m5 12 7-7 7 7"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
             <input id="attachmentInput" type="file" hidden multiple>
           </div>
         </div>
@@ -1028,6 +1051,7 @@
     const attachEl = document.getElementById('attach');
     const attachmentInputEl = document.getElementById('attachmentInput');
     const pendingMediaEl = document.getElementById('pendingMedia');
+
     const urlParams = new URLSearchParams(window.location.search);
     const queryToken = urlParams.get('token') || '';
     const MAX_RECENT_SESSIONS = 10;
@@ -1413,6 +1437,11 @@
       renderRecentSessions();
     }
 
+    function autoResizeTextarea() {
+      messageEl.style.height = 'auto';
+      messageEl.style.height = messageEl.scrollHeight + 'px';
+    }
+
     function updateComposerState() {
       const isRunning = Boolean(activeChatRequest);
       const isStopping = Boolean(activeChatRequest?.stopping);
@@ -1427,7 +1456,8 @@
         isRunning ? 'Stop current message' : 'Send message',
       );
       sendEl.title = isRunning ? 'Stop current message' : 'Send message';
-      sendEl.innerHTML = isRunning ? STOP_ICON : SEND_ICON;
+      // NOTE: SEND_ICON and STOP_ICON are static trusted SVG constants defined in this file
+      sendEl.innerHTML = isRunning ? STOP_ICON : SEND_ICON;  // eslint-disable-line no-unsanitized/property
       attachEl.disabled = pendingUploadCount > 0 || isRunning;
       attachmentInputEl.disabled = pendingUploadCount > 0 || isRunning;
       messageEl.disabled = isRunning;
@@ -2551,7 +2581,10 @@
     document.getElementById('sidebarToggle').addEventListener('click', () => {
       layoutEl.classList.toggle('is-sidebar-collapsed');
     });
-    messageEl.addEventListener('input', updateComposerState);
+    messageEl.addEventListener('input', () => {
+      autoResizeTextarea();
+      updateComposerState();
+    });
     messageEl.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
