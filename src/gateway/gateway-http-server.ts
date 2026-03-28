@@ -1508,7 +1508,11 @@ function handleApiAgentAvatar(
     sendJson(res, 404, { error: 'Agent avatar not found.' });
     return;
   }
-  if (!resolveStaticFileMimeType(filePath, { dispositionType: 'inline' }).startsWith('image/')) {
+  if (
+    !resolveStaticFileMimeType(filePath, {
+      dispositionType: 'inline',
+    }).startsWith('image/')
+  ) {
     sendJson(res, 404, { error: 'Agent avatar not found.' });
     return;
   }

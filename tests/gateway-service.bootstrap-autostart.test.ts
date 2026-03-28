@@ -243,12 +243,14 @@ test('ensureGatewayBootstrapAutostart ignores BOOT.md even when it is customized
 test('ensureGatewayBootstrapAutostart prevents duplicate concurrent runs for the same fresh session', async () => {
   setupHome();
 
-  let resolveRun: ((value: {
-    status: 'success';
-    result: string;
-    toolsUsed: never[];
-    toolExecutions: never[];
-  }) => void) | null = null;
+  let resolveRun:
+    | ((value: {
+        status: 'success';
+        result: string;
+        toolsUsed: never[];
+        toolExecutions: never[];
+      }) => void)
+    | null = null;
   const runAgentPromise = new Promise<{
     status: 'success';
     result: string;
