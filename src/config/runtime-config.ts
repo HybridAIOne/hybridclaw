@@ -441,10 +441,6 @@ export interface RuntimeConfig {
       searxngBaseUrl: string;
       tavilySearchDepth: 'basic' | 'advanced';
     };
-    features: {
-      modelPicker: boolean;
-      voiceInput: boolean;
-    };
   };
   media: {
     audio: RuntimeMediaAudioConfig;
@@ -864,10 +860,6 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       cacheTtlMinutes: 5,
       searxngBaseUrl: '',
       tavilySearchDepth: 'advanced',
-    },
-    features: {
-      modelPicker: false,
-      voiceInput: false,
     },
   },
   media: {
@@ -2776,7 +2768,6 @@ function normalizeRuntimeConfig(
   const rawMcpServers = isRecord(raw.mcpServers) ? raw.mcpServers : {};
   const rawWeb = isRecord(raw.web) ? raw.web : {};
   const rawWebSearch = isRecord(rawWeb.search) ? rawWeb.search : {};
-  const rawWebFeatures = isRecord(rawWeb.features) ? rawWeb.features : {};
   const rawMedia = isRecord(raw.media) ? raw.media : {};
   const rawHeartbeat = isRecord(raw.heartbeat) ? raw.heartbeat : {};
   const rawMemory = isRecord(raw.memory) ? raw.memory : {};
@@ -3418,16 +3409,6 @@ function normalizeRuntimeConfig(
         tavilySearchDepth: normalizeTavilySearchDepth(
           rawWebSearch.tavilySearchDepth,
           DEFAULT_RUNTIME_CONFIG.web.search.tavilySearchDepth,
-        ),
-      },
-      features: {
-        modelPicker: normalizeBoolean(
-          rawWebFeatures.modelPicker,
-          DEFAULT_RUNTIME_CONFIG.web.features.modelPicker,
-        ),
-        voiceInput: normalizeBoolean(
-          rawWebFeatures.voiceInput,
-          DEFAULT_RUNTIME_CONFIG.web.features.voiceInput,
         ),
       },
     },

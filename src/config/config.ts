@@ -269,8 +269,6 @@ export let WEB_SEARCH_CACHE_TTL_MINUTES = 5;
 export let WEB_SEARCH_SEARXNG_BASE_URL = '';
 export let WEB_SEARCH_TAVILY_SEARCH_DEPTH: RuntimeConfig['web']['search']['tavilySearchDepth'] =
   'advanced';
-export let WEB_FEATURE_MODEL_PICKER = false;
-export let WEB_FEATURE_VOICE_INPUT = false;
 
 export let HEARTBEAT_ENABLED = true;
 export let HEARTBEAT_INTERVAL = 1_800_000;
@@ -579,8 +577,6 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   WEB_SEARCH_SEARXNG_BASE_URL =
     process.env.SEARXNG_BASE_URL || config.web.search.searxngBaseUrl;
   WEB_SEARCH_TAVILY_SEARCH_DEPTH = config.web.search.tavilySearchDepth;
-  WEB_FEATURE_MODEL_PICKER = config.web.features.modelPicker;
-  WEB_FEATURE_VOICE_INPUT = config.web.features.voiceInput;
 
   HEARTBEAT_ENABLED = config.heartbeat.enabled;
   HEARTBEAT_INTERVAL = config.heartbeat.intervalMs;

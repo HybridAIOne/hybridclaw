@@ -64,8 +64,6 @@ import {
   PROACTIVE_DELEGATION_MAX_PER_TURN,
   PROACTIVE_RALPH_MAX_ITERATIONS,
   WEB_API_TOKEN,
-  WEB_FEATURE_MODEL_PICKER,
-  WEB_FEATURE_VOICE_INPUT,
 } from '../config/config.js';
 import {
   getRuntimeConfig,
@@ -2045,10 +2043,6 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     activeContainers: sandbox.activeSessions,
     defaultModel: HYBRIDAI_MODEL,
     ragDefault: HYBRIDAI_ENABLE_RAG,
-    webFeatures: {
-      modelPicker: WEB_FEATURE_MODEL_PICKER,
-      voiceInput: WEB_FEATURE_VOICE_INPUT,
-    },
     fullAuto: {
       activeSessions: getFullAutoSessionCount(),
     },

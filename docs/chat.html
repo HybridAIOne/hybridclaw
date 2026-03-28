@@ -755,54 +755,12 @@
       gap: 4px;
     }
 
-    /* ── Dropdown selectors ── */
-    .composer-select {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      border: none;
-      background: transparent;
-      color: #5c6b81;
-      font: inherit;
-      font-size: 14px;
-      font-weight: 500;
-      padding: 6px 8px;
-      border-radius: 8px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-
-    .composer-select:hover {
-      background: #f0f4f8;
-      color: #23344e;
-    }
-
-    .composer-select svg {
-      width: 12px;
-      height: 12px;
-      flex-shrink: 0;
-    }
-
-    .composer-select .select-icon {
-      width: 16px;
-      height: 16px;
-    }
-
-    .composer-select[hidden],
-    .composer-action[hidden] {
-      display: none;
-    }
-
     /* ── Pending media (attachments) ── */
     .pending-media {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
       margin-bottom: 8px;
-    }
-
-    .pending-media[hidden] {
-      display: none;
     }
 
     .pending-chip {
@@ -862,6 +820,12 @@
       font-size: 16px;
       line-height: 24px;
       outline: none;
+    }
+
+    .composer textarea:focus-visible {
+      outline: 2px solid var(--brand-blue);
+      outline-offset: 4px;
+      border-radius: 10px;
     }
 
     /* ── Action buttons ── */
@@ -1057,23 +1021,7 @@
               <button id="attach" type="button" class="composer-action" aria-label="Attach files">
                 <span aria-hidden="true">+</span>
               </button>
-              <button id="modelSelect" type="button" class="composer-select" aria-label="Select model" hidden>
-                <svg class="select-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                <span id="modelLabel">Auto</span>
-                <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
-              </button>
-              <button id="qualitySelect" type="button" class="composer-select" aria-label="Select quality" hidden>
-                <span id="qualityLabel">High</span>
-                <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
-              </button>
               <div class="composer-bar-right">
-                <button id="mic" type="button" class="composer-action" aria-label="Voice input" hidden>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                    <line x1="12" y1="19" x2="12" y2="22"/>
-                  </svg>
-                </button>
                 <button id="send" type="button" class="composer-action" aria-label="Send message">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M12 19V5"></path>
@@ -1513,7 +1461,6 @@
       attachEl.disabled = pendingUploadCount > 0 || isRunning;
       attachmentInputEl.disabled = pendingUploadCount > 0 || isRunning;
       messageEl.disabled = isRunning;
-      autoResizeTextarea();
     }
 
     function setError(text) {
@@ -2408,18 +2355,9 @@
           headers: apiHeaders(),
         });
         setAppVersion(payload.version || '');
-        applyWebFeatures(payload.webFeatures);
       } catch {
         setAppVersion('');
       }
-    }
-
-    function applyWebFeatures(features) {
-      if (!features) return;
-      const setHidden = (id, hide) => { const el = document.getElementById(id); if (el) el.hidden = hide; };
-      setHidden('modelSelect', !features.modelPicker);
-      setHidden('qualitySelect', !features.modelPicker); // coupled: quality only relevant with model picker
-      setHidden('mic', !features.voiceInput);
     }
 
     async function submitPrompt(rawContent, media, options = {}) {
@@ -2643,7 +2581,10 @@
     document.getElementById('sidebarToggle').addEventListener('click', () => {
       layoutEl.classList.toggle('is-sidebar-collapsed');
     });
-    messageEl.addEventListener('input', updateComposerState);
+    messageEl.addEventListener('input', () => {
+      autoResizeTextarea();
+      updateComposerState();
+    });
     messageEl.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
