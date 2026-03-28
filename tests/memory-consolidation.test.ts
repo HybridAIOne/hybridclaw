@@ -6,17 +6,14 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import type { MemoryBackend } from '../src/memory/memory-service.js';
 
-function formatDateStamp(date: Date): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-  const year = parts.find((part) => part.type === 'year')?.value;
-  const month = parts.find((part) => part.type === 'month')?.value;
-  const day = parts.find((part) => part.type === 'day')?.value;
-  if (year && month && day) return `${year}-${month}-${day}`;
-  return date.toISOString().slice(0, 10);
+async function loadConsolidationModule(workspaceDir: string) {
+  vi.doMock('../src/agents/agent-registry.js', () => ({
+    listAgents: vi.fn(() => [{ id: 'main' }]),
+  }));
+  vi.doMock('../src/infra/ipc.js', () => ({
+    agentWorkspaceDir: vi.fn(() => workspaceDir),
+  }));
+  return import('../src/memory/memory-consolidation.js');
 }
 
 function makeBackend(memoriesDecayed = 0): MemoryBackend {
@@ -73,11 +70,13 @@ describe.sequential('memory consolidation', () => {
     const dailyDir = path.join(workspaceDir, 'memory');
     fs.mkdirSync(dailyDir, { recursive: true });
 
+    const { MemoryConsolidationEngine, currentDateStamp } =
+      await loadConsolidationModule(workspaceDir);
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-    const todayStamp = formatDateStamp(today);
-    const yesterdayStamp = formatDateStamp(yesterday);
+    const todayStamp = currentDateStamp(today);
+    const yesterdayStamp = currentDateStamp(yesterday);
 
     fs.writeFileSync(
       path.join(dailyDir, `${yesterdayStamp}.md`),
@@ -100,16 +99,6 @@ describe.sequential('memory consolidation', () => {
       'utf-8',
     );
 
-    vi.doMock('../src/agents/agent-registry.js', () => ({
-      listAgents: vi.fn(() => [{ id: 'main' }]),
-    }));
-    vi.doMock('../src/infra/ipc.js', () => ({
-      agentWorkspaceDir: vi.fn(() => workspaceDir),
-    }));
-
-    const { MemoryConsolidationEngine } = await import(
-      '../src/memory/memory-consolidation.js'
-    );
     const engine = new MemoryConsolidationEngine(makeBackend(2), {
       decayRate: 0.1,
       staleAfterDays: 7,
@@ -141,23 +130,15 @@ describe.sequential('memory consolidation', () => {
 
     const older = new Date();
     older.setDate(older.getDate() - 2);
-    const olderStamp = formatDateStamp(older);
+    const { MemoryConsolidationEngine, currentDateStamp } =
+      await loadConsolidationModule(workspaceDir);
+    const olderStamp = currentDateStamp(older);
     fs.writeFileSync(
       path.join(dailyDir, `${olderStamp}.md`),
       '- Consolidate this once.\n',
       'utf-8',
     );
 
-    vi.doMock('../src/agents/agent-registry.js', () => ({
-      listAgents: vi.fn(() => [{ id: 'main' }]),
-    }));
-    vi.doMock('../src/infra/ipc.js', () => ({
-      agentWorkspaceDir: vi.fn(() => workspaceDir),
-    }));
-
-    const { MemoryConsolidationEngine } = await import(
-      '../src/memory/memory-consolidation.js'
-    );
     const engine = new MemoryConsolidationEngine(makeBackend(), {
       decayRate: 0.1,
       staleAfterDays: 7,
@@ -206,16 +187,8 @@ describe.sequential('memory consolidation', () => {
       'utf-8',
     );
 
-    vi.doMock('../src/agents/agent-registry.js', () => ({
-      listAgents: vi.fn(() => [{ id: 'main' }]),
-    }));
-    vi.doMock('../src/infra/ipc.js', () => ({
-      agentWorkspaceDir: vi.fn(() => workspaceDir),
-    }));
-
-    const { MemoryConsolidationEngine } = await import(
-      '../src/memory/memory-consolidation.js'
-    );
+    const { MemoryConsolidationEngine } =
+      await loadConsolidationModule(workspaceDir);
     const engine = new MemoryConsolidationEngine(makeBackend(), {
       decayRate: 0.1,
       staleAfterDays: 7,
@@ -247,11 +220,13 @@ describe.sequential('memory consolidation', () => {
     const dailyDir = path.join(workspaceDir, 'memory');
     fs.mkdirSync(dailyDir, { recursive: true });
 
+    const { MemoryConsolidationEngine, currentDateStamp } =
+      await loadConsolidationModule(workspaceDir);
     const now = new Date();
     for (let offset = 1; offset <= 40; offset += 1) {
       const date = new Date(now);
       date.setDate(date.getDate() - offset);
-      const stamp = formatDateStamp(date);
+      const stamp = currentDateStamp(date);
       fs.writeFileSync(
         path.join(dailyDir, `${stamp}.md`),
         [
@@ -262,16 +237,6 @@ describe.sequential('memory consolidation', () => {
       );
     }
 
-    vi.doMock('../src/agents/agent-registry.js', () => ({
-      listAgents: vi.fn(() => [{ id: 'main' }]),
-    }));
-    vi.doMock('../src/infra/ipc.js', () => ({
-      agentWorkspaceDir: vi.fn(() => workspaceDir),
-    }));
-
-    const { MemoryConsolidationEngine } = await import(
-      '../src/memory/memory-consolidation.js'
-    );
     const engine = new MemoryConsolidationEngine(makeBackend(), {
       decayRate: 0.1,
       staleAfterDays: 7,

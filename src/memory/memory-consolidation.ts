@@ -54,7 +54,7 @@ interface DailyMemoryEntry {
   summary: string;
 }
 
-function currentDateStamp(now = new Date()): string {
+export function currentDateStamp(now = new Date()): string {
   const parts = new Intl.DateTimeFormat('en-US', {
     year: 'numeric',
     month: '2-digit',
@@ -80,6 +80,13 @@ function readMemoryTemplate(): string {
 
 function compactWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
+}
+
+function addUniqueKey(seen: Set<string>, key: string): boolean {
+  const normalized = key.trim();
+  if (!normalized || seen.has(normalized)) return false;
+  seen.add(normalized);
+  return true;
 }
 
 function truncateLine(
@@ -126,8 +133,7 @@ function summarizeDailyMemory(rawContent: string): string {
     }
     const normalized = normalizeBullet(line);
     const dedupeKey = normalized.toLowerCase();
-    if (!normalized || seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
+    if (!addUniqueKey(seen, dedupeKey)) continue;
     items.push(`- ${truncateLine(normalized)}`);
     if (items.length >= DAILY_MEMORY_SUMMARY_MAX_ITEMS) break;
   }
@@ -136,8 +142,7 @@ function summarizeDailyMemory(rawContent: string): string {
     const paragraphs = splitParagraphs(trimmed);
     for (const paragraph of paragraphs) {
       const dedupeKey = paragraph.toLowerCase();
-      if (!paragraph || seen.has(dedupeKey)) continue;
-      seen.add(dedupeKey);
+      if (!addUniqueKey(seen, dedupeKey)) continue;
       items.push(`- ${truncateLine(paragraph)}`);
       if (items.length >= DAILY_MEMORY_SUMMARY_MAX_ITEMS) break;
     }
@@ -205,8 +210,7 @@ function dedupeMemorySections(memoryContent: string): string {
     if (activeSection && /^[-*+]\s+/.test(trimmed)) {
       const bullet = normalizeBullet(trimmed);
       const key = bullet.toLowerCase();
-      if (!bullet || seenBullets.has(key)) continue;
-      seenBullets.add(key);
+      if (!addUniqueKey(seenBullets, key)) continue;
       output.push(`- ${bullet}`);
       continue;
     }
