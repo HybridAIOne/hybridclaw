@@ -64,7 +64,10 @@ test('ensureGatewayBootstrapAutostart stores only the assistant bootstrap opener
 
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   const request = runAgentMock.mock.calls[0]?.[0] as
-    | { messages?: Array<{ role: string; content: string }>; channelId?: string }
+    | {
+        messages?: Array<{ role: string; content: string }>;
+        channelId?: string;
+      }
     | undefined;
   expect(request?.channelId).toBe('web');
   expect(request?.messages?.some((message) => message.role === 'system')).toBe(
@@ -149,7 +152,9 @@ test('ensureGatewayBootstrapAutostart also kicks off from BOOT.md once per sessi
     | { messages?: Array<{ role: string; content: string }> }
     | undefined;
   expect(
-    request?.messages?.some((message) => message.content.includes('## BOOT.md')),
+    request?.messages?.some((message) =>
+      message.content.includes('## BOOT.md'),
+    ),
   ).toBe(true);
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',

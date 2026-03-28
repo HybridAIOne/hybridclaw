@@ -259,8 +259,8 @@ import type { TokenUsageStats } from '../types/usage.js';
 import { sleep } from '../utils/sleep.js';
 import {
   ensureBootstrapFiles,
-  resolveStartupBootstrapFile,
   resetWorkspace,
+  resolveStartupBootstrapFile,
 } from '../workspace.js';
 import {
   normalizePlaceholderToolReply,
