@@ -500,7 +500,9 @@ test('vision fallback ignores OpenRouter models with image output only', async (
 });
 
 test('available model catalog cache invalidates when source lists change', async () => {
-  let discoveredHuggingFaceModels = ['huggingface/meta-llama/Llama-3.1-8B-Instruct'];
+  let discoveredHuggingFaceModels = [
+    'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+  ];
 
   vi.doMock('../src/config/config.js', () => ({
     CONFIGURED_MODELS: ['gpt-5-nano'],
@@ -510,7 +512,9 @@ test('available model catalog cache invalidates when source lists change', async
   }));
   vi.doMock('../src/providers/huggingface-discovery.js', () => ({
     discoverHuggingFaceModels: vi.fn(),
-    getDiscoveredHuggingFaceModelNames: vi.fn(() => discoveredHuggingFaceModels),
+    getDiscoveredHuggingFaceModelNames: vi.fn(
+      () => discoveredHuggingFaceModels,
+    ),
   }));
   vi.doMock('../src/providers/huggingface-utils.js', () => ({
     HUGGINGFACE_MODEL_PREFIX: 'huggingface/',

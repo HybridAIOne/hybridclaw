@@ -156,14 +156,14 @@ function dedupeModelList(models: string[]): string[] {
   return deduped;
 }
 
-let cachedAvailableModelList:
-  | {
-      key: string;
-      models: string[];
-    }
-  | null = null;
+let cachedAvailableModelList: {
+  key: string;
+  models: string[];
+} | null = null;
 
-function buildAvailableModelListCacheKey(modelLists: readonly string[][]): string {
+function buildAvailableModelListCacheKey(
+  modelLists: readonly string[][],
+): string {
   return modelLists
     .map((models) => `${models.length}:${models.join('\u0000')}`)
     .join('\u0001');
