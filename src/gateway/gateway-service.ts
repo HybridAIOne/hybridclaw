@@ -153,6 +153,7 @@ import {
 } from '../providers/huggingface-discovery.js';
 import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
 import {
+  fetchHybridAIAccountChatbotId,
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
@@ -351,7 +352,7 @@ const MAX_HISTORY_MESSAGES = 40;
 const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
 function buildBootstrapAutostartPrompt(
-  fileName: 'BOOTSTRAP.md' | 'BOOT.md',
+  fileName: 'BOOTSTRAP.md' | 'OPENING.md',
 ): string {
   return [
     `A startup instruction file (${fileName}) exists for this agent.`,
@@ -1361,6 +1362,87 @@ function formatHybridAIBotFetchError(error: unknown): string {
     return formatHybridAIBotReachabilityError(failure.kind, reachabilityHint);
   }
   return `Failed to fetch bots: ${failure.message}`;
+}
+
+function formatHybridAIAccountChatbotResolutionError(error: unknown): string {
+  const keyHint = `Update \`HYBRIDAI_API_KEY\` in ${runtimeSecretsPath()} or in the shell that starts HybridClaw, then restart the gateway. You can also run \`hybridclaw auth login hybridai\` to store a new key.`;
+  const reachabilityHint =
+    'Check `hybridai.baseUrl` and confirm the HybridAI service is running.';
+  const failure = describeHybridAIBotFetchFailure(error);
+
+  if (failure.kind === 'missing_credentials') {
+    return `HybridAI chatbot fallback requires HybridAI API credentials. ${keyHint}`;
+  }
+  if (failure.kind === 'auth') {
+    return `HybridAI rejected the configured API key: ${failure.message}. ${keyHint}`;
+  }
+  if (failure.kind === 'tls' || failure.kind === 'network') {
+    return formatHybridAIBotReachabilityError(failure.kind, reachabilityHint);
+  }
+  return `Failed to resolve the HybridAI account chatbot id: ${failure.message}`;
+}
+
+async function resolveGatewayChatbotId(params: {
+  model: string;
+  chatbotId: string;
+  sessionId: string;
+  channelId: string;
+  agentId: string;
+  trigger: 'bootstrap' | 'chat' | 'scheduler';
+  taskId?: string | number | null;
+}): Promise<{
+  chatbotId: string;
+  source: 'configured' | 'hybridai-account' | 'missing';
+  error?: string;
+}> {
+  const configuredChatbotId = String(params.chatbotId || '').trim();
+  if (configuredChatbotId) {
+    return { chatbotId: configuredChatbotId, source: 'configured' };
+  }
+  if (!modelRequiresChatbotId(params.model)) {
+    return { chatbotId: '', source: 'missing' };
+  }
+
+  try {
+    const fallbackChatbotId = await fetchHybridAIAccountChatbotId({
+      cacheTtlMs: BOT_CACHE_TTL,
+    });
+    logger.info(
+      {
+        sessionId: params.sessionId,
+        channelId: params.channelId,
+        agentId: params.agentId,
+        model: params.model,
+        trigger: params.trigger,
+        taskId: params.taskId ?? null,
+        fallbackChatbotId,
+      },
+      'Resolved HybridAI chatbot ID from /bot-management/me fallback',
+    );
+    return {
+      chatbotId: fallbackChatbotId,
+      source: 'hybridai-account',
+    };
+  } catch (error) {
+    const formattedError = formatHybridAIAccountChatbotResolutionError(error);
+    logger.warn(
+      {
+        sessionId: params.sessionId,
+        channelId: params.channelId,
+        agentId: params.agentId,
+        model: params.model,
+        trigger: params.trigger,
+        taskId: params.taskId ?? null,
+        err: error,
+      },
+      'Failed to resolve HybridAI chatbot ID from /bot-management/me fallback',
+    );
+    return {
+      chatbotId: '',
+      source: 'missing',
+      error: `No chatbot configured. ${formattedError}`,
+    };
+  }
 }
 
 function formatPercent(value: number | null): string {
@@ -3534,6 +3616,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
   }
   setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
     status: 'started',
+    fileName: bootstrapFile,
     at: new Date().toISOString(),
   });
 
@@ -3588,6 +3671,68 @@ export async function ensureGatewayBootstrapAutostart(params: {
     },
   });
 
+  const chatbotResolution = await resolveGatewayChatbotId({
+    model: resolved.model,
+    chatbotId: resolved.chatbotId,
+    sessionId: session.id,
+    channelId,
+    agentId: resolved.agentId,
+    trigger: 'bootstrap',
+  });
+  const chatbotId = chatbotResolution.chatbotId;
+
+  if (modelRequiresChatbotId(resolved.model) && !chatbotId) {
+    deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+    const error =
+      chatbotResolution.error ||
+      'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
+    logger.warn(
+      {
+        sessionId: session.id,
+        channelId,
+        agentId: resolved.agentId,
+        model: resolved.model,
+        sessionChatbotId: session.chatbot_id ?? null,
+        fallbackSource: chatbotResolution.source,
+      },
+      'Gateway bootstrap autostart blocked by missing chatbot configuration',
+    );
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'error',
+        errorType: 'configuration',
+        message: error,
+        recoverable: true,
+      },
+    });
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'turn.end',
+        turnIndex,
+        finishReason: 'error',
+      },
+    });
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'session.end',
+        reason: 'error',
+        stats: {
+          userMessages: 0,
+          assistantMessages: 0,
+          toolCalls: 0,
+          durationMs: Date.now() - startedAt,
+        },
+      },
+    });
+    return;
+  }
+
   const { messages } = buildConversationContext({
     agentId: resolved.agentId,
     history: [],
@@ -3595,7 +3740,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     extraSafetyText:
       'Bootstrap kickoff turn. Start the conversation proactively with a concise user-facing opening message.',
     runtimeInfo: {
-      chatbotId: resolved.chatbotId,
+      chatbotId,
       model: resolved.model,
       defaultModel: HYBRIDAI_MODEL,
       channelType: channelId,
@@ -3650,7 +3795,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     const output = await runAgent({
       sessionId: session.id,
       messages,
-      chatbotId: resolved.chatbotId,
+      chatbotId,
       enableRag,
       model: resolved.model,
       agentId: resolved.agentId,
@@ -3772,6 +3917,65 @@ export async function ensureGatewayBootstrapAutostart(params: {
       'Failed to run bootstrap autostart turn',
     );
   }
+}
+
+export function getGatewayBootstrapAutostartState(params: {
+  sessionId: string;
+  channelId?: string | null;
+  agentId?: string | null;
+}): {
+  status: 'idle' | 'starting' | 'completed';
+  fileName: 'BOOTSTRAP.md' | 'OPENING.md';
+} | null {
+  const requestedSessionId = String(params.sessionId || '').trim();
+  if (!requestedSessionId) return null;
+
+  const channelId = resolveBootstrapAutostartChannelId(
+    requestedSessionId,
+    params.channelId,
+  );
+  const session = memoryService.getOrCreateSession(
+    requestedSessionId,
+    null,
+    channelId,
+    params.agentId ?? undefined,
+  );
+  if (
+    session.message_count > 0 ||
+    String(session.session_summary || '').trim().length > 0
+  ) {
+    return null;
+  }
+
+  const resolved = resolveAgentForRequest({
+    agentId: params.agentId,
+    session,
+  });
+  ensureBootstrapFiles(resolved.agentId);
+  const bootstrapFile = resolveStartupBootstrapFile(resolved.agentId);
+  if (!bootstrapFile) return null;
+
+  const marker = getMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY) as {
+    status?: unknown;
+    fileName?: unknown;
+  } | null;
+  const markerStatus =
+    typeof marker?.status === 'string'
+      ? marker.status.trim().toLowerCase()
+      : '';
+
+  return {
+    status:
+      markerStatus === 'started'
+        ? 'starting'
+        : markerStatus === 'completed'
+          ? 'completed'
+          : 'idle',
+    fileName:
+      marker?.fileName === 'BOOTSTRAP.md' || marker?.fileName === 'OPENING.md'
+        ? marker.fileName
+        : bootstrapFile,
+  };
 }
 
 export function getGatewayHistory(
@@ -4596,7 +4800,16 @@ export async function handleGatewayMessage(
     model: req.model,
     chatbotId: req.chatbotId,
   });
-  const { agentId, model, chatbotId } = resolvedRequest;
+  let { agentId, model, chatbotId } = resolvedRequest;
+  const chatbotResolution = await resolveGatewayChatbotId({
+    model,
+    chatbotId,
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    agentId,
+    trigger: 'chat',
+  });
+  chatbotId = chatbotResolution.chatbotId;
   const channelType =
     resolveChannelType(req) || resolveSessionResetChannelKind(req.channelId);
   const channel =
@@ -4784,6 +4997,7 @@ export async function handleGatewayMessage(
 
   if (modelRequiresChatbotId(model) && !chatbotId) {
     const error =
+      chatbotResolution.error ||
       'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
     logger.warn(
       {
@@ -4793,6 +5007,7 @@ export async function handleGatewayMessage(
         requestChatbotId: req.chatbotId ?? null,
         defaultModel: HYBRIDAI_MODEL,
         defaultChatbotConfigured: Boolean(HYBRIDAI_CHATBOT_ID),
+        fallbackSource: chatbotResolution.source,
         durationMs: Date.now() - startedAt,
       },
       'Gateway chat blocked by missing chatbot configuration',
@@ -5580,10 +5795,24 @@ export async function runGatewayScheduledTask(
   if (preferredAgentId && session.agent_id !== preferredAgentId) {
     updateSessionAgent(session.id, preferredAgentId);
   }
-  const { agentId, chatbotId, model } = resolveAgentForRequest({
+  const {
+    agentId,
+    chatbotId: requestedChatbotId,
+    model,
+  } = resolveAgentForRequest({
     session,
     agentId: preferredAgentId,
   });
+  const chatbotResolution = await resolveGatewayChatbotId({
+    model,
+    chatbotId: requestedChatbotId,
+    sessionId: currentSessionId,
+    channelId,
+    agentId,
+    trigger: 'scheduler',
+    taskId,
+  });
+  const chatbotId = chatbotResolution.chatbotId;
   if (modelRequiresChatbotId(model) && !chatbotId) {
     logger.warn(
       {
@@ -5595,6 +5824,8 @@ export async function runGatewayScheduledTask(
         sessionChatbotId: session.chatbot_id ?? null,
         defaultModel: HYBRIDAI_MODEL,
         defaultChatbotConfigured: Boolean(HYBRIDAI_CHATBOT_ID),
+        fallbackSource: chatbotResolution.source,
+        resolutionError: chatbotResolution.error ?? null,
       },
       'Scheduled task skipped due to missing chatbot configuration',
     );

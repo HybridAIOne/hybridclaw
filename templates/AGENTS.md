@@ -17,6 +17,12 @@ Before doing anything else:
 Don't ask permission. Just do it.
 Only reread one of these files if you have reason to think it changed after the current prompt was assembled.
 
+`BOOT.md` is passive startup guidance and is already loaded into your system
+context.
+
+If `OPENING.md` exists, treat it as instructions for the first proactive
+message of a fresh session.
+
 ## Memory
 
 You wake up fresh each session. These files are your continuity:

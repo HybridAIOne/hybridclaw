@@ -8,9 +8,17 @@ interface BotCacheEntry {
   fetchedAtMs: number;
 }
 
+interface AccountChatbotCacheEntry {
+  chatbotId: string;
+  fetchedAtMs: number;
+}
+
 const HYBRIDAI_BOT_FETCH_TIMEOUT_MS = 5_000;
+const BOT_LIST_PATH = '/api/v1/bot-management/bots';
+const BOT_ME_PATH = '/api/v1/bot-management/me';
 
 let botCache: BotCacheEntry | null = null;
+let accountChatbotCache: AccountChatbotCacheEntry | null = null;
 
 export class HybridAIBotFetchError extends Error {
   status: number;
@@ -145,17 +153,10 @@ export function normalizeBots(payload: unknown): HybridAIBot[] {
     .filter((bot) => Boolean(bot.id));
 }
 
-export async function fetchHybridAIBots(options?: {
-  cacheTtlMs?: number;
-}): Promise<HybridAIBot[]> {
-  const cacheTtlMs = Math.max(0, options?.cacheTtlMs ?? 0);
-  const now = Date.now();
-
-  if (cacheTtlMs > 0 && botCache && now - botCache.fetchedAtMs < cacheTtlMs) {
-    return botCache.bots;
-  }
-
-  const url = `${HYBRIDAI_BASE_URL}/api/v1/bot-management/bots`;
+async function fetchHybridAIBotManagementPayload(
+  route: string,
+): Promise<unknown> {
+  const url = `${HYBRIDAI_BASE_URL}${route}`;
   let res: Response;
   try {
     res = await fetch(url, {
@@ -203,11 +204,86 @@ export async function fetchHybridAIBots(options?: {
     });
   }
 
-  const bots = normalizeBots(await res.json());
+  return res.json();
+}
+
+function normalizeHybridAIAccountChatbotId(payload: unknown): string {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return '';
+  }
+
+  const record = payload as Record<string, unknown>;
+  const nested =
+    record.data &&
+    typeof record.data === 'object' &&
+    !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : null;
+  const sources = nested ? [nested, record] : [record];
+
+  for (const source of sources) {
+    for (const key of ['id', 'userId', 'user_id', '_id']) {
+      const value = source[key];
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return String(value);
+      }
+    }
+  }
+
+  return '';
+}
+
+export async function fetchHybridAIBots(options?: {
+  cacheTtlMs?: number;
+}): Promise<HybridAIBot[]> {
+  const cacheTtlMs = Math.max(0, options?.cacheTtlMs ?? 0);
+  const now = Date.now();
+
+  if (cacheTtlMs > 0 && botCache && now - botCache.fetchedAtMs < cacheTtlMs) {
+    return botCache.bots;
+  }
+
+  const bots = normalizeBots(
+    await fetchHybridAIBotManagementPayload(BOT_LIST_PATH),
+  );
   if (cacheTtlMs > 0) {
     botCache = { bots, fetchedAtMs: now };
   } else {
     botCache = null;
   }
   return bots;
+}
+
+export async function fetchHybridAIAccountChatbotId(options?: {
+  cacheTtlMs?: number;
+}): Promise<string> {
+  const cacheTtlMs = Math.max(0, options?.cacheTtlMs ?? 0);
+  const now = Date.now();
+
+  if (
+    cacheTtlMs > 0 &&
+    accountChatbotCache &&
+    now - accountChatbotCache.fetchedAtMs < cacheTtlMs
+  ) {
+    return accountChatbotCache.chatbotId;
+  }
+
+  const chatbotId = normalizeHybridAIAccountChatbotId(
+    await fetchHybridAIBotManagementPayload(BOT_ME_PATH),
+  );
+  if (!chatbotId) {
+    throw new Error(
+      'HybridAI /api/v1/bot-management/me did not include a user id.',
+    );
+  }
+
+  if (cacheTtlMs > 0) {
+    accountChatbotCache = { chatbotId, fetchedAtMs: now };
+  } else {
+    accountChatbotCache = null;
+  }
+  return chatbotId;
 }

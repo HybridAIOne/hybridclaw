@@ -87,6 +87,7 @@ import {
   getGatewayAdminTools,
   getGatewayAgents,
   getGatewayAssistantPresentationForSession,
+  getGatewayBootstrapAutostartState,
   getGatewayHistory,
   getGatewayHistorySummary,
   getGatewayRecentChatSessions,
@@ -1467,11 +1468,17 @@ async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
     10,
   );
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
-  await ensureGatewayBootstrapAutostart({ sessionId });
+  void ensureGatewayBootstrapAutostart({ sessionId }).catch((error) => {
+    logger.warn(
+      { sessionId, error },
+      'Failed to start gateway bootstrap autostart',
+    );
+  });
   const historyPage = getGatewayHistory(sessionId, limit);
   const summary = getGatewayHistorySummary(sessionId, {
     sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
   });
+  const bootstrapAutostart = getGatewayBootstrapAutostartState({ sessionId });
   // These keys are returned only as chat-routing metadata for the web client.
   // Auth stays anchored to the existing API/session auth checks above, never to
   // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
@@ -1482,6 +1489,7 @@ async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
     assistantPresentation: getGatewayAssistantPresentationForSession(sessionId),
+    bootstrapAutostart,
     ...(historyPage.branchFamilies.length > 0
       ? { branchFamilies: historyPage.branchFamilies }
       : {}),

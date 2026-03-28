@@ -207,3 +207,65 @@ test('fetchHybridAIBots applies a request timeout', async () => {
     }),
   );
 });
+
+test('fetchHybridAIAccountChatbotId reads the current user id from /bot-management/me', async () => {
+  process.env.HOME = os.homedir();
+  process.env.HYBRIDAI_API_KEY = 'hai-bot-test';
+
+  const fetchSpy = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            id: 'user-42',
+            email: 'alice@example.com',
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+  );
+  vi.stubGlobal('fetch', fetchSpy);
+
+  const { fetchHybridAIAccountChatbotId } = await importFreshBots();
+
+  await expect(fetchHybridAIAccountChatbotId()).resolves.toBe('user-42');
+  expect(fetchSpy).toHaveBeenCalledWith(
+    expect.stringContaining('/api/v1/bot-management/me'),
+    expect.any(Object),
+  );
+});
+
+test('fetchHybridAIAccountChatbotId fails when /bot-management/me omits a user id', async () => {
+  process.env.HOME = os.homedir();
+  process.env.HYBRIDAI_API_KEY = 'hai-bot-test';
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: {
+              name: 'Alice',
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+    ),
+  );
+
+  const { fetchHybridAIAccountChatbotId } = await importFreshBots();
+
+  await expect(fetchHybridAIAccountChatbotId()).rejects.toThrow(
+    'HybridAI /api/v1/bot-management/me did not include a user id.',
+  );
+});

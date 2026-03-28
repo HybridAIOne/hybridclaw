@@ -218,6 +218,10 @@ export interface GatewayHistoryResponse {
   mainSessionKey?: string;
   history: GatewayHistoryMessage[];
   assistantPresentation?: GatewayAssistantPresentation;
+  bootstrapAutostart?: {
+    status: 'idle' | 'starting' | 'completed';
+    fileName: 'BOOTSTRAP.md' | 'OPENING.md';
+  } | null;
   branchFamilies?: GatewayHistoryBranchFamily[];
   summary?: GatewayHistorySummary;
 }

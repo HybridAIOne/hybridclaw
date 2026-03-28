@@ -390,6 +390,7 @@ async function importFreshHealth(options?: {
     displayName: 'Charly',
     imageUrl: '/api/agent-avatar?agentId=charly',
   }));
+  const getGatewayBootstrapAutostartState = vi.fn(() => null);
   const ensureGatewayBootstrapAutostart = vi.fn(async () => {});
   const getAgentById = vi.fn((agentId: string) =>
     agentId === 'charly'
@@ -883,6 +884,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminSkills,
     getGatewayAdminTools,
     getGatewayAssistantPresentationForSession,
+    getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
     getGatewayHistorySummary,
@@ -933,6 +935,7 @@ async function importFreshHealth(options?: {
     getGatewayStatus,
     ensureGatewayBootstrapAutostart,
     getGatewayAssistantPresentationForSession,
+    getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
     getGatewayHistorySummary,
@@ -1641,6 +1644,7 @@ describe('gateway HTTP server', () => {
         displayName: 'Charly',
         imageUrl: '/api/agent-avatar?agentId=charly',
       },
+      bootstrapAutostart: null,
       history: [
         { role: 'user', content: 'hello' },
         { role: 'assistant', content: 'world' },
@@ -1663,6 +1667,34 @@ describe('gateway HTTP server', () => {
           createdCount: 2,
           deletedCount: 1,
         },
+      },
+    });
+  });
+
+  test('returns history immediately while BOOTSTRAP autostart is still starting', async () => {
+    const state = await importFreshHealth();
+    state.ensureGatewayBootstrapAutostart.mockImplementation(
+      () => new Promise(() => {}),
+    );
+    state.getGatewayBootstrapAutostartState.mockReturnValue({
+      status: 'starting',
+      fileName: 'OPENING.md',
+    });
+
+    const req = makeRequest({
+      url: '/api/history?sessionId=agent:charly:channel:web:chat:dm:peer:fresh&limit=2',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      sessionId: 'agent:charly:channel:web:chat:dm:peer:fresh',
+      bootstrapAutostart: {
+        status: 'starting',
+        fileName: 'OPENING.md',
       },
     });
   });

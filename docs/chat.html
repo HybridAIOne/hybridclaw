@@ -1203,6 +1203,7 @@
     let activeChatRequest = null;
     let activeEditState = null;
     let activeAssistantPresentation = null;
+    let bootstrapPollTimer = null;
     const messageMetaByBlock = new WeakMap();
     const sessionBranchAnchors = new Map();
     const branchFamilies = new Map();
@@ -1222,11 +1223,52 @@
       'Brainstorm mode activated. What’s first?',
     ];
     let introIndex = 0;
+    const BOOTSTRAP_POLL_DELAY_MS = 900;
+    const MAX_BOOTSTRAP_POLL_ATTEMPTS = 24;
 
     function renderIntro() {
       if (greetingEl) {
         greetingEl.textContent = introLines[introIndex];
       }
+    }
+
+    function clearBootstrapPoll() {
+      if (bootstrapPollTimer) {
+        window.clearTimeout(bootstrapPollTimer);
+        bootstrapPollTimer = null;
+      }
+    }
+
+    function showBootstrapPendingState(fileName) {
+      if (messagesEl.querySelector('[data-bootstrap-pending="true"]')) {
+        return;
+      }
+      if (fileName === 'BOOTSTRAP.md') {
+        const statusView = addMessage('system', 'Starting onboarding.');
+        if (statusView?.block) {
+          statusView.block.dataset.bootstrapPending = 'true';
+        }
+      }
+      const thinkingItem = addThinkingMessage();
+      thinkingItem.dataset.bootstrapPending = 'true';
+    }
+
+    function scheduleBootstrapPoll(sessionId, attempt) {
+      if (attempt >= MAX_BOOTSTRAP_POLL_ATTEMPTS) {
+        clearBootstrapPoll();
+        return;
+      }
+      clearBootstrapPoll();
+      bootstrapPollTimer = window.setTimeout(() => {
+        if (String(activeSessionId || '').trim() !== String(sessionId || '').trim()) {
+          clearBootstrapPoll();
+          return;
+        }
+        void loadHistory({
+          preservePendingBootstrap: true,
+          bootstrapAttempt: attempt + 1,
+        });
+      }, BOOTSTRAP_POLL_DELAY_MS);
     }
 
     function savePrefs() {
@@ -2460,14 +2502,19 @@
       attachmentInputEl.value = '';
     }
 
-    async function loadHistory() {
+    async function loadHistory(options = {}) {
+      const preservePendingBootstrap = options.preservePendingBootstrap === true;
+      const bootstrapAttempt = Number(options.bootstrapAttempt) || 0;
       activeEditState = null;
       activeAssistantPresentation = null;
       savePrefs();
       setError('');
       pruneBranchStateForSession(activeSessionId);
-      messagesEl.innerHTML = '';
-      updateEmptyState();
+      if (!preservePendingBootstrap) {
+        clearBootstrapPoll();
+        messagesEl.innerHTML = '';
+        updateEmptyState();
+      }
       try {
         const requestedSessionId = activeSessionId;
         const sessionId = encodeURIComponent(activeSessionId);
@@ -2500,6 +2547,16 @@
         initialStoredRestorePending = false;
         initialStoredRestoreSessionId = '';
         hydrateBranchFamilies(payload.branchFamilies);
+        const bootstrapAutostart = payload?.bootstrapAutostart || null;
+        const showBootstrapPending =
+          (!Array.isArray(payload.history) || payload.history.length === 0) &&
+          bootstrapAutostart?.status === 'starting' &&
+          (bootstrapAutostart?.fileName === 'BOOTSTRAP.md' ||
+            bootstrapAutostart?.fileName === 'OPENING.md');
+        if (!preservePendingBootstrap || !showBootstrapPending) {
+          messagesEl.innerHTML = '';
+          updateEmptyState();
+        }
         let lastUserPrompt = null;
         for (const msg of payload.history || []) {
           const role = String(msg.role || '');
@@ -2530,8 +2587,15 @@
           }
           addMessage(role, content);
         }
+        if (showBootstrapPending) {
+          showBootstrapPendingState(bootstrapAutostart?.fileName);
+          scheduleBootstrapPoll(activeSessionId, bootstrapAttempt);
+        } else {
+          clearBootstrapPoll();
+        }
         renderRecentSessions();
       } catch (err) {
+        clearBootstrapPoll();
         setError(err instanceof Error ? err.message : String(err));
       }
     }
