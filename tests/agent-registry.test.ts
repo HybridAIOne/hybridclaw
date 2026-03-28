@@ -43,7 +43,9 @@ test('resolveAgentForRequest prefers request, then session, then configured defa
   vi.resetModules();
 
   const { initDatabase } = await import('../src/memory/db.ts');
-  const { updateRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
   const {
     initAgentRegistry,
     listAgents,

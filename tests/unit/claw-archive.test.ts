@@ -2085,7 +2085,9 @@ describe('.claw archive support', () => {
           imageAsset: '../secret.png',
         },
       }),
-    ).toThrow(/manifest\.presentation\.imageAsset must be a relative workspace path/i);
+    ).toThrow(
+      /manifest\.presentation\.imageAsset must be a relative workspace path/i,
+    );
     expect(() =>
       validateClawManifest({
         formatVersion: 1,

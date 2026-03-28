@@ -404,8 +404,8 @@ async function importFreshHealth(options?: {
     id: agentId?.trim() || 'main',
     name: 'Main Agent',
   }));
-  const resolveAgentWorkspaceId = vi.fn((agentId?: string | null) =>
-    agentId?.trim() || 'main',
+  const resolveAgentWorkspaceId = vi.fn(
+    (agentId?: string | null) => agentId?.trim() || 'main',
   );
   const getSessionById = vi.fn(() => ({ show_mode: 'all' }));
   const forkSessionBranch = vi.fn(() => ({
