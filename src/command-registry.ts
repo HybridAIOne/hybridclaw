@@ -125,6 +125,7 @@ const MODEL_PROVIDER_CHOICES = [
   { name: 'hybridai', value: 'hybridai' },
   { name: 'codex', value: 'codex' },
   { name: 'openrouter', value: 'openrouter' },
+  { name: 'huggingface', value: 'huggingface' },
   { name: 'local', value: 'local' },
   { name: 'ollama', value: 'ollama' },
   { name: 'lmstudio', value: 'lmstudio' },

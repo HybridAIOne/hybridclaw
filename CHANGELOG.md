@@ -2,8 +2,24 @@
 
 ## [Coming up]
 
+### Added
+
+- **Hugging Face provider support**: Added `hybridclaw auth login|status|logout`
+  support for Hugging Face Inference providers, provider probing in `doctor`,
+  model-catalog discovery, and recommended-model handling for
+  `huggingface/...` model ids.
+- **Admin jobs board and scheduler follow-ups**: Added a dedicated `Jobs`
+  page in the embedded admin console with richer scheduler metadata, kanban
+  views, and job movement/edit flows for proactive agent work.
+- **Built-in tool toggles**: Added `hybridclaw tool list|enable|disable` so
+  operators can trim unused built-in prompt surfaces directly from runtime
+  config when `doctor` flags them.
+
 ### Changed
 
+- **Container bootstrap and publish verification**: Installed packages now
+  prefer published runtime images while source checkouts build locally, and
+  the publish workflow verifies pushed GHCR tags before the job completes.
 - **Skill metadata parsing cleanup**: Consolidated frontmatter traversal and
   metadata grouping in the skill loader so HybridClaw prefers native
   HybridClaw metadata while still handling OpenClaw-compatible skill manifests
@@ -11,6 +27,13 @@
 
 ### Fixed
 
+- **Scheduled delivery and backlog retry reliability**: Tightened scheduler
+  follow-up handling, admin/API job state updates, backlog retries, and
+  channel/email delivery flows so queued jobs recover more predictably after
+  failures.
+- **Router-provider credential normalization**: Shared API-key lookup and base
+  URL normalization across OpenRouter and Hugging Face so auth setup, runtime
+  credential resolution, and provider diagnostics behave more consistently.
 - **Skill install/sync path stability**: Stabilized installed and synced skill
   paths, prevented path collisions during sync, and deduplicated install specs
   independent of key order so repeated skill installs are safer and more

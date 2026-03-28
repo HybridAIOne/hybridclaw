@@ -168,6 +168,7 @@ export type RuntimeAuxiliaryProviderSelection =
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'huggingface'
   | 'ollama'
   | 'lmstudio'
   | 'vllm';
@@ -408,6 +409,11 @@ export interface RuntimeConfig {
     baseUrl: string;
     models: string[];
   };
+  huggingface: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
   local: LocalProviderConfig;
   auxiliaryModels: {
     vision: RuntimeAuxiliaryModelPolicyConfig;
@@ -596,6 +602,9 @@ const DEFAULT_CODEX_MODEL_LIST = [
 const DEFAULT_OPENROUTER_MODEL_LIST = [
   'openrouter/anthropic/claude-sonnet-4',
 ] as const;
+const DEFAULT_HUGGINGFACE_MODEL_LIST = [
+  'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+] as const;
 
 const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
@@ -770,6 +779,11 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     enabled: false,
     baseUrl: 'https://openrouter.ai/api/v1',
     models: [...DEFAULT_OPENROUTER_MODEL_LIST],
+  },
+  huggingface: {
+    enabled: false,
+    baseUrl: 'https://router.huggingface.co/v1',
+    models: [...DEFAULT_HUGGINGFACE_MODEL_LIST],
   },
   local: {
     backends: {
@@ -2502,6 +2516,7 @@ function normalizeAuxiliaryProviderSelection(
     normalized === 'hybridai' ||
     normalized === 'openai-codex' ||
     normalized === 'openrouter' ||
+    normalized === 'huggingface' ||
     normalized === 'ollama' ||
     normalized === 'lmstudio' ||
     normalized === 'vllm'
@@ -2719,6 +2734,7 @@ function normalizeRuntimeConfig(
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
   const rawOpenRouter = isRecord(raw.openrouter) ? raw.openrouter : {};
+  const rawHuggingFace = isRecord(raw.huggingface) ? raw.huggingface : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
   const rawAuxiliaryModels = isRecord(raw.auxiliaryModels)
     ? raw.auxiliaryModels
@@ -2861,6 +2877,10 @@ function normalizeRuntimeConfig(
   const openRouterModelList = normalizeStringArray(
     rawOpenRouter.models,
     DEFAULT_RUNTIME_CONFIG.openrouter.models,
+  );
+  const huggingFaceModelList = normalizeStringArray(
+    rawHuggingFace.models,
+    DEFAULT_RUNTIME_CONFIG.huggingface.models,
   );
   const normalizedCommandUserId = normalizeString(
     rawDiscord.commandUserId,
@@ -3124,6 +3144,17 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.openrouter.baseUrl,
       ),
       models: openRouterModelList,
+    },
+    huggingface: {
+      enabled: normalizeBoolean(
+        rawHuggingFace.enabled,
+        DEFAULT_RUNTIME_CONFIG.huggingface.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawHuggingFace.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.huggingface.baseUrl,
+      ),
+      models: huggingFaceModelList,
     },
     local: {
       backends: {

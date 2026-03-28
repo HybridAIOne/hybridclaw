@@ -143,6 +143,11 @@ import {
   resolveModelProvider,
 } from '../providers/factory.js';
 import {
+  discoverHuggingFaceModels,
+  getDiscoveredHuggingFaceModelContextWindow,
+} from '../providers/huggingface-discovery.js';
+import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
+import {
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
@@ -162,6 +167,7 @@ import {
 import { localBackendsProbe } from '../providers/local-health.js';
 import {
   getAvailableModelList,
+  getAvailableModelListWithOptions,
   isAvailableModelFree,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
@@ -175,6 +181,7 @@ import {
   getDiscoveredOpenRouterModelContextWindow,
 } from '../providers/openrouter-discovery.js';
 import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
+import { isRecommendedModel } from '../providers/recommended-models.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
 import {
   getScheduledTaskNextRunAt,
@@ -892,6 +899,14 @@ function isOpenRouterAvailableForModelCommands(): boolean {
   );
 }
 
+function isHuggingFaceAvailableForModelCommands(): boolean {
+  const runtimeConfig = getRuntimeConfig();
+  return (
+    runtimeConfig.huggingface.enabled &&
+    Boolean(readHuggingFaceApiKey({ required: false }))
+  );
+}
+
 function isModelAvailableForCurrentGatewayState(
   model: string,
   providerHealth: GatewayStatus['providerHealth'],
@@ -903,6 +918,8 @@ function isModelAvailableForCurrentGatewayState(
       return providerHealth?.codex?.reachable === true;
     case 'openrouter':
       return isOpenRouterAvailableForModelCommands();
+    case 'huggingface':
+      return isHuggingFaceAvailableForModelCommands();
     case 'ollama':
       return providerHealth?.ollama?.reachable === true;
     case 'lmstudio':
@@ -947,6 +964,16 @@ function mapModelUsageRow(
     callCount: value.call_count,
     totalToolCalls: value.total_tool_calls,
   };
+}
+
+function resolveKnownModelContextWindow(model: string): number | null {
+  return (
+    resolveLocalModelContextWindow(model) ??
+    getDiscoveredHuggingFaceModelContextWindow(model) ??
+    getDiscoveredHybridAIModelContextWindow(model) ??
+    getDiscoveredOpenRouterModelContextWindow(model) ??
+    resolveModelContextWindowFallback(model)
+  );
 }
 
 function mapAdminSession(session: Session): GatewayAdminSession {
@@ -5653,9 +5680,15 @@ export async function handleGatewayCommand(
       case 'model': {
         const sub = req.args[1]?.toLowerCase();
         const providerFilterArg = sub === 'list' ? req.args[2] : undefined;
+        const listModifierArg =
+          sub === 'list' ? req.args[3]?.toLowerCase() : undefined;
         const providerFilter = providerFilterArg
           ? normalizeModelCatalogProviderFilter(providerFilterArg)
           : null;
+        const expandedModelList =
+          listModifierArg === 'more' ||
+          listModifierArg === 'all' ||
+          listModifierArg === 'full';
         const needsAvailableModels =
           sub === 'list' ||
           sub === 'info' ||
@@ -5689,14 +5722,22 @@ export async function handleGatewayCommand(
           if (providerFilterArg && !providerFilter) {
             return badCommand(
               'Unknown Provider',
-              'Usage: `model list [hybridai|codex|openrouter|local|ollama|lmstudio|vllm]`',
+              'Usage: `model list [hybridai|codex|openrouter|huggingface|local|ollama|lmstudio|vllm]`',
+            );
+          }
+          if (listModifierArg && !expandedModelList) {
+            return badCommand(
+              'Usage',
+              'Usage: `model list [hybridai|codex|openrouter|huggingface|local|ollama|lmstudio|vllm]`',
             );
           }
           const listedModels =
             gatewayStatus == null
               ? []
               : filterModelsForCurrentGatewayState(
-                  getAvailableModelList(providerFilterArg),
+                  getAvailableModelListWithOptions(providerFilterArg, {
+                    expanded: expandedModelList,
+                  }),
                   gatewayStatus.providerHealth,
                 );
           const current = runtime.model;
@@ -5706,6 +5747,7 @@ export async function handleGatewayCommand(
               value: model,
               label: model === current ? `${label} (current)` : label,
               isFree: isAvailableModelFree(model),
+              ...(isRecommendedModel(model) ? { recommended: true } : {}),
             };
           });
           const list = modelCatalog.map((entry) => entry.label).join('\n');
@@ -5776,7 +5818,21 @@ export async function handleGatewayCommand(
               `\`${modelName}\` is not in the available models list.`,
             );
           }
+          const modelContextWindowTokens =
+            resolveKnownModelContextWindow(normalizedModelName);
           updateSessionModel(session.id, normalizedModelName);
+          recordAuditEvent({
+            sessionId: session.id,
+            runId: makeAuditRunId('cmd'),
+            event: {
+              type: 'model.set',
+              source: 'command',
+              model: normalizedModelName,
+              modelContextWindowTokens,
+              userId: boundAuditActorField(req.userId),
+              username: boundAuditActorField(req.username),
+            },
+          });
           return plainCommand(
             `Model set to \`${formatModelForDisplay(normalizedModelName)}\` for this session.`,
           );
@@ -5799,6 +5855,7 @@ export async function handleGatewayCommand(
                 ? `${formatModelForDisplay(model)} (current)`
                 : formatModelForDisplay(model),
             isFree: isAvailableModelFree(model),
+            ...(isRecommendedModel(model) ? { recommended: true } : {}),
           }));
           return infoCommand(
             'Model Info',
@@ -5820,7 +5877,7 @@ export async function handleGatewayCommand(
 
         return badCommand(
           'Usage',
-          'Usage: `model list [provider]|set <name>|clear|default [name]|info`',
+          'Usage: `model list [provider] [more]|set <name>|clear|default [name]|info`',
         );
       }
 
@@ -6595,15 +6652,16 @@ export async function handleGatewayCommand(
         const commitShort = resolveGitCommitShort();
         const runtime = resolveSessionRuntimeTarget(session);
         const sessionModel = runtime.model;
+        if (sessionModel.trim().toLowerCase().startsWith('huggingface/')) {
+          await discoverHuggingFaceModels();
+        }
         if (sessionModel.trim().toLowerCase().startsWith('openrouter/')) {
           await discoverOpenRouterModels();
         }
         const modelContextWindowTokens =
-          resolveLocalModelContextWindow(sessionModel) ??
-          getDiscoveredHybridAIModelContextWindow(sessionModel) ??
-          getDiscoveredOpenRouterModelContextWindow(sessionModel) ??
-          resolveModelContextWindowFallback(sessionModel);
+          resolveKnownModelContextWindow(sessionModel);
         const metrics = readSessionStatusSnapshot(session.id, {
+          currentModel: sessionModel,
           modelContextWindowTokens,
         });
         const queueLabel = `${delegationStatus.active} active / ${delegationStatus.queued} queued`;

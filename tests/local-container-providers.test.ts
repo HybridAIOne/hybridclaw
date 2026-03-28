@@ -348,6 +348,53 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBe('ok');
   });
 
+  test('Hugging Face transport strips the provider prefix in requests', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('meta-llama/Llama-3.1-8B-Instruct');
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'meta-llama/Llama-3.1-8B-Instruct',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'ok',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callLocalOpenAICompatProvider({
+      provider: 'huggingface',
+      baseUrl: 'https://router.huggingface.co/v1',
+      apiKey: 'hf-test-key',
+      model: 'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: {},
+      messages: baseMessages,
+      tools: [],
+      maxTokens: 128,
+      isLocal: false,
+      contextWindow: 32_768,
+    });
+
+    expect(result.choices[0]?.message.content).toBe('ok');
+  });
+
   test('Qwen-compatible local provider keeps native tool history format', async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body || '{}')) as Record<

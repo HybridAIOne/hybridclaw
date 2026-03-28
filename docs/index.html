@@ -739,30 +739,30 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest Release</div>
-    <h2 class="section-title">Version 0.9.2</h2>
-    <p class="section-desc">Patch release focused on community-skill workflows, safer workspace search, and reliability fixes across web chat, WhatsApp, TUI, and docs publishing.</p>
+    <div class="section-label">Coming Up</div>
+    <h2 class="section-title">Since Version 0.9.2</h2>
+    <p class="section-desc">Mainline updates add Hugging Face provider support, an embedded jobs board, prompt-surface controls, and tighter container/runtime reliability around scheduler delivery and skill handling.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f9f0;</div>
-      <h3>Skill sync and Datalion</h3>
-      <p><code>skill sync</code>, updated import parsing, and the packaged Datalion community skill make imported-skill workflows easier to reinstall and operate.</p>
+      <div class="feature-icon">&#x1f917;</div>
+      <h3>Hugging Face provider</h3>
+      <p><code>hybridclaw auth login|status|logout huggingface</code>, provider probing, discovery-backed model catalogs, and <code>huggingface/...</code> model ids are supported end-to-end.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f3a8;</div>
-      <h3>Meme generation skill</h3>
-      <p>A new packaged meme-generation skill ships with reusable scripts, cached outputs, and tighter file/network safety for repeat runs.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f50d;</div>
-      <h3>Safer workspace search</h3>
-      <p>Workspace <code>glob</code> and <code>grep</code> handling was hardened and moved onto a cleaner container search-tools path.</p>
+      <div class="feature-icon">&#x1f4cb;</div>
+      <h3>Jobs board and scheduler follow-ups</h3>
+      <p>The embedded admin console now includes a dedicated <code>Jobs</code> board with richer scheduler metadata, while queued retries and delivery state recovery behave more predictably.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f6e0;&#xfe0f;</div>
-      <h3>Reliability fixes across surfaces</h3>
-      <p>Web chat branching, WhatsApp restart recovery, TUI history arrows, QMD paging, and static docs publishing all received patch-level fixes.</p>
+      <h3>Built-in tool toggles</h3>
+      <p><code>hybridclaw tool list|enable|disable</code> lets operators remove unused built-in prompt surfaces directly from runtime config when doctor highlights them.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f4e6;</div>
+      <h3>Bootstrap and skill hardening</h3>
+      <p>Installed packages prefer published runtime images, source checkouts build locally, GHCR tags are verified after publish, and skill install/sync handling is more stable.</p>
     </div>
   </div>
 </section>
@@ -1135,7 +1135,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Admin Console</h3>
-      <p>Embedded browser-based admin at <code>/admin</code> with Dashboard, Gateway, Sessions, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config pages. Pair with <code>/chat</code> for web conversations and <code>/agents</code> for workspace dashboards. When <code>WEB_API_TOKEN</code> is set, the auth callback can store it in browser storage and redirect to a safe relative destination without leaving the token in the URL.</p>
+      <p>Embedded browser-based admin at <code>/admin</code> with Dashboard, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config pages. Pair with <code>/chat</code> for web conversations and <code>/agents</code> for workspace dashboards. When <code>WEB_API_TOKEN</code> is set, the auth callback can store it in browser storage and redirect to a safe relative destination without leaving the token in the URL.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Command Surface</h3>
@@ -1403,7 +1403,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">What AI models does it support?</div>
-      <div class="faq-a">HybridClaw supports HybridAI models, OpenAI Codex models (via <code>openai-codex/</code> prefix), OpenRouter models (via <code>openrouter/</code> prefix), and local backends including Ollama, LM Studio, and vLLM. Use <code>model list</code> to browse available models and switch per channel or session at any time.</div>
+      <div class="faq-a">HybridClaw supports HybridAI models, OpenAI Codex models (via <code>openai-codex/</code> prefix), OpenRouter models (via <code>openrouter/</code> prefix), Hugging Face router models (via <code>huggingface/</code> prefix), and local backends including Ollama, LM Studio, and vLLM. Use <code>model list</code> to browse available models and switch per channel or session at any time.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Does the agent remember things between conversations?</div>
@@ -1415,7 +1415,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Is there a web-based admin interface?</div>
-      <div class="faq-a">Yes. The gateway serves an embedded admin console at <code>/admin</code> with pages for Dashboard, Gateway, Sessions, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config. There is also a web chat at <code>/chat</code> and an agent/session dashboard at <code>/agents</code>. When <code>WEB_API_TOKEN</code> is unset, localhost access opens without a login prompt. When it is set, the auth callback can store the token in browser storage and redirect to a safe relative path after login.</div>
+      <div class="faq-a">Yes. The gateway serves an embedded admin console at <code>/admin</code> with pages for Dashboard, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config. There is also a web chat at <code>/chat</code> and an agent/session dashboard at <code>/agents</code>. When <code>WEB_API_TOKEN</code> is unset, localhost access opens without a login prompt. When it is set, the auth callback can store the token in browser storage and redirect to a safe relative path after login.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use skills from CLAUDE.md or OpenClaw?</div>

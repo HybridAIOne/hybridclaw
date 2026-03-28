@@ -79,6 +79,8 @@ function syncRuntimeSecretExports(): void {
   MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD || '';
   HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY || '';
   OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+  HUGGINGFACE_API_KEY =
+    process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY || '';
 }
 
 // Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
@@ -88,9 +90,11 @@ export let MSTEAMS_APP_PASSWORD = '';
 // Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
 export let HYBRIDAI_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
+export let HUGGINGFACE_API_KEY = '';
 syncRuntimeSecretExports();
 
 export function refreshRuntimeSecretsFromEnv(): void {
+  loadRuntimeSecrets();
   syncRuntimeSecretExports();
 }
 
@@ -217,10 +221,16 @@ let CODEX_MODELS: string[] = [
 export let OPENROUTER_ENABLED = false;
 export let OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 let OPENROUTER_MODELS: string[] = ['openrouter/anthropic/claude-sonnet-4'];
+export let HUGGINGFACE_ENABLED = false;
+export let HUGGINGFACE_BASE_URL = 'https://router.huggingface.co/v1';
+let HUGGINGFACE_MODELS: string[] = [
+  'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+];
 export let CONFIGURED_MODELS: string[] = dedupeStringList([
   ...HYBRIDAI_MODELS,
   ...CODEX_MODELS,
   ...(OPENROUTER_ENABLED ? OPENROUTER_MODELS : []),
+  ...(HUGGINGFACE_ENABLED ? HUGGINGFACE_MODELS : []),
 ]);
 export let LOCAL_OLLAMA_ENABLED = true;
 export let LOCAL_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
@@ -527,11 +537,15 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   OPENROUTER_ENABLED = config.openrouter.enabled;
   OPENROUTER_BASE_URL = config.openrouter.baseUrl;
   OPENROUTER_MODELS = [...config.openrouter.models];
+  HUGGINGFACE_ENABLED = config.huggingface.enabled;
+  HUGGINGFACE_BASE_URL = config.huggingface.baseUrl;
+  HUGGINGFACE_MODELS = [...config.huggingface.models];
   HYBRIDAI_MODELS = [...config.hybridai.models];
   CONFIGURED_MODELS = dedupeStringList([
     ...HYBRIDAI_MODELS,
     ...CODEX_MODELS,
     ...(OPENROUTER_ENABLED ? OPENROUTER_MODELS : []),
+    ...(HUGGINGFACE_ENABLED ? HUGGINGFACE_MODELS : []),
   ]);
   LOCAL_OLLAMA_ENABLED = config.local.backends.ollama.enabled;
   LOCAL_OLLAMA_BASE_URL = config.local.backends.ollama.baseUrl;

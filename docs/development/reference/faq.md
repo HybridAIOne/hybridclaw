@@ -57,7 +57,8 @@ Microsoft Teams, WhatsApp, and email.
 ## What AI models does it support?
 
 HybridClaw supports HybridAI models, OpenAI Codex models, OpenRouter models,
-and local backends including Ollama, LM Studio, and vLLM.
+Hugging Face router models, and local backends including Ollama, LM Studio,
+and vLLM.
 
 ## Does the agent remember things between conversations?
 
@@ -68,7 +69,9 @@ with linked-identity routing available when operators want shared continuity.
 ## Is there a web-based admin interface?
 
 Yes. The gateway serves `/admin` for the operator console, `/chat` for the web
-chat UI, and `/agents` for the agent/session dashboard.
+chat UI, and `/agents` for the agent/session dashboard. The admin console
+includes Dashboard, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP,
+Audit, Skills, Plugins, Tools, and Config pages.
 
 ## Can I extend HybridClaw with plugins?
 

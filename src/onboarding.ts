@@ -41,7 +41,7 @@ interface ApiKeyValidationResult {
 interface OnboardingOptions {
   force?: boolean;
   commandName?: string;
-  preferredAuth?: 'hybridai' | 'openai-codex' | 'openrouter';
+  preferredAuth?: 'hybridai' | 'openai-codex' | 'openrouter' | 'huggingface';
 }
 
 function isLocalProvider(
@@ -321,6 +321,18 @@ function defaultOpenRouterModel(): string {
   return (first || '').trim();
 }
 
+function defaultHuggingFaceModel(): string {
+  const config = getRuntimeConfig();
+  const current = config.hybridai.defaultModel.trim();
+  if (current && resolveModelProvider(current) === 'huggingface') {
+    return current;
+  }
+  const first = config.huggingface.models.find(
+    (model) => resolveModelProvider(model) === 'huggingface',
+  );
+  return (first || '').trim();
+}
+
 function formatAcceptanceMeta(): string {
   const config = getRuntimeConfig();
   if (!isSecurityTrustAccepted(config)) return 'not accepted';
@@ -455,19 +467,22 @@ async function chooseDefaultBot(
 async function promptAuthMethod(
   rl: readline.Interface,
   currentModel: string,
-): Promise<'hybridai' | 'openai-codex' | 'openrouter'> {
+): Promise<'hybridai' | 'openai-codex' | 'openrouter' | 'huggingface'> {
   const currentProvider = resolveModelProvider(currentModel);
   const defaultChoice =
     currentProvider === 'openai-codex'
       ? '2'
       : currentProvider === 'openrouter'
         ? '3'
-        : '1';
+        : currentProvider === 'huggingface'
+          ? '4'
+          : '1';
 
   console.log(`${TEAL}${ICON_TITLE}${RESET} Auth methods:`);
   console.log(`  ${TEAL}1.${RESET} HybridAI API key`);
   console.log(`  ${TEAL}2.${RESET} OpenAI Codex (OAuth login)`);
   console.log(`  ${TEAL}3.${RESET} OpenRouter API key`);
+  console.log(`  ${TEAL}4.${RESET} Hugging Face token`);
 
   while (true) {
     const choice = await promptOptional(
@@ -487,7 +502,16 @@ async function promptAuthMethod(
     if (normalized === '3' || normalized === 'openrouter') {
       return 'openrouter';
     }
-    printWarn('Enter 1 for HybridAI, 2 for OpenAI Codex, or 3 for OpenRouter.');
+    if (
+      normalized === '4' ||
+      normalized === 'huggingface' ||
+      normalized === 'hf'
+    ) {
+      return 'huggingface';
+    }
+    printWarn(
+      'Enter 1 for HybridAI, 2 for OpenAI Codex, 3 for OpenRouter, or 4 for Hugging Face.',
+    );
   }
 }
 
@@ -825,6 +849,61 @@ async function runOpenRouterOnboarding(params: {
   console.log();
 }
 
+async function runHuggingFaceOnboarding(params: {
+  rl: readline.Interface;
+  commandLabel: string;
+  existingKey: string;
+}): Promise<void> {
+  const { rl, commandLabel, existingKey } = params;
+  const runtimeConfig = getRuntimeConfig();
+  printMeta('HUGGINGFACE_BASE_URL', runtimeConfig.huggingface.baseUrl);
+  if (existingKey) {
+    printSetup('Reconfiguring Hugging Face credentials.');
+  } else {
+    printInfo(
+      `No HF_TOKEN found. ${commandLabel} needs Hugging Face credentials before it can start.`,
+    );
+  }
+  console.log();
+
+  const entered = await promptOptional(
+    rl,
+    existingKey
+      ? 'Hugging Face token (Enter to keep current): '
+      : 'Hugging Face token: ',
+    ICON_KEY,
+  );
+  const apiKey = (entered || existingKey).trim();
+  if (!apiKey) {
+    throw new Error('Hugging Face onboarding requires a non-empty token.');
+  }
+
+  const secretsPath = saveRuntimeSecrets({ HF_TOKEN: apiKey });
+  process.env.HF_TOKEN = apiKey;
+  process.env.HUGGINGFACE_API_KEY = apiKey;
+  refreshRuntimeSecretsFromEnv();
+
+  const nextHuggingFaceModel = defaultHuggingFaceModel();
+  const switchedModel = await maybeSwitchDefaultModel(
+    rl,
+    nextHuggingFaceModel,
+    'Hugging Face auth works only with Hugging Face models.',
+  );
+
+  console.log();
+  printSuccess(`Saved credentials to ${secretsPath}.`);
+  printSuccess(`Saved runtime settings to ${runtimeConfigPath()}.`);
+  if (switchedModel) {
+    printSuccess(`Default model set to: ${nextHuggingFaceModel}`);
+  } else if (!nextHuggingFaceModel) {
+    printInfo(
+      `No Hugging Face default model is configured. Set hybridai.defaultModel to a huggingface/... model in ${runtimeConfigPath()} if needed.`,
+    );
+  }
+  printTuiStartHint(commandLabel);
+  console.log();
+}
+
 export async function ensureRuntimeCredentials(
   options: OnboardingOptions = {},
 ): Promise<void> {
@@ -834,6 +913,11 @@ export async function ensureRuntimeCredentials(
   const runtimeConfig = getRuntimeConfig();
   const existingKey = (process.env.HYBRIDAI_API_KEY || '').trim();
   const existingOpenRouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
+  const existingHuggingFaceKey = (
+    process.env.HF_TOKEN ||
+    process.env.HUGGINGFACE_API_KEY ||
+    ''
+  ).trim();
   const codexStatus = getCodexAuthStatus();
   const currentModel = runtimeConfig.hybridai.defaultModel.trim();
   const resolvedCurrentProvider = resolveModelProvider(currentModel);
@@ -844,7 +928,9 @@ export async function ensureRuntimeCredentials(
       ? 'openai-codex'
       : resolvedCurrentProvider === 'openrouter'
         ? 'openrouter'
-        : 'hybridai');
+        : resolvedCurrentProvider === 'huggingface'
+          ? 'huggingface'
+          : 'hybridai');
   const force = options.force === true;
   let securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
@@ -854,7 +940,9 @@ export async function ensureRuntimeCredentials(
       ? codexStatus.authenticated
       : currentAuth === 'openrouter'
         ? !!existingOpenRouterKey
-        : !!existingKey;
+        : currentAuth === 'huggingface'
+          ? !!existingHuggingFaceKey
+          : !!existingKey;
   if (!needsSecurityAcceptance && hasRequiredCredentials) return;
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -888,6 +976,11 @@ export async function ensureRuntimeCredentials(
     if (currentAuth === 'openrouter') {
       throw new Error(
         `OPENROUTER_API_KEY is missing. Run \`hybridclaw onboarding\` in an interactive terminal or store it in ${runtimeSecretsPath()}.`,
+      );
+    }
+    if (currentAuth === 'huggingface') {
+      throw new Error(
+        `HF_TOKEN is missing. Run \`hybridclaw onboarding\` in an interactive terminal or store it in ${runtimeSecretsPath()}.`,
       );
     }
     throw new Error(
@@ -940,6 +1033,14 @@ export async function ensureRuntimeCredentials(
         rl,
         commandLabel,
         existingKey: existingOpenRouterKey,
+      });
+      return;
+    }
+    if (authMethod === 'huggingface') {
+      await runHuggingFaceOnboarding({
+        rl,
+        commandLabel,
+        existingKey: existingHuggingFaceKey,
       });
       return;
     }

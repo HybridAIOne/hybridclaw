@@ -95,7 +95,7 @@ describe('env var overrides', () => {
 });
 
 describe('configured model catalog', () => {
-  it('builds a deduplicated shared model list from hybridai, codex, and openrouter config', async () => {
+  it('builds a deduplicated shared model list from hybridai, codex, openrouter, and huggingface config', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
       config.hybridai.models = ['gpt-5-nano', 'shared-model', 'gpt-5'];
@@ -104,6 +104,11 @@ describe('configured model catalog', () => {
       config.openrouter.models = [
         'shared-model',
         'openrouter/anthropic/claude-sonnet-4',
+      ];
+      config.huggingface.enabled = true;
+      config.huggingface.models = [
+        'shared-model',
+        'huggingface/meta-llama/Llama-3.1-8B-Instruct',
       ];
     });
 
@@ -124,12 +129,18 @@ describe('configured model catalog', () => {
       'shared-model',
       'openrouter/anthropic/claude-sonnet-4',
     ]);
+    expect(config.HUGGINGFACE_ENABLED).toBe(true);
+    expect(snapshot.huggingface.models).toEqual([
+      'shared-model',
+      'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+    ]);
     expect(config.CONFIGURED_MODELS).toEqual([
       'gpt-5-nano',
       'shared-model',
       'gpt-5',
       'openai-codex/gpt-5.4',
       'openrouter/anthropic/claude-sonnet-4',
+      'huggingface/meta-llama/Llama-3.1-8B-Instruct',
     ]);
   });
 });

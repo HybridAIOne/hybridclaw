@@ -7,6 +7,7 @@ const RUNTIME_SECRETS_FILE = 'credentials.json';
 const SECRET_KEYS = [
   'HYBRIDAI_API_KEY',
   'OPENROUTER_API_KEY',
+  'HF_TOKEN',
   'OPENAI_API_KEY',
   'GROQ_API_KEY',
   'DEEPGRAM_API_KEY',
@@ -21,6 +22,7 @@ const SECRET_KEYS = [
 
 export type RuntimeSecretKey = (typeof SECRET_KEYS)[number];
 type RuntimeSecrets = Partial<Record<RuntimeSecretKey, string>>;
+const runtimeSecretManagedKeys = new Set<RuntimeSecretKey>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
@@ -121,9 +123,21 @@ export function loadRuntimeSecrets(cwd: string = process.cwd()): void {
   }
 
   for (const key of SECRET_KEYS) {
-    const value = secrets[key] || migratedSecrets[key];
-    if (value && !process.env[key]) {
-      process.env[key] = value;
+    const value = secrets[key] || migratedSecrets[key] || '';
+    const currentValue = process.env[key] || '';
+    const managed = runtimeSecretManagedKeys.has(key);
+
+    if (value) {
+      if (!currentValue || managed) {
+        process.env[key] = value;
+        runtimeSecretManagedKeys.add(key);
+      }
+      continue;
+    }
+
+    if (managed) {
+      delete process.env[key];
+      runtimeSecretManagedKeys.delete(key);
     }
   }
 }
@@ -155,6 +169,7 @@ export function saveRuntimeSecrets(
     encoding: 'utf-8',
     mode: 0o600,
   });
+  // Re-apply owner-only permissions so an existing credentials file is corrected too.
   fs.chmodSync(filePath, 0o600);
   return filePath;
 }

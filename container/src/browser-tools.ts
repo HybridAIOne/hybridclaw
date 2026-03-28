@@ -169,6 +169,7 @@ type BrowserModelContext = {
     | 'hybridai'
     | 'openai-codex'
     | 'openrouter'
+    | 'huggingface'
     | 'ollama'
     | 'lmstudio'
     | 'vllm';
@@ -234,6 +235,7 @@ export function setBrowserModelContext(
     | 'hybridai'
     | 'openai-codex'
     | 'openrouter'
+    | 'huggingface'
     | 'ollama'
     | 'lmstudio'
     | 'vllm'

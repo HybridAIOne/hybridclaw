@@ -20,6 +20,10 @@ hybridclaw doctor providers
 `doctor` checks runtime, gateway, config, credentials, database, providers,
 local backends, Docker, channels, skills, security, and disk state.
 
+When the config checks flag built-in tools that have gone unused for a while,
+use `hybridclaw tool list`, `hybridclaw tool disable <name>`, and
+`hybridclaw tool enable <name>` to keep the prompt surface tighter.
+
 ## Request Logging
 
 When environment-level checks pass but a specific turn still needs debugging,

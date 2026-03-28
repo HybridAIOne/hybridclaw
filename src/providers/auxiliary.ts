@@ -18,6 +18,7 @@ type RuntimeProvider =
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'huggingface'
   | 'ollama'
   | 'lmstudio'
   | 'vllm';
@@ -444,6 +445,11 @@ function normalizeOpenAICompatModelName(
   if (provider === 'openrouter') {
     return normalizeOpenRouterRuntimeModelName(trimmed);
   }
+  if (provider === 'huggingface') {
+    const prefix = 'huggingface/';
+    if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
+    return trimmed.slice(prefix.length) || trimmed;
+  }
   const prefix = `${provider}/`;
   if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
   return trimmed.slice(prefix.length) || trimmed;
@@ -810,6 +816,7 @@ async function callAuxiliaryTextProvider(
   }
   if (
     context.provider === 'openrouter' ||
+    context.provider === 'huggingface' ||
     context.provider === 'lmstudio' ||
     context.provider === 'vllm'
   ) {

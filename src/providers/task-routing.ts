@@ -32,6 +32,7 @@ const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
   hybridai: '',
   'openai-codex': 'openai-codex/',
   openrouter: 'openrouter/',
+  huggingface: 'huggingface/',
   ollama: 'ollama/',
   lmstudio: 'lmstudio/',
   vllm: 'vllm/',
@@ -53,6 +54,7 @@ function normalizeTaskProviderSelection(
     normalized === 'hybridai' ||
     normalized === 'openai-codex' ||
     normalized === 'openrouter' ||
+    normalized === 'huggingface' ||
     normalized === 'ollama' ||
     normalized === 'lmstudio' ||
     normalized === 'vllm'
@@ -122,6 +124,7 @@ export function detectRuntimeProviderPrefix(
   if (!normalized) return undefined;
   if (normalized.startsWith('openai-codex/')) return 'openai-codex';
   if (normalized.startsWith('openrouter/')) return 'openrouter';
+  if (normalized.startsWith('huggingface/')) return 'huggingface';
   if (normalized.startsWith('ollama/')) return 'ollama';
   if (normalized.startsWith('lmstudio/')) return 'lmstudio';
   if (normalized.startsWith('vllm/')) return 'vllm';
@@ -155,6 +158,11 @@ export function resolveDefaultAuxiliaryModelForProvider(
   if (provider === 'openrouter') {
     if (!config.openrouter.enabled) return undefined;
     return selectFirstNonEmpty(config.openrouter.models);
+  }
+
+  if (provider === 'huggingface') {
+    if (!config.huggingface.enabled) return undefined;
+    return selectFirstNonEmpty(config.huggingface.models);
   }
 
   return selectFirstNonEmpty(

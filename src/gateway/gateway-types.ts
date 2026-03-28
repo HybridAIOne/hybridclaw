@@ -21,6 +21,7 @@ export interface GatewayModelCatalogEntry {
   value: string;
   label: string;
   isFree: boolean;
+  recommended?: boolean;
 }
 
 export interface GatewayCommandResult {

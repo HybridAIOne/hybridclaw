@@ -47,7 +47,7 @@ hybridclaw gateway agent [list|switch <id>|create <id>|model [name]]
 aliases remain accepted: `agent pack` maps to `export`, and `agent unpack`
 maps to `install`.
 
-## Skills, Plugins, Audit
+## Skills, Tools, Plugins, Audit
 
 ```bash
 hybridclaw skill list
@@ -61,6 +61,9 @@ hybridclaw skill learn <skill-name> [--apply|--reject|--rollback]
 hybridclaw skill history <skill-name>
 hybridclaw skill import [--force] [--skip-skill-scan] <source>
 hybridclaw skill install <skill-name> [install-id]
+hybridclaw tool list
+hybridclaw tool enable <tool-name>
+hybridclaw tool disable <tool-name>
 hybridclaw plugin list
 hybridclaw plugin config <plugin-id> [key] [value|--unset]
 hybridclaw plugin install <path|npm-spec>

@@ -658,6 +658,7 @@ async function callHybridAIWithRetry(params: {
     | 'hybridai'
     | 'openai-codex'
     | 'openrouter'
+    | 'huggingface'
     | 'ollama'
     | 'lmstudio'
     | 'vllm';
@@ -804,6 +805,7 @@ async function processRequest(
     | 'hybridai'
     | 'openai-codex'
     | 'openrouter'
+    | 'huggingface'
     | 'ollama'
     | 'lmstudio'
     | 'vllm'

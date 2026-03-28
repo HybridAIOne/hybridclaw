@@ -8,6 +8,7 @@ import type { RuntimeConfig } from '../src/config/runtime-config.js';
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-gateway-status-'));
@@ -60,6 +61,7 @@ afterEach(() => {
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
+  restoreEnvVar('HF_TOKEN', ORIGINAL_HF_TOKEN);
 });
 
 function mockHealthProbes(options?: {
@@ -325,6 +327,262 @@ test('status uses OpenRouter context_length metadata for the context window', as
   expect(result.text).toContain('📚 Context: 12k/262k');
 });
 
+test('status uses Hugging Face context_length metadata for the context window', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HF_TOKEN = 'hf-status-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.huggingface.enabled = true;
+    config.hybridai.defaultModel =
+      'huggingface/meta-llama/Llama-3.1-8B-Instruct';
+    config.huggingface.models = [
+      'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+    ];
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'meta-llama/Llama-3.1-8B-Instruct',
+                context_length: 131072,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-huggingface-context',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'huggingface',
+      model: 'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+      promptTokens: 10_000,
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-huggingface-context',
+    guildId: null,
+    channelId: 'channel-status-huggingface-context',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    '🧠 Model: huggingface/meta-llama/Llama-3.1-8B-Instruct',
+  );
+  expect(result.text).toContain('📚 Context: 10k/131k');
+});
+
+test('status uses Hugging Face provider-level context_length metadata for the context window', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HF_TOKEN = 'hf-status-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.huggingface.enabled = true;
+    config.hybridai.defaultModel = 'huggingface/XiaomiMiMo/MiMo-V2-Flash';
+    config.huggingface.models = ['huggingface/XiaomiMiMo/MiMo-V2-Flash'];
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'XiaomiMiMo/MiMo-V2-Flash',
+                providers: [
+                  {
+                    provider: 'novita',
+                    status: 'live',
+                    context_length: 262144,
+                  },
+                ],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-huggingface-provider-context',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'huggingface',
+      model: 'huggingface/XiaomiMiMo/MiMo-V2-Flash',
+      promptTokens: 23_000,
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-huggingface-provider-context',
+    guildId: null,
+    channelId: 'channel-status-huggingface-provider-context',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    '🧠 Model: huggingface/XiaomiMiMo/MiMo-V2-Flash',
+  );
+  expect(result.text).toContain('📚 Context: 23k/262k');
+});
+
+test('status reuses the context window recorded by model set when later discovery lacks it', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.OPENROUTER_API_KEY = 'or-status-model-set-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = true;
+    config.openrouter.models = ['openrouter/hunter-alpha'];
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [{ id: 'hunter-alpha', context_length: 262144 }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }),
+  );
+
+  {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const { handleGatewayCommand } = await import(
+      '../src/gateway/gateway-service.ts'
+    );
+
+    initDatabase({ quiet: true });
+    const setResult = await handleGatewayCommand({
+      sessionId: 'session-status-model-set-context',
+      guildId: null,
+      channelId: 'channel-status-model-set-context',
+      args: ['model', 'set', 'openrouter/hunter-alpha'],
+    });
+    expect(setResult.kind).toBe('plain');
+  }
+
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [{ id: 'hunter-alpha' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-model-set-context',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'openrouter',
+      model: 'openrouter/hunter-alpha',
+      promptTokens: 21_000,
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-model-set-context',
+    guildId: null,
+    channelId: 'channel-status-model-set-context',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('🧠 Model: openrouter/hunter-alpha');
+  expect(result.text).toContain('📚 Context: 21k/262k');
+});
+
 test('status shows zero cache usage when the provider reports zero cache tokens', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -451,7 +709,10 @@ test('model list includes discovered OpenRouter models', async () => {
     if (input.endsWith('/models')) {
       return new Response(
         JSON.stringify({
-          data: [{ id: 'openai/gpt-4.1-mini' }],
+          data: [
+            { id: 'openai/gpt-4.1-mini' },
+            { id: 'nvidia/nemotron-3-super-120b-a12b:free' },
+          ],
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
@@ -482,12 +743,21 @@ test('model list includes discovered OpenRouter models', async () => {
   expect(result.text).toContain('hybridai/gpt-5-nano');
   expect(result.text).toContain('openrouter/anthropic/claude-sonnet-4');
   expect(result.text).toContain('openrouter/openai/gpt-4.1-mini');
+  expect(result.text).toContain(
+    'openrouter/nvidia/nemotron-3-super-120b-a12b:free',
+  );
   expect(result.modelCatalog).toEqual(
     expect.arrayContaining([
       {
         value: 'gpt-5-nano',
         label: 'hybridai/gpt-5-nano (current)',
         isFree: false,
+      },
+      {
+        value: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free',
+        label: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free',
+        isFree: false,
+        recommended: true,
       },
     ]),
   );
@@ -668,6 +938,95 @@ test('model list filters by provider alias', async () => {
   ]);
   expect(result.text).not.toContain('gpt-5-nano');
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test('model list shows the full Hugging Face catalog', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HF_TOKEN = 'hf-gateway-status-1234567890';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.huggingface.enabled = true;
+    config.hybridai.defaultModel = 'huggingface/Qwen/Qwen3.5-397B-A17B';
+    config.huggingface.models = ['huggingface/Qwen/Qwen3.5-397B-A17B'];
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+
+  const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+    if (input.endsWith('/models')) {
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer hf-gateway-status-1234567890',
+      });
+      return new Response(
+        JSON.stringify({
+          data: [
+            { id: 'Qwen/Qwen3.5-397B-A17B' },
+            { id: 'deepseek-ai/DeepSeek-V3.2' },
+            { id: 'Qwen/Qwen3.5-27B-FP8' },
+            { id: 'zeta/custom-model' },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const listed = await handleGatewayCommand({
+    sessionId: 'session-model-list-huggingface',
+    guildId: null,
+    channelId: 'channel-model-list-huggingface',
+    args: ['model', 'list', 'huggingface'],
+  });
+
+  expect(listed.kind).toBe('info');
+  if (listed.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${listed.kind}`);
+  }
+  expect(listed.title).toBe('Available Models (huggingface)');
+  expect(listed.text).toContain('huggingface/Qwen/Qwen3.5-397B-A17B (current)');
+  expect(listed.text).toContain('huggingface/deepseek-ai/DeepSeek-V3.2');
+  expect(listed.text).toContain('huggingface/Qwen/Qwen3.5-27B-FP8');
+  expect(listed.text).toContain('huggingface/zeta/custom-model');
+  expect(listed.modelCatalog).toEqual(
+    expect.arrayContaining([
+      {
+        value: 'huggingface/Qwen/Qwen3.5-397B-A17B',
+        label: 'huggingface/Qwen/Qwen3.5-397B-A17B (current)',
+        isFree: false,
+        recommended: true,
+      },
+      {
+        value: 'huggingface/deepseek-ai/DeepSeek-V3.2',
+        label: 'huggingface/deepseek-ai/DeepSeek-V3.2',
+        isFree: false,
+        recommended: true,
+      },
+      {
+        value: 'huggingface/Qwen/Qwen3.5-27B-FP8',
+        label: 'huggingface/Qwen/Qwen3.5-27B-FP8',
+        isFree: false,
+        recommended: true,
+      },
+      {
+        value: 'huggingface/zeta/custom-model',
+        label: 'huggingface/zeta/custom-model',
+        isFree: false,
+      },
+    ]),
+  );
 });
 
 test('model info shows global, agent, and session scopes', async () => {

@@ -104,7 +104,7 @@ hybridclaw tui
 
 # Embedded admin console
 # open http://127.0.0.1:9090/admin
-# Includes Dashboard, Gateway, Sessions, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config
+# Includes Dashboard, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config
 # If WEB_API_TOKEN is unset, localhost access opens without a login prompt
 # If WEB_API_TOKEN is set, /chat, /agents, and /admin all prompt for the same token
 ```
@@ -118,16 +118,19 @@ hybridclaw auth login hybridai --browser
 hybridclaw auth login hybridai --base-url http://localhost:5000
 hybridclaw auth login codex --import
 hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
+hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
 hybridclaw auth login local ollama llama3.2
 hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
 hybridclaw auth status hybridai
 hybridclaw auth status codex
 hybridclaw auth status openrouter
+hybridclaw auth status huggingface
 hybridclaw auth status local
 hybridclaw auth status msteams
 hybridclaw auth logout hybridai
 hybridclaw auth logout codex
 hybridclaw auth logout openrouter
+hybridclaw auth logout huggingface
 hybridclaw auth logout local
 hybridclaw auth logout msteams
 hybridclaw auth whatsapp reset
@@ -145,14 +148,15 @@ hybridclaw local configure ollama llama3.2
 - `hybridclaw auth login hybridai` auto-selects browser login on local GUI machines and a manual/headless API-key flow on SSH, CI, and container shells. `--import` copies the current `HYBRIDAI_API_KEY` from your shell into `~/.hybridclaw/credentials.json`, and `--base-url` updates `hybridai.baseUrl` before login.
 - `hybridclaw auth login codex` auto-selects browser PKCE on local GUI machines and device code on headless or remote shells.
 - `hybridclaw auth login openrouter` accepts `--api-key`, falls back to `OPENROUTER_API_KEY`, or prompts you to paste the key, then enables the provider and can set the global default model.
+- `hybridclaw auth login huggingface` accepts `--api-key`, falls back to `HF_TOKEN`, or prompts you to paste the token, then enables the provider and can set the global default model.
 - `hybridclaw auth login local` configures Ollama, LM Studio, or vLLM in `~/.hybridclaw/config.json`.
 - `hybridclaw auth login msteams` enables Microsoft Teams, stores `MSTEAMS_APP_PASSWORD` in `~/.hybridclaw/credentials.json`, and can prompt for the app id, app password, and optional tenant id.
 - `hybridclaw auth logout local` disables configured local backends and clears any saved vLLM API key.
 - `hybridclaw auth logout msteams` clears the stored Teams app password and disables the Teams integration in config.
 - `hybridclaw auth whatsapp reset` clears linked WhatsApp Web auth without starting a new pairing session.
-- HybridAI, OpenRouter, Discord, email, and Teams secrets are stored in `~/.hybridclaw/credentials.json`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
+- HybridAI, OpenRouter, Hugging Face, Discord, email, and Teams secrets are stored in `~/.hybridclaw/credentials.json`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
 - Only one running HybridClaw process should own `~/.hybridclaw/credentials/whatsapp` at a time. If WhatsApp Web shows duplicate Chrome/Ubuntu linked devices or reconnect/auth drift starts, stop the extra process, run `hybridclaw auth whatsapp reset`, then pair again with `hybridclaw channels whatsapp setup`.
-- Use `hybridclaw help`, `hybridclaw help auth`, `hybridclaw help openrouter`, or `hybridclaw help local` for CLI-specific reference output.
+- Use `hybridclaw help`, `hybridclaw help auth`, `hybridclaw help openrouter`, `hybridclaw help huggingface`, or `hybridclaw help local` for CLI-specific reference output.
 
 ## Setting Up MS Teams
 
@@ -166,7 +170,7 @@ See [docs/msteams.md](./docs/msteams.md) for the full setup flow, including:
 
 ## Model Selection
 
-Codex models use the `openai-codex/` prefix. OpenRouter models use the `openrouter/` prefix. The default shipped Codex model is `openai-codex/gpt-5-codex`.
+Codex models use the `openai-codex/` prefix. OpenRouter models use the `openrouter/` prefix. Hugging Face router models use the `huggingface/` prefix. The default shipped Codex model is `openai-codex/gpt-5-codex`.
 
 Examples:
 
@@ -176,18 +180,22 @@ Examples:
 /model default openai-codex/gpt-5-codex
 /model list openrouter
 /model set openrouter/anthropic/claude-sonnet-4
+/model list huggingface
+/model set huggingface/meta-llama/Llama-3.1-8B-Instruct
 /model clear
 /agent model openrouter/anthropic/claude-sonnet-4
 /model info
 /model default openrouter/anthropic/claude-sonnet-4
 ```
 
-- `hybridai.defaultModel` in `~/.hybridclaw/config.json` can point at a HybridAI model, an `openai-codex/...` model, an `openrouter/...` model, or a local backend model such as `ollama/...`.
+- `hybridai.defaultModel` in `~/.hybridclaw/config.json` can point at a HybridAI model, an `openai-codex/...` model, an `openrouter/...` model, a `huggingface/...` model, or a local backend model such as `ollama/...`.
 - `codex.models` in runtime config controls the allowed Codex model list shown in selectors and status output.
 - `openrouter.models` in runtime config controls the allowed OpenRouter model list shown in selectors and status output.
+- `huggingface.models` in runtime config controls the allowed Hugging Face model list shown in selectors and status output.
 - HybridAI model lists are refreshed from the configured HybridAI base URL (`/models`, then `/v1/models` as a compatibility fallback), and discovered `context_length` values feed status and model-info output when the API exposes them.
 - When the selected model starts with `openai-codex/`, HybridClaw resolves OAuth credentials through the Codex provider instead of `HYBRIDAI_API_KEY`.
 - When the selected model starts with `openrouter/`, HybridClaw resolves credentials through `OPENROUTER_API_KEY`.
+- When the selected model starts with `huggingface/`, HybridClaw resolves credentials through `HF_TOKEN`.
 - `/model set <name>` is a session-only override.
 - `/model clear` removes the session override and falls back to the current agent model or the global default.
 - `/agent model <name>` sets the persistent model for the current session agent.
@@ -232,7 +240,7 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - `media.audio` controls shared inbound audio transcription. By default it auto-detects local CLIs first (`sherpa-onnx-offline`, `whisper-cli`, `whisper`), then `gemini`, then provider keys (`openai`, `groq`, `deepgram`, `google`).
 - `whisper-cli` auto-detect also needs a whisper.cpp model file. If the binary exists but HybridClaw still skips local transcription, set `WHISPER_CPP_MODEL` to a local `ggml-*.bin` model path.
 - If no transcript backend is available, the container tries native model audio input before tool-use fallback for supported local providers. Today that fallback is enabled for `vllm` sessions and uses the original current-turn audio attachment.
-- Keep runtime secrets in `~/.hybridclaw/credentials.json` (`HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`, `EMAIL_PASSWORD`, `MSTEAMS_APP_PASSWORD`). Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
+- Keep runtime secrets in `~/.hybridclaw/credentials.json` (`HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`, `EMAIL_PASSWORD`, `MSTEAMS_APP_PASSWORD`). Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 - Trust-model acceptance is stored in `~/.hybridclaw/config.json` under `security.*` and is required before runtime starts. In headless environments, set `HYBRIDCLAW_ACCEPT_TRUST=true` to persist acceptance automatically before credential checks run.
 - See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
 - For contributor workflow, see [CONTRIBUTING.md](./CONTRIBUTING.md). For deeper runtime, skills, release, voice/TTS, and maintainer reference docs, see [docs/development/README.md](./docs/development/README.md).

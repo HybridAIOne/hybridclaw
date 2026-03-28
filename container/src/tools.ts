@@ -97,6 +97,7 @@ let currentModelProvider:
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'huggingface'
   | 'ollama'
   | 'lmstudio'
   | 'vllm' = 'hybridai';
@@ -297,6 +298,7 @@ export function setModelContext(
     | 'hybridai'
     | 'openai-codex'
     | 'openrouter'
+    | 'huggingface'
     | 'ollama'
     | 'lmstudio'
     | 'vllm'

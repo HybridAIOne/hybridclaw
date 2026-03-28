@@ -11,6 +11,7 @@ const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-model-catalog-'));
@@ -69,6 +70,11 @@ afterEach(async () => {
     delete process.env.OPENROUTER_API_KEY;
   } else {
     process.env.OPENROUTER_API_KEY = ORIGINAL_OPENROUTER_API_KEY;
+  }
+  if (ORIGINAL_HF_TOKEN === undefined) {
+    delete process.env.HF_TOKEN;
+  } else {
+    process.env.HF_TOKEN = ORIGINAL_HF_TOKEN;
   }
 });
 
@@ -267,6 +273,181 @@ test('available model catalog reloads OpenRouter discovery after 60 minutes', as
   expect(catalog.getAvailableModelList('codex')).toEqual(
     expect.arrayContaining(['openai-codex/gpt-5-codex']),
   );
+});
+
+test('available model catalog returns the full Hugging Face discovery list', async () => {
+  const homeDir = makeTempHome();
+  process.env.HF_TOKEN = 'hf-test-key';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.huggingface.enabled = true;
+    config.huggingface.models = ['huggingface/Qwen/Qwen3.5-397B-A17B'];
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string, init?: RequestInit) => {
+      if (input.endsWith('/models')) {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer hf-test-key',
+        });
+        return new Response(
+          JSON.stringify({
+            data: [
+              { id: 'Qwen/Qwen3.5-397B-A17B' },
+              { id: 'deepseek-ai/DeepSeek-V3.2' },
+              { id: 'Qwen/Qwen3.5-27B-FP8' },
+              { id: 'zeta/custom-model' },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs();
+
+  expect(catalog.getAvailableModelList('huggingface')).toEqual([
+    'huggingface/deepseek-ai/DeepSeek-V3.2',
+    'huggingface/Qwen/Qwen3.5-27B-FP8',
+    'huggingface/Qwen/Qwen3.5-397B-A17B',
+    'huggingface/zeta/custom-model',
+  ]);
+  expect(
+    catalog.getAvailableModelListWithOptions('huggingface', {
+      expanded: true,
+    }),
+  ).toEqual(catalog.getAvailableModelList('huggingface'));
+});
+
+test('available model catalog reads Hugging Face provider-level context windows', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HF_TOKEN = 'hf-test-key';
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.huggingface.enabled = true;
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.endsWith('/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'XiaomiMiMo/MiMo-V2-Flash',
+                providers: [
+                  {
+                    provider: 'novita',
+                    status: 'live',
+                    context_length: 262144,
+                  },
+                ],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const discovery = await import('../src/providers/huggingface-discovery.ts');
+
+  await expect(
+    discovery.discoverHuggingFaceModels({ force: true }),
+  ).resolves.toEqual(['huggingface/XiaomiMiMo/MiMo-V2-Flash']);
+  expect(
+    discovery.getDiscoveredHuggingFaceModelContextWindow(
+      'huggingface/XiaomiMiMo/MiMo-V2-Flash',
+    ),
+  ).toBe(262_144);
+});
+
+test('available model catalog does not cap the default Hugging Face list', async () => {
+  const homeDir = makeTempHome();
+  process.env.HF_TOKEN = 'hf-test-key';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.huggingface.enabled = true;
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  const discoveredIds = [
+    'Qwen/Qwen2.5-Coder-32B-Instruct',
+    'Qwen/Qwen2.5-Coder-7B-Instruct',
+    'Qwen/Qwen2.5-72B-Instruct',
+    'Qwen/Qwen2.5-32B-Instruct',
+    'Qwen/Qwen2.5-14B-Instruct',
+    'Qwen/Qwen2.5-7B-Instruct',
+    'Qwen/Qwen2.5-3B-Instruct',
+    'Qwen/Qwen2.5-1.5B-Instruct',
+    'Qwen/Qwen2.5-VL-7B-Instruct',
+    'Qwen/Qwen2.5-VL-3B-Instruct',
+    'meta-llama/Llama-3.3-70B-Instruct',
+    'meta-llama/Llama-3.1-405B-Instruct',
+    'meta-llama/Llama-3.1-70B-Instruct',
+    'meta-llama/Llama-3.1-8B-Instruct',
+    'meta-llama/Llama-3.2-90B-Vision-Instruct',
+    'meta-llama/Llama-3.2-11B-Vision-Instruct',
+    'meta-llama/Llama-4-Scout-17B-16E-Instruct',
+    'google/gemma-3-27b-it',
+    'google/gemma-3-12b-it',
+    'google/gemma-3-4b-it',
+    'google/gemma-3-1b-it',
+    'mistralai/Mistral-Small-24B-Instruct-2501',
+    'mistralai/Mistral-Nemo-Instruct-2407',
+    'mistralai/Mistral-7B-Instruct-v0.3',
+    'mistralai/Mixtral-8x7B-Instruct-v0.1',
+    'deepseek-ai/DeepSeek-V3',
+    'deepseek-ai/DeepSeek-R1',
+    'deepseek-ai/DeepSeek-R1-Distill-Qwen-32B',
+    'CohereForAI/c4ai-command-r-plus-08-2024',
+    'CohereForAI/c4ai-command-r-08-2024',
+    'CohereForAI/aya-expanse-32b',
+    'moonshotai/Kimi-K2-Instruct-0905',
+  ];
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.endsWith('/models')) {
+        return new Response(
+          JSON.stringify({
+            data: discoveredIds.map((id) => ({ id })),
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs();
+
+  expect(catalog.getAvailableModelList('huggingface')).toHaveLength(32);
+  expect(
+    catalog.getAvailableModelListWithOptions('huggingface', {
+      expanded: true,
+    }),
+  ).toHaveLength(32);
 });
 
 test('vision fallback ignores OpenRouter models with image output only', async () => {

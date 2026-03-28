@@ -4,6 +4,7 @@ export type AIProviderId =
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'huggingface'
   | 'anthropic'
   | 'ollama'
   | 'lmstudio'
@@ -12,6 +13,7 @@ export type RuntimeProviderId =
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'huggingface'
   | 'ollama'
   | 'lmstudio'
   | 'vllm';

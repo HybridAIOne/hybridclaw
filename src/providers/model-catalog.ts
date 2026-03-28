@@ -1,6 +1,11 @@
 import { CONFIGURED_MODELS } from '../config/config.js';
 import { resolveModelProvider } from './factory.js';
 import {
+  discoverHuggingFaceModels,
+  getDiscoveredHuggingFaceModelNames,
+} from './huggingface-discovery.js';
+import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
+import {
   discoverHybridAIModels,
   getDiscoveredHybridAIModelNames,
 } from './hybridai-discovery.js';
@@ -23,6 +28,7 @@ type ModelCatalogProviderFilter =
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'huggingface'
   | 'ollama'
   | 'lmstudio'
   | 'vllm'
@@ -34,12 +40,18 @@ const VLLM_MODEL_PREFIX = 'vllm/';
 const PREFIX_BY_PROVIDER: Record<
   Extract<
     ModelCatalogProviderFilter,
-    'openai-codex' | 'openrouter' | 'ollama' | 'lmstudio' | 'vllm'
+    | 'openai-codex'
+    | 'openrouter'
+    | 'huggingface'
+    | 'ollama'
+    | 'lmstudio'
+    | 'vllm'
   >,
   string
 > = {
   'openai-codex': OPENAI_CODEX_MODEL_PREFIX,
   openrouter: OPENROUTER_MODEL_PREFIX,
+  huggingface: HUGGINGFACE_MODEL_PREFIX,
   ollama: OLLAMA_MODEL_PREFIX,
   lmstudio: LMSTUDIO_MODEL_PREFIX,
   vllm: VLLM_MODEL_PREFIX,
@@ -98,6 +110,7 @@ export function normalizeModelCatalogProviderFilter(
     normalized === 'hybridai' ||
     normalized === 'openai-codex' ||
     normalized === 'openrouter' ||
+    normalized === 'huggingface' ||
     normalized === 'ollama' ||
     normalized === 'lmstudio' ||
     normalized === 'vllm' ||
@@ -144,8 +157,16 @@ function dedupeModelList(models: string[]): string[] {
 }
 
 export function getAvailableModelList(provider?: string): string[] {
+  return getAvailableModelListWithOptions(provider);
+}
+
+export function getAvailableModelListWithOptions(
+  provider?: string,
+  _opts?: { expanded?: boolean },
+): string[] {
   const models = dedupeModelList([
     ...CONFIGURED_MODELS,
+    ...getDiscoveredHuggingFaceModelNames(),
     ...getDiscoveredHybridAIModelNames(),
     ...getDiscoveredLocalModelNames(),
     ...getDiscoveredOpenRouterModelNames(),
@@ -155,9 +176,12 @@ export function getAvailableModelList(provider?: string): string[] {
     return models.sort((left, right) => compareModelNames(left, right));
   }
   if (normalizedProvider === null) return [];
-  return models
-    .filter((model) => matchesProviderFilter(model, normalizedProvider))
-    .sort((left, right) => compareModelNames(left, right, normalizedProvider));
+  const filteredModels = models.filter((model) =>
+    matchesProviderFilter(model, normalizedProvider),
+  );
+  return filteredModels.sort((left, right) =>
+    compareModelNames(left, right, normalizedProvider),
+  );
 }
 
 export async function refreshAvailableModelCatalogs(opts?: {
@@ -165,6 +189,7 @@ export async function refreshAvailableModelCatalogs(opts?: {
 }): Promise<void> {
   await Promise.allSettled([
     discoverAllLocalModels(),
+    discoverHuggingFaceModels(),
     discoverOpenRouterModels(),
     ...(opts?.includeHybridAI ? [discoverHybridAIModels()] : []),
   ]);

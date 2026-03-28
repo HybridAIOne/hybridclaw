@@ -116,6 +116,7 @@ export interface TaskModelPolicy {
     | 'hybridai'
     | 'openai-codex'
     | 'openrouter'
+    | 'huggingface'
     | 'ollama'
     | 'lmstudio'
     | 'vllm';
@@ -199,6 +200,7 @@ export interface ContainerInput {
     | 'hybridai'
     | 'openai-codex'
     | 'openrouter'
+    | 'huggingface'
     | 'ollama'
     | 'lmstudio'
     | 'vllm';

@@ -2,6 +2,7 @@ const API_KEY_REQUIRED_PROVIDERS = new Set([
   'hybridai',
   'openai-codex',
   'openrouter',
+  'huggingface',
 ]);
 
 function buildMissingContextError(params) {

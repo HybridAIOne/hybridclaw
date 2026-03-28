@@ -227,6 +227,8 @@ function resolveProviderLabel(model: string): string {
       return 'Codex';
     case 'openrouter':
       return 'OpenRouter';
+    case 'huggingface':
+      return 'Hugging Face';
     case 'ollama':
       return 'Ollama';
     case 'lmstudio':

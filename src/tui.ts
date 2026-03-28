@@ -120,6 +120,7 @@ interface TuiPalette {
   teal: string;
   gold: string;
   green: string;
+  lightGreen: string;
   red: string;
 }
 
@@ -128,6 +129,7 @@ const DARK_PALETTE: TuiPalette = {
   teal: '\x1b[38;2;92;224;216m',
   gold: '\x1b[38;2;255;215;0m',
   green: '\x1b[38;2;16;185;129m',
+  lightGreen: '\x1b[1;92m',
   red: '\x1b[38;2;239;68;68m',
 };
 
@@ -136,6 +138,7 @@ const LIGHT_PALETTE: TuiPalette = {
   teal: '\x1b[38;2;0;122;128m',
   gold: '\x1b[38;2;138;97;0m',
   green: '\x1b[38;2;0;130;92m',
+  lightGreen: '\x1b[1;92m',
   red: '\x1b[38;2;185;28;28m',
 };
 
@@ -175,6 +178,7 @@ const MUTED = PALETTE.muted;
 const TEAL = PALETTE.teal;
 const GOLD = PALETTE.gold;
 const GREEN = PALETTE.green;
+const LIGHT_GREEN = '\x1b[1;92m';
 const RED = PALETTE.red;
 const WORDMARK_RAMP =
   THEME === 'light'
@@ -674,8 +678,13 @@ function printModelCatalogCommandResult(result: GatewayCommandResult): void {
   }
   if (Array.isArray(result.modelCatalog) && result.modelCatalog.length > 0) {
     for (const entry of result.modelCatalog) {
-      const color = entry.isFree ? GREEN : GOLD;
-      console.log(`  ${color}${entry.label}${RESET}`);
+      const marker = entry.recommended ? `${LIGHT_GREEN}★ ${RESET}` : '';
+      const color = entry.recommended
+        ? LIGHT_GREEN
+        : entry.isFree
+          ? GREEN
+          : GOLD;
+      console.log(`  ${marker}${color}${entry.label}${RESET}`);
     }
     console.log();
     return;
@@ -1274,20 +1283,25 @@ async function fetchCurrentSessionModel(): Promise<string | null> {
 }
 
 async function fetchSelectableModels(): Promise<
-  Array<{ label: string; value: string; isFree: boolean }>
+  Array<{ label: string; value: string; isFree: boolean; recommended: boolean }>
 > {
   const fallback = normalizeModelCandidates(CONFIGURED_MODELS).map((model) => ({
     label: formatModelForDisplay(model),
     value: normalizeHybridAIModelForRuntime(model),
     isFree: false,
+    recommended: false,
   }));
   try {
     const result = await requestGatewayCommand(['model', 'list']);
     if (result.kind === 'error') return fallback;
     if (Array.isArray(result.modelCatalog) && result.modelCatalog.length > 0) {
       const seen = new Set<string>();
-      const models: Array<{ label: string; value: string; isFree: boolean }> =
-        [];
+      const models: Array<{
+        label: string;
+        value: string;
+        isFree: boolean;
+        recommended: boolean;
+      }> = [];
       for (const entry of result.modelCatalog) {
         const value = String(entry.value || '').trim();
         if (!value || seen.has(value)) continue;
@@ -1297,6 +1311,7 @@ async function fetchSelectableModels(): Promise<
             String(entry.label || '').trim() || formatModelForDisplay(value),
           value,
           isFree: entry.isFree === true,
+          recommended: entry.recommended === true,
         });
       }
       return models.length > 0 ? models : fallback;
@@ -1307,6 +1322,7 @@ async function fetchSelectableModels(): Promise<
           label: model,
           value: normalizeHybridAIModelForRuntime(model),
           isFree: false,
+          recommended: false,
         }))
       : fallback;
   } catch {
@@ -1344,20 +1360,28 @@ async function promptModelSelection(
   const currentModel = await fetchCurrentSessionModel();
   console.log(`  ${BOLD}${GOLD}Model selector${RESET}`);
   if (currentModel) {
-    const currentColor =
-      models.find((entry) => entry.label === currentModel)?.isFree === true
+    const currentEntry = models.find((entry) => entry.label === currentModel);
+    const currentColor = currentEntry?.recommended
+      ? LIGHT_GREEN
+      : currentEntry?.isFree === true
         ? GREEN
         : TEAL;
+    const currentMarker = currentEntry?.recommended ? '★ ' : '';
     console.log(
-      `  ${MUTED}Current:${RESET} ${currentColor}${currentModel}${RESET}`,
+      `  ${MUTED}Current:${RESET} ${currentColor}${currentMarker}${currentModel}${RESET}`,
     );
   }
   for (const [index, entry] of models.entries()) {
     const suffix =
       currentModel === entry.label ? ` ${MUTED}(current)${RESET}` : '';
-    const modelColor = entry.isFree ? GREEN : RESET;
+    const marker = entry.recommended ? `${LIGHT_GREEN}★ ${RESET}` : '';
+    const modelColor = entry.recommended
+      ? LIGHT_GREEN
+      : entry.isFree
+        ? GREEN
+        : RESET;
     console.log(
-      `  ${TEAL}${index + 1}${RESET} ${modelColor}${entry.label}${RESET}${suffix}`,
+      `  ${TEAL}${index + 1}${RESET} ${marker}${modelColor}${entry.label}${RESET}${suffix}`,
     );
   }
 

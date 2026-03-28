@@ -13,6 +13,7 @@ const ORIGINAL_MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID;
 const ORIGINAL_MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD;
 const ORIGINAL_MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
 const ORIGINAL_HYBRIDCLAW_LOG_REQUESTS = process.env.HYBRIDCLAW_LOG_REQUESTS;
 const ORIGINAL_CI = process.env.CI;
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
@@ -868,6 +869,11 @@ afterEach(() => {
     delete process.env.OPENROUTER_API_KEY;
   } else {
     process.env.OPENROUTER_API_KEY = ORIGINAL_OPENROUTER_API_KEY;
+  }
+  if (ORIGINAL_HF_TOKEN === undefined) {
+    delete process.env.HF_TOKEN;
+  } else {
+    process.env.HF_TOKEN = ORIGINAL_HF_TOKEN;
   }
   if (ORIGINAL_HYBRIDCLAW_LOG_REQUESTS === undefined) {
     delete process.env.HYBRIDCLAW_LOG_REQUESTS;
@@ -1847,7 +1853,7 @@ describe('CLI hybridai commands', () => {
 
       expect(readlineCreateInterface).toHaveBeenCalled();
       expect(readlineQuestion).toHaveBeenCalledWith(
-        'Paste OpenRouter API key: ',
+        '🔒 Paste OpenRouter API key: ',
       );
       expect(readlineClose).toHaveBeenCalled();
       expect(saveRuntimeSecrets).toHaveBeenCalledWith({
@@ -1914,6 +1920,150 @@ describe('CLI hybridai commands', () => {
     });
     expect(logSpy).toHaveBeenCalledWith(
       'Cleared OpenRouter credentials in /tmp/credentials.json.',
+    );
+  });
+
+  it('configures Hugging Face from auth login with --api-key', async () => {
+    const { cli, saveRuntimeSecrets, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'auth',
+      'login',
+      'huggingface',
+      'meta-llama/Llama-3.1-8B-Instruct',
+      '--api-key',
+      'hf-secret-token',
+    ]);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      HF_TOKEN: 'hf-secret-token',
+    });
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Provider: huggingface');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Configured model: huggingface/meta-llama/Llama-3.1-8B-Instruct',
+    );
+  });
+
+  it('prompts for the Hugging Face token without echoing the token prompt text', async () => {
+    const originalStdinTty = process.stdin.isTTY;
+    const originalStdoutTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    try {
+      const { cli, saveRuntimeSecrets, readlineQuestion, readlineClose } =
+        await importFreshCli({
+          promptResponses: ['hf-pasted-token'],
+        });
+
+      await cli.main([
+        'auth',
+        'login',
+        'huggingface',
+        'meta-llama/Llama-3.1-8B-Instruct',
+      ]);
+
+      expect(readlineQuestion).toHaveBeenCalledWith(
+        '🔒 Paste Hugging Face token: ',
+      );
+      expect(readlineClose).toHaveBeenCalled();
+      expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+        HF_TOKEN: 'hf-pasted-token',
+      });
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: originalStdinTty,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutTty,
+        configurable: true,
+      });
+    }
+  });
+
+  it('prompts for the Hugging Face token even when HF_TOKEN is already loaded', async () => {
+    const originalStdinTty = process.stdin.isTTY;
+    const originalStdoutTty = process.stdout.isTTY;
+    process.env.HF_TOKEN = 'hf-existing-token';
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    try {
+      const { cli, saveRuntimeSecrets, readlineQuestion, readlineClose } =
+        await importFreshCli({
+          promptResponses: ['hf-new-token'],
+        });
+
+      await cli.main([
+        'auth',
+        'login',
+        'huggingface',
+        'meta-llama/Llama-3.1-8B-Instruct',
+      ]);
+
+      expect(readlineQuestion).toHaveBeenCalledWith(
+        '🔒 Paste Hugging Face token: ',
+      );
+      expect(readlineClose).toHaveBeenCalled();
+      expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+        HF_TOKEN: 'hf-new-token',
+      });
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: originalStdinTty,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutTty,
+        configurable: true,
+      });
+      delete process.env.HF_TOKEN;
+    }
+  });
+
+  it('prints Hugging Face status through auth status', async () => {
+    process.env.HF_TOKEN = 'hf-secret-token';
+    try {
+      const { cli } = await importFreshCli();
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      await cli.main(['auth', 'status', 'huggingface']);
+
+      expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('Enabled: no');
+      expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
+    } finally {
+      delete process.env.HF_TOKEN;
+    }
+  });
+
+  it('clears Hugging Face credentials through auth logout', async () => {
+    const { cli, saveRuntimeSecrets } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'logout', 'huggingface']);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      HF_TOKEN: null,
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      'Cleared Hugging Face credentials in /tmp/credentials.json.',
     );
   });
 

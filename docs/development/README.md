@@ -12,21 +12,20 @@ matches what you need right now. In the browser docs shell, each page can open
 its raw `.md` source directly or copy the full page markdown from the document
 header.
 
-## Version 0.9.2 Highlights
+## Coming Up Highlights
 
-- `skill sync` and the packaged Datalion community skill landed in this patch,
-  alongside cleaner import-argument parsing and updated TUI help for imported
-  skill workflows.
-- The new meme-generation community skill ships with reusable scripts and
-  safer file/network handling for repeated image-generation runs.
-- Workspace `glob` and `grep` handling was hardened and the container search
-  implementation was split into a dedicated module to keep path filtering more
-  predictable.
-- Web chat branching/history flows, WhatsApp restart recovery, TUI history
-  arrows, and QMD-backed branch paging all received reliability fixes in the
-  same release window.
-- The static docs shell was synced with the gateway renderer and GitHub Pages
-  publishing now keeps `.nojekyll` in the docs output.
+- Hugging Face router support has landed with provider auth commands, doctor
+  probing, model discovery, and `huggingface/...` model selection support.
+- The embedded admin console has a dedicated `Jobs` board for proactive work,
+  alongside scheduler/job follow-ups that recover more reliably after failed
+  runs or delayed delivery.
+- `hybridclaw tool list|enable|disable` gives operators a direct way to trim
+  unused built-in prompt surfaces when doctor recommends it.
+- Container bootstrap behavior is clearer: installed packages prefer published
+  images, source checkouts build locally, and the publish workflow verifies
+  pushed GHCR tags before completion.
+- Skill install/sync path handling, malformed `requires` warnings, and
+  OpenClaw-compatible metadata parsing all received cleanup and stability work.
 
 ## Browse By Section
 

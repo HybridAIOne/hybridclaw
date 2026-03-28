@@ -11,6 +11,7 @@ import type {
   ResolvedModelRuntimeCredentials,
   ResolveProviderRuntimeParams,
 } from './types.js';
+import { normalizeBaseUrl } from './utils.js';
 
 export function isOpenRouterModel(model: string): boolean {
   return String(model || '')
@@ -26,7 +27,7 @@ async function resolveOpenRouterRuntimeCredentials(
   return {
     provider: 'openrouter',
     apiKey: readOpenRouterApiKey({ required: true }),
-    baseUrl: OPENROUTER_BASE_URL.trim().replace(/\/+$/g, ''),
+    baseUrl: normalizeBaseUrl(OPENROUTER_BASE_URL),
     chatbotId: '',
     enableRag: false,
     requestHeaders: buildOpenRouterAttributionHeaders(),

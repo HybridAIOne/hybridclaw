@@ -10,6 +10,7 @@ Model prefixes:
 
 - Codex models use `openai-codex/`
 - OpenRouter models use `openrouter/`
+- Hugging Face router models use `huggingface/`
 - local backends use prefixes such as `ollama/`, `lmstudio/`, and `vllm/`
 
 Examples:
@@ -20,6 +21,8 @@ Examples:
 /model default openai-codex/gpt-5-codex
 /model list openrouter
 /model set openrouter/anthropic/claude-sonnet-4
+/model list huggingface
+/model set huggingface/meta-llama/Llama-3.1-8B-Instruct
 /model clear
 /agent model openrouter/anthropic/claude-sonnet-4
 /model info
