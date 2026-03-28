@@ -416,15 +416,21 @@ function buildProactivityHook(context: PromptHookContext): string {
 
 function buildRuntimeHook(context: PromptHookContext): string {
   const runtimeInfo = context.runtimeInfo || {};
-  const model = runtimeInfo.model?.trim() || HYBRIDAI_MODEL;
-  const provider = resolveModelProvider(model);
+  const model = sanitizePromptInlineValue(runtimeInfo.model) || HYBRIDAI_MODEL;
+  const provider = sanitizePromptInlineValue(resolveModelProvider(model));
+  if (!provider) {
+    throw new Error('Runtime model provider must be non-empty.');
+  }
   const workspaceLabel =
     runtimeInfo.workspacePath?.trim() || 'current agent workspace';
   const guildLabel =
     runtimeInfo.guildId === null
       ? 'dm'
       : runtimeInfo.guildId?.trim() || 'unknown';
-  const modelSentence = formatRuntimeModelSentence(model, provider);
+  const formattedModel = sanitizePromptInlineValue(
+    formatRuntimeModelForPrompt(model, provider),
+  );
+  const modelSentence = `Model: ${formattedModel} served through ${provider}`;
 
   const lines = [
     '## Runtime Metadata',
@@ -452,39 +458,40 @@ function buildRuntimeHook(context: PromptHookContext): string {
 function formatRuntimeModelForPrompt(model: string, provider: string): string {
   const formatted = formatModelForDisplay(model);
   if (provider === 'openai-codex') {
-    if (formatted.toLowerCase().startsWith('openai-codex/')) {
-      return formatted.slice('openai-codex/'.length);
-    }
-    return formatted;
+    return formatUpstreamModelLabel(
+      stripProviderPrefix(formatted, 'openai-codex'),
+    );
   }
-  if (
-    provider === 'hybridai' &&
-    formatted.toLowerCase().startsWith('hybridai/')
-  ) {
-    return formatUpstreamModelLabel(formatted.slice('hybridai/'.length));
+  if (provider === 'hybridai') {
+    return formatUpstreamModelLabel(stripProviderPrefix(formatted, 'hybridai'));
   }
-  const providerPrefix = `${provider}/`;
-  if (formatted.toLowerCase().startsWith(providerPrefix)) {
-    return formatUpstreamModelLabel(formatted.slice(providerPrefix.length));
-  }
-  return formatUpstreamModelLabel(formatted);
-}
-
-function formatRuntimeModelSentence(model: string, provider: string): string {
-  const formattedModel = formatRuntimeModelForPrompt(model, provider);
-  return `Model: ${formattedModel} served through ${provider}`;
+  return formatUpstreamModelLabel(stripProviderPrefix(formatted, provider));
 }
 
 function formatUpstreamModelLabel(model: string): string {
-  const parts = String(model || '')
+  const parts = model
     .trim()
     .split('/')
     .map((part) => part.trim())
     .filter(Boolean);
-  if (parts.length < 2) return String(model || '').trim();
+  if (parts.length < 2) return model.trim();
   const name = parts.at(-1) || '';
   const vendor = parts.slice(0, -1).join('/');
   return `${name} by ${vendor}`;
+}
+
+function stripProviderPrefix(formatted: string, prefix: string): string {
+  const normalizedPrefix = `${prefix}/`.toLowerCase();
+  return formatted.toLowerCase().startsWith(normalizedPrefix)
+    ? formatted.slice(prefix.length + 1)
+    : formatted;
+}
+
+function sanitizePromptInlineValue(value: string | null | undefined): string {
+  return String(value || '')
+    .replaceAll('\0', '')
+    .replace(/[\r\n]+/g, ' ')
+    .trim();
 }
 
 const PROMPT_HOOKS: PromptHook[] = [
