@@ -131,35 +131,36 @@ test.each([
     expectedArgs: ['-i', '-c', '-C'],
     expectedMode: 'default',
   },
-])(
-  'browser_snapshot uses the expected cursor flags for $label',
-  async ({ args, expectedArgs, expectedMode }) => {
-    tempRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-browser-snapshot-'),
-    );
-    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
-    vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
+])('browser_snapshot uses the expected cursor flags for $label', async ({
+  args,
+  expectedArgs,
+  expectedMode,
+}) => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-snapshot-'),
+  );
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
 
-    const { executeBrowserTool } = await import(
-      '../container/src/browser-tools.js'
-    );
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
 
-    const output = await executeBrowserTool(
-      'browser_snapshot',
-      args,
-      'session-1',
-    );
-    const parsed = JSON.parse(output) as {
-      success: boolean;
-      mode: string;
-      snapshot: string;
-    };
+  const output = await executeBrowserTool(
+    'browser_snapshot',
+    args,
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as {
+    success: boolean;
+    mode: string;
+    snapshot: string;
+  };
 
-    expect(parsed.success).toBe(true);
-    expect(parsed.mode).toBe(expectedMode);
-    expect(JSON.parse(parsed.snapshot) as string[]).toEqual(expectedArgs);
-  },
-);
+  expect(parsed.success).toBe(true);
+  expect(parsed.mode).toBe(expectedMode);
+  expect(JSON.parse(parsed.snapshot) as string[]).toEqual(expectedArgs);
+});
 
 test('browser_snapshot reuses the shared browser profile directly', async () => {
   tempRoot = fs.mkdtempSync(
