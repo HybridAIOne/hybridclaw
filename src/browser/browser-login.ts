@@ -17,6 +17,26 @@ export interface BrowserLoginOptions {
   url?: string;
 }
 
+export function buildBrowserLoginArgs(
+  profileDir: string,
+  options: BrowserLoginOptions = {},
+): string[] {
+  const url = options.url || 'about:blank';
+  return [
+    `--user-data-dir=${profileDir}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-background-networking',
+    '--disable-sync',
+    '--disable-translate',
+    '--metrics-recording-only',
+    // Match the automation runtime so cookies/session state stay readable.
+    '--password-store=basic',
+    '--use-mock-keychain',
+    url,
+  ];
+}
+
 function resolvePlaywrightChromium(): string | null {
   const envPath = process.env.PLAYWRIGHT_BROWSERS_PATH;
   const searchRoots = [
@@ -97,18 +117,7 @@ export async function launchBrowserLogin(
   fs.mkdirSync(profileDir, { recursive: true, mode: 0o700 });
 
   const chromeBin = resolveChromeBinary();
-  const url = options.url || 'about:blank';
-
-  const args = [
-    `--user-data-dir=${profileDir}`,
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--disable-background-networking',
-    '--disable-sync',
-    '--disable-translate',
-    '--metrics-recording-only',
-    url,
-  ];
+  const args = buildBrowserLoginArgs(profileDir, options);
 
   const env = { ...process.env };
   // Only set DISPLAY fallback on Linux where X11 is expected
