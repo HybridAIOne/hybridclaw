@@ -30,14 +30,22 @@ const SHARED_RECOMMENDED_FRAGMENTS = [
   'nemotron-3-super-120b-a12b',
 ] as const;
 
+const HUGGINGFACE_RECOMMENDED_MODEL_SET = new Set(
+  HUGGINGFACE_RECOMMENDED_MODEL_IDS.map((modelId) => modelId.toLowerCase()),
+);
+
+const OPENROUTER_RECOMMENDED_MODEL_SET = new Set(
+  OPENROUTER_RECOMMENDED_MODEL_IDS.map((modelId) => modelId.toLowerCase()),
+);
+
 function hasExactOrTaggedMatch(
   tail: string,
-  modelIds: readonly string[],
+  modelSet: ReadonlySet<string>,
 ): boolean {
-  return modelIds.some((modelId) => {
-    const normalizedId = modelId.toLowerCase();
-    return tail === normalizedId || tail.startsWith(`${normalizedId}:`);
-  });
+  if (modelSet.has(tail)) return true;
+  const variantSeparatorIndex = tail.indexOf(':');
+  if (variantSeparatorIndex === -1) return false;
+  return modelSet.has(tail.slice(0, variantSeparatorIndex));
 }
 
 function hasFragmentMatch(tail: string, fragments: readonly string[]): boolean {
@@ -58,7 +66,7 @@ export function isRecommendedModel(model: string): boolean {
     return (
       hasExactOrTaggedMatch(
         huggingFaceTail,
-        HUGGINGFACE_RECOMMENDED_MODEL_IDS,
+        HUGGINGFACE_RECOMMENDED_MODEL_SET,
       ) || hasFragmentMatch(huggingFaceTail, SHARED_RECOMMENDED_FRAGMENTS)
     );
   }
@@ -66,7 +74,7 @@ export function isRecommendedModel(model: string): boolean {
   const openRouterTail = normalizeModelTail(model, OPENROUTER_MODEL_PREFIX);
   if (openRouterTail) {
     return (
-      hasExactOrTaggedMatch(openRouterTail, OPENROUTER_RECOMMENDED_MODEL_IDS) ||
+      hasExactOrTaggedMatch(openRouterTail, OPENROUTER_RECOMMENDED_MODEL_SET) ||
       hasFragmentMatch(openRouterTail, SHARED_RECOMMENDED_FRAGMENTS)
     );
   }

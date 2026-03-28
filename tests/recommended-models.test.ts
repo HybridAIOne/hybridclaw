@@ -21,6 +21,12 @@ describe('isRecommendedModel', () => {
     expect(isRecommendedModel('openrouter/qwen/qwen3.5-27b')).toBe(true);
   });
 
+  it('keeps exact-match recommendations for tagged variants', () => {
+    expect(
+      isRecommendedModel('openrouter/nvidia/nemotron-3-super-120b-a12b:free'),
+    ).toBe(true);
+  });
+
   it('does not mark unrelated models as recommended', () => {
     expect(isRecommendedModel('huggingface/zeta/custom-model')).toBe(false);
     expect(isRecommendedModel('openrouter/alpha/model-a')).toBe(false);
