@@ -10,6 +10,7 @@ import {
   type AgentDefaultsConfig,
   type AgentModelConfig,
   type AgentsConfig,
+  buildOptionalAgentPresentation,
   DEFAULT_AGENT_ID,
 } from '../agents/agent-types.js';
 
@@ -1315,8 +1316,7 @@ function normalizeAgentConfig(
   return {
     id,
     ...(name ? { name } : {}),
-    ...(displayName ? { displayName } : {}),
-    ...(imageAsset ? { imageAsset } : {}),
+    ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),

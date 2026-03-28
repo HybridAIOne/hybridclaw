@@ -1211,7 +1211,9 @@ export async function unpackAgent(
     upsertRegisteredAgent({
       id: resolvedAgentId,
       name: manifest.name,
-      displayName: manifest.presentation?.displayName || manifest.name,
+      ...(manifest.presentation?.displayName
+        ? { displayName: manifest.presentation.displayName }
+        : {}),
       ...(manifest.presentation?.imageAsset
         ? { imageAsset: manifest.presentation.imageAsset }
         : {}),

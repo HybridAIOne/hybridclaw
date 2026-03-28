@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import fs from 'node:fs';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
 import { runAgent } from '../agent/agent.js';
@@ -337,6 +336,7 @@ import {
   firstNumber,
   numberFromUnknown,
   parseAuditPayload,
+  resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
@@ -351,6 +351,8 @@ const BOT_CACHE_TTL = 300_000; // 5 minutes
 const MAX_HISTORY_MESSAGES = 40;
 const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
+const activeBootstrapAutostartSessions = new Set<string>();
+const assistantPresentationImagePathCache = new Map<string, string | null>();
 function buildBootstrapAutostartPrompt(
   fileName: 'BOOTSTRAP.md' | 'OPENING.md',
 ): string {
@@ -1484,25 +1486,15 @@ function resolveAgentImageAssetPath(
   imageAsset: string | null | undefined,
 ): string | null {
   const normalized = String(imageAsset || '').trim();
-  if (
-    !normalized ||
-    path.isAbsolute(normalized) ||
-    normalized.includes('\\') ||
-    normalized.split('/').some((segment) => segment === '..' || !segment)
-  ) {
-    return null;
+  if (!normalized) return null;
+  const workspaceDir = agentWorkspaceDir(agentId);
+  const cacheKey = `${workspaceDir}\u0000${normalized}`;
+  if (assistantPresentationImagePathCache.has(cacheKey)) {
+    return assistantPresentationImagePathCache.get(cacheKey) || null;
   }
-
-  const workspacePath = path.resolve(agentWorkspaceDir(agentId));
-  const filePath = path.resolve(workspacePath, normalized);
-  const relative = path.relative(workspacePath, filePath);
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-    return null;
-  }
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-    return null;
-  }
-  return filePath;
+  const resolved = resolveWorkspaceRelativePath(workspaceDir, normalized);
+  assistantPresentationImagePathCache.set(cacheKey, resolved);
+  return resolved;
 }
 
 export function getGatewayAssistantPresentationForAgent(
@@ -3574,15 +3566,18 @@ function normalizeBootstrapAutostartResult(
   return String(normalized.result || '').trim();
 }
 
-export async function ensureGatewayBootstrapAutostart(params: {
+function resolveBootstrapAutostartContext(params: {
   sessionId: string;
   channelId?: string | null;
-  userId?: string | null;
-  username?: string | null;
   agentId?: string | null;
-}): Promise<void> {
+}): {
+  channelId: string;
+  session: ReturnType<(typeof memoryService)['getOrCreateSession']>;
+  resolved: ReturnType<typeof resolveAgentForRequest>;
+  bootstrapFile: 'BOOTSTRAP.md' | 'OPENING.md';
+} | null {
   const requestedSessionId = String(params.sessionId || '').trim();
-  if (!requestedSessionId) return;
+  if (!requestedSessionId) return null;
 
   const channelId = resolveBootstrapAutostartChannelId(
     requestedSessionId,
@@ -3598,7 +3593,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     session.message_count > 0 ||
     String(session.session_summary || '').trim().length > 0
   ) {
-    return;
+    return null;
   }
 
   const resolved = resolveAgentForRequest({
@@ -3607,155 +3602,176 @@ export async function ensureGatewayBootstrapAutostart(params: {
   });
   ensureBootstrapFiles(resolved.agentId);
   const bootstrapFile = resolveStartupBootstrapFile(resolved.agentId);
-  if (!bootstrapFile) {
-    return;
-  }
+  if (!bootstrapFile) return null;
 
-  if (getMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY)) {
-    return;
-  }
-  setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
-    status: 'started',
-    fileName: bootstrapFile,
-    at: new Date().toISOString(),
-  });
-
-  const startedAt = Date.now();
-  const runId = makeAuditRunId('bootstrap');
-  const normalizedUserId =
-    String(params.userId || session.session_key || session.id).trim() ||
-    session.id;
-  const normalizedUsername =
-    String(params.username || 'system').trim() || 'system';
-  const sessionContext = buildSessionContext({
-    source: {
-      channelKind: channelId,
-      chatId: channelId,
-      chatType: channelId === 'tui' || channelId === 'web' ? 'dm' : 'system',
-      userId: normalizedUserId,
-      userName: normalizedUsername,
-      guildId: null,
-    },
-    agentId: resolved.agentId,
-    sessionId: session.id,
-    sessionKey: session.session_key,
-    mainSessionKey: session.main_session_key,
-  });
-  const workspacePath = path.resolve(agentWorkspaceDir(resolved.agentId));
-  const enableRag = session.enable_rag === 1;
-  const provider = resolveModelProvider(resolved.model);
-  const turnIndex = Math.max(1, session.message_count + 1);
-
-  recordAuditEvent({
-    sessionId: session.id,
-    runId,
-    event: {
-      type: 'session.start',
-      userId: normalizedUserId,
-      channel: channelId,
-      cwd: workspacePath,
-      model: resolved.model,
-      source: BOOTSTRAP_AUTOSTART_SOURCE,
-    },
-  });
-  recordAuditEvent({
-    sessionId: session.id,
-    runId,
-    event: {
-      type: 'turn.start',
-      turnIndex,
-      userInput: buildBootstrapAutostartPrompt(bootstrapFile),
-      username: normalizedUsername,
-      mediaCount: 0,
-      source: BOOTSTRAP_AUTOSTART_SOURCE,
-    },
-  });
-
-  const chatbotResolution = await resolveGatewayChatbotId({
-    model: resolved.model,
-    chatbotId: resolved.chatbotId,
-    sessionId: session.id,
+  return {
     channelId,
-    agentId: resolved.agentId,
-    trigger: 'bootstrap',
-  });
-  const chatbotId = chatbotResolution.chatbotId;
+    session,
+    resolved,
+    bootstrapFile,
+  };
+}
 
-  if (modelRequiresChatbotId(resolved.model) && !chatbotId) {
-    deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
-    const error =
-      chatbotResolution.error ||
-      'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
-    logger.warn(
-      {
-        sessionId: session.id,
-        channelId,
-        agentId: resolved.agentId,
-        model: resolved.model,
-        sessionChatbotId: session.chatbot_id ?? null,
-        fallbackSource: chatbotResolution.source,
-      },
-      'Gateway bootstrap autostart blocked by missing chatbot configuration',
-    );
-    recordAuditEvent({
-      sessionId: session.id,
-      runId,
-      event: {
-        type: 'error',
-        errorType: 'configuration',
-        message: error,
-        recoverable: true,
-      },
-    });
-    recordAuditEvent({
-      sessionId: session.id,
-      runId,
-      event: {
-        type: 'turn.end',
-        turnIndex,
-        finishReason: 'error',
-      },
-    });
-    recordAuditEvent({
-      sessionId: session.id,
-      runId,
-      event: {
-        type: 'session.end',
-        reason: 'error',
-        stats: {
-          userMessages: 0,
-          assistantMessages: 0,
-          toolCalls: 0,
-          durationMs: Date.now() - startedAt,
-        },
-      },
-    });
+export async function ensureGatewayBootstrapAutostart(params: {
+  sessionId: string;
+  channelId?: string | null;
+  userId?: string | null;
+  username?: string | null;
+  agentId?: string | null;
+}): Promise<void> {
+  const context = resolveBootstrapAutostartContext(params);
+  if (!context) return;
+  const { channelId, session, resolved, bootstrapFile } = context;
+  if (activeBootstrapAutostartSessions.has(session.id)) {
     return;
   }
-
-  const { messages } = buildConversationContext({
-    agentId: resolved.agentId,
-    history: [],
-    currentUserContent: buildBootstrapAutostartPrompt(bootstrapFile),
-    extraSafetyText:
-      'Bootstrap kickoff turn. Start the conversation proactively with a concise user-facing opening message.',
-    runtimeInfo: {
-      chatbotId,
-      model: resolved.model,
-      defaultModel: HYBRIDAI_MODEL,
-      channelType: channelId,
-      channelId,
-      guildId: null,
-      sessionContext,
-      workspacePath,
-    },
-  });
-  messages.push({
-    role: 'user',
-    content: buildBootstrapAutostartPrompt(bootstrapFile),
-  });
+  activeBootstrapAutostartSessions.add(session.id);
 
   try {
+    if (getMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY)) {
+      return;
+    }
+    setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
+      status: 'started',
+      fileName: bootstrapFile,
+      at: new Date().toISOString(),
+    });
+
+    const startedAt = Date.now();
+    const runId = makeAuditRunId('bootstrap');
+    const normalizedUserId =
+      String(params.userId || session.session_key || session.id).trim() ||
+      session.id;
+    const normalizedUsername =
+      String(params.username || 'system').trim() || 'system';
+    const sessionContext = buildSessionContext({
+      source: {
+        channelKind: channelId,
+        chatId: channelId,
+        chatType: channelId === 'tui' || channelId === 'web' ? 'dm' : 'system',
+        userId: normalizedUserId,
+        userName: normalizedUsername,
+        guildId: null,
+      },
+      agentId: resolved.agentId,
+      sessionId: session.id,
+      sessionKey: session.session_key,
+      mainSessionKey: session.main_session_key,
+    });
+    const workspacePath = path.resolve(agentWorkspaceDir(resolved.agentId));
+    const enableRag = session.enable_rag === 1;
+    const provider = resolveModelProvider(resolved.model);
+    const turnIndex = Math.max(1, session.message_count + 1);
+
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'session.start',
+        userId: normalizedUserId,
+        channel: channelId,
+        cwd: workspacePath,
+        model: resolved.model,
+        source: BOOTSTRAP_AUTOSTART_SOURCE,
+      },
+    });
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'turn.start',
+        turnIndex,
+        userInput: buildBootstrapAutostartPrompt(bootstrapFile),
+        username: normalizedUsername,
+        mediaCount: 0,
+        source: BOOTSTRAP_AUTOSTART_SOURCE,
+      },
+    });
+
+    const chatbotResolution = await resolveGatewayChatbotId({
+      model: resolved.model,
+      chatbotId: resolved.chatbotId,
+      sessionId: session.id,
+      channelId,
+      agentId: resolved.agentId,
+      trigger: 'bootstrap',
+    });
+    const chatbotId = chatbotResolution.chatbotId;
+
+    if (modelRequiresChatbotId(resolved.model) && !chatbotId) {
+      deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+      const error =
+        chatbotResolution.error ||
+        'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
+      logger.warn(
+        {
+          sessionId: session.id,
+          channelId,
+          agentId: resolved.agentId,
+          model: resolved.model,
+          sessionChatbotId: session.chatbot_id ?? null,
+          fallbackSource: chatbotResolution.source,
+        },
+        'Gateway bootstrap autostart blocked by missing chatbot configuration',
+      );
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'error',
+          errorType: 'configuration',
+          message: error,
+          recoverable: true,
+        },
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'turn.end',
+          turnIndex,
+          finishReason: 'error',
+        },
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'session.end',
+          reason: 'error',
+          stats: {
+            userMessages: 0,
+            assistantMessages: 0,
+            toolCalls: 0,
+            durationMs: Date.now() - startedAt,
+          },
+        },
+      });
+      return;
+    }
+
+    const { messages } = buildConversationContext({
+      agentId: resolved.agentId,
+      history: [],
+      currentUserContent: buildBootstrapAutostartPrompt(bootstrapFile),
+      extraSafetyText:
+        'Bootstrap kickoff turn. Start the conversation proactively with a concise user-facing opening message.',
+      runtimeInfo: {
+        chatbotId,
+        model: resolved.model,
+        defaultModel: HYBRIDAI_MODEL,
+        channelType: channelId,
+        channelId,
+        guildId: null,
+        sessionContext,
+        workspacePath,
+      },
+    });
+    messages.push({
+      role: 'user',
+      content: buildBootstrapAutostartPrompt(bootstrapFile),
+    });
+
     const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway(
       {
         sessionId: session.id,
@@ -3916,6 +3932,8 @@ export async function ensureGatewayBootstrapAutostart(params: {
       { sessionId: session.id, agentId: resolved.agentId, channelId, error },
       'Failed to run bootstrap autostart turn',
     );
+  } finally {
+    activeBootstrapAutostartSessions.delete(session.id);
   }
 }
 
@@ -3927,33 +3945,9 @@ export function getGatewayBootstrapAutostartState(params: {
   status: 'idle' | 'starting' | 'completed';
   fileName: 'BOOTSTRAP.md' | 'OPENING.md';
 } | null {
-  const requestedSessionId = String(params.sessionId || '').trim();
-  if (!requestedSessionId) return null;
-
-  const channelId = resolveBootstrapAutostartChannelId(
-    requestedSessionId,
-    params.channelId,
-  );
-  const session = memoryService.getOrCreateSession(
-    requestedSessionId,
-    null,
-    channelId,
-    params.agentId ?? undefined,
-  );
-  if (
-    session.message_count > 0 ||
-    String(session.session_summary || '').trim().length > 0
-  ) {
-    return null;
-  }
-
-  const resolved = resolveAgentForRequest({
-    agentId: params.agentId,
-    session,
-  });
-  ensureBootstrapFiles(resolved.agentId);
-  const bootstrapFile = resolveStartupBootstrapFile(resolved.agentId);
-  if (!bootstrapFile) return null;
+  const context = resolveBootstrapAutostartContext(params);
+  if (!context) return null;
+  const { session, bootstrapFile } = context;
 
   const marker = getMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY) as {
     status?: unknown;
@@ -4777,7 +4771,6 @@ export async function handleGatewayMessage(
     sessionId: req.sessionId,
     sessionKey: session.session_key,
     mainSessionKey: session.main_session_key,
-    assistantPresentation: getGatewayAssistantPresentationForAgent(agentId),
   });
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);

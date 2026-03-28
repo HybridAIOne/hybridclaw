@@ -240,6 +240,52 @@ test('status command includes the current session agent', async () => {
   );
 });
 
+test('assistant presentation caches resolved image assets per agent path', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const { getGatewayAssistantPresentationForAgent } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({
+    id: 'charly',
+    name: 'Charly Agent',
+    displayName: 'Charly',
+    imageAsset: 'avatars/charly.png',
+  });
+
+  const avatarPath = path.join(
+    agentWorkspaceDir('charly'),
+    'avatars',
+    'charly.png',
+  );
+  fs.mkdirSync(path.dirname(avatarPath), { recursive: true });
+  fs.writeFileSync(avatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+
+  const statSyncSpy = vi.spyOn(fs, 'statSync');
+
+  expect(getGatewayAssistantPresentationForAgent('charly')).toMatchObject({
+    agentId: 'charly',
+    displayName: 'Charly',
+    imageUrl: '/api/agent-avatar?agentId=charly',
+  });
+  expect(getGatewayAssistantPresentationForAgent('charly')).toMatchObject({
+    agentId: 'charly',
+    displayName: 'Charly',
+    imageUrl: '/api/agent-avatar?agentId=charly',
+  });
+  expect(statSyncSpy).toHaveBeenCalledTimes(1);
+});
+
 test('getGatewayStatus includes loaded plugin commands for TUI discovery', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

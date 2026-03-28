@@ -202,10 +202,8 @@ describe('.claw archive support', () => {
       ),
     }));
 
-    const { getAgentById, initDatabase } = await import(
-      '../../src/memory/db.js'
-    );
-    const { initAgentRegistry } = await import(
+    const { initDatabase } = await import('../../src/memory/db.js');
+    const { getAgentById, initAgentRegistry } = await import(
       '../../src/agents/agent-registry.js'
     );
     const { updateRuntimeConfig, getRuntimeConfig } = await import(
@@ -387,7 +385,7 @@ describe('.claw archive support', () => {
     process.chdir(cwd);
 
     const { initDatabase } = await import('../../src/memory/db.js');
-    const { initAgentRegistry } = await import(
+    const { getAgentById, initAgentRegistry } = await import(
       '../../src/agents/agent-registry.js'
     );
     const { getRuntimeConfig } = await import(
@@ -429,6 +427,18 @@ describe('.claw archive support', () => {
       homeDir,
       cwd,
     });
+
+    expect(getAgentById('imported-skills-agent')).toEqual(
+      expect.objectContaining({
+        id: 'imported-skills-agent',
+        name: 'Imported Skills Agent',
+      }),
+    );
+    expect(getAgentById('imported-skills-agent')).toEqual(
+      expect.not.objectContaining({
+        displayName: expect.anything(),
+      }),
+    );
 
     expect(unpacked.importedSkills).toHaveLength(1);
     expect(unpacked.importedSkills[0]).toMatchObject({

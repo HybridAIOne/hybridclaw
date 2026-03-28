@@ -1711,6 +1711,7 @@ describe('gateway HTTP server', () => {
     );
     fs.mkdirSync(path.dirname(avatarPath), { recursive: true });
     fs.writeFileSync(avatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+    const statSyncSpy = vi.spyOn(fs, 'statSync');
 
     const req = makeRequest({ url: '/api/agent-avatar?agentId=charly' });
     const res = makeResponse();
@@ -1722,6 +1723,144 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['Content-Type']).toBe('image/png');
     expect(res.body.length).toBeGreaterThan(0);
+    expect(statSyncSpy).not.toHaveBeenCalled();
+  });
+
+  test('allows bearer auth for installed agent avatar assets', async () => {
+    const dataDir = makeTempDataDir();
+    const avatarPath = path.join(
+      dataDir,
+      'agents',
+      'charly',
+      'workspace',
+      'avatars',
+      'charly.png',
+    );
+    fs.mkdirSync(path.dirname(avatarPath), { recursive: true });
+    fs.writeFileSync(avatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: '/api/agent-avatar?agentId=charly',
+      remoteAddress: '203.0.113.10',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('image/png');
+    expect(res.body.length).toBeGreaterThan(0);
+  });
+
+  test('rejects query-token auth for installed agent avatar assets', async () => {
+    const dataDir = makeTempDataDir();
+    const avatarPath = path.join(
+      dataDir,
+      'agents',
+      'charly',
+      'workspace',
+      'avatars',
+      'charly.png',
+    );
+    fs.mkdirSync(path.dirname(avatarPath), { recursive: true });
+    fs.writeFileSync(avatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: '/api/agent-avatar?agentId=charly&token=web-token',
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('rejects installed agent avatar assets that escape the workspace', async () => {
+    const state = await importFreshHealth();
+    state.getAgentById.mockImplementation((agentId: string) =>
+      agentId === 'charly'
+        ? {
+            id: 'charly',
+            name: 'Charly Agent',
+            displayName: 'Charly',
+            imageAsset: '../secret.png',
+          }
+        : null,
+    );
+
+    const req = makeRequest({ url: '/api/agent-avatar?agentId=charly' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Agent avatar not found.',
+    });
+  });
+
+  test('rejects non-image workspace files as installed agent avatar assets', async () => {
+    const dataDir = makeTempDataDir();
+    const scriptPath = path.join(
+      dataDir,
+      'agents',
+      'charly',
+      'workspace',
+      'scripts',
+      'setup.sh',
+    );
+    fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+    fs.writeFileSync(scriptPath, '#!/bin/sh\necho setup\n', 'utf8');
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    state.getAgentById.mockImplementation((agentId: string) =>
+      agentId === 'charly'
+        ? {
+            id: 'charly',
+            name: 'Charly Agent',
+            displayName: 'Charly',
+            imageAsset: 'scripts/setup.sh',
+          }
+        : null,
+    );
+
+    const req = makeRequest({
+      url: '/api/agent-avatar?agentId=charly',
+      remoteAddress: '203.0.113.10',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Agent avatar not found.',
+    });
   });
 
   test('forks a web chat branch from a message cutoff', async () => {

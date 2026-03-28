@@ -385,7 +385,7 @@ Commands:
   hybridclaw agent list
   hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
   hybridclaw agent inspect <file.claw>
-  hybridclaw agent install <file.claw|official:<agent-id-or-dir>|github:owner/repo/<agent-id-or-dir>> [--id <id>] [--force] [--skip-externals] [--yes]
+  hybridclaw agent install <file.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-externals] [--yes]
   hybridclaw agent activate <agent-id>
   hybridclaw agent uninstall <agent-id> [--yes]
 
@@ -399,8 +399,8 @@ Notes:
   - Interactive export defaults to \`--skills ask\` and \`--plugins ask\`; non-interactive export defaults to \`--skills all\` and \`--plugins active\`.
   - \`inspect\` validates the archive manifest and prints a summary without extracting files.
   - \`install\` validates ZIP safety, confirms the manifest, registers the agent, restores bundled content, installs manifest-declared skill imports into the agent workspace, and fills missing bootstrap files.
-  - \`install official:<agent-id-or-dir>\` downloads a packaged agent from \`HybridAIOne/claws\` on GitHub before installing it.
-  - \`install github:owner/repo/<agent-id-or-dir>\` resolves the packaged agent from a GitHub claws repo; use \`github:owner/repo/<ref>/<agent-id-or-dir>\` to pin a ref.
+  - \`install official:<agent-dir>\` downloads a packaged agent from \`HybridAIOne/claws\` on GitHub before installing it.
+  - \`install github:owner/repo/<agent-dir>\` resolves the packaged agent from a GitHub claws repo; use \`github:owner/repo/<ref>/<agent-dir>\` to pin a ref.
   - \`activate\` makes an installed agent the default for new requests that do not specify an agent explicitly.
   - \`uninstall\` removes a non-main agent registration and its workspace root.
   - Use \`--yes\` to skip the install or uninstall confirmation prompt.

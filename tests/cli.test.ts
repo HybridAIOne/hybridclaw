@@ -2819,15 +2819,6 @@ describe('CLI hybridai commands', () => {
         }
         if (
           url ===
-          'https://raw.githubusercontent.com/HybridAIOne/claws/main/src/charly-neumann-executive-briefing-chief-of-staff/manifest.json'
-        ) {
-          return new Response(
-            JSON.stringify({ id: 'charly', name: 'Charly' }),
-            { status: 200 },
-          );
-        }
-        if (
-          url ===
           'https://raw.githubusercontent.com/HybridAIOne/claws/main/dist/charly-neumann-executive-briefing-chief-of-staff.claw'
         ) {
           return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
@@ -2836,12 +2827,85 @@ describe('CLI hybridai commands', () => {
       },
     });
 
-    await cli.main(['agent', 'install', 'official:charly', '--yes']);
+    await cli.main([
+      'agent',
+      'install',
+      'official:charly-neumann-executive-briefing-chief-of-staff',
+      '--yes',
+    ]);
 
     expect(unpackAgent).toHaveBeenCalledTimes(1);
     expect(String(unpackAgent.mock.calls[0]?.[0] || '')).toMatch(
       /charly-neumann-executive-briefing-chief-of-staff\.claw$/,
     );
+  });
+
+  it('fails fast when an official claws selector is not an exact directory match', async () => {
+    const { cli, unpackAgent } = await importFreshCli({
+      fetchMock: async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://api.github.com/repos/HybridAIOne/claws/contents/src?ref=main'
+        ) {
+          return new Response(
+            JSON.stringify([
+              {
+                type: 'dir',
+                name: 'charly-neumann-executive-briefing-chief-of-staff',
+              },
+            ]),
+            { status: 200 },
+          );
+        }
+        throw new Error(`Unexpected fetch URL: ${url}`);
+      },
+    });
+
+    await expect(
+      cli.main(['agent', 'install', 'official:charly', '--yes']),
+    ).rejects.toThrow(
+      'Could not find packaged agent directory "charly" in HybridAIOne/claws@main. Use the exact src directory name or an explicit dist/<file>.claw path.',
+    );
+    expect(unpackAgent).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when the official claws src listing is empty or malformed', async () => {
+    const { cli, unpackAgent } = await importFreshCli({
+      fetchMock: async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://api.github.com/repos/HybridAIOne/claws/contents/src?ref=main'
+        ) {
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        throw new Error(`Unexpected fetch URL: ${url}`);
+      },
+    });
+
+    await expect(
+      cli.main(['agent', 'install', 'official:charly', '--yes']),
+    ).rejects.toThrow(
+      'No packaged agent directories were found under HybridAIOne/claws@main src/. The repository contents may be empty or malformed.',
+    );
+    expect(unpackAgent).not.toHaveBeenCalled();
+  });
+
+  it('rejects github install shorthands that guess a dist layout', async () => {
+    const { cli, unpackAgent } = await importFreshCli();
+
+    await expect(
+      cli.main([
+        'agent',
+        'install',
+        'github:HybridAIOne/claws/dist/charly.claw',
+        '--yes',
+      ]),
+    ).rejects.toThrow(
+      '`github:owner/repo/<ref>/<agent-dir>` install source must point to an agent directory, not a packaged .claw file.',
+    );
+    expect(unpackAgent).not.toHaveBeenCalled();
   });
 
   it('passes skipExternals through agent install', async () => {

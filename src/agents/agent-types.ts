@@ -29,3 +29,13 @@ export interface AgentsConfig {
   defaults?: AgentDefaultsConfig;
   list?: AgentConfig[];
 }
+
+export function buildOptionalAgentPresentation(
+  displayName?: string | null,
+  imageAsset?: string | null,
+): Pick<AgentConfig, 'displayName' | 'imageAsset'> {
+  return {
+    ...(displayName ? { displayName } : {}),
+    ...(imageAsset ? { imageAsset } : {}),
+  };
+}

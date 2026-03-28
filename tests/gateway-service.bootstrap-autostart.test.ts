@@ -239,3 +239,53 @@ test('ensureGatewayBootstrapAutostart ignores BOOT.md even when it is customized
   expect(runAgentMock).not.toHaveBeenCalled();
   expect(getGatewayHistory(sessionId, 10).history).toEqual([]);
 });
+
+test('ensureGatewayBootstrapAutostart prevents duplicate concurrent runs for the same fresh session', async () => {
+  setupHome();
+
+  let resolveRun: ((value: {
+    status: 'success';
+    result: string;
+    toolsUsed: never[];
+    toolExecutions: never[];
+  }) => void) | null = null;
+  const runAgentPromise = new Promise<{
+    status: 'success';
+    result: string;
+    toolsUsed: never[];
+    toolExecutions: never[];
+  }>((resolve) => {
+    resolveRun = resolve;
+  });
+  runAgentMock.mockImplementation(() => runAgentPromise);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'agent:main:channel:web:chat:dm:peer:bootstrap-race-test';
+  const firstRun = ensureGatewayBootstrapAutostart({ sessionId });
+  const secondRun = ensureGatewayBootstrapAutostart({ sessionId });
+  await vi.waitFor(() => {
+    expect(runAgentMock).toHaveBeenCalledTimes(1);
+  });
+
+  resolveRun?.({
+    status: 'success',
+    result: 'Hello once.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+  await Promise.all([firstRun, secondRun]);
+
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  expect(getGatewayHistory(sessionId, 10).history).toEqual([
+    expect.objectContaining({
+      role: 'assistant',
+      content: 'Hello once.',
+    }),
+  ]);
+});

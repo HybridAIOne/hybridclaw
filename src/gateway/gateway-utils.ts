@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type { StructuredAuditEntry } from '../types/audit.js';
 
 export function numberFromUnknown(value: unknown): number | null {
@@ -29,4 +31,39 @@ export function parseAuditPayload(
   } catch {
     return null;
   }
+}
+
+export function resolveWorkspaceRelativePath(
+  workspaceDir: string,
+  relativePath: string,
+  options?: { requireExistingFile?: boolean },
+): string | null {
+  const normalized = relativePath.trim();
+  if (
+    !normalized ||
+    path.isAbsolute(normalized) ||
+    normalized.includes('\\') ||
+    normalized.split('/').some((segment) => segment === '..' || !segment)
+  ) {
+    return null;
+  }
+
+  const workspacePath = path.resolve(workspaceDir);
+  const filePath = path.resolve(workspacePath, normalized);
+  const relative = path.relative(workspacePath, filePath);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return null;
+  }
+
+  if (options?.requireExistingFile === false) {
+    return filePath;
+  }
+
+  let stats: fs.Stats;
+  try {
+    stats = fs.statSync(filePath);
+  } catch {
+    return null;
+  }
+  return stats.isFile() ? filePath : null;
 }

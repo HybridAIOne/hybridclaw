@@ -89,7 +89,6 @@ export interface GatewayChatResult {
   effectiveUserPrompt?: string;
   userMessageId?: number;
   assistantMessageId?: number;
-  assistantPresentation?: GatewayAssistantPresentation;
 }
 
 export interface GatewayChatToolProgressEvent {

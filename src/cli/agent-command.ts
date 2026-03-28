@@ -26,6 +26,22 @@ interface OfficialClawsSource {
   selector: string;
 }
 
+function normalizeOfficialClawSelector(
+  value: string,
+  sourceLabel: string,
+): string {
+  const selector = value.trim();
+  if (!selector) {
+    throw new Error(`Missing agent selector for ${sourceLabel}.`);
+  }
+  if (selector.endsWith('.claw')) {
+    throw new Error(
+      `${sourceLabel} must point to an agent directory, not a packaged .claw file.`,
+    );
+  }
+  return selector;
+}
+
 function githubApiHeaders(url: string): Record<string, string> {
   const headers: Record<string, string> = {};
   if (!url.startsWith('https://api.github.com/')) {
@@ -79,12 +95,10 @@ function parseOfficialClawsSource(
   if (!raw) return null;
 
   if (raw.startsWith('official:')) {
-    const selector = raw.slice('official:'.length).trim();
-    if (!selector) {
-      throw new Error(
-        'Missing agent selector for `official:<agent-id-or-dir>` install source.',
-      );
-    }
+    const selector = normalizeOfficialClawSelector(
+      raw.slice('official:'.length),
+      '`official:<agent-dir>` install source',
+    );
     return {
       repo: OFFICIAL_CLAWS_REPO,
       ref: OFFICIAL_CLAWS_REF,
@@ -98,37 +112,29 @@ function parseOfficialClawsSource(
 
   const spec = raw.slice('github:'.length).trim();
   const segments = spec.split('/').filter(Boolean);
-  if (segments.length < 3) {
+  if (segments.length !== 3 && segments.length !== 4) {
     throw new Error(
-      'GitHub install source must look like `github:owner/repo/<agent-id-or-dir>` or `github:owner/repo/<ref>/<agent-id-or-dir>`.',
+      'GitHub install source must look like `github:owner/repo/<agent-dir>` or `github:owner/repo/<ref>/<agent-dir>`.',
     );
   }
   const repo = `${segments[0]}/${segments[1]}`;
-  if (segments[2] === 'dist') {
-    return {
-      repo,
-      ref: OFFICIAL_CLAWS_REF,
-      selector: segments.slice(3).join('/'),
-    };
-  }
-  if (segments[3] === 'dist') {
-    return {
-      repo,
-      ref: segments[2],
-      selector: segments.slice(4).join('/'),
-    };
-  }
   if (segments.length === 3) {
     return {
       repo,
       ref: OFFICIAL_CLAWS_REF,
-      selector: segments[2],
+      selector: normalizeOfficialClawSelector(
+        segments[2],
+        '`github:owner/repo/<agent-dir>` install source',
+      ),
     };
   }
   return {
     repo,
     ref: segments[2],
-    selector: segments.slice(3).join('/'),
+    selector: normalizeOfficialClawSelector(
+      segments[3],
+      '`github:owner/repo/<ref>/<agent-dir>` install source',
+    ),
   };
 }
 
@@ -142,36 +148,27 @@ async function resolveOfficialClawDirName(
     throw new Error('Agent selector cannot be empty.');
   }
 
-  const directories = await fetchJson<Array<{ name?: string; type?: string }>>(
+  const directories = await fetchJson<unknown>(
     `https://api.github.com/repos/${repo}/contents/src?ref=${encodeURIComponent(ref)}`,
   );
-  const dirNames = directories
+  const directoryEntries: Array<{ name?: unknown; type?: unknown }> =
+    Array.isArray(directories) ? directories : [];
+  const dirNames = directoryEntries
     .filter((entry) => entry.type === 'dir' && typeof entry.name === 'string')
     .map((entry) => String(entry.name).trim())
     .filter(Boolean);
+  if (dirNames.length === 0) {
+    throw new Error(
+      `No packaged agent directories were found under ${repo}@${ref} src/. The repository contents may be empty or malformed.`,
+    );
+  }
 
   if (dirNames.includes(normalizedSelector)) {
     return normalizedSelector;
   }
 
-  const manifestMatches = await Promise.all(
-    dirNames.map(async (dirName) => {
-      const manifest = await fetchJson<{ id?: unknown }>(
-        `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(ref)}/src/${dirName}/manifest.json`,
-      );
-      return String(manifest.id || '').trim() === normalizedSelector
-        ? dirName
-        : null;
-    }),
-  );
-
-  const match = manifestMatches.find((value) => typeof value === 'string');
-  if (match) {
-    return match;
-  }
-
   throw new Error(
-    `Could not find agent "${normalizedSelector}" in ${repo}@${ref}.`,
+    `Could not find packaged agent directory "${normalizedSelector}" in ${repo}@${ref}. Use the exact src directory name or an explicit dist/<file>.claw path.`,
   );
 }
 
@@ -219,12 +216,6 @@ async function resolveInstallArchiveSource(
   }
 
   const selector = official.selector.trim();
-  if (selector.startsWith('dist/') && selector.endsWith('.claw')) {
-    return downloadArchive(
-      `https://raw.githubusercontent.com/${official.repo}/${encodeURIComponent(official.ref)}/${selector}`,
-    );
-  }
-
   const dirName = await resolveOfficialClawDirName(
     official.repo,
     official.ref,

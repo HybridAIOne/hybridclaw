@@ -113,6 +113,7 @@ import type {
   GatewayChatRequestBody,
   GatewayChatResult,
 } from './gateway-types.js';
+import { resolveWorkspaceRelativePath } from './gateway-utils.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
 import {
   handleTextChannelApprovalCommand,
@@ -771,25 +772,9 @@ function resolveAgentAvatarFile(url: URL): string | null {
     (url.searchParams.get('agentId') || '').trim() || DEFAULT_AGENT_ID;
   const agent = getAgentById(agentId) ?? resolveAgentConfig(agentId);
   const imageAsset = String(agent.imageAsset || '').trim();
-  if (
-    !imageAsset ||
-    path.isAbsolute(imageAsset) ||
-    imageAsset.includes('\\') ||
-    imageAsset.split('/').some((segment) => segment === '..' || !segment)
-  ) {
-    return null;
-  }
-
-  const workspacePath = path.resolve(agentWorkspaceDir(agentId));
-  const filePath = path.resolve(workspacePath, imageAsset);
-  const relative = path.relative(workspacePath, filePath);
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-    return null;
-  }
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-    return null;
-  }
-  return filePath;
+  return resolveWorkspaceRelativePath(agentWorkspaceDir(agentId), imageAsset, {
+    requireExistingFile: false,
+  });
 }
 
 function streamStaticFile(
@@ -798,7 +783,6 @@ function streamStaticFile(
   options?: {
     cacheControl?: string;
     dispositionType?: 'inline' | 'attachment';
-    fallbackMimeType?: string;
   },
 ): void {
   fs.stat(filePath, (statError, stats) => {
@@ -821,12 +805,7 @@ function streamStaticFile(
       return;
     }
 
-    const ext = path.extname(filePath).toLowerCase();
-    const inlineMimeType =
-      SAFE_INLINE_ARTIFACT_MIME_TYPES[ext] ||
-      SITE_MIME_TYPES[ext]?.split(';')[0]?.trim();
-    const mimeType =
-      inlineMimeType || options?.fallbackMimeType || 'application/octet-stream';
+    const mimeType = resolveStaticFileMimeType(filePath, options);
     const dispositionType = options?.dispositionType || 'inline';
     const filename = path.basename(filePath);
     const stream = fs.createReadStream(filePath);
@@ -867,6 +846,21 @@ function streamStaticFile(
       if (!res.writableEnded) res.end();
     });
   });
+}
+
+function resolveStaticFileMimeType(
+  filePath: string,
+  options?: {
+    dispositionType?: 'inline' | 'attachment';
+  },
+): string {
+  const ext = path.extname(filePath).toLowerCase();
+  const siteMimeType =
+    options?.dispositionType === 'attachment'
+      ? null
+      : SITE_MIME_TYPES[ext]?.split(';')[0]?.trim();
+  const inlineMimeType = SAFE_INLINE_ARTIFACT_MIME_TYPES[ext] || siteMimeType;
+  return inlineMimeType || 'application/octet-stream';
 }
 
 async function readRequestBody(
@@ -1502,16 +1496,19 @@ function handleApiAgentAvatar(
   res: ServerResponse,
   url: URL,
 ): void {
-  if (!hasApiAuth(req, url, { allowQueryToken: true })) {
+  if (!hasApiAuth(req, url)) {
     sendJson(res, 401, {
-      error:
-        'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass `?token=<WEB_API_TOKEN>`.',
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
     });
     return;
   }
 
   const filePath = resolveAgentAvatarFile(url);
   if (!filePath) {
+    sendJson(res, 404, { error: 'Agent avatar not found.' });
+    return;
+  }
+  if (!resolveStaticFileMimeType(filePath, { dispositionType: 'inline' }).startsWith('image/')) {
     sendJson(res, 404, { error: 'Agent avatar not found.' });
     return;
   }
@@ -2148,68 +2145,11 @@ function handleApiArtifact(
     return;
   }
 
-  fs.stat(filePath, (statError, stats) => {
-    if (statError) {
-      const code = (statError as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') {
-        sendJson(res, 404, { error: 'Artifact not found.' });
-        return;
-      }
-      logger.warn(
-        { filePath, error: statError },
-        'Failed to stat artifact before streaming',
-      );
-      sendJson(res, 500, { error: 'Failed to read artifact.' });
-      return;
-    }
-
-    if (!stats.isFile()) {
-      sendJson(res, 404, { error: 'Artifact not found.' });
-      return;
-    }
-
-    const ext = path.extname(filePath).toLowerCase();
-    const inlineMimeType = SAFE_INLINE_ARTIFACT_MIME_TYPES[ext];
-    const mimeType = inlineMimeType || 'application/octet-stream';
-    const dispositionType = inlineMimeType ? 'inline' : 'attachment';
-    const filename = path.basename(filePath);
-    const stream = fs.createReadStream(filePath);
-
-    stream.on('open', () => {
-      res.writeHead(200, {
-        'Content-Type': mimeType,
-        'Content-Disposition': `${dispositionType}; filename="${filename.replace(/"/g, '')}"`,
-        'Cache-Control': 'no-store',
-        'Content-Length': String(stats.size),
-        'X-Content-Type-Options': 'nosniff',
-        ...(dispositionType === 'attachment'
-          ? {
-              'Content-Security-Policy': "sandbox; default-src 'none'",
-            }
-          : {}),
-      });
-    });
-
-    stream.on('data', (chunk) => {
-      res.write(chunk);
-    });
-
-    stream.on('end', () => {
-      if (!res.writableEnded) res.end();
-    });
-
-    stream.on('error', (error) => {
-      logger.warn({ filePath, error }, 'Failed to stream artifact');
-      if (!res.headersSent) {
-        sendJson(res, 500, { error: 'Failed to read artifact.' });
-        return;
-      }
-      if (typeof res.destroy === 'function') {
-        res.destroy(error);
-        return;
-      }
-      if (!res.writableEnded) res.end();
-    });
+  const ext = path.extname(filePath).toLowerCase();
+  streamStaticFile(res, filePath, {
+    dispositionType: SAFE_INLINE_ARTIFACT_MIME_TYPES[ext]
+      ? 'inline'
+      : 'attachment',
   });
 }
 

@@ -1203,6 +1203,8 @@
     let activeChatRequest = null;
     let activeEditState = null;
     let activeAssistantPresentation = null;
+    const assistantAvatarObjectUrls = new Map();
+    const assistantAvatarFetches = new Map();
     let bootstrapPollTimer = null;
     const messageMetaByBlock = new WeakMap();
     const sessionBranchAnchors = new Map();
@@ -1337,20 +1339,43 @@
       };
     }
 
-    function buildAssistantImageUrl(rawUrl) {
+    function resolveAssistantImageUrl(rawUrl) {
       const base = String(rawUrl || '').trim();
       if (!base) return '';
-      if (!apiToken) return base;
       try {
-        const resolved = new URL(base, window.location.origin);
-        if (!resolved.searchParams.has('token')) {
-          resolved.searchParams.set('token', apiToken);
-        }
-        return resolved.toString();
+        return new URL(base, window.location.origin).toString();
       } catch {
-        const joiner = base.includes('?') ? '&' : '?';
-        return `${base}${joiner}token=${encodeURIComponent(apiToken)}`;
+        return base;
       }
+    }
+
+    async function fetchAssistantAvatarObjectUrl(rawUrl) {
+      const resolvedUrl = resolveAssistantImageUrl(rawUrl);
+      if (!resolvedUrl) return '';
+      if (assistantAvatarObjectUrls.has(resolvedUrl)) {
+        return assistantAvatarObjectUrls.get(resolvedUrl) || '';
+      }
+      if (assistantAvatarFetches.has(resolvedUrl)) {
+        return assistantAvatarFetches.get(resolvedUrl);
+      }
+
+      const fetchPromise = fetch(resolvedUrl, {
+        headers: apiHeaders(null),
+      })
+        .then(async (response) => {
+          if (!response.ok) return '';
+          const blob = await response.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          assistantAvatarObjectUrls.set(resolvedUrl, objectUrl);
+          return objectUrl;
+        })
+        .catch(() => '')
+        .finally(() => {
+          assistantAvatarFetches.delete(resolvedUrl);
+        });
+
+      assistantAvatarFetches.set(resolvedUrl, fetchPromise);
+      return fetchPromise;
     }
 
     function buildAssistantInitials(label) {
@@ -1366,6 +1391,34 @@
       return initials.toUpperCase() || 'AI';
     }
 
+    function createAssistantAvatarFallback(label) {
+      const fallback = document.createElement('span');
+      fallback.className = 'msg-agent-avatar msg-agent-fallback';
+      fallback.textContent = buildAssistantInitials(label);
+      return fallback;
+    }
+
+    async function loadAssistantAvatar(rawUrl, displayName, fallback) {
+      const imageUrl = await fetchAssistantAvatarObjectUrl(rawUrl);
+      if (!imageUrl || !fallback.isConnected) return;
+
+      const avatar = document.createElement('img');
+      avatar.className = 'msg-agent-avatar';
+      avatar.alt = displayName;
+      avatar.loading = 'lazy';
+
+      await new Promise((resolve) => {
+        avatar.addEventListener('load', resolve, { once: true });
+        avatar.addEventListener('error', resolve, { once: true });
+        avatar.src = imageUrl;
+      });
+
+      if (!fallback.isConnected || !avatar.complete || avatar.naturalWidth === 0) {
+        return;
+      }
+      fallback.replaceWith(avatar);
+    }
+
     function appendAssistantPresentation(item, presentation) {
       const normalized = normalizeAssistantPresentation(presentation);
       if (!normalized) return;
@@ -1373,26 +1426,15 @@
       const header = document.createElement('div');
       header.className = 'msg-agent';
 
-      const imageUrl = buildAssistantImageUrl(normalized.imageUrl);
-      if (imageUrl) {
-        const avatar = document.createElement('img');
-        avatar.className = 'msg-agent-avatar';
-        avatar.alt = normalized.displayName;
-        avatar.src = imageUrl;
-        avatar.loading = 'lazy';
-        avatar.addEventListener('error', () => {
-          if (!avatar.parentElement) return;
-          const fallback = document.createElement('span');
-          fallback.className = 'msg-agent-avatar msg-agent-fallback';
-          fallback.textContent = buildAssistantInitials(normalized.displayName);
-          avatar.replaceWith(fallback);
-        }, { once: true });
-        header.appendChild(avatar);
-      } else {
-        const fallback = document.createElement('span');
-        fallback.className = 'msg-agent-avatar msg-agent-fallback';
-        fallback.textContent = buildAssistantInitials(normalized.displayName);
-        header.appendChild(fallback);
+      const fallback = createAssistantAvatarFallback(normalized.displayName);
+      header.appendChild(fallback);
+
+      if (normalized.imageUrl) {
+        void loadAssistantAvatar(
+          normalized.imageUrl,
+          normalized.displayName,
+          fallback,
+        );
       }
 
       const label = document.createElement('span');
@@ -1400,6 +1442,14 @@
       header.appendChild(label);
       item.appendChild(header);
     }
+
+    window.addEventListener('beforeunload', () => {
+      for (const objectUrl of assistantAvatarObjectUrls.values()) {
+        URL.revokeObjectURL(objectUrl);
+      }
+      assistantAvatarObjectUrls.clear();
+      assistantAvatarFetches.clear();
+    });
 
     function normalizeMessageId(value) {
       const id = Number(value);
@@ -2705,8 +2755,6 @@
         if (payload.status === 'error') {
           throw new Error(payload.error || 'Unknown error');
         }
-        const nextAssistantPresentation = normalizeAssistantPresentation(payload.assistantPresentation);
-        activeAssistantPresentation = nextAssistantPresentation;
         if (payload.sessionId) {
           activeSessionId = String(payload.sessionId);
           savePrefs();
@@ -2726,7 +2774,6 @@
             content,
             media: queuedMedia,
           },
-          assistantPresentation: nextAssistantPresentation,
         });
         void refreshRecentSessions();
         return {
