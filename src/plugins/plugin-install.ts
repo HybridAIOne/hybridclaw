@@ -4,11 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  DEFAULT_RUNTIME_HOME_DIR,
   getRuntimeConfig,
   type RuntimeConfig,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { loadPluginManifest } from './plugin-manager.js';
 import type { PluginManifest } from './plugin-types.js';
 

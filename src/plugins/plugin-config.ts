@@ -3,11 +3,11 @@ import type {
   RuntimePluginConfigEntry,
 } from '../config/runtime-config.js';
 import {
-  DEFAULT_RUNTIME_HOME_DIR,
   getRuntimeConfig,
   runtimeConfigPath,
   saveRuntimeConfig,
 } from '../config/runtime-config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { PluginManager, validatePluginConfig } from './plugin-manager.js';
 
 export interface PluginConfigReadResult {

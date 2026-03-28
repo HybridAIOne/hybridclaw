@@ -12,10 +12,10 @@ import {
   unregisterChannel,
 } from '../channels/channel-registry.js';
 import {
-  DEFAULT_RUNTIME_HOME_DIR,
   getRuntimeConfig,
   type RuntimeConfig,
 } from '../config/runtime-config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { logger as rootLogger } from '../logger.js';
 import type { AIProvider } from '../providers/types.js';
 import type { StoredMessage } from '../types/session.js';

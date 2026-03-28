@@ -7,7 +7,6 @@ import {
 import { refreshRuntimeSecretsFromEnv } from './config/config.js';
 import {
   acceptSecurityTrustModel,
-  DEFAULT_RUNTIME_HOME_DIR,
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   isSecurityTrustAccepted,
@@ -15,6 +14,7 @@ import {
   SECURITY_POLICY_VERSION,
   updateRuntimeConfig,
 } from './config/runtime-config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from './config/runtime-paths.js';
 import {
   resolveTuiCommandLabel,
   shouldPrintTuiStartHint,

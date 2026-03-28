@@ -7,15 +7,16 @@ import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
 } from '../../container/shared/context-guard-config.js';
+import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import { loadRuntimeSecrets } from '../security/runtime-secrets.js';
 import {
-  DEFAULT_RUNTIME_HOME_DIR,
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   isContainerSandboxModeExplicit,
   onRuntimeConfigChange,
   type RuntimeConfig,
 } from './runtime-config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export type {
   AIProviderId as ModelProvider,
@@ -32,11 +33,23 @@ export class MissingRequiredEnvVarError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function cloneValue<T>(value: T): T {
+  return structuredClone(value);
+}
+
 function readVersionFromPackageJson(packageJsonPath: string): string | null {
   try {
     const raw = fs.readFileSync(packageJsonPath, 'utf-8');
-    const parsed = JSON.parse(raw) as { version?: unknown };
-    if (typeof parsed.version === 'string' && parsed.version.trim()) {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      isRecord(parsed) &&
+      typeof parsed.version === 'string' &&
+      parsed.version.trim()
+    ) {
       return parsed.version.trim();
     }
   } catch {
@@ -207,7 +220,7 @@ export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
 let HYBRIDAI_MODELS: string[] = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
-export let CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex';
+export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
 let CODEX_MODELS: string[] = [
   'openai-codex/gpt-5-codex',
   'openai-codex/gpt-5.3-codex',
@@ -439,16 +452,10 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     4,
     Math.min(200, config.discord.maxLinesPerMessage),
   );
-  DISCORD_HUMAN_DELAY = JSON.parse(
-    JSON.stringify(config.discord.humanDelay),
-  ) as RuntimeConfig['discord']['humanDelay'];
+  DISCORD_HUMAN_DELAY = cloneValue(config.discord.humanDelay);
   DISCORD_TYPING_MODE = config.discord.typingMode;
-  DISCORD_SELF_PRESENCE = JSON.parse(
-    JSON.stringify(config.discord.presence),
-  ) as RuntimeConfig['discord']['presence'];
-  DISCORD_LIFECYCLE_REACTIONS = JSON.parse(
-    JSON.stringify(config.discord.lifecycleReactions),
-  ) as RuntimeConfig['discord']['lifecycleReactions'];
+  DISCORD_SELF_PRESENCE = cloneValue(config.discord.presence);
+  DISCORD_LIFECYCLE_REACTIONS = cloneValue(config.discord.lifecycleReactions);
   DISCORD_ACK_REACTION = config.discord.ackReaction;
   DISCORD_ACK_REACTION_SCOPE = config.discord.ackReactionScope;
   DISCORD_REMOVE_ACK_AFTER_REPLY = config.discord.removeAckAfterReply;
@@ -460,9 +467,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     1,
     config.discord.maxConcurrentPerChannel,
   );
-  DISCORD_GUILDS = JSON.parse(
-    JSON.stringify(config.discord.guilds),
-  ) as RuntimeConfig['discord']['guilds'];
+  DISCORD_GUILDS = cloneValue(config.discord.guilds);
   MSTEAMS_ENABLED = config.msteams.enabled;
   MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID || config.msteams.appId;
   MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD || '';
@@ -475,9 +480,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   MSTEAMS_GROUP_POLICY = config.msteams.groupPolicy;
   MSTEAMS_DM_POLICY = config.msteams.dmPolicy;
   MSTEAMS_ALLOW_FROM = [...config.msteams.allowFrom];
-  MSTEAMS_TEAMS = JSON.parse(
-    JSON.stringify(config.msteams.teams),
-  ) as RuntimeConfig['msteams']['teams'];
+  MSTEAMS_TEAMS = cloneValue(config.msteams.teams);
   MSTEAMS_REQUIRE_MENTION = config.msteams.requireMention;
   MSTEAMS_TEXT_CHUNK_LIMIT = Math.max(
     200,
@@ -575,9 +578,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   ADDITIONAL_MOUNTS = config.container.additionalMounts;
   CONTAINER_MAX_OUTPUT_SIZE = config.container.maxOutputBytes;
   MAX_CONCURRENT_CONTAINERS = Math.max(1, config.container.maxConcurrent);
-  MCP_SERVERS = JSON.parse(
-    JSON.stringify(config.mcpServers || {}),
-  ) as RuntimeConfig['mcpServers'];
+  MCP_SERVERS = cloneValue(config.mcpServers || {});
   WEB_SEARCH_PROVIDER = config.web.search.provider;
   WEB_SEARCH_FALLBACK_PROVIDERS = [...config.web.search.fallbackProviders];
   WEB_SEARCH_DEFAULT_COUNT = Math.max(

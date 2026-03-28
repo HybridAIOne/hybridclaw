@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { DATA_DIR, HYBRIDAI_MODEL } from '../config/config.js';
+import { logger } from '../logger.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
 import type { ChatMessage } from '../types/api.js';
 import type { ContainerOutput, MediaContextItem } from '../types/container.js';
@@ -33,8 +34,8 @@ function dumpPrompt(
     };
     const filePath = path.join(DATA_DIR, 'last_prompt.jsonl');
     fs.writeFileSync(filePath, `${JSON.stringify(entry)}\n`);
-  } catch {
-    /* best-effort */
+  } catch (err) {
+    logger.debug({ sessionId, err }, 'Failed to dump prompt context');
   }
 }
 

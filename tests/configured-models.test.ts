@@ -143,4 +143,53 @@ describe('configured model catalog', () => {
       'huggingface/meta-llama/Llama-3.1-8B-Instruct',
     ]);
   });
+
+  it('deep-clones exported mutable runtime objects', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.discord.humanDelay = {
+        mode: 'custom',
+        minMs: 1200,
+        maxMs: 3400,
+      };
+      config.discord.guilds = {
+        guildA: {
+          defaultMode: 'mention',
+          channels: {
+            channelA: {
+              mode: 'free',
+              humanDelay: {
+                mode: 'natural',
+                minMs: 500,
+                maxMs: 1500,
+              },
+            },
+          },
+        },
+      };
+      config.mcpServers = {
+        filesystem: {
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp/demo'],
+          enabled: true,
+        },
+      };
+    });
+
+    const config = await importFreshConfig(homeDir);
+    config.DISCORD_HUMAN_DELAY.minMs = 9999;
+    config.DISCORD_GUILDS.guildA.channels.channelA.mode = 'off';
+    config.MCP_SERVERS.filesystem?.args?.push('--mutated');
+
+    const snapshot = config.getConfigSnapshot();
+
+    expect(snapshot.discord.humanDelay.minMs).toBe(1200);
+    expect(snapshot.discord.guilds.guildA.channels.channelA.mode).toBe('free');
+    expect(snapshot.mcpServers.filesystem?.args).toEqual([
+      '-y',
+      '@modelcontextprotocol/server-filesystem',
+      '/tmp/demo',
+    ]);
+  });
 });

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { logger } from './logger.js';
 import { normalizeMimeType } from './media/mime-utils.js';
 
 const CLIPBOARD_COMMAND_TIMEOUT_MS = 8_000;
@@ -146,6 +147,14 @@ export interface TuiClipboardUploadCandidate {
 
 let cachedWslDetection: boolean | null = null;
 
+function logClipboardFallback(
+  message: string,
+  err: unknown,
+  details?: Record<string, unknown>,
+): void {
+  logger.debug({ ...details, err }, message);
+}
+
 function execFileWithEncoding<TEncoding extends 'utf8' | 'buffer'>(
   command: string,
   args: string[],
@@ -216,7 +225,8 @@ export function isProbablyWsl(): boolean {
   try {
     const version = fs.readFileSync('/proc/version', 'utf8');
     cachedWslDetection = /microsoft/i.test(version);
-  } catch {
+  } catch (err) {
+    logClipboardFallback('Failed to read /proc/version for WSL detection', err);
     cachedWslDetection = false;
   }
   return cachedWslDetection;
@@ -244,7 +254,10 @@ export function parseClipboardPayload(
       mimeType?: unknown;
       filename?: unknown;
     };
-  } catch {
+  } catch (err) {
+    logClipboardFallback('Failed to parse clipboard payload JSON', err, {
+      payloadLength: trimmed.length,
+    });
     return null;
   }
 
@@ -329,7 +342,11 @@ export function parseClipboardUriList(raw: string): string[] {
     if (trimmed.startsWith('file://')) {
       try {
         paths.push(fileURLToPath(trimmed));
-      } catch {
+      } catch (err) {
+        logClipboardFallback(
+          'Failed to convert clipboard file URI to path',
+          err,
+        );
         continue;
       }
       continue;
@@ -354,7 +371,11 @@ async function readWindowsClipboardPayload(options?: {
         WINDOWS_CLIPBOARD_SCRIPT,
       ]);
       return parseClipboardPayload(stdout, options);
-    } catch {}
+    } catch (err) {
+      logClipboardFallback('Clipboard backend command failed', err, {
+        command,
+      });
+    }
   }
   return null;
 }
@@ -366,7 +387,8 @@ async function readFileClipboardCandidate(
   let stat: fs.Stats;
   try {
     stat = await fs.promises.stat(resolved);
-  } catch {
+  } catch (err) {
+    logClipboardFallback('Failed to stat clipboard file candidate', err);
     return null;
   }
   if (!stat.isFile()) return null;
@@ -386,7 +408,8 @@ async function maybeReadClipboardText(
   try {
     const { stdout } = await execFileUtf8(command, args);
     return stdout;
-  } catch {
+  } catch (err) {
+    logClipboardFallback('Clipboard text read failed', err, { command });
     return null;
   }
 }
@@ -398,7 +421,8 @@ async function maybeReadClipboardBytes(
   try {
     const { stdout } = await execFileBuffer(command, args);
     return stdout.length > 0 ? stdout : null;
-  } catch {
+  } catch (err) {
+    logClipboardFallback('Clipboard binary read failed', err, { command });
     return null;
   }
 }

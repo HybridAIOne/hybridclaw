@@ -12,10 +12,10 @@ import { fileURLToPath } from 'node:url';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { DATA_DIR } from '../config/config.js';
 import {
-  DEFAULT_RUNTIME_HOME_DIR,
   getRuntimeConfig,
   getRuntimeDisabledSkillNames,
 } from '../config/runtime-config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';

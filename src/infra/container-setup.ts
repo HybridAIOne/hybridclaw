@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { APP_VERSION, CONTAINER_IMAGE } from '../config/config.js';
-import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 
 export type ContainerRebuildPolicy = 'if-stale' | 'always' | 'never';
 export type ContainerImageAcquisitionMode =

@@ -5,14 +5,15 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
-import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 
 export const CODEX_AUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 export const CODEX_AUTH_ISSUER = 'https://auth.openai.com';
 export const CODEX_AUTH_SCOPE = 'openid profile email offline_access';
 export const CODEX_AUTH_PROVIDER = 'openai-codex';
 export const CODEX_AUTH_METHOD = 'oauth';
-export const CODEX_DEFAULT_BASE_URL = 'https://chatgpt.com/backend-api/codex';
+export { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 export const CODEX_DEFAULT_CALLBACK_HOST = '127.0.0.1';
 export const CODEX_DEFAULT_CALLBACK_PORT = 1455;
 export const CODEX_DEFAULT_CALLBACK_REDIRECT_HOST = 'localhost';

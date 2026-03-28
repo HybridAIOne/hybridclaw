@@ -2,7 +2,7 @@ import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { useMultiFileAuthState } from '@whiskeysockets/baileys';
-import { DEFAULT_RUNTIME_HOME_DIR } from '../../config/runtime-config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from '../../config/runtime-paths.js';
 import { sleep } from '../../utils/sleep.js';
 
 export const WHATSAPP_AUTH_DIR = path.join(
