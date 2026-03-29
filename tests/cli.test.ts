@@ -1189,6 +1189,32 @@ describe('CLI hybridai commands', () => {
     );
   });
 
+  it('does not claim the runtime config was updated when a plugin is already disabled', async () => {
+    const { cli, setPluginEnabled } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    setPluginEnabled.mockResolvedValueOnce({
+      pluginId: 'qmd-memory',
+      enabled: false,
+      changed: false,
+      configPath: '/tmp/config.json',
+      entry: {
+        id: 'qmd-memory',
+        enabled: false,
+        config: {},
+      },
+    });
+
+    await cli.main(['plugin', 'disable', 'qmd-memory']);
+
+    expect(setPluginEnabled).toHaveBeenCalledWith('qmd-memory', false);
+    expect(logSpy).toHaveBeenCalledWith(
+      'Plugin qmd-memory was already disabled.',
+    );
+    expect(logSpy).not.toHaveBeenCalledWith(
+      'Updated runtime config at /tmp/config.json.',
+    );
+  });
+
   it('installs a plugin and leaves runtime config for optional overrides', async () => {
     const { cli, installPlugin } = await importFreshCli({
       pluginInstallResult: {

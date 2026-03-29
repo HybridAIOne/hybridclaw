@@ -17,7 +17,7 @@ export interface BrowserLoginOptions {
   url?: string;
 }
 
-export function buildBrowserLoginArgs(
+function buildBrowserLoginArgs(
   profileDir: string,
   options: BrowserLoginOptions = {},
 ): string[] {

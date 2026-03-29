@@ -117,7 +117,9 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
         ? `${enabled ? 'Enabled' : 'Disabled'} plugin ${result.pluginId}.`
         : `Plugin ${result.pluginId} was already ${enabled ? 'enabled' : 'disabled'}.`,
     );
-    console.log(`Updated runtime config at ${result.configPath}.`);
+    if (result.changed) {
+      console.log(`Updated runtime config at ${result.configPath}.`);
+    }
     console.log(
       'Restart the gateway to load plugin config changes if it is running:',
     );

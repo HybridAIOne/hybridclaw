@@ -236,7 +236,9 @@ export async function setPluginEnabled(
     };
   }
 
-  await ensurePluginExistsForConfig(normalizedPluginId, nextConfig);
+  if (enabled) {
+    await ensurePluginExistsForConfig(normalizedPluginId, nextConfig);
+  }
 
   const previousEnabled = existing ? existing.enabled !== false : true;
   const entry = existing ?? ensurePluginEntry(nextConfig, normalizedPluginId);

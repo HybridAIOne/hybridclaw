@@ -59,4 +59,41 @@ describe('setPluginEnabled', () => {
     expect(discoverPlugins).not.toHaveBeenCalled();
     expect(saveRuntimeConfig).not.toHaveBeenCalled();
   });
+
+  test('disables an existing plugin override without discovery', async () => {
+    const config = {
+      plugins: {
+        list: [
+          {
+            id: 'demo-plugin',
+            enabled: true,
+          },
+        ],
+      },
+    } as RuntimeConfig;
+    const { discoverPlugins, saveRuntimeConfig, setPluginEnabled } =
+      await importFreshPluginConfig(config);
+
+    await expect(setPluginEnabled('demo-plugin', false)).resolves.toEqual({
+      pluginId: 'demo-plugin',
+      enabled: false,
+      changed: true,
+      configPath: '/tmp/config.json',
+      entry: {
+        id: 'demo-plugin',
+        enabled: false,
+      },
+    });
+    expect(discoverPlugins).not.toHaveBeenCalled();
+    expect(saveRuntimeConfig).toHaveBeenCalledWith({
+      plugins: {
+        list: [
+          {
+            id: 'demo-plugin',
+            enabled: false,
+          },
+        ],
+      },
+    });
+  });
 });

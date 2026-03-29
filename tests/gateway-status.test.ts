@@ -243,7 +243,7 @@ test('status command includes the current session agent', async () => {
 test('auth status hybridai shows local HybridAI auth details', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
-  process.env.HYBRIDAI_API_KEY = 'hai-status1234567890abcd';
+  delete process.env.HYBRIDAI_API_KEY;
   vi.resetModules();
   writeRuntimeConfig(homeDir, (config) => {
     config.hybridai.baseUrl = 'https://hybridai.example';
@@ -251,10 +251,14 @@ test('auth status hybridai shows local HybridAI auth details', async () => {
   });
 
   const { initDatabase } = await import('../src/memory/db.ts');
+  const { saveRuntimeSecrets } = await import('../src/security/runtime-secrets.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
 
+  saveRuntimeSecrets({
+    HYBRIDAI_API_KEY: 'hai-status1234567890abcd',
+  });
   initDatabase({ quiet: true });
   const result = await handleGatewayCommand({
     sessionId: 'session-auth-status',
