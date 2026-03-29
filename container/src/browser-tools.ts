@@ -27,6 +27,7 @@ const execFileAsync = promisify(execFile);
 const BROWSER_SOCKET_ROOT = '/tmp/hybridclaw-browser';
 const BROWSER_ARTIFACT_ROOT = path.join(WORKSPACE_ROOT, '.browser-artifacts');
 const BROWSER_DEFAULT_TIMEOUT_MS = 45_000;
+const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
 const BROWSER_MAX_SNAPSHOT_CHARS = 12_000;
 const BROWSER_RUNTIME_ROOT = path.join(WORKSPACE_ROOT, '.hybridclaw-runtime');
 const BROWSER_TMP_HOME = path.join(BROWSER_RUNTIME_ROOT, 'home');
@@ -465,15 +466,110 @@ function resolvePlaywrightBrowsersPath(): string {
   return BROWSER_PLAYWRIGHT_CACHE;
 }
 
-function removeSession(sessionId: string): void {
-  const sessionKey = normalizeSessionKey(sessionId);
-  const session = activeSessions.get(sessionKey);
-  if (!session) return;
-  activeSessions.delete(sessionKey);
+function removeSessionResources(session: BrowserSession): void {
+  activeSessions.delete(session.sessionKey);
   try {
     fs.rmSync(session.socketDir, { recursive: true, force: true });
   } catch {
     // Best effort cleanup.
+  }
+}
+
+function readSessionPid(session: BrowserSession): number | null {
+  const pidPath = path.join(session.socketDir, 'default.pid');
+  try {
+    const raw = fs.readFileSync(pidPath, 'utf-8').trim();
+    const pid = Number.parseInt(raw, 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    if (err instanceof Error && 'code' in err && err.code === 'ESRCH') {
+      return false;
+    }
+    return true;
+  }
+}
+
+async function waitForProcessExit(
+  pid: number,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  while (Date.now() < deadline) {
+    if (!isProcessRunning(pid)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return !isProcessRunning(pid);
+}
+
+async function terminateSessionProcess(session: BrowserSession): Promise<void> {
+  const pid = readSessionPid(session);
+  if (!pid || !isProcessRunning(pid)) return;
+
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch (err) {
+    if (!(err instanceof Error && 'code' in err && err.code === 'ESRCH')) {
+      throw err;
+    }
+    return;
+  }
+
+  if (await waitForProcessExit(pid, 1_500)) return;
+
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch (err) {
+    if (!(err instanceof Error && 'code' in err && err.code === 'ESRCH')) {
+      throw err;
+    }
+    return;
+  }
+
+  await waitForProcessExit(pid, 500);
+}
+
+async function closeSession(
+  sessionId: string,
+  options: { createIfMissing?: boolean } = {},
+): Promise<string | null> {
+  const sessionKey = normalizeSessionKey(sessionId);
+  const session = options.createIfMissing
+    ? getSession(sessionKey)
+    : activeSessions.get(sessionKey);
+  if (!session) return null;
+
+  const result = await runAgentBrowser(session.sessionKey, 'close', [], {
+    timeoutMs: BROWSER_CLOSE_TIMEOUT_MS,
+  });
+  if (result.success) {
+    removeSessionResources(session);
+    return null;
+  }
+
+  try {
+    await terminateSessionProcess(session);
+  } catch {
+    // Best effort fallback. The warning below preserves the original error.
+  } finally {
+    removeSessionResources(session);
+  }
+
+  return result.error || 'session close returned non-success';
+}
+
+export async function cleanupAllBrowserSessions(): Promise<void> {
+  const sessions = Array.from(activeSessions.values());
+  for (const session of sessions) {
+    await closeSession(session.sessionKey);
   }
 }
 
@@ -1762,12 +1858,13 @@ export async function executeBrowserTool(
       }
 
       case 'browser_close': {
-        const result = await runAgentBrowser(effectiveSessionId, 'close', []);
-        removeSession(effectiveSessionId);
-        if (!result.success) {
+        const warning = await closeSession(effectiveSessionId, {
+          createIfMissing: true,
+        });
+        if (warning) {
           return success({
             closed: true,
-            warning: result.error || 'session close returned non-success',
+            warning,
           });
         }
         return success({ closed: true });

@@ -5,6 +5,7 @@ import {
   TrustedCoworkerApprovalRuntime,
 } from './approval-policy.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
+import { cleanupAllBrowserSessions } from './browser-tools.js';
 import { applyContextGuard } from './context-guard.js';
 import {
   emitRuntimeEvent,
@@ -138,6 +139,7 @@ let storedRequestHeaders: Record<string, string> = {};
 let storedTaskModels: ContainerInput['taskModels'];
 let mcpClientManager: McpClientManager | null = null;
 let mcpConfigWatcher: McpConfigWatcher | null = null;
+let shutdownPromise: Promise<never> | null = null;
 
 function cloneTaskModels(
   taskModels: ContainerInput['taskModels'],
@@ -228,6 +230,31 @@ async function shutdownMcp(): Promise<void> {
     await mcpClientManager.shutdown();
   }
   mcpClientManager = null;
+}
+
+async function shutdownAgentProcess(
+  exitCode: number,
+  reason: string,
+  finalOutput?: ContainerOutput,
+): Promise<never> {
+  if (shutdownPromise) {
+    return shutdownPromise;
+  }
+
+  shutdownPromise = (async () => {
+    console.error(`[hybridclaw-agent] shutting down (${reason})`);
+    await cleanupAllBrowserSessions().catch((error) => {
+      console.error('[hybridclaw-agent] browser cleanup failed:', error);
+    });
+    await shutdownMcp().catch((error) => {
+      console.error('[hybridclaw-agent] MCP shutdown failed:', error);
+    });
+    if (finalOutput) {
+      writeOutput(finalOutput);
+    }
+    process.exit(exitCode);
+  })();
+  return shutdownPromise;
 }
 
 function normalizePathSlashes(raw: string): string {
@@ -1459,6 +1486,12 @@ async function main(): Promise<void> {
   console.error(
     `[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms`,
   );
+  process.once('SIGINT', () => {
+    void shutdownAgentProcess(0, 'SIGINT');
+  });
+  process.once('SIGTERM', () => {
+    void shutdownAgentProcess(0, 'SIGTERM');
+  });
 
   // First request arrives via stdin (contains apiKey — never written to disk)
   const stdinData = await readStdinLine();
@@ -1592,8 +1625,8 @@ async function main(): Promise<void> {
 
     if (!input) {
       console.error('[hybridclaw-agent] idle timeout, exiting');
-      await shutdownMcp();
-      process.exit(0);
+      await shutdownAgentProcess(0, 'idle timeout');
+      return;
     }
 
     // Use stored apiKey — IPC file no longer contains it
@@ -1731,13 +1764,10 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   console.error('Container agent fatal error:', err);
-  void shutdownMcp().finally(() => {
-    writeOutput({
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      error: `Unhandled error: ${err instanceof Error ? err.message : String(err)}`,
-    });
-    process.exit(1);
+  void shutdownAgentProcess(1, 'fatal error', {
+    status: 'error',
+    result: null,
+    toolsUsed: [],
+    error: `Unhandled error: ${err instanceof Error ? err.message : String(err)}`,
   });
 });
