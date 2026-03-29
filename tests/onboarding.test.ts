@@ -224,7 +224,7 @@ test('interactive HybridAI onboarding defaults the saved bot to the account chat
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/api/v1/bot-management/me')) {
-        return new Response(JSON.stringify({ userId: 'user-42' }), {
+        return new Response(JSON.stringify({ user_id: 'user-42' }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         });
@@ -285,7 +285,7 @@ test('ensureRuntimeCredentials backfills the default HybridAI bot from account f
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/api/v1/bot-management/me')) {
-        return new Response(JSON.stringify({ userId: 'user-42' }), {
+        return new Response(JSON.stringify({ user_id: 'user-42' }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         });
