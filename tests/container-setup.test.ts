@@ -102,12 +102,12 @@ function makeSpawnResult(result: {
   return proc;
 }
 
-function isDockerVersionCommand(command: string, args: string[]): boolean {
-  return command === 'docker' && args[0] === '--version';
+function isDockerInfoCommand(command: string, args: string[]): boolean {
+  return command === 'docker' && args[0] === 'info';
 }
 
 function mockDockerAvailable(command: string, args: string[]) {
-  if (isDockerVersionCommand(command, args)) {
+  if (isDockerInfoCommand(command, args)) {
     return makeSpawnResult({ code: 0 });
   }
   return null;
@@ -385,7 +385,7 @@ describe('ensureContainerImageReady', () => {
   test('warns once and returns early when docker is missing for optional setup', async () => {
     const cwd = createTempDir();
     const spawnMock = vi.fn((command: string, args: string[]) => {
-      if (command === 'docker' && args[0] === '--version') {
+      if (command === 'docker' && args[0] === 'info') {
         return makeSpawnResult({
           error: Object.assign(new Error('spawn docker ENOENT'), {
             code: 'ENOENT',
@@ -417,7 +417,7 @@ describe('ensureContainerImageReady', () => {
   test('fails fast when docker is missing for required setup', async () => {
     const cwd = createTempDir();
     const spawnMock = vi.fn((command: string, args: string[]) => {
-      if (command === 'docker' && args[0] === '--version') {
+      if (command === 'docker' && args[0] === 'info') {
         return makeSpawnResult({
           error: Object.assign(new Error('spawn docker ENOENT'), {
             code: 'ENOENT',
@@ -443,21 +443,11 @@ describe('ensureContainerImageReady', () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
   });
 
-  test('does not treat non-ENOENT docker version failures as missing docker', async () => {
+  test('fails fast with a permission-specific error when docker daemon access is denied', async () => {
     const cwd = createTempDir();
     const spawnMock = vi.fn((command: string, args: string[]) => {
-      if (command === 'docker' && args[0] === '--version') {
+      if (command === 'docker' && args[0] === 'info') {
         return makeSpawnResult({ code: 1, err: 'permission denied' });
-      }
-      if (
-        command === 'docker' &&
-        args[0] === 'image' &&
-        args[1] === 'inspect'
-      ) {
-        return makeSpawnResult({ code: 1, err: 'missing image' });
-      }
-      if (command === 'docker' && args[0] === 'pull') {
-        return makeSpawnResult({ code: 1, err: 'pull failed' });
       }
       throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
     });
@@ -473,14 +463,39 @@ describe('ensureContainerImageReady', () => {
         cwd,
       }),
     ).rejects.toThrow(
-      "hybridclaw gateway restart: Required container image 'hybridclaw-agent' not found.",
+      'hybridclaw gateway restart: Docker is installed but the current user cannot access the Docker daemon (permission denied).',
     );
-    expect(spawnMock).toHaveBeenCalledTimes(2);
-    expect(spawnMock).toHaveBeenNthCalledWith(
-      2,
-      'docker',
-      ['image', 'inspect', 'hybridclaw-agent'],
-      expect.objectContaining({ stdio: 'pipe' }),
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('normalizes docker info permission-denied stderr to the actionable detail', async () => {
+    const cwd = createTempDir();
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      if (command === 'docker' && args[0] === 'info') {
+        return makeSpawnResult({
+          code: 1,
+          err: [
+            'ERROR: permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock: Get "http://%2Fvar%2Frun%2Fdocker.sock/v1.45/info": dial unix /var/run/docker.sock: connect: permission denied',
+            'errors pretty printing info',
+          ].join('\n'),
+        });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+
+    await expect(
+      containerSetup.ensureContainerImageReady({
+        commandName: 'hybridclaw gateway restart',
+        cwd,
+      }),
+    ).rejects.toThrow(
+      'hybridclaw gateway restart: Docker is installed but the current user cannot access the Docker daemon (permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock: Get "http://%2Fvar%2Frun%2Fdocker.sock/v1.45/info": dial unix /var/run/docker.sock: connect: permission denied).',
     );
+    expect(spawnMock).toHaveBeenCalledTimes(1);
   });
 });

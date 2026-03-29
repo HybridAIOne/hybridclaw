@@ -18,6 +18,29 @@ interface EnsureContainerImageOptions {
   cwd?: string;
 }
 
+export type DockerAccessIssueKind =
+  | 'missing'
+  | 'permission-denied'
+  | 'daemon-unavailable';
+
+export interface DockerAccessProbeResult {
+  ready: boolean;
+  kind: 'ready' | DockerAccessIssueKind;
+  detail: string;
+}
+
+export class DockerAccessError extends Error {
+  readonly kind: DockerAccessIssueKind;
+  readonly detail: string;
+
+  constructor(kind: DockerAccessIssueKind, detail: string, message: string) {
+    super(message);
+    this.name = 'DockerAccessError';
+    this.kind = kind;
+    this.detail = detail;
+  }
+}
+
 function runCommand(
   command: string,
   args: string[],
@@ -41,6 +64,88 @@ function runCommand(
       resolve({ code, err });
     });
   });
+}
+
+function normalizeDockerDetail(raw: string | undefined, fallback: string): string {
+  const lines = String(raw || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^errors pretty printing info\b/i.test(line));
+  if (lines.length === 0) return fallback;
+
+  const detail = lines
+    .join(' ')
+    .replace(/^ERROR:\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return detail || fallback;
+}
+
+function isDockerPermissionDenied(detail: string): boolean {
+  return /permission denied|access denied|docker\.sock.*permission/i.test(
+    detail,
+  );
+}
+
+function buildDockerAccessMessage(
+  commandName: string,
+  issue: DockerAccessProbeResult,
+): string {
+  switch (issue.kind) {
+    case 'missing':
+      return `${commandName}: Install docker to use sandbox. Or start with --sandbox host.`;
+    case 'permission-denied':
+      return [
+        `${commandName}: Docker is installed but the current user cannot access the Docker daemon (${issue.detail}).`,
+        'Add this user to the `docker` group, start a new login shell, or set `container.sandboxMode` to `host`.',
+      ].join(' ');
+    case 'daemon-unavailable':
+      return [
+        `${commandName}: Docker daemon not ready (${issue.detail}).`,
+        'Start Docker, or set `container.sandboxMode` to `host` to run without Docker.',
+      ].join(' ');
+    case 'ready':
+      return `${commandName}: Docker is ready.`;
+  }
+}
+
+export async function probeDockerAccess(): Promise<DockerAccessProbeResult> {
+  const result = await runCommand('docker', ['info']);
+  if (result.code === 0) {
+    return {
+      ready: true,
+      kind: 'ready',
+      detail: '',
+    };
+  }
+
+  const detail = normalizeDockerDetail(
+    result.err,
+    'docker info returned a non-zero exit code.',
+  );
+  if (
+    result.code === null &&
+    /enoent|not found/i.test(normalizeDockerDetail(result.err, ''))
+  ) {
+    return {
+      ready: false,
+      kind: 'missing',
+      detail,
+    };
+  }
+  if (isDockerPermissionDenied(detail)) {
+    return {
+      ready: false,
+      kind: 'permission-denied',
+      detail,
+    };
+  }
+  return {
+    ready: false,
+    kind: 'daemon-unavailable',
+    detail,
+  };
 }
 
 export async function containerImageExists(
@@ -169,16 +274,16 @@ async function ensureDockerAvailable(
   commandName: string,
   required: boolean,
 ): Promise<boolean> {
-  const result = await runCommand('docker', ['--version']);
-  if (result.code === 0) return true;
+  const result = await probeDockerAccess();
+  if (result.ready) return true;
 
-  const isDockerNotInstalled =
-    result.code === null && /enoent|not found/i.test(result.err?.trim() ?? '');
-  if (!isDockerNotInstalled) return true;
-
-  const message = `${commandName}: Install docker to use sandbox. Or start with --sandbox host.`;
+  const message = buildDockerAccessMessage(commandName, result);
   if (required) {
-    throw new Error(message);
+    throw new DockerAccessError(
+      result.kind as DockerAccessIssueKind,
+      result.detail,
+      message,
+    );
   }
   console.warn(message);
   return false;

@@ -578,21 +578,23 @@ test('readDirSize skips unreadable entries and symlink loops', async () => {
 });
 
 test('checkDocker only reports daemon and image state', async () => {
-  vi.doMock('node:child_process', () => ({
-    spawnSync: vi.fn(() => ({
-      status: 0,
-      error: null,
-      stderr: '',
-      stdout: '',
-    })),
-  }));
   vi.doMock('../src/config/config.js', () => ({
     CONTAINER_IMAGE: 'hybridclaw-agent',
     getResolvedSandboxMode: () => 'container',
   }));
+  const updateRuntimeConfig = vi.fn();
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    isContainerSandboxModeExplicit: () => true,
+    updateRuntimeConfig,
+  }));
   vi.doMock('../src/infra/container-setup.js', () => ({
     containerImageExists: vi.fn(async () => true),
     ensureContainerImageReady: vi.fn(),
+    probeDockerAccess: vi.fn(async () => ({
+      ready: true,
+      kind: 'ready',
+      detail: '',
+    })),
   }));
   vi.doMock('../src/infra/install-root.js', () => ({
     resolveInstallRoot: () => '/tmp/hybridclaw-doctor',
@@ -607,21 +609,23 @@ test('checkDocker only reports daemon and image state', async () => {
 });
 
 test('checkDocker errors when configured sandbox requires Docker and Docker is missing', async () => {
-  vi.doMock('node:child_process', () => ({
-    spawnSync: vi.fn(() => ({
-      status: null,
-      error: new Error('spawn docker ENOENT'),
-      stderr: '',
-      stdout: '',
-    })),
-  }));
   vi.doMock('../src/config/config.js', () => ({
     CONTAINER_IMAGE: 'hybridclaw-agent',
     getResolvedSandboxMode: () => 'container',
   }));
+  const updateRuntimeConfig = vi.fn();
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    isContainerSandboxModeExplicit: () => true,
+    updateRuntimeConfig,
+  }));
   vi.doMock('../src/infra/container-setup.js', () => ({
     containerImageExists: vi.fn(async () => false),
     ensureContainerImageReady: vi.fn(),
+    probeDockerAccess: vi.fn(async () => ({
+      ready: false,
+      kind: 'missing',
+      detail: 'spawn docker ENOENT',
+    })),
   }));
   vi.doMock('../src/infra/install-root.js', () => ({
     resolveInstallRoot: () => '/tmp/hybridclaw-doctor',
@@ -637,21 +641,23 @@ test('checkDocker errors when configured sandbox requires Docker and Docker is m
 });
 
 test('checkDocker only warns when sandbox is host and Docker is missing', async () => {
-  vi.doMock('node:child_process', () => ({
-    spawnSync: vi.fn(() => ({
-      status: null,
-      error: new Error('spawn docker ENOENT'),
-      stderr: '',
-      stdout: '',
-    })),
-  }));
   vi.doMock('../src/config/config.js', () => ({
     CONTAINER_IMAGE: 'hybridclaw-agent',
     getResolvedSandboxMode: () => 'host',
   }));
+  const updateRuntimeConfig = vi.fn();
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    isContainerSandboxModeExplicit: () => true,
+    updateRuntimeConfig,
+  }));
   vi.doMock('../src/infra/container-setup.js', () => ({
     containerImageExists: vi.fn(async () => false),
     ensureContainerImageReady: vi.fn(),
+    probeDockerAccess: vi.fn(async () => ({
+      ready: false,
+      kind: 'missing',
+      detail: 'spawn docker ENOENT',
+    })),
   }));
   vi.doMock('../src/infra/install-root.js', () => ({
     resolveInstallRoot: () => '/tmp/hybridclaw-doctor',
@@ -662,6 +668,44 @@ test('checkDocker only warns when sandbox is host and Docker is missing', async 
 
   expect(result.severity).toBe('warn');
   expect(result.message).toBe('Docker unavailable (spawn docker ENOENT)');
+});
+
+test('checkDocker reports permission denied and offers a host-mode fix when sandbox mode is implicit', async () => {
+  vi.doMock('../src/config/config.js', () => ({
+    CONTAINER_IMAGE: 'hybridclaw-agent',
+    getResolvedSandboxMode: () => 'container',
+  }));
+  const updateRuntimeConfig = vi.fn();
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    isContainerSandboxModeExplicit: () => false,
+    updateRuntimeConfig,
+  }));
+  vi.doMock('../src/infra/container-setup.js', () => ({
+    containerImageExists: vi.fn(async () => false),
+    ensureContainerImageReady: vi.fn(),
+    probeDockerAccess: vi.fn(async () => ({
+      ready: false,
+      kind: 'permission-denied',
+      detail:
+        'permission denied while trying to connect to the Docker daemon socket',
+    })),
+  }));
+  vi.doMock('../src/infra/install-root.js', () => ({
+    resolveInstallRoot: () => '/tmp/hybridclaw-doctor',
+  }));
+
+  const { checkDocker } = await import('../src/doctor/checks/docker.ts');
+  const [result] = await checkDocker();
+
+  expect(result.severity).toBe('error');
+  expect(result.message).toContain(
+    'cannot access the Docker daemon',
+  );
+  expect(result.message).toContain('`docker` group');
+  expect(result.fix?.summary).toBe('Switch runtime sandbox mode to host');
+
+  await result.fix?.apply();
+  expect(updateRuntimeConfig).toHaveBeenCalledTimes(1);
 });
 
 test('restartGatewayFromDoctor configures a bounded spawn timeout', () => {

@@ -27,6 +27,7 @@ import {
 } from './config/cli-flags.js';
 import {
   getRuntimeConfig,
+  isContainerSandboxModeExplicit,
   reloadRuntimeConfig,
   runtimeConfigPath,
   updateRuntimeConfig,
@@ -287,15 +288,64 @@ async function ensureRuntimeContainer(
   sandboxMode: SandboxModeOverride | null = null,
 ): Promise<void> {
   const { getResolvedSandboxMode } = await ensureConfigApi();
-  if ((sandboxMode || getResolvedSandboxMode()) === 'host') return;
+  if ((sandboxMode || getResolvedSandboxMode()) === 'host') {
+    const { ensureHostRuntimeReady } = await import(
+      './infra/host-runtime-setup.js'
+    );
+    ensureHostRuntimeReady({
+      commandName,
+      required,
+      installRoot: resolveInstallRoot(),
+    });
+    return;
+  }
   const { ensureContainerImageReady } = await import(
     './infra/container-setup.js'
   );
-  await ensureContainerImageReady({
-    commandName,
-    required,
-    cwd: resolveInstallRoot(),
-  });
+  try {
+    await ensureContainerImageReady({
+      commandName,
+      required,
+      cwd: resolveInstallRoot(),
+    });
+  } catch (error) {
+    if (
+      sandboxMode == null &&
+      !isContainerSandboxModeExplicit() &&
+      process.stdin.isTTY &&
+      process.stdout.isTTY &&
+      error instanceof Error &&
+      error.name === 'DockerAccessError' &&
+      ((error as Error & { kind?: string }).kind === 'missing' ||
+        (error as Error & { kind?: string }).kind === 'permission-denied')
+    ) {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      try {
+        const prompt =
+          (error as Error & { kind?: string }).kind === 'missing'
+            ? 'Docker is not available, and this install is still using the default container sandbox. Switch HybridClaw to host mode in the runtime config and continue? [Y/n] '
+            : 'Docker is installed, but this user cannot access the Docker daemon. Switch HybridClaw to host mode in the runtime config and continue? [Y/n] ';
+        const answer = (await rl.question(prompt)).trim().toLowerCase();
+        const shouldSwitch =
+          !answer || answer === 'y' || answer === 'yes';
+        if (shouldSwitch) {
+          updateRuntimeConfig((draft) => {
+            draft.container.sandboxMode = 'host';
+          });
+          console.log(
+            `${commandName}: Updated runtime config at ${runtimeConfigPath()}. Continuing in host mode.`,
+          );
+          return;
+        }
+      } finally {
+        rl.close();
+      }
+    }
+    throw error;
+  }
 }
 
 async function isGatewayReachable(): Promise<boolean> {

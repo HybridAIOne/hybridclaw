@@ -62,7 +62,9 @@ async function importFreshCli(options?: {
     };
   };
   gatewayReachable?: boolean;
+  gatewayStatusReachable?: boolean;
   sandboxMode?: 'host' | 'container';
+  sandboxModeExplicit?: boolean;
   configModuleError?: Error | null;
   gatewayFlags?: {
     foreground?: boolean;
@@ -73,6 +75,7 @@ async function importFreshCli(options?: {
     passthrough?: string[];
   };
   ensureContainerImageReadyError?: Error | null;
+  ensureHostRuntimeReadyError?: Error | null;
   gatewayModuleError?: Error | null;
   pluginInstallError?: Error | null;
   pluginInstallResult?: {
@@ -254,6 +257,15 @@ async function importFreshCli(options?: {
     if (options?.ensureContainerImageReadyError) {
       throw options.ensureContainerImageReadyError;
     }
+  });
+  const ensureHostRuntimeReady = vi.fn(() => {
+    if (options?.ensureHostRuntimeReadyError) {
+      throw options.ensureHostRuntimeReadyError;
+    }
+    return {
+      command: process.execPath,
+      args: ['/tmp/container/dist/index.js'],
+    };
   });
   const saveRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
   const loadSkillCatalog = vi.fn(() => [
@@ -512,6 +524,9 @@ async function importFreshCli(options?: {
   const getRuntimeConfig = vi.fn(() => structuredClone(runtimeConfigState));
   const reloadRuntimeConfig = vi.fn(() => structuredClone(runtimeConfigState));
   const runtimeConfigPath = vi.fn(() => configPath);
+  const isContainerSandboxModeExplicit = vi.fn(
+    () => options?.sandboxModeExplicit ?? false,
+  );
   const getRuntimeSkillScopeDisabledNames = vi.fn(
     (
       config: {
@@ -583,17 +598,22 @@ async function importFreshCli(options?: {
       status: 'ok',
     };
   });
-  const gatewayStatus = vi.fn(async () => ({
-    status: 'ok',
-    pid: 12345,
-    version: '0.4.1',
-    uptime: 1,
-    sessions: 1,
-    activeContainers: 0,
-    defaultModel: 'gpt-5-nano',
-    ragDefault: true,
-    timestamp: new Date().toISOString(),
-  }));
+  const gatewayStatus = vi.fn(async () => {
+    if (options?.gatewayStatusReachable === false) {
+      throw new Error('gateway unavailable');
+    }
+    return {
+      status: 'ok',
+      pid: 12345,
+      version: '0.4.1',
+      uptime: 1,
+      sessions: 1,
+      activeContainers: 0,
+      defaultModel: 'gpt-5-nano',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+    };
+  });
   const ensureGatewayRunDir = vi.fn();
   const findGatewayPidByPort = vi.fn(() => null);
   const readGatewayPid = vi.fn(() => null);
@@ -672,6 +692,7 @@ async function importFreshCli(options?: {
     ensureRuntimeConfigFile,
     getRuntimeSkillScopeDisabledNames,
     getRuntimeConfig,
+    isContainerSandboxModeExplicit,
     onRuntimeConfigChange,
     reloadRuntimeConfig,
     runtimeConfigPath,
@@ -701,6 +722,9 @@ async function importFreshCli(options?: {
   });
   vi.doMock('../src/infra/container-setup.ts', () => ({
     ensureContainerImageReady,
+  }));
+  vi.doMock('../src/infra/host-runtime-setup.js', () => ({
+    ensureHostRuntimeReady,
   }));
   vi.doMock('../src/channels/whatsapp/auth.ts', () => ({
     getWhatsAppAuthStatus,
@@ -817,6 +841,7 @@ async function importFreshCli(options?: {
     runDoctorCli,
     ensureRuntimeCredentials,
     ensureContainerImageReady,
+    ensureHostRuntimeReady,
     getWhatsAppAuthStatus,
     resetWhatsAppAuthState,
     createWhatsAppConnectionManager,
@@ -2456,11 +2481,44 @@ describe('CLI hybridai commands', () => {
     expect(removeGatewayPidFile).toHaveBeenCalledTimes(1);
   });
 
+  it('offers to switch to host mode when implicit container startup fails with docker permission denied', async () => {
+    const dockerAccessError = Object.assign(
+      new Error(
+        'hybridclaw gateway start --foreground: Docker is installed but the current user cannot access the Docker daemon (permission denied).',
+      ),
+      {
+        name: 'DockerAccessError',
+        kind: 'permission-denied',
+      },
+    );
+    const { cli, gatewayModuleLoaded, updateRuntimeConfig } =
+      await importFreshCli({
+        gatewayFlags: {
+          foreground: true,
+        },
+        sandboxMode: 'container',
+        sandboxModeExplicit: false,
+        ensureContainerImageReadyError: dockerAccessError,
+        promptResponses: ['y'],
+      });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(process, 'on').mockImplementation(
+      ((_: string | symbol, __: (...args: unknown[]) => void) =>
+        process) as never,
+    );
+
+    await cli.main(['gateway', 'start', '--foreground']);
+
+    expect(updateRuntimeConfig).toHaveBeenCalledTimes(1);
+    expect(gatewayModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
   it('launches tui without local runtime preflight when gateway is already reachable', async () => {
     const {
       cli,
       ensureRuntimeCredentials,
       ensureContainerImageReady,
+      ensureHostRuntimeReady,
       gatewayHealth,
       runTui,
       tuiModuleLoaded,
@@ -2475,6 +2533,7 @@ describe('CLI hybridai commands', () => {
     expect(gatewayHealth).toHaveBeenCalled();
     expect(ensureRuntimeCredentials).not.toHaveBeenCalled();
     expect(ensureContainerImageReady).not.toHaveBeenCalled();
+    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
       'hybridclaw tui: Gateway found at http://127.0.0.1:9090.',
     );
@@ -2489,6 +2548,33 @@ describe('CLI hybridai commands', () => {
       }),
     );
     expect(tuiModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails before starting tui when host runtime dependencies are missing', async () => {
+    const startupError = new Error(
+      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Reinstall HybridClaw.',
+    );
+    const {
+      cli,
+      ensureRuntimeCredentials,
+      ensureHostRuntimeReady,
+      ensureContainerImageReady,
+    } = await importFreshCli({
+      gatewayReachable: false,
+      gatewayStatusReachable: false,
+      sandboxMode: 'host',
+      ensureHostRuntimeReadyError: startupError,
+    });
+
+    await expect(cli.main(['tui'])).rejects.toThrow(
+      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Reinstall HybridClaw.',
+    );
+
+    expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
+      commandName: 'hybridclaw tui',
+    });
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(ensureContainerImageReady).not.toHaveBeenCalled();
   });
 
   it('passes an explicit session id through tui --resume', async () => {

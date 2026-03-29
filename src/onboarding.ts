@@ -20,7 +20,10 @@ import {
   shouldPrintTuiStartHint,
 } from './onboarding-tui-hint.js';
 import { isCodexModel, resolveModelProvider } from './providers/factory.js';
-import { normalizeBots } from './providers/hybridai-bots.js';
+import {
+  normalizeBots,
+  normalizeHybridAIAccountChatbotId,
+} from './providers/hybridai-bots.js';
 import {
   ensureRuntimeInstructionCopies,
   resolveRuntimeInstructionPath,
@@ -35,6 +38,7 @@ import type { HybridAIBot } from './types/hybridai.js';
 interface ApiKeyValidationResult {
   ok: boolean;
   bots: HybridAIBot[];
+  accountChatbotId?: string;
   error?: string;
 }
 
@@ -140,6 +144,7 @@ const DEFAULT_REGISTER_PATH = '/register?context=hybridclaw';
 const DEFAULT_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 const DEFAULT_VERIFY_PATH = '/verify_code';
 const BOT_LIST_PATH = '/api/v1/bot-management/bots';
+const BOT_ME_PATH = '/api/v1/bot-management/me';
 const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
 const SECURITY_ACK_TOKEN = 'ACCEPT';
 
@@ -271,9 +276,24 @@ async function validateApiKey(
     };
   }
 
+  let accountChatbotId = '';
+  try {
+    const meResponse = await fetch(resolveUrl(baseUrl, BOT_ME_PATH), {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (meResponse.ok) {
+      accountChatbotId = normalizeHybridAIAccountChatbotId(
+        await readResponsePayload(meResponse),
+      );
+    }
+  } catch {
+    // Keep bot-list validation success; the account chatbot is only a default hint.
+  }
+
   return {
     ok: true,
     bots: normalizeBots(payload),
+    accountChatbotId,
   };
 }
 
@@ -424,16 +444,17 @@ async function chooseDefaultBot(
   rl: readline.Interface,
   bots: HybridAIBot[],
   fallbackBotId: string,
+  accountChatbotId = '',
 ): Promise<string> {
   if (bots.length === 0) {
     const manual = await promptOptional(
       rl,
       'No bots found from API. Enter chatbot id manually (or leave empty to skip): ',
     );
-    return manual || fallbackBotId;
+    return manual || fallbackBotId || accountChatbotId;
   }
 
-  const defaultBotId = fallbackBotId || bots[0].id;
+  const defaultBotId = fallbackBotId || accountChatbotId || bots[0].id;
   console.log(`${TEAL}${ICON_TITLE}${RESET} Available bots:`);
   for (let i = 0; i < Math.min(10, bots.length); i++) {
     const bot = bots[i];
@@ -727,6 +748,7 @@ async function runHybridAIApiKeyOnboarding(params: {
     rl,
     validation.ok ? validation.bots : [],
     fallbackChatbotId,
+    validation.accountChatbotId || '',
   );
 
   const secretsPath = saveHybridAICredentials(apiKey);

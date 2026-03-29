@@ -193,6 +193,7 @@ export function mapCanonicalCommandToGatewayArgs(
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub || sub === 'info') return ['bot', 'info'];
       if (sub === 'list') return ['bot', 'list'];
+      if (sub === 'clear' || sub === 'auto') return ['bot', 'clear'];
       if (sub === 'set') return ['bot', 'set', ...parts.slice(2)];
       return ['bot', 'set', ...parts.slice(1)];
     }
@@ -874,6 +875,11 @@ function buildSlashCommandCatalogDefinitions(
               required: true,
             },
           ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'clear',
+          description: 'Clear the chatbot for this session',
         },
         {
           kind: 'subcommand',
@@ -1575,7 +1581,11 @@ export function parseCanonicalSlashCommandArgs(
 
     case 'bot': {
       const subcommand = normalizeSubcommand(interaction);
-      if (subcommand === 'list' || subcommand === 'info') {
+      if (
+        subcommand === 'list' ||
+        subcommand === 'info' ||
+        subcommand === 'clear'
+      ) {
         return ['bot', subcommand];
       }
       if (subcommand === 'set') {

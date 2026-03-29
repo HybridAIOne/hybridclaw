@@ -46,12 +46,22 @@ function makeFakeChildProcess() {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.doUnmock('node:child_process');
+  vi.doUnmock('../src/infra/host-runtime-setup.js');
   vi.doUnmock('../src/infra/ipc.js');
   vi.doUnmock('../src/providers/factory.js');
   vi.doUnmock('../src/logger.js');
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
 });
+
+function mockHostRuntimeReady(): void {
+  vi.doMock('../src/infra/host-runtime-setup.js', () => ({
+    ensureHostRuntimeReady: () => ({
+      command: process.execPath,
+      args: ['/tmp/container/dist/index.js'],
+    }),
+  }));
+}
 
 test('HostExecutor redacts result and error strings from agent output', async () => {
   const homeDir = makeTempHome();
@@ -115,6 +125,7 @@ test('HostExecutor redacts result and error strings from agent output', async ()
       error: vi.fn(),
     },
   }));
+  mockHostRuntimeReady();
 
   const { HostExecutor } = await import('../src/infra/host-runner.js');
   const executor = new HostExecutor();
@@ -193,6 +204,7 @@ test('HostExecutor exposes the uploaded media cache root to host agent processes
       error: vi.fn(),
     },
   }));
+  mockHostRuntimeReady();
 
   const { HostExecutor } = await import('../src/infra/host-runner.js');
   const { resolveUploadedMediaCacheHostDir } = await import(
@@ -294,6 +306,7 @@ test('HostExecutor treats interrupted stdin EPIPE as a user interrupt', async ()
       error: vi.fn(),
     },
   }));
+  mockHostRuntimeReady();
 
   const { HostExecutor } = await import('../src/infra/host-runner.js');
   const executor = new HostExecutor();
@@ -398,6 +411,7 @@ test('HostExecutor surfaces missing packaged runtime dependencies as immediate e
       error: vi.fn(),
     },
   }));
+  mockHostRuntimeReady();
 
   const { HostExecutor } = await import('../src/infra/host-runner.js');
   const executor = new HostExecutor();

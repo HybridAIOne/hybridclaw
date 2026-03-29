@@ -207,7 +207,7 @@ async function fetchHybridAIBotManagementPayload(
   return res.json();
 }
 
-function normalizeHybridAIAccountChatbotId(payload: unknown): string {
+export function normalizeHybridAIAccountChatbotId(payload: unknown): string {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return '';
   }
