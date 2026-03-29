@@ -54,10 +54,7 @@ describe.sequential('container runtime path aliases', () => {
     fs.writeFileSync(targetFile, '<html></html>');
 
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
-    vi.stubEnv(
-      'HYBRIDCLAW_AGENT_ALLOWED_ROOTS',
-      JSON.stringify([projectRoot]),
-    );
+    vi.stubEnv('HYBRIDCLAW_AGENT_ALLOWED_ROOTS', JSON.stringify([projectRoot]));
     vi.resetModules();
 
     const { resolveWorkspacePath, resolveWorkspaceGlobPattern } = await import(

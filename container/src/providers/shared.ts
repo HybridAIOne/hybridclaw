@@ -106,7 +106,9 @@ export class HybridAIRequestError extends Error {
 
   constructor(status: number, body: string) {
     const parsedBody = parseProviderErrorBody(body);
-    super(`HybridAI API error ${status}: ${summarizeParsedErrorBody(parsedBody)}`);
+    super(
+      `HybridAI API error ${status}: ${summarizeParsedErrorBody(parsedBody)}`,
+    );
     this.name = 'HybridAIRequestError';
     this.status = status;
     this.body = body;

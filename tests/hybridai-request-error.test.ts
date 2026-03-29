@@ -160,8 +160,6 @@ describe('HybridAI empty completion guard', () => {
           total_tokens: 4106,
         },
       }),
-    ).toBe(
-      'id=resp_empty model=gpt-5-nano finish=stop contentType=null',
-    );
+    ).toBe('id=resp_empty model=gpt-5-nano finish=stop contentType=null');
   });
 });

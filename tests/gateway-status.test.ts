@@ -332,9 +332,11 @@ test('config shows the local runtime config', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Runtime Config');
-  expect(result.text.startsWith(
-    `Active config: ${path.join(homeDir, '.hybridclaw', 'config.json')}\n`,
-  )).toBe(true);
+  expect(
+    result.text.startsWith(
+      `Active config: ${path.join(homeDir, '.hybridclaw', 'config.json')}\n`,
+    ),
+  ).toBe(true);
   expect(result.text).toContain('"maxTokens": 4096');
 });
 
