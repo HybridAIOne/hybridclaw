@@ -51,6 +51,26 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(mapTuiSlashCommandToGatewayArgs(['help'])).toEqual(['help']);
   expect(mapTuiSlashCommandToGatewayArgs(['h'])).toEqual(['help']);
   expect(mapTuiSlashCommandToGatewayArgs(['status'])).toEqual(['status']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['auth', 'status', 'hybridai']),
+  ).toEqual(['auth', 'status', 'hybridai']);
+  expect(mapTuiSlashCommandToGatewayArgs(['config'])).toEqual(['config']);
+  expect(mapTuiSlashCommandToGatewayArgs(['config', 'check'])).toEqual([
+    'config',
+    'check',
+  ]);
+  expect(mapTuiSlashCommandToGatewayArgs(['config', 'reload'])).toEqual([
+    'config',
+    'reload',
+  ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'config',
+      'set',
+      'hybridai.maxTokens',
+      '8192',
+    ]),
+  ).toEqual(['config', 'set', 'hybridai.maxTokens', '8192']);
   expect(mapTuiSlashCommandToGatewayArgs(['model'])).toEqual(['model', 'info']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['model', 'list', 'openrouter']),
@@ -152,6 +172,9 @@ test('maps Discord-style slash commands to gateway command args', () => {
     'plugin',
     'reload',
   ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['plugin', 'disable', 'qmd-memory']),
+  ).toEqual(['plugin', 'disable', 'qmd-memory']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['plugin', 'uninstall', 'demo-plugin']),
   ).toEqual(['plugin', 'uninstall', 'demo-plugin']);

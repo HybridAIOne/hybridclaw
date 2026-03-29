@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -391,16 +392,11 @@ function getSession(sessionId: string): BrowserSession {
   fs.mkdirSync(socketDir, { recursive: true, mode: 0o700 });
 
   let profileDir: string | undefined;
-  // Prefer a shared (pre-authenticated) profile root mounted by the gateway.
-  // Derive a per-session subdirectory to avoid Chromium profile lock conflicts
-  // when multiple sessions run in parallel.
+  // Prefer the shared pre-authenticated profile mounted by the gateway so
+  // manual `hybridclaw browser login` sessions are visible to automation.
   const sharedDir = resolveSharedProfileDir();
   if (sharedDir) {
-    try {
-      profileDir = ensureWritableDir(path.join(sharedDir, runtimeKey));
-    } catch {
-      profileDir = undefined;
-    }
+    profileDir = sharedDir;
   } else if (shouldPersistProfiles()) {
     try {
       profileDir = ensureWritableDir(
@@ -452,11 +448,21 @@ function resolvePlaywrightBrowsersPath(): string {
   if (configured) {
     return configured;
   }
-  const imageDefault = '/ms-playwright';
-  if (fs.existsSync(imageDefault)) {
-    return imageDefault;
+
+  const homeDir = os.homedir();
+  const candidates = [
+    '/ms-playwright',
+    homeDir ? path.join(homeDir, 'Library', 'Caches', 'ms-playwright') : '',
+    homeDir ? path.join(homeDir, '.cache', 'ms-playwright') : '',
+    homeDir ? path.join(homeDir, 'AppData', 'Local', 'ms-playwright') : '',
+  ];
+  for (const candidate of candidates) {
+    const normalized = String(candidate || '').trim();
+    if (normalized && fs.existsSync(normalized)) {
+      return normalized;
+    }
   }
-  return ensureWritableDir(BROWSER_PLAYWRIGHT_CACHE);
+  return BROWSER_PLAYWRIGHT_CACHE;
 }
 
 function removeSession(sessionId: string): void {
@@ -1183,7 +1189,9 @@ async function runAgentBrowser(
   const homeDir = resolveWritableHome();
   const npmCacheDir = ensureWritableDir(BROWSER_NPM_CACHE);
   const xdgCacheDir = ensureWritableDir(BROWSER_XDG_CACHE);
-  const playwrightBrowsersPath = resolvePlaywrightBrowsersPath();
+  const playwrightBrowsersPath = ensureWritableDir(
+    resolvePlaywrightBrowsersPath(),
+  );
   const args = [...runner.prefixArgs];
   const cdpUrl = resolveCdpUrl(options.cdpUrl);
   if (cdpUrl) {

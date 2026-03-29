@@ -7,6 +7,7 @@ export function printMainUsage(): void {
   Commands:
   agent      Export, inspect, install, or uninstall portable agent archives
   auth       Unified provider login/logout/status
+  config     Show or edit the local runtime config
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
@@ -55,6 +56,7 @@ Interactive slash commands inside TUI:
   /show [all|thinking|tools|none]
   /agent [list|switch|create|model]   /bot [info|list|set <id|name>]
   /model [name]   /model info|list [provider]|set <name>|clear|default [name]
+  /config   /config check   /config reload   /config set <key> <value>
   /channel-mode <off|mention|free>   /channel-policy <open|allowlist|disabled>
   /rag [on|off]   /ralph [info|on|off|set n]   /mcp list
   /mcp add <name> <json>
@@ -355,6 +357,8 @@ export function printPluginUsage(): void {
 Commands:
   hybridclaw plugin list
   hybridclaw plugin config <plugin-id> [key] [value|--unset]
+  hybridclaw plugin enable <plugin-id>
+  hybridclaw plugin disable <plugin-id>
   hybridclaw plugin install <path|npm-spec>
   hybridclaw plugin reinstall <path|npm-spec>
   hybridclaw plugin uninstall <plugin-id>
@@ -362,6 +366,8 @@ Commands:
 Examples:
   hybridclaw plugin list
   hybridclaw plugin config qmd-memory searchMode query
+  hybridclaw plugin disable qmd-memory
+  hybridclaw plugin enable qmd-memory
   hybridclaw plugin install ./plugins/example-plugin
   hybridclaw plugin install @scope/hybridclaw-plugin-example
   hybridclaw plugin reinstall ./plugins/example-plugin
@@ -372,10 +378,36 @@ Notes:
   - Valid plugins in \`~/.hybridclaw/plugins/\` or \`./.hybridclaw/plugins/\` auto-discover at runtime.
   - \`list\` shows discovered plugin status, source, description, commands, tools, hooks, and load errors.
   - \`config\` edits top-level \`plugins.list[].config\` keys in ${runtimeConfigPath()}.
+  - \`enable\` and \`disable\` manage the top-level \`plugins.list[].enabled\` override in ${runtimeConfigPath()}.
   - \`install\` validates \`hybridclaw.plugin.yaml\` and installs npm dependencies when needed.
   - \`reinstall\` replaces the home-installed plugin tree and preserves existing \`plugins.list[]\` overrides.
   - \`uninstall\` removes the home-installed plugin directory and matching \`plugins.list[]\` overrides.
   - Use ${runtimeConfigPath()} only for plugin overrides such as disable flags, config values, or custom paths.`);
+}
+
+export function printConfigUsage(): void {
+  console.log(`Usage: hybridclaw config [check|reload|set <key> <value>]
+
+Commands:
+  hybridclaw config
+  hybridclaw config check
+  hybridclaw config reload
+  hybridclaw config set <key> <value>
+
+Examples:
+  hybridclaw config
+  hybridclaw config check
+  hybridclaw config reload
+  hybridclaw config set hybridai.maxTokens 8192
+  hybridclaw config set discord.enabled true
+  hybridclaw config set local.backends.ollama.models '["llama3.2"]'
+
+Notes:
+  - \`config\` prints the current runtime config from ${runtimeConfigPath()}.
+  - \`check\` validates only the runtime config file itself.
+  - \`reload\` forces an immediate in-process hot reload from disk, then runs a config check.
+  - \`set\` only updates existing dotted key paths; it does not create new keys, then immediately runs a config check.
+  - Values are parsed as JSON when possible, otherwise they are stored as plain strings.`);
 }
 
 export function printAgentUsage(): void {
@@ -419,6 +451,7 @@ Topics:
   tui         Help for terminal client
   onboarding  Help for onboarding flow
   channels    Help for channel setup helpers
+  config      Help for local runtime config commands
   plugin      Help for plugin management
   msteams     Help for Microsoft Teams auth/setup commands
   openrouter  Help for OpenRouter setup/status/logout commands
@@ -489,6 +522,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'channels':
       printChannelsUsage();
+      return true;
+    case 'config':
+      printConfigUsage();
       return true;
     case 'plugin':
       printPluginUsage();

@@ -26,6 +26,11 @@ export interface PluginConfigWriteResult extends PluginConfigValueReadResult {
   removed: boolean;
 }
 
+export interface PluginEnabledWriteResult extends PluginConfigReadResult {
+  enabled: boolean;
+  changed: boolean;
+}
+
 function cloneConfig(config: RuntimeConfig): RuntimeConfig {
   return structuredClone(config);
 }
@@ -95,6 +100,27 @@ async function validatePluginOverride(
     );
   }
   validatePluginConfig(candidate.manifest.configSchema, candidate.config);
+}
+
+async function ensurePluginExistsForConfig(
+  pluginId: string,
+  config: RuntimeConfig,
+): Promise<void> {
+  const manager = new PluginManager({
+    homeDir: DEFAULT_RUNTIME_HOME_DIR,
+    cwd: process.cwd(),
+    getRuntimeConfig: () => config,
+  });
+  const candidateConfig = cloneConfig(config);
+  ensurePluginEntry(candidateConfig, pluginId).enabled = true;
+  const candidate = (await manager.discoverPlugins(candidateConfig)).find(
+    (entry) => entry.id === pluginId,
+  );
+  if (!candidate) {
+    throw new Error(
+      `Plugin \`${pluginId}\` was not found. Install or discover it before changing enabled state.`,
+    );
+  }
 }
 
 function readConfigValue(
@@ -188,6 +214,44 @@ export async function unsetPluginConfigValue(
     value: undefined,
     changed: previousValue !== undefined,
     removed: true,
+    configPath: runtimeConfigPath(),
+    entry: structuredClone(findPluginEntry(nextConfig, normalizedPluginId)),
+  };
+}
+
+export async function setPluginEnabled(
+  pluginId: string,
+  enabled: boolean,
+): Promise<PluginEnabledWriteResult> {
+  const normalizedPluginId = normalizePluginId(pluginId);
+  const nextConfig = cloneConfig(getRuntimeConfig());
+  const existing = findPluginEntry(nextConfig, normalizedPluginId);
+  if (enabled && !existing) {
+    return {
+      pluginId: normalizedPluginId,
+      enabled: true,
+      changed: false,
+      configPath: runtimeConfigPath(),
+      entry: null,
+    };
+  }
+
+  if (enabled) {
+    await ensurePluginExistsForConfig(normalizedPluginId, nextConfig);
+  }
+
+  const previousEnabled = existing ? existing.enabled !== false : true;
+  const entry = existing ?? ensurePluginEntry(nextConfig, normalizedPluginId);
+  entry.enabled = enabled;
+  cleanupPluginEntry(nextConfig, normalizedPluginId, entry);
+  if (enabled) {
+    await validatePluginOverride(normalizedPluginId, nextConfig);
+  }
+  saveRuntimeConfig(nextConfig);
+  return {
+    pluginId: normalizedPluginId,
+    enabled,
+    changed: previousEnabled !== enabled,
     configPath: runtimeConfigPath(),
     entry: structuredClone(findPluginEntry(nextConfig, normalizedPluginId)),
   };

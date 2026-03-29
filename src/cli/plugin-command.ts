@@ -94,6 +94,40 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
     return;
   }
 
+  if (sub === 'enable' || sub === 'disable') {
+    const pluginId = normalized[1];
+    if (!pluginId) {
+      printPluginUsage();
+      throw new Error(
+        `Missing plugin id for \`hybridclaw plugin ${sub} <plugin-id>\`.`,
+      );
+    }
+    if (normalized.length !== 2) {
+      printPluginUsage();
+      throw new Error(
+        `Unexpected extra arguments for \`hybridclaw plugin ${sub} <plugin-id>\`.`,
+      );
+    }
+
+    const { setPluginEnabled } = await import('../plugins/plugin-config.js');
+    const enabled = sub === 'enable';
+    const result = await setPluginEnabled(pluginId, enabled);
+    console.log(
+      result.changed
+        ? `${enabled ? 'Enabled' : 'Disabled'} plugin ${result.pluginId}.`
+        : `Plugin ${result.pluginId} was already ${enabled ? 'enabled' : 'disabled'}.`,
+    );
+    if (result.changed) {
+      console.log(`Updated runtime config at ${result.configPath}.`);
+    }
+    console.log(
+      'Restart the gateway to load plugin config changes if it is running:',
+    );
+    console.log('  hybridclaw gateway restart --foreground');
+    console.log('  hybridclaw gateway status');
+    return;
+  }
+
   if (sub === 'install') {
     const source = normalized[1];
     if (!source) {
@@ -243,6 +277,6 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
 
   printPluginUsage();
   throw new Error(
-    `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\`, \`hybridclaw plugin config <plugin-id> [key] [value|--unset]\`, \`hybridclaw plugin install <path|npm-spec>\`, \`hybridclaw plugin reinstall <path|npm-spec>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
+    `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\`, \`hybridclaw plugin config <plugin-id> [key] [value|--unset]\`, \`hybridclaw plugin enable <plugin-id>\`, \`hybridclaw plugin disable <plugin-id>\`, \`hybridclaw plugin install <path|npm-spec>\`, \`hybridclaw plugin reinstall <path|npm-spec>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
   );
 }

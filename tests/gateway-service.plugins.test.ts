@@ -10,6 +10,7 @@ const {
   readPluginConfigEntryMock,
   readPluginConfigValueMock,
   reinstallPluginMock,
+  setPluginEnabledMock,
   unsetPluginConfigValueMock,
   uninstallPluginMock,
   pluginManagerMock,
@@ -96,6 +97,19 @@ const {
       removedPluginDir: true,
       removedConfigOverrides: 1,
     })),
+    setPluginEnabledMock: vi.fn(async (pluginId: string, enabled: boolean) => ({
+      pluginId,
+      enabled,
+      changed: true,
+      configPath: '/tmp/config.json',
+      entry: enabled
+        ? null
+        : {
+            id: pluginId,
+            enabled: false,
+            config: {},
+          },
+    })),
     unsetPluginConfigValueMock: vi.fn(
       async (pluginId: string, key: string) => ({
         pluginId,
@@ -147,6 +161,7 @@ vi.mock('../src/plugins/plugin-install.js', () => ({
 vi.mock('../src/plugins/plugin-config.js', () => ({
   readPluginConfigEntry: readPluginConfigEntryMock,
   readPluginConfigValue: readPluginConfigValueMock,
+  setPluginEnabled: setPluginEnabledMock,
   unsetPluginConfigValue: unsetPluginConfigValueMock,
   writePluginConfigValue: writePluginConfigValueMock,
 }));
@@ -172,6 +187,7 @@ const { setupHome } = setupGatewayTest({
     readPluginConfigEntryMock.mockClear();
     readPluginConfigValueMock.mockClear();
     reinstallPluginMock.mockClear();
+    setPluginEnabledMock.mockClear();
     unsetPluginConfigValueMock.mockClear();
     uninstallPluginMock.mockClear();
     writePluginConfigValueMock.mockClear();
@@ -425,6 +441,112 @@ test('handleGatewayCommand updates plugin config from a local TUI/web session an
   expect(result.text).toContain('Plugin runtime reloaded.');
 });
 
+test('handleGatewayCommand disables a plugin from a local TUI/web session and reloads plugins', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-disable',
+    guildId: null,
+    channelId: 'tui',
+    args: ['plugin', 'disable', 'qmd-memory'],
+  });
+
+  expect(setPluginEnabledMock).toHaveBeenCalledWith('qmd-memory', false);
+  expect(reloadPluginManagerMock).toHaveBeenCalled();
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Disabled');
+  expect(result.text).toContain('Plugin: qmd-memory');
+  expect(result.text).toContain('Status: disabled');
+  expect(result.text).toContain('Plugin runtime reloaded.');
+});
+
+test('handleGatewayCommand reports rollback reload failures when disabling a plugin', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { logger } = await import('../src/logger.js');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+  reloadPluginManagerMock
+    .mockRejectedValueOnce(new Error('reload exploded'))
+    .mockRejectedValueOnce(new Error('rollback reload exploded'));
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-disable-rollback-failed',
+    guildId: null,
+    channelId: 'tui',
+    args: ['plugin', 'disable', 'qmd-memory'],
+  });
+
+  expect(setPluginEnabledMock).toHaveBeenCalledWith('qmd-memory', false);
+  expect(reloadPluginManagerMock).toHaveBeenCalledTimes(2);
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Disable Failed');
+  expect(result.text).toContain(
+    'Updated runtime config at `/tmp/config.json`, but plugin reload failed.',
+  );
+  expect(result.text).toContain('Previous runtime config was restored.');
+  expect(result.text).toContain(
+    'Plugin runtime reload also failed after rollback; plugin state may be inconsistent until the next successful reload.',
+  );
+  expect(result.text).toContain(
+    'Plugin runtime reload failed: rollback reload exploded.',
+  );
+  expect(warnSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: 'plugin disable',
+      pluginId: 'qmd-memory',
+      reloadMessage: 'Plugin runtime reload failed: reload exploded.',
+      rollbackReloadMessage:
+        'Plugin runtime reload failed: rollback reload exploded.',
+    }),
+    'Plugin runtime rollback reload failed',
+  );
+});
+
+test('handleGatewayCommand rejects plugin disable outside local TUI/web sessions', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-disable-remote',
+    guildId: 'guild-1',
+    channelId: 'discord-channel-1',
+    args: ['plugin', 'disable', 'qmd-memory'],
+  });
+
+  expect(setPluginEnabledMock).not.toHaveBeenCalled();
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Disable Restricted');
+  expect(result.text).toContain('only available from local TUI/web sessions');
+});
+
 test('handleGatewayCommand installs a plugin from a local TUI/web session and reloads plugins', async () => {
   setupHome();
 
@@ -647,9 +769,20 @@ test('handleGatewayCommand help continues without plugins when plugin manager in
   expect(result.text).toContain(
     '`plugin config <plugin-id> [key] [value|--unset]`',
   );
+  expect(result.text).toContain(
+    '`/plugin config <plugin-id> [key] [value|--unset]`',
+  );
+  expect(result.text).toContain('`plugin enable <plugin-id>`');
+  expect(result.text).toContain('`/plugin enable <plugin-id>`');
+  expect(result.text).toContain('`plugin disable <plugin-id>`');
   expect(result.text).toContain('`plugin install <path|npm-spec>`');
   expect(result.text).toContain('`plugin reinstall <path|npm-spec>`');
   expect(result.text).toContain('`plugin reload`');
+  expect(result.text).toContain('`/auth status hybridai`');
+  expect(result.text).toContain('`config`');
+  expect(result.text).toContain('`/config check`');
+  expect(result.text).toContain('`/config reload`');
+  expect(result.text).toContain('`/config set <key> <value>`');
 });
 
 test('handleGatewayCommand uninstalls a plugin and reloads the plugin manager', async () => {

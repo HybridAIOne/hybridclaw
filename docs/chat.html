@@ -2794,7 +2794,6 @@
           pendingMedia = [...queuedMedia, ...pendingMedia];
           renderPendingMedia();
         }
-        setError(text);
         addMessage('system', `Error: ${text}`);
       } finally {
         if (requestState.thinkingItem?.isConnected) {

@@ -15,6 +15,12 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
 
   expect(labels).toContain('/show tools');
   expect(labels).toContain('/model select');
+  expect(labels).toContain('/auth status hybridai');
+  expect(labels).toContain('/config');
+  expect(labels).toContain('/config check');
+  expect(labels).toContain('/config reload');
+  expect(labels).toContain('/config set <key> <value>');
+  expect(labels.filter((label) => label === '/config')).toHaveLength(1);
   expect(labels).toContain('/approve yes [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
   expect(labels).toContain('/bot list');

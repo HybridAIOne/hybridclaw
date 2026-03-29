@@ -27,6 +27,11 @@ import {
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import { callRoutedModel, callRoutedModelStream } from './providers/router.js';
 import {
+  HybridAIRequestError,
+  isHybridAIEmptyVisibleCompletion,
+  summarizeHybridAICompletionForDebug,
+} from './providers/shared.js';
+import {
   buildRalphPrompt,
   normalizeMessageContentToText,
   parseRalphChoice,
@@ -975,7 +980,10 @@ async function processRequest(
         ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
         tokenUsage: finalizeTokenUsage(tokenUsage),
-        error: `API error: ${err instanceof Error ? err.message : String(err)}`,
+        error:
+          err instanceof HybridAIRequestError
+            ? err.message
+            : `API error: ${err instanceof Error ? err.message : String(err)}`,
       };
       await emitRuntimeEvent({
         event: 'turn_end',
@@ -1031,6 +1039,32 @@ async function processRequest(
     }
 
     const toolCalls = choice.message.tool_calls || [];
+    if (
+      provider === 'hybridai' &&
+      parseRalphChoice(choice.message.content) === null &&
+      isHybridAIEmptyVisibleCompletion(response)
+    ) {
+      console.error(
+        `[model] empty completion provider=hybridai model=${model} debug=${summarizeHybridAICompletionForDebug(response)}`,
+      );
+      const failed: ContainerOutput = {
+        status: 'error',
+        result: null,
+        toolsUsed,
+        ...(artifacts.length > 0 ? { artifacts } : {}),
+        toolExecutions,
+        tokenUsage: finalizeTokenUsage(tokenUsage),
+        error:
+          'HybridAI returned an empty completion without visible text or tool calls.',
+        effectiveUserPrompt,
+      };
+      await emitRuntimeEvent({
+        event: 'turn_end',
+        status: failed.status,
+        toolsUsed,
+      });
+      return failed;
+    }
     if (toolCalls.length === 0) {
       if (ralphEnabled) {
         const branchChoice = parseRalphChoice(choice.message.content);

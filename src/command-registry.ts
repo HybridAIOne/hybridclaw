@@ -58,7 +58,9 @@ export interface PluginSlashCommandCatalogEntry {
 
 const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'agent',
+  'auth',
   'bot',
+  'config',
   'rag',
   'model',
   'status',
@@ -234,6 +236,16 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'status':
       return ['status'];
 
+    case 'auth': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['auth'];
+      if (sub === 'status') {
+        const provider = (parts[2] || '').trim().toLowerCase();
+        return provider ? ['auth', 'status', provider] : ['auth', 'status'];
+      }
+      return ['auth', ...parts.slice(1)];
+    }
+
     case 'show':
       return parts.length > 1 ? ['show', ...parts.slice(1)] : ['show'];
 
@@ -257,6 +269,10 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'plugin': {
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub || sub === 'list') return ['plugin', 'list'];
+      if (sub === 'enable' || sub === 'disable') {
+        const pluginId = (parts[2] || '').trim();
+        return pluginId ? ['plugin', sub, pluginId] : ['plugin', sub];
+      }
       if (sub === 'config') {
         const pluginId = (parts[2] || '').trim();
         const key = (parts[3] || '').trim();
@@ -282,6 +298,21 @@ export function mapCanonicalCommandToGatewayArgs(
         return pluginId
           ? ['plugin', 'uninstall', pluginId]
           : ['plugin', 'uninstall'];
+      }
+      return null;
+    }
+
+    case 'config': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['config'];
+      if (sub === 'check') return ['config', 'check'];
+      if (sub === 'reload') return ['config', 'reload'];
+      if (sub === 'set') {
+        const key = (parts[2] || '').trim();
+        const value = parts.slice(3).join(' ').trim();
+        if (!key) return ['config', 'set'];
+        if (!value) return ['config', 'set', key];
+        return ['config', 'set', key, value];
       }
       return null;
     }
@@ -623,15 +654,121 @@ function buildSlashCommandCatalogDefinitions(
       },
     },
     {
+      name: 'auth',
+      description: 'Show local provider auth and config status',
+      tuiOnly: true,
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'status',
+          description: 'Show local HybridAI auth status',
+          tuiMenu: {
+            label: '/auth status hybridai',
+            insertText: '/auth status hybridai',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'provider',
+              description: 'Provider name',
+              required: true,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      name: 'config',
+      description:
+        'Show, validate, reload, or set the local runtime config file',
+      tuiOnly: true,
+      tuiMenuEntries: [
+        {
+          id: 'config.set',
+          label: '/config set <key> <value>',
+          insertText: '/config set ',
+          description: 'Set one runtime config value',
+        },
+        {
+          id: 'config.check',
+          label: '/config check',
+          insertText: '/config check',
+          description: 'Validate the current runtime config',
+        },
+        {
+          id: 'config.reload',
+          label: '/config reload',
+          insertText: '/config reload',
+          description: 'Hot-reload the current runtime config from disk',
+        },
+      ],
+      options: [
+        {
+          kind: 'string',
+          name: 'action',
+          description: 'Optional action',
+          choices: [
+            { name: 'check', value: 'check' },
+            { name: 'reload', value: 'reload' },
+            { name: 'set', value: 'set' },
+          ],
+        },
+        {
+          kind: 'string',
+          name: 'key',
+          description: 'Dotted runtime config key path',
+        },
+        {
+          kind: 'string',
+          name: 'value',
+          description: 'JSON value or plain string',
+        },
+      ],
+    },
+    {
       name: 'plugin',
       description:
-        'List, configure, install, reinstall, reload, or uninstall HybridClaw plugins',
+        'List, configure, enable, disable, install, reinstall, reload, or uninstall HybridClaw plugins',
       options: [
         {
           kind: 'subcommand',
           name: 'list',
           description:
             'List discovered plugins, descriptions, commands, tools, hooks, and load errors',
+        },
+        {
+          kind: 'subcommand',
+          name: 'enable',
+          description: 'Enable a discovered plugin',
+          tuiMenu: {
+            label: '/plugin enable <id>',
+            insertText: '/plugin enable ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Plugin id',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'disable',
+          description: 'Disable a discovered plugin',
+          tuiMenu: {
+            label: '/plugin disable <id>',
+            insertText: '/plugin disable ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Plugin id',
+              required: true,
+            },
+          ],
         },
         {
           kind: 'subcommand',
@@ -1319,6 +1456,24 @@ export function parseCanonicalSlashCommandArgs(
     case 'status':
       return ['status'];
 
+    case 'auth': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (subcommand !== 'status') return null;
+      const provider = normalizeStringOption(interaction, 'provider', true);
+      return provider ? ['auth', 'status', provider] : null;
+    }
+
+    case 'config': {
+      const action = normalizeStringOption(interaction, 'action');
+      const key = normalizeStringOption(interaction, 'key');
+      const value = normalizeStringOption(interaction, 'value');
+      if (!action && !key && !value) return ['config'];
+      if (action === 'check' && !key && !value) return ['config', 'check'];
+      if (action === 'reload' && !key && !value) return ['config', 'reload'];
+      if (action !== 'set' || !key || !value) return null;
+      return ['config', 'set', key, value];
+    }
+
     case 'show': {
       const subcommand = normalizeSubcommand(interaction);
       if (
@@ -1479,6 +1634,10 @@ export function parseCanonicalSlashCommandArgs(
     case 'plugin': {
       const subcommand = normalizeSubcommand(interaction);
       if (subcommand === 'list') return ['plugin', 'list'];
+      if (subcommand === 'enable' || subcommand === 'disable') {
+        const pluginId = normalizeStringOption(interaction, 'id', true);
+        return pluginId ? ['plugin', subcommand, pluginId] : null;
+      }
       if (subcommand === 'config') {
         const pluginId = normalizeStringOption(interaction, 'id', true);
         const key = normalizeStringOption(interaction, 'key');

@@ -153,6 +153,7 @@ test('wraps panel rows for very narrow terminals and defaults provider to Hybrid
     '│ /channel-policy            │',
     '│ /clear                     │',
     '│ /compact                   │',
+    '│ /config                    │',
     '│ /exit                      │',
     '│ /export                    │',
     '│ /fullauto                  │',

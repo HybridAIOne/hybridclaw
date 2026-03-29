@@ -654,6 +654,70 @@
       .nav-links a:not(.nav-gh) { display: none; }
     }
   </style>
+<script>
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'Organization',
+        name: 'HybridAI GmbH',
+        url: 'https://hybridai.one',
+        logo: 'https://www.hybridclaw.io/hero.png',
+        foundingDate: '2024-01-01',
+        sameAs: [
+          'https://www.linkedin.com/company/hybridai-one/',
+          'https://x.com/hybridai_one',
+          'https://github.com/HybridAIOne/hybridclaw'
+        ]
+      },
+      {
+        '@type': 'WebSite',
+        name: 'HybridClaw',
+        url: 'https://www.hybridclaw.io',
+        publisher: {
+          '@type': 'Organization',
+          name: 'HybridAI GmbH',
+          url: 'https://hybridai.one'
+        },
+        sameAs: [
+          'https://www.hybridclaw.io/development/',
+          'https://github.com/HybridAIOne/hybridclaw'
+        ],
+        potentialAction: {
+          '@type': 'SearchAction',
+          target: 'https://www.hybridclaw.io/search?q={search_term_string}',
+          'query-input': 'required name=search_term_string'
+        }
+      },
+      {
+        '@type': 'SoftwareApplication',
+        name: 'HybridClaw AI Agent',
+        url: 'https://www.hybridclaw.io',
+        image: 'https://www.hybridclaw.io/hero.png',
+        operatingSystem: 'All',
+        applicationCategory: 'AI Agent',
+        publisher: {
+          '@type': 'Organization',
+          name: 'HybridAI GmbH',
+          url: 'https://hybridai.one'
+        },
+        sameAs: [
+          'https://github.com/HybridAIOne/hybridclaw',
+          'https://www.hybridclaw.io/development/'
+        ],
+        offers: {
+          '@type': 'Offer',
+          price: '0',
+          priceCurrency: 'USD'
+        }
+      }
+    ]
+  };
+  const jsonLdScript = document.createElement('script');
+  jsonLdScript.type = 'application/ld+json';
+  jsonLdScript.textContent = JSON.stringify(jsonLd);
+  document.head.appendChild(jsonLdScript);
+</script>
 </head>
 <body>
 

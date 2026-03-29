@@ -1203,7 +1203,9 @@ async function runGatewayCommand(
     const normalizedSubcommand = (args[1] || '').trim().toLowerCase();
     if (
       normalizedCommand === 'plugin' &&
-      (normalizedSubcommand === 'install' ||
+      (normalizedSubcommand === 'enable' ||
+        normalizedSubcommand === 'disable' ||
+        normalizedSubcommand === 'install' ||
         normalizedSubcommand === 'reinstall' ||
         normalizedSubcommand === 'reload' ||
         normalizedSubcommand === 'uninstall')

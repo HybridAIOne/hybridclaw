@@ -216,6 +216,9 @@ test('HostExecutor exposes the uploaded media cache root to host agent processes
   expect(spawnEnv?.HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT).toBe(
     resolveUploadedMediaCacheHostDir(),
   );
+  expect(JSON.parse(spawnEnv?.HYBRIDCLAW_AGENT_ALLOWED_ROOTS || '[]')).toEqual(
+    expect.arrayContaining([os.homedir(), process.cwd(), os.tmpdir()]),
+  );
 });
 
 test('HostExecutor treats interrupted stdin EPIPE as a user interrupt', async () => {

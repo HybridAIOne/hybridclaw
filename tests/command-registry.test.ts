@@ -26,6 +26,14 @@ test('registers plugin as a slash/text command', async () => {
           }),
           expect.objectContaining({
             kind: 'subcommand',
+            name: 'enable',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'disable',
+          }),
+          expect.objectContaining({
+            kind: 'subcommand',
             name: 'config',
           }),
           expect.objectContaining({
@@ -50,6 +58,137 @@ test('registers plugin as a slash/text command', async () => {
   );
 });
 
+test('registers auth as a local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    parseCanonicalSlashCommandArgs,
+    mapCanonicalCommandToGatewayArgs,
+  } = await importCommandRegistry();
+  expect(isRegisteredTextCommandName('auth')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'auth',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'auth',
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'status',
+          }),
+        ]),
+      }),
+    ]),
+  );
+  const authDefinition = buildTuiSlashCommandDefinitions([]).find(
+    (definition) => definition.name === 'auth',
+  );
+  const authStatusDefinition = authDefinition?.options?.find(
+    (option) => option.kind === 'subcommand' && option.name === 'status',
+  );
+  const providerOption = authStatusDefinition?.options?.find(
+    (option) => option.kind === 'string' && option.name === 'provider',
+  );
+  expect(providerOption).toEqual(
+    expect.objectContaining({
+      kind: 'string',
+      name: 'provider',
+      required: true,
+    }),
+  );
+  expect(providerOption?.choices).toBeUndefined();
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'auth',
+      getString: (name) => (name === 'provider' ? 'hybridai' : null),
+      getSubcommand: () => 'status',
+    }),
+  ).toEqual(['auth', 'status', 'hybridai']);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['auth', 'status', 'hybridai']),
+  ).toEqual(['auth', 'status', 'hybridai']);
+});
+
+test('registers config as a local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    parseCanonicalSlashCommandArgs,
+    mapCanonicalCommandToGatewayArgs,
+  } = await importCommandRegistry();
+  expect(isRegisteredTextCommandName('config')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'config',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'config',
+      }),
+    ]),
+  );
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'config',
+      getString: () => null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['config']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'config',
+      getString: (name) => (name === 'action' ? 'check' : null),
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['config', 'check']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'config',
+      getString: (name) => (name === 'action' ? 'reload' : null),
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['config', 'reload']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'config',
+      getString: (name) =>
+        name === 'action'
+          ? 'set'
+          : name === 'key'
+            ? 'hybridai.maxTokens'
+            : name === 'value'
+              ? '8192'
+              : null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['config', 'set', 'hybridai.maxTokens', '8192']);
+  expect(mapCanonicalCommandToGatewayArgs(['config'])).toEqual(['config']);
+  expect(mapCanonicalCommandToGatewayArgs(['config', 'check'])).toEqual([
+    'config',
+    'check',
+  ]);
+  expect(mapCanonicalCommandToGatewayArgs(['config', 'reload'])).toEqual([
+    'config',
+    'reload',
+  ]);
+  expect(
+    mapCanonicalCommandToGatewayArgs([
+      'config',
+      'set',
+      'hybridai.maxTokens',
+      '8192',
+    ]),
+  ).toEqual(['config', 'set', 'hybridai.maxTokens', '8192']);
+});
+
 test('parses /plugin list into gateway args', async () => {
   const { parseCanonicalSlashCommandArgs } = await importCommandRegistry();
   expect(
@@ -70,6 +209,21 @@ test('parses /plugin reload into gateway args', async () => {
       getSubcommand: () => 'reload',
     }),
   ).toEqual(['plugin', 'reload']);
+});
+
+test('parses /plugin disable into gateway args', async () => {
+  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'plugin',
+      getString: (name) => (name === 'id' ? 'qmd-memory' : null),
+      getSubcommand: () => 'disable',
+    }),
+  ).toEqual(['plugin', 'disable', 'qmd-memory']);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['plugin', 'disable', 'qmd-memory']),
+  ).toEqual(['plugin', 'disable', 'qmd-memory']);
 });
 
 test('parses /plugin config into gateway args', async () => {

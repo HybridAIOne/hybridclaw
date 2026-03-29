@@ -71,6 +71,7 @@ const SLASH_COMMANDS = [
   '/channel-policy',
   '/clear',
   '/compact',
+  '/config',
   '/exit',
   '/export',
   '/fullauto',

@@ -159,7 +159,7 @@ test('handleGatewayMessage falls back to /bot-management/me when no chatbot is c
     toolExecutions: [],
   });
 
-  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getSessionById, initDatabase } = await import('../src/memory/db.ts');
   initDatabase({ quiet: true });
 
   const { handleGatewayMessage } = await import(
@@ -178,6 +178,28 @@ test('handleGatewayMessage falls back to /bot-management/me when no chatbot is c
   expect(result.status).toBe('success');
   expect(fetchHybridAIAccountChatbotId).toHaveBeenCalledTimes(1);
   expect(runAgentMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sessionId: 'session-chatbot-fallback',
+      chatbotId: 'user-42',
+      model: 'gpt-5-nano',
+    }),
+  );
+  expect(getSessionById('session-chatbot-fallback')?.chatbot_id).toBe(
+    'user-42',
+  );
+
+  await handleGatewayMessage({
+    sessionId: 'session-chatbot-fallback',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: 'Say hello again',
+    model: 'gpt-5-nano',
+  });
+
+  expect(fetchHybridAIAccountChatbotId).toHaveBeenCalledTimes(1);
+  expect(runAgentMock).toHaveBeenLastCalledWith(
     expect.objectContaining({
       sessionId: 'session-chatbot-fallback',
       chatbotId: 'user-42',

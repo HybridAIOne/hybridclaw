@@ -1,10 +1,13 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
+  ADDITIONAL_MOUNTS,
+  CONTAINER_BINDS,
   CONTAINER_TIMEOUT,
   CONTEXT_GUARD_COMPACTION_RATIO,
   CONTEXT_GUARD_ENABLED,
@@ -34,6 +37,7 @@ import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
+import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { redactSecrets } from '../security/redact.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
@@ -70,6 +74,24 @@ const TOOL_RESULT_RE =
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
+
+function buildHostAllowedRoots(): string[] {
+  const configured = resolveConfiguredAdditionalMounts({
+    binds: CONTAINER_BINDS,
+    additionalMounts: ADDITIONAL_MOUNTS,
+  });
+  for (const warning of configured.warnings) {
+    logger.warn({ warning }, 'Configured host-mode allowed root ignored');
+  }
+  return Array.from(
+    new Set([
+      os.homedir(),
+      process.cwd(),
+      os.tmpdir(),
+      ...configured.mounts.map((mount) => path.resolve(mount.hostPath)),
+    ]),
+  );
+}
 
 interface PoolEntry {
   process: ChildProcess;
@@ -350,6 +372,7 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
+    HYBRIDCLAW_AGENT_ALLOWED_ROOTS: JSON.stringify(buildHostAllowedRoots()),
     HYBRIDCLAW_AGENT_MEDIA_ROOT: mediaCacheHostPath,
     HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT: uploadedMediaCacheHostPath,
     HYBRIDCLAW_AGENT_IPC_DIR: ipcPath,

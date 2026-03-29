@@ -381,6 +381,21 @@ async function importFreshCli(options?: {
       entry: null,
     }),
   );
+  const setPluginEnabled = vi.fn(
+    async (pluginId: string, enabled: boolean) => ({
+      pluginId,
+      enabled,
+      changed: true,
+      configPath: '/tmp/config.json',
+      entry: enabled
+        ? null
+        : {
+            id: pluginId,
+            enabled: false,
+            config: {},
+          },
+    }),
+  );
   const writePluginConfigValue = vi.fn(
     async (pluginId: string, key: string, rawValue: string) => ({
       pluginId,
@@ -485,8 +500,18 @@ async function importFreshCli(options?: {
   let runtimeConfigState = JSON.parse(
     fs.readFileSync(path.join(process.cwd(), 'config.example.json'), 'utf8'),
   ) as ReturnType<typeof actualRuntimeConfig.getRuntimeConfig>;
+  const configPath = '/tmp/config.json';
+  const persistRuntimeConfigState = () => {
+    fs.writeFileSync(
+      configPath,
+      `${JSON.stringify(runtimeConfigState, null, 2)}\n`,
+      'utf-8',
+    );
+  };
+  persistRuntimeConfigState();
   const getRuntimeConfig = vi.fn(() => structuredClone(runtimeConfigState));
-  const runtimeConfigPath = vi.fn(() => '/tmp/config.json');
+  const reloadRuntimeConfig = vi.fn(() => structuredClone(runtimeConfigState));
+  const runtimeConfigPath = vi.fn(() => configPath);
   const getRuntimeSkillScopeDisabledNames = vi.fn(
     (
       config: {
@@ -546,6 +571,7 @@ async function importFreshCli(options?: {
       const draft = getRuntimeConfig() as Record<string, unknown>;
       mutator(draft);
       runtimeConfigState = draft as typeof runtimeConfigState;
+      persistRuntimeConfigState();
       return structuredClone(runtimeConfigState);
     },
   );
@@ -647,6 +673,7 @@ async function importFreshCli(options?: {
     getRuntimeSkillScopeDisabledNames,
     getRuntimeConfig,
     onRuntimeConfigChange,
+    reloadRuntimeConfig,
     runtimeConfigPath,
     setRuntimeSkillScopeEnabled,
     updateRuntimeConfig,
@@ -760,6 +787,7 @@ async function importFreshCli(options?: {
   vi.doMock('../src/plugins/plugin-config.js', () => ({
     readPluginConfigEntry,
     readPluginConfigValue,
+    setPluginEnabled,
     unsetPluginConfigValue,
     writePluginConfigValue,
   }));
@@ -798,6 +826,7 @@ async function importFreshCli(options?: {
     importSkill,
     readPluginConfigEntry,
     readPluginConfigValue,
+    setPluginEnabled,
     unsetPluginConfigValue,
     writePluginConfigValue,
     listPluginSummary,
@@ -808,6 +837,7 @@ async function importFreshCli(options?: {
     saveRuntimeSecrets,
     ensureRuntimeConfigFile,
     getRuntimeConfig,
+    reloadRuntimeConfig,
     runtimeConfigPath,
     updateRuntimeConfig,
     gatewayHealth,
@@ -1141,6 +1171,45 @@ describe('CLI hybridai commands', () => {
       'Set plugin config qmd-memory.searchMode = "query".',
     );
     expect(logSpy).toHaveBeenCalledWith(
+      'Updated runtime config at /tmp/config.json.',
+    );
+  });
+
+  it('disables a plugin', async () => {
+    const { cli, setPluginEnabled } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'disable', 'qmd-memory']);
+
+    expect(setPluginEnabled).toHaveBeenCalledWith('qmd-memory', false);
+    expect(logSpy).toHaveBeenCalledWith('Disabled plugin qmd-memory.');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Updated runtime config at /tmp/config.json.',
+    );
+  });
+
+  it('does not claim the runtime config was updated when a plugin is already disabled', async () => {
+    const { cli, setPluginEnabled } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    setPluginEnabled.mockResolvedValueOnce({
+      pluginId: 'qmd-memory',
+      enabled: false,
+      changed: false,
+      configPath: '/tmp/config.json',
+      entry: {
+        id: 'qmd-memory',
+        enabled: false,
+        config: {},
+      },
+    });
+
+    await cli.main(['plugin', 'disable', 'qmd-memory']);
+
+    expect(setPluginEnabled).toHaveBeenCalledWith('qmd-memory', false);
+    expect(logSpy).toHaveBeenCalledWith(
+      'Plugin qmd-memory was already disabled.',
+    );
+    expect(logSpy).not.toHaveBeenCalledWith(
       'Updated runtime config at /tmp/config.json.',
     );
   });
@@ -1518,6 +1587,65 @@ describe('CLI hybridai commands', () => {
 
     expect(logSpy).toHaveBeenCalledWith('Authenticated: no');
     expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Source:'));
+  });
+
+  it('prints the current runtime config from the top-level config command', async () => {
+    const { cli, getRuntimeConfig, runtimeConfigPath } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['config']);
+
+    expect(logSpy.mock.calls[0]?.[0]).toBe(
+      `Active config: ${runtimeConfigPath()}`,
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      JSON.stringify(getRuntimeConfig(), null, 2),
+    );
+  });
+
+  it('runs config check against the runtime config file only', async () => {
+    const { cli, runDoctorCli, runtimeConfigPath } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    process.exitCode = 0;
+
+    await cli.main(['config', 'check']);
+
+    expect(runDoctorCli).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      `✓ Config  ${runtimeConfigPath()} valid (v17)`,
+    );
+    expect(process.exitCode).toBe(0);
+  });
+
+  it('reloads runtime config from disk through the top-level config command', async () => {
+    const { cli, reloadRuntimeConfig, runDoctorCli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    process.exitCode = 0;
+
+    await cli.main(['config', 'reload']);
+
+    expect(reloadRuntimeConfig).toHaveBeenCalledWith('cli');
+    expect(runDoctorCli).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'Reloaded runtime config from /tmp/config.json.',
+    );
+  });
+
+  it('updates an existing dotted runtime config key from the top-level config command', async () => {
+    const { cli, getRuntimeConfig, runDoctorCli, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    process.exitCode = 0;
+
+    await cli.main(['config', 'set', 'hybridai.maxTokens', '8192']);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(runDoctorCli).not.toHaveBeenCalled();
+    expect(getRuntimeConfig().hybridai.maxTokens).toBe(8192);
+    expect(logSpy).toHaveBeenCalledWith(
+      'Updated runtime config at /tmp/config.json.',
+    );
+    expect(logSpy).toHaveBeenCalledWith('Key: hybridai.maxTokens');
   });
 
   it('runs hybridai login with explicit browser mode', async () => {

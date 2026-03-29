@@ -3806,10 +3806,15 @@ function loadRuntimeConfigFromSources(): RuntimeConfig {
   return normalizeRuntimeConfig(diskPatch);
 }
 
+function reloadRuntimeConfigFromSources(): RuntimeConfig {
+  const next = loadRuntimeConfigFromSources();
+  applyConfig(next);
+  return cloneConfig(currentConfig);
+}
+
 function reloadFromDisk(trigger: string): void {
   try {
-    const next = loadRuntimeConfigFromSources();
-    applyConfig(next);
+    reloadRuntimeConfigFromSources();
   } catch (err) {
     console.warn(
       `[runtime-config] reload failed (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
@@ -3999,6 +4004,21 @@ export function ensureRuntimeConfigFile(): boolean {
   ensureInitialConfigFile();
   reloadFromDisk('ensure-file');
   return true;
+}
+
+export function reloadRuntimeConfig(trigger = 'manual'): RuntimeConfig {
+  if (reloadTimer) {
+    clearTimeout(reloadTimer);
+    reloadTimer = null;
+  }
+
+  try {
+    return reloadRuntimeConfigFromSources();
+  } catch (err) {
+    throw new Error(
+      `Failed to reload runtime config (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 export function getRuntimeConfig(): RuntimeConfig {

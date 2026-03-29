@@ -240,6 +240,241 @@ test('status command includes the current session agent', async () => {
   );
 });
 
+test('auth status hybridai shows local HybridAI auth details', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  delete process.env.HYBRIDAI_API_KEY;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.baseUrl = 'https://hybridai.example';
+    config.hybridai.defaultModel = 'gpt-5-nano';
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { saveRuntimeSecrets } = await import(
+    '../src/security/runtime-secrets.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  saveRuntimeSecrets({
+    HYBRIDAI_API_KEY: 'hai-status1234567890abcd',
+  });
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-auth-status',
+    guildId: null,
+    channelId: 'tui',
+    args: ['auth', 'status', 'hybridai'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('HybridAI Auth Status');
+  expect(result.text).toContain('Authenticated: yes');
+  expect(result.text).toContain('Source: runtime-secrets');
+  expect(result.text).toContain('API key: hai-…abcd');
+  expect(result.text).not.toContain('credentials.json');
+  expect(result.text).not.toContain('Path:');
+  expect(result.text).toContain('Base URL: https://hybridai.example');
+  expect(result.text).toContain('Default model: hybridai/gpt-5-nano');
+  expect(result.text).toContain(
+    'Billing: unavailable from this status command',
+  );
+});
+
+test('auth status hybridai is restricted outside local TUI/web sessions', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-auth-status-remote',
+    guildId: 'guild-1',
+    channelId: 'discord-channel-1',
+    args: ['auth', 'status', 'hybridai'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Auth Status Restricted');
+  expect(result.text).toContain('only available from local TUI/web sessions');
+});
+
+test('config shows the local runtime config', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.maxTokens = 4096;
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-config-view',
+    guildId: null,
+    channelId: 'web',
+    args: ['config'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Runtime Config');
+  expect(
+    result.text.startsWith(
+      `Active config: ${path.join(homeDir, '.hybridclaw', 'config.json')}\n`,
+    ),
+  ).toBe(true);
+  expect(result.text).toContain('"maxTokens": 4096');
+});
+
+test('config check validates the local runtime config', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.maxTokens = 4096;
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-config-check',
+    guildId: null,
+    channelId: 'web',
+    args: ['config', 'check'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Config Check');
+  expect(result.text).toContain('✓ Config');
+  expect(result.text).toContain('0 errors');
+});
+
+test('config reload hot-reloads the local runtime config from disk', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.maxTokens = 4096;
+  });
+
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.maxTokens = 8192;
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-config-reload',
+    guildId: null,
+    channelId: 'web',
+    args: ['config', 'reload'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Runtime Config Reloaded');
+  expect(result.text).toContain(`Path: ${configPath}`);
+  expect(result.text).toContain('"maxTokens": 8192');
+  expect(result.text).toContain('Check:');
+  expect(result.text).toContain('✓ Config');
+  expect(getRuntimeConfig().hybridai.maxTokens).toBe(8192);
+});
+
+test('config set updates an existing dotted runtime config key', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.maxTokens = 4096;
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-config-set',
+    guildId: null,
+    channelId: 'tui',
+    args: ['config', 'set', 'hybridai.maxTokens', '8192'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Runtime Config Updated');
+  expect(result.text).toContain('Key: hybridai.maxTokens');
+  expect(result.text).toContain('"maxTokens": 8192');
+  expect(result.text).toContain('Check:');
+  expect(result.text).toContain('✓ Config');
+  expect(getRuntimeConfig().hybridai.maxTokens).toBe(8192);
+});
+
+test('config is restricted outside local TUI/web sessions', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-config-remote',
+    guildId: 'guild-1',
+    channelId: 'discord-channel-1',
+    args: ['config'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Config Restricted');
+  expect(result.text).toContain('only available from local TUI/web sessions');
+});
+
 test('assistant presentation caches resolved image assets per agent path', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -1270,7 +1505,7 @@ test('model list refreshes local backend health before filtering models', async 
               'lmstudio',
               {
                 backend: 'lmstudio',
-                reachable: useFreshState ? false : true,
+                reachable: !useFreshState,
                 latencyMs: 10,
                 ...(useFreshState
                   ? { error: 'connection refused' }
