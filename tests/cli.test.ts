@@ -1611,9 +1611,14 @@ describe('CLI hybridai commands', () => {
     await cli.main(['config', 'check']);
 
     expect(runDoctorCli).not.toHaveBeenCalled();
-    expect(logSpy).toHaveBeenCalledWith(
-      `✓ Config  ${runtimeConfigPath()} valid (v17)`,
+    const escapedPath = runtimeConfigPath().replace(
+      /[.*+?^${}()|[\]\\]/g,
+      '\\$&',
     );
+    expect(logSpy.mock.calls[0]?.[0]).toMatch(
+      new RegExp(`^✓ Config  ${escapedPath} valid \\(v\\d+\\)$`),
+    );
+    expect(logSpy).toHaveBeenCalledWith('1 ok · 0 warnings · 0 errors');
     expect(process.exitCode).toBe(0);
   });
 

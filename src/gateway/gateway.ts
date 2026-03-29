@@ -29,7 +29,10 @@ import {
   sendToEmail,
   shutdownEmail,
 } from '../channels/email/runtime.js';
-import { isIMessageHandle } from '../channels/imessage/handle.js';
+import {
+  isIMessageHandle,
+  normalizeIMessageHandle,
+} from '../channels/imessage/handle.js';
 import {
   initIMessage,
   sendIMessageMediaToChat,
@@ -272,6 +275,31 @@ function formatIMessageGatewayFailure(
   return formatError('Agent Error', detail || 'Unknown error');
 }
 
+function isLocalIMessageSelfChatContext(context: {
+  backend?: string;
+  isGroup?: boolean;
+  handle?: string | null;
+  rawEvent?: unknown;
+}): boolean {
+  if (context.backend !== 'local' || context.isGroup) {
+    return false;
+  }
+  const rawEvent =
+    context.rawEvent && typeof context.rawEvent === 'object'
+      ? (context.rawEvent as {
+          handle?: string | null;
+          chatIdentifier?: string | null;
+        })
+      : null;
+  const sender = normalizeIMessageHandle(
+    String(rawEvent?.handle || context.handle || ''),
+  );
+  const chatIdentifier = normalizeIMessageHandle(
+    String(rawEvent?.chatIdentifier || ''),
+  );
+  return Boolean(sender && chatIdentifier && sender === chatIdentifier);
+}
+
 function resolveImplicitNumericApprovalArgs(params: {
   sessionId: string;
   userId: string;
@@ -418,45 +446,6 @@ async function sendProactiveMessageNow(
     return;
   }
 
-  if (isIMessageHandle(channelId)) {
-    if (!getConfigSnapshot().imessage.enabled) {
-      logger.info(
-        { source, channelId, text, artifactCount: attachments.length },
-        'Proactive iMessage message suppressed: iMessage channel is not configured',
-      );
-      return;
-    }
-    try {
-      if (artifacts && artifacts.length > 0) {
-        await sendIMessageMediaToChat({
-          target: channelId,
-          filePath: artifacts[0].path,
-          mimeType: artifacts[0].mimeType,
-          filename: artifacts[0].filename,
-          caption: text,
-        });
-        for (let index = 1; index < artifacts.length; index += 1) {
-          await sendIMessageMediaToChat({
-            target: channelId,
-            filePath: artifacts[index].path,
-            mimeType: artifacts[index].mimeType,
-            filename: artifacts[index].filename,
-          });
-        }
-        return;
-      }
-
-      await sendToIMessageChat(channelId, text);
-    } catch (error) {
-      logger.warn(
-        { source, channelId, error, artifactCount: attachments.length },
-        'Failed to send proactive message to iMessage chat',
-      );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
-    }
-    return;
-  }
-
   if (isEmailAddress(channelId)) {
     if (
       !getConfigSnapshot().email.enabled ||
@@ -494,6 +483,45 @@ async function sendProactiveMessageNow(
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to email recipient',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
+  if (isIMessageHandle(channelId)) {
+    if (!getConfigSnapshot().imessage.enabled) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive iMessage message suppressed: iMessage channel is not configured',
+      );
+      return;
+    }
+    try {
+      if (artifacts && artifacts.length > 0) {
+        await sendIMessageMediaToChat({
+          target: channelId,
+          filePath: artifacts[0].path,
+          mimeType: artifacts[0].mimeType,
+          filename: artifacts[0].filename,
+          caption: text,
+        });
+        for (let index = 1; index < artifacts.length; index += 1) {
+          await sendIMessageMediaToChat({
+            target: channelId,
+            filePath: artifacts[index].path,
+            mimeType: artifacts[index].mimeType,
+            filename: artifacts[index].filename,
+          });
+        }
+        return;
+      }
+
+      await sendToIMessageChat(channelId, text);
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to iMessage chat',
       );
       logger.info({ source, channelId, text }, 'Proactive message fallback');
     }
@@ -1294,103 +1322,117 @@ async function startIMessageIntegration(): Promise<boolean> {
     return false;
   }
 
-  await initIMessage(
-    async (
-      sessionId,
-      guildId,
-      channelId,
-      userId,
-      username,
-      content,
-      media,
-      reply,
-      context,
-    ) => {
-      try {
-        const slashCommands = resolveTextChannelSlashCommands(content);
-        if (slashCommands) {
-          const textReply: ReplyFn = async (message) => {
-            await reply(message);
-          };
-          for (const args of slashCommands) {
-            await handleTextChannelCommand({
+  try {
+    await initIMessage(
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content,
+        media,
+        reply,
+        context,
+      ) => {
+        try {
+          const slashCommands = resolveTextChannelSlashCommands(content);
+          if (slashCommands) {
+            const textReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            for (const args of slashCommands) {
+              await handleTextChannelCommand({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                args,
+                reply: textReply,
+              });
+            }
+            return;
+          }
+
+          const result = normalizePlaceholderToolReply(
+            await handleGatewayMessage({
               sessionId,
               guildId,
               channelId,
               userId,
               username,
-              args,
-              reply: textReply,
-            });
+              content,
+              media,
+              onProactiveMessage: async (message) => {
+                await deliverProactiveMessage(
+                  channelId,
+                  message.text,
+                  'delegate',
+                  message.artifacts,
+                );
+              },
+              abortSignal: context.abortSignal,
+              source: 'imessage',
+            }),
+          );
+          if (result.status === 'error') {
+            const failureText = formatIMessageGatewayFailure(result.error);
+            if (
+              failureText === IMESSAGE_INTERRUPTED_REPLY &&
+              isLocalIMessageSelfChatContext(context)
+            ) {
+              return;
+            }
+            await reply(failureText);
+            return;
           }
-          return;
-        }
 
-        const result = normalizePlaceholderToolReply(
-          await handleGatewayMessage({
-            sessionId,
-            guildId,
-            channelId,
-            userId,
-            username,
-            content,
-            media,
-            onProactiveMessage: async (message) => {
-              await deliverProactiveMessage(
-                channelId,
-                message.text,
-                'delegate',
-                message.artifacts,
-              );
-            },
-            abortSignal: context.abortSignal,
-            source: 'imessage',
-          }),
-        );
-        if (result.status === 'error') {
-          await reply(formatIMessageGatewayFailure(result.error));
-          return;
-        }
+          const cleanedResultText = stripSilentToken(
+            String(result.result || ''),
+          );
+          const artifacts = result.artifacts || [];
+          if (isSilentReply(result.result)) {
+            return;
+          }
+          if (!cleanedResultText.trim() && artifacts.length === 0) {
+            return;
+          }
 
-        const cleanedResultText = stripSilentToken(String(result.result || ''));
-        const artifacts = result.artifacts || [];
-        if (isSilentReply(result.result)) {
-          return;
-        }
-        if (!cleanedResultText.trim() && artifacts.length === 0) {
-          return;
-        }
-
-        if (artifacts.length > 0) {
-          await sendIMessageMediaToChat({
-            target: channelId,
-            filePath: artifacts[0].path,
-            mimeType: artifacts[0].mimeType,
-            filename: artifacts[0].filename,
-            caption: cleanedResultText || undefined,
-          });
-          for (let index = 1; index < artifacts.length; index += 1) {
+          if (artifacts.length > 0) {
             await sendIMessageMediaToChat({
               target: channelId,
-              filePath: artifacts[index].path,
-              mimeType: artifacts[index].mimeType,
-              filename: artifacts[index].filename,
+              filePath: artifacts[0].path,
+              mimeType: artifacts[0].mimeType,
+              filename: artifacts[0].filename,
+              caption: cleanedResultText || undefined,
             });
+            for (let index = 1; index < artifacts.length; index += 1) {
+              await sendIMessageMediaToChat({
+                target: channelId,
+                filePath: artifacts[index].path,
+                mimeType: artifacts[index].mimeType,
+                filename: artifacts[index].filename,
+              });
+            }
+            return;
           }
-          return;
-        }
 
-        await reply(cleanedResultText);
-      } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
-        logger.error(
-          { error, sessionId, channelId },
-          'iMessage message handling failed',
-        );
-        await reply(formatError('Gateway Error', text));
-      }
-    },
-  );
+          await reply(cleanedResultText);
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          logger.error(
+            { error, sessionId, channelId },
+            'iMessage message handling failed',
+          );
+          await reply(formatError('Gateway Error', text));
+        }
+      },
+    );
+  } catch (error) {
+    logger.warn({ error }, 'iMessage integration failed to start');
+    return false;
+  }
   logger.info(
     {
       backend: imessageConfig.backend,

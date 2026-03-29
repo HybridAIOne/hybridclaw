@@ -4,9 +4,12 @@ import {
   normalizeEmailAddress,
   normalizeEmailAllowEntry,
 } from '../channels/email/allowlist.js';
+import { normalizeIMessageHandle } from '../channels/imessage/handle.js';
+import { assertLocalIMessageBackendReady } from '../channels/imessage/local-prereqs.js';
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
+  type IMessageBackend,
   runtimeConfigPath,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
@@ -402,6 +405,162 @@ function parseEmailSetupArgs(args: string[]): {
     allowFrom: [...new Set(allowFrom)],
     textChunkLimit,
     mediaMaxMb,
+  };
+}
+
+function parseIMessageSetupArgs(args: string[]): {
+  allowFrom: string[];
+  allowPrivateNetwork: boolean | null;
+  backend: IMessageBackend | null;
+  cliPath: string | null;
+  dbPath: string | null;
+  password: string | null;
+  serverUrl: string | null;
+  webhookPath: string | null;
+} {
+  const allowFrom: string[] = [];
+  let allowPrivateNetwork: boolean | null = null;
+  let backend: IMessageBackend | null = null;
+  let cliPath: string | null = null;
+  let dbPath: string | null = null;
+  let password: string | null = null;
+  let serverUrl: string | null = null;
+  let webhookPath: string | null = null;
+
+  const parseHandle = (raw: string): string => {
+    const normalized = normalizeIMessageHandle(raw);
+    if (!normalized) {
+      throw new Error(
+        `Invalid iMessage handle: ${raw}. Use a phone number, email address, or chat: group id.`,
+      );
+    }
+    return normalized;
+  };
+
+  const parseBackend = (raw: string): IMessageBackend => {
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === 'local') {
+      return normalized;
+    }
+    if (normalized === 'remote') {
+      return 'bluebubbles';
+    }
+    throw new Error(
+      `Invalid value for \`--backend\`: ${raw}. Use \`local\` or \`remote\`.`,
+    );
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--backend') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--backend`.');
+      backend = parseBackend(next);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--backend=')) {
+      backend = parseBackend(arg.slice('--backend='.length));
+      continue;
+    }
+    if (arg === '--allow-from') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--allow-from`.');
+      allowFrom.push(parseHandle(next));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--allow-from=')) {
+      allowFrom.push(parseHandle(arg.slice('--allow-from='.length)));
+      continue;
+    }
+    if (arg === '--cli-path') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--cli-path`.');
+      cliPath = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--cli-path=')) {
+      cliPath = arg.slice('--cli-path='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--db-path') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--db-path`.');
+      dbPath = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--db-path=')) {
+      dbPath = arg.slice('--db-path='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--server-url') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--server-url`.');
+      serverUrl = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--server-url=')) {
+      serverUrl = arg.slice('--server-url='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--password') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--password`.');
+      password = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--password=')) {
+      password = arg.slice('--password='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--webhook-path') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--webhook-path`.');
+      webhookPath = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--webhook-path=')) {
+      webhookPath = arg.slice('--webhook-path='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--allow-private-network') {
+      allowPrivateNetwork = true;
+      continue;
+    }
+    if (arg === '--no-allow-private-network') {
+      allowPrivateNetwork = false;
+      continue;
+    }
+    if (arg.startsWith('--allow-private-network=')) {
+      allowPrivateNetwork = parseBooleanFlagValue(
+        '--allow-private-network',
+        arg.slice('--allow-private-network='.length),
+      );
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <handle>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]\`.`,
+    );
+  }
+
+  return {
+    allowFrom: [...new Set(allowFrom)],
+    allowPrivateNetwork,
+    backend,
+    cliPath,
+    dbPath,
+    password,
+    serverUrl,
+    webhookPath,
   };
 }
 
@@ -891,6 +1050,112 @@ async function configureWhatsAppChannel(args: string[]): Promise<void> {
   await pairWhatsAppChannel();
 }
 
+function configureIMessageChannel(args: string[]): void {
+  ensureRuntimeConfigFile();
+  const parsed = parseIMessageSetupArgs(args);
+  const currentConfig = getRuntimeConfig().imessage;
+  const backend = parsed.backend || currentConfig.backend;
+  const cliPath = parsed.cliPath || currentConfig.cliPath;
+
+  if (
+    backend === 'bluebubbles' &&
+    !(parsed.serverUrl?.trim() || currentConfig.serverUrl.trim())
+  ) {
+    throw new Error(
+      'Remote iMessage setup requires `--server-url <url>` or an existing `imessage.serverUrl` value.',
+    );
+  }
+  if (backend === 'local') {
+    assertLocalIMessageBackendReady(cliPath);
+  }
+
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.imessage.enabled = true;
+    draft.imessage.backend = backend;
+    draft.imessage.groupPolicy = 'disabled';
+    draft.imessage.groupAllowFrom = [];
+    draft.imessage.allowFrom = parsed.allowFrom;
+    draft.imessage.dmPolicy =
+      parsed.allowFrom.length > 0 ? 'allowlist' : 'disabled';
+    if (cliPath) {
+      draft.imessage.cliPath = cliPath;
+    }
+    if (parsed.dbPath) {
+      draft.imessage.dbPath = parsed.dbPath;
+    }
+    if (parsed.serverUrl) {
+      draft.imessage.serverUrl = parsed.serverUrl;
+    }
+    if (parsed.webhookPath) {
+      draft.imessage.webhookPath = parsed.webhookPath;
+    }
+    if (parsed.allowPrivateNetwork != null) {
+      draft.imessage.allowPrivateNetwork = parsed.allowPrivateNetwork;
+    }
+    if (backend === 'bluebubbles') {
+      draft.imessage.password = '';
+    }
+  });
+
+  const shouldSavePassword =
+    backend === 'bluebubbles' && Boolean(parsed.password?.trim());
+  const secretsPath = shouldSavePassword
+    ? saveRuntimeSecrets({ IMESSAGE_PASSWORD: parsed.password })
+    : runtimeSecretsPath();
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  if (backend === 'bluebubbles') {
+    if (shouldSavePassword) {
+      console.log(`Saved iMessage password to ${secretsPath}.`);
+    } else {
+      console.log(`iMessage password unchanged. Secrets path: ${secretsPath}`);
+    }
+  }
+  console.log('iMessage mode: enabled');
+  console.log(
+    `Backend: ${nextConfig.imessage.backend === 'bluebubbles' ? 'remote' : nextConfig.imessage.backend}`,
+  );
+  console.log(`DM policy: ${nextConfig.imessage.dmPolicy}`);
+  if (nextConfig.imessage.allowFrom.length > 0) {
+    console.log(`Allowed senders: ${nextConfig.imessage.allowFrom.join(', ')}`);
+  } else {
+    console.log('Allowed senders: none (inbound iMessage stays disabled)');
+  }
+  console.log(`Group policy: ${nextConfig.imessage.groupPolicy}`);
+  if (backend === 'local') {
+    console.log(`CLI path: ${nextConfig.imessage.cliPath}`);
+    console.log(`Messages DB: ${nextConfig.imessage.dbPath}`);
+  } else {
+    console.log(`Remote relay URL: ${nextConfig.imessage.serverUrl}`);
+    console.log(`Webhook path: ${nextConfig.imessage.webhookPath}`);
+    console.log(
+      `Allow private network: ${nextConfig.imessage.allowPrivateNetwork}`,
+    );
+  }
+  console.log('Next:');
+  console.log('  Restart the gateway to pick up iMessage settings:');
+  console.log('    hybridclaw gateway restart --foreground');
+  console.log('    hybridclaw gateway status');
+  if (backend === 'local') {
+    console.log(
+      '  Make sure the Mac account can already send iMessages and the shell has Full Disk Access',
+    );
+  } else {
+    console.log(
+      '  Point your remote iMessage relay webhook at /api/imessage/webhook and send X-HybridClaw-iMessage-Password on webhook requests',
+    );
+  }
+  if (nextConfig.imessage.allowFrom.length > 0) {
+    console.log(
+      `  Send a test iMessage from ${nextConfig.imessage.allowFrom[0]}`,
+    );
+  } else {
+    console.log(
+      '  Rerun with --allow-from <phone|email> to allow inbound iMessage replies',
+    );
+  }
+}
+
 export async function handleChannelsCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
@@ -899,9 +1164,14 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
   }
 
   const channel = normalized[0].toLowerCase();
-  if (channel !== 'whatsapp' && channel !== 'discord' && channel !== 'email') {
+  if (
+    channel !== 'whatsapp' &&
+    channel !== 'discord' &&
+    channel !== 'email' &&
+    channel !== 'imessage'
+  ) {
     throw new Error(
-      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`whatsapp\`, \`email\`.`,
+      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`whatsapp\`, \`email\`, \`imessage\`.`,
     );
   }
 
@@ -919,11 +1189,15 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
       await configureEmailChannel(normalized.slice(2));
       return;
     }
+    if (channel === 'imessage') {
+      configureIMessageChannel(normalized.slice(2));
+      return;
+    }
     await configureWhatsAppChannel(normalized.slice(2));
     return;
   }
 
   throw new Error(
-    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels whatsapp setup\`, or \`hybridclaw channels email setup\`.`,
+    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, or \`hybridclaw channels imessage setup\`.`,
   );
 }

@@ -7,6 +7,7 @@ async function settle(): Promise<void> {
 
 function createGatewayMainTestState(options?: {
   discordInitError?: Error;
+  imessageInitError?: Error;
   imessageEnabled?: boolean;
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
@@ -139,6 +140,7 @@ function createGatewayMainTestState(options?: {
 
 async function importFreshGatewayMain(options?: {
   discordInitError?: Error;
+  imessageInitError?: Error;
   imessageEnabled?: boolean;
   whatsappInitError?: Error;
   whatsappAuthLockError?: {
@@ -184,6 +186,9 @@ async function importFreshGatewayMain(options?: {
     state.teamsCommandHandler = commandHandler;
   });
   state.initIMessage.mockImplementation((messageHandler) => {
+    if (options?.imessageInitError) {
+      throw options.imessageInitError;
+    }
     state.imessageMessageHandler = messageHandler;
   });
   class MockWhatsAppAuthLockError extends Error {
@@ -474,6 +479,27 @@ describe('gateway bootstrap', () => {
       expect.objectContaining({
         status: 'ok',
         imessage: true,
+      }),
+      'HybridClaw gateway started',
+    );
+  });
+
+  test('keeps gateway startup running when iMessage integration fails to initialize', async () => {
+    const state = await importFreshGatewayMain({
+      imessageEnabled: true,
+      imessageInitError: new Error('unsupported platform'),
+    });
+
+    expect(state.initIMessage).toHaveBeenCalledTimes(1);
+    expect(state.imessageMessageHandler).toBeNull();
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      { error: expect.any(Error) },
+      'iMessage integration failed to start',
+    );
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ok',
+        imessage: false,
       }),
       'HybridClaw gateway started',
     );
@@ -1132,6 +1158,79 @@ describe('gateway bootstrap', () => {
     );
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(reply).toHaveBeenCalledWith('rendered:plain output');
+  });
+
+  test('routes iMessage slash commands through the gateway command handler', async () => {
+    const state = await importFreshGatewayMain({ imessageEnabled: true });
+    const reply = vi.fn(async () => {});
+
+    await state.imessageMessageHandler?.(
+      'agent:main:channel:imessage:chat:dm:peer:imessage%3A%2B491701234567',
+      null,
+      'imessage:+491701234567',
+      '+491701234567',
+      'alice',
+      '/status',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        inbound: {},
+        rawEvent: {},
+        backend: 'local',
+        conversationId: 'any;-;+491701234567',
+        handle: '+491701234567',
+        isGroup: false,
+      },
+    );
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: ['status'],
+        channelId: 'imessage:+491701234567',
+        sessionId:
+          'agent:main:channel:imessage:chat:dm:peer:imessage%3A%2B491701234567',
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith('rendered:plain output');
+  });
+
+  test('suppresses interrupted reply text for local iMessage self-chat', async () => {
+    const state = await importFreshGatewayMain({ imessageEnabled: true });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      artifacts: [],
+      error: 'Timeout waiting for agent output after 300000ms',
+    });
+    const reply = vi.fn(async () => {});
+
+    await state.imessageMessageHandler?.(
+      'agent:main:channel:imessage:chat:dm:peer:imessage%3A%2B491701234567',
+      null,
+      'imessage:+491701234567',
+      '+491701234567',
+      'alice',
+      'Hi',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        inbound: {},
+        rawEvent: {
+          handle: '+491701234567',
+          chatIdentifier: '+491701234567',
+        },
+        backend: 'local',
+        conversationId: 'any;-;+491701234567',
+        handle: '+491701234567',
+        isGroup: false,
+      },
+    );
+
+    expect(reply).not.toHaveBeenCalled();
   });
 
   test('treats bare WhatsApp /model as model info', async () => {

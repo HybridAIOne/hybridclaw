@@ -17,6 +17,25 @@ You will edit:
 You can start from [config.example.json](../config.example.json) and copy the
 `imessage` block into your local runtime config.
 
+## Quick Setup Commands
+
+For the common local-macOS case:
+
+```bash
+hybridclaw channels imessage setup --allow-from +14155551212
+hybridclaw gateway restart --foreground
+```
+
+For a remote relay:
+
+```bash
+hybridclaw channels imessage setup --backend remote --server-url https://bluebubbles.example.com --password YOUR_IMESSAGE_PASSWORD --allow-from +14155551212
+hybridclaw gateway restart --foreground
+```
+
+The setup command keeps group chats disabled by default. Without
+`--allow-from`, inbound iMessage stays disabled and the channel is outbound-only.
+
 ## Option A: Local macOS Setup
 
 Use this when HybridClaw is running on the same Mac that is signed into
@@ -212,16 +231,27 @@ can reach it.
 
 Point BlueBubbles to the HybridClaw webhook URL.
 
-Simplest form:
+Recommended:
+
+```text
+POST https://your-hybridclaw.example.com/api/imessage/webhook
+X-HybridClaw-iMessage-Password: YOUR_IMESSAGE_PASSWORD
+```
+
+If BlueBubbles or your proxy cannot set custom headers, HybridClaw also accepts
+the password as a fallback query parameter:
 
 ```text
 https://your-hybridclaw.example.com/api/imessage/webhook?password=YOUR_IMESSAGE_PASSWORD
 ```
 
-HybridClaw also accepts:
+Prefer the header form. Query-string secrets are more likely to end up in
+reverse-proxy access logs and similar request traces.
 
-- query params: `password`, `guid`, or `token`
+HybridClaw accepts:
+
 - header: `X-HybridClaw-iMessage-Password`
+- query params: `password`, `guid`, or `token` (fallback only)
 
 The webhook must send `new-message` events to HybridClaw for inbound delivery.
 
