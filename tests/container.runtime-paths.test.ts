@@ -42,7 +42,7 @@ describe.sequential('container runtime path aliases', () => {
     ).toBe('/workspace/extra/buchhaltung/**/*.pdf');
   });
 
-  test('allows host-mode project-root absolute paths directly', async () => {
+  test('allows host-mode absolute paths under configured allowed roots', async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-workspace-'),
     );
@@ -54,7 +54,10 @@ describe.sequential('container runtime path aliases', () => {
     fs.writeFileSync(targetFile, '<html></html>');
 
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
-    vi.stubEnv('HYBRIDCLAW_AGENT_PROJECT_ROOT', projectRoot);
+    vi.stubEnv(
+      'HYBRIDCLAW_AGENT_ALLOWED_ROOTS',
+      JSON.stringify([projectRoot]),
+    );
     vi.resetModules();
 
     const { resolveWorkspacePath, resolveWorkspaceGlobPattern } = await import(
@@ -70,7 +73,7 @@ describe.sequential('container runtime path aliases', () => {
     fs.rmSync(projectRoot, { recursive: true, force: true });
   });
 
-  test('expands ~/ paths before resolving host-mode project files', async () => {
+  test('expands ~/ paths before resolving files under allowed host roots', async () => {
     const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-home-'));
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-workspace-'),
@@ -82,7 +85,10 @@ describe.sequential('container runtime path aliases', () => {
 
     vi.stubEnv('HOME', tempHome);
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
-    vi.stubEnv('HYBRIDCLAW_AGENT_PROJECT_ROOT', projectRoot);
+    vi.stubEnv(
+      'HYBRIDCLAW_AGENT_ALLOWED_ROOTS',
+      JSON.stringify(['~/src/hybridclaw']),
+    );
     vi.resetModules();
 
     const { resolveWorkspacePath } = await import(

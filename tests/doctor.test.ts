@@ -243,6 +243,60 @@ test('checkConfig warns on unused tools and MCP servers and disables them with f
   expect(runtimeConfigState.mcpServers.slack.enabled).toBe(false);
 });
 
+test('checkConfigFile ignores unused tool and MCP hygiene warnings', async () => {
+  const dir = createTempDir('hybridclaw-doctor-config-file-only-');
+  const configPath = path.join(dir, 'config.json');
+  fs.writeFileSync(
+    configPath,
+    `${JSON.stringify({ version: 17, hybridai: { defaultModel: 'gpt-5-nano' }, ops: { dbPath: '/tmp/hybridclaw.db' }, container: { image: 'hybridclaw-agent' } }, null, 2)}\n`,
+    'utf-8',
+  );
+
+  vi.doMock('../src/agent/tool-summary.js', () => ({
+    listKnownToolNames: () => ['read', 'browser_navigate'],
+  }));
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    CONFIG_VERSION: 17,
+    ensureRuntimeConfigFile: vi.fn(),
+    getRuntimeConfig: () => ({
+      hybridai: { defaultModel: 'gpt-5-nano' },
+      ops: { dbPath: '/tmp/hybridclaw.db' },
+      container: { image: 'hybridclaw-agent' },
+      tools: { disabled: [] as string[] },
+      mcpServers: {
+        github: {
+          transport: 'stdio' as const,
+          command: 'node',
+          args: ['github.js'],
+        },
+      },
+    }),
+    getRuntimeDisabledToolNames: () => new Set<string>(),
+    runtimeConfigPath: () => configPath,
+    setRuntimeToolEnabled: vi.fn(),
+    updateRuntimeConfig: vi.fn(),
+  }));
+  vi.doMock('../src/memory/db.js', () => ({
+    getToolUsageSummary: () => [
+      {
+        toolName: 'read',
+        callsSinceCutoff: 1,
+        lastUsedAt: '2026-03-20T10:00:00.000Z',
+      },
+    ],
+  }));
+
+  const { checkConfigFile } = await import('../src/doctor/checks/config.ts');
+  const results = await checkConfigFile();
+
+  expect(results).toEqual([
+    expect.objectContaining({
+      label: 'Config',
+      severity: 'ok',
+    }),
+  ]);
+});
+
 test('checkProviders treats probe failures as provider health failures', async () => {
   vi.doMock('../src/config/runtime-config.js', () => ({
     getRuntimeConfig: () => ({

@@ -38,7 +38,6 @@ export interface NormalizedStreamCallArgs extends NormalizedCallArgs {
 interface ParsedProviderErrorBody {
   message: string | null;
   type: string | null;
-  code: number | string | null;
 }
 
 function asTrimmedString(value: unknown): string | null {
@@ -52,23 +51,13 @@ function parseProviderErrorRecord(
 ): ParsedProviderErrorBody {
   let message = asTrimmedString(value.message) ?? asTrimmedString(value.error);
   let type = asTrimmedString(value.type);
-  let code: number | string | null =
-    typeof value.code === 'number' || typeof value.code === 'string'
-      ? value.code
-      : null;
   const nested = value.error;
   if (isRecord(nested)) {
     message ||=
       asTrimmedString(nested.message) ?? asTrimmedString(nested.error);
     type ||= asTrimmedString(nested.type);
-    if (code == null) {
-      code =
-        typeof nested.code === 'number' || typeof nested.code === 'string'
-          ? nested.code
-          : null;
-    }
   }
-  return { message, type, code };
+  return { message, type };
 }
 
 export function parseProviderErrorBody(
@@ -83,7 +72,6 @@ export function parseProviderErrorBody(
       return {
         message: asTrimmedString(parsed),
         type: null,
-        code: null,
       };
     }
     if (isRecord(parsed)) return parseProviderErrorRecord(parsed);
@@ -94,12 +82,12 @@ export function parseProviderErrorBody(
   return {
     message: trimmed,
     type: null,
-    code: null,
   };
 }
 
-function summarizeErrorBody(body: string): string {
-  const parsed = parseProviderErrorBody(body);
+function summarizeParsedErrorBody(
+  parsed: ParsedProviderErrorBody | null,
+): string {
   const message = parsed?.message;
   if (!message) return 'Unknown error';
   if (
@@ -114,12 +102,15 @@ function summarizeErrorBody(body: string): string {
 export class HybridAIRequestError extends Error {
   status: number;
   body: string;
+  readonly parsedBody: ParsedProviderErrorBody | null;
 
   constructor(status: number, body: string) {
-    super(`HybridAI API error ${status}: ${summarizeErrorBody(body)}`);
+    const parsedBody = parseProviderErrorBody(body);
+    super(`HybridAI API error ${status}: ${summarizeParsedErrorBody(parsedBody)}`);
     this.name = 'HybridAIRequestError';
     this.status = status;
     this.body = body;
+    this.parsedBody = parsedBody;
   }
 }
 
@@ -127,7 +118,7 @@ export function isPremiumModelPermissionError(error: unknown): boolean {
   if (!(error instanceof HybridAIRequestError) || error.status !== 403) {
     return false;
   }
-  const parsed = parseProviderErrorBody(error.body);
+  const parsed = error.parsedBody;
   return (
     parsed?.type === 'permission_error' &&
     typeof parsed.message === 'string' &&
@@ -151,23 +142,12 @@ export function summarizeHybridAICompletionForDebug(
 ): string {
   const choice = response.choices[0];
   const content = choice?.message?.content ?? null;
-  const visibleText = normalizeMessageContentToText(content);
-  return JSON.stringify({
-    id: response.id || null,
-    model: response.model || null,
-    finishReason: choice?.finish_reason || null,
-    contentType: Array.isArray(content)
-      ? 'parts'
-      : content === null
-        ? 'null'
-        : typeof content,
-    contentPartTypes: Array.isArray(content)
-      ? content.map((part) => part?.type || 'unknown')
-      : undefined,
-    visibleTextChars: visibleText.length,
-    toolCallCount: choice?.message?.tool_calls?.length || 0,
-    usage: response.usage || null,
-  });
+  const contentType = Array.isArray(content)
+    ? 'parts'
+    : content === null
+      ? 'null'
+      : typeof content;
+  return `id=${response.id || 'null'} model=${response.model || 'null'} finish=${choice?.finish_reason || 'null'} contentType=${contentType}`;
 }
 
 function isProvider(value: unknown): value is RuntimeProvider {

@@ -462,7 +462,7 @@ function resolvePlaywrightBrowsersPath(): string {
       return normalized;
     }
   }
-  return ensureWritableDir(BROWSER_PLAYWRIGHT_CACHE);
+  return BROWSER_PLAYWRIGHT_CACHE;
 }
 
 function removeSession(sessionId: string): void {
@@ -1189,7 +1189,9 @@ async function runAgentBrowser(
   const homeDir = resolveWritableHome();
   const npmCacheDir = ensureWritableDir(BROWSER_NPM_CACHE);
   const xdgCacheDir = ensureWritableDir(BROWSER_XDG_CACHE);
-  const playwrightBrowsersPath = resolvePlaywrightBrowsersPath();
+  const playwrightBrowsersPath = ensureWritableDir(
+    resolvePlaywrightBrowsersPath(),
+  );
   const args = [...runner.prefixArgs];
   const cdpUrl = resolveCdpUrl(options.cdpUrl);
   if (cdpUrl) {

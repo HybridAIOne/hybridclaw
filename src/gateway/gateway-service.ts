@@ -70,6 +70,7 @@ import {
   getRuntimeConfig,
   parseSchedulerBoardStatus,
   type RuntimeConfig,
+  reloadRuntimeConfig,
   resolveDefaultAgentId,
   runtimeConfigPath,
   type SchedulerBoardStatus,
@@ -77,7 +78,13 @@ import {
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import {
+  parseRuntimeConfigCommandValue,
+  setRuntimeConfigValueAtPath,
+} from '../config/runtime-config-edit.js';
 import { preprocessContextReferences } from '../context-references/index.js';
+import { checkConfigFile } from '../doctor/checks/config.js';
+import { summarizeCounts } from '../doctor/utils.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import {
@@ -1550,7 +1557,6 @@ function buildHybridAIAuthStatusLines(): string[] {
   const config = getRuntimeConfig();
   const status = getHybridAIAuthStatus();
   return [
-    `Path: ${status.path}`,
     `Authenticated: ${status.authenticated ? 'yes' : 'no'}`,
     ...(status.authenticated
       ? [`Source: ${status.source}`, `API key: ${status.maskedApiKey}`]
@@ -5933,6 +5939,45 @@ export async function handleGatewayCommand(
     }
   }
 
+  function isLocalSession(req: GatewayCommandRequest): boolean {
+    return (
+      req.guildId === null &&
+      (req.channelId === 'web' || req.channelId === 'tui')
+    );
+  }
+
+  async function rollbackPluginRuntimeConfigChange(
+    previousConfig: RuntimeConfig,
+    context: {
+      action: string;
+      pluginId: string;
+      key?: string;
+      reloadMessage: string;
+    },
+  ): Promise<string[]> {
+    saveRuntimeConfig(previousConfig);
+    const rollbackReloadResult = await reloadPluginRuntime();
+    if (rollbackReloadResult.ok) {
+      return ['Previous runtime config was restored.'];
+    }
+
+    logger.warn(
+      {
+        action: context.action,
+        pluginId: context.pluginId,
+        key: context.key,
+        reloadMessage: context.reloadMessage,
+        rollbackReloadMessage: rollbackReloadResult.message,
+      },
+      'Plugin runtime rollback reload failed',
+    );
+    return [
+      'Previous runtime config was restored.',
+      'Plugin runtime reload also failed after rollback; plugin state may be inconsistent until the next successful reload.',
+      rollbackReloadResult.message,
+    ];
+  }
+
   function formatPluginConfigValue(value: unknown): string {
     if (value === undefined) return '(not set)';
     if (typeof value === 'string') return JSON.stringify(value);
@@ -5943,84 +5988,377 @@ export async function handleGatewayCommand(
     }
   }
 
+  function formatRuntimeConfigJson(config: RuntimeConfig): string {
+    return JSON.stringify(config, null, 2);
+  }
+
+  async function runRuntimeConfigCheck(): Promise<{
+    severity: 'ok' | 'warn' | 'error';
+    text: string;
+  }> {
+    const results = await checkConfigFile();
+    const summary = summarizeCounts(results);
+    const lines = results.map((result) => {
+      const symbol =
+        result.severity === 'ok' ? '✓' : result.severity === 'warn' ? '⚠' : '✖';
+      return `${symbol} ${result.label}  ${result.message}`;
+    });
+    lines.push('');
+    lines.push(
+      `${summary.ok} ok · ${summary.warn} warning${summary.warn === 1 ? '' : 's'} · ${summary.error} error${summary.error === 1 ? '' : 's'}`,
+    );
+    return {
+      severity: summary.error > 0 ? 'error' : summary.warn > 0 ? 'warn' : 'ok',
+      text: lines.join('\n'),
+    };
+  }
+
   const result = await (async (): Promise<GatewayCommandResult> => {
     switch (cmd) {
       case 'help': {
-        const help = [
-          '`agent` — Show current session agent',
-          '`agent list` — List available agents',
-          '`agent switch <id>` — Bind this session to an existing agent',
-          '`agent create <id> [--model <model>]` — Create a new agent',
-          '`agent model [name]` — Show or set the persistent model for the current agent',
-          '`bot list` — List available bots',
-          '`bot set <id|name>` — Set chatbot for this session',
-          '`bot info` — Show current chatbot settings',
-          '`model list [provider]` — List available models',
-          '`model set <name>` — Set model for this session',
-          '`model clear` — Clear the session model override',
-          '`model default [name]` — Show or set default model for new sessions',
-          '`model info` — Show effective, session, agent, and default models',
-          '`rag [on|off]` — Toggle or set RAG mode',
-          '`channel mode [off|mention|free]` — Set or inspect this Discord channel response mode',
-          '`channel policy [open|allowlist|disabled]` — Set or inspect guild channel policy',
-          '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
-          '`fullauto [status|off|on [prompt]|<prompt>]` — Enable/inspect/disable session full-auto mode',
-          '`show [all|thinking|tools|none]` — Control visible thinking/tool activity for this session',
-          '`mcp list` — List configured MCP servers',
-          '`mcp add <name> <json>` — Add or update an MCP server config',
-          '`mcp remove <name>` — Remove an MCP server config',
-          '`mcp toggle <name>` — Enable or disable an MCP server',
-          '`mcp reconnect <name>` — Restart current session runtime so the server reconnects next turn',
-          '`plugin list` — List discovered plugins, descriptions, commands, and load status',
-          '`plugin config <plugin-id> [key] [value|--unset]` — Show or change a plugin config override',
-          '`plugin enable <plugin-id>` — Enable a discovered plugin for future turns',
-          '`plugin disable <plugin-id>` — Disable a discovered plugin for future turns',
-          '`plugin install <path|npm-spec>` — Install a plugin from a local TUI/web session',
-          '`plugin reinstall <path|npm-spec>` — Replace an installed plugin from a local TUI/web session',
-          '`plugin reload` — Reload all plugins (picks up code changes without gateway restart)',
-          '`plugin uninstall <plugin-id>` — Remove a home-installed plugin and matching runtime config overrides',
-          '`auth status hybridai` — Show local HybridAI auth/config state',
-          '`clear` — Clear session history',
-          '`reset [yes|no]` — Clear history, reset session settings, and remove the current agent workspace',
-          '`/compact` — Archive older history, summarize it, and retain recent context',
-          '`/status` — Show runtime status (Discord slash command, private to caller)',
-          '`/approve [view|yes|session|agent|no] [approval_id]` — View/respond to pending approvals privately',
-          '`/show <all|thinking|tools|none>` — Control visible thinking/tool activity for this session',
-          '`stop` — Abort the current session run and disable full-auto mode',
-          '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
-          '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
-          '`/model list [provider]` — List available runtime models',
-          '`/model set <name>` — Set the model for this session',
-          '`/model clear` — Clear the model override for this session',
-          '`/model info` — Show effective, session, agent, and default model details',
-          '`/model default [name]` — Show or set the default model for new sessions',
-          '`/plugin list` — List discovered plugins, descriptions, commands, and load status',
-          '`/plugin config <plugin-id> [key] [value|--unset]` — Show or change a plugin config override',
-          '`/plugin enable <plugin-id>` — Enable a discovered plugin for future turns',
-          '`/plugin disable <plugin-id>` — Disable a discovered plugin for future turns',
-          '`/plugin install <path|npm-spec>` — Install a plugin from a local TUI/web session',
-          '`/plugin reinstall <path|npm-spec>` — Replace an installed plugin from a local TUI/web session',
-          '`/plugin reload` — Reload all plugins (picks up code changes without gateway restart)',
-          '`/plugin uninstall <plugin-id>` — Remove a home-installed plugin and matching runtime config overrides',
-          '`/auth status hybridai` — Show local HybridAI auth/config state',
-          '`sessions` — List active sessions',
-          '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
-          '`export session [sessionId]` — Export session JSONL snapshot for debugging',
-          '`audit [sessionId]` — Show recent structured audit events for a session',
-          '`skill list` — List available skills and availability',
-          '`skill inspect <name>|--all` — Show observation-based skill health',
-          '`skill runs <name>` — Show recent execution observations for a skill',
-          '`skill learn <name> [--apply|--reject|--rollback]` — Stage or manage skill amendments',
-          '`skill history <name>` — Show amendment history for a skill',
-          '`skill sync [--skip-skill-scan] <source>` — Reinstall a packaged or community skill',
-          '`skill import [--force] [--skip-skill-scan] <source>` — Import a packaged or community skill into ~/.hybridclaw/skills',
-          '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
-          '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
-          '`schedule add every <ms> <prompt>` — Add interval task',
-          '`schedule list` — List scheduled tasks',
-          '`schedule remove <id>` — Remove a task',
-          '`schedule toggle <id>` — Enable/disable a task',
+        const helpEntries: Array<{
+          command: string;
+          description: string;
+          scope: 'bare' | 'slash' | 'both';
+        }> = [
+          {
+            command: 'agent',
+            description: 'Show current session agent',
+            scope: 'bare',
+          },
+          {
+            command: 'agent list',
+            description: 'List available agents',
+            scope: 'bare',
+          },
+          {
+            command: 'agent switch <id>',
+            description: 'Bind this session to an existing agent',
+            scope: 'bare',
+          },
+          {
+            command: 'agent create <id> [--model <model>]',
+            description: 'Create a new agent',
+            scope: 'bare',
+          },
+          {
+            command: 'agent model [name]',
+            description:
+              'Show or set the persistent model for the current agent',
+            scope: 'bare',
+          },
+          {
+            command: 'bot list',
+            description: 'List available bots',
+            scope: 'bare',
+          },
+          {
+            command: 'bot set <id|name>',
+            description: 'Set chatbot for this session',
+            scope: 'bare',
+          },
+          {
+            command: 'bot info',
+            description: 'Show current chatbot settings',
+            scope: 'bare',
+          },
+          {
+            command: 'model list [provider]',
+            description: 'List available models',
+            scope: 'both',
+          },
+          {
+            command: 'model set <name>',
+            description: 'Set model for this session',
+            scope: 'both',
+          },
+          {
+            command: 'model clear',
+            description: 'Clear the session model override',
+            scope: 'both',
+          },
+          {
+            command: 'model default [name]',
+            description: 'Show or set default model for new sessions',
+            scope: 'both',
+          },
+          {
+            command: 'model info',
+            description: 'Show effective, session, agent, and default models',
+            scope: 'both',
+          },
+          {
+            command: 'rag [on|off]',
+            description: 'Toggle or set RAG mode',
+            scope: 'bare',
+          },
+          {
+            command: 'channel mode [off|mention|free]',
+            description: 'Set or inspect this Discord channel response mode',
+            scope: 'bare',
+          },
+          {
+            command: 'channel policy [open|allowlist|disabled]',
+            description: 'Set or inspect guild channel policy',
+            scope: 'bare',
+          },
+          {
+            command: 'ralph [on|off|set <n>|info]',
+            description: 'Configure Ralph loop (0 off, -1 unlimited)',
+            scope: 'bare',
+          },
+          {
+            command: 'fullauto [status|off|on [prompt]|<prompt>]',
+            description: 'Enable/inspect/disable session full-auto mode',
+            scope: 'bare',
+          },
+          {
+            command: 'show [all|thinking|tools|none]',
+            description:
+              'Control visible thinking/tool activity for this session',
+            scope: 'bare',
+          },
+          {
+            command: 'show <all|thinking|tools|none>',
+            description:
+              'Control visible thinking/tool activity for this session',
+            scope: 'slash',
+          },
+          {
+            command: 'mcp list',
+            description: 'List configured MCP servers',
+            scope: 'bare',
+          },
+          {
+            command: 'mcp add <name> <json>',
+            description: 'Add or update an MCP server config',
+            scope: 'bare',
+          },
+          {
+            command: 'mcp remove <name>',
+            description: 'Remove an MCP server config',
+            scope: 'bare',
+          },
+          {
+            command: 'mcp toggle <name>',
+            description: 'Enable or disable an MCP server',
+            scope: 'bare',
+          },
+          {
+            command: 'mcp reconnect <name>',
+            description:
+              'Restart current session runtime so the server reconnects next turn',
+            scope: 'bare',
+          },
+          {
+            command: 'plugin list',
+            description:
+              'List discovered plugins, descriptions, commands, and load status',
+            scope: 'both',
+          },
+          {
+            command: 'plugin config <plugin-id> [key] [value|--unset]',
+            description: 'Show or change a plugin config override',
+            scope: 'both',
+          },
+          {
+            command: 'plugin enable <plugin-id>',
+            description: 'Enable a discovered plugin for future turns',
+            scope: 'both',
+          },
+          {
+            command: 'plugin disable <plugin-id>',
+            description: 'Disable a discovered plugin for future turns',
+            scope: 'both',
+          },
+          {
+            command: 'plugin install <path|npm-spec>',
+            description: 'Install a plugin from a local TUI/web session',
+            scope: 'both',
+          },
+          {
+            command: 'plugin reinstall <path|npm-spec>',
+            description:
+              'Replace an installed plugin from a local TUI/web session',
+            scope: 'both',
+          },
+          {
+            command: 'plugin reload',
+            description:
+              'Reload all plugins (picks up code changes without gateway restart)',
+            scope: 'both',
+          },
+          {
+            command: 'plugin uninstall <plugin-id>',
+            description:
+              'Remove a home-installed plugin and matching runtime config overrides',
+            scope: 'both',
+          },
+          {
+            command: 'auth status hybridai',
+            description: 'Show local HybridAI auth/config state',
+            scope: 'both',
+          },
+          {
+            command: 'config',
+            description: 'Show the local runtime config file',
+            scope: 'both',
+          },
+          {
+            command: 'config check',
+            description: 'Validate the local runtime config file',
+            scope: 'both',
+          },
+          {
+            command: 'config reload',
+            description:
+              'Hot-reload the local runtime config file and validate it',
+            scope: 'both',
+          },
+          {
+            command: 'config set <key> <value>',
+            description: 'Set one local runtime config value and validate it',
+            scope: 'both',
+          },
+          {
+            command: 'clear',
+            description: 'Clear session history',
+            scope: 'bare',
+          },
+          {
+            command: 'reset [yes|no]',
+            description:
+              'Clear history, reset session settings, and remove the current agent workspace',
+            scope: 'bare',
+          },
+          {
+            command: 'compact',
+            description:
+              'Archive older history, summarize it, and retain recent context',
+            scope: 'slash',
+          },
+          {
+            command: 'status',
+            description:
+              'Show runtime status (Discord slash command, private to caller)',
+            scope: 'slash',
+          },
+          {
+            command: 'approve [view|yes|session|agent|no] [approval_id]',
+            description: 'View/respond to pending approvals privately',
+            scope: 'slash',
+          },
+          {
+            command: 'stop',
+            description:
+              'Abort the current session run and disable full-auto mode',
+            scope: 'bare',
+          },
+          {
+            command: 'channel-mode <off|mention|free>',
+            description: 'Set this Discord channel response mode',
+            scope: 'slash',
+          },
+          {
+            command: 'channel-policy <open|allowlist|disabled>',
+            description: 'Set Discord guild channel policy',
+            scope: 'slash',
+          },
+          {
+            command: 'sessions',
+            description: 'List active sessions',
+            scope: 'bare',
+          },
+          {
+            command:
+              'usage [summary|daily|monthly|model [daily|monthly] [agentId]]',
+            description: 'Usage/cost aggregates',
+            scope: 'bare',
+          },
+          {
+            command: 'export session [sessionId]',
+            description: 'Export session JSONL snapshot for debugging',
+            scope: 'bare',
+          },
+          {
+            command: 'audit [sessionId]',
+            description: 'Show recent structured audit events for a session',
+            scope: 'bare',
+          },
+          {
+            command: 'skill list',
+            description: 'List available skills and availability',
+            scope: 'bare',
+          },
+          {
+            command: 'skill inspect <name>|--all',
+            description: 'Show observation-based skill health',
+            scope: 'bare',
+          },
+          {
+            command: 'skill runs <name>',
+            description: 'Show recent execution observations for a skill',
+            scope: 'bare',
+          },
+          {
+            command: 'skill learn <name> [--apply|--reject|--rollback]',
+            description: 'Stage or manage skill amendments',
+            scope: 'bare',
+          },
+          {
+            command: 'skill history <name>',
+            description: 'Show amendment history for a skill',
+            scope: 'bare',
+          },
+          {
+            command: 'skill sync [--skip-skill-scan] <source>',
+            description: 'Reinstall a packaged or community skill',
+            scope: 'bare',
+          },
+          {
+            command: 'skill import [--force] [--skip-skill-scan] <source>',
+            description:
+              'Import a packaged or community skill into ~/.hybridclaw/skills',
+            scope: 'bare',
+          },
+          {
+            command: 'schedule add "<cron>" <prompt>',
+            description: 'Add cron scheduled task',
+            scope: 'bare',
+          },
+          {
+            command: 'schedule add at "<ISO time>" <prompt>',
+            description: 'Add one-shot task',
+            scope: 'bare',
+          },
+          {
+            command: 'schedule add every <ms> <prompt>',
+            description: 'Add interval task',
+            scope: 'bare',
+          },
+          {
+            command: 'schedule list',
+            description: 'List scheduled tasks',
+            scope: 'bare',
+          },
+          {
+            command: 'schedule remove <id>',
+            description: 'Remove a task',
+            scope: 'bare',
+          },
+          {
+            command: 'schedule toggle <id>',
+            description: 'Enable/disable a task',
+            scope: 'bare',
+          },
         ];
+        const help = helpEntries.flatMap(({ command, description, scope }) => {
+          const prefixes =
+            scope === 'both' ? ['', '/'] : scope === 'slash' ? ['/'] : [''];
+          return prefixes.map(
+            (prefix) => `\`${prefix}${command}\` — ${description}`,
+          );
+        });
         return infoCommand('HybridClaw Commands', help.join('\n'));
       }
 
@@ -6772,10 +7110,7 @@ export async function handleGatewayCommand(
         const sub = (req.args[1] || '').trim().toLowerCase();
         const provider = (req.args[2] || '').trim().toLowerCase();
         if (sub === 'status' && provider === 'hybridai') {
-          if (
-            req.guildId !== null ||
-            (req.channelId !== 'web' && req.channelId !== 'tui')
-          ) {
+          if (!isLocalSession(req)) {
             return badCommand(
               'Auth Status Restricted',
               '`auth status hybridai` reads local credential state and is only available from local TUI/web sessions.',
@@ -6787,6 +7122,116 @@ export async function handleGatewayCommand(
           );
         }
         return badCommand('Usage', 'Usage: `auth status hybridai`');
+      }
+
+      case 'config': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Config Restricted',
+            '`config` reads or writes local runtime config and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        if (!sub) {
+          const currentConfig = getRuntimeConfig();
+          return infoCommand(
+            'Runtime Config',
+            [
+              `Active config: ${runtimeConfigPath()}`,
+              'Config:',
+              formatRuntimeConfigJson(currentConfig),
+            ].join('\n'),
+          );
+        }
+
+        if (sub === 'check') {
+          const check = await runRuntimeConfigCheck();
+          if (check.severity === 'error') {
+            return badCommand('Config Check Failed', check.text);
+          }
+          return infoCommand(
+            check.severity === 'warn'
+              ? 'Config Check Warnings'
+              : 'Config Check',
+            check.text,
+          );
+        }
+
+        if (sub === 'reload') {
+          try {
+            const nextConfig = reloadRuntimeConfig('gateway-command');
+            const check = await runRuntimeConfigCheck();
+            const text = [
+              `Path: ${runtimeConfigPath()}`,
+              'Config:',
+              formatRuntimeConfigJson(nextConfig),
+              '',
+              'Check:',
+              check.text,
+            ].join('\n');
+            if (check.severity === 'error') {
+              return badCommand('Runtime Config Reloaded With Errors', text);
+            }
+            return infoCommand(
+              check.severity === 'warn'
+                ? 'Runtime Config Reloaded With Warnings'
+                : 'Runtime Config Reloaded',
+              text,
+            );
+          } catch (error) {
+            return badCommand(
+              'Config Reload Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        if (sub === 'set') {
+          const key = String(req.args[2] || '').trim();
+          const rawValue = req.args.slice(3).join(' ').trim();
+          if (!key || !rawValue) {
+            return badCommand(
+              'Usage',
+              'Usage: `config`, `config check`, `config reload`, or `config set <key> <value>`',
+            );
+          }
+          try {
+            const value = parseRuntimeConfigCommandValue(rawValue);
+            const nextConfig = updateRuntimeConfig((draft) => {
+              setRuntimeConfigValueAtPath(draft, key, value);
+            });
+            const check = await runRuntimeConfigCheck();
+            const text = [
+              `Path: ${runtimeConfigPath()}`,
+              `Key: ${key}`,
+              'Config:',
+              formatRuntimeConfigJson(nextConfig),
+              '',
+              'Check:',
+              check.text,
+            ].join('\n');
+            if (check.severity === 'error') {
+              return badCommand('Runtime Config Updated With Errors', text);
+            }
+            return infoCommand(
+              check.severity === 'warn'
+                ? 'Runtime Config Updated With Warnings'
+                : 'Runtime Config Updated',
+              text,
+            );
+          } catch (error) {
+            return badCommand(
+              'Config Update Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `config`, `config check`, `config reload`, or `config set <key> <value>`',
+        );
       }
 
       case 'stop':
@@ -6970,10 +7415,7 @@ export async function handleGatewayCommand(
               ].join('\n'),
             );
           }
-          if (
-            req.guildId !== null ||
-            (req.channelId !== 'web' && req.channelId !== 'tui')
-          ) {
+          if (!isLocalSession(req)) {
             return badCommand(
               'Plugin Config Restricted',
               '`plugin config` writes runtime config and is only available from local TUI/web sessions.',
@@ -6988,15 +7430,22 @@ export async function handleGatewayCommand(
                 : await writePluginConfigValue(pluginId, key, rawValue);
             const reloadResult = await reloadPluginRuntime();
             if (!reloadResult.ok) {
-              saveRuntimeConfig(previousConfig);
-              await reloadPluginRuntime();
+              const rollbackLines = await rollbackPluginRuntimeConfigChange(
+                previousConfig,
+                {
+                  action: 'plugin config',
+                  pluginId: result.pluginId,
+                  key: result.key,
+                  reloadMessage: reloadResult.message,
+                },
+              );
               return badCommand(
                 'Plugin Config Failed',
                 [
                   `Plugin: ${result.pluginId}`,
                   `Key: ${result.key}`,
                   `Updated runtime config at \`${result.configPath}\`, but plugin reload failed.`,
-                  'Previous runtime config was restored.',
+                  ...rollbackLines,
                 ].join('\n'),
               );
             }
@@ -7033,10 +7482,7 @@ export async function handleGatewayCommand(
           if (!pluginId) {
             return badCommand('Usage', `Usage: \`plugin ${sub} <plugin-id>\``);
           }
-          if (
-            req.guildId !== null ||
-            (req.channelId !== 'web' && req.channelId !== 'tui')
-          ) {
+          if (!isLocalSession(req)) {
             return badCommand(
               `Plugin ${sub === 'enable' ? 'Enable' : 'Disable'} Restricted`,
               `\`plugin ${sub}\` writes runtime config and is only available from local TUI/web sessions.`,
@@ -7049,14 +7495,20 @@ export async function handleGatewayCommand(
             const result = await setPluginEnabled(pluginId, enabled);
             const reloadResult = await reloadPluginRuntime();
             if (!reloadResult.ok) {
-              saveRuntimeConfig(previousConfig);
-              await reloadPluginRuntime();
+              const rollbackLines = await rollbackPluginRuntimeConfigChange(
+                previousConfig,
+                {
+                  action: `plugin ${sub}`,
+                  pluginId: result.pluginId,
+                  reloadMessage: reloadResult.message,
+                },
+              );
               return badCommand(
                 `Plugin ${enabled ? 'Enable' : 'Disable'} Failed`,
                 [
                   `Plugin: ${result.pluginId}`,
                   `Updated runtime config at \`${result.configPath}\`, but plugin reload failed.`,
-                  'Previous runtime config was restored.',
+                  ...rollbackLines,
                 ].join('\n'),
               );
             }
@@ -7089,10 +7541,7 @@ export async function handleGatewayCommand(
               'Usage: `plugin install <path|npm-spec>`',
             );
           }
-          if (
-            req.guildId !== null ||
-            (req.channelId !== 'web' && req.channelId !== 'tui')
-          ) {
+          if (!isLocalSession(req)) {
             return badCommand(
               'Plugin Install Restricted',
               '`plugin install` is only available from local TUI/web sessions.',
@@ -7133,10 +7582,7 @@ export async function handleGatewayCommand(
               'Usage: `plugin reinstall <path|npm-spec>`',
             );
           }
-          if (
-            req.guildId !== null ||
-            (req.channelId !== 'web' && req.channelId !== 'tui')
-          ) {
+          if (!isLocalSession(req)) {
             return badCommand(
               'Plugin Reinstall Restricted',
               '`plugin reinstall` is only available from local TUI/web sessions.',

@@ -1041,8 +1041,6 @@ async function processRequest(
     const toolCalls = choice.message.tool_calls || [];
     if (
       provider === 'hybridai' &&
-      toolCalls.length === 0 &&
-      !visibleAssistantText &&
       parseRalphChoice(choice.message.content) === null &&
       isHybridAIEmptyVisibleCompletion(response)
     ) {

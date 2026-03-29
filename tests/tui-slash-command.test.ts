@@ -54,6 +54,23 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(
     mapTuiSlashCommandToGatewayArgs(['auth', 'status', 'hybridai']),
   ).toEqual(['auth', 'status', 'hybridai']);
+  expect(mapTuiSlashCommandToGatewayArgs(['config'])).toEqual(['config']);
+  expect(mapTuiSlashCommandToGatewayArgs(['config', 'check'])).toEqual([
+    'config',
+    'check',
+  ]);
+  expect(mapTuiSlashCommandToGatewayArgs(['config', 'reload'])).toEqual([
+    'config',
+    'reload',
+  ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'config',
+      'set',
+      'hybridai.maxTokens',
+      '8192',
+    ]),
+  ).toEqual(['config', 'set', 'hybridai.maxTokens', '8192']);
   expect(mapTuiSlashCommandToGatewayArgs(['model'])).toEqual(['model', 'info']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['model', 'list', 'openrouter']),

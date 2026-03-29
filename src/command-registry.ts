@@ -60,6 +60,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'agent',
   'auth',
   'bot',
+  'config',
   'rag',
   'model',
   'status',
@@ -297,6 +298,21 @@ export function mapCanonicalCommandToGatewayArgs(
         return pluginId
           ? ['plugin', 'uninstall', pluginId]
           : ['plugin', 'uninstall'];
+      }
+      return null;
+    }
+
+    case 'config': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['config'];
+      if (sub === 'check') return ['config', 'check'];
+      if (sub === 'reload') return ['config', 'reload'];
+      if (sub === 'set') {
+        const key = (parts[2] || '').trim();
+        const value = parts.slice(3).join(' ').trim();
+        if (!key) return ['config', 'set'];
+        if (!value) return ['config', 'set', key];
+        return ['config', 'set', key, value];
       }
       return null;
     }
@@ -656,9 +672,56 @@ function buildSlashCommandCatalogDefinitions(
               name: 'provider',
               description: 'Provider name',
               required: true,
-              choices: [{ name: 'hybridai', value: 'hybridai' }],
             },
           ],
+        },
+      ],
+    },
+    {
+      name: 'config',
+      description:
+        'Show, validate, reload, or set the local runtime config file',
+      tuiOnly: true,
+      tuiMenuEntries: [
+        {
+          id: 'config.set',
+          label: '/config set <key> <value>',
+          insertText: '/config set ',
+          description: 'Set one runtime config value',
+        },
+        {
+          id: 'config.check',
+          label: '/config check',
+          insertText: '/config check',
+          description: 'Validate the current runtime config',
+        },
+        {
+          id: 'config.reload',
+          label: '/config reload',
+          insertText: '/config reload',
+          description: 'Hot-reload the current runtime config from disk',
+        },
+      ],
+      options: [
+        {
+          kind: 'string',
+          name: 'action',
+          description: 'Optional action',
+          choices: [
+            { name: 'check', value: 'check' },
+            { name: 'reload', value: 'reload' },
+            { name: 'set', value: 'set' },
+          ],
+        },
+        {
+          kind: 'string',
+          name: 'key',
+          description: 'Dotted runtime config key path',
+        },
+        {
+          kind: 'string',
+          name: 'value',
+          description: 'JSON value or plain string',
         },
       ],
     },
@@ -1398,6 +1461,17 @@ export function parseCanonicalSlashCommandArgs(
       if (subcommand !== 'status') return null;
       const provider = normalizeStringOption(interaction, 'provider', true);
       return provider ? ['auth', 'status', provider] : null;
+    }
+
+    case 'config': {
+      const action = normalizeStringOption(interaction, 'action');
+      const key = normalizeStringOption(interaction, 'key');
+      const value = normalizeStringOption(interaction, 'value');
+      if (!action && !key && !value) return ['config'];
+      if (action === 'check' && !key && !value) return ['config', 'check'];
+      if (action === 'reload' && !key && !value) return ['config', 'reload'];
+      if (action !== 'set' || !key || !value) return null;
+      return ['config', 'set', key, value];
     }
 
     case 'show': {

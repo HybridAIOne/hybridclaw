@@ -53,6 +53,24 @@ describe('HybridAIRequestError', () => {
 
     expect(error.body).toBe(body);
   });
+
+  test('caches the parsed provider error body on the request error', () => {
+    const error = new HybridAIRequestError(
+      403,
+      JSON.stringify({
+        error: {
+          message:
+            'Premium models require a paid plan or token-credit balance.',
+          type: 'permission_error',
+        },
+      }),
+    );
+
+    expect(error.parsedBody).toEqual({
+      message: 'Premium models require a paid plan or token-credit balance.',
+      type: 'permission_error',
+    });
+  });
 });
 
 describe('HybridAI empty completion guard', () => {
@@ -143,7 +161,7 @@ describe('HybridAI empty completion guard', () => {
         },
       }),
     ).toBe(
-      '{"id":"resp_empty","model":"gpt-5-nano","finishReason":"stop","contentType":"null","visibleTextChars":0,"toolCallCount":0,"usage":{"prompt_tokens":10,"completion_tokens":4096,"total_tokens":4106}}',
+      'id=resp_empty model=gpt-5-nano finish=stop contentType=null',
     );
   });
 });

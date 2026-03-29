@@ -168,7 +168,7 @@ function buildUnusedMcpServersResult(
   );
 }
 
-export async function checkConfig(): Promise<DiagResult[]> {
+export async function checkConfigFile(): Promise<DiagResult[]> {
   const filePath = runtimeConfigPath();
   const displayPath = shortenHomePath(filePath);
 
@@ -249,6 +249,15 @@ export async function checkConfig(): Promise<DiagResult[]> {
         : undefined,
     ),
   ];
+
+  return results;
+}
+
+export async function checkConfig(): Promise<DiagResult[]> {
+  const results = await checkConfigFile();
+  if (results.some((result) => result.severity === 'error')) {
+    return results;
+  }
 
   const usage = getToolUsageSummary({
     sinceTimestamp: buildUnusedWindowStart(),

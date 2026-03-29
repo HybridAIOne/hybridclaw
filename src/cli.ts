@@ -25,7 +25,18 @@ import {
   parseGatewayFlags,
   type SandboxModeOverride,
 } from './config/cli-flags.js';
-import { runtimeConfigPath } from './config/runtime-config.js';
+import {
+  getRuntimeConfig,
+  reloadRuntimeConfig,
+  runtimeConfigPath,
+  updateRuntimeConfig,
+} from './config/runtime-config.js';
+import {
+  parseRuntimeConfigCommandValue,
+  setRuntimeConfigValueAtPath,
+} from './config/runtime-config-edit.js';
+import { checkConfigFile } from './doctor/checks/config.js';
+import { summarizeCounts } from './doctor/utils.js';
 import {
   ensureGatewayRunDir,
   GATEWAY_LOG_FILE_ENV,
@@ -993,6 +1004,73 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
   await runGatewayApiCommand(normalized);
 }
 
+async function handleConfigCommand(args: string[]): Promise<void> {
+  async function runRuntimeConfigFileCheck(): Promise<'ok' | 'warn' | 'error'> {
+    const results = await checkConfigFile();
+    const summary = summarizeCounts(results);
+    for (const result of results) {
+      const symbol =
+        result.severity === 'ok' ? '✓' : result.severity === 'warn' ? '⚠' : '✖';
+      console.log(`${symbol} ${result.label}  ${result.message}`);
+    }
+    console.log(
+      `${summary.ok} ok · ${summary.warn} warning${summary.warn === 1 ? '' : 's'} · ${summary.error} error${summary.error === 1 ? '' : 's'}`,
+    );
+    const severity =
+      summary.error > 0 ? 'error' : summary.warn > 0 ? 'warn' : 'ok';
+    process.exitCode = severity === 'error' ? 1 : 0;
+    return severity;
+  }
+
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0) {
+    console.log(`Active config: ${runtimeConfigPath()}`);
+    console.log(JSON.stringify(getRuntimeConfig(), null, 2));
+    return;
+  }
+
+  if (isHelpRequest(normalized)) {
+    const { printConfigUsage } = await import('./cli/help.js');
+    printConfigUsage();
+    return;
+  }
+
+  const sub = (normalized[0] || '').trim().toLowerCase();
+  if (sub === 'check') {
+    await runRuntimeConfigFileCheck();
+    return;
+  }
+  if (sub === 'reload') {
+    const nextConfig = reloadRuntimeConfig('cli');
+    console.log(`Reloaded runtime config from ${runtimeConfigPath()}.`);
+    console.log(JSON.stringify(nextConfig, null, 2));
+    await runRuntimeConfigFileCheck();
+    return;
+  }
+  if (sub !== 'set') {
+    throw new Error(
+      'Unknown config subcommand. Use `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, or `hybridclaw config set <key> <value>`.',
+    );
+  }
+
+  const key = String(normalized[1] || '').trim();
+  const rawValue = normalized.slice(2).join(' ').trim();
+  if (!key || !rawValue) {
+    throw new Error(
+      'Usage: `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, or `hybridclaw config set <key> <value>`',
+    );
+  }
+
+  const value = parseRuntimeConfigCommandValue(rawValue);
+  const nextConfig = updateRuntimeConfig((draft) => {
+    setRuntimeConfigValueAtPath(draft, key, value);
+  });
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(`Key: ${key}`);
+  console.log(JSON.stringify(nextConfig, null, 2));
+  await runRuntimeConfigFileCheck();
+}
+
 async function handleLocalCommand(args: string[]): Promise<void> {
   const cliAuth = await import('./cli/auth-command.js');
   await cliAuth.handleLocalCommand(args);
@@ -1158,6 +1236,9 @@ export async function main(
       break;
     case 'auth':
       await handleAuthCommand(subargs);
+      break;
+    case 'config':
+      await handleConfigCommand(subargs);
       break;
     case 'gateway':
       await handleGatewayCommand(subargs);

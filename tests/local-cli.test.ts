@@ -420,7 +420,7 @@ test('channels whatsapp setup preserves an existing custom ack reaction', async 
           baseUrl: 'https://hybridai.one',
           defaultModel: 'gpt-5-nano',
           defaultChatbotId: '',
-          maxTokens: 8192,
+          maxTokens: 4096,
           enableRag: true,
           models: ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
         },

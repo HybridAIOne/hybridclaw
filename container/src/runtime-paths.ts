@@ -10,9 +10,21 @@ const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-'] as const;
 export const WORKSPACE_ROOT = path.resolve(
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT || WORKSPACE_ROOT_DISPLAY,
 );
-const PROJECT_ROOT = (() => {
-  const raw = (process.env.HYBRIDCLAW_AGENT_PROJECT_ROOT || '').trim();
-  return raw ? path.resolve(raw) : null;
+const ALLOWED_HOST_ROOTS = (() => {
+  const raw = (process.env.HYBRIDCLAW_AGENT_ALLOWED_ROOTS || '').trim();
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => expandUserPath(value))
+      .filter(Boolean)
+      .map((value) => path.resolve(value));
+  } catch {
+    return [];
+  }
 })();
 export const DISCORD_MEDIA_CACHE_ROOT = path.resolve(
   process.env.HYBRIDCLAW_AGENT_MEDIA_ROOT || DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -165,7 +177,7 @@ function resolveRootBoundPath(
     }
 
     const resolvedActual = path.resolve(input);
-    if (PROJECT_ROOT && isWithinRoot(resolvedActual, PROJECT_ROOT)) {
+    if (ALLOWED_HOST_ROOTS.some((root) => isWithinRoot(resolvedActual, root))) {
       return resolvedActual;
     }
     return isWithinRoot(resolvedActual, actualRoot) ? resolvedActual : null;

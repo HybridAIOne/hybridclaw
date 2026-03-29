@@ -225,11 +225,7 @@ export async function setPluginEnabled(
 ): Promise<PluginEnabledWriteResult> {
   const normalizedPluginId = normalizePluginId(pluginId);
   const nextConfig = cloneConfig(getRuntimeConfig());
-  await ensurePluginExistsForConfig(normalizedPluginId, nextConfig);
-
   const existing = findPluginEntry(nextConfig, normalizedPluginId);
-  const previousEnabled = existing ? existing.enabled !== false : true;
-
   if (enabled && !existing) {
     return {
       pluginId: normalizedPluginId,
@@ -240,6 +236,9 @@ export async function setPluginEnabled(
     };
   }
 
+  await ensurePluginExistsForConfig(normalizedPluginId, nextConfig);
+
+  const previousEnabled = existing ? existing.enabled !== false : true;
   const entry = existing ?? ensurePluginEntry(nextConfig, normalizedPluginId);
   entry.enabled = enabled;
   cleanupPluginEntry(nextConfig, normalizedPluginId, entry);

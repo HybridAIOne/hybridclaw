@@ -85,6 +85,23 @@ test('registers auth as a local slash/text command', async () => {
       }),
     ]),
   );
+  const authDefinition = buildTuiSlashCommandDefinitions([]).find(
+    (definition) => definition.name === 'auth',
+  );
+  const authStatusDefinition = authDefinition?.options?.find(
+    (option) => option.kind === 'subcommand' && option.name === 'status',
+  );
+  const providerOption = authStatusDefinition?.options?.find(
+    (option) => option.kind === 'string' && option.name === 'provider',
+  );
+  expect(providerOption).toEqual(
+    expect.objectContaining({
+      kind: 'string',
+      name: 'provider',
+      required: true,
+    }),
+  );
+  expect(providerOption?.choices).toBeUndefined();
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'auth',
@@ -95,6 +112,81 @@ test('registers auth as a local slash/text command', async () => {
   expect(
     mapCanonicalCommandToGatewayArgs(['auth', 'status', 'hybridai']),
   ).toEqual(['auth', 'status', 'hybridai']);
+});
+
+test('registers config as a local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    parseCanonicalSlashCommandArgs,
+    mapCanonicalCommandToGatewayArgs,
+  } = await importCommandRegistry();
+  expect(isRegisteredTextCommandName('config')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'config',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'config',
+      }),
+    ]),
+  );
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'config',
+      getString: () => null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['config']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'config',
+      getString: (name) => (name === 'action' ? 'check' : null),
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['config', 'check']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'config',
+      getString: (name) => (name === 'action' ? 'reload' : null),
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['config', 'reload']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'config',
+      getString: (name) =>
+        name === 'action'
+          ? 'set'
+          : name === 'key'
+            ? 'hybridai.maxTokens'
+            : name === 'value'
+              ? '8192'
+              : null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['config', 'set', 'hybridai.maxTokens', '8192']);
+  expect(mapCanonicalCommandToGatewayArgs(['config'])).toEqual(['config']);
+  expect(mapCanonicalCommandToGatewayArgs(['config', 'check'])).toEqual([
+    'config',
+    'check',
+  ]);
+  expect(mapCanonicalCommandToGatewayArgs(['config', 'reload'])).toEqual([
+    'config',
+    'reload',
+  ]);
+  expect(
+    mapCanonicalCommandToGatewayArgs([
+      'config',
+      'set',
+      'hybridai.maxTokens',
+      '8192',
+    ]),
+  ).toEqual(['config', 'set', 'hybridai.maxTokens', '8192']);
 });
 
 test('parses /plugin list into gateway args', async () => {
