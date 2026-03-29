@@ -155,6 +155,7 @@ export async function readOutput(
     signal?: AbortSignal;
     activity?: ActivityTracker;
     maxWallClockMs?: number;
+    terminalError?: () => string | null;
   },
 ): Promise<ContainerOutput> {
   const dir = ipcDir(sessionId);
@@ -218,6 +219,15 @@ export async function readOutput(
         // File might be partially written, wait and retry
         logger.debug({ sessionId, err }, 'Output file not ready, retrying');
       }
+    }
+    const terminalError = opts?.terminalError?.();
+    if (terminalError) {
+      return {
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: terminalError,
+      };
     }
     const sleepMs = Math.max(
       1,

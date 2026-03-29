@@ -83,7 +83,7 @@ describe('container runtime extensions', () => {
         'write',
         JSON.stringify({
           path: 'scripts/create_sales_workbook.cjs',
-          contents: "const ExcelJS = require('exceljs');",
+          contents: "const XlsxPopulate = require('xlsx-populate');",
         }),
       ),
     ).resolves.toBeNull();

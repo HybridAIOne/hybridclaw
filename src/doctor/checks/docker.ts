@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { CONTAINER_IMAGE } from '../../config/config.js';
-import { getRuntimeConfig } from '../../config/runtime-config.js';
+import { CONTAINER_IMAGE, getResolvedSandboxMode } from '../../config/config.js';
 import {
   containerImageExists,
   ensureContainerImageReady,
@@ -10,7 +9,6 @@ import type { DiagResult } from '../types.js';
 import { makeResult } from '../utils.js';
 
 export async function checkDocker(): Promise<DiagResult[]> {
-  const config = getRuntimeConfig();
   const dockerInfo = spawnSync('docker', ['info'], {
     encoding: 'utf-8',
   });
@@ -18,17 +16,22 @@ export async function checkDocker(): Promise<DiagResult[]> {
   const imagePresent = daemonReady
     ? await containerImageExists(CONTAINER_IMAGE)
     : false;
-  const activeSandbox = config.container.sandboxMode === 'container';
+  const resolvedSandboxMode = getResolvedSandboxMode();
+  const dockerRequired = resolvedSandboxMode !== 'host';
 
   if (!daemonReady) {
     return [
       makeResult(
         'docker',
         'Docker',
-        activeSandbox ? 'error' : 'warn',
+        dockerRequired ? 'error' : 'warn',
         dockerInfo.error
-          ? `Docker unavailable (${dockerInfo.error.message})`
-          : `Docker daemon not ready${dockerInfo.stderr ? ` (${dockerInfo.stderr.trim()})` : ''}`,
+          ? dockerRequired
+            ? `Docker unavailable (${dockerInfo.error.message}); sandbox mode \`${resolvedSandboxMode}\` requires Docker. Use \`--sandbox=host\` or set \`container.sandboxMode\` to \`host\`.`
+            : `Docker unavailable (${dockerInfo.error.message})`
+          : dockerRequired
+            ? `Docker daemon not ready${dockerInfo.stderr ? ` (${dockerInfo.stderr.trim()})` : ''}; sandbox mode \`${resolvedSandboxMode}\` requires Docker. Use \`--sandbox=host\` or set \`container.sandboxMode\` to \`host\`.`
+            : `Docker daemon not ready${dockerInfo.stderr ? ` (${dockerInfo.stderr.trim()})` : ''}`,
       ),
     ];
   }

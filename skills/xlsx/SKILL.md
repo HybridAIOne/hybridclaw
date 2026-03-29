@@ -1,6 +1,6 @@
 ---
 name: xlsx
-description: Use this skill for spreadsheet work: inspect .xlsx sheets, clean CSV or TSV inputs into .xlsx, analyze tabular data, create workbooks, edit formulas, and apply workbook formatting with Node.js and ExcelJS.
+description: Use this skill for spreadsheet work: inspect .xlsx sheets, clean CSV or TSV inputs into .xlsx, analyze tabular data, create workbooks, edit formulas, and apply workbook formatting with Node.js and XlsxPopulate.
 user-invocable: true
 disable-model-invocation: false
 requires:
@@ -22,9 +22,9 @@ Use this skill whenever the user asks to create, inspect, analyze, or edit an `.
 
 ## Default Workflow
 
-1. Use a workspace CommonJS `.cjs` script with `require("exceljs")` for workbook creation and structural edits.
-2. Use `skills/xlsx/scripts/import_delimited.cjs` for messy CSV or TSV inputs when it saves time, then polish the workbook with `exceljs`.
-3. Do table reshaping in plain JavaScript, then write the final workbook with `exceljs`.
+1. Use a workspace CommonJS `.cjs` script with `require("xlsx-populate")` for workbook creation and structural edits.
+2. Use `skills/xlsx/scripts/import_delimited.cjs` for messy CSV or TSV inputs when it saves time, then polish the workbook with `xlsx-populate`.
+3. Do table reshaping in plain JavaScript, then write the final workbook with `xlsx-populate`.
 4. After meaningful formula edits, run LibreOffice-backed recalculation when `soffice` is available so cached values and error checks are current.
 5. Save the finished workbook inside the workspace and return the `.xlsx` artifact.
 
@@ -32,7 +32,7 @@ Use this skill whenever the user asks to create, inspect, analyze, or edit an `.
 
 - Keep formulas as formulas. Do not replace derived cells with hardcoded values unless the user explicitly asks for static outputs.
 - Keep formulas dynamic. Put user-editable assumptions and drivers in dedicated cells or sheets instead of burying hardcoded constants inside long formulas.
-- `exceljs` does not recalculate formulas. Keep formula strings intact and use LibreOffice-backed verification when cached values matter and the runtime says `soffice` is available.
+- `xlsx-populate` does not recalculate formulas. Keep formula strings intact and use LibreOffice-backed verification when cached values matter and the runtime says `soffice` is available.
 - After significant formula edits, run `node skills/xlsx/scripts/recalc.cjs workbook.xlsx --json` when `soffice` is available and fix any `#REF!`, `#DIV/0!`, `#VALUE!`, `#N/A`, or `#NAME?` errors before delivery.
 - Match existing workbook conventions exactly when editing templates or established models. Existing fonts, fills, borders, number formats, freeze panes, filters, named ranges, and color conventions override generic style rules.
 - For new user-facing workbooks without a template, use consistent professional styling: one readable font, explicit header styling, sensible widths, and alignment or freeze panes where they help readability.
@@ -56,31 +56,31 @@ node skills/xlsx/scripts/import_delimited.cjs raw.csv cleaned.xlsx --json
 ## Starter Pattern
 
 ```js
-const ExcelJS = require("exceljs");
+const XlsxPopulate = require("xlsx-populate");
 
 async function main() {
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet("Summary");
+  const workbook = await XlsxPopulate.fromBlankAsync();
+  const sheet = workbook.sheet(0).name("Summary");
 
-  sheet.addRow(["Revenue", "Cost", "Profit"]);
-  sheet.addRow([120000, 45000, { formula: "A2-B2" }]);
+  sheet.cell("A1").value("Revenue");
+  sheet.cell("B1").value("Cost");
+  sheet.cell("C1").value("Profit");
+  sheet.cell("A2").value(120000);
+  sheet.cell("B2").value(45000);
+  sheet.cell("C2").formula("A2-B2");
 
-  sheet.getRow(1).eachCell((cell) => {
-    cell.font = { bold: true };
-    cell.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FFD9EAF7" },
-    };
-    cell.alignment = { horizontal: "center" };
+  sheet.range("A1:C1").style({
+    bold: true,
+    horizontalAlignment: "center",
+    fill: "D9EAF7"
   });
 
-  sheet.views = [{ state: "frozen", ySplit: 1 }];
-  sheet.getColumn(1).width = 16;
-  sheet.getColumn(2).width = 16;
-  sheet.getColumn(3).width = 16;
+  sheet.freezePanes("A2");
+  sheet.column("A").width(16);
+  sheet.column("B").width(16);
+  sheet.column("C").width(16);
 
-  await workbook.xlsx.writeFile("profit-summary.xlsx");
+  await workbook.toFileAsync("profit-summary.xlsx");
 }
 
 main();

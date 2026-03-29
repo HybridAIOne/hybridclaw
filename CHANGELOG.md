@@ -29,6 +29,10 @@
 - **Built-in browser tool warnings**: Grouped the `browser_*` subtools into
   one browser toolset in doctor/config diagnostics so unused-tool suggestions
   are clearer before operators disable them.
+- **Packaged install bootstrap and XLSX tooling**: Published installs now
+  bootstrap the packaged container runtime dependencies automatically, and the
+  bundled XLSX workflow now uses `xlsx-populate` instead of `exceljs` to avoid
+  a large deprecated transitive dependency chain.
 - **Host-mode filesystem allowlist**: Host-mode agent access now uses an
   explicit allowlist rooted at the user home directory, the gateway working
   directory, `/tmp`, and configured bind or additional-mount host paths,
@@ -46,6 +50,15 @@
   transport and authentication, cleaned up stale browser sessions around
   terminal/browser flows, stabilized iMessage self-chat handling, and restored
   the local iMessage attributed-body fallback path.
+- **Fresh-install runtime startup failures**: Fixed packaged fresh installs so
+  host/container workers no longer miss nested runtime dependencies, surfaced
+  worker startup crashes immediately in TUI instead of hanging on the spinner,
+  and added clearer runtime error text when the worker exits before producing
+  output.
+- **Docker doctor guidance for sandboxed installs**: `hybridclaw doctor` now
+  treats Docker as a required dependency whenever the resolved sandbox mode is
+  not `host`, with explicit guidance to switch to host mode when Docker is not
+  available.
 - **HybridAI recovery and auth-status handling**: Improved empty-completion and
   retry-path diagnostics, cached parsed provider error bodies, simplified
   debug serialization, removed unused parsed fields, and tightened

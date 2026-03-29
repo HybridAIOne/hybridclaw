@@ -244,3 +244,103 @@ test('ContainerExecutor stops and respawns a timed out pooled container', async 
   expect(runCalls).toHaveLength(2);
   expect(stopCalls).toHaveLength(1);
 });
+
+test('ContainerExecutor surfaces missing packaged runtime dependencies as immediate errors', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const proc = makeFakeChildProcess();
+  const spawn = vi.fn(() => proc as never);
+  const readOutput = vi.fn(async (_sessionId: string, _timeoutMs: number, opts?: {
+    terminalError?: () => string | null;
+  }) => {
+    proc.stderr.emit(
+      'data',
+      Buffer.from(
+        "Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@modelcontextprotocol/sdk' imported from /pkg/container/dist/mcp/client-manager.js\n",
+      ),
+    );
+    proc.exitCode = 1;
+    proc.emit('close', 1, null);
+    return {
+      status: 'error' as const,
+      result: null,
+      toolsUsed: [],
+      artifacts: [],
+      error: opts?.terminalError?.() || 'missing terminal error',
+    };
+  });
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { ContainerExecutor } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const executor = new ContainerExecutor();
+  const output = await executor.exec({
+    sessionId: 'session-missing-runtime-dep',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'tui',
+  });
+
+  expect(output.status).toBe('error');
+  expect(output.error).toContain(
+    'Container runtime exited before producing output (exit code 1).',
+  );
+  expect(output.error).toContain(
+    'Missing runtime dependency: @modelcontextprotocol/sdk.',
+  );
+  expect(output.error).toContain('Reinstall HybridClaw.');
+});
