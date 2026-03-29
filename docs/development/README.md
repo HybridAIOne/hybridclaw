@@ -12,20 +12,20 @@ matches what you need right now. In the browser docs shell, each page can open
 its raw `.md` source directly or copy the full page markdown from the document
 header.
 
-## Coming Up Highlights
+## Latest Highlights
 
-- Hugging Face router support has landed with provider auth commands, doctor
-  probing, model discovery, and `huggingface/...` model selection support.
-- The embedded admin console has a dedicated `Jobs` board for proactive work,
-  alongside scheduler/job follow-ups that recover more reliably after failed
-  runs or delayed delivery.
-- `hybridclaw tool list|enable|disable` gives operators a direct way to trim
-  unused built-in prompt surfaces when doctor recommends it.
-- Container bootstrap behavior is clearer: installed packages prefer published
-  images, source checkouts build locally, and the publish workflow verifies
-  pushed GHCR tags before completion.
-- Skill install/sync path handling, malformed `requires` warnings, and
-  OpenClaw-compatible metadata parsing all received cleanup and stability work.
+- HybridClaw now supports `iMessage` with either a local macOS `imsg` +
+  `chat.db` backend or a remote BlueBubbles relay, plus a dedicated setup
+  guide and `hybridclaw channels imessage setup`.
+- The embedded admin console now includes a live `Terminal` page at
+  `/admin/terminal` so operators can open a browser-based PTY session without
+  leaving the admin shell.
+- `hybridclaw config`, `config check`, `config reload`, and
+  `config set <key> <value>` now cover the local runtime config lifecycle,
+  with matching `/config` slash commands in TUI and web sessions.
+- HybridAI observability export, clearer browser-tool doctor suggestions, and
+  tighter plugin/browser recovery flows all landed for day-to-day operator
+  work.
 
 ## Browse By Section
 

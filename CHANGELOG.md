@@ -2,8 +2,17 @@
 
 ## [Coming up]
 
+## [0.9.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.5)
+
 ### Added
 
+- **Dual-backend iMessage channel**: Added `hybridclaw channels imessage setup`
+  plus gateway runtime support for local macOS delivery through `imsg` +
+  Messages `chat.db` and remote relay delivery through BlueBubbles webhooks
+  and REST sends.
+- **Admin terminal page**: Added a browser-based `Terminal` page inside the
+  embedded admin console so operators can open a live PTY session from
+  `/admin/terminal` alongside the existing gateway and session views.
 - **Local runtime config commands**: Added `hybridclaw config`,
   `hybridclaw config check`, `hybridclaw config reload`, and
   `hybridclaw config set <key> <value>`, plus matching local `/config`
@@ -17,6 +26,9 @@
 
 ### Changed
 
+- **Built-in browser tool warnings**: Grouped the `browser_*` subtools into
+  one browser toolset in doctor/config diagnostics so unused-tool suggestions
+  are clearer before operators disable them.
 - **Host-mode filesystem allowlist**: Host-mode agent access now uses an
   explicit allowlist rooted at the user home directory, the gateway working
   directory, `/tmp`, and configured bind or additional-mount host paths,
@@ -27,13 +39,13 @@
 - **Browser login profile handling**: Tightened the headed Chromium login flow
   around the dedicated automation profile, including clearer automation-only
   password-store intent and deferred Playwright cache directory creation.
-- **Root dependency lockfile refresh**: Updated pinned and transitive npm
-  packages in `package-lock.json`, including `imapflow`, `mailparser`,
-  `nodemailer`, `path-to-regexp`, `picomatch`, `yaml`, and
-  `brace-expansion`.
 
 ### Fixed
 
+- **Admin terminal and iMessage hardening**: Tightened admin terminal session
+  transport and authentication, cleaned up stale browser sessions around
+  terminal/browser flows, stabilized iMessage self-chat handling, and restored
+  the local iMessage attributed-body fallback path.
 - **HybridAI recovery and auth-status handling**: Improved empty-completion and
   retry-path diagnostics, cached parsed provider error bodies, simplified
   debug serialization, removed unused parsed fields, and tightened

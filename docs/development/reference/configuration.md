@@ -40,6 +40,7 @@ HybridClaw does not keep runtime state in the current working directory. If
 - `skills.disabled` and `skills.channelDisabled.*` for skill availability
 - `plugins.list[]` for plugin overrides and config
 - `adaptiveSkills.*` for skill observation, amendment staging, and rollback
+- `imessage.*` for the dual-backend local or BlueBubbles iMessage transport
 - `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`
 - `media.audio` for inbound audio transcription backend selection
 
