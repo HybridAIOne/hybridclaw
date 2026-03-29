@@ -313,7 +313,10 @@ async function main() {
       : [parseValue(row)];
     columnCount = Math.max(columnCount, values.length);
     for (let columnIndex = 0; columnIndex < values.length; columnIndex += 1) {
-      setCellValue(worksheet.cell(rowIndex, columnIndex + 1), values[columnIndex]);
+      setCellValue(
+        worksheet.cell(rowIndex, columnIndex + 1),
+        values[columnIndex],
+      );
     }
     rowIndex += 1;
   }

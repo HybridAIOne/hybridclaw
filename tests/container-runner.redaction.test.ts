@@ -252,25 +252,31 @@ test('ContainerExecutor surfaces missing packaged runtime dependencies as immedi
 
   const proc = makeFakeChildProcess();
   const spawn = vi.fn(() => proc as never);
-  const readOutput = vi.fn(async (_sessionId: string, _timeoutMs: number, opts?: {
-    terminalError?: () => string | null;
-  }) => {
-    proc.stderr.emit(
-      'data',
-      Buffer.from(
-        "Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@modelcontextprotocol/sdk' imported from /pkg/container/dist/mcp/client-manager.js\n",
-      ),
-    );
-    proc.exitCode = 1;
-    proc.emit('close', 1, null);
-    return {
-      status: 'error' as const,
-      result: null,
-      toolsUsed: [],
-      artifacts: [],
-      error: opts?.terminalError?.() || 'missing terminal error',
-    };
-  });
+  const readOutput = vi.fn(
+    async (
+      _sessionId: string,
+      _timeoutMs: number,
+      opts?: {
+        terminalError?: () => string | null;
+      },
+    ) => {
+      proc.stderr.emit(
+        'data',
+        Buffer.from(
+          "Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@modelcontextprotocol/sdk' imported from /pkg/container/dist/mcp/client-manager.js\n",
+        ),
+      );
+      proc.exitCode = 1;
+      proc.emit('close', 1, null);
+      return {
+        status: 'error' as const,
+        result: null,
+        toolsUsed: [],
+        artifacts: [],
+        error: opts?.terminalError?.() || 'missing terminal error',
+      };
+    },
+  );
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
     provider: 'hybridai' as const,
     apiKey: '',

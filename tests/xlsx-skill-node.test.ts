@@ -43,7 +43,9 @@ test('xlsx import script converts delimited input into a formatted workbook', as
 
   fs.writeFileSync(
     inputPath,
-    ['Name,Amount,When', 'Alice,12.5,2026-03-29', 'Bob,7,2026-03-30'].join('\n'),
+    ['Name,Amount,When', 'Alice,12.5,2026-03-29', 'Bob,7,2026-03-30'].join(
+      '\n',
+    ),
     'utf8',
   );
 

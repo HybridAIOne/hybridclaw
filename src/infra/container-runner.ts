@@ -147,25 +147,37 @@ const STDERR_HISTORY_LIMIT = 20;
 function rememberStderrLine(entry: PoolEntry, line: string): void {
   entry.stderrHistory.push(line);
   if (entry.stderrHistory.length > STDERR_HISTORY_LIMIT) {
-    entry.stderrHistory.splice(0, entry.stderrHistory.length - STDERR_HISTORY_LIMIT);
+    entry.stderrHistory.splice(
+      0,
+      entry.stderrHistory.length - STDERR_HISTORY_LIMIT,
+    );
   }
 }
 
-function summarizeExit(code: number | null, signal: NodeJS.Signals | null): string {
+function summarizeExit(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): string {
   if (typeof code === 'number') return `exit code ${code}`;
   if (signal) return `signal ${signal}`;
   return 'unknown exit status';
 }
 
-function formatContainerTerminalError(entry: PoolEntry, params?: {
-  code?: number | null;
-  signal?: NodeJS.Signals | null;
-}): string {
+function formatContainerTerminalError(
+  entry: PoolEntry,
+  params?: {
+    code?: number | null;
+    signal?: NodeJS.Signals | null;
+  },
+): string {
   const stderrText = entry.stderrHistory.join('\n');
   const missingPackageMatch = stderrText.match(
     /Cannot find package '([^']+)' imported from /,
   );
-  const status = summarizeExit(params?.code ?? entry.process.exitCode, params?.signal ?? null);
+  const status = summarizeExit(
+    params?.code ?? entry.process.exitCode,
+    params?.signal ?? null,
+  );
 
   if (missingPackageMatch) {
     return [

@@ -99,6 +99,12 @@ test('prefers npm_execpath when npm exposes it during install', () => {
     }),
   ).toEqual({
     command: process.execPath,
-    args: [npmCliPath, '--prefix', '/tmp/hybridclaw-container', 'install', '--omit=dev'],
+    args: [
+      npmCliPath,
+      '--prefix',
+      '/tmp/hybridclaw-container',
+      'install',
+      '--omit=dev',
+    ],
   });
 });

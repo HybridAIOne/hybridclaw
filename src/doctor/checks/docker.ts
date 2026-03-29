@@ -1,5 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { CONTAINER_IMAGE, getResolvedSandboxMode } from '../../config/config.js';
+import {
+  CONTAINER_IMAGE,
+  getResolvedSandboxMode,
+} from '../../config/config.js';
 import {
   containerImageExists,
   ensureContainerImageReady,

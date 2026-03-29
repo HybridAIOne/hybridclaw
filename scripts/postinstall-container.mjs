@@ -1,7 +1,7 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
@@ -87,7 +87,11 @@ export function resolveNpmCommand(containerDir, env = process.env) {
   const npmExecPath = String(env.npm_execpath || '').trim();
   const installArgs = ['--prefix', containerDir, 'install', '--omit=dev'];
 
-  if (npmExecPath && path.isAbsolute(npmExecPath) && fs.existsSync(npmExecPath)) {
+  if (
+    npmExecPath &&
+    path.isAbsolute(npmExecPath) &&
+    fs.existsSync(npmExecPath)
+  ) {
     return {
       command: process.execPath,
       args: [npmExecPath, ...installArgs],
@@ -100,7 +104,10 @@ export function resolveNpmCommand(containerDir, env = process.env) {
   };
 }
 
-export function bootstrapContainerDependencies(containerDir, env = process.env) {
+export function bootstrapContainerDependencies(
+  containerDir,
+  env = process.env,
+) {
   const { command, args } = resolveNpmCommand(containerDir, env);
   return spawnSync(command, args, {
     cwd: containerDir,
