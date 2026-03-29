@@ -66,7 +66,10 @@ function runCommand(
   });
 }
 
-function normalizeDockerDetail(raw: string | undefined, fallback: string): string {
+function normalizeDockerDetail(
+  raw: string | undefined,
+  fallback: string,
+): string {
   const lines = String(raw || '')
     .split(/\r?\n/)
     .map((line) => line.trim())

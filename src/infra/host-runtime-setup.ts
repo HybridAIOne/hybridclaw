@@ -1,5 +1,5 @@
-import { createRequire } from 'node:module';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 import { resolveInstallRoot } from './install-root.js';
@@ -81,8 +81,7 @@ function formatMissingDependencyMessage(
   installRoot: string,
   missingDependencies: string[],
 ): string {
-  const noun =
-    missingDependencies.length === 1 ? 'dependency' : 'dependencies';
+  const noun = missingDependencies.length === 1 ? 'dependency' : 'dependencies';
   const list = missingDependencies.join(', ');
   const hint = isSourceCheckout(installRoot)
     ? 'If you are running from a source checkout, run `npm run setup` first.'
@@ -97,12 +96,22 @@ function formatMissingDependencyMessage(
 export function resolveHostRuntimeCommand(
   installRoot = resolveInstallRoot(),
 ): HostRuntimeCommand {
-  const builtEntrypoint = path.join(installRoot, 'container', 'dist', 'index.js');
+  const builtEntrypoint = path.join(
+    installRoot,
+    'container',
+    'dist',
+    'index.js',
+  );
   if (fs.existsSync(builtEntrypoint)) {
     return { command: process.execPath, args: [builtEntrypoint] };
   }
 
-  const sourceEntrypoint = path.join(installRoot, 'container', 'src', 'index.ts');
+  const sourceEntrypoint = path.join(
+    installRoot,
+    'container',
+    'src',
+    'index.ts',
+  );
   const tsxBin = path.join(
     installRoot,
     'node_modules',

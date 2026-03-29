@@ -329,8 +329,7 @@ async function ensureRuntimeContainer(
             ? 'Docker is not available, and this install is still using the default container sandbox. Switch HybridClaw to host mode in the runtime config and continue? [Y/n] '
             : 'Docker is installed, but this user cannot access the Docker daemon. Switch HybridClaw to host mode in the runtime config and continue? [Y/n] ';
         const answer = (await rl.question(prompt)).trim().toLowerCase();
-        const shouldSwitch =
-          !answer || answer === 'y' || answer === 'yes';
+        const shouldSwitch = !answer || answer === 'y' || answer === 'yes';
         if (shouldSwitch) {
           updateRuntimeConfig((draft) => {
             draft.container.sandboxMode = 'host';

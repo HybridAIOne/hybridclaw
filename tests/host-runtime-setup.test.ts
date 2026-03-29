@@ -40,11 +40,17 @@ afterEach(() => {
 describe('ensureHostRuntimeReady', () => {
   test('throws a reinstall error when packaged runtime dependencies are missing', async () => {
     const installRoot = createTempDir();
-    fs.writeFileSync(path.join(installRoot, 'package.json'), '{"name":"@hybridaione/hybridclaw"}');
+    fs.writeFileSync(
+      path.join(installRoot, 'package.json'),
+      '{"name":"@hybridaione/hybridclaw"}',
+    );
     fs.mkdirSync(path.join(installRoot, 'container', 'dist'), {
       recursive: true,
     });
-    fs.writeFileSync(path.join(installRoot, 'container', 'dist', 'index.js'), '');
+    fs.writeFileSync(
+      path.join(installRoot, 'container', 'dist', 'index.js'),
+      '',
+    );
     writeContainerPackage(installRoot, {
       '@modelcontextprotocol/sdk': '^1.27.1',
     });
@@ -65,12 +71,21 @@ describe('ensureHostRuntimeReady', () => {
 
   test('uses the source-checkout hint when dependencies are missing in a repo checkout', async () => {
     const installRoot = createTempDir();
-    fs.writeFileSync(path.join(installRoot, 'package.json'), '{"name":"@hybridaione/hybridclaw"}');
-    fs.writeFileSync(path.join(installRoot, '.git'), 'gitdir: ./.git/worktrees/dev\n');
+    fs.writeFileSync(
+      path.join(installRoot, 'package.json'),
+      '{"name":"@hybridaione/hybridclaw"}',
+    );
+    fs.writeFileSync(
+      path.join(installRoot, '.git'),
+      'gitdir: ./.git/worktrees/dev\n',
+    );
     fs.mkdirSync(path.join(installRoot, 'container', 'dist'), {
       recursive: true,
     });
-    fs.writeFileSync(path.join(installRoot, 'container', 'dist', 'index.js'), '');
+    fs.writeFileSync(
+      path.join(installRoot, 'container', 'dist', 'index.js'),
+      '',
+    );
     writeContainerPackage(installRoot, {
       '@modelcontextprotocol/sdk': '^1.27.1',
     });
@@ -84,7 +99,9 @@ describe('ensureHostRuntimeReady', () => {
         commandName: 'hybridclaw tui',
         installRoot,
       }),
-    ).toThrow('If you are running from a source checkout, run `npm run setup` first.');
+    ).toThrow(
+      'If you are running from a source checkout, run `npm run setup` first.',
+    );
   });
 
   test('accepts installed container dependencies even when the package root is not resolvable', async () => {

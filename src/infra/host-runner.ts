@@ -47,6 +47,8 @@ import {
   resolveBrowserProfileHostDir,
   resolveDiscordMediaCacheHostDir,
 } from './container-runner.js';
+import { ensureHostRuntimeReady } from './host-runtime-setup.js';
+import { resolveInstallRoot } from './install-root.js';
 import {
   agentWorkspaceDir,
   cleanupIpc,
@@ -57,8 +59,6 @@ import {
   readOutput,
   writeInput,
 } from './ipc.js';
-import { ensureHostRuntimeReady } from './host-runtime-setup.js';
-import { resolveInstallRoot } from './install-root.js';
 import {
   consumeCollapsedStreamDebugLine,
   createStreamDebugState,

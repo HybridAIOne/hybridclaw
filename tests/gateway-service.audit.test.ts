@@ -223,7 +223,11 @@ test('bot clear clears the session chatbot and records a structured audit event'
     updateSessionChatbot,
   } = await import('../src/memory/db.ts');
   initDatabase({ quiet: true });
-  getOrCreateSession('session-bot-clear-audit', null, 'channel-bot-clear-audit');
+  getOrCreateSession(
+    'session-bot-clear-audit',
+    null,
+    'channel-bot-clear-audit',
+  );
   updateSessionChatbot('session-bot-clear-audit', 'bot-research');
 
   const { handleGatewayCommand } = await import(

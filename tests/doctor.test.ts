@@ -698,9 +698,7 @@ test('checkDocker reports permission denied and offers a host-mode fix when sand
   const [result] = await checkDocker();
 
   expect(result.severity).toBe('error');
-  expect(result.message).toContain(
-    'cannot access the Docker daemon',
-  );
+  expect(result.message).toContain('cannot access the Docker daemon');
   expect(result.message).toContain('`docker` group');
   expect(result.fix?.summary).toBe('Switch runtime sandbox mode to host');
 
