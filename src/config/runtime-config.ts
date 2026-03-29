@@ -33,7 +33,7 @@ import { normalizeTrimmedStringSet } from '../utils/normalized-strings.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 17;
+export const CONFIG_VERSION = 18;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_DB_PATH = path.join(
@@ -122,6 +122,9 @@ export type RuntimeWebSearchConcreteProvider = Exclude<
 >;
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type IMessageBackend = 'local' | 'bluebubbles';
+export type IMessageDmPolicy = 'open' | 'allowlist' | 'disabled';
+export type IMessageGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type RuntimeAudioTranscriptionProvider =
   | 'openai'
   | 'groq'
@@ -285,6 +288,25 @@ export interface RuntimeWhatsAppConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeIMessageConfig {
+  enabled: boolean;
+  backend: IMessageBackend;
+  cliPath: string;
+  dbPath: string;
+  pollIntervalMs: number;
+  serverUrl: string;
+  password: string;
+  webhookPath: string;
+  allowPrivateNetwork: boolean;
+  dmPolicy: IMessageDmPolicy;
+  groupPolicy: IMessageGroupPolicy;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  textChunkLimit: number;
+  debounceMs: number;
+  mediaMaxMb: number;
+}
+
 export interface RuntimeEmailConfig {
   enabled: boolean;
   imapHost: string;
@@ -382,6 +404,7 @@ export interface RuntimeConfig {
   };
   msteams: RuntimeMSTeamsConfig;
   whatsapp: RuntimeWhatsAppConfig;
+  imessage: RuntimeIMessageConfig;
   email: RuntimeEmailConfig;
   hybridai: {
     baseUrl: string;
@@ -738,6 +761,24 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     debounceMs: 2_500,
     sendReadReceipts: true,
     ackReaction: '👀',
+    mediaMaxMb: 20,
+  },
+  imessage: {
+    enabled: false,
+    backend: 'local',
+    cliPath: 'imsg',
+    dbPath: path.join(os.homedir(), 'Library', 'Messages', 'chat.db'),
+    pollIntervalMs: 2_500,
+    serverUrl: '',
+    password: '',
+    webhookPath: '/api/imessage/webhook',
+    allowPrivateNetwork: false,
+    dmPolicy: 'allowlist',
+    groupPolicy: 'disabled',
+    allowFrom: [],
+    groupAllowFrom: [],
+    textChunkLimit: 4_000,
+    debounceMs: 2_500,
     mediaMaxMb: 20,
   },
   email: {
@@ -1626,6 +1667,50 @@ function normalizeWhatsAppGroupPolicy(
   return fallback;
 }
 
+function normalizeIMessageBackend(
+  value: unknown,
+  fallback: IMessageBackend,
+): IMessageBackend {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'local' || normalized === 'bluebubbles') {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeIMessageDmPolicy(
+  value: unknown,
+  fallback: IMessageDmPolicy,
+): IMessageDmPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeIMessageGroupPolicy(
+  value: unknown,
+  fallback: IMessageGroupPolicy,
+): IMessageGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
 function normalizeWhatsAppConfig(
   value: unknown,
   fallback: RuntimeWhatsAppConfig,
@@ -1660,6 +1745,68 @@ function normalizeWhatsAppConfig(
     ),
     ackReaction: normalizeString(raw.ackReaction, fallback.ackReaction, {
       allowEmpty: true,
+    }),
+    mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
+      min: 1,
+      max: 100,
+    }),
+  };
+}
+
+function normalizeIMessageConfig(
+  value: unknown,
+  fallback: RuntimeIMessageConfig,
+): RuntimeIMessageConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    backend: normalizeIMessageBackend(raw.backend, fallback.backend),
+    cliPath: normalizeString(raw.cliPath, fallback.cliPath, {
+      allowEmpty: false,
+    }),
+    dbPath: normalizeString(raw.dbPath, fallback.dbPath, {
+      allowEmpty: false,
+    }),
+    pollIntervalMs: normalizeInteger(
+      raw.pollIntervalMs,
+      fallback.pollIntervalMs,
+      {
+        min: 250,
+        max: 120_000,
+      },
+    ),
+    serverUrl: normalizeBaseUrl(raw.serverUrl, fallback.serverUrl),
+    password: normalizeString(raw.password, fallback.password, {
+      allowEmpty: true,
+    }),
+    webhookPath: normalizeString(raw.webhookPath, fallback.webhookPath, {
+      allowEmpty: false,
+    }),
+    allowPrivateNetwork: normalizeBoolean(
+      raw.allowPrivateNetwork,
+      fallback.allowPrivateNetwork,
+    ),
+    dmPolicy: normalizeIMessageDmPolicy(raw.dmPolicy, fallback.dmPolicy),
+    groupPolicy: normalizeIMessageGroupPolicy(
+      raw.groupPolicy,
+      fallback.groupPolicy,
+    ),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    groupAllowFrom: normalizeStringArray(
+      raw.groupAllowFrom,
+      fallback.groupAllowFrom,
+    ),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 200,
+        max: 4_000,
+      },
+    ),
+    debounceMs: normalizeInteger(raw.debounceMs, fallback.debounceMs, {
+      min: 0,
+      max: 120_000,
     }),
     mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
       min: 1,
@@ -2746,6 +2893,7 @@ function normalizeRuntimeConfig(
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
+  const rawIMessage = isRecord(raw.imessage) ? raw.imessage : {};
   const rawEmail = isRecord(raw.email) ? raw.email : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
@@ -3122,6 +3270,10 @@ function normalizeRuntimeConfig(
     whatsapp: normalizeWhatsAppConfig(
       rawWhatsApp,
       DEFAULT_RUNTIME_CONFIG.whatsapp,
+    ),
+    imessage: normalizeIMessageConfig(
+      rawIMessage,
+      DEFAULT_RUNTIME_CONFIG.imessage,
     ),
     email: normalizeEmailConfig(rawEmail, DEFAULT_RUNTIME_CONFIG.email),
     hybridai: {

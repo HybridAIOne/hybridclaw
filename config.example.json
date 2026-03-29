@@ -1,5 +1,5 @@
 {
-  "version": 17,
+  "version": 18,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -130,6 +130,24 @@
     "debounceMs": 2500,
     "sendReadReceipts": true,
     "ackReaction": "👀",
+    "mediaMaxMb": 20
+  },
+  "imessage": {
+    "enabled": false,
+    "backend": "local",
+    "cliPath": "imsg",
+    "dbPath": "/Users/example/Library/Messages/chat.db",
+    "pollIntervalMs": 2500,
+    "serverUrl": "https://bluebubbles.example.com",
+    "password": "",
+    "webhookPath": "/api/imessage/webhook",
+    "allowPrivateNetwork": false,
+    "dmPolicy": "allowlist",
+    "groupPolicy": "disabled",
+    "allowFrom": [],
+    "groupAllowFrom": [],
+    "textChunkLimit": 4000,
+    "debounceMs": 2500,
     "mediaMaxMb": 20
   },
   "email": {

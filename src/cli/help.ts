@@ -162,7 +162,9 @@ Notes:
   - \`--no-smtp-secure\` is the correct setting for encrypted STARTTLS on port \`587\`; it does not force plaintext by itself.
   - Email inbound is explicit-opt-in: when email \`allowFrom\` is empty, inbound email is ignored.
   - Microsoft Teams setup lives under \`hybridclaw auth login msteams\` because it needs app credentials instead of a channel pairing flow.
+  - iMessage setup is config-driven. Set \`imessage.enabled=true\`, choose \`imessage.backend=local|bluebubbles\`, and store \`IMESSAGE_PASSWORD\` in ${runtimeSecretsPath()} when using BlueBubbles.
   - Discord activates automatically when \`DISCORD_TOKEN\` is configured.
+  - iMessage activates automatically when \`imessage.enabled=true\`.
   - Email activates automatically when \`email.enabled=true\` and \`EMAIL_PASSWORD\` is configured.
   - WhatsApp activates automatically once linked auth exists.`);
 }

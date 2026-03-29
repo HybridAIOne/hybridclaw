@@ -2,6 +2,7 @@ export type ChannelKind =
   | 'discord'
   | 'email'
   | 'heartbeat'
+  | 'imessage'
   | 'msteams'
   | 'scheduler'
   | 'tui'
@@ -63,6 +64,16 @@ export const WHATSAPP_CAPABILITIES: ChannelCapabilities = Object.freeze({
   attachments: true,
   messageEditing: false,
   maxMessageLength: 65_536,
+});
+
+export const IMESSAGE_CAPABILITIES: ChannelCapabilities = Object.freeze({
+  typing: false,
+  reactions: false,
+  threads: false,
+  embeds: false,
+  attachments: true,
+  messageEditing: false,
+  maxMessageLength: 4_000,
 });
 
 export const EMAIL_CAPABILITIES: ChannelCapabilities = Object.freeze({
