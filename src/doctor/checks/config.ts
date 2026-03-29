@@ -47,9 +47,11 @@ function findLatestToolLastUsedAt(
   toolNames: readonly string[],
   usageByTool: ReadonlyMap<string, ToolUsageSummary>,
 ): string | null {
+  // Mirrors findServerLastUsedAt below, but works from an explicit tool list
+  // instead of an MCP namespace prefix scan.
   let lastUsedAt: string | null = null;
   for (const toolName of toolNames) {
-    const candidate = usageByTool.get(toolName)?.lastUsedAt || null;
+    const candidate = usageByTool.get(toolName)?.lastUsedAt ?? null;
     if (!lastUsedAt || (candidate && candidate > lastUsedAt)) {
       lastUsedAt = candidate;
     }
@@ -61,27 +63,28 @@ function buildUnusedToolEntries(
   enabledTools: readonly string[],
   usageByTool: ReadonlyMap<string, ToolUsageSummary>,
 ): UsageEntry[] {
-  const browserTools = enabledTools.filter((name) =>
-    name.startsWith('browser_'),
-  );
-  const unusedEntries = enabledTools
-    .filter(
-      (name) =>
-        !name.startsWith('browser_') &&
-        (usageByTool.get(name)?.callsSinceCutoff || 0) === 0,
-    )
-    .map((name) => ({
+  const isUnused = (name: string) =>
+    (usageByTool.get(name)?.callsSinceCutoff ?? 0) === 0;
+  const browserTools: string[] = [];
+  let allBrowserToolsUnused = true;
+  const unusedEntries: UsageEntry[] = [];
+
+  for (const name of enabledTools) {
+    if (name.startsWith('browser_')) {
+      browserTools.push(name);
+      allBrowserToolsUnused &&= isUnused(name);
+      continue;
+    }
+
+    if (!isUnused(name)) continue;
+    unusedEntries.push({
       name,
       toolNames: [name],
-      lastUsedAt: usageByTool.get(name)?.lastUsedAt || null,
-    }));
+      lastUsedAt: usageByTool.get(name)?.lastUsedAt ?? null,
+    });
+  }
 
-  if (
-    browserTools.length > 0 &&
-    browserTools.every(
-      (name) => (usageByTool.get(name)?.callsSinceCutoff || 0) === 0,
-    )
-  ) {
+  if (browserTools.length > 0 && allBrowserToolsUnused) {
     unusedEntries.push({
       name: 'browser tools',
       toolNames: browserTools,
@@ -146,8 +149,9 @@ function findServerLastUsedAt(
   let lastUsedAt: string | null = null;
   for (const entry of usage) {
     if (!entry.toolName.startsWith(`${namespace}__`)) continue;
-    if (!lastUsedAt || (entry.lastUsedAt && entry.lastUsedAt > lastUsedAt)) {
-      lastUsedAt = entry.lastUsedAt;
+    const candidate = entry.lastUsedAt ?? null;
+    if (!lastUsedAt || (candidate && candidate > lastUsedAt)) {
+      lastUsedAt = candidate;
     }
   }
   return lastUsedAt;
