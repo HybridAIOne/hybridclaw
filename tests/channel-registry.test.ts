@@ -35,9 +35,7 @@ test('getChannelByContextId resolves Discord, WhatsApp, iMessage, email, and Tea
   expect(getChannelByContextId('491234567890@s.whatsapp.net')?.kind).toBe(
     'whatsapp',
   );
-  expect(getChannelByContextId('imessage:+14155551212')?.kind).toBe(
-    'imessage',
-  );
+  expect(getChannelByContextId('imessage:+14155551212')?.kind).toBe('imessage');
   expect(getChannelByContextId('peer@example.com')?.kind).toBe('email');
   expect(getChannelByContextId('19:channel@thread.tacv2')?.kind).toBe(
     'msteams',

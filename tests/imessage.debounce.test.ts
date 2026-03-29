@@ -10,7 +10,8 @@ afterEach(() => {
 
 function buildInbound(content: string) {
   return {
-    sessionId: 'agent:main:channel:imessage:chat:dm:peer:imessage%3A%2B14155551212',
+    sessionId:
+      'agent:main:channel:imessage:chat:dm:peer:imessage%3A%2B14155551212',
     guildId: null,
     channelId: 'imessage:+14155551212',
     userId: '+14155551212',

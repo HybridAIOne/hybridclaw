@@ -53,8 +53,7 @@ async function importFreshBlueBubblesBackend(options?: {
     IMESSAGE_ALLOW_PRIVATE_NETWORK: options?.allowPrivateNetwork ?? false,
     IMESSAGE_MEDIA_MAX_MB: 20,
     IMESSAGE_PASSWORD: options?.password ?? 'test-password',
-    IMESSAGE_SERVER_URL:
-      options?.serverUrl ?? 'https://bb.example.com',
+    IMESSAGE_SERVER_URL: options?.serverUrl ?? 'https://bb.example.com',
     IMESSAGE_TEXT_CHUNK_LIMIT: 4000,
     getConfigSnapshot: vi.fn(() => ({
       imessage: {

@@ -1055,8 +1055,9 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await waitForResponse(res, () =>
-      state.handleIMessageWebhook.mock.calls.length > 0,
+    await waitForResponse(
+      res,
+      () => state.handleIMessageWebhook.mock.calls.length > 0,
     );
 
     expect(state.handleIMessageWebhook).toHaveBeenCalledTimes(1);
