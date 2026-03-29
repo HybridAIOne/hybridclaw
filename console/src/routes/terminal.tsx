@@ -8,6 +8,10 @@ import {
   useRef,
   useState,
 } from 'react';
+import type {
+  AdminTerminalClientMessage,
+  AdminTerminalServerMessage,
+} from '../../../src/gateway/admin-terminal-protocol.js';
 import {
   adminTerminalSocketUrl,
   startAdminTerminal,
@@ -15,10 +19,6 @@ import {
 } from '../api/client';
 import { useAuth } from '../auth';
 import { PageHeader } from '../components/ui';
-import type {
-  AdminTerminalClientMessage,
-  AdminTerminalServerMessage,
-} from '../../../src/gateway/admin-terminal-protocol.js';
 
 type TerminalState = 'idle' | 'starting' | 'running' | 'stopping' | 'closed';
 
