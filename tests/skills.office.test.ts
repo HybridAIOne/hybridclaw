@@ -236,7 +236,7 @@ describe('office bundled skills', () => {
 
   test('syncs community skills into workspace/skills with stable read paths', async () => {
     const { DEFAULT_RUNTIME_HOME_DIR } = await import(
-      '../src/config/runtime-config.ts'
+      '../src/config/runtime-paths.ts'
     );
     const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
     const { loadSkillCatalog, loadSkills } = await import(
@@ -298,7 +298,7 @@ describe('office bundled skills', () => {
 
   test('uses hashed sync dirs only for colliding sanitized community skill names', async () => {
     const { DEFAULT_RUNTIME_HOME_DIR } = await import(
-      '../src/config/runtime-config.ts'
+      '../src/config/runtime-paths.ts'
     );
     const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
     const { loadSkills } = await import('../src/skills/skills.ts');

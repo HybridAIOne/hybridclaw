@@ -84,7 +84,7 @@ describe('skill install metadata', () => {
 
   test('reads install metadata and requires from metadata.openclaw', async () => {
     const { DEFAULT_RUNTIME_HOME_DIR } = await import(
-      '../src/config/runtime-config.ts'
+      '../src/config/runtime-paths.ts'
     );
     const { findSkillCatalogEntry } = await import(
       '../src/skills/skills-install.ts'
@@ -127,7 +127,7 @@ describe('skill install metadata', () => {
 
   test('prefers metadata.hybridclaw over metadata.openclaw when both exist', async () => {
     const { DEFAULT_RUNTIME_HOME_DIR } = await import(
-      '../src/config/runtime-config.ts'
+      '../src/config/runtime-paths.ts'
     );
     const { findSkillCatalogEntry } = await import(
       '../src/skills/skills-install.ts'
@@ -181,7 +181,7 @@ describe('skill install metadata', () => {
     vi.doMock('../src/logger.js', () => ({ logger }));
 
     const { DEFAULT_RUNTIME_HOME_DIR } = await import(
-      '../src/config/runtime-config.ts'
+      '../src/config/runtime-paths.ts'
     );
     const { findSkillCatalogEntry } = await import(
       '../src/skills/skills-install.ts'

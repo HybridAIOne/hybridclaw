@@ -30,8 +30,6 @@ import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
 import type { McpServerConfig } from '../types/models.js';
 import { normalizeTrimmedStringSet } from '../utils/normalized-strings.js';
 
-export { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
-
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';

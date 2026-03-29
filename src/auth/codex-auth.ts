@@ -13,7 +13,6 @@ export const CODEX_AUTH_ISSUER = 'https://auth.openai.com';
 export const CODEX_AUTH_SCOPE = 'openid profile email offline_access';
 export const CODEX_AUTH_PROVIDER = 'openai-codex';
 export const CODEX_AUTH_METHOD = 'oauth';
-export { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 export const CODEX_DEFAULT_CALLBACK_HOST = '127.0.0.1';
 export const CODEX_DEFAULT_CALLBACK_PORT = 1455;
 export const CODEX_DEFAULT_CALLBACK_REDIRECT_HOST = 'localhost';

@@ -612,7 +612,6 @@ async function importFreshCli(options?: {
     loginHybridAIInteractive,
   }));
   vi.doMock('../src/auth/codex-auth.ts', () => ({
-    CODEX_DEFAULT_BASE_URL: 'https://chatgpt.com/backend-api/codex',
     CodexAuthError,
     clearCodexCredentials,
     getCodexAuthStatus,

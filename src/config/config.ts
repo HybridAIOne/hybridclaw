@@ -7,6 +7,7 @@ import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
 } from '../../container/shared/context-guard-config.js';
+import { logger } from '../logger.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import { loadRuntimeSecrets } from '../security/runtime-secrets.js';
 import {
@@ -37,10 +38,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function cloneValue<T>(value: T): T {
-  return structuredClone(value);
-}
-
 function readVersionFromPackageJson(packageJsonPath: string): string | null {
   try {
     const raw = fs.readFileSync(packageJsonPath, 'utf-8');
@@ -63,24 +60,33 @@ function resolveAppVersion(): string {
   if (envVersion?.trim()) return envVersion.trim();
 
   const modulePath = fileURLToPath(import.meta.url);
-  const moduleVersion = readVersionFromPackageJson(
+  const probePaths = [
     path.join(path.dirname(modulePath), '..', '..', 'package.json'),
-  );
+  ];
+  const moduleVersion = readVersionFromPackageJson(probePaths[0]);
   if (moduleVersion) return moduleVersion;
 
   const entryPath = process.argv[1];
   if (entryPath) {
-    const entryVersion = readVersionFromPackageJson(
-      path.join(path.dirname(path.resolve(entryPath)), '..', 'package.json'),
+    const entryPackagePath = path.join(
+      path.dirname(path.resolve(entryPath)),
+      '..',
+      'package.json',
     );
+    probePaths.push(entryPackagePath);
+    const entryVersion = readVersionFromPackageJson(entryPackagePath);
     if (entryVersion) return entryVersion;
   }
 
-  const cwdVersion = readVersionFromPackageJson(
-    path.join(process.cwd(), 'package.json'),
-  );
+  const cwdPackagePath = path.join(process.cwd(), 'package.json');
+  probePaths.push(cwdPackagePath);
+  const cwdVersion = readVersionFromPackageJson(cwdPackagePath);
   if (cwdVersion) return cwdVersion;
 
+  logger.warn(
+    { probePaths: Array.from(new Set(probePaths)) },
+    'Unable to resolve app version from package.json probes; falling back to 0.0.0',
+  );
   return '0.0.0';
 }
 
@@ -452,10 +458,12 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     4,
     Math.min(200, config.discord.maxLinesPerMessage),
   );
-  DISCORD_HUMAN_DELAY = cloneValue(config.discord.humanDelay);
+  DISCORD_HUMAN_DELAY = structuredClone(config.discord.humanDelay);
   DISCORD_TYPING_MODE = config.discord.typingMode;
-  DISCORD_SELF_PRESENCE = cloneValue(config.discord.presence);
-  DISCORD_LIFECYCLE_REACTIONS = cloneValue(config.discord.lifecycleReactions);
+  DISCORD_SELF_PRESENCE = structuredClone(config.discord.presence);
+  DISCORD_LIFECYCLE_REACTIONS = structuredClone(
+    config.discord.lifecycleReactions,
+  );
   DISCORD_ACK_REACTION = config.discord.ackReaction;
   DISCORD_ACK_REACTION_SCOPE = config.discord.ackReactionScope;
   DISCORD_REMOVE_ACK_AFTER_REPLY = config.discord.removeAckAfterReply;
@@ -467,7 +475,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     1,
     config.discord.maxConcurrentPerChannel,
   );
-  DISCORD_GUILDS = cloneValue(config.discord.guilds);
+  DISCORD_GUILDS = structuredClone(config.discord.guilds);
   MSTEAMS_ENABLED = config.msteams.enabled;
   MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID || config.msteams.appId;
   MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD || '';
@@ -480,7 +488,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   MSTEAMS_GROUP_POLICY = config.msteams.groupPolicy;
   MSTEAMS_DM_POLICY = config.msteams.dmPolicy;
   MSTEAMS_ALLOW_FROM = [...config.msteams.allowFrom];
-  MSTEAMS_TEAMS = cloneValue(config.msteams.teams);
+  MSTEAMS_TEAMS = structuredClone(config.msteams.teams);
   MSTEAMS_REQUIRE_MENTION = config.msteams.requireMention;
   MSTEAMS_TEXT_CHUNK_LIMIT = Math.max(
     200,
@@ -578,7 +586,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   ADDITIONAL_MOUNTS = config.container.additionalMounts;
   CONTAINER_MAX_OUTPUT_SIZE = config.container.maxOutputBytes;
   MAX_CONCURRENT_CONTAINERS = Math.max(1, config.container.maxConcurrent);
-  MCP_SERVERS = cloneValue(config.mcpServers || {});
+  MCP_SERVERS = structuredClone(config.mcpServers || {});
   WEB_SEARCH_PROVIDER = config.web.search.provider;
   WEB_SEARCH_FALLBACK_PROVIDERS = [...config.web.search.fallbackProviders];
   WEB_SEARCH_DEFAULT_COUNT = Math.max(

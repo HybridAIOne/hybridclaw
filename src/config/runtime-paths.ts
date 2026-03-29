@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 
-export function resolveDefaultRuntimeHomeDir(): string {
+function resolveDefaultRuntimeHomeDir(): string {
   const envDir = (process.env.HYBRIDCLAW_DATA_DIR || '').trim();
   if (envDir && !path.isAbsolute(envDir)) {
     throw new Error(
