@@ -1,4 +1,8 @@
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
+const IMESSAGE_CLI_CHECK_TIMEOUT_MS = 3_000;
 
 export function formatMissingIMessageCliMessage(cliPath: string): string {
   const normalizedPath = String(cliPath || '').trim() || 'imsg';
@@ -9,22 +13,27 @@ export function formatMissingIMessageCliMessage(cliPath: string): string {
   return `Missing iMessage CLI binary: ${normalizedPath}. ${installHint}`;
 }
 
-export function assertLocalIMessageBackendReady(cliPath: string): void {
+export async function assertLocalIMessageBackendReady(
+  cliPath: string,
+): Promise<void> {
   if (process.platform !== 'darwin') {
     throw new Error('The local iMessage backend is only supported on macOS.');
   }
 
-  const result = spawnSync(cliPath, ['--help'], {
-    encoding: 'utf8',
-  });
-  if (!result.error) return;
-
-  if (
-    (result.error as NodeJS.ErrnoException).code === 'ENOENT' ||
-    (result.error as NodeJS.ErrnoException).code === 'EACCES'
-  ) {
-    throw new Error(formatMissingIMessageCliMessage(cliPath));
+  try {
+    await execFileAsync(cliPath, ['--help'], {
+      encoding: 'utf8',
+      timeout: IMESSAGE_CLI_CHECK_TIMEOUT_MS,
+      maxBuffer: 1024 * 1024,
+    });
+  } catch (error) {
+    const code =
+      error && typeof error === 'object' && 'code' in error
+        ? String(error.code || '')
+        : '';
+    if (code === 'ENOENT' || code === 'EACCES') {
+      throw new Error(formatMissingIMessageCliMessage(cliPath));
+    }
+    throw error;
   }
-
-  throw result.error;
 }

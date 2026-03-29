@@ -22,11 +22,6 @@ export interface IMessageInbound {
 export interface IMessageMessageContext {
   abortSignal: AbortSignal;
   inbound: IMessageInbound;
-  rawEvent: unknown;
-  backend: IMessageBackend;
-  conversationId: string;
-  handle: string;
-  isGroup: boolean;
 }
 
 export type IMessageMessageHandler = (

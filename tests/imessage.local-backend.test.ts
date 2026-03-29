@@ -6,6 +6,7 @@ async function importFreshLocalBackend(options?: {
   initialRowId?: number;
 }) {
   vi.resetModules();
+  const warn = vi.fn();
   vi.doMock('node:child_process', () => ({
     execFile: vi.fn((_file, _args, _opts, callback) => {
       callback(
@@ -64,7 +65,7 @@ async function importFreshLocalBackend(options?: {
   }));
   vi.doMock('../src/logger.js', () => ({
     logger: {
-      warn: vi.fn(),
+      warn,
     },
   }));
   vi.doMock('../src/channels/imessage/local-prereqs.js', () => ({
@@ -80,6 +81,7 @@ async function importFreshLocalBackend(options?: {
     DatabaseMock,
     prepare,
     close,
+    warn,
   };
 }
 
@@ -143,9 +145,9 @@ describe('local iMessage backend', () => {
     await backend.shutdown();
   });
 
-  test('decodes slash commands from attributedBody without leaking typedstream markers', async () => {
+  test('skips attributedBody-only rows and logs a warning', async () => {
     vi.useFakeTimers();
-    const { createLocalIMessageBackend } = await importFreshLocalBackend({
+    const { createLocalIMessageBackend, warn } = await importFreshLocalBackend({
       rows: [
         {
           rowid: 2,
@@ -170,11 +172,13 @@ describe('local iMessage backend', () => {
     await backend.start();
     await vi.advanceTimersByTimeAsync(2500);
 
-    expect(onInbound).toHaveBeenCalledTimes(1);
-    expect(onInbound).toHaveBeenCalledWith(
+    expect(onInbound).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: '/status',
+        rowid: 2,
+        attributedBodyBytes: expect.any(Number),
       }),
+      'Skipping local iMessage row without plain text; attributedBody decoding is not supported',
     );
     await backend.shutdown();
   });
@@ -212,36 +216,29 @@ describe('local iMessage backend', () => {
     await backend.shutdown();
   });
 
-  test('normalizes local self-chat prompts that arrive with a leading plus marker', async () => {
+  test('prepares the local poll query once and reuses it across poll cycles', async () => {
     vi.useFakeTimers();
-    const { createLocalIMessageBackend } = await importFreshLocalBackend({
-      rows: [
-        {
-          rowid: 4,
-          messageGuid: null,
-          messageDate: 123456792,
-          text: '+)Stell dich mal kurz vor mit drei Hashtags',
-          attributedBody: null,
-          isFromMe: 1,
-          handle: '+14155551212',
-          chatGuid: null,
-          chatIdentifier: '+14155551212',
-          chatDisplayName: null,
-        },
-      ],
-    });
+    const { createLocalIMessageBackend, prepare } = await importFreshLocalBackend(
+      {
+        rows: [],
+      },
+    );
     const onInbound = vi.fn(async () => {});
     const backend = createLocalIMessageBackend({ onInbound });
 
     await backend.start();
     await vi.advanceTimersByTimeAsync(2500);
+    await vi.advanceTimersByTimeAsync(2500);
 
-    expect(onInbound).toHaveBeenCalledTimes(1);
-    expect(onInbound).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: 'Stell dich mal kurz vor mit drei Hashtags',
-      }),
-    );
+    expect(
+      prepare.mock.calls.filter(
+        ([sql]) =>
+          typeof sql === 'string' &&
+          sql.includes('FROM message m') &&
+          sql.includes('LIMIT 200'),
+      ),
+    ).toHaveLength(1);
     await backend.shutdown();
   });
+
 });

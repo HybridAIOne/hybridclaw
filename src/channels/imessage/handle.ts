@@ -44,7 +44,11 @@ export function normalizeIMessageHandle(raw: string): string | null {
 }
 
 export function isIMessageHandle(raw: string): boolean {
-  return normalizeIMessageHandle(raw) !== null;
+  const trimmed = String(raw || '').trim();
+  if (!IMESSAGE_PREFIX_RE.test(trimmed)) {
+    return false;
+  }
+  return normalizeIMessageHandle(trimmed) !== null;
 }
 
 export function buildIMessageChannelId(handle: string): string {

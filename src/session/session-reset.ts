@@ -40,8 +40,8 @@ export function resolveSessionResetChannelKind(
   if (!normalized) return undefined;
   if (LOCAL_SESSION_RESET_CHANNEL_KINDS.has(normalized)) return normalized;
   if (isWhatsAppJid(normalized)) return 'whatsapp';
-  if (isEmailAddress(normalized)) return 'email';
   if (isIMessageHandle(normalized)) return 'imessage';
+  if (isEmailAddress(normalized)) return 'email';
   if (DISCORD_CHANNEL_ID_RE.test(normalized)) return 'discord';
   return undefined;
 }

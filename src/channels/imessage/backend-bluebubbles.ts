@@ -122,6 +122,8 @@ function readWebhookPassword(
   if (typeof headerValue === 'string' && headerValue.trim()) {
     return headerValue.trim();
   }
+  // Header auth is preferred. Query-param secrets remain as a compatibility
+  // fallback because some relay/proxy setups cannot inject custom headers.
   for (const key of ['password', 'guid', 'token']) {
     const value = url.searchParams.get(key);
     if (value?.trim()) return value.trim();
@@ -143,7 +145,11 @@ async function readWebhookBody(req: IncomingMessage): Promise<unknown> {
   if (chunks.length === 0) return {};
   const raw = Buffer.concat(chunks).toString('utf8');
   if (!raw.trim()) return {};
-  return JSON.parse(raw) as unknown;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    throw new Error('BlueBubbles webhook body must be valid JSON.');
+  }
 }
 
 function sendJson(
@@ -161,22 +167,20 @@ function sendJson(
 }
 
 async function sendBlueBubblesRequest(
+  baseUrl: URL,
   pathname: string,
   init: RequestInit,
 ): Promise<unknown> {
-  if (!IMESSAGE_SERVER_URL.trim()) {
-    throw new Error(
-      'imessage.serverUrl is required for the BlueBubbles backend.',
-    );
-  }
   if (!IMESSAGE_PASSWORD.trim()) {
     throw new Error(
       'IMESSAGE_PASSWORD or imessage.password is required for the BlueBubbles backend.',
     );
   }
 
-  const baseUrl = await assertSafeBlueBubblesBaseUrl(IMESSAGE_SERVER_URL);
   const url = new URL(pathname, baseUrl);
+  // BlueBubbles expects the REST API password as a query parameter.
+  // We prefer header-based auth for inbound webhooks, but outbound requests
+  // must follow the server API contract here.
   url.searchParams.set('password', IMESSAGE_PASSWORD);
 
   const response = await fetch(url, init);
@@ -197,12 +201,30 @@ async function sendBlueBubblesRequest(
 export function createBlueBubblesIMessageBackend(
   params: IMessageBackendFactoryParams,
 ): IMessageBackendInstance {
+  let validatedBaseUrl: URL | null = null;
+
+  const ensureValidatedBaseUrl = async (): Promise<URL> => {
+    if (validatedBaseUrl) {
+      return validatedBaseUrl;
+    }
+    if (!IMESSAGE_SERVER_URL.trim()) {
+      throw new Error(
+        'imessage.serverUrl is required for the BlueBubbles backend.',
+      );
+    }
+    validatedBaseUrl = await assertSafeBlueBubblesBaseUrl(IMESSAGE_SERVER_URL);
+    return validatedBaseUrl;
+  };
+
   return {
-    async start(): Promise<void> {},
+    async start(): Promise<void> {
+      await ensureValidatedBaseUrl();
+    },
     async sendText(
       target: string,
       text: string,
     ): Promise<IMessageOutboundMessageRef[]> {
+      const baseUrl = await ensureValidatedBaseUrl();
       const normalizedTarget = normalizeIMessageHandle(target);
       const chatGuid = toBlueBubblesChatGuid(target);
       if (!normalizedTarget || !chatGuid) {
@@ -215,17 +237,21 @@ export function createBlueBubblesIMessageBackend(
         IMESSAGE_TEXT_CHUNK_LIMIT,
       )) {
         const tempGuid = `temp-${randomUUID()}`;
-        const body = (await sendBlueBubblesRequest('/api/v1/message/text', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
+        const body = (await sendBlueBubblesRequest(
+          baseUrl,
+          '/api/v1/message/text',
+          {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              chatGuid,
+              tempGuid,
+              message: chunk,
+            }),
           },
-          body: JSON.stringify({
-            chatGuid,
-            tempGuid,
-            message: chunk,
-          }),
-        })) as Record<string, unknown> | null;
+        )) as Record<string, unknown> | null;
         const data =
           body && typeof body.data === 'object' && body.data
             ? (body.data as Record<string, unknown>)
@@ -241,6 +267,7 @@ export function createBlueBubblesIMessageBackend(
     async sendMedia(
       params: IMessageMediaSendParams,
     ): Promise<IMessageOutboundMessageRef | null> {
+      const baseUrl = await ensureValidatedBaseUrl();
       const normalizedTarget = normalizeIMessageHandle(params.target);
       const chatGuid = toBlueBubblesChatGuid(params.target);
       if (!normalizedTarget || !chatGuid) {
@@ -272,10 +299,14 @@ export function createBlueBubblesIMessageBackend(
         filename,
       );
 
-      const body = (await sendBlueBubblesRequest('/api/v1/message/attachment', {
-        method: 'POST',
-        body: formData,
-      })) as Record<string, unknown> | null;
+      const body = (await sendBlueBubblesRequest(
+        baseUrl,
+        '/api/v1/message/attachment',
+        {
+          method: 'POST',
+          body: formData,
+        },
+      )) as Record<string, unknown> | null;
       const data =
         body && typeof body.data === 'object' && body.data
           ? (body.data as Record<string, unknown>)
@@ -315,7 +346,15 @@ export function createBlueBubblesIMessageBackend(
         return true;
       }
 
-      const payload = (await readWebhookBody(req)) as Record<string, unknown>;
+      let payload: Record<string, unknown>;
+      try {
+        payload = (await readWebhookBody(req)) as Record<string, unknown>;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const statusCode = /valid json|too large/i.test(message) ? 400 : 500;
+        sendJson(res, statusCode, { error: message });
+        return true;
+      }
       if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
         sendJson(res, 400, { error: 'BlueBubbles webhook body must be JSON.' });
         return true;
@@ -373,6 +412,8 @@ export function createBlueBubblesIMessageBackend(
       sendJson(res, 200, { ok: true });
       return true;
     },
-    async shutdown(): Promise<void> {},
+    async shutdown(): Promise<void> {
+      validatedBaseUrl = null;
+    },
   };
 }

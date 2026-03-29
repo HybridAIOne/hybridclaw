@@ -22,6 +22,8 @@ test('builds and parses internal iMessage channel ids', () => {
   expect(channelId).toBe('imessage:+14155551212');
   expect(parseIMessageChannelId(channelId)).toBe('+14155551212');
   expect(isIMessageHandle(channelId)).toBe(true);
+  expect(isIMessageHandle('imessage:user@example.com')).toBe(true);
+  expect(isIMessageHandle('user@example.com')).toBe(false);
 });
 
 test('converts direct and group handles into BlueBubbles chat guids', () => {

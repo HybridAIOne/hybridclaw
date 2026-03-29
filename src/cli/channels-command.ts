@@ -1050,7 +1050,7 @@ async function configureWhatsAppChannel(args: string[]): Promise<void> {
   await pairWhatsAppChannel();
 }
 
-function configureIMessageChannel(args: string[]): void {
+async function configureIMessageChannel(args: string[]): Promise<void> {
   ensureRuntimeConfigFile();
   const parsed = parseIMessageSetupArgs(args);
   const currentConfig = getRuntimeConfig().imessage;
@@ -1066,7 +1066,7 @@ function configureIMessageChannel(args: string[]): void {
     );
   }
   if (backend === 'local') {
-    assertLocalIMessageBackendReady(cliPath);
+    await assertLocalIMessageBackendReady(cliPath);
   }
 
   const nextConfig = updateRuntimeConfig((draft) => {
@@ -1190,7 +1190,7 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
       return;
     }
     if (channel === 'imessage') {
-      configureIMessageChannel(normalized.slice(2));
+      await configureIMessageChannel(normalized.slice(2));
       return;
     }
     await configureWhatsAppChannel(normalized.slice(2));

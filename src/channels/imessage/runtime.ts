@@ -15,9 +15,10 @@ import {
   shouldDebounceIMessageInbound,
 } from './debounce.js';
 import { normalizeIMessageHandle } from './handle.js';
-import { createIMessageInboundDedupeCache } from './inbound-dedupe-cache.js';
-import { createIMessageSelfChatCache } from './self-chat-cache.js';
-import { createIMessageSelfEchoCache } from './self-echo-cache.js';
+import {
+  createIMessageSelfChatGuard,
+  type IMessageLocalSelfChatMetadata,
+} from './self-chat-guard.js';
 import type { IMessageMessageHandler, IMessageReplyFn } from './types.js';
 
 export interface IMessageRuntime {
@@ -32,16 +33,7 @@ export interface IMessageRuntime {
 }
 
 const SELF_CHAT_REPLY_PREFIX_RE = /^\[[^\]]+\](?:\s|$)/i;
-const SELF_CHAT_MIRROR_TTL_MS = 15_000;
-
-interface SelfChatMirrorEntry {
-  seenAt: number;
-  isFromMe: boolean;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+const IMESSAGE_NOOP_ABORT_SIGNAL = new AbortController().signal;
 
 function resolveSelfChatReplyPrefix(sessionId: string): string {
   const sessionAgentId =
@@ -72,36 +64,6 @@ function formatSelfChatReply(content: string, sessionId: string): string {
   return trimmed ? `${prefix} ${trimmed}` : prefix;
 }
 
-function isReflectedSelfChatReply(content: string, sessionId: string): boolean {
-  const prefix = resolveSelfChatReplyPrefix(sessionId);
-  const bareLabel = prefix.slice(1, -1).trim();
-  if (!bareLabel) return false;
-  const reflectionPrefixRe = new RegExp(
-    `^(?:\\S{1,3}\\s*)?\\[?${escapeRegExp(bareLabel)}\\](?:\\s|$)`,
-    'i',
-  );
-  return reflectionPrefixRe.test(content.trimStart());
-}
-
-function normalizeSelfChatMirrorText(value: string): string {
-  return String(value || '')
-    .trim()
-    .replace(/\r\n?/g, '\n')
-    .replace(/\s+/g, ' ')
-    .toLowerCase()
-    .slice(0, 256);
-}
-
-function buildSelfChatMirrorKey(params: {
-  channelId: string;
-  text: string;
-}): string | null {
-  const channelId = String(params.channelId || '').trim();
-  const text = normalizeSelfChatMirrorText(params.text);
-  if (!channelId || !text) return null;
-  return `${channelId}:${text}`;
-}
-
 export function createIMessageRuntime(): IMessageRuntime {
   let backend:
     | ReturnType<typeof createLocalIMessageBackend>
@@ -109,19 +71,13 @@ export function createIMessageRuntime(): IMessageRuntime {
     | null = null;
   let inboundDebouncer: ReturnType<typeof createIMessageDebouncer> | null =
     null;
-  let inboundDedupeCache: ReturnType<
-    typeof createIMessageInboundDedupeCache
-  > | null = null;
-  let selfEchoCache: ReturnType<typeof createIMessageSelfEchoCache> | null =
+  let selfChatGuard: ReturnType<typeof createIMessageSelfChatGuard> | null =
     null;
-  let selfChatCache: ReturnType<typeof createIMessageSelfChatCache> | null =
-    null;
-  let selfChatMirrorCache: Map<string, SelfChatMirrorEntry> | null = null;
   let runtimeInitialized = false;
 
   const readLocalSelfChatMetadata = (
     message: IMessageInboundBatch,
-  ): { isFromMe: boolean; createdAt: number | string | null } | null => {
+  ): IMessageLocalSelfChatMetadata | null => {
     if (message.backend !== 'local' || message.isGroup) {
       return null;
     }
@@ -150,7 +106,6 @@ export function createIMessageRuntime(): IMessageRuntime {
 
     return {
       isFromMe: rawEvent.isFromMe === true || rawEvent.isFromMe === 1,
-      createdAt: rawEvent.messageDate ?? null,
     };
   };
 
@@ -173,113 +128,16 @@ export function createIMessageRuntime(): IMessageRuntime {
         rawEvents: [message.rawEvent],
       } satisfies IMessageInboundBatch;
       const selfChatMetadata = readLocalSelfChatMetadata(inbound);
-      if (
-        selfChatMetadata &&
-        isReflectedSelfChatReply(inbound.content, inbound.sessionId)
-      ) {
-        logger.debug(
-          { channelId: inbound.channelId, messageId: inbound.messageId },
-          'Ignoring reflected local self-chat iMessage marker message',
-        );
-        return;
-      }
-      if (
-        inboundDedupeCache?.has({
-          channelId: inbound.channelId,
-          messageId: inbound.messageId,
-        })
-      ) {
-        logger.debug(
-          { channelId: inbound.channelId, messageId: inbound.messageId },
-          'Ignoring duplicate iMessage inbound message',
-        );
-        return;
-      }
-      inboundDedupeCache?.remember({
-        channelId: inbound.channelId,
-        messageId: inbound.messageId,
+      const decision = selfChatGuard?.shouldDropInbound({
+        inbound,
+        selfChatMetadata,
       });
-      if (selfChatMetadata?.isFromMe) {
-        selfChatCache?.remember({
-          channelId: inbound.channelId,
-          createdAt: selfChatMetadata.createdAt,
-          text: inbound.content,
-        });
-        if (
-          selfEchoCache?.has({
-            channelId: inbound.channelId,
-            messageId: inbound.messageId,
-            text: inbound.content,
-            skipIdShortCircuit: true,
-          })
-        ) {
-          logger.debug(
-            { channelId: inbound.channelId, messageId: inbound.messageId },
-            'Ignoring local self-chat iMessage echo',
-          );
-          return;
-        }
-      }
-      if (
-        !selfChatMetadata?.isFromMe &&
-        selfChatMetadata &&
-        selfChatCache?.has({
-          channelId: inbound.channelId,
-          createdAt: selfChatMetadata.createdAt,
-          text: inbound.content,
-        })
-      ) {
+      if (decision?.drop) {
         logger.debug(
           { channelId: inbound.channelId, messageId: inbound.messageId },
-          'Ignoring reflected local self-chat iMessage duplicate',
+          decision.reason,
         );
         return;
-      }
-      if (
-        selfEchoCache?.has({
-          channelId: inbound.channelId,
-          messageId: inbound.messageId,
-          text: inbound.content,
-        })
-      ) {
-        logger.debug(
-          { channelId: inbound.channelId, messageId: inbound.messageId },
-          'Ignoring reflected iMessage outbound message',
-        );
-        return;
-      }
-      if (selfChatMetadata) {
-        const mirrorKey = buildSelfChatMirrorKey({
-          channelId: inbound.channelId,
-          text: inbound.content,
-        });
-        const existingMirror = mirrorKey
-          ? selfChatMirrorCache?.get(mirrorKey)
-          : undefined;
-        const now = Date.now();
-        if (
-          mirrorKey &&
-          existingMirror &&
-          now - existingMirror.seenAt <= SELF_CHAT_MIRROR_TTL_MS &&
-          existingMirror.isFromMe !== selfChatMetadata.isFromMe
-        ) {
-          logger.debug(
-            { channelId: inbound.channelId, messageId: inbound.messageId },
-            'Ignoring mirrored local self-chat iMessage duplicate',
-          );
-          return;
-        }
-        if (mirrorKey && selfChatMirrorCache) {
-          selfChatMirrorCache.set(mirrorKey, {
-            seenAt: now,
-            isFromMe: selfChatMetadata.isFromMe,
-          });
-          for (const [key, entry] of selfChatMirrorCache.entries()) {
-            if (now - entry.seenAt > SELF_CHAT_MIRROR_TTL_MS) {
-              selfChatMirrorCache.delete(key);
-            }
-          }
-        }
       }
       if (
         shouldDebounceIMessageInbound({
@@ -307,7 +165,6 @@ export function createIMessageRuntime(): IMessageRuntime {
     batch: IMessageInboundBatch,
     messageHandler: IMessageMessageHandler,
   ): Promise<void> => {
-    const controller = new AbortController();
     const reply: IMessageReplyFn = async (content) => {
       await runtime.sendToIMessageChat(
         batch.channelId,
@@ -326,13 +183,8 @@ export function createIMessageRuntime(): IMessageRuntime {
       batch.media,
       reply,
       {
-        abortSignal: controller.signal,
+        abortSignal: IMESSAGE_NOOP_ABORT_SIGNAL,
         inbound: batch,
-        rawEvent: batch.rawEvent,
-        backend: batch.backend,
-        conversationId: batch.conversationId,
-        handle: batch.handle,
-        isGroup: batch.isGroup,
       },
     );
   };
@@ -341,10 +193,9 @@ export function createIMessageRuntime(): IMessageRuntime {
     async initIMessage(messageHandler: IMessageMessageHandler): Promise<void> {
       if (runtimeInitialized) return;
       runtimeInitialized = true;
-      inboundDedupeCache = createIMessageInboundDedupeCache();
-      selfEchoCache = createIMessageSelfEchoCache();
-      selfChatCache = createIMessageSelfChatCache();
-      selfChatMirrorCache = new Map();
+      selfChatGuard = createIMessageSelfChatGuard({
+        resolveReplyPrefix: resolveSelfChatReplyPrefix,
+      });
       inboundDebouncer = createIMessageDebouncer(async (batch) => {
         await dispatchInboundBatch(batch, messageHandler);
       });
@@ -357,14 +208,14 @@ export function createIMessageRuntime(): IMessageRuntime {
     },
     async sendToIMessageChat(target: string, text: string): Promise<void> {
       const refs = await ensureBackend().sendText(target, text);
-      selfEchoCache?.remember(refs);
+      selfChatGuard?.rememberOutbound(refs);
     },
     async sendIMessageMediaToChat(
       params: IMessageMediaSendParams,
     ): Promise<void> {
       const ref = await ensureBackend().sendMedia(params);
       if (ref) {
-        selfEchoCache?.remember(ref);
+        selfChatGuard?.rememberOutbound(ref);
       }
     },
     async handleIMessageWebhook(
@@ -385,14 +236,8 @@ export function createIMessageRuntime(): IMessageRuntime {
       await inboundDebouncer?.flushAll();
       await backend?.shutdown();
       inboundDebouncer = null;
-      inboundDedupeCache?.clear();
-      inboundDedupeCache = null;
-      selfEchoCache?.clear();
-      selfEchoCache = null;
-      selfChatCache?.clear();
-      selfChatCache = null;
-      selfChatMirrorCache?.clear();
-      selfChatMirrorCache = null;
+      selfChatGuard?.clear();
+      selfChatGuard = null;
       backend = null;
       runtimeInitialized = false;
     },

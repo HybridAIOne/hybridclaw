@@ -24,6 +24,26 @@ import {
 import type { IMessageOutboundMessageRef } from './self-echo-cache.js';
 
 const execFileAsync = promisify(execFile);
+const LOCAL_MESSAGE_POLL_SQL = `
+  SELECT
+    m.ROWID AS rowid,
+    m.guid AS messageGuid,
+    m.date AS messageDate,
+    m.text AS text,
+    m.attributedBody AS attributedBody,
+    m.is_from_me AS isFromMe,
+    h.id AS handle,
+    c.guid AS chatGuid,
+    c.chat_identifier AS chatIdentifier,
+    c.display_name AS chatDisplayName
+  FROM message m
+  LEFT JOIN handle h ON h.ROWID = m.handle_id
+  LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+  LEFT JOIN chat c ON c.ROWID = cmj.chat_id
+  WHERE m.ROWID > ?
+  ORDER BY m.ROWID ASC
+  LIMIT 200
+`;
 
 interface LocalMessageRow {
   rowid: number;
@@ -52,90 +72,20 @@ function normalizeLocalInboundText(value: string): string {
   return trimmed;
 }
 
-function canonicalizeLocalSelfChatLine(line: string): string {
-  const normalized = normalizeLocalInboundText(line);
-  if (normalized.startsWith('/')) {
-    return normalized;
-  }
-  const plusMarkerMatch = normalized.match(/^\+[^\s](?=[[/\p{L}\p{N}])/u);
-  if (plusMarkerMatch) {
-    return normalized.slice(2).trim();
-  }
-  const punctuationPrefixedText = normalized.match(
-    /^(?:[^\p{L}\p{N}\s]{1,3}\s*)([\p{L}\p{N}].*)$/u,
-  );
-  if (punctuationPrefixedText?.[1]) {
-    return punctuationPrefixedText[1].trim();
-  }
-  return normalized;
-}
-
-function normalizeLocalSelfChatText(value: string): string {
-  const normalized = normalizeLocalInboundText(value);
-  if (!normalized) return '';
-
-  const lines = normalized
-    .split(/\r\n?/u)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length < 2) {
-    return canonicalizeLocalSelfChatLine(normalized);
-  }
-
-  const canonicalLines = lines.map((line) =>
-    canonicalizeLocalSelfChatLine(line),
-  );
-  if (canonicalLines.length > 1 && new Set(canonicalLines).size === 1) {
-    return canonicalLines[0];
-  }
-
-  return normalized;
-}
-
-function decodeAttributedBody(value: Buffer | null): string {
-  if (!Buffer.isBuffer(value) || value.length === 0) return '';
-  const utf8 = value.toString('utf8').replace(/\uFFFD/g, '');
-  if (!utf8) return '';
-
-  const nsStringIndex = utf8.indexOf('NSString');
-  if (nsStringIndex >= 0) {
-    let candidate = utf8.slice(nsStringIndex + 'NSString'.length);
-    candidate = candidate
-      .replace(/^[^\p{L}\p{N}/#@([{\-"'+]+/u, '')
-      .replace(
-        /(?:NSDictionary|NSNumber|NSValue|__kIMMessagePartAttributeName).*$/su,
-        '',
-      );
-    const typedStreamMarker = `${String.fromCharCode(2)}iI${String.fromCharCode(1)}`;
-    const typedStreamMarkerIndex = candidate.indexOf(typedStreamMarker);
-    if (typedStreamMarkerIndex >= 0) {
-      candidate = candidate.slice(0, typedStreamMarkerIndex);
-    }
-    candidate = Array.from(candidate, (char) =>
-      char.charCodeAt(0) < 32 ? ' ' : char,
-    )
-      .join('')
-      .trim();
-    if (candidate) {
-      return candidate;
-    }
-  }
-
-  const withoutControlChars = Array.from(utf8, (char) =>
-    char.charCodeAt(0) < 32 ? ' ' : char,
-  ).join('');
-  const printableRuns =
-    withoutControlChars.match(/[ -~\u00a0-\u024f]{2,}/g) || [];
-  return printableRuns.join(' ').trim();
-}
-
 function resolveMessageText(row: LocalMessageRow): string {
-  const normalizeText = isSelfChatConversation(row)
-    ? normalizeLocalSelfChatText
-    : normalizeLocalInboundText;
-  const direct = normalizeText(String(row.text || ''));
+  const direct = normalizeLocalInboundText(String(row.text || ''));
   if (direct) return direct;
-  return normalizeText(decodeAttributedBody(row.attributedBody));
+  if (Buffer.isBuffer(row.attributedBody) && row.attributedBody.length > 0) {
+    logger.warn(
+      {
+        rowid: row.rowid,
+        messageGuid: row.messageGuid,
+        attributedBodyBytes: row.attributedBody.length,
+      },
+      'Skipping local iMessage row without plain text; attributedBody decoding is not supported',
+    );
+  }
+  return '';
 }
 
 function isGroupConversation(row: LocalMessageRow): boolean {
@@ -203,34 +153,12 @@ export function createLocalIMessageBackend(
 ): IMessageBackendInstance {
   let db: Database.Database | null = null;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let pollStatement: ReturnType<Database.Database['prepare']> | null = null;
   let lastRowId = 0;
 
   const poll = async (): Promise<void> => {
-    if (!db) return;
-    const rows = db
-      .prepare(
-        `
-          SELECT
-            m.ROWID AS rowid,
-            m.guid AS messageGuid,
-            m.date AS messageDate,
-            m.text AS text,
-            m.attributedBody AS attributedBody,
-            m.is_from_me AS isFromMe,
-            h.id AS handle,
-            c.guid AS chatGuid,
-            c.chat_identifier AS chatIdentifier,
-            c.display_name AS chatDisplayName
-          FROM message m
-          LEFT JOIN handle h ON h.ROWID = m.handle_id
-          LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
-          LEFT JOIN chat c ON c.ROWID = cmj.chat_id
-          WHERE m.ROWID > ?
-          ORDER BY m.ROWID ASC
-          LIMIT 200
-        `,
-      )
-      .all(lastRowId) as LocalMessageRow[];
+    if (!db || !pollStatement) return;
+    const rows = pollStatement.all(lastRowId) as LocalMessageRow[];
 
     for (const row of rows) {
       lastRowId = Math.max(lastRowId, Number(row.rowid) || lastRowId);
@@ -258,11 +186,12 @@ export function createLocalIMessageBackend(
   return {
     async start(): Promise<void> {
       if (pollTimer) return;
-      assertLocalIMessageBackendReady(IMESSAGE_CLI_PATH);
+      await assertLocalIMessageBackendReady(IMESSAGE_CLI_PATH);
       db = new Database(IMESSAGE_DB_PATH, {
         readonly: true,
         fileMustExist: true,
       });
+      pollStatement = db.prepare(LOCAL_MESSAGE_POLL_SQL);
       const row = db
         .prepare('SELECT COALESCE(MAX(ROWID), 0) AS rowid FROM message')
         .get() as { rowid?: number } | undefined;
@@ -322,6 +251,7 @@ export function createLocalIMessageBackend(
         clearInterval(pollTimer);
         pollTimer = null;
       }
+      pollStatement = null;
       db?.close();
       db = null;
       lastRowId = 0;

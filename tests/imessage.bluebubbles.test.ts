@@ -45,10 +45,15 @@ function makeResponse() {
 
 async function importFreshBlueBubblesBackend(options?: {
   allowPrivateNetwork?: boolean;
+  lookupResult?: Array<{ address: string; family: number }>;
   password?: string;
   serverUrl?: string;
 }) {
   vi.resetModules();
+  const lookup = vi.fn(async () => options?.lookupResult ?? []);
+  vi.doMock('node:dns/promises', () => ({
+    lookup,
+  }));
   vi.doMock('../src/config/config.js', () => ({
     IMESSAGE_ALLOW_PRIVATE_NETWORK: options?.allowPrivateNetwork ?? false,
     IMESSAGE_MEDIA_MAX_MB: 20,
@@ -151,6 +156,24 @@ describe('bluebubbles iMessage backend', () => {
     );
   });
 
+  test('returns 400 for malformed webhook JSON bodies', async () => {
+    const { createBlueBubblesIMessageBackend } =
+      await importFreshBlueBubblesBackend();
+    const onInbound = vi.fn(async () => {});
+    const backend = createBlueBubblesIMessageBackend({ onInbound });
+    const req = makeRequest({
+      url: '/api/imessage/webhook?password=test-password',
+      body: '{not-valid-json',
+    });
+    const res = makeResponse();
+
+    await backend.handleWebhook?.(req as never, res as never);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain('JSON');
+    expect(onInbound).not.toHaveBeenCalled();
+  });
+
   test('blocks private BlueBubbles server urls unless explicitly allowed', async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
@@ -162,9 +185,32 @@ describe('bluebubbles iMessage backend', () => {
       onInbound: vi.fn(async () => {}),
     });
 
-    await expect(
-      backend.sendText('imessage:+14155551212', 'hello'),
-    ).rejects.toThrow(/Blocked BlueBubbles server URL host/);
+    await expect(backend.start()).rejects.toThrow(
+      /Blocked BlueBubbles server URL host/,
+    );
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test('validates the BlueBubbles base url once at startup and reuses it for sends', async () => {
+    const fetchSpy = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: { guid: 'bb-guid-1' } }),
+    }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const { createBlueBubblesIMessageBackend } =
+      await importFreshBlueBubblesBackend({
+        lookupResult: [{ address: '198.51.100.10', family: 4 }],
+      });
+    const backend = createBlueBubblesIMessageBackend({
+      onInbound: vi.fn(async () => {}),
+    });
+
+    await backend.start();
+    await backend.sendText('imessage:+14155551212', 'hello');
+    await backend.sendText('imessage:+14155551212', 'again');
+
+    const dnsModule = await import('node:dns/promises');
+    expect(dnsModule.lookup).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 });

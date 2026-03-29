@@ -1,3 +1,6 @@
+import { normalizeIMessageComparableText } from './text-normalization.js';
+import { createTtlCache } from './ttl-cache.js';
+
 export interface IMessageOutboundMessageRef {
   channelId?: string | null;
   messageId?: string | null;
@@ -8,7 +11,7 @@ export interface IMessageSelfEchoLookup {
   channelId?: string | null;
   messageId?: string | null;
   text?: string | null;
-  skipIdShortCircuit?: boolean;
+  textMatchPolicy?: 'untracked-only' | 'any';
 }
 
 export interface IMessageSelfEchoCache {
@@ -24,19 +27,11 @@ const SELF_ECHO_ID_TTL_MS = 60_000;
 const MAX_SELF_ECHO_ENTRIES = 1_024;
 const CLEANUP_MIN_INTERVAL_MS = 1_000;
 
-function normalizeText(value: string | null | undefined): string {
-  return String(value || '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLowerCase()
-    .replace(/\r\n?/g, '\n')
-    .slice(0, 256);
-}
-
-function buildScope(ref: IMessageOutboundMessageRef): string | null {
-  const channelId = String(ref.channelId || '').trim();
-  if (!channelId) return null;
-  return channelId;
+interface SelfEchoObservation {
+  seenAt: number;
+  scope: string;
+  messageId: string | null;
+  text: string | null;
 }
 
 function normalizeMessageId(value: string | null | undefined): string | null {
@@ -47,150 +42,78 @@ function normalizeMessageId(value: string | null | undefined): string | null {
   return normalized;
 }
 
-function buildMessageIdKey(
-  scope: string,
-  messageId: string | null | undefined,
-): string | null {
-  const normalized = normalizeMessageId(messageId);
-  return normalized ? `${scope}:id:${normalized}` : null;
-}
-
-function buildTextKey(
-  scope: string,
-  text: string | null | undefined,
-): string | null {
-  const normalized = normalizeText(text);
-  return normalized ? `${scope}:text:${normalized}` : null;
-}
-
 class DefaultIMessageSelfEchoCache implements IMessageSelfEchoCache {
-  private textCache = new Map<string, number>();
-  private textBackedByIdCache = new Map<string, number>();
-  private messageIdCache = new Map<string, number>();
-  private lastCleanupAt = 0;
+  private observations = createTtlCache<number, SelfEchoObservation>({
+    ttlMs: (entry) =>
+      entry.messageId ? SELF_ECHO_ID_TTL_MS : SELF_ECHO_TEXT_TTL_MS,
+    maxEntries: MAX_SELF_ECHO_ENTRIES,
+    cleanupMinIntervalMs: CLEANUP_MIN_INTERVAL_MS,
+  });
+  private nextObservationId = 1;
 
   remember(refs: IMessageOutboundMessageRef | IMessageOutboundMessageRef[]) {
     const entries = Array.isArray(refs) ? refs : [refs];
-    const now = Date.now();
     for (const ref of entries) {
-      const scope = buildScope(ref);
+      const scope = String(ref.channelId || '').trim();
       if (!scope) continue;
-
-      const textKey = buildTextKey(scope, ref.text);
-      if (textKey) {
-        this.textCache.set(textKey, now);
+      const messageId = normalizeMessageId(ref.messageId);
+      const text = normalizeIMessageComparableText(ref.text);
+      if (!messageId && !text) {
+        continue;
       }
-
-      const messageIdKey = buildMessageIdKey(scope, ref.messageId);
-      if (messageIdKey) {
-        this.messageIdCache.set(messageIdKey, now);
-        if (textKey) {
-          this.textBackedByIdCache.set(textKey, now);
-        }
-      }
+      this.observations.set(this.nextObservationId++, {
+        seenAt: Date.now(),
+        scope,
+        messageId,
+        text: text || null,
+      });
     }
-    this.maybeCleanup(now);
   }
 
   has(ref: IMessageSelfEchoLookup): boolean {
     const now = Date.now();
-    this.maybeCleanup(now);
-
-    const scope = buildScope(ref);
+    const scope = String(ref.channelId || '').trim();
     if (!scope) return false;
 
-    const messageIdKey = buildMessageIdKey(scope, ref.messageId);
-    const textKey = buildTextKey(scope, ref.text);
+    const messageId = normalizeMessageId(ref.messageId);
+    const text = normalizeIMessageComparableText(ref.text) || null;
+    const textMatchPolicy = ref.textMatchPolicy || 'untracked-only';
+    const observations = this.observations.values();
 
-    if (messageIdKey) {
-      const seenAt = this.messageIdCache.get(messageIdKey);
-      if (typeof seenAt === 'number' && now - seenAt <= SELF_ECHO_ID_TTL_MS) {
-        return true;
-      }
-
-      const textSeenAt =
-        textKey && this.textCache.has(textKey)
-          ? this.textCache.get(textKey)
-          : undefined;
-      const textBackedByIdSeenAt =
-        textKey && this.textBackedByIdCache.has(textKey)
-          ? this.textBackedByIdCache.get(textKey)
-          : undefined;
-      const hasTextOnlyMatch =
-        typeof textSeenAt === 'number' &&
-        now - textSeenAt <= SELF_ECHO_TEXT_TTL_MS &&
-        (!textBackedByIdSeenAt || textSeenAt > textBackedByIdSeenAt);
-
-      if (!ref.skipIdShortCircuit && !hasTextOnlyMatch) {
-        return false;
-      }
-    }
-
-    if (textKey) {
-      const seenAt = this.textCache.get(textKey);
-      if (typeof seenAt === 'number' && now - seenAt <= SELF_ECHO_TEXT_TTL_MS) {
+    if (messageId) {
+      const hasMessageIdMatch = observations.some(
+        (entry) =>
+          entry.scope === scope &&
+          entry.messageId === messageId &&
+          now - entry.seenAt <= SELF_ECHO_ID_TTL_MS,
+      );
+      if (hasMessageIdMatch) {
         return true;
       }
     }
 
-    return false;
+    if (!text) {
+      return false;
+    }
+
+    const textMatches = observations.filter(
+      (entry) =>
+        entry.scope === scope &&
+        entry.text === text &&
+        now - entry.seenAt <= SELF_ECHO_TEXT_TTL_MS,
+    );
+    if (textMatches.length === 0) {
+      return false;
+    }
+    if (!messageId || textMatchPolicy === 'any') {
+      return true;
+    }
+    return textMatches.some((entry) => !entry.messageId);
   }
 
   clear(): void {
-    this.textCache.clear();
-    this.textBackedByIdCache.clear();
-    this.messageIdCache.clear();
-    this.lastCleanupAt = 0;
-  }
-
-  private maybeCleanup(now: number): void {
-    if (now - this.lastCleanupAt < CLEANUP_MIN_INTERVAL_MS) return;
-    this.lastCleanupAt = now;
-    for (const [key, seenAt] of this.textCache.entries()) {
-      if (now - seenAt > SELF_ECHO_TEXT_TTL_MS) {
-        this.textCache.delete(key);
-      }
-    }
-    for (const [key, seenAt] of this.textBackedByIdCache.entries()) {
-      if (now - seenAt > SELF_ECHO_TEXT_TTL_MS) {
-        this.textBackedByIdCache.delete(key);
-      }
-    }
-    for (const [key, seenAt] of this.messageIdCache.entries()) {
-      if (now - seenAt > SELF_ECHO_ID_TTL_MS) {
-        this.messageIdCache.delete(key);
-      }
-    }
-    while (
-      this.textCache.size +
-        this.textBackedByIdCache.size +
-        this.messageIdCache.size >
-      MAX_SELF_ECHO_ENTRIES
-    ) {
-      const oldestTextKey = this.textCache.keys().next().value;
-      if (typeof oldestTextKey === 'string') {
-        this.textCache.delete(oldestTextKey);
-        continue;
-      }
-      const oldestIdKey = this.messageIdCache.keys().next().value;
-      if (typeof oldestIdKey === 'string') {
-        this.messageIdCache.delete(oldestIdKey);
-        continue;
-      }
-      const oldestBackedTextKey = this.textBackedByIdCache.keys().next().value;
-      if (typeof oldestBackedTextKey === 'string') {
-        this.textBackedByIdCache.delete(oldestBackedTextKey);
-        continue;
-      }
-      const oldestKey =
-        this.textCache.keys().next().value ??
-        this.messageIdCache.keys().next().value ??
-        this.textBackedByIdCache.keys().next().value;
-      if (typeof oldestKey !== 'string') break;
-      this.textCache.delete(oldestKey);
-      this.messageIdCache.delete(oldestKey);
-      this.textBackedByIdCache.delete(oldestKey);
-    }
+    this.observations.clear();
+    this.nextObservationId = 1;
   }
 }
 

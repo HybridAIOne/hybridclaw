@@ -98,6 +98,25 @@ afterEach(() => {
 });
 
 describe('iMessage runtime', () => {
+  test('returns 404 for webhook requests when the active backend does not implement webhooks', async () => {
+    const { createIMessageRuntime } = await importFreshIMessageRuntime();
+    const runtime = createIMessageRuntime();
+    const handler = vi.fn(async () => {});
+
+    await runtime.initIMessage(handler);
+
+    const req = {} as never;
+    const res = {
+      headersSent: false,
+      statusCode: 200,
+      end: vi.fn(),
+    } as unknown as import('node:http').ServerResponse;
+
+    await expect(runtime.handleIMessageWebhook(req, res)).resolves.toBe(false);
+    expect(res.statusCode).toBe(404);
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
+
   test('drops duplicate inbound events that reuse the same message id', async () => {
     const { createIMessageRuntime, backendFactory, start } =
       await importFreshIMessageRuntime();
@@ -229,8 +248,10 @@ describe('iMessage runtime', () => {
       [],
       expect.any(Function),
       expect.objectContaining({
-        backend: 'local',
-        handle: '+14155551212',
+        inbound: expect.objectContaining({
+          backend: 'local',
+          handle: '+14155551212',
+        }),
       }),
     );
   });

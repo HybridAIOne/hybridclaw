@@ -1218,15 +1218,16 @@ describe('gateway bootstrap', () => {
       reply,
       {
         abortSignal: new AbortController().signal,
-        inbound: {},
-        rawEvent: {
+        inbound: {
+          backend: 'local',
+          conversationId: 'any;-;+491701234567',
           handle: '+491701234567',
-          chatIdentifier: '+491701234567',
+          isGroup: false,
+          rawEvent: {
+            handle: '+491701234567',
+            chatIdentifier: '+491701234567',
+          },
         },
-        backend: 'local',
-        conversationId: 'any;-;+491701234567',
-        handle: '+491701234567',
-        isGroup: false,
       },
     );
 

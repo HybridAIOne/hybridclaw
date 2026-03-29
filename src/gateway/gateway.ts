@@ -276,23 +276,26 @@ function formatIMessageGatewayFailure(
 }
 
 function isLocalIMessageSelfChatContext(context: {
-  backend?: string;
-  isGroup?: boolean;
-  handle?: string | null;
-  rawEvent?: unknown;
+  inbound?: {
+    backend?: string;
+    isGroup?: boolean;
+    handle?: string | null;
+    rawEvent?: unknown;
+  };
 }): boolean {
-  if (context.backend !== 'local' || context.isGroup) {
+  const inbound = context.inbound;
+  if (!inbound || inbound.backend !== 'local' || inbound.isGroup) {
     return false;
   }
   const rawEvent =
-    context.rawEvent && typeof context.rawEvent === 'object'
-      ? (context.rawEvent as {
+    inbound.rawEvent && typeof inbound.rawEvent === 'object'
+      ? (inbound.rawEvent as {
           handle?: string | null;
           chatIdentifier?: string | null;
         })
       : null;
   const sender = normalizeIMessageHandle(
-    String(rawEvent?.handle || context.handle || ''),
+    String(rawEvent?.handle || inbound.handle || ''),
   );
   const chatIdentifier = normalizeIMessageHandle(
     String(rawEvent?.chatIdentifier || ''),
@@ -446,6 +449,45 @@ async function sendProactiveMessageNow(
     return;
   }
 
+  if (isIMessageHandle(channelId)) {
+    if (!getConfigSnapshot().imessage.enabled) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive iMessage message suppressed: iMessage channel is not configured',
+      );
+      return;
+    }
+    try {
+      if (artifacts && artifacts.length > 0) {
+        await sendIMessageMediaToChat({
+          target: channelId,
+          filePath: artifacts[0].path,
+          mimeType: artifacts[0].mimeType,
+          filename: artifacts[0].filename,
+          caption: text,
+        });
+        for (let index = 1; index < artifacts.length; index += 1) {
+          await sendIMessageMediaToChat({
+            target: channelId,
+            filePath: artifacts[index].path,
+            mimeType: artifacts[index].mimeType,
+            filename: artifacts[index].filename,
+          });
+        }
+        return;
+      }
+
+      await sendToIMessageChat(channelId, text);
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to iMessage chat',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
   if (isEmailAddress(channelId)) {
     if (
       !getConfigSnapshot().email.enabled ||
@@ -483,45 +525,6 @@ async function sendProactiveMessageNow(
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to email recipient',
-      );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
-    }
-    return;
-  }
-
-  if (isIMessageHandle(channelId)) {
-    if (!getConfigSnapshot().imessage.enabled) {
-      logger.info(
-        { source, channelId, text, artifactCount: attachments.length },
-        'Proactive iMessage message suppressed: iMessage channel is not configured',
-      );
-      return;
-    }
-    try {
-      if (artifacts && artifacts.length > 0) {
-        await sendIMessageMediaToChat({
-          target: channelId,
-          filePath: artifacts[0].path,
-          mimeType: artifacts[0].mimeType,
-          filename: artifacts[0].filename,
-          caption: text,
-        });
-        for (let index = 1; index < artifacts.length; index += 1) {
-          await sendIMessageMediaToChat({
-            target: channelId,
-            filePath: artifacts[index].path,
-            mimeType: artifacts[index].mimeType,
-            filename: artifacts[index].filename,
-          });
-        }
-        return;
-      }
-
-      await sendToIMessageChat(channelId, text);
-    } catch (error) {
-      logger.warn(
-        { source, channelId, error, artifactCount: attachments.length },
-        'Failed to send proactive message to iMessage chat',
       );
       logger.info({ source, channelId, text }, 'Proactive message fallback');
     }

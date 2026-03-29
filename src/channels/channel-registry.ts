@@ -101,8 +101,8 @@ function inferChannelKind(channelId?: string | null): ChannelKind | undefined {
     return 'msteams';
   }
   if (isWhatsAppJid(normalized)) return 'whatsapp';
-  if (isEmailAddress(normalized)) return 'email';
   if (isIMessageHandle(normalized)) return 'imessage';
+  if (isEmailAddress(normalized)) return 'email';
   if (DISCORD_SNOWFLAKE_RE.test(normalized)) return 'discord';
   return undefined;
 }

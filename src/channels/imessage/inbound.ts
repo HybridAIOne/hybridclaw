@@ -9,8 +9,6 @@ import type { MediaContextItem } from '../../types/container.js';
 import { buildIMessageChannelId, normalizeIMessageHandle } from './handle.js';
 import type { IMessageInbound } from './types.js';
 
-const normalizedAllowListCache = new WeakMap<string[], string[]>();
-
 function normalizeAllowEntry(value: string): string | null {
   const trimmed = String(value || '').trim();
   if (!trimmed) return null;
@@ -19,15 +17,10 @@ function normalizeAllowEntry(value: string): string | null {
 }
 
 function normalizeAllowList(values: string[]): string[] {
-  const cached = normalizedAllowListCache.get(values);
-  if (cached) return cached;
-
   const normalized = values
     .map((entry) => normalizeAllowEntry(entry))
     .filter((entry): entry is string => Boolean(entry));
-  const deduplicated = [...new Set(normalized)];
-  normalizedAllowListCache.set(values, deduplicated);
-  return deduplicated;
+  return [...new Set(normalized)];
 }
 
 function matchesAllowList(list: string[], handle: string): boolean {
