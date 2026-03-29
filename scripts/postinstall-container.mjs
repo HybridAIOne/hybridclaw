@@ -8,6 +8,15 @@ const require = createRequire(import.meta.url);
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDir = path.dirname(scriptPath);
 
+function normalizeExecutablePath(filePath) {
+  const resolved = path.resolve(filePath);
+  try {
+    return fs.realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
 export function resolvePackageRoot(baseDir = scriptDir) {
   return path.resolve(baseDir, '..');
 }
@@ -85,7 +94,13 @@ export function inspectContainerBootstrap(packageRoot) {
 
 export function resolveNpmCommand(containerDir, env = process.env) {
   const npmExecPath = String(env.npm_execpath || '').trim();
-  const installArgs = ['--prefix', containerDir, 'install', '--omit=dev'];
+  const installArgs = [
+    '--prefix',
+    containerDir,
+    'install',
+    '--omit=dev',
+    '--workspaces=false',
+  ];
 
   if (
     npmExecPath &&
@@ -104,14 +119,35 @@ export function resolveNpmCommand(containerDir, env = process.env) {
   };
 }
 
+export function buildBootstrapEnv(env = process.env) {
+  const nextEnv = { ...env };
+  delete nextEnv.npm_command;
+  delete nextEnv.npm_config_global;
+  delete nextEnv.npm_config_local_prefix;
+  delete nextEnv.npm_config_prefix;
+  delete nextEnv.npm_execpath;
+  delete nextEnv.npm_lifecycle_event;
+  delete nextEnv.npm_lifecycle_script;
+  delete nextEnv.npm_prefix;
+
+  for (const key of Object.keys(nextEnv)) {
+    if (key.startsWith('npm_package_')) {
+      delete nextEnv[key];
+    }
+  }
+
+  return nextEnv;
+}
+
 export function bootstrapContainerDependencies(
   containerDir,
   env = process.env,
 ) {
   const { command, args } = resolveNpmCommand(containerDir, env);
+  const childEnv = buildBootstrapEnv(env);
   return spawnSync(command, args, {
     cwd: containerDir,
-    env,
+    env: childEnv,
     stdio: 'inherit',
   });
 }
@@ -130,7 +166,13 @@ export function runPostinstall(packageRoot = resolvePackageRoot()) {
   return result.status ?? 1;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+const invokedAsScript = (() => {
+  const argv1 = String(process.argv[1] || '').trim();
+  if (!argv1) return false;
+  return normalizeExecutablePath(argv1) === normalizeExecutablePath(scriptPath);
+})();
+
+if (invokedAsScript) {
   try {
     process.exitCode = runPostinstall();
   } catch (error) {

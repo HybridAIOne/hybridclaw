@@ -1,40 +1,62 @@
-import { spawnSync } from 'node:child_process';
 import {
   CONTAINER_IMAGE,
   getResolvedSandboxMode,
 } from '../../config/config.js';
 import {
+  isContainerSandboxModeExplicit,
+  updateRuntimeConfig,
+} from '../../config/runtime-config.js';
+import {
   containerImageExists,
   ensureContainerImageReady,
+  probeDockerAccess,
 } from '../../infra/container-setup.js';
 import { resolveInstallRoot } from '../../infra/install-root.js';
 import type { DiagResult } from '../types.js';
 import { makeResult } from '../utils.js';
 
 export async function checkDocker(): Promise<DiagResult[]> {
-  const dockerInfo = spawnSync('docker', ['info'], {
-    encoding: 'utf-8',
-  });
-  const daemonReady = !dockerInfo.error && dockerInfo.status === 0;
+  const dockerAccess = await probeDockerAccess();
+  const daemonReady = dockerAccess.ready;
   const imagePresent = daemonReady
     ? await containerImageExists(CONTAINER_IMAGE)
     : false;
   const resolvedSandboxMode = getResolvedSandboxMode();
   const dockerRequired = resolvedSandboxMode !== 'host';
+  const sandboxModeExplicit = isContainerSandboxModeExplicit();
 
   if (!daemonReady) {
+    const fix =
+      dockerRequired &&
+      !sandboxModeExplicit &&
+      (dockerAccess.kind === 'missing' ||
+        dockerAccess.kind === 'permission-denied')
+        ? {
+            summary: 'Switch runtime sandbox mode to host',
+            apply: async () => {
+              updateRuntimeConfig((draft) => {
+                draft.container.sandboxMode = 'host';
+              });
+            },
+          }
+        : undefined;
     return [
       makeResult(
         'docker',
         'Docker',
         dockerRequired ? 'error' : 'warn',
-        dockerInfo.error
+        dockerAccess.kind === 'missing'
           ? dockerRequired
-            ? `Docker unavailable (${dockerInfo.error.message}); sandbox mode \`${resolvedSandboxMode}\` requires Docker. Use \`--sandbox=host\` or set \`container.sandboxMode\` to \`host\`.`
-            : `Docker unavailable (${dockerInfo.error.message})`
-          : dockerRequired
-            ? `Docker daemon not ready${dockerInfo.stderr ? ` (${dockerInfo.stderr.trim()})` : ''}; sandbox mode \`${resolvedSandboxMode}\` requires Docker. Use \`--sandbox=host\` or set \`container.sandboxMode\` to \`host\`.`
-            : `Docker daemon not ready${dockerInfo.stderr ? ` (${dockerInfo.stderr.trim()})` : ''}`,
+            ? `Docker unavailable (${dockerAccess.detail}); sandbox mode \`${resolvedSandboxMode}\` requires Docker. Use \`--sandbox=host\` or set \`container.sandboxMode\` to \`host\`.`
+            : `Docker unavailable (${dockerAccess.detail})`
+          : dockerAccess.kind === 'permission-denied'
+            ? dockerRequired
+              ? `Docker is installed but the current user cannot access the Docker daemon (${dockerAccess.detail}); sandbox mode \`${resolvedSandboxMode}\` requires Docker access. Add this user to the \`docker\` group, start a new login shell, or use \`--sandbox=host\` / \`container.sandboxMode=host\`.`
+              : `Docker is installed but the current user cannot access the Docker daemon (${dockerAccess.detail}). Add this user to the \`docker\` group or start a new login shell.`
+            : dockerRequired
+              ? `Docker daemon not ready (${dockerAccess.detail}); sandbox mode \`${resolvedSandboxMode}\` requires Docker. Use \`--sandbox=host\` or set \`container.sandboxMode\` to \`host\`.`
+              : `Docker daemon not ready (${dockerAccess.detail})`,
+        fix,
       ),
     ];
   }

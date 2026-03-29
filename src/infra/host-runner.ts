@@ -2,7 +2,6 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
@@ -48,6 +47,8 @@ import {
   resolveBrowserProfileHostDir,
   resolveDiscordMediaCacheHostDir,
 } from './container-runner.js';
+import { ensureHostRuntimeReady } from './host-runtime-setup.js';
+import { resolveInstallRoot } from './install-root.js';
 import {
   agentWorkspaceDir,
   cleanupIpc,
@@ -301,45 +302,8 @@ function emitApprovalProgress(entry: PoolEntry, line: string): boolean {
   return true;
 }
 
-function resolvePackageRoot(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-}
-
-function resolveHostAgentCommand(): { command: string; args: string[] } {
-  const packageRoot = resolvePackageRoot();
-  const builtEntrypoint = path.join(
-    packageRoot,
-    'container',
-    'dist',
-    'index.js',
-  );
-  if (fs.existsSync(builtEntrypoint)) {
-    return { command: process.execPath, args: [builtEntrypoint] };
-  }
-
-  const sourceEntrypoint = path.join(
-    packageRoot,
-    'container',
-    'src',
-    'index.ts',
-  );
-  const tsxBin = path.join(
-    packageRoot,
-    'node_modules',
-    '.bin',
-    process.platform === 'win32' ? 'tsx.cmd' : 'tsx',
-  );
-  if (fs.existsSync(sourceEntrypoint) && fs.existsSync(tsxBin)) {
-    return { command: tsxBin, args: [sourceEntrypoint] };
-  }
-
-  throw new Error(
-    'Host sandbox mode requires a local agent runtime. Run `npm --prefix container run build` or use the repo checkout with `tsx` installed.',
-  );
-}
-
 function ensureWorkspaceNodeModulesLink(workspacePath: string): void {
-  const packageRoot = resolvePackageRoot();
+  const packageRoot = resolveInstallRoot();
   const sourceNodeModules = path.join(packageRoot, 'node_modules');
   if (!fs.existsSync(sourceNodeModules)) return;
 
@@ -404,7 +368,13 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
   fs.mkdirSync(uploadedMediaCacheHostPath, { recursive: true });
 
-  const runtime = resolveHostAgentCommand();
+  const runtime = ensureHostRuntimeReady({
+    commandName: 'hybridclaw',
+    required: true,
+  });
+  if (!runtime) {
+    throw new Error('Host runtime unexpectedly unavailable.');
+  }
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HYBRIDAI_BASE_URL,

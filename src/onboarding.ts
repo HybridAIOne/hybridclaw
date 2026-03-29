@@ -20,7 +20,11 @@ import {
   shouldPrintTuiStartHint,
 } from './onboarding-tui-hint.js';
 import { isCodexModel, resolveModelProvider } from './providers/factory.js';
-import { normalizeBots } from './providers/hybridai-bots.js';
+import {
+  fetchHybridAIAccountChatbotId,
+  normalizeBots,
+  normalizeHybridAIAccountChatbotId,
+} from './providers/hybridai-bots.js';
 import {
   ensureRuntimeInstructionCopies,
   resolveRuntimeInstructionPath,
@@ -31,10 +35,12 @@ import {
   saveRuntimeSecrets,
 } from './security/runtime-secrets.js';
 import type { HybridAIBot } from './types/hybridai.js';
+import { promptForSecretInput } from './utils/secret-prompt.js';
 
 interface ApiKeyValidationResult {
   ok: boolean;
   bots: HybridAIBot[];
+  accountChatbotId?: string;
   error?: string;
 }
 
@@ -140,6 +146,7 @@ const DEFAULT_REGISTER_PATH = '/register?context=hybridclaw';
 const DEFAULT_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 const DEFAULT_VERIFY_PATH = '/verify_code';
 const BOT_LIST_PATH = '/api/v1/bot-management/bots';
+const BOT_ME_PATH = '/api/v1/bot-management/me';
 const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
 const SECURITY_ACK_TOKEN = 'ACCEPT';
 
@@ -271,9 +278,24 @@ async function validateApiKey(
     };
   }
 
+  let accountChatbotId = '';
+  try {
+    const meResponse = await fetch(resolveUrl(baseUrl, BOT_ME_PATH), {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (meResponse.ok) {
+      accountChatbotId = normalizeHybridAIAccountChatbotId(
+        await readResponsePayload(meResponse),
+      );
+    }
+  } catch {
+    // Keep bot-list validation success; the account chatbot is only a default hint.
+  }
+
   return {
     ok: true,
     bots: normalizeBots(payload),
+    accountChatbotId,
   };
 }
 
@@ -291,6 +313,31 @@ function saveDefaultModel(model: string): void {
   updateRuntimeConfig((draft) => {
     draft.hybridai.defaultModel = model.trim();
   });
+}
+
+async function maybeBackfillDefaultHybridAIChatbotId(params: {
+  authMethod: OnboardingOptions['preferredAuth'] | 'hybridai';
+  existingKey: string;
+  forcePrint?: boolean;
+}): Promise<boolean> {
+  if (params.authMethod !== 'hybridai') return false;
+  if (!params.existingKey.trim()) return false;
+
+  const configuredChatbotId =
+    getRuntimeConfig().hybridai.defaultChatbotId.trim();
+  if (configuredChatbotId) return false;
+
+  try {
+    const chatbotId = (await fetchHybridAIAccountChatbotId()).trim();
+    if (!chatbotId) return false;
+    saveDefaultChatbotId(chatbotId);
+    if (params.forcePrint) {
+      printSuccess(`Default bot set to: ${chatbotId}`);
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function defaultHybridAIModel(): string {
@@ -384,11 +431,13 @@ async function promptRequired(
   rl: readline.Interface,
   question: string,
   icon = ICON_PROMPT,
+  secret = false,
 ): Promise<string> {
   while (true) {
-    const value = (
-      await rl.question(styledPromptWithIcon(question, icon))
-    ).trim();
+    const prompt = styledPromptWithIcon(question, icon);
+    const value = secret
+      ? await promptForSecretInput({ prompt, rl })
+      : (await rl.question(prompt)).trim();
     if (value) return value;
     printWarn('Please enter a value.');
   }
@@ -398,8 +447,12 @@ async function promptOptional(
   rl: readline.Interface,
   question: string,
   icon = ICON_PROMPT,
+  secret = false,
 ): Promise<string> {
-  return (await rl.question(styledPromptWithIcon(question, icon))).trim();
+  const prompt = styledPromptWithIcon(question, icon);
+  return secret
+    ? await promptForSecretInput({ prompt, rl })
+    : (await rl.question(prompt)).trim();
 }
 
 async function promptYesNo(
@@ -424,16 +477,17 @@ async function chooseDefaultBot(
   rl: readline.Interface,
   bots: HybridAIBot[],
   fallbackBotId: string,
+  accountChatbotId = '',
 ): Promise<string> {
   if (bots.length === 0) {
     const manual = await promptOptional(
       rl,
       'No bots found from API. Enter chatbot id manually (or leave empty to skip): ',
     );
-    return manual || fallbackBotId;
+    return manual || fallbackBotId || accountChatbotId;
   }
 
-  const defaultBotId = fallbackBotId || bots[0].id;
+  const defaultBotId = fallbackBotId || accountChatbotId || bots[0].id;
   console.log(`${TEAL}${ICON_TITLE}${RESET} Available bots:`);
   for (let i = 0; i < Math.min(10, bots.length); i++) {
     const bot = bots[i];
@@ -675,6 +729,7 @@ async function runHybridAIApiKeyOnboarding(params: {
     rl,
     'Paste API key or URL containing it (or press Enter to continue): ',
     ICON_KEY,
+    true,
   );
   if (pasted) {
     seededApiKey = extractApiKeyFromInput(pasted) || '';
@@ -699,7 +754,12 @@ async function runHybridAIApiKeyOnboarding(params: {
   };
   while (true) {
     if (!apiKey) {
-      const entered = await promptRequired(rl, 'HybridAI API key: ', ICON_KEY);
+      const entered = await promptRequired(
+        rl,
+        'HybridAI API key: ',
+        ICON_KEY,
+        true,
+      );
       apiKey = extractApiKeyFromInput(entered) || entered;
     }
 
@@ -727,6 +787,7 @@ async function runHybridAIApiKeyOnboarding(params: {
     rl,
     validation.ok ? validation.bots : [],
     fallbackChatbotId,
+    validation.accountChatbotId || '',
   );
 
   const secretsPath = saveHybridAICredentials(apiKey);
@@ -943,7 +1004,13 @@ export async function ensureRuntimeCredentials(
         : currentAuth === 'huggingface'
           ? !!existingHuggingFaceKey
           : !!existingKey;
-  if (!needsSecurityAcceptance && hasRequiredCredentials) return;
+  if (!needsSecurityAcceptance && hasRequiredCredentials) {
+    await maybeBackfillDefaultHybridAIChatbotId({
+      authMethod: currentAuth,
+      existingKey,
+    });
+    return;
+  }
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     if (!securityAccepted) {
@@ -1016,6 +1083,11 @@ export async function ensureRuntimeCredentials(
     }
 
     if (hasRequiredCredentials && !force) {
+      await maybeBackfillDefaultHybridAIChatbotId({
+        authMethod: currentAuth,
+        existingKey,
+        forcePrint: true,
+      });
       printSuccess(
         'Security trust model already accepted and the active model provider is configured.',
       );

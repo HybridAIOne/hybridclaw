@@ -6060,6 +6060,11 @@ export async function handleGatewayCommand(
             scope: 'bare',
           },
           {
+            command: 'bot clear',
+            description: 'Clear the session chatbot and return to auto mode',
+            scope: 'bare',
+          },
+          {
             command: 'bot info',
             description: 'Show current chatbot settings',
             scope: 'bare',
@@ -6632,6 +6637,26 @@ export async function handleGatewayCommand(
           );
         }
 
+        if (sub === 'clear' || sub === 'auto') {
+          const previousBotId = session.chatbot_id;
+          updateSessionChatbot(session.id, null);
+          recordAuditEvent({
+            sessionId: session.id,
+            runId: makeAuditRunId('cmd'),
+            event: {
+              type: 'bot.clear',
+              source: 'command',
+              previousBotId,
+              changed: previousBotId !== null,
+              userId: boundAuditActorField(req.userId),
+              username: boundAuditActorField(req.username),
+            },
+          });
+          return plainCommand(
+            'Chatbot cleared for this session. HybridAI account fallback will be used when required.',
+          );
+        }
+
         if (sub === 'info') {
           const botId = runtime.chatbotId || 'Not set';
           let botLabel = botId;
@@ -6658,7 +6683,10 @@ export async function handleGatewayCommand(
           return infoCommand('Bot Info', lines.join('\n'));
         }
 
-        return badCommand('Usage', 'Usage: `bot list|set <id|name>|info`');
+        return badCommand(
+          'Usage',
+          'Usage: `bot list|set <id|name>|clear|info`',
+        );
       }
 
       case 'model': {

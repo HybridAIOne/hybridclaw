@@ -510,7 +510,7 @@ function printHelp(): void {
     `  ${TEAL}/agent [info|list|switch|create|model] [id] [--model <model>]${RESET} Inspect or manage agents`,
   );
   console.log(
-    `  ${TEAL}/bot [info|list|set <id|name>]${RESET} Manage the chatbot for this session`,
+    `  ${TEAL}/bot [info|list|set <id|name>|clear]${RESET} Manage the chatbot for this session`,
   );
   console.log(
     `  ${TEAL}/model [<name>|info|list [provider]|set <name>|clear|default [name]]${RESET} Inspect or set session/default model`,

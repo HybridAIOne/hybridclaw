@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -5,6 +6,7 @@ import path from 'node:path';
 import { afterEach, expect, test } from 'vitest';
 
 import {
+  buildBootstrapEnv,
   inspectContainerBootstrap,
   resolveNpmCommand,
 } from '../scripts/postinstall-container.mjs';
@@ -105,6 +107,100 @@ test('prefers npm_execpath when npm exposes it during install', () => {
       '/tmp/hybridclaw-container',
       'install',
       '--omit=dev',
+      '--workspaces=false',
     ],
   });
+});
+
+test('scrubs outer npm lifecycle variables before bootstrapping container deps', () => {
+  expect(
+    buildBootstrapEnv({
+      npm_command: 'install',
+      npm_config_cache: '/tmp/npm-cache',
+      npm_config_global: 'true',
+      npm_config_prefix: '/tmp/global-prefix',
+      npm_execpath: '/tmp/npm-cli.js',
+      npm_lifecycle_event: 'postinstall',
+      npm_lifecycle_script: 'node ./scripts/postinstall-container.mjs',
+      npm_package_name: '@hybridaione/hybridclaw',
+      npm_package_version: '0.9.5',
+      PATH: '/usr/bin',
+    }),
+  ).toEqual({
+    PATH: '/usr/bin',
+    npm_config_cache: '/tmp/npm-cache',
+  });
+});
+
+test('runs bootstrap when executed as a direct node script', () => {
+  const packageRoot = makeTempDir();
+  const npmCliPath = path.join(packageRoot, 'fake-npm-cli.cjs');
+  const scriptDir = path.join(packageRoot, 'scripts');
+  fs.mkdirSync(scriptDir, { recursive: true });
+  fs.copyFileSync(
+    path.join(process.cwd(), 'scripts', 'postinstall-container.mjs'),
+    path.join(scriptDir, 'postinstall-container.mjs'),
+  );
+  writeJson(path.join(packageRoot, 'container', 'package.json'), {
+    dependencies: {
+      '@modelcontextprotocol/sdk': '^1.27.1',
+    },
+  });
+  fs.writeFileSync(
+    npmCliPath,
+    `
+const fs = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+if (process.env.npm_config_global) process.exit(11);
+const prefixIndex = args.indexOf('--prefix');
+if (prefixIndex === -1 || !args[prefixIndex + 1]) process.exit(2);
+const containerDir = args[prefixIndex + 1];
+const packageJsonPath = path.join(
+  containerDir,
+  'node_modules',
+  '@modelcontextprotocol',
+  'sdk',
+  'package.json',
+);
+fs.mkdirSync(path.dirname(packageJsonPath), { recursive: true });
+fs.writeFileSync(
+  packageJsonPath,
+  JSON.stringify({ name: '@modelcontextprotocol/sdk', version: '1.27.1' }),
+);
+process.exit(0);
+`,
+    'utf-8',
+  );
+
+  const result = spawnSync(
+    process.execPath,
+    [path.join(scriptDir, 'postinstall-container.mjs')],
+    {
+      cwd: packageRoot,
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        npm_config_global: 'true',
+        npm_lifecycle_event: 'postinstall',
+        npm_lifecycle_script: 'node ./scripts/postinstall-container.mjs',
+        npm_package_name: '@hybridaione/hybridclaw',
+        npm_execpath: npmCliPath,
+      },
+    },
+  );
+
+  expect(result.status).toBe(0);
+  expect(
+    fs.existsSync(
+      path.join(
+        packageRoot,
+        'container',
+        'node_modules',
+        '@modelcontextprotocol',
+        'sdk',
+        'package.json',
+      ),
+    ),
+  ).toBe(true);
 });

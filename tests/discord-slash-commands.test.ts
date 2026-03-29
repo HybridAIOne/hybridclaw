@@ -136,6 +136,17 @@ test('parseSlashInteractionArgs maps bot set interactions to command args', () =
   expect(args).toEqual(['bot', 'set', 'mybot']);
 });
 
+test('parseSlashInteractionArgs maps bot clear interactions to command args', () => {
+  const args = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'bot',
+      subcommand: 'clear',
+    }) as never,
+  );
+
+  expect(args).toEqual(['bot', 'clear']);
+});
+
 test('parseSlashInteractionArgs maps model list, set, clear, and default interactions', () => {
   const listArgs = parseSlashInteractionArgs(
     makeInteraction({

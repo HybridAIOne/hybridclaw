@@ -17,6 +17,7 @@ import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { sleep } from '../utils/sleep.js';
 import { normalizeArgs } from './common.js';
 import { isHelpRequest, printChannelsUsage } from './help.js';
@@ -650,12 +651,15 @@ async function promptWithDefault(params: {
   defaultValue?: string;
   validate?: (value: string) => string | null;
   errorMessage?: string;
+  secret?: boolean;
 }): Promise<string> {
   while (true) {
-    const suffix = params.defaultValue ? ` [${params.defaultValue}]` : '';
-    const raw = (
-      await params.rl.question(`${params.question}${suffix}: `)
-    ).trim();
+    const suffix =
+      params.defaultValue && !params.secret ? ` [${params.defaultValue}]` : '';
+    const prompt = `${params.question}${suffix}: `;
+    const raw = params.secret
+      ? await promptForSecretInput({ prompt, rl: params.rl })
+      : (await params.rl.question(prompt)).trim();
     const candidate = raw || params.defaultValue || '';
     const validated = params.validate ? params.validate(candidate) : candidate;
     if (validated) return validated;
@@ -808,6 +812,7 @@ async function resolveInteractiveEmailSetup(params: {
       password = await promptWithDefault({
         rl,
         question: 'Email password or app password',
+        secret: true,
       });
       passwordSource = 'prompt';
     }

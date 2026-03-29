@@ -12,6 +12,7 @@ import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import { promptForSecretInput } from '../utils/secret-prompt.js';
 
 export interface HybridAIAuthStatus {
   authenticated: boolean;
@@ -205,9 +206,12 @@ async function promptYesNo(
 async function promptRequired(
   rl: readline.Interface,
   question: string,
+  secret = false,
 ): Promise<string> {
   while (true) {
-    const value = (await rl.question(question)).trim();
+    const value = secret
+      ? await promptForSecretInput({ prompt: question, rl })
+      : (await rl.question(question)).trim();
     if (value) return value;
     console.log('Please enter a value.');
   }
@@ -265,6 +269,7 @@ async function loginWithApiKeyPrompt(options: {
       const entered = await promptRequired(
         rl,
         'Paste HybridAI API key or URL containing it: ',
+        true,
       );
       apiKey = extractApiKeyFromInput(entered) || entered.trim();
 

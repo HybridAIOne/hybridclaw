@@ -177,3 +177,136 @@ test('interactive onboarding does not print the start hint after auth login', as
 
   expect(output).not.toContain('Start HybridClaw now with `hybridclaw tui`.');
 });
+
+test('interactive HybridAI onboarding defaults the saved bot to the account chatbot id', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  delete process.env.HYBRIDAI_API_KEY;
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+
+  const answers = ['n', 'n', '', '', 'hai-testkey1234567890', ''];
+  vi.doMock('node:readline/promises', () => ({
+    default: {
+      createInterface: () => ({
+        question: vi.fn(async (prompt: string) => {
+          const answer = answers.shift();
+          if (answer === undefined) {
+            throw new Error(`Unexpected onboarding prompt: ${prompt}`);
+          }
+          return answer;
+        }),
+        close: vi.fn(),
+      }),
+    },
+  }));
+  vi.doMock('../src/security/runtime-secrets.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets.ts')
+    >('../src/security/runtime-secrets.ts');
+    return {
+      ...actual,
+      loadRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.loadRuntimeSecrets(targetHomeDir ?? homeDir, homeDir),
+    };
+  });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/v1/bot-management/me')) {
+        return new Response(JSON.stringify({ user_id: 'user-42' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'b2878bba-24c1-46ce-89b6-49e860c6502f',
+              name: 'My Assistant',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
+    }),
+  );
+  vi.resetModules();
+
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  runtimeConfig.acceptSecurityTrustModel({
+    acceptedAt: '2026-03-10T10:00:00.000Z',
+    acceptedBy: 'test',
+  });
+
+  const onboarding = await import('../src/onboarding.ts');
+  await onboarding.ensureRuntimeCredentials({
+    commandName: 'hybridclaw onboarding',
+    preferredAuth: 'hybridai',
+  });
+
+  expect(runtimeConfig.getRuntimeConfig().hybridai.defaultChatbotId).toBe(
+    'user-42',
+  );
+});
+
+test('ensureRuntimeCredentials backfills the default HybridAI bot from account fallback when credentials already exist', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  process.env.HYBRIDAI_API_KEY = 'hai-existing1234567890';
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/v1/bot-management/me')) {
+        return new Response(JSON.stringify({ user_id: 'user-42' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected onboarding fetch: ${url}`);
+    }),
+  );
+  vi.resetModules();
+
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  runtimeConfig.acceptSecurityTrustModel({
+    acceptedAt: '2026-03-10T10:00:00.000Z',
+    acceptedBy: 'test',
+  });
+
+  const onboarding = await import('../src/onboarding.ts');
+  await onboarding.ensureRuntimeCredentials({
+    commandName: 'hybridclaw tui',
+  });
+
+  expect(runtimeConfig.getRuntimeConfig().hybridai.defaultChatbotId).toBe(
+    'user-42',
+  );
+});

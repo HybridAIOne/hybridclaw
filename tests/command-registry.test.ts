@@ -211,6 +211,19 @@ test('parses /plugin reload into gateway args', async () => {
   ).toEqual(['plugin', 'reload']);
 });
 
+test('maps bot clear and bot auto to the clear gateway command', async () => {
+  const { mapCanonicalCommandToGatewayArgs } = await importCommandRegistry();
+
+  expect(mapCanonicalCommandToGatewayArgs(['bot', 'clear'])).toEqual([
+    'bot',
+    'clear',
+  ]);
+  expect(mapCanonicalCommandToGatewayArgs(['bot', 'auto'])).toEqual([
+    'bot',
+    'clear',
+  ]);
+});
+
 test('parses /plugin disable into gateway args', async () => {
   const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
     await importCommandRegistry();
