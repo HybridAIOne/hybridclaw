@@ -25,18 +25,73 @@ import {
   toErrorMessage,
 } from '../utils.js';
 
-type UsageEntry = {
+type UnusedEntry = {
   name: string;
   lastUsedAt: string | null;
 };
 
-function formatUnusedEntries(entries: UsageEntry[]): string {
+type UsageEntry = UnusedEntry & {
+  toolNames: string[];
+};
+
+function formatUnusedEntries(entries: readonly UnusedEntry[]): string {
   return entries
     .map(
       (entry) =>
         `${entry.name} (last used ${formatDateOrNever(entry.lastUsedAt)})`,
     )
     .join(', ');
+}
+
+function findLatestToolLastUsedAt(
+  toolNames: readonly string[],
+  usageByTool: ReadonlyMap<string, ToolUsageSummary>,
+): string | null {
+  let lastUsedAt: string | null = null;
+  for (const toolName of toolNames) {
+    const candidate = usageByTool.get(toolName)?.lastUsedAt || null;
+    if (!lastUsedAt || (candidate && candidate > lastUsedAt)) {
+      lastUsedAt = candidate;
+    }
+  }
+  return lastUsedAt;
+}
+
+function buildUnusedToolEntries(
+  enabledTools: readonly string[],
+  usageByTool: ReadonlyMap<string, ToolUsageSummary>,
+): UsageEntry[] {
+  const browserTools = enabledTools.filter((name) =>
+    name.startsWith('browser_'),
+  );
+  const unusedEntries = enabledTools
+    .filter(
+      (name) =>
+        !name.startsWith('browser_') &&
+        (usageByTool.get(name)?.callsSinceCutoff || 0) === 0,
+    )
+    .map((name) => ({
+      name,
+      toolNames: [name],
+      lastUsedAt: usageByTool.get(name)?.lastUsedAt || null,
+    }));
+
+  if (
+    browserTools.length > 0 &&
+    browserTools.every(
+      (name) => (usageByTool.get(name)?.callsSinceCutoff || 0) === 0,
+    )
+  ) {
+    unusedEntries.push({
+      name: 'browser tools',
+      toolNames: browserTools,
+      lastUsedAt: findLatestToolLastUsedAt(browserTools, usageByTool),
+    });
+  }
+
+  return unusedEntries.sort((left, right) =>
+    left.name.localeCompare(right.name),
+  );
 }
 
 function buildUnusedToolsResult(usage: ToolUsageSummary[]): DiagResult | null {
@@ -48,24 +103,20 @@ function buildUnusedToolsResult(usage: ToolUsageSummary[]): DiagResult | null {
     (name) => !disabled.has(name),
   );
   const usageByTool = new Map(usage.map((entry) => [entry.toolName, entry]));
-  const unused = enabledTools
-    .filter((name) => (usageByTool.get(name)?.callsSinceCutoff || 0) === 0)
-    .map((name) => ({
-      name,
-      lastUsedAt: usageByTool.get(name)?.lastUsedAt || null,
-    }));
+  const unused = buildUnusedToolEntries(enabledTools, usageByTool);
 
   if (unused.length === 0) return null;
 
   const previousDisabled = new Set(config.tools.disabled);
-  const toolNames = unused.map((entry) => entry.name);
+  const toolNames = unused.flatMap((entry) => entry.toolNames);
+  const displayNames = unused.map((entry) => entry.name);
   return makeResult(
     'config',
     'Unused tools',
     'warn',
-    `${unused.length} enabled tool${unused.length === 1 ? '' : 's'} unused in the last ${DEFAULT_UNUSED_WINDOW_DAYS} days: ${formatUnusedEntries(unused)}. Re-enable with \`hybridclaw tool enable <name>\`.`,
+    `${unused.length} enabled tool${unused.length === 1 ? '' : 's'} unused in the last ${DEFAULT_UNUSED_WINDOW_DAYS} days: ${formatUnusedEntries(unused)}. Re-enable individual tools with \`hybridclaw tool enable <name>\`.`,
     {
-      summary: `Disable unused tools: ${toolNames.join(', ')}`,
+      summary: `Disable unused tools: ${displayNames.join(', ')}`,
       apply: async () => {
         updateRuntimeConfig((draft) => {
           for (const toolName of toolNames) {

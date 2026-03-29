@@ -22,7 +22,9 @@ local backends, Docker, channels, skills, security, and disk state.
 
 When the config checks flag built-in tools that have gone unused for a while,
 use `hybridclaw tool list`, `hybridclaw tool disable <name>`, and
-`hybridclaw tool enable <name>` to keep the prompt surface tighter.
+`hybridclaw tool enable <name>` to keep the prompt surface tighter. The doctor
+report treats the `browser_*` subtools as one browser toolset, so it only
+suggests disabling them when that whole toolset is unused.
 
 ## Request Logging
 

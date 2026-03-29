@@ -157,7 +157,12 @@ test('checkConfig warns on unused tools and MCP servers and disables them with f
   };
 
   vi.doMock('../src/agent/tool-summary.js', () => ({
-    listKnownToolNames: () => ['read', 'browser_navigate', 'image'],
+    listKnownToolNames: () => [
+      'read',
+      'browser_close',
+      'browser_navigate',
+      'image',
+    ],
   }));
   vi.doMock('../src/config/runtime-config.js', () => ({
     CONFIG_VERSION: 17,
@@ -218,7 +223,7 @@ test('checkConfig warns on unused tools and MCP servers and disables them with f
       expect.objectContaining({
         label: 'Unused tools',
         severity: 'warn',
-        message: expect.stringContaining('browser_navigate'),
+        message: expect.stringContaining('browser tools'),
       }),
       expect.objectContaining({
         label: 'Unused MCP servers',
@@ -232,15 +237,75 @@ test('checkConfig warns on unused tools and MCP servers and disables them with f
   const unusedMcpServers = results.find(
     (result) => result.label === 'Unused MCP servers',
   );
+  expect(unusedTools?.message).not.toContain('browser_close');
+  expect(unusedTools?.message).not.toContain('browser_navigate');
   await unusedTools?.fix?.apply();
   await unusedMcpServers?.fix?.apply();
 
   expect(runtimeConfigState.tools.disabled).toEqual([
+    'browser_close',
     'browser_navigate',
     'image',
   ]);
   expect(runtimeConfigState.mcpServers.github.enabled).toBeUndefined();
   expect(runtimeConfigState.mcpServers.slack.enabled).toBe(false);
+});
+
+test('checkConfig does not flag a single unused browser subtool when other browser tools are active', async () => {
+  const dir = createTempDir('hybridclaw-doctor-config-browser-partial-');
+  const configPath = path.join(dir, 'config.json');
+  fs.writeFileSync(
+    configPath,
+    `${JSON.stringify({ version: 17, hybridai: { defaultModel: 'gpt-5-nano' }, ops: { dbPath: '/tmp/hybridclaw.db' }, container: { image: 'hybridclaw-agent' } }, null, 2)}\n`,
+    'utf-8',
+  );
+
+  vi.doMock('../src/agent/tool-summary.js', () => ({
+    listKnownToolNames: () => [
+      'read',
+      'browser_close',
+      'browser_navigate',
+      'web_extract',
+    ],
+  }));
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    CONFIG_VERSION: 17,
+    ensureRuntimeConfigFile: vi.fn(),
+    getRuntimeConfig: () => ({
+      hybridai: { defaultModel: 'gpt-5-nano' },
+      ops: { dbPath: '/tmp/hybridclaw.db' },
+      container: { image: 'hybridclaw-agent' },
+      tools: { disabled: [] as string[] },
+      mcpServers: {},
+    }),
+    getRuntimeDisabledToolNames: () => new Set<string>(),
+    runtimeConfigPath: () => configPath,
+    setRuntimeToolEnabled: vi.fn(),
+    updateRuntimeConfig: vi.fn(),
+  }));
+  vi.doMock('../src/memory/db.js', () => ({
+    getToolUsageSummary: () => [
+      {
+        toolName: 'read',
+        callsSinceCutoff: 2,
+        lastUsedAt: '2026-03-20T10:00:00.000Z',
+      },
+      {
+        toolName: 'browser_navigate',
+        callsSinceCutoff: 1,
+        lastUsedAt: '2026-03-21T10:00:00.000Z',
+      },
+    ],
+  }));
+
+  const { checkConfig } = await import('../src/doctor/checks/config.ts');
+  const results = await checkConfig();
+  const unusedTools = results.find((result) => result.label === 'Unused tools');
+
+  expect(unusedTools?.severity).toBe('warn');
+  expect(unusedTools?.message).toContain('web_extract');
+  expect(unusedTools?.message).not.toContain('browser tools');
+  expect(unusedTools?.message).not.toContain('browser_close');
 });
 
 test('checkConfigFile ignores unused tool and MCP hygiene warnings', async () => {
