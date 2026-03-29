@@ -819,6 +819,7 @@ async function importFreshHealth(options?: {
   const normalizeDiscordToolAction = vi.fn((value: string) =>
     value === 'reply' ? 'send' : null,
   );
+  const handleIMessageWebhook = vi.fn(async () => {});
   const handleMSTeamsWebhook = vi.fn(async () => {});
   const claimQueuedProactiveMessages = vi.fn(() => [
     { id: 1, text: 'queued message' },
@@ -842,6 +843,7 @@ async function importFreshHealth(options?: {
     HEALTH_HOST: '127.0.0.1',
     HEALTH_PORT: 9090,
     HYBRIDAI_BASE_URL: options?.hybridAiBaseUrl || 'https://hybridai.one',
+    IMESSAGE_WEBHOOK_PATH: '/api/imessage/webhook',
     MSTEAMS_WEBHOOK_PATH: '/api/msteams/messages',
     WEB_API_TOKEN: options?.webApiToken || '',
     getSandboxAutoDetectionState: vi.fn(() => ({
@@ -864,6 +866,9 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     handleMSTeamsWebhook,
+  }));
+  vi.doMock('../src/channels/imessage/runtime.js', () => ({
+    handleIMessageWebhook,
   }));
   vi.doMock('../src/memory/db.js', () => ({
     claimQueuedProactiveMessages,
@@ -993,6 +998,7 @@ async function importFreshHealth(options?: {
     getSessionById,
     getAgentById,
     loggerDebug,
+    handleIMessageWebhook,
     runMessageToolAction,
     normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
@@ -1008,6 +1014,7 @@ afterEach(() => {
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/memory/db.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
+  vi.doUnmock('../src/channels/imessage/runtime.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');
   vi.doUnmock('../src/channels/message/tool-actions.js');
   vi.doUnmock('../src/channels/discord/tool-actions.js');
@@ -1065,6 +1072,24 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
     expect(res.body).toContain('<h1>Docs</h1>');
+  });
+
+  test('delegates iMessage webhook requests to the iMessage runtime', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/imessage/webhook',
+      body: { type: 'new-message' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(
+      res,
+      () => state.handleIMessageWebhook.mock.calls.length > 0,
+    );
+
+    expect(state.handleIMessageWebhook).toHaveBeenCalledTimes(1);
   });
 
   test('renders development docs markdown as a browsable HTML page', async () => {

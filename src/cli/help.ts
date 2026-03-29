@@ -146,6 +146,7 @@ Commands:
   hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
   hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
   hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
+  hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
 
 Notes:
   - Discord setup stores a bot token only when \`--token\` is provided.
@@ -162,7 +163,12 @@ Notes:
   - \`--no-smtp-secure\` is the correct setting for encrypted STARTTLS on port \`587\`; it does not force plaintext by itself.
   - Email inbound is explicit-opt-in: when email \`allowFrom\` is empty, inbound email is ignored.
   - Microsoft Teams setup lives under \`hybridclaw auth login msteams\` because it needs app credentials instead of a channel pairing flow.
+  - iMessage setup defaults to the local macOS backend unless you pass \`--backend remote\`.
+  - iMessage setup stores \`IMESSAGE_PASSWORD\` only when \`--password\` is provided for the remote relay backend.
+  - Without \`--allow-from\`, inbound iMessage stays disabled and the channel is outbound-only.
+  - Groups stay disabled by default for iMessage setup.
   - Discord activates automatically when \`DISCORD_TOKEN\` is configured.
+  - iMessage activates automatically when \`imessage.enabled=true\`.
   - Email activates automatically when \`email.enabled=true\` and \`EMAIL_PASSWORD\` is configured.
   - WhatsApp activates automatically once linked auth exists.`);
 }

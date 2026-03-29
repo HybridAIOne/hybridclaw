@@ -10,6 +10,7 @@ import {
   normalizeDiscordToolAction,
 } from '../channels/discord/tool-actions.js';
 import { normalizeEmailAddress } from '../channels/email/allowlist.js';
+import { handleIMessageWebhook } from '../channels/imessage/runtime.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
 import { handleMSTeamsWebhook } from '../channels/msteams/runtime.js';
 import {
@@ -19,6 +20,7 @@ import {
   HEALTH_HOST,
   HEALTH_PORT,
   HYBRIDAI_BASE_URL,
+  IMESSAGE_WEBHOOK_PATH,
   MSTEAMS_WEBHOOK_PATH,
   WEB_API_TOKEN,
 } from '../config/config.js';
@@ -2309,6 +2311,14 @@ export function startGatewayHttpServer(): void {
     if (pathname.startsWith('/api/')) {
       if (pathname === MSTEAMS_WEBHOOK_PATH && method === 'POST') {
         void handleMSTeamsWebhook(req, res).catch((error) => {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+        return;
+      }
+      if (pathname === IMESSAGE_WEBHOOK_PATH && method === 'POST') {
+        void handleIMessageWebhook(req, res).catch((error) => {
           sendJson(res, 500, {
             error: error instanceof Error ? error.message : String(error),
           });

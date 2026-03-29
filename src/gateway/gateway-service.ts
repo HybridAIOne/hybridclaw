@@ -682,6 +682,7 @@ function resolveChannelType(
     .toLowerCase();
   if (
     source === 'discord' ||
+    source === 'imessage' ||
     source === 'whatsapp' ||
     source === 'email' ||
     source === 'msteams'
@@ -691,6 +692,7 @@ function resolveChannelType(
   const inferredChannelType = resolveSessionResetChannelKind(req.channelId);
   if (
     inferredChannelType === 'discord' ||
+    inferredChannelType === 'imessage' ||
     inferredChannelType === 'whatsapp' ||
     inferredChannelType === 'email'
   ) {

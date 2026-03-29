@@ -29,6 +29,16 @@ import {
   sendToEmail,
   shutdownEmail,
 } from '../channels/email/runtime.js';
+import {
+  isIMessageHandle,
+  normalizeIMessageHandle,
+} from '../channels/imessage/handle.js';
+import {
+  initIMessage,
+  sendIMessageMediaToChat,
+  sendToIMessageChat,
+  shutdownIMessage,
+} from '../channels/imessage/runtime.js';
 import { buildTeamsArtifactAttachments } from '../channels/msteams/attachments.js';
 import { initMSTeams } from '../channels/msteams/runtime.js';
 import {
@@ -130,6 +140,10 @@ const WHATSAPP_TRANSIENT_FAILURE_REPLY =
 const EMAIL_INTERRUPTED_REPLY =
   'The request was interrupted before I could reply. Please send it again.';
 const EMAIL_TRANSIENT_FAILURE_REPLY =
+  'The model request failed before I could reply. Please try again.';
+const IMESSAGE_INTERRUPTED_REPLY =
+  'The request was interrupted before I could reply. Please send it again.';
+const IMESSAGE_TRANSIENT_FAILURE_REPLY =
   'The model request failed before I could reply. Please try again.';
 
 function buildArtifactAttachments(
@@ -242,6 +256,51 @@ function formatEmailGatewayFailure(error: string | null | undefined): string {
     return EMAIL_TRANSIENT_FAILURE_REPLY;
   }
   return formatError('Agent Error', detail || 'Unknown error');
+}
+
+function formatIMessageGatewayFailure(
+  error: string | null | undefined,
+): string {
+  const detail = String(error || '').trim();
+  if (
+    /interrupted by user|timed out|timeout waiting for agent output|terminated|abort/i.test(
+      detail,
+    )
+  ) {
+    return IMESSAGE_INTERRUPTED_REPLY;
+  }
+  if (detail && classifyGatewayError(detail) === 'transient') {
+    return IMESSAGE_TRANSIENT_FAILURE_REPLY;
+  }
+  return formatError('Agent Error', detail || 'Unknown error');
+}
+
+function isLocalIMessageSelfChatContext(context: {
+  inbound?: {
+    backend?: string;
+    isGroup?: boolean;
+    handle?: string | null;
+    rawEvent?: unknown;
+  };
+}): boolean {
+  const inbound = context.inbound;
+  if (!inbound || inbound.backend !== 'local' || inbound.isGroup) {
+    return false;
+  }
+  const rawEvent =
+    inbound.rawEvent && typeof inbound.rawEvent === 'object'
+      ? (inbound.rawEvent as {
+          handle?: string | null;
+          chatIdentifier?: string | null;
+        })
+      : null;
+  const sender = normalizeIMessageHandle(
+    String(rawEvent?.handle || inbound.handle || ''),
+  );
+  const chatIdentifier = normalizeIMessageHandle(
+    String(rawEvent?.chatIdentifier || ''),
+  );
+  return Boolean(sender && chatIdentifier && sender === chatIdentifier);
 }
 
 function resolveImplicitNumericApprovalArgs(params: {
@@ -384,6 +443,45 @@ async function sendProactiveMessageNow(
       logger.warn(
         { source, channelId, error },
         'Failed to send proactive message to WhatsApp chat',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
+  if (isIMessageHandle(channelId)) {
+    if (!getConfigSnapshot().imessage.enabled) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive iMessage message suppressed: iMessage channel is not configured',
+      );
+      return;
+    }
+    try {
+      if (artifacts && artifacts.length > 0) {
+        await sendIMessageMediaToChat({
+          target: channelId,
+          filePath: artifacts[0].path,
+          mimeType: artifacts[0].mimeType,
+          filename: artifacts[0].filename,
+          caption: text,
+        });
+        for (let index = 1; index < artifacts.length; index += 1) {
+          await sendIMessageMediaToChat({
+            target: channelId,
+            filePath: artifacts[index].path,
+            mimeType: artifacts[index].mimeType,
+            filename: artifacts[index].filename,
+          });
+        }
+        return;
+      }
+
+      await sendToIMessageChat(channelId, text);
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to iMessage chat',
       );
       logger.info({ source, channelId, text }, 'Proactive message fallback');
     }
@@ -1220,6 +1318,134 @@ async function startEmailIntegration(): Promise<boolean> {
   return true;
 }
 
+async function startIMessageIntegration(): Promise<boolean> {
+  const imessageConfig = getConfigSnapshot().imessage;
+  if (!imessageConfig.enabled) {
+    logger.info('iMessage integration disabled in config');
+    return false;
+  }
+
+  try {
+    await initIMessage(
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content,
+        media,
+        reply,
+        context,
+      ) => {
+        try {
+          const slashCommands = resolveTextChannelSlashCommands(content);
+          if (slashCommands) {
+            const textReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            for (const args of slashCommands) {
+              await handleTextChannelCommand({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                args,
+                reply: textReply,
+              });
+            }
+            return;
+          }
+
+          const result = normalizePlaceholderToolReply(
+            await handleGatewayMessage({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              content,
+              media,
+              onProactiveMessage: async (message) => {
+                await deliverProactiveMessage(
+                  channelId,
+                  message.text,
+                  'delegate',
+                  message.artifacts,
+                );
+              },
+              abortSignal: context.abortSignal,
+              source: 'imessage',
+            }),
+          );
+          if (result.status === 'error') {
+            const failureText = formatIMessageGatewayFailure(result.error);
+            if (
+              failureText === IMESSAGE_INTERRUPTED_REPLY &&
+              isLocalIMessageSelfChatContext(context)
+            ) {
+              return;
+            }
+            await reply(failureText);
+            return;
+          }
+
+          const cleanedResultText = stripSilentToken(
+            String(result.result || ''),
+          );
+          const artifacts = result.artifacts || [];
+          if (isSilentReply(result.result)) {
+            return;
+          }
+          if (!cleanedResultText.trim() && artifacts.length === 0) {
+            return;
+          }
+
+          if (artifacts.length > 0) {
+            await sendIMessageMediaToChat({
+              target: channelId,
+              filePath: artifacts[0].path,
+              mimeType: artifacts[0].mimeType,
+              filename: artifacts[0].filename,
+              caption: cleanedResultText || undefined,
+            });
+            for (let index = 1; index < artifacts.length; index += 1) {
+              await sendIMessageMediaToChat({
+                target: channelId,
+                filePath: artifacts[index].path,
+                mimeType: artifacts[index].mimeType,
+                filename: artifacts[index].filename,
+              });
+            }
+            return;
+          }
+
+          await reply(cleanedResultText);
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          logger.error(
+            { error, sessionId, channelId },
+            'iMessage message handling failed',
+          );
+          await reply(formatError('Gateway Error', text));
+        }
+      },
+    );
+  } catch (error) {
+    logger.warn({ error }, 'iMessage integration failed to start');
+    return false;
+  }
+  logger.info(
+    {
+      backend: imessageConfig.backend,
+      webhookPath: imessageConfig.webhookPath,
+    },
+    'iMessage integration started inside gateway',
+  );
+  return true;
+}
+
 function setupShutdown(): void {
   let shuttingDown = false;
   const shutdown = async () => {
@@ -1243,6 +1469,12 @@ function setupShutdown(): void {
       logger.debug(
         { error },
         'Failed to stop WhatsApp runtime during shutdown',
+      );
+    });
+    await shutdownIMessage().catch((error) => {
+      logger.debug(
+        { error },
+        'Failed to stop iMessage runtime during shutdown',
       );
     });
     await runManagedMediaCleanup('shutdown');
@@ -1457,6 +1689,7 @@ async function main(): Promise<void> {
   const msteamsActive = await startMSTeamsIntegration();
   const emailActive = await startEmailIntegration();
   const whatsappActive = await startWhatsAppIntegration();
+  const imessageActive = await startIMessageIntegration();
 
   startOrRestartHeartbeat();
   startObservabilityIngest();
@@ -1548,6 +1781,7 @@ async function main(): Promise<void> {
       discord: discordActive,
       msteams: msteamsActive,
       email: emailActive,
+      imessage: imessageActive,
       whatsapp: whatsappActive,
     },
     'HybridClaw gateway started',

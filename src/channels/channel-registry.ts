@@ -3,6 +3,7 @@ import {
   type ChannelKind,
   DISCORD_CAPABILITIES,
   EMAIL_CAPABILITIES,
+  IMESSAGE_CAPABILITIES,
   MSTEAMS_CAPABILITIES,
   SKILL_CONFIG_CHANNEL_KINDS,
   type SkillConfigChannelKind,
@@ -11,6 +12,7 @@ import {
   WHATSAPP_CAPABILITIES,
 } from './channel.js';
 import { isEmailAddress } from './email/allowlist.js';
+import { isIMessageHandle } from './imessage/handle.js';
 import { isWhatsAppJid } from './whatsapp/phone.js';
 
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
@@ -19,6 +21,7 @@ const CHANNEL_CAPABILITIES: Record<ChannelKind, ChannelInfo['capabilities']> = {
   discord: DISCORD_CAPABILITIES,
   email: EMAIL_CAPABILITIES,
   heartbeat: SYSTEM_CAPABILITIES,
+  imessage: IMESSAGE_CAPABILITIES,
   msteams: MSTEAMS_CAPABILITIES,
   scheduler: SYSTEM_CAPABILITIES,
   tui: TUI_CAPABILITIES,
@@ -98,6 +101,7 @@ function inferChannelKind(channelId?: string | null): ChannelKind | undefined {
     return 'msteams';
   }
   if (isWhatsAppJid(normalized)) return 'whatsapp';
+  if (isIMessageHandle(normalized)) return 'imessage';
   if (isEmailAddress(normalized)) return 'email';
   if (DISCORD_SNOWFLAKE_RE.test(normalized)) return 'discord';
   return undefined;

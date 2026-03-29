@@ -7,6 +7,8 @@ async function settle(): Promise<void> {
 
 function createGatewayMainTestState(options?: {
   discordInitError?: Error;
+  imessageInitError?: Error;
+  imessageEnabled?: boolean;
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
   hasMSTeamsCredentials?: boolean;
@@ -17,6 +19,9 @@ function createGatewayMainTestState(options?: {
     messageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     teamsCommandHandler: null as null | ((...args: unknown[]) => Promise<void>),
     teamsMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
+    imessageMessageHandler: null as
+      | null
+      | ((...args: unknown[]) => Promise<void>),
     whatsappMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
@@ -43,6 +48,11 @@ function createGatewayMainTestState(options?: {
           port: 9090,
           path: '/api/msteams/messages',
         },
+      },
+      imessage: {
+        enabled: options?.imessageEnabled ?? false,
+        backend: 'bluebubbles',
+        webhookPath: '/api/imessage/webhook',
       },
       local: { enabled: false },
       memory: { consolidationIntervalHours: 0, decayRate: 0.25 },
@@ -83,6 +93,7 @@ function createGatewayMainTestState(options?: {
     })),
     initDatabase: vi.fn(),
     initDiscord: vi.fn(),
+    initIMessage: vi.fn(),
     initMSTeams: vi.fn(),
     initWhatsApp: vi.fn(),
     initializeWorkflowRuntime: vi.fn(),
@@ -129,6 +140,8 @@ function createGatewayMainTestState(options?: {
 
 async function importFreshGatewayMain(options?: {
   discordInitError?: Error;
+  imessageInitError?: Error;
+  imessageEnabled?: boolean;
   whatsappInitError?: Error;
   whatsappAuthLockError?: {
     lockPath: string;
@@ -171,6 +184,12 @@ async function importFreshGatewayMain(options?: {
   state.initMSTeams.mockImplementation((messageHandler, commandHandler) => {
     state.teamsMessageHandler = messageHandler;
     state.teamsCommandHandler = commandHandler;
+  });
+  state.initIMessage.mockImplementation((messageHandler) => {
+    if (options?.imessageInitError) {
+      throw options.imessageInitError;
+    }
+    state.imessageMessageHandler = messageHandler;
   });
   class MockWhatsAppAuthLockError extends Error {
     readonly lockPath: string;
@@ -246,6 +265,12 @@ async function importFreshGatewayMain(options?: {
   }));
   vi.doMock('../src/channels/msteams/attachments.js', () => ({
     buildTeamsArtifactAttachments: state.buildTeamsArtifactAttachments,
+  }));
+  vi.doMock('../src/channels/imessage/runtime.js', () => ({
+    initIMessage: state.initIMessage,
+    sendIMessageMediaToChat: vi.fn(async () => {}),
+    sendToIMessageChat: vi.fn(async () => {}),
+    shutdownIMessage: vi.fn(async () => {}),
   }));
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     initMSTeams: state.initMSTeams,
@@ -399,6 +424,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/discord/delivery.js');
   vi.doUnmock('../src/channels/discord/mentions.js');
   vi.doUnmock('../src/channels/discord/runtime.js');
+  vi.doUnmock('../src/channels/imessage/runtime.js');
   vi.doUnmock('../src/channels/msteams/attachments.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');
   vi.doUnmock('../src/channels/email/runtime.js');
@@ -442,6 +468,41 @@ describe('gateway bootstrap', () => {
     expect(state.startScheduler).toHaveBeenCalledTimes(1);
     expect(state.onConfigChange).toHaveBeenCalledTimes(1);
     expect(state.setInterval).toHaveBeenCalled();
+  });
+
+  test('starts iMessage integration automatically when enabled in config', async () => {
+    const state = await importFreshGatewayMain({ imessageEnabled: true });
+
+    expect(state.initIMessage).toHaveBeenCalledTimes(1);
+    expect(state.imessageMessageHandler).not.toBeNull();
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ok',
+        imessage: true,
+      }),
+      'HybridClaw gateway started',
+    );
+  });
+
+  test('keeps gateway startup running when iMessage integration fails to initialize', async () => {
+    const state = await importFreshGatewayMain({
+      imessageEnabled: true,
+      imessageInitError: new Error('unsupported platform'),
+    });
+
+    expect(state.initIMessage).toHaveBeenCalledTimes(1);
+    expect(state.imessageMessageHandler).toBeNull();
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      { error: expect.any(Error) },
+      'iMessage integration failed to start',
+    );
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ok',
+        imessage: false,
+      }),
+      'HybridClaw gateway started',
+    );
   });
 
   test('awaits gateway service initialization before opening startup surfaces', async () => {
@@ -1097,6 +1158,80 @@ describe('gateway bootstrap', () => {
     );
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(reply).toHaveBeenCalledWith('rendered:plain output');
+  });
+
+  test('routes iMessage slash commands through the gateway command handler', async () => {
+    const state = await importFreshGatewayMain({ imessageEnabled: true });
+    const reply = vi.fn(async () => {});
+
+    await state.imessageMessageHandler?.(
+      'agent:main:channel:imessage:chat:dm:peer:imessage%3A%2B491701234567',
+      null,
+      'imessage:+491701234567',
+      '+491701234567',
+      'alice',
+      '/status',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        inbound: {},
+        rawEvent: {},
+        backend: 'local',
+        conversationId: 'any;-;+491701234567',
+        handle: '+491701234567',
+        isGroup: false,
+      },
+    );
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: ['status'],
+        channelId: 'imessage:+491701234567',
+        sessionId:
+          'agent:main:channel:imessage:chat:dm:peer:imessage%3A%2B491701234567',
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith('rendered:plain output');
+  });
+
+  test('suppresses interrupted reply text for local iMessage self-chat', async () => {
+    const state = await importFreshGatewayMain({ imessageEnabled: true });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      artifacts: [],
+      error: 'Timeout waiting for agent output after 300000ms',
+    });
+    const reply = vi.fn(async () => {});
+
+    await state.imessageMessageHandler?.(
+      'agent:main:channel:imessage:chat:dm:peer:imessage%3A%2B491701234567',
+      null,
+      'imessage:+491701234567',
+      '+491701234567',
+      'alice',
+      'Hi',
+      [],
+      reply,
+      {
+        abortSignal: new AbortController().signal,
+        inbound: {
+          backend: 'local',
+          conversationId: 'any;-;+491701234567',
+          handle: '+491701234567',
+          isGroup: false,
+          rawEvent: {
+            handle: '+491701234567',
+            chatIdentifier: '+491701234567',
+          },
+        },
+      },
+    );
+
+    expect(reply).not.toHaveBeenCalled();
   });
 
   test('treats bare WhatsApp /model as model info', async () => {

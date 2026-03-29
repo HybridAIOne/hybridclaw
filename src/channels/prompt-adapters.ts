@@ -6,6 +6,7 @@ import {
 } from './channel-registry.js';
 import { discordAgentPromptAdapter } from './discord/prompt-adapter.js';
 import { emailAgentPromptAdapter } from './email/prompt-adapter.js';
+import { imessageAgentPromptAdapter } from './imessage/prompt-adapter.js';
 import { msteamsAgentPromptAdapter } from './msteams/prompt-adapter.js';
 import { whatsappAgentPromptAdapter } from './whatsapp/prompt-adapter.js';
 
@@ -49,6 +50,7 @@ function resolveChannelAgentPromptAdapter(params: {
   if (!channel) return null;
   if (channel.kind === 'whatsapp') return whatsappAgentPromptAdapter;
   if (channel.kind === 'email') return emailAgentPromptAdapter;
+  if (channel.kind === 'imessage') return imessageAgentPromptAdapter;
   if (channel.kind === 'msteams') return msteamsAgentPromptAdapter;
   if (channel.kind === 'discord') return discordAgentPromptAdapter;
   return null;

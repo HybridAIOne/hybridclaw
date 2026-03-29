@@ -95,6 +95,7 @@ export const APP_VERSION = resolveAppVersion();
 function syncRuntimeSecretExports(): void {
   DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';
   EMAIL_PASSWORD = process.env.EMAIL_PASSWORD || '';
+  IMESSAGE_PASSWORD = process.env.IMESSAGE_PASSWORD || '';
   MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD || '';
   HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY || '';
   OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
@@ -105,6 +106,7 @@ function syncRuntimeSecretExports(): void {
 // Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
 export let DISCORD_TOKEN = '';
 export let EMAIL_PASSWORD = '';
+export let IMESSAGE_PASSWORD = '';
 export let MSTEAMS_APP_PASSWORD = '';
 // Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
 export let HYBRIDAI_API_KEY = '';
@@ -206,6 +208,23 @@ export let WHATSAPP_DEBOUNCE_MS = 2_500;
 export let WHATSAPP_SEND_READ_RECEIPTS = true;
 export let WHATSAPP_ACK_REACTION = '';
 export let WHATSAPP_MEDIA_MAX_MB = 20;
+export let IMESSAGE_ENABLED = false;
+export let IMESSAGE_BACKEND: RuntimeConfig['imessage']['backend'] = 'local';
+export let IMESSAGE_CLI_PATH = 'imsg';
+export let IMESSAGE_DB_PATH = '';
+export let IMESSAGE_POLL_INTERVAL_MS = 2_500;
+export let IMESSAGE_SERVER_URL = '';
+export let IMESSAGE_WEBHOOK_PATH = '/api/imessage/webhook';
+export let IMESSAGE_ALLOW_PRIVATE_NETWORK = false;
+export let IMESSAGE_DM_POLICY: RuntimeConfig['imessage']['dmPolicy'] =
+  'allowlist';
+export let IMESSAGE_GROUP_POLICY: RuntimeConfig['imessage']['groupPolicy'] =
+  'disabled';
+export let IMESSAGE_ALLOW_FROM: string[] = [];
+export let IMESSAGE_GROUP_ALLOW_FROM: string[] = [];
+export let IMESSAGE_TEXT_CHUNK_LIMIT = 4_000;
+export let IMESSAGE_DEBOUNCE_MS = 2_500;
+export let IMESSAGE_MEDIA_MAX_MB = 20;
 export let EMAIL_ENABLED = false;
 export let EMAIL_IMAP_HOST = '';
 export let EMAIL_IMAP_PORT = 993;
@@ -512,6 +531,25 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   WHATSAPP_SEND_READ_RECEIPTS = config.whatsapp.sendReadReceipts;
   WHATSAPP_ACK_REACTION = config.whatsapp.ackReaction;
   WHATSAPP_MEDIA_MAX_MB = Math.max(1, config.whatsapp.mediaMaxMb);
+  IMESSAGE_ENABLED = config.imessage.enabled;
+  IMESSAGE_BACKEND = config.imessage.backend;
+  IMESSAGE_CLI_PATH = config.imessage.cliPath;
+  IMESSAGE_DB_PATH = config.imessage.dbPath;
+  IMESSAGE_POLL_INTERVAL_MS = Math.max(250, config.imessage.pollIntervalMs);
+  IMESSAGE_SERVER_URL = config.imessage.serverUrl;
+  IMESSAGE_PASSWORD = process.env.IMESSAGE_PASSWORD || config.imessage.password;
+  IMESSAGE_WEBHOOK_PATH = config.imessage.webhookPath;
+  IMESSAGE_ALLOW_PRIVATE_NETWORK = config.imessage.allowPrivateNetwork;
+  IMESSAGE_DM_POLICY = config.imessage.dmPolicy;
+  IMESSAGE_GROUP_POLICY = config.imessage.groupPolicy;
+  IMESSAGE_ALLOW_FROM = [...config.imessage.allowFrom];
+  IMESSAGE_GROUP_ALLOW_FROM = [...config.imessage.groupAllowFrom];
+  IMESSAGE_TEXT_CHUNK_LIMIT = Math.max(
+    200,
+    Math.min(4_000, config.imessage.textChunkLimit),
+  );
+  IMESSAGE_DEBOUNCE_MS = Math.max(0, config.imessage.debounceMs);
+  IMESSAGE_MEDIA_MAX_MB = Math.max(1, config.imessage.mediaMaxMb);
   EMAIL_ENABLED = config.email.enabled;
   EMAIL_IMAP_HOST = config.email.imapHost;
   EMAIL_IMAP_PORT = Math.max(1, Math.min(65_535, config.email.imapPort));
