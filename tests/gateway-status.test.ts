@@ -251,7 +251,9 @@ test('auth status hybridai shows local HybridAI auth details', async () => {
   });
 
   const { initDatabase } = await import('../src/memory/db.ts');
-  const { saveRuntimeSecrets } = await import('../src/security/runtime-secrets.ts');
+  const { saveRuntimeSecrets } = await import(
+    '../src/security/runtime-secrets.ts'
+  );
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
