@@ -1,7 +1,8 @@
 import type { StoredMessage } from '../types/session.js';
 
-export const RECENT_CHAT_SESSION_TITLE_MAX_LENGTH = 80;
+export const RECENT_CHAT_SESSION_TITLE_MAX_LENGTH = 120;
 export const SESSIONS_COMMAND_SNIPPET_MAX_LENGTH = 40;
+export const AGENT_CARD_PREVIEW_MAX_LENGTH = 180;
 
 export function trimSessionPreviewText(
   raw: string | null | undefined,
@@ -20,11 +21,7 @@ export function buildSessionBoundaryPreview(params: {
   firstMessage?: string | null;
   lastMessage?: string | null;
   maxLength?: number;
-}): {
-  firstMessage: string | null;
-  lastMessage: string | null;
-  summary: string | null;
-} {
+}): string | null {
   const firstMessage = trimSessionPreviewText(
     params.firstMessage,
     params.maxLength,
@@ -35,19 +32,11 @@ export function buildSessionBoundaryPreview(params: {
   );
 
   if (firstMessage && lastMessage && firstMessage !== lastMessage) {
-    return {
-      firstMessage,
-      lastMessage,
-      summary: `"${firstMessage}" ... "${lastMessage}"`,
-    };
+    return `"${firstMessage}" ... "${lastMessage}"`;
   }
 
   const single = firstMessage || lastMessage;
-  return {
-    firstMessage,
-    lastMessage,
-    summary: single ? `"${single}"` : null,
-  };
+  return single ? `"${single}"` : null;
 }
 
 export function buildSessionConversationPreview(

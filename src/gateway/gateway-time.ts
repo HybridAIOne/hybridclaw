@@ -40,3 +40,32 @@ export function formatRelativeTimeFromMs(
 export function formatRelativeTime(raw: string | null | undefined): string {
   return formatRelativeTimeFromMs(parseTimestamp(raw)?.getTime() ?? null);
 }
+
+export function formatDisplayTimestamp(raw: string | null | undefined): string {
+  const date = parseTimestamp(raw);
+  if (!date) return 'unknown';
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+
+  const values = new Map(
+    parts
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value] as const),
+  );
+
+  const month = values.get('month') || 'Unknown';
+  const day = values.get('day') || '0';
+  const year = values.get('year') || '0000';
+  const hour = values.get('hour') || '00';
+  const minute = values.get('minute') || '00';
+  return `${month} ${day}, ${year}, ${hour}:${minute}`;
+}

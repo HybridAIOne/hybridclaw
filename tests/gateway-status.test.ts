@@ -287,6 +287,8 @@ test('sessions command includes abbreviated first and last message snippets', as
   }
   expect(result.title).toBe('Sessions');
   expect(result.text).toContain('session-sessions-snippet');
+  expect(result.text).toContain('last: ');
+  expect(result.text).not.toContain('last active ');
   expect(result.text).toContain('"First prompt that should appear as an..."');
   expect(result.text).toContain('"Final assistant reply that should als..."');
   expect(result.text).toContain('" ... "');

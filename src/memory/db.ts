@@ -86,6 +86,19 @@ let databaseInitialized = false;
 
 export const DATABASE_SCHEMA_VERSION = 17;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
+const STRUCTURED_AUDIT_SELECT_COLUMNS = [
+  'id',
+  'session_id',
+  'seq',
+  'event_type',
+  'timestamp',
+  'run_id',
+  'parent_run_id',
+  'payload',
+  'wire_hash',
+  'wire_prev_hash',
+  'created_at',
+].join(', ');
 
 interface InitDatabaseOptions {
   quiet?: boolean;
@@ -3985,6 +3998,13 @@ type RecentUserSessionRow = Pick<
   'id' | 'last_active' | 'message_count'
 >;
 
+interface RecentSessionBoundaryRow {
+  session_id: string;
+  first_user_content: string | null;
+  first_content: string | null;
+  last_content: string | null;
+}
+
 export function getRecentSessionsForUser(params: {
   userId: string;
   channelId?: string | null;
@@ -4020,40 +4040,7 @@ export function getRecentSessionsForUser(params: {
         userId,
       );
 
-  const firstUserMessageForSession = db.prepare<
-    [string, string],
-    { content: string | null }
-  >(
-    `SELECT content
-     FROM messages
-     WHERE session_id = ?
-       AND user_id = ?
-       AND role = 'user'
-     ORDER BY id ASC
-     LIMIT 1`,
-  );
-  const firstMessageForSession = db.prepare<
-    [string],
-    { content: string | null }
-  >(
-    `SELECT content
-     FROM messages
-     WHERE session_id = ?
-     ORDER BY id ASC
-     LIMIT 1`,
-  );
-  const lastMessageForSession = db.prepare<
-    [string],
-    { content: string | null }
-  >(
-    `SELECT content
-     FROM messages
-     WHERE session_id = ?
-     ORDER BY id DESC
-     LIMIT 1`,
-  );
-
-  return rows
+  const targetRows = rows
     .sort((left, right) => {
       const rightTimestamp = parseTimestamp(right.last_active);
       const leftTimestamp = parseTimestamp(left.last_active);
@@ -4062,26 +4049,56 @@ export function getRecentSessionsForUser(params: {
       }
       return right.id.localeCompare(left.id);
     })
-    .slice(0, limit)
-    .map((row) => {
-      const firstUserMessage = firstUserMessageForSession.get(row.id, userId);
-      const fallbackMessage = firstUserMessage
-        ? null
-        : firstMessageForSession.get(row.id);
-      const lastMessage = lastMessageForSession.get(row.id);
+    .slice(0, limit);
+  if (targetRows.length === 0) return [];
 
-      return {
-        sessionId: row.id,
-        lastActive: row.last_active,
-        messageCount: normalizeUsageNumber(row.message_count),
-        title: buildSessionBoundaryPreview({
-          firstMessage:
-            firstUserMessage?.content || fallbackMessage?.content || null,
-          lastMessage: lastMessage?.content || null,
-          maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
-        }).summary,
-      };
-    });
+  const placeholders = targetRows.map(() => '?').join(', ');
+  const boundaryRows = queryAll<RecentSessionBoundaryRow>(
+    db,
+    `WITH ranked AS (
+       SELECT
+         session_id,
+         content,
+         CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END AS is_target_user,
+         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id ASC) AS rn_first,
+         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn_last,
+         ROW_NUMBER() OVER (
+           PARTITION BY session_id, CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END
+           ORDER BY id ASC
+         ) AS rn_target_group
+       FROM messages
+       WHERE session_id IN (${placeholders})
+     )
+     SELECT
+       session_id,
+       MAX(CASE WHEN is_target_user = 1 AND rn_target_group = 1 THEN content END) AS first_user_content,
+       MAX(CASE WHEN rn_first = 1 THEN content END) AS first_content,
+       MAX(CASE WHEN rn_last = 1 THEN content END) AS last_content
+     FROM ranked
+     GROUP BY session_id`,
+    userId,
+    userId,
+    ...targetRows.map((row) => row.id),
+  );
+  const boundariesBySessionId = new Map(
+    boundaryRows.map((row) => [row.session_id, row] as const),
+  );
+
+  return targetRows.map((row) => {
+    const boundary = boundariesBySessionId.get(row.id);
+
+    return {
+      sessionId: row.id,
+      lastActive: row.last_active,
+      messageCount: normalizeUsageNumber(row.message_count),
+      title: buildSessionBoundaryPreview({
+        firstMessage:
+          boundary?.first_user_content || boundary?.first_content || null,
+        lastMessage: boundary?.last_content || null,
+        maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+      }),
+    };
+  });
 }
 
 export function getFullAutoSessionCount(): number {
@@ -4443,22 +4460,74 @@ export function getSessionBoundaryMessages(sessionId: string): {
   firstMessage: string | null;
   lastMessage: string | null;
 } {
-  const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  const firstRow = queryOne<Pick<StoredMessage, 'content'>, [string]>(
-    db,
-    'SELECT content FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 1',
-    resolvedSessionId,
+  return (
+    getSessionBoundaryMessagesBySessionIds([sessionId]).get(
+      resolveSessionIdCompat(sessionId),
+    ) || {
+      firstMessage: null,
+      lastMessage: null,
+    }
   );
-  const lastRow = queryOne<Pick<StoredMessage, 'content'>, [string]>(
+}
+
+export function getSessionBoundaryMessagesBySessionIds(
+  sessionIds: string[],
+): Map<
+  string,
+  {
+    firstMessage: string | null;
+    lastMessage: string | null;
+  }
+> {
+  const normalizedSessionIds = Array.from(
+    new Set(
+      sessionIds
+        .map((sessionId) => resolveSessionIdCompat(sessionId))
+        .filter((sessionId) => sessionId.length > 0),
+    ),
+  );
+  if (normalizedSessionIds.length === 0) return new Map();
+
+  const placeholders = normalizedSessionIds.map(() => '?').join(', ');
+  const rows = queryAll<
+    {
+      session_id: string;
+      first_content: string | null;
+      last_content: string | null;
+    },
+    string[]
+  >(
     db,
-    'SELECT content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1',
-    resolvedSessionId,
+    `WITH bounds AS (
+       SELECT
+         session_id,
+         MIN(id) AS first_id,
+         MAX(id) AS last_id
+       FROM messages
+       WHERE session_id IN (${placeholders})
+       GROUP BY session_id
+     )
+     SELECT
+       bounds.session_id,
+       MAX(CASE WHEN messages.id = bounds.first_id THEN messages.content END) AS first_content,
+       MAX(CASE WHEN messages.id = bounds.last_id THEN messages.content END) AS last_content
+     FROM bounds
+     INNER JOIN messages
+       ON messages.session_id = bounds.session_id
+      AND messages.id IN (bounds.first_id, bounds.last_id)
+     GROUP BY bounds.session_id`,
+    ...normalizedSessionIds,
   );
 
-  return {
-    firstMessage: firstRow?.content || null,
-    lastMessage: lastRow?.content || null,
-  };
+  return new Map(
+    rows.map((row) => [
+      row.session_id,
+      {
+        firstMessage: row.first_content || null,
+        lastMessage: row.last_content || null,
+      },
+    ]),
+  );
 }
 
 export function getSessionMessageCounts(sessionId: string): {
@@ -5981,7 +6050,10 @@ export function getRecentStructuredAudit(limit = 20): StructuredAuditEntry[] {
   const bounded = Math.max(1, Math.min(limit, 200));
   return queryAll<StructuredAuditEntry, [number]>(
     db,
-    'SELECT * FROM audit_events ORDER BY id DESC LIMIT ?',
+    `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
+     FROM audit_events
+     ORDER BY id DESC
+     LIMIT ?`,
     bounded,
   );
 }
@@ -6027,7 +6099,7 @@ function queryStructuredAuditEntries(params?: {
       ? null
       : Math.max(1, Math.min(params.limit, maxLimit));
   const sql = `
-    SELECT *
+    SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
     FROM audit_events
     ${where}
     ORDER BY ${orderBy} ${sortDirection}
@@ -6110,7 +6182,11 @@ export function getStructuredAuditAfterId(
   const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 5_000));
   return queryAll<StructuredAuditEntry, [number, number]>(
     db,
-    'SELECT * FROM audit_events WHERE id > ? ORDER BY id ASC LIMIT ?',
+    `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
+     FROM audit_events
+     WHERE id > ?
+     ORDER BY id ASC
+     LIMIT ?`,
     boundedAfterId,
     boundedLimit,
   );
@@ -6129,7 +6205,7 @@ export function searchStructuredAudit(
     [string, string, string, string, number]
   >(
     db,
-    `SELECT *
+    `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
      FROM audit_events
      WHERE event_type LIKE ?
        OR payload LIKE ?

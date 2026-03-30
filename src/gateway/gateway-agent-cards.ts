@@ -8,12 +8,14 @@ import {
 import type { AgentConfig } from '../agents/agent-types.js';
 import { getDiscordChannelDisplayName } from '../channels/discord/runtime.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
+import { logger } from '../logger.js';
 import {
   getRecentMessages,
   getRecentStructuredAuditForSession,
 } from '../memory/db.js';
 import { parseSessionKey } from '../session/session-key.js';
 import {
+  AGENT_CARD_PREVIEW_MAX_LENGTH,
   buildSessionConversationPreview,
   trimSessionPreviewText,
 } from '../session/session-preview.js';
@@ -66,11 +68,17 @@ function buildAgentTask(session: Session, messages: StoredMessage[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (String(message.role || '').toLowerCase() !== 'user') continue;
-    const preview = trimSessionPreviewText(message.content, 180);
+    const preview = trimSessionPreviewText(
+      message.content,
+      AGENT_CARD_PREVIEW_MAX_LENGTH,
+    );
     if (preview) return preview;
   }
   if (session.session_summary) {
-    const preview = trimSessionPreviewText(session.session_summary, 180);
+    const preview = trimSessionPreviewText(
+      session.session_summary,
+      AGENT_CARD_PREVIEW_MAX_LENGTH,
+    );
     if (preview) return preview;
   }
   const parsedKey = parseSessionKey(session.id);
@@ -205,7 +213,7 @@ function buildAgentPreview(
         label: row.event_type,
         line: trimSessionPreviewText(
           `${formatRelativeTimeFromMs(timestampMs)} · ${summarizeAgentAuditPreview(row)}`,
-          180,
+          AGENT_CARD_PREVIEW_MAX_LENGTH,
         ),
       };
     }),
@@ -219,7 +227,7 @@ function buildAgentPreview(
         label,
         line: trimSessionPreviewText(
           `${formatRelativeTimeFromMs(timestampMs)} · ${label} · ${String(message.content || '')}`,
-          180,
+          AGENT_CARD_PREVIEW_MAX_LENGTH,
         ),
       };
     }),
@@ -293,6 +301,37 @@ function getAgentWatcherLabel(
   return 'runtime detached';
 }
 
+function logUnsupportedConversationPreview(
+  sessionId: string,
+  messages: StoredMessage[],
+  conversation: {
+    lastQuestion: string | null;
+    lastAnswer: string | null;
+  },
+): void {
+  if (conversation.lastQuestion || conversation.lastAnswer) return;
+  if (messages.length === 0) return;
+
+  const unsupportedRoles = Array.from(
+    new Set(
+      messages
+        .filter((message) => String(message.content || '').trim().length > 0)
+        .map((message) => String(message.role || '').toLowerCase())
+        .filter((role) => role !== 'user' && role !== 'assistant'),
+    ),
+  );
+  if (unsupportedRoles.length === 0) return;
+
+  logger.debug(
+    {
+      sessionId,
+      unsupportedRoles,
+      messageCount: messages.length,
+    },
+    'Session conversation preview omitted unsupported message roles',
+  );
+}
+
 export function mapSessionCard(params: {
   session: Session;
   activeSessionIds: Set<string>;
@@ -317,6 +356,7 @@ export function mapSessionCard(params: {
   const messages = getRecentMessages(session.id, 12);
   const preview = buildAgentPreview(session, messages);
   const conversation = buildSessionConversationPreview(messages);
+  logUnsupportedConversationPreview(session.id, messages, conversation);
 
   return {
     id: session.id,
