@@ -15,8 +15,8 @@ FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091c
 LABEL org.opencontainers.image.source="https://github.com/HybridAIOne/hybridclaw"
 LABEL org.opencontainers.image.description="HybridClaw sandboxed agent runtime"
 
-RUN --mount=type=cache,target=/var/cache/apt \
-    --mount=type=cache,target=/var/lib/apt/lists \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
     ripgrep git curl python3 python3-pip poppler-utils qpdf pandoc
 
@@ -63,8 +63,8 @@ ENTRYPOINT ["node", "/app/dist/index.js"]
 FROM runtime-lite AS runtime
 
 USER root
-RUN --mount=type=cache,target=/var/cache/apt \
-    --mount=type=cache,target=/var/lib/apt/lists \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-calc libreoffice-impress libreoffice-writer
 USER node
