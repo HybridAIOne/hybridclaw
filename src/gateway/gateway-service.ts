@@ -107,6 +107,7 @@ import {
   getQueuedProactiveMessageCount,
   getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
+  getSessionBoundaryMessagesBySessionIds,
   getSessionCount,
   getSessionFileChangeCounts,
   getSessionMessageCounts,
@@ -217,6 +218,10 @@ import {
   runPreCompactionMemoryFlush,
 } from '../session/session-maintenance.js';
 import {
+  buildSessionBoundaryPreview,
+  SESSIONS_COMMAND_SNIPPET_MAX_LENGTH,
+} from '../session/session-preview.js';
+import {
   evaluateSessionExpiry,
   resolveResetPolicy,
   resolveSessionResetChannelKind,
@@ -312,7 +317,11 @@ import {
   registerActiveGatewayRequest,
 } from './gateway-request-runtime.js';
 import { readSessionStatusSnapshot } from './gateway-session-status.js';
-import { formatRelativeTime, parseTimestamp } from './gateway-time.js';
+import {
+  formatDisplayTimestamp,
+  formatRelativeTime,
+  parseTimestamp,
+} from './gateway-time.js';
 import {
   type GatewayAdminAuditResponse,
   type GatewayAdminChannelsResponse,
@@ -1667,6 +1676,18 @@ function formatPluginPromptContext(sections: string[]): string | null {
     .filter((value) => value.length > 0);
   if (normalized.length === 0) return null;
   return normalized.join('\n\n');
+}
+
+function formatSessionSnippetSummary(params: {
+  firstMessage: string | null;
+  lastMessage: string | null;
+}): string {
+  const summary = buildSessionBoundaryPreview({
+    firstMessage: params.firstMessage,
+    lastMessage: params.lastMessage,
+    maxLength: SESSIONS_COMMAND_SNIPPET_MAX_LENGTH,
+  });
+  return summary ? ` · ${summary}` : '';
 }
 
 function resolveActivationModeLabel(): string {
@@ -7959,12 +7980,18 @@ export async function handleGatewayCommand(
       case 'sessions': {
         const sessions = getAllSessions();
         if (sessions.length === 0) return plainCommand('No active sessions.');
-        const list = sessions
-          .slice(0, 20)
-          .map(
-            (s) =>
-              `${s.id} — ${s.message_count} msgs, last active ${s.last_active}`,
-          )
+        const visibleSessions = sessions.slice(0, 20);
+        const boundariesBySessionId = getSessionBoundaryMessagesBySessionIds(
+          visibleSessions.map((session) => session.id),
+        );
+        const list = visibleSessions
+          .map((s) => {
+            const boundary = boundariesBySessionId.get(s.id) || {
+              firstMessage: null,
+              lastMessage: null,
+            };
+            return `${s.id} — ${s.message_count} msgs, last: ${formatDisplayTimestamp(s.last_active)}${formatSessionSnippetSummary(boundary)}`;
+          })
           .join('\n');
         return infoCommand('Sessions', list);
       }

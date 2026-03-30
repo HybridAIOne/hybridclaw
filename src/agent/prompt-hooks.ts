@@ -285,6 +285,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     '',
     '## Web Retrieval Routing (web_search/web_fetch vs browser_*)',
     'Decision rule: use `web_search` to discover relevant URLs when the target page is not already known, then use `web_fetch` for read-only content retrieval.',
+    'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/development/...` page before answering. Do not answer from memory if no fetch was attempted.',
     'Use `web_extract` when you want the fetched page condensed into a model-processed markdown summary; it is higher cost than `web_fetch` because it runs an auxiliary model after extraction.',
     'Use browser tools only when at least one of these is true: (1) known app-like/auth-gated URL, (2) interaction is required (click/type/login/scroll), (3) `web_fetch` returned escalation hints, (4) user explicitly requested browser use.',
     'Prefer browser for: SPAs/client-rendered apps (React/Vue/Angular/Next client routes), dashboards/web apps, social feeds, login/OAuth/cookie-consent/CAPTCHA flows, or API-driven pages that populate after initial render.',
@@ -435,6 +436,7 @@ function buildRuntimeHook(context: PromptHookContext): string {
   const lines = [
     '## Runtime Metadata',
     `HybridClaw version: v${APP_VERSION}`,
+    'HybridClaw Documentation: [https://www.hybridclaw.io/docs/](https://www.hybridclaw.io/docs/)',
     `Date (UTC): ${new Date().toISOString().slice(0, 10)}`,
     modelSentence,
     runtimeInfo.channelId?.trim()
@@ -447,7 +449,10 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `Workspace: ${workspaceLabel}`,
     `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,
     'Only provide more runtime details when the user explicitly asks for them.',
-    'Default response style: concise and direct.',
+    // Intentional overlap with templates/SOUL.md:
+    // keep brevity guidance in both the identity layer and the always-on runtime
+    // layer so prompt modes that omit one still retain concise-answer steering.
+    'Default response style: brief and direct. Lead with the answer, skip filler, and expand only when depth, risk, tradeoffs, or structured deliverables require it.',
     'For structured documents, extracted fields, and comparisons, prefer complete field coverage over extreme brevity.',
     'Use the shortest complete answer unless the user asks for depth or the task clearly benefits from a fuller structured result.',
   ];

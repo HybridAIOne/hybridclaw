@@ -1,6 +1,6 @@
 ---
 name: iss-position
-description: Retrieve the current International Space Station (ISS) position from the WhereTheISS API and return standardized success/error payloads. Use when a user asks where the ISS is right now, requests current ISS latitude/longitude, or needs a reusable script to fetch live ISS coordinates.
+description: Fetch the current ISS latitude and longitude from the WhereTheISS API and return standardized payloads.
 ---
 
 # ISS Position

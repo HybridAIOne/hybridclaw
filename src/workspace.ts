@@ -32,6 +32,7 @@ const DEFAULT_POLICY_TEMPLATE = `approval:
     - pattern: "rm -rf /"
     - paths: ["~/.ssh/**", "/etc/**", ".env*"]
     - tools: ["force_push"]
+  trusted_network_hosts: ["hybridclaw.io"]
 
   workspace_fence: true
   max_pending_approvals: 3

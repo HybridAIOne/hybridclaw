@@ -10,6 +10,40 @@ permissions:
   contents: write
 
 jobs:
+  # Build Docker images (no push) to catch Dockerfile regressions before merge.
+  docker-preflight:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: agent
+            context: ./container
+            file: ./container/Dockerfile
+            target: runtime
+          - name: gateway
+            context: .
+            file: ./Dockerfile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.name }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          target: ${{ matrix.target || '' }}
+          push: false
+          load: true
+          tags: hybridclaw-${{ matrix.name }}:preflight
+          cache-from: type=gha,scope=${{ matrix.name }}-preflight
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-preflight
+
   unit-tests:
     runs-on: ubuntu-latest
     steps:

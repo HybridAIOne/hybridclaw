@@ -5,43 +5,56 @@ import {
   parseFrontmatter,
   resolveDocLinkHref,
   resolveDocPathFromPathname,
-} from '../docs/static/development-docs.js';
+} from '../docs/static/docs.js';
 
-describe('development docs viewer helpers', () => {
+describe('docs viewer helpers', () => {
   test('maps clean routes to markdown paths', () => {
+    expect(resolveDocPathFromPathname('/docs/')).toBe('README.md');
     expect(resolveDocPathFromPathname('/development/')).toBe('README.md');
-    expect(
-      resolveDocPathFromPathname('/development/extensibility/skills'),
-    ).toBe('extensibility/skills.md');
-    expect(resolveDocPathFromPathname('/development/guides/')).toBe(
+    expect(resolveDocPathFromPathname('/docs/extensibility/skills')).toBe(
+      'extensibility/skills.md',
+    );
+    expect(resolveDocPathFromPathname('/docs/guides/')).toBe(
       'guides/README.md',
     );
   });
 
   test('builds clean and raw doc hrefs', () => {
-    expect(buildDocHtmlHref('README.md')).toBe('/development/');
-    expect(buildDocHtmlHref('guides/README.md')).toBe('/development/guides/');
+    expect(buildDocHtmlHref('README.md')).toBe('/docs/');
+    expect(buildDocHtmlHref('guides/README.md')).toBe('/docs/guides/');
     expect(buildDocHtmlHref('extensibility/skills.md')).toBe(
-      '/development/extensibility/skills',
+      '/docs/extensibility/skills',
     );
     expect(buildDocMarkdownHref('extensibility/skills.md')).toBe(
-      '/development/extensibility/skills.md',
+      '/docs/extensibility/skills.md',
     );
+    expect(
+      buildDocMarkdownHref('extensibility/skills.md', '/docs', '/development'),
+    ).toBe('/development/extensibility/skills.md');
   });
 
-  test('rewrites relative markdown links to browsable docs routes', () => {
+  test('rewrites relative markdown links to browsable canonical docs routes', () => {
     expect(
       resolveDocLinkHref(
         'extensibility/agent-packages.md',
         './skills.md#installing-skills',
       ),
-    ).toBe('/development/extensibility/skills#installing-skills');
+    ).toBe('/docs/extensibility/skills#installing-skills');
     expect(
       resolveDocLinkHref(
         'guides/README.md',
         '../reference/commands.md?plain=1#agent-install',
       ),
-    ).toBe('/development/reference/commands?plain=1#agent-install');
+    ).toBe('/docs/reference/commands?plain=1#agent-install');
+  });
+
+  test('can resolve links against a legacy content base path', () => {
+    expect(buildDocMarkdownHref('README.md', '/docs', '/development')).toBe(
+      '/development/README.md',
+    );
+    expect(
+      buildDocMarkdownHref('extensibility/skills.md', '/docs', '/development'),
+    ).toBe('/development/extensibility/skills.md');
   });
 
   test('parses frontmatter while preserving the markdown body', () => {

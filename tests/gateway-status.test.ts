@@ -240,6 +240,60 @@ test('status command includes the current session agent', async () => {
   );
 });
 
+test('sessions command includes abbreviated first and last message snippets', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { getOrCreateSession, initDatabase, storeMessage } = await import(
+    '../src/memory/db.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const session = getOrCreateSession(
+    'session-sessions-snippet',
+    null,
+    'web',
+    'main',
+  );
+  storeMessage(
+    session.id,
+    'user_a',
+    'user_a',
+    'user',
+    'First prompt that should appear as an abbreviated preview because it is intentionally long and wordy for testing.',
+  );
+  storeMessage(
+    session.id,
+    'assistant',
+    'assistant',
+    'assistant',
+    'Final assistant reply that should also be shortened in the sessions listing because it is similarly verbose.',
+  );
+
+  const result = await handleGatewayCommand({
+    sessionId: session.id,
+    guildId: null,
+    channelId: 'web',
+    args: ['sessions'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Sessions');
+  expect(result.text).toContain('session-sessions-snippet');
+  expect(result.text).toContain('last: ');
+  expect(result.text).not.toContain('last active ');
+  expect(result.text).toContain('"First prompt that should appear as an..."');
+  expect(result.text).toContain('"Final assistant reply that should als..."');
+  expect(result.text).toContain('" ... "');
+});
+
 test('auth status hybridai shows local HybridAI auth details', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

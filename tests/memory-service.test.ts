@@ -524,13 +524,13 @@ describe.sequential('schema migrations', () => {
         sessionId: 'web-session-2',
         lastActive: '2026-03-24T10:00:00.000Z',
         messageCount: 1,
-        title: 'Follow-up question from user A',
+        title: '"Follow-up question from user A"',
       },
       {
         sessionId: 'web-session-1',
         lastActive: '2026-03-24T09:01:00.000Z',
         messageCount: 2,
-        title: 'First web question from user A',
+        title: '"First web question from user A" ... "Assistant reply A1"',
       },
     ]);
   });

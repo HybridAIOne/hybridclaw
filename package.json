@@ -63,7 +63,7 @@
     "tui": "tsx src/cli.ts tui",
     "start": "node dist/cli.js gateway",
     "postinstall": "node ./scripts/postinstall-container.mjs",
-    "build:container": "node -e \"const cp=require('node:child_process');const image=process.env.HYBRIDCLAW_CONTAINER_IMAGE||'hybridclaw-agent';const r=cp.spawnSync('docker',['build','-t',image,'./container'],{stdio:'inherit'});if(r.error) throw r.error;process.exit(r.status ?? 1);\"",
+    "build:container": "node -e \"const cp=require('node:child_process');const image=process.env.HYBRIDCLAW_CONTAINER_IMAGE||'hybridclaw-agent';const target=process.env.HYBRIDCLAW_CONTAINER_TARGET||'runtime';const r=cp.spawnSync('docker',['build','--target',target,'-t',image,'./container'],{stdio:'inherit',env:{...process.env,DOCKER_BUILDKIT:'1'}});if(r.error) throw r.error;process.exit(r.status ?? 1);\"",
     "prebuild": "npm run build:console",
     "prepack": "npm run clean && npm run build && npm run release:check",
     "release:check": "node ./scripts/release-check.mjs",

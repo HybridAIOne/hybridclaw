@@ -1,6 +1,6 @@
 ---
 name: google-workspace
-description: Use this skill when the user needs Gmail, Calendar, Drive, Docs, or Sheets workflows, especially setup guidance, browser-driven actions, or API-based automation for Google Workspace.
+description: Work with Gmail, Calendar, Drive, Docs, and Sheets via browser automation or APIs.
 user-invocable: true
 metadata:
   hybridclaw:

@@ -28,6 +28,7 @@ export interface ApprovalPolicyRule {
 
 export interface ApprovalPolicyConfig {
   pinnedRed: ApprovalPolicyRule[];
+  trustedNetworkHosts: string[];
   workspaceFence: boolean;
   maxPendingApprovals: number;
   approvalTimeoutSecs: number;
@@ -131,6 +132,7 @@ const DEFAULT_POLICY: ApprovalPolicyConfig = {
     { paths: ['~/.ssh/**', '/etc/**', '.env*'] },
     { tools: ['force_push'] },
   ],
+  trustedNetworkHosts: ['hybridclaw.io'],
   workspaceFence: true,
   maxPendingApprovals: 3,
   approvalTimeoutSecs: 120,
@@ -382,6 +384,9 @@ function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
           rawValue,
           DEFAULT_POLICY.workspaceFence,
         );
+      } else if (key === 'trusted_network_hosts') {
+        policy.trustedNetworkHosts =
+          parseInlineList(rawValue).length > 0 ? parseInlineList(rawValue) : [];
       } else if (key === 'max_pending_approvals') {
         policy.maxPendingApprovals = Math.max(
           1,
@@ -434,6 +439,11 @@ function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
       Array.isArray(filePolicy.pinnedRed) && filePolicy.pinnedRed.length > 0
         ? filePolicy.pinnedRed
         : DEFAULT_POLICY.pinnedRed,
+    trustedNetworkHosts:
+      Array.isArray(filePolicy.trustedNetworkHosts) &&
+      filePolicy.trustedNetworkHosts.length > 0
+        ? filePolicy.trustedNetworkHosts.map(normalizeHostScope)
+        : DEFAULT_POLICY.trustedNetworkHosts.map(normalizeHostScope),
     workspaceFence:
       typeof filePolicy.workspaceFence === 'boolean'
         ? filePolicy.workspaceFence
@@ -956,6 +966,11 @@ export class TrustedCoworkerApprovalRuntime {
     );
   }
 
+  private isTrustedNetworkHost(host: string): boolean {
+    const normalized = normalizeHostScope(host);
+    return this.loadedPolicy.trustedNetworkHosts.includes(normalized);
+  }
+
   reloadPolicyIfNeeded(force = false): ApprovalPolicyConfig {
     let mtimeMs = -1;
     try {
@@ -1472,16 +1487,21 @@ export class TrustedCoworkerApprovalRuntime {
       })();
       const primaryHost = providerHosts[0] || 'web-search';
       const unseen = providerHosts.filter(
-        (host) => !this.seenNetworkHosts.has(host),
+        (host) =>
+          !this.isTrustedNetworkHost(host) && !this.seenNetworkHosts.has(host),
       );
+      const allTrusted =
+        providerHosts.length > 0 &&
+        providerHosts.every((host) => this.isTrustedNetworkHost(host));
       return {
-        tier: unseen.length > 0 ? 'red' : 'yellow',
+        tier: allTrusted ? 'green' : unseen.length > 0 ? 'red' : 'yellow',
         actionKey: `network:${primaryHost}`,
         intent: `search the web via ${provider || 'configured providers'}`,
         consequenceIfDenied:
           'I will avoid external search providers and continue with local context only.',
-        reason:
-          unseen.length > 0
+        reason: allTrusted
+          ? 'this host is allowlisted in approval policy'
+          : unseen.length > 0
             ? 'this would contact a new external host'
             : 'this is an external network action',
         commandPreview: normalizePreview(JSON.stringify(args)),
@@ -1502,16 +1522,21 @@ export class TrustedCoworkerApprovalRuntime {
       const hostScopes = extractHostScopes(extractHostsFromUrlLikeText(rawUrl));
       const primaryHost = hostScopes[0] || 'unknown-host';
       const unseen = hostScopes.filter(
-        (host) => !this.seenNetworkHosts.has(host),
+        (host) =>
+          !this.isTrustedNetworkHost(host) && !this.seenNetworkHosts.has(host),
       );
+      const allTrusted =
+        hostScopes.length > 0 &&
+        hostScopes.every((host) => this.isTrustedNetworkHost(host));
       return {
-        tier: unseen.length > 0 ? 'red' : 'yellow',
+        tier: allTrusted ? 'green' : unseen.length > 0 ? 'red' : 'yellow',
         actionKey: `network:${primaryHost}`,
         intent: `access ${primaryHost}`,
         consequenceIfDenied:
           'I will avoid contacting that host and use existing local context only.',
-        reason:
-          unseen.length > 0
+        reason: allTrusted
+          ? 'this host is allowlisted in approval policy'
+          : unseen.length > 0
             ? 'this would contact a new external host'
             : 'this is an external network action',
         commandPreview: normalizePreview(rawUrl),

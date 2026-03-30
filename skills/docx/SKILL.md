@@ -1,6 +1,6 @@
 ---
 name: docx
-description: Use this skill for .docx Word documents: create reports, inspect content, edit existing OOXML safely, and add comments without flattening formatting.
+description: Create, inspect, and edit `.docx` files safely, including comments and OOXML-preserving changes.
 user-invocable: true
 disable-model-invocation: false
 requires:

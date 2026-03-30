@@ -1,6 +1,6 @@
 ---
 name: stripe
-description: Use this skill when the user wants Stripe workflows such as customer or subscription lookup, checkout/payment investigation, webhook testing, dashboard coordination, Stripe API usage, or Stripe CLI guidance.
+description: Investigate Stripe customers, subscriptions, payments, webhooks, dashboard state, and CLI or API workflows.
 user-invocable: true
 metadata:
   hybridclaw:

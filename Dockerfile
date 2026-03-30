@@ -1,11 +1,17 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM node:22-slim AS builder
 
+# node-pty and better-sqlite3 require native compilation
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Install root deps first (cached unless package.json changes)
 COPY package*.json ./
 COPY console/package*.json console/
+COPY scripts/postinstall-container.mjs scripts/
 RUN npm ci
 RUN find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod 755 {} \; 2>/dev/null || true
 
@@ -29,15 +35,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Production deps — root
-COPY package*.json ./
-COPY console/package*.json console/
-RUN npm ci --omit=dev
-RUN find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod 755 {} \; 2>/dev/null || true
+# Production deps — copy from builder and prune dev deps
+# (node-pty requires python3/node-gyp to compile; copying pre-built
+# binaries from the builder avoids needing build tools at runtime)
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/console/package*.json console/
+COPY --from=builder /app/node_modules/ node_modules/
+RUN npm prune --omit=dev \
+    && find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod 755 {} \; 2>/dev/null || true
 
 # Production deps — container agent
-COPY container/package*.json container/
-RUN npm --prefix container ci --omit=dev
+COPY --from=builder /app/container/package*.json container/
+COPY --from=builder /app/container/node_modules/ container/node_modules/
+RUN npm --prefix container prune --omit=dev
 
 # Gateway compiled output + console SPA
 COPY --from=builder /app/dist ./dist

@@ -70,7 +70,7 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
-import { serveDevelopmentDocs } from './development-docs.js';
+import { serveDocs } from './docs.js';
 import {
   createGatewayAdminAgent,
   deleteGatewayAdminAgent,
@@ -952,8 +952,9 @@ function resolveStaticFile(rootDir: string, pathname: string): string | null {
   return candidate;
 }
 
-function serveStatic(pathname: string, res: ServerResponse): boolean {
-  if (serveDevelopmentDocs(pathname, res)) return true;
+function serveStatic(url: URL, res: ServerResponse): boolean {
+  const pathname = url.pathname;
+  if (serveDocs(url, res)) return true;
   const filePath = resolveSiteFile(
     pathname === '/chat'
       ? '/chat.html'
@@ -2550,7 +2551,7 @@ export function startGatewayHttpServer(): void {
       return;
     }
 
-    if (serveStatic(pathname, res)) return;
+    if (serveStatic(url, res)) return;
     sendText(res, 404, 'Not Found');
   });
 
