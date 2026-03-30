@@ -131,7 +131,9 @@ test('redacts pii while preserving allowlisted examples', () => {
   expect(redactSecrets('Contact user@company.com for help')).toBe(
     'Contact ***EMAIL_REDACTED*** for help',
   );
-  expect(redactSecrets('From noreply@github.com')).toBe('From noreply@github.com');
+  expect(redactSecrets('From noreply@github.com')).toBe(
+    'From noreply@github.com',
+  );
   expect(redactSecrets('test@example.com')).toBe('test@example.com');
   expect(redactSecrets('Server is at 203.0.113.42 running')).toBe(
     'Server is at ***IP_ADDRESS_REDACTED*** running',
@@ -140,9 +142,7 @@ test('redacts pii while preserving allowlisted examples', () => {
     'Listening on 127.0.0.1 port 8080',
   );
   expect(
-    redactSecrets(
-      'address is 2001:0db8:85a3:0000:0000:8a2e:0370:7334 ok',
-    ),
+    redactSecrets('address is 2001:0db8:85a3:0000:0000:8a2e:0370:7334 ok'),
   ).toBe('address is ***IP_ADDRESS_REDACTED*** ok');
   expect(redactSecrets('SSN: 123-45-6789')).toBe('SSN: ***SSN_REDACTED***');
   expect(redactSecrets('SSN: 000-12-3456')).toBe('SSN: 000-12-3456');

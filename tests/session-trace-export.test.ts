@@ -469,8 +469,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
     event: {
       type: 'turn.start',
       turnIndex: 1,
-      userInput:
-        `Inspect /Users/${localUsername}/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890 via ~${localUsername}/docs from -Users-${localUsername}-src-project and ${highEntropySecret}. Contact user@company.com at 203.0.113.42 or (555) 123-4567.`,
+      userInput: `Inspect /Users/${localUsername}/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890 via ~${localUsername}/docs from -Users-${localUsername}-src-project and ${highEntropySecret}. Contact user@company.com at 203.0.113.42 or (555) 123-4567.`,
       username: 'alice',
       source: 'gateway.chat',
     },
@@ -493,8 +492,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
       {
         name: 'bash',
         arguments: JSON.stringify({ command: toolCommand }),
-        result:
-          `Webhook https://discord.com/api/webhooks/123456/abcdefghijklmnopqrstuvwxyz and token pypi-abcdefghijklmnopqrstuvwxyz123456 at C:/Users/${localUsername}/Documents/code.ts`,
+        result: `Webhook https://discord.com/api/webhooks/123456/abcdefghijklmnopqrstuvwxyz and token pypi-abcdefghijklmnopqrstuvwxyz123456 at C:/Users/${localUsername}/Documents/code.ts`,
         durationMs: 250,
         isError: false,
       },
@@ -562,7 +560,9 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
   expect(raw).not.toContain(`C:\\Users\\${localUsername}\\`);
   expect(raw).not.toContain(`C:/Users/${localUsername}/`);
   expect(raw).not.toContain(`/mnt/c/Users/${localUsername}/`);
-  expect(raw).not.toContain(`\\\\wsl.localhost\\Ubuntu\\home\\${localUsername}\\`);
+  expect(raw).not.toContain(
+    `\\\\wsl.localhost\\Ubuntu\\home\\${localUsername}\\`,
+  );
   expect(raw).not.toContain(`//wsl.localhost/Ubuntu/home/${localUsername}/`);
   expect(raw).not.toContain(localUsername);
   expect(raw).toContain('/Users/user_');
@@ -589,7 +589,8 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
   const steps = (record.steps as Array<Record<string, unknown>>) || [];
   const userStep = steps[0] || {};
   const agentStep = steps[1] || {};
-  const toolCalls = (agentStep.tool_calls as Array<Record<string, unknown>>) || [];
+  const toolCalls =
+    (agentStep.tool_calls as Array<Record<string, unknown>>) || [];
   const observations =
     (agentStep.observations as Array<Record<string, unknown>>) || [];
   const toolInput = (toolCalls[0].input as Record<string, unknown>) || {};
@@ -617,9 +618,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
   expect(toolCommandContent).toContain('gho_ab...7890');
   expect(toolCommandContent).toContain('npm_ab...3456');
   expect(toolCommandContent).toContain('***HIGH_ENTROPY_SECRET_REDACTED***');
-  expect(observationContent).toContain(
-    '***DISCORD_WEBHOOK_REDACTED***',
-  );
+  expect(observationContent).toContain('***DISCORD_WEBHOOK_REDACTED***');
   expect(observationContent).toContain('***PYPI_TOKEN_REDACTED***');
   expect(observationContent).toContain('C:/Users/user_');
 });
@@ -644,7 +643,13 @@ test('trace export preserves tool call linkage ids even when they look random', 
     'channel-trace-linkage',
   );
   storeMessage(session.id, 'user-1', 'alice', 'user', 'Run the command');
-  storeMessage(session.id, 'assistant', null, 'assistant', 'Command completed.');
+  storeMessage(
+    session.id,
+    'assistant',
+    null,
+    'assistant',
+    'Command completed.',
+  );
 
   recordAuditEvent({
     sessionId: session.id,
@@ -736,7 +741,8 @@ test('trace export preserves tool call linkage ids even when they look random', 
   const record = JSON.parse(raw) as Record<string, unknown>;
   const steps = (record.steps as Array<Record<string, unknown>>) || [];
   const agentStep = steps[1] || {};
-  const toolCalls = (agentStep.tool_calls as Array<Record<string, unknown>>) || [];
+  const toolCalls =
+    (agentStep.tool_calls as Array<Record<string, unknown>>) || [];
   const observations =
     (agentStep.observations as Array<Record<string, unknown>>) || [];
   const expectedToolCallId = `${runId}:tool:1`;
