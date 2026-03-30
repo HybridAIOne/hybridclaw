@@ -1,6 +1,6 @@
 ---
 name: xlsx
-description: Use this skill for spreadsheet work: inspect .xlsx sheets, clean CSV or TSV inputs into .xlsx, analyze tabular data, create workbooks, edit formulas, and apply workbook formatting with Node.js and XlsxPopulate.
+description: Inspect, create, clean, analyze, and format `.xlsx` workbooks and tabular data with Node.js and XlsxPopulate.
 user-invocable: true
 disable-model-invocation: false
 requires:

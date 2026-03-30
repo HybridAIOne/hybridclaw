@@ -1,6 +1,6 @@
 ---
 name: project-manager
-description: Use this skill when the user wants sprint planning, milestone breakdowns, roadmap framing, risk registers, stakeholder updates, dependency mapping, or other project-management artifacts for team delivery.
+description: Plan sprints, milestones, roadmaps, risks, dependencies, and stakeholder updates for team delivery.
 user-invocable: true
 metadata:
   hybridclaw:

@@ -1,6 +1,6 @@
 ---
 name: pptx
-description: Use this skill for .pptx presentations: create decks, edit templates safely, export thumbnails for QA, and produce polished slide layouts with pptxgenjs plus OOXML editing.
+description: Create and edit `.pptx` presentations safely, export thumbnails for QA, and build polished decks with pptxgenjs plus OOXML editing.
 user-invocable: true
 disable-model-invocation: false
 requires:

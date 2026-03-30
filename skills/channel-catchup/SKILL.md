@@ -1,6 +1,6 @@
 ---
 name: channel-catchup
-description: Summarize scoped channel activity across Discord, ingested email threads, WhatsApp, and TUI. Use this when the user asks for a catch-up, recap, key posts, important updates, or a summary of the last N messages / recent timeframe from one or more channels.
+description: Summarize recent activity across Discord, ingested email threads, WhatsApp, and TUI channels.
 user-invocable: true
 disable-model-invocation: false
 metadata:

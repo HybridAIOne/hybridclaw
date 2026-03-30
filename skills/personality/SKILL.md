@@ -1,6 +1,6 @@
 ---
 name: personality
-description: Personality switcher with expert and fun modes. Supports /personality commands and persists the selected mode in SOUL.md.
+description: Switch persona modes with `/personality` and persist the active mode in `SOUL.md`.
 user-invocable: true
 disable-model-invocation: true
 always: false

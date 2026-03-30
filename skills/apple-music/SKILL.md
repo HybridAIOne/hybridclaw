@@ -1,6 +1,6 @@
 ---
 name: apple-music
-description: Use this skill when the user wants Apple Music or macOS Music app playback control, now-playing details, playlist playback, or host-side music automation.
+description: Control Apple Music playback, inspect now playing, start playlists, and automate the macOS Music app.
 user-invocable: true
 metadata:
   hybridclaw:
