@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, test, expect, afterAll, beforeAll } from 'vitest';
+import { getAvailablePort, waitForHealth } from './helpers/docker-test-setup.js';
 
 /**
  * E2E test that exercises the real npm-install-to-first-request user journey:
@@ -13,7 +14,7 @@ import { describe, test, expect, afterAll, beforeAll } from 'vitest';
  * followed by the Getting Started quickstart flow.
  *
  * Requires:
- *   HYBRIDCLAW_RUN_NPM_E2E=1   — gate flag (CI sets this in the unit-tests job)
+ *   HYBRIDCLAW_RUN_NPM_E2E=1   — gate flag (CI sets this in the npm-e2e job)
  *
  * The test uses a temporary npm prefix so it does not pollute the system.
  * A dummy API key is used since we only need the gateway to start and serve
@@ -23,13 +24,13 @@ import { describe, test, expect, afterAll, beforeAll } from 'vitest';
  */
 
 const NPM_E2E = process.env.HYBRIDCLAW_RUN_NPM_E2E === '1';
-const HOST_PORT = 9198;
-const GATEWAY_URL = `http://127.0.0.1:${HOST_PORT}`;
 const STARTUP_TIMEOUT_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 
 let tempDir: string;
 let gatewayProcess: ChildProcess | null = null;
+let HOST_PORT: number;
+let GATEWAY_URL: string;
 
 function npmPrefix(): string {
   return path.join(tempDir, 'npm-global');
@@ -51,29 +52,11 @@ function installedCliPath(): string {
   );
 }
 
-async function waitForHealth(): Promise<void> {
-  const deadline = Date.now() + STARTUP_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${GATEWAY_URL}/health`, {
-        signal: AbortSignal.timeout(2_000),
-      });
-      if (res.ok) {
-        const body = (await res.json()) as { status: string };
-        if (body.status === 'ok') return;
-      }
-    } catch {
-      // not ready yet
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error(
-    `Gateway did not become healthy within ${STARTUP_TIMEOUT_MS}ms`,
-  );
-}
-
 describe.skipIf(!NPM_E2E)('npm install user journey', () => {
   beforeAll(async () => {
+    HOST_PORT = await getAvailablePort(9198);
+    GATEWAY_URL = `http://127.0.0.1:${HOST_PORT}`;
+
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-npm-e2e-'));
     fs.mkdirSync(npmPrefix(), { recursive: true });
     fs.mkdirSync(dataDir(), { recursive: true });
@@ -98,7 +81,7 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
       },
     );
 
-    // Step 3: Write config with a non-default port
+    // Step 3: Write config with a dynamically allocated port
     fs.writeFileSync(
       path.join(dataDir(), 'config.json'),
       JSON.stringify({
@@ -134,7 +117,7 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
       }
     });
 
-    await waitForHealth();
+    await waitForHealth(`${GATEWAY_URL}/health`, STARTUP_TIMEOUT_MS);
   }, STARTUP_TIMEOUT_MS + 150_000);
 
   afterAll(() => {
@@ -162,14 +145,14 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
 
   // ── Gateway serves content from npm-installed package ───────────────
 
-  test('/health returns ok', async () => {
+  test('/health returns ok with semver version', async () => {
     const res = await fetch(`${GATEWAY_URL}/health`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { status: string; version: string };
     expect(body.status).toBe('ok');
-    expect(body.version).toBeTruthy();
+    expect(body.version).toMatch(/^\d+\.\d+\.\d+/);
   });
 
   test('/docs renders Getting Started content', async () => {
@@ -182,13 +165,13 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     expect(html).toContain('Installation');
   });
 
-  test('/ serves the landing page', async () => {
+  test('/ serves the landing page with unique title', async () => {
     const res = await fetch(GATEWAY_URL, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('HybridClaw');
+    expect(html).toContain('<title>HybridClaw \u2014 Enterprise AI Digital Coworker</title>');
   });
 
   test('/chat serves the chat SPA', async () => {
@@ -196,6 +179,8 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('<title>HybridClaw Chat</title>');
   });
 
   test('/admin serves the console (host mode, no container auth)', async () => {
@@ -204,6 +189,6 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     });
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toBeTruthy();
+    expect(html).toContain('<title>HybridClaw Admin</title>');
   });
 });

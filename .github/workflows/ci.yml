@@ -53,13 +53,21 @@ jobs:
       - name: Install test dependencies (e2e)
         run: npm install
 
-      - name: Gateway e2e tests
+      - name: Gateway e2e tests (local, no API key)
         if: matrix.name == 'gateway'
         env:
           HYBRIDCLAW_RUN_DOCKER_E2E: '1'
           HYBRIDCLAW_E2E_IMAGE: hybridclaw-gateway:preflight
-          HYBRIDAI_API_KEY: ${{ secrets.HYBRIDAI_API_KEY }}
         run: npx vitest run --config vitest.e2e.config.ts tests/gateway-docker.e2e.test.ts
+
+      - name: Gateway e2e tests (external services)
+        if: matrix.name == 'gateway'
+        continue-on-error: true
+        env:
+          HYBRIDCLAW_RUN_DOCKER_E2E: '1'
+          HYBRIDCLAW_E2E_IMAGE: hybridclaw-gateway:preflight
+          HYBRIDAI_API_KEY: ${{ secrets.HYBRIDAI_API_KEY }}
+        run: npx vitest run --config vitest.e2e.config.ts tests/gateway-docker.e2e.test.ts -t "provider|chat API"
 
       - name: Agent container e2e tests
         if: matrix.name == 'agent'
@@ -139,11 +147,6 @@ jobs:
       - name: Unit tests with coverage
         run: npx vitest run --coverage --config vitest.unit.config.ts
 
-      - name: npm install journey e2e
-        env:
-          HYBRIDCLAW_RUN_NPM_E2E: '1'
-        run: npx vitest run --config vitest.e2e.config.ts tests/npm-install.e2e.test.ts
-
       - name: Generate coverage badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
@@ -168,3 +171,27 @@ jobs:
           publish_dir: ./badge
           destination_dir: badge
           keep_files: true
+
+  npm-e2e:
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build release artifacts
+        run: npm run build
+
+      - name: npm install journey e2e
+        env:
+          HYBRIDCLAW_RUN_NPM_E2E: '1'
+        run: npx vitest run --config vitest.e2e.config.ts tests/npm-install.e2e.test.ts

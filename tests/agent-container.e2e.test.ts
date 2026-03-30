@@ -1,13 +1,16 @@
-import { execSync } from 'node:child_process';
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, afterAll, beforeAll } from 'vitest';
+import {
+  cleanupStaleContainers,
+  startContainer,
+  removeContainer,
+} from './helpers/docker-test-setup.js';
 
 /**
  * E2E tests that verify the agent container image (hybridclaw-agent) contains
  * all required runtime tools, libraries, and binaries.
  *
- * The agent container is the sandboxed environment where tool calls execute.
- * Missing tools cause silent failures during agent sessions — these tests
- * catch that in CI before merge.
+ * Uses a single long-lived container with `docker exec` instead of spawning
+ * separate containers per test (~22s -> ~3s).
  *
  * Requires:
  *   HYBRIDCLAW_RUN_DOCKER_E2E=1            — gate flag
@@ -20,19 +23,13 @@ const DOCKER_E2E = process.env.HYBRIDCLAW_RUN_DOCKER_E2E === '1';
 const IMAGE =
   process.env.HYBRIDCLAW_E2E_AGENT_IMAGE || 'hybridclaw-agent:preflight';
 
-function run(cmd: string): string {
-  // All arguments are hardcoded — no user input, no injection risk.
-  // Use single quotes for the outer shell -c argument to allow double
-  // quotes and parentheses inside commands without escaping.
-  return execSync(`docker run --rm --entrypoint sh ${IMAGE} -c '${cmd}'`, {
-    encoding: 'utf-8',
-    timeout: 30_000,
-  }).trim();
-}
+const CONTAINER_NAME = `hc-e2e-agent-${process.pid}`;
+
+let exec: (cmd: string, timeoutMs?: number) => string;
 
 function hasCommand(cmd: string): boolean {
   try {
-    run(`which ${cmd}`);
+    exec(`which ${cmd}`);
     return true;
   } catch {
     return false;
@@ -40,15 +37,29 @@ function hasCommand(cmd: string): boolean {
 }
 
 describe.skipIf(!DOCKER_E2E)('agent container image', { timeout: 30_000 }, () => {
+  beforeAll(() => {
+    cleanupStaleContainers('agent');
+    const container = startContainer({
+      image: IMAGE,
+      name: CONTAINER_NAME,
+      entrypoint: ['sleep', 'infinity'],
+    });
+    exec = container.exec;
+  });
+
+  afterAll(() => {
+    removeContainer(CONTAINER_NAME);
+  });
+
   // ── Core runtime ────────────────────────────────────────────────────
 
   test('node is available', () => {
-    const version = run('node --version');
+    const version = exec('node --version');
     expect(version).toMatch(/^v22\./);
   });
 
   test('compiled agent entrypoint exists', () => {
-    const result = run('test -f /app/dist/index.js && echo exists');
+    const result = exec('test -f /app/dist/index.js && echo exists');
     expect(result).toBe('exists');
   });
 
@@ -80,7 +91,7 @@ describe.skipIf(!DOCKER_E2E)('agent container image', { timeout: 30_000 }, () =>
   ];
 
   test.each(pythonPackages)('python package %s is importable', (pkg) => {
-    const result = run(`python3 -c "import ${pkg}; print(\\"ok\\")"`)
+    const result = exec(`python3 -c "import ${pkg}; print('ok')"`)
     expect(result).toBe('ok');
   });
 
@@ -95,17 +106,24 @@ describe.skipIf(!DOCKER_E2E)('agent container image', { timeout: 30_000 }, () =>
   ];
 
   test.each(npmPackages)('npm package %s is requireable', (pkg) => {
-    const result = run(`node -e "require(\\"${pkg}\\"); console.log(\\"ok\\")"`)
+    const result = exec(`node -e "require('${pkg}'); console.log('ok')"`)
     expect(result).toBe('ok');
   });
 
   // ── Browser automation ──────────────────────────────────────────────
 
   test('playwright chromium is installed', () => {
-    const result = run(
-      'node -e "var p = require(\\"playwright\\"); console.log(typeof p.chromium.launch)"',
+    // Verify the JS module loads
+    const moduleResult = exec(
+      'node -e "var p = require(\'playwright\'); console.log(typeof p.chromium.launch)"',
     );
-    expect(result).toBe('function');
+    expect(moduleResult).toBe('function');
+
+    // Verify a browser binary exists under /ms-playwright
+    const binaryResult = exec(
+      'find /ms-playwright -name chrome-headless-shell -o -name chrome 2>/dev/null | head -1',
+    );
+    expect(binaryResult.length).toBeGreaterThan(0);
   });
 
   // ── LibreOffice (full runtime target) ───────────────────────────────

@@ -1,5 +1,12 @@
 import { execSync } from 'node:child_process';
 import { describe, test, expect, afterAll, beforeAll } from 'vitest';
+import {
+  cleanupStaleContainers,
+  getAvailablePort,
+  waitForHealth,
+  startContainer,
+  removeContainer,
+} from './helpers/docker-test-setup.js';
 
 /**
  * E2E tests that boot the gateway Docker image the same way a real deployment
@@ -26,78 +33,50 @@ const CI_FALLBACK_KEY = 'hai-ci-placeholder-not-a-real-key';
 const API_KEY = process.env.HYBRIDAI_API_KEY || CI_FALLBACK_KEY;
 const HAS_REAL_KEY = !!process.env.HYBRIDAI_API_KEY;
 const WEB_API_TOKEN = 'e2e-test-token';
-const CONTAINER_NAME = `gw-e2e-${process.pid}`;
-const HOST_PORT = 9199;
-const GATEWAY_URL = `http://127.0.0.1:${HOST_PORT}`;
+const CONTAINER_NAME = `hc-e2e-gw-${process.pid}`;
 const STARTUP_TIMEOUT_MS = 45_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 
-function dockerExec(cmd: string): string {
-  // All arguments are hardcoded constants — no injection risk.
-  return execSync(`docker exec ${CONTAINER_NAME} ${cmd}`, {
-    encoding: 'utf-8',
-    timeout: 10_000,
-  }).trim();
-}
-
-async function waitForHealth(): Promise<void> {
-  const deadline = Date.now() + STARTUP_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${GATEWAY_URL}/health`, {
-        signal: AbortSignal.timeout(2_000),
-      });
-      if (res.ok) {
-        const body = (await res.json()) as { status: string };
-        if (body.status === 'ok') return;
-      }
-    } catch {
-      // not ready yet
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  try {
-    const logs = execSync(`docker logs ${CONTAINER_NAME}`, {
-      encoding: 'utf-8',
-      timeout: 5_000,
-    });
-    console.error('--- gateway container logs ---\n', logs);
-  } catch {
-    // ignore
-  }
-  throw new Error(
-    `Gateway did not become healthy within ${STARTUP_TIMEOUT_MS}ms`,
-  );
-}
+let HOST_PORT: number;
+let GATEWAY_URL: string;
 
 describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
   beforeAll(async () => {
-    // Start the container the same way a real deployment would.
-    execSync(
-      [
-        'docker run -d',
-        `--name ${CONTAINER_NAME}`,
-        `-p ${HOST_PORT}:9090`,
-        '-e HYBRIDCLAW_ACCEPT_TRUST=true',
-        '-e HEALTH_HOST=0.0.0.0',
-        `-e HYBRIDAI_API_KEY=${API_KEY}`,
-        `-e WEB_API_TOKEN=${WEB_API_TOKEN}`,
-        IMAGE,
-      ].join(' '),
-      { stdio: 'pipe', timeout: 15_000 },
-    );
-    await waitForHealth();
+    cleanupStaleContainers('gw');
+
+    HOST_PORT = await getAvailablePort(9199);
+    GATEWAY_URL = `http://127.0.0.1:${HOST_PORT}`;
+
+    startContainer({
+      image: IMAGE,
+      name: CONTAINER_NAME,
+      port: { host: HOST_PORT, container: 9090 },
+      env: {
+        HYBRIDCLAW_ACCEPT_TRUST: 'true',
+        HEALTH_HOST: '0.0.0.0',
+        HYBRIDAI_API_KEY: API_KEY,
+        WEB_API_TOKEN: WEB_API_TOKEN,
+      },
+    });
+
+    try {
+      await waitForHealth(`${GATEWAY_URL}/health`, STARTUP_TIMEOUT_MS);
+    } catch (err) {
+      try {
+        const logs = execSync(`docker logs ${CONTAINER_NAME}`, {
+          encoding: 'utf-8',
+          timeout: 5_000,
+        });
+        console.error('--- gateway container logs ---\n', logs);
+      } catch {
+        // ignore
+      }
+      throw err;
+    }
   }, STARTUP_TIMEOUT_MS + 10_000);
 
   afterAll(() => {
-    try {
-      execSync(`docker rm -f ${CONTAINER_NAME}`, {
-        stdio: 'pipe',
-        timeout: 15_000,
-      });
-    } catch {
-      // best-effort cleanup
-    }
+    removeContainer(CONTAINER_NAME);
   });
 
   // ── Runtime file checks ──────────────────────────────────────────────
@@ -128,27 +107,33 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
   ];
 
   test.each(requiredFiles)('image contains %s', (filePath) => {
-    const result = dockerExec(`test -f ${filePath} && echo exists`);
+    const result = execSync(
+      `docker exec ${CONTAINER_NAME} test -f ${filePath} && echo exists`,
+      { encoding: 'utf-8', timeout: 10_000 },
+    ).trim();
     expect(result).toBe('exists');
   });
 
   // ── Native module checks ────────────────────────────────────────────
 
   test('node-pty native binary loads', () => {
-    const result = dockerExec("node -e \"require('node-pty')\" && echo ok");
+    const result = execSync(
+      `docker exec ${CONTAINER_NAME} node -e "require('node-pty')" && echo ok`,
+      { encoding: 'utf-8', timeout: 10_000 },
+    ).trim();
     expect(result).toBe('ok');
   });
 
   // ── HTTP endpoint checks ─────────────────────────────────────────────
 
-  test('/health returns ok', async () => {
+  test('/health returns ok with semver version', async () => {
     const res = await fetch(`${GATEWAY_URL}/health`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { status: string; version: string };
     expect(body.status).toBe('ok');
-    expect(body.version).toBeTruthy();
+    expect(body.version).toMatch(/^\d+\.\d+\.\d+/);
   });
 
   test('/docs renders Getting Started content', async () => {
@@ -168,6 +153,7 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain('Getting Started');
+    expect(html).toContain('authentication');
   });
 
   test('/docs/getting-started/README.md serves raw markdown', async () => {
@@ -187,25 +173,41 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     });
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('HybridClaw');
+    expect(html).toContain('<title>HybridClaw \u2014 Enterprise AI Digital Coworker</title>');
   });
 
-  test('/chat serves the chat SPA', async () => {
+  test('/chat redirects to login (auth enforced in container)', async () => {
     const res = await fetch(`${GATEWAY_URL}/chat`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: 'manual',
     });
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain('HybridClaw');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toMatch(/login/);
   });
 
-  test('/agents serves the agents SPA', async () => {
+  test('/agents redirects to login (auth enforced in container)', async () => {
     const res = await fetch(`${GATEWAY_URL}/agents`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: 'manual',
     });
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain('HybridClaw');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toMatch(/login/);
+  });
+
+  test('image contains chat SPA with correct title', () => {
+    const result = execSync(
+      `docker exec ${CONTAINER_NAME} sh -c 'grep -m1 -o "<title>[^<]*</title>" docs/chat.html'`,
+      { encoding: 'utf-8', timeout: 10_000 },
+    ).trim();
+    expect(result).toBe('<title>HybridClaw Chat</title>');
+  });
+
+  test('image contains agents SPA with correct title', () => {
+    const result = execSync(
+      `docker exec ${CONTAINER_NAME} sh -c 'grep -m1 -o "<title>[^<]*</title>" docs/agents.html'`,
+      { encoding: 'utf-8', timeout: 10_000 },
+    ).trim();
+    expect(result).toBe('<title>HybridClaw Agents</title>');
   });
 
   test('/admin redirects to login (auth enforced in container)', async () => {
@@ -214,6 +216,7 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
       redirect: 'manual',
     });
     expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toMatch(/login/);
   });
 
   // ── Legacy route redirects ──────────────────────────────────────────
@@ -276,7 +279,8 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
         sessionId?: string;
       };
       expect(body.status).toBe('success');
-      expect(body.result).toBeTruthy();
+      expect(typeof body.result).toBe('string');
+      expect(body.result!.length).toBeGreaterThan(0);
       expect(body.sessionId).toBeTruthy();
     },
     60_000,
