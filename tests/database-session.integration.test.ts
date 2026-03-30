@@ -165,7 +165,7 @@ describe('database session integration', () => {
     expect(contents).not.toContain('Session B msg');
   });
 
-  it('database handles concurrent writes without corruption', async () => {
+  it('rapid sequential writes produce unique message IDs', async () => {
     const session = getOrCreateSession(
       'test-concurrent',
       'guild-1',
