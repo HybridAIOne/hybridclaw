@@ -2902,7 +2902,6 @@
         assistantBlock: null,
         assistantText: '',
         assistantRenderFrame: 0,
-        assistantRenderScheduled: false,
         stopRequested: false,
         stopping: false,
       };
@@ -2929,7 +2928,6 @@
           return requestState.assistantBlock;
         };
         const renderStreamedAssistant = () => {
-          requestState.assistantRenderScheduled = false;
           requestState.assistantRenderFrame = 0;
           const assistantBlock = ensureAssistantBlock();
           if (!assistantBlock) return;
@@ -2939,14 +2937,13 @@
           });
         };
         const scheduleAssistantRender = () => {
-          if (requestState.assistantRenderScheduled) return;
-          requestState.assistantRenderScheduled = true;
+          if (requestState.assistantRenderFrame !== 0) return;
           requestState.assistantRenderFrame = window.requestAnimationFrame(() => {
             renderStreamedAssistant();
           });
         };
         const flushAssistantRender = () => {
-          if (!requestState.assistantRenderScheduled) return;
+          if (requestState.assistantRenderFrame === 0) return;
           window.cancelAnimationFrame(requestState.assistantRenderFrame);
           renderStreamedAssistant();
         };
@@ -3014,9 +3011,8 @@
           assistantBlock,
         };
       } catch (err) {
-        if (requestState.assistantRenderScheduled) {
+        if (requestState.assistantRenderFrame !== 0) {
           window.cancelAnimationFrame(requestState.assistantRenderFrame);
-          requestState.assistantRenderScheduled = false;
           requestState.assistantRenderFrame = 0;
         }
         if (requestState.stopRequested) {
