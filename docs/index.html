@@ -75,7 +75,7 @@
       margin: 0 auto;
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-start;
       height: 60px;
     }
     .nav-logo {
@@ -85,6 +85,7 @@
       font-weight: 700;
       font-size: 1.2rem;
       letter-spacing: -0.02em;
+      margin-right: 2rem;
     }
     .nav-logo-img {
       width: 26px;
@@ -98,7 +99,7 @@
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
-    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; margin-left: auto; }
     .nav-links a { color: var(--text-dim); font-size: 0.9rem; }
     .nav-links a:hover { color: var(--text); }
     .nav-gh {
@@ -426,13 +427,39 @@
     .stat-label { font-size: 0.8rem; color: var(--text-faint); margin-top: 0.25rem; }
 
     /* QUICKSTART */
+    .qs-tabs {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-bottom: 2rem;
+    }
+    .qs-tab {
+      padding: 0.55rem 1.5rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s;
+      font-family: inherit;
+    }
+    .qs-tab:hover { border-color: var(--accent-1); color: var(--text); }
+    .qs-tab.active {
+      background: var(--accent-gradient);
+      border-color: transparent;
+      color: #fff;
+    }
+    .qs-panel { display: none; }
+    .qs-panel.active { display: block; }
     .quickstart-box {
       background: var(--code-bg);
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 2rem;
       max-width: 650px;
-      margin: 0 auto;
+      margin: 2.5rem auto 0;
     }
     .quickstart-box pre {
       font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
@@ -724,10 +751,10 @@
 <!-- NAV -->
 <nav>
   <div class="nav-inner">
-    <div class="nav-logo">
+    <a class="nav-logo" href="#" aria-label="HybridClaw Home">
       <img src="hai_logo_free.png" alt="HybridAI logo" class="nav-logo-img">
       <span class="nav-logo-text">HybridClaw</span>
-    </div>
+    </a>
     <div class="nav-links">
       <a href="#features">Features</a>
       <a href="#release">Latest</a>
@@ -753,7 +780,13 @@
 <!-- HERO -->
 <header class="hero">
   <img src="hero.png" alt="HybridClaw" class="hero-img">
-  <div class="hero-badge">Powered by <span>HybridAI</span></div>
+  <a
+    class="hero-badge"
+    href="https://hybridai.one"
+    target="_blank"
+    rel="noopener noreferrer"
+    aria-label="Powered by HybridAI (opens hybridai.one)"
+  >Powered by <span>HybridAI</span></a>
   <h1>One assistant brain<br><span class="gradient">across every team channel</span></h1>
   <p>HybridClaw gives Discord, Teams, iMessage, WhatsApp, email, web, and terminal users the same memory, the same guardrails, and the same reliable execution flow.</p>
   <div class="hero-install">
@@ -796,6 +829,10 @@
     <div class="stat-value">Enterprise-Ready</div>
     <div class="stat-label">Security + Control</div>
   </div>
+  <div class="stat">
+    <div class="stat-value">Cloud-Agent</div>
+    <div class="stat-label">Managed Hosting</div>
+  </div>
 </div>
 
 <div class="glow-divider"></div>
@@ -827,6 +864,11 @@
       <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
       <h3>Observability and recovery hardening</h3>
       <p>HybridAI observability ingest, clearer browser-tool diagnostics, safer plugin recovery, and stricter host-mode allowlisting all tighten day-to-day operations without widening the default trust boundary.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x2601;&#xfe0f;</div>
+      <h3>HybridClaw Cloud</h3>
+      <p>Run HybridClaw as a fully managed cloud agent in a secured Docker container — no local setup required. Sign up, upgrade or redeem a voucher, and your instance is live in seconds.</p>
     </div>
   </div>
 </section>
@@ -865,6 +907,11 @@
         <div class="hybridai-feat-icon">&#x1f6e1;&#xfe0f;</div>
         <h4>GDPR Alignment</h4>
         <p>Supports privacy-conscious deployment strategies and compliance-driven teams.</p>
+      </div>
+      <div class="hybridai-feat">
+        <div class="hybridai-feat-icon">&#x2601;&#xfe0f;</div>
+        <h4>Cloud Deployment</h4>
+        <p>Run HybridClaw in a managed, secured cloud container — no local setup, always-on, ready in seconds.</p>
       </div>
       <div class="hybridai-feat">
         <div class="hybridai-feat-icon">&#x1f50d;</div>
@@ -920,6 +967,11 @@
       <div class="feature-icon">&#x1f4ca;</div>
       <h3>Operate with visibility</h3>
       <p>Track status, sessions, usage/cost aggregates, tamper-evident audit history, approval decisions, and observability export health from one runtime surface.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x2601;&#xfe0f;</div>
+      <h3>Deploy locally or in the cloud</h3>
+      <p>Run on your own machine with the CLI, or launch a fully managed cloud instance in a secured Docker container — no infrastructure to maintain.</p>
     </div>
   </div>
 </section>
@@ -1017,6 +1069,21 @@
           </td>
           <td>
             <span class="compare-text">Minimal footprint strategy</span>
+          </td>
+        </tr>
+        <tr>
+          <td>Deployment Options</td>
+          <td>
+            <span class="compare-text">Local CLI + managed cloud containers</span>
+          </td>
+          <td>
+            <span class="compare-text">Self-hosted only</span>
+          </td>
+          <td>
+            <span class="compare-text">Self-hosted only</span>
+          </td>
+          <td>
+            <span class="compare-text">Self-hosted only</span>
           </td>
         </tr>
         <tr>
@@ -1343,39 +1410,81 @@
   <div class="section-center">
     <div class="section-label">Get Started</div>
     <h2 class="section-title">Get started in 60 seconds</h2>
-    <p class="section-desc">Install, initialize trust, start the runtime, then connect your preferred interface.</p>
+    <p class="section-desc">Choose your deployment: run locally on your machine or spin up a managed cloud instance.</p>
   </div>
-  <div class="features-grid">
-    <div class="feature-card">
-      <h3 style="color: var(--accent-1);">1. Install CLI</h3>
-      <p><code>npm install -g @hybridaione/hybridclaw</code></p>
-    </div>
-    <div class="feature-card">
-      <h3 style="color: var(--accent-1);">2. Initialize workspace</h3>
-      <p><code>hybridclaw onboarding</code> to accept trust model and generate <code>config.json</code>.</p>
-    </div>
-    <div class="feature-card">
-      <h3 style="color: var(--accent-1);">3. Start runtime</h3>
-      <p><code>hybridclaw gateway</code> to launch the core service with your configured bot/model. Use <code>hybridclaw gateway start --sandbox=host</code> when HybridClaw itself already runs inside a container.</p>
-    </div>
-    <div class="feature-card">
-      <h3 style="color: var(--accent-1);">4. Connect interface</h3>
-      <p>Use Discord, the built-in web chat, or run <code>hybridclaw tui</code> for a terminal-native chat experience with a startup banner that summarizes the active model, sandbox, gateway, and chatbot context. Web chat accepts uploads and pasted files, and TUI can queue a copied file or clipboard image with <code>/paste</code> or <code>Ctrl-V</code>.</p>
-    </div>
-    <div class="feature-card">
-      <h3 style="color: var(--accent-1);">5. Diagnose issues fast</h3>
-      <p>Run <code>hybridclaw doctor</code> to check runtime, auth, providers, Docker, channels, and disk state. Add <code>--fix</code> when a safe remediation is available.</p>
-    </div>
+
+  <div class="qs-tabs">
+    <button type="button" class="qs-tab active" data-tab="local" onclick="switchQsTab('local')">HybridClaw Local</button>
+    <button type="button" class="qs-tab" data-tab="cloud" onclick="switchQsTab('cloud')">HybridClaw Cloud</button>
   </div>
-  <div class="quickstart-box">
-    <pre>
+
+  <!-- LOCAL panel -->
+  <div class="qs-panel active" id="qs-local">
+    <div class="features-grid">
+      <div class="feature-card">
+        <h3 style="color: var(--accent-1);">1. Install CLI</h3>
+        <p><code>npm install -g @hybridaione/hybridclaw</code></p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-1);">2. Initialize workspace</h3>
+        <p><code>hybridclaw onboarding</code> to accept trust model and generate <code>config.json</code>.</p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-1);">3. Start runtime</h3>
+        <p><code>hybridclaw gateway</code> to launch the core service with your configured bot/model. Use <code>hybridclaw gateway start --sandbox=host</code> when HybridClaw itself already runs inside a container.</p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-1);">4. Connect interface</h3>
+        <p>Use Discord, the built-in web chat, or run <code>hybridclaw tui</code> for a terminal-native chat experience with a startup banner that summarizes the active model, sandbox, gateway, and chatbot context. Web chat accepts uploads and pasted files, and TUI can queue a copied file or clipboard image with <code>/paste</code> or <code>Ctrl-V</code>.</p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-1);">5. Diagnose issues fast</h3>
+        <p>Run <code>hybridclaw doctor</code> to check runtime, auth, providers, Docker, channels, and disk state. Add <code>--fix</code> when a safe remediation is available.</p>
+      </div>
+    </div>
+    <div class="quickstart-box">
+      <pre>
 <span class="comment"># 60-second flow</span>
 <span class="cmd">npm install -g @hybridaione/hybridclaw</span>
 <span class="cmd">hybridclaw</span> <span class="flag">onboarding</span>
 <span class="cmd">hybridclaw</span> <span class="flag">gateway</span>
 <span class="cmd">hybridclaw</span> <span class="flag">tui</span></pre>
+    </div>
+  </div>
+
+  <!-- CLOUD panel -->
+  <div class="qs-panel" id="qs-cloud">
+    <div class="features-grid">
+      <div class="feature-card">
+        <h3 style="color: var(--accent-teal);">1. Register free account</h3>
+        <p>Sign up at <a href="https://hybridai.one" target="_blank">hybridai.one</a> to create your free HybridAI account.</p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-teal);">2. Upgrade account</h3>
+        <p>Choose a paid plan or contact us via <a href="https://discord.gg/jsVW4vJw27" target="_blank">Discord</a> or <a href="mailto:support@hybridai.one">support@hybridai.one</a> for a voucher code.</p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-teal);">3. Launch cloud instance</h3>
+        <p>Start your personal HybridClaw in the cloud — running in a secured Docker container, fully managed and always-on.</p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-teal);">4. Start using it</h3>
+        <p>Connect via Discord, the web chat, or any supported interface. Your cloud instance is ready to go — no local setup needed.</p>
+      </div>
+    </div>
   </div>
 </section>
+
+<script>
+function switchQsTab(tab) {
+  document.querySelectorAll('.qs-tab').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.querySelectorAll('.qs-panel').forEach((panel) => {
+    panel.classList.toggle('active', panel.id === `qs-${tab}`);
+  });
+}
+</script>
 
 <div class="glow-divider"></div>
 
@@ -1433,6 +1542,10 @@
     <div class="faq-item">
       <div class="faq-q">What happens if instruction files are changed?</div>
       <div class="faq-a">HybridClaw keeps runtime copies of <code>SECURITY.md</code> and <code>TRUST_MODEL.md</code> under <code>~/.hybridclaw/instructions/</code>. TUI checks them before startup. Use <code>hybridclaw audit instructions</code> to review drift and <code>hybridclaw audit instructions --sync</code> to restore them from installed sources. Sync actions are audit logged.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">What is HybridClaw Cloud?</div>
+      <div class="faq-a">HybridClaw Cloud lets you run your agent in a fully managed, secured Docker container — no local installation, no infrastructure to maintain. Sign up at <a href="https://hybridai.one">hybridai.one</a>, choose a paid plan or redeem a voucher code, and launch your cloud instance in seconds. It supports the same features, channels, and integrations as the local version.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use it without Discord?</div>
