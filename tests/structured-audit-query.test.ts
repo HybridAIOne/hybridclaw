@@ -10,8 +10,11 @@ const { setupHome } = setupGatewayTest({
 test('getStructuredAuditForSession caps large sessions and warns once', async () => {
   setupHome();
 
-  const { initDatabase, getStructuredAuditForSession, logStructuredAuditEvent } =
-    await import('../src/memory/db.ts');
+  const {
+    initDatabase,
+    getStructuredAuditForSession,
+    logStructuredAuditEvent,
+  } = await import('../src/memory/db.ts');
 
   initDatabase({ quiet: true });
   const sessionId = 'session-audit-cap';
@@ -34,12 +37,12 @@ test('getStructuredAuditForSession caps large sessions and warns once', async ()
   }
 
   const writes: string[] = [];
-  const stdoutSpy = vi
-    .spyOn(process.stdout, 'write')
-    .mockImplementation(((chunk: string | Uint8Array) => {
-      writes.push(String(chunk));
-      return true;
-    }) as typeof process.stdout.write);
+  const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((
+    chunk: string | Uint8Array,
+  ) => {
+    writes.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write);
 
   const rows = getStructuredAuditForSession(sessionId);
 

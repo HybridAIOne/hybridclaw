@@ -19,12 +19,12 @@ test('getAllSessions applies an optional cap and warns on truncation', async () 
   }
 
   const writes: string[] = [];
-  const stdoutSpy = vi
-    .spyOn(process.stdout, 'write')
-    .mockImplementation(((chunk: string | Uint8Array) => {
-      writes.push(String(chunk));
-      return true;
-    }) as typeof process.stdout.write);
+  const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((
+    chunk: string | Uint8Array,
+  ) => {
+    writes.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write);
 
   const sessions = getAllSessions({
     limit: 1_000,
