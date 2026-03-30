@@ -372,13 +372,13 @@ async function importFreshHealth(options?: {
   const getGatewayRecentChatSessions = vi.fn(() => [
     {
       sessionId: 'web-session-2',
-      title: 'Follow-up question from user A',
+      title: '"Follow-up question from user A"',
       lastActive: '2026-03-24T10:00:00.000Z',
       messageCount: 1,
     },
     {
       sessionId: 'web-session-1',
-      title: 'First web question from user A',
+      title: '"First web question from user A" ... "Assistant reply A1"',
       lastActive: '2026-03-24T09:01:00.000Z',
       messageCount: 2,
     },
@@ -2035,13 +2035,13 @@ describe('gateway HTTP server', () => {
       sessions: [
         {
           sessionId: 'web-session-2',
-          title: 'Follow-up question from user A',
+          title: '"Follow-up question from user A"',
           lastActive: '2026-03-24T10:00:00.000Z',
           messageCount: 1,
         },
         {
           sessionId: 'web-session-1',
-          title: 'First web question from user A',
+          title: '"First web question from user A" ... "Assistant reply A1"',
           lastActive: '2026-03-24T09:01:00.000Z',
           messageCount: 2,
         },
