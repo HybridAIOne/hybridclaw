@@ -2549,24 +2549,6 @@
           return null;
         }
 
-        if (
-          payload.type === 'tool' &&
-          typeof payload.toolName === 'string' &&
-          (payload.phase === 'start' || payload.phase === 'finish')
-        ) {
-          onEvent(payload);
-          return null;
-        }
-
-        if (
-          payload.type === 'approval' &&
-          typeof payload.approvalId === 'string' &&
-          typeof payload.prompt === 'string'
-        ) {
-          onEvent(payload);
-          return null;
-        }
-
         if (payload.type === 'result' && payload.result && typeof payload.result === 'object') {
           return payload.result;
         }
