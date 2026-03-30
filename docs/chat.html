@@ -2597,30 +2597,36 @@
       const decoder = new TextDecoder();
       let buffer = '';
       let finalResult = null;
+      const consumeBufferedLines = (includeRemainder = false) => {
+        const lines = buffer.split('\n');
+        const remainder = includeRemainder ? (lines.pop() || '') : null;
+        buffer = includeRemainder ? '' : lines.pop() || '';
+
+        for (const line of lines) {
+          const result = parseLine(line);
+          if (result) {
+            finalResult = result;
+          }
+        }
+
+        if (includeRemainder && remainder?.trim()) {
+          const result = parseLine(remainder);
+          if (result) {
+            finalResult = result;
+          }
+        }
+      };
 
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            const result = parseLine(line);
-            if (result) {
-              finalResult = result;
-            }
-          }
+          consumeBufferedLines();
         }
 
         buffer += decoder.decode();
-        if (buffer.trim()) {
-          const result = parseLine(buffer);
-          if (result) {
-            finalResult = result;
-          }
-        }
+        consumeBufferedLines(true);
       } finally {
         reader.releaseLock();
       }
