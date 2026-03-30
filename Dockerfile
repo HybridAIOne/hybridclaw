@@ -11,6 +11,7 @@ WORKDIR /app
 # Install root deps first (cached unless package.json changes)
 COPY package*.json ./
 COPY console/package*.json console/
+COPY scripts/postinstall-container.mjs scripts/
 RUN npm ci
 RUN find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod 755 {} \; 2>/dev/null || true
 
