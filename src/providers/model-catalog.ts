@@ -14,7 +14,15 @@ import {
   discoverAllLocalModels,
   getDiscoveredLocalModelNames,
 } from './local-discovery.js';
-import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
+import {
+  discoverMistralModels,
+  getDiscoveredMistralModelNames,
+  isDiscoveredMistralModelVisionCapable,
+} from './mistral-discovery.js';
+import {
+  isDeprecatedMistralModel,
+  MISTRAL_MODEL_PREFIX,
+} from './mistral-utils.js';
 import { formatModelForDisplay } from './model-names.js';
 import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
 import {
@@ -155,6 +163,7 @@ function dedupeModelList(models: string[]): string[] {
   for (const rawModel of models) {
     const model = String(rawModel || '').trim();
     if (!model || seen.has(model)) continue;
+    if (isDeprecatedMistralModel(model)) continue;
     seen.add(model);
     deduped.push(model);
   }
@@ -174,6 +183,7 @@ export function getAvailableModelListWithOptions(
     ...getDiscoveredHuggingFaceModelNames(),
     ...getDiscoveredHybridAIModelNames(),
     ...getDiscoveredLocalModelNames(),
+    ...getDiscoveredMistralModelNames(),
     ...getDiscoveredOpenRouterModelNames(),
   ]);
   const normalizedProvider = normalizeModelCatalogProviderFilter(provider);
@@ -195,6 +205,7 @@ export async function refreshAvailableModelCatalogs(opts?: {
   await Promise.allSettled([
     discoverAllLocalModels(),
     discoverHuggingFaceModels(),
+    discoverMistralModels(),
     discoverOpenRouterModels(),
     ...(opts?.includeHybridAI ? [discoverHybridAIModels()] : []),
   ]);
@@ -208,6 +219,7 @@ export function isModelVisionCapable(model: string): boolean {
   const normalized = String(model || '').trim();
   if (!normalized) return false;
   return (
+    isDiscoveredMistralModelVisionCapable(normalized) ||
     isDiscoveredOpenRouterModelVisionCapable(normalized) ||
     isStaticModelVisionCapable(normalized)
   );

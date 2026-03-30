@@ -8,6 +8,7 @@ import type { RuntimeConfig } from '../src/config/runtime-config.js';
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
 
 function makeTempHome(): string {
@@ -61,6 +62,7 @@ afterEach(() => {
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
+  restoreEnvVar('MISTRAL_API_KEY', ORIGINAL_MISTRAL_API_KEY);
   restoreEnvVar('HF_TOKEN', ORIGINAL_HF_TOKEN);
 });
 
@@ -708,6 +710,79 @@ test('status uses Hugging Face context_length metadata for the context window', 
   expect(result.text).toContain('📚 Context: 10k/131k');
 });
 
+test('status uses Mistral max_context_length metadata for the context window', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.MISTRAL_API_KEY = 'mistral-status-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.mistral.enabled = true;
+    config.hybridai.defaultModel = 'mistral/mistral-large-latest';
+    config.mistral.models = ['mistral/mistral-large-latest'];
+    config.openrouter.enabled = false;
+    config.huggingface.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/models')) {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer mistral-status-test',
+        });
+        return new Response(
+          JSON.stringify([
+            {
+              id: 'mistral-large-latest',
+              max_context_length: 131072,
+            },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-mistral-context',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'mistral',
+      model: 'mistral/mistral-large-latest',
+      promptTokens: 11_000,
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-mistral-context',
+    guildId: null,
+    channelId: 'channel-status-mistral-context',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('🧠 Model: mistral/mistral-large-latest');
+  expect(result.text).toContain('📚 Context: 11k/131k');
+});
+
 test('status uses Hugging Face provider-level context_length metadata for the context window', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -1328,6 +1403,153 @@ test('model list shows the full Hugging Face catalog', async () => {
       {
         value: 'huggingface/zeta/custom-model',
         label: 'huggingface/zeta/custom-model',
+        isFree: false,
+      },
+    ]),
+  );
+});
+
+test('model list highlights recommended Mistral models and hides legacy entries', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.MISTRAL_API_KEY = 'mistral-gateway-status-1234567890';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.mistral.enabled = true;
+    config.hybridai.defaultModel = 'mistral/mistral-large-2512';
+    config.mistral.models = ['mistral/mistral-large-2512'];
+    config.openrouter.enabled = false;
+    config.huggingface.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+
+  const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+    if (input.endsWith('/models')) {
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer mistral-gateway-status-1234567890',
+      });
+      return new Response(
+        JSON.stringify([
+          { id: 'mistral-small-2603' },
+          { id: 'mistral-large-2512' },
+          { id: 'mistral-medium-2508' },
+          { id: 'mistral-small-2506' },
+          { id: 'ministral-14b-2512' },
+          { id: 'ministral-8b-2512' },
+          { id: 'ministral-3b-2512' },
+          { id: 'magistral-medium-2509' },
+          { id: 'magistral-small-2509' },
+          { id: 'codestral-2501' },
+          { id: 'custom-team-model' },
+        ]),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const listed = await handleGatewayCommand({
+    sessionId: 'session-model-list-mistral',
+    guildId: null,
+    channelId: 'channel-model-list-mistral',
+    args: ['model', 'list', 'mistral'],
+  });
+
+  expect(listed.kind).toBe('info');
+  if (listed.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${listed.kind}`);
+  }
+  expect(listed.title).toBe('Available Models (mistral)');
+  expect(listed.text).toContain('mistral/mistral-large-2512 (current)');
+  expect(listed.text).toContain('mistral/mistral-small-2603');
+  expect(listed.text).toContain('mistral/mistral-medium-2508');
+  expect(listed.text).toContain('mistral/mistral-small-2506');
+  expect(listed.text).toContain('mistral/ministral-14b-2512');
+  expect(listed.text).toContain('mistral/ministral-8b-2512');
+  expect(listed.text).toContain('mistral/ministral-3b-2512');
+  expect(listed.text).toContain('mistral/magistral-medium-2509');
+  expect(listed.text).toContain('mistral/magistral-small-2509');
+  expect(listed.text).toContain('mistral/custom-team-model');
+  expect(listed.text).not.toContain('mistral/codestral-2501');
+  expect(listed.modelCatalog).toEqual(
+    expect.arrayContaining([
+      {
+        value: 'mistral/custom-team-model',
+        label: 'mistral/custom-team-model',
+        isFree: false,
+      },
+      {
+        value: 'mistral/mistral-small-2603',
+        label: 'mistral/mistral-small-2603',
+        isFree: false,
+        recommended: true,
+      },
+      {
+        value: 'mistral/mistral-large-2512',
+        label: 'mistral/mistral-large-2512 (current)',
+        isFree: false,
+        recommended: true,
+      },
+      {
+        value: 'mistral/mistral-medium-2508',
+        label: 'mistral/mistral-medium-2508',
+        isFree: false,
+        recommended: true,
+      },
+      {
+        value: 'mistral/mistral-small-2506',
+        label: 'mistral/mistral-small-2506',
+        isFree: false,
+        recommended: true,
+      },
+      {
+        value: 'mistral/ministral-14b-2512',
+        label: 'mistral/ministral-14b-2512',
+        isFree: false,
+        recommended: true,
+      },
+      {
+        value: 'mistral/ministral-8b-2512',
+        label: 'mistral/ministral-8b-2512',
+        isFree: false,
+        recommended: true,
+      },
+      {
+        value: 'mistral/ministral-3b-2512',
+        label: 'mistral/ministral-3b-2512',
+        isFree: false,
+        recommended: true,
+      },
+      {
+        value: 'mistral/magistral-medium-2509',
+        label: 'mistral/magistral-medium-2509',
+        isFree: false,
+        recommended: true,
+      },
+      {
+        value: 'mistral/magistral-small-2509',
+        label: 'mistral/magistral-small-2509',
+        isFree: false,
+        recommended: true,
+      },
+    ]),
+  );
+  expect(listed.modelCatalog).not.toEqual(
+    expect.arrayContaining([
+      {
+        value: 'mistral/codestral-2501',
+        label: 'mistral/codestral-2501',
         isFree: false,
       },
     ]),

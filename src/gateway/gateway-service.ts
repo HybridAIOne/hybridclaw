@@ -181,6 +181,10 @@ import {
   resolveLocalModelContextWindow,
 } from '../providers/local-discovery.js';
 import { localBackendsProbe } from '../providers/local-health.js';
+import {
+  discoverMistralModels,
+  getDiscoveredMistralModelContextWindow,
+} from '../providers/mistral-discovery.js';
 import { readMistralApiKey } from '../providers/mistral-utils.js';
 import {
   getAvailableModelList,
@@ -1037,6 +1041,7 @@ function resolveKnownModelContextWindow(model: string): number | null {
     resolveLocalModelContextWindow(model) ??
     getDiscoveredHuggingFaceModelContextWindow(model) ??
     getDiscoveredHybridAIModelContextWindow(model) ??
+    getDiscoveredMistralModelContextWindow(model) ??
     getDiscoveredOpenRouterModelContextWindow(model) ??
     resolveModelContextWindowFallback(model)
   );
@@ -7921,6 +7926,9 @@ export async function handleGatewayCommand(
         }
         if (sessionModel.trim().toLowerCase().startsWith('openrouter/')) {
           await discoverOpenRouterModels();
+        }
+        if (sessionModel.trim().toLowerCase().startsWith('mistral/')) {
+          await discoverMistralModels();
         }
         const modelContextWindowTokens =
           resolveKnownModelContextWindow(sessionModel);

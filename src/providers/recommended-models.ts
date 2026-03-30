@@ -1,4 +1,5 @@
 import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
+import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
 
 // User-curated shortlist for model list emphasis in the TUI.
@@ -25,6 +26,17 @@ const OPENROUTER_RECOMMENDED_MODEL_IDS = [
   'nvidia/nemotron-3-super-120b-a12b',
 ] as const;
 
+const MISTRAL_RECOMMENDED_MODEL_IDS = [
+  'devstral-2512',
+  'mistral-small-2603',
+  'mistral-large-2512',
+  'mistral-medium-2508',
+  'ministral-14b-2512',
+  'ministral-8b-2512',
+  'ministral-3b-2512',
+  'magistral-medium-2509',
+] as const;
+
 const SHARED_RECOMMENDED_FRAGMENTS = [
   'qwen3.5-27b',
   'nemotron-3-super-120b-a12b',
@@ -36,6 +48,10 @@ const HUGGINGFACE_RECOMMENDED_MODEL_SET = new Set(
 
 const OPENROUTER_RECOMMENDED_MODEL_SET = new Set(
   OPENROUTER_RECOMMENDED_MODEL_IDS.map((modelId) => modelId.toLowerCase()),
+);
+
+const MISTRAL_RECOMMENDED_MODEL_SET = new Set(
+  MISTRAL_RECOMMENDED_MODEL_IDS.map((modelId) => modelId.toLowerCase()),
 );
 
 function hasExactOrTaggedMatch(
@@ -77,6 +93,11 @@ export function isRecommendedModel(model: string): boolean {
       hasExactOrTaggedMatch(openRouterTail, OPENROUTER_RECOMMENDED_MODEL_SET) ||
       hasFragmentMatch(openRouterTail, SHARED_RECOMMENDED_FRAGMENTS)
     );
+  }
+
+  const mistralTail = normalizeModelTail(model, MISTRAL_MODEL_PREFIX);
+  if (mistralTail) {
+    return hasExactOrTaggedMatch(mistralTail, MISTRAL_RECOMMENDED_MODEL_SET);
   }
 
   return false;

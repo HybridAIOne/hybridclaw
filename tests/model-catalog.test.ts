@@ -355,6 +355,67 @@ test('available model catalog includes configured Mistral models', async () => {
   ]);
 });
 
+test('available model catalog merges discovered Mistral models from /models', async () => {
+  const homeDir = makeTempHome();
+  process.env.MISTRAL_API_KEY = 'mistral-model-catalog-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.mistral.enabled = true;
+    config.mistral.models = ['mistral/mistral-large-latest'];
+    config.openrouter.enabled = false;
+    config.huggingface.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string, init?: RequestInit) => {
+      if (input.endsWith('/models')) {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer mistral-model-catalog-test',
+        });
+        return new Response(
+          JSON.stringify([
+            {
+              id: 'codestral-2501',
+              max_context_length: 256_000,
+            },
+            {
+              id: 'codestral-latest',
+              max_context_length: 256_000,
+            },
+            {
+              id: 'pixtral-large-latest',
+              max_context_length: 131_072,
+              capabilities: {
+                vision: true,
+              },
+            },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs();
+
+  expect(catalog.getAvailableModelList('mistral')).toEqual([
+    'mistral/codestral-latest',
+    'mistral/mistral-large-latest',
+    'mistral/pixtral-large-latest',
+  ]);
+  expect(catalog.getAvailableModelList('mistral')).not.toContain(
+    'mistral/codestral-2501',
+  );
+  expect(catalog.isModelVisionCapable('mistral/pixtral-large-latest')).toBe(
+    true,
+  );
+});
+
 test('available model catalog reads Hugging Face provider-level context windows', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

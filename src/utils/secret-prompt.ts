@@ -44,6 +44,7 @@ async function readHiddenSecretFromTty(
 ): Promise<string> {
   ttyOutput.write(prompt);
   const previousRawMode = ttyInput.isRaw;
+  const wasPaused = ttyInput.isPaused();
   ttyInput.setRawMode(true);
   ttyInput.resume();
 
@@ -53,6 +54,9 @@ async function readHiddenSecretFromTty(
     const cleanup = () => {
       ttyInput.off('data', handleData);
       ttyInput.setRawMode(previousRawMode ?? false);
+      if (wasPaused) {
+        ttyInput.pause();
+      }
       ttyOutput.write('\n');
     };
 
