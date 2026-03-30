@@ -1,42 +1,69 @@
-FROM node:20-slim
+# --- Build stage ---
+FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+COPY tsconfig.json ./
+COPY shared/ shared/
+COPY src/ src/
+RUN npx tsc
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ripgrep git curl python3 python3-pip poppler-utils qpdf pandoc \
-    libreoffice-calc libreoffice-impress libreoffice-writer \
-    && rm -rf /var/lib/apt/lists/*
+# --- Runtime base (no LibreOffice) ---
+FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS runtime-lite
 
-RUN python3 -m pip install --no-cache-dir --break-system-packages \
-    uv \
+LABEL org.opencontainers.image.source="https://github.com/HybridAIOne/hybridclaw"
+LABEL org.opencontainers.image.description="HybridClaw sandboxed agent runtime"
+
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt/lists \
+    apt-get update && apt-get install -y --no-install-recommends \
+    ripgrep git curl python3 python3-pip poppler-utils qpdf pandoc
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install --break-system-packages \
     pypdf==5.4.0 \
     pdfplumber==0.11.6 \
     pdf2image==1.17.0 \
     reportlab==4.4.4 \
     pillow==11.3.0
 
-RUN npm install -g \
+RUN --mount=type=cache,target=/root/.npm \
+    npm install -g \
     docx@9.5.1 \
     pptxgenjs@4.0.1 \
     exceljs@4.4.0 \
     csv-parse@6.1.0 \
     iconv-lite@0.7.0
+
 ENV NODE_PATH=/usr/local/lib/node_modules:/app/node_modules
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
 
-COPY package.json tsconfig.json ./
-RUN npm install
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN npx playwright install --with-deps chromium
-RUN npx playwright install --with-deps --only-shell chromium
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/node_modules/ node_modules/
 
-COPY shared/ shared/
-COPY src/ src/
-RUN npx tsc
-
-RUN chown -R node:node /app /ms-playwright
-
+# Install Playwright system deps as root, browser as node user
+RUN npx playwright install-deps chromium \
+    && mkdir -p /ms-playwright \
+    && chown -R node:node /app /ms-playwright
 USER node
+RUN npx playwright install --only-shell chromium
 
+COPY --link --from=builder /app/dist/ dist/
+COPY --link --from=builder /app/shared/ shared/
+
+STOPSIGNAL SIGTERM
 WORKDIR /workspace
-
 ENTRYPOINT ["node", "/app/dist/index.js"]
+
+# --- Full runtime (with LibreOffice) ---
+FROM runtime-lite AS runtime
+
+USER root
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt/lists \
+    apt-get update && apt-get install -y --no-install-recommends \
+    libreoffice-calc libreoffice-impress libreoffice-writer
+USER node
