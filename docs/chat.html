@@ -2614,6 +2614,7 @@
           }
         }
 
+        buffer += decoder.decode();
         if (buffer.trim()) {
           const result = parseLine(buffer);
           if (result) {
@@ -2622,16 +2623,6 @@
         }
       } finally {
         reader.releaseLock();
-        buffer += decoder.decode();
-      }
-
-      if (!finalResult) {
-        if (buffer.trim()) {
-          const result = parseLine(buffer);
-          if (result) {
-            finalResult = result;
-          }
-        }
       }
 
       if (!finalResult) {
