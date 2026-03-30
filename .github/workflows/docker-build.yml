@@ -23,6 +23,7 @@ jobs:
           - image: hybridclaw-agent
             context: ./container
             file: ./container/Dockerfile
+            target: runtime
             scope: agent-main
           - image: hybridclaw-gateway
             context: .
@@ -58,7 +59,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
-          target: ${{ matrix.target || '' }}
+          target: ${{ matrix.target }}
           push: true
           provenance: false
           sbom: false
