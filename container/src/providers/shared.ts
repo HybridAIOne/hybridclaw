@@ -9,6 +9,7 @@ export type RuntimeProvider =
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'mistral'
   | 'huggingface'
   | 'ollama'
   | 'lmstudio'
@@ -157,6 +158,7 @@ function isProvider(value: unknown): value is RuntimeProvider {
     value === 'hybridai' ||
     value === 'openai-codex' ||
     value === 'openrouter' ||
+    value === 'mistral' ||
     value === 'huggingface' ||
     value === 'ollama' ||
     value === 'lmstudio' ||

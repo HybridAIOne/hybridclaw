@@ -41,11 +41,11 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
 
-COPY --from=builder /app/package.json /app/package-lock.json ./
+COPY --link --from=builder /app/package.json /app/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev
 
-# Install Playwright system deps as root, browser as node user
+# System deps need root; browser installed as node user so /ms-playwright stays owned by node:node
 RUN npx playwright install-deps chromium \
     && mkdir -p /ms-playwright \
     && chown -R node:node /app /ms-playwright

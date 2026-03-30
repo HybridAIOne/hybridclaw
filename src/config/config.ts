@@ -99,6 +99,7 @@ function syncRuntimeSecretExports(): void {
   MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD || '';
   HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY || '';
   OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+  MISTRAL_API_KEY = process.env.MISTRAL_API_KEY || '';
   HUGGINGFACE_API_KEY =
     process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY || '';
 }
@@ -111,6 +112,7 @@ export let MSTEAMS_APP_PASSWORD = '';
 // Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
 export let HYBRIDAI_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
+export let MISTRAL_API_KEY = '';
 export let HUGGINGFACE_API_KEY = '';
 syncRuntimeSecretExports();
 
@@ -259,6 +261,9 @@ let CODEX_MODELS: string[] = [
 export let OPENROUTER_ENABLED = false;
 export let OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 let OPENROUTER_MODELS: string[] = ['openrouter/anthropic/claude-sonnet-4'];
+export let MISTRAL_ENABLED = false;
+export let MISTRAL_BASE_URL = 'https://api.mistral.ai/v1';
+let MISTRAL_MODELS: string[] = ['mistral/mistral-large-latest'];
 export let HUGGINGFACE_ENABLED = false;
 export let HUGGINGFACE_BASE_URL = 'https://router.huggingface.co/v1';
 let HUGGINGFACE_MODELS: string[] = [
@@ -268,6 +273,7 @@ export let CONFIGURED_MODELS: string[] = dedupeStringList([
   ...HYBRIDAI_MODELS,
   ...CODEX_MODELS,
   ...(OPENROUTER_ENABLED ? OPENROUTER_MODELS : []),
+  ...(MISTRAL_ENABLED ? MISTRAL_MODELS : []),
   ...(HUGGINGFACE_ENABLED ? HUGGINGFACE_MODELS : []),
 ]);
 export let LOCAL_OLLAMA_ENABLED = true;
@@ -586,6 +592,9 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   OPENROUTER_ENABLED = config.openrouter.enabled;
   OPENROUTER_BASE_URL = config.openrouter.baseUrl;
   OPENROUTER_MODELS = [...config.openrouter.models];
+  MISTRAL_ENABLED = config.mistral.enabled;
+  MISTRAL_BASE_URL = config.mistral.baseUrl;
+  MISTRAL_MODELS = [...config.mistral.models];
   HUGGINGFACE_ENABLED = config.huggingface.enabled;
   HUGGINGFACE_BASE_URL = config.huggingface.baseUrl;
   HUGGINGFACE_MODELS = [...config.huggingface.models];
@@ -594,6 +603,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     ...HYBRIDAI_MODELS,
     ...CODEX_MODELS,
     ...(OPENROUTER_ENABLED ? OPENROUTER_MODELS : []),
+    ...(MISTRAL_ENABLED ? MISTRAL_MODELS : []),
     ...(HUGGINGFACE_ENABLED ? HUGGINGFACE_MODELS : []),
   ]);
   LOCAL_OLLAMA_ENABLED = config.local.backends.ollama.enabled;

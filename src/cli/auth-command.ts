@@ -23,6 +23,7 @@ import {
   printHuggingFaceUsage,
   printHybridAIUsage,
   printLocalUsage,
+  printMistralUsage,
   printMSTeamsUsage,
   printOpenRouterUsage,
   printWhatsAppUsage,
@@ -250,6 +251,19 @@ function normalizeOpenRouterBaseUrl(rawBaseUrl: string): string {
   );
 }
 
+function normalizeMistralModelId(rawModelId: string): string {
+  return normalizeProviderModelId('mistral/', rawModelId);
+}
+
+function normalizeMistralBaseUrl(rawBaseUrl: string): string {
+  return normalizeProviderBaseUrl(
+    'https://api.mistral.ai/v1',
+    /\/v1$/i,
+    '/v1',
+    rawBaseUrl,
+  );
+}
+
 function normalizeHuggingFaceModelId(rawModelId: string): string {
   return normalizeProviderModelId('huggingface/', rawModelId);
 }
@@ -286,6 +300,29 @@ async function resolveOpenRouterApiKey(
   );
 }
 
+async function promptForMistralApiKey(): Promise<string> {
+  return await promptForSecretInput({
+    prompt: '🔒 Paste Mistral API key: ',
+    missingMessage:
+      'Missing Mistral API key. Pass `--api-key <key>`, set `MISTRAL_API_KEY`, or run this command in an interactive terminal to paste it.',
+  });
+}
+
+async function resolveMistralApiKey(
+  explicitApiKey: string | undefined,
+): Promise<string> {
+  const configuredApiKey =
+    explicitApiKey?.trim() || process.env.MISTRAL_API_KEY?.trim() || '';
+  if (configuredApiKey) return configuredApiKey;
+
+  const promptedApiKey = await promptForMistralApiKey();
+  if (promptedApiKey) return promptedApiKey;
+
+  throw new Error(
+    'Mistral API key cannot be empty. Pass `--api-key <key>`, set `MISTRAL_API_KEY`, or paste it when prompted.',
+  );
+}
+
 async function promptForHuggingFaceApiKey(): Promise<string> {
   return await promptForSecretInput({
     prompt: '🔒 Paste Hugging Face token: ',
@@ -310,8 +347,8 @@ async function resolveHuggingFaceApiKey(
 
 interface RouterProviderConfigFlowOptions {
   args: string[];
-  providerId: 'openrouter' | 'huggingface';
-  providerLabel: 'OpenRouter' | 'Hugging Face';
+  providerId: 'openrouter' | 'mistral' | 'huggingface';
+  providerLabel: 'OpenRouter' | 'Mistral' | 'Hugging Face';
   parseArgs: (args: string[]) => ParsedOpenRouterLoginArgs;
   getCurrentProviderConfig: () => { baseUrl: string; models: string[] };
   defaultModel: string;
@@ -398,6 +435,35 @@ async function configureOpenRouter(args: string[]): Promise<void> {
   });
 }
 
+async function configureMistral(args: string[]): Promise<void> {
+  await configureRouterProvider({
+    args,
+    providerId: 'mistral',
+    providerLabel: 'Mistral',
+    parseArgs: parseOpenRouterLoginArgs,
+    getCurrentProviderConfig: () => getRuntimeConfig().mistral,
+    defaultModel: 'mistral/mistral-large-latest',
+    normalizeModelId: normalizeMistralModelId,
+    normalizeBaseUrl: normalizeMistralBaseUrl,
+    resolveApiKey: resolveMistralApiKey,
+    saveSecrets: (apiKey) => saveRuntimeSecrets({ MISTRAL_API_KEY: apiKey }),
+    applyApiKeyToEnv: (apiKey) => {
+      process.env.MISTRAL_API_KEY = apiKey;
+    },
+    updateConfig: (parsed, normalizedBaseUrl, fullModelName) =>
+      updateRuntimeConfig((draft) => {
+        draft.mistral.enabled = true;
+        draft.mistral.baseUrl = normalizedBaseUrl;
+        draft.mistral.models = Array.from(
+          new Set([fullModelName, ...draft.mistral.models]),
+        );
+        if (parsed.setDefault) {
+          draft.hybridai.defaultModel = fullModelName;
+        }
+      }),
+  });
+}
+
 async function configureHuggingFace(args: string[]): Promise<void> {
   await configureRouterProvider({
     args,
@@ -432,6 +498,7 @@ type UnifiedProvider =
   | 'hybridai'
   | 'codex'
   | 'openrouter'
+  | 'mistral'
   | 'huggingface'
   | 'local'
   | 'msteams';
@@ -455,6 +522,9 @@ function normalizeUnifiedProvider(
   }
   if (normalized === 'openrouter' || normalized === 'or') {
     return 'openrouter';
+  }
+  if (normalized === 'mistral') {
+    return 'mistral';
   }
   if (
     normalized === 'huggingface' ||
@@ -497,7 +567,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
       );
     }
     return {
@@ -511,7 +581,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
       );
     }
     return {
@@ -528,7 +598,11 @@ function parseUnifiedProviderArgs(args: string[]): {
 }
 
 function readStoredRuntimeSecret(
-  secretKey: 'OPENROUTER_API_KEY' | 'HF_TOKEN' | 'MSTEAMS_APP_PASSWORD',
+  secretKey:
+    | 'OPENROUTER_API_KEY'
+    | 'MISTRAL_API_KEY'
+    | 'HF_TOKEN'
+    | 'MSTEAMS_APP_PASSWORD',
 ): string | null {
   const filePath = runtimeSecretsPath();
   if (!fs.existsSync(filePath)) return null;
@@ -590,6 +664,39 @@ function printOpenRouterStatus(): void {
   );
 }
 
+function printMistralStatus(): void {
+  ensureRuntimeConfigFile();
+  const config = getRuntimeConfig();
+  const storedApiKey = readStoredRuntimeSecret('MISTRAL_API_KEY');
+  const envApiKey = process.env.MISTRAL_API_KEY?.trim() || '';
+  const source = envApiKey
+    ? storedApiKey && envApiKey === storedApiKey
+      ? 'runtime-secrets'
+      : 'env'
+    : storedApiKey
+      ? 'runtime-secrets'
+      : null;
+  const apiKey = envApiKey || storedApiKey || '';
+
+  console.log(`Path: ${runtimeSecretsPath()}`);
+  console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
+  if (source) {
+    console.log(`Source: ${source}`);
+  }
+  if (apiKey) {
+    console.log(`API key: ${maskSecret(apiKey)}`);
+  }
+  console.log(`Config: ${runtimeConfigPath()}`);
+  console.log(`Enabled: ${config.mistral.enabled ? 'yes' : 'no'}`);
+  console.log(`Base URL: ${config.mistral.baseUrl}`);
+  console.log(
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+  );
+  console.log(
+    `Models: ${config.mistral.models.length > 0 ? config.mistral.models.join(', ') : '(none configured)'}`,
+  );
+}
+
 function printHuggingFaceStatus(): void {
   ensureRuntimeConfigFile();
   const config = getRuntimeConfig();
@@ -632,6 +739,15 @@ function clearOpenRouterCredentials(): void {
   console.log(`Cleared OpenRouter credentials in ${filePath}.`);
   console.log(
     'If OPENROUTER_API_KEY is still exported in your shell, unset it separately.',
+  );
+}
+
+function clearMistralCredentials(): void {
+  const filePath = saveRuntimeSecrets({ MISTRAL_API_KEY: null });
+  delete process.env.MISTRAL_API_KEY;
+  console.log(`Cleared Mistral credentials in ${filePath}.`);
+  console.log(
+    'If MISTRAL_API_KEY is still exported in your shell, unset it separately.',
   );
 }
 
@@ -790,6 +906,10 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
   }
   if (provider === 'openrouter') {
     printOpenRouterUsage();
+    return;
+  }
+  if (provider === 'mistral') {
+    printMistralUsage();
     return;
   }
   if (provider === 'huggingface') {
@@ -1015,7 +1135,7 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -1033,6 +1153,10 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   }
   if (parsed.provider === 'openrouter') {
     await configureOpenRouter(parsed.remaining);
+    return;
+  }
+  if (parsed.provider === 'mistral') {
+    await configureMistral(parsed.remaining);
     return;
   }
   if (parsed.provider === 'huggingface') {
@@ -1150,6 +1274,14 @@ async function dispatchProviderAction(
     clearOpenRouterCredentials();
     return;
   }
+  if (provider === 'mistral') {
+    if (action === 'status') {
+      printMistralStatus();
+      return;
+    }
+    clearMistralCredentials();
+    return;
+  }
   if (provider === 'huggingface') {
     if (action === 'status') {
       printHuggingFaceStatus();
@@ -1186,7 +1318,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`local\`, or \`msteams\`.`,
     );
   }
   if (parsed.remaining.length > 0) {

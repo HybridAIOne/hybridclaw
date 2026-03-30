@@ -47,7 +47,12 @@ interface ApiKeyValidationResult {
 interface OnboardingOptions {
   force?: boolean;
   commandName?: string;
-  preferredAuth?: 'hybridai' | 'openai-codex' | 'openrouter' | 'huggingface';
+  preferredAuth?:
+    | 'hybridai'
+    | 'openai-codex'
+    | 'openrouter'
+    | 'mistral'
+    | 'huggingface';
 }
 
 function isLocalProvider(
@@ -368,6 +373,16 @@ function defaultOpenRouterModel(): string {
   return (first || '').trim();
 }
 
+function defaultMistralModel(): string {
+  const config = getRuntimeConfig();
+  const current = config.hybridai.defaultModel.trim();
+  if (current && resolveModelProvider(current) === 'mistral') return current;
+  const first = config.mistral.models.find(
+    (model) => resolveModelProvider(model) === 'mistral',
+  );
+  return (first || '').trim();
+}
+
 function defaultHuggingFaceModel(): string {
   const config = getRuntimeConfig();
   const current = config.hybridai.defaultModel.trim();
@@ -521,22 +536,27 @@ async function chooseDefaultBot(
 async function promptAuthMethod(
   rl: readline.Interface,
   currentModel: string,
-): Promise<'hybridai' | 'openai-codex' | 'openrouter' | 'huggingface'> {
+): Promise<
+  'hybridai' | 'openai-codex' | 'openrouter' | 'mistral' | 'huggingface'
+> {
   const currentProvider = resolveModelProvider(currentModel);
   const defaultChoice =
     currentProvider === 'openai-codex'
       ? '2'
       : currentProvider === 'openrouter'
         ? '3'
-        : currentProvider === 'huggingface'
+        : currentProvider === 'mistral'
           ? '4'
-          : '1';
+          : currentProvider === 'huggingface'
+            ? '5'
+            : '1';
 
   console.log(`${TEAL}${ICON_TITLE}${RESET} Auth methods:`);
   console.log(`  ${TEAL}1.${RESET} HybridAI API key`);
   console.log(`  ${TEAL}2.${RESET} OpenAI Codex (OAuth login)`);
   console.log(`  ${TEAL}3.${RESET} OpenRouter API key`);
-  console.log(`  ${TEAL}4.${RESET} Hugging Face token`);
+  console.log(`  ${TEAL}4.${RESET} Mistral API key`);
+  console.log(`  ${TEAL}5.${RESET} Hugging Face token`);
 
   while (true) {
     const choice = await promptOptional(
@@ -556,15 +576,18 @@ async function promptAuthMethod(
     if (normalized === '3' || normalized === 'openrouter') {
       return 'openrouter';
     }
+    if (normalized === '4' || normalized === 'mistral') {
+      return 'mistral';
+    }
     if (
-      normalized === '4' ||
+      normalized === '5' ||
       normalized === 'huggingface' ||
       normalized === 'hf'
     ) {
       return 'huggingface';
     }
     printWarn(
-      'Enter 1 for HybridAI, 2 for OpenAI Codex, 3 for OpenRouter, or 4 for Hugging Face.',
+      'Enter 1 for HybridAI, 2 for OpenAI Codex, 3 for OpenRouter, 4 for Mistral, or 5 for Hugging Face.',
     );
   }
 }
@@ -910,6 +933,60 @@ async function runOpenRouterOnboarding(params: {
   console.log();
 }
 
+async function runMistralOnboarding(params: {
+  rl: readline.Interface;
+  commandLabel: string;
+  existingKey: string;
+}): Promise<void> {
+  const { rl, commandLabel, existingKey } = params;
+  const runtimeConfig = getRuntimeConfig();
+  printMeta('MISTRAL_BASE_URL', runtimeConfig.mistral.baseUrl);
+  if (existingKey) {
+    printSetup('Reconfiguring Mistral credentials.');
+  } else {
+    printInfo(
+      `No MISTRAL_API_KEY found. ${commandLabel} needs Mistral credentials before it can start.`,
+    );
+  }
+  console.log();
+
+  const entered = await promptOptional(
+    rl,
+    existingKey
+      ? 'Mistral API key (Enter to keep current): '
+      : 'Mistral API key: ',
+    ICON_KEY,
+  );
+  const apiKey = (entered || existingKey).trim();
+  if (!apiKey) {
+    throw new Error('Mistral onboarding requires a non-empty API key.');
+  }
+
+  const secretsPath = saveRuntimeSecrets({ MISTRAL_API_KEY: apiKey });
+  process.env.MISTRAL_API_KEY = apiKey;
+  refreshRuntimeSecretsFromEnv();
+
+  const nextMistralModel = defaultMistralModel();
+  const switchedModel = await maybeSwitchDefaultModel(
+    rl,
+    nextMistralModel,
+    'Mistral auth works only with Mistral models.',
+  );
+
+  console.log();
+  printSuccess(`Saved credentials to ${secretsPath}.`);
+  printSuccess(`Saved runtime settings to ${runtimeConfigPath()}.`);
+  if (switchedModel) {
+    printSuccess(`Default model set to: ${nextMistralModel}`);
+  } else if (!nextMistralModel) {
+    printInfo(
+      `No Mistral default model is configured. Set hybridai.defaultModel to a mistral/... model in ${runtimeConfigPath()} if needed.`,
+    );
+  }
+  printTuiStartHint(commandLabel);
+  console.log();
+}
+
 async function runHuggingFaceOnboarding(params: {
   rl: readline.Interface;
   commandLabel: string;
@@ -974,6 +1051,7 @@ export async function ensureRuntimeCredentials(
   const runtimeConfig = getRuntimeConfig();
   const existingKey = (process.env.HYBRIDAI_API_KEY || '').trim();
   const existingOpenRouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
+  const existingMistralKey = (process.env.MISTRAL_API_KEY || '').trim();
   const existingHuggingFaceKey = (
     process.env.HF_TOKEN ||
     process.env.HUGGINGFACE_API_KEY ||
@@ -989,9 +1067,11 @@ export async function ensureRuntimeCredentials(
       ? 'openai-codex'
       : resolvedCurrentProvider === 'openrouter'
         ? 'openrouter'
-        : resolvedCurrentProvider === 'huggingface'
-          ? 'huggingface'
-          : 'hybridai');
+        : resolvedCurrentProvider === 'mistral'
+          ? 'mistral'
+          : resolvedCurrentProvider === 'huggingface'
+            ? 'huggingface'
+            : 'hybridai');
   const force = options.force === true;
   let securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
@@ -1001,9 +1081,11 @@ export async function ensureRuntimeCredentials(
       ? codexStatus.authenticated
       : currentAuth === 'openrouter'
         ? !!existingOpenRouterKey
-        : currentAuth === 'huggingface'
-          ? !!existingHuggingFaceKey
-          : !!existingKey;
+        : currentAuth === 'mistral'
+          ? !!existingMistralKey
+          : currentAuth === 'huggingface'
+            ? !!existingHuggingFaceKey
+            : !!existingKey;
   if (!needsSecurityAcceptance && hasRequiredCredentials) {
     await maybeBackfillDefaultHybridAIChatbotId({
       authMethod: currentAuth,
@@ -1043,6 +1125,11 @@ export async function ensureRuntimeCredentials(
     if (currentAuth === 'openrouter') {
       throw new Error(
         `OPENROUTER_API_KEY is missing. Run \`hybridclaw onboarding\` in an interactive terminal or store it in ${runtimeSecretsPath()}.`,
+      );
+    }
+    if (currentAuth === 'mistral') {
+      throw new Error(
+        `MISTRAL_API_KEY is missing. Run \`hybridclaw onboarding\` in an interactive terminal or store it in ${runtimeSecretsPath()}.`,
       );
     }
     if (currentAuth === 'huggingface') {
@@ -1105,6 +1192,14 @@ export async function ensureRuntimeCredentials(
         rl,
         commandLabel,
         existingKey: existingOpenRouterKey,
+      });
+      return;
+    }
+    if (authMethod === 'mistral') {
+      await runMistralOnboarding({
+        rl,
+        commandLabel,
+        existingKey: existingMistralKey,
       });
       return;
     }

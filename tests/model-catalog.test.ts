@@ -11,6 +11,7 @@ const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
 
 function makeTempHome(): string {
@@ -70,6 +71,11 @@ afterEach(async () => {
     delete process.env.OPENROUTER_API_KEY;
   } else {
     process.env.OPENROUTER_API_KEY = ORIGINAL_OPENROUTER_API_KEY;
+  }
+  if (ORIGINAL_MISTRAL_API_KEY === undefined) {
+    delete process.env.MISTRAL_API_KEY;
+  } else {
+    process.env.MISTRAL_API_KEY = ORIGINAL_MISTRAL_API_KEY;
   }
   if (ORIGINAL_HF_TOKEN === undefined) {
     delete process.env.HF_TOKEN;
@@ -324,6 +330,29 @@ test('available model catalog returns the full Hugging Face discovery list', asy
       expanded: true,
     }),
   ).toEqual(catalog.getAvailableModelList('huggingface'));
+});
+
+test('available model catalog includes configured Mistral models', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.mistral.enabled = true;
+    config.mistral.models = [
+      'mistral/mistral-large-latest',
+      'mistral/codestral-latest',
+    ];
+    config.openrouter.enabled = false;
+    config.huggingface.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  const { catalog } = await importFreshCatalog(homeDir);
+
+  expect(catalog.getAvailableModelList('mistral')).toEqual([
+    'mistral/codestral-latest',
+    'mistral/mistral-large-latest',
+  ]);
 });
 
 test('available model catalog reads Hugging Face provider-level context windows', async () => {

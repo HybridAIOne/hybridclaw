@@ -2,6 +2,7 @@ export type ProviderKind =
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'mistral'
   | 'huggingface'
   | 'ollama'
   | 'lmstudio'

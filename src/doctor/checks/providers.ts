@@ -6,12 +6,18 @@ import {
   probeCodex,
   probeHuggingFace,
   probeHybridAI,
+  probeMistral,
   probeOpenRouter,
 } from '../provider-probes.js';
 import type { DiagResult } from '../types.js';
 import { makeResult, severityFrom, toErrorMessage } from '../utils.js';
 
-type ProviderKey = 'hybridai' | 'codex' | 'openrouter' | 'huggingface';
+type ProviderKey =
+  | 'hybridai'
+  | 'codex'
+  | 'openrouter'
+  | 'mistral'
+  | 'huggingface';
 
 interface ProviderPlan {
   key: ProviderKey;
@@ -65,6 +71,8 @@ export async function checkProviders(): Promise<DiagResult[]> {
   const codexModels = dedupeStrings(config.codex?.models ?? []);
   const openRouterEnabled = config.openrouter?.enabled === true;
   const openRouterModels = dedupeStrings(config.openrouter?.models ?? []);
+  const mistralEnabled = config.mistral?.enabled === true;
+  const mistralModels = dedupeStrings(config.mistral?.models ?? []);
   const huggingFaceEnabled = config.huggingface?.enabled === true;
   const huggingFaceModels = dedupeStrings(config.huggingface?.models ?? []);
   const plans: ProviderPlan[] = [
@@ -104,6 +112,18 @@ export async function checkProviders(): Promise<DiagResult[]> {
       probe:
         openRouterEnabled || defaultProvider === 'openrouter'
           ? () => probeOpenRouter()
+          : null,
+      inactiveMessage: 'Provider disabled',
+    },
+    {
+      key: 'mistral',
+      label: 'Mistral',
+      active: defaultProvider === 'mistral',
+      configured: mistralEnabled || defaultProvider === 'mistral',
+      configuredModelCount: mistralModels.length,
+      probe:
+        mistralEnabled || defaultProvider === 'mistral'
+          ? () => probeMistral()
           : null,
       inactiveMessage: 'Provider disabled',
     },

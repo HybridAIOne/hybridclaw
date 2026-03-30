@@ -125,18 +125,21 @@ hybridclaw auth login hybridai --browser
 hybridclaw auth login hybridai --base-url http://localhost:5000
 hybridclaw auth login codex --import
 hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
+hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
 hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
 hybridclaw auth login local ollama llama3.2
 hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
 hybridclaw auth status hybridai
 hybridclaw auth status codex
 hybridclaw auth status openrouter
+hybridclaw auth status mistral
 hybridclaw auth status huggingface
 hybridclaw auth status local
 hybridclaw auth status msteams
 hybridclaw auth logout hybridai
 hybridclaw auth logout codex
 hybridclaw auth logout openrouter
+hybridclaw auth logout mistral
 hybridclaw auth logout huggingface
 hybridclaw auth logout local
 hybridclaw auth logout msteams
@@ -155,6 +158,7 @@ hybridclaw local configure ollama llama3.2
 - `hybridclaw auth login hybridai` auto-selects browser login on local GUI machines and a manual/headless API-key flow on SSH, CI, and container shells. `--import` copies the current `HYBRIDAI_API_KEY` from your shell into `~/.hybridclaw/credentials.json`, and `--base-url` updates `hybridai.baseUrl` before login.
 - `hybridclaw auth login codex` auto-selects browser PKCE on local GUI machines and device code on headless or remote shells.
 - `hybridclaw auth login openrouter` accepts `--api-key`, falls back to `OPENROUTER_API_KEY`, or prompts you to paste the key, then enables the provider and can set the global default model.
+- `hybridclaw auth login mistral` accepts `--api-key`, falls back to `MISTRAL_API_KEY`, or prompts you to paste the key, then enables the provider and can set the global default model.
 - `hybridclaw auth login huggingface` accepts `--api-key`, falls back to `HF_TOKEN`, or prompts you to paste the token, then enables the provider and can set the global default model.
 - `hybridclaw auth login local` configures Ollama, LM Studio, or vLLM in `~/.hybridclaw/config.json`.
 - `hybridclaw auth login msteams` enables Microsoft Teams, stores `MSTEAMS_APP_PASSWORD` in `~/.hybridclaw/credentials.json`, and can prompt for the app id, app password, and optional tenant id.
@@ -162,9 +166,9 @@ hybridclaw local configure ollama llama3.2
 - `hybridclaw auth logout local` disables configured local backends and clears any saved vLLM API key.
 - `hybridclaw auth logout msteams` clears the stored Teams app password and disables the Teams integration in config.
 - `hybridclaw auth whatsapp reset` clears linked WhatsApp Web auth without starting a new pairing session.
-- HybridAI, OpenRouter, Hugging Face, Discord, email, Teams, and BlueBubbles iMessage secrets are stored in `~/.hybridclaw/credentials.json`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
+- HybridAI, OpenRouter, Mistral, Hugging Face, Discord, email, Teams, and BlueBubbles iMessage secrets are stored in `~/.hybridclaw/credentials.json`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
 - Only one running HybridClaw process should own `~/.hybridclaw/credentials/whatsapp` at a time. If WhatsApp Web shows duplicate Chrome/Ubuntu linked devices or reconnect/auth drift starts, stop the extra process, run `hybridclaw auth whatsapp reset`, then pair again with `hybridclaw channels whatsapp setup`.
-- Use `hybridclaw help`, `hybridclaw help auth`, `hybridclaw help openrouter`, `hybridclaw help huggingface`, or `hybridclaw help local` for CLI-specific reference output.
+- Use `hybridclaw help`, `hybridclaw help auth`, `hybridclaw help openrouter`, `hybridclaw help mistral`, `hybridclaw help huggingface`, or `hybridclaw help local` for CLI-specific reference output.
 
 ## Setting Up MS Teams
 
@@ -188,7 +192,7 @@ See [docs/imessage.md](./docs/imessage.md) for the full setup flow, including:
 
 ## Model Selection
 
-Codex models use the `openai-codex/` prefix. OpenRouter models use the `openrouter/` prefix. Hugging Face router models use the `huggingface/` prefix. The default shipped Codex model is `openai-codex/gpt-5-codex`.
+Codex models use the `openai-codex/` prefix. OpenRouter models use the `openrouter/` prefix. Mistral models use the `mistral/` prefix. Hugging Face router models use the `huggingface/` prefix. The default shipped Codex model is `openai-codex/gpt-5-codex`.
 
 Examples:
 
@@ -198,6 +202,8 @@ Examples:
 /model default openai-codex/gpt-5-codex
 /model list openrouter
 /model set openrouter/anthropic/claude-sonnet-4
+/model list mistral
+/model set mistral/mistral-large-latest
 /model list huggingface
 /model set huggingface/meta-llama/Llama-3.1-8B-Instruct
 /model clear
@@ -206,13 +212,15 @@ Examples:
 /model default openrouter/anthropic/claude-sonnet-4
 ```
 
-- `hybridai.defaultModel` in `~/.hybridclaw/config.json` can point at a HybridAI model, an `openai-codex/...` model, an `openrouter/...` model, a `huggingface/...` model, or a local backend model such as `ollama/...`.
+- `hybridai.defaultModel` in `~/.hybridclaw/config.json` can point at a HybridAI model, an `openai-codex/...` model, an `openrouter/...` model, a `mistral/...` model, a `huggingface/...` model, or a local backend model such as `ollama/...`.
 - `codex.models` in runtime config controls the allowed Codex model list shown in selectors and status output.
 - `openrouter.models` in runtime config controls the allowed OpenRouter model list shown in selectors and status output.
+- `mistral.models` in runtime config controls the allowed Mistral model list shown in selectors and status output.
 - `huggingface.models` in runtime config controls the allowed Hugging Face model list shown in selectors and status output.
 - HybridAI model lists are refreshed from the configured HybridAI base URL (`/models`, then `/v1/models` as a compatibility fallback), and discovered `context_length` values feed status and model-info output when the API exposes them.
 - When the selected model starts with `openai-codex/`, HybridClaw resolves OAuth credentials through the Codex provider instead of `HYBRIDAI_API_KEY`.
 - When the selected model starts with `openrouter/`, HybridClaw resolves credentials through `OPENROUTER_API_KEY`.
+- When the selected model starts with `mistral/`, HybridClaw resolves credentials through `MISTRAL_API_KEY`.
 - When the selected model starts with `huggingface/`, HybridClaw resolves credentials through `HF_TOKEN`.
 - `/model set <name>` is a session-only override.
 - `/model clear` removes the session override and falls back to the current agent model or the global default.
@@ -565,7 +573,7 @@ CLI runtime commands:
 - `hybridclaw tui --resume <sessionId>` / `hybridclaw --resume <sessionId>` — Resume an earlier TUI session by canonical session id
 - `hybridclaw onboarding` — Run trust-model acceptance plus interactive provider onboarding
 - `hybridclaw auth login [provider] ...` — Namespaced provider setup/login entrypoint
-- `hybridclaw auth status <provider>` — Show provider status for `hybridai`, `codex`, `openrouter`, `local`, or `msteams`
+- `hybridclaw auth status <provider>` — Show provider status for `hybridai`, `codex`, `openrouter`, `mistral`, `huggingface`, `local`, or `msteams`
 - `hybridclaw auth logout <provider>` — Clear provider credentials or disable local backends/Teams
 - `hybridclaw config`, `check`, `reload`, `set <key> <value>` — Inspect, validate, hot-reload, or edit the local runtime config file
 - `hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]` — Enable Microsoft Teams, persist the app secret, and print webhook next steps
@@ -578,7 +586,7 @@ CLI runtime commands:
 - `hybridclaw local status` — Show current local backend config and default model
 - `hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]` — Enable and configure a local backend
 - `hybridclaw hybridai ...`, `hybridclaw codex ...`, and `hybridclaw local ...` — Legacy aliases for the older provider-specific command surface
-- `hybridclaw help` / `hybridclaw help auth` / `hybridclaw help openrouter` — Print CLI reference for the unified provider commands
+- `hybridclaw help` / `hybridclaw help auth` / `hybridclaw help openrouter` / `hybridclaw help mistral` — Print CLI reference for the unified provider commands
 - `hybridclaw doctor [--fix|--json|<component>]` — Diagnose runtime, gateway, config, credentials, database, providers, local backends, Docker, channels, skills, security, and disk state
 - `hybridclaw skill list` — Show skills and any declared installer options
 - `hybridclaw skill enable <skill-name> [--channel <kind>]`, `disable`, `toggle` — Manage global and per-channel skill availability

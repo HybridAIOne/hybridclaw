@@ -1,14 +1,13 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM node:22-slim AS builder
+FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS builder
 
-# node-pty and better-sqlite3 require native compilation
+# better-sqlite3 requires native compilation; node-pty may fall back to it
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install root deps first (cached unless package.json changes)
 COPY package*.json ./
 COPY console/package*.json console/
 COPY scripts/postinstall-container.mjs scripts/
@@ -25,8 +24,12 @@ RUN npm run build:console
 RUN npx tsc && node -e "require('node:fs').chmodSync('dist/cli.js', 0o755)"
 RUN npm --prefix container run build
 
+# Prune devDeps in place so the runtime stage copies only production deps
+RUN npm prune --omit=dev \
+    && npm --prefix container prune --omit=dev
+
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM node:22-slim
+FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS runtime
 
 # The agent runtime needs root to install packages, manage files, etc.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -35,35 +38,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Production deps — copy from builder and prune dev deps
-# (node-pty requires python3/node-gyp to compile; copying pre-built
-# binaries from the builder avoids needing build tools at runtime)
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/console/package*.json console/
-COPY --from=builder /app/node_modules/ node_modules/
-RUN npm prune --omit=dev \
-    && find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod 755 {} \; 2>/dev/null || true
+# Production deps — copy pre-built and pre-pruned from builder
+# (better-sqlite3 and node-pty may require native compilation;
+# copying from the builder avoids needing build tools at runtime)
+COPY --link --from=builder /app/package*.json ./
+COPY --link --from=builder /app/console/package*.json console/
+COPY --link --from=builder /app/node_modules/ node_modules/
 
 # Production deps — container agent
-COPY --from=builder /app/container/package*.json container/
-COPY --from=builder /app/container/node_modules/ container/node_modules/
-RUN npm --prefix container prune --omit=dev
+COPY --link --from=builder /app/container/package*.json container/
+COPY --link --from=builder /app/container/node_modules/ container/node_modules/
 
 # Gateway compiled output + console SPA
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/console/dist ./console/dist
+COPY --link --from=builder /app/dist ./dist
+COPY --link --from=builder /app/console/dist ./console/dist
 
 # Container agent runtime (host sandbox mode) + shared modules
-COPY --from=builder /app/container/dist ./container/dist
-COPY --from=builder /app/container/shared ./container/shared
+COPY --link --from=builder /app/container/dist ./container/dist
+COPY --link --from=builder /app/container/shared ./container/shared
 
 # SPA pages served by the gateway (/chat, /agents, /)
-COPY docs/ ./docs/
+COPY --link docs/ ./docs/
 
 # Runtime templates and skills
-COPY templates/ ./templates/
-COPY skills/ ./skills/
-COPY SECURITY.md TRUST_MODEL.md ./
+COPY --link templates/ ./templates/
+COPY --link skills/ ./skills/
+COPY --link SECURITY.md TRUST_MODEL.md ./
 
 EXPOSE 9090
 

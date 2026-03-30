@@ -327,7 +327,14 @@ export interface GatewayStatus {
   };
   providerHealth?: Partial<
     Record<
-      'hybridai' | 'codex' | 'ollama' | 'lmstudio' | 'vllm',
+      | 'hybridai'
+      | 'codex'
+      | 'openrouter'
+      | 'mistral'
+      | 'huggingface'
+      | 'ollama'
+      | 'lmstudio'
+      | 'vllm',
       GatewayProviderHealthEntry
     >
   >;

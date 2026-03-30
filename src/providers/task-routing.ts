@@ -32,6 +32,7 @@ const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
   hybridai: '',
   'openai-codex': 'openai-codex/',
   openrouter: 'openrouter/',
+  mistral: 'mistral/',
   huggingface: 'huggingface/',
   ollama: 'ollama/',
   lmstudio: 'lmstudio/',
@@ -54,6 +55,7 @@ function normalizeTaskProviderSelection(
     normalized === 'hybridai' ||
     normalized === 'openai-codex' ||
     normalized === 'openrouter' ||
+    normalized === 'mistral' ||
     normalized === 'huggingface' ||
     normalized === 'ollama' ||
     normalized === 'lmstudio' ||
@@ -124,6 +126,7 @@ export function detectRuntimeProviderPrefix(
   if (!normalized) return undefined;
   if (normalized.startsWith('openai-codex/')) return 'openai-codex';
   if (normalized.startsWith('openrouter/')) return 'openrouter';
+  if (normalized.startsWith('mistral/')) return 'mistral';
   if (normalized.startsWith('huggingface/')) return 'huggingface';
   if (normalized.startsWith('ollama/')) return 'ollama';
   if (normalized.startsWith('lmstudio/')) return 'lmstudio';
@@ -158,6 +161,11 @@ export function resolveDefaultAuxiliaryModelForProvider(
   if (provider === 'openrouter') {
     if (!config.openrouter.enabled) return undefined;
     return selectFirstNonEmpty(config.openrouter.models);
+  }
+
+  if (provider === 'mistral') {
+    if (!config.mistral.enabled) return undefined;
+    return selectFirstNonEmpty(config.mistral.models);
   }
 
   if (provider === 'huggingface') {

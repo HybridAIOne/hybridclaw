@@ -1418,6 +1418,7 @@ function printMissingEnvVarError(message: string, envVar?: string): void {
   const envVarHint: Record<string, string> = {
     HYBRIDAI_API_KEY: `Set HYBRIDAI_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again. You can also run \`hybridclaw onboarding\` to set it interactively.`,
     OPENROUTER_API_KEY: `Set OPENROUTER_API_KEY in ${runtimeSecretsPath()} or your shell, ensure \`openrouter.enabled\` is true in ${runtimeConfigPath()}, then run the command again.`,
+    MISTRAL_API_KEY: `Set MISTRAL_API_KEY in ${runtimeSecretsPath()} or your shell, ensure \`mistral.enabled\` is true in ${runtimeConfigPath()}, then run the command again.`,
     HF_TOKEN: `Set HF_TOKEN in ${runtimeSecretsPath()} or your shell, ensure \`huggingface.enabled\` is true in ${runtimeConfigPath()}, then run the command again.`,
   };
   const hint = envVar

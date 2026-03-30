@@ -18,6 +18,7 @@ type RuntimeProvider =
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'mistral'
   | 'huggingface'
   | 'ollama'
   | 'lmstudio'

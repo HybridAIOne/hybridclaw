@@ -14,6 +14,7 @@ import {
   discoverAllLocalModels,
   getDiscoveredLocalModelNames,
 } from './local-discovery.js';
+import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
 import { formatModelForDisplay } from './model-names.js';
 import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
 import {
@@ -28,6 +29,7 @@ type ModelCatalogProviderFilter =
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'mistral'
   | 'huggingface'
   | 'ollama'
   | 'lmstudio'
@@ -42,6 +44,7 @@ const PREFIX_BY_PROVIDER: Record<
     ModelCatalogProviderFilter,
     | 'openai-codex'
     | 'openrouter'
+    | 'mistral'
     | 'huggingface'
     | 'ollama'
     | 'lmstudio'
@@ -51,6 +54,7 @@ const PREFIX_BY_PROVIDER: Record<
 > = {
   'openai-codex': OPENAI_CODEX_MODEL_PREFIX,
   openrouter: OPENROUTER_MODEL_PREFIX,
+  mistral: MISTRAL_MODEL_PREFIX,
   huggingface: HUGGINGFACE_MODEL_PREFIX,
   ollama: OLLAMA_MODEL_PREFIX,
   lmstudio: LMSTUDIO_MODEL_PREFIX,
@@ -110,6 +114,7 @@ export function normalizeModelCatalogProviderFilter(
     normalized === 'hybridai' ||
     normalized === 'openai-codex' ||
     normalized === 'openrouter' ||
+    normalized === 'mistral' ||
     normalized === 'huggingface' ||
     normalized === 'ollama' ||
     normalized === 'lmstudio' ||

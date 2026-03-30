@@ -10,6 +10,7 @@ const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
 
 function makeTempHome(): string {
@@ -69,6 +70,7 @@ afterEach(() => {
   );
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
+  restoreEnvVar('MISTRAL_API_KEY', ORIGINAL_MISTRAL_API_KEY);
   restoreEnvVar('HF_TOKEN', ORIGINAL_HF_TOKEN);
 });
 
@@ -76,6 +78,7 @@ test('provider factory resolves adapters by model family', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {
     config.openrouter.enabled = true;
+    config.mistral.enabled = true;
     config.huggingface.enabled = true;
   });
   const factory = await importFreshFactory(homeDir);
@@ -87,6 +90,9 @@ test('provider factory resolves adapters by model family', async () => {
   expect(
     factory.resolveModelProvider('openrouter/anthropic/claude-sonnet-4'),
   ).toBe('openrouter');
+  expect(factory.resolveModelProvider('mistral/mistral-large-latest')).toBe(
+    'mistral',
+  );
   expect(
     factory.resolveModelProvider(
       'huggingface/meta-llama/Llama-3.1-8B-Instruct',
@@ -103,6 +109,9 @@ test('provider factory resolves adapters by model family', async () => {
   expect(
     factory.modelRequiresChatbotId('openrouter/anthropic/claude-sonnet-4'),
   ).toBe(false);
+  expect(factory.modelRequiresChatbotId('mistral/mistral-large-latest')).toBe(
+    false,
+  );
   expect(
     factory.modelRequiresChatbotId(
       'huggingface/meta-llama/Llama-3.1-8B-Instruct',
@@ -223,6 +232,32 @@ test('provider factory resolves Hugging Face runtime credentials', async () => {
     agentId: 'main',
     isLocal: false,
     contextWindow: 131_072,
+  });
+});
+
+test('provider factory resolves Mistral runtime credentials', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.mistral.enabled = true;
+    config.mistral.baseUrl = 'https://api.mistral.ai/v1/';
+  });
+  process.env.MISTRAL_API_KEY = 'mistral-provider-test';
+  const factory = await importFreshFactory(homeDir);
+
+  const credentials = await factory.resolveModelRuntimeCredentials({
+    model: 'mistral/mistral-large-latest',
+    agentId: 'main',
+  });
+
+  expect(credentials).toMatchObject({
+    provider: 'mistral',
+    apiKey: 'mistral-provider-test',
+    baseUrl: 'https://api.mistral.ai/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
   });
 });
 

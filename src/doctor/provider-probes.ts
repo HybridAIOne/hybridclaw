@@ -4,11 +4,14 @@ import {
   CODEX_BASE_URL,
   HUGGINGFACE_BASE_URL,
   HUGGINGFACE_ENABLED,
+  MISTRAL_BASE_URL,
+  MISTRAL_ENABLED,
   OPENROUTER_BASE_URL,
   OPENROUTER_ENABLED,
 } from '../config/config.js';
 import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
+import { readMistralApiKey } from '../providers/mistral-utils.js';
 import {
   buildOpenRouterAttributionHeaders,
   readOpenRouterApiKey,
@@ -111,6 +114,41 @@ export async function probeHuggingFace(): Promise<ProviderProbeResult> {
       signal: AbortSignal.timeout(5_000),
     },
   );
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = (await response.json()) as { data?: unknown[] };
+  return {
+    reachable: true,
+    detail: `${Date.now() - startedAt}ms`,
+    modelCount: Array.isArray(payload.data) ? payload.data.length : 0,
+  };
+}
+
+export async function probeMistral(): Promise<ProviderProbeResult> {
+  if (!MISTRAL_ENABLED) {
+    return {
+      reachable: false,
+      detail: 'Provider disabled',
+    };
+  }
+
+  const apiKey = readMistralApiKey({ required: false });
+  if (!apiKey) {
+    return {
+      reachable: false,
+      detail: 'API key missing',
+    };
+  }
+
+  const startedAt = Date.now();
+  const response = await fetch(`${normalizeBaseUrl(MISTRAL_BASE_URL)}/models`, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal: AbortSignal.timeout(5_000),
+  });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }

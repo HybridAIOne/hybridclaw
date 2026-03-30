@@ -74,7 +74,7 @@ export function printOnboardingUsage(): void {
 Runs the HybridClaw onboarding flow:
   1) trust-model acceptance
   2) auth provider selection
-  3) HybridAI API key setup, OpenAI Codex OAuth login, OpenRouter API key setup, or Hugging Face token setup
+  3) HybridAI API key setup, OpenAI Codex OAuth login, OpenRouter API key setup, Mistral API key setup, or Hugging Face token setup
   4) default model/bot persistence`);
 }
 
@@ -108,9 +108,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|openrouter|huggingface|local|msteams> ...
-  hybridclaw auth status <hybridai|codex|openrouter|huggingface|local|msteams>
-  hybridclaw auth logout <hybridai|codex|openrouter|huggingface|local|msteams>
+  hybridclaw auth login <hybridai|codex|openrouter|mistral|huggingface|local|msteams> ...
+  hybridclaw auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams>
+  hybridclaw auth logout <hybridai|codex|openrouter|mistral|huggingface|local|msteams>
   hybridclaw auth whatsapp reset
 
 Examples:
@@ -119,14 +119,17 @@ Examples:
   hybridclaw auth login hybridai --base-url http://localhost:5000
   hybridclaw auth login codex --import
   hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
+  hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
   hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
   hybridclaw auth login local ollama llama3.2
   hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
   hybridclaw auth whatsapp reset
   hybridclaw auth status openrouter
+  hybridclaw auth status mistral
   hybridclaw auth status huggingface
   hybridclaw auth status msteams
   hybridclaw auth logout codex
+  hybridclaw auth logout mistral
   hybridclaw auth logout huggingface
   hybridclaw auth logout msteams
 
@@ -136,6 +139,7 @@ Notes:
   - \`auth login msteams\` enables Microsoft Teams and stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()}.
   - \`auth whatsapp reset\` clears linked WhatsApp Web auth so you can re-pair cleanly.
   - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
+  - \`auth login mistral\` prompts for the API key when \`--api-key\` and \`MISTRAL_API_KEY\` are both absent.
   - \`auth login huggingface\` prompts for the token when \`--api-key\` and \`HF_TOKEN\` are both absent.
   - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.`);
 }
@@ -282,6 +286,20 @@ Notes:
   - \`auth login huggingface\` stores \`HF_TOKEN\`, enables the provider, and can set the global default model.
   - If the gateway is already running, Hugging Face config and credentials are picked up without a restart.
   - \`auth logout huggingface\` clears the stored token but leaves runtime config unchanged.`);
+}
+
+export function printMistralUsage(): void {
+  console.log(`Usage:
+  hybridclaw auth login mistral [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
+  hybridclaw auth status mistral
+  hybridclaw auth logout mistral
+
+Notes:
+  - Model IDs use the \`mistral/\` prefix in HybridClaw, for example \`mistral/mistral-large-latest\`.
+  - If \`--api-key\` is omitted and \`MISTRAL_API_KEY\` is unset, HybridClaw prompts you to paste the API key.
+  - \`auth login mistral\` stores \`MISTRAL_API_KEY\`, enables the provider, and can set the global default model.
+  - If the gateway is already running, Mistral config and credentials are picked up without a restart.
+  - \`auth logout mistral\` clears the stored API key but leaves runtime config unchanged.`);
 }
 
 export function printAuditUsage(): void {
@@ -462,6 +480,7 @@ Topics:
   plugin      Help for plugin management
   msteams     Help for Microsoft Teams auth/setup commands
   openrouter  Help for OpenRouter setup/status/logout commands
+  mistral     Help for Mistral setup/status/logout commands
   huggingface Help for Hugging Face setup/status/logout commands
   whatsapp    Help for WhatsApp setup/reset commands
   skill       Help for skill installer commands
@@ -551,6 +570,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'openrouter':
       printOpenRouterUsage();
+      return true;
+    case 'mistral':
+      printMistralUsage();
       return true;
     case 'huggingface':
     case 'hf':

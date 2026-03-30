@@ -19,6 +19,7 @@ export async function checkCredentials(): Promise<DiagResult[]> {
     const sharedEnvSecrets = [
       process.env.HYBRIDAI_API_KEY,
       process.env.OPENROUTER_API_KEY,
+      process.env.MISTRAL_API_KEY,
       process.env.DISCORD_TOKEN,
       process.env.EMAIL_PASSWORD,
       process.env.MSTEAMS_APP_PASSWORD,

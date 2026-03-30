@@ -13,6 +13,7 @@ const ORIGINAL_MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID;
 const ORIGINAL_MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD;
 const ORIGINAL_MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
 const ORIGINAL_HYBRIDCLAW_LOG_REQUESTS = process.env.HYBRIDCLAW_LOG_REQUESTS;
 const ORIGINAL_CI = process.env.CI;
@@ -933,6 +934,11 @@ afterEach(() => {
     delete process.env.OPENROUTER_API_KEY;
   } else {
     process.env.OPENROUTER_API_KEY = ORIGINAL_OPENROUTER_API_KEY;
+  }
+  if (ORIGINAL_MISTRAL_API_KEY === undefined) {
+    delete process.env.MISTRAL_API_KEY;
+  } else {
+    process.env.MISTRAL_API_KEY = ORIGINAL_MISTRAL_API_KEY;
   }
   if (ORIGINAL_HF_TOKEN === undefined) {
     delete process.env.HF_TOKEN;
@@ -2087,6 +2093,102 @@ describe('CLI hybridai commands', () => {
     });
     expect(logSpy).toHaveBeenCalledWith(
       'Cleared OpenRouter credentials in /tmp/credentials.json.',
+    );
+  });
+
+  it('configures Mistral from auth login with --api-key', async () => {
+    const { cli, saveRuntimeSecrets, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'auth',
+      'login',
+      'mistral',
+      'mistral-large-latest',
+      '--api-key',
+      'mistral-secret-key',
+    ]);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      MISTRAL_API_KEY: 'mistral-secret-key',
+    });
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Provider: mistral');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Configured model: mistral/mistral-large-latest',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Default model: mistral/mistral-large-latest',
+    );
+  });
+
+  it('prompts for the Mistral API key when flag and env are absent', async () => {
+    const originalStdinTty = process.stdin.isTTY;
+    const originalStdoutTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    try {
+      const { cli, saveRuntimeSecrets, readlineQuestion, readlineClose } =
+        await importFreshCli({
+          promptResponses: ['mistral-pasted-key'],
+        });
+
+      await cli.main(['auth', 'login', 'mistral', 'mistral-large-latest']);
+
+      expect(readlineQuestion).toHaveBeenCalledWith(
+        '🔒 Paste Mistral API key: ',
+      );
+      expect(readlineClose).toHaveBeenCalled();
+      expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+        MISTRAL_API_KEY: 'mistral-pasted-key',
+      });
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: originalStdinTty,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutTty,
+        configurable: true,
+      });
+    }
+  });
+
+  it('prints Mistral status through auth status', async () => {
+    process.env.MISTRAL_API_KEY = 'mistral-secret-key';
+    try {
+      const { cli } = await importFreshCli();
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      await cli.main(['auth', 'status', 'mistral']);
+
+      expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('Enabled: no');
+      expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
+    } finally {
+      delete process.env.MISTRAL_API_KEY;
+    }
+  });
+
+  it('clears Mistral credentials through auth logout', async () => {
+    const { cli, saveRuntimeSecrets } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'logout', 'mistral']);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      MISTRAL_API_KEY: null,
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      'Cleared Mistral credentials in /tmp/credentials.json.',
     );
   });
 

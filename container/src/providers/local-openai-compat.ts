@@ -103,7 +103,13 @@ function isMistralCompatModel(
   provider: string | undefined,
   model: string,
 ): boolean {
-  if (provider !== 'vllm' && provider !== 'lmstudio') return false;
+  if (
+    provider !== 'mistral' &&
+    provider !== 'vllm' &&
+    provider !== 'lmstudio'
+  ) {
+    return false;
+  }
   const normalizedModel = normalizeLocalModelName(provider, model)
     .trim()
     .toLowerCase();

@@ -191,6 +191,11 @@
     "baseUrl": "https://openrouter.ai/api/v1",
     "models": ["openrouter/anthropic/claude-sonnet-4"]
   },
+  "mistral": {
+    "enabled": false,
+    "baseUrl": "https://api.mistral.ai/v1",
+    "models": ["mistral/mistral-large-latest"]
+  },
   "huggingface": {
     "enabled": false,
     "baseUrl": "https://router.huggingface.co/v1",

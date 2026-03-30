@@ -162,6 +162,7 @@ export type RuntimeAuxiliaryProviderSelection =
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'mistral'
   | 'huggingface'
   | 'ollama'
   | 'lmstudio'
@@ -423,6 +424,11 @@ export interface RuntimeConfig {
     baseUrl: string;
     models: string[];
   };
+  mistral: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
   huggingface: {
     enabled: boolean;
     baseUrl: string;
@@ -616,6 +622,7 @@ const DEFAULT_CODEX_MODEL_LIST = [
 const DEFAULT_OPENROUTER_MODEL_LIST = [
   'openrouter/anthropic/claude-sonnet-4',
 ] as const;
+const DEFAULT_MISTRAL_MODEL_LIST = ['mistral/mistral-large-latest'] as const;
 const DEFAULT_HUGGINGFACE_MODEL_LIST = [
   'huggingface/meta-llama/Llama-3.1-8B-Instruct',
 ] as const;
@@ -812,6 +819,11 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     enabled: false,
     baseUrl: 'https://openrouter.ai/api/v1',
     models: [...DEFAULT_OPENROUTER_MODEL_LIST],
+  },
+  mistral: {
+    enabled: false,
+    baseUrl: 'https://api.mistral.ai/v1',
+    models: [...DEFAULT_MISTRAL_MODEL_LIST],
   },
   huggingface: {
     enabled: false,
@@ -2679,6 +2691,7 @@ function normalizeAuxiliaryProviderSelection(
     normalized === 'hybridai' ||
     normalized === 'openai-codex' ||
     normalized === 'openrouter' ||
+    normalized === 'mistral' ||
     normalized === 'huggingface' ||
     normalized === 'ollama' ||
     normalized === 'lmstudio' ||
@@ -2898,6 +2911,7 @@ function normalizeRuntimeConfig(
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
   const rawOpenRouter = isRecord(raw.openrouter) ? raw.openrouter : {};
+  const rawMistral = isRecord(raw.mistral) ? raw.mistral : {};
   const rawHuggingFace = isRecord(raw.huggingface) ? raw.huggingface : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
   const rawAuxiliaryModels = isRecord(raw.auxiliaryModels)
@@ -3041,6 +3055,10 @@ function normalizeRuntimeConfig(
   const openRouterModelList = normalizeStringArray(
     rawOpenRouter.models,
     DEFAULT_RUNTIME_CONFIG.openrouter.models,
+  );
+  const mistralModelList = normalizeStringArray(
+    rawMistral.models,
+    DEFAULT_RUNTIME_CONFIG.mistral.models,
   );
   const huggingFaceModelList = normalizeStringArray(
     rawHuggingFace.models,
@@ -3312,6 +3330,17 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.openrouter.baseUrl,
       ),
       models: openRouterModelList,
+    },
+    mistral: {
+      enabled: normalizeBoolean(
+        rawMistral.enabled,
+        DEFAULT_RUNTIME_CONFIG.mistral.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawMistral.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.mistral.baseUrl,
+      ),
+      models: mistralModelList,
     },
     huggingface: {
       enabled: normalizeBoolean(
