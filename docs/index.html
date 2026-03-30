@@ -490,6 +490,52 @@
       overflow-wrap: anywhere;
       word-break: break-word;
     }
+    .status-check,
+    .status-cross,
+    .status-warn {
+      display: inline-block;
+      margin-right: 0.45rem;
+      font-weight: 800;
+    }
+    .status-check { color: var(--success); }
+    .status-cross { color: #f43f5e; }
+    .status-warn { color: #f59e0b; }
+    .comparison.hybridclaw-last th:nth-child(2) {
+      color: var(--text-faint);
+      background: transparent;
+      border-left: none;
+      border-right: none;
+    }
+    .comparison.hybridclaw-last td:nth-child(2) {
+      font-weight: 400;
+      color: var(--text);
+      background: transparent;
+      border-left: none;
+      border-right: none;
+    }
+    .comparison.hybridclaw-last th:nth-child(4) {
+      color: var(--accent-teal);
+      background: rgba(92, 224, 216, 0.14);
+      border-left: 1px solid rgba(92, 224, 216, 0.36);
+      border-right: 1px solid rgba(92, 224, 216, 0.36);
+    }
+    .comparison.hybridclaw-last td:nth-child(4) {
+      font-weight: 600;
+      color: var(--text);
+      background: rgba(92, 224, 216, 0.1);
+      border-left: 1px solid rgba(92, 224, 216, 0.26);
+      border-right: 1px solid rgba(92, 224, 216, 0.26);
+    }
+    .comparison .topic-row td {
+      padding-top: 1rem;
+      padding-bottom: 0.55rem;
+      color: var(--text);
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      background: rgba(255, 255, 255, 0.03);
+    }
 
     /* FAQ */
     .faq-list { max-width: 700px; margin: 0 auto; }
@@ -1033,6 +1079,151 @@
           <td>
             <span class="compare-text">Mostly single-channel simplicity</span>
           </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="glow-divider"></div>
+
+<!-- LEARNING & MEMORY -->
+<section id="learning-memory">
+  <div class="section-center">
+    <div class="section-label">Learning &amp; Memory</div>
+    <h2 class="section-title">Learning &amp; Memory</h2>
+    <p class="section-desc">This keeps the existing comparison framing, adds the corresponding HybridClaw implementation for each area, and includes extra rows where HybridClaw clearly ships additional memory or learning features.</p>
+  </div>
+  <div class="comparison hybridclaw-last">
+    <table>
+      <thead>
+        <tr>
+          <th>Feature</th>
+          <th>Hermes Agent</th>
+          <th>OpenClaw</th>
+          <th>HybridClaw</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="topic-row">
+          <td colspan="4">Memory &amp; Continuity</td>
+        </tr>
+        <tr>
+          <td>Memory system</td>
+          <td><span class="compare-text">Markdown files</span></td>
+          <td><span class="compare-text">Markdown files + vector search</span></td>
+          <td><span class="compare-text">Markdown files + SQLite semantic vectors</span></td>
+        </tr>
+        <tr>
+          <td>Memory size</td>
+          <td><span class="compare-text">Bounded (2.2k + 1.4k chars)</span></td>
+          <td><span class="compare-text">Growing files + vector index</span></td>
+          <td><span class="compare-text">Bounded prompt + SQLite</span></td>
+        </tr>
+        <tr>
+          <td>Memory nudges</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Every 10 user turns</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>None</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Heartbeat + flush nudges</span></td>
+        </tr>
+        <tr>
+          <td>Memory flush</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Dedicated flush turn</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Pre-compaction flush</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Flush before compaction</span></td>
+        </tr>
+        <tr>
+          <td>Daily memory layer</td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>No daily digest</span></td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Daily logs + tool recall</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Daily digest to MEMORY.md</span></td>
+        </tr>
+        <tr>
+          <td>Knowledge graph memory</td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>No graph memory</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>No graph memory</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Entity/relation graph</span></td>
+        </tr>
+        <tr>
+          <td>Session history search</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>FTS5 + summaries</span></td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Experimental</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Summaries + optional QMD retrieval</span></td>
+        </tr>
+        <tr>
+          <td>Cross-session user modeling</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Honcho model</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>File-based only</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Linked identities + memory backends</span></td>
+        </tr>
+        <tr>
+          <td>Session key continuity</td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Cross-platform mapping</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Channel/topic keys</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Canonical keys + linked IDs</span></td>
+        </tr>
+        <tr>
+          <td>Cache-stable memory</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Frozen snapshots</span></td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Per-turn file injection</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Injected memory + saved summaries</span></td>
+        </tr>
+        <tr>
+          <td>Memory injection security</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Prompt-injection scanner</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>None</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Prompt sanitization + cited recall</span></td>
+        </tr>
+        <tr class="topic-row">
+          <td colspan="4">Skills &amp; Learning</td>
+        </tr>
+        <tr>
+          <td>Skill system</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>54 bundled + Skills Hub</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>53 bundled + ClawHub</span></td>
+          <td><span class="compare-text">27 bundled + 7 hubs</span></td>
+        </tr>
+        <tr>
+          <td>Skill standard</td>
+          <td><span class="compare-text">agentskills.io</span></td>
+          <td><span class="compare-text">OpenClaw-only</span></td>
+          <td><span class="compare-text">OpenClaw/CLAUDE SKILL.md</span></td>
+        </tr>
+        <tr>
+          <td>Agent package format</td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>None</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>None</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Portable <code>.claw</code> bundles</span></td>
+        </tr>
+        <tr>
+          <td>Skill prompt loading</td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Slash skills as user messages</span></td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Auto-load; hidden off lists</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Always-on, summary, hidden</span></td>
+        </tr>
+        <tr>
+          <td>Skill security scanning</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Scanner + quarantine</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Code scanner on install</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Trust-aware skill scan</span></td>
+        </tr>
+        <tr>
+          <td>Autonomous skill creation</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Nudged every 15 iterations</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>User-triggered only</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Guarded skill proposals</span></td>
+        </tr>
+        <tr>
+          <td>Skill self-improvement</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Live patching</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>Static</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Observe, review, apply/reject</span></td>
+        </tr>
+        <tr>
+          <td>Adaptive skill governance</td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Learning loop, no staged rollback</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>None found</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Metrics + staged rollback</span></td>
         </tr>
       </tbody>
     </table>
