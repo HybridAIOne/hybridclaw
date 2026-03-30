@@ -58,6 +58,11 @@ interface LocalMessageRow {
   chatDisplayName: string | null;
 }
 
+const SELF_CHAT_ATTRIBUTED_CONTROL_COMMAND_RE =
+  /^\/(clear|reset|stop|pause|cancel|resume)\b/i;
+const MAX_SELF_CHAT_ATTRIBUTED_LINES = 6;
+const MAX_SELF_CHAT_ATTRIBUTED_CHARS = 400;
+
 function normalizeLocalInboundText(value: string): string {
   const trimmed = String(value || '').trim();
   if (!trimmed) return '';
@@ -106,6 +111,24 @@ function decodeAttributedBodyText(value: Buffer | null): string | null {
   return candidate || null;
 }
 
+function looksLikeSelfChatAttributedReplay(value: string): boolean {
+  const normalized = String(value || '').replace(/\r\n?/g, '\n').trim();
+  if (!normalized) return false;
+
+  const nonEmptyLines = normalized
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (normalized.length > MAX_SELF_CHAT_ATTRIBUTED_CHARS) {
+    return true;
+  }
+  if (nonEmptyLines.length > MAX_SELF_CHAT_ATTRIBUTED_LINES) {
+    return true;
+  }
+  const markerMatches = normalized.match(/\[[^\]\n]{1,40}\]/g);
+  return (markerMatches?.length || 0) >= 2;
+}
+
 function resolveMessageText(row: LocalMessageRow): string {
   const direct = normalizeLocalInboundText(String(row.text || ''));
   if (direct) return direct;
@@ -114,6 +137,31 @@ function resolveMessageText(row: LocalMessageRow): string {
     decodeAttributedBodyText(row.attributedBody) || '',
   );
   if (decodedAttributedBody) {
+    if (isSelfChatConversation(row)) {
+      if (
+        SELF_CHAT_ATTRIBUTED_CONTROL_COMMAND_RE.test(decodedAttributedBody)
+      ) {
+        logger.warn(
+          {
+            rowid: row.rowid,
+            messageGuid: row.messageGuid,
+          },
+          'Skipping local self-chat attributedBody control command without plain text',
+        );
+        return '';
+      }
+      if (looksLikeSelfChatAttributedReplay(decodedAttributedBody)) {
+        logger.warn(
+          {
+            rowid: row.rowid,
+            messageGuid: row.messageGuid,
+            attributedBodyBytes: row.attributedBody?.length || 0,
+          },
+          'Skipping local self-chat attributedBody row that looks like replayed history',
+        );
+        return '';
+      }
+    }
     return decodedAttributedBody;
   }
 
