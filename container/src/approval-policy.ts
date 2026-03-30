@@ -386,9 +386,7 @@ function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
         );
       } else if (key === 'trusted_network_hosts') {
         policy.trustedNetworkHosts =
-          parseInlineList(rawValue).length > 0
-            ? parseInlineList(rawValue)
-            : [];
+          parseInlineList(rawValue).length > 0 ? parseInlineList(rawValue) : [];
       } else if (key === 'max_pending_approvals') {
         policy.maxPendingApprovals = Math.max(
           1,
@@ -1501,10 +1499,9 @@ export class TrustedCoworkerApprovalRuntime {
         intent: `search the web via ${provider || 'configured providers'}`,
         consequenceIfDenied:
           'I will avoid external search providers and continue with local context only.',
-        reason:
-          allTrusted
-            ? 'this host is allowlisted in approval policy'
-            : unseen.length > 0
+        reason: allTrusted
+          ? 'this host is allowlisted in approval policy'
+          : unseen.length > 0
             ? 'this would contact a new external host'
             : 'this is an external network action',
         commandPreview: normalizePreview(JSON.stringify(args)),
@@ -1537,10 +1534,9 @@ export class TrustedCoworkerApprovalRuntime {
         intent: `access ${primaryHost}`,
         consequenceIfDenied:
           'I will avoid contacting that host and use existing local context only.',
-        reason:
-          allTrusted
-            ? 'this host is allowlisted in approval policy'
-            : unseen.length > 0
+        reason: allTrusted
+          ? 'this host is allowlisted in approval policy'
+          : unseen.length > 0
             ? 'this would contact a new external host'
             : 'this is an external network action',
         commandPreview: normalizePreview(rawUrl),

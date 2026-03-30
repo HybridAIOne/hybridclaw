@@ -1179,8 +1179,12 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
-    expect(res.body).toContain('<title>Search: commands | HybridClaw Docs</title>');
-    expect(res.body).toContain('<h1 id="docs-search-results">Docs Search Results');
+    expect(res.body).toContain(
+      '<title>Search: commands | HybridClaw Docs</title>',
+    );
+    expect(res.body).toContain(
+      '<h1 id="docs-search-results">Docs Search Results',
+    );
     expect(res.body).toContain('Query: <code>commands</code>');
     expect(res.body).toContain('href="/docs/reference#commands"');
   });

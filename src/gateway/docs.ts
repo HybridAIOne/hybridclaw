@@ -305,7 +305,8 @@ function searchDevelopmentDocs(
 
   return entries
     .filter((entry) => {
-      const haystack = `${entry.label} ${entry.parentTitle} ${entry.description}`.toLowerCase();
+      const haystack =
+        `${entry.label} ${entry.parentTitle} ${entry.description}`.toLowerCase();
       return haystack.includes(normalizedQuery);
     })
     .slice(0, limit);
@@ -1917,8 +1918,7 @@ function buildSearchResultMarkdown(params: {
 
   lines.push(`Matches: ${matches.length}`, '');
   for (const match of matches) {
-    const href =
-      linkMode === 'route' ? match.routePath : match.markdownPath;
+    const href = linkMode === 'route' ? match.routePath : match.markdownPath;
     lines.push(
       `- [${match.label}](${href})`,
       `  - Section: ${match.parentTitle}`,

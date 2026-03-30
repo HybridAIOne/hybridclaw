@@ -694,6 +694,8 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(evaluation.actionKey).toBe('network:hybridclaw.io');
     expect(evaluation.tier).toBe('green');
     expect(evaluation.decision).toBe('auto');
-    expect(evaluation.reason).toBe('this host is allowlisted in approval policy');
+    expect(evaluation.reason).toBe(
+      'this host is allowlisted in approval policy',
+    );
   });
 });
