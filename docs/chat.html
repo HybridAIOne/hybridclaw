@@ -1984,6 +1984,13 @@
       chatEl.classList.toggle('is-empty', !hasMessages);
     }
 
+    function isScrolledNearBottom(element, threshold = 64) {
+      if (!element) return true;
+      const remaining =
+        element.scrollHeight - element.scrollTop - element.clientHeight;
+      return remaining <= threshold;
+    }
+
     function buildArtifactUrl(filePath) {
       const params = new URLSearchParams({ path: filePath || '' });
       if (apiToken) {
@@ -2258,13 +2265,15 @@
     function addMessage(role, content, artifacts, options = {}) {
       const item = document.createElement('div');
       item.className = `msg ${role}`;
+      let contentEl = null;
+      let artifactsBlock = null;
       if (role === 'assistant') {
         item.classList.add('markdown');
         appendAssistantPresentation(
           item,
           options.assistantPresentation || activeAssistantPresentation,
         );
-        const contentEl = document.createElement('div');
+        contentEl = document.createElement('div');
         contentEl.className = 'msg-content';
         contentEl.innerHTML = renderMarkdown(content || '');
         item.appendChild(contentEl);
@@ -2279,7 +2288,7 @@
       block.appendChild(item);
 
       if (role === 'assistant') {
-        const artifactsBlock = renderArtifactCards(artifacts);
+        artifactsBlock = renderArtifactCards(artifacts);
         if (artifactsBlock) {
           block.appendChild(artifactsBlock);
         }
@@ -2292,6 +2301,7 @@
         setMessageMeta(block, {
           block,
           itemEl: item,
+          contentEl,
           actionsEl: actions,
           role,
           sessionId: options.sessionId || activeSessionId,
@@ -2300,6 +2310,8 @@
           copyText: options.copyText ?? content ?? '',
           rawContent: options.rawContent ?? content ?? '',
           media: cloneMediaList(options.media),
+          artifacts: Array.isArray(artifacts) ? artifacts : [],
+          artifactsEl: role === 'assistant' ? artifactsBlock || null : null,
           replayRequest: options.replayRequest || null,
           branchKey: options.branchKey || null,
           isEditing: false,
@@ -2314,6 +2326,49 @@
         block,
         item,
       };
+    }
+
+    function updateAssistantMessage(block, content, artifacts, options = {}) {
+      const meta = getMessageMeta(block);
+      if (!meta || meta.role !== 'assistant') return;
+
+      const shouldAutoScroll = isScrolledNearBottom(messagesEl);
+      const nextContent = String(content || '');
+      const nextArtifacts = Array.isArray(artifacts) ? artifacts : meta.artifacts || [];
+      const contentEl = meta.contentEl || meta.itemEl?.querySelector?.('.msg-content');
+      if (contentEl) {
+        contentEl.innerHTML = renderMarkdown(nextContent);
+      }
+
+      const hasNextArtifacts = nextArtifacts.length > 0;
+      const hasCurrentArtifacts = Array.isArray(meta.artifacts) && meta.artifacts.length > 0;
+      let nextArtifactsEl = meta.artifactsEl || null;
+      if (hasNextArtifacts || hasCurrentArtifacts) {
+        if (meta.artifactsEl?.isConnected) {
+          meta.artifactsEl.remove();
+        }
+        nextArtifactsEl = renderArtifactCards(nextArtifacts);
+        if (nextArtifactsEl) {
+          block.insertBefore(nextArtifactsEl, meta.actionsEl || null);
+        }
+      }
+
+      setMessageMeta(block, {
+        sessionId: options.sessionId || meta.sessionId || activeSessionId,
+        messageId:
+          normalizeMessageId(options.messageId) ||
+          meta.messageId ||
+          null,
+        content: nextContent,
+        copyText: options.copyText ?? nextContent,
+        artifacts: nextArtifacts,
+        artifactsEl: nextArtifactsEl,
+        replayRequest: options.replayRequest || meta.replayRequest || null,
+      });
+
+      if (shouldAutoScroll) {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
     }
 
     function addThinkingMessage() {
@@ -2455,6 +2510,118 @@
         throw new Error(payload.error || `${response.status} ${response.statusText}`);
       }
       return payload;
+    }
+
+    async function requestChatStream(url, options = {}) {
+      const { onEvent: rawOnEvent, ...requestOptions } = options;
+      const response = await fetch(url, requestOptions);
+      if (!response.ok) {
+        const errorText = (await response.text().catch(() => '')).trim();
+        let errorMessage = `${response.status} ${response.statusText}`;
+        if (errorText) {
+          try {
+            const payload = JSON.parse(errorText);
+            errorMessage = payload.error || payload.text || errorText;
+          } catch {
+            errorMessage = errorText;
+          }
+        }
+        throw new Error(errorMessage);
+      }
+
+      const onEvent =
+        typeof rawOnEvent === 'function'
+          ? rawOnEvent
+          : () => {};
+
+      const parseLine = (line) => {
+        const trimmed = String(line || '').trim();
+        if (!trimmed) return null;
+
+        let payload;
+        try {
+          payload = JSON.parse(trimmed);
+        } catch {
+          return null;
+        }
+
+        if (!payload || typeof payload !== 'object') {
+          return null;
+        }
+
+        if (payload.type === 'text' && typeof payload.delta === 'string') {
+          onEvent(payload);
+          return null;
+        }
+
+        if (payload.type === 'result' && payload.result && typeof payload.result === 'object') {
+          return payload.result;
+        }
+
+        if (typeof payload.status === 'string' && Array.isArray(payload.toolsUsed)) {
+          return payload;
+        }
+
+        return null;
+      };
+
+      if (!response.body) {
+        const text = await response.text().catch(() => '');
+        let finalResult = null;
+        for (const line of text.split('\n')) {
+          const result = parseLine(line);
+          if (result) {
+            finalResult = result;
+          }
+        }
+        if (!finalResult) {
+          throw new Error('Chat stream ended without a result payload.');
+        }
+        return finalResult;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalResult = null;
+      const consumeBufferedLines = (includeRemainder = false) => {
+        const lines = buffer.split('\n');
+        const remainder = includeRemainder ? (lines.pop() || '') : null;
+        buffer = includeRemainder ? '' : lines.pop() || '';
+
+        for (const line of lines) {
+          const result = parseLine(line);
+          if (result) {
+            finalResult = result;
+          }
+        }
+
+        if (includeRemainder && remainder?.trim()) {
+          const result = parseLine(remainder);
+          if (result) {
+            finalResult = result;
+          }
+        }
+      };
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          consumeBufferedLines();
+        }
+
+        buffer += decoder.decode();
+        consumeBufferedLines(true);
+      } finally {
+        reader.releaseLock();
+      }
+
+      if (!finalResult) {
+        throw new Error('Chat stream ended without a result payload.');
+      }
+      return finalResult;
     }
 
     function buildClipboardUploadFilename(file) {
@@ -2732,6 +2899,9 @@
         thinkingItem,
         queuedMedia,
         userBlock: userView?.block || null,
+        assistantBlock: null,
+        assistantText: '',
+        assistantRenderFrame: 0,
         stopRequested: false,
         stopping: false,
       };
@@ -2739,18 +2909,66 @@
       updateComposerState();
 
       try {
-        const payload = await requestJson('/api/chat', {
+        const replayRequest = {
+          content,
+          media: queuedMedia,
+        };
+        const ensureAssistantBlock = () => {
+          if (requestState.assistantBlock?.isConnected) {
+            return requestState.assistantBlock;
+          }
+          if (requestState.thinkingItem?.isConnected) {
+            requestState.thinkingItem.remove();
+          }
+          const assistantView = addMessage('assistant', '', [], {
+            sessionId: requestState.sessionId,
+            replayRequest,
+          });
+          requestState.assistantBlock = assistantView?.block || null;
+          return requestState.assistantBlock;
+        };
+        const renderStreamedAssistant = () => {
+          requestState.assistantRenderFrame = 0;
+          const assistantBlock = ensureAssistantBlock();
+          if (!assistantBlock) return;
+          updateAssistantMessage(assistantBlock, requestState.assistantText, [], {
+            sessionId: requestState.sessionId,
+            replayRequest,
+          });
+        };
+        const scheduleAssistantRender = () => {
+          if (requestState.assistantRenderFrame !== 0) return;
+          requestState.assistantRenderFrame = window.requestAnimationFrame(() => {
+            renderStreamedAssistant();
+          });
+        };
+        const flushAssistantRender = () => {
+          if (requestState.assistantRenderFrame === 0) return;
+          window.cancelAnimationFrame(requestState.assistantRenderFrame);
+          renderStreamedAssistant();
+        };
+
+        const payload = await requestChatStream('/api/chat', {
           method: 'POST',
-          headers: apiHeaders(),
+          headers: {
+            ...apiHeaders(),
+            Accept: 'application/x-ndjson',
+          },
           body: JSON.stringify({
             sessionId: requestState.sessionId,
             channelId: 'web',
             userId: activeUserId,
             username: 'web',
             content,
+            stream: true,
             ...(queuedMedia.length > 0 ? { media: queuedMedia } : {}),
           }),
           signal: requestState.controller.signal,
+          onEvent: (event) => {
+            if (event.type !== 'text' || !event.delta) return;
+            requestState.assistantText += event.delta;
+            scheduleAssistantRender();
+          },
         });
         if (payload.status === 'error') {
           throw new Error(payload.error || 'Unknown error');
@@ -2767,14 +2985,22 @@
           });
           renderMessageActions(requestState.userBlock);
         }
-        const assistantView = addMessage('assistant', payload.result || '', payload.artifacts || [], {
-          sessionId: activeSessionId,
-          messageId: normalizeMessageId(payload.assistantMessageId),
-          replayRequest: {
-            content,
-            media: queuedMedia,
-          },
-        });
+        flushAssistantRender();
+        const assistantBlock =
+          requestState.assistantBlock || ensureAssistantBlock();
+        if (assistantBlock) {
+          updateAssistantMessage(
+            assistantBlock,
+            payload.result || requestState.assistantText || '',
+            payload.artifacts || [],
+            {
+              sessionId: activeSessionId,
+              messageId: normalizeMessageId(payload.assistantMessageId),
+              replayRequest,
+            },
+          );
+          renderMessageActions(assistantBlock);
+        }
         void refreshRecentSessions();
         return {
           payload,
@@ -2782,9 +3008,13 @@
           userMessageId,
           assistantMessageId: normalizeMessageId(payload.assistantMessageId),
           userBlock: requestState.userBlock,
-          assistantBlock: assistantView?.block || null,
+          assistantBlock,
         };
       } catch (err) {
+        if (requestState.assistantRenderFrame !== 0) {
+          window.cancelAnimationFrame(requestState.assistantRenderFrame);
+          requestState.assistantRenderFrame = 0;
+        }
         if (requestState.stopRequested) {
           setError('');
           return null;
