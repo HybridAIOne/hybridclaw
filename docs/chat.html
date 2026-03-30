@@ -2612,7 +2612,16 @@
         }
       } finally {
         reader.releaseLock();
-        decoder.decode();
+        buffer += decoder.decode();
+      }
+
+      if (!finalResult) {
+        if (buffer.trim()) {
+          const result = parseLine(buffer);
+          if (result) {
+            finalResult = result;
+          }
+        }
       }
 
       if (!finalResult) {
