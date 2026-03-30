@@ -62,7 +62,8 @@ Interactive slash commands inside TUI:
   /mcp add <name> <json>
   /mcp toggle <name> /mcp remove <name> /mcp reconnect <name>
   /usage [summary|daily|monthly|model [daily|monthly] [agentId]]
-  /export [sessionId]   /sessions   /audit [sessionId]
+  /export session [sessionId]   /export trace [sessionId|all]
+  /sessions   /audit [sessionId]
   /schedule add "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
   /info   /compact   /clear   /reset [yes|no]   /stop   /exit`);
 }

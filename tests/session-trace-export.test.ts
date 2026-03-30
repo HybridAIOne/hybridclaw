@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 
 import { expect, test } from 'vitest';
 
@@ -167,7 +168,8 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
   expect(exported && fs.existsSync(exported.path)).toBe(true);
 
   const raw = fs.readFileSync(exported?.path || '', 'utf-8').trim();
-  const record = JSON.parse(raw) as Record<string, any>;
+  const record = JSON.parse(raw) as Record<string, unknown>;
+  const steps = (record.steps as Array<Record<string, unknown>>) || [];
   expect(record.schema_version).toBe('0.1.0');
   expect(record.session_id).toBe(session.id);
   expect(record.agent).toMatchObject({
@@ -187,13 +189,15 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
     signal_source: 'deterministic',
   });
   expect(record.content_hash).toMatch(/^[a-f0-9]{64}$/);
-  expect(record.steps).toHaveLength(2);
-  expect(record.steps[0]).toMatchObject({
+  expect(steps).toHaveLength(2);
+  const firstStep = steps[0] || {};
+  const secondStep = steps[1] || {};
+  expect(firstStep).toMatchObject({
     step_index: 0,
     role: 'user',
     content: 'Fix the parser test',
   });
-  expect(record.steps[1]).toMatchObject({
+  expect(secondStep).toMatchObject({
     step_index: 1,
     role: 'agent',
     content: 'I updated the parser test and verified the failure path.',
@@ -207,7 +211,7 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
       cache_write_tokens: 15,
     },
   });
-  expect(record.steps[1].tool_calls).toEqual([
+  expect(secondStep.tool_calls).toEqual([
     {
       tool_call_id: `${runId}:tool:1`,
       tool_name: 'bash',
@@ -215,7 +219,7 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
       duration_ms: 3400,
     },
   ]);
-  expect(record.steps[1].observations).toEqual([
+  expect(secondStep.observations).toEqual([
     {
       source_call_id: `${runId}:tool:1`,
       content: 'PASS parser.test.ts',
@@ -416,6 +420,28 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
   );
 
   initDatabase({ quiet: true });
+  let localUsername = process.env.USER || process.env.USERNAME || '';
+  if (!localUsername) {
+    try {
+      localUsername = os.userInfo().username;
+    } catch {
+      localUsername = 'alice';
+    }
+  }
+  const highEntropySecret = 'Xk9mZr3pWq7vNt2sLf6yBh4jCe8gAa5d';
+  const toolCommand = [
+    `cat /Users/${localUsername}/work/project/.env`,
+    `echo gho_abcdefghijklmnopqrstuvwxyz1234567890`,
+    `echo npm_abcdefghijklmnopqrstuvwxyz123456`,
+    `echo ~${localUsername}/docs`,
+    `echo -Users-${localUsername}-src-project`,
+    `echo C:\\Users\\${localUsername}\\Documents\\code.ts`,
+    `echo C:/Users/${localUsername}/Documents/code.ts`,
+    `echo /mnt/c/Users/${localUsername}/repo/app.ts`,
+    `echo \\\\wsl.localhost\\Ubuntu\\home\\${localUsername}\\repo\\app.ts`,
+    `echo //wsl.localhost/Ubuntu/home/${localUsername}/repo/app.ts`,
+    `echo ${highEntropySecret}`,
+  ].join(' && ');
   const session = getOrCreateSession(
     'session-trace-redaction',
     null,
@@ -426,14 +452,14 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
     'user-1',
     'alice',
     'user',
-    'Inspect /Users/alice/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890',
+    `Inspect /Users/${localUsername}/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890 via ~${localUsername}/docs from -Users-${localUsername}-src-project and ${highEntropySecret}. Contact user@company.com at 203.0.113.42 or (555) 123-4567.`,
   );
   storeMessage(
     session.id,
     'assistant',
     null,
     'assistant',
-    'I checked /home/alice/.config/app and found JWT eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYWRtaW4iLCJzY29wZSI6ImRldiJ9.signaturevalue123',
+    `I checked /home/${localUsername}/.config/app and found JWT eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYWRtaW4iLCJzY29wZSI6ImRldiJ9.signaturevalue123. SSN 123-45-6789. Card 4111 1111 1111 1111.`,
   );
 
   const runId = 'turn_trace_redaction_1';
@@ -444,7 +470,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
       type: 'turn.start',
       turnIndex: 1,
       userInput:
-        'Inspect /Users/alice/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890',
+        `Inspect /Users/${localUsername}/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890 via ~${localUsername}/docs from -Users-${localUsername}-src-project and ${highEntropySecret}. Contact user@company.com at 203.0.113.42 or (555) 123-4567.`,
       username: 'alice',
       source: 'gateway.chat',
     },
@@ -466,10 +492,9 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
     toolExecutions: [
       {
         name: 'bash',
-        arguments:
-          '{"command":"cat /Users/alice/work/project/.env && echo gho_abcdefghijklmnopqrstuvwxyz1234567890"}',
+        arguments: JSON.stringify({ command: toolCommand }),
         result:
-          'Webhook https://discord.com/api/webhooks/123456/abcdefghijklmnopqrstuvwxyz and token pypi-abcdefghijklmnopqrstuvwxyz123456',
+          `Webhook https://discord.com/api/webhooks/123456/abcdefghijklmnopqrstuvwxyz and token pypi-abcdefghijklmnopqrstuvwxyz123456 at C:/Users/${localUsername}/Documents/code.ts`,
         durationMs: 250,
         isError: false,
       },
@@ -500,8 +525,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
         user_id: 'user-1',
         username: 'alice',
         role: 'user',
-        content:
-          'Inspect /Users/alice/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890',
+        content: `Inspect /Users/${localUsername}/work/project/.env and token ghs_abcdefghijklmnopqrstuvwxyz1234567890 via ~${localUsername}/docs from -Users-${localUsername}-src-project and ${highEntropySecret}. Contact user@company.com at 203.0.113.42 or (555) 123-4567.`,
         created_at: new Date().toISOString(),
       },
       {
@@ -510,8 +534,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
         user_id: 'assistant',
         username: null,
         role: 'assistant',
-        content:
-          'I checked /home/alice/.config/app and found JWT eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYWRtaW4iLCJzY29wZSI6ImRldiJ9.signaturevalue123',
+        content: `I checked /home/${localUsername}/.config/app and found JWT eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYWRtaW4iLCJzY29wZSI6ImRldiJ9.signaturevalue123. SSN 123-45-6789. Card 4111 1111 1111 1111.`,
         created_at: new Date().toISOString(),
       },
     ],
@@ -530,34 +553,195 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
 
   expect(exported).not.toBeNull();
   const raw = fs.readFileSync(exported?.path || '', 'utf-8').trim();
-  const record = JSON.parse(raw) as Record<string, any>;
+  const record = JSON.parse(raw) as Record<string, unknown>;
 
-  expect(raw).not.toContain('/Users/alice/');
-  expect(raw).not.toContain('/home/alice/');
+  expect(raw).not.toContain(`/Users/${localUsername}/`);
+  expect(raw).not.toContain(`/home/${localUsername}/`);
+  expect(raw).not.toContain(`~${localUsername}`);
+  expect(raw).not.toContain(`-Users-${localUsername}-`);
+  expect(raw).not.toContain(`C:\\Users\\${localUsername}\\`);
+  expect(raw).not.toContain(`C:/Users/${localUsername}/`);
+  expect(raw).not.toContain(`/mnt/c/Users/${localUsername}/`);
+  expect(raw).not.toContain(`\\\\wsl.localhost\\Ubuntu\\home\\${localUsername}\\`);
+  expect(raw).not.toContain(`//wsl.localhost/Ubuntu/home/${localUsername}/`);
+  expect(raw).not.toContain(localUsername);
   expect(raw).toContain('/Users/user_');
   expect(raw).toContain('/home/user_');
+  expect(raw).toContain('~user_');
+  expect(raw).toContain('-Users-user_');
   expect(raw).not.toContain('ghs_abcdefghijklmnopqrstuvwxyz1234567890');
   expect(raw).not.toContain('gho_abcdefghijklmnopqrstuvwxyz1234567890');
+  expect(raw).not.toContain('npm_abcdefghijklmnopqrstuvwxyz123456');
   expect(raw).not.toContain(
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYWRtaW4iLCJzY29wZSI6ImRldiJ9.signaturevalue123',
   );
+  expect(raw).not.toContain(highEntropySecret);
+  expect(raw).not.toContain('user@company.com');
+  expect(raw).not.toContain('203.0.113.42');
+  expect(raw).not.toContain('(555) 123-4567');
+  expect(raw).not.toContain('123-45-6789');
+  expect(raw).not.toContain('4111 1111 1111 1111');
   expect(raw).not.toContain(
     'https://discord.com/api/webhooks/123456/abcdefghijklmnopqrstuvwxyz',
   );
   expect(raw).not.toContain('pypi-abcdefghijklmnopqrstuvwxyz123456');
 
-  expect(record.steps[0].content).toContain('/Users/user_');
-  expect(record.steps[0].content).toContain('***GITHUB_TOKEN_REDACTED***');
-  expect(record.steps[1].content).toContain('/home/user_');
-  expect(record.steps[1].content).toContain('***JWT_REDACTED***');
-  expect(record.steps[1].tool_calls[0].input.command).toContain('/Users/user_');
-  expect(record.steps[1].tool_calls[0].input.command).toContain(
-    '***GITHUB_TOKEN_REDACTED***',
-  );
-  expect(record.steps[1].observations[0].content).toContain(
+  const steps = (record.steps as Array<Record<string, unknown>>) || [];
+  const userStep = steps[0] || {};
+  const agentStep = steps[1] || {};
+  const toolCalls = (agentStep.tool_calls as Array<Record<string, unknown>>) || [];
+  const observations =
+    (agentStep.observations as Array<Record<string, unknown>>) || [];
+  const toolInput = (toolCalls[0].input as Record<string, unknown>) || {};
+  const userContent = String(userStep.content || '');
+  const agentContent = String(agentStep.content || '');
+  const toolCommandContent = String(toolInput.command || '');
+  const observationContent = String(observations[0].content || '');
+
+  expect(userContent).toContain('/Users/user_');
+  expect(userContent).toContain('~user_');
+  expect(userContent).toContain('-Users-user_');
+  expect(userContent).toContain('ghs_ab...7890');
+  expect(userContent).toContain('***HIGH_ENTROPY_SECRET_REDACTED***');
+  expect(userContent).toContain('***EMAIL_REDACTED***');
+  expect(userContent).toContain('***IP_ADDRESS_REDACTED***');
+  expect(userContent).toContain('***PHONE_REDACTED***');
+  expect(agentContent).toContain('/home/user_');
+  expect(agentContent).toContain('***JWT_REDACTED***');
+  expect(agentContent).toContain('***SSN_REDACTED***');
+  expect(agentContent).toContain('***CREDIT_CARD_REDACTED***');
+  expect(toolCommandContent).toContain('/Users/user_');
+  expect(toolCommandContent).toContain('~user_');
+  expect(toolCommandContent).toContain('-Users-user_');
+  expect(toolCommandContent).toContain('/mnt/c/Users/user_');
+  expect(toolCommandContent).toContain('gho_ab...7890');
+  expect(toolCommandContent).toContain('npm_ab...3456');
+  expect(toolCommandContent).toContain('***HIGH_ENTROPY_SECRET_REDACTED***');
+  expect(observationContent).toContain(
     '***DISCORD_WEBHOOK_REDACTED***',
   );
-  expect(record.steps[1].observations[0].content).toContain(
-    '***PYPI_TOKEN_REDACTED***',
+  expect(observationContent).toContain('***PYPI_TOKEN_REDACTED***');
+  expect(observationContent).toContain('C:/Users/user_');
+});
+
+test('trace export preserves tool call linkage ids even when they look random', async () => {
+  setupHome();
+
+  const { getOrCreateSession, getSessionById, initDatabase, storeMessage } =
+    await import('../src/memory/db.ts');
+  const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
   );
+  const { exportSessionTraceAtifJsonl } = await import(
+    '../src/session/session-trace-export.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const runId = 'turn_Xk9mZr3pWq7vNt2sLf6yBh4jCe8gAa5d';
+  const session = getOrCreateSession(
+    'session-trace-linkage',
+    null,
+    'channel-trace-linkage',
+  );
+  storeMessage(session.id, 'user-1', 'alice', 'user', 'Run the command');
+  storeMessage(session.id, 'assistant', null, 'assistant', 'Command completed.');
+
+  recordAuditEvent({
+    sessionId: session.id,
+    runId,
+    event: {
+      type: 'turn.start',
+      turnIndex: 1,
+      userInput: 'Run the command',
+      source: 'gateway.chat',
+    },
+  });
+  recordAuditEvent({
+    sessionId: session.id,
+    runId,
+    event: {
+      type: 'agent.start',
+      provider: 'hybridai',
+      model: 'gpt-5-nano',
+      promptMessages: 2,
+      scheduledTaskCount: 0,
+    },
+  });
+  emitToolExecutionAuditEvents({
+    sessionId: session.id,
+    runId,
+    toolExecutions: [
+      {
+        name: 'bash',
+        arguments: '{"command":"echo ok"}',
+        result: 'ok',
+        durationMs: 15,
+        isError: false,
+      },
+    ],
+  });
+  recordAuditEvent({
+    sessionId: session.id,
+    runId,
+    event: {
+      type: 'turn.end',
+      turnIndex: 1,
+      finishReason: 'completed',
+    },
+  });
+
+  const refreshedSession = getSessionById(session.id);
+  if (!refreshedSession) {
+    throw new Error('Expected refreshed session to exist');
+  }
+
+  const exported = exportSessionTraceAtifJsonl({
+    agentId: refreshedSession.agent_id,
+    session: refreshedSession,
+    messages: [
+      {
+        id: 1,
+        session_id: session.id,
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: 'Run the command',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 2,
+        session_id: session.id,
+        user_id: 'assistant',
+        username: null,
+        role: 'assistant',
+        content: 'Command completed.',
+        created_at: new Date().toISOString(),
+      },
+    ],
+    auditEntries: (
+      await import('../src/memory/db.ts')
+    ).getStructuredAuditForSession(session.id),
+    usageTotals: {
+      total_input_tokens: 0,
+      total_output_tokens: 0,
+      total_tokens: 0,
+      total_tool_calls: 1,
+      total_cost_usd: 0,
+      call_count: 0,
+    },
+  });
+
+  expect(exported).not.toBeNull();
+  const raw = fs.readFileSync(exported?.path || '', 'utf-8').trim();
+  const record = JSON.parse(raw) as Record<string, unknown>;
+  const steps = (record.steps as Array<Record<string, unknown>>) || [];
+  const agentStep = steps[1] || {};
+  const toolCalls = (agentStep.tool_calls as Array<Record<string, unknown>>) || [];
+  const observations =
+    (agentStep.observations as Array<Record<string, unknown>>) || [];
+  const expectedToolCallId = `${runId}:tool:1`;
+
+  expect(raw).toContain(expectedToolCallId);
+  expect(toolCalls[0]?.tool_call_id).toBe(expectedToolCallId);
+  expect(observations[0]?.source_call_id).toBe(expectedToolCallId);
 });

@@ -541,7 +541,7 @@ function printHelp(): void {
     `  ${TEAL}/usage [summary|daily|monthly|model [daily|monthly] [agentId]]${RESET} Show usage`,
   );
   console.log(
-    `  ${TEAL}/export [sessionId]${RESET} Export current or specified session JSONL`,
+    `  ${TEAL}/export session [sessionId] | /export trace [sessionId|all]${RESET} Export session snapshot or trace JSONL`,
   );
   console.log(`  ${TEAL}/sessions${RESET}         List active sessions`);
   console.log(

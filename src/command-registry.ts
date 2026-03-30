@@ -333,8 +333,13 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'usage':
       return ['usage', ...parts.slice(1)];
 
-    case 'export':
+    case 'export': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['export', 'session'];
+      if (sub === 'session') return ['export', 'session', ...parts.slice(2)];
+      if (sub === 'trace') return ['export', 'trace', ...parts.slice(2)];
       return ['export', 'session', ...parts.slice(1)];
+    }
 
     case 'sessions':
       return ['sessions'];
@@ -1119,6 +1124,29 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'export',
       description: 'Export a session JSONL snapshot',
+      tuiMenuEntries: [
+        {
+          id: 'export.session',
+          label: '/export session [session_id]',
+          insertText: '/export session ',
+          description:
+            'Export the current or specified session as a JSONL snapshot',
+        },
+        {
+          id: 'export.trace',
+          label: '/export trace [session_id|all]',
+          insertText: '/export trace ',
+          description:
+            'Export the current or specified session as an ATIF-compatible trace JSONL',
+        },
+        {
+          id: 'export.trace.all',
+          label: '/export trace all',
+          insertText: '/export trace all',
+          description: 'Export all sessions as ATIF-compatible trace JSONL',
+          depth: 3,
+        },
+      ],
       options: [
         {
           kind: 'string',

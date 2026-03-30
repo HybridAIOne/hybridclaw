@@ -7,7 +7,7 @@ import { APP_VERSION } from '../config/config.js';
 import { agentWorkspaceDir, ensureAgentDirs } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
-import { redactSecrets } from '../security/redact.js';
+import { redactHighEntropyStrings, redactSecrets } from '../security/redact.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { Session, StoredMessage } from '../types/session.js';
 import type { UsageTotals } from '../types/usage.js';
@@ -16,15 +16,25 @@ const TRACE_EXPORTS_DIR_NAME = '.trace-exports';
 const OPENTRACES_SCHEMA_VERSION = '0.1.0';
 const ATIF_COMPAT_VERSION = '1.6';
 const TRACE_USERNAME_HASH_LENGTH = 8;
+const TRACE_PRESERVED_IDENTIFIER_KEYS = new Set([
+  'tool_call_id',
+  'source_call_id',
+]);
+const TRACE_SYSTEM_USERNAMES = new Set([
+  'Shared',
+  'runner',
+  'lib',
+  'admin',
+  'root',
+  'default',
+  'Public',
+  'Guest',
+]);
 
 const TRACE_EXPORT_EXTRA_REDACTION_PATTERNS: ReadonlyArray<{
   match: RegExp;
   replace: string;
 }> = Object.freeze([
-  {
-    match: /\b(gh[ousr]_[A-Za-z0-9_]{20,})\b/g,
-    replace: '***GITHUB_TOKEN_REDACTED***',
-  },
   {
     match: /\b(pypi-[A-Za-z0-9_-]{20,})\b/g,
     replace: '***PYPI_TOKEN_REDACTED***',
@@ -43,6 +53,13 @@ interface TurnGroup {
   runId: string;
   rows: StructuredAuditEntry[];
   turnStart: StructuredAuditEntry;
+}
+
+enum TraceRedactionFieldType {
+  General = 'general',
+  ToolInput = 'tool_input',
+  ToolResult = 'tool_result',
+  Identifier = 'identifier',
 }
 
 function safeFilePart(raw: string): string {
@@ -120,54 +137,192 @@ function anonymizedPathUsername(username: string): string {
   return `user_${sha256Hex(username.trim().toLowerCase()).slice(0, TRACE_USERNAME_HASH_LENGTH)}`;
 }
 
-function anonymizeTracePaths(text: string): string {
-  return text
-    .replace(
-      /(\/Users\/)([^/\s]+)/g,
-      (_match, prefix: string, username: string) =>
-        `${prefix}${anonymizedPathUsername(username)}`,
-    )
-    .replace(
-      /(\/home\/)([^/\s]+)/g,
-      (_match, prefix: string, username: string) =>
-        `${prefix}${anonymizedPathUsername(username)}`,
-    )
-    .replace(
-      /(\/mnt\/[A-Za-z]\/Users\/)([^/\s]+)/g,
-      (_match, prefix: string, username: string) =>
-        `${prefix}${anonymizedPathUsername(username)}`,
-    )
-    .replace(
-      /(\\Users\\)([^\\\s]+)/g,
-      (_match, prefix: string, username: string) =>
-        `${prefix}${anonymizedPathUsername(username)}`,
-    )
-    .replace(
-      /(\/Users\/)([^/\s]+)(?=\\)/g,
-      (_match, prefix: string, username: string) =>
-        `${prefix}${anonymizedPathUsername(username)}`,
-    );
+function getExplicitTraceUsernames(): string[] {
+  const candidates = new Set<string>();
+  for (const raw of [process.env.USER, process.env.USERNAME]) {
+    const value = raw?.trim();
+    if (value) candidates.add(value);
+  }
+  try {
+    const username = os.userInfo().username.trim();
+    if (username) candidates.add(username);
+  } catch {}
+
+  return [...candidates].filter(
+    (username) => !TRACE_SYSTEM_USERNAMES.has(username),
+  );
 }
 
-function redactTraceText(text: string): string {
+function extractTracePathUsernames(text: string): Set<string> {
+  const matches = new Set<string>();
+  const patterns = [
+    /\/Users\/([A-Za-z0-9][A-Za-z0-9_-]{2,})\//g,
+    /\/home\/([A-Za-z0-9][A-Za-z0-9_-]{2,})\//g,
+    /[A-Za-z]:\\Users\\([A-Za-z0-9][A-Za-z0-9_-]{2,})\\/g,
+    /[A-Za-z]:\/Users\/([A-Za-z0-9][A-Za-z0-9_-]{2,})\//g,
+    /\/mnt\/[A-Za-z]\/Users\/([A-Za-z0-9][A-Za-z0-9_-]{2,})\//g,
+    /\\\\wsl\.localhost\\[^\\]+\\home\\([A-Za-z0-9][A-Za-z0-9_-]{2,})\\/g,
+    /\/\/wsl\.localhost\/[^/]+\/home\/([A-Za-z0-9][A-Za-z0-9_-]{2,})\//g,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const username = match[1];
+      if (username && !TRACE_SYSTEM_USERNAMES.has(username)) {
+        matches.add(username);
+      }
+    }
+  }
+  return matches;
+}
+
+function anonymizeExplicitUsernameReferences(
+  text: string,
+  usernames: Iterable<string>,
+): string {
+  let next = text;
+  for (const username of usernames) {
+    const escaped = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const replacement = anonymizedPathUsername(username);
+    next = next
+      .replace(new RegExp(`-Users-${escaped}-`, 'g'), `-Users-${replacement}-`)
+      .replace(new RegExp(`~${escaped}(?=/|$)`, 'g'), `~${replacement}`)
+      .replace(new RegExp(`\\b${escaped}\\b`, 'g'), replacement);
+  }
+  return next;
+}
+
+function anonymizeTracePaths(text: string): string {
+  let next = text
+    .replace(
+      /(\/Users\/)([^/\s]+)(\/)/g,
+      (_match, prefix: string, username: string, suffix: string) =>
+        `${prefix}${anonymizedPathUsername(username)}${suffix}`,
+    )
+    .replace(
+      /(\/home\/)([^/\s]+)(\/)/g,
+      (_match, prefix: string, username: string, suffix: string) =>
+        `${prefix}${anonymizedPathUsername(username)}${suffix}`,
+    )
+    .replace(
+      /([A-Za-z]:\\Users\\)([^\\\s]+)(\\)/g,
+      (_match, prefix: string, username: string, suffix: string) =>
+        `${prefix}${anonymizedPathUsername(username)}${suffix}`,
+    )
+    .replace(
+      /([A-Za-z]:\/Users\/)([^/\s]+)(\/)/g,
+      (_match, prefix: string, username: string, suffix: string) =>
+        `${prefix}${anonymizedPathUsername(username)}${suffix}`,
+    )
+    .replace(
+      /(\/mnt\/[A-Za-z]\/Users\/)([^/\s]+)(\/)/g,
+      (_match, prefix: string, username: string, suffix: string) =>
+        `${prefix}${anonymizedPathUsername(username)}${suffix}`,
+    )
+    .replace(
+      /(\\\\wsl\.localhost\\[^\\]+\\home\\)([^\\\s]+)(\\)/g,
+      (_match, prefix: string, username: string, suffix: string) =>
+        `${prefix}${anonymizedPathUsername(username)}${suffix}`,
+    )
+    .replace(
+      /(\/\/wsl\.localhost\/[^/]+\/home\/)([^/\s]+)(\/)/g,
+      (_match, prefix: string, username: string, suffix: string) =>
+        `${prefix}${anonymizedPathUsername(username)}${suffix}`,
+    );
+
+  next = anonymizeExplicitUsernameReferences(next, getExplicitTraceUsernames());
+  next = anonymizeExplicitUsernameReferences(
+    next,
+    extractTracePathUsernames(text),
+  );
+  return next;
+}
+
+function redactTraceText(
+  text: string,
+  fieldType: TraceRedactionFieldType,
+): string {
+  if (fieldType === TraceRedactionFieldType.Identifier) return text;
   let next = anonymizeTracePaths(text);
   next = redactSecrets(next);
   for (const pattern of TRACE_EXPORT_EXTRA_REDACTION_PATTERNS) {
     next = next.replace(pattern.match, pattern.replace);
   }
+  if (
+    fieldType === TraceRedactionFieldType.General ||
+    fieldType === TraceRedactionFieldType.ToolInput
+  ) {
+    next = redactHighEntropyStrings(next);
+  }
   return next;
 }
 
-function sanitizeTraceExportValue(value: unknown): unknown {
-  if (typeof value === 'string') return redactTraceText(value);
+function fieldTypeForChildKey(
+  key: string,
+  parentType: TraceRedactionFieldType,
+): TraceRedactionFieldType {
+  if (TRACE_PRESERVED_IDENTIFIER_KEYS.has(key)) {
+    return TraceRedactionFieldType.Identifier;
+  }
+  if (key === 'input') return TraceRedactionFieldType.ToolInput;
+  if (
+    key === 'observations' ||
+    key === 'output_summary' ||
+    key === 'error' ||
+    key === 'reasoning_content'
+  ) {
+    return TraceRedactionFieldType.ToolResult;
+  }
+  return parentType;
+}
+
+function restorePreservedTraceIdentifiers(
+  source: unknown,
+  target: unknown,
+): void {
+  if (!source || !target) return;
+  if (Array.isArray(source) && Array.isArray(target)) {
+    for (let index = 0; index < source.length; index += 1) {
+      restorePreservedTraceIdentifiers(source[index], target[index]);
+    }
+    return;
+  }
+  if (
+    typeof source !== 'object' ||
+    typeof target !== 'object' ||
+    Array.isArray(source) ||
+    Array.isArray(target)
+  ) {
+    return;
+  }
+
+  const sourceRecord = source as Record<string, unknown>;
+  const targetRecord = target as Record<string, unknown>;
+  for (const [key, value] of Object.entries(sourceRecord)) {
+    if (TRACE_PRESERVED_IDENTIFIER_KEYS.has(key) && typeof value === 'string') {
+      targetRecord[key] = value;
+      continue;
+    }
+    restorePreservedTraceIdentifiers(value, targetRecord[key]);
+  }
+}
+
+function sanitizeTraceExportValue(
+  value: unknown,
+  fieldType: TraceRedactionFieldType = TraceRedactionFieldType.General,
+): unknown {
+  if (typeof value === 'string') return redactTraceText(value, fieldType);
   if (Array.isArray(value)) {
-    return value.map((entry) => sanitizeTraceExportValue(entry));
+    return value.map((entry) => sanitizeTraceExportValue(entry, fieldType));
   }
   if (!value || typeof value !== 'object') return value;
 
   const sanitized: Record<string, unknown> = {};
   for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-    sanitized[key] = sanitizeTraceExportValue(raw);
+    sanitized[key] = sanitizeTraceExportValue(
+      raw,
+      fieldTypeForChildKey(key, fieldType),
+    );
   }
   return sanitized;
 }
@@ -180,8 +335,12 @@ function finalizeTraceRecord(
     unknown
   >;
   const serializedRecord = JSON.stringify(sanitizedRecord);
-  const finalSerializedRecord = redactTraceText(serializedRecord);
+  const finalSerializedRecord = redactTraceText(
+    serializedRecord,
+    TraceRedactionFieldType.General,
+  );
   const parsedRecord = JSON.parse(finalSerializedRecord);
+  restorePreservedTraceIdentifiers(sanitizedRecord, parsedRecord);
   return parsedRecord as Record<string, unknown>;
 }
 
