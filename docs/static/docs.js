@@ -1,4 +1,5 @@
-const DOCS_BASE_PATH = '/development';
+const DOCS_BASE_PATH = '/docs';
+const LEGACY_DOCS_BASE_PATH = '/development';
 const GITHUB_REPO_URL = 'https://github.com/HybridAIOne/hybridclaw';
 const DISCORD_URL = 'https://discord.gg/jsVW4vJw27';
 const SEARCH_RESULT_LIMIT = 10;
@@ -155,6 +156,11 @@ export function resolveDocPathFromPathname(
 
   if (normalizedBasePath && remainder.startsWith(normalizedBasePath)) {
     remainder = remainder.slice(normalizedBasePath.length);
+  } else if (
+    normalizedBasePath !== LEGACY_DOCS_BASE_PATH &&
+    remainder.startsWith(LEGACY_DOCS_BASE_PATH)
+  ) {
+    remainder = remainder.slice(LEGACY_DOCS_BASE_PATH.length);
   }
 
   remainder = normalizeDocPath(remainder);
@@ -185,8 +191,12 @@ export function buildDocHtmlHref(docPath, basePath = DOCS_BASE_PATH) {
   return `${normalizedBasePath}/${normalizedDocPath.slice(0, -'.md'.length)}`;
 }
 
-export function buildDocMarkdownHref(docPath, basePath = DOCS_BASE_PATH) {
-  return `${normalizeBasePath(basePath)}/${normalizeDocPath(docPath)}`;
+export function buildDocMarkdownHref(
+  docPath,
+  basePath = DOCS_BASE_PATH,
+  contentBasePath = basePath,
+) {
+  return `${normalizeBasePath(contentBasePath)}/${normalizeDocPath(docPath)}`;
 }
 
 function renderExternalLinkIcon() {
@@ -729,14 +739,15 @@ function renderNotFoundState(mount, docPath, basePath) {
   `;
 }
 
-export async function mountDevelopmentDocsApp(options = {}) {
+export async function mountDocsApp(options = {}) {
   if (typeof document === 'undefined' || typeof window === 'undefined') {
     return false;
   }
 
   const basePath = options.basePath || DOCS_BASE_PATH;
+  const contentBasePath = options.contentBasePath || basePath;
   const mount = document.querySelector(
-    options.mountSelector || '[data-development-docs-app]',
+    options.mountSelector || '[data-docs-app]',
   );
   const fallback = document.querySelector(
     options.fallbackSelector || '[data-docs-fallback]',
@@ -769,7 +780,7 @@ export async function mountDevelopmentDocsApp(options = {}) {
     return false;
   }
 
-  const markdownHref = buildDocMarkdownHref(docPath, basePath);
+  const markdownHref = buildDocMarkdownHref(docPath, basePath, contentBasePath);
   const response = await fetch(markdownHref, { cache: 'no-store' });
   if (!response.ok) {
     renderNotFoundState(mount, docPath, basePath);

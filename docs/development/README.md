@@ -12,6 +12,9 @@ matches what you need right now. In the browser docs shell, each page can open
 its raw `.md` source directly or copy the full page markdown from the document
 header.
 
+If you want a raw-markdown entrypoint that links every docs page directly, use
+[Agent Docs Index](./agents.md).
+
 ## Latest Highlights
 
 - HybridClaw now supports `iMessage` with either a local macOS `imsg` +
@@ -50,3 +53,5 @@ header.
   [Commands](./reference/commands.md) and
   [Diagnostics](./reference/diagnostics.md).
 - Need setup answers before deploying? Go to [FAQ](./reference/faq.md).
+- Need one markdown page that links the whole docs tree? Go to
+  [Agent Docs Index](./agents.md).

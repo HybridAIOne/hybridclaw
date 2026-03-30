@@ -3,28 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HybridClaw Docs</title>
-  <meta name="description" content="Browse the HybridClaw development manual, open the underlying markdown, or copy any page as markdown.">
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="icon" type="image/png" sizes="96x96" href="/static/favicon-96x96.png">
-  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
-  <link rel="stylesheet" href="/static/development-docs.css">
+  <title>Redirecting to /docs</title>
+  <meta http-equiv="refresh" content="0; url=/docs/">
+  <link rel="canonical" href="/docs/">
 </head>
 <body>
-  <div data-development-docs-app hidden></div>
-  <noscript>
-    <main style="max-width: 860px; margin: 0 auto; padding: 48px 20px; font-family: system-ui, sans-serif; color: #e6edf8; background: #08111f;">
-      <h1>HybridClaw Docs</h1>
-      <p>JavaScript is required for the browsable docs shell. You can still open the raw markdown directly, starting with <a href="/development/README.md">/development/README.md</a>.</p>
-    </main>
-  </noscript>
-  <script type="module">
-    import { mountDevelopmentDocsApp } from '/static/development-docs.js';
-
-    mountDevelopmentDocsApp().catch((error) => {
-      console.error('Failed to mount development docs app', error);
-    });
+  <main style="max-width: 860px; margin: 0 auto; padding: 48px 20px; font-family: system-ui, sans-serif; color: #e6edf8; background: #08111f;">
+    <h1>HybridClaw Docs</h1>
+    <p>This page moved to <a href="/docs/">/docs/</a>.</p>
+  </main>
+  <script>
+    window.location.replace('/docs/');
   </script>
 </body>
 </html>

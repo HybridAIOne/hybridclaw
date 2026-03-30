@@ -52,7 +52,7 @@ With the gateway running locally:
 - chat UI: `http://127.0.0.1:9090/chat`
 - agent/session dashboard: `http://127.0.0.1:9090/agents`
 - admin console: `http://127.0.0.1:9090/admin`
-- docs: `http://127.0.0.1:9090/development`
+- docs: `http://127.0.0.1:9090/docs`
 
 If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt. If
 it is set, `/chat`, `/agents`, and `/admin` all reuse the same token gate.
