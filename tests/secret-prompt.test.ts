@@ -76,9 +76,16 @@ test('promptForSecretInput pauses stdin again after hidden tty input completes',
   let dataHandler: ((chunk: string | Buffer) => void) | undefined;
 
   process.stdin.setRawMode = vi.fn() as typeof process.stdin.setRawMode;
-  process.stdin.resume = vi.fn(() => process.stdin) as typeof process.stdin.resume;
-  process.stdin.pause = vi.fn(() => process.stdin) as typeof process.stdin.pause;
-  process.stdin.on = vi.fn(((event: string, listener: (...args: unknown[]) => void) => {
+  process.stdin.resume = vi.fn(
+    () => process.stdin,
+  ) as typeof process.stdin.resume;
+  process.stdin.pause = vi.fn(
+    () => process.stdin,
+  ) as typeof process.stdin.pause;
+  process.stdin.on = vi.fn(((
+    event: string,
+    listener: (...args: unknown[]) => void,
+  ) => {
     if (event === 'data') {
       dataHandler = listener as (chunk: string | Buffer) => void;
     }
@@ -91,12 +98,12 @@ test('promptForSecretInput pauses stdin again after hidden tty input completes',
     configurable: true,
   });
 
-  const writeSpy = vi
-    .spyOn(process.stdout, 'write')
-    .mockImplementation(((chunk: string | Uint8Array) => {
-      writes.push(String(chunk));
-      return true;
-    }) as typeof process.stdout.write);
+  const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((
+    chunk: string | Uint8Array,
+  ) => {
+    writes.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write);
 
   try {
     const promptPromise = promptForSecretInput({
