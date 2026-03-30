@@ -37,7 +37,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
-          target: ${{ matrix.target || '' }}
+          target: ${{ matrix.target }}
           push: false
           load: true
           tags: hybridclaw-${{ matrix.name }}:preflight
