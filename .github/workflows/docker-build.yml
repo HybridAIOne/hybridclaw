@@ -58,6 +58,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
+          target: ${{ matrix.target || '' }}
           push: true
           provenance: false
           sbom: false
