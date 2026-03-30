@@ -2570,11 +2570,17 @@
 
       if (!response.body) {
         const text = await response.text().catch(() => '');
-        const result = parseLine(text);
-        if (!result) {
+        let finalResult = null;
+        for (const line of text.split('\n')) {
+          const result = parseLine(line);
+          if (result) {
+            finalResult = result;
+          }
+        }
+        if (!finalResult) {
           throw new Error('Chat stream ended without a result payload.');
         }
-        return result;
+        return finalResult;
       }
 
       const reader = response.body.getReader();
