@@ -187,6 +187,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   expect(prompt).toContain(
     'For structured documents, extracted fields, and comparisons, prefer complete field coverage over extreme brevity.',
   );
+  expect(prompt).toContain(
+    'Default response style: brief and direct. Lead with the answer, skip filler, and expand only when depth, risk, tradeoffs, or structured deliverables require it.',
+  );
 });
 
 test('buildSystemPromptFromHooks omits mandatory routing instructions when no skills are available', () => {

@@ -1,6 +1,6 @@
 ---
 name: trello
-description: Use this skill when the user wants to inspect Trello boards, lists, or cards, create or move tasks, comment on cards, or manage lightweight Kanban workflows through the Trello API.
+description: Inspect Trello boards, lists, and cards; create or move tasks; and manage Kanban workflows through the Trello API.
 user-invocable: true
 metadata:
   hybridclaw:

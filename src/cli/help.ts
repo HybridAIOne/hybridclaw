@@ -54,7 +54,7 @@ By default, \`hybridclaw tui\` starts a fresh local CLI session.
 Interactive slash commands inside TUI:
   /help   /status   /approve [view|yes|session|agent|no] [approval_id]
   /show [all|thinking|tools|none]
-  /agent [list|switch|create|model]   /bot [info|list|set <id|name>]
+  /agent [list|switch|create|model]   /bot [info|list|set <id|name>|clear]
   /model [name]   /model info|list [provider]|set <name>|clear|default [name]
   /config   /config check   /config reload   /config set <key> <value>
   /channel-mode <off|mention|free>   /channel-policy <open|allowlist|disabled>
@@ -62,7 +62,8 @@ Interactive slash commands inside TUI:
   /mcp add <name> <json>
   /mcp toggle <name> /mcp remove <name> /mcp reconnect <name>
   /usage [summary|daily|monthly|model [daily|monthly] [agentId]]
-  /export [sessionId]   /sessions   /audit [sessionId]
+  /export session [sessionId]   /export trace [sessionId|all]
+  /sessions   /audit [sessionId]
   /schedule add "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
   /info   /compact   /clear   /reset [yes|no]   /stop   /exit`);
 }

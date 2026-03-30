@@ -1,6 +1,6 @@
 ---
 name: 1password
-description: Use this skill when the user wants to install or use 1Password CLI (`op`), sign in to a vault, inspect items, read secrets safely, or inject secrets into commands without copying them into chat or files.
+description: Install and use 1Password CLI (`op`) to sign in, inspect vault items, read secrets safely, and inject secrets into commands.
 user-invocable: true
 metadata:
   hybridclaw:

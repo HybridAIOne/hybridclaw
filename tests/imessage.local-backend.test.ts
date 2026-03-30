@@ -182,6 +182,92 @@ describe('local iMessage backend', () => {
     await backend.shutdown();
   });
 
+  test('skips self-chat attributedBody control commands without plain text', async () => {
+    vi.useFakeTimers();
+    const { createLocalIMessageBackend, warn } = await importFreshLocalBackend({
+      rows: [
+        {
+          rowid: 21,
+          messageGuid: 'self-clear-1',
+          messageDate: 123456790,
+          text: null,
+          attributedBody: Buffer.from(
+            'prefix NSString /clear \u0002iI\u0001NSDictionary trailing',
+            'utf8',
+          ),
+          isFromMe: 0,
+          handle: '+14155551212',
+          chatGuid: null,
+          chatIdentifier: '+14155551212',
+          chatDisplayName: null,
+        },
+      ],
+    });
+    const onInbound = vi.fn(async () => {});
+    const backend = createLocalIMessageBackend({ onInbound });
+
+    await backend.start();
+    await vi.advanceTimersByTimeAsync(2500);
+
+    expect(onInbound).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rowid: 21,
+        messageGuid: 'self-clear-1',
+      }),
+      'Skipping local self-chat attributedBody control command without plain text',
+    );
+    await backend.shutdown();
+  });
+
+  test('skips self-chat attributedBody rows that look like replayed history', async () => {
+    vi.useFakeTimers();
+    const { createLocalIMessageBackend, warn } = await importFreshLocalBackend({
+      rows: [
+        {
+          rowid: 23,
+          messageGuid: 'self-replay-1',
+          messageDate: 123456791,
+          text: null,
+          attributedBody: Buffer.from(
+            [
+              'prefix NSString Who are you?',
+              '[/hybridclaw] Status-Update',
+              '[Charly] Ich bin Charly',
+              'Noch eine alte Nachricht',
+              'Und noch eine',
+              'Option A',
+              'Option B',
+              '\u0002iI\u0001NSDictionary trailing',
+            ].join('\n'),
+            'utf8',
+          ),
+          isFromMe: 0,
+          handle: '+14155551212',
+          chatGuid: null,
+          chatIdentifier: '+14155551212',
+          chatDisplayName: null,
+        },
+      ],
+    });
+    const onInbound = vi.fn(async () => {});
+    const backend = createLocalIMessageBackend({ onInbound });
+
+    await backend.start();
+    await vi.advanceTimersByTimeAsync(2500);
+
+    expect(onInbound).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rowid: 23,
+        messageGuid: 'self-replay-1',
+        attributedBodyBytes: expect.any(Number),
+      }),
+      'Skipping local self-chat attributedBody row that looks like replayed history',
+    );
+    await backend.shutdown();
+  });
+
   test('skips unsupported attributedBody-only rows and logs a warning', async () => {
     vi.useFakeTimers();
     const { createLocalIMessageBackend, warn } = await importFreshLocalBackend({

@@ -19,6 +19,9 @@ Prerequisites:
 - npm
 - Docker when you want the default container sandbox
 
+The published package installs the packaged container runtime dependencies
+automatically during `npm install -g`.
+
 ## Install From a Source Checkout
 
 Use this flow when you are developing HybridClaw locally or want to run from

@@ -2,7 +2,6 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
@@ -48,6 +47,8 @@ import {
   resolveBrowserProfileHostDir,
   resolveDiscordMediaCacheHostDir,
 } from './container-runner.js';
+import { ensureHostRuntimeReady } from './host-runtime-setup.js';
+import { resolveInstallRoot } from './install-root.js';
 import {
   agentWorkspaceDir,
   cleanupIpc,
@@ -98,8 +99,10 @@ interface PoolEntry {
   sessionId: string;
   startedAt: number;
   stderrBuffer: string;
+  stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
+  terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
@@ -108,6 +111,60 @@ interface PoolEntry {
 }
 
 const pool = new Map<string, PoolEntry>();
+const STDERR_HISTORY_LIMIT = 20;
+
+function rememberStderrLine(entry: PoolEntry, line: string): void {
+  entry.stderrHistory.push(line);
+  if (entry.stderrHistory.length > STDERR_HISTORY_LIMIT) {
+    entry.stderrHistory.splice(
+      0,
+      entry.stderrHistory.length - STDERR_HISTORY_LIMIT,
+    );
+  }
+}
+
+function summarizeExit(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): string {
+  if (typeof code === 'number') return `exit code ${code}`;
+  if (signal) return `signal ${signal}`;
+  return 'unknown exit status';
+}
+
+function formatHostAgentTerminalError(
+  entry: PoolEntry,
+  params?: {
+    code?: number | null;
+    signal?: NodeJS.Signals | null;
+  },
+): string {
+  const stderrText = entry.stderrHistory.join('\n');
+  const missingPackageMatch = stderrText.match(
+    /Cannot find package '([^']+)' imported from /,
+  );
+  const status = summarizeExit(
+    params?.code ?? entry.process.exitCode,
+    params?.signal ?? null,
+  );
+
+  if (missingPackageMatch) {
+    return [
+      `Host agent process exited before producing output (${status}).`,
+      `Missing runtime dependency: ${missingPackageMatch[1]}.`,
+      'Reinstall HybridClaw. If you are running from a source checkout, run `npm run setup` first.',
+    ].join('\n');
+  }
+
+  const detail = entry.stderrHistory
+    .slice(-4)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return detail
+    ? `Host agent process exited before producing output (${status}). ${detail}`
+    : `Host agent process exited before producing output (${status}). Check the gateway log for stderr details.`;
+}
 
 function interruptedHostOutput(): ContainerOutput {
   return {
@@ -245,45 +302,8 @@ function emitApprovalProgress(entry: PoolEntry, line: string): boolean {
   return true;
 }
 
-function resolvePackageRoot(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-}
-
-function resolveHostAgentCommand(): { command: string; args: string[] } {
-  const packageRoot = resolvePackageRoot();
-  const builtEntrypoint = path.join(
-    packageRoot,
-    'container',
-    'dist',
-    'index.js',
-  );
-  if (fs.existsSync(builtEntrypoint)) {
-    return { command: process.execPath, args: [builtEntrypoint] };
-  }
-
-  const sourceEntrypoint = path.join(
-    packageRoot,
-    'container',
-    'src',
-    'index.ts',
-  );
-  const tsxBin = path.join(
-    packageRoot,
-    'node_modules',
-    '.bin',
-    process.platform === 'win32' ? 'tsx.cmd' : 'tsx',
-  );
-  if (fs.existsSync(sourceEntrypoint) && fs.existsSync(tsxBin)) {
-    return { command: tsxBin, args: [sourceEntrypoint] };
-  }
-
-  throw new Error(
-    'Host sandbox mode requires a local agent runtime. Run `npm --prefix container run build` or use the repo checkout with `tsx` installed.',
-  );
-}
-
 function ensureWorkspaceNodeModulesLink(workspacePath: string): void {
-  const packageRoot = resolvePackageRoot();
+  const packageRoot = resolveInstallRoot();
   const sourceNodeModules = path.join(packageRoot, 'node_modules');
   if (!fs.existsSync(sourceNodeModules)) return;
 
@@ -348,7 +368,13 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
   fs.mkdirSync(uploadedMediaCacheHostPath, { recursive: true });
 
-  const runtime = resolveHostAgentCommand();
+  const runtime = ensureHostRuntimeReady({
+    commandName: 'hybridclaw',
+    required: true,
+  });
+  if (!runtime) {
+    throw new Error('Host runtime unexpectedly unavailable.');
+  }
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HYBRIDAI_BASE_URL,
@@ -395,8 +421,10 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     sessionId,
     startedAt: Date.now(),
     stderrBuffer: '',
+    stderrHistory: [],
     streamDebug: createStreamDebugState(),
     workerSignature: '',
+    terminalError: null,
   };
 
   proc.stderr.on('data', (data) => {
@@ -406,6 +434,7 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
+      rememberStderrLine(entry, line);
       emitTextDelta(entry, line);
       if (isStreamActivityLine(line)) {
         entry.activity?.notify();
@@ -432,9 +461,10 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     }
   });
 
-  proc.on('close', (code) => {
+  proc.on('close', (code, signal) => {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
+      rememberStderrLine(entry, tail);
       emitTextDelta(entry, tail);
       if (isStreamActivityLine(tail)) {
         entry.activity?.notify();
@@ -450,14 +480,16 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
       }
       entry.stderrBuffer = '';
     }
+    entry.terminalError = formatHostAgentTerminalError(entry, { code, signal });
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ sessionId }, message);
     });
     pool.delete(sessionId);
-    logger.info({ sessionId, code }, 'Host agent process exited');
+    logger.info({ sessionId, code, signal }, 'Host agent process exited');
   });
 
   proc.on('error', (err) => {
+    entry.terminalError = `Host agent process failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
     pool.delete(sessionId);
     logger.error({ sessionId, error: err }, 'Host agent process error');
   });
@@ -674,6 +706,7 @@ export async function runHostProcess(
     const output = await readOutput(sessionId, CONTAINER_TIMEOUT, {
       signal: abortSignal,
       activity,
+      terminalError: () => entry.terminalError,
     });
     if (isTimedOutAgentOutput(output)) {
       logger.warn(

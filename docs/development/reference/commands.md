@@ -36,6 +36,15 @@ hybridclaw auth whatsapp reset
 hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]
 ```
 
+## Channel Setup
+
+```bash
+hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
+hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
+hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
+hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
+```
+
 ## Agents And Packages
 
 ```bash

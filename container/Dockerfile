@@ -32,9 +32,9 @@ RUN --mount=type=cache,target=/root/.npm \
     npm install -g \
     docx@9.5.1 \
     pptxgenjs@4.0.1 \
-    exceljs@4.4.0 \
     csv-parse@6.1.0 \
-    iconv-lite@0.7.0
+    iconv-lite@0.7.0 \
+    xlsx-populate@1.21.0
 
 ENV NODE_PATH=/usr/local/lib/node_modules:/app/node_modules
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright

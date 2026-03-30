@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.9.4",
+  "version": "0.9.6",
   "type": "module",
   "description": "Personal AI assistant bot for Discord, powered by HybridAI",
   "workspaces": [
@@ -18,6 +18,7 @@
   },
   "files": [
     "dist/",
+    "scripts/postinstall-container.mjs",
     "console/dist/",
     "console/package.json",
     "container/dist/",
@@ -61,6 +62,7 @@
     "gateway": "tsx src/cli.ts gateway",
     "tui": "tsx src/cli.ts tui",
     "start": "node dist/cli.js gateway",
+    "postinstall": "node ./scripts/postinstall-container.mjs",
     "build:container": "node -e \"const cp=require('node:child_process');const image=process.env.HYBRIDCLAW_CONTAINER_IMAGE||'hybridclaw-agent';const target=process.env.HYBRIDCLAW_CONTAINER_TARGET||'runtime';const r=cp.spawnSync('docker',['build','--target',target,'-t',image,'./container'],{stdio:'inherit'});if(r.error) throw r.error;process.exit(r.status ?? 1);\"",
     "prebuild": "npm run build:console",
     "prepack": "npm run clean && npm run build && npm run release:check",
@@ -77,7 +79,6 @@
     "csv-parse": "^6.2.0",
     "discord.js": "^14.25.1",
     "docx": "^9.6.1",
-    "exceljs": "^4.4.0",
     "iconv-lite": "^0.7.0",
     "imapflow": "^1.2.15",
     "mailparser": "^3.9.4",
@@ -92,6 +93,7 @@
     "qrcode-terminal": "^0.12.0",
     "sanitize-html": "^2.17.1",
     "ws": "^8.20.0",
+    "xlsx-populate": "^1.21.0",
     "yaml": "^2.8.2",
     "yauzl": "^3.2.1",
     "yazl": "^3.3.1"

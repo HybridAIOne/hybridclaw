@@ -1,6 +1,6 @@
 ---
 name: office-workflows
-description: Use this skill for cross-format office tasks such as CSV/TSV cleanup into XLSX, XLSX analysis into PPTX summaries, or document-plus-deck deliverables that should be coordinated with delegate.
+description: Coordinate cross-format office workflows across CSV/TSV, XLSX, DOCX, and PPTX deliverables.
 user-invocable: true
 disable-model-invocation: false
 metadata:

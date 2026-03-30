@@ -1,0 +1,4 @@
+interface:
+  display_name: "Obsidian"
+  short_description: "Read and organize Obsidian vault notes"
+  default_prompt: "Find the right note in my Obsidian vault, update it, and preserve wikilinks."

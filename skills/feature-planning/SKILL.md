@@ -1,6 +1,6 @@
 ---
 name: feature-planning
-description: Use this skill when the user wants an implementation plan, feature breakdown, acceptance criteria, task sequencing, or a repo-aware plan before coding.
+description: Break features into implementation plans, acceptance criteria, and sequenced tasks.
 user-invocable: true
 metadata:
   hybridclaw:

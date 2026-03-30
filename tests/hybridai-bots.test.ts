@@ -217,7 +217,7 @@ test('fetchHybridAIAccountChatbotId reads the current user id from /bot-manageme
       new Response(
         JSON.stringify({
           data: {
-            id: 'user-42',
+            user_id: 'user-42',
             email: 'alice@example.com',
           },
         }),
@@ -238,6 +238,35 @@ test('fetchHybridAIAccountChatbotId reads the current user id from /bot-manageme
     expect.stringContaining('/api/v1/bot-management/me'),
     expect.any(Object),
   );
+});
+
+test('fetchHybridAIAccountChatbotId prefers user_id even when /bot-management/me also returns id', async () => {
+  process.env.HOME = os.homedir();
+  process.env.HYBRIDAI_API_KEY = 'hai-bot-test';
+
+  const fetchSpy = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            id: 'bot-712e4236-8166-4159-a4da-25ec708b5f2e',
+            user_id: 'user-42',
+            email: 'alice@example.com',
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+  );
+  vi.stubGlobal('fetch', fetchSpy);
+
+  const { fetchHybridAIAccountChatbotId } = await importFreshBots();
+
+  await expect(fetchHybridAIAccountChatbotId()).resolves.toBe('user-42');
 });
 
 test('fetchHybridAIAccountChatbotId fails when /bot-management/me omits a user id', async () => {

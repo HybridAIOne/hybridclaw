@@ -1,6 +1,6 @@
 ---
 name: wordpress
-description: Use this skill when the user wants WordPress workflows such as post or page drafting, wp-admin coordination, WP-CLI usage, plugin or theme inspection, or safe content publishing guidance.
+description: Draft posts and pages, coordinate wp-admin work, use WP-CLI, inspect themes or plugins, and publish safely.
 user-invocable: true
 metadata:
   hybridclaw:

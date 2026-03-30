@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HybridClaw — Enterprise AI Digital Coworker</title>
-  <meta name="description" content="HybridClaw is an enterprise-ready AI coworker that unifies Discord, Teams, WhatsApp, email, web, and terminal workflows with memory, guardrails, and tool execution.">
+  <meta name="description" content="HybridClaw is an enterprise-ready AI coworker that unifies Discord, Teams, iMessage, WhatsApp, email, web, and terminal workflows with memory, guardrails, and tool execution.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="HybridClaw">
   <meta property="og:title" content="HybridClaw — Enterprise AI Digital Coworker">
-  <meta property="og:description" content="One assistant brain across Discord, Teams, WhatsApp, email, web, and terminal with shared memory, bundled skills, and safe execution flow.">
+  <meta property="og:description" content="One assistant brain across Discord, Teams, iMessage, WhatsApp, email, web, and terminal with shared memory, bundled skills, and safe execution flow.">
   <meta property="og:url" content="https://github.com/HybridAIOne/hybridclaw">
   <meta property="og:image" content="https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/docs/hero.png">
   <meta property="og:image:type" content="image/png">
@@ -17,7 +17,7 @@
   <meta property="og:image:alt" content="HybridClaw hero image">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="HybridClaw — Enterprise AI Digital Coworker">
-  <meta name="twitter:description" content="One assistant brain across Discord, Teams, WhatsApp, email, web, and terminal with shared memory, bundled skills, and safe execution flow.">
+  <meta name="twitter:description" content="One assistant brain across Discord, Teams, iMessage, WhatsApp, email, web, and terminal with shared memory, bundled skills, and safe execution flow.">
   <meta name="twitter:image" content="https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/docs/hero.png">
   <link rel="canonical" href="https://github.com/HybridAIOne/hybridclaw">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
@@ -75,7 +75,7 @@
       margin: 0 auto;
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-start;
       height: 60px;
     }
     .nav-logo {
@@ -85,6 +85,7 @@
       font-weight: 700;
       font-size: 1.2rem;
       letter-spacing: -0.02em;
+      margin-right: 2rem;
     }
     .nav-logo-img {
       width: 26px;
@@ -98,7 +99,7 @@
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
-    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; margin-left: auto; }
     .nav-links a { color: var(--text-dim); font-size: 0.9rem; }
     .nav-links a:hover { color: var(--text); }
     .nav-gh {
@@ -426,13 +427,39 @@
     .stat-label { font-size: 0.8rem; color: var(--text-faint); margin-top: 0.25rem; }
 
     /* QUICKSTART */
+    .qs-tabs {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-bottom: 2rem;
+    }
+    .qs-tab {
+      padding: 0.55rem 1.5rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s;
+      font-family: inherit;
+    }
+    .qs-tab:hover { border-color: var(--accent-1); color: var(--text); }
+    .qs-tab.active {
+      background: var(--accent-gradient);
+      border-color: transparent;
+      color: #fff;
+    }
+    .qs-panel { display: none; }
+    .qs-panel.active { display: block; }
     .quickstart-box {
       background: var(--code-bg);
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 2rem;
       max-width: 650px;
-      margin: 0 auto;
+      margin: 2.5rem auto 0;
     }
     .quickstart-box pre {
       font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
@@ -489,6 +516,52 @@
       line-height: 1.45;
       overflow-wrap: anywhere;
       word-break: break-word;
+    }
+    .status-check,
+    .status-cross,
+    .status-warn {
+      display: inline-block;
+      margin-right: 0.45rem;
+      font-weight: 800;
+    }
+    .status-check { color: var(--success); }
+    .status-cross { color: #f43f5e; }
+    .status-warn { color: #f59e0b; }
+    .comparison.hybridclaw-last th:nth-child(2) {
+      color: var(--text-faint);
+      background: transparent;
+      border-left: none;
+      border-right: none;
+    }
+    .comparison.hybridclaw-last td:nth-child(2) {
+      font-weight: 400;
+      color: var(--text);
+      background: transparent;
+      border-left: none;
+      border-right: none;
+    }
+    .comparison.hybridclaw-last th:nth-child(4) {
+      color: var(--accent-teal);
+      background: rgba(92, 224, 216, 0.14);
+      border-left: 1px solid rgba(92, 224, 216, 0.36);
+      border-right: 1px solid rgba(92, 224, 216, 0.36);
+    }
+    .comparison.hybridclaw-last td:nth-child(4) {
+      font-weight: 600;
+      color: var(--text);
+      background: rgba(92, 224, 216, 0.1);
+      border-left: 1px solid rgba(92, 224, 216, 0.26);
+      border-right: 1px solid rgba(92, 224, 216, 0.26);
+    }
+    .comparison .topic-row td {
+      padding-top: 1rem;
+      padding-bottom: 0.55rem;
+      color: var(--text);
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      background: rgba(255, 255, 255, 0.03);
     }
 
     /* FAQ */
@@ -724,10 +797,10 @@
 <!-- NAV -->
 <nav>
   <div class="nav-inner">
-    <div class="nav-logo">
+    <a class="nav-logo" href="#" aria-label="HybridClaw Home">
       <img src="hai_logo_free.png" alt="HybridAI logo" class="nav-logo-img">
       <span class="nav-logo-text">HybridClaw</span>
-    </div>
+    </a>
     <div class="nav-links">
       <a href="#features">Features</a>
       <a href="#release">Latest</a>
@@ -753,9 +826,15 @@
 <!-- HERO -->
 <header class="hero">
   <img src="hero.png" alt="HybridClaw" class="hero-img">
-  <div class="hero-badge">Powered by <span>HybridAI</span></div>
+  <a
+    class="hero-badge"
+    href="https://hybridai.one"
+    target="_blank"
+    rel="noopener noreferrer"
+    aria-label="Powered by HybridAI (opens hybridai.one)"
+  >Powered by <span>HybridAI</span></a>
   <h1>One assistant brain<br><span class="gradient">across every team channel</span></h1>
-  <p>HybridClaw gives Discord, Teams, WhatsApp, email, web, and terminal users the same memory, the same guardrails, and the same reliable execution flow.</p>
+  <p>HybridClaw gives Discord, Teams, iMessage, WhatsApp, email, web, and terminal users the same memory, the same guardrails, and the same reliable execution flow.</p>
   <div class="hero-install">
     <div class="hero-install-head">
       <div class="hero-install-label">Install (Linux/macOS)</div>
@@ -796,6 +875,10 @@
     <div class="stat-value">Enterprise-Ready</div>
     <div class="stat-label">Security + Control</div>
   </div>
+  <div class="stat">
+    <div class="stat-value">Cloud-Agent</div>
+    <div class="stat-label">Managed Hosting</div>
+  </div>
 </div>
 
 <div class="glow-divider"></div>
@@ -803,30 +886,35 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Coming Up</div>
-    <h2 class="section-title">Since Version 0.9.3</h2>
-    <p class="section-desc">Mainline updates focus on agent startup and packaging: richer agent profiles, packaged GitHub install sources, proactive first-session openings, and more reliable default-agent/chatbot routing.</p>
+    <div class="section-label">Latest Release</div>
+    <h2 class="section-title">Current shipped highlights</h2>
+    <p class="section-desc">Recent HybridClaw releases focused on operator-facing runtime control: dual-backend iMessage support, a browser-based admin terminal, richer local config commands, and tighter observability and recovery flows.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f9d1;</div>
-      <h3>Agent profiles with images</h3>
-      <p>Agent configs and packaged <code>.claw</code> manifests can now carry a display name plus a workspace image asset so web chat can show the active agent identity with an avatar.</p>
+      <div class="feature-icon">&#x1f4f1;</div>
+      <h3>Dual-backend iMessage delivery</h3>
+      <p><code>hybridclaw channels imessage setup</code> supports either a local macOS <code>imsg</code> + Messages <code>chat.db</code> path or a remote BlueBubbles relay, so operators can choose the delivery model that fits their deployment.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4e6;</div>
-      <h3>Packaged agent installs from GitHub</h3>
-      <p><code>hybridclaw agent install</code> now accepts <code>official:&lt;agent-dir&gt;</code> and <code>github:owner/repo[/&lt;ref&gt;]/&lt;agent-dir&gt;</code> sources, and <code>agent activate</code> can set the default agent for new requests.</p>
+      <div class="feature-icon">&#x1f5a5;&#xfe0f;</div>
+      <h3>Embedded admin terminal</h3>
+      <p>The built-in admin console includes a live <code>/admin/terminal</code> page, giving operators a browser-based PTY alongside gateway, session, job, audit, and config views.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f95a;</div>
-      <h3>Proactive startup openings</h3>
-      <p>Fresh sessions can now proactively start from <code>BOOTSTRAP.md</code> or the new <code>OPENING.md</code>, so onboarding and custom opening instructions appear before the first manual prompt.</p>
+      <div class="feature-icon">&#9881;&#xfe0f;</div>
+      <h3>Local runtime config controls</h3>
+      <p><code>hybridclaw config</code>, <code>config check</code>, <code>config reload</code>, and <code>config set &lt;key&gt; &lt;value&gt;</code> cover the local runtime config lifecycle, with matching <code>/config</code> flows in TUI and web chat.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
-      <h3>Safer routing and fallback resolution</h3>
-      <p>Gateway chat, scheduler runs, and startup autostart can recover chatbot ids from HybridAI account metadata, while web chat follows the configured default agent more consistently.</p>
+      <h3>Observability and recovery hardening</h3>
+      <p>HybridAI observability ingest, clearer browser-tool diagnostics, safer plugin recovery, and stricter host-mode allowlisting all tighten day-to-day operations without widening the default trust boundary.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x2601;&#xfe0f;</div>
+      <h3>HybridClaw Cloud</h3>
+      <p>Run HybridClaw as a fully managed cloud agent in a secured Docker container — no local setup required. Sign up, upgrade or redeem a voucher, and your instance is live in seconds.</p>
     </div>
   </div>
 </section>
@@ -867,6 +955,11 @@
         <p>Supports privacy-conscious deployment strategies and compliance-driven teams.</p>
       </div>
       <div class="hybridai-feat">
+        <div class="hybridai-feat-icon">&#x2601;&#xfe0f;</div>
+        <h4>Cloud Deployment</h4>
+        <p>Run HybridClaw in a managed, secured cloud container — no local setup, always-on, ready in seconds.</p>
+      </div>
+      <div class="hybridai-feat">
         <div class="hybridai-feat-icon">&#x1f50d;</div>
         <h4>RAG Retrieval</h4>
         <p>Ground answers in your organization’s knowledge for higher relevance and confidence.</p>
@@ -904,7 +997,7 @@
     <div class="feature-card">
       <div class="feature-icon">&#x1f504;</div>
       <h3>Stay consistent across channels</h3>
-      <p>Share one assistant behavior across Discord, Teams, WhatsApp, email, web, and terminal without managing separate bot personalities.</p>
+      <p>Share one assistant behavior across Discord, Teams, iMessage, WhatsApp, email, web, and terminal without managing separate bot personalities.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f9e0;</div>
@@ -920,6 +1013,11 @@
       <div class="feature-icon">&#x1f4ca;</div>
       <h3>Operate with visibility</h3>
       <p>Track status, sessions, usage/cost aggregates, tamper-evident audit history, approval decisions, and observability export health from one runtime surface.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x2601;&#xfe0f;</div>
+      <h3>Deploy locally or in the cloud</h3>
+      <p>Run on your own machine with the CLI, or launch a fully managed cloud instance in a secured Docker container — no infrastructure to maintain.</p>
     </div>
   </div>
 </section>
@@ -1020,6 +1118,21 @@
           </td>
         </tr>
         <tr>
+          <td>Deployment Options</td>
+          <td>
+            <span class="compare-text">Local CLI + managed cloud containers</span>
+          </td>
+          <td>
+            <span class="compare-text">Self-hosted only</span>
+          </td>
+          <td>
+            <span class="compare-text">Self-hosted only</span>
+          </td>
+          <td>
+            <span class="compare-text">Self-hosted only</span>
+          </td>
+        </tr>
+        <tr>
           <td>Cross-Channel Consistency</td>
           <td>
             <span class="compare-text">One assistant brain across channels</span>
@@ -1041,6 +1154,151 @@
 
 <div class="glow-divider"></div>
 
+<!-- LEARNING & MEMORY -->
+<section id="learning-memory">
+  <div class="section-center">
+    <div class="section-label">Learning &amp; Memory</div>
+    <h2 class="section-title">Learning &amp; Memory</h2>
+    <p class="section-desc">This keeps the existing comparison framing, adds the corresponding HybridClaw implementation for each area, and includes extra rows where HybridClaw clearly ships additional memory or learning features.</p>
+  </div>
+  <div class="comparison hybridclaw-last">
+    <table>
+      <thead>
+        <tr>
+          <th>Feature</th>
+          <th>Hermes Agent</th>
+          <th>OpenClaw</th>
+          <th>HybridClaw</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="topic-row">
+          <td colspan="4">Memory &amp; Continuity</td>
+        </tr>
+        <tr>
+          <td>Memory system</td>
+          <td><span class="compare-text">Markdown files</span></td>
+          <td><span class="compare-text">Markdown files + vector search</span></td>
+          <td><span class="compare-text">Markdown files + SQLite semantic vectors</span></td>
+        </tr>
+        <tr>
+          <td>Memory size</td>
+          <td><span class="compare-text">Bounded (2.2k + 1.4k chars)</span></td>
+          <td><span class="compare-text">Growing files + vector index</span></td>
+          <td><span class="compare-text">Bounded prompt + SQLite</span></td>
+        </tr>
+        <tr>
+          <td>Memory nudges</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Every 10 user turns</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>None</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Heartbeat + flush nudges</span></td>
+        </tr>
+        <tr>
+          <td>Memory flush</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Dedicated flush turn</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Pre-compaction flush</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Flush before compaction</span></td>
+        </tr>
+        <tr>
+          <td>Daily memory layer</td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>No daily digest</span></td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Daily logs + tool recall</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Daily digest to MEMORY.md</span></td>
+        </tr>
+        <tr>
+          <td>Knowledge graph memory</td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>No graph memory</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>No graph memory</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Entity/relation graph</span></td>
+        </tr>
+        <tr>
+          <td>Session history search</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>FTS5 + summaries</span></td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Experimental</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Summaries + optional QMD retrieval</span></td>
+        </tr>
+        <tr>
+          <td>Cross-session user modeling</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Honcho model</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>File-based only</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Linked identities + memory backends</span></td>
+        </tr>
+        <tr>
+          <td>Session key continuity</td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Cross-platform mapping</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Channel/topic keys</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Canonical keys + linked IDs</span></td>
+        </tr>
+        <tr>
+          <td>Cache-stable memory</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Frozen snapshots</span></td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Per-turn file injection</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Injected memory + saved summaries</span></td>
+        </tr>
+        <tr>
+          <td>Memory injection security</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Prompt-injection scanner</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>None</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Prompt sanitization + cited recall</span></td>
+        </tr>
+        <tr class="topic-row">
+          <td colspan="4">Skills &amp; Learning</td>
+        </tr>
+        <tr>
+          <td>Skill system</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>54 bundled + Skills Hub</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>53 bundled + ClawHub</span></td>
+          <td><span class="compare-text">27 bundled + 7 hubs</span></td>
+        </tr>
+        <tr>
+          <td>Skill standard</td>
+          <td><span class="compare-text">agentskills.io</span></td>
+          <td><span class="compare-text">OpenClaw-only</span></td>
+          <td><span class="compare-text">OpenClaw/CLAUDE SKILL.md</span></td>
+        </tr>
+        <tr>
+          <td>Agent package format</td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>None</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>None</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Portable <code>.claw</code> bundles</span></td>
+        </tr>
+        <tr>
+          <td>Skill prompt loading</td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Slash skills as user messages</span></td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Auto-load; hidden off lists</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Always-on, summary, hidden</span></td>
+        </tr>
+        <tr>
+          <td>Skill security scanning</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Scanner + quarantine</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Code scanner on install</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Trust-aware skill scan</span></td>
+        </tr>
+        <tr>
+          <td>Autonomous skill creation</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Nudged every 15 iterations</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>User-triggered only</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Guarded skill proposals</span></td>
+        </tr>
+        <tr>
+          <td>Skill self-improvement</td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Live patching</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>Static</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Observe, review, apply/reject</span></td>
+        </tr>
+        <tr>
+          <td>Adaptive skill governance</td>
+          <td><span class="compare-text"><span class="status-warn" aria-hidden="true">&#9888;</span>Learning loop, no staged rollback</span></td>
+          <td><span class="compare-text"><span class="status-cross" aria-hidden="true">&#10007;</span>None found</span></td>
+          <td><span class="compare-text"><span class="status-check" aria-hidden="true">&#10003;</span>Metrics + staged rollback</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="glow-divider"></div>
+
 <!-- ARCHITECTURE -->
 <section id="architecture">
   <div class="section-center">
@@ -1052,7 +1310,7 @@
   <div class="arch-flow" style="flex-wrap: nowrap; gap: 10px; overflow: hidden; justify-content: center;">
     <div class="arch-node" style="min-width: 180px; max-width: 180px; height: 190px; padding: 16px 14px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
       <div class="arch-node-label" style="font-size: 12px; letter-spacing: 0.08em;">Where people work</div>
-      <div class="arch-node-title" style="font-size: 18px; line-height: 1.2;">Discord / Teams<br>WhatsApp / Email<br>Web / Terminal</div>
+      <div class="arch-node-title" style="font-size: 18px; line-height: 1.2;">Discord / Teams<br>iMessage / WhatsApp / Email<br>Web / Terminal</div>
       <div class="arch-node-desc" style="font-size: 14px; line-height: 1.35;">One shared user experience</div>
     </div>
     <div class="arch-arrow" style="font-size: 34px; line-height: 1; flex: 0 0 auto;">&rarr;</div>
@@ -1131,7 +1389,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
-      <p>Persistent workspace memory, semantic memory, typed entity/relation knowledge graph, canonical transport session keys, linked-identity continuity scopes, and long-session compaction keep context coherent across Discord, Teams, WhatsApp, email, web, and terminal channels.</p>
+      <p>Persistent workspace memory, semantic memory, typed entity/relation knowledge graph, canonical transport session keys, linked-identity continuity scopes, and long-session compaction keep context coherent across Discord, Teams, iMessage, WhatsApp, email, web, and terminal channels.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">SQLite Reliability</h3>
@@ -1187,7 +1445,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Interfaces &amp; Integrations</h3>
-      <p>Shared assistant behavior across Discord, Teams, WhatsApp, email, web, and terminal, plus bundled skills for office docs, GitHub, Notion, Stripe, WordPress, Google Workspace, Discord, email, and Apple workflows.</p>
+      <p>Shared assistant behavior across Discord, Teams, iMessage, WhatsApp, email, web, and terminal, plus bundled skills for office docs, GitHub, Notion, Stripe, WordPress, Google Workspace, Discord, email, and Apple workflows.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Observability Export</h3>
@@ -1199,11 +1457,11 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Admin Console</h3>
-      <p>Embedded browser-based admin at <code>/admin</code> with Dashboard, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config pages. Pair with <code>/chat</code> for web conversations and <code>/agents</code> for workspace dashboards. When <code>WEB_API_TOKEN</code> is set, the auth callback can store it in browser storage and redirect to a safe relative destination without leaving the token in the URL.</p>
+      <p>Embedded browser-based admin at <code>/admin</code> with Dashboard, Terminal, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config pages. Use <code>/admin/terminal</code> for a live PTY session, pair <code>/chat</code> with web conversations, and keep <code>/agents</code> open for workspace dashboards. When <code>WEB_API_TOKEN</code> is set, the auth callback can store it in browser storage and redirect to a safe relative destination without leaving the token in the URL.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Command Surface</h3>
-      <p>Operator-friendly command set across CLI, TUI, Discord, and gateway surfaces, including <code>hybridclaw doctor</code>, <code>hybridclaw browser login|status|reset</code>, <code>hybridclaw agent export|inspect|install</code>, <code>hybridclaw skill import</code>, <code>hybridclaw skill learn</code>, <code>hybridclaw plugin list|config|install|reinstall|uninstall</code>, <code>/plugin reload</code>, <code>/paste</code>, a richer TUI startup banner, slash-command discovery/history recall, <code>/skill config</code>, usage aggregation queries, and JSONL export workflows for session debugging.</p>
+      <p>Operator-friendly command set across CLI, TUI, Discord, and gateway surfaces, including <code>hybridclaw doctor</code>, <code>hybridclaw config|check|reload|set</code>, <code>hybridclaw browser login|status|reset</code>, <code>hybridclaw channels imessage setup</code>, <code>hybridclaw agent export|inspect|install</code>, <code>hybridclaw skill import</code>, <code>hybridclaw skill learn</code>, <code>hybridclaw plugin list|config|enable|disable|install|reinstall|uninstall</code>, <code>/plugin reload</code>, <code>/paste</code>, a richer TUI startup banner, slash-command discovery/history recall, <code>/skill config</code>, usage aggregation queries, and JSONL export workflows for session debugging.</p>
     </div>
   </div>
 </section>
@@ -1343,39 +1601,81 @@
   <div class="section-center">
     <div class="section-label">Get Started</div>
     <h2 class="section-title">Get started in 60 seconds</h2>
-    <p class="section-desc">Install, initialize trust, start the runtime, then connect your preferred interface.</p>
+    <p class="section-desc">Choose your deployment: run locally on your machine or spin up a managed cloud instance.</p>
   </div>
-  <div class="features-grid">
-    <div class="feature-card">
-      <h3 style="color: var(--accent-1);">1. Install CLI</h3>
-      <p><code>npm install -g @hybridaione/hybridclaw</code></p>
-    </div>
-    <div class="feature-card">
-      <h3 style="color: var(--accent-1);">2. Initialize workspace</h3>
-      <p><code>hybridclaw onboarding</code> to accept trust model and generate <code>config.json</code>.</p>
-    </div>
-    <div class="feature-card">
-      <h3 style="color: var(--accent-1);">3. Start runtime</h3>
-      <p><code>hybridclaw gateway</code> to launch the core service with your configured bot/model. Use <code>hybridclaw gateway start --sandbox=host</code> when HybridClaw itself already runs inside a container.</p>
-    </div>
-    <div class="feature-card">
-      <h3 style="color: var(--accent-1);">4. Connect interface</h3>
-      <p>Use Discord, the built-in web chat, or run <code>hybridclaw tui</code> for a terminal-native chat experience with a startup banner that summarizes the active model, sandbox, gateway, and chatbot context. Web chat accepts uploads and pasted files, and TUI can queue a copied file or clipboard image with <code>/paste</code> or <code>Ctrl-V</code>.</p>
-    </div>
-    <div class="feature-card">
-      <h3 style="color: var(--accent-1);">5. Diagnose issues fast</h3>
-      <p>Run <code>hybridclaw doctor</code> to check runtime, auth, providers, Docker, channels, and disk state. Add <code>--fix</code> when a safe remediation is available.</p>
-    </div>
+
+  <div class="qs-tabs">
+    <button type="button" class="qs-tab active" data-tab="local" onclick="switchQsTab('local')">HybridClaw Local</button>
+    <button type="button" class="qs-tab" data-tab="cloud" onclick="switchQsTab('cloud')">HybridClaw Cloud</button>
   </div>
-  <div class="quickstart-box">
-    <pre>
+
+  <!-- LOCAL panel -->
+  <div class="qs-panel active" id="qs-local">
+    <div class="features-grid">
+      <div class="feature-card">
+        <h3 style="color: var(--accent-1);">1. Install CLI</h3>
+        <p><code>npm install -g @hybridaione/hybridclaw</code></p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-1);">2. Initialize workspace</h3>
+        <p><code>hybridclaw onboarding</code> to accept trust model and generate <code>config.json</code>.</p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-1);">3. Start runtime</h3>
+        <p><code>hybridclaw gateway</code> to launch the core service with your configured bot/model. Use <code>hybridclaw gateway start --sandbox=host</code> when HybridClaw itself already runs inside a container.</p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-1);">4. Connect interface</h3>
+        <p>Use Discord, the built-in web chat, or run <code>hybridclaw tui</code> for a terminal-native chat experience with a startup banner that summarizes the active model, sandbox, gateway, and chatbot context. Web chat accepts uploads and pasted files, and TUI can queue a copied file or clipboard image with <code>/paste</code> or <code>Ctrl-V</code>.</p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-1);">5. Diagnose issues fast</h3>
+        <p>Run <code>hybridclaw doctor</code> to check runtime, auth, providers, Docker, channels, and disk state. Add <code>--fix</code> when a safe remediation is available.</p>
+      </div>
+    </div>
+    <div class="quickstart-box">
+      <pre>
 <span class="comment"># 60-second flow</span>
 <span class="cmd">npm install -g @hybridaione/hybridclaw</span>
 <span class="cmd">hybridclaw</span> <span class="flag">onboarding</span>
 <span class="cmd">hybridclaw</span> <span class="flag">gateway</span>
 <span class="cmd">hybridclaw</span> <span class="flag">tui</span></pre>
+    </div>
+  </div>
+
+  <!-- CLOUD panel -->
+  <div class="qs-panel" id="qs-cloud">
+    <div class="features-grid">
+      <div class="feature-card">
+        <h3 style="color: var(--accent-teal);">1. Register free account</h3>
+        <p>Sign up at <a href="https://hybridai.one" target="_blank">hybridai.one</a> to create your free HybridAI account.</p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-teal);">2. Upgrade account</h3>
+        <p>Choose a paid plan or contact us via <a href="https://discord.gg/jsVW4vJw27" target="_blank">Discord</a> or <a href="mailto:support@hybridai.one">support@hybridai.one</a> for a voucher code.</p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-teal);">3. Launch cloud instance</h3>
+        <p>Start your personal HybridClaw in the cloud — running in a secured Docker container, fully managed and always-on.</p>
+      </div>
+      <div class="feature-card">
+        <h3 style="color: var(--accent-teal);">4. Start using it</h3>
+        <p>Connect via Discord, the web chat, or any supported interface. Your cloud instance is ready to go — no local setup needed.</p>
+      </div>
+    </div>
   </div>
 </section>
+
+<script>
+function switchQsTab(tab) {
+  document.querySelectorAll('.qs-tab').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.querySelectorAll('.qs-panel').forEach((panel) => {
+    panel.classList.toggle('active', panel.id === `qs-${tab}`);
+  });
+}
+</script>
 
 <div class="glow-divider"></div>
 
@@ -1435,8 +1735,12 @@
       <div class="faq-a">HybridClaw keeps runtime copies of <code>SECURITY.md</code> and <code>TRUST_MODEL.md</code> under <code>~/.hybridclaw/instructions/</code>. TUI checks them before startup. Use <code>hybridclaw audit instructions</code> to review drift and <code>hybridclaw audit instructions --sync</code> to restore them from installed sources. Sync actions are audit logged.</div>
     </div>
     <div class="faq-item">
+      <div class="faq-q">What is HybridClaw Cloud?</div>
+      <div class="faq-a">HybridClaw Cloud lets you run your agent in a fully managed, secured Docker container — no local installation, no infrastructure to maintain. Sign up at <a href="https://hybridai.one">hybridai.one</a>, choose a paid plan or redeem a voucher code, and launch your cloud instance in seconds. It supports the same features, channels, and integrations as the local version.</div>
+    </div>
+    <div class="faq-item">
       <div class="faq-q">Can I use it without Discord?</div>
-      <div class="faq-a">Absolutely. Run <code>hybridclaw tui</code>, use the built-in web chat, or connect Microsoft Teams, WhatsApp, or email. The same assistant behavior and context model is shared across supported interfaces, and gateway startup now stays available even if Discord token configuration is invalid.</div>
+      <div class="faq-a">Absolutely. Run <code>hybridclaw tui</code>, use the built-in web chat, or connect Microsoft Teams, iMessage, WhatsApp, or email. The same assistant behavior and context model is shared across supported interfaces, and gateway startup now stays available even if Discord token configuration is invalid.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">How are screenshots returned in Discord?</div>
@@ -1480,7 +1784,7 @@
     </div>
     <div class="faq-item">
       <div class="faq-q">Is there a web-based admin interface?</div>
-      <div class="faq-a">Yes. The gateway serves an embedded admin console at <code>/admin</code> with pages for Dashboard, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config. There is also a web chat at <code>/chat</code> and an agent/session dashboard at <code>/agents</code>. When <code>WEB_API_TOKEN</code> is unset, localhost access opens without a login prompt. When it is set, the auth callback can store the token in browser storage and redirect to a safe relative path after login.</div>
+      <div class="faq-a">Yes. The gateway serves an embedded admin console at <code>/admin</code> with pages for Dashboard, Terminal, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config. There is also a live browser terminal at <code>/admin/terminal</code>, a web chat at <code>/chat</code>, and an agent/session dashboard at <code>/agents</code>. When <code>WEB_API_TOKEN</code> is unset, localhost access opens without a login prompt. When it is set, the auth callback can store the token in browser storage and redirect to a safe relative path after login.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Can I use skills from CLAUDE.md or OpenClaw?</div>

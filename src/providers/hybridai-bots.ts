@@ -207,7 +207,7 @@ async function fetchHybridAIBotManagementPayload(
   return res.json();
 }
 
-function normalizeHybridAIAccountChatbotId(payload: unknown): string {
+export function normalizeHybridAIAccountChatbotId(payload: unknown): string {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return '';
   }
@@ -219,17 +219,13 @@ function normalizeHybridAIAccountChatbotId(payload: unknown): string {
     !Array.isArray(record.data)
       ? (record.data as Record<string, unknown>)
       : null;
-  const sources = nested ? [nested, record] : [record];
-
-  for (const source of sources) {
-    for (const key of ['id', 'userId', 'user_id', '_id']) {
-      const value = source[key];
-      if (typeof value === 'string' && value.trim()) {
-        return value.trim();
-      }
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        return String(value);
-      }
+  for (const source of [nested, record]) {
+    const value = source?.user_id;
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
     }
   }
 

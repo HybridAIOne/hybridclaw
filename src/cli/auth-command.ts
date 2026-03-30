@@ -14,6 +14,7 @@ import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { makeLazyApi, normalizeArgs, parseValueFlag } from './common.js';
 import {
   isHelpRequest,
@@ -262,102 +263,12 @@ function normalizeHuggingFaceBaseUrl(rawBaseUrl: string): string {
   );
 }
 
-async function promptForSecretInput(
-  prompt: string,
-  missingMessage: string,
-): Promise<string> {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error(missingMessage);
-  }
-
-  const ttyInput = process.stdin as NodeJS.ReadStream;
-  if (typeof ttyInput.setRawMode !== 'function') {
-    return await promptForSecretInputFallback(prompt);
-  }
-
-  // Muted readline still lets the terminal echo pasted input in some cases,
-  // so the raw-mode path stays as the secure default for interactive terminals.
-  return await readHiddenSecretFromTty(prompt, ttyInput, process.stdout);
-}
-
-async function promptForSecretInputFallback(prompt: string): Promise<string> {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-  try {
-    return (await rl.question(prompt)).trim();
-  } finally {
-    rl.close();
-  }
-}
-
-function isSecretInputCancel(char: string): boolean {
-  return char === '\u0003';
-}
-
-function isSecretInputSubmit(char: string): boolean {
-  return char === '\r' || char === '\n';
-}
-
-function isSecretInputBackspace(char: string): boolean {
-  return char === '\u007f' || char === '\b';
-}
-
-function isSecretInputPrintable(char: string): boolean {
-  return char >= ' ';
-}
-
-async function readHiddenSecretFromTty(
-  prompt: string,
-  ttyInput: NodeJS.ReadStream,
-  ttyOutput: NodeJS.WriteStream,
-): Promise<string> {
-  ttyOutput.write(prompt);
-  const previousRawMode = ttyInput.isRaw;
-  ttyInput.setRawMode(true);
-  ttyInput.resume();
-
-  return await new Promise<string>((resolve, reject) => {
-    let value = '';
-
-    const cleanup = () => {
-      ttyInput.off('data', handleData);
-      ttyInput.setRawMode(previousRawMode ?? false);
-      ttyOutput.write('\n');
-    };
-
-    const handleData = (chunk: string | Buffer) => {
-      for (const char of chunk.toString('utf8')) {
-        if (isSecretInputCancel(char)) {
-          cleanup();
-          reject(new Error('Prompt cancelled.'));
-          return;
-        }
-        if (isSecretInputSubmit(char)) {
-          cleanup();
-          resolve(value.trim());
-          return;
-        }
-        if (isSecretInputBackspace(char)) {
-          value = value.slice(0, -1);
-          continue;
-        }
-        if (isSecretInputPrintable(char)) {
-          value += char;
-        }
-      }
-    };
-
-    ttyInput.on('data', handleData);
-  });
-}
-
 async function promptForOpenRouterApiKey(): Promise<string> {
-  return await promptForSecretInput(
-    '🔒 Paste OpenRouter API key: ',
-    'Missing OpenRouter API key. Pass `--api-key <key>`, set `OPENROUTER_API_KEY`, or run this command in an interactive terminal to paste it.',
-  );
+  return await promptForSecretInput({
+    prompt: '🔒 Paste OpenRouter API key: ',
+    missingMessage:
+      'Missing OpenRouter API key. Pass `--api-key <key>`, set `OPENROUTER_API_KEY`, or run this command in an interactive terminal to paste it.',
+  });
 }
 
 async function resolveOpenRouterApiKey(
@@ -376,10 +287,11 @@ async function resolveOpenRouterApiKey(
 }
 
 async function promptForHuggingFaceApiKey(): Promise<string> {
-  return await promptForSecretInput(
-    '🔒 Paste Hugging Face token: ',
-    'Missing Hugging Face token. Pass `--api-key <token>`, set `HF_TOKEN`, or run this command in an interactive terminal to paste it.',
-  );
+  return await promptForSecretInput({
+    prompt: '🔒 Paste Hugging Face token: ',
+    missingMessage:
+      'Missing Hugging Face token. Pass `--api-key <token>`, set `HF_TOKEN`, or run this command in an interactive terminal to paste it.',
+  });
 }
 
 async function resolveHuggingFaceApiKey(
@@ -1392,12 +1304,15 @@ async function promptWithDefault(params: {
   question: string;
   defaultValue?: string;
   required?: boolean;
+  secret?: boolean;
 }): Promise<string> {
   while (true) {
-    const suffix = params.defaultValue ? ` [${params.defaultValue}]` : '';
-    const raw = (
-      await params.rl.question(`${params.question}${suffix}: `)
-    ).trim();
+    const suffix =
+      params.defaultValue && !params.secret ? ` [${params.defaultValue}]` : '';
+    const prompt = `${params.question}${suffix}: `;
+    const raw = params.secret
+      ? await promptForSecretInput({ prompt, rl: params.rl })
+      : (await params.rl.question(prompt)).trim();
     const value = raw || params.defaultValue || '';
     if (value || params.required === false) {
       return value;
@@ -1447,6 +1362,7 @@ async function resolveInteractiveMSTeamsLogin(params: {
       rl,
       question: 'Microsoft Teams app password',
       defaultValue: appPassword || undefined,
+      secret: true,
     });
     const tenantId = await promptWithDefault({
       rl,

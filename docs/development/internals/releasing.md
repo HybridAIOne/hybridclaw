@@ -15,10 +15,11 @@ document covers the packaging and publish side of a release.
 
 Before creating the release commit or tag:
 
-1. Update `CHANGELOG.md` and move the shipped notes out of `Unreleased`.
+1. Update `CHANGELOG.md` and move the shipped notes out of `Coming up`.
 2. Refresh `README.md`, `docs/index.html`, and any affected
    `docs/development/**/*.md` pages so the published docs describe the current
-   shipped state instead of the previous release.
+   shipped state instead of the previous release. When the static landing page
+   has a "Latest" or release-highlights section, update that summary too.
    For maintenance-only dependency refreshes with no operator-facing behavior
    or workflow changes, a changelog entry is still required but broader product
    docs may remain unchanged.

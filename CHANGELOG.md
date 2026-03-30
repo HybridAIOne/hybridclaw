@@ -2,8 +2,27 @@
 
 ## [Coming up]
 
+## [0.9.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.6)
+
+### Changed
+
+- **Release and docs alignment**: Refreshed the public README install section
+  with direct changelog and docs links, updated the static docs landing page so
+  its release highlights match the current shipped feature set, and aligned the
+  maintainer release guide with the changelog's `Coming up` workflow and the
+  docs surfaces that should be refreshed before a release.
+
+## [0.9.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.5)
+
 ### Added
 
+- **Dual-backend iMessage channel**: Added `hybridclaw channels imessage setup`
+  plus gateway runtime support for local macOS delivery through `imsg` +
+  Messages `chat.db` and remote relay delivery through BlueBubbles webhooks
+  and REST sends.
+- **Admin terminal page**: Added a browser-based `Terminal` page inside the
+  embedded admin console so operators can open a live PTY session from
+  `/admin/terminal` alongside the existing gateway and session views.
 - **Local runtime config commands**: Added `hybridclaw config`,
   `hybridclaw config check`, `hybridclaw config reload`, and
   `hybridclaw config set <key> <value>`, plus matching local `/config`
@@ -17,6 +36,13 @@
 
 ### Changed
 
+- **Built-in browser tool warnings**: Grouped the `browser_*` subtools into
+  one browser toolset in doctor/config diagnostics so unused-tool suggestions
+  are clearer before operators disable them.
+- **Packaged install bootstrap and XLSX tooling**: Published installs now
+  bootstrap the packaged container runtime dependencies automatically, and the
+  bundled XLSX workflow now uses `xlsx-populate` instead of `exceljs` to avoid
+  a large deprecated transitive dependency chain.
 - **Host-mode filesystem allowlist**: Host-mode agent access now uses an
   explicit allowlist rooted at the user home directory, the gateway working
   directory, `/tmp`, and configured bind or additional-mount host paths,
@@ -27,13 +53,22 @@
 - **Browser login profile handling**: Tightened the headed Chromium login flow
   around the dedicated automation profile, including clearer automation-only
   password-store intent and deferred Playwright cache directory creation.
-- **Root dependency lockfile refresh**: Updated pinned and transitive npm
-  packages in `package-lock.json`, including `imapflow`, `mailparser`,
-  `nodemailer`, `path-to-regexp`, `picomatch`, `yaml`, and
-  `brace-expansion`.
 
 ### Fixed
 
+- **Admin terminal and iMessage hardening**: Tightened admin terminal session
+  transport and authentication, cleaned up stale browser sessions around
+  terminal/browser flows, stabilized iMessage self-chat handling, and restored
+  the local iMessage attributed-body fallback path.
+- **Fresh-install runtime startup failures**: Fixed packaged fresh installs so
+  host/container workers no longer miss nested runtime dependencies, surfaced
+  worker startup crashes immediately in TUI instead of hanging on the spinner,
+  and added clearer runtime error text when the worker exits before producing
+  output.
+- **Docker doctor guidance for sandboxed installs**: `hybridclaw doctor` now
+  treats Docker as a required dependency whenever the resolved sandbox mode is
+  not `host`, with explicit guidance to switch to host mode when Docker is not
+  available.
 - **HybridAI recovery and auth-status handling**: Improved empty-completion and
   retry-path diagnostics, cached parsed provider error bodies, simplified
   debug serialization, removed unused parsed fields, and tightened

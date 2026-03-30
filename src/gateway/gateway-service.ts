@@ -107,11 +107,14 @@ import {
   getQueuedProactiveMessageCount,
   getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
+  getSessionBoundaryMessagesBySessionIds,
   getSessionCount,
   getSessionFileChangeCounts,
   getSessionMessageCounts,
   getSessionToolCallBreakdown,
+  getSessionUsageTotals,
   getSessionUsageTotalsSince,
+  getStructuredAuditForSession,
   getTasksForSession,
   getUsageTotals,
   listStructuredAuditEntries,
@@ -215,12 +218,17 @@ import {
   runPreCompactionMemoryFlush,
 } from '../session/session-maintenance.js';
 import {
+  buildSessionBoundaryPreview,
+  SESSIONS_COMMAND_SNIPPET_MAX_LENGTH,
+} from '../session/session-preview.js';
+import {
   evaluateSessionExpiry,
   resolveResetPolicy,
   resolveSessionResetChannelKind,
   type SessionExpiryEvaluation,
   type SessionResetPolicy,
 } from '../session/session-reset.js';
+import { exportSessionTraceAtifJsonl } from '../session/session-trace-export.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import {
   estimateTokenCountFromMessages,
@@ -309,7 +317,11 @@ import {
   registerActiveGatewayRequest,
 } from './gateway-request-runtime.js';
 import { readSessionStatusSnapshot } from './gateway-session-status.js';
-import { formatRelativeTime, parseTimestamp } from './gateway-time.js';
+import {
+  formatDisplayTimestamp,
+  formatRelativeTime,
+  parseTimestamp,
+} from './gateway-time.js';
 import {
   type GatewayAdminAuditResponse,
   type GatewayAdminChannelsResponse,
@@ -357,6 +369,8 @@ import {
 } from './show-mode.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
+const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
+const TRACE_EXPORT_ALL_CONCURRENCY = 4;
 const MAX_HISTORY_MESSAGES = 40;
 const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
@@ -478,6 +492,14 @@ function sanitizeRequestLogMessages(messages: ChatMessage[]): ChatMessage[] {
         }))
       : message.tool_calls,
   }));
+}
+
+function readSystemPromptMessage(messages: ChatMessage[]): string | null {
+  const firstMessage = messages[0];
+  if (!firstMessage || firstMessage.role !== 'system') return null;
+  return typeof firstMessage.content === 'string' && firstMessage.content.trim()
+    ? firstMessage.content
+    : null;
 }
 
 function sanitizeRequestLogToolExecutions(
@@ -1493,6 +1515,44 @@ function resolveSessionAgentId(session: { agent_id: string }): string {
   return resolveDefaultAgentId(getRuntimeConfig());
 }
 
+type TraceExportResult = Awaited<
+  ReturnType<typeof exportSessionTraceAtifJsonl>
+>;
+
+async function exportTraceForSession(
+  session: Session,
+): Promise<TraceExportResult> {
+  return exportSessionTraceAtifJsonl({
+    agentId: resolveSessionAgentId(session),
+    session,
+    messages: memoryService.getRecentMessages(session.id),
+    auditEntries: getStructuredAuditForSession(session.id),
+    usageTotals: getSessionUsageTotals(session.id),
+  });
+}
+
+async function exportTraceForSessions(
+  sessions: Session[],
+): Promise<Exclude<TraceExportResult, null>[]> {
+  const exported: Exclude<TraceExportResult, null>[] = [];
+  for (
+    let index = 0;
+    index < sessions.length;
+    index += TRACE_EXPORT_ALL_CONCURRENCY
+  ) {
+    const batch = sessions.slice(index, index + TRACE_EXPORT_ALL_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map((session) => exportTraceForSession(session)),
+    );
+    exported.push(
+      ...results.filter(
+        (result): result is Exclude<TraceExportResult, null> => result != null,
+      ),
+    );
+  }
+  return exported;
+}
+
 function resolveAgentImageAssetPath(
   agentId: string,
   imageAsset: string | null | undefined,
@@ -1616,6 +1676,18 @@ function formatPluginPromptContext(sections: string[]): string | null {
     .filter((value) => value.length > 0);
   if (normalized.length === 0) return null;
   return normalized.join('\n\n');
+}
+
+function formatSessionSnippetSummary(params: {
+  firstMessage: string | null;
+  lastMessage: string | null;
+}): string {
+  const summary = buildSessionBoundaryPreview({
+    firstMessage: params.firstMessage,
+    lastMessage: params.lastMessage,
+    maxLength: SESSIONS_COMMAND_SNIPPET_MAX_LENGTH,
+  });
+  return summary ? ` · ${summary}` : '';
 }
 
 function resolveActivationModeLabel(): string {
@@ -3832,6 +3904,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         model: resolved.model,
         scheduledTaskCount: 0,
         promptMessages: messages.length,
+        systemPrompt: readSystemPromptMessage(messages),
       },
     });
 
@@ -5340,6 +5413,7 @@ export async function handleGatewayMessage(
         model,
         scheduledTaskCount: scheduledTasks.length,
         promptMessages: messages.length,
+        systemPrompt: readSystemPromptMessage(messages),
       },
     });
     if (pluginManager) {
@@ -6060,6 +6134,11 @@ export async function handleGatewayCommand(
             scope: 'bare',
           },
           {
+            command: 'bot clear',
+            description: 'Clear the session chatbot and return to auto mode',
+            scope: 'bare',
+          },
+          {
             command: 'bot info',
             description: 'Show current chatbot settings',
             scope: 'bare',
@@ -6280,6 +6359,12 @@ export async function handleGatewayCommand(
           {
             command: 'export session [sessionId]',
             description: 'Export session JSONL snapshot for debugging',
+            scope: 'bare',
+          },
+          {
+            command: 'export trace [sessionId|all|--all]',
+            description:
+              'Export ATIF-compatible debug trace JSONL for a session',
             scope: 'bare',
           },
           {
@@ -6632,6 +6717,26 @@ export async function handleGatewayCommand(
           );
         }
 
+        if (sub === 'clear' || sub === 'auto') {
+          const previousBotId = session.chatbot_id;
+          updateSessionChatbot(session.id, null);
+          recordAuditEvent({
+            sessionId: session.id,
+            runId: makeAuditRunId('cmd'),
+            event: {
+              type: 'bot.clear',
+              source: 'command',
+              previousBotId,
+              changed: previousBotId !== null,
+              userId: boundAuditActorField(req.userId),
+              username: boundAuditActorField(req.username),
+            },
+          });
+          return plainCommand(
+            'Chatbot cleared for this session. HybridAI account fallback will be used when required.',
+          );
+        }
+
         if (sub === 'info') {
           const botId = runtime.chatbotId || 'Not set';
           let botLabel = botId;
@@ -6658,7 +6763,10 @@ export async function handleGatewayCommand(
           return infoCommand('Bot Info', lines.join('\n'));
         }
 
-        return badCommand('Usage', 'Usage: `bot list|set <id|name>|info`');
+        return badCommand(
+          'Usage',
+          'Usage: `bot list|set <id|name>|clear|info`',
+        );
       }
 
       case 'model': {
@@ -7872,12 +7980,18 @@ export async function handleGatewayCommand(
       case 'sessions': {
         const sessions = getAllSessions();
         if (sessions.length === 0) return plainCommand('No active sessions.');
-        const list = sessions
-          .slice(0, 20)
-          .map(
-            (s) =>
-              `${s.id} — ${s.message_count} msgs, last active ${s.last_active}`,
-          )
+        const visibleSessions = sessions.slice(0, 20);
+        const boundariesBySessionId = getSessionBoundaryMessagesBySessionIds(
+          visibleSessions.map((session) => session.id),
+        );
+        const list = visibleSessions
+          .map((s) => {
+            const boundary = boundariesBySessionId.get(s.id) || {
+              firstMessage: null,
+              lastMessage: null,
+            };
+            return `${s.id} — ${s.message_count} msgs, last: ${formatDisplayTimestamp(s.last_active)}${formatSessionSnippetSummary(boundary)}`;
+          })
           .join('\n');
         return infoCommand('Sessions', list);
       }
@@ -7964,12 +8078,65 @@ export async function handleGatewayCommand(
 
       case 'export': {
         const sub = (req.args[1] || 'session').toLowerCase();
-        if (sub !== 'session') {
-          return badCommand('Usage', 'Usage: `export session [sessionId]`');
+        if (sub !== 'session' && sub !== 'trace') {
+          return badCommand(
+            'Usage',
+            'Usage: `export session [sessionId]` or `export trace [sessionId|all|--all]`',
+          );
         }
-        const targetSessionId = (req.args[2] || session.id || '').trim();
-        if (!targetSessionId) {
-          return badCommand('Usage', 'Usage: `export session [sessionId]`');
+        const traceTarget = (req.args[2] || '').trim();
+        const exportAllTraces =
+          sub === 'trace' &&
+          (traceTarget.toLowerCase() === 'all' || traceTarget === '--all');
+        const targetSessionId = exportAllTraces
+          ? ''
+          : (traceTarget || session.id || '').trim();
+        if (!exportAllTraces && !targetSessionId) {
+          return badCommand(
+            'Usage',
+            sub === 'trace'
+              ? 'Usage: `export trace [sessionId|all|--all]`'
+              : 'Usage: `export session [sessionId]`',
+          );
+        }
+        if (exportAllTraces) {
+          const targetSessions = getAllSessions({
+            limit: TRACE_EXPORT_ALL_SESSION_LIMIT,
+            warnLabel: 'gateway export trace all',
+          });
+          if (targetSessions.length === 0) {
+            return plainCommand('No sessions available to export.');
+          }
+          const exportedTraces = await exportTraceForSessions(targetSessions);
+          const exportedPaths = exportedTraces.map((exported) => exported.path);
+          const totalSteps = exportedTraces.reduce(
+            (sum, exported) => sum + exported.stepCount,
+            0,
+          );
+          if (exportedPaths.length === 0) {
+            return badCommand(
+              'Export Failed',
+              'Failed to write ATIF-compatible trace exports for any session. Check gateway logs for details.',
+            );
+          }
+          const previewLimit = 10;
+          const pathLines = exportedPaths
+            .slice(0, previewLimit)
+            .map((filePath) => `- ${filePath}`);
+          if (exportedPaths.length > previewLimit) {
+            pathLines.push(
+              `- ...and ${exportedPaths.length - previewLimit} more`,
+            );
+          }
+          return infoCommand(
+            'Trace Exports Created',
+            [
+              `Sessions exported: ${exportedPaths.length}/${targetSessions.length}`,
+              `Total steps: ${totalSteps}`,
+              'Files:',
+              ...pathLines,
+            ].join('\n'),
+          );
         }
         const targetSession = memoryService.getSessionById(targetSessionId);
         if (!targetSession) {
@@ -7978,10 +8145,27 @@ export async function handleGatewayCommand(
             `Session \`${targetSessionId}\` was not found.`,
           );
         }
-        const exportAgentId = resolveSessionAgentId(targetSession);
         const messages = memoryService.getRecentMessages(targetSessionId);
+        if (sub === 'trace') {
+          const exported = await exportTraceForSession(targetSession);
+          if (!exported) {
+            return badCommand(
+              'Export Failed',
+              'Failed to write ATIF-compatible trace export JSONL file. Check gateway logs for details.',
+            );
+          }
+          return infoCommand(
+            'Trace Exported',
+            [
+              `File: ${exported.path}`,
+              `Trace ID: ${exported.traceId}`,
+              `Steps: ${exported.stepCount}`,
+              `Messages: ${messages.length}`,
+            ].join('\n'),
+          );
+        }
         const exported = exportSessionSnapshotJsonl({
-          agentId: exportAgentId,
+          agentId: resolveSessionAgentId(targetSession),
           sessionId: targetSessionId,
           channelId: targetSession.channel_id,
           summary: targetSession.session_summary,

@@ -1,6 +1,6 @@
 ---
 name: github-pr-workflow
-description: Use this skill when the user wants to create a branch, commit changes, push, open or update a GitHub pull request, monitor CI, respond to review feedback, or merge safely.
+description: Create branches, commit and push changes, open or update GitHub pull requests, handle CI, and merge safely.
 user-invocable: true
 metadata:
   hybridclaw:

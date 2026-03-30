@@ -88,8 +88,10 @@ interface PoolEntry {
   sessionId: string;
   startedAt: number;
   stderrBuffer: string;
+  stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
+  terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
@@ -140,6 +142,60 @@ export function resolveDiscordMediaCacheHostDir(): string {
 }
 
 const CONTAINER_BROWSER_PROFILE_PATH = '/browser-profiles';
+const STDERR_HISTORY_LIMIT = 20;
+
+function rememberStderrLine(entry: PoolEntry, line: string): void {
+  entry.stderrHistory.push(line);
+  if (entry.stderrHistory.length > STDERR_HISTORY_LIMIT) {
+    entry.stderrHistory.splice(
+      0,
+      entry.stderrHistory.length - STDERR_HISTORY_LIMIT,
+    );
+  }
+}
+
+function summarizeExit(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): string {
+  if (typeof code === 'number') return `exit code ${code}`;
+  if (signal) return `signal ${signal}`;
+  return 'unknown exit status';
+}
+
+function formatContainerTerminalError(
+  entry: PoolEntry,
+  params?: {
+    code?: number | null;
+    signal?: NodeJS.Signals | null;
+  },
+): string {
+  const stderrText = entry.stderrHistory.join('\n');
+  const missingPackageMatch = stderrText.match(
+    /Cannot find package '([^']+)' imported from /,
+  );
+  const status = summarizeExit(
+    params?.code ?? entry.process.exitCode,
+    params?.signal ?? null,
+  );
+
+  if (missingPackageMatch) {
+    return [
+      `Container runtime exited before producing output (${status}).`,
+      `Missing runtime dependency: ${missingPackageMatch[1]}.`,
+      'Reinstall HybridClaw. If you are running from a source checkout, run `npm run setup` first.',
+    ].join('\n');
+  }
+
+  const detail = entry.stderrHistory
+    .slice(-4)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return detail
+    ? `Container runtime exited before producing output (${status}). ${detail}`
+    : `Container runtime exited before producing output (${status}). Check the gateway log for stderr details.`;
+}
 
 export function resolveBrowserProfileHostDir(): string {
   return path.resolve(getBrowserProfileDir(DATA_DIR));
@@ -531,8 +587,10 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     sessionId,
     startedAt: Date.now(),
     stderrBuffer: '',
+    stderrHistory: [],
     streamDebug: createStreamDebugState(),
     workerSignature: '',
+    terminalError: null,
   };
 
   proc.stderr.on('data', (data) => {
@@ -542,6 +600,7 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
+      rememberStderrLine(entry, line);
       emitTextDelta(entry, line);
       if (isStreamActivityLine(line)) {
         entry.activity?.notify();
@@ -565,9 +624,10 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     }
   });
 
-  proc.on('close', (code) => {
+  proc.on('close', (code, signal) => {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
+      rememberStderrLine(entry, tail);
       emitTextDelta(entry, tail);
       if (isStreamActivityLine(tail)) {
         entry.activity?.notify();
@@ -583,14 +643,16 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
       }
       entry.stderrBuffer = '';
     }
+    entry.terminalError = formatContainerTerminalError(entry, { code, signal });
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ container: containerName }, message);
     });
     pool.delete(sessionId);
-    logger.info({ sessionId, containerName, code }, 'Container exited');
+    logger.info({ sessionId, containerName, code, signal }, 'Container exited');
   });
 
   proc.on('error', (err) => {
+    entry.terminalError = `Container runtime failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
     pool.delete(sessionId);
     logger.error({ sessionId, containerName, error: err }, 'Container error');
   });
@@ -784,6 +846,7 @@ export async function runContainer(
     const output = await readOutput(sessionId, CONTAINER_TIMEOUT, {
       signal: abortSignal,
       activity,
+      terminalError: () => entry.terminalError,
     });
     if (isTimedOutAgentOutput(output)) {
       logger.warn(

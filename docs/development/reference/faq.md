@@ -52,7 +52,7 @@ prompt text intact and adds a warning instead of silently broadening access.
 ## Can I use HybridClaw without Discord?
 
 Yes. You can run `hybridclaw tui`, use the built-in web chat, or connect
-Microsoft Teams, WhatsApp, and email.
+Microsoft Teams, iMessage, WhatsApp, and email.
 
 ## What AI models does it support?
 
@@ -69,9 +69,10 @@ with linked-identity routing available when operators want shared continuity.
 ## Is there a web-based admin interface?
 
 Yes. The gateway serves `/admin` for the operator console, `/chat` for the web
-chat UI, and `/agents` for the agent/session dashboard. The admin console
-includes Dashboard, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP,
-Audit, Skills, Plugins, Tools, and Config pages.
+chat UI, `/agents` for the agent/session dashboard, and `/admin/terminal` for
+a browser-based PTY session. The admin console includes Dashboard, Terminal,
+Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills,
+Plugins, Tools, and Config pages.
 
 ## Can I extend HybridClaw with plugins?
 
