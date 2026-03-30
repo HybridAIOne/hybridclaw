@@ -719,6 +719,10 @@ function formatTuiOutput(text: string): string {
   return wrapTuiBlock(text, terminalColumns(), '  ');
 }
 
+function isInactiveSkillListLine(line: string): boolean {
+  return /\[disabled\]/i.test(line);
+}
+
 function printGatewayCommandResult(result: GatewayCommandResult): void {
   if (result.kind === 'error') {
     const prefix = result.title ? `${result.title}: ` : '';
@@ -729,7 +733,18 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
     printModelCatalogCommandResult(result);
     return;
   }
-  printInfo(renderGatewayCommand(result));
+  const rendered = renderGatewayCommand(result);
+  if (result.title === 'Skills') {
+    clearTuiSlashMenu();
+    console.log();
+    for (const line of formatTuiOutput(rendered).split('\n')) {
+      const color = isInactiveSkillListLine(line) ? MUTED : GOLD;
+      console.log(`${color}${line}${RESET}`);
+    }
+    console.log();
+    return;
+  }
+  printInfo(rendered);
 }
 
 function pickOceanActivityVerb(): string {

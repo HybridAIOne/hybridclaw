@@ -62,25 +62,25 @@ function makeTempDocsDir(options?: {
   );
   fs.writeFileSync(
     path.join(developmentDocsDir, '_category_.json'),
-    JSON.stringify({ label: 'Development', position: 1, collapsed: false }),
+    JSON.stringify({ label: 'Docs', position: 1, collapsed: false }),
     'utf8',
   );
   fs.writeFileSync(
     path.join(developmentDocsDir, 'README.md'),
     [
       '---',
-      'title: Development Docs',
-      'description: Development index page.',
+      'title: HybridClaw Docs',
+      'description: HybridClaw documentation home.',
       'sidebar_position: 1',
       '---',
       '',
-      '# Development Docs',
+      '# HybridClaw Docs',
       '',
       'Start with [Guides](./guides), [Reference](./reference), or [Extensibility](./extensibility).',
       '',
       '## Getting Started',
       '',
-      'This section introduces the development docs.',
+      'This section introduces the docs.',
       '',
       '### First Steps',
       '',
@@ -1092,22 +1092,20 @@ describe('gateway HTTP server', () => {
     expect(state.handleIMessageWebhook).toHaveBeenCalledTimes(1);
   });
 
-  test('renders development docs markdown as a browsable HTML page', async () => {
+  test('renders docs markdown as a browsable HTML page', async () => {
     const state = await importFreshHealth();
-    const req = makeRequest({ url: '/development' });
+    const req = makeRequest({ url: '/docs' });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
 
     expect(res.statusCode).toBe(200);
     expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
-    expect(res.body).toContain(
-      '<title>Development Docs | HybridClaw Docs</title>',
-    );
-    expect(res.body).toContain('<h1 id="development-docs">Development Docs');
-    expect(res.body).toContain('href="/development/guides"');
-    expect(res.body).toContain('href="/development/reference"');
-    expect(res.body).toContain('href="/development/extensibility"');
+    expect(res.body).toContain('<title>HybridClaw Docs | HybridClaw Docs</title>');
+    expect(res.body).toContain('<h1 id="hybridclaw-docs">HybridClaw Docs');
+    expect(res.body).toContain('href="/docs/guides"');
+    expect(res.body).toContain('href="/docs/reference"');
+    expect(res.body).toContain('href="/docs/extensibility"');
     expect(res.body).toContain('aria-label="Search docs"');
     expect(res.body).toContain('>Home</a>');
     expect(res.body).toContain('>GitHub');
@@ -1115,20 +1113,31 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('On this page');
     expect(res.body).toContain('href="#getting-started"');
     expect(res.body).toContain('data-doc-copy-markdown');
-    expect(res.body).toContain('href="/development/README.md"');
+    expect(res.body).toContain('href="/docs/README.md"');
     expect(res.body).not.toContain(
-      'class="docs-sidebar-link is-active" href="/development"',
+      'class="docs-sidebar-link is-active" href="/docs"',
     );
-    expect(res.body).not.toContain('><span>Development Docs</span></a>');
+    expect(res.body).not.toContain('><span>HybridClaw Docs</span></a>');
+  });
+
+  test('redirects legacy /development docs routes to /docs', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/development/guides' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(308);
+    expect(res.headers.Location).toBe('/docs/guides');
   });
 
   test('renders section index pages from folder-based routes', async () => {
     const state = await importFreshHealth();
 
     for (const [pathname, title, heading, anchor] of [
-      ['/development/guides', 'Guides', 'Guides', '#tutorials'],
-      ['/development/reference', 'Reference', 'Reference', '#commands'],
-      ['/development/guides/', 'Guides', 'Guides', '#tutorials'],
+      ['/docs/guides', 'Guides', 'Guides', '#tutorials'],
+      ['/docs/reference', 'Reference', 'Reference', '#commands'],
+      ['/docs/guides/', 'Guides', 'Guides', '#tutorials'],
     ] as const) {
       const req = makeRequest({ url: pathname });
       const res = makeResponse();
@@ -1145,9 +1154,9 @@ describe('gateway HTTP server', () => {
     }
   });
 
-  test('serves raw markdown when requesting a development doc .md path', async () => {
+  test('serves raw markdown when requesting a docs .md path', async () => {
     const state = await importFreshHealth();
-    const req = makeRequest({ url: '/development/extensibility/README.md' });
+    const req = makeRequest({ url: '/docs/extensibility/README.md' });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
@@ -1170,7 +1179,7 @@ describe('gateway HTTP server', () => {
       'README.md',
     );
 
-    const firstReq = makeRequest({ url: '/development/guides' });
+    const firstReq = makeRequest({ url: '/docs/guides' });
     const firstRes = makeResponse();
     state.handler(firstReq as never, firstRes as never);
 
@@ -1194,7 +1203,7 @@ describe('gateway HTTP server', () => {
       'utf8',
     );
 
-    const secondReq = makeRequest({ url: '/development/guides' });
+    const secondReq = makeRequest({ url: '/docs/guides' });
     const secondRes = makeResponse();
     state.handler(secondReq as never, secondRes as never);
 
@@ -1215,7 +1224,7 @@ describe('gateway HTTP server', () => {
     );
 
     const state = await importFreshHealth({ docsDir: installRoot });
-    const req = makeRequest({ url: '/development/guides/secret' });
+    const req = makeRequest({ url: '/docs/guides/secret' });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
@@ -1247,7 +1256,7 @@ describe('gateway HTTP server', () => {
     );
 
     const state = await importFreshHealth({ docsDir: installRoot });
-    const req = makeRequest({ url: '/development/guides/heading-order' });
+    const req = makeRequest({ url: '/docs/guides/heading-order' });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
@@ -1283,7 +1292,7 @@ describe('gateway HTTP server', () => {
     );
 
     const state = await importFreshHealth({ docsDir: installRoot });
-    const req = makeRequest({ url: '/development/guides/image-schemes' });
+    const req = makeRequest({ url: '/docs/guides/image-schemes' });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
@@ -1298,20 +1307,20 @@ describe('gateway HTTP server', () => {
   test('returns a visible error for malformed development doc frontmatter', async () => {
     const installRoot = makeTempDocsDir({ includeMalformedFrontmatter: true });
     const state = await importFreshHealth({ docsDir: installRoot });
-    const req = makeRequest({ url: '/development/reference/broken' });
+    const req = makeRequest({ url: '/docs/reference/broken' });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
 
     expect(res.statusCode).toBe(500);
     expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
-    expect(res.body).toContain('Development docs failed to render');
+    expect(res.body).toContain('Docs failed to render');
     expect(res.body).toContain('Invalid frontmatter in reference/broken.md');
   });
 
   test('keeps heading anchors aligned when deep headings appear before repeated sections', async () => {
     const state = await importFreshHealth();
-    const req = makeRequest({ url: '/development/guides/heading-order' });
+    const req = makeRequest({ url: '/docs/guides/heading-order' });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
@@ -1325,7 +1334,7 @@ describe('gateway HTTP server', () => {
 
   test('renders individual development docs pages by slug', async () => {
     const state = await importFreshHealth();
-    const req = makeRequest({ url: '/development/extensibility' });
+    const req = makeRequest({ url: '/docs/extensibility' });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
