@@ -2340,12 +2340,17 @@
         contentEl.innerHTML = renderMarkdown(nextContent);
       }
 
-      if (meta.artifactsEl?.isConnected) {
-        meta.artifactsEl.remove();
-      }
-      const nextArtifactsEl = renderArtifactCards(nextArtifacts);
-      if (nextArtifactsEl) {
-        block.insertBefore(nextArtifactsEl, meta.actionsEl || null);
+      const hasNextArtifacts = nextArtifacts.length > 0;
+      const hasCurrentArtifacts = Array.isArray(meta.artifacts) && meta.artifacts.length > 0;
+      let nextArtifactsEl = meta.artifactsEl || null;
+      if (hasNextArtifacts || hasCurrentArtifacts) {
+        if (meta.artifactsEl?.isConnected) {
+          meta.artifactsEl.remove();
+        }
+        nextArtifactsEl = renderArtifactCards(nextArtifacts);
+        if (nextArtifactsEl) {
+          block.insertBefore(nextArtifactsEl, meta.actionsEl || null);
+        }
       }
 
       setMessageMeta(block, {
