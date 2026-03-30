@@ -17,12 +17,11 @@ import {
 import {
   discoverMistralModels,
   getDiscoveredMistralModelNames,
+  isDiscoveredDeprecatedMistralModel,
   isDiscoveredMistralModelVisionCapable,
+  resolveDiscoveredMistralModelCanonicalName,
 } from './mistral-discovery.js';
-import {
-  isDeprecatedMistralModel,
-  MISTRAL_MODEL_PREFIX,
-} from './mistral-utils.js';
+import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
 import { formatModelForDisplay } from './model-names.js';
 import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
 import {
@@ -163,9 +162,18 @@ function dedupeModelList(models: string[]): string[] {
   for (const rawModel of models) {
     const model = String(rawModel || '').trim();
     if (!model || seen.has(model)) continue;
-    if (isDeprecatedMistralModel(model)) continue;
-    seen.add(model);
-    deduped.push(model);
+    const canonicalModel = hasModelPrefix(model, MISTRAL_MODEL_PREFIX)
+      ? resolveDiscoveredMistralModelCanonicalName(model)
+      : model;
+    if (!canonicalModel || seen.has(canonicalModel)) continue;
+    if (
+      hasModelPrefix(canonicalModel, MISTRAL_MODEL_PREFIX) &&
+      isDiscoveredDeprecatedMistralModel(canonicalModel)
+    ) {
+      continue;
+    }
+    seen.add(canonicalModel);
+    deduped.push(canonicalModel);
   }
   return deduped;
 }

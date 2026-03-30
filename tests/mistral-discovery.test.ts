@@ -34,29 +34,32 @@ afterEach(() => {
 });
 
 describe('mistral discovery', () => {
-  test('reads model ids, context windows, and vision capability from /models', async () => {
+  test('reads model ids, context windows, and vision capability from wrapped /models responses', async () => {
     process.env.MISTRAL_API_KEY = 'mistral-discovery-test';
     vi.stubGlobal(
       'fetch',
       vi.fn(
         async () =>
           new Response(
-            JSON.stringify([
-              {
-                id: 'mistral-small-latest',
-                max_context_length: 131_072,
-                capabilities: {
-                  vision: false,
+            JSON.stringify({
+              object: 'list',
+              data: [
+                {
+                  id: 'mistral-small-latest',
+                  max_context_length: 131_072,
+                  capabilities: {
+                    vision: false,
+                  },
                 },
-              },
-              {
-                id: 'pixtral-large-latest',
-                max_context_length: 262_144,
-                capabilities: {
-                  vision: true,
+                {
+                  id: 'pixtral-large-latest',
+                  max_context_length: 262_144,
+                  capabilities: {
+                    vision: true,
+                  },
                 },
-              },
-            ]),
+              ],
+            }),
             {
               status: 200,
               headers: { 'Content-Type': 'application/json' },
@@ -83,41 +86,7 @@ describe('mistral discovery', () => {
     );
   });
 
-  test('accepts object payloads with data arrays for forward compatibility', async () => {
-    process.env.MISTRAL_API_KEY = 'mistral-discovery-test';
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              data: [
-                {
-                  id: 'codestral-latest',
-                  max_context_length: 256_000,
-                },
-              ],
-            }),
-            {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            },
-          ),
-      ),
-    );
-
-    const discovery = await importFreshDiscovery();
-    const store = discovery.createMistralDiscoveryStore();
-
-    await expect(store.discoverModels()).resolves.toEqual([
-      'mistral/codestral-latest',
-    ]);
-    expect(store.getModelContextWindow('mistral/codestral-latest')).toBe(
-      256_000,
-    );
-  });
-
-  test('filters deprecated Mistral models from discovery results', async () => {
+  test('collapses alias-bearing Mistral models to their canonical display name', async () => {
     process.env.MISTRAL_API_KEY = 'mistral-discovery-test';
     vi.stubGlobal(
       'fetch',
@@ -126,11 +95,15 @@ describe('mistral discovery', () => {
           new Response(
             JSON.stringify([
               {
-                id: 'codestral-2501',
-                max_context_length: 256_000,
+                id: 'mistral-medium-latest',
+                name: 'mistral-medium-2508',
+                aliases: ['mistral-medium-2508', 'mistral-medium'],
+                max_context_length: 131_072,
               },
               {
-                id: 'mistral-medium-latest',
+                id: 'mistral-medium-2508',
+                name: 'mistral-medium-2508',
+                aliases: ['mistral-medium-latest', 'mistral-medium'],
                 max_context_length: 131_072,
               },
             ]),
@@ -146,9 +119,101 @@ describe('mistral discovery', () => {
     const store = discovery.createMistralDiscoveryStore();
 
     await expect(store.discoverModels()).resolves.toEqual([
-      'mistral/mistral-medium-latest',
+      'mistral/mistral-medium-2508',
     ]);
-    expect(store.getModelContextWindow('mistral/codestral-2501')).toBeNull();
+    expect(
+      store.resolveCanonicalModelName('mistral/mistral-medium-latest'),
+    ).toBe('mistral/mistral-medium-2508');
+    expect(store.getModelContextWindow('mistral/mistral-medium')).toBe(131_072);
+  });
+
+  test('collapses empty-alias duplicate rows onto their canonical named model', async () => {
+    process.env.MISTRAL_API_KEY = 'mistral-discovery-test';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              object: 'list',
+              data: [
+                {
+                  id: 'mistral-large-2512',
+                  name: 'mistral-large-2512',
+                  aliases: [],
+                  max_context_length: 262_144,
+                },
+                {
+                  id: 'mistral-large-latest',
+                  name: 'mistral-large-2512',
+                  aliases: [],
+                  max_context_length: 262_144,
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    const discovery = await importFreshDiscovery();
+    const store = discovery.createMistralDiscoveryStore();
+
+    await expect(store.discoverModels()).resolves.toEqual([
+      'mistral/mistral-large-2512',
+    ]);
+    expect(
+      store.resolveCanonicalModelName('mistral/mistral-large-latest'),
+    ).toBe('mistral/mistral-large-2512');
+    expect(store.getModelContextWindow('mistral/mistral-large-latest')).toBe(
+      262_144,
+    );
+  });
+
+  test('filters deprecated and archived Mistral models from discovery results', async () => {
+    process.env.MISTRAL_API_KEY = 'mistral-discovery-test';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              {
+                id: 'codestral-2501',
+                deprecation: '2026-05-31T12:00:00Z',
+                max_context_length: 256_000,
+              },
+              {
+                id: 'pixtral-large-latest',
+                name: 'pixtral-large-2411',
+                aliases: ['pixtral-large-2411'],
+                archived: true,
+                max_context_length: 131_072,
+              },
+              {
+                id: 'mistral-small-2603',
+                max_context_length: 131_072,
+              },
+            ]),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    const discovery = await importFreshDiscovery();
+    const store = discovery.createMistralDiscoveryStore();
+
+    await expect(store.discoverModels()).resolves.toEqual([
+      'mistral/mistral-small-2603',
+    ]);
+    expect(store.isModelDeprecated('mistral/codestral-2501')).toBe(true);
+    expect(store.isModelDeprecated('mistral/pixtral-large-2411')).toBe(true);
   });
 
   test('logs a warning and returns stale models when discovery refresh fails', async () => {

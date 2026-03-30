@@ -1,4 +1,5 @@
 import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
+import { resolveDiscoveredMistralModelCanonicalName } from './mistral-discovery.js';
 import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
 
@@ -97,7 +98,10 @@ export function isRecommendedModel(model: string): boolean {
 
   const mistralTail = normalizeModelTail(model, MISTRAL_MODEL_PREFIX);
   if (mistralTail) {
-    return hasExactOrTaggedMatch(mistralTail, MISTRAL_RECOMMENDED_MODEL_SET);
+    const canonical = resolveDiscoveredMistralModelCanonicalName(model);
+    const canonicalTail =
+      normalizeModelTail(canonical, MISTRAL_MODEL_PREFIX) ?? mistralTail;
+    return hasExactOrTaggedMatch(canonicalTail, MISTRAL_RECOMMENDED_MODEL_SET);
   }
 
   return false;

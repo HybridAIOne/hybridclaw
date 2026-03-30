@@ -379,18 +379,30 @@ test('available model catalog merges discovered Mistral models from /models', as
           JSON.stringify([
             {
               id: 'codestral-2501',
-              max_context_length: 256_000,
-            },
-            {
-              id: 'codestral-latest',
+              deprecation: '2026-05-31T12:00:00Z',
               max_context_length: 256_000,
             },
             {
               id: 'pixtral-large-latest',
+              name: 'pixtral-large-2411',
+              aliases: ['pixtral-large-2411'],
+              archived: true,
               max_context_length: 131_072,
               capabilities: {
                 vision: true,
               },
+            },
+            {
+              id: 'mistral-medium-latest',
+              name: 'mistral-medium-2508',
+              aliases: ['mistral-medium-2508', 'mistral-medium'],
+              max_context_length: 131_072,
+            },
+            {
+              id: 'mistral-medium-2508',
+              name: 'mistral-medium-2508',
+              aliases: ['mistral-medium-latest', 'mistral-medium'],
+              max_context_length: 131_072,
             },
           ]),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -404,15 +416,20 @@ test('available model catalog merges discovered Mistral models from /models', as
   await catalog.refreshAvailableModelCatalogs();
 
   expect(catalog.getAvailableModelList('mistral')).toEqual([
-    'mistral/codestral-latest',
     'mistral/mistral-large-latest',
-    'mistral/pixtral-large-latest',
+    'mistral/mistral-medium-2508',
   ]);
   expect(catalog.getAvailableModelList('mistral')).not.toContain(
     'mistral/codestral-2501',
   );
-  expect(catalog.isModelVisionCapable('mistral/pixtral-large-latest')).toBe(
-    true,
+  expect(catalog.getAvailableModelList('mistral')).not.toContain(
+    'mistral/pixtral-large-2411',
+  );
+  expect(catalog.getAvailableModelList('mistral')).not.toContain(
+    'mistral/pixtral-large-latest',
+  );
+  expect(catalog.getAvailableModelList('mistral')).not.toContain(
+    'mistral/mistral-medium-latest',
   );
 });
 

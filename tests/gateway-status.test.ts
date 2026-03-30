@@ -1469,8 +1469,8 @@ test('model list highlights recommended Mistral models and hides legacy entries'
   process.env.MISTRAL_API_KEY = 'mistral-gateway-status-1234567890';
   writeRuntimeConfig(homeDir, (config) => {
     config.mistral.enabled = true;
-    config.hybridai.defaultModel = 'mistral/mistral-large-2512';
-    config.mistral.models = ['mistral/mistral-large-2512'];
+    config.hybridai.defaultModel = 'mistral/mistral-medium-latest';
+    config.mistral.models = ['mistral/mistral-medium-latest'];
     config.openrouter.enabled = false;
     config.huggingface.enabled = false;
     config.local.backends.ollama.enabled = false;
@@ -1486,19 +1486,76 @@ test('model list highlights recommended Mistral models and hides legacy entries'
         Authorization: 'Bearer mistral-gateway-status-1234567890',
       });
       return new Response(
-        JSON.stringify([
-          { id: 'mistral-small-2603' },
-          { id: 'mistral-large-2512' },
-          { id: 'mistral-medium-2508' },
-          { id: 'mistral-small-2506' },
-          { id: 'ministral-14b-2512' },
-          { id: 'ministral-8b-2512' },
-          { id: 'ministral-3b-2512' },
-          { id: 'magistral-medium-2509' },
-          { id: 'magistral-small-2509' },
-          { id: 'codestral-2501' },
-          { id: 'custom-team-model' },
-        ]),
+        JSON.stringify({
+          object: 'list',
+          data: [
+            { id: 'mistral-small-2603' },
+            {
+              id: 'mistral-large-2512',
+              name: 'mistral-large-2512',
+              aliases: [],
+            },
+            {
+              id: 'mistral-large-latest',
+              name: 'mistral-large-2512',
+              aliases: [],
+            },
+            {
+              id: 'devstral-2512',
+              name: 'devstral-2512',
+              aliases: [],
+            },
+            {
+              id: 'devstral-latest',
+              name: 'devstral-2512',
+              aliases: [],
+            },
+            {
+              id: 'devstral-medium-latest',
+              name: 'devstral-2512',
+              aliases: [],
+            },
+            {
+              id: 'mistral-medium-latest',
+              name: 'mistral-medium-2508',
+              aliases: ['mistral-medium-2508', 'mistral-medium'],
+            },
+            {
+              id: 'mistral-medium-2508',
+              name: 'mistral-medium-2508',
+              aliases: ['mistral-medium-latest', 'mistral-medium'],
+            },
+            { id: 'mistral-small-2506' },
+            { id: 'ministral-14b-2512' },
+            { id: 'ministral-8b-2512' },
+            { id: 'ministral-3b-2512' },
+            {
+              id: 'magistral-medium-latest',
+              name: 'magistral-medium-2509',
+              aliases: ['magistral-medium-2509'],
+            },
+            {
+              id: 'magistral-medium-2509',
+              name: 'magistral-medium-2509',
+              aliases: ['magistral-medium-latest'],
+            },
+            {
+              id: 'magistral-small-latest',
+              name: 'magistral-small-2509',
+              aliases: ['magistral-small-2509'],
+            },
+            {
+              id: 'magistral-small-2509',
+              name: 'magistral-small-2509',
+              aliases: ['magistral-small-latest'],
+            },
+            {
+              id: 'codestral-2501',
+              deprecation: '2026-05-31T12:00:00Z',
+            },
+            { id: 'custom-team-model' },
+          ],
+        }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     }
@@ -1525,9 +1582,10 @@ test('model list highlights recommended Mistral models and hides legacy entries'
     throw new Error(`Unexpected result kind: ${listed.kind}`);
   }
   expect(listed.title).toBe('Available Models (mistral)');
-  expect(listed.text).toContain('mistral/mistral-large-2512 (current)');
+  expect(listed.text).toContain('mistral/mistral-medium-2508 (current)');
   expect(listed.text).toContain('mistral/mistral-small-2603');
-  expect(listed.text).toContain('mistral/mistral-medium-2508');
+  expect(listed.text).toContain('mistral/mistral-large-2512');
+  expect(listed.text).toContain('mistral/devstral-2512');
   expect(listed.text).toContain('mistral/mistral-small-2506');
   expect(listed.text).toContain('mistral/ministral-14b-2512');
   expect(listed.text).toContain('mistral/ministral-8b-2512');
@@ -1536,6 +1594,12 @@ test('model list highlights recommended Mistral models and hides legacy entries'
   expect(listed.text).toContain('mistral/magistral-small-2509');
   expect(listed.text).toContain('mistral/custom-team-model');
   expect(listed.text).not.toContain('mistral/codestral-2501');
+  expect(listed.text).not.toContain('mistral/mistral-large-latest');
+  expect(listed.text).not.toContain('mistral/devstral-latest');
+  expect(listed.text).not.toContain('mistral/devstral-medium-latest');
+  expect(listed.text).not.toContain('mistral/mistral-medium-latest');
+  expect(listed.text).not.toContain('mistral/magistral-medium-latest');
+  expect(listed.text).not.toContain('mistral/magistral-small-latest');
   expect(listed.modelCatalog).toEqual(
     expect.arrayContaining([
       {
@@ -1551,13 +1615,19 @@ test('model list highlights recommended Mistral models and hides legacy entries'
       },
       {
         value: 'mistral/mistral-large-2512',
-        label: 'mistral/mistral-large-2512 (current)',
+        label: 'mistral/mistral-large-2512',
+        isFree: false,
+        recommended: true,
+      },
+      {
+        value: 'mistral/devstral-2512',
+        label: 'mistral/devstral-2512',
         isFree: false,
         recommended: true,
       },
       {
         value: 'mistral/mistral-medium-2508',
-        label: 'mistral/mistral-medium-2508',
+        label: 'mistral/mistral-medium-2508 (current)',
         isFree: false,
         recommended: true,
       },
@@ -1565,7 +1635,6 @@ test('model list highlights recommended Mistral models and hides legacy entries'
         value: 'mistral/mistral-small-2506',
         label: 'mistral/mistral-small-2506',
         isFree: false,
-        recommended: true,
       },
       {
         value: 'mistral/ministral-14b-2512',
@@ -1595,12 +1664,37 @@ test('model list highlights recommended Mistral models and hides legacy entries'
         value: 'mistral/magistral-small-2509',
         label: 'mistral/magistral-small-2509',
         isFree: false,
+      },
+      {
+        value: 'mistral/magistral-medium-2509',
+        label: 'mistral/magistral-medium-2509',
+        isFree: false,
         recommended: true,
       },
     ]),
   );
   expect(listed.modelCatalog).not.toEqual(
     expect.arrayContaining([
+      {
+        value: 'mistral/mistral-medium-latest',
+        label: 'mistral/mistral-medium-latest',
+        isFree: false,
+      },
+      {
+        value: 'mistral/mistral-large-latest',
+        label: 'mistral/mistral-large-latest',
+        isFree: false,
+      },
+      {
+        value: 'mistral/devstral-latest',
+        label: 'mistral/devstral-latest',
+        isFree: false,
+      },
+      {
+        value: 'mistral/magistral-medium-latest',
+        label: 'mistral/magistral-medium-latest',
+        isFree: false,
+      },
       {
         value: 'mistral/codestral-2501',
         label: 'mistral/codestral-2501',

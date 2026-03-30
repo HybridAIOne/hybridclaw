@@ -4,7 +4,7 @@ import {
   HUGGINGFACE_MODEL_PREFIX,
   readHuggingFaceApiKey,
 } from './huggingface-utils.js';
-import { isRecord, normalizeBaseUrl } from './utils.js';
+import { isRecord, normalizeBaseUrl, readPositiveInteger } from './utils.js';
 
 const HUGGINGFACE_DISCOVERY_TTL_MS = 3_600_000;
 
@@ -15,17 +15,6 @@ function normalizeHuggingFaceModelName(modelId: string): string {
     return normalized;
   }
   return `${HUGGINGFACE_MODEL_PREFIX}${normalized}`;
-}
-
-function readPositiveInteger(value: unknown): number | null {
-  const parsed =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string'
-        ? Number.parseInt(value, 10)
-        : Number.NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return Math.floor(parsed);
 }
 
 function readHuggingFaceContextWindow(
