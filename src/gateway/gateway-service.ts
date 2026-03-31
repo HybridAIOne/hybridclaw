@@ -345,7 +345,6 @@ import {
   type GatewayAgentsResponse,
   type GatewayAssistantPresentation,
   type GatewayChatRequest,
-  type GatewayChatRequestBody,
   type GatewayChatResult,
   type GatewayCommandRequest,
   type GatewayCommandResult,
