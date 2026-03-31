@@ -29,6 +29,18 @@ import {
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
 import type { McpServerConfig } from '../types/models.js';
 import { normalizeTrimmedStringSet } from '../utils/normalized-strings.js';
+import {
+  clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
+  deleteRuntimeConfigRevision as deleteTrackedRuntimeConfigRevision,
+  getRuntimeConfigRevision as getTrackedRuntimeConfigRevision,
+  listRuntimeConfigRevisions as listTrackedRuntimeConfigRevisions,
+  type RuntimeConfigChangeMeta,
+  type RuntimeConfigObservedFile,
+  type RuntimeConfigRevision,
+  type RuntimeConfigRevisionSummary,
+  runtimeConfigRevisionStorePath,
+  syncRuntimeConfigRevisionState,
+} from './runtime-config-revisions.js';
 
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
@@ -1070,6 +1082,26 @@ let watcherRetryAttempt = 0;
 let watcherRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherStableTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherPermanentlyDisabled = false;
+
+function detachTimer(timer: ReturnType<typeof setTimeout>): void {
+  if (
+    typeof timer === 'object' &&
+    timer !== null &&
+    'unref' in timer &&
+    typeof timer.unref === 'function'
+  ) {
+    timer.unref();
+  }
+}
+
+function startDetachedTimer(
+  callback: () => void,
+  delayMs: number,
+): ReturnType<typeof setTimeout> {
+  const timer = setTimeout(callback, delayMs);
+  detachTimer(timer);
+  return timer;
+}
 
 function isRuntimeConfigWatcherDisabled(): boolean {
   const raw = String(process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER || '')
@@ -3964,11 +3996,29 @@ function normalizeRuntimeConfig(
   };
 }
 
-function loadConfigPatchFromDisk(): DeepPartial<RuntimeConfig> {
-  if (!fs.existsSync(CONFIG_PATH)) return {};
+function loadConfigPatchFromDisk(): {
+  observedFile: RuntimeConfigObservedFile;
+  patch: DeepPartial<RuntimeConfig>;
+} {
+  if (!fs.existsSync(CONFIG_PATH)) {
+    return {
+      observedFile: {
+        exists: false,
+        content: null,
+      },
+      patch: {},
+    };
+  }
+
   const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
   const parsed = JSON.parse(raw) as unknown;
-  return parseConfigPatch(parsed);
+  return {
+    observedFile: {
+      exists: true,
+      content: raw,
+    },
+    patch: parseConfigPatch(parsed),
+  };
 }
 
 function buildSerializableConfig(
@@ -4006,6 +4056,7 @@ function serializeConfigFile(
 function writeConfigFile(
   config: RuntimeConfig,
   opts?: { omitImplicitSandboxMode?: boolean },
+  meta?: RuntimeConfigChangeMeta,
 ): boolean {
   const dir = path.dirname(CONFIG_PATH);
   fs.mkdirSync(dir, { recursive: true });
@@ -4023,6 +4074,10 @@ function writeConfigFile(
   const tmpPath = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
   fs.writeFileSync(tmpPath, nextText, 'utf-8');
   fs.renameSync(tmpPath, CONFIG_PATH);
+  syncRuntimeConfigRevisionState(CONFIG_PATH, meta, {
+    exists: true,
+    content: nextText,
+  });
   return true;
 }
 
@@ -4042,8 +4097,11 @@ function applyConfig(next: RuntimeConfig): void {
   }
 }
 
-function loadRuntimeConfigFromSources(): RuntimeConfig {
-  const diskPatch = loadConfigPatchFromDisk();
+function loadRuntimeConfigFromSources(
+  syncMeta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const { observedFile, patch: diskPatch } = loadConfigPatchFromDisk();
+  syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta, observedFile);
   const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
   currentConfigMetadata = {
     containerSandboxModeExplicit: hasOwn(rawContainer, 'sandboxMode'),
@@ -4051,15 +4109,20 @@ function loadRuntimeConfigFromSources(): RuntimeConfig {
   return normalizeRuntimeConfig(diskPatch);
 }
 
-function reloadRuntimeConfigFromSources(): RuntimeConfig {
-  const next = loadRuntimeConfigFromSources();
+function reloadRuntimeConfigFromSources(
+  syncMeta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const next = loadRuntimeConfigFromSources(syncMeta);
   applyConfig(next);
   return cloneConfig(currentConfig);
 }
 
 function reloadFromDisk(trigger: string): void {
   try {
-    reloadRuntimeConfigFromSources();
+    reloadRuntimeConfigFromSources({
+      route: `runtime-config.reload:${trigger}`,
+      source: 'external',
+    });
   } catch (err) {
     console.warn(
       `[runtime-config] reload failed (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
@@ -4069,7 +4132,7 @@ function reloadFromDisk(trigger: string): void {
 
 function scheduleReload(trigger: string): void {
   if (reloadTimer) clearTimeout(reloadTimer);
-  reloadTimer = setTimeout(() => {
+  reloadTimer = startDetachedTimer(() => {
     reloadTimer = null;
     reloadFromDisk(trigger);
   }, 120);
@@ -4097,7 +4160,7 @@ function scheduleWatcherRestart(reason: string): void {
   console.warn(
     `[runtime-config] watcher restart in ${delay}ms (attempt ${watcherRetryAttempt}/${WATCHER_RETRY_MAX_ATTEMPTS})`,
   );
-  watcherRestartTimer = setTimeout(() => {
+  watcherRestartTimer = startDetachedTimer(() => {
     watcherRestartTimer = null;
     startWatcher();
   }, delay);
@@ -4131,7 +4194,7 @@ function startWatcher(): void {
       },
     );
     const activeWatcher = configWatcher;
-    watcherStableTimer = setTimeout(() => {
+    watcherStableTimer = startDetachedTimer(() => {
       markWatcherStable(activeWatcher);
     }, WATCHER_STABLE_RESET_DELAY_MS);
     if (watcherRestartTimer) {
@@ -4168,7 +4231,14 @@ function startWatcher(): void {
 function ensureInitialConfigFile(): void {
   if (fs.existsSync(CONFIG_PATH)) return;
   const seeded = normalizeRuntimeConfig();
-  writeConfigFile(seeded, { omitImplicitSandboxMode: true });
+  writeConfigFile(
+    seeded,
+    { omitImplicitSandboxMode: true },
+    {
+      route: 'runtime-config.seed-defaults',
+      source: 'system',
+    },
+  );
 }
 
 function migrateConfigSchemaOnStartup(): void {
@@ -4210,9 +4280,16 @@ function migrateConfigSchemaOnStartup(): void {
     const rawContainer = isRecord(parsedRecord.container)
       ? parsedRecord.container
       : {};
-    const changed = writeConfigFile(migrated, {
-      omitImplicitSandboxMode: !hasOwn(rawContainer, 'sandboxMode'),
-    });
+    const changed = writeConfigFile(
+      migrated,
+      {
+        omitImplicitSandboxMode: !hasOwn(rawContainer, 'sandboxMode'),
+      },
+      {
+        route: 'runtime-config.migrate-schema',
+        source: 'system',
+      },
+    );
     if (!changed) return;
     const from = previousVersion == null ? 'unknown' : String(previousVersion);
     if (previousVersion !== CONFIG_VERSION) {
@@ -4258,7 +4335,10 @@ export function reloadRuntimeConfig(trigger = 'manual'): RuntimeConfig {
   }
 
   try {
-    return reloadRuntimeConfigFromSources();
+    return reloadRuntimeConfigFromSources({
+      route: `runtime-config.reload:${trigger}`,
+      source: 'external',
+    });
   } catch (err) {
     throw new Error(
       `Failed to reload runtime config (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
@@ -4298,7 +4378,16 @@ export function onRuntimeConfigChange(
   return () => listeners.delete(listener);
 }
 
-export function saveRuntimeConfig(next: RuntimeConfig): RuntimeConfig {
+export type {
+  RuntimeConfigChangeMeta,
+  RuntimeConfigRevision,
+  RuntimeConfigRevisionSummary,
+};
+
+export function saveRuntimeConfig(
+  next: RuntimeConfig,
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
   const normalized = normalizeRuntimeConfig(next);
   const sandboxModeExplicit =
     currentConfigMetadata.containerSandboxModeExplicit ||
@@ -4307,19 +4396,27 @@ export function saveRuntimeConfig(next: RuntimeConfig): RuntimeConfig {
   currentConfigMetadata = {
     containerSandboxModeExplicit: sandboxModeExplicit,
   };
-  writeConfigFile(normalized, {
-    omitImplicitSandboxMode: !sandboxModeExplicit,
-  });
+  writeConfigFile(
+    normalized,
+    {
+      omitImplicitSandboxMode: !sandboxModeExplicit,
+    },
+    meta,
+  );
   applyConfig(normalized);
   return cloneConfig(normalized);
 }
 
 export function updateRuntimeConfig(
   mutator: (draft: RuntimeConfig) => void,
+  meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
   let baseConfig = currentConfig;
   try {
-    baseConfig = loadRuntimeConfigFromSources();
+    baseConfig = loadRuntimeConfigFromSources({
+      route: 'runtime-config.refresh-before-save',
+      source: 'external',
+    });
   } catch (err) {
     console.warn(
       `[runtime-config] update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
@@ -4327,7 +4424,53 @@ export function updateRuntimeConfig(
   }
   const draft = cloneConfig(baseConfig);
   mutator(draft);
-  return saveRuntimeConfig(draft);
+  return saveRuntimeConfig(draft, meta);
+}
+
+export function listRuntimeConfigRevisions(): RuntimeConfigRevisionSummary[] {
+  return listTrackedRuntimeConfigRevisions(CONFIG_PATH);
+}
+
+export function getRuntimeConfigRevision(
+  revisionId: number,
+): RuntimeConfigRevision | null {
+  return getTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
+}
+
+export function deleteRuntimeConfigRevision(revisionId: number): boolean {
+  return deleteTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
+}
+
+export function clearRuntimeConfigRevisions(): number {
+  return clearTrackedRuntimeConfigRevisions(CONFIG_PATH);
+}
+
+export function restoreRuntimeConfigRevision(
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const revision = getRuntimeConfigRevision(revisionId);
+  if (!revision) {
+    throw new Error(`Config revision ${revisionId} was not found.`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(revision.content) as unknown;
+  } catch (err) {
+    throw new Error(
+      `Config revision ${revisionId} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  return saveRuntimeConfig(
+    normalizeRuntimeConfig(parsed as DeepPartial<RuntimeConfig>),
+    meta,
+  );
+}
+
+export function runtimeConfigRevisionPath(): string {
+  return runtimeConfigRevisionStorePath();
 }
 
 export function isSecurityTrustAccepted(

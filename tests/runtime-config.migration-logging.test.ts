@@ -391,6 +391,46 @@ describe('runtime config migration logging', () => {
     expect(watchSpy).not.toHaveBeenCalled();
   });
 
+  it('unrefs watcher startup timers so one-shot commands can exit promptly', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+
+    const fakeWatcher = createFakeWatcher();
+    vi.spyOn(fs, 'watch').mockImplementation(
+      () => fakeWatcher as unknown as fs.FSWatcher,
+    );
+
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const unrefSpy = vi.fn();
+    const clearSpy = vi.fn();
+
+    vi.stubGlobal(
+      'setTimeout',
+      vi.fn((callback: () => void, _delay?: number) => ({
+        callback,
+        unref: unrefSpy,
+      })),
+    );
+    vi.stubGlobal(
+      'clearTimeout',
+      vi.fn((timer: unknown) => {
+        clearSpy(timer);
+      }),
+    );
+
+    try {
+      await importFreshRuntimeConfig(homeDir);
+    } finally {
+      vi.stubGlobal('setTimeout', originalSetTimeout);
+      vi.stubGlobal('clearTimeout', originalClearTimeout);
+    }
+
+    expect(unrefSpy).toHaveBeenCalled();
+    expect(clearSpy).not.toHaveBeenCalled();
+  });
+
   it('disables the fs watcher without retrying when watch descriptors are exhausted', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir);

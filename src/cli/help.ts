@@ -56,7 +56,7 @@ Interactive slash commands inside TUI:
   /show [all|thinking|tools|none]
   /agent [list|switch|create|model]   /bot [info|list|set <id|name>|clear]
   /model [name]   /model info|list [provider]|set <name>|clear|default [name]
-  /config   /config check   /config reload   /config set <key> <value>
+  /config   /config check   /config reload   /config set <key> <value>   /config revisions
   /channel-mode <off|mention|free>   /channel-policy <open|allowlist|disabled>
   /rag [on|off]   /ralph [info|on|off|set n]   /mcp list
   /mcp add <name> <json>
@@ -418,12 +418,15 @@ Commands:
   hybridclaw config check
   hybridclaw config reload
   hybridclaw config set <key> <value>
+  hybridclaw config revisions [list|rollback <id>|delete <id>|clear]
 
 Examples:
   hybridclaw config
   hybridclaw config check
   hybridclaw config reload
   hybridclaw config set hybridai.maxTokens 8192
+  hybridclaw config revisions
+  hybridclaw config revisions rollback 12
   hybridclaw config set discord.enabled true
   hybridclaw config set local.backends.ollama.models '["llama3.2"]'
 
@@ -432,6 +435,7 @@ Notes:
   - \`check\` validates only the runtime config file itself.
   - \`reload\` forces an immediate in-process hot reload from disk, then runs a config check.
   - \`set\` only updates existing dotted key paths; it does not create new keys, then immediately runs a config check.
+  - \`revisions\` lists saved config snapshots, including the actor and route that caused each tracked change.
   - Values are parsed as JSON when possible, otherwise they are stored as plain strings.`);
 }
 

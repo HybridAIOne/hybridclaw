@@ -26,10 +26,16 @@ import {
   type SandboxModeOverride,
 } from './config/cli-flags.js';
 import {
+  clearRuntimeConfigRevisions,
+  deleteRuntimeConfigRevision,
   getRuntimeConfig,
+  getRuntimeConfigRevision,
   isContainerSandboxModeExplicit,
+  listRuntimeConfigRevisions,
   reloadRuntimeConfig,
+  restoreRuntimeConfigRevision,
   runtimeConfigPath,
+  runtimeConfigRevisionPath,
   updateRuntimeConfig,
 } from './config/runtime-config.js';
 import {
@@ -1057,6 +1063,14 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
 }
 
 async function handleConfigCommand(args: string[]): Promise<void> {
+  function parseRevisionId(raw: string): number {
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error(`Invalid revision id: ${raw}`);
+    }
+    return parsed;
+  }
+
   async function runRuntimeConfigFileCheck(): Promise<'ok' | 'warn' | 'error'> {
     const results = await checkConfigFile();
     const summary = summarizeCounts(results);
@@ -1092,6 +1106,74 @@ async function handleConfigCommand(args: string[]): Promise<void> {
     await runRuntimeConfigFileCheck();
     return;
   }
+  if (sub === 'revisions') {
+    const action = (normalized[1] || 'list').trim().toLowerCase();
+    if (!action || action === 'list') {
+      const revisions = listRuntimeConfigRevisions();
+      console.log(`Active config: ${runtimeConfigPath()}`);
+      console.log(`Revision store: ${runtimeConfigRevisionPath()}`);
+      if (revisions.length === 0) {
+        console.log('No config revisions saved yet.');
+        return;
+      }
+      for (const revision of revisions) {
+        console.log(
+          [
+            `#${revision.id}`,
+            revision.createdAt,
+            `actor=${revision.actor}`,
+            `route=${revision.route}`,
+            `source=${revision.source}`,
+            `md5=${revision.md5}`,
+            `bytes=${revision.byteLength}`,
+          ].join(' | '),
+        );
+      }
+      return;
+    }
+
+    if (action === 'rollback') {
+      const revisionId = parseRevisionId(String(normalized[2] || '').trim());
+      const revision = getRuntimeConfigRevision(revisionId);
+      if (!revision) {
+        throw new Error(`Config revision ${revisionId} was not found.`);
+      }
+      const nextConfig = restoreRuntimeConfigRevision(revisionId, {
+        route: `cli.config.revisions.rollback#${revisionId}`,
+        source: 'internal',
+      });
+      console.log(`Rolled back runtime config to revision #${revisionId}.`);
+      console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+      console.log(`Revision store: ${runtimeConfigRevisionPath()}`);
+      console.log(JSON.stringify(nextConfig, null, 2));
+      await runRuntimeConfigFileCheck();
+      return;
+    }
+
+    if (action === 'delete') {
+      const revisionId = parseRevisionId(String(normalized[2] || '').trim());
+      const deleted = deleteRuntimeConfigRevision(revisionId);
+      if (!deleted) {
+        throw new Error(`Config revision ${revisionId} was not found.`);
+      }
+      console.log(`Deleted config revision #${revisionId}.`);
+      console.log(`Revision store: ${runtimeConfigRevisionPath()}`);
+      return;
+    }
+
+    if (action === 'clear') {
+      const cleared = clearRuntimeConfigRevisions();
+      console.log(
+        `Cleared ${cleared} config revision${cleared === 1 ? '' : 's'}.`,
+      );
+      console.log(`Revision store: ${runtimeConfigRevisionPath()}`);
+      return;
+    }
+
+    throw new Error(
+      'Unknown config revisions subcommand. Use `hybridclaw config revisions`, `hybridclaw config revisions rollback <id>`, `hybridclaw config revisions delete <id>`, or `hybridclaw config revisions clear`.',
+    );
+  }
   if (sub === 'reload') {
     const nextConfig = reloadRuntimeConfig('cli');
     console.log(`Reloaded runtime config from ${runtimeConfigPath()}.`);
@@ -1101,7 +1183,7 @@ async function handleConfigCommand(args: string[]): Promise<void> {
   }
   if (sub !== 'set') {
     throw new Error(
-      'Unknown config subcommand. Use `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, or `hybridclaw config set <key> <value>`.',
+      'Unknown config subcommand. Use `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`.',
     );
   }
 
@@ -1109,14 +1191,20 @@ async function handleConfigCommand(args: string[]): Promise<void> {
   const rawValue = normalized.slice(2).join(' ').trim();
   if (!key || !rawValue) {
     throw new Error(
-      'Usage: `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, or `hybridclaw config set <key> <value>`',
+      'Usage: `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`',
     );
   }
 
   const value = parseRuntimeConfigCommandValue(rawValue);
-  const nextConfig = updateRuntimeConfig((draft) => {
-    setRuntimeConfigValueAtPath(draft, key, value);
-  });
+  const nextConfig = updateRuntimeConfig(
+    (draft) => {
+      setRuntimeConfigValueAtPath(draft, key, value);
+    },
+    {
+      route: `cli.config.set:${key}`,
+      source: 'internal',
+    },
+  );
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   console.log(`Key: ${key}`);
   console.log(JSON.stringify(nextConfig, null, 2));

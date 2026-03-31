@@ -526,6 +526,22 @@ async function importFreshCli(options?: {
   const getRuntimeConfig = vi.fn(() => structuredClone(runtimeConfigState));
   const reloadRuntimeConfig = vi.fn(() => structuredClone(runtimeConfigState));
   const runtimeConfigPath = vi.fn(() => configPath);
+  const runtimeConfigRevisionPath = vi.fn(
+    () => '/tmp/hybridclaw-data/config-revisions.db',
+  );
+  let runtimeConfigRevisions = [
+    {
+      id: 12,
+      actor: 'test-user',
+      route: 'cli.config.set:hybridai.maxTokens',
+      source: 'internal',
+      md5: 'deadbeefdeadbeefdeadbeefdeadbeef',
+      byteLength: 128,
+      createdAt: '2026-03-31T12:34:56.000Z',
+      replacedByMd5: 'feedfacefeedfacefeedfacefeedface',
+      content: `${JSON.stringify(runtimeConfigState, null, 2)}\n`,
+    },
+  ];
   const isContainerSandboxModeExplicit = vi.fn(
     () => options?.sandboxModeExplicit ?? false,
   );
@@ -592,6 +608,46 @@ async function importFreshCli(options?: {
       return structuredClone(runtimeConfigState);
     },
   );
+  const listRuntimeConfigRevisions = vi.fn(() =>
+    runtimeConfigRevisions.map(({ content: _content, ...revision }) => ({
+      ...revision,
+    })),
+  );
+  const getRuntimeConfigRevision = vi.fn((revisionId: number) => {
+    const revision = runtimeConfigRevisions.find(
+      (entry) => entry.id === revisionId,
+    );
+    return revision
+      ? {
+          ...revision,
+        }
+      : null;
+  });
+  const deleteRuntimeConfigRevision = vi.fn((revisionId: number) => {
+    const before = runtimeConfigRevisions.length;
+    runtimeConfigRevisions = runtimeConfigRevisions.filter(
+      (entry) => entry.id !== revisionId,
+    );
+    return runtimeConfigRevisions.length !== before;
+  });
+  const clearRuntimeConfigRevisions = vi.fn(() => {
+    const cleared = runtimeConfigRevisions.length;
+    runtimeConfigRevisions = [];
+    return cleared;
+  });
+  const restoreRuntimeConfigRevision = vi.fn((revisionId: number) => {
+    const revision = runtimeConfigRevisions.find(
+      (entry) => entry.id === revisionId,
+    );
+    if (!revision) {
+      throw new Error(`Config revision ${revisionId} was not found.`);
+    }
+    runtimeConfigState = JSON.parse(
+      revision.content,
+    ) as typeof runtimeConfigState;
+    persistRuntimeConfigState();
+    return structuredClone(runtimeConfigState);
+  });
   const gatewayHealth = vi.fn(async () => {
     if (!options?.gatewayReachable) {
       throw new Error('gateway unavailable');
@@ -697,8 +753,14 @@ async function importFreshCli(options?: {
     isContainerSandboxModeExplicit,
     onRuntimeConfigChange,
     reloadRuntimeConfig,
+    restoreRuntimeConfigRevision,
     runtimeConfigPath,
+    runtimeConfigRevisionPath,
     setRuntimeSkillScopeEnabled,
+    listRuntimeConfigRevisions,
+    getRuntimeConfigRevision,
+    deleteRuntimeConfigRevision,
+    clearRuntimeConfigRevisions,
     updateRuntimeConfig,
   }));
   vi.doMock('../src/gateway/gateway-client.ts', () => ({
@@ -863,9 +925,15 @@ async function importFreshCli(options?: {
     whatsappWaitForSocket,
     saveRuntimeSecrets,
     ensureRuntimeConfigFile,
+    clearRuntimeConfigRevisions,
+    deleteRuntimeConfigRevision,
     getRuntimeConfig,
+    getRuntimeConfigRevision,
+    listRuntimeConfigRevisions,
     reloadRuntimeConfig,
+    restoreRuntimeConfigRevision,
     runtimeConfigPath,
+    runtimeConfigRevisionPath,
     updateRuntimeConfig,
     gatewayHealth,
     gatewayStatus,
@@ -1665,6 +1733,83 @@ describe('CLI hybridai commands', () => {
     expect(runDoctorCli).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
       'Reloaded runtime config from /tmp/config.json.',
+    );
+  });
+
+  it('lists saved runtime config revisions from the top-level config command', async () => {
+    const { cli, listRuntimeConfigRevisions, runtimeConfigRevisionPath } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['config', 'revisions']);
+
+    expect(listRuntimeConfigRevisions).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      `Revision store: ${runtimeConfigRevisionPath()}`,
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '#12 | 2026-03-31T12:34:56.000Z | actor=test-user',
+      ),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('route=cli.config.set:hybridai.maxTokens'),
+    );
+  });
+
+  it('rolls back to a saved runtime config revision from the top-level config command', async () => {
+    const {
+      cli,
+      restoreRuntimeConfigRevision,
+      runtimeConfigRevisionPath,
+      runDoctorCli,
+    } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    process.exitCode = 0;
+
+    await cli.main(['config', 'revisions', 'rollback', '12']);
+
+    expect(restoreRuntimeConfigRevision).toHaveBeenCalledWith(
+      12,
+      expect.objectContaining({
+        route: 'cli.config.revisions.rollback#12',
+        source: 'internal',
+      }),
+    );
+    expect(runDoctorCli).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'Rolled back runtime config to revision #12.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      `Revision store: ${runtimeConfigRevisionPath()}`,
+    );
+  });
+
+  it('deletes a saved runtime config revision from the top-level config command', async () => {
+    const { cli, deleteRuntimeConfigRevision, runtimeConfigRevisionPath } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['config', 'revisions', 'delete', '12']);
+
+    expect(deleteRuntimeConfigRevision).toHaveBeenCalledWith(12);
+    expect(logSpy).toHaveBeenCalledWith('Deleted config revision #12.');
+    expect(logSpy).toHaveBeenCalledWith(
+      `Revision store: ${runtimeConfigRevisionPath()}`,
+    );
+  });
+
+  it('clears saved runtime config revisions from the top-level config command', async () => {
+    const { cli, clearRuntimeConfigRevisions, runtimeConfigRevisionPath } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['config', 'revisions', 'clear']);
+
+    expect(clearRuntimeConfigRevisions).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Cleared 1 config revision.');
+    expect(logSpy).toHaveBeenCalledWith(
+      `Revision store: ${runtimeConfigRevisionPath()}`,
     );
   });
 
