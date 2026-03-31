@@ -132,7 +132,8 @@ async function importFreshAgentMigrationCommand(options?: {
           {
             kind: 'archive',
             source: '/tmp/.hermes/config.yaml',
-            destination: '/tmp/.hybridclaw/migration/hermes/demo/archive/config.yaml',
+            destination:
+              '/tmp/.hybridclaw/migration/hermes/demo/archive/config.yaml',
             status: 'archived' as const,
             reason: 'Copied for manual review',
           },
@@ -160,8 +161,7 @@ async function importFreshAgentMigrationCommand(options?: {
     },
   }));
   vi.doMock('../src/cli/help.js', async (importOriginal) => {
-    const actual =
-      await importOriginal<typeof import('../src/cli/help.js')>();
+    const actual = await importOriginal<typeof import('../src/cli/help.js')>();
     return {
       ...actual,
       isHelpRequest: vi.fn(() => false),
@@ -1452,7 +1452,9 @@ describe('CLI hybridai commands', () => {
       'config:session-routing: sessionRouting.identityLinks: {"old":"main"} -> {"old":"main","new_user":"writer"}',
     );
     expect(output).toContain('agent: register writer');
-    expect(output).not.toContain('config:agent: /tmp/.openclaw -> /tmp/.hybridclaw/config.json');
+    expect(output).not.toContain(
+      'config:agent: /tmp/.openclaw -> /tmp/.hybridclaw/config.json',
+    );
     expect(output).not.toContain('agents.list[].id');
   });
 
@@ -1638,7 +1640,7 @@ describe('CLI hybridai commands', () => {
               details: {
                 current: {
                   gatewayBaseUrl: 'http://127.0.0.1:9090',
-                  webApiToken: '[unset]'
+                  webApiToken: '[unset]',
                 },
                 incoming: {
                   webApiToken: '[set]',
@@ -2059,7 +2061,8 @@ describe('CLI hybridai commands', () => {
             {
               kind: 'workspace-file',
               source: null,
-              destination: '/tmp/.hybridclaw/data/agents/main/workspace/MEMORY.md',
+              destination:
+                '/tmp/.hybridclaw/data/agents/main/workspace/MEMORY.md',
               status: 'migrated',
               reason: '',
               details: {
@@ -2253,7 +2256,10 @@ describe('CLI hybridai commands', () => {
       });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await handleAgentMigrationCommand('openclaw', ['--source', '/tmp/.openclaw']);
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+    ]);
 
     expect(migrateAgentHome).toHaveBeenNthCalledWith(1, {
       sourceKind: 'openclaw',
@@ -2335,7 +2341,10 @@ describe('CLI hybridai commands', () => {
         },
       });
 
-    await handleAgentMigrationCommand('openclaw', ['--source', '/tmp/.openclaw']);
+    await handleAgentMigrationCommand('openclaw', [
+      '--source',
+      '/tmp/.openclaw',
+    ]);
 
     expect(migrateAgentHome).toHaveBeenNthCalledWith(1, {
       sourceKind: 'openclaw',

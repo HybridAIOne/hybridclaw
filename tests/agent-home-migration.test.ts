@@ -94,12 +94,7 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
     'shared-helper',
   );
   const dailyMemoryRoot = path.join(workspaceRoot, 'memory');
-  const authProfilesRoot = path.join(
-    sourceRoot,
-    'agents',
-    'main',
-    'agent',
-  );
+  const authProfilesRoot = path.join(sourceRoot, 'agents', 'main', 'agent');
 
   fs.mkdirSync(skillsRoot, { recursive: true });
   fs.mkdirSync(workspaceAgentsSkillRoot, { recursive: true });
@@ -313,24 +308,16 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
   );
   fs.writeFileSync(
     path.join(workspaceRoot, 'USER.md'),
-    [
-      '# USER.md',
-      '',
-      '## Notes',
-      '',
-      '- Prefers concise answers.',
-      '',
-    ].join('\n'),
+    ['# USER.md', '', '## Notes', '', '- Prefers concise answers.', ''].join(
+      '\n',
+    ),
     'utf-8',
   );
   fs.writeFileSync(
     path.join(dailyMemoryRoot, '2026-03-30.md'),
-    [
-      '# 2026-03-30',
-      '',
-      '- Shipped the Discord gateway refactor.',
-      '',
-    ].join('\n'),
+    ['# 2026-03-30', '', '- Shipped the Discord gateway refactor.', ''].join(
+      '\n',
+    ),
     'utf-8',
   );
   fs.writeFileSync(
@@ -415,9 +402,8 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
     'https://openrouter.example/v1',
   );
   expect(
-    (
-      config.local as { backends: { ollama: { enabled: boolean } } }
-    ).backends.ollama.enabled,
+    (config.local as { backends: { ollama: { enabled: boolean } } }).backends
+      .ollama.enabled,
   ).toBe(true);
   expect(
     (config.discord as { commandAllowedUserIds: string[] })
@@ -428,16 +414,18 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
   expect((config.discord as { textChunkLimit: number }).textChunkLimit).toBe(
     1900,
   );
-  expect(
-    (config.discord as { presenceIntent: boolean }).presenceIntent,
-  ).toBe(true);
+  expect((config.discord as { presenceIntent: boolean }).presenceIntent).toBe(
+    true,
+  );
   expect(
     (config.discord as { guildMembersIntent: boolean }).guildMembersIntent,
   ).toBe(true);
   expect(
-    (config.discord as {
-      humanDelay: { mode: string; minMs: number; maxMs: number };
-    }).humanDelay,
+    (
+      config.discord as {
+        humanDelay: { mode: string; minMs: number; maxMs: number };
+      }
+    ).humanDelay,
   ).toEqual({
     mode: 'natural',
     minMs: 800,
@@ -529,14 +517,13 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
       }
     ).activeHours.timezone,
   ).toBe('');
-  expect(
-    (config.container as { image: string }).image,
-  ).toBe('hybridclaw-agent');
+  expect((config.container as { image: string }).image).toBe(
+    'hybridclaw-agent',
+  );
   expect((config.container as { timeoutMs: number }).timeoutMs).toBe(300_000);
   expect(
     result.items.some(
-      (item) =>
-        item.kind === 'config:container' && item.status === 'migrated',
+      (item) => item.kind === 'config:container' && item.status === 'migrated',
     ),
   ).toBe(false);
   expect(
@@ -548,15 +535,15 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
           cacheTtlMinutes: number;
         };
       }
-  ).search,
+    ).search,
   ).toMatchObject({
     provider: 'auto',
     defaultCount: 7,
     cacheTtlMinutes: 12,
   });
-  expect(
-    (config.ops as { gatewayBaseUrl: string }).gatewayBaseUrl,
-  ).toBe('https://gateway.example');
+  expect((config.ops as { gatewayBaseUrl: string }).gatewayBaseUrl).toBe(
+    'https://gateway.example',
+  );
   expect((config.ops as { webApiToken: string }).webApiToken).toBe(
     'web-openclaw-token',
   );
@@ -576,14 +563,20 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
     'gateway-openclaw-token',
   );
   expect((credentials.HF_TOKEN as string) || '').toBe('hf-auth-profile-token');
-  expect(
-    (config.skills as { extraDirs: string[] }).extraDirs,
-  ).toContain('/tmp/openclaw-extra-skills');
+  expect((config.skills as { extraDirs: string[] }).extraDirs).toContain(
+    '/tmp/openclaw-extra-skills',
+  );
   expect((config.skills as { disabled: string[] }).disabled).toEqual([]);
   expect(
-    (config.plugins as {
-      list: Array<{ id: string; enabled: boolean; config: Record<string, unknown> }>;
-    }).list,
+    (
+      config.plugins as {
+        list: Array<{
+          id: string;
+          enabled: boolean;
+          config: Record<string, unknown>;
+        }>;
+      }
+    ).list,
   ).toEqual([]);
   expect(
     fs.readFileSync(path.join(mainWorkspace, 'SOUL.md'), 'utf-8'),
@@ -796,8 +789,8 @@ test('migrates into a specific HybridClaw agent when `agentId` is provided', asy
   expect(
     fs.readFileSync(path.join(writerWorkspace, 'MEMORY.md'), 'utf-8'),
   ).toContain('Prefers long-form drafting.');
-  expect(
-    (config.agents as { list: Array<{ id: string }> }).list,
-  ).toEqual(expect.arrayContaining([{ id: 'writer' }]));
+  expect((config.agents as { list: Array<{ id: string }> }).list).toEqual(
+    expect.arrayContaining([{ id: 'writer' }]),
+  );
   expect(listAgents().map((agent) => agent.id)).toContain('writer');
 });
