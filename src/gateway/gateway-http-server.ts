@@ -73,6 +73,10 @@ import {
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
 import {
+  handleGatewayPluginWebhook,
+  runGatewayPluginTool,
+} from './gateway-plugin-service.js';
+import {
   createGatewayAdminAgent,
   deleteGatewayAdminAgent,
   deleteGatewayAdminSession,
@@ -102,12 +106,10 @@ import {
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
-  handleGatewayPluginWebhook,
   moveGatewayAdminSchedulerJob,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   removeGatewayAdminSchedulerJob,
-  runGatewayPluginTool,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
   setGatewayAdminSchedulerJobPaused,

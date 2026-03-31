@@ -96,13 +96,15 @@ import {
 import { classifyGatewayError } from './gateway-error-utils.js';
 import { startGatewayHttpServer } from './gateway-http-server.js';
 import {
+  initGatewayService,
+  stopGatewayPlugins,
+} from './gateway-plugin-service.js';
+import {
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
-  initGatewayService,
   resumeEnabledFullAutoSessions,
   runGatewayScheduledTask,
-  stopGatewayPlugins,
 } from './gateway-service.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
@@ -1678,7 +1680,7 @@ function startOrRestartMemoryConsolidationScheduler(): void {
 async function main(): Promise<void> {
   logger.info('Starting HybridClaw gateway');
   initDatabase();
-  await initGatewayService();
+  await initGatewayService({ handleGatewayMessage });
   resumeEnabledFullAutoSessions();
   void runManagedMediaCleanup('startup').catch((error) => {
     logger.warn({ error }, 'Managed media cleanup failed during startup');
