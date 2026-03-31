@@ -1146,9 +1146,9 @@ export async function ensureRuntimeCredentials(
         bootstrappedConfig,
       );
       if (migrated) loadRuntimeSecrets();
-    } catch {
+    } catch (error) {
       rl.close();
-      throw new Error('Failed during agent migration offer.');
+      throw new Error('Failed during agent migration offer.', { cause: error });
     }
   }
 
