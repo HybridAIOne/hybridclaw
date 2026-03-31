@@ -1524,6 +1524,7 @@ function renderPage(
       justify-content: flex-end;
       gap: 10px;
       flex: 0 0 auto;
+      margin-top: -6px;
     }
 
     .docs-page-action,
@@ -1797,6 +1798,7 @@ function renderPage(
       }
 
       .docs-page-actions {
+        margin-top: 0;
         justify-content: flex-start;
         flex-wrap: wrap;
       }
