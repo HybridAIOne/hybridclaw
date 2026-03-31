@@ -176,22 +176,19 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
     '+49123456789',
   );
   expect(
-    (
-      config.mcpServers as Record<string, { command: string; args: string[] }>
-    ).github.command,
+    (config.mcpServers as Record<string, { command: string; args: string[] }>)
+      .github.command,
   ).toBe('npx');
-  expect((credentials.OPENROUTER_API_KEY as string) || '').toBe(
-    'or-openclaw',
-  );
+  expect((credentials.OPENROUTER_API_KEY as string) || '').toBe('or-openclaw');
   expect((credentials.HYBRIDAI_API_KEY as string) || '').toBe(
     'hai-openclaw-key',
   );
   expect((credentials.DISCORD_TOKEN as string) || '').toBe(
     'discord-openclaw-token',
   );
-  expect(fs.readFileSync(path.join(mainWorkspace, 'SOUL.md'), 'utf-8')).toContain(
-    'Legacy OpenClaw soul.',
-  );
+  expect(
+    fs.readFileSync(path.join(mainWorkspace, 'SOUL.md'), 'utf-8'),
+  ).toContain('Legacy OpenClaw soul.');
   expect(
     fs.readFileSync(path.join(mainWorkspace, 'AGENTS.md'), 'utf-8'),
   ).toContain('Legacy workspace rules.');
@@ -263,19 +260,16 @@ test('migrates compatible Hermes Agent state into HybridClaw', async () => {
   );
   expect((config.huggingface as { enabled: boolean }).enabled).toBe(true);
   expect(
-    (
-      config.mcpServers as Record<string, { command: string; args: string[] }>
-    ).docs.command,
+    (config.mcpServers as Record<string, { command: string; args: string[] }>)
+      .docs.command,
   ).toBe('uvx');
-  expect((credentials.HYBRIDAI_API_KEY as string) || '').toBe(
-    'hai-hermes-key',
-  );
+  expect((credentials.HYBRIDAI_API_KEY as string) || '').toBe('hai-hermes-key');
   expect((credentials.DISCORD_TOKEN as string) || '').toBe(
     'discord-hermes-token',
   );
-  expect(fs.readFileSync(path.join(mainWorkspace, 'SOUL.md'), 'utf-8')).toContain(
-    'Hermes identity.',
-  );
+  expect(
+    fs.readFileSync(path.join(mainWorkspace, 'SOUL.md'), 'utf-8'),
+  ).toContain('Hermes identity.');
   expect(
     fs.existsSync(
       path.join(runtimeRoot, 'skills', 'release-helper', 'SKILL.md'),

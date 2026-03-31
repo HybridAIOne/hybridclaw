@@ -212,9 +212,12 @@ test('first-run onboarding offers Hermes migration before auth setup', async () 
   ];
   const migrateLegacyHomeMock = vi.fn(async () => {
     const runtimeRoot = path.join(homeDir, '.hybridclaw');
-    fs.mkdirSync(path.join(runtimeRoot, 'data', 'agents', 'main', 'workspace'), {
-      recursive: true,
-    });
+    fs.mkdirSync(
+      path.join(runtimeRoot, 'data', 'agents', 'main', 'workspace'),
+      {
+        recursive: true,
+      },
+    );
     fs.mkdirSync(path.join(runtimeRoot, 'migration', 'hermes', 'test-run'), {
       recursive: true,
     });
@@ -291,9 +294,7 @@ test('first-run onboarding offers Hermes migration before auth setup', async () 
   });
 
   const runtimeRoot = path.join(homeDir, '.hybridclaw');
-  expect(
-    fs.existsSync(path.join(runtimeRoot, 'credentials.json')),
-  ).toBe(true);
+  expect(fs.existsSync(path.join(runtimeRoot, 'credentials.json'))).toBe(true);
   expect(
     fs.readFileSync(path.join(runtimeRoot, 'credentials.json'), 'utf-8'),
   ).toContain('hai-imported-from-hermes');
