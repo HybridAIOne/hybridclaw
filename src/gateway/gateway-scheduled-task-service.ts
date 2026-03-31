@@ -28,7 +28,7 @@ import {
   resumeConfigJob,
 } from '../scheduler/scheduler.js';
 import type { SessionResetPolicy } from '../session/session-reset.js';
-import type { ProactiveMessagePayload } from './fullauto.js';
+import type { ProactiveMessagePayload } from './fullauto-runtime.js';
 import {
   prepareSessionAutoReset,
   resolveGatewayChatbotId,

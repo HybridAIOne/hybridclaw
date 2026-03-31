@@ -29,6 +29,7 @@ import {
 } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
+import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import type {
   GatewayAdminPluginsResponse,
   GatewayCommandRequest,
@@ -110,35 +111,6 @@ async function rollbackPluginRuntimeConfigChange(
     'Plugin runtime reload also failed after rollback; plugin state may be inconsistent until the next successful reload.',
     rollbackReloadResult.message,
   ];
-}
-
-export async function tryEnsurePluginManagerInitializedForGateway(params: {
-  sessionId: string;
-  channelId: string;
-  agentId?: string | null;
-  surface: 'chat' | 'command' | 'webhook';
-}): Promise<{
-  pluginManager: PluginManager | null;
-  pluginInitError: unknown;
-}> {
-  try {
-    return {
-      pluginManager: await ensurePluginManagerInitialized(),
-      pluginInitError: null,
-    };
-  } catch (pluginInitError) {
-    logger.warn(
-      {
-        sessionId: params.sessionId,
-        channelId: params.channelId,
-        agentId: params.agentId ?? null,
-        surface: params.surface,
-        error: pluginInitError,
-      },
-      'Plugin manager init failed; proceeding without plugins',
-    );
-    return { pluginManager: null, pluginInitError };
-  }
 }
 
 export async function initGatewayService(): Promise<void> {

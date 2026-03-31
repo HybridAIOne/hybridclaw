@@ -233,15 +233,19 @@ import {
 import { handleConciergeCommand } from './concierge-commands.js';
 import {
   buildFullAutoStatusLines,
-  describeFullAutoWorkspaceSummary,
   disableFullAutoSession,
   enableFullAutoSession,
+} from './fullauto.js';
+import {
   getFullAutoRuntimeState,
   isFullAutoEnabled,
   type ProactiveMessagePayload,
-  resolveFullAutoPrompt,
   resolveSessionRalphIterations,
-} from './fullauto.js';
+} from './fullauto-runtime.js';
+import {
+  describeFullAutoWorkspaceSummary,
+  resolveFullAutoPrompt,
+} from './fullauto-workspace.js';
 import { mapLogicalAgentCard, mapSessionCard } from './gateway-agent-cards.js';
 import {
   classifyGatewayError,
@@ -253,10 +257,10 @@ import {
   formatRalphIterations,
 } from './gateway-formatting.js';
 import { GATEWAY_LOG_REQUESTS_ENV } from './gateway-lifecycle.js';
+import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import {
   handlePluginGatewayCommand,
   reloadPluginRuntime,
-  tryEnsurePluginManagerInitializedForGateway,
   tryHandlePluginDefinedGatewayCommand,
 } from './gateway-plugin-service.js';
 import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';

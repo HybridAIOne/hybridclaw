@@ -63,7 +63,6 @@ import {
 } from './concierge-routing.js';
 import { resolveConciergeTurn } from './concierge-session.js';
 import {
-  buildFullAutoOperatingContract,
   clearScheduledFullAutoContinuation,
   isFullAutoEnabled,
   maybeScheduleFullAutoAfterSuccess,
@@ -71,8 +70,9 @@ import {
   preemptRunningFullAutoTurn,
   resolveSessionRalphIterations,
   syncFullAutoRuntimeContext,
-} from './fullauto.js';
-import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-service.js';
+} from './fullauto-runtime.js';
+import { buildFullAutoOperatingContract } from './fullauto-workspace.js';
+import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import { registerActiveGatewayRequest } from './gateway-request-runtime.js';
 import {
   buildMediaPromptContext,
