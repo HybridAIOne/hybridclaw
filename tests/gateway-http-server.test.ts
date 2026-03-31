@@ -904,7 +904,6 @@ async function importFreshHealth(options?: {
     getGatewayAdminMcp,
     getGatewayAdminModels,
     getGatewayAdminOverview,
-    getGatewayAdminPlugins,
     getGatewayAdminScheduler,
     getGatewayAdminSessions,
     getGatewayAdminSkills,
@@ -932,6 +931,7 @@ async function importFreshHealth(options?: {
     upsertGatewayAdminSchedulerJob,
   }));
   vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
+    getGatewayAdminPlugins,
     handleGatewayPluginWebhook,
     runGatewayPluginTool,
   }));

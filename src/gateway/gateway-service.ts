@@ -134,10 +134,7 @@ import {
   updateSessionShowMode,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
-import {
-  ensurePluginManagerInitialized,
-  listLoadedPluginCommands,
-} from '../plugins/plugin-manager.js';
+import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
@@ -304,6 +301,7 @@ import { GATEWAY_LOG_REQUESTS_ENV } from './gateway-lifecycle.js';
 import {
   handlePluginGatewayCommand,
   tryEnsurePluginManagerInitializedForGateway,
+  tryHandlePluginDefinedGatewayCommand,
 } from './gateway-plugin-service.js';
 import {
   interruptGatewaySessionExecution,
@@ -326,7 +324,6 @@ import {
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
   type GatewayAdminOverview,
-  type GatewayAdminPluginsResponse,
   type GatewayAdminSchedulerJob,
   type GatewayAdminSchedulerResponse,
   type GatewayAdminSession,
@@ -336,6 +333,7 @@ import {
   type GatewayAdminUsageSummary,
   type GatewayAgentsResponse,
   type GatewayAssistantPresentation,
+  type GatewayChatRequest,
   type GatewayChatRequestBody,
   type GatewayChatResult,
   type GatewayCommandRequest,
@@ -655,29 +653,6 @@ interface DelegationTaskRunInput {
   agentId: string;
   mode: DelegationMode;
   task: NormalizedDelegationTask;
-}
-
-export interface GatewayChatRequest {
-  sessionId: GatewayChatRequestBody['sessionId'];
-  sessionMode?: GatewayChatRequestBody['sessionMode'];
-  guildId: GatewayChatRequestBody['guildId'];
-  channelId: GatewayChatRequestBody['channelId'];
-  userId: GatewayChatRequestBody['userId'];
-  username: GatewayChatRequestBody['username'];
-  content: GatewayChatRequestBody['content'];
-  media?: GatewayChatRequestBody['media'];
-  agentId?: GatewayChatRequestBody['agentId'];
-  chatbotId?: GatewayChatRequestBody['chatbotId'];
-  model?: GatewayChatRequestBody['model'];
-  enableRag?: GatewayChatRequestBody['enableRag'];
-  onTextDelta?: (delta: string) => void;
-  onToolProgress?: (event: ToolProgressEvent) => void;
-  onApprovalProgress?: (approval: PendingApproval) => void;
-  onProactiveMessage?: (
-    message: ProactiveMessagePayload,
-  ) => void | Promise<void>;
-  abortSignal?: AbortSignal;
-  source?: string;
 }
 
 function shouldForceNewTuiSession(
@@ -1940,16 +1915,6 @@ function infoCommand(
 
 function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
-}
-
-function normalizePluginCommandResult(value: unknown): GatewayCommandResult {
-  if (typeof value === 'string') {
-    return plainCommand(value);
-  }
-  if (value == null) {
-    return plainCommand('');
-  }
-  return plainCommand(JSON.stringify(value, null, 2));
 }
 
 function formatRatioAsPercent(value: number): string {
@@ -3496,44 +3461,6 @@ export function getGatewayAdminAudit(params?: {
       eventType,
       limit,
     }).map(mapAdminAuditEntry),
-  };
-}
-
-export async function getGatewayAdminPlugins(): Promise<GatewayAdminPluginsResponse> {
-  const pluginManager = await ensurePluginManagerInitialized();
-  const plugins = pluginManager
-    .listPluginSummary()
-    .map((plugin) => ({
-      id: plugin.id,
-      name: plugin.name || null,
-      version: plugin.version || null,
-      description: plugin.description || null,
-      source: plugin.source,
-      enabled: plugin.enabled,
-      status: plugin.error ? ('failed' as const) : ('loaded' as const),
-      error: plugin.error || null,
-      commands: [...plugin.commands].sort((left, right) =>
-        left.localeCompare(right),
-      ),
-      tools: [...plugin.tools].sort((left, right) => left.localeCompare(right)),
-      hooks: [...plugin.hooks].sort((left, right) => left.localeCompare(right)),
-    }))
-    .sort((left, right) => left.id.localeCompare(right.id));
-
-  return {
-    totals: {
-      totalPlugins: plugins.length,
-      enabledPlugins: plugins.filter((plugin) => plugin.enabled).length,
-      failedPlugins: plugins.filter((plugin) => plugin.status === 'failed')
-        .length,
-      commands: plugins.reduce(
-        (sum, plugin) => sum + plugin.commands.length,
-        0,
-      ),
-      tools: plugins.reduce((sum, plugin) => sum + plugin.tools.length, 0),
-      hooks: plugins.reduce((sum, plugin) => sum + plugin.hooks.length, 0),
-    },
-    plugins,
   };
 }
 
@@ -8212,24 +8139,13 @@ export async function handleGatewayCommand(
       }
 
       default: {
-        const pluginCommand = pluginManager?.findCommand(cmd);
-        if (pluginCommand) {
-          try {
-            return normalizePluginCommandResult(
-              await pluginCommand.handler(req.args.slice(1), {
-                sessionId: req.sessionId,
-                channelId: req.channelId,
-                userId: req.userId,
-                username: req.username ?? null,
-                guildId: req.guildId ?? null,
-              }),
-            );
-          } catch (error) {
-            return badCommand(
-              'Plugin Command Failed',
-              error instanceof Error ? error.message : String(error),
-            );
-          }
+        const pluginCommandResult = await tryHandlePluginDefinedGatewayCommand({
+          command: cmd,
+          req,
+          pluginManager,
+        });
+        if (pluginCommandResult) {
+          return pluginCommandResult;
         }
         return badCommand(
           'Unknown Command',

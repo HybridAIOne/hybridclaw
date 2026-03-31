@@ -7,7 +7,10 @@ import {
 } from '../agent/proactive-policy.js';
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
-import { resolveAgentForRequest } from '../agents/agent-registry.js';
+import {
+  listAgents,
+  resolveAgentForRequest,
+} from '../agents/agent-registry.js';
 import {
   startObservabilityIngest,
   stopObservabilityIngest,
@@ -93,6 +96,7 @@ import {
   normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
 } from './chat-result.js';
+import { configureFullAutoRuntime } from './fullauto.js';
 import { classifyGatewayError } from './gateway-error-utils.js';
 import { startGatewayHttpServer } from './gateway-http-server.js';
 import {
@@ -1680,6 +1684,8 @@ function startOrRestartMemoryConsolidationScheduler(): void {
 async function main(): Promise<void> {
   logger.info('Starting HybridClaw gateway');
   initDatabase();
+  listAgents();
+  configureFullAutoRuntime({ handleGatewayMessage });
   await initGatewayService({ handleGatewayMessage });
   resumeEnabledFullAutoSessions();
   void runManagedMediaCleanup('startup').catch((error) => {

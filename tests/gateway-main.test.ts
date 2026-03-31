@@ -100,7 +100,9 @@ function createGatewayMainTestState(options?: {
     initGatewayService: vi.fn(
       options?.initGatewayServiceImpl || (async () => {}),
     ),
+    listAgents: vi.fn(() => []),
     stopGatewayPlugins: vi.fn(async () => {}),
+    configureFullAutoRuntime: vi.fn(),
     listQueuedProactiveMessages: vi.fn(() => []),
     loggerDebug: vi.fn(),
     loggerError: vi.fn(),
@@ -337,7 +339,11 @@ async function importFreshGatewayMain(options?: {
     },
   }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
+    listAgents: state.listAgents,
     resolveAgentForRequest: state.resolveAgentForRequest,
+  }));
+  vi.doMock('../src/gateway/fullauto.js', () => ({
+    configureFullAutoRuntime: state.configureFullAutoRuntime,
   }));
   vi.doMock('../src/providers/local-discovery.js', () => ({
     startDiscoveryLoop: state.startDiscoveryLoop,

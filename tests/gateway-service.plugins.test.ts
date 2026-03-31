@@ -946,7 +946,7 @@ test('getGatewayAdminPlugins summarizes plugin status for the admin console', as
   setupHome();
 
   const { getGatewayAdminPlugins } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-plugin-service.ts'
   );
 
   pluginManagerMock.listPluginSummary.mockReset();

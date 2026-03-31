@@ -1,5 +1,4 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { listAgents } from '../agents/agent-registry.js';
 import { sendWebhookJson, WebhookHttpError } from '../channels/webhook-http.js';
 import {
   getRuntimeConfig,
@@ -29,12 +28,10 @@ import {
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
-import { configureFullAutoRuntime } from './fullauto.js';
 import type {
+  GatewayAdminPluginsResponse,
   GatewayChatRequest,
   GatewayChatResult,
-} from './gateway-service.js';
-import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
@@ -154,10 +151,6 @@ export async function initGatewayService(params: {
     return;
   }
   gatewayServiceInitializing = (async () => {
-    listAgents();
-    configureFullAutoRuntime({
-      handleGatewayMessage: params.handleGatewayMessage,
-    });
     setPluginInboundMessageDispatcher(
       async (pluginId, request) =>
         await params.handleGatewayMessage({
@@ -489,6 +482,81 @@ export async function handlePluginGatewayCommand(params: {
     'Usage',
     'Usage: `plugin list|config <plugin-id> [key] [value|--unset]|enable <plugin-id>|disable <plugin-id>|install <path|npm-spec>|reinstall <path|npm-spec>|reload|uninstall <plugin-id>`',
   );
+}
+
+function normalizePluginCommandResult(value: unknown): GatewayCommandResult {
+  if (typeof value === 'string') {
+    return { kind: 'plain', text: value };
+  }
+  if (value == null) {
+    return { kind: 'plain', text: '' };
+  }
+  return { kind: 'plain', text: JSON.stringify(value, null, 2) };
+}
+
+export async function tryHandlePluginDefinedGatewayCommand(params: {
+  command: string;
+  req: GatewayCommandRequest;
+  pluginManager: PluginManager | null;
+}): Promise<GatewayCommandResult | null> {
+  const pluginCommand = params.pluginManager?.findCommand(params.command);
+  if (!pluginCommand) {
+    return null;
+  }
+  try {
+    return normalizePluginCommandResult(
+      await pluginCommand.handler(params.req.args.slice(1), {
+        sessionId: params.req.sessionId,
+        channelId: params.req.channelId,
+        userId: params.req.userId,
+        username: params.req.username ?? null,
+        guildId: params.req.guildId ?? null,
+      }),
+    );
+  } catch (error) {
+    return badCommand(
+      'Plugin Command Failed',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export async function getGatewayAdminPlugins(): Promise<GatewayAdminPluginsResponse> {
+  const pluginManager = await ensurePluginManagerInitialized();
+  const plugins = pluginManager
+    .listPluginSummary()
+    .map((plugin) => ({
+      id: plugin.id,
+      name: plugin.name || null,
+      version: plugin.version || null,
+      description: plugin.description || null,
+      source: plugin.source,
+      enabled: plugin.enabled,
+      status: plugin.error ? ('failed' as const) : ('loaded' as const),
+      error: plugin.error || null,
+      commands: [...plugin.commands].sort((left, right) =>
+        left.localeCompare(right),
+      ),
+      tools: [...plugin.tools].sort((left, right) => left.localeCompare(right)),
+      hooks: [...plugin.hooks].sort((left, right) => left.localeCompare(right)),
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+
+  return {
+    totals: {
+      totalPlugins: plugins.length,
+      enabledPlugins: plugins.filter((plugin) => plugin.enabled).length,
+      failedPlugins: plugins.filter((plugin) => plugin.status === 'failed')
+        .length,
+      commands: plugins.reduce(
+        (sum, plugin) => sum + plugin.commands.length,
+        0,
+      ),
+      tools: plugins.reduce((sum, plugin) => sum + plugin.tools.length, 0),
+      hooks: plugins.reduce((sum, plugin) => sum + plugin.hooks.length, 0),
+    },
+    plugins,
+  };
 }
 
 export async function handleGatewayPluginWebhook(

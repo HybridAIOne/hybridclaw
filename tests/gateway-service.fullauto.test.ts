@@ -212,6 +212,9 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const { DEFAULT_AGENT_ID } = await import('../src/agents/agent-types.ts');
   const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { configureFullAutoRuntime } = await import(
+    '../src/gateway/fullauto.ts'
+  );
   const { getGatewayAgents, handleGatewayCommand, handleGatewayMessage } =
     await import('../src/gateway/gateway-service.ts');
   const { initGatewayService } = await import(
@@ -219,6 +222,7 @@ test('fullauto command enables auto-turns, queues follow-up results, and can be 
   );
 
   initDatabase({ quiet: true });
+  configureFullAutoRuntime({ handleGatewayMessage });
   await initGatewayService({ handleGatewayMessage });
 
   const sessionId = 'session-fullauto';
@@ -386,6 +390,9 @@ test('bare fullauto shows status and does not enable background looping', async 
 
   const { initDatabase } = await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { configureFullAutoRuntime } = await import(
+    '../src/gateway/fullauto.ts'
+  );
   const { handleGatewayCommand, handleGatewayMessage } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -394,6 +401,7 @@ test('bare fullauto shows status and does not enable background looping', async 
   );
 
   initDatabase({ quiet: true });
+  configureFullAutoRuntime({ handleGatewayMessage });
   await initGatewayService({ handleGatewayMessage });
 
   const sessionId = 'session-fullauto-status-only';
@@ -458,6 +466,9 @@ test('stop clears the full-auto running guard and ignores stale auto-turn comple
   const { initDatabase, listQueuedProactiveMessages, updateSessionChatbot } =
     await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { configureFullAutoRuntime } = await import(
+    '../src/gateway/fullauto.ts'
+  );
   const { handleGatewayCommand, handleGatewayMessage } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -466,6 +477,7 @@ test('stop clears the full-auto running guard and ignores stale auto-turn comple
   );
 
   initDatabase({ quiet: true });
+  configureFullAutoRuntime({ handleGatewayMessage });
   await initGatewayService({ handleGatewayMessage });
 
   const sessionId = 'session-fullauto-stop';
@@ -581,6 +593,9 @@ test('manual supervision preempts the active full-auto turn and keeps looping en
   const { initDatabase, listQueuedProactiveMessages, updateSessionChatbot } =
     await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { configureFullAutoRuntime } = await import(
+    '../src/gateway/fullauto.ts'
+  );
   const { handleGatewayCommand, handleGatewayMessage } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -589,6 +604,7 @@ test('manual supervision preempts the active full-auto turn and keeps looping en
   );
 
   initDatabase({ quiet: true });
+  configureFullAutoRuntime({ handleGatewayMessage });
   await initGatewayService({ handleGatewayMessage });
 
   const sessionId = 'session-fullauto-supervise';
@@ -691,12 +707,16 @@ test('persisted full-auto sessions resume on startup', async () => {
     '../src/memory/db.ts'
   );
   initDatabaseAfterRestart({ quiet: true });
+  const { configureFullAutoRuntime } = await import(
+    '../src/gateway/fullauto.ts'
+  );
   const { handleGatewayMessage, resumeEnabledFullAutoSessions } = await import(
     '../src/gateway/gateway-service.ts'
   );
   const { initGatewayService } = await import(
     '../src/gateway/gateway-plugin-service.ts'
   );
+  configureFullAutoRuntime({ handleGatewayMessage });
   await initGatewayService({ handleGatewayMessage });
 
   expect(resumeEnabledFullAutoSessions()).toBe(1);
@@ -781,6 +801,9 @@ test('watchdog interrupts stalled full-auto turns and retries after recovery del
   const { initDatabase, listQueuedProactiveMessages, updateSessionChatbot } =
     await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { configureFullAutoRuntime } = await import(
+    '../src/gateway/fullauto.ts'
+  );
   const { handleGatewayCommand, handleGatewayMessage } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -789,6 +812,7 @@ test('watchdog interrupts stalled full-auto turns and retries after recovery del
   );
 
   initDatabase({ quiet: true });
+  configureFullAutoRuntime({ handleGatewayMessage });
   await initGatewayService({ handleGatewayMessage });
 
   const sessionId = 'session-fullauto-watchdog';
