@@ -164,6 +164,7 @@ async function importFreshCli(options?: {
     agentId: string;
     workspacePath: string;
     bundledSkills: string[];
+    failedImportedSkills?: Array<{ source: string; error: string }>;
     installedPlugins: Array<{ pluginId: string }>;
     externalActions: string[];
     runtimeConfigChanged: boolean;
@@ -3283,6 +3284,26 @@ describe('CLI hybridai commands', () => {
       expect.objectContaining({
         yes: true,
         skipExternals: true,
+      }),
+    );
+  });
+
+  it('passes skipImportErrors through agent install', async () => {
+    const { cli, unpackAgent } = await importFreshCli();
+
+    await cli.main([
+      'agent',
+      'install',
+      '/tmp/demo.claw',
+      '--yes',
+      '--skip-import-errors',
+    ]);
+
+    expect(unpackAgent).toHaveBeenCalledWith(
+      path.resolve('/tmp/demo.claw'),
+      expect.objectContaining({
+        yes: true,
+        skipImportErrors: true,
       }),
     );
   });

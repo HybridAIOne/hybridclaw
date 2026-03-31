@@ -157,6 +157,8 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   vi.doUnmock('../../src/agents/claw-security.ts');
   vi.doUnmock('../../src/agents/claw-security.js');
+  vi.doUnmock('../../src/skills/skills-import.ts');
+  vi.doUnmock('../../src/skills/skills-import.js');
   vi.doUnmock('../../src/plugins/plugin-manager.ts');
   vi.doUnmock('../../src/plugins/plugin-manager.js');
   vi.doUnmock('../../src/plugins/plugin-install.ts');
@@ -173,6 +175,8 @@ beforeEach(() => {
   vi.resetModules();
   vi.doUnmock('../../src/agents/claw-security.ts');
   vi.doUnmock('../../src/agents/claw-security.js');
+  vi.doUnmock('../../src/skills/skills-import.ts');
+  vi.doUnmock('../../src/skills/skills-import.js');
   vi.doUnmock('../../src/plugins/plugin-manager.ts');
   vi.doUnmock('../../src/plugins/plugin-manager.js');
   vi.doUnmock('../../src/plugins/plugin-install.ts');
@@ -650,6 +654,100 @@ describe('.claw archive support', () => {
         )
         .includes('placeholder'),
     ).toBe(false);
+  });
+
+  test('unpack can continue after imported skill failures when skipImportErrors is set', async () => {
+    const homeDir = makeTempDir('hybridclaw-claw-home-');
+    const cwd = makeTempDir('hybridclaw-claw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+    process.chdir(cwd);
+
+    const importSkillMock = vi.fn(
+      async (source: string, options?: { installRootDir?: string }) => {
+        if (source === 'clawhub/x-actionbook-recap') {
+          throw new Error(
+            'Request failed for https://clawhub.ai/api/v1/download?slug=x-actionbook-recap&version=0.1.0: HTTP 429 Rate limit exceeded',
+          );
+        }
+        const skillDir = path.join(options?.installRootDir || cwd, 'himalaya');
+        writeSkillDir(skillDir, 'himalaya');
+        return {
+          skillName: 'himalaya',
+          skillDir,
+          source,
+          resolvedSource: source,
+          replacedExisting: false,
+          filesImported: 2,
+        };
+      },
+    );
+    vi.doMock('../../src/skills/skills-import.ts', () => ({
+      importSkill: importSkillMock,
+    }));
+    vi.doMock('../../src/skills/skills-import.js', () => ({
+      importSkill: importSkillMock,
+    }));
+
+    const { initDatabase } = await import('../../src/memory/db.js');
+    const { initAgentRegistry } = await import(
+      '../../src/agents/agent-registry.js'
+    );
+    const { unpackAgent } = await import('../../src/agents/claw-archive.js');
+
+    initDatabase({ quiet: true });
+    initAgentRegistry({
+      list: [{ id: 'main', name: 'Main Agent' }],
+    });
+
+    const archivePath = path.join(cwd, 'partial-imports.claw');
+    await writeZipArchive(archivePath, [
+      {
+        name: 'manifest.json',
+        content: JSON.stringify(
+          {
+            formatVersion: 1,
+            name: 'Partial Imports Agent',
+            id: 'partial-imports-agent',
+            skills: {
+              imports: [
+                { source: 'clawhub/x-actionbook-recap' },
+                { source: 'official/himalaya' },
+              ],
+            },
+          },
+          null,
+          2,
+        ),
+      },
+      {
+        name: 'workspace/SOUL.md',
+        content: '# Soul\n',
+      },
+    ]);
+
+    const unpacked = await unpackAgent(archivePath, {
+      yes: true,
+      homeDir,
+      cwd,
+      skipImportErrors: true,
+    });
+
+    expect(importSkillMock).toHaveBeenCalledTimes(2);
+    expect(unpacked.importedSkills).toHaveLength(1);
+    expect(unpacked.importedSkills[0]?.source).toBe('official/himalaya');
+    expect(unpacked.failedImportedSkills).toEqual([
+      {
+        source: 'clawhub/x-actionbook-recap',
+        error:
+          'Request failed for https://clawhub.ai/api/v1/download?slug=x-actionbook-recap&version=0.1.0: HTTP 429 Rate limit exceeded',
+      },
+    ]);
+    expect(
+      fs.existsSync(
+        path.join(unpacked.workspacePath, 'skills', 'himalaya', 'SKILL.md'),
+      ),
+    ).toBe(true);
   });
 
   test('pack supports minimal archives and excludes transient workspace files', async () => {

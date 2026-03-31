@@ -63,7 +63,7 @@ function formatPluginConfigValue(value: unknown): string {
   }
 }
 
-async function reloadPluginRuntime(): Promise<{
+export async function reloadPluginRuntime(): Promise<{
   ok: boolean;
   message: string;
 }> {

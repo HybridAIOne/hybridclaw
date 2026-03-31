@@ -58,6 +58,77 @@ test('registers plugin as a slash/text command', async () => {
   );
 });
 
+test('registers agent install as a canonical and local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    parseCanonicalSlashCommandArgs,
+  } = await importCommandRegistry();
+
+  expect(isRegisteredTextCommandName('agent')).toBe(true);
+  expect(buildCanonicalSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'agent',
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'install',
+          }),
+        ]),
+      }),
+    ]),
+  );
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'agent',
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'install',
+          }),
+        ]),
+      }),
+    ]),
+  );
+
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'agent',
+      getString: (name) =>
+        name === 'source'
+          ? 'official:charly'
+          : name === 'id'
+            ? 'research'
+            : name === 'force'
+              ? '--force'
+              : name === 'skip-skill-scan'
+                ? '--skip-skill-scan'
+                : name === 'skip-externals'
+                  ? '--skip-externals'
+                  : name === 'skip-import-errors'
+                    ? '--skip-import-errors'
+                    : name === 'yes'
+                      ? '--yes'
+                      : null,
+      getSubcommand: () => 'install',
+    }),
+  ).toEqual([
+    'agent',
+    'install',
+    'official:charly',
+    '--id',
+    'research',
+    '--force',
+    '--skip-skill-scan',
+    '--skip-externals',
+    '--skip-import-errors',
+    '--yes',
+  ]);
+});
+
 test('registers auth as a local slash/text command', async () => {
   const {
     buildCanonicalSlashCommandDefinitions,
