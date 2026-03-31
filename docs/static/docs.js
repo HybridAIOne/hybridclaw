@@ -31,17 +31,6 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
     ],
   },
   {
-    title: 'Reference',
-    pages: [
-      { title: 'Reference', path: 'reference/README.md' },
-      { title: 'Commands', path: 'reference/commands.md' },
-      { title: 'Configuration', path: 'reference/configuration.md' },
-      { title: 'Diagnostics', path: 'reference/diagnostics.md' },
-      { title: 'FAQ', path: 'reference/faq.md' },
-      { title: 'Model Selection', path: 'reference/model-selection.md' },
-    ],
-  },
-  {
     title: 'Extensibility',
     pages: [
       { title: 'Extensibility', path: 'extensibility/README.md' },
@@ -63,6 +52,17 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Architecture', path: 'internals/architecture.md' },
       { title: 'Runtime', path: 'internals/runtime.md' },
       { title: 'Session Routing', path: 'internals/session-routing.md' },
+    ],
+  },
+  {
+    title: 'Reference',
+    pages: [
+      { title: 'Reference', path: 'reference/README.md' },
+      { title: 'Commands', path: 'reference/commands.md' },
+      { title: 'Configuration', path: 'reference/configuration.md' },
+      { title: 'Diagnostics', path: 'reference/diagnostics.md' },
+      { title: 'FAQ', path: 'reference/faq.md' },
+      { title: 'Model Selection', path: 'reference/model-selection.md' },
     ],
   },
 ];
