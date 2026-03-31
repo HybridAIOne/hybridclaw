@@ -5883,12 +5883,11 @@ export async function handleGatewayPluginWebhook(
     return;
   }
 
-  const { pluginManager, pluginInitError } =
-    await tryEnsurePluginManagerInitializedForGateway({
-      sessionId: `plugin-webhook:${url.pathname}`,
-      channelId: url.pathname,
-      surface: 'webhook',
-    });
+  const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway({
+    sessionId: `plugin-webhook:${url.pathname}`,
+    channelId: url.pathname,
+    surface: 'webhook',
+  });
   if (!pluginManager) {
     sendWebhookJson(res, 503, {
       error: 'Plugin manager unavailable.',
