@@ -667,7 +667,7 @@ async function importFreshCli(options?: {
       uptime: 1,
       sessions: 1,
       activeContainers: 0,
-      defaultModel: 'gpt-5-nano',
+      defaultModel: 'gpt-4.1-mini',
       ragDefault: true,
       timestamp: new Date().toISOString(),
     };
@@ -2492,7 +2492,7 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith(
       'Disabled local backends: ollama, lmstudio, vllm.',
     );
-    expect(logSpy).toHaveBeenCalledWith('Default model: hybridai/gpt-5-nano');
+    expect(logSpy).toHaveBeenCalledWith('Default model: hybridai/gpt-4.1-mini');
   });
 
   it('treats top-level login as an unknown command', async () => {

@@ -303,7 +303,7 @@ test('auth status hybridai shows local HybridAI auth details', async () => {
   vi.resetModules();
   writeRuntimeConfig(homeDir, (config) => {
     config.hybridai.baseUrl = 'https://hybridai.example';
-    config.hybridai.defaultModel = 'gpt-5-nano';
+    config.hybridai.defaultModel = 'gpt-4.1-mini';
   });
 
   const { initDatabase } = await import('../src/memory/db.ts');
@@ -336,7 +336,7 @@ test('auth status hybridai shows local HybridAI auth details', async () => {
   expect(result.text).not.toContain('credentials.json');
   expect(result.text).not.toContain('Path:');
   expect(result.text).toContain('Base URL: https://hybridai.example');
-  expect(result.text).toContain('Default model: hybridai/gpt-5-nano');
+  expect(result.text).toContain('Default model: hybridai/gpt-4.1-mini');
   expect(result.text).toContain(
     'Billing: unavailable from this status command',
   );
@@ -1174,6 +1174,7 @@ test('model list includes discovered OpenRouter models', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Available Models');
+  expect(result.text).toContain('hybridai/gpt-4.1-mini');
   expect(result.text).toContain('hybridai/gpt-5-nano');
   expect(result.text).toContain('openrouter/anthropic/claude-sonnet-4');
   expect(result.text).toContain('openrouter/openai/gpt-4.1-mini');
@@ -1183,8 +1184,8 @@ test('model list includes discovered OpenRouter models', async () => {
   expect(result.modelCatalog).toEqual(
     expect.arrayContaining([
       {
-        value: 'gpt-5-nano',
-        label: 'hybridai/gpt-5-nano (current)',
+        value: 'gpt-4.1-mini',
+        label: 'hybridai/gpt-4.1-mini (current)',
         isFree: false,
       },
       {

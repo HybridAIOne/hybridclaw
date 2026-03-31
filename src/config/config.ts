@@ -242,11 +242,11 @@ export let EMAIL_TEXT_CHUNK_LIMIT = 50_000;
 export let EMAIL_MEDIA_MAX_MB = 20;
 
 export let HYBRIDAI_BASE_URL = 'https://hybridai.one';
-export let HYBRIDAI_MODEL = 'gpt-5-nano';
+export let HYBRIDAI_MODEL = 'gpt-4.1-mini';
 export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
-let HYBRIDAI_MODELS: string[] = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
+let HYBRIDAI_MODELS: string[] = ['gpt-4.1-mini', 'gpt-5-nano', 'gpt-5'];
 export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
 let CODEX_MODELS: string[] = [
   'openai-codex/gpt-5-codex',

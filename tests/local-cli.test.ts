@@ -145,7 +145,7 @@ test('local configure --no-default preserves the existing default model', async 
 
   const config = readRuntimeConfig(homeDir);
   expect(config.local.backends.lmstudio.enabled).toBe(true);
-  expect(config.hybridai.defaultModel).toBe('gpt-5-nano');
+  expect(config.hybridai.defaultModel).toBe('gpt-4.1-mini');
 });
 
 test('help local prints local command usage', async () => {
@@ -498,11 +498,11 @@ test('channels whatsapp setup preserves an existing custom ack reaction', async 
         },
         hybridai: {
           baseUrl: 'https://hybridai.one',
-          defaultModel: 'gpt-5-nano',
+          defaultModel: 'gpt-4.1-mini',
           defaultChatbotId: '',
           maxTokens: 4096,
           enableRag: true,
-          models: ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
+          models: ['gpt-4.1-mini', 'gpt-5-nano', 'gpt-5'],
         },
         codex: {
           baseUrl: 'https://chatgpt.com/backend-api/codex',

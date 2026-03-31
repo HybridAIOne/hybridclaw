@@ -7,6 +7,7 @@ interface HybridAIModel {
 // Keep in sync with upstream provider documentation.
 const STATIC_VISION_CAPABLE_MODELS = new Set<string>([
   // GPT-5 family (vision-enabled variants)
+  'gpt-4.1-mini',
   'gpt-5',
   'gpt-5-mini',
   'gpt-5-pro',
@@ -61,6 +62,7 @@ const STATIC_MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'gemini-3.1-pro-preview': 1_048_576,
 
   // GPT-5 family
+  'gpt-4.1-mini': 1_047_576,
   'gpt-5': 400_000,
   'gpt-5-chat-latest': 128_000,
   'gpt-5-codex': 400_000,

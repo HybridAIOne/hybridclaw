@@ -352,7 +352,7 @@ function defaultHybridAIModel(): string {
   const first = config.hybridai.models.find(
     (model) => resolveModelProvider(model) === 'hybridai',
   );
-  return (first || 'gpt-5-nano').trim();
+  return (first || 'gpt-4.1-mini').trim();
 }
 
 function defaultCodexModel(): string {

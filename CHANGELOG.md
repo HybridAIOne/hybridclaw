@@ -27,6 +27,11 @@
 
 ### Changed
 
+- **HybridAI default-model baseline**: Updated the shipped `hybridai`
+  provider default from `gpt-5-nano` to `gpt-4.1-mini`, reordered the
+  built-in HybridAI model list so onboarding and fresh configs pick that model
+  first, and added static capability metadata for `gpt-4.1-mini` without
+  changing other provider defaults or concierge profile mappings.
 - **CI, smoke tests, and release checks**: Expanded integration and e2e
   coverage for gateway docs, database/session flows, config reloads, skill
   resolution, chat APIs, npm installs, Docker runtime checks, and agent
