@@ -157,7 +157,9 @@ async function importFreshAgentMigrationCommand(options?: {
   });
   vi.doMock('../src/security/runtime-secrets.js', async (importOriginal) => {
     const actual =
-      await importOriginal<typeof import('../src/security/runtime-secrets.js')>();
+      await importOriginal<
+        typeof import('../src/security/runtime-secrets.js')
+      >();
     return {
       ...actual,
       runtimeSecretsPath: vi.fn(() => '/tmp/.hybridclaw/credentials.json'),
@@ -1314,7 +1316,8 @@ describe('CLI hybridai commands', () => {
   });
 
   it('prints the runtime secrets path in migration help', async () => {
-    const { printAgentMigrationUsage } = await importFreshAgentMigrationCommand();
+    const { printAgentMigrationUsage } =
+      await importFreshAgentMigrationCommand();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     printAgentMigrationUsage('openclaw');

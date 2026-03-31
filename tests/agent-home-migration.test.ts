@@ -825,7 +825,9 @@ test('dry-run migration does not create target skill directories', async () => {
   expect(skillItem?.details?.dryRun).toBe(true);
   expect(fs.existsSync(path.join(runtimeRoot, 'skills'))).toBe(false);
   expect(
-    fs.existsSync(path.join(runtimeRoot, 'data', 'agents', 'main', 'workspace')),
+    fs.existsSync(
+      path.join(runtimeRoot, 'data', 'agents', 'main', 'workspace'),
+    ),
   ).toBe(false);
 });
 
@@ -891,8 +893,7 @@ test('treats directory destinations as workspace conflicts instead of throwing',
 
   const soulItem = result.items.find(
     (item) =>
-      item.kind === 'workspace-file' &&
-      item.destination === destinationRoot,
+      item.kind === 'workspace-file' && item.destination === destinationRoot,
   );
   expect(soulItem?.status).toBe('conflict');
   expect(soulItem?.reason).toBe('Destination is not a regular file');
