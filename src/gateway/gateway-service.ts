@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
 import { runAgent } from '../agent/agent.js';
@@ -44,6 +45,7 @@ import {
   getChannelByContextId,
   normalizeSkillConfigChannelKind,
 } from '../channels/channel-registry.js';
+import { sendWebhookJson, WebhookHttpError } from '../channels/webhook-http.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -152,8 +154,10 @@ import {
   listLoadedPluginCommands,
   type PluginManager,
   reloadPluginManager,
+  setPluginInboundMessageDispatcher,
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
+import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
@@ -1970,7 +1974,7 @@ async function tryEnsurePluginManagerInitializedForGateway(params: {
   sessionId: string;
   channelId: string;
   agentId?: string | null;
-  surface: 'chat' | 'command';
+  surface: 'chat' | 'command' | 'webhook';
 }): Promise<{
   pluginManager: PluginManager | null;
   pluginInitError: unknown;
@@ -5858,6 +5862,61 @@ export async function handleGatewayMessage(
     });
   } finally {
     activeGatewayRequest.release();
+  }
+}
+
+setPluginInboundMessageDispatcher(
+  async (pluginId, request) =>
+    await handleGatewayMessage({
+      ...request,
+      source: String(request.source || '').trim() || `plugin:${pluginId}`,
+    }),
+);
+
+export async function handleGatewayPluginWebhook(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if (!isPluginInboundWebhookPath(url.pathname)) {
+    sendWebhookJson(res, 404, { error: 'Not Found' });
+    return;
+  }
+
+  const { pluginManager, pluginInitError } =
+    await tryEnsurePluginManagerInitializedForGateway({
+      sessionId: `plugin-webhook:${url.pathname}`,
+      channelId: url.pathname,
+      surface: 'webhook',
+    });
+  if (!pluginManager) {
+    const detail =
+      pluginInitError instanceof Error
+        ? pluginInitError.message
+        : 'Unknown plugin manager error.';
+    sendWebhookJson(res, 503, {
+      error: `Plugin manager unavailable: ${detail}`,
+    });
+    return;
+  }
+
+  try {
+    const handled = await pluginManager.handleInboundWebhook({
+      method: req.method || 'GET',
+      pathname: url.pathname,
+      url,
+      req,
+      res,
+    });
+    if (!handled) {
+      sendWebhookJson(res, 404, { error: 'Plugin webhook not found.' });
+    }
+  } catch (error) {
+    if (error instanceof WebhookHttpError) {
+      sendWebhookJson(res, error.statusCode, { error: error.message });
+      return;
+    }
+    throw error;
   }
 }
 

@@ -13,6 +13,11 @@ import {
   IMESSAGE_TEXT_CHUNK_LIMIT,
 } from '../../config/config.js';
 import { SlidingWindowRateLimiter } from '../discord/rate-limiter.js';
+import {
+  readWebhookJsonBody,
+  sendWebhookJson,
+  WebhookHttpError,
+} from '../webhook-http.js';
 import type {
   IMessageBackendFactoryParams,
   IMessageBackendInstance,
@@ -129,41 +134,6 @@ function readWebhookPassword(
     if (value?.trim()) return value.trim();
   }
   return undefined;
-}
-
-async function readWebhookBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    total += buffer.length;
-    if (total > MAX_WEBHOOK_BYTES) {
-      throw new Error('BlueBubbles webhook body too large.');
-    }
-    chunks.push(buffer);
-  }
-  if (chunks.length === 0) return {};
-  const raw = Buffer.concat(chunks).toString('utf8');
-  if (!raw.trim()) return {};
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    throw new Error('BlueBubbles webhook body must be valid JSON.');
-  }
-}
-
-function sendJson(
-  res: ServerResponse,
-  statusCode: number,
-  body: Record<string, unknown>,
-): void {
-  if (!res.headersSent) {
-    res.statusCode = statusCode;
-    res.setHeader('content-type', 'application/json; charset=utf-8');
-  }
-  if (!res.writableEnded) {
-    res.end(JSON.stringify(body));
-  }
 }
 
 async function sendBlueBubblesRequest(
@@ -327,7 +297,7 @@ export function createBlueBubblesIMessageBackend(
         WEBHOOK_RATE_LIMIT,
       );
       if (!decision.allowed) {
-        sendJson(res, 429, {
+        sendWebhookJson(res, 429, {
           error: 'Too many BlueBubbles webhook requests.',
         });
         return true;
@@ -342,26 +312,32 @@ export function createBlueBubblesIMessageBackend(
         !suppliedPassword ||
         !safeEqual(suppliedPassword, expectedPassword)
       ) {
-        sendJson(res, 401, { error: 'Unauthorized BlueBubbles webhook.' });
+        sendWebhookJson(res, 401, {
+          error: 'Unauthorized BlueBubbles webhook.',
+        });
         return true;
       }
 
       let payload: Record<string, unknown>;
       try {
-        payload = (await readWebhookBody(req)) as Record<string, unknown>;
+        payload = (await readWebhookJsonBody(req, {
+          maxBytes: MAX_WEBHOOK_BYTES,
+          tooLargeMessage: 'BlueBubbles webhook body too large.',
+          tooLargeStatusCode: 400,
+          invalidJsonMessage: 'BlueBubbles webhook body must be valid JSON.',
+          requireObject: true,
+          invalidShapeMessage: 'BlueBubbles webhook body must be JSON.',
+        })) as Record<string, unknown>;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        const statusCode = /valid json|too large/i.test(message) ? 400 : 500;
-        sendJson(res, statusCode, { error: message });
-        return true;
-      }
-      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-        sendJson(res, 400, { error: 'BlueBubbles webhook body must be JSON.' });
+        const statusCode =
+          error instanceof WebhookHttpError ? error.statusCode : 500;
+        sendWebhookJson(res, statusCode, { error: message });
         return true;
       }
 
       if (String(payload.type || '').trim() !== 'new-message') {
-        sendJson(res, 200, { ok: true, ignored: true });
+        sendWebhookJson(res, 200, { ok: true, ignored: true });
         return true;
       }
 
@@ -409,7 +385,7 @@ export function createBlueBubblesIMessageBackend(
         await params.onInbound(inbound);
       }
 
-      sendJson(res, 200, { ok: true });
+      sendWebhookJson(res, 200, { ok: true });
       return true;
     },
     async shutdown(): Promise<void> {

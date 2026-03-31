@@ -11,6 +11,7 @@ import {
   registerChannel,
   unregisterChannel,
 } from '../channels/channel-registry.js';
+import { sendWebhookJson, WebhookHttpError } from '../channels/webhook-http.js';
 import {
   getRuntimeConfig,
   type RuntimeConfig,
@@ -32,8 +33,11 @@ import type {
   PluginCompactionContext,
   PluginConfigSchema,
   PluginConfigUiHint,
+  PluginDispatchInboundMessageRequest,
   PluginHookHandlerMap,
   PluginHookName,
+  PluginInboundWebhookContext,
+  PluginInboundWebhookDefinition,
   PluginInstallSpec,
   PluginLogger,
   PluginManifest,
@@ -50,6 +54,7 @@ import type {
   PluginToolHandlerContext,
   PluginToolSchema,
 } from './plugin-types.js';
+import { buildPluginInboundWebhookPath } from './plugin-webhooks.js';
 
 const MANIFEST_FILE_NAME = 'hybridclaw.plugin.yaml';
 const DEFAULT_ENTRYPOINT_CANDIDATES = [
@@ -96,6 +101,16 @@ type RegisteredService = {
   service: PluginService;
 };
 
+type RegisteredInboundWebhook = {
+  pluginId: string;
+  path: string;
+  webhook: PluginInboundWebhookDefinition & {
+    method: 'GET' | 'POST';
+    name: string;
+  };
+  logger: PluginLogger;
+};
+
 type RegisteredHook<K extends PluginHookName = PluginHookName> = {
   pluginId: string;
   priority: number;
@@ -127,6 +142,7 @@ type PluginRegistrationSnapshot = {
   memoryLayers: RegisteredMemoryLayer[];
   promptHooks: RegisteredPromptHook[];
   services: RegisteredService[];
+  inboundWebhooks: Map<string, RegisteredInboundWebhook>;
   providers: RegisteredProvider[];
   channels: RegisteredChannel[];
   tools: Map<string, RegisteredTool>;
@@ -148,6 +164,10 @@ export interface PluginManagerOptions {
   cwd?: string;
   getRuntimeConfig?: () => RuntimeConfig;
   logger?: PluginLogger;
+  dispatchInboundMessage?: (
+    pluginId: string,
+    request: PluginDispatchInboundMessageRequest,
+  ) => Promise<import('../gateway/gateway-types.js').GatewayChatResult>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -590,17 +610,36 @@ export class PluginManager {
   private promptHooks: RegisteredPromptHook[] = [];
   private tools = new Map<string, RegisteredTool>();
   private services: RegisteredService[] = [];
+  private inboundWebhooks = new Map<string, RegisteredInboundWebhook>();
   private providers: RegisteredProvider[] = [];
   private channels: RegisteredChannel[] = [];
   private commands = new Map<string, RegisteredCommand>();
   private hooks = new Map<PluginHookName, RegisteredHook[]>();
   private importSnapshotRoots: string[] = [];
+  private dispatchInboundMessageHost:
+    | ((
+        pluginId: string,
+        request: PluginDispatchInboundMessageRequest,
+      ) => Promise<import('../gateway/gateway-types.js').GatewayChatResult>)
+    | null;
 
   constructor(options?: PluginManagerOptions) {
     this.homeDir = options?.homeDir || DEFAULT_RUNTIME_HOME_DIR;
     this.cwd = options?.cwd || process.cwd();
     this.getConfig = options?.getRuntimeConfig || getRuntimeConfig;
     this.logger = options?.logger || rootLogger;
+    this.dispatchInboundMessageHost = options?.dispatchInboundMessage || null;
+  }
+
+  setDispatchInboundMessageHost(
+    dispatcher:
+      | ((
+          pluginId: string,
+          request: PluginDispatchInboundMessageRequest,
+        ) => Promise<import('../gateway/gateway-types.js').GatewayChatResult>)
+      | null,
+  ): void {
+    this.dispatchInboundMessageHost = dispatcher;
   }
 
   async ensureInitialized(): Promise<void> {
@@ -1050,6 +1089,36 @@ export class PluginManager {
     this.services.push({ pluginId, service });
   }
 
+  registerInboundWebhook(
+    pluginId: string,
+    webhook: PluginInboundWebhookDefinition,
+  ): void {
+    const normalizedName = safeString(() => webhook.name, '').trim();
+    if (!normalizedName) {
+      throw new Error('Plugin inbound webhook is missing `name`.');
+    }
+    const method = webhook.method === 'GET' ? 'GET' : 'POST';
+    const path = buildPluginInboundWebhookPath(pluginId, normalizedName);
+    if (this.inboundWebhooks.has(path)) {
+      throw new Error(
+        `Plugin inbound webhook path "${path}" is already registered.`,
+      );
+    }
+    this.inboundWebhooks.set(path, {
+      pluginId,
+      path,
+      webhook: {
+        ...webhook,
+        name: normalizedName,
+        method,
+      },
+      logger: rootLogger.child({
+        pluginId,
+        webhookName: normalizedName,
+      }) as PluginLogger,
+    });
+  }
+
   registerHook<K extends PluginHookName>(
     pluginId: string,
     name: K,
@@ -1106,6 +1175,7 @@ export class PluginManager {
       memoryLayers: [...this.memoryLayers],
       promptHooks: [...this.promptHooks],
       services: [...this.services],
+      inboundWebhooks: new Map(this.inboundWebhooks),
       providers: [...this.providers],
       channels: [...this.channels],
       tools: new Map(this.tools),
@@ -1128,6 +1198,7 @@ export class PluginManager {
     this.memoryLayers = [...snapshot.memoryLayers];
     this.promptHooks = [...snapshot.promptHooks];
     this.services = [...snapshot.services];
+    this.inboundWebhooks = new Map(snapshot.inboundWebhooks);
     this.providers = [...snapshot.providers];
     this.channels = [...snapshot.channels];
     this.tools = new Map(snapshot.tools);
@@ -1198,6 +1269,76 @@ export class PluginManager {
 
   findCommand(name: string): PluginCommandDefinition | undefined {
     return this.commands.get(name)?.command;
+  }
+
+  async dispatchInboundMessage(
+    pluginId: string,
+    request: PluginDispatchInboundMessageRequest,
+  ): Promise<import('../gateway/gateway-types.js').GatewayChatResult> {
+    await this.ensureInitialized();
+    if (!this.dispatchInboundMessageHost) {
+      throw new Error(
+        'Plugin inbound-message dispatch is unavailable outside the gateway runtime.',
+      );
+    }
+    return await this.dispatchInboundMessageHost(pluginId, {
+      ...request,
+      source: String(request.source || '').trim() || `plugin:${pluginId}`,
+    });
+  }
+
+  async handleInboundWebhook(params: {
+    method: string;
+    pathname: string;
+    url: URL;
+    req: import('node:http').IncomingMessage;
+    res: import('node:http').ServerResponse;
+  }): Promise<boolean> {
+    await this.ensureInitialized();
+    const entry = this.inboundWebhooks.get(params.pathname);
+    if (!entry) {
+      return false;
+    }
+    const method = String(params.method || 'GET').toUpperCase();
+    if (method !== entry.webhook.method) {
+      sendWebhookJson(params.res, 405, { error: 'Method Not Allowed' });
+      return true;
+    }
+
+    const context: PluginInboundWebhookContext = {
+      req: params.req,
+      res: params.res,
+      url: params.url,
+      pluginId: entry.pluginId,
+      webhookName: entry.webhook.name,
+      method: entry.webhook.method,
+      path: entry.path,
+      logger: entry.logger,
+    };
+    try {
+      await entry.webhook.handler(context);
+    } catch (error) {
+      if (!(error instanceof WebhookHttpError)) {
+        this.logger.warn(
+          {
+            pluginId: entry.pluginId,
+            webhookName: entry.webhook.name,
+            path: entry.path,
+            error,
+          },
+          'Plugin inbound webhook failed',
+        );
+      }
+      throw error;
+    }
+
+    if (!params.res.writableEnded) {
+      if (!params.res.headersSent) {
+        params.res.statusCode = 204;
+      }
+      params.res.end();
+    }
+    return true;
   }
 
   async collectPromptContextDetails(params: {
@@ -1505,13 +1646,32 @@ export class PluginManager {
 }
 
 let singleton: PluginManager | null = null;
+let singletonDispatchInboundMessageHost:
+  | ((
+      pluginId: string,
+      request: PluginDispatchInboundMessageRequest,
+    ) => Promise<import('../gateway/gateway-types.js').GatewayChatResult>)
+  | null = null;
 
 export function getPluginManager(): PluginManager {
   singleton ??= new PluginManager({
     cwd: process.cwd(),
     getRuntimeConfig,
+    dispatchInboundMessage: singletonDispatchInboundMessageHost || undefined,
   });
   return singleton;
+}
+
+export function setPluginInboundMessageDispatcher(
+  dispatcher:
+    | ((
+        pluginId: string,
+        request: PluginDispatchInboundMessageRequest,
+      ) => Promise<import('../gateway/gateway-types.js').GatewayChatResult>)
+    | null,
+): void {
+  singletonDispatchInboundMessageHost = dispatcher;
+  singleton?.setDispatchInboundMessageHost(dispatcher);
 }
 
 export async function ensurePluginManagerInitialized(): Promise<PluginManager> {

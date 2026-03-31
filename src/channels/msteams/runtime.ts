@@ -27,6 +27,11 @@ import type { MediaContextItem } from '../../types/container.js';
 import { MSTEAMS_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
 import {
+  readWebhookJsonBody,
+  sendWebhookJson,
+  WebhookHttpError,
+} from '../webhook-http.js';
+import {
   buildTeamsAttachmentContext,
   buildTeamsUploadedFileAttachment,
   maybeHandleMSTeamsFileConsentInvoke,
@@ -311,27 +316,14 @@ async function sendViaConversationReference(
 async function readWebhookBody(
   req: ParsedWebhookRequest,
 ): Promise<Record<string, unknown>> {
-  if (typeof req.body !== 'undefined') return req.body;
-
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    total += buffer.length;
-    if (total > MAX_WEBHOOK_BYTES) {
-      throw new Error('Microsoft Teams webhook body too large.');
-    }
-    chunks.push(buffer);
-  }
-  if (chunks.length === 0) return {};
-
-  const raw = Buffer.concat(chunks).toString('utf8');
-  if (!raw.trim()) return {};
-  const parsed = JSON.parse(raw) as unknown;
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Microsoft Teams webhook body must be a JSON object.');
-  }
-  return parsed as Record<string, unknown>;
+  return (await readWebhookJsonBody(req, {
+    parsedBody: req.body,
+    maxBytes: MAX_WEBHOOK_BYTES,
+    tooLargeMessage: 'Microsoft Teams webhook body too large.',
+    invalidJsonMessage: 'Microsoft Teams webhook body must be valid JSON.',
+    requireObject: true,
+    invalidShapeMessage: 'Microsoft Teams webhook body must be a JSON object.',
+  })) as Record<string, unknown>;
 }
 
 function writeAdapterBody(res: ServerResponse, body: unknown): void {
@@ -704,7 +696,15 @@ export async function handleMSTeamsWebhook(
 ): Promise<void> {
   const activeAdapter = ensureTeamsRuntimeReady();
   const request = req as ParsedWebhookRequest;
-  request.body = await readWebhookBody(request);
+  try {
+    request.body = await readWebhookBody(request);
+  } catch (error) {
+    if (error instanceof WebhookHttpError) {
+      sendWebhookJson(res, error.statusCode, { error: error.message });
+      return;
+    }
+    throw error;
+  }
   try {
     // CloudAdapter.process() performs the Bot Framework auth/token validation
     // before invoking the turn logic. This shared-port webhook only adapts the

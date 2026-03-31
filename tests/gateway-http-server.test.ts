@@ -455,6 +455,10 @@ async function importFreshHealth(options?: {
     kind: 'plain' as const,
     text: 'ok',
   }));
+  const handleGatewayPluginWebhook = vi.fn(async (_req, res) => {
+    res.statusCode = 202;
+    res.end('plugin-webhook');
+  });
   const renderGatewayCommand = vi.fn(
     (result: { title?: string; text: string }) =>
       result.title ? `${result.title}\n${result.text}` : result.text,
@@ -913,6 +917,7 @@ async function importFreshHealth(options?: {
     getGatewayStatus,
     handleGatewayCommand,
     handleGatewayMessage,
+    handleGatewayPluginWebhook,
     moveGatewayAdminSchedulerJob,
     renderGatewayCommand,
     runGatewayPluginTool,
@@ -994,6 +999,7 @@ async function importFreshHealth(options?: {
     setGatewayAdminSkillEnabled,
     handleGatewayMessage,
     handleGatewayCommand,
+    handleGatewayPluginWebhook,
     renderGatewayCommand,
     getSessionById,
     getAgentById,
@@ -1090,6 +1096,25 @@ describe('gateway HTTP server', () => {
     );
 
     expect(state.handleIMessageWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  test('delegates plugin webhook requests before API auth is enforced', async () => {
+    const state = await importFreshHealth({ webApiToken: 'secret-token' });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/plugin-webhooks/demo-plugin/email-inbound',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(
+      res,
+      () => state.handleGatewayPluginWebhook.mock.calls.length > 0,
+    );
+
+    expect(state.handleGatewayPluginWebhook).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toBe('plugin-webhook');
   });
 
   test('renders docs markdown as a browsable HTML page', async () => {

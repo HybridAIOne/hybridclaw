@@ -198,6 +198,7 @@ Currently wired runtime surfaces:
 - memory layers
 - prompt hooks
 - plugin tools
+- inbound webhooks on fixed plugin-owned routes
 - lifecycle hooks for session, gateway, compaction, and plugin-tool execution
 - services
 - channels
@@ -205,6 +206,145 @@ Currently wired runtime surfaces:
 Provider registration is typed and stored by the manager, but providers are
 not yet routed into the broader runtime in the same way as memory layers,
 plugin tools, and plugin commands.
+
+Plugins can register inbound webhook handlers through
+`api.registerInboundWebhook(...)`. Webhook routes are mounted on the shared
+gateway HTTP server under the fixed prefix:
+
+```text
+/api/plugin-webhooks/<plugin-id>/<webhook-name>
+```
+
+Use the exported `buildPluginInboundWebhookPath(...)` helper from
+`@hybridaione/hybridclaw/plugin-sdk` instead of hardcoding the route.
+Webhook handlers receive the raw Node `IncomingMessage` and `ServerResponse`
+plus the parsed `URL`, and can reuse `readWebhookJsonBody(...)`,
+`sendWebhookJson(...)`, and `WebhookHttpError` from the same SDK path.
+
+To hand a normalized inbound event back into the standard assistant turn flow,
+plugins can call `api.dispatchInboundMessage(...)`. That runs the same gateway
+turn pipeline used by built-in channels and returns the standard gateway chat
+result so the plugin can deliver the reply through its own transport.
+
+## Webhook Example
+
+This example shows the intended shape for a plugin that:
+
+- exposes a fixed inbound webhook route
+- validates a shared-secret header
+- parses JSON with the shared helper
+- dispatches a normalized inbound turn into HybridClaw
+- returns the assistant reply in the webhook response
+
+```ts
+import crypto from 'node:crypto';
+import {
+  buildPluginInboundWebhookPath,
+  readWebhookJsonBody,
+  sendWebhookJson,
+  WebhookHttpError,
+} from '@hybridaione/hybridclaw/plugin-sdk';
+
+export default {
+  id: 'webhook-demo',
+  register(api) {
+    const secret = api.getCredential('WEBHOOK_DEMO_SECRET');
+
+    api.registerInboundWebhook({
+      name: 'incoming',
+      async handler(context) {
+        const supplied = String(
+          context.req.headers['x-webhook-demo-secret'] || '',
+        ).trim();
+        if (!secret || !supplied) {
+          throw new WebhookHttpError(401, 'Missing webhook credentials.');
+        }
+
+        const suppliedBuffer = Buffer.from(supplied);
+        const expectedBuffer = Buffer.from(secret);
+        if (
+          suppliedBuffer.length !== expectedBuffer.length ||
+          !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)
+        ) {
+          throw new WebhookHttpError(401, 'Invalid webhook credentials.');
+        }
+
+        const payload = (await readWebhookJsonBody(context.req, {
+          maxBytes: 1_000_000,
+          tooLargeMessage: 'Webhook body too large.',
+          invalidJsonMessage: 'Webhook body must be valid JSON.',
+          requireObject: true,
+          invalidShapeMessage: 'Webhook body must be a JSON object.',
+        })) as {
+          from?: string;
+          name?: string;
+          text?: string;
+        };
+
+        const sender = String(payload.from || '').trim().toLowerCase();
+        const content = String(payload.text || '').trim();
+        if (!sender || !content) {
+          throw new WebhookHttpError(
+            400,
+            'Webhook payload requires `from` and `text`.',
+          );
+        }
+
+        const result = await api.dispatchInboundMessage({
+          sessionId: `agent:main:channel:webhook-demo:dm:${sender}`,
+          guildId: null,
+          channelId: `webhook-demo:${sender}`,
+          userId: sender,
+          username: String(payload.name || sender).trim() || sender,
+          content,
+        });
+
+        sendWebhookJson(context.res, result.status === 'success' ? 200 : 500, {
+          ok: result.status === 'success',
+          reply: result.result,
+          toolsUsed: result.toolsUsed,
+          error: result.error || null,
+        });
+      },
+    });
+
+    api.logger.info(
+      {
+        route: buildPluginInboundWebhookPath(api.pluginId, 'incoming'),
+      },
+      'Webhook demo plugin registered',
+    );
+  },
+};
+```
+
+Expected manifest additions:
+
+```yaml
+id: webhook-demo
+name: Webhook Demo
+kind: tool
+requires:
+  env:
+    - WEBHOOK_DEMO_SECRET
+```
+
+With that plugin loaded, the route will be:
+
+```text
+/api/plugin-webhooks/webhook-demo/incoming
+```
+
+Notes:
+
+- Plugin webhook routes are public gateway routes. Always verify a provider
+  signature, HMAC, bearer token, or shared secret inside the handler.
+- `api.dispatchInboundMessage(...)` only runs the assistant turn. If your
+  transport needs an outbound side effect such as SMTP delivery, Slack reply,
+  or provider callback, do that in the plugin after you receive the result.
+- If the handler does not write a response, HybridClaw finishes the request
+  with `204 No Content`.
+- Keep the plugin route stable. External webhook providers will cache the URL.
 
 Type exports for external plugins are available from:
 

@@ -1,7 +1,11 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
 import type { ChannelInfo } from '../channels/channel.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
+import type { GatewayChatResult } from '../gateway/gateway-types.js';
 import type { AIProvider } from '../providers/types.js';
+import type { MediaContextItem } from '../types/container.js';
+import type { ArtifactMetadata } from '../types/execution.js';
 import type { StoredMessage } from '../types/session.js';
 
 export type PluginKind =
@@ -307,6 +311,49 @@ export interface PluginService {
   stop?: () => Promise<void>;
 }
 
+export interface PluginInboundProactiveMessage {
+  text: string;
+  artifacts?: ArtifactMetadata[];
+}
+
+export interface PluginDispatchInboundMessageRequest {
+  sessionId: string;
+  sessionMode?: 'new' | 'resume';
+  guildId: string | null;
+  channelId: string;
+  userId: string;
+  username: string | null;
+  content: string;
+  media?: MediaContextItem[];
+  agentId?: string | null;
+  chatbotId?: string | null;
+  model?: string | null;
+  enableRag?: boolean;
+  onProactiveMessage?: (
+    message: PluginInboundProactiveMessage,
+  ) => void | Promise<void>;
+  abortSignal?: AbortSignal;
+  source?: string;
+}
+
+export interface PluginInboundWebhookContext {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  pluginId: string;
+  webhookName: string;
+  method: 'GET' | 'POST';
+  path: string;
+  logger: PluginLogger;
+}
+
+export interface PluginInboundWebhookDefinition {
+  name: string;
+  description?: string;
+  method?: 'GET' | 'POST';
+  handler: (context: PluginInboundWebhookContext) => Promise<void> | void;
+}
+
 export interface HybridClawPluginApi {
   readonly pluginId: string;
   readonly pluginDir: string;
@@ -322,6 +369,10 @@ export interface HybridClawPluginApi {
   registerPromptHook(hook: PluginPromptHook): void;
   registerCommand(cmd: PluginCommandDefinition): void;
   registerService(svc: PluginService): void;
+  registerInboundWebhook(webhook: PluginInboundWebhookDefinition): void;
+  dispatchInboundMessage(
+    request: PluginDispatchInboundMessageRequest,
+  ): Promise<GatewayChatResult>;
   on<K extends PluginHookName>(
     event: K,
     handler: PluginHookHandlerMap[K],

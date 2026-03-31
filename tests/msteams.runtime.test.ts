@@ -39,6 +39,16 @@ function makeRequest(body: unknown): IncomingMessage {
   ) as IncomingMessage;
 }
 
+function makeRawRequest(body: string): IncomingMessage {
+  return Object.assign(Readable.from([Buffer.from(body, 'utf8')]), {
+    method: 'POST',
+    url: '/api/msteams/messages',
+    headers: {
+      authorization: 'Bearer test-token',
+    },
+  }) as IncomingMessage;
+}
+
 function makeResponse(): ServerResponse {
   const headers = new Map<string, string>();
   const response = {
@@ -314,6 +324,23 @@ describe('Microsoft Teams runtime webhook adapter', () => {
       }),
       'Rejected Teams webhook due to Bot Framework authentication failure',
     );
+  });
+
+  test('returns 400 for malformed webhook JSON bodies before adapter processing', async () => {
+    processMock.mockResolvedValue(undefined);
+
+    const runtime = await importRuntime();
+    const req = makeRawRequest('{not-valid-json');
+    const res = makeResponse();
+
+    await expect(
+      runtime.handleMSTeamsWebhook(req, res),
+    ).resolves.toBeUndefined();
+
+    expect(processMock).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain('valid JSON');
+    expect(res.writableEnded).toBe(true);
   });
 
   test('fails fast when Teams runtime is initialized without handlers', async () => {
