@@ -1059,6 +1059,26 @@ let watcherRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherStableTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherPermanentlyDisabled = false;
 
+function detachTimer(timer: ReturnType<typeof setTimeout>): void {
+  if (
+    typeof timer === 'object' &&
+    timer !== null &&
+    'unref' in timer &&
+    typeof timer.unref === 'function'
+  ) {
+    timer.unref();
+  }
+}
+
+function startDetachedTimer(
+  callback: () => void,
+  delayMs: number,
+): ReturnType<typeof setTimeout> {
+  const timer = setTimeout(callback, delayMs);
+  detachTimer(timer);
+  return timer;
+}
+
 function isRuntimeConfigWatcherDisabled(): boolean {
   const raw = String(process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER || '')
     .trim()
@@ -4048,7 +4068,7 @@ function reloadFromDisk(trigger: string): void {
 
 function scheduleReload(trigger: string): void {
   if (reloadTimer) clearTimeout(reloadTimer);
-  reloadTimer = setTimeout(() => {
+  reloadTimer = startDetachedTimer(() => {
     reloadTimer = null;
     reloadFromDisk(trigger);
   }, 120);
@@ -4076,7 +4096,7 @@ function scheduleWatcherRestart(reason: string): void {
   console.warn(
     `[runtime-config] watcher restart in ${delay}ms (attempt ${watcherRetryAttempt}/${WATCHER_RETRY_MAX_ATTEMPTS})`,
   );
-  watcherRestartTimer = setTimeout(() => {
+  watcherRestartTimer = startDetachedTimer(() => {
     watcherRestartTimer = null;
     startWatcher();
   }, delay);
@@ -4110,7 +4130,7 @@ function startWatcher(): void {
       },
     );
     const activeWatcher = configWatcher;
-    watcherStableTimer = setTimeout(() => {
+    watcherStableTimer = startDetachedTimer(() => {
       markWatcherStable(activeWatcher);
     }, WATCHER_STABLE_RESET_DELAY_MS);
     if (watcherRestartTimer) {
