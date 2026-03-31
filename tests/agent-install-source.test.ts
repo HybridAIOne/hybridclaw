@@ -26,7 +26,9 @@ test('resolveInstallArchiveSource downloads direct .claw URLs', async () => {
   );
 
   expect(result.archivePath).toMatch(/demo\.claw$/);
-  expect(fs.readFileSync(result.archivePath)).toEqual(Buffer.from(archiveBytes));
+  expect(fs.readFileSync(result.archivePath)).toEqual(
+    Buffer.from(archiveBytes),
+  );
 
   result.cleanup?.();
   expect(fs.existsSync(result.archivePath)).toBe(false);
