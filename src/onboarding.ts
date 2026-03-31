@@ -57,7 +57,7 @@ interface OnboardingOptions {
     | 'huggingface';
 }
 
-function legacySourceLabel(sourceKind: 'openclaw' | 'hermes'): string {
+function agentSourceLabel(sourceKind: 'openclaw' | 'hermes'): string {
   return sourceKind === 'openclaw' ? 'OpenClaw' : 'Hermes Agent';
 }
 
@@ -69,7 +69,7 @@ function dirHasEntries(dirPath: string): boolean {
   }
 }
 
-function shouldOfferLegacyHomeMigrations(bootstrappedConfig: boolean): boolean {
+function shouldOfferAgentHomeMigrations(bootstrappedConfig: boolean): boolean {
   if (bootstrappedConfig) return true;
   const runtimeRoot = path.dirname(runtimeConfigPath());
   if (fs.existsSync(runtimeSecretsPath())) return false;
@@ -1070,39 +1070,39 @@ async function runHuggingFaceOnboarding(params: {
   console.log();
 }
 
-async function maybeOfferLegacyHomeMigrations(
+async function maybeOfferAgentHomeMigrations(
   rl: readline.Interface,
   bootstrappedConfig: boolean,
 ): Promise<boolean> {
-  if (!shouldOfferLegacyHomeMigrations(bootstrappedConfig)) return false;
+  if (!shouldOfferAgentHomeMigrations(bootstrappedConfig)) return false;
   const {
-    detectAvailableLegacySources,
-    detectLegacySourceRoot,
-    migrateLegacyHome,
-  } = await import('./migration/legacy-home-migration.js');
-  const available = detectAvailableLegacySources();
+    detectAgentMigrationSourceRoot,
+    detectAvailableAgentMigrationSources,
+    migrateAgentHome,
+  } = await import('./migration/agent-home-migration.js');
+  const available = detectAvailableAgentMigrationSources();
   if (available.length === 0) return false;
 
   let migrated = false;
   for (const sourceKind of available) {
-    const sourceRoot = detectLegacySourceRoot(sourceKind);
+    const sourceRoot = detectAgentMigrationSourceRoot(sourceKind);
     if (!sourceRoot) continue;
-    printHeadline(`${legacySourceLabel(sourceKind)} installation detected`);
-    printInfo(`Found ${legacySourceLabel(sourceKind)} data at ${sourceRoot}.`);
+    printHeadline(`${agentSourceLabel(sourceKind)} installation detected`);
+    printInfo(`Found ${agentSourceLabel(sourceKind)} data at ${sourceRoot}.`);
     printInfo(
       'HybridClaw can import compatible workspace files, skills, runtime config, MCP servers, and secrets.',
     );
     console.log();
     const wantsImport = await promptYesNo(
       rl,
-      `Import from ${legacySourceLabel(sourceKind)} before continuing?`,
+      `Import from ${agentSourceLabel(sourceKind)} before continuing?`,
       true,
       ICON_SETUP,
     );
     if (!wantsImport) continue;
 
     try {
-      const result = await migrateLegacyHome({
+      const result = await migrateAgentHome({
         sourceKind,
         sourceRoot,
         execute: true,
@@ -1111,7 +1111,7 @@ async function maybeOfferLegacyHomeMigrations(
       });
       migrated = true;
       printSuccess(
-        `${legacySourceLabel(sourceKind)} import complete: ${result.summary.migrated} migrated, ${result.summary.conflict} conflicts, ${result.summary.error} errors.`,
+        `${agentSourceLabel(sourceKind)} import complete: ${result.summary.migrated} migrated, ${result.summary.conflict} conflicts, ${result.summary.error} errors.`,
       );
       if (result.outputDir) {
         printInfo(`Migration report: ${result.outputDir}`);
@@ -1119,7 +1119,7 @@ async function maybeOfferLegacyHomeMigrations(
       console.log();
     } catch (error) {
       printWarn(
-        `${legacySourceLabel(sourceKind)} import failed: ${error instanceof Error ? error.message : String(error)}`,
+        `${agentSourceLabel(sourceKind)} import failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -1141,14 +1141,14 @@ export async function ensureRuntimeCredentials(
       output: process.stdout,
     });
     try {
-      const migrated = await maybeOfferLegacyHomeMigrations(
+      const migrated = await maybeOfferAgentHomeMigrations(
         rl,
         bootstrappedConfig,
       );
       if (migrated) loadRuntimeSecrets();
     } catch {
       rl.close();
-      throw new Error('Failed during legacy migration offer.');
+      throw new Error('Failed during agent migration offer.');
     }
   }
 

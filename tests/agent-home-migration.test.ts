@@ -34,7 +34,7 @@ async function importFreshMigrator(homeDir: string) {
   delete process.env.DISCORD_TOKEN;
   process.chdir(homeDir);
   vi.resetModules();
-  return import('../src/migration/legacy-home-migration.ts');
+  return import('../src/migration/agent-home-migration.ts');
 }
 
 afterEach(() => {
@@ -94,7 +94,7 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
           discord: {
             token: 'discord-openclaw-token',
             allowFrom: ['123456789'],
-            prefix: '!legacy',
+            prefix: '!openclaw',
           },
           whatsapp: {
             allowFrom: ['+49123456789'],
@@ -106,7 +106,7 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
               apiKey: 'hai-openclaw-key',
             },
             openrouter: {
-              apiKey: '${OPENROUTER_API_KEY}',
+              apiKey: '$' + '{OPENROUTER_API_KEY}',
             },
           },
         },
@@ -126,12 +126,12 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
   );
   fs.writeFileSync(
     path.join(workspaceRoot, 'SOUL.md'),
-    '# SOUL.md\n\nLegacy OpenClaw soul.\n',
+    '# SOUL.md\n\nImported OpenClaw soul.\n',
     'utf-8',
   );
   fs.writeFileSync(
     path.join(workspaceRoot, 'AGENTS.md'),
-    '# AGENTS.md\n\nLegacy workspace rules.\n',
+    '# AGENTS.md\n\nImported workspace rules.\n',
     'utf-8',
   );
   fs.writeFileSync(
@@ -141,7 +141,7 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
   );
 
   const migration = await importFreshMigrator(homeDir);
-  const result = await migration.migrateLegacyHome({
+  const result = await migration.migrateAgentHome({
     sourceKind: 'openclaw',
     sourceRoot,
     migrateSecrets: true,
@@ -171,7 +171,7 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
     (config.discord as { commandAllowedUserIds: string[] })
       .commandAllowedUserIds,
   ).toContain('123456789');
-  expect((config.discord as { prefix: string }).prefix).toBe('!legacy');
+  expect((config.discord as { prefix: string }).prefix).toBe('!openclaw');
   expect((config.whatsapp as { allowFrom: string[] }).allowFrom).toContain(
     '+49123456789',
   );
@@ -188,10 +188,10 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
   );
   expect(
     fs.readFileSync(path.join(mainWorkspace, 'SOUL.md'), 'utf-8'),
-  ).toContain('Legacy OpenClaw soul.');
+  ).toContain('Imported OpenClaw soul.');
   expect(
     fs.readFileSync(path.join(mainWorkspace, 'AGENTS.md'), 'utf-8'),
-  ).toContain('Legacy workspace rules.');
+  ).toContain('Imported workspace rules.');
   expect(
     fs.existsSync(path.join(runtimeRoot, 'skills', 'brand-voice', 'SKILL.md')),
   ).toBe(true);
@@ -237,7 +237,7 @@ test('migrates compatible Hermes Agent state into HybridClaw', async () => {
   );
 
   const migration = await importFreshMigrator(homeDir);
-  const result = await migration.migrateLegacyHome({
+  const result = await migration.migrateAgentHome({
     sourceKind: 'hermes',
     sourceRoot,
     migrateSecrets: true,

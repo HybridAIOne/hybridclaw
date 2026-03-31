@@ -21,7 +21,7 @@ import {
 import type { McpServerConfig } from '../types/models.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 
-export type LegacyMigrationSource = 'openclaw' | 'hermes';
+export type AgentMigrationSource = 'openclaw' | 'hermes';
 
 type MigrationItemStatus =
   | 'migrated'
@@ -39,16 +39,16 @@ interface MigrationItem {
   details?: Record<string, unknown>;
 }
 
-export interface LegacyMigrationOptions {
-  sourceKind: LegacyMigrationSource;
+export interface AgentMigrationOptions {
+  sourceKind: AgentMigrationSource;
   sourceRoot?: string;
   execute?: boolean;
   overwrite?: boolean;
   migrateSecrets?: boolean;
 }
 
-export interface LegacyMigrationResult {
-  sourceKind: LegacyMigrationSource;
+export interface AgentMigrationResult {
+  sourceKind: AgentMigrationSource;
   sourceRoot: string;
   targetRoot: string;
   execute: boolean;
@@ -65,7 +65,7 @@ interface SourceSnapshot {
 }
 
 interface SourceAdapter {
-  readonly kind: LegacyMigrationSource;
+  readonly kind: AgentMigrationSource;
   readonly defaultRoot: string;
   load(sourceRoot: string): SourceSnapshot;
   resolveWorkspaceFile(sourceRoot: string, filename: string): string | null;
@@ -188,24 +188,24 @@ function mergeUniqueStrings(existing: string[], incoming: string[]): string[] {
   return merged;
 }
 
-function resolveDefaultSourceRoot(sourceKind: LegacyMigrationSource): string {
+function resolveDefaultSourceRoot(sourceKind: AgentMigrationSource): string {
   return path.join(
     os.homedir(),
     sourceKind === 'openclaw' ? '.openclaw' : '.hermes',
   );
 }
 
-export function detectLegacySourceRoot(
-  sourceKind: LegacyMigrationSource,
+export function detectAgentMigrationSourceRoot(
+  sourceKind: AgentMigrationSource,
 ): string | null {
   const sourceRoot = resolveDefaultSourceRoot(sourceKind);
   return fs.existsSync(sourceRoot) ? sourceRoot : null;
 }
 
-export function detectAvailableLegacySources(): LegacyMigrationSource[] {
-  const available: LegacyMigrationSource[] = [];
-  if (detectLegacySourceRoot('openclaw')) available.push('openclaw');
-  if (detectLegacySourceRoot('hermes')) available.push('hermes');
+export function detectAvailableAgentMigrationSources(): AgentMigrationSource[] {
+  const available: AgentMigrationSource[] = [];
+  if (detectAgentMigrationSourceRoot('openclaw')) available.push('openclaw');
+  if (detectAgentMigrationSourceRoot('hermes')) available.push('hermes');
   return available;
 }
 
@@ -338,7 +338,7 @@ function buildSummary(
   };
 }
 
-function writeReport(result: LegacyMigrationResult): void {
+function writeReport(result: AgentMigrationResult): void {
   if (!result.outputDir) return;
   ensureDir(result.outputDir);
   fs.writeFileSync(
@@ -488,7 +488,7 @@ function maybeTemplateReplacement(destinationPath: string): boolean {
 }
 
 function sanitizeSkillDirName(
-  sourceKind: LegacyMigrationSource,
+  sourceKind: AgentMigrationSource,
   name: string,
 ): string {
   const base = name
@@ -500,7 +500,7 @@ function sanitizeSkillDirName(
 }
 
 function copySkillDirs(params: {
-  sourceKind: LegacyMigrationSource;
+  sourceKind: AgentMigrationSource;
   sourceRoots: string[];
   targetRoot: string;
   execute: boolean;
@@ -875,13 +875,13 @@ const hermesAdapter: SourceAdapter = {
   },
 };
 
-function getAdapter(sourceKind: LegacyMigrationSource): SourceAdapter {
+function getAdapter(sourceKind: AgentMigrationSource): SourceAdapter {
   return sourceKind === 'openclaw' ? openClawAdapter : hermesAdapter;
 }
 
-export async function migrateLegacyHome(
-  options: LegacyMigrationOptions,
-): Promise<LegacyMigrationResult> {
+export async function migrateAgentHome(
+  options: AgentMigrationOptions,
+): Promise<AgentMigrationResult> {
   const adapter = getAdapter(options.sourceKind);
   const sourceRoot = path.resolve(options.sourceRoot || adapter.defaultRoot);
   const execute = options.execute !== false;
@@ -900,7 +900,7 @@ export async function migrateLegacyHome(
   };
 
   if (!fs.existsSync(sourceRoot) || !fs.statSync(sourceRoot).isDirectory()) {
-    const result: LegacyMigrationResult = {
+    const result: AgentMigrationResult = {
       sourceKind: options.sourceKind,
       sourceRoot,
       targetRoot,
@@ -1135,7 +1135,7 @@ export async function migrateLegacyHome(
     addItem(item);
   }
 
-  const result: LegacyMigrationResult = {
+  const result: AgentMigrationResult = {
     sourceKind: options.sourceKind,
     sourceRoot,
     targetRoot,

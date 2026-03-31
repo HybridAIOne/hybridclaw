@@ -1338,12 +1338,12 @@ async function handlePluginCommand(args: string[]): Promise<void> {
   await cliPlugin.handlePluginCommand(args);
 }
 
-async function handleLegacyMigrationCommand(
+async function handleAgentMigrationCommand(
   sourceKind: 'openclaw' | 'hermes',
   args: string[],
 ): Promise<void> {
-  const cliMigration = await import('./cli/legacy-migration-command.js');
-  await cliMigration.handleLegacyMigrationCommand(sourceKind, args);
+  const cliMigration = await import('./cli/agent-migration-command.js');
+  await cliMigration.handleAgentMigrationCommand(sourceKind, args);
 }
 
 async function handleAgentPackageCommand(args: string[]): Promise<void> {
@@ -1414,10 +1414,10 @@ export async function main(
       await handleBrowserCommand(subargs);
       break;
     case 'claw':
-      await handleLegacyMigrationCommand('openclaw', subargs);
+      await handleAgentMigrationCommand('openclaw', subargs);
       break;
     case 'hermes':
-      await handleLegacyMigrationCommand('hermes', subargs);
+      await handleAgentMigrationCommand('hermes', subargs);
       break;
     case 'plugin':
       await handlePluginCommand(subargs);

@@ -1,9 +1,9 @@
 import readline from 'node:readline/promises';
 import {
-  detectLegacySourceRoot,
-  type LegacyMigrationSource,
-  migrateLegacyHome,
-} from '../migration/legacy-home-migration.js';
+  type AgentMigrationSource,
+  detectAgentMigrationSourceRoot,
+  migrateAgentHome,
+} from '../migration/agent-home-migration.js';
 import { isHelpRequest } from './help.js';
 
 interface ParsedMigrationArgs {
@@ -15,12 +15,12 @@ interface ParsedMigrationArgs {
   sourceRoot?: string;
 }
 
-function sourceLabel(sourceKind: LegacyMigrationSource): string {
+function sourceLabel(sourceKind: AgentMigrationSource): string {
   return sourceKind === 'openclaw' ? 'OpenClaw' : 'Hermes Agent';
 }
 
-export function printLegacyMigrationUsage(
-  sourceKind: LegacyMigrationSource,
+export function printAgentMigrationUsage(
+  sourceKind: AgentMigrationSource,
 ): void {
   const command = sourceKind === 'openclaw' ? 'claw' : 'hermes';
   const defaultSource = sourceKind === 'openclaw' ? '~/.openclaw' : '~/.hermes';
@@ -90,7 +90,7 @@ function parseMigrationArgs(args: string[]): ParsedMigrationArgs {
 }
 
 async function confirmMigration(
-  sourceKind: LegacyMigrationSource,
+  sourceKind: AgentMigrationSource,
   sourceRoot: string,
   dryRun: boolean,
 ): Promise<boolean> {
@@ -117,13 +117,13 @@ async function confirmMigration(
   }
 }
 
-export async function handleLegacyMigrationCommand(
-  sourceKind: LegacyMigrationSource,
+export async function handleAgentMigrationCommand(
+  sourceKind: AgentMigrationSource,
   args: string[],
 ): Promise<void> {
   const subcommand = (args[0] || '').trim().toLowerCase();
   if (!subcommand || isHelpRequest(args)) {
-    printLegacyMigrationUsage(sourceKind);
+    printAgentMigrationUsage(sourceKind);
     return;
   }
   if (subcommand !== 'migrate') {
@@ -134,11 +134,12 @@ export async function handleLegacyMigrationCommand(
 
   const parsed = parseMigrationArgs(args.slice(1));
   if (parsed.help) {
-    printLegacyMigrationUsage(sourceKind);
+    printAgentMigrationUsage(sourceKind);
     return;
   }
 
-  const sourceRoot = parsed.sourceRoot || detectLegacySourceRoot(sourceKind);
+  const sourceRoot =
+    parsed.sourceRoot || detectAgentMigrationSourceRoot(sourceKind);
   if (!sourceRoot) {
     throw new Error(
       `No ${sourceLabel(sourceKind)} home was found. Use \`--source <path>\` to point at one explicitly.`,
@@ -157,7 +158,7 @@ export async function handleLegacyMigrationCommand(
     }
   }
 
-  const result = await migrateLegacyHome({
+  const result = await migrateAgentHome({
     sourceKind,
     sourceRoot,
     execute: !parsed.dryRun,

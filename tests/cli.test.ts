@@ -183,8 +183,8 @@ async function importFreshCli(options?: {
     name: string;
     model?: string | { primary: string };
   }>;
-  legacyMigrationError?: Error | null;
-  legacyMigrationCalls?: Array<{
+  agentMigrationError?: Error | null;
+  agentMigrationCalls?: Array<{
     sourceKind: 'openclaw' | 'hermes';
     args: string[];
   }>;
@@ -260,13 +260,13 @@ async function importFreshCli(options?: {
   const runUpdateCommand = vi.fn();
   const runDoctorCli = vi.fn(async () => 0);
   const ensureRuntimeCredentials = vi.fn();
-  const handleLegacyMigrationCommand = vi.fn(
+  const handleAgentMigrationCommand = vi.fn(
     async (
       sourceKind: 'openclaw' | 'hermes',
       args: string[],
     ): Promise<void> => {
-      options?.legacyMigrationCalls?.push({ sourceKind, args });
-      if (options?.legacyMigrationError) throw options.legacyMigrationError;
+      options?.agentMigrationCalls?.push({ sourceKind, args });
+      if (options?.agentMigrationError) throw options.agentMigrationError;
     },
   );
   const ensureContainerImageReady = vi.fn(async () => {
@@ -826,8 +826,8 @@ async function importFreshCli(options?: {
   vi.doMock('../src/onboarding.ts', () => ({
     ensureRuntimeCredentials,
   }));
-  vi.doMock('../src/cli/legacy-migration-command.js', () => ({
-    handleLegacyMigrationCommand,
+  vi.doMock('../src/cli/agent-migration-command.js', () => ({
+    handleAgentMigrationCommand,
   }));
   vi.doMock('../src/skills/skills.ts', () => ({
     loadSkillCatalog,
@@ -921,7 +921,7 @@ async function importFreshCli(options?: {
     runUpdateCommand,
     runDoctorCli,
     ensureRuntimeCredentials,
-    handleLegacyMigrationCommand,
+    handleAgentMigrationCommand,
     ensureContainerImageReady,
     ensureHostRuntimeReady,
     getWhatsAppAuthStatus,
@@ -1126,24 +1126,24 @@ describe('CLI hybridai commands', () => {
     });
   });
 
-  it('routes `claw migrate` through the legacy migration handler', async () => {
-    const { cli, handleLegacyMigrationCommand } = await importFreshCli();
+  it('routes `claw migrate` through the agent migration handler', async () => {
+    const { cli, handleAgentMigrationCommand } = await importFreshCli();
 
     await cli.main(['claw', 'migrate', '--dry-run', '--yes']);
 
-    expect(handleLegacyMigrationCommand).toHaveBeenCalledWith('openclaw', [
+    expect(handleAgentMigrationCommand).toHaveBeenCalledWith('openclaw', [
       'migrate',
       '--dry-run',
       '--yes',
     ]);
   });
 
-  it('routes `hermes migrate` through the legacy migration handler', async () => {
-    const { cli, handleLegacyMigrationCommand } = await importFreshCli();
+  it('routes `hermes migrate` through the agent migration handler', async () => {
+    const { cli, handleAgentMigrationCommand } = await importFreshCli();
 
     await cli.main(['hermes', 'migrate', '--migrate-secrets', '--yes']);
 
-    expect(handleLegacyMigrationCommand).toHaveBeenCalledWith('hermes', [
+    expect(handleAgentMigrationCommand).toHaveBeenCalledWith('hermes', [
       'migrate',
       '--migrate-secrets',
       '--yes',

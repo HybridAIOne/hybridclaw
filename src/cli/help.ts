@@ -13,8 +13,8 @@ export function printMainUsage(): void {
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, WhatsApp, Email)
   browser    Manage persistent browser profiles for agent web automation
-  claw       Import state from a legacy OpenClaw home
-  hermes     Import state from a legacy Hermes Agent home
+  claw       Import state from another OpenClaw agent home
+  hermes     Import state from another Hermes Agent home
   plugin     Manage HybridClaw plugins
   skill      List skill dependency installers or run one
   tool       List or disable built-in agent tools

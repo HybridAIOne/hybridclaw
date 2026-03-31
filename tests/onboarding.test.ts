@@ -130,7 +130,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.doUnmock('node:readline/promises');
   vi.doUnmock('../src/security/runtime-secrets.ts');
-  vi.doUnmock('../src/migration/legacy-home-migration.js');
+  vi.doUnmock('../src/migration/agent-home-migration.js');
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
     delete process.env.HOME;
@@ -210,7 +210,7 @@ test('first-run onboarding offers Hermes migration before auth setup', async () 
     'hai-imported-from-hermes',
     '',
   ];
-  const migrateLegacyHomeMock = vi.fn(async () => {
+  const migrateAgentHomeMock = vi.fn(async () => {
     const runtimeRoot = path.join(homeDir, '.hybridclaw');
     fs.mkdirSync(
       path.join(runtimeRoot, 'data', 'agents', 'main', 'workspace'),
@@ -260,10 +260,10 @@ test('first-run onboarding offers Hermes migration before auth setup', async () 
       }),
     },
   }));
-  vi.doMock('../src/migration/legacy-home-migration.js', () => ({
-    detectAvailableLegacySources: () => ['hermes'],
-    detectLegacySourceRoot: () => hermesRoot,
-    migrateLegacyHome: migrateLegacyHomeMock,
+  vi.doMock('../src/migration/agent-home-migration.js', () => ({
+    detectAvailableAgentMigrationSources: () => ['hermes'],
+    detectAgentMigrationSourceRoot: () => hermesRoot,
+    migrateAgentHome: migrateAgentHomeMock,
   }));
   vi.stubGlobal(
     'fetch',
@@ -298,7 +298,7 @@ test('first-run onboarding offers Hermes migration before auth setup', async () 
   expect(
     fs.readFileSync(path.join(runtimeRoot, 'credentials.json'), 'utf-8'),
   ).toContain('hai-imported-from-hermes');
-  expect(migrateLegacyHomeMock).toHaveBeenCalled();
+  expect(migrateAgentHomeMock).toHaveBeenCalled();
 });
 
 test('interactive onboarding does not print the start hint when TUI is already launching', async () => {
