@@ -12,10 +12,6 @@ const GITHUB_REPO_URL = 'https://github.com/HybridAIOne/hybridclaw';
 const DISCORD_URL = 'https://discord.gg/jsVW4vJw27';
 const SEARCH_RESULT_LIMIT = 10;
 const DEVELOPMENT_DOCS_CACHE_TTL_MS = 1_000;
-const HIDDEN_DEVELOPMENT_DOC_PATHS = new Set([
-  'internals/releasing.md',
-  'internals/testing.md',
-]);
 
 export const DOCS_ROUTE = '/docs';
 const LEGACY_DEVELOPMENT_ROUTE = '/development';
@@ -457,7 +453,6 @@ function buildDevelopmentDocsSnapshot(
   preloadedPage?: DevelopmentDocPage,
 ): DevelopmentDocsSnapshot {
   const docs = collectDevelopmentDocPaths(DEVELOPMENT_DOCS_DIR)
-    .filter((relativePath) => !HIDDEN_DEVELOPMENT_DOC_PATHS.has(relativePath))
     .map((relativePath) =>
       preloadedPage?.relativePath === relativePath
         ? preloadedPage
