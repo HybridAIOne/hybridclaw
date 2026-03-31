@@ -72,7 +72,6 @@ import {
 } from '../config/config.js';
 import {
   getRuntimeConfig,
-  parseSchedulerBoardStatus,
   type RuntimeConfig,
   reloadRuntimeConfig,
   resolveDefaultAgentId,
@@ -105,7 +104,6 @@ import {
   deleteSessionData,
   deleteTask,
   getAllSessions,
-  getAllTasks,
   getFullAutoSessionCount,
   getMemoryValue,
   getQueuedProactiveMessageCount,
@@ -190,15 +188,7 @@ import {
 } from '../providers/openrouter-discovery.js';
 import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
-import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
-import {
-  getScheduledTaskNextRunAt,
-  getSchedulerStatus,
-  parseSchedulerTimestampMs,
-  pauseConfigJob,
-  rearmScheduler,
-  resumeConfigJob,
-} from '../scheduler/scheduler.js';
+import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
 import { runtimeSecretsPath } from '../security/runtime-secrets.js';
 import { buildSessionContext } from '../session/session-context.js';
@@ -318,6 +308,14 @@ import {
   interruptGatewaySessionExecution,
   registerActiveGatewayRequest,
 } from './gateway-request-runtime.js';
+import {
+  getGatewayAdminScheduler as getGatewayAdminSchedulerFromService,
+  moveGatewayAdminSchedulerJob as moveGatewayAdminSchedulerJobFromService,
+  removeGatewayAdminSchedulerJob as removeGatewayAdminSchedulerJobFromService,
+  runGatewayScheduledTask as runGatewayScheduledTaskWithRuntime,
+  setGatewayAdminSchedulerJobPaused as setGatewayAdminSchedulerJobPausedFromService,
+  upsertGatewayAdminSchedulerJob as upsertGatewayAdminSchedulerJobFromService,
+} from './gateway-scheduled-task-service.js';
 import { readSessionStatusSnapshot } from './gateway-session-status.js';
 import {
   formatDisplayTimestamp,
@@ -335,7 +333,6 @@ import {
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
   type GatewayAdminOverview,
-  type GatewayAdminSchedulerJob,
   type GatewayAdminSchedulerResponse,
   type GatewayAdminSession,
   type GatewayAdminSkillsResponse,
@@ -2712,10 +2709,6 @@ export function saveGatewayAdminConfig(
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function parseStringArrayInput(
   value: unknown,
   fieldName: string,
@@ -2725,133 +2718,6 @@ function parseStringArrayInput(
     throw new Error(`Expected array \`${fieldName}\`.`);
   }
   return dedupeStrings(value.map((entry) => String(entry || '').trim()));
-}
-
-function parseAdminSchedulerJob(
-  value: unknown,
-): RuntimeConfig['scheduler']['jobs'][number] {
-  if (!isRecord(value)) {
-    throw new Error('Expected object `job`.');
-  }
-
-  const id = String(value.id || '').trim();
-  if (!id) {
-    throw new Error('Scheduler job requires a non-empty `id`.');
-  }
-
-  const name = String(value.name || '').trim();
-  const description = String(value.description || '').trim();
-  const agentId = String(value.agentId || '').trim();
-  const boardStatus = parseSchedulerBoardStatus(value.boardStatus);
-  const rawSchedule = isRecord(value.schedule) ? value.schedule : {};
-  const rawAction = isRecord(value.action) ? value.action : {};
-  const rawDelivery = isRecord(value.delivery) ? value.delivery : {};
-
-  const scheduleKind = String(rawSchedule.kind || 'cron')
-    .trim()
-    .toLowerCase();
-  if (
-    scheduleKind !== 'cron' &&
-    scheduleKind !== 'every' &&
-    scheduleKind !== 'at'
-  ) {
-    throw new Error(
-      'Scheduler schedule kind must be `cron`, `every`, or `at`.',
-    );
-  }
-
-  let at: string | null = null;
-  let everyMs: number | null = null;
-  let expr: string | null = null;
-  if (scheduleKind === 'at') {
-    at = String(rawSchedule.at || '').trim();
-    const parsedAt = new Date(at);
-    if (!at || Number.isNaN(parsedAt.getTime())) {
-      throw new Error('`schedule.at` must be a valid ISO timestamp.');
-    }
-    at = parsedAt.toISOString();
-  } else if (scheduleKind === 'every') {
-    const parsedEveryMs =
-      typeof rawSchedule.everyMs === 'number'
-        ? rawSchedule.everyMs
-        : Number.parseInt(String(rawSchedule.everyMs || ''), 10);
-    if (!Number.isFinite(parsedEveryMs) || parsedEveryMs < 10_000) {
-      throw new Error('`schedule.everyMs` must be at least 10000.');
-    }
-    everyMs = Math.floor(parsedEveryMs);
-  } else {
-    expr = String(rawSchedule.expr || '').trim();
-    if (!expr) {
-      throw new Error('`schedule.expr` is required for cron jobs.');
-    }
-    try {
-      CronExpressionParser.parse(expr);
-    } catch {
-      throw new Error(`\`${expr}\` is not a valid cron expression.`);
-    }
-  }
-
-  const actionKind = String(rawAction.kind || 'agent_turn')
-    .trim()
-    .toLowerCase();
-  if (actionKind !== 'agent_turn' && actionKind !== 'system_event') {
-    throw new Error(
-      'Scheduler action kind must be `agent_turn` or `system_event`.',
-    );
-  }
-  const actionMessage = String(rawAction.message || '').trim() || description;
-  if (!actionMessage) {
-    throw new Error('`action.message` or `description` is required.');
-  }
-
-  const deliveryKind = String(rawDelivery.kind || 'channel')
-    .trim()
-    .toLowerCase();
-  if (
-    deliveryKind !== 'channel' &&
-    deliveryKind !== 'last-channel' &&
-    deliveryKind !== 'webhook'
-  ) {
-    throw new Error(
-      'Scheduler delivery kind must be `channel`, `last-channel`, or `webhook`.',
-    );
-  }
-  const deliveryTo = String(rawDelivery.to || '').trim();
-  const webhookUrl = String(rawDelivery.webhookUrl || '').trim();
-  if (deliveryKind === 'channel' && !deliveryTo) {
-    throw new Error('`delivery.to` is required for channel deliveries.');
-  }
-  if (deliveryKind === 'webhook' && !webhookUrl) {
-    throw new Error(
-      '`delivery.webhookUrl` is required for webhook deliveries.',
-    );
-  }
-
-  return {
-    id,
-    ...(name ? { name } : {}),
-    ...(description ? { description } : {}),
-    ...(agentId ? { agentId } : {}),
-    ...(boardStatus ? { boardStatus } : {}),
-    schedule: {
-      kind: scheduleKind,
-      at,
-      everyMs,
-      expr,
-      tz: String(rawSchedule.tz || '').trim(),
-    },
-    action: {
-      kind: actionKind,
-      message: actionMessage,
-    },
-    delivery: {
-      kind: deliveryKind,
-      channel: String(rawDelivery.channel || 'discord').trim() || 'discord',
-      to: deliveryTo,
-      webhookUrl,
-    },
-    enabled: value.enabled !== false,
-  };
 }
 
 function mapAdminAuditEntry(
@@ -3130,197 +2996,20 @@ export async function saveGatewayAdminModels(input: {
 }
 
 export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
-  const runtimeConfig = getRuntimeConfig();
-  const statuses = new Map(
-    getSchedulerStatus().map((job) => [job.id, job] as const),
-  );
-  const nowMs = Date.now();
-
-  return {
-    jobs: [
-      ...runtimeConfig.scheduler.jobs.map((job) => {
-        const runtime = statuses.get(job.id);
-        return {
-          id: job.id,
-          source: 'config',
-          name:
-            (typeof job.name === 'string' && job.name.trim()) ||
-            runtime?.name ||
-            job.id,
-          description:
-            (typeof job.description === 'string' && job.description.trim()) ||
-            runtime?.description ||
-            null,
-          agentId: job.agentId ?? null,
-          boardStatus: job.boardStatus ?? null,
-          enabled: job.enabled,
-          schedule: job.schedule,
-          action: job.action,
-          delivery: job.delivery,
-          lastRun: runtime?.lastRun || null,
-          lastStatus: runtime?.lastStatus || null,
-          nextRunAt: runtime?.nextRunAt || null,
-          disabled: runtime?.disabled || false,
-          consecutiveErrors: runtime?.consecutiveErrors || 0,
-          createdAt: null,
-          sessionId: null,
-          channelId:
-            job.delivery.kind === 'channel'
-              ? job.delivery.to
-              : job.delivery.kind === 'last-channel'
-                ? 'last-channel'
-                : null,
-          taskId: null,
-        } satisfies GatewayAdminSchedulerJob;
-      }),
-      ...getAllTasks()
-        .map((task) => {
-          const normalizedPrompt = task.prompt.replace(/\s+/g, ' ').trim();
-          const createdAtMs = parseSchedulerTimestampMs(task.created_at);
-          const lastStatus =
-            task.last_status === 'success' || task.last_status === 'error'
-              ? task.last_status
-              : null;
-
-          return {
-            id: `task:${task.id}`,
-            source: 'task',
-            name:
-              normalizedPrompt.length > 72
-                ? `${normalizedPrompt.slice(0, 69).trimEnd()}...`
-                : normalizedPrompt || `Task #${task.id}`,
-            description: `#${task.id}`,
-            agentId: null,
-            boardStatus: null,
-            enabled: Boolean(task.enabled),
-            schedule: task.run_at
-              ? {
-                  kind: 'at',
-                  at: task.run_at,
-                  everyMs: null,
-                  expr: null,
-                  tz: '',
-                }
-              : task.every_ms
-                ? {
-                    kind: 'every',
-                    at: null,
-                    everyMs: task.every_ms,
-                    expr: null,
-                    tz: '',
-                  }
-                : {
-                    kind: 'cron',
-                    at: null,
-                    everyMs: null,
-                    expr: task.cron_expr || null,
-                    tz: '',
-                  },
-            action: {
-              kind: 'agent_turn',
-              message: task.prompt,
-            },
-            delivery: {
-              kind: 'channel',
-              channel: 'session',
-              to: task.channel_id,
-              webhookUrl: '',
-            },
-            lastRun: task.last_run,
-            lastStatus,
-            nextRunAt: getScheduledTaskNextRunAt(task, nowMs),
-            disabled: !task.enabled,
-            consecutiveErrors: Math.max(0, task.consecutive_errors || 0),
-            createdAt:
-              createdAtMs == null
-                ? task.created_at || null
-                : new Date(createdAtMs).toISOString(),
-            sessionId: task.session_id,
-            channelId: task.channel_id,
-            taskId: task.id,
-          } satisfies GatewayAdminSchedulerJob;
-        })
-        .sort(compareGatewayAdminSchedulerJobs),
-    ],
-  };
-}
-
-function compareGatewayAdminSchedulerJobs(
-  left: GatewayAdminSchedulerJob,
-  right: GatewayAdminSchedulerJob,
-): number {
-  if (left.nextRunAt && right.nextRunAt) {
-    const delta =
-      new Date(left.nextRunAt).getTime() - new Date(right.nextRunAt).getTime();
-    if (delta !== 0) return delta;
-  } else if (left.nextRunAt) {
-    return -1;
-  } else if (right.nextRunAt) {
-    return 1;
-  }
-
-  if (left.createdAt && right.createdAt) {
-    const delta =
-      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
-    if (delta !== 0) return delta;
-  } else if (left.createdAt) {
-    return -1;
-  } else if (right.createdAt) {
-    return 1;
-  }
-
-  return left.name.localeCompare(right.name);
+  return getGatewayAdminSchedulerFromService();
 }
 
 export function upsertGatewayAdminSchedulerJob(input: {
   job: unknown;
 }): GatewayAdminSchedulerResponse {
-  const job = parseAdminSchedulerJob(input.job);
-
-  updateRuntimeConfig((draft) => {
-    const existingIndex = draft.scheduler.jobs.findIndex(
-      (entry) => entry.id === job.id,
-    );
-    if (existingIndex >= 0) {
-      draft.scheduler.jobs[existingIndex] = job;
-      return;
-    }
-    draft.scheduler.jobs.push(job);
-  });
-
-  if (job.enabled) {
-    resumeConfigJob(job.id);
-  }
-  rearmScheduler();
-  return getGatewayAdminScheduler();
+  return upsertGatewayAdminSchedulerJobFromService(input);
 }
 
 export function removeGatewayAdminSchedulerJob(
   jobId: string,
   source: 'config' | 'task' = 'config',
 ): GatewayAdminSchedulerResponse {
-  if (source === 'task') {
-    const taskId = Number.parseInt(jobId, 10);
-    if (!Number.isFinite(taskId) || taskId <= 0) {
-      throw new Error('Expected numeric scheduler `taskId`.');
-    }
-    deleteTask(taskId);
-    rearmScheduler();
-    return getGatewayAdminScheduler();
-  }
-
-  const normalizedJobId = jobId.trim();
-  if (!normalizedJobId) {
-    throw new Error('Expected non-empty scheduler `jobId`.');
-  }
-
-  updateRuntimeConfig((draft) => {
-    draft.scheduler.jobs = draft.scheduler.jobs.filter(
-      (job) => job.id !== normalizedJobId,
-    );
-  });
-  rearmScheduler();
-  return getGatewayAdminScheduler();
+  return removeGatewayAdminSchedulerJobFromService(jobId, source);
 }
 
 export function setGatewayAdminSchedulerJobPaused(params: {
@@ -3328,32 +3017,7 @@ export function setGatewayAdminSchedulerJobPaused(params: {
   paused: boolean;
   source?: 'config' | 'task';
 }): GatewayAdminSchedulerResponse {
-  if (params.source === 'task') {
-    const taskId = Number.parseInt(params.jobId, 10);
-    if (!Number.isFinite(taskId) || taskId <= 0) {
-      throw new Error('Expected numeric scheduler `taskId`.');
-    }
-    if (params.paused) {
-      pauseTask(taskId);
-    } else {
-      resumeTask(taskId);
-    }
-    rearmScheduler();
-    return getGatewayAdminScheduler();
-  }
-
-  const normalizedJobId = params.jobId.trim();
-  if (!normalizedJobId) {
-    throw new Error('Expected non-empty scheduler `jobId`.');
-  }
-
-  const ok = params.paused
-    ? pauseConfigJob(normalizedJobId)
-    : resumeConfigJob(normalizedJobId);
-  if (!ok) {
-    throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
-  }
-  return getGatewayAdminScheduler();
+  return setGatewayAdminSchedulerJobPausedFromService(params);
 }
 
 export function moveGatewayAdminSchedulerJob(params: {
@@ -3361,41 +3025,7 @@ export function moveGatewayAdminSchedulerJob(params: {
   beforeJobId?: string | null;
   boardStatus?: SchedulerBoardStatus | null;
 }): GatewayAdminSchedulerResponse {
-  const normalizedJobId = params.jobId.trim();
-  if (!normalizedJobId) {
-    throw new Error('Expected non-empty scheduler `jobId`.');
-  }
-  const normalizedBeforeJobId = String(params.beforeJobId || '').trim() || null;
-  const exists = getRuntimeConfig().scheduler.jobs.some(
-    (job) => job.id === normalizedJobId,
-  );
-  if (!exists) {
-    throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
-  }
-
-  updateRuntimeConfig((draft) => {
-    const fromIndex = draft.scheduler.jobs.findIndex(
-      (job) => job.id === normalizedJobId,
-    );
-    if (fromIndex < 0) return;
-    const [job] = draft.scheduler.jobs.splice(fromIndex, 1);
-    if (params.boardStatus) {
-      job.boardStatus = params.boardStatus;
-    }
-    let insertIndex = draft.scheduler.jobs.length;
-    if (normalizedBeforeJobId && normalizedBeforeJobId !== normalizedJobId) {
-      const beforeIndex = draft.scheduler.jobs.findIndex(
-        (candidate) => candidate.id === normalizedBeforeJobId,
-      );
-      if (beforeIndex >= 0) {
-        insertIndex = beforeIndex;
-      }
-    }
-    draft.scheduler.jobs.splice(insertIndex, 0, job);
-  });
-
-  rearmScheduler();
-  return getGatewayAdminScheduler();
+  return moveGatewayAdminSchedulerJobFromService(params);
 }
 
 export function getGatewayAdminMcp(): GatewayAdminMcpResponse {
@@ -5826,85 +5456,23 @@ export async function runGatewayScheduledTask(
   runKey?: string,
   preferredAgentId?: string,
 ): Promise<void> {
-  let currentSessionId = origSessionId;
-  const sessionResetPolicy = {
-    ...resolveSessionAutoResetPolicy(channelId),
-    mode: 'none',
-  } satisfies SessionResetPolicy;
-  const expiryEvaluation = await prepareSessionAutoReset({
-    sessionId: currentSessionId,
-    channelId,
-    policy: sessionResetPolicy,
-  });
-  const autoResetSession = memoryService.resetSessionIfExpired(
-    currentSessionId,
+  await runGatewayScheduledTaskWithRuntime(
     {
-      policy: sessionResetPolicy,
-      expiryEvaluation,
+      origSessionId,
+      channelId,
+      prompt,
+      taskId,
+      onResult,
+      onError,
+      runKey,
+      preferredAgentId,
+    },
+    {
+      prepareSessionAutoReset,
+      resolveGatewayChatbotId,
+      resolveSessionAutoResetPolicy,
     },
   );
-  if (autoResetSession) {
-    currentSessionId = autoResetSession.id;
-  }
-  const session = memoryService.getOrCreateSession(
-    currentSessionId,
-    null,
-    channelId,
-    preferredAgentId,
-  );
-  if (preferredAgentId && session.agent_id !== preferredAgentId) {
-    updateSessionAgent(session.id, preferredAgentId);
-  }
-  const {
-    agentId,
-    chatbotId: requestedChatbotId,
-    model,
-  } = resolveAgentForRequest({
-    session,
-    agentId: preferredAgentId,
-  });
-  const chatbotResolution = await resolveGatewayChatbotId({
-    model,
-    chatbotId: requestedChatbotId,
-    sessionId: currentSessionId,
-    channelId,
-    agentId,
-    trigger: 'scheduler',
-    taskId,
-  });
-  const chatbotId = chatbotResolution.chatbotId;
-  if (modelRequiresChatbotId(model) && !chatbotId) {
-    logger.warn(
-      {
-        sessionId: currentSessionId,
-        channelId,
-        taskId,
-        model,
-        sessionModel: session.model ?? null,
-        sessionChatbotId: session.chatbot_id ?? null,
-        defaultModel: HYBRIDAI_MODEL,
-        defaultChatbotConfigured: Boolean(HYBRIDAI_CHATBOT_ID),
-        fallbackSource: chatbotResolution.source,
-        resolutionError: chatbotResolution.error ?? null,
-      },
-      'Scheduled task skipped due to missing chatbot configuration',
-    );
-    return;
-  }
-
-  await runIsolatedScheduledTask({
-    taskId,
-    prompt,
-    channelId,
-    chatbotId,
-    model,
-    agentId,
-    sessionId: session.id,
-    sessionKey: runKey,
-    mainSessionKey: session.main_session_key,
-    onResult,
-    onError,
-  });
 }
 
 export async function handleGatewayCommand(
