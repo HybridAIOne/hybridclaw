@@ -1,0 +1,5 @@
+interface:
+  display_name: "Sokosumi"
+  short_description: "API-key auth, hires, tasks, and results without TUI."
+  brand_color: "#7F00FF"
+  default_prompt: "Use $sokosumi only when Sokosumi is actually part of the task. In agentic environments do not launch the Ink TUI; ask for a Sokosumi API key directly, and if the human does not have one, send them to https://app.sokosumi.com/signup or https://app.sokosumi.com/signin and then https://app.sokosumi.com/connections. Use Authorization: Bearer with the direct agents, coworkers, tasks, and jobs endpoints, poll for roughly 10 to 20 minutes when work is still running, and do not request passwords, session cookies, auth tokens, refresh tokens, or magic-link URLs."

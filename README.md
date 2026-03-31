@@ -488,7 +488,7 @@ such as `filesystem__read_file` or `github__list_issues`.
 
 ## Bundled Skills
 
-HybridClaw currently ships with 27 bundled skills. Notable workflow and app
+HybridClaw currently ships with 30 bundled skills. Notable workflow and app
 integrations include:
 
 - `pdf` is bundled and supports text extraction, page rendering, fillable form inspection/filling, and non-fillable overlay workflows.
@@ -508,6 +508,7 @@ integrations include:
 - `google-workspace` is bundled for Gmail, Calendar, Drive, Docs, and Sheets setup guidance plus browser/API workflow coordination.
 - `1password` is bundled for secure `op`-based secret lookup and command injection workflows.
 - `stripe` is bundled for Stripe API, CLI, Dashboard, checkout, billing, and webhook-debugging workflows with a test-mode-first default.
+- `sokosumi` is bundled for API-key-authenticated Sokosumi agent hires, coworker tasks, job monitoring, and result retrieval without relying on the Ink TUI.
 - `wordpress` is bundled for WP-CLI, wp-admin, and draft-first content publishing workflows on WordPress sites.
 - `apple-calendar` is bundled for Apple Calendar or iCal workflows, especially `.ics` drafting/import and macOS calendar coordination.
 - `apple-passwords` is bundled for Passwords.app and Keychain-backed credential lookup on macOS.
