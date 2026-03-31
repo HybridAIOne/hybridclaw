@@ -16,6 +16,7 @@ import {
   printHelpTopic,
   printHelpUsage,
   printMainUsage,
+  printMigrationUsage,
   printOnboardingUsage,
   printTuiUsage,
 } from './cli/help.js';
@@ -1346,6 +1347,22 @@ async function handleAgentMigrationCommand(
   await cliMigration.handleAgentMigrationCommand(sourceKind, args);
 }
 
+async function handleMigrateCommand(args: string[]): Promise<void> {
+  const cliMigration = await import('./cli/agent-migration-command.js');
+  const subcommand = (args[0] || '').trim().toLowerCase();
+  if (!subcommand || isHelpRequest(args)) {
+    printMigrationUsage();
+    return;
+  }
+  if (subcommand === 'openclaw' || subcommand === 'hermes') {
+    await cliMigration.handleAgentMigrationCommand(subcommand, args.slice(1));
+    return;
+  }
+  throw new Error(
+    `Unknown migration source: ${subcommand}. Use \`hybridclaw migrate openclaw\` or \`hybridclaw migrate hermes\`.`,
+  );
+}
+
 async function handleAgentPackageCommand(args: string[]): Promise<void> {
   const cliAgent = await import('./cli/agent-command.js');
   await cliAgent.handleAgentPackageCommand(args);
@@ -1413,7 +1430,10 @@ export async function main(
     case 'browser':
       await handleBrowserCommand(subargs);
       break;
-    case 'claw':
+    case 'migrate':
+      await handleMigrateCommand(subargs);
+      break;
+    case 'openclaw':
       await handleAgentMigrationCommand('openclaw', subargs);
       break;
     case 'hermes':

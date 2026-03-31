@@ -13,8 +13,7 @@ export function printMainUsage(): void {
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, WhatsApp, Email)
   browser    Manage persistent browser profiles for agent web automation
-  claw       Import state from another OpenClaw agent home
-  hermes     Import state from another Hermes Agent home
+  migrate    Import state from another agent home
   plugin     Manage HybridClaw plugins
   skill      List skill dependency installers or run one
   tool       List or disable built-in agent tools
@@ -198,36 +197,50 @@ Notes:
   - Use \`browser reset\` to clear all saved sessions and start fresh.`);
 }
 
-export function printClawMigrationUsage(): void {
-  console.log(`Usage: hybridclaw claw migrate [options]
+export function printMigrationUsage(): void {
+  console.log(`Usage:
+  hybridclaw migrate openclaw [options]
+  hybridclaw migrate hermes [options]
+
+Notes:
+  - Use \`migrate openclaw\` to import from \`~/.openclaw\`.
+  - Use \`migrate hermes\` to import from \`~/.hermes\`.
+  - Add \`--agent <id>\` to import into a specific HybridClaw agent instead of \`main\`.
+  - Add \`--dry-run\` first to preview what will be imported.`);
+}
+
+export function printOpenClawMigrationUsage(): void {
+  console.log(`Usage: hybridclaw migrate openclaw [options]
 
 Options:
   --source <path>       Override the OpenClaw home directory (default: ~/.openclaw)
+  --agent <id>          Import into a specific HybridClaw agent (default: main)
   --dry-run             Preview the migration without writing files
   --overwrite           Replace existing HybridClaw files and config values on conflict
   --migrate-secrets     Import compatible secrets into ${runtimeSecretsPath()}
-  --yes, -y             Skip the confirmation prompt
+  --force               Assume yes to all prompts
 
 Notes:
   - Imports the parts of an OpenClaw home that map cleanly into HybridClaw.
-  - Compatible workspace files land in the main agent workspace under \`~/.hybridclaw/data/agents/main/workspace\`.
+  - Compatible workspace files land in the target agent workspace under \`~/.hybridclaw/data/agents/<agent>/workspace\`.
   - Compatible config values merge into ${runtimeConfigPath()} and secrets merge into ${runtimeSecretsPath()}.
   - A report is written under \`~/.hybridclaw/migration/openclaw/\` when the migration runs in execute mode.`);
 }
 
 export function printHermesMigrationUsage(): void {
-  console.log(`Usage: hybridclaw hermes migrate [options]
+  console.log(`Usage: hybridclaw migrate hermes [options]
 
 Options:
   --source <path>       Override the Hermes home directory (default: ~/.hermes)
+  --agent <id>          Import into a specific HybridClaw agent (default: main)
   --dry-run             Preview the migration without writing files
   --overwrite           Replace existing HybridClaw files and config values on conflict
   --migrate-secrets     Import compatible secrets into ${runtimeSecretsPath()}
-  --yes, -y             Skip the confirmation prompt
+  --force               Assume yes to all prompts
 
 Notes:
   - Imports the parts of a Hermes Agent home that map cleanly into HybridClaw.
-  - Compatible workspace files land in the main agent workspace under \`~/.hybridclaw/data/agents/main/workspace\`.
+  - Compatible workspace files land in the target agent workspace under \`~/.hybridclaw/data/agents/<agent>/workspace\`.
   - Compatible config values merge into ${runtimeConfigPath()} and secrets merge into ${runtimeSecretsPath()}.
   - A report is written under \`~/.hybridclaw/migration/hermes/\` when the migration runs in execute mode.`);
 }
@@ -519,7 +532,8 @@ Topics:
   tui         Help for terminal client
   onboarding  Help for onboarding flow
   channels    Help for channel setup helpers
-  claw        Help for OpenClaw migration
+  migrate     Help for agent-home migration
+  openclaw    Help for OpenClaw migration
   hermes      Help for Hermes Agent migration
   config      Help for local runtime config commands
   plugin      Help for plugin management
@@ -626,8 +640,11 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
     case 'browser':
       printBrowserUsage();
       return true;
-    case 'claw':
-      printClawMigrationUsage();
+    case 'migrate':
+      printMigrationUsage();
+      return true;
+    case 'openclaw':
+      printOpenClawMigrationUsage();
       return true;
     case 'hermes':
       printHermesMigrationUsage();

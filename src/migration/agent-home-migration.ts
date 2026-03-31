@@ -19,7 +19,6 @@ import {
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import type { McpServerConfig } from '../types/models.js';
-import { ensureBootstrapFiles } from '../workspace.js';
 
 export type AgentMigrationSource = 'openclaw' | 'hermes';
 
@@ -42,6 +41,7 @@ interface MigrationItem {
 export interface AgentMigrationOptions {
   sourceKind: AgentMigrationSource;
   sourceRoot?: string;
+  agentId?: string;
   execute?: boolean;
   overwrite?: boolean;
   migrateSecrets?: boolean;
@@ -50,6 +50,7 @@ export interface AgentMigrationOptions {
 export interface AgentMigrationResult {
   sourceKind: AgentMigrationSource;
   sourceRoot: string;
+  targetAgentId: string;
   targetRoot: string;
   execute: boolean;
   overwrite: boolean;
@@ -64,11 +65,20 @@ interface SourceSnapshot {
   env: Record<string, string>;
 }
 
+interface MergedWorkspaceSourceSet {
+  sourcePaths: string[];
+  sourceFiles: string[];
+  sourceDirectories: string[];
+}
+
 interface SourceAdapter {
   readonly kind: AgentMigrationSource;
   readonly defaultRoot: string;
   load(sourceRoot: string): SourceSnapshot;
   resolveWorkspaceFile(sourceRoot: string, filename: string): string | null;
+  listMergedWorkspaceSources?(
+    sourceRoot: string,
+  ): Partial<Record<'MEMORY.md' | 'USER.md', MergedWorkspaceSourceSet>>;
   listSkillRoots(sourceRoot: string): string[];
   extractModel(config: Record<string, unknown>): string;
   extractMcpServers(
@@ -76,6 +86,7 @@ interface SourceAdapter {
   ): Record<string, McpServerConfig>;
   extractSecrets(
     snapshot: SourceSnapshot,
+    sourceRoot: string,
   ): Partial<Record<RuntimeSecretKey, string>>;
   applyConfig(
     draft: RuntimeConfig,
@@ -91,11 +102,14 @@ const WORKSPACE_FILES = [
   'SOUL.md',
   'AGENTS.md',
   'IDENTITY.md',
-  'USER.md',
   'TOOLS.md',
-  'MEMORY.md',
   'HEARTBEAT.md',
 ] as const;
+
+const MERGED_WORKSPACE_FILES = ['MEMORY.md', 'USER.md'] as const;
+
+const ENTRY_DELIMITER = '\n§\n';
+const IMPORT_SECTION_MARKER = '<!-- hybridclaw-agent-migration -->';
 
 const RUNTIME_SECRET_KEYS: RuntimeSecretKey[] = [
   'HYBRIDAI_API_KEY',
@@ -107,6 +121,7 @@ const RUNTIME_SECRET_KEYS: RuntimeSecretKey[] = [
   'DEEPGRAM_API_KEY',
   'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
+  'BRAVE_API_KEY',
   'DISCORD_TOKEN',
   'EMAIL_PASSWORD',
   'IMESSAGE_PASSWORD',
@@ -186,6 +201,494 @@ function mergeUniqueStrings(existing: string[], incoming: string[]): string[] {
     merged.push(item);
   }
   return merged;
+}
+
+function normalizeText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function extractMarkdownEntries(text: string): string[] {
+  const entries: string[] = [];
+  const headings: string[] = [];
+  let paragraphLines: string[] = [];
+  let inCodeBlock = false;
+
+  const contextPrefix = (): string => {
+    const filtered = headings.filter(
+      (heading) =>
+        heading &&
+        !/\b(MEMORY|USER|SOUL|AGENTS|TOOLS|IDENTITY|HEARTBEAT)\.md\b/i.test(
+          heading,
+        ),
+    );
+    return filtered.join(' > ');
+  };
+
+  const flushParagraph = () => {
+    if (paragraphLines.length === 0) return;
+    const block = paragraphLines.join(' ').trim();
+    paragraphLines = [];
+    if (!block) return;
+    const prefix = contextPrefix();
+    entries.push(prefix ? `${prefix}: ${block}` : block);
+  };
+
+  for (const rawLine of text.replace(/\r\n/g, '\n').split('\n')) {
+    const line = rawLine.trimEnd();
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      flushParagraph();
+      continue;
+    }
+    if (inCodeBlock) continue;
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*\S)\s*$/);
+    if (headingMatch) {
+      flushParagraph();
+      const level = headingMatch[1].length;
+      while (headings.length >= level) headings.pop();
+      headings.push(headingMatch[2].trim());
+      continue;
+    }
+
+    const bulletMatch = line.match(/^\s*(?:[-*]|\d+\.)\s+(.*\S)\s*$/);
+    if (bulletMatch) {
+      flushParagraph();
+      const content = bulletMatch[1].trim();
+      const prefix = contextPrefix();
+      entries.push(prefix ? `${prefix}: ${content}` : content);
+      continue;
+    }
+
+    if (!trimmed) {
+      flushParagraph();
+      continue;
+    }
+
+    if (trimmed.startsWith('<!--') && trimmed.endsWith('-->')) {
+      flushParagraph();
+      continue;
+    }
+
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      flushParagraph();
+      continue;
+    }
+
+    paragraphLines.push(trimmed);
+  }
+
+  flushParagraph();
+
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    const normalized = normalizeText(entry);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    deduped.push(entry.trim());
+  }
+  return deduped;
+}
+
+function parseExistingMergedEntries(content: string): string[] {
+  const markerIndex = content.indexOf(IMPORT_SECTION_MARKER);
+  const target = markerIndex >= 0 ? content.slice(markerIndex) : content;
+  const entries = target.includes(ENTRY_DELIMITER)
+    ? target
+        .split(ENTRY_DELIMITER)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : extractMarkdownEntries(target);
+  return entries.filter(
+    (entry) =>
+      entry !== 'Imported migration entries will appear here.' &&
+      entry !== 'Imported user notes will appear here.',
+  );
+}
+
+function renderMergedWorkspaceContent(
+  existingContent: string,
+  heading: string,
+  entries: string[],
+): string {
+  const lines: string[] = [];
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+  lines.push(`## ${heading}`);
+  lines.push('');
+  lines.push(IMPORT_SECTION_MARKER);
+  lines.push('');
+  if (entries.length > 0) {
+    for (const entry of entries) {
+      lines.push(`- ${entry}`);
+    }
+  } else {
+    lines.push(
+      `- ${heading === 'Imported User Notes' ? 'Imported user notes will appear here.' : 'Imported migration entries will appear here.'}`,
+    );
+  }
+  const suffix = lines.join('\n');
+  const markerIndex = existingContent.indexOf('\n---\n\n## ');
+  const baseContent =
+    markerIndex >= 0 &&
+    existingContent.includes(IMPORT_SECTION_MARKER, markerIndex)
+      ? existingContent.slice(0, markerIndex).trimEnd()
+      : existingContent.trimEnd();
+  return `${baseContent}${suffix}\n`;
+}
+
+function mergeWorkspaceEntries(params: {
+  sourcePaths: string[];
+  sourceFiles: string[];
+  sourceDirectories: string[];
+  destinationPath: string;
+  execute: boolean;
+  overwrite: boolean;
+  backupRoot: string | null;
+  replaceTemplate: boolean;
+  kind: string;
+  heading: string;
+}): MigrationItem | null {
+  const sourcePaths = params.sourcePaths.filter((sourcePath) =>
+    fs.existsSync(sourcePath),
+  );
+  if (sourcePaths.length === 0) {
+    return null;
+  }
+
+  const incomingEntries = sourcePaths.flatMap((sourcePath) =>
+    extractMarkdownEntries(readTextFile(sourcePath)),
+  );
+  const summarizedSource =
+    params.sourceDirectories.length === 0 && params.sourceFiles.length === 1
+      ? params.sourceFiles[0] || null
+      : params.sourceFiles.length === 0 && params.sourceDirectories.length === 1
+        ? params.sourceDirectories[0] || null
+        : null;
+  if (incomingEntries.length === 0) {
+    return makeItem(
+      params.kind,
+      summarizedSource,
+      params.destinationPath,
+      'skipped',
+      'No importable entries found',
+      {
+        sourceFiles: params.sourceFiles,
+        sourceDirectories: params.sourceDirectories,
+      },
+    );
+  }
+
+  const existingContent = fs.existsSync(params.destinationPath)
+    ? readTextFile(params.destinationPath)
+    : '';
+  const existingEntries =
+    !existingContent || params.replaceTemplate
+      ? []
+      : parseExistingMergedEntries(existingContent);
+
+  if (
+    existingContent &&
+    !params.replaceTemplate &&
+    !params.overwrite &&
+    !existingContent.includes(IMPORT_SECTION_MARKER)
+  ) {
+    return makeItem(
+      params.kind,
+      summarizedSource,
+      params.destinationPath,
+      'conflict',
+      'Destination already customized',
+      {
+        sourceFiles: params.sourceFiles,
+        sourceDirectories: params.sourceDirectories,
+      },
+    );
+  }
+
+  const merged = [...existingEntries];
+  const seen = new Set(existingEntries.map((entry) => normalizeText(entry)));
+  let addedEntries = 0;
+  let duplicateEntries = 0;
+  for (const entry of incomingEntries) {
+    const normalized = normalizeText(entry);
+    if (!normalized) continue;
+    if (seen.has(normalized)) {
+      duplicateEntries += 1;
+      continue;
+    }
+    seen.add(normalized);
+    merged.push(entry);
+    addedEntries += 1;
+  }
+
+  if (addedEntries === 0) {
+    return makeItem(
+      params.kind,
+      summarizedSource,
+      params.destinationPath,
+      'skipped',
+      'No new entries to import',
+      {
+        sourceFiles: params.sourceFiles,
+        sourceDirectories: params.sourceDirectories,
+        sourcePathCount: sourcePaths.length,
+        existingEntries: existingEntries.length,
+        duplicateEntries,
+      },
+    );
+  }
+
+  const nextContent = renderMergedWorkspaceContent(
+    existingContent ||
+      readTextFile(
+        resolveInstallPath('templates', path.basename(params.destinationPath)),
+      ),
+    params.heading,
+    merged,
+  );
+
+  let backupPath: string | null = null;
+  if (params.execute) {
+    ensureDir(path.dirname(params.destinationPath));
+    if (params.backupRoot) {
+      backupPath = backupTarget(params.destinationPath, params.backupRoot);
+    }
+    fs.writeFileSync(params.destinationPath, nextContent, 'utf-8');
+  }
+
+  return makeItem(
+    params.kind,
+    summarizedSource,
+    params.destinationPath,
+    'migrated',
+    '',
+    {
+      sourceFiles: params.sourceFiles,
+      sourceDirectories: params.sourceDirectories,
+      sourcePathCount: sourcePaths.length,
+      existingEntries: existingEntries.length,
+      addedEntries,
+      duplicateEntries,
+      ...(backupPath ? { backup: backupPath } : {}),
+      ...(params.execute ? {} : { dryRun: true }),
+    },
+  );
+}
+
+function parseAuthProfiles(
+  sourceRoot: string,
+): Record<string, Record<string, unknown>> {
+  const raw = parseJsonFile(
+    path.join(sourceRoot, 'agents', 'main', 'agent', 'auth-profiles.json'),
+  );
+  if (Object.keys(raw).length === 0) return {};
+  const profiles = isRecord(raw.profiles) ? raw.profiles : raw;
+  return Object.fromEntries(
+    Object.entries(profiles).filter(([, value]) => isRecord(value)),
+  ) as Record<string, Record<string, unknown>>;
+}
+
+function maybeReadNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function maybeReadBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+  }
+  return null;
+}
+
+function maybeReadString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function normalizeOpenClawIdentityLinks(
+  value: unknown,
+): RuntimeConfig['sessionRouting']['identityLinks'] {
+  if (!isRecord(value)) return {};
+  const normalized: RuntimeConfig['sessionRouting']['identityLinks'] = {};
+  for (const [identity, rawAliases] of Object.entries(value)) {
+    const normalizedIdentity = maybeReadString(identity).toLowerCase();
+    if (!normalizedIdentity || !Array.isArray(rawAliases)) continue;
+    const aliases = normalizeStringArray(rawAliases).map((alias) =>
+      alias.toLowerCase(),
+    );
+    if (aliases.length === 0) continue;
+    normalized[normalizedIdentity] = aliases;
+  }
+  return normalized;
+}
+
+function mergeIdentityLinks(
+  existing: RuntimeConfig['sessionRouting']['identityLinks'],
+  incoming: RuntimeConfig['sessionRouting']['identityLinks'],
+): RuntimeConfig['sessionRouting']['identityLinks'] {
+  const merged = { ...existing };
+  for (const [identity, aliases] of Object.entries(incoming)) {
+    merged[identity] = mergeUniqueStrings(merged[identity] || [], aliases);
+  }
+  return merged;
+}
+
+function cloneIdentityLinks(
+  value: RuntimeConfig['sessionRouting']['identityLinks'],
+): RuntimeConfig['sessionRouting']['identityLinks'] {
+  return Object.fromEntries(
+    Object.entries(value).map(([identity, aliases]) => [
+      identity,
+      [...aliases],
+    ]),
+  );
+}
+
+function isSupportedWebSearchProvider(
+  value: string,
+): value is RuntimeConfig['web']['search']['provider'] {
+  return ['auto', 'perplexity', 'tavily', 'duckduckgo', 'searxng'].includes(
+    value,
+  );
+}
+
+function applyOpenClawProviderConfig(
+  draft: RuntimeConfig,
+  snapshot: SourceSnapshot,
+  overwrite: boolean,
+): { imported: string[]; unmapped: string[] } {
+  const models = isRecord(snapshot.config.models) ? snapshot.config.models : {};
+  const providers = isRecord(models.providers) ? models.providers : {};
+  const imported: string[] = [];
+  const unmapped: string[] = [];
+
+  for (const [providerName, providerConfig] of Object.entries(providers)) {
+    if (!isRecord(providerConfig)) continue;
+    const name = providerName.toLowerCase();
+    const baseUrl = maybeReadString(providerConfig.baseUrl);
+    const providerModels = normalizeStringArray(providerConfig.models);
+
+    const applyModels = (targetModels: string[]) =>
+      providerModels.length > 0
+        ? mergeUniqueStrings(targetModels, providerModels)
+        : targetModels;
+
+    if (name.includes('hybridai')) {
+      if (
+        baseUrl &&
+        (overwrite || draft.hybridai.baseUrl === 'https://hybridai.one')
+      ) {
+        draft.hybridai.baseUrl = baseUrl;
+      }
+      draft.hybridai.models = applyModels(draft.hybridai.models);
+      imported.push(providerName);
+      continue;
+    }
+    if (name.includes('codex') || name.includes('openai-codex')) {
+      if (baseUrl && (overwrite || !draft.codex.baseUrl))
+        draft.codex.baseUrl = baseUrl;
+      draft.codex.models = applyModels(draft.codex.models);
+      imported.push(providerName);
+      continue;
+    }
+    if (name.includes('openrouter')) {
+      draft.openrouter.enabled = true;
+      if (
+        baseUrl &&
+        (overwrite ||
+          draft.openrouter.baseUrl === 'https://openrouter.ai/api/v1')
+      ) {
+        draft.openrouter.baseUrl = baseUrl;
+      }
+      draft.openrouter.models = applyModels(draft.openrouter.models);
+      imported.push(providerName);
+      continue;
+    }
+    if (name.includes('mistral')) {
+      draft.mistral.enabled = true;
+      if (
+        baseUrl &&
+        (overwrite || draft.mistral.baseUrl === 'https://api.mistral.ai/v1')
+      ) {
+        draft.mistral.baseUrl = baseUrl;
+      }
+      draft.mistral.models = applyModels(draft.mistral.models);
+      imported.push(providerName);
+      continue;
+    }
+    if (name.includes('huggingface') || name === 'hf') {
+      draft.huggingface.enabled = true;
+      if (
+        baseUrl &&
+        (overwrite ||
+          draft.huggingface.baseUrl === 'https://router.huggingface.co/v1')
+      ) {
+        draft.huggingface.baseUrl = baseUrl;
+      }
+      draft.huggingface.models = applyModels(draft.huggingface.models);
+      imported.push(providerName);
+      continue;
+    }
+    if (name.includes('ollama')) {
+      draft.local.backends.ollama.enabled = true;
+      if (
+        baseUrl &&
+        (overwrite ||
+          draft.local.backends.ollama.baseUrl === 'http://127.0.0.1:11434')
+      ) {
+        draft.local.backends.ollama.baseUrl = baseUrl;
+      }
+      imported.push(providerName);
+      continue;
+    }
+    if (name.includes('lmstudio') || name.includes('lm-studio')) {
+      draft.local.backends.lmstudio.enabled = true;
+      if (
+        baseUrl &&
+        (overwrite ||
+          draft.local.backends.lmstudio.baseUrl === 'http://127.0.0.1:1234/v1')
+      ) {
+        draft.local.backends.lmstudio.baseUrl = baseUrl;
+      }
+      imported.push(providerName);
+      continue;
+    }
+    if (name.includes('vllm')) {
+      draft.local.backends.vllm.enabled = true;
+      if (
+        baseUrl &&
+        (overwrite ||
+          draft.local.backends.vllm.baseUrl === 'http://127.0.0.1:8000/v1')
+      ) {
+        draft.local.backends.vllm.baseUrl = baseUrl;
+      }
+      imported.push(providerName);
+      continue;
+    }
+    if (
+      baseUrl ||
+      providerModels.length > 0 ||
+      providerConfig.apiKey !== undefined
+    ) {
+      unmapped.push(providerName);
+    }
+  }
+
+  return { imported, unmapped };
 }
 
 function resolveDefaultSourceRoot(sourceKind: AgentMigrationSource): string {
@@ -622,11 +1125,54 @@ const openClawAdapter: SourceAdapter = {
     ];
     return candidates.find((candidate) => fs.existsSync(candidate)) || null;
   },
+  listMergedWorkspaceSources(sourceRoot) {
+    const memoryFiles = [
+      path.join(sourceRoot, 'workspace', 'MEMORY.md'),
+      path.join(sourceRoot, 'workspace.default', 'MEMORY.md'),
+    ].filter((candidate) => fs.existsSync(candidate));
+    const memoryDirectories = [
+      path.join(sourceRoot, 'workspace', 'memory'),
+      path.join(sourceRoot, 'workspace.default', 'memory'),
+    ].filter(
+      (candidate) =>
+        fs.existsSync(candidate) && fs.statSync(candidate).isDirectory(),
+    );
+    return {
+      'MEMORY.md': {
+        sourceFiles: memoryFiles,
+        sourceDirectories: memoryDirectories,
+        sourcePaths: [
+          ...memoryFiles,
+          ...memoryDirectories.flatMap((candidate) =>
+            fs
+              .readdirSync(candidate)
+              .filter((entry) => entry.endsWith('.md'))
+              .sort()
+              .map((entry) => path.join(candidate, entry)),
+          ),
+        ],
+      },
+      'USER.md': {
+        sourceFiles: [
+          path.join(sourceRoot, 'workspace', 'USER.md'),
+          path.join(sourceRoot, 'workspace.default', 'USER.md'),
+        ].filter((candidate) => fs.existsSync(candidate)),
+        sourceDirectories: [],
+        sourcePaths: [
+          path.join(sourceRoot, 'workspace', 'USER.md'),
+          path.join(sourceRoot, 'workspace.default', 'USER.md'),
+        ].filter((candidate) => fs.existsSync(candidate)),
+      },
+    };
+  },
   listSkillRoots(sourceRoot) {
     return [
       path.join(sourceRoot, 'workspace', 'skills'),
+      path.join(sourceRoot, 'workspace', '.agents', 'skills'),
       path.join(sourceRoot, 'workspace.default', 'skills'),
+      path.join(sourceRoot, 'workspace.default', '.agents', 'skills'),
       path.join(sourceRoot, 'skills'),
+      path.join(os.homedir(), '.agents', 'skills'),
     ].filter((candidate) => fs.existsSync(candidate));
   },
   extractModel(config) {
@@ -643,7 +1189,7 @@ const openClawAdapter: SourceAdapter = {
     const mcp = isRecord(config.mcp) ? config.mcp : {};
     return normalizeMcpServers(mcp.servers);
   },
-  extractSecrets(snapshot) {
+  extractSecrets(snapshot, sourceRoot) {
     const secrets: Partial<Record<RuntimeSecretKey, string>> = {};
     for (const key of RUNTIME_SECRET_KEYS) {
       const value = snapshot.env[key];
@@ -683,6 +1229,39 @@ const openClawAdapter: SourceAdapter = {
         secrets.OPENAI_API_KEY = resolved;
       }
     }
+    const gateway = isRecord(snapshot.config.gateway)
+      ? snapshot.config.gateway
+      : {};
+    const auth = isRecord(gateway.auth) ? gateway.auth : {};
+    const gatewayToken = maybeReadString(auth.token);
+    if (gatewayToken && !secrets.GATEWAY_API_TOKEN) {
+      secrets.GATEWAY_API_TOKEN = gatewayToken;
+    }
+
+    const authProfiles = parseAuthProfiles(sourceRoot);
+    for (const [profileName, profileData] of Object.entries(authProfiles)) {
+      const apiKey =
+        maybeReadString(profileData.key) || maybeReadString(profileData.apiKey);
+      if (!apiKey) continue;
+      const name = profileName.toLowerCase();
+      if (name.includes('openrouter') && !secrets.OPENROUTER_API_KEY) {
+        secrets.OPENROUTER_API_KEY = apiKey;
+      } else if (
+        (name.includes('huggingface') || name.includes('hf')) &&
+        !secrets.HF_TOKEN
+      ) {
+        secrets.HF_TOKEN = apiKey;
+      } else if (name.includes('mistral') && !secrets.MISTRAL_API_KEY) {
+        secrets.MISTRAL_API_KEY = apiKey;
+      } else if (
+        (name.includes('openai') || name.includes('codex')) &&
+        !secrets.OPENAI_API_KEY
+      ) {
+        secrets.OPENAI_API_KEY = apiKey;
+      } else if (name.includes('hybridai') && !secrets.HYBRIDAI_API_KEY) {
+        secrets.HYBRIDAI_API_KEY = apiKey;
+      }
+    }
     return secrets;
   },
   applyConfig(draft, snapshot, sourceRoot, overwrite, addItem) {
@@ -698,7 +1277,16 @@ const openClawAdapter: SourceAdapter = {
             runtimeConfigPath(),
             'migrated',
             '',
-            { model },
+            {
+              current: { model: currentModel || '[unset]' },
+              incoming: { model },
+              keyMappings: {
+                model: {
+                  source: 'models.default | model',
+                  target: 'hybridai.defaultModel',
+                },
+              },
+            },
           ),
         );
       } else if (currentModel === model) {
@@ -719,7 +1307,16 @@ const openClawAdapter: SourceAdapter = {
             runtimeConfigPath(),
             'conflict',
             'HybridClaw default model already set',
-            { currentModel, incomingModel: model },
+            {
+              currentModel,
+              incomingModel: model,
+              keyMappings: {
+                model: {
+                  source: 'models.default | model',
+                  target: 'hybridai.defaultModel',
+                },
+              },
+            },
           ),
         );
       }
@@ -730,14 +1327,256 @@ const openClawAdapter: SourceAdapter = {
       : {};
     const discord = isRecord(channels.discord) ? channels.discord : {};
     const whatsapp = isRecord(channels.whatsapp) ? channels.whatsapp : {};
-    const allowDiscord = normalizeStringArray(discord.allowFrom);
-    if (allowDiscord.length > 0) {
-      draft.discord.commandAllowedUserIds = mergeUniqueStrings(
-        draft.discord.commandAllowedUserIds,
-        allowDiscord,
+    const gateway = isRecord(snapshot.config.gateway)
+      ? snapshot.config.gateway
+      : {};
+    const gatewayAuth = isRecord(gateway.auth) ? gateway.auth : {};
+    const tools = isRecord(snapshot.config.tools) ? snapshot.config.tools : {};
+    const toolsWeb = isRecord(tools.web)
+      ? tools.web
+      : isRecord(tools.webSearch)
+        ? tools.webSearch
+        : {};
+    const search = isRecord(toolsWeb.search) ? toolsWeb.search : toolsWeb;
+    const session = isRecord(snapshot.config.session)
+      ? snapshot.config.session
+      : {};
+    const logging = isRecord(snapshot.config.logging)
+      ? snapshot.config.logging
+      : {};
+    const skills = isRecord(snapshot.config.skills)
+      ? snapshot.config.skills
+      : {};
+    const defaults = isRecord(snapshot.config.agents)
+      ? isRecord(snapshot.config.agents.defaults)
+        ? snapshot.config.agents.defaults
+        : {}
+      : {};
+    const providerMigration = applyOpenClawProviderConfig(
+      draft,
+      snapshot,
+      overwrite,
+    );
+    if (providerMigration.imported.length > 0) {
+      addItem(
+        makeItem(
+          'config:providers',
+          path.join(sourceRoot, 'openclaw.json'),
+          runtimeConfigPath(),
+          'migrated',
+          '',
+          { providers: providerMigration.imported },
+        ),
       );
-      draft.discord.commandMode = 'restricted';
-      draft.discord.commandsOnly = true;
+    }
+    if (providerMigration.unmapped.length > 0) {
+      addItem(
+        makeItem(
+          'config:providers',
+          path.join(sourceRoot, 'openclaw.json'),
+          runtimeConfigPath(),
+          'skipped',
+          'No direct HybridClaw provider mapping',
+          { providers: providerMigration.unmapped },
+        ),
+      );
+    }
+
+    const enableRag = maybeReadBoolean(defaults.enableRag);
+    if (enableRag !== null) {
+      const currentEnableRag = draft.agents.defaults?.enableRag;
+      draft.hybridai.enableRag = enableRag;
+      draft.agents.defaults = {
+        ...draft.agents.defaults,
+        enableRag,
+      };
+      addItem(
+        makeItem(
+          'config:agent-behavior',
+          path.join(sourceRoot, 'openclaw.json'),
+          runtimeConfigPath(),
+          'migrated',
+          '',
+          {
+            current: { enableRag: currentEnableRag },
+            incoming: { enableRag },
+            keyMappings: {
+              enableRag: {
+                source: 'agents.defaults.enableRag',
+                target: 'agents.defaults.enableRag',
+              },
+            },
+          },
+        ),
+      );
+    }
+
+    const gatewayBaseUrl =
+      maybeReadString(gateway.baseUrl) ||
+      maybeReadString(gateway.url) ||
+      maybeReadString(gateway.origin);
+    const currentGatewayBaseUrl = draft.ops.gatewayBaseUrl;
+    const currentWebApiToken = draft.ops.webApiToken;
+    if (gatewayBaseUrl) {
+      draft.ops.gatewayBaseUrl = gatewayBaseUrl;
+    }
+    const webApiToken = maybeReadString(gatewayAuth.webApiToken);
+    if (webApiToken) {
+      draft.ops.webApiToken = webApiToken;
+    }
+    if (gatewayBaseUrl || webApiToken) {
+      addItem(
+        makeItem(
+          'config:gateway',
+          path.join(sourceRoot, 'openclaw.json'),
+          runtimeConfigPath(),
+          'migrated',
+          '',
+          {
+            current: {
+              gatewayBaseUrl: currentGatewayBaseUrl || '[unset]',
+              webApiToken: currentWebApiToken ? '[set]' : '[unset]',
+            },
+            incoming: {
+              ...(gatewayBaseUrl ? { gatewayBaseUrl } : {}),
+              ...(webApiToken ? { webApiToken: '[set]' } : {}),
+            },
+            keyMappings: {
+              gatewayBaseUrl: {
+                source: 'gateway.baseUrl | gateway.url | gateway.origin',
+                target: 'ops.gatewayBaseUrl',
+              },
+              webApiToken: {
+                source: 'gateway.auth.webApiToken',
+                target: 'ops.webApiToken',
+              },
+            },
+          },
+        ),
+      );
+    }
+
+    const searchProvider = maybeReadString(search.provider).toLowerCase();
+    const currentSearchProvider = draft.web.search.provider;
+    const currentSearchDefaultCount = draft.web.search.defaultCount;
+    const currentSearchCacheTtlMinutes = draft.web.search.cacheTtlMinutes;
+    const webSearchDetails: Record<string, unknown> = {};
+    if (isSupportedWebSearchProvider(searchProvider)) {
+      draft.web.search.provider = searchProvider;
+      webSearchDetails.provider = searchProvider;
+    }
+    const searchMaxResults = maybeReadNumber(search.maxResults);
+    if (searchMaxResults !== null) {
+      draft.web.search.defaultCount = clampInteger(searchMaxResults, 1, 10);
+      webSearchDetails.defaultCount = draft.web.search.defaultCount;
+    }
+    const searchCacheTtlMinutes = maybeReadNumber(search.cacheTtlMinutes);
+    if (searchCacheTtlMinutes !== null) {
+      draft.web.search.cacheTtlMinutes = Math.max(
+        0,
+        Math.round(searchCacheTtlMinutes),
+      );
+      webSearchDetails.cacheTtlMinutes = draft.web.search.cacheTtlMinutes;
+    }
+    if (Object.keys(webSearchDetails).length > 0) {
+      addItem(
+        makeItem(
+          'config:web-search',
+          path.join(sourceRoot, 'openclaw.json'),
+          runtimeConfigPath(),
+          'migrated',
+          '',
+          {
+            ...webSearchDetails,
+            current: {
+              provider: currentSearchProvider,
+              defaultCount: currentSearchDefaultCount,
+              cacheTtlMinutes: currentSearchCacheTtlMinutes,
+            },
+            incoming: webSearchDetails,
+            keyMappings: {
+              provider: {
+                source: 'tools.web.search.provider',
+                target: 'web.search.provider',
+              },
+              defaultCount: {
+                source: 'tools.web.search.maxResults',
+                target: 'web.search.defaultCount',
+              },
+              cacheTtlMinutes: {
+                source: 'tools.web.search.cacheTtlMinutes',
+                target: 'web.search.cacheTtlMinutes',
+              },
+            },
+          },
+        ),
+      );
+    }
+
+    const logLevel = maybeReadString(
+      logging.level || logging.logLevel,
+    ).toLowerCase();
+    if (
+      ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'].includes(
+        logLevel,
+      )
+    ) {
+      const currentLogLevel = draft.ops.logLevel;
+      draft.ops.logLevel = logLevel as RuntimeConfig['ops']['logLevel'];
+      addItem(
+        makeItem(
+          'config:logging',
+          path.join(sourceRoot, 'openclaw.json'),
+          runtimeConfigPath(),
+          'migrated',
+          '',
+          {
+            current: { logLevel: currentLogLevel },
+            incoming: { logLevel },
+            keyMappings: {
+              logLevel: {
+                source: 'logging.level | logging.logLevel',
+                target: 'ops.logLevel',
+              },
+            },
+          },
+        ),
+      );
+    }
+
+    const prefix =
+      typeof discord.prefix === 'string' ? discord.prefix.trim() : '';
+    const discordChanges: Record<string, unknown> = {};
+    const currentDiscord = {
+      prefix: draft.discord.prefix,
+      textChunkLimit: draft.discord.textChunkLimit,
+      presenceIntent: draft.discord.presenceIntent,
+      guildMembersIntent: draft.discord.guildMembersIntent,
+    };
+    if (prefix && (draft.discord.prefix === '!claw' || overwrite)) {
+      draft.discord.prefix = prefix;
+      discordChanges.prefix = prefix;
+    }
+    const discordTextChunkLimit = maybeReadNumber(discord.textChunkLimit);
+    if (discordTextChunkLimit !== null) {
+      draft.discord.textChunkLimit = Math.max(
+        1,
+        Math.round(discordTextChunkLimit),
+      );
+      discordChanges.textChunkLimit = draft.discord.textChunkLimit;
+    }
+    const discordIntents = isRecord(discord.intents) ? discord.intents : {};
+    const presenceIntent = maybeReadBoolean(discordIntents.presence);
+    if (presenceIntent !== null) {
+      draft.discord.presenceIntent = presenceIntent;
+      discordChanges.presenceIntent = presenceIntent;
+    }
+    const guildMembersIntent = maybeReadBoolean(discordIntents.guildMembers);
+    if (guildMembersIntent !== null) {
+      draft.discord.guildMembersIntent = guildMembersIntent;
+      discordChanges.guildMembersIntent = guildMembersIntent;
+    }
+    if (Object.keys(discordChanges).length > 0) {
       addItem(
         makeItem(
           'config:discord',
@@ -745,23 +1584,39 @@ const openClawAdapter: SourceAdapter = {
           runtimeConfigPath(),
           'migrated',
           '',
-          { importedUsers: allowDiscord.length },
+          {
+            current: currentDiscord,
+            incoming: discordChanges,
+            keyMappings: {
+              prefix: {
+                source: 'channels.discord.prefix',
+                target: 'discord.prefix',
+              },
+              textChunkLimit: {
+                source: 'channels.discord.textChunkLimit',
+                target: 'discord.textChunkLimit',
+              },
+              presenceIntent: {
+                source: 'channels.discord.intents.presence',
+                target: 'discord.presenceIntent',
+              },
+              guildMembersIntent: {
+                source: 'channels.discord.intents.guildMembers',
+                target: 'discord.guildMembersIntent',
+              },
+            },
+          },
         ),
       );
-    }
-    const prefix =
-      typeof discord.prefix === 'string' ? discord.prefix.trim() : '';
-    if (prefix && (draft.discord.prefix === '!claw' || overwrite)) {
-      draft.discord.prefix = prefix;
     }
 
     const allowWhatsApp = normalizeStringArray(whatsapp.allowFrom);
     if (allowWhatsApp.length > 0) {
+      const currentAllowFrom = [...draft.whatsapp.allowFrom];
       draft.whatsapp.allowFrom = mergeUniqueStrings(
         draft.whatsapp.allowFrom,
         allowWhatsApp,
       );
-      draft.whatsapp.dmPolicy = 'allowlist';
       addItem(
         makeItem(
           'config:whatsapp',
@@ -769,7 +1624,102 @@ const openClawAdapter: SourceAdapter = {
           runtimeConfigPath(),
           'migrated',
           '',
-          { importedUsers: allowWhatsApp.length },
+          {
+            current: { allowFrom: currentAllowFrom },
+            incoming: { allowFrom: draft.whatsapp.allowFrom },
+            keyMappings: {
+              allowFrom: {
+                source: 'channels.whatsapp.allowFrom',
+                target: 'whatsapp.allowFrom',
+              },
+            },
+          },
+        ),
+      );
+    }
+
+    const sessionRoutingChanges: Record<string, unknown> = {};
+    const currentSessionRouting = {
+      dmScope: draft.sessionRouting.dmScope,
+      identityLinks: cloneIdentityLinks(draft.sessionRouting.identityLinks),
+    };
+    const sessionDmScope = maybeReadString(session.dmScope).toLowerCase();
+    if (
+      sessionDmScope === 'per-channel-peer' &&
+      draft.sessionRouting.dmScope !== 'per-channel-peer'
+    ) {
+      draft.sessionRouting.dmScope = 'per-channel-peer';
+      sessionRoutingChanges.dmScope = 'per-channel-peer';
+    }
+    const identityLinks = normalizeOpenClawIdentityLinks(session.identityLinks);
+    if (Object.keys(identityLinks).length > 0) {
+      const mergedIdentityLinks = mergeIdentityLinks(
+        draft.sessionRouting.identityLinks,
+        identityLinks,
+      );
+      if (
+        JSON.stringify(mergedIdentityLinks) !==
+        JSON.stringify(draft.sessionRouting.identityLinks)
+      ) {
+        draft.sessionRouting.identityLinks = mergedIdentityLinks;
+        sessionRoutingChanges.identityLinks = mergedIdentityLinks;
+      }
+    }
+    if (Object.keys(sessionRoutingChanges).length > 0) {
+      addItem(
+        makeItem(
+          'config:session-routing',
+          path.join(sourceRoot, 'openclaw.json'),
+          runtimeConfigPath(),
+          'migrated',
+          '',
+          {
+            current: currentSessionRouting,
+            incoming: sessionRoutingChanges,
+            keyMappings: {
+              dmScope: {
+                source: 'session.dmScope',
+                target: 'sessionRouting.dmScope',
+              },
+              identityLinks: {
+                source: 'session.identityLinks',
+                target: 'sessionRouting.identityLinks',
+              },
+            },
+          },
+        ),
+      );
+    }
+
+    const skillsChanges: Record<string, unknown> = {};
+    const skillLoad = isRecord(skills.load) ? skills.load : {};
+    const extraSkillDirs = normalizeStringArray(skillLoad.extraDirs);
+    const currentExtraDirs = [...draft.skills.extraDirs];
+    if (extraSkillDirs.length > 0) {
+      draft.skills.extraDirs = mergeUniqueStrings(
+        draft.skills.extraDirs,
+        extraSkillDirs,
+      );
+      skillsChanges.extraDirs = extraSkillDirs.length;
+    }
+    if (Object.keys(skillsChanges).length > 0) {
+      addItem(
+        makeItem(
+          'config:skills',
+          path.join(sourceRoot, 'openclaw.json'),
+          runtimeConfigPath(),
+          'migrated',
+          '',
+          {
+            current: { extraDirs: currentExtraDirs },
+            incoming: { extraDirs: draft.skills.extraDirs },
+            keyMappings: {
+              extraDirs: {
+                source: 'skills.load.extraDirs',
+                target: 'skills.extraDirs',
+              },
+            },
+          },
         ),
       );
     }
@@ -777,6 +1727,11 @@ const openClawAdapter: SourceAdapter = {
   archiveCandidates(sourceRoot) {
     return [
       path.join(sourceRoot, 'openclaw.json'),
+      path.join(sourceRoot, 'exec-approvals.json'),
+      path.join(sourceRoot, 'cron'),
+      path.join(sourceRoot, 'workspace', '.learnings'),
+      path.join(sourceRoot, 'workspace', 'hooks'),
+      path.join(sourceRoot, 'workspace.default', 'hooks'),
       path.join(sourceRoot, 'workspace', 'BOOTSTRAP.md'),
       path.join(sourceRoot, 'workspace.default', 'BOOTSTRAP.md'),
     ];
@@ -796,6 +1751,28 @@ const hermesAdapter: SourceAdapter = {
     const candidate = path.join(sourceRoot, filename);
     return fs.existsSync(candidate) ? candidate : null;
   },
+  listMergedWorkspaceSources(sourceRoot) {
+    return {
+      'MEMORY.md': {
+        sourceFiles: [path.join(sourceRoot, 'MEMORY.md')].filter((candidate) =>
+          fs.existsSync(candidate),
+        ),
+        sourceDirectories: [],
+        sourcePaths: [path.join(sourceRoot, 'MEMORY.md')].filter((candidate) =>
+          fs.existsSync(candidate),
+        ),
+      },
+      'USER.md': {
+        sourceFiles: [path.join(sourceRoot, 'USER.md')].filter((candidate) =>
+          fs.existsSync(candidate),
+        ),
+        sourceDirectories: [],
+        sourcePaths: [path.join(sourceRoot, 'USER.md')].filter((candidate) =>
+          fs.existsSync(candidate),
+        ),
+      },
+    };
+  },
   listSkillRoots(sourceRoot) {
     return [path.join(sourceRoot, 'skills')].filter((candidate) =>
       fs.existsSync(candidate),
@@ -813,7 +1790,7 @@ const hermesAdapter: SourceAdapter = {
   extractMcpServers(config) {
     return normalizeMcpServers(config.mcp_servers);
   },
-  extractSecrets(snapshot) {
+  extractSecrets(snapshot, _sourceRoot) {
     const secrets: Partial<Record<RuntimeSecretKey, string>> = {};
     for (const key of RUNTIME_SECRET_KEYS) {
       const value = snapshot.env[key];
@@ -842,7 +1819,16 @@ const hermesAdapter: SourceAdapter = {
           runtimeConfigPath(),
           'migrated',
           '',
-          { model },
+          {
+            current: { model: currentModel || '[unset]' },
+            incoming: { model },
+            keyMappings: {
+              model: {
+                source: 'model',
+                target: 'hybridai.defaultModel',
+              },
+            },
+          },
         ),
       );
       return;
@@ -866,7 +1852,16 @@ const hermesAdapter: SourceAdapter = {
         runtimeConfigPath(),
         'conflict',
         'HybridClaw default model already set',
-        { currentModel, incomingModel: model },
+        {
+          currentModel,
+          incomingModel: model,
+          keyMappings: {
+            model: {
+              source: 'model',
+              target: 'hybridai.defaultModel',
+            },
+          },
+        },
       ),
     );
   },
@@ -879,21 +1874,67 @@ function getAdapter(sourceKind: AgentMigrationSource): SourceAdapter {
   return sourceKind === 'openclaw' ? openClawAdapter : hermesAdapter;
 }
 
+function normalizeTargetAgentId(agentId: string | undefined): string {
+  return String(agentId || '').trim() || DEFAULT_AGENT_ID;
+}
+
+function ensureConfiguredAgent(
+  draft: RuntimeConfig,
+  agentId: string,
+  overwrite: boolean,
+): void {
+  draft.agents ??= {};
+  const nextAgents = Array.isArray(draft.agents.list)
+    ? [...draft.agents.list]
+    : [];
+  const existingIndex = nextAgents.findIndex(
+    (entry) => String(entry?.id || '').trim() === agentId,
+  );
+  if (existingIndex >= 0) {
+    if (overwrite) {
+      nextAgents[existingIndex] = {
+        ...nextAgents[existingIndex],
+        id: agentId,
+      };
+    }
+  } else {
+    nextAgents.push({ id: agentId });
+  }
+  draft.agents.list = nextAgents;
+}
+
+async function syncImportedAgentRegistry(): Promise<void> {
+  const [{ initAgentRegistry }, { initDatabase, isDatabaseInitialized }] =
+    await Promise.all([
+      import('../agents/agent-registry.js'),
+      import('../memory/db.js'),
+    ]);
+  if (!isDatabaseInitialized()) {
+    initDatabase({ quiet: true });
+  }
+  initAgentRegistry(getRuntimeConfig().agents);
+}
+
 export async function migrateAgentHome(
   options: AgentMigrationOptions,
 ): Promise<AgentMigrationResult> {
   const adapter = getAdapter(options.sourceKind);
   const sourceRoot = path.resolve(options.sourceRoot || adapter.defaultRoot);
+  const targetAgentId = normalizeTargetAgentId(options.agentId);
   const execute = options.execute !== false;
   const overwrite = options.overwrite === true;
   const migrateSecrets = options.migrateSecrets === true;
   const targetRoot = path.dirname(runtimeConfigPath());
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const outputDir = execute
-    ? path.join(targetRoot, 'migration', options.sourceKind, timestamp)
-    : null;
+  const migrationRoot = path.join(
+    targetRoot,
+    'migration',
+    options.sourceKind,
+    timestamp,
+  );
+  const outputDir = execute ? migrationRoot : null;
   const backupRoot = outputDir ? path.join(outputDir, 'backups') : null;
-  const archiveRoot = outputDir ? path.join(outputDir, 'archive') : null;
+  const archiveRoot = path.join(migrationRoot, 'archive');
   const items: MigrationItem[] = [];
   const addItem = (item: MigrationItem) => {
     items.push(item);
@@ -903,6 +1944,7 @@ export async function migrateAgentHome(
     const result: AgentMigrationResult = {
       sourceKind: options.sourceKind,
       sourceRoot,
+      targetAgentId,
       targetRoot,
       execute,
       overwrite,
@@ -932,23 +1974,11 @@ export async function migrateAgentHome(
   }
 
   const snapshot = adapter.load(sourceRoot);
-  ensureBootstrapFiles(DEFAULT_AGENT_ID);
-  const workspaceRoot = agentWorkspaceDir(DEFAULT_AGENT_ID);
+  const workspaceRoot = agentWorkspaceDir(targetAgentId);
 
   for (const filename of WORKSPACE_FILES) {
     const sourcePath = adapter.resolveWorkspaceFile(sourceRoot, filename);
-    if (!sourcePath) {
-      addItem(
-        makeItem(
-          'workspace-file',
-          path.join(sourceRoot, filename),
-          path.join(workspaceRoot, filename),
-          'skipped',
-          'No compatible source file found',
-        ),
-      );
-      continue;
-    }
+    if (!sourcePath) continue;
     addItem(
       copyFileWithConflictHandling({
         sourcePath,
@@ -964,8 +1994,36 @@ export async function migrateAgentHome(
     );
   }
 
+  const mergedWorkspaceSources =
+    adapter.listMergedWorkspaceSources?.(sourceRoot);
+  for (const filename of MERGED_WORKSPACE_FILES) {
+    const mergedSources = mergedWorkspaceSources?.[filename] || {
+      sourcePaths: [],
+      sourceFiles: [],
+      sourceDirectories: [],
+    };
+    const item = mergeWorkspaceEntries({
+      sourcePaths: mergedSources.sourcePaths,
+      sourceFiles: mergedSources.sourceFiles,
+      sourceDirectories: mergedSources.sourceDirectories,
+      destinationPath: path.join(workspaceRoot, filename),
+      execute,
+      overwrite,
+      backupRoot,
+      replaceTemplate: maybeTemplateReplacement(
+        path.join(workspaceRoot, filename),
+      ),
+      kind: 'workspace-file',
+      heading:
+        filename === 'MEMORY.md'
+          ? 'Imported Migration Entries'
+          : 'Imported User Notes',
+    });
+    if (item) addItem(item);
+  }
+
   if (migrateSecrets) {
-    const incomingSecrets = adapter.extractSecrets(snapshot);
+    const incomingSecrets = adapter.extractSecrets(snapshot, sourceRoot);
     const existingSecrets = readRuntimeSecretsFile();
     const updates: Partial<Record<RuntimeSecretKey, string | null>> = {};
     const skippedKeys: string[] = [];
@@ -1056,16 +2114,21 @@ export async function migrateAgentHome(
   }
 
   const existingConfig = getRuntimeConfig();
+  const hasConfiguredTargetAgent = (existingConfig.agents.list || []).some(
+    (entry) => String(entry?.id || '').trim() === targetAgentId,
+  );
   const existingMcpKeys = new Set(Object.keys(existingConfig.mcpServers));
   const incomingMcpServers = adapter.extractMcpServers(snapshot.config);
-  if (
+  const shouldApplyConfigChanges =
     Object.keys(incomingMcpServers).length > 0 ||
-    Object.keys(snapshot.config).length > 0
-  ) {
+    Object.keys(snapshot.config).length > 0 ||
+    !hasConfiguredTargetAgent;
+  if (shouldApplyConfigChanges) {
     if (execute && backupRoot) {
       backupTarget(runtimeConfigPath(), backupRoot);
     }
     const applyConfigChanges = (draft: RuntimeConfig) => {
+      ensureConfiguredAgent(draft, targetAgentId, overwrite);
       adapter.applyConfig(draft, snapshot, sourceRoot, overwrite, addItem);
       for (const [name, config] of Object.entries(incomingMcpServers)) {
         if (draft.mcpServers[name] && !overwrite) continue;
@@ -1076,6 +2139,7 @@ export async function migrateAgentHome(
       updateRuntimeConfig((draft) => {
         applyConfigChanges(draft);
       });
+      await syncImportedAgentRegistry();
     } else {
       const draft = JSON.parse(
         JSON.stringify(getRuntimeConfig()),
@@ -1113,6 +2177,18 @@ export async function migrateAgentHome(
         ),
       );
     }
+    if (!hasConfiguredTargetAgent) {
+      addItem(
+        makeItem(
+          'config:agent',
+          sourceRoot,
+          runtimeConfigPath(),
+          'migrated',
+          '',
+          { agentId: targetAgentId, ...(execute ? {} : { dryRun: true }) },
+        ),
+      );
+    }
   }
 
   for (const item of copySkillDirs({
@@ -1138,6 +2214,7 @@ export async function migrateAgentHome(
   const result: AgentMigrationResult = {
     sourceKind: options.sourceKind,
     sourceRoot,
+    targetAgentId,
     targetRoot,
     execute,
     overwrite,
