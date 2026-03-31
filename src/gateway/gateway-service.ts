@@ -76,7 +76,6 @@ import {
   reloadRuntimeConfig,
   resolveDefaultAgentId,
   runtimeConfigPath,
-  type SchedulerBoardStatus,
   saveRuntimeConfig,
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
@@ -308,14 +307,6 @@ import {
   interruptGatewaySessionExecution,
   registerActiveGatewayRequest,
 } from './gateway-request-runtime.js';
-import {
-  getGatewayAdminScheduler as getGatewayAdminSchedulerFromService,
-  moveGatewayAdminSchedulerJob as moveGatewayAdminSchedulerJobFromService,
-  removeGatewayAdminSchedulerJob as removeGatewayAdminSchedulerJobFromService,
-  runGatewayScheduledTask as runGatewayScheduledTaskWithRuntime,
-  setGatewayAdminSchedulerJobPaused as setGatewayAdminSchedulerJobPausedFromService,
-  upsertGatewayAdminSchedulerJob as upsertGatewayAdminSchedulerJobFromService,
-} from './gateway-scheduled-task-service.js';
 import { readSessionStatusSnapshot } from './gateway-session-status.js';
 import {
   formatDisplayTimestamp,
@@ -333,7 +324,6 @@ import {
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
   type GatewayAdminOverview,
-  type GatewayAdminSchedulerResponse,
   type GatewayAdminSession,
   type GatewayAdminSkillsResponse,
   type GatewayAdminToolCatalogEntry,
@@ -698,7 +688,9 @@ function resolveChannelType(
   return source && source !== 'unknown' ? source : undefined;
 }
 
-function resolveSessionAutoResetPolicy(channelId: string): SessionResetPolicy {
+export function resolveSessionAutoResetPolicy(
+  channelId: string,
+): SessionResetPolicy {
   return resolveResetPolicy({
     channelKind: resolveSessionResetChannelKind(channelId),
     config: getRuntimeConfig(),
@@ -1384,7 +1376,7 @@ function formatHybridAIAccountChatbotResolutionError(error: unknown): string {
   return `Failed to resolve the HybridAI account chatbot id: ${failure.message}`;
 }
 
-async function resolveGatewayChatbotId(params: {
+export async function resolveGatewayChatbotId(params: {
   model: string;
   chatbotId: string;
   sessionId: string;
@@ -2995,39 +2987,6 @@ export async function saveGatewayAdminModels(input: {
   return getGatewayAdminModels();
 }
 
-export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
-  return getGatewayAdminSchedulerFromService();
-}
-
-export function upsertGatewayAdminSchedulerJob(input: {
-  job: unknown;
-}): GatewayAdminSchedulerResponse {
-  return upsertGatewayAdminSchedulerJobFromService(input);
-}
-
-export function removeGatewayAdminSchedulerJob(
-  jobId: string,
-  source: 'config' | 'task' = 'config',
-): GatewayAdminSchedulerResponse {
-  return removeGatewayAdminSchedulerJobFromService(jobId, source);
-}
-
-export function setGatewayAdminSchedulerJobPaused(params: {
-  jobId: string;
-  paused: boolean;
-  source?: 'config' | 'task';
-}): GatewayAdminSchedulerResponse {
-  return setGatewayAdminSchedulerJobPausedFromService(params);
-}
-
-export function moveGatewayAdminSchedulerJob(params: {
-  jobId: string;
-  beforeJobId?: string | null;
-  boardStatus?: SchedulerBoardStatus | null;
-}): GatewayAdminSchedulerResponse {
-  return moveGatewayAdminSchedulerJobFromService(params);
-}
-
 export function getGatewayAdminMcp(): GatewayAdminMcpResponse {
   const servers = Object.entries(getRuntimeConfig().mcpServers)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -4273,7 +4232,7 @@ function enqueueDelegationFromSideEffect(params: {
   });
 }
 
-async function prepareSessionAutoReset(params: {
+export async function prepareSessionAutoReset(params: {
   sessionId: string;
   channelId: string;
   agentId?: string | null;
@@ -5444,35 +5403,6 @@ export async function handleGatewayMessage(
   } finally {
     activeGatewayRequest.release();
   }
-}
-
-export async function runGatewayScheduledTask(
-  origSessionId: string,
-  channelId: string,
-  prompt: string,
-  taskId: number,
-  onResult: (result: ProactiveMessagePayload) => Promise<void>,
-  onError: (error: unknown) => void,
-  runKey?: string,
-  preferredAgentId?: string,
-): Promise<void> {
-  await runGatewayScheduledTaskWithRuntime(
-    {
-      origSessionId,
-      channelId,
-      prompt,
-      taskId,
-      onResult,
-      onError,
-      runKey,
-      preferredAgentId,
-    },
-    {
-      prepareSessionAutoReset,
-      resolveGatewayChatbotId,
-      resolveSessionAutoResetPolicy,
-    },
-  );
 }
 
 export async function handleGatewayCommand(

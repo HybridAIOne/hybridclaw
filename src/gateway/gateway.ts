@@ -103,12 +103,12 @@ import {
   initGatewayService,
   stopGatewayPlugins,
 } from './gateway-plugin-service.js';
+import { runGatewayScheduledTask } from './gateway-scheduled-task-service.js';
 import {
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
   resumeEnabledFullAutoSessions,
-  runGatewayScheduledTask,
 } from './gateway-service.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {

@@ -904,7 +904,6 @@ async function importFreshHealth(options?: {
     getGatewayAdminMcp,
     getGatewayAdminModels,
     getGatewayAdminOverview,
-    getGatewayAdminScheduler,
     getGatewayAdminSessions,
     getGatewayAdminSkills,
     getGatewayAdminTools,
@@ -916,18 +915,21 @@ async function importFreshHealth(options?: {
     getGatewayStatus,
     handleGatewayCommand,
     handleGatewayMessage,
-    moveGatewayAdminSchedulerJob,
     renderGatewayCommand,
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
-    removeGatewayAdminSchedulerJob,
     saveGatewayAdminConfig,
     saveGatewayAdminModels,
-    setGatewayAdminSchedulerJobPaused,
     setGatewayAdminSkillEnabled,
     updateGatewayAdminAgent,
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
+  }));
+  vi.doMock('../src/gateway/gateway-scheduled-task-service.js', () => ({
+    getGatewayAdminScheduler,
+    moveGatewayAdminSchedulerJob,
+    removeGatewayAdminSchedulerJob,
+    setGatewayAdminSchedulerJobPaused,
     upsertGatewayAdminSchedulerJob,
   }));
   vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
@@ -1023,6 +1025,7 @@ afterEach(() => {
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/memory/db.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
+  vi.doUnmock('../src/gateway/gateway-scheduled-task-service.js');
   vi.doUnmock('../src/channels/imessage/runtime.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');
   vi.doUnmock('../src/channels/message/tool-actions.js');

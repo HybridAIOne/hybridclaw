@@ -78,6 +78,13 @@ import {
   runGatewayPluginTool,
 } from './gateway-plugin-service.js';
 import {
+  getGatewayAdminScheduler,
+  moveGatewayAdminSchedulerJob,
+  removeGatewayAdminSchedulerJob,
+  setGatewayAdminSchedulerJobPaused,
+  upsertGatewayAdminSchedulerJob,
+} from './gateway-scheduled-task-service.js';
+import {
   createGatewayAdminAgent,
   deleteGatewayAdminAgent,
   deleteGatewayAdminSession,
@@ -91,7 +98,6 @@ import {
   getGatewayAdminMcp,
   getGatewayAdminModels,
   getGatewayAdminOverview,
-  getGatewayAdminScheduler,
   getGatewayAdminSessions,
   getGatewayAdminSkills,
   getGatewayAdminTools,
@@ -104,18 +110,14 @@ import {
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
-  moveGatewayAdminSchedulerJob,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
-  removeGatewayAdminSchedulerJob,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
-  setGatewayAdminSchedulerJobPaused,
   setGatewayAdminSkillEnabled,
   updateGatewayAdminAgent,
   upsertGatewayAdminChannel,
   upsertGatewayAdminMcpServer,
-  upsertGatewayAdminSchedulerJob,
 } from './gateway-service.js';
 import type {
   GatewayChatBranchRequestBody,

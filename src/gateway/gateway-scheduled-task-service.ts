@@ -27,62 +27,17 @@ import {
   rearmScheduler,
   resumeConfigJob,
 } from '../scheduler/scheduler.js';
-import type {
-  SessionExpiryEvaluation,
-  SessionResetPolicy,
-} from '../session/session-reset.js';
+import type { SessionResetPolicy } from '../session/session-reset.js';
 import type { ProactiveMessagePayload } from './fullauto.js';
+import {
+  prepareSessionAutoReset,
+  resolveGatewayChatbotId,
+  resolveSessionAutoResetPolicy,
+} from './gateway-service.js';
 import type {
   GatewayAdminSchedulerJob,
   GatewayAdminSchedulerResponse,
 } from './gateway-types.js';
-
-interface PrepareSessionAutoResetParams {
-  sessionId: string;
-  channelId: string;
-  agentId?: string | null;
-  chatbotId?: string | null;
-  model?: string | null;
-  enableRag?: boolean;
-  policy: SessionResetPolicy;
-}
-
-interface ResolveGatewayChatbotIdParams {
-  model: string;
-  chatbotId: string;
-  sessionId: string;
-  channelId: string;
-  agentId: string;
-  trigger: 'scheduler';
-  taskId?: string | number | null;
-}
-
-interface ResolveGatewayChatbotIdResult {
-  chatbotId: string;
-  source: 'configured' | 'hybridai-account' | 'missing';
-  error?: string;
-}
-
-export interface RunGatewayScheduledTaskDependencies {
-  prepareSessionAutoReset: (
-    params: PrepareSessionAutoResetParams,
-  ) => Promise<SessionExpiryEvaluation | undefined>;
-  resolveGatewayChatbotId: (
-    params: ResolveGatewayChatbotIdParams,
-  ) => Promise<ResolveGatewayChatbotIdResult>;
-  resolveSessionAutoResetPolicy: (channelId: string) => SessionResetPolicy;
-}
-
-export interface RunGatewayScheduledTaskParams {
-  origSessionId: string;
-  channelId: string;
-  prompt: string;
-  taskId: number;
-  onResult: (result: ProactiveMessagePayload) => Promise<void>;
-  onError: (error: unknown) => void;
-  runKey?: string;
-  preferredAgentId?: string;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -485,17 +440,23 @@ export function moveGatewayAdminSchedulerJob(params: {
 }
 
 export async function runGatewayScheduledTask(
-  params: RunGatewayScheduledTaskParams,
-  deps: RunGatewayScheduledTaskDependencies,
+  origSessionId: string,
+  channelId: string,
+  prompt: string,
+  taskId: number,
+  onResult: (result: ProactiveMessagePayload) => Promise<void>,
+  onError: (error: unknown) => void,
+  runKey?: string,
+  preferredAgentId?: string,
 ): Promise<void> {
-  let currentSessionId = params.origSessionId;
+  let currentSessionId = origSessionId;
   const sessionResetPolicy = {
-    ...deps.resolveSessionAutoResetPolicy(params.channelId),
+    ...resolveSessionAutoResetPolicy(channelId),
     mode: 'none',
   } satisfies SessionResetPolicy;
-  const expiryEvaluation = await deps.prepareSessionAutoReset({
+  const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: currentSessionId,
-    channelId: params.channelId,
+    channelId,
     policy: sessionResetPolicy,
   });
   const autoResetSession = memoryService.resetSessionIfExpired(
@@ -511,11 +472,11 @@ export async function runGatewayScheduledTask(
   const session = memoryService.getOrCreateSession(
     currentSessionId,
     null,
-    params.channelId,
-    params.preferredAgentId,
+    channelId,
+    preferredAgentId,
   );
-  if (params.preferredAgentId && session.agent_id !== params.preferredAgentId) {
-    updateSessionAgent(session.id, params.preferredAgentId);
+  if (preferredAgentId && session.agent_id !== preferredAgentId) {
+    updateSessionAgent(session.id, preferredAgentId);
   }
   const {
     agentId,
@@ -523,24 +484,24 @@ export async function runGatewayScheduledTask(
     model,
   } = resolveAgentForRequest({
     session,
-    agentId: params.preferredAgentId,
+    agentId: preferredAgentId,
   });
-  const chatbotResolution = await deps.resolveGatewayChatbotId({
+  const chatbotResolution = await resolveGatewayChatbotId({
     model,
     chatbotId: requestedChatbotId,
     sessionId: currentSessionId,
-    channelId: params.channelId,
+    channelId,
     agentId,
     trigger: 'scheduler',
-    taskId: params.taskId,
+    taskId,
   });
   const chatbotId = chatbotResolution.chatbotId;
   if (modelRequiresChatbotId(model) && !chatbotId) {
     logger.warn(
       {
         sessionId: currentSessionId,
-        channelId: params.channelId,
-        taskId: params.taskId,
+        channelId,
+        taskId,
         model,
         sessionModel: session.model ?? null,
         sessionChatbotId: session.chatbot_id ?? null,
@@ -555,16 +516,16 @@ export async function runGatewayScheduledTask(
   }
 
   await runIsolatedScheduledTask({
-    taskId: params.taskId,
-    prompt: params.prompt,
-    channelId: params.channelId,
+    taskId,
+    prompt,
+    channelId,
     chatbotId,
     model,
     agentId,
     sessionId: session.id,
-    sessionKey: params.runKey,
+    sessionKey: runKey,
     mainSessionKey: session.main_session_key,
-    onResult: params.onResult,
-    onError: params.onError,
+    onResult,
+    onError,
   });
 }

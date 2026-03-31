@@ -378,6 +378,8 @@ async function importFreshGatewayMain(options?: {
     handleGatewayMessage: state.handleGatewayMessage,
     renderGatewayCommand: state.renderGatewayCommand,
     resumeEnabledFullAutoSessions: state.resumeEnabledFullAutoSessions,
+  }));
+  vi.doMock('../src/gateway/gateway-scheduled-task-service.js', () => ({
     runGatewayScheduledTask: vi.fn(async () => {}),
   }));
   vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
@@ -450,6 +452,7 @@ afterEach(() => {
   vi.doUnmock('../src/scheduler/heartbeat.js');
   vi.doUnmock('../src/scheduler/scheduler.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
+  vi.doUnmock('../src/gateway/gateway-scheduled-task-service.js');
   vi.doUnmock('../src/gateway/gateway-http-server.js');
   vi.doUnmock('../src/gateway/proactive-delivery.js');
   vi.doUnmock('../src/gateway/managed-media-cleanup.js');

@@ -46,7 +46,7 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
     removeGatewayAdminSchedulerJob,
     setGatewayAdminSchedulerJobPaused,
     upsertGatewayAdminSchedulerJob,
-  } = await import('../src/gateway/gateway-service.ts');
+  } = await import('../src/gateway/gateway-scheduled-task-service.ts');
 
   initDatabase({ quiet: true });
 
