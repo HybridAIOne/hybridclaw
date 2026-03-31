@@ -981,7 +981,6 @@
   <div class="section-center">
     <div class="section-label">What it does</div>
     <h2 class="section-title">High-impact work, handled end-to-end</h2>
-    <p class="section-desc">Core actions are grouped into six outcomes so teams can scan value quickly without feature overload.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
@@ -1159,7 +1158,6 @@
   <div class="section-center">
     <div class="section-label">Learning &amp; Memory</div>
     <h2 class="section-title">Learning &amp; Memory</h2>
-    <p class="section-desc">This keeps the existing comparison framing, adds the corresponding HybridClaw implementation for each area, and includes extra rows where HybridClaw clearly ships additional memory or learning features.</p>
   </div>
   <div class="comparison hybridclaw-last">
     <table>
@@ -1385,7 +1383,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Configuration</h3>
-      <p>Typed <code>config.json</code> with defaults, validation, and hot reload. Includes container isolation controls (<code>container.sandboxMode</code>, <code>container.memorySwap</code>, <code>container.network</code>), session routing controls (<code>sessionRouting.dmScope</code>, <code>sessionRouting.identityLinks</code>), skill-availability controls (<code>skills.disabled</code>, <code>skills.channelDisabled.*</code>), plugin override controls (<code>plugins.list[]</code>), adaptive-skill controls (<code>adaptiveSkills.*</code>), compaction controls (<code>sessionCompaction.tokenBudget</code>, <code>sessionCompaction.budgetRatio</code>), runtime-home relocation via <code>HYBRIDCLAW_DATA_DIR</code>, headless trust bootstrap via <code>HYBRIDCLAW_ACCEPT_TRUST=true</code>, and built-in web auth via <code>ops.webApiToken</code>. Secrets live in <code>~/.hybridclaw/credentials.json</code>.</p>
+      <p>Typed <code>config.json</code> with defaults, validation, hot reload, and isolation controls. Secrets live in <code>~/.hybridclaw/credentials.json</code>.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
@@ -1460,8 +1458,8 @@
       <p>Embedded browser-based admin at <code>/admin</code> with Dashboard, Terminal, Gateway, Sessions, Jobs, Bindings, Models, Scheduler, MCP, Audit, Skills, Plugins, Tools, and Config pages. Use <code>/admin/terminal</code> for a live PTY session, pair <code>/chat</code> with web conversations, and keep <code>/agents</code> open for workspace dashboards. When <code>WEB_API_TOKEN</code> is set, the auth callback can store it in browser storage and redirect to a safe relative destination without leaving the token in the URL.</p>
     </div>
     <div class="feature-card">
-      <h3 style="color: var(--accent-1);">Command Surface</h3>
-      <p>Operator-friendly command set across CLI, TUI, Discord, and gateway surfaces, including <code>hybridclaw doctor</code>, <code>hybridclaw config|check|reload|set</code>, <code>hybridclaw browser login|status|reset</code>, <code>hybridclaw channels imessage setup</code>, <code>hybridclaw agent export|inspect|install</code>, <code>hybridclaw skill import</code>, <code>hybridclaw skill learn</code>, <code>hybridclaw plugin list|config|enable|disable|install|reinstall|uninstall</code>, <code>/plugin reload</code>, <code>/paste</code>, a richer TUI startup banner, slash-command discovery/history recall, <code>/skill config</code>, usage aggregation queries, and JSONL export workflows for session debugging.</p>
+      <h3 style="color: var(--accent-1);">Commands</h3>
+      <p>Commands across CLI, TUI, Discord, and gateway surfaces for config, auth, plugins, skills, diagnostics, and debugging.</p>
     </div>
   </div>
 </section>
