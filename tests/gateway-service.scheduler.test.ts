@@ -43,10 +43,12 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
   const { initDatabase, createTask } = await import('../src/memory/db.ts');
   const {
     getGatewayAdminScheduler,
+    moveGatewayAdminSchedulerJob,
     removeGatewayAdminSchedulerJob,
     setGatewayAdminSchedulerJobPaused,
     upsertGatewayAdminSchedulerJob,
   } = await import('../src/gateway/gateway-scheduled-task-service.ts');
+  const { updateRuntimeConfig } = await import('../src/config/runtime-config.ts');
 
   initDatabase({ quiet: true });
 
@@ -139,4 +141,50 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
   ).toThrow(
     'Scheduler board status must be `backlog`, `in_progress`, `review`, `done`, or `cancelled`.',
   );
+
+  updateRuntimeConfig((draft) => {
+    draft.scheduler.jobs.push({
+      id: 'board-status-job',
+      schedule: {
+        kind: 'every',
+        everyMs: 60_000,
+        at: null,
+        expr: null,
+        tz: 'UTC',
+      },
+      action: {
+        kind: 'agent_turn',
+        message: 'Ping',
+      },
+      delivery: {
+        kind: 'channel',
+        channel: '1475079601968648386',
+        to: '1475079601968648386',
+        webhookUrl: '',
+      },
+      enabled: true,
+      boardStatus: 'review',
+    });
+  });
+
+  moveGatewayAdminSchedulerJob({
+    jobId: 'board-status-job',
+    beforeJobId: null,
+  });
+  expect(
+    getGatewayAdminScheduler().jobs.find((job) => job.id === 'board-status-job'),
+  ).toMatchObject({
+    boardStatus: 'review',
+  });
+
+  moveGatewayAdminSchedulerJob({
+    jobId: 'board-status-job',
+    beforeJobId: null,
+    boardStatus: null,
+  });
+  expect(
+    getGatewayAdminScheduler().jobs.find((job) => job.id === 'board-status-job'),
+  ).toMatchObject({
+    boardStatus: null,
+  });
 });

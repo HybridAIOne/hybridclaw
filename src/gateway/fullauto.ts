@@ -42,8 +42,6 @@ import {
   buildFullAutoContinuationRequest,
   clearFullAutoRuntimeState,
   clearFullAutoWatchdog,
-  clearScheduledFullAutoContinuation,
-  type FullAutoRequestContext,
   type FullAutoRuntimeState,
   getFullAutoRuntimeState,
   getOrCreateFullAutoRuntimeState,
@@ -53,6 +51,7 @@ import {
   markFullAutoProgress,
   type ProactiveMessagePayload,
   resolveSessionRalphIterations,
+  scheduleFullAutoContinuation,
   setFullAutoRunHandler,
   syncFullAutoRuntimeContext,
 } from './fullauto-runtime.js';
@@ -950,58 +949,6 @@ export function enableFullAutoSession(params: {
     delayMs: FULLAUTO_COOLDOWN_MS,
   });
   return { session: refreshed, seeded };
-}
-
-export function maybeScheduleFullAutoAfterSuccess(params: {
-  session: Session;
-  req: FullAutoRequestContext;
-  result: GatewayChatResult;
-}): void {
-  const session =
-    memoryService.getSessionById(params.session.id) ?? params.session;
-  if (!isFullAutoEnabled(session)) return;
-  if (hasPendingApproval(params.result)) return;
-  if (params.req.source === 'fullauto') {
-    return;
-  }
-  scheduleFullAutoContinuation({
-    session,
-    req: {
-      guildId: params.req.guildId,
-      userId: params.req.userId,
-      username: params.req.username ?? null,
-      chatbotId: params.req.chatbotId ?? session.chatbot_id,
-      model: params.req.model ?? session.model,
-      enableRag: params.req.enableRag ?? session.enable_rag === 1,
-      onProactiveMessage: params.req.onProactiveMessage,
-    },
-  });
-}
-
-function scheduleFullAutoContinuation(params: {
-  session: Session;
-  req: FullAutoRequestContext;
-  delayMs?: number;
-}): void {
-  if (!isFullAutoEnabled(params.session)) return;
-  const state = syncFullAutoRuntimeContext(params.session.id, {
-    guildId: params.req.guildId,
-    userId: params.req.userId,
-    username: params.req.username ?? null,
-    chatbotId: params.req.chatbotId ?? params.session.chatbot_id,
-    model: params.req.model ?? params.session.model,
-    enableRag: params.req.enableRag ?? params.session.enable_rag === 1,
-    onProactiveMessage: params.req.onProactiveMessage,
-  });
-  clearScheduledFullAutoContinuation(params.session.id);
-  const delayMs = Math.max(
-    0,
-    Math.floor(params.delayMs ?? FULLAUTO_COOLDOWN_MS),
-  );
-  state.timer = setTimeout(() => {
-    state.timer = null;
-    void runFullAutoTurn(params.session.id);
-  }, delayMs);
 }
 
 export function resumeEnabledFullAutoSessions(): number {

@@ -1885,9 +1885,13 @@ async function handleApiAdminScheduler(
       .trim()
       .toLowerCase();
     if (action === 'move') {
-      let boardStatus = null;
+      let boardStatus: Parameters<
+        typeof moveGatewayAdminSchedulerJob
+      >[0]['boardStatus'];
       try {
-        boardStatus = parseSchedulerBoardStatus(body.boardStatus) ?? null;
+        if ('boardStatus' in body) {
+          boardStatus = parseSchedulerBoardStatus(body.boardStatus) ?? null;
+        }
       } catch (error) {
         sendJson(res, 400, {
           error: error instanceof Error ? error.message : String(error),
@@ -1900,7 +1904,7 @@ async function handleApiAdminScheduler(
         moveGatewayAdminSchedulerJob({
           jobId,
           beforeJobId: String(body.beforeJobId || '').trim() || null,
-          boardStatus,
+          ...('boardStatus' in body ? { boardStatus } : {}),
         }),
       );
       return;

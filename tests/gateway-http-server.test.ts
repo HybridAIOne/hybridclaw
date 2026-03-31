@@ -2534,6 +2534,48 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('passes scheduler move boardStatus only when explicitly provided', async () => {
+    const state = await importFreshHealth();
+
+    const withoutBoardStatusReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/scheduler',
+      body: {
+        action: 'move',
+        jobId: 'job-1',
+      },
+    });
+    const withoutBoardStatusRes = makeResponse();
+
+    state.handler(withoutBoardStatusReq as never, withoutBoardStatusRes as never);
+    await settle();
+
+    expect(state.moveGatewayAdminSchedulerJob.mock.calls[0]?.[0]).toEqual({
+      jobId: 'job-1',
+      beforeJobId: null,
+    });
+
+    const clearBoardStatusReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/scheduler',
+      body: {
+        action: 'move',
+        jobId: 'job-1',
+        boardStatus: null,
+      },
+    });
+    const clearBoardStatusRes = makeResponse();
+
+    state.handler(clearBoardStatusReq as never, clearBoardStatusRes as never);
+    await settle();
+
+    expect(state.moveGatewayAdminSchedulerJob.mock.calls[1]?.[0]).toEqual({
+      jobId: 'job-1',
+      beforeJobId: null,
+      boardStatus: null,
+    });
+  });
+
   test('returns filtered admin audit entries for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({

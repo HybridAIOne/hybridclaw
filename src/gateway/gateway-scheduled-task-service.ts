@@ -420,8 +420,12 @@ export function moveGatewayAdminSchedulerJob(params: {
     );
     if (fromIndex < 0) return;
     const [job] = draft.scheduler.jobs.splice(fromIndex, 1);
-    if (params.boardStatus) {
-      job.boardStatus = params.boardStatus;
+    if ('boardStatus' in params) {
+      if (params.boardStatus === null) {
+        delete job.boardStatus;
+      } else {
+        job.boardStatus = params.boardStatus;
+      }
     }
     let insertIndex = draft.scheduler.jobs.length;
     if (normalizedBeforeJobId && normalizedBeforeJobId !== normalizedJobId) {
