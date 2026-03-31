@@ -133,9 +133,7 @@ function writeInboundWebhookPlugin(rootDir: string): void {
   fs.mkdirSync(pluginDir, { recursive: true });
   fs.writeFileSync(
     path.join(pluginDir, 'hybridclaw.plugin.yaml'),
-    ['id: webhook-plugin', 'name: Webhook Plugin', 'kind: tool', ''].join(
-      '\n',
-    ),
+    ['id: webhook-plugin', 'name: Webhook Plugin', 'kind: tool', ''].join('\n'),
     'utf-8',
   );
   fs.writeFileSync(
@@ -147,9 +145,9 @@ function writeInboundWebhookPlugin(rootDir: string): void {
       '    api.registerInboundWebhook({',
       "      name: 'email-inbound',",
       '      async handler(context) {',
-      "        context.res.statusCode = 202;",
+      '        context.res.statusCode = 202;',
       "        context.res.setHeader('content-type', 'application/json; charset=utf-8');",
-      "        context.res.end(JSON.stringify({ ok: true, path: context.path, method: context.method }));",
+      '        context.res.end(JSON.stringify({ ok: true, path: context.path, method: context.method }));',
       '      },',
       '    });',
       '  },',
@@ -166,9 +164,7 @@ function makeWebhookRequest(params: {
   body?: string;
 }): IncomingMessage {
   const chunks =
-    typeof params.body === 'string'
-      ? [Buffer.from(params.body, 'utf8')]
-      : [];
+    typeof params.body === 'string' ? [Buffer.from(params.body, 'utf8')] : [];
   return Object.assign(Readable.from(chunks), {
     method: params.method || 'POST',
     url: params.url,
@@ -1430,7 +1426,9 @@ test('plugin manager resolves fixed plugin inbound webhook routes and enforces H
     manager.handleInboundWebhook({
       method: 'POST',
       pathname: '/api/plugin-webhooks/webhook-plugin/missing',
-      url: new URL('http://localhost/api/plugin-webhooks/webhook-plugin/missing'),
+      url: new URL(
+        'http://localhost/api/plugin-webhooks/webhook-plugin/missing',
+      ),
       req: makeWebhookRequest({
         method: 'POST',
         url: '/api/plugin-webhooks/webhook-plugin/missing',
