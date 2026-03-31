@@ -35,6 +35,7 @@ import {
   getRuntimeConfigRevision as getTrackedRuntimeConfigRevision,
   listRuntimeConfigRevisions as listTrackedRuntimeConfigRevisions,
   type RuntimeConfigChangeMeta,
+  type RuntimeConfigObservedFile,
   type RuntimeConfigRevision,
   type RuntimeConfigRevisionSummary,
   runtimeConfigRevisionStorePath,
@@ -3911,11 +3912,29 @@ function normalizeRuntimeConfig(
   };
 }
 
-function loadConfigPatchFromDisk(): DeepPartial<RuntimeConfig> {
-  if (!fs.existsSync(CONFIG_PATH)) return {};
+function loadConfigPatchFromDisk(): {
+  observedFile: RuntimeConfigObservedFile;
+  patch: DeepPartial<RuntimeConfig>;
+} {
+  if (!fs.existsSync(CONFIG_PATH)) {
+    return {
+      observedFile: {
+        exists: false,
+        content: null,
+      },
+      patch: {},
+    };
+  }
+
   const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
   const parsed = JSON.parse(raw) as unknown;
-  return parseConfigPatch(parsed);
+  return {
+    observedFile: {
+      exists: true,
+      content: raw,
+    },
+    patch: parseConfigPatch(parsed),
+  };
 }
 
 function buildSerializableConfig(
@@ -3971,7 +3990,10 @@ function writeConfigFile(
   const tmpPath = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
   fs.writeFileSync(tmpPath, nextText, 'utf-8');
   fs.renameSync(tmpPath, CONFIG_PATH);
-  syncRuntimeConfigRevisionState(CONFIG_PATH, meta);
+  syncRuntimeConfigRevisionState(CONFIG_PATH, meta, {
+    exists: true,
+    content: nextText,
+  });
   return true;
 }
 
@@ -3994,8 +4016,8 @@ function applyConfig(next: RuntimeConfig): void {
 function loadRuntimeConfigFromSources(
   syncMeta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
-  syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta);
-  const diskPatch = loadConfigPatchFromDisk();
+  const { observedFile, patch: diskPatch } = loadConfigPatchFromDisk();
+  syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta, observedFile);
   const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
   currentConfigMetadata = {
     containerSandboxModeExplicit: hasOwn(rawContainer, 'sandboxMode'),

@@ -133,6 +133,20 @@ describe('runtime config revisions integration', () => {
     });
   });
 
+  it('reloads config.json with a single file read while syncing revisions', () => {
+    configMod.ensureRuntimeConfigFile();
+
+    const readFileSpy = vi.spyOn(fs, 'readFileSync');
+    readFileSpy.mockClear();
+
+    configMod.reloadRuntimeConfig('single-read-test');
+
+    const configReads = readFileSpy.mock.calls.filter(
+      ([filePath]) => String(filePath) === configPath,
+    );
+    expect(configReads).toHaveLength(1);
+  });
+
   it('restores and clears config revisions', () => {
     configMod.ensureRuntimeConfigFile();
 

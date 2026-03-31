@@ -35,6 +35,12 @@ export interface RuntimeConfigRevision extends RuntimeConfigRevisionSummary {
   content: string;
 }
 
+export interface RuntimeConfigObservedFile {
+  exists: boolean;
+  content: string | null;
+  md5?: string | null;
+}
+
 interface ConfigRevisionRow {
   id: number;
   actor: string;
@@ -217,6 +223,7 @@ export function runtimeConfigRevisionStorePath(): string {
 export function syncRuntimeConfigRevisionState(
   configPath: string,
   meta?: RuntimeConfigChangeMeta,
+  observedFile?: RuntimeConfigObservedFile,
 ): { changed: boolean; previousMd5: string | null; currentMd5: string | null } {
   const normalizedMeta = normalizeChangeMeta(meta);
   const timestamp = new Date().toISOString();
@@ -230,7 +237,8 @@ export function syncRuntimeConfigRevisionState(
       )
       .get(configPath);
 
-    if (!fs.existsSync(configPath)) {
+    const fileExists = observedFile?.exists ?? fs.existsSync(configPath);
+    if (!fileExists) {
       if (!state) {
         return {
           changed: false,
@@ -266,8 +274,9 @@ export function syncRuntimeConfigRevisionState(
       };
     }
 
-    const content = fs.readFileSync(configPath, 'utf-8');
-    const md5 = computeMd5(content);
+    const content =
+      observedFile?.content ?? fs.readFileSync(configPath, 'utf-8');
+    const md5 = observedFile?.md5 ?? computeMd5(content);
     if (!state) {
       database
         .prepare(
