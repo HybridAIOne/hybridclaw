@@ -834,7 +834,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     defaultChatbotId: '',
     maxTokens: 4_096,
     enableRag: true,
-    models: ['gpt-4.1-mini', 'gpt-5-nano', 'gpt-5'],
+    models: ['gpt-4.1-mini', 'gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
   },
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
