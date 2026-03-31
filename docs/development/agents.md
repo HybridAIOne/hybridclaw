@@ -1,10 +1,10 @@
 ---
-title: Agent Docs Index
+title: For Agents
 description: Raw-markdown entrypoint for agents that links every HybridClaw docs page directly as markdown.
-sidebar_position: 2
+sidebar_position: 100
 ---
 
-# Agent Docs Index
+# For Agents
 
 This page is the raw-markdown start page for agents and other retrieval flows.
 Every link below points directly to a `.md` page.
@@ -16,9 +16,9 @@ Main docs landing pages:
 - [HybridClaw Docs](./README.md)
 - [Getting Started](./getting-started/README.md)
 - [Guides](./guides/README.md)
-- [Reference](./reference/README.md)
 - [Extensibility](./extensibility/README.md)
 - [Internals](./internals/README.md)
+- [Reference](./reference/README.md)
 
 ## Getting Started
 
@@ -37,15 +37,6 @@ Main docs landing pages:
 - [TUI MCP](./guides/tui-mcp.md)
 - [Voice / TTS](./guides/voice-tts.md)
 
-## Reference
-
-- [Reference](./reference/README.md)
-- [Commands](./reference/commands.md)
-- [Configuration](./reference/configuration.md)
-- [Diagnostics](./reference/diagnostics.md)
-- [FAQ](./reference/faq.md)
-- [Model Selection](./reference/model-selection.md)
-
 ## Extensibility
 
 - [Extensibility](./extensibility/README.md)
@@ -60,7 +51,14 @@ Main docs landing pages:
 
 - [Internals](./internals/README.md)
 - [Architecture](./internals/architecture.md)
-- [Releasing](./internals/releasing.md)
 - [Runtime](./internals/runtime.md)
 - [Session Routing](./internals/session-routing.md)
-- [Testing](./internals/testing.md)
+
+## Reference
+
+- [Reference](./reference/README.md)
+- [Commands](./reference/commands.md)
+- [Configuration](./reference/configuration.md)
+- [Diagnostics](./reference/diagnostics.md)
+- [FAQ](./reference/faq.md)
+- [Model Selection](./reference/model-selection.md)

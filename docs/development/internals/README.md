@@ -15,7 +15,3 @@ These pages focus on how HybridClaw is built and operated under the hood.
   operational behavior
 - [Session Routing](./session-routing.md) for canonical session keys and
   linked-identity boundaries
-- [Testing Reference](./testing.md) for validation expectations and suite
-  boundaries
-- [Release and Publishing](./releasing.md) for versioning and container
-  publishing flow

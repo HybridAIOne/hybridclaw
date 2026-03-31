@@ -1,7 +1,7 @@
 ---
 title: Reference
 description: Core command, model, configuration, diagnostics, and FAQ reference for daily HybridClaw operation.
-sidebar_position: 1
+sidebar_position: 99
 ---
 
 # Reference

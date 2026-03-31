@@ -665,7 +665,7 @@ function renderSidebarNode(
     .join('');
 
   if (!node.pathKey) {
-    return `<div class="docs-sidebar-root"><div class="docs-sidebar-section-title">${escapeHtml(node.label)}</div><div class="docs-sidebar-section-items">${childrenMarkup}</div></div>`;
+    return childrenMarkup;
   }
 
   return `<details class="docs-sidebar-group" ${
@@ -1219,7 +1219,11 @@ function renderPage(
       width: 30px;
       height: 30px;
       display: block;
-      border-radius: 8px;
+      object-fit: contain;
+    }
+
+    :root[data-theme="dark"] .docs-brand img {
+      filter: brightness(0) saturate(100%) invert(93%);
     }
 
     .docs-brand-accent {
@@ -1520,6 +1524,7 @@ function renderPage(
       justify-content: flex-end;
       gap: 10px;
       flex: 0 0 auto;
+      margin-top: -6px;
     }
 
     .docs-page-action,
@@ -1793,6 +1798,7 @@ function renderPage(
       }
 
       .docs-page-actions {
+        margin-top: 0;
         justify-content: flex-start;
         flex-wrap: wrap;
       }
@@ -1837,7 +1843,7 @@ function renderPage(
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14v1.5H3V5Zm0 4.25h14v1.5H3v-1.5Zm0 4.25h14V15H3v-1.5Z" fill="currentColor"></path></svg>
     </button>
     <a class="docs-brand" href="${DOCS_ROUTE}">
-      <img src="/static/favicon.svg" alt="HybridClaw">
+      <img src="/static/hybridclaw-logo.svg" alt="HybridClaw">
       <span>HybridClaw</span>
       <span class="docs-brand-accent">Docs</span>
     </a>
