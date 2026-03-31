@@ -142,11 +142,17 @@ export interface UnpackAgentOptions {
   yes?: boolean;
   skipSkillScan?: boolean;
   skipExternals?: boolean;
+  skipImportErrors?: boolean;
   cwd?: string;
   homeDir?: string;
   tempRoot?: string;
   runCommand?: PluginInstallCommandRunner;
   confirm?: (inspection: ClawArchiveInspection) => Promise<boolean> | boolean;
+}
+
+export interface FailedImportedSkillInstall {
+  source: string;
+  error: string;
 }
 
 export interface UnpackAgentResult {
@@ -156,6 +162,7 @@ export interface UnpackAgentResult {
   workspacePath: string;
   bundledSkills: string[];
   importedSkills: SkillImportResult[];
+  failedImportedSkills?: FailedImportedSkillInstall[];
   installedPlugins: InstallPluginResult[];
   externalActions: string[];
   runtimeConfigChanged: boolean;
@@ -1087,6 +1094,7 @@ export async function unpackAgent(
   const previousRuntimeConfig = structuredClone(getRuntimeConfig());
   const previousAgentConfig = existing ? structuredClone(existing) : null;
   const importedSkills: SkillImportResult[] = [];
+  const failedImportedSkills: FailedImportedSkillInstall[] = [];
   const installedPlugins: InstallPluginResult[] = [];
   let runtimeConfigChanged = false;
   const rollbackPluginInstalls: PluginInstallRollbackState[] = [];
@@ -1146,12 +1154,22 @@ export async function unpackAgent(
     if (importedSkillSources.length > 0 && options.skipExternals !== true) {
       const workspaceSkillsDir = path.join(stagedWorkspacePath, 'skills');
       for (const entry of importedSkillSources) {
-        const importResult = await importSkill(entry.source, {
-          installRootDir: workspaceSkillsDir,
-          replaceExisting: options.force === true,
-          skipGuard: options.skipSkillScan,
-        });
-        importedSkills.push(importResult);
+        try {
+          const importResult = await importSkill(entry.source, {
+            installRootDir: workspaceSkillsDir,
+            replaceExisting: options.force === true,
+            skipGuard: options.skipSkillScan,
+          });
+          importedSkills.push(importResult);
+        } catch (error) {
+          if (options.skipImportErrors !== true) {
+            throw error;
+          }
+          failedImportedSkills.push({
+            source: entry.source,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     }
 
@@ -1293,6 +1311,7 @@ export async function unpackAgent(
       workspacePath,
       bundledSkills,
       importedSkills,
+      ...(failedImportedSkills.length > 0 ? { failedImportedSkills } : {}),
       installedPlugins,
       externalActions: options.skipExternals
         ? []

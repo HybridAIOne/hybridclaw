@@ -61,13 +61,16 @@
 
     .sidebar-top {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: space-between;
       padding: 2px 0 6px;
       gap: 8px;
     }
 
     .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
       padding: 0;
       border: none;
       border-radius: 0;
@@ -79,6 +82,15 @@
       max-width: 100%;
       display: block;
       height: auto;
+    }
+
+    .brand-name {
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      color: #374151;
+      white-space: nowrap;
     }
 
     .sidebar-toggle {
@@ -263,6 +275,14 @@
 
     .layout.is-sidebar-collapsed .brand-logo {
       width: 44px;
+    }
+
+    .layout.is-sidebar-collapsed .brand {
+      justify-content: center;
+    }
+
+    .layout.is-sidebar-collapsed .brand-name {
+      display: none;
     }
 
     .chat {
@@ -958,9 +978,10 @@
         <div class="brand">
           <img
             class="brand-logo"
-            src="https://hybridai.one/static/hai_logo_free.png"
-            alt="HybridAI"
+            src="/static/hybridclaw-logo.svg"
+            alt="HybridClaw"
           >
+          <span class="brand-name">HybridClaw</span>
         </div>
         <button
           id="sidebarToggle"
@@ -1391,7 +1412,8 @@
       return initials.toUpperCase() || 'AI';
     }
 
-    function createAssistantAvatarFallback(label) {
+    function createAssistantAvatarFallback(presentation) {
+      const label = presentation?.displayName || '';
       const fallback = document.createElement('span');
       fallback.className = 'msg-agent-avatar msg-agent-fallback';
       fallback.textContent = buildAssistantInitials(label);
@@ -1426,7 +1448,7 @@
       const header = document.createElement('div');
       header.className = 'msg-agent';
 
-      const fallback = createAssistantAvatarFallback(normalized.displayName);
+      const fallback = createAssistantAvatarFallback(normalized);
       header.appendChild(fallback);
 
       if (normalized.imageUrl) {

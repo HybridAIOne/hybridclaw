@@ -24,6 +24,7 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/approve yes [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
   expect(labels).toContain('/bot list');
+  expect(labels).toContain('/agent install <source>');
   expect(labels).toContain('/plugin install <path|npm-spec>');
   expect(labels).toContain('/plugin reinstall <path|npm-spec>');
   expect(labels).toContain('/skill');
@@ -36,6 +37,14 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/skill sync <source>');
   expect(labels).toContain('/skill import <source>');
   expect(labels).toContain('/skill import --force <source>');
+});
+
+test('does not duplicate concierge slash menu entries', () => {
+  const labels = buildTuiSlashMenuEntries().map((entry) => entry.label);
+
+  expect(labels.filter((label) => label === '/concierge info')).toHaveLength(1);
+  expect(labels.filter((label) => label === '/concierge on')).toHaveLength(1);
+  expect(labels.filter((label) => label === '/concierge off')).toHaveLength(1);
 });
 
 test('keeps /skill import visible in the base skill query results', () => {

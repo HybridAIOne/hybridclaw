@@ -331,6 +331,17 @@
       "models": []
     }
   },
+  "routing": {
+    "concierge": {
+      "enabled": false,
+      "model": "gemini-3-flash",
+      "profiles": {
+        "asap": "gpt-5",
+        "balanced": "gpt-5-mini",
+        "noHurry": "gpt-5-nano"
+      }
+    }
+  },
   "heartbeat": {
     "enabled": true,
     "intervalMs": 1800000,

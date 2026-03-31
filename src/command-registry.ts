@@ -61,6 +61,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'auth',
   'bot',
   'config',
+  'concierge',
   'rag',
   'model',
   'status',
@@ -132,6 +133,12 @@ const MODEL_PROVIDER_CHOICES = [
   { name: 'ollama', value: 'ollama' },
   { name: 'lmstudio', value: 'lmstudio' },
   { name: 'vllm', value: 'vllm' },
+] satisfies Array<{ name: string; value: string }>;
+
+const CONCIERGE_PROFILE_CHOICES = [
+  { name: 'asap', value: 'asap' },
+  { name: 'balanced', value: 'balanced' },
+  { name: 'no_hurry', value: 'no_hurry' },
 ] satisfies Array<{ name: string; value: string }>;
 
 function tokenizeFreeformText(value: string): string[] {
@@ -212,6 +219,31 @@ export function mapCanonicalCommandToGatewayArgs(
       if (sub === 'set') return ['model', 'set', ...parts.slice(2)];
       if (parts.length > 1) return ['model', 'set', ...parts.slice(1)];
       return null;
+    }
+
+    case 'concierge': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (
+        !sub ||
+        sub === 'info' ||
+        sub === 'on' ||
+        sub === 'off' ||
+        sub === 'enable' ||
+        sub === 'disable'
+      ) {
+        return sub ? ['concierge', sub] : ['concierge', 'info'];
+      }
+      if (sub === 'model') {
+        return parts.length > 2
+          ? ['concierge', 'model', ...parts.slice(2)]
+          : ['concierge', 'model'];
+      }
+      if (sub === 'profile') {
+        return parts.length > 2
+          ? ['concierge', 'profile', ...parts.slice(2)]
+          : ['concierge', 'profile'];
+      }
+      return ['concierge', ...parts.slice(1)];
     }
 
     case 'agent': {
@@ -592,8 +624,68 @@ function buildSlashCommandCatalogDefinitions(
       ],
     },
     {
+      name: 'concierge',
+      description: 'Inspect or configure concierge routing defaults',
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'info',
+          description:
+            'Show concierge enablement, decision model, and profile mappings',
+        },
+        {
+          kind: 'subcommand',
+          name: 'on',
+          description: 'Enable concierge routing globally',
+        },
+        {
+          kind: 'subcommand',
+          name: 'off',
+          description: 'Disable concierge routing globally',
+        },
+        {
+          kind: 'subcommand',
+          name: 'model',
+          description: 'Show or set the concierge decision model',
+          tuiMenu: {
+            insertText: '/concierge model ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Concierge decision model name',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'profile',
+          description: 'Show or set a concierge execution profile model',
+          tuiMenu: {
+            insertText: '/concierge profile ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'profile',
+              description: 'Profile to inspect or change',
+              required: true,
+              choices: CONCIERGE_PROFILE_CHOICES,
+            },
+            {
+              kind: 'string',
+              name: 'model',
+              description: 'Execution model mapped to that profile',
+            },
+          ],
+        },
+      ],
+    },
+    {
       name: 'agent',
-      description: 'Inspect, list, switch, create, or configure agents',
+      description:
+        'Inspect, list, switch, create, install, or configure agents',
       options: [
         {
           kind: 'subcommand',
@@ -634,6 +726,74 @@ function buildSlashCommandCatalogDefinitions(
               name: 'model',
               description: 'Optional model name',
               choices: modelChoices.length > 0 ? modelChoices : undefined,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'install',
+          description: 'Install a packaged agent from a path or URL',
+          tuiMenu: {
+            label: '/agent install <source>',
+            insertText: '/agent install ',
+            aliases: [
+              '/agent install <source> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]',
+            ],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description:
+                'Archive path, direct .claw URL, official:<agent-dir>, or github:owner/repo/<agent-dir>',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Optional installed agent id',
+            },
+            {
+              kind: 'string',
+              name: 'force',
+              description: 'Optional --force override to replace an agent',
+              choices: [{ name: '--force', value: '--force' }],
+            },
+            {
+              kind: 'string',
+              name: 'skip-skill-scan',
+              description:
+                'Optional --skip-skill-scan override to bypass the scanner',
+              choices: [
+                { name: '--skip-skill-scan', value: '--skip-skill-scan' },
+              ],
+            },
+            {
+              kind: 'string',
+              name: 'skip-externals',
+              description:
+                'Optional --skip-externals override to skip imported skills',
+              choices: [
+                { name: '--skip-externals', value: '--skip-externals' },
+              ],
+            },
+            {
+              kind: 'string',
+              name: 'skip-import-errors',
+              description:
+                'Optional --skip-import-errors override to continue after imported skill failures',
+              choices: [
+                {
+                  name: '--skip-import-errors',
+                  value: '--skip-import-errors',
+                },
+              ],
+            },
+            {
+              kind: 'string',
+              name: 'yes',
+              description: 'Optional --yes override for non-interactive parity',
+              choices: [{ name: '--yes', value: '--yes' }],
             },
           ],
         },
@@ -1581,6 +1741,34 @@ export function parseCanonicalSlashCommandArgs(
       return null;
     }
 
+    case 'concierge': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (!subcommand || subcommand === 'info') return ['concierge', 'info'];
+      if (
+        subcommand === 'on' ||
+        subcommand === 'off' ||
+        subcommand === 'enable' ||
+        subcommand === 'disable'
+      ) {
+        return ['concierge', subcommand];
+      }
+      if (subcommand === 'model') {
+        const selectedModel = normalizeStringOption(interaction, 'name');
+        return selectedModel
+          ? ['concierge', 'model', selectedModel]
+          : ['concierge', 'model'];
+      }
+      if (subcommand === 'profile') {
+        const profile = normalizeStringOption(interaction, 'profile', true);
+        if (!profile) return null;
+        const selectedModel = normalizeStringOption(interaction, 'model');
+        return selectedModel
+          ? ['concierge', 'profile', profile, selectedModel]
+          : ['concierge', 'profile', profile];
+      }
+      return null;
+    }
+
     case 'agent': {
       const subcommand = normalizeSubcommand(interaction);
       if (!subcommand || subcommand === 'info') return ['agent'];
@@ -1600,6 +1788,45 @@ export function parseCanonicalSlashCommandArgs(
         return model
           ? ['agent', 'create', agentId, '--model', model]
           : ['agent', 'create', agentId];
+      }
+      if (subcommand === 'install') {
+        const source = normalizeStringOption(interaction, 'source', true);
+        if (!source) return null;
+        const agentId = normalizeStringOption(interaction, 'id');
+        const force = normalizeStringOption(interaction, 'force');
+        const skipSkillScan = normalizeStringOption(
+          interaction,
+          'skip-skill-scan',
+        );
+        const skipExternals = normalizeStringOption(
+          interaction,
+          'skip-externals',
+        );
+        const skipImportErrors = normalizeStringOption(
+          interaction,
+          'skip-import-errors',
+        );
+        const yes = normalizeStringOption(interaction, 'yes');
+        if (
+          (force && force !== '--force') ||
+          (skipSkillScan && skipSkillScan !== '--skip-skill-scan') ||
+          (skipExternals && skipExternals !== '--skip-externals') ||
+          (skipImportErrors && skipImportErrors !== '--skip-import-errors') ||
+          (yes && yes !== '--yes')
+        ) {
+          return null;
+        }
+        return [
+          'agent',
+          'install',
+          source,
+          ...(agentId ? ['--id', agentId] : []),
+          ...(force ? ['--force'] : []),
+          ...(skipSkillScan ? ['--skip-skill-scan'] : []),
+          ...(skipExternals ? ['--skip-externals'] : []),
+          ...(skipImportErrors ? ['--skip-import-errors'] : []),
+          ...(yes ? ['--yes'] : []),
+        ];
       }
       return null;
     }

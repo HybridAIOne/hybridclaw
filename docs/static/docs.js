@@ -31,17 +31,6 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
     ],
   },
   {
-    title: 'Reference',
-    pages: [
-      { title: 'Reference', path: 'reference/README.md' },
-      { title: 'Commands', path: 'reference/commands.md' },
-      { title: 'Configuration', path: 'reference/configuration.md' },
-      { title: 'Diagnostics', path: 'reference/diagnostics.md' },
-      { title: 'FAQ', path: 'reference/faq.md' },
-      { title: 'Model Selection', path: 'reference/model-selection.md' },
-    ],
-  },
-  {
     title: 'Extensibility',
     pages: [
       { title: 'Extensibility', path: 'extensibility/README.md' },
@@ -61,10 +50,19 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
     pages: [
       { title: 'Internals', path: 'internals/README.md' },
       { title: 'Architecture', path: 'internals/architecture.md' },
-      { title: 'Releasing', path: 'internals/releasing.md' },
       { title: 'Runtime', path: 'internals/runtime.md' },
       { title: 'Session Routing', path: 'internals/session-routing.md' },
-      { title: 'Testing', path: 'internals/testing.md' },
+    ],
+  },
+  {
+    title: 'Reference',
+    pages: [
+      { title: 'Reference', path: 'reference/README.md' },
+      { title: 'Commands', path: 'reference/commands.md' },
+      { title: 'Configuration', path: 'reference/configuration.md' },
+      { title: 'Diagnostics', path: 'reference/diagnostics.md' },
+      { title: 'FAQ', path: 'reference/faq.md' },
+      { title: 'Model Selection', path: 'reference/model-selection.md' },
     ],
   },
 ];
@@ -680,7 +678,7 @@ function renderNotFoundState(mount, docPath, basePath) {
         <a class="docs-brand" href="${escapeHtml(
           buildDocHtmlHref('README.md', basePath),
         )}">
-          <img src="/static/favicon.svg" alt="HybridClaw">
+          <img src="/static/hybridclaw-logo.svg" alt="HybridClaw">
           <span>HybridClaw</span>
           <span class="docs-brand-accent">Docs</span>
         </a>
@@ -801,7 +799,7 @@ export async function mountDocsApp(options = {}) {
         <a class="docs-brand" href="${escapeHtml(
           buildDocHtmlHref('README.md', basePath),
         )}">
-          <img src="/static/favicon.svg" alt="HybridClaw">
+          <img src="/static/hybridclaw-logo.svg" alt="HybridClaw">
           <span>HybridClaw</span>
           <span class="docs-brand-accent">Docs</span>
         </a>

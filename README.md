@@ -212,6 +212,10 @@ Examples:
 /agent model openrouter/anthropic/claude-sonnet-4
 /model info
 /model default openrouter/anthropic/claude-sonnet-4
+/concierge info
+/concierge on
+/concierge model gemini-3-flash
+/concierge profile no_hurry ollama/qwen3:latest
 ```
 
 - `hybridai.defaultModel` in `~/.hybridclaw/config.json` can point at a HybridAI model, an `openai-codex/...` model, an `openrouter/...` model, a `mistral/...` model, a `huggingface/...` model, or a local backend model such as `ollama/...`.
@@ -228,6 +232,9 @@ Examples:
 - `/model clear` removes the session override and falls back to the current agent model or the global default.
 - `/agent model <name>` sets the persistent model for the current session agent.
 - `/model info` shows the current model configuration by scope (global default, agent model, and any session override).
+- `/concierge on|off` toggles the global concierge router that can ask users about urgency before long-running requests.
+- `/concierge model [name]` shows or sets the small decision model used for concierge routing.
+- `/concierge profile <asap|balanced|no_hurry> [model]` shows or sets the execution model mapped to each concierge urgency profile.
 - Use `HYBRIDAI_BASE_URL` to override `hybridai.baseUrl` for the current
   process without rewriting `~/.hybridclaw/config.json`, which is useful for
   local or preview HybridAI deployments.
@@ -566,6 +573,7 @@ CLI runtime commands:
 - `hybridclaw gateway stop` — Stop managed gateway backend process
 - `hybridclaw gateway status` — Show lifecycle/API status
 - `hybridclaw gateway <command...>` — Send a command to a running gateway (for example `sessions`, `bot info`)
+- `hybridclaw gateway concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]` — Inspect or configure concierge routing defaults
 - `hybridclaw gateway agent [list|switch <id>|create <id> [--model <model>]|model [name]]` — Inspect or change the current session-to-agent binding and persistent agent model
 - `hybridclaw gateway compact` — Archive older session history into semantic memory while preserving a recent active context tail
 - `hybridclaw gateway reset [yes|no]` — Clear session history, reset per-session model/chatbot/RAG settings, and remove the current agent workspace (confirmation required)

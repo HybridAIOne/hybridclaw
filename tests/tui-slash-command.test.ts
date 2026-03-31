@@ -71,6 +71,18 @@ test('maps Discord-style slash commands to gateway command args', () => {
       '8192',
     ]),
   ).toEqual(['config', 'set', 'hybridai.maxTokens', '8192']);
+  expect(mapTuiSlashCommandToGatewayArgs(['concierge'])).toEqual([
+    'concierge',
+    'info',
+  ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'concierge',
+      'profile',
+      'no_hurry',
+      'ollama/qwen3:latest',
+    ]),
+  ).toEqual(['concierge', 'profile', 'no_hurry', 'ollama/qwen3:latest']);
   expect(mapTuiSlashCommandToGatewayArgs(['model'])).toEqual(['model', 'info']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['model', 'list', 'openrouter']),

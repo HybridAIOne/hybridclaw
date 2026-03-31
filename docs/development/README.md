@@ -13,7 +13,7 @@ its raw `.md` source directly or copy the full page markdown from the document
 header.
 
 If you want a raw-markdown entrypoint that links every docs page directly, use
-[Agent Docs Index](./agents.md).
+[For Agents](./agents.md).
 
 ## Latest Highlights
 
@@ -24,7 +24,7 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
   tool-call, token-usage, and git-context metadata for offline debugging and
   analysis.
 - The browsable docs shell moved to `/docs`, raw-markdown docs now have a
-  dedicated [Agent Docs Index](./agents.md), and HybridClaw product questions
+  dedicated [For Agents](./agents.md), and HybridClaw product questions
   route through a bundled `hybridclaw-help` skill plus public docs retrieval.
 - Built-in web chat streaming is smoother under live output thanks to batched
   rendering, decoder-tail handling, NDJSON fallback support, and preserved
@@ -38,12 +38,12 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
   onboarding, provider authentication, and first-run setup
 - [Guides](./guides/README.md) for local providers, MCP, bundled skills,
   voice/TTS, and optional office tooling
-- [Reference](./reference/README.md) for model selection, configuration,
-  diagnostics, commands, and FAQ
 - [Extensibility](./extensibility/README.md) for tools, skills, plugins,
   agent packages, and extension-specific operator workflows
 - [Internals](./internals/README.md) for architecture, runtime behavior,
   session routing, testing, and release mechanics
+- [Reference](./reference/README.md) for model selection, configuration,
+  diagnostics, commands, and FAQ
 
 ## Fast Paths
 
@@ -56,4 +56,4 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
   [Diagnostics](./reference/diagnostics.md).
 - Need setup answers before deploying? Go to [FAQ](./reference/faq.md).
 - Need one markdown page that links the whole docs tree? Go to
-  [Agent Docs Index](./agents.md).
+  [For Agents](./agents.md).

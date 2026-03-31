@@ -7,7 +7,10 @@ import {
 } from '../agent/proactive-policy.js';
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
-import { resolveAgentForRequest } from '../agents/agent-registry.js';
+import {
+  listAgents,
+  resolveAgentForRequest,
+} from '../agents/agent-registry.js';
 import {
   startObservabilityIngest,
   stopObservabilityIngest,
@@ -93,16 +96,19 @@ import {
   normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
 } from './chat-result.js';
+import { configureFullAutoRuntime } from './fullauto.js';
 import { classifyGatewayError } from './gateway-error-utils.js';
 import { startGatewayHttpServer } from './gateway-http-server.js';
+import {
+  initGatewayService,
+  stopGatewayPlugins,
+} from './gateway-plugin-service.js';
 import {
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
-  initGatewayService,
   resumeEnabledFullAutoSessions,
   runGatewayScheduledTask,
-  stopGatewayPlugins,
 } from './gateway-service.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
@@ -1678,7 +1684,9 @@ function startOrRestartMemoryConsolidationScheduler(): void {
 async function main(): Promise<void> {
   logger.info('Starting HybridClaw gateway');
   initDatabase();
-  await initGatewayService();
+  listAgents();
+  configureFullAutoRuntime({ handleGatewayMessage });
+  await initGatewayService({ handleGatewayMessage });
   resumeEnabledFullAutoSessions();
   void runManagedMediaCleanup('startup').catch((error) => {
     logger.warn({ error }, 'Managed media cleanup failed during startup');

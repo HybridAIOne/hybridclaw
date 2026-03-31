@@ -73,12 +73,15 @@ import {
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
 import {
+  getGatewayAdminPlugins,
+  handleGatewayPluginWebhook,
+  runGatewayPluginTool,
+} from './gateway-plugin-service.js';
+import {
   createGatewayAdminAgent,
   deleteGatewayAdminAgent,
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
-  type GatewayChatRequest,
-  type GatewayCommandRequest,
   GatewayRequestError,
   getGatewayAdminAgents,
   getGatewayAdminAudit,
@@ -88,7 +91,6 @@ import {
   getGatewayAdminMcp,
   getGatewayAdminModels,
   getGatewayAdminOverview,
-  getGatewayAdminPlugins,
   getGatewayAdminScheduler,
   getGatewayAdminSessions,
   getGatewayAdminSkills,
@@ -102,12 +104,10 @@ import {
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
-  handleGatewayPluginWebhook,
   moveGatewayAdminSchedulerJob,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   removeGatewayAdminSchedulerJob,
-  runGatewayPluginTool,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
   setGatewayAdminSchedulerJobPaused,
@@ -119,8 +119,10 @@ import {
 } from './gateway-service.js';
 import type {
   GatewayChatBranchRequestBody,
+  GatewayChatRequest,
   GatewayChatRequestBody,
   GatewayChatResult,
+  GatewayCommandRequest,
 } from './gateway-types.js';
 import { resolveWorkspaceRelativePath } from './gateway-utils.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';

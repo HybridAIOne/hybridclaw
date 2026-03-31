@@ -513,6 +513,9 @@ function printHelp(): void {
     `  ${TEAL}/bot [info|list|set <id|name>|clear]${RESET} Manage the chatbot for this session`,
   );
   console.log(
+    `  ${TEAL}/concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]${RESET} Configure concierge routing`,
+  );
+  console.log(
     `  ${TEAL}/model [<name>|info|list [provider]|set <name>|clear|default [name]]${RESET} Inspect or set session/default model`,
   );
   console.log(`  ${TEAL}/rag [on|off]${RESET}     Toggle or set RAG`);

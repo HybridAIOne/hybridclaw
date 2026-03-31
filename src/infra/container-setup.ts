@@ -578,17 +578,16 @@ export async function ensureContainerImageReady(
   }
 
   const exists = await containerImageExists(imageName);
-  const missingImageHint =
-    !sourceCheckout
-      ? [
-          `${commandName}: Required container image '${imageName}' not found.`,
-          packagedImageHint,
-        ].join(' ')
-      : [
-          `${commandName}: Required container image '${imageName}' not found.`,
-          'Run `npm run build:container` in the project root to build it.',
-          'HybridClaw also attempts to pull published images automatically before local build.',
-        ].join(' ');
+  const missingImageHint = !sourceCheckout
+    ? [
+        `${commandName}: Required container image '${imageName}' not found.`,
+        packagedImageHint,
+      ].join(' ')
+    : [
+        `${commandName}: Required container image '${imageName}' not found.`,
+        'Run `npm run build:container` in the project root to build it.',
+        'HybridClaw also attempts to pull published images automatically before local build.',
+      ].join(' ');
   const rebuildImageHint = !sourceCheckout
     ? [
         `${commandName}: Unable to refresh container image '${imageName}' automatically.`,

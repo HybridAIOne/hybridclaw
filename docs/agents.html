@@ -65,13 +65,16 @@
 
     .sidebar-top {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: space-between;
       padding: 2px 0 6px;
       gap: 8px;
     }
 
     .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
       padding: 0;
       border: none;
       border-radius: 0;
@@ -83,6 +86,15 @@
       max-width: 100%;
       display: block;
       height: auto;
+    }
+
+    .brand-name {
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      color: #374151;
+      white-space: nowrap;
     }
 
     .sidebar-toggle {
@@ -180,6 +192,14 @@
 
     .layout.is-sidebar-collapsed .brand-logo {
       width: 44px;
+    }
+
+    .layout.is-sidebar-collapsed .brand {
+      justify-content: center;
+    }
+
+    .layout.is-sidebar-collapsed .brand-name {
+      display: none;
     }
 
     .sidebar-spacer {
@@ -1127,9 +1147,10 @@
         <div class="brand">
           <img
             class="brand-logo"
-            src="hai_logo_free.png"
-            alt="HybridAI"
+            src="/static/hybridclaw-logo.svg"
+            alt="HybridClaw"
           >
+          <span class="brand-name">HybridClaw</span>
         </div>
         <button
           id="sidebarToggle"

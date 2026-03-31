@@ -107,7 +107,11 @@ pre {
   width: 30px;
   height: 30px;
   display: block;
-  border-radius: 8px;
+  object-fit: contain;
+}
+
+:root[data-theme="dark"] .docs-brand img {
+  filter: brightness(0) saturate(100%) invert(93%);
 }
 
 .docs-brand-accent {
@@ -365,6 +369,7 @@ pre {
   justify-content: flex-end;
   gap: 10px;
   flex: 0 0 auto;
+  margin-top: -6px;
 }
 
 .docs-page-action,
@@ -615,6 +620,7 @@ pre {
   }
 
   .docs-page-actions {
+    margin-top: 0;
     justify-content: flex-start;
     flex-wrap: wrap;
   }
