@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { CLAW_ARCHIVE_MAX_COMPRESSED_BYTES } from './claw-security.js';
 
 const OFFICIAL_CLAWS_REPO = 'HybridAIOne/claws';
 const OFFICIAL_CLAWS_REF = 'main';
@@ -62,20 +65,55 @@ async function downloadArchive(url: string): Promise<ResolvedInstallArchive> {
   if (!response.ok) {
     throw new Error(`Request failed for ${url}: HTTP ${response.status}`);
   }
+  const contentLengthHeader = response.headers.get('content-length');
+  const contentLength = Number.parseInt(contentLengthHeader || '', 10);
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > CLAW_ARCHIVE_MAX_COMPRESSED_BYTES
+  ) {
+    throw new Error(
+      `Archive download exceeds the ${CLAW_ARCHIVE_MAX_COMPRESSED_BYTES} byte limit.`,
+    );
+  }
+  if (!response.body) {
+    throw new Error(`Response body was empty for ${url}.`);
+  }
   const tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-agent-install-'),
   );
   const fileName =
     path.basename(new URL(url).pathname).trim() || 'agent-package.claw';
   const archivePath = path.join(tempDir, fileName);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  fs.writeFileSync(archivePath, bytes);
-  return {
-    archivePath,
-    cleanup: () => {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    },
-  };
+  let totalBytes = 0;
+  try {
+    await pipeline(
+      Readable.fromWeb(response.body),
+      new Transform({
+        transform(chunk, _encoding, callback) {
+          totalBytes += Buffer.byteLength(chunk);
+          if (totalBytes > CLAW_ARCHIVE_MAX_COMPRESSED_BYTES) {
+            callback(
+              new Error(
+                `Archive download exceeds the ${CLAW_ARCHIVE_MAX_COMPRESSED_BYTES} byte limit.`,
+              ),
+            );
+            return;
+          }
+          callback(null, chunk);
+        },
+      }),
+      fs.createWriteStream(archivePath, { mode: 0o644 }),
+    );
+    return {
+      archivePath,
+      cleanup: () => {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      },
+    };
+  } catch (error) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function parseOfficialClawsSource(
@@ -209,6 +247,15 @@ function parseDirectArchiveUrl(rawValue: string): string | null {
   throw new Error(
     `Install source URL must point to a .claw archive: ${url.toString()}`,
   );
+}
+
+export function isLocalFilesystemInstallSource(
+  rawArchivePath: string,
+): boolean {
+  const raw = rawArchivePath.trim();
+  if (!raw) return false;
+  if (parseDirectArchiveUrl(raw)) return false;
+  return parseOfficialClawsSource(raw) == null;
 }
 
 export async function resolveInstallArchiveSource(

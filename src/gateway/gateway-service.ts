@@ -20,7 +20,10 @@ import {
   getKnownToolGroups,
   isKnownToolName,
 } from '../agent/tool-summary.js';
-import { resolveInstallArchiveSource } from '../agents/agent-install-source.js';
+import {
+  isLocalFilesystemInstallSource,
+  resolveInstallArchiveSource,
+} from '../agents/agent-install-source.js';
 import {
   deleteRegisteredAgent,
   findAgentConfig,
@@ -6200,9 +6203,8 @@ export async function handleGatewayCommand(
           },
           {
             command:
-              'agent install <file.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]',
-            description:
-              'Install a packaged agent from a local TUI/web session',
+              'agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]',
+            description: 'Install a packaged agent from a path or URL',
             scope: 'both',
           },
           {
@@ -6730,7 +6732,7 @@ export async function handleGatewayCommand(
 
         if (sub === 'install') {
           const usage =
-            'agent install <file.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]';
+            'agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]';
           let installSource = '';
           let requestedId = '';
           let force = false;
@@ -6788,10 +6790,13 @@ export async function handleGatewayCommand(
           if (!installSource) {
             return badCommand('Usage', `Missing source for \`${usage}\`.`);
           }
-          if (!isLocalSession(req)) {
+          if (
+            !isLocalSession(req) &&
+            isLocalFilesystemInstallSource(installSource)
+          ) {
             return badCommand(
               'Agent Install Restricted',
-              '`agent install` is only available from local TUI/web sessions.',
+              'Remote `agent install` sessions must use `official:`, `github:`, or a direct `.claw` URL. Local filesystem paths are only available from local TUI/web sessions.',
             );
           }
 
@@ -6852,7 +6857,7 @@ export async function handleGatewayCommand(
 
         return badCommand(
           'Usage',
-          'Usage: `agent|agent list|agent switch <id>|agent model [name]|agent create <id> [--model <model>]|agent install <file.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]`',
+          'Usage: `agent|agent list|agent switch <id>|agent model [name]|agent create <id> [--model <model>]|agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]`',
         );
       }
 

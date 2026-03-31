@@ -39,7 +39,6 @@ export type CanonicalSlashSubcommandOptionDefinition = {
   options?: CanonicalSlashStringOptionDefinition[];
   tuiMenu?: CanonicalTuiMenuPresentation;
   tuiMenuEntries?: CanonicalTuiMenuEntryDefinition[];
-  localOnly?: boolean;
 };
 
 export type CanonicalSlashCommandOptionDefinition =
@@ -642,8 +641,7 @@ function buildSlashCommandCatalogDefinitions(
         {
           kind: 'subcommand',
           name: 'install',
-          description: 'Install a packaged agent from a local TUI/web session',
-          localOnly: true,
+          description: 'Install a packaged agent from a path or URL',
           tuiMenu: {
             label: '/agent install <source>',
             insertText: '/agent install ',
@@ -656,7 +654,7 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'source',
               description:
-                'Archive path, URL, official:<agent-dir>, or github:owner/repo/<agent-dir>',
+                'Archive path, direct .claw URL, official:<agent-dir>, or github:owner/repo/<agent-dir>',
               required: true,
             },
             {
@@ -1518,14 +1516,9 @@ function buildSlashCommandCatalogDefinitions(
 export function buildCanonicalSlashCommandDefinitions(
   modelChoices: Array<{ name: string; value: string }>,
 ): CanonicalSlashCommandDefinition[] {
-  return buildSlashCommandCatalogDefinitions(modelChoices)
-    .filter((definition) => !definition.tuiOnly)
-    .map((definition) => ({
-      ...definition,
-      options: definition.options?.filter(
-        (option) => option.kind !== 'subcommand' || option.localOnly !== true,
-      ),
-    }));
+  return buildSlashCommandCatalogDefinitions(modelChoices).filter(
+    (definition) => !definition.tuiOnly,
+  );
 }
 
 export function buildTuiSlashCommandDefinitions(
