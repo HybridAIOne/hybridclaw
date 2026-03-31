@@ -14,6 +14,8 @@ jobs:
   docker-preflight:
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
+    env:
+      HAS_HYBRIDAI_API_KEY: ${{ secrets.HYBRIDAI_API_KEY != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -61,7 +63,7 @@ jobs:
         run: npx vitest run --config vitest.e2e.config.ts tests/gateway-docker.e2e.test.ts
 
       - name: Gateway e2e tests (external services)
-        if: matrix.name == 'gateway' && secrets.HYBRIDAI_API_KEY != ''
+        if: matrix.name == 'gateway' && env.HAS_HYBRIDAI_API_KEY == 'true'
         env:
           HYBRIDCLAW_RUN_DOCKER_E2E: '1'
           HYBRIDCLAW_E2E_IMAGE: hybridclaw-gateway:preflight
