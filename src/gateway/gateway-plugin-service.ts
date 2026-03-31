@@ -28,10 +28,10 @@ import {
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import { handleGatewayMessage } from './gateway-chat-service.js';
+import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import type {
   GatewayAdminPluginsResponse,
-  GatewayChatRequest,
-  GatewayChatResult,
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
@@ -113,38 +113,7 @@ async function rollbackPluginRuntimeConfigChange(
   ];
 }
 
-export async function tryEnsurePluginManagerInitializedForGateway(params: {
-  sessionId: string;
-  channelId: string;
-  agentId?: string | null;
-  surface: 'chat' | 'command' | 'webhook';
-}): Promise<{
-  pluginManager: PluginManager | null;
-  pluginInitError: unknown;
-}> {
-  try {
-    return {
-      pluginManager: await ensurePluginManagerInitialized(),
-      pluginInitError: null,
-    };
-  } catch (pluginInitError) {
-    logger.warn(
-      {
-        sessionId: params.sessionId,
-        channelId: params.channelId,
-        agentId: params.agentId ?? null,
-        surface: params.surface,
-        error: pluginInitError,
-      },
-      'Plugin manager init failed; proceeding without plugins',
-    );
-    return { pluginManager: null, pluginInitError };
-  }
-}
-
-export async function initGatewayService(params: {
-  handleGatewayMessage: (req: GatewayChatRequest) => Promise<GatewayChatResult>;
-}): Promise<void> {
+export async function initGatewayService(): Promise<void> {
   if (gatewayServiceInitialized) return;
   if (gatewayServiceInitializing) {
     await gatewayServiceInitializing;
@@ -153,7 +122,7 @@ export async function initGatewayService(params: {
   gatewayServiceInitializing = (async () => {
     setPluginInboundMessageDispatcher(
       async (pluginId, request) =>
-        await params.handleGatewayMessage({
+        await handleGatewayMessage({
           ...request,
           source: `plugin:${pluginId}`,
         }),
