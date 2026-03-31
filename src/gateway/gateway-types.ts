@@ -8,7 +8,11 @@ import type {
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
 import type { MediaContextItem } from '../types/container.js';
-import type { PendingApproval } from '../types/execution.js';
+import type {
+  ArtifactMetadata,
+  PendingApproval,
+  ToolProgressEvent,
+} from '../types/execution.js';
 import type { MemoryCitation } from '../types/memory.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { TokenUsageStats } from '../types/usage.js';
@@ -134,6 +138,30 @@ export interface GatewayChatRequestBody {
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
+}
+
+export interface GatewayChatRequest {
+  sessionId: GatewayChatRequestBody['sessionId'];
+  sessionMode?: GatewayChatRequestBody['sessionMode'];
+  guildId: GatewayChatRequestBody['guildId'];
+  channelId: GatewayChatRequestBody['channelId'];
+  userId: GatewayChatRequestBody['userId'];
+  username: GatewayChatRequestBody['username'];
+  content: GatewayChatRequestBody['content'];
+  media?: GatewayChatRequestBody['media'];
+  agentId?: GatewayChatRequestBody['agentId'];
+  chatbotId?: GatewayChatRequestBody['chatbotId'];
+  model?: GatewayChatRequestBody['model'];
+  enableRag?: GatewayChatRequestBody['enableRag'];
+  onTextDelta?: (delta: string) => void;
+  onToolProgress?: (event: ToolProgressEvent) => void;
+  onApprovalProgress?: (approval: PendingApproval) => void;
+  onProactiveMessage?: (message: {
+    text: string;
+    artifacts?: ArtifactMetadata[];
+  }) => void | Promise<void>;
+  abortSignal?: AbortSignal;
+  source?: string;
 }
 
 export interface GatewayMediaUploadResult {

@@ -386,7 +386,7 @@ test('handleGatewayPluginWebhook returns a generic 503 when plugin manager init 
   setupHome();
 
   const { handleGatewayPluginWebhook } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-plugin-service.ts'
   );
 
   ensurePluginManagerInitializedMock.mockRejectedValueOnce(
@@ -946,7 +946,7 @@ test('getGatewayAdminPlugins summarizes plugin status for the admin console', as
   setupHome();
 
   const { getGatewayAdminPlugins } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-plugin-service.ts'
   );
 
   pluginManagerMock.listPluginSummary.mockReset();
