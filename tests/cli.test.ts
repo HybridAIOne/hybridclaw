@@ -183,6 +183,11 @@ async function importFreshCli(options?: {
     name: string;
     model?: string | { primary: string };
   }>;
+  legacyMigrationError?: Error | null;
+  legacyMigrationCalls?: Array<{
+    sourceKind: 'openclaw' | 'hermes';
+    args: string[];
+  }>;
   promptResponses?: string[];
   whatsAppConnectionModuleError?: Error | null;
 }) {
@@ -255,6 +260,15 @@ async function importFreshCli(options?: {
   const runUpdateCommand = vi.fn();
   const runDoctorCli = vi.fn(async () => 0);
   const ensureRuntimeCredentials = vi.fn();
+  const handleLegacyMigrationCommand = vi.fn(
+    async (
+      sourceKind: 'openclaw' | 'hermes',
+      args: string[],
+    ): Promise<void> => {
+      options?.legacyMigrationCalls?.push({ sourceKind, args });
+      if (options?.legacyMigrationError) throw options.legacyMigrationError;
+    },
+  );
   const ensureContainerImageReady = vi.fn(async () => {
     if (options?.ensureContainerImageReadyError) {
       throw options.ensureContainerImageReadyError;
@@ -812,6 +826,9 @@ async function importFreshCli(options?: {
   vi.doMock('../src/onboarding.ts', () => ({
     ensureRuntimeCredentials,
   }));
+  vi.doMock('../src/cli/legacy-migration-command.js', () => ({
+    handleLegacyMigrationCommand,
+  }));
   vi.doMock('../src/skills/skills.ts', () => ({
     loadSkillCatalog,
   }));
@@ -904,6 +921,7 @@ async function importFreshCli(options?: {
     runUpdateCommand,
     runDoctorCli,
     ensureRuntimeCredentials,
+    handleLegacyMigrationCommand,
     ensureContainerImageReady,
     ensureHostRuntimeReady,
     getWhatsAppAuthStatus,
@@ -1106,6 +1124,30 @@ describe('CLI hybridai commands', () => {
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw auth login',
     });
+  });
+
+  it('routes `claw migrate` through the legacy migration handler', async () => {
+    const { cli, handleLegacyMigrationCommand } = await importFreshCli();
+
+    await cli.main(['claw', 'migrate', '--dry-run', '--yes']);
+
+    expect(handleLegacyMigrationCommand).toHaveBeenCalledWith('openclaw', [
+      'migrate',
+      '--dry-run',
+      '--yes',
+    ]);
+  });
+
+  it('routes `hermes migrate` through the legacy migration handler', async () => {
+    const { cli, handleLegacyMigrationCommand } = await importFreshCli();
+
+    await cli.main(['hermes', 'migrate', '--migrate-secrets', '--yes']);
+
+    expect(handleLegacyMigrationCommand).toHaveBeenCalledWith('hermes', [
+      'migrate',
+      '--migrate-secrets',
+      '--yes',
+    ]);
   });
 
   it('resets WhatsApp auth without loading the connection manager', async () => {
