@@ -58,7 +58,7 @@
     "test:e2e": "vitest run --configLoader runner --config vitest.e2e.config.ts --passWithNoTests",
     "test:live": "vitest run --configLoader runner --config vitest.live.config.ts --passWithNoTests",
     "setup": "npm --prefix container install",
-    "dev": "tsx src/cli.ts gateway",
+    "dev": "tsx src/cli.ts gateway start --foreground",
     "gateway": "tsx src/cli.ts gateway",
     "tui": "tsx src/cli.ts tui",
     "start": "node dist/cli.js gateway",
