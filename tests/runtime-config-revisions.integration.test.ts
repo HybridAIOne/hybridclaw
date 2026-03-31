@@ -89,6 +89,21 @@ describe('runtime config revisions integration', () => {
     expect(revisions[0]?.md5).toMatch(/^[a-f0-9]{32}$/);
   });
 
+  it('sanitizes stack-derived routes when no explicit route metadata is provided', () => {
+    configMod.ensureRuntimeConfigFile();
+
+    configMod.updateRuntimeConfig((draft) => {
+      draft.discord.prefix = '!implicit-route';
+    });
+
+    const revisions = configMod.listRuntimeConfigRevisions();
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0]?.route).toBeTruthy();
+    expect(revisions[0]?.route).not.toContain(tmpDir);
+    expect(revisions[0]?.route).not.toContain('/Users/');
+    expect(revisions[0]?.route).not.toContain('/private/');
+  });
+
   it('stores the previous config snapshot when config.json is edited manually and reloaded', () => {
     configMod.ensureRuntimeConfigFile();
     configMod.updateRuntimeConfig((draft) => {

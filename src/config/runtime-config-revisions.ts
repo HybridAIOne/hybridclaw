@@ -103,16 +103,33 @@ function detectRouteFromStack(): string | null {
   return null;
 }
 
+function sanitizeDetectedRoute(route: string): string {
+  const trimmed = route.trim();
+  const callsiteMatch = trimmed.match(/^(.*?) \((.*)\)$/);
+  if (callsiteMatch) {
+    const functionName = String(callsiteMatch[1] || '').trim();
+    if (functionName) return functionName;
+    const location = String(callsiteMatch[2] || '').trim();
+    const basenameMatch = location.match(/([^/\\]+:\d+:\d+)$/);
+    if (basenameMatch) return basenameMatch[1];
+    return location.replace(/^file:\/\//, '');
+  }
+
+  const basenameMatch = trimmed.match(/([^/\\]+:\d+:\d+)$/);
+  if (basenameMatch) return basenameMatch[1];
+  return trimmed.replace(/^file:\/\//, '');
+}
+
 function normalizeChangeMeta(
   meta?: RuntimeConfigChangeMeta,
 ): Required<RuntimeConfigChangeMeta> {
-  const detectedRoute = detectRouteFromStack();
+  const explicitRoute = String(meta?.route || '').trim();
+  const detectedRoute = explicitRoute
+    ? null
+    : sanitizeDetectedRoute(detectRouteFromStack() || '');
   return {
     actor: resolveActor(meta?.actor),
-    route:
-      String(meta?.route || '').trim() ||
-      detectedRoute ||
-      'runtime-config.unspecified',
+    route: explicitRoute || detectedRoute || 'runtime-config.unspecified',
     source: String(meta?.source || '').trim() || 'internal',
   };
 }
