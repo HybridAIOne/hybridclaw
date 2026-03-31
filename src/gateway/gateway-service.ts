@@ -11,7 +11,6 @@ import {
   getActiveExecutorSessionIds,
   getSandboxDiagnostics,
 } from '../agent/executor.js';
-import { processSideEffects } from '../agent/side-effects.js';
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import {
   buildToolsSummary,
@@ -35,19 +34,11 @@ import {
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import {
-  emitToolExecutionAuditEvents,
-  makeAuditRunId,
-  recordAuditEvent,
-} from '../audit/audit-events.js';
+import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
-import {
-  getChannel,
-  getChannelByContextId,
-  normalizeSkillConfigChannelKind,
-} from '../channels/channel-registry.js';
+import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -57,7 +48,6 @@ import {
   DISCORD_GUILDS,
   FULLAUTO_NEVER_APPROVE_TOOLS,
   HYBRIDAI_BASE_URL,
-  HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
   MissingRequiredEnvVarError,
@@ -66,7 +56,6 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_DELEGATION_MAX_DEPTH,
-  PROACTIVE_DELEGATION_MAX_PER_TURN,
   PROACTIVE_RALPH_MAX_ITERATIONS,
   WEB_API_TOKEN,
 } from '../config/config.js';
@@ -84,17 +73,12 @@ import {
   parseRuntimeConfigCommandValue,
   setRuntimeConfigValueAtPath,
 } from '../config/runtime-config-edit.js';
-import { preprocessContextReferences } from '../context-references/index.js';
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import {
-  isAudioMediaItem,
-  prependAudioTranscriptionsToUserContent,
-} from '../media/audio-transcription.js';
+import { isAudioMediaItem } from '../media/audio-transcription.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
-import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
   createFreshSessionInstance,
@@ -122,7 +106,6 @@ import {
   listUsageByAgent,
   listUsageByModel,
   listUsageBySession,
-  logAudit,
   pauseTask,
   recordRequestLog,
   recordUsageEvent,
@@ -221,29 +204,13 @@ import type {
 } from '../skills/adaptive-skills-types.js';
 import { parseSkillImportArgs } from '../skills/skill-import-args.js';
 import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
-import {
-  expandResolvedSkillInvocation,
-  expandSkillInvocationWithResolution,
-  loadSkillCatalog,
-  resolveObservedSkillName,
-} from '../skills/skills.js';
-import {
-  deriveSkillExecutionOutcome,
-  recordSkillExecution,
-} from '../skills/skills-observation.js';
+import { loadSkillCatalog } from '../skills/skills.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { MediaContextItem } from '../types/container.js';
-import type {
-  ArtifactMetadata,
-  PendingApproval,
-  ToolExecution,
-  ToolProgressEvent,
-} from '../types/execution.js';
+import type { ArtifactMetadata, ToolExecution } from '../types/execution.js';
 import type { McpServerConfig } from '../types/models.js';
-import type { ScheduledTask } from '../types/scheduler.js';
 import type {
-  CanonicalSessionContext,
   ConversationHistoryPage,
   Session,
   StoredMessage,
@@ -265,26 +232,15 @@ import {
 } from './chat-result.js';
 import { handleConciergeCommand } from './concierge-commands.js';
 import {
-  buildConciergeExecutionNotice,
-  type ConciergeProfile,
-} from './concierge-routing.js';
-import { resolveConciergeTurn } from './concierge-session.js';
-import {
-  buildFullAutoOperatingContract,
   buildFullAutoStatusLines,
-  clearScheduledFullAutoContinuation,
   describeFullAutoWorkspaceSummary,
   disableFullAutoSession,
   enableFullAutoSession,
   getFullAutoRuntimeState,
   isFullAutoEnabled,
-  maybeScheduleFullAutoAfterSuccess,
-  noteFullAutoSupervisedIntervention,
   type ProactiveMessagePayload,
-  preemptRunningFullAutoTurn,
   resolveFullAutoPrompt,
   resolveSessionRalphIterations,
-  syncFullAutoRuntimeContext,
 } from './fullauto.js';
 import { mapLogicalAgentCard, mapSessionCard } from './gateway-agent-cards.js';
 import {
@@ -303,10 +259,7 @@ import {
   tryEnsurePluginManagerInitializedForGateway,
   tryHandlePluginDefinedGatewayCommand,
 } from './gateway-plugin-service.js';
-import {
-  interruptGatewaySessionExecution,
-  registerActiveGatewayRequest,
-} from './gateway-request-runtime.js';
+import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
 import { readSessionStatusSnapshot } from './gateway-session-status.js';
 import {
   formatDisplayTimestamp,
@@ -353,7 +306,6 @@ import {
   describeSessionShowMode,
   isSessionShowMode,
   normalizeSessionShowMode,
-  sessionShowModeShowsTools,
 } from './show-mode.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
@@ -385,7 +337,7 @@ const ALWAYS_REDACT_TOOL_FIELDS: Record<string, ReadonlySet<string>> = {
 const GATEWAY_REQUEST_LOG_ENABLED_VALUE = '1';
 let lastWarnedGatewayRequestLoggingValue: string | null = null;
 
-function isGatewayRequestLoggingEnabled(): boolean {
+export function isGatewayRequestLoggingEnabled(): boolean {
   const raw = String(process.env[GATEWAY_LOG_REQUESTS_ENV] || '').trim();
   if (!raw) return false;
   if (raw === GATEWAY_REQUEST_LOG_ENABLED_VALUE) {
@@ -482,7 +434,9 @@ function sanitizeRequestLogMessages(messages: ChatMessage[]): ChatMessage[] {
   }));
 }
 
-function readSystemPromptMessage(messages: ChatMessage[]): string | null {
+export function readSystemPromptMessage(
+  messages: ChatMessage[],
+): string | null {
   const firstMessage = messages[0];
   if (!firstMessage || firstMessage.role !== 'system') return null;
   return typeof firstMessage.content === 'string' && firstMessage.content.trim()
@@ -505,7 +459,7 @@ function sanitizeRequestLogToolExecutions(
   });
 }
 
-function maybeRecordGatewayRequestLog(params: {
+export function maybeRecordGatewayRequestLog(params: {
   sessionId: string;
   model: string;
   chatbotId: string;
@@ -652,7 +606,7 @@ interface DelegationTaskRunInput {
   task: NormalizedDelegationTask;
 }
 
-function shouldForceNewTuiSession(
+export function shouldForceNewTuiSession(
   req: Pick<
     GatewayChatRequest | GatewayCommandRequest,
     'channelId' | 'sessionMode'
@@ -661,7 +615,7 @@ function shouldForceNewTuiSession(
   return req.channelId === 'tui' && req.sessionMode === 'new';
 }
 
-function resolveChannelType(
+export function resolveChannelType(
   req: Pick<GatewayChatRequest, 'channelId' | 'source'>,
 ): string | undefined {
   const source = String(req.source || '')
@@ -697,7 +651,7 @@ export function resolveSessionAutoResetPolicy(
   });
 }
 
-function resolveCanonicalContextScope(
+export function resolveCanonicalContextScope(
   session: Pick<Session, 'main_session_key' | 'session_key' | 'id'>,
 ): string {
   return (
@@ -1024,7 +978,7 @@ function parseIntOrNull(raw: string | undefined): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function normalizeMediaContextItems(raw: unknown): MediaContextItem[] {
+export function normalizeMediaContextItems(raw: unknown): MediaContextItem[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
   const normalized: MediaContextItem[] = [];
   for (const item of raw) {
@@ -1059,7 +1013,9 @@ function normalizeMediaContextItems(raw: unknown): MediaContextItem[] {
   return normalized;
 }
 
-function cloneMediaContextItems(media: MediaContextItem[]): MediaContextItem[] {
+export function cloneMediaContextItems(
+  media: MediaContextItem[],
+): MediaContextItem[] {
   return media.map((item) => ({ ...item }));
 }
 
@@ -1081,7 +1037,7 @@ function buildVisibleMediaSummary(media: MediaContextItem[]): string {
     : `Attached files: ${summary}`;
 }
 
-function buildStoredUserTurnContent(
+export function buildStoredUserTurnContent(
   userContent: string,
   media: MediaContextItem[],
 ): string {
@@ -1094,7 +1050,7 @@ function buildStoredUserTurnContent(
   return text ? `${text}\n\n${mediaSummary}` : mediaSummary;
 }
 
-function buildMediaPromptContext(media: MediaContextItem[]): string {
+export function buildMediaPromptContext(media: MediaContextItem[]): string {
   if (media.length === 0) return '';
   const mediaPaths = media
     .map((item) => item.path)
@@ -1560,7 +1516,7 @@ export function getGatewayAssistantPresentationForSession(
   );
 }
 
-function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
+export function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
   if (!tokenUsage) return 0;
   const costCarrier = tokenUsage as unknown as Record<string, unknown>;
   const value = firstNumber([
@@ -1589,7 +1545,7 @@ function buildHybridAIAuthStatusLines(): string[] {
   ];
 }
 
-function formatCanonicalContextPrompt(params: {
+export function formatCanonicalContextPrompt(params: {
   summary: string | null;
   recentMessages: Array<{
     role: string;
@@ -1629,7 +1585,7 @@ function formatCanonicalContextPrompt(params: {
   return merged || null;
 }
 
-function formatPluginPromptContext(sections: string[]): string | null {
+export function formatPluginPromptContext(sections: string[]): string | null {
   const normalized = sections
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
@@ -1695,7 +1651,7 @@ function normalizeVersionQuery(raw: string): string {
     .trim();
 }
 
-function isVersionOnlyQuestion(raw: string): boolean {
+export function isVersionOnlyQuestion(raw: string): boolean {
   const text = normalizeVersionQuery(raw);
   if (!text) return false;
   if (text.startsWith('!claw ')) return false;
@@ -1735,7 +1691,7 @@ function isVersionOnlyQuestion(raw: string): boolean {
   return true;
 }
 
-function recordSuccessfulTurn(opts: {
+export function recordSuccessfulTurn(opts: {
   sessionId: string;
   agentId: string;
   chatbotId: string;
@@ -1857,7 +1813,7 @@ function recordSuccessfulTurn(opts: {
   return storedTurn;
 }
 
-function buildStoredTurnMessages(params: {
+export function buildStoredTurnMessages(params: {
   sessionId: string;
   userId: string;
   username: string | null;
@@ -2138,7 +2094,7 @@ function getPendingSessionReset(sessionId: string): PendingSessionReset | null {
   return pendingSessionResets.get(sessionId) ?? null;
 }
 
-function buildTokenUsageAuditPayload(
+export function buildTokenUsageAuditPayload(
   messages: ChatMessage[],
   resultText: string | null | undefined,
   tokenUsage?: TokenUsageStats,
@@ -3638,7 +3594,7 @@ export function getGatewayHistorySummary(
   };
 }
 
-function extractDelegationDepth(sessionId: string): number {
+export function extractDelegationDepth(sessionId: string): number {
   const match = sessionId.match(/^delegate:d(\d+):/);
   if (!match) return 0;
   const parsed = Number.parseInt(match[1], 10);
@@ -3743,7 +3699,7 @@ function normalizeDelegationTask(
   };
 }
 
-function normalizeDelegationEffect(
+export function normalizeDelegationEffect(
   effect: DelegationSideEffect,
   fallbackModel: string,
 ): {
@@ -4095,7 +4051,7 @@ async function publishDelegationCompletion(params: {
   );
 }
 
-function enqueueDelegationFromSideEffect(params: {
+export function enqueueDelegationFromSideEffect(params: {
   plan: NormalizedDelegationPlan;
   parentSessionId: string;
   channelId: string;
@@ -4293,1116 +4249,6 @@ export async function prepareSessionAutoReset(params: {
     olderMessages: memoryService.getRecentMessages(existingSession.id),
   });
   return expiryEvaluation;
-}
-
-export async function handleGatewayMessage(
-  req: GatewayChatRequest,
-): Promise<GatewayChatResult> {
-  const startedAt = Date.now();
-  const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway({
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId: req.agentId,
-    surface: 'chat',
-  });
-  const runId = makeAuditRunId('turn');
-  const source = req.source?.trim() || 'gateway.chat';
-  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
-  const expiryEvaluation = await prepareSessionAutoReset({
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId: req.agentId,
-    chatbotId: req.chatbotId,
-    model: req.model,
-    enableRag: req.enableRag,
-    policy: sessionResetPolicy,
-  });
-  const autoResetSession = memoryService.resetSessionIfExpired(req.sessionId, {
-    policy: sessionResetPolicy,
-    expiryEvaluation,
-  });
-  if (autoResetSession) {
-    const previousSessionId = req.sessionId;
-    req.sessionId = autoResetSession.id;
-    if (pluginManager) {
-      await pluginManager.handleSessionReset({
-        previousSessionId,
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId:
-          req.agentId?.trim() || autoResetSession.agent_id || DEFAULT_AGENT_ID,
-        channelId: req.channelId,
-        reason: 'auto-reset',
-      });
-    }
-  }
-  let session = memoryService.getOrCreateSession(
-    req.sessionId,
-    req.guildId,
-    req.channelId,
-    req.agentId ?? undefined,
-    { forceNewCurrent: shouldForceNewTuiSession(req) },
-  );
-  if (session.id !== req.sessionId) {
-    req.sessionId = session.id;
-  }
-  const attachSessionIdentity = (
-    result: GatewayChatResult,
-  ): GatewayChatResult => ({
-    ...result,
-    sessionId: req.sessionId,
-    sessionKey: session.session_key,
-    mainSessionKey: session.main_session_key,
-  });
-  if (source !== 'fullauto') {
-    preemptRunningFullAutoTurn(req.sessionId, source);
-    clearScheduledFullAutoContinuation(req.sessionId);
-    if (isFullAutoEnabled(session)) {
-      noteFullAutoSupervisedIntervention({
-        session,
-        content: req.content,
-        source,
-      });
-    }
-  }
-  const activeGatewayRequest = registerActiveGatewayRequest({
-    sessionId: req.sessionId,
-    abortSignal: req.abortSignal,
-  });
-  const resolvedRequest = resolveAgentForRequest({
-    agentId: req.agentId,
-    session,
-    model: req.model,
-    chatbotId: req.chatbotId,
-  });
-  const {
-    agentId,
-    model: resolvedModel,
-    chatbotId: resolvedChatbotId,
-  } = resolvedRequest;
-  const resolvedAgent = resolveAgentConfig(agentId);
-  let model = resolvedModel;
-  let chatbotId = resolvedChatbotId;
-  let chatbotResolution = await resolveGatewayChatbotId({
-    model,
-    chatbotId,
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId,
-    trigger: 'chat',
-  });
-  chatbotId = chatbotResolution.chatbotId;
-  const channelType =
-    resolveChannelType(req) || resolveSessionResetChannelKind(req.channelId);
-  const channel =
-    (channelType ? getChannel(channelType) : undefined) ||
-    getChannelByContextId(req.channelId) ||
-    undefined;
-  if (session.agent_id !== agentId) {
-    const reboundExpiryEvaluation = await prepareSessionAutoReset({
-      sessionId: req.sessionId,
-      channelId: req.channelId,
-      agentId,
-      chatbotId,
-      model,
-      enableRag: req.enableRag ?? session.enable_rag === 1,
-      policy: sessionResetPolicy,
-    });
-    const reboundSession = memoryService.resetSessionIfExpired(req.sessionId, {
-      policy: sessionResetPolicy,
-      expiryEvaluation: reboundExpiryEvaluation,
-    });
-    if (reboundSession) {
-      const previousSessionId = req.sessionId;
-      req.sessionId = reboundSession.id;
-      if (pluginManager) {
-        await pluginManager.handleSessionReset({
-          previousSessionId,
-          sessionId: req.sessionId,
-          userId: req.userId,
-          agentId,
-          channelId: req.channelId,
-          reason: 'auto-reset',
-        });
-      }
-    }
-    session = memoryService.getOrCreateSession(
-      req.sessionId,
-      req.guildId,
-      req.channelId,
-      agentId,
-      { forceNewCurrent: shouldForceNewTuiSession(req) },
-    );
-    if (session.id !== req.sessionId) {
-      req.sessionId = session.id;
-    }
-  }
-  const sessionContext = buildSessionContext({
-    source: {
-      channelKind: channelType || channel?.kind,
-      chatId: req.channelId,
-      chatType:
-        channelType === 'heartbeat' || channelType === 'scheduler'
-          ? 'system'
-          : req.guildId
-            ? 'channel'
-            : 'dm',
-      userId: req.userId,
-      userName: req.username ?? undefined,
-      guildId: req.guildId,
-    },
-    agentId,
-    sessionId: session.id,
-    sessionKey: session.session_key,
-    mainSessionKey: session.main_session_key,
-  });
-  const showMode = normalizeSessionShowMode(session.show_mode);
-  const shouldEmitTools = sessionShowModeShowsTools(showMode);
-  const enableRag = req.enableRag ?? session.enable_rag === 1;
-  let provider = resolveModelProvider(model);
-  let media = normalizeMediaContextItems(req.media);
-  const workspacePath = path.resolve(agentWorkspaceDir(agentId));
-  const workspaceBootstrap = ensureBootstrapFiles(agentId);
-  if (
-    workspaceBootstrap.workspaceInitialized &&
-    (session.message_count > 0 || Boolean(session.session_summary))
-  ) {
-    const rotated = createFreshSessionInstance(req.sessionId);
-    req.sessionId = rotated.session.id;
-    session = rotated.session;
-    if (pluginManager) {
-      await pluginManager.handleSessionReset({
-        previousSessionId: rotated.previousSession.id,
-        sessionId: rotated.session.id,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-        reason: 'workspace-reset',
-      });
-    }
-    logger.info(
-      {
-        sessionId: req.sessionId,
-        previousSessionId: rotated.previousSession.id,
-        sessionKey: session.session_key,
-        agentId,
-        workspacePath: workspaceBootstrap.workspacePath,
-        clearedMessages: rotated.deletedMessages,
-      },
-      'Cleared session history after workspace reset',
-    );
-  }
-  const audioPrelude = await prependAudioTranscriptionsToUserContent({
-    content: req.content,
-    media,
-    workspaceRoot: workspacePath,
-    abortSignal: activeGatewayRequest.signal,
-  });
-  const userTurnContent = audioPrelude.content;
-  const contextReferenceOptions = {
-    cwd: workspacePath,
-    contextLength: 128_000,
-    allowedRoot: workspacePath,
-  };
-  const contextRefResult = await preprocessContextReferences({
-    message: userTurnContent,
-    ...contextReferenceOptions,
-  });
-  let effectiveUserTurnContent = userTurnContent;
-  let effectiveUserTurnContentExpanded = contextRefResult.message;
-  let effectiveUserTurnContentStripped = contextRefResult.strippedMessage;
-  const canonicalContextScope = resolveCanonicalContextScope(session);
-  if (isFullAutoEnabled(session)) {
-    syncFullAutoRuntimeContext(req.sessionId, {
-      guildId: req.guildId,
-      userId: req.userId,
-      username: req.username ?? null,
-      chatbotId,
-      model,
-      enableRag,
-      onProactiveMessage: req.onProactiveMessage ?? null,
-    });
-  }
-  const turnIndex = session.message_count + 1;
-  if (turnIndex === 1) {
-    if (pluginManager) {
-      await pluginManager.notifySessionStart({
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-      });
-    }
-  }
-  const isInteractiveSource =
-    source !== 'fullauto' &&
-    channelType !== 'scheduler' &&
-    channelType !== 'heartbeat';
-  const explicitModelPinned = Boolean(
-    req.model?.trim() ||
-      session.model?.trim() ||
-      resolveAgentModel(resolvedAgent),
-  );
-  const conciergeTurn = await resolveConciergeTurn({
-    sessionId: req.sessionId,
-    requestContent: req.content,
-    agentId,
-    chatbotId,
-    currentModel: model,
-    isInteractiveSource,
-    explicitModelPinned,
-    media,
-    effectiveUserTurnContent,
-    effectiveUserTurnContentExpanded,
-    effectiveUserTurnContentStripped,
-    normalizeMediaContextItems,
-    cloneMediaContextItems,
-  });
-  let conciergeExecutionProfile: ConciergeProfile | null = null;
-  if (conciergeTurn.kind === 'respond') {
-    const storedTurn = recordSuccessfulTurn({
-      sessionId: req.sessionId,
-      agentId,
-      chatbotId,
-      enableRag,
-      model,
-      channelId: req.channelId,
-      runId,
-      turnIndex,
-      userId: req.userId,
-      username: req.username,
-      canonicalScopeId: canonicalContextScope,
-      userContent: buildStoredUserTurnContent(userTurnContent, media),
-      resultText: conciergeTurn.resultText,
-      toolCallCount: 0,
-      startedAt,
-    });
-    return attachSessionIdentity({
-      status: 'success',
-      result: conciergeTurn.resultText,
-      toolsUsed: [],
-      userMessageId: storedTurn.userMessageId,
-      assistantMessageId: storedTurn.assistantMessageId,
-    });
-  }
-  conciergeExecutionProfile = conciergeTurn.conciergeExecutionProfile;
-  model = conciergeTurn.model;
-  provider = conciergeTurn.provider;
-  media = conciergeTurn.media;
-  effectiveUserTurnContent = conciergeTurn.effectiveUserTurnContent;
-  effectiveUserTurnContentExpanded =
-    conciergeTurn.effectiveUserTurnContentExpanded;
-  effectiveUserTurnContentStripped =
-    conciergeTurn.effectiveUserTurnContentStripped;
-  if (model !== resolvedModel) {
-    chatbotResolution = await resolveGatewayChatbotId({
-      model,
-      chatbotId,
-      sessionId: req.sessionId,
-      channelId: req.channelId,
-      agentId,
-      trigger: 'chat',
-    });
-    chatbotId = chatbotResolution.chatbotId;
-  }
-  const debugMeta = {
-    sessionId: req.sessionId,
-    guildId: req.guildId,
-    channelId: req.channelId,
-    userId: req.userId,
-    model,
-    provider,
-    turnIndex,
-    mediaCount: media.length,
-    audioTranscriptCount: audioPrelude.transcripts.length,
-    contentLength: effectiveUserTurnContentExpanded.length,
-    streamingRequested: Boolean(
-      req.onTextDelta || req.onToolProgress || req.onApprovalProgress,
-    ),
-  };
-
-  logger.debug(debugMeta, 'Gateway chat request received');
-
-  recordAuditEvent({
-    sessionId: req.sessionId,
-    runId,
-    event: {
-      type: 'session.start',
-      userId: req.userId,
-      channel: req.channelId,
-      cwd: workspacePath,
-      model,
-      source,
-    },
-  });
-  recordAuditEvent({
-    sessionId: req.sessionId,
-    runId,
-    event: {
-      type: 'turn.start',
-      turnIndex,
-      userInput: userTurnContent,
-      ...(userTurnContent !== req.content ? { rawUserInput: req.content } : {}),
-      username: req.username,
-      mediaCount: media.length,
-      source,
-    },
-  });
-
-  if (modelRequiresChatbotId(model) && !chatbotId) {
-    const error =
-      chatbotResolution.error ||
-      'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
-    logger.warn(
-      {
-        ...debugMeta,
-        sessionModel: session.model ?? null,
-        sessionChatbotId: session.chatbot_id ?? null,
-        requestChatbotId: req.chatbotId ?? null,
-        defaultModel: HYBRIDAI_MODEL,
-        defaultChatbotConfigured: Boolean(HYBRIDAI_CHATBOT_ID),
-        fallbackSource: chatbotResolution.source,
-        durationMs: Date.now() - startedAt,
-      },
-      'Gateway chat blocked by missing chatbot configuration',
-    );
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'error',
-        errorType: 'configuration',
-        message: error,
-        recoverable: true,
-      },
-    });
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'turn.end',
-        turnIndex,
-        finishReason: 'error',
-      },
-    });
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'session.end',
-        reason: 'error',
-        stats: {
-          userMessages: 0,
-          assistantMessages: 0,
-          toolCalls: 0,
-          durationMs: Date.now() - startedAt,
-        },
-      },
-    });
-    return {
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      error,
-    };
-  }
-
-  if (isVersionOnlyQuestion(req.content)) {
-    const resultText = `HybridClaw v${APP_VERSION}`;
-    const storedTurn = recordSuccessfulTurn({
-      sessionId: req.sessionId,
-      agentId,
-      chatbotId,
-      enableRag,
-      model,
-      channelId: req.channelId,
-      runId,
-      turnIndex,
-      userId: req.userId,
-      username: req.username,
-      canonicalScopeId: canonicalContextScope,
-      userContent: req.content,
-      resultText,
-      toolCallCount: 0,
-      startedAt,
-    });
-    const result: GatewayChatResult = {
-      status: 'success',
-      result: resultText,
-      toolsUsed: [],
-      userMessageId: storedTurn.userMessageId,
-      assistantMessageId: storedTurn.assistantMessageId,
-    };
-    maybeScheduleFullAutoAfterSuccess({ session, req, result });
-    return attachSessionIdentity(result);
-  }
-
-  const history = memoryService
-    .getConversationHistory(req.sessionId, MAX_HISTORY_MESSAGES * 2)
-    .filter((message) => !isSilentReply(message.content))
-    .slice(0, MAX_HISTORY_MESSAGES);
-  let pluginsUsed: string[] = [];
-  let canonicalContext: CanonicalSessionContext = {
-    summary: null,
-    recent_messages: [],
-  };
-  if (canonicalContextScope) {
-    try {
-      canonicalContext = memoryService.getCanonicalContext({
-        agentId,
-        userId: canonicalContextScope,
-        windowSize: 12,
-        excludeSessionId: req.sessionId,
-      });
-      canonicalContext = {
-        ...canonicalContext,
-        recent_messages: canonicalContext.recent_messages.filter(
-          (message) => !isSilentReply(message.content),
-        ),
-      };
-    } catch (err) {
-      logger.debug(
-        { sessionId: req.sessionId, canonicalContextScope, err },
-        'Failed to load canonical session context',
-      );
-    }
-  }
-  const canonicalPromptSummary = formatCanonicalContextPrompt({
-    summary: canonicalContext.summary,
-    recentMessages: canonicalContext.recent_messages,
-  });
-  const pluginRecentMessages = [...history].reverse();
-  pluginRecentMessages.push({
-    id: 0,
-    session_id: req.sessionId,
-    user_id: req.userId,
-    username: req.username || null,
-    role: 'user',
-    content: contextRefResult.originalMessage,
-    created_at: new Date(startedAt).toISOString(),
-  });
-  const pluginPromptDetails = pluginManager
-    ? await pluginManager.collectPromptContextDetails({
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-        recentMessages: pluginRecentMessages,
-      })
-    : { sections: [], pluginIds: [] };
-  pluginsUsed = pluginPromptDetails.pluginIds;
-  const pluginPromptSummary = formatPluginPromptContext(
-    pluginPromptDetails.sections,
-  );
-  const memoryContext = memoryService.buildPromptMemoryContext({
-    session,
-    query: effectiveUserTurnContentStripped,
-  });
-  const mergedSessionSummary =
-    [canonicalPromptSummary, memoryContext.promptSummary]
-      .filter(
-        (value): value is string =>
-          typeof value === 'string' && value.trim().length > 0,
-      )
-      .join('\n\n')
-      .trim() || null;
-  const fullAutoOperatingContract = isFullAutoEnabled(session)
-    ? buildFullAutoOperatingContract(
-        session,
-        source === 'fullauto' ? 'background' : 'supervised',
-      )
-    : undefined;
-  const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
-  const { messages, skills, historyStats } = buildConversationContext({
-    agentId,
-    sessionSummary: mergedSessionSummary,
-    retrievedContext: pluginPromptSummary,
-    history,
-    currentUserContent: effectiveUserTurnContent,
-    extraSafetyText: fullAutoOperatingContract,
-    runtimeInfo: {
-      chatbotId,
-      model,
-      defaultModel: HYBRIDAI_MODEL,
-      channel,
-      channelType,
-      channelId: req.channelId,
-      guildId: req.guildId,
-      sessionContext,
-      workspacePath,
-    },
-    blockedTools: mediaPolicy.blockedTools,
-  });
-  const historyStart =
-    messages.length > 0 && messages[0].role === 'system' ? 1 : 0;
-  recordAuditEvent({
-    sessionId: req.sessionId,
-    runId,
-    event: {
-      type: 'context.optimization',
-      historyMessagesOriginal: historyStats.originalCount,
-      historyMessagesIncluded: historyStats.includedCount,
-      historyMessagesDropped: historyStats.droppedCount,
-      historyCharsOriginal: historyStats.originalChars,
-      historyCharsPreBudget: historyStats.preBudgetChars,
-      historyCharsIncluded: historyStats.includedChars,
-      historyCharsDropped: historyStats.droppedChars,
-      historyMaxChars: historyStats.maxTotalChars,
-      historyMaxMessageChars: historyStats.maxMessageChars,
-      perMessageTruncatedCount: historyStats.perMessageTruncatedCount,
-      middleCompressionApplied: historyStats.middleCompressionApplied,
-      historyEstimatedTokens: estimateTokenCountFromMessages(
-        messages.slice(historyStart),
-      ),
-      canonicalSummaryIncluded: Boolean(canonicalPromptSummary),
-      canonicalRecentMessagesIncluded: canonicalContext.recent_messages.length,
-    },
-  });
-  if (mediaPolicy.prioritizeVisionTool) {
-    logger.info(
-      {
-        sessionId: req.sessionId,
-        mediaCount: media.length,
-        blockedTools: mediaPolicy.blockedTools || [],
-      },
-      'Routing Discord image question to vision_analyze tool',
-    );
-  }
-  const mediaContextBlock = buildMediaPromptContext(media);
-  const skillInvocation = expandSkillInvocationWithResolution(
-    effectiveUserTurnContent,
-    skills,
-  );
-  const skillArgsContext = skillInvocation.invocation
-    ? await preprocessContextReferences({
-        message: skillInvocation.invocation.args,
-        ...contextReferenceOptions,
-      })
-    : null;
-  const expandedUserContent = skillInvocation.invocation
-    ? expandResolvedSkillInvocation(
-        skillInvocation.invocation,
-        skillArgsContext?.message ?? '',
-      )
-    : effectiveUserTurnContentExpanded;
-  const explicitSkillName = skillInvocation.invocation?.skill.name || null;
-  const agentUserContent = mediaContextBlock
-    ? `${expandedUserContent}\n\n${mediaContextBlock}`
-    : expandedUserContent;
-  logger.debug(
-    {
-      ...debugMeta,
-      durationMs: Date.now() - startedAt,
-      historyMessages: history.length,
-      promptMessages: messages.length + 1,
-      skillsLoaded: skills.length,
-      blockedTools: mediaPolicy.blockedTools || [],
-      scheduledTaskHistoryCount: historyStats.includedCount,
-    },
-    'Gateway chat context prepared',
-  );
-  messages.push({
-    role: 'user',
-    content: agentUserContent,
-  });
-  const requestMessages = isGatewayRequestLoggingEnabled()
-    ? messages.slice()
-    : null;
-
-  let agentStage:
-    | 'pre-agent'
-    | 'awaiting-agent-output'
-    | 'processing-agent-output' = 'pre-agent';
-
-  try {
-    const scheduledTasks: ScheduledTask[] = getTasksForSession(req.sessionId);
-    let firstTextDeltaMs: number | null = null;
-    const onTextDelta = (delta: string): void => {
-      if (firstTextDeltaMs == null && delta) {
-        firstTextDeltaMs = Date.now() - startedAt;
-        logger.debug(
-          {
-            ...debugMeta,
-            firstTextDeltaMs,
-            firstDeltaChars: delta.length,
-          },
-          'Gateway chat emitted first text delta',
-        );
-      }
-      req.onTextDelta?.(delta);
-    };
-    const onToolProgress = (event: ToolProgressEvent): void => {
-      logger.debug(
-        {
-          ...debugMeta,
-          toolName: event.toolName,
-          phase: event.phase,
-          toolDurationMs: event.durationMs ?? null,
-          sinceStartMs: Date.now() - startedAt,
-        },
-        'Gateway tool progress',
-      );
-      if (!shouldEmitTools) return;
-      req.onToolProgress?.(event);
-    };
-    const onApprovalProgress = (approval: PendingApproval): void => {
-      logger.debug(
-        {
-          ...debugMeta,
-          approvalId: approval.approvalId,
-          approvalIntent: approval.intent,
-          approvalReason: approval.reason,
-          sinceStartMs: Date.now() - startedAt,
-        },
-        'Gateway approval progress',
-      );
-      req.onApprovalProgress?.(approval);
-    };
-    logger.debug(
-      {
-        ...debugMeta,
-        scheduledTaskCount: scheduledTasks.length,
-      },
-      'Gateway chat invoking agent',
-    );
-    const conciergeExecutionNotice = conciergeExecutionProfile
-      ? buildConciergeExecutionNotice(conciergeExecutionProfile, model)
-      : null;
-    if (conciergeExecutionNotice) {
-      req.onTextDelta?.(conciergeExecutionNotice);
-    }
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'agent.start',
-        provider,
-        model,
-        scheduledTaskCount: scheduledTasks.length,
-        promptMessages: messages.length,
-        systemPrompt: readSystemPromptMessage(messages),
-      },
-    });
-    if (pluginManager) {
-      await pluginManager.notifyBeforeAgentStart({
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-        model: model || undefined,
-      });
-    }
-    agentStage = 'awaiting-agent-output';
-    const output = await runAgent({
-      sessionId: req.sessionId,
-      messages,
-      chatbotId,
-      enableRag,
-      model,
-      agentId,
-      channelId: req.channelId,
-      ralphMaxIterations: resolveSessionRalphIterations(session),
-      fullAutoEnabled: isFullAutoEnabled(session),
-      fullAutoNeverApproveTools: FULLAUTO_NEVER_APPROVE_TOOLS,
-      scheduledTasks,
-      blockedTools: mediaPolicy.blockedTools,
-      onTextDelta,
-      onToolProgress,
-      onApprovalProgress,
-      abortSignal: activeGatewayRequest.signal,
-      media,
-      audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
-      pluginTools: pluginManager?.getToolDefinitions() ?? [],
-    });
-    agentStage = 'processing-agent-output';
-    const storedUserContent = buildStoredUserTurnContent(
-      userTurnContent,
-      media,
-    );
-    const toolExecutions = output.toolExecutions || [];
-    const observedSkillName = resolveObservedSkillName({
-      explicitSkillName,
-      toolExecutions,
-      skills,
-    });
-    emitToolExecutionAuditEvents({
-      sessionId: req.sessionId,
-      runId,
-      toolExecutions,
-    });
-    const usagePayload = buildTokenUsageAuditPayload(
-      messages,
-      output.result,
-      output.tokenUsage,
-    );
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'model.usage',
-        provider,
-        model,
-        durationMs: Date.now() - startedAt,
-        toolCallCount: toolExecutions.length,
-        ...usagePayload,
-      },
-    });
-    recordUsageEvent({
-      sessionId: req.sessionId,
-      agentId,
-      model,
-      inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
-      outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
-      totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
-      toolCalls: toolExecutions.length,
-      costUsd: extractUsageCostUsd(output.tokenUsage),
-    });
-    if (observedSkillName) {
-      try {
-        recordSkillExecution({
-          skillName: observedSkillName,
-          sessionId: req.sessionId,
-          runId,
-          toolExecutions,
-          outcome: deriveSkillExecutionOutcome({
-            outputStatus: output.status,
-            toolExecutions,
-          }),
-          durationMs: Date.now() - startedAt,
-          errorDetail: output.error,
-        });
-      } catch (error) {
-        logger.warn(
-          { sessionId: req.sessionId, skillName: observedSkillName, error },
-          'Failed to record skill execution observation',
-        );
-      }
-    }
-
-    const parentDepth = extractDelegationDepth(req.sessionId);
-    let acceptedDelegations = 0;
-    processSideEffects(output, req.sessionId, req.channelId, {
-      onDelegation: (effect) => {
-        const normalized = normalizeDelegationEffect(effect, model);
-        if (!normalized.plan) {
-          logger.warn(
-            {
-              sessionId: req.sessionId,
-              error: normalized.error || 'unknown',
-              effect,
-            },
-            'Delegation skipped — invalid payload',
-          );
-          return;
-        }
-
-        const childDepth = parentDepth + 1;
-        if (childDepth > PROACTIVE_DELEGATION_MAX_DEPTH) {
-          logger.info(
-            {
-              sessionId: req.sessionId,
-              childDepth,
-              maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH,
-            },
-            'Delegation skipped — depth limit reached',
-          );
-          return;
-        }
-
-        const requestedRuns = normalized.plan.tasks.length;
-        if (
-          acceptedDelegations + requestedRuns >
-          PROACTIVE_DELEGATION_MAX_PER_TURN
-        ) {
-          logger.info(
-            {
-              sessionId: req.sessionId,
-              limit: PROACTIVE_DELEGATION_MAX_PER_TURN,
-              requestedRuns,
-              acceptedDelegations,
-            },
-            'Delegation skipped — per-turn limit reached',
-          );
-          return;
-        }
-        acceptedDelegations += requestedRuns;
-        enqueueDelegationFromSideEffect({
-          plan: normalized.plan,
-          parentSessionId: req.sessionId,
-          channelId: req.channelId,
-          chatbotId,
-          enableRag,
-          agentId,
-          onProactiveMessage: req.onProactiveMessage,
-          parentDepth,
-        });
-      },
-    });
-
-    if (output.status === 'error') {
-      const errorMessage = output.error || 'Unknown agent error.';
-      const durationMs = Date.now() - startedAt;
-      logger.debug(
-        {
-          ...debugMeta,
-          durationMs,
-          toolCallCount: toolExecutions.length,
-          firstTextDeltaMs,
-          artifactCount: output.artifacts?.length || 0,
-        },
-        'Gateway chat completed with agent error',
-      );
-      recordAuditEvent({
-        sessionId: req.sessionId,
-        runId,
-        event: {
-          type: 'error',
-          errorType: 'agent',
-          message: errorMessage,
-          recoverable: true,
-          stage: agentStage,
-        },
-      });
-      recordAuditEvent({
-        sessionId: req.sessionId,
-        runId,
-        event: {
-          type: 'turn.end',
-          turnIndex,
-          finishReason: 'error',
-        },
-      });
-      recordAuditEvent({
-        sessionId: req.sessionId,
-        runId,
-        event: {
-          type: 'session.end',
-          reason: 'error',
-          stats: {
-            userMessages: 0,
-            assistantMessages: 0,
-            toolCalls: toolExecutions.length,
-            durationMs,
-          },
-        },
-      });
-      if (requestMessages !== null) {
-        maybeRecordGatewayRequestLog({
-          sessionId: req.sessionId,
-          model,
-          chatbotId,
-          messages: requestMessages,
-          status: 'error',
-          error: errorMessage,
-          toolExecutions,
-          toolsUsed: output.toolsUsed || [],
-          durationMs,
-        });
-      }
-      return attachSessionIdentity({
-        status: 'error',
-        result: null,
-        toolsUsed: output.toolsUsed || [],
-        pluginsUsed,
-        artifacts: output.artifacts,
-        toolExecutions,
-        tokenUsage: output.tokenUsage,
-        error: errorMessage,
-      });
-    }
-
-    const rawResultText = output.result || 'No response from agent.';
-    const resultText = conciergeExecutionNotice
-      ? `${conciergeExecutionNotice}${rawResultText}`
-      : rawResultText;
-    const memoryCitations = extractMemoryCitations(
-      resultText,
-      memoryContext.citationIndex,
-    );
-    if (memoryCitations.length > 0) {
-      output.memoryCitations = memoryCitations;
-    }
-    const durationMs = Date.now() - startedAt;
-    logger.debug(
-      {
-        ...debugMeta,
-        durationMs,
-        toolCallCount: toolExecutions.length,
-        firstTextDeltaMs,
-        artifactCount: output.artifacts?.length || 0,
-      },
-      'Gateway chat completed successfully',
-    );
-    const storedTurn = recordSuccessfulTurn({
-      sessionId: req.sessionId,
-      agentId,
-      chatbotId,
-      enableRag,
-      model,
-      channelId: req.channelId,
-      runId,
-      turnIndex,
-      userId: req.userId,
-      username: req.username,
-      canonicalScopeId: canonicalContextScope,
-      userContent: storedUserContent,
-      resultText,
-      toolCallCount: toolExecutions.length,
-      startedAt,
-    });
-    const storedTurnMessages = buildStoredTurnMessages({
-      sessionId: req.sessionId,
-      userId: req.userId,
-      username: req.username,
-      userContent: storedUserContent,
-      resultText,
-    });
-    if (pluginManager) {
-      void pluginManager
-        .notifyTurnComplete({
-          sessionId: req.sessionId,
-          userId: req.userId,
-          agentId,
-          messages: storedTurnMessages,
-        })
-        .catch((error) => {
-          logger.warn(
-            { sessionId: req.sessionId, agentId, error },
-            'Plugin turn-complete hooks failed',
-          );
-        });
-      void pluginManager
-        .notifyAgentEnd({
-          sessionId: req.sessionId,
-          userId: req.userId,
-          agentId,
-          channelId: req.channelId,
-          messages: storedTurnMessages,
-          resultText,
-          toolNames: toolExecutions.map((execution) => execution.name),
-          model: model || undefined,
-          durationMs: Date.now() - startedAt,
-          tokenUsage: output.tokenUsage
-            ? {
-                promptTokens: output.tokenUsage.apiUsageAvailable
-                  ? output.tokenUsage.apiPromptTokens
-                  : output.tokenUsage.estimatedPromptTokens,
-                completionTokens: output.tokenUsage.apiUsageAvailable
-                  ? output.tokenUsage.apiCompletionTokens
-                  : output.tokenUsage.estimatedCompletionTokens,
-                totalTokens: output.tokenUsage.apiUsageAvailable
-                  ? output.tokenUsage.apiTotalTokens
-                  : output.tokenUsage.estimatedTotalTokens,
-                modelCalls: output.tokenUsage.modelCalls,
-              }
-            : undefined,
-        })
-        .catch((error) => {
-          logger.warn(
-            { sessionId: req.sessionId, agentId, error },
-            'Plugin agent-end hooks failed',
-          );
-        });
-    }
-
-    const result: GatewayChatResult = {
-      status: 'success',
-      result: resultText,
-      toolsUsed: output.toolsUsed || [],
-      pluginsUsed,
-      memoryCitations: output.memoryCitations,
-      artifacts: output.artifacts,
-      toolExecutions,
-      pendingApproval: output.pendingApproval,
-      tokenUsage: output.tokenUsage,
-      effectiveUserPrompt: output.effectiveUserPrompt,
-      userMessageId: storedTurn.userMessageId,
-      assistantMessageId: storedTurn.assistantMessageId,
-    };
-    maybeScheduleFullAutoAfterSuccess({ session, req, result });
-    if (requestMessages !== null) {
-      maybeRecordGatewayRequestLog({
-        sessionId: req.sessionId,
-        model,
-        chatbotId,
-        messages: requestMessages,
-        status: 'success',
-        response: resultText,
-        toolExecutions,
-        toolsUsed: output.toolsUsed || [],
-        durationMs,
-      });
-    }
-    return attachSessionIdentity(result);
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    const durationMs = Date.now() - startedAt;
-    logAudit('error', req.sessionId, { error: errorMsg }, durationMs);
-    logger.error(
-      {
-        ...debugMeta,
-        durationMs,
-        stage: agentStage,
-        err,
-      },
-      'Gateway message handling failed',
-    );
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'error',
-        errorType: 'gateway',
-        message: errorMsg,
-        recoverable: true,
-        stage: agentStage,
-      },
-    });
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'turn.end',
-        turnIndex,
-        finishReason: 'error',
-      },
-    });
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'session.end',
-        reason: 'error',
-        stats: {
-          userMessages: 0,
-          assistantMessages: 0,
-          toolCalls: 0,
-          durationMs,
-        },
-      },
-    });
-    if (requestMessages !== null) {
-      maybeRecordGatewayRequestLog({
-        sessionId: req.sessionId,
-        model,
-        chatbotId,
-        messages: requestMessages,
-        status: 'error',
-        error: errorMsg,
-        durationMs,
-      });
-    }
-    return attachSessionIdentity({
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      pluginsUsed,
-      toolExecutions: undefined,
-      error: errorMsg,
-    });
-  } finally {
-    activeGatewayRequest.release();
-  }
 }
 
 export async function handleGatewayCommand(

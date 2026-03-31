@@ -58,7 +58,7 @@ test('handleGatewayMessage clears session history when the agent workspace is re
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   const sessionId = 'tui:local';

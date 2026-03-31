@@ -914,7 +914,6 @@ async function importFreshHealth(options?: {
     getGatewayHistorySummary,
     getGatewayStatus,
     handleGatewayCommand,
-    handleGatewayMessage,
     renderGatewayCommand,
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
@@ -924,6 +923,9 @@ async function importFreshHealth(options?: {
     updateGatewayAdminAgent,
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
+  }));
+  vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
+    handleGatewayMessage,
   }));
   vi.doMock('../src/gateway/gateway-scheduled-task-service.js', () => ({
     getGatewayAdminScheduler,
@@ -1025,6 +1027,7 @@ afterEach(() => {
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/memory/db.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
+  vi.doUnmock('../src/gateway/gateway-chat-service.js');
   vi.doUnmock('../src/gateway/gateway-scheduled-task-service.js');
   vi.doUnmock('../src/channels/imessage/runtime.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');

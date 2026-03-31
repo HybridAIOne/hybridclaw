@@ -26,7 +26,7 @@ test('handleGatewayMessage records observations for implicitly activated single-
     '../src/config/runtime-config.ts'
   );
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });
@@ -84,7 +84,7 @@ test('handleGatewayMessage does not attribute ambiguous read-only skill explorat
     '../src/config/runtime-config.ts'
   );
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });

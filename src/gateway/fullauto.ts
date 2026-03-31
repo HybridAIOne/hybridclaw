@@ -37,12 +37,10 @@ import {
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import type { ChatMessage } from '../types/api.js';
-import type {
-  ArtifactMetadata,
-  ToolProgressEvent,
-} from '../types/execution.js';
+import type { ArtifactMetadata } from '../types/execution.js';
 import type { Session } from '../types/session.js';
 import { sleep } from '../utils/sleep.js';
+import { handleGatewayMessage } from './gateway-chat-service.js';
 import {
   classifyGatewayError,
   type GatewayErrorClass,
@@ -97,21 +95,6 @@ export interface FullAutoRequestContext {
   source?: string;
 }
 
-interface FullAutoTurnRequest extends FullAutoRequestContext {
-  sessionId: string;
-  channelId: string;
-  content: string;
-  onTextDelta?: (delta: string) => void;
-  onToolProgress?: (event: ToolProgressEvent) => void;
-  abortSignal?: AbortSignal;
-}
-
-interface FullAutoRuntimeHost {
-  handleGatewayMessage: (
-    req: FullAutoTurnRequest,
-  ) => Promise<GatewayChatResult>;
-}
-
 export interface FullAutoRuntimeState {
   timer: ReturnType<typeof setTimeout> | null;
   watchdogTimer: ReturnType<typeof setInterval> | null;
@@ -139,16 +122,6 @@ export interface FullAutoRuntimeState {
 const fullAutoRuntimeBySession = new Map<string, FullAutoRuntimeState>();
 let fullAutoStartupResumed = false;
 let nextFullAutoRunToken = 1;
-let fullAutoHost: FullAutoRuntimeHost | null = null;
-
-export function configureFullAutoRuntime(host: FullAutoRuntimeHost): void {
-  fullAutoHost = host;
-}
-
-function requireFullAutoHost(): FullAutoRuntimeHost {
-  if (fullAutoHost) return fullAutoHost;
-  throw new Error('Full-auto runtime host has not been configured.');
-}
 
 function getOrCreateFullAutoRuntimeState(
   sessionId: string,
@@ -1322,7 +1295,6 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
   let lastError = 'Unknown full-auto error';
   let lastClassification: GatewayErrorClass = 'unknown';
   const runToken = state.activeRunToken;
-  const { handleGatewayMessage } = requireFullAutoHost();
 
   try {
     while (attempt < maxAttempts) {

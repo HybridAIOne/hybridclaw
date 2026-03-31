@@ -72,6 +72,7 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
+import { handleGatewayMessage } from './gateway-chat-service.js';
 import {
   getGatewayAdminPlugins,
   handleGatewayPluginWebhook,
@@ -109,7 +110,6 @@ import {
   getGatewayRecentChatSessions,
   getGatewayStatus,
   handleGatewayCommand,
-  handleGatewayMessage,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   saveGatewayAdminConfig,
