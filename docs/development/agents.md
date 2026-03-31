@@ -1,10 +1,10 @@
 ---
-title: Agent Docs Index
+title: For Agents
 description: Raw-markdown entrypoint for agents that links every HybridClaw docs page directly as markdown.
-sidebar_position: 2
+sidebar_position: 100
 ---
 
-# Agent Docs Index
+# For Agents
 
 This page is the raw-markdown start page for agents and other retrieval flows.
 Every link below points directly to a `.md` page.
