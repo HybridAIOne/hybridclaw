@@ -72,11 +72,19 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
+import { handleGatewayMessage } from './gateway-chat-service.js';
 import {
   getGatewayAdminPlugins,
   handleGatewayPluginWebhook,
   runGatewayPluginTool,
 } from './gateway-plugin-service.js';
+import {
+  getGatewayAdminScheduler,
+  moveGatewayAdminSchedulerJob,
+  removeGatewayAdminSchedulerJob,
+  setGatewayAdminSchedulerJobPaused,
+  upsertGatewayAdminSchedulerJob,
+} from './gateway-scheduled-task-service.js';
 import {
   createGatewayAdminAgent,
   deleteGatewayAdminAgent,
@@ -91,7 +99,6 @@ import {
   getGatewayAdminMcp,
   getGatewayAdminModels,
   getGatewayAdminOverview,
-  getGatewayAdminScheduler,
   getGatewayAdminSessions,
   getGatewayAdminSkills,
   getGatewayAdminTools,
@@ -103,19 +110,14 @@ import {
   getGatewayRecentChatSessions,
   getGatewayStatus,
   handleGatewayCommand,
-  handleGatewayMessage,
-  moveGatewayAdminSchedulerJob,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
-  removeGatewayAdminSchedulerJob,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
-  setGatewayAdminSchedulerJobPaused,
   setGatewayAdminSkillEnabled,
   updateGatewayAdminAgent,
   upsertGatewayAdminChannel,
   upsertGatewayAdminMcpServer,
-  upsertGatewayAdminSchedulerJob,
 } from './gateway-service.js';
 import type {
   GatewayChatBranchRequestBody,
@@ -1883,9 +1885,13 @@ async function handleApiAdminScheduler(
       .trim()
       .toLowerCase();
     if (action === 'move') {
-      let boardStatus = null;
+      let boardStatus: Parameters<
+        typeof moveGatewayAdminSchedulerJob
+      >[0]['boardStatus'];
       try {
-        boardStatus = parseSchedulerBoardStatus(body.boardStatus) ?? null;
+        if ('boardStatus' in body) {
+          boardStatus = parseSchedulerBoardStatus(body.boardStatus) ?? null;
+        }
       } catch (error) {
         sendJson(res, 400, {
           error: error instanceof Error ? error.message : String(error),
@@ -1898,7 +1904,7 @@ async function handleApiAdminScheduler(
         moveGatewayAdminSchedulerJob({
           jobId,
           beforeJobId: String(body.beforeJobId || '').trim() || null,
-          boardStatus,
+          ...('boardStatus' in body ? { boardStatus } : {}),
         }),
       );
       return;

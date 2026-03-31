@@ -22,7 +22,7 @@ test('handleGatewayMessage extracts cited memory references from the model respo
   const { initDatabase } = await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });

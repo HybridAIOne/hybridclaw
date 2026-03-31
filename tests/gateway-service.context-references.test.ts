@@ -35,7 +35,7 @@ test('handleGatewayMessage expands context references only for llm-facing paths'
   const { initDatabase } = await import('../src/memory/db.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });
@@ -114,7 +114,7 @@ test('handleGatewayMessage keeps explicit skill expansion when skill args inject
   const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });

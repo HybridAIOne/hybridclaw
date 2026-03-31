@@ -255,7 +255,7 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
 
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });
@@ -345,7 +345,7 @@ test('handleGatewayMessage continues without plugins when plugin manager init fa
 
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });

@@ -14,10 +14,8 @@ import {
   normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
 } from './chat-result.js';
-import {
-  handleGatewayMessage,
-  renderGatewayCommand,
-} from './gateway-service.js';
+import { handleGatewayMessage } from './gateway-chat-service.js';
+import { renderGatewayCommand } from './gateway-service.js';
 import type { GatewayCommandResult } from './gateway-types.js';
 import {
   cleanupExpiredPendingApprovals,

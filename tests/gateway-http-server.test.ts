@@ -904,7 +904,6 @@ async function importFreshHealth(options?: {
     getGatewayAdminMcp,
     getGatewayAdminModels,
     getGatewayAdminOverview,
-    getGatewayAdminScheduler,
     getGatewayAdminSessions,
     getGatewayAdminSkills,
     getGatewayAdminTools,
@@ -915,19 +914,24 @@ async function importFreshHealth(options?: {
     getGatewayHistorySummary,
     getGatewayStatus,
     handleGatewayCommand,
-    handleGatewayMessage,
-    moveGatewayAdminSchedulerJob,
     renderGatewayCommand,
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
-    removeGatewayAdminSchedulerJob,
     saveGatewayAdminConfig,
     saveGatewayAdminModels,
-    setGatewayAdminSchedulerJobPaused,
     setGatewayAdminSkillEnabled,
     updateGatewayAdminAgent,
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
+  }));
+  vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
+    handleGatewayMessage,
+  }));
+  vi.doMock('../src/gateway/gateway-scheduled-task-service.js', () => ({
+    getGatewayAdminScheduler,
+    moveGatewayAdminSchedulerJob,
+    removeGatewayAdminSchedulerJob,
+    setGatewayAdminSchedulerJobPaused,
     upsertGatewayAdminSchedulerJob,
   }));
   vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
@@ -1023,6 +1027,8 @@ afterEach(() => {
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/memory/db.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
+  vi.doUnmock('../src/gateway/gateway-chat-service.js');
+  vi.doUnmock('../src/gateway/gateway-scheduled-task-service.js');
   vi.doUnmock('../src/channels/imessage/runtime.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');
   vi.doUnmock('../src/channels/message/tool-actions.js');
@@ -2525,6 +2531,51 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual({
       error:
         'Scheduler board status must be `backlog`, `in_progress`, `review`, `done`, or `cancelled`.',
+    });
+  });
+
+  test('passes scheduler move boardStatus only when explicitly provided', async () => {
+    const state = await importFreshHealth();
+
+    const withoutBoardStatusReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/scheduler',
+      body: {
+        action: 'move',
+        jobId: 'job-1',
+      },
+    });
+    const withoutBoardStatusRes = makeResponse();
+
+    state.handler(
+      withoutBoardStatusReq as never,
+      withoutBoardStatusRes as never,
+    );
+    await settle();
+
+    expect(state.moveGatewayAdminSchedulerJob.mock.calls[0]?.[0]).toEqual({
+      jobId: 'job-1',
+      beforeJobId: null,
+    });
+
+    const clearBoardStatusReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/scheduler',
+      body: {
+        action: 'move',
+        jobId: 'job-1',
+        boardStatus: null,
+      },
+    });
+    const clearBoardStatusRes = makeResponse();
+
+    state.handler(clearBoardStatusReq as never, clearBoardStatusRes as never);
+    await settle();
+
+    expect(state.moveGatewayAdminSchedulerJob.mock.calls[1]?.[0]).toEqual({
+      jobId: 'job-1',
+      beforeJobId: null,
+      boardStatus: null,
     });
   });
 

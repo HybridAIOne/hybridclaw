@@ -96,19 +96,18 @@ import {
   normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
 } from './chat-result.js';
-import { configureFullAutoRuntime } from './fullauto.js';
+import { handleGatewayMessage } from './gateway-chat-service.js';
 import { classifyGatewayError } from './gateway-error-utils.js';
 import { startGatewayHttpServer } from './gateway-http-server.js';
 import {
   initGatewayService,
   stopGatewayPlugins,
 } from './gateway-plugin-service.js';
+import { runGatewayScheduledTask } from './gateway-scheduled-task-service.js';
 import {
   getGatewayStatus,
   handleGatewayCommand,
-  handleGatewayMessage,
   resumeEnabledFullAutoSessions,
-  runGatewayScheduledTask,
 } from './gateway-service.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
@@ -1685,8 +1684,7 @@ async function main(): Promise<void> {
   logger.info('Starting HybridClaw gateway');
   initDatabase();
   listAgents();
-  configureFullAutoRuntime({ handleGatewayMessage });
-  await initGatewayService({ handleGatewayMessage });
+  await initGatewayService();
   resumeEnabledFullAutoSessions();
   void runManagedMediaCleanup('startup').catch((error) => {
     logger.warn({ error }, 'Managed media cleanup failed during startup');
