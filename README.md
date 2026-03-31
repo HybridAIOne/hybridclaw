@@ -22,8 +22,9 @@ Portable `.claw` packages can snapshot an agent workspace plus bundled skills
 and plugins for transfer or backup, and persistent browser profiles let the
 agent reuse authenticated web sessions for later browser automation.
 Local plugins can extend the gateway with typed manifests, plugin tools,
-memory layers, prompt hooks, and lifecycle hooks, including the installable
-QMD-backed memory layer shipped in `plugins/qmd-memory`.
+memory layers, prompt hooks, lifecycle hooks, and fixed plugin-owned inbound
+webhook routes, including the installable QMD-backed memory layer shipped in
+`plugins/qmd-memory`.
 Web chat and TUI can attach current-turn files, and inline context references
 like `@file:src/app.ts`, `@diff`, or `@url:https://example.com/spec` can
 ground a turn without pasting raw content.
@@ -31,6 +32,9 @@ ground a turn without pasting raw content.
 Operators can also health-check the runtime with `hybridclaw doctor`, tune
 skill availability globally or per channel, and review adaptive skill health
 and amendment history from the CLI, TUI, or admin surfaces.
+Concierge routing can ask about urgency before longer jobs and map execution
+to profile-specific models, while tracked runtime config revisions make local
+config changes auditable and reversible.
 For turn-level debugging, gateway start/restart can also persist best-effort
 redacted prompts, responses, and tool payloads with `--log-requests`.
 
@@ -45,7 +49,9 @@ Prerequisites: Node.js 22. Docker is recommended when you want the default
 container sandbox. The published install bootstraps the packaged container
 runtime dependencies during `npm install -g`.
 The current release tag is
-[v0.9.7](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.9.7).
+[v0.9.8](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.9.8).
+This release adds concierge routing, tracked config revisions, plugin inbound
+webhooks, expanded agent install sources, and the bundled `sokosumi` skill.
 Release notes live in [CHANGELOG.md](./CHANGELOG.md), and the browsable
 operator and maintainer manual lives under
 [docs/development/README.md](./docs/development/README.md).
@@ -363,9 +369,11 @@ hybridclaw agent activate demo-agent
 - `agent inspect` validates the manifest and prints archive metadata without
   extracting it.
 - `agent install` restores the agent, fills missing bootstrap files, and
-  re-registers bundled content with the runtime from a local `.claw` file or a
-  packaged GitHub source such as `official:<agent-dir>` or
-  `github:owner/repo[/<ref>]/<agent-dir>`.
+  re-registers bundled content with the runtime from a local `.claw` file, a
+  direct `.claw` URL, or a packaged GitHub source such as `official:<agent-dir>`
+  or `github:owner/repo[/<ref>]/<agent-dir>`.
+- `agent install --skip-import-errors` continues when a manifest-declared skill
+  import fails and prints retry commands for the skipped imports.
 - `.claw` manifests can include agent presentation metadata such as a
   `displayName` and workspace-relative profile image asset for web chat.
 - `agent activate <agent-id>` sets the default agent for new requests that do
@@ -579,14 +587,14 @@ CLI runtime commands:
 - `hybridclaw gateway compact` — Archive older session history into semantic memory while preserving a recent active context tail
 - `hybridclaw gateway reset [yes|no]` — Clear session history, reset per-session model/chatbot/RAG settings, and remove the current agent workspace (confirmation required)
 - `hybridclaw agent list` — Show registered agents in a script-friendly tab-separated format
-- `hybridclaw agent export [agent-id] [-o <path>]`, `inspect <file.claw>`, `install <file.claw> [--id <id>]`, `uninstall <agent-id> [--yes]` — Manage portable `.claw` agent archives (legacy `pack` / `unpack` aliases still work)
+- `hybridclaw agent export [agent-id] [-o <path>]`, `inspect <file.claw>`, `install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]`, `uninstall <agent-id> [--yes]` — Manage portable `.claw` agent archives (legacy `pack` / `unpack` aliases still work)
 - `hybridclaw tui` — Start terminal client connected to gateway
 - `hybridclaw tui --resume <sessionId>` / `hybridclaw --resume <sessionId>` — Resume an earlier TUI session by canonical session id
 - `hybridclaw onboarding` — Run trust-model acceptance plus interactive provider onboarding
 - `hybridclaw auth login [provider] ...` — Namespaced provider setup/login entrypoint
 - `hybridclaw auth status <provider>` — Show provider status for `hybridai`, `codex`, `openrouter`, `mistral`, `huggingface`, `local`, or `msteams`
 - `hybridclaw auth logout <provider>` — Clear provider credentials or disable local backends/Teams
-- `hybridclaw config`, `check`, `reload`, `set <key> <value>` — Inspect, validate, hot-reload, or edit the local runtime config file
+- `hybridclaw config`, `check`, `reload`, `set <key> <value>`, `revisions [list|rollback <id>|delete <id>|clear]` — Inspect, validate, hot-reload, edit, audit, or restore the local runtime config file
 - `hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]` — Enable Microsoft Teams, persist the app secret, and print webhook next steps
 - `hybridclaw auth whatsapp reset` — Clear linked WhatsApp auth so the account can be re-paired cleanly
 - `hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]` — Prepare restricted command-only Discord config and print bot/token next steps

@@ -17,20 +17,20 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 
 ## Latest Highlights
 
-- HybridClaw now supports `Mistral` as a first-class provider, including
-  `hybridclaw auth login|status|logout mistral`, `mistral/...` model
-  selection, and discovered catalog metadata in selectors and status output.
-- `export trace [sessionId|all]` now emits `ATIF`-compatible trace JSONL with
-  tool-call, token-usage, and git-context metadata for offline debugging and
-  analysis.
-- The browsable docs shell moved to `/docs`, raw-markdown docs now have a
-  dedicated [For Agents](./agents.md), and HybridClaw product questions
-  route through a bundled `hybridclaw-help` skill plus public docs retrieval.
-- Built-in web chat streaming is smoother under live output thanks to batched
-  rendering, decoder-tail handling, NDJSON fallback support, and preserved
-  scroll position during stream updates.
-- The bundled `obsidian` skill adds first-party vault workflows for searching,
-  creating, and organizing notes while preserving existing wikilink patterns.
+- Concierge routing can ask users about urgency before long-running requests,
+  then route execution through configurable `asap`, `balanced`, or
+  `no_hurry` model profiles from gateway, TUI, or slash-command surfaces.
+- `hybridclaw config revisions [list|rollback|delete|clear]` now tracks
+  auditable runtime config snapshots in
+  `~/.hybridclaw/data/config-revisions.db` so local config changes can be
+  reviewed and restored.
+- Agent installs now support direct `.claw` URLs, session-side `/agent install`
+  flows, and `--skip-import-errors` for partial imported-skill failures while
+  keeping the rest of the archive install moving.
+- Plugins can expose inbound webhook endpoints and dispatch normalized inbound
+  messages through the same assistant turn pipeline used by built-in channels.
+- The bundled `sokosumi` skill adds API-key-authenticated workflows for agent
+  hires, coworker task creation, job monitoring, and result retrieval.
 
 ## Browse By Section
 

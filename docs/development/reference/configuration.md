@@ -12,8 +12,10 @@ most runtime settings.
 Use `hybridclaw config` to print the active runtime config,
 `hybridclaw config check` to validate only the config file itself,
 `hybridclaw config reload` to force an immediate in-process hot reload from
-disk, and `hybridclaw config set <key> <value>` to edit an existing dotted key
-path without rewriting the whole file manually.
+disk, `hybridclaw config set <key> <value>` to edit an existing dotted key
+path without rewriting the whole file manually, and
+`hybridclaw config revisions [list|rollback <id>|delete <id>|clear]` to audit
+or restore tracked config snapshots.
 
 ## Runtime Files
 
@@ -21,9 +23,26 @@ path without rewriting the whole file manually.
 - `~/.hybridclaw/credentials.json` for runtime secrets
 - `~/.hybridclaw/codex-auth.json` for Codex OAuth state
 - `~/.hybridclaw/data/hybridclaw.db` for persistent runtime data
+- `~/.hybridclaw/data/config-revisions.db` for tracked runtime config history
 
 HybridClaw does not keep runtime state in the current working directory. If
 `./.env` exists, supported secrets are imported once for compatibility.
+
+## Config Revision History
+
+HybridClaw records runtime config snapshots whenever `config.json` changes
+through the CLI, gateway commands, or background reload paths.
+
+- `hybridclaw config revisions` lists tracked snapshots with actor, route,
+  timestamp, and content hash metadata
+- `hybridclaw config revisions rollback <id>` restores one saved snapshot back
+  into `config.json`
+- `hybridclaw config revisions delete <id>` removes one saved snapshot
+- `hybridclaw config revisions clear` deletes the stored history for the active
+  config file
+
+Tracked routes are sanitized before storage so host-specific home paths do not
+leak into the saved revision metadata.
 
 ## Important Config Areas
 

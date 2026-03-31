@@ -24,7 +24,7 @@ Use it when you want to:
 hybridclaw agent list
 hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
 hybridclaw agent inspect <file.claw>
-hybridclaw agent install <file.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]
+hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
 hybridclaw agent activate <agent-id>
 hybridclaw agent uninstall <agent-id> [--yes]
 ```
@@ -87,6 +87,8 @@ hybridclaw agent export main --plugins some --plugin demo-plugin --plugin qmd-me
   GitHub claws repository
 - `github:owner/repo/<ref>/<agent-dir>` to pin a specific Git ref before
   resolving the packaged archive
+- a direct `https://.../*.claw` URL, which HybridClaw downloads before
+  validating and installing locally
 
 Examples:
 
@@ -99,6 +101,9 @@ hybridclaw agent install github:your-org/your-claws-repo/v1.2.3/research-agent -
 The GitHub forms resolve a packaged archive from `dist/<agent-dir>.claw`.
 Selectors must point at the source agent directory name, not a `.claw`
 filename.
+
+Use `--skip-import-errors` when you want the main archive install to continue
+even if a manifest-declared imported skill fails to fetch or install.
 
 If your package is not exposed through that layout, or you want to install from
 release assets or Actions artifacts instead, download the `.claw` file first:

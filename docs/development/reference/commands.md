@@ -21,9 +21,11 @@ hybridclaw config
 hybridclaw config check
 hybridclaw config reload
 hybridclaw config set <key> <value>
+hybridclaw config revisions [list|rollback <id>|delete <id>|clear]
 hybridclaw browser login [--url <url>]
 hybridclaw browser status
 hybridclaw browser reset
+hybridclaw gateway concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]
 ```
 
 ## Auth And Providers
@@ -51,14 +53,15 @@ hybridclaw channels email setup [--address <email>] [--password <password>] [--i
 hybridclaw agent list
 hybridclaw agent export [agent-id] [-o <path>]
 hybridclaw agent inspect <file.claw>
-hybridclaw agent install <file.claw> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]
+hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
 hybridclaw agent uninstall <agent-id> [--yes]
 hybridclaw gateway agent [list|switch <id>|create <id>|model [name]]
 ```
 
 `agent export` and `agent install` are the primary archive verbs. Legacy
 aliases remain accepted: `agent pack` maps to `export`, and `agent unpack`
-maps to `install`.
+maps to `install`. Local TUI/web sessions also expose `/agent install <source>`
+for the same archive flows against a running gateway.
 
 ## Skills, Tools, Plugins, Audit
 
@@ -98,12 +101,13 @@ community imports from `skills-sh`, `clawhub`, `lobehub`,
 ## In Session
 
 - Local TUI and web chat sessions expose `/config`, `/config check`,
-  `/config reload`, `/config set <key> <value>`, and
-  `/auth status hybridai` alongside the existing runtime commands
-- TUI and chat surfaces use `/agent`, `/model`, `/mcp`, `/plugin`, `/skill`,
-  `/compact`, `/reset`, `/plugin enable`, `/plugin disable`,
-  `/plugin install`, `/plugin reinstall`, `/skill import`, `/skill learn`,
-  and related slash commands
+  `/config reload`, `/config set <key> <value>`, `/config revisions`,
+  `/concierge`, and `/auth status hybridai` alongside the existing runtime
+  commands
+- TUI and chat surfaces use `/agent`, `/agent install`, `/model`, `/mcp`,
+  `/plugin`, `/skill`, `/compact`, `/reset`, `/plugin enable`,
+  `/plugin disable`, `/plugin install`, `/plugin reinstall`, `/skill import`,
+  `/skill learn`, and related slash commands
 - TUI also supports `/paste` to queue a copied local file or clipboard image
 - Discord supports `!claw` plus slash command equivalents for the same core
   actions

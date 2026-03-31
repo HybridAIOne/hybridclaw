@@ -2,6 +2,64 @@
 
 ## [Coming up]
 
+## [0.9.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.8)
+
+### Added
+
+- **Concierge routing controls**: Added a configurable concierge router that can
+  ask users about urgency before long-running work, plus `concierge info|on|off`,
+  `concierge model [name]`, and `concierge profile <asap|balanced|no_hurry> [model]`
+  across gateway, TUI, and slash-command surfaces.
+- **Tracked runtime config revisions**: Added automatic revision snapshots for
+  `~/.hybridclaw/config.json`, persisted in `~/.hybridclaw/data/config-revisions.db`,
+  with `hybridclaw config revisions [list|rollback|delete|clear]` so operators can
+  audit and restore configuration changes.
+- **Expanded agent install flows**: Added `agent install` support inside running
+  gateway/TUI sessions, direct `.claw` URL installs, `--skip-import-errors`,
+  and tighter handling for official and GitHub package sources.
+- **Plugin inbound webhooks**: Added plugin-owned inbound webhook routes plus
+  `registerInboundWebhook(...)`, `dispatchInboundMessage(...)`, and HTTP helper
+  utilities in the plugin SDK so plugins can receive external events and route
+  them through the normal assistant turn pipeline.
+- **Sokosumi bundled skill**: Added the first-party `sokosumi` skill for
+  API-key-authenticated agent hires, coworker task creation, job monitoring,
+  and result retrieval.
+
+### Changed
+
+- **CI, smoke tests, and release checks**: Expanded integration and e2e
+  coverage for gateway docs, database/session flows, config reloads, skill
+  resolution, chat APIs, npm installs, Docker runtime checks, and agent
+  container flows, while tightening release-check and Docker preflight
+  coverage in CI.
+- **Plugin service boundaries**: Extracted gateway plugin service plumbing into
+  clearer modules, tightened plugin service boundaries, and improved mock/test
+  coverage around plugin reload and webhook dispatch behavior.
+- **Public docs and branding surfaces**: Refreshed the public docs shell with
+  the HybridClaw logo asset, updated favicon and fallback assets, simplified
+  navigation chrome, trimmed hidden internal docs, and refreshed release-facing
+  docs so the landing page, README, and manual reflect the shipped feature set.
+- **Package and manifest handling**: Enabled exact npm saves for repo manifests
+  and pinned package manifests to their locked versions so release artifacts
+  stay aligned with the checked-in lockfiles.
+
+### Fixed
+
+- **Gateway image docs coverage**: Fixed packaged gateway images so the repo
+  docs ship into runtime images instead of being dropped by `.dockerignore`.
+- **Docs deep-link fallback**: Fixed static docs hosting so deep links under the
+  docs shell route through the fallback page instead of breaking on refresh.
+- **Container setup reliability**: Fixed packaged installs so pull-only
+  container setup stays on the published runtime image path, and hardened agent
+  image apt cache locking during builds.
+- **Agent install and plugin webhook edge cases**: Fixed agent install stream
+  typing, import cleanup, partial-failure reporting, and gateway resolution
+  errors, and tightened plugin webhook validation, error handling, and
+  dispatch.
+- **Config revision robustness**: Fixed inferred revision route sanitization,
+  duplicate config reads during revision sync, summary loading behavior, and
+  watcher timer cleanup for tracked runtime config changes.
+
 ## [0.9.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.7)
 
 ### Added

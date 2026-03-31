@@ -172,7 +172,7 @@ hybridclaw skill import [--force] [--skip-skill-scan] <source>
 # Agent packages
 hybridclaw agent export [agent-id] [-o <path>]
 hybridclaw agent inspect <file.claw>
-hybridclaw agent install <file.claw> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--yes]
+hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
 hybridclaw agent uninstall <agent-id> [--yes]
 
 # Plugins

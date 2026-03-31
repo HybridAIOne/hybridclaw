@@ -860,7 +860,7 @@
     <div class="stat-label">Onboarding</div>
   </div>
   <div class="stat">
-    <div class="stat-value">28</div>
+    <div class="stat-value">30</div>
     <div class="stat-label">Bundled Skills</div>
   </div>
   <div class="stat">
@@ -886,35 +886,35 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest Release • v0.9.7</div>
+    <div class="section-label">Latest Release • v0.9.8</div>
     <h2 class="section-title">Current shipped highlights</h2>
-    <p class="section-desc">HybridClaw v0.9.7 adds first-class Mistral support, ATIF-compatible trace export, a searchable `/docs` help surface, smoother web chat streaming, and refreshed public release docs.</p>
+    <p class="section-desc">HybridClaw v0.9.8 adds concierge routing, tracked config revisions, plugin inbound webhooks, expanded agent install sources, and the bundled Sokosumi skill.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f9e0;</div>
-      <h3>Mistral provider support</h3>
-      <p><code>hybridclaw auth login mistral</code>, <code>auth status mistral</code>, and <code>mistral/...</code> model selection now work as first-class provider flows, including discovered model metadata in selectors and status output.</p>
+      <div class="feature-icon">&#x1f9ed;</div>
+      <h3>Concierge routing</h3>
+      <p><code>concierge info|on|off</code>, <code>concierge model</code>, and <code>concierge profile</code> can ask users about urgency before longer jobs and map execution to <code>asap</code>, <code>balanced</code>, or <code>no_hurry</code> model profiles.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4be;</div>
-      <h3>ATIF trace export</h3>
-      <p><code>export trace [sessionId|all]</code> writes ATIF-compatible trace JSONL with tool calls, token usage, git context, and attribution metadata so operators can inspect or post-process rich debug traces offline.</p>
+      <div class="feature-icon">&#x1f4dd;</div>
+      <h3>Tracked config revisions</h3>
+      <p><code>hybridclaw config revisions [list|rollback|delete|clear]</code> records auditable snapshots for <code>~/.hybridclaw/config.json</code> so local runtime config changes can be reviewed and restored.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4da;</div>
-      <h3>Searchable docs and help skill</h3>
-      <p>The browsable docs shell lives at <code>/docs</code>, raw markdown has an agent-friendly index, and HybridClaw product questions can route through the bundled <code>hybridclaw-help</code> skill before answering.</p>
+      <div class="feature-icon">&#x1f4e6;</div>
+      <h3>Expanded agent installs</h3>
+      <p><code>agent install</code> now supports direct <code>.claw</code> URLs, session-side installs in local TUI and web chat, and <code>--skip-import-errors</code> for partial imported-skill failures.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4ac;</div>
-      <h3>Smoother web chat streaming</h3>
-      <p>The built-in web chat now batches streaming updates, preserves scroll position, handles NDJSON fallback paths, and simplifies replay state so long live responses feel steadier in the browser.</p>
+      <div class="feature-icon">&#x1f517;</div>
+      <h3>Plugin inbound webhooks</h3>
+      <p>Plugins can register fixed webhook endpoints under the shared gateway HTTP server, parse inbound requests with SDK helpers, and dispatch normalized messages through the standard assistant turn pipeline.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x2601;&#xfe0f;</div>
-      <h3>HybridClaw Cloud</h3>
-      <p>The public landing page now includes a clearer HybridClaw Cloud path for teams that want a managed Docker-hosted agent instead of a local install.</p>
+      <div class="feature-icon">&#x1f916;</div>
+      <h3>Sokosumi skill</h3>
+      <p>The bundled <code>sokosumi</code> skill adds API-key-authenticated workflows for agent hires, coworker task creation, job monitoring, and result retrieval without relying on the Ink TUI.</p>
     </div>
   </div>
 </section>
