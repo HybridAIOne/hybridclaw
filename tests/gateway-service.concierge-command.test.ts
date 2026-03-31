@@ -84,7 +84,9 @@ test('concierge command updates the decision model and profile mappings', async 
 
   expect(profileResult.kind).toBe('plain');
   expect(profileResult.text).toContain('Concierge profile `no_hurry` set');
-  expect(getRuntimeConfig().routing.concierge.profiles.noHurry).toBe('gpt-5-mini');
+  expect(getRuntimeConfig().routing.concierge.profiles.noHurry).toBe(
+    'gpt-5-mini',
+  );
 });
 
 test('concierge command rejects unknown profile names', async () => {
