@@ -1219,7 +1219,11 @@ function renderPage(
       width: 30px;
       height: 30px;
       display: block;
-      border-radius: 8px;
+      object-fit: contain;
+    }
+
+    :root[data-theme="dark"] .docs-brand img {
+      filter: brightness(0) saturate(100%) invert(93%);
     }
 
     .docs-brand-accent {

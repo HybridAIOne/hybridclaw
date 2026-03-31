@@ -110,6 +110,10 @@ pre {
   object-fit: contain;
 }
 
+:root[data-theme="dark"] .docs-brand img {
+  filter: brightness(0) saturate(100%) invert(93%);
+}
+
 .docs-brand-accent {
   color: var(--brand-blue);
 }
