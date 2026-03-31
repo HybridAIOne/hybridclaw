@@ -125,18 +125,19 @@ describe('gateway docs HTTP integration', () => {
     const mdFiles = collectMarkdownFiles(docsDir);
     expect(mdFiles.length).toBeGreaterThan(0);
 
-    for (const filePath of mdFiles) {
-      const relative = path.relative(docsDir, filePath);
-      // Remove .md extension for URL path.
-      const urlPath = `/docs/${relative.replace(/\.md$/, '').replace(/\\/g, '/')}`;
-      const res = await fetch(`${baseUrl}${urlPath}`);
-      expect(
-        res.status,
-        `Expected 200 for ${urlPath} but got ${res.status}`,
-      ).toBe(200);
-      const html = await res.text();
-      expect(html.length, `Expected non-empty HTML for ${urlPath}`).toBeGreaterThan(0);
-    }
+    await Promise.all(
+      mdFiles.map(async (filePath) => {
+        const relative = path.relative(docsDir, filePath);
+        const urlPath = `/docs/${relative.replace(/\.md$/, '').replace(/\\/g, '/')}`;
+        const res = await fetch(`${baseUrl}${urlPath}`);
+        expect(
+          res.status,
+          `Expected 200 for ${urlPath} but got ${res.status}`,
+        ).toBe(200);
+        const html = await res.text();
+        expect(html.length, `Expected non-empty HTML for ${urlPath}`).toBeGreaterThan(0);
+      }),
+    );
   });
 
   // --- Sidebar contains all top-level sections ---
@@ -179,14 +180,15 @@ describe('gateway docs HTTP integration', () => {
 
     expect(links.size, 'Expected at least one internal /docs/ link').toBeGreaterThan(0);
 
-    for (const link of links) {
-      const linkRes = await fetch(`${baseUrl}${link}`);
-      expect(
-        linkRes.status,
-        `Internal link ${link} should resolve to 200 but got ${linkRes.status}`,
-      ).toBe(200);
-      // Consume the body to avoid leaking connections.
-      await linkRes.text();
-    }
+    await Promise.all(
+      [...links].map(async (link) => {
+        const linkRes = await fetch(`${baseUrl}${link}`);
+        expect(
+          linkRes.status,
+          `Internal link ${link} should resolve to 200 but got ${linkRes.status}`,
+        ).toBe(200);
+        await linkRes.text();
+      }),
+    );
   });
 });

@@ -6,21 +6,10 @@ import { describe, test, expect, afterAll, beforeAll } from 'vitest';
 import { getAvailablePort, waitForHealth } from './helpers/docker-test-setup.js';
 
 /**
- * E2E test that exercises the real npm-install-to-first-request user journey:
+ * Exercises the real npm-install-to-first-request user journey:
+ * npm pack → npm install -g → hybridclaw gateway start → /health → /docs
  *
- *   npm pack → npm install -g → hybridclaw gateway start → /health → /docs
- *
- * This mirrors what a user does after `npm install -g @hybridaione/hybridclaw`
- * followed by the Getting Started quickstart flow.
- *
- * Requires:
- *   HYBRIDCLAW_RUN_NPM_E2E=1   — gate flag (CI sets this in the npm-e2e job)
- *
- * The test uses a temporary npm prefix so it does not pollute the system.
- * A dummy API key is used since we only need the gateway to start and serve
- * static content — no LLM calls are made.
- *
- * All child process calls use only hardcoded strings (no user input).
+ * Uses a temporary npm prefix and a dummy API key (no LLM calls).
  */
 
 const NPM_E2E = process.env.HYBRIDCLAW_RUN_NPM_E2E === '1';
@@ -61,8 +50,6 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     fs.mkdirSync(npmPrefix(), { recursive: true });
     fs.mkdirSync(dataDir(), { recursive: true });
 
-    // Step 1: Pack the current build into a tarball
-    // All paths are hardcoded — no injection risk.
     const packOutput = execSync('npm pack --pack-destination ' + tempDir, {
       encoding: 'utf-8',
       timeout: 120_000,
@@ -70,8 +57,6 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     const tarballName = packOutput.split('\n').pop()!.trim();
     const tarball = path.join(tempDir, tarballName);
 
-    // Step 2: Install globally into temp prefix
-    // (mirrors: npm install -g @hybridaione/hybridclaw)
     execSync(
       `npm install -g "${tarball}" --prefix "${npmPrefix()}"`,
       {
@@ -81,7 +66,6 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
       },
     );
 
-    // Step 3: Write config with a dynamically allocated port
     fs.writeFileSync(
       path.join(dataDir(), 'config.json'),
       JSON.stringify({
@@ -89,8 +73,6 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
       }),
     );
 
-    // Step 4: Start the gateway from the installed package
-    // (mirrors: hybridclaw gateway start --foreground --sandbox=host)
     gatewayProcess = spawn(
       'node',
       [installedCliPath(), 'gateway', 'start', '--foreground', '--sandbox=host'],
@@ -135,7 +117,6 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
   // ── CLI binary works ────────────────────────────────────────────────
 
   test('hybridclaw --version runs from installed package', () => {
-    // All paths are hardcoded constants — no injection risk.
     const result = execSync(`node "${installedCliPath()}" --version`, {
       encoding: 'utf-8',
       timeout: 10_000,

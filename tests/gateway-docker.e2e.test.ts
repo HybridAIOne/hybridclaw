@@ -9,22 +9,9 @@ import {
 } from './helpers/docker-test-setup.js';
 
 /**
- * E2E tests that boot the gateway Docker image the same way a real deployment
- * would, then verify runtime-critical files and HTTP endpoints.
- *
- * Requires:
- *   HYBRIDCLAW_RUN_DOCKER_E2E=1        — gate flag (CI sets this)
- *   HYBRIDCLAW_E2E_IMAGE               — pre-built image tag
- *
- * When HYBRIDAI_API_KEY is set (CI secret on internal PRs), the gateway runs
- * with a real key — identical to production.  Provider health probes connect
- * to the real API and /health reflects live reachability.
- *
- * When the secret is unavailable (fork PRs, local dev without key), a dummy
- * key is used so the gateway still starts.  Provider probes fail gracefully
- * in the background; static content and endpoint tests still run.
- *
- * All execSync calls use only hardcoded strings (no user input).
+ * When HYBRIDAI_API_KEY is set (CI secret), the gateway uses a real key and
+ * provider health probes hit the live API. Without it, a dummy key lets the
+ * gateway start for static-content and endpoint tests.
  */
 
 const DOCKER_E2E = process.env.HYBRIDCLAW_RUN_DOCKER_E2E === '1';
@@ -244,17 +231,14 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
   test.skipIf(!HAS_REAL_KEY)(
     '/health reports HybridAI provider reachable',
     async () => {
-      // Allow time for the background provider probe to complete
-      await new Promise((r) => setTimeout(r, 3_000));
-      const res = await fetch(`${GATEWAY_URL}/health`, {
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
-      const body = (await res.json()) as {
-        providerHealth?: {
-          hybridai?: { reachable: boolean };
-        };
-      };
-      expect(body.providerHealth?.hybridai?.reachable).toBe(true);
+      await waitForHealth(
+        `${GATEWAY_URL}/health`,
+        30_000,
+        (body) => {
+          const ph = body as { providerHealth?: { hybridai?: { reachable: boolean } } };
+          return ph.providerHealth?.hybridai?.reachable === true;
+        },
+      );
     },
   );
 

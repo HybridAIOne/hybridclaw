@@ -83,8 +83,6 @@ describe('audit trail integration', () => {
 
     // Read back from the wire file.
     const wirePath = getAuditWirePath(sessionId);
-    expect(fs.existsSync(wirePath)).toBe(true);
-
     const lines = fs
       .readFileSync(wirePath, 'utf-8')
       .split('\n')

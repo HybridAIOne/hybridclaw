@@ -6,17 +6,8 @@ import {
 } from './helpers/docker-test-setup.js';
 
 /**
- * E2E tests that verify the agent container image (hybridclaw-agent) contains
- * all required runtime tools, libraries, and binaries.
- *
  * Uses a single long-lived container with `docker exec` instead of spawning
  * separate containers per test (~22s -> ~3s).
- *
- * Requires:
- *   HYBRIDCLAW_RUN_DOCKER_E2E=1            — gate flag
- *   HYBRIDCLAW_E2E_AGENT_IMAGE             — pre-built agent image tag
- *
- * All execSync calls use only hardcoded strings (no user input).
  */
 
 const DOCKER_E2E = process.env.HYBRIDCLAW_RUN_DOCKER_E2E === '1';
@@ -113,13 +104,11 @@ describe.skipIf(!DOCKER_E2E)('agent container image', { timeout: 30_000 }, () =>
   // ── Browser automation ──────────────────────────────────────────────
 
   test('playwright chromium is installed', () => {
-    // Verify the JS module loads
     const moduleResult = exec(
       'node -e "var p = require(\'playwright\'); console.log(typeof p.chromium.launch)"',
     );
     expect(moduleResult).toBe('function');
 
-    // Verify a browser binary exists under /ms-playwright
     const binaryResult = exec(
       'find /ms-playwright -name chrome-headless-shell -o -name chrome 2>/dev/null | head -1',
     );

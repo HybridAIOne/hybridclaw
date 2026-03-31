@@ -64,12 +64,15 @@ export async function getAvailablePort(preferred?: number): Promise<number> {
 }
 
 /**
- * Poll a URL until it returns a healthy response or the timeout expires.
+ * Poll a URL until the response satisfies a condition or the timeout expires.
+ * By default checks for `{ status: 'ok' }`.
  */
 export async function waitForHealth(
   url: string,
   timeoutMs: number,
+  predicate?: (body: Record<string, unknown>) => boolean,
 ): Promise<void> {
+  const check = predicate ?? ((b: Record<string, unknown>) => b.status === 'ok');
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
@@ -77,8 +80,8 @@ export async function waitForHealth(
         signal: AbortSignal.timeout(2_000),
       });
       if (res.ok) {
-        const body = (await res.json()) as { status: string };
-        if (body.status === 'ok') return;
+        const body = (await res.json()) as Record<string, unknown>;
+        if (check(body)) return;
       }
     } catch {
       // not ready yet
