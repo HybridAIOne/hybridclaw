@@ -48,7 +48,9 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
     setGatewayAdminSchedulerJobPaused,
     upsertGatewayAdminSchedulerJob,
   } = await import('../src/gateway/gateway-scheduled-task-service.ts');
-  const { updateRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
 
   initDatabase({ quiet: true });
 
@@ -172,7 +174,9 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
     beforeJobId: null,
   });
   expect(
-    getGatewayAdminScheduler().jobs.find((job) => job.id === 'board-status-job'),
+    getGatewayAdminScheduler().jobs.find(
+      (job) => job.id === 'board-status-job',
+    ),
   ).toMatchObject({
     boardStatus: 'review',
   });
@@ -183,7 +187,9 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
     boardStatus: null,
   });
   expect(
-    getGatewayAdminScheduler().jobs.find((job) => job.id === 'board-status-job'),
+    getGatewayAdminScheduler().jobs.find(
+      (job) => job.id === 'board-status-job',
+    ),
   ).toMatchObject({
     boardStatus: null,
   });

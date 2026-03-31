@@ -2547,7 +2547,10 @@ describe('gateway HTTP server', () => {
     });
     const withoutBoardStatusRes = makeResponse();
 
-    state.handler(withoutBoardStatusReq as never, withoutBoardStatusRes as never);
+    state.handler(
+      withoutBoardStatusReq as never,
+      withoutBoardStatusRes as never,
+    );
     await settle();
 
     expect(state.moveGatewayAdminSchedulerJob.mock.calls[0]?.[0]).toEqual({
