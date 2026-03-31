@@ -47,6 +47,17 @@ interface ConfigRevisionRow {
   replaced_by_md5: string | null;
 }
 
+interface ConfigRevisionSummaryRow {
+  id: number;
+  actor: string;
+  route: string;
+  source: string;
+  md5: string;
+  byte_length: number;
+  created_at: string;
+  replaced_by_md5: string | null;
+}
+
 interface ConfigRevisionStateRow {
   config_path: string;
   current_md5: string;
@@ -162,6 +173,21 @@ function mapRevisionRow(row: ConfigRevisionRow): RuntimeConfigRevision {
     md5: row.md5,
     byteLength: row.byte_length,
     content: row.content,
+    createdAt: row.created_at,
+    replacedByMd5: row.replaced_by_md5,
+  };
+}
+
+function mapRevisionSummaryRow(
+  row: ConfigRevisionSummaryRow,
+): RuntimeConfigRevisionSummary {
+  return {
+    id: row.id,
+    actor: row.actor,
+    route: row.route,
+    source: row.source,
+    md5: row.md5,
+    byteLength: row.byte_length,
     createdAt: row.created_at,
     replacedByMd5: row.replaced_by_md5,
   };
@@ -301,14 +327,14 @@ export function listRuntimeConfigRevisions(
 ): RuntimeConfigRevisionSummary[] {
   return withRevisionDatabase((database) =>
     database
-      .prepare<[string], ConfigRevisionRow>(
-        `SELECT id, actor, route, source, md5, byte_length, content, created_at, replaced_by_md5
+      .prepare<[string], ConfigRevisionSummaryRow>(
+        `SELECT id, actor, route, source, md5, byte_length, created_at, replaced_by_md5
          FROM config_revisions
          WHERE config_path = ?
          ORDER BY id DESC`,
       )
       .all(configPath)
-      .map((row) => mapRevisionRow(row)),
+      .map((row) => mapRevisionSummaryRow(row)),
   );
 }
 
