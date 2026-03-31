@@ -794,3 +794,106 @@ test('migrates into a specific HybridClaw agent when `agentId` is provided', asy
   );
   expect(listAgents().map((agent) => agent.id)).toContain('writer');
 });
+
+test('dry-run migration does not create target skill directories', async () => {
+  const homeDir = makeTempHome();
+  const sourceRoot = path.join(homeDir, '.hermes');
+  const skillsRoot = path.join(sourceRoot, 'skills', 'release-helper');
+
+  fs.mkdirSync(skillsRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(sourceRoot, 'SOUL.md'),
+    '# SOUL.md\n\nPreview only.\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(skillsRoot, 'SKILL.md'),
+    '---\nname: release-helper\ndescription: Imported skill\n---\n\nSkill body.\n',
+    'utf-8',
+  );
+
+  const migration = await importFreshMigrator(homeDir);
+  const result = await migration.migrateAgentHome({
+    sourceKind: 'hermes',
+    sourceRoot,
+    execute: false,
+  });
+
+  const runtimeRoot = path.join(homeDir, '.hybridclaw');
+  const skillItem = result.items.find((item) => item.kind === 'skill');
+  expect(skillItem?.status).toBe('migrated');
+  expect(skillItem?.details?.dryRun).toBe(true);
+  expect(fs.existsSync(path.join(runtimeRoot, 'skills'))).toBe(false);
+  expect(
+    fs.existsSync(path.join(runtimeRoot, 'data', 'agents', 'main', 'workspace')),
+  ).toBe(false);
+});
+
+test('reports secrets already up to date when incoming values match', async () => {
+  const homeDir = makeTempHome();
+  const sourceRoot = path.join(homeDir, '.hermes');
+  const runtimeRoot = path.join(homeDir, '.hybridclaw');
+
+  fs.mkdirSync(sourceRoot, { recursive: true });
+  fs.mkdirSync(runtimeRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(sourceRoot, '.env'),
+    'HYBRIDAI_API_KEY=hai-same-value\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(runtimeRoot, 'credentials.json'),
+    `${JSON.stringify({ HYBRIDAI_API_KEY: 'hai-same-value' }, null, 2)}\n`,
+    'utf-8',
+  );
+
+  const migration = await importFreshMigrator(homeDir);
+  const result = await migration.migrateAgentHome({
+    sourceKind: 'hermes',
+    sourceRoot,
+    execute: false,
+    migrateSecrets: true,
+  });
+
+  const secretsItem = result.items.find((item) => item.kind === 'secrets');
+  expect(secretsItem?.status).toBe('skipped');
+  expect(secretsItem?.reason).toBe('Secrets already up to date');
+  expect(secretsItem?.details?.unchangedKeys).toEqual(['HYBRIDAI_API_KEY']);
+});
+
+test('treats directory destinations as workspace conflicts instead of throwing', async () => {
+  const homeDir = makeTempHome();
+  const sourceRoot = path.join(homeDir, '.hermes');
+  const destinationRoot = path.join(
+    homeDir,
+    '.hybridclaw',
+    'data',
+    'agents',
+    'main',
+    'workspace',
+    'SOUL.md',
+  );
+
+  fs.mkdirSync(sourceRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(sourceRoot, 'SOUL.md'),
+    '# SOUL.md\n\nIncoming soul.\n',
+    'utf-8',
+  );
+  fs.mkdirSync(destinationRoot, { recursive: true });
+
+  const migration = await importFreshMigrator(homeDir);
+  const result = await migration.migrateAgentHome({
+    sourceKind: 'hermes',
+    sourceRoot,
+    execute: false,
+  });
+
+  const soulItem = result.items.find(
+    (item) =>
+      item.kind === 'workspace-file' &&
+      item.destination === destinationRoot,
+  );
+  expect(soulItem?.status).toBe('conflict');
+  expect(soulItem?.reason).toBe('Destination is not a regular file');
+});

@@ -938,8 +938,26 @@ function copyFileWithConflictHandling(params: {
       'Source missing',
     );
   }
+  if (!fs.statSync(sourcePath).isFile()) {
+    return makeItem(
+      kind,
+      sourcePath,
+      destinationPath,
+      'error',
+      'Source is not a regular file',
+    );
+  }
 
   if (fs.existsSync(destinationPath)) {
+    if (!fs.statSync(destinationPath).isFile()) {
+      return makeItem(
+        kind,
+        sourcePath,
+        destinationPath,
+        'conflict',
+        'Destination is not a regular file',
+      );
+    }
     const existing = readTextFile(destinationPath);
     const incoming = readTextFile(sourcePath);
     if (existing === incoming) {
@@ -1011,7 +1029,9 @@ function copySkillDirs(params: {
   backupRoot: string | null;
 }): MigrationItem[] {
   const items: MigrationItem[] = [];
-  ensureDir(params.targetRoot);
+  if (params.execute) {
+    ensureDir(params.targetRoot);
+  }
   for (const sourceRoot of params.sourceRoots) {
     if (!fs.existsSync(sourceRoot)) continue;
     for (const entry of fs.readdirSync(sourceRoot, { withFileTypes: true })) {
@@ -2080,6 +2100,10 @@ export async function migrateAgentHome(
         ),
       );
     } else {
+      const skippedReason =
+        skippedKeys.length > 0
+          ? 'Secrets already up to date'
+          : 'No compatible secrets found';
       addItem(
         makeItem(
           'secrets',
@@ -2091,7 +2115,7 @@ export async function migrateAgentHome(
           conflictKeys.length > 0 ? 'conflict' : 'skipped',
           conflictKeys.length > 0
             ? 'Secrets already exist with different values'
-            : 'No compatible secrets found',
+            : skippedReason,
           {
             ...(conflictKeys.length > 0
               ? { conflictingKeys: conflictKeys }

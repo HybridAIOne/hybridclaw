@@ -155,6 +155,14 @@ async function importFreshAgentMigrationCommand(options?: {
       runtimeConfigPath: vi.fn(() => '/tmp/.hybridclaw/config.json'),
     };
   });
+  vi.doMock('../src/security/runtime-secrets.js', async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import('../src/security/runtime-secrets.js')>();
+    return {
+      ...actual,
+      runtimeSecretsPath: vi.fn(() => '/tmp/.hybridclaw/credentials.json'),
+    };
+  });
   vi.doMock('node:readline/promises', () => ({
     default: {
       createInterface: readlineCreateInterface,
@@ -1303,6 +1311,20 @@ describe('CLI hybridai commands', () => {
       '--dry-run',
       '--force',
     ]);
+  });
+
+  it('prints the runtime secrets path in migration help', async () => {
+    const { printAgentMigrationUsage } = await importFreshAgentMigrationCommand();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    printAgentMigrationUsage('openclaw');
+
+    const output = logSpy.mock.calls
+      .map(([message]) => String(message))
+      .join('\n');
+    expect(output).toContain(
+      '--migrate-secrets     Import compatible secrets into /tmp/.hybridclaw/credentials.json',
+    );
   });
 
   it('prints emoji-grouped migration details after the summary', async () => {

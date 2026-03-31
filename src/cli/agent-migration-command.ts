@@ -7,6 +7,7 @@ import {
   detectAgentMigrationSourceRoot,
   migrateAgentHome,
 } from '../migration/agent-home-migration.js';
+import { runtimeSecretsPath } from '../security/runtime-secrets.js';
 import { isHelpRequest } from './help.js';
 
 interface ParsedMigrationArgs {
@@ -352,7 +353,7 @@ Options:
   --agent <id>          Import into a specific HybridClaw agent (default: main)
   --dry-run             Preview the migration without writing files
   --overwrite           Replace existing HybridClaw files and config values on conflict
-  --migrate-secrets     Import compatible secrets into ${sourceKind === 'openclaw' ? 'credentials.json' : 'credentials.json'}
+  --migrate-secrets     Import compatible secrets into ${runtimeSecretsPath()}
   --force               Assume yes and overwrite replaceable conflicts
   --help, -h            Show this help text
 
