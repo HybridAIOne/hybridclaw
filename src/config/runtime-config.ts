@@ -29,6 +29,17 @@ import {
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
 import type { McpServerConfig } from '../types/models.js';
 import { normalizeTrimmedStringSet } from '../utils/normalized-strings.js';
+import {
+  clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
+  deleteRuntimeConfigRevision as deleteTrackedRuntimeConfigRevision,
+  getRuntimeConfigRevision as getTrackedRuntimeConfigRevision,
+  listRuntimeConfigRevisions as listTrackedRuntimeConfigRevisions,
+  type RuntimeConfigChangeMeta,
+  type RuntimeConfigRevision,
+  type RuntimeConfigRevisionSummary,
+  runtimeConfigRevisionStorePath,
+  syncRuntimeConfigRevisionState,
+} from './runtime-config-revisions.js';
 
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
@@ -3942,6 +3953,7 @@ function serializeConfigFile(
 function writeConfigFile(
   config: RuntimeConfig,
   opts?: { omitImplicitSandboxMode?: boolean },
+  meta?: RuntimeConfigChangeMeta,
 ): boolean {
   const dir = path.dirname(CONFIG_PATH);
   fs.mkdirSync(dir, { recursive: true });
@@ -3959,6 +3971,7 @@ function writeConfigFile(
   const tmpPath = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
   fs.writeFileSync(tmpPath, nextText, 'utf-8');
   fs.renameSync(tmpPath, CONFIG_PATH);
+  syncRuntimeConfigRevisionState(CONFIG_PATH, meta);
   return true;
 }
 
@@ -3978,7 +3991,10 @@ function applyConfig(next: RuntimeConfig): void {
   }
 }
 
-function loadRuntimeConfigFromSources(): RuntimeConfig {
+function loadRuntimeConfigFromSources(
+  syncMeta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta);
   const diskPatch = loadConfigPatchFromDisk();
   const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
   currentConfigMetadata = {
@@ -3987,15 +4003,20 @@ function loadRuntimeConfigFromSources(): RuntimeConfig {
   return normalizeRuntimeConfig(diskPatch);
 }
 
-function reloadRuntimeConfigFromSources(): RuntimeConfig {
-  const next = loadRuntimeConfigFromSources();
+function reloadRuntimeConfigFromSources(
+  syncMeta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const next = loadRuntimeConfigFromSources(syncMeta);
   applyConfig(next);
   return cloneConfig(currentConfig);
 }
 
 function reloadFromDisk(trigger: string): void {
   try {
-    reloadRuntimeConfigFromSources();
+    reloadRuntimeConfigFromSources({
+      route: `runtime-config.reload:${trigger}`,
+      source: 'external',
+    });
   } catch (err) {
     console.warn(
       `[runtime-config] reload failed (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
@@ -4104,7 +4125,14 @@ function startWatcher(): void {
 function ensureInitialConfigFile(): void {
   if (fs.existsSync(CONFIG_PATH)) return;
   const seeded = normalizeRuntimeConfig();
-  writeConfigFile(seeded, { omitImplicitSandboxMode: true });
+  writeConfigFile(
+    seeded,
+    { omitImplicitSandboxMode: true },
+    {
+      route: 'runtime-config.seed-defaults',
+      source: 'system',
+    },
+  );
 }
 
 function migrateConfigSchemaOnStartup(): void {
@@ -4146,9 +4174,16 @@ function migrateConfigSchemaOnStartup(): void {
     const rawContainer = isRecord(parsedRecord.container)
       ? parsedRecord.container
       : {};
-    const changed = writeConfigFile(migrated, {
-      omitImplicitSandboxMode: !hasOwn(rawContainer, 'sandboxMode'),
-    });
+    const changed = writeConfigFile(
+      migrated,
+      {
+        omitImplicitSandboxMode: !hasOwn(rawContainer, 'sandboxMode'),
+      },
+      {
+        route: 'runtime-config.migrate-schema',
+        source: 'system',
+      },
+    );
     if (!changed) return;
     const from = previousVersion == null ? 'unknown' : String(previousVersion);
     if (previousVersion !== CONFIG_VERSION) {
@@ -4194,7 +4229,10 @@ export function reloadRuntimeConfig(trigger = 'manual'): RuntimeConfig {
   }
 
   try {
-    return reloadRuntimeConfigFromSources();
+    return reloadRuntimeConfigFromSources({
+      route: `runtime-config.reload:${trigger}`,
+      source: 'external',
+    });
   } catch (err) {
     throw new Error(
       `Failed to reload runtime config (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
@@ -4234,7 +4272,16 @@ export function onRuntimeConfigChange(
   return () => listeners.delete(listener);
 }
 
-export function saveRuntimeConfig(next: RuntimeConfig): RuntimeConfig {
+export type {
+  RuntimeConfigChangeMeta,
+  RuntimeConfigRevision,
+  RuntimeConfigRevisionSummary,
+};
+
+export function saveRuntimeConfig(
+  next: RuntimeConfig,
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
   const normalized = normalizeRuntimeConfig(next);
   const sandboxModeExplicit =
     currentConfigMetadata.containerSandboxModeExplicit ||
@@ -4243,19 +4290,27 @@ export function saveRuntimeConfig(next: RuntimeConfig): RuntimeConfig {
   currentConfigMetadata = {
     containerSandboxModeExplicit: sandboxModeExplicit,
   };
-  writeConfigFile(normalized, {
-    omitImplicitSandboxMode: !sandboxModeExplicit,
-  });
+  writeConfigFile(
+    normalized,
+    {
+      omitImplicitSandboxMode: !sandboxModeExplicit,
+    },
+    meta,
+  );
   applyConfig(normalized);
   return cloneConfig(normalized);
 }
 
 export function updateRuntimeConfig(
   mutator: (draft: RuntimeConfig) => void,
+  meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
   let baseConfig = currentConfig;
   try {
-    baseConfig = loadRuntimeConfigFromSources();
+    baseConfig = loadRuntimeConfigFromSources({
+      route: 'runtime-config.refresh-before-save',
+      source: 'external',
+    });
   } catch (err) {
     console.warn(
       `[runtime-config] update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
@@ -4263,7 +4318,53 @@ export function updateRuntimeConfig(
   }
   const draft = cloneConfig(baseConfig);
   mutator(draft);
-  return saveRuntimeConfig(draft);
+  return saveRuntimeConfig(draft, meta);
+}
+
+export function listRuntimeConfigRevisions(): RuntimeConfigRevisionSummary[] {
+  return listTrackedRuntimeConfigRevisions(CONFIG_PATH);
+}
+
+export function getRuntimeConfigRevision(
+  revisionId: number,
+): RuntimeConfigRevision | null {
+  return getTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
+}
+
+export function deleteRuntimeConfigRevision(revisionId: number): boolean {
+  return deleteTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
+}
+
+export function clearRuntimeConfigRevisions(): number {
+  return clearTrackedRuntimeConfigRevisions(CONFIG_PATH);
+}
+
+export function restoreRuntimeConfigRevision(
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const revision = getRuntimeConfigRevision(revisionId);
+  if (!revision) {
+    throw new Error(`Config revision ${revisionId} was not found.`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(revision.content) as unknown;
+  } catch (err) {
+    throw new Error(
+      `Config revision ${revisionId} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  return saveRuntimeConfig(
+    normalizeRuntimeConfig(parsed as DeepPartial<RuntimeConfig>),
+    meta,
+  );
+}
+
+export function runtimeConfigRevisionPath(): string {
+  return runtimeConfigRevisionStorePath();
 }
 
 export function isSecurityTrustAccepted(
