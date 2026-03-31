@@ -359,6 +359,10 @@ When the user says "bump release":
 - Do not modify unrelated modules "while here".
 - Do not include personal identity, real phone numbers, or live config values
   in tests, examples, docs, or commits.
+- Do not edit `.dockerignore` without verifying the resulting Docker image
+  still contains all runtime-required files (especially `docs/development/`).
+  Build the image and confirm the affected paths exist inside it before
+  marking the change complete.
 - Do not edit `node_modules/` or vendored files.
 - Do not break prompt caching: do not alter past context, change toolsets, or
   rebuild system prompts mid-conversation.

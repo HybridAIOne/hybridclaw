@@ -7,6 +7,7 @@ const requiredExactPaths = [
   'README.md',
   'LICENSE',
   'dist/cli.js',
+  'console/dist/index.html',
   'scripts/postinstall-container.mjs',
 ];
 
@@ -16,6 +17,8 @@ const requiredPrefixes = [
   'templates/',
   'docs/',
   'container/src/',
+  'console/dist/',
+  'container/shared/',
 ];
 
 const forbiddenPathPatterns = [
