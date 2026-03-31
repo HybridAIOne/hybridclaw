@@ -182,3 +182,120 @@ test('saveGatewayAdminSkillEnabled writes optional channel scope to the admin en
     }),
   );
 });
+
+test('gatewayCommand surfaces structured command error text instead of only HTTP status', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            kind: 'error',
+            title: 'Error',
+            text: 'HybridAI rejected the configured API key: Invalid API key provided.',
+          }),
+          {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+    ),
+  );
+
+  const { gatewayCommand } = await importGatewayClient();
+
+  await expect(
+    gatewayCommand({
+      sessionId: 's1',
+      guildId: null,
+      channelId: 'web',
+      args: ['bot', 'list'],
+    }),
+  ).rejects.toThrow(
+    'Gateway error: HybridAI rejected the configured API key: Invalid API key provided.',
+  );
+});
+
+test('gatewayCommand prefers payload.error when payload.text is empty', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            kind: 'error',
+            title: 'Error',
+            text: '   ',
+            error: 'Meaningful fallback error',
+          }),
+          {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+    ),
+  );
+
+  const { gatewayCommand } = await importGatewayClient();
+
+  await expect(
+    gatewayCommand({
+      sessionId: 's1',
+      guildId: null,
+      channelId: 'web',
+      args: ['bot', 'list'],
+    }),
+  ).rejects.toThrow('Gateway error: Meaningful fallback error');
+});
+
+test('gatewayUploadMedia posts raw bytes with filename and content-type headers', async () => {
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          media: {
+            path: '/uploaded-media-cache/2026-03-24/upload.png',
+            url: '/api/artifact?path=%2Fuploaded-media-cache%2F2026-03-24%2Fupload.png',
+            originalUrl:
+              '/api/artifact?path=%2Fuploaded-media-cache%2F2026-03-24%2Fupload.png',
+            mimeType: 'image/png',
+            sizeBytes: 4,
+            filename: 'upload.png',
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { gatewayUploadMedia } = await importGatewayClient();
+  const body = Buffer.from('test');
+  const result = await gatewayUploadMedia({
+    filename: 'upload.png',
+    body,
+    mimeType: 'image/png',
+  });
+
+  expect(result.media.filename).toBe('upload.png');
+  expect(fetchMock).toHaveBeenCalledWith(
+    'http://gateway.test/api/media/upload',
+    expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        'Content-Type': 'image/png',
+        'X-Hybridclaw-Filename': 'upload.png',
+      }),
+    }),
+  );
+  const [, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+  expect(Array.from(requestInit.body as Uint8Array)).toEqual(Array.from(body));
+});

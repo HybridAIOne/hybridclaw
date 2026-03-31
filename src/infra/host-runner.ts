@@ -1,10 +1,12 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
+  ADDITIONAL_MOUNTS,
+  CONTAINER_BINDS,
   CONTAINER_TIMEOUT,
   CONTEXT_GUARD_COMPACTION_RATIO,
   CONTEXT_GUARD_ENABLED,
@@ -31,20 +33,22 @@ import {
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
 import { logger } from '../logger.js';
+import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
+import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { redactSecrets } from '../security/redact.js';
-import type {
-  ContainerInput,
-  ContainerOutput,
-  PendingApproval,
-  ToolProgressEvent,
-} from '../types.js';
+import type { ContainerInput, ContainerOutput } from '../types/container.js';
+import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import type { ScheduledTaskInput } from '../types/scheduler.js';
 import {
   collectConfiguredDiscordChannelIds,
   remapOutputArtifacts,
+  resolveBrowserProfileHostDir,
   resolveDiscordMediaCacheHostDir,
 } from './container-runner.js';
+import { ensureHostRuntimeReady } from './host-runtime-setup.js';
+import { resolveInstallRoot } from './install-root.js';
 import {
   agentWorkspaceDir,
   cleanupIpc,
@@ -72,13 +76,33 @@ const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
 
+function buildHostAllowedRoots(): string[] {
+  const configured = resolveConfiguredAdditionalMounts({
+    binds: CONTAINER_BINDS,
+    additionalMounts: ADDITIONAL_MOUNTS,
+  });
+  for (const warning of configured.warnings) {
+    logger.warn({ warning }, 'Configured host-mode allowed root ignored');
+  }
+  return Array.from(
+    new Set([
+      os.homedir(),
+      process.cwd(),
+      os.tmpdir(),
+      ...configured.mounts.map((mount) => path.resolve(mount.hostPath)),
+    ]),
+  );
+}
+
 interface PoolEntry {
   process: ChildProcess;
   sessionId: string;
   startedAt: number;
   stderrBuffer: string;
+  stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
+  terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
@@ -87,6 +111,85 @@ interface PoolEntry {
 }
 
 const pool = new Map<string, PoolEntry>();
+const STDERR_HISTORY_LIMIT = 20;
+
+function rememberStderrLine(entry: PoolEntry, line: string): void {
+  entry.stderrHistory.push(line);
+  if (entry.stderrHistory.length > STDERR_HISTORY_LIMIT) {
+    entry.stderrHistory.splice(
+      0,
+      entry.stderrHistory.length - STDERR_HISTORY_LIMIT,
+    );
+  }
+}
+
+function summarizeExit(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): string {
+  if (typeof code === 'number') return `exit code ${code}`;
+  if (signal) return `signal ${signal}`;
+  return 'unknown exit status';
+}
+
+function formatHostAgentTerminalError(
+  entry: PoolEntry,
+  params?: {
+    code?: number | null;
+    signal?: NodeJS.Signals | null;
+  },
+): string {
+  const stderrText = entry.stderrHistory.join('\n');
+  const missingPackageMatch = stderrText.match(
+    /Cannot find package '([^']+)' imported from /,
+  );
+  const status = summarizeExit(
+    params?.code ?? entry.process.exitCode,
+    params?.signal ?? null,
+  );
+
+  if (missingPackageMatch) {
+    return [
+      `Host agent process exited before producing output (${status}).`,
+      `Missing runtime dependency: ${missingPackageMatch[1]}.`,
+      'Reinstall HybridClaw. If you are running from a source checkout, run `npm run setup` first.',
+    ].join('\n');
+  }
+
+  const detail = entry.stderrHistory
+    .slice(-4)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return detail
+    ? `Host agent process exited before producing output (${status}). ${detail}`
+    : `Host agent process exited before producing output (${status}). Check the gateway log for stderr details.`;
+}
+
+function interruptedHostOutput(): ContainerOutput {
+  return {
+    status: 'error',
+    result: null,
+    toolsUsed: [],
+    error: 'Interrupted by user.',
+  };
+}
+
+function isStdinWriteInterrupt(
+  error: unknown,
+  proc: Pick<ChildProcess, 'killed' | 'exitCode'>,
+  abortSignal?: AbortSignal,
+): boolean {
+  if (abortSignal?.aborted) return true;
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: unknown }).code || '')
+      : '';
+  return (
+    (code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED') &&
+    (proc.killed || proc.exitCode !== null)
+  );
+}
 
 export function getActiveHostSessionIds(): string[] {
   return Array.from(pool.keys()).sort((left, right) =>
@@ -199,45 +302,8 @@ function emitApprovalProgress(entry: PoolEntry, line: string): boolean {
   return true;
 }
 
-function resolvePackageRoot(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-}
-
-function resolveHostAgentCommand(): { command: string; args: string[] } {
-  const packageRoot = resolvePackageRoot();
-  const builtEntrypoint = path.join(
-    packageRoot,
-    'container',
-    'dist',
-    'index.js',
-  );
-  if (fs.existsSync(builtEntrypoint)) {
-    return { command: process.execPath, args: [builtEntrypoint] };
-  }
-
-  const sourceEntrypoint = path.join(
-    packageRoot,
-    'container',
-    'src',
-    'index.ts',
-  );
-  const tsxBin = path.join(
-    packageRoot,
-    'node_modules',
-    '.bin',
-    process.platform === 'win32' ? 'tsx.cmd' : 'tsx',
-  );
-  if (fs.existsSync(sourceEntrypoint) && fs.existsSync(tsxBin)) {
-    return { command: tsxBin, args: [sourceEntrypoint] };
-  }
-
-  throw new Error(
-    'Host sandbox mode requires a local agent runtime. Run `npm --prefix container run build` or use the repo checkout with `tsx` installed.',
-  );
-}
-
 function ensureWorkspaceNodeModulesLink(workspacePath: string): void {
-  const packageRoot = resolvePackageRoot();
+  const packageRoot = resolveInstallRoot();
   const sourceNodeModules = path.join(packageRoot, 'node_modules');
   if (!fs.existsSync(sourceNodeModules)) return;
 
@@ -298,9 +364,17 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
   const { ipcPath, workspacePath } = getSessionPaths(sessionId, agentId);
   ensureWorkspaceNodeModulesLink(workspacePath);
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
+  const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
+  fs.mkdirSync(uploadedMediaCacheHostPath, { recursive: true });
 
-  const runtime = resolveHostAgentCommand();
+  const runtime = ensureHostRuntimeReady({
+    commandName: 'hybridclaw',
+    required: true,
+  });
+  if (!runtime) {
+    throw new Error('Host runtime unexpectedly unavailable.');
+  }
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HYBRIDAI_BASE_URL,
@@ -324,8 +398,11 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
+    HYBRIDCLAW_AGENT_ALLOWED_ROOTS: JSON.stringify(buildHostAllowedRoots()),
     HYBRIDCLAW_AGENT_MEDIA_ROOT: mediaCacheHostPath,
+    HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT: uploadedMediaCacheHostPath,
     HYBRIDCLAW_AGENT_IPC_DIR: ipcPath,
+    BROWSER_SHARED_PROFILE_DIR: resolveBrowserProfileHostDir(),
   };
 
   logger.info(
@@ -344,8 +421,10 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     sessionId,
     startedAt: Date.now(),
     stderrBuffer: '',
+    stderrHistory: [],
     streamDebug: createStreamDebugState(),
     workerSignature: '',
+    terminalError: null,
   };
 
   proc.stderr.on('data', (data) => {
@@ -355,6 +434,7 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
+      rememberStderrLine(entry, line);
       emitTextDelta(entry, line);
       if (isStreamActivityLine(line)) {
         entry.activity?.notify();
@@ -381,9 +461,10 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     }
   });
 
-  proc.on('close', (code) => {
+  proc.on('close', (code, signal) => {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
+      rememberStderrLine(entry, tail);
       emitTextDelta(entry, tail);
       if (isStreamActivityLine(tail)) {
         entry.activity?.notify();
@@ -399,16 +480,29 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
       }
       entry.stderrBuffer = '';
     }
+    entry.terminalError = formatHostAgentTerminalError(entry, { code, signal });
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ sessionId }, message);
     });
     pool.delete(sessionId);
-    logger.info({ sessionId, code }, 'Host agent process exited');
+    logger.info({ sessionId, code, signal }, 'Host agent process exited');
   });
 
   proc.on('error', (err) => {
+    entry.terminalError = `Host agent process failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
     pool.delete(sessionId);
     logger.error({ sessionId, error: err }, 'Host agent process error');
+  });
+
+  proc.stdin?.on('error', (err) => {
+    if (isStdinWriteInterrupt(err, proc)) {
+      logger.debug(
+        { sessionId, error: err },
+        'Ignoring host agent stdin error after process shutdown',
+      );
+      return;
+    }
+    logger.error({ sessionId, error: err }, 'Host agent stdin error');
   });
 
   pool.set(sessionId, entry);
@@ -499,16 +593,18 @@ export async function runHostProcess(
     maxTokens: HYBRIDAI_MAX_TOKENS,
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
-    scheduledTasks: scheduledTasks?.map((task) => ({
-      id: task.id,
-      cronExpr: task.cron_expr,
-      runAt: task.run_at,
-      everyMs: task.every_ms,
-      prompt: task.prompt,
-      enabled: task.enabled,
-      lastRun: task.last_run,
-      createdAt: task.created_at,
-    })),
+    scheduledTasks: scheduledTasks?.map(
+      (task): ScheduledTaskInput => ({
+        id: task.id,
+        cronExpr: task.cron_expr,
+        runAt: task.run_at,
+        everyMs: task.every_ms,
+        prompt: task.prompt,
+        enabled: task.enabled,
+        lastRun: task.last_run,
+        createdAt: task.created_at,
+      }),
+    ),
     allowedTools,
     blockedTools,
     media,
@@ -587,8 +683,22 @@ export async function runHostProcess(
   }
 
   try {
+    if (abortSignal?.aborted) {
+      return interruptedHostOutput();
+    }
     if (isNewProcess) {
-      entry.process.stdin?.write(`${JSON.stringify(input)}\n`);
+      try {
+        entry.process.stdin?.write(`${JSON.stringify(input)}\n`);
+      } catch (err) {
+        if (isStdinWriteInterrupt(err, entry.process, abortSignal)) {
+          logger.info(
+            { sessionId, error: err },
+            'Host agent input write interrupted by process shutdown',
+          );
+          return interruptedHostOutput();
+        }
+        throw err;
+      }
     } else {
       writeInput(sessionId, input, { omitApiKey: true });
     }
@@ -596,6 +706,7 @@ export async function runHostProcess(
     const output = await readOutput(sessionId, CONTAINER_TIMEOUT, {
       signal: abortSignal,
       activity,
+      terminalError: () => entry.terminalError,
     });
     if (isTimedOutAgentOutput(output)) {
       logger.warn(

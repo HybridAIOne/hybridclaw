@@ -1,8 +1,10 @@
-import { Link } from '@tanstack/react-router';
+import { Link, useRouterState } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { useAuth } from '../auth';
 
-function ViewIcon(props: { kind: 'chat' | 'agents' | 'admin' | 'cog' }) {
+function ViewIcon(props: {
+  kind: 'chat' | 'agents' | 'admin' | 'cog' | 'docs' | 'github';
+}) {
   if (props.kind === 'chat') {
     return (
       <svg
@@ -53,6 +55,35 @@ function ViewIcon(props: { kind: 'chat' | 'agents' | 'admin' | 'cog' }) {
     );
   }
 
+  if (props.kind === 'docs') {
+    return (
+      <svg
+        aria-hidden="true"
+        focusable="false"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+      >
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" />
+      </svg>
+    );
+  }
+
+  if (props.kind === 'github') {
+    return (
+      <svg
+        aria-hidden="true"
+        focusable="false"
+        viewBox="0 0 16 16"
+        fill="currentColor"
+      >
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+      </svg>
+    );
+  }
+
   return (
     <svg
       aria-hidden="true"
@@ -81,31 +112,45 @@ const NAV_ITEMS: ReadonlyArray<{
   icon?: 'cog' | 'chat' | 'agents' | 'admin';
 }> = [
   { to: '/', label: 'Dashboard' },
+  { to: '/terminal', label: 'Terminal' },
   { to: '/gateway', label: 'Gateway' },
   { to: '/sessions', label: 'Sessions' },
-  { to: '/channels', label: 'Bindings' },
+  { to: '/channels', label: 'Channels' },
   { to: '/models', label: 'Models' },
   { to: '/scheduler', label: 'Scheduler' },
+  { to: '/jobs', label: 'Jobs' },
   { to: '/mcp', label: 'MCP' },
   { to: '/audit', label: 'Audit' },
   { to: '/skills', label: 'Skills' },
   { to: '/plugins', label: 'Plugins' },
   { to: '/tools', label: 'Tools' },
-  { to: '/config', label: 'Config', icon: 'cog' },
+  { to: '/config', label: 'Config' },
 ];
 
 const VIEW_SWITCH_ITEMS = [
   { href: '/chat', label: 'Chat', icon: 'chat' },
   { href: '/agents', label: 'Agents', icon: 'agents' },
   { href: '/admin', label: 'Admin', icon: 'admin' },
+  {
+    href: 'https://github.com/HybridAIOne/hybridclaw',
+    label: 'GitHub',
+    icon: 'github',
+  },
+  { href: '/development', label: 'Docs', icon: 'docs' },
 ] as const;
 
 export function AppShell(props: { children: ReactNode }) {
   const auth = useAuth();
-  const isLocalhostAccess = !auth.gatewayStatus?.webAuthConfigured;
-  const sidebarStatusText = isLocalhostAccess
-    ? 'localhost access'
-    : auth.gatewayStatus?.version || 'token required';
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const adminPath = pathname.startsWith('/admin/')
+    ? pathname.slice('/admin'.length)
+    : pathname === '/admin'
+      ? '/'
+      : pathname;
+  const currentNavItem =
+    NAV_ITEMS.find((item) => item.to === adminPath) || NAV_ITEMS[0];
 
   return (
     <div className="app-frame">
@@ -118,22 +163,6 @@ export function AppShell(props: { children: ReactNode }) {
                 <ViewIcon kind="admin" />
               </span>
               <h1>Admin console</h1>
-            </div>
-            <div
-              className={
-                isLocalhostAccess
-                  ? 'status-pill status-pill-success'
-                  : 'status-pill'
-              }
-            >
-              <span
-                className={
-                  isLocalhostAccess
-                    ? 'status-dot status-dot-success'
-                    : 'status-dot'
-                }
-              />
-              {sidebarStatusText}
             </div>
           </div>
 
@@ -160,6 +189,11 @@ export function AppShell(props: { children: ReactNode }) {
         </div>
 
         <div className="sidebar-footer">
+          {auth.gatewayStatus?.version ? (
+            <span className="meta-chip sidebar-meta-chip">
+              {auth.gatewayStatus.version}
+            </span>
+          ) : null}
           {auth.token ? (
             <button
               className="ghost-button"
@@ -174,46 +208,37 @@ export function AppShell(props: { children: ReactNode }) {
 
       <main className="main-panel">
         <div className="topbar">
-          <div>
-            <h2>Admin</h2>
+          <div className="topbar-title">
+            <h2>{currentNavItem.label}</h2>
           </div>
-          <div className="topbar-actions">
-            <nav className="view-switch" aria-label="Switch view">
-              {VIEW_SWITCH_ITEMS.map((item) => {
-                const isActive = item.icon === 'admin';
-                const classes = isActive
-                  ? 'view-switch-link active'
-                  : 'view-switch-link';
+          <nav className="view-switch" aria-label="Switch view">
+            {VIEW_SWITCH_ITEMS.map((item) => {
+              const isActive = item.icon === 'admin';
+              const classes = isActive
+                ? 'view-switch-link active'
+                : 'view-switch-link';
 
-                if (isActive) {
-                  return (
-                    <span
-                      key={item.href}
-                      className={classes}
-                      aria-current="page"
-                    >
-                      <span className="nav-link-icon" aria-hidden="true">
-                        <ViewIcon kind={item.icon} />
-                      </span>
-                      <span>{item.label}</span>
-                    </span>
-                  );
-                }
-
+              if (isActive) {
                 return (
-                  <a key={item.href} className={classes} href={item.href}>
+                  <span key={item.href} className={classes} aria-current="page">
                     <span className="nav-link-icon" aria-hidden="true">
                       <ViewIcon kind={item.icon} />
                     </span>
                     <span>{item.label}</span>
-                  </a>
+                  </span>
                 );
-              })}
-            </nav>
-            {auth.gatewayStatus?.version ? (
-              <span className="meta-chip">{auth.gatewayStatus.version}</span>
-            ) : null}
-          </div>
+              }
+
+              return (
+                <a key={item.href} className={classes} href={item.href}>
+                  <span className="nav-link-icon" aria-hidden="true">
+                    <ViewIcon kind={item.icon} />
+                  </span>
+                  <span>{item.label}</span>
+                </a>
+              );
+            })}
+          </nav>
         </div>
         <div className="page-content">{props.children}</div>
       </main>

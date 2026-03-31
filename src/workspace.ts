@@ -19,6 +19,7 @@ const BOOTSTRAP_FILES = [
   'MEMORY.md',
   'HEARTBEAT.md',
   'BOOTSTRAP.md',
+  'OPENING.md',
   'BOOT.md',
 ] as const;
 const ONE_TIME_BOOTSTRAP_FILES = new Set(['BOOTSTRAP.md']);
@@ -31,6 +32,7 @@ const DEFAULT_POLICY_TEMPLATE = `approval:
     - pattern: "rm -rf /"
     - paths: ["~/.ssh/**", "/etc/**", ".env*"]
     - tools: ["force_push"]
+  trusted_network_hosts: ["hybridclaw.io"]
 
   workspace_fence: true
   max_pending_approvals: 3
@@ -192,16 +194,102 @@ function hasWorkspaceUserContent(wsDir: string): boolean {
   return isWorkspaceFileCustomized(wsDir, 'MEMORY.md');
 }
 
+function readBootstrapReferenceTimestampMs(params: {
+  wsDir: string;
+  state: WorkspaceOnboardingState;
+}): number | null {
+  const seededAt = Date.parse(String(params.state.bootstrapSeededAt || ''));
+  if (Number.isFinite(seededAt)) return seededAt;
+
+  try {
+    const stat = fs.statSync(path.join(params.wsDir, 'BOOTSTRAP.md'));
+    return Number.isFinite(stat.mtimeMs) ? stat.mtimeMs : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasPathChangedAfter(referenceMs: number, targetPath: string): boolean {
+  try {
+    return fs.statSync(targetPath).mtimeMs > referenceMs;
+  } catch {
+    return false;
+  }
+}
+
+function hasOnboardingEvidenceAfterBootstrap(params: {
+  wsDir: string;
+  state: WorkspaceOnboardingState;
+}): boolean {
+  const referenceMs = readBootstrapReferenceTimestampMs(params);
+  if (referenceMs == null) return false;
+
+  const transcriptPath = path.join(params.wsDir, '.session-transcripts');
+  if (hasPathChangedAfter(referenceMs, transcriptPath)) return true;
+
+  const customizedFiles: Array<(typeof BOOTSTRAP_FILES)[number]> = [
+    'USER.md',
+    'MEMORY.md',
+    'IDENTITY.md',
+  ];
+  for (const filename of customizedFiles) {
+    if (!isWorkspaceFileCustomized(params.wsDir, filename)) continue;
+    if (hasPathChangedAfter(referenceMs, path.join(params.wsDir, filename))) {
+      return true;
+    }
+  }
+
+  const contentDirs = ['memory', '.git'];
+  for (const dirname of contentDirs) {
+    if (hasPathChangedAfter(referenceMs, path.join(params.wsDir, dirname))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasInteractiveOnboardingEvidenceAfterBootstrap(params: {
+  wsDir: string;
+  state: WorkspaceOnboardingState;
+}): boolean {
+  const referenceMs = readBootstrapReferenceTimestampMs(params);
+  if (referenceMs == null) return false;
+
+  const interactiveDirs = ['.session-transcripts', 'memory', '.git'];
+  for (const dirname of interactiveDirs) {
+    if (hasPathChangedAfter(referenceMs, path.join(params.wsDir, dirname))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function looksLikeCompletedWorkspace(
   wsDir: string,
   bootstrapExists: boolean,
+  state: WorkspaceOnboardingState,
 ): boolean {
   const customizedIdentity = isWorkspaceFileCustomized(wsDir, 'IDENTITY.md');
   const customizedUser = isWorkspaceFileCustomized(wsDir, 'USER.md');
   const userContentPresent = hasWorkspaceUserContent(wsDir);
+  const customizedBootstrap =
+    bootstrapExists && isWorkspaceFileCustomized(wsDir, 'BOOTSTRAP.md');
 
   if (!bootstrapExists) {
     return customizedIdentity || customizedUser || userContentPresent;
+  }
+
+  if (
+    customizedBootstrap &&
+    !hasInteractiveOnboardingEvidenceAfterBootstrap({ wsDir, state })
+  ) {
+    return false;
+  }
+
+  if (!hasOnboardingEvidenceAfterBootstrap({ wsDir, state })) {
+    return false;
   }
 
   return (customizedIdentity || customizedUser) && userContentPresent;
@@ -246,7 +334,7 @@ export function ensureBootstrapFiles(
 
   const shouldCompleteOnboarding =
     Boolean(state.onboardingCompletedAt) ||
-    looksLikeCompletedWorkspace(wsDir, bootstrapExists);
+    looksLikeCompletedWorkspace(wsDir, bootstrapExists, state);
 
   if (shouldCompleteOnboarding) {
     if (bootstrapExists) {
@@ -463,7 +551,7 @@ export function isBootstrapping(agentId: string): boolean {
   const bootstrapExists = fs.existsSync(bootstrapPath);
   if (!bootstrapExists) return false;
 
-  if (!looksLikeCompletedWorkspace(wsDir, true)) {
+  if (!looksLikeCompletedWorkspace(wsDir, true, state)) {
     return true;
   }
 
@@ -484,4 +572,26 @@ export function isBootstrapping(agentId: string): boolean {
   }
 
   return false;
+}
+
+export function resolveStartupBootstrapFile(
+  agentId: string,
+): 'BOOTSTRAP.md' | 'OPENING.md' | null {
+  if (isBootstrapping(agentId)) {
+    return 'BOOTSTRAP.md';
+  }
+
+  const openingPath = path.join(agentWorkspaceDir(agentId), 'OPENING.md');
+  if (!fs.existsSync(openingPath)) return null;
+  try {
+    const content = fs.readFileSync(openingPath, 'utf-8');
+    if (!content.trim()) return null;
+    return content === readTemplateFile('OPENING.md') ? null : 'OPENING.md';
+  } catch (error) {
+    logger.warn(
+      { agentId, path: openingPath, error },
+      'Failed to inspect OPENING.md while resolving startup bootstrap state',
+    );
+    return null;
+  }
 }

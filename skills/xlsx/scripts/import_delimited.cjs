@@ -3,9 +3,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const ExcelJS = require('exceljs');
 const iconv = require('iconv-lite');
 const { parse } = require('csv-parse/sync');
+const XlsxPopulate = require('xlsx-populate');
 
 function parseArgs(argv) {
   const args = argv.slice(2);
@@ -177,33 +177,48 @@ function parseValue(value) {
   return trimmed;
 }
 
-function formatHeaderRow(row) {
-  row.eachCell((cell) => {
-    cell.font = { bold: true };
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFD9EAF7' },
-    };
-    cell.alignment = { horizontal: 'center' };
+function normalizeSheetName(name) {
+  const cleaned = String(name || 'Imported Data')
+    .replace(/[\\/*?:[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned.slice(0, 31) || 'Imported Data';
+}
+
+function setCellValue(cell, value) {
+  if (value instanceof Date) {
+    cell.value(XlsxPopulate.dateToNumber(value));
+    cell.style('numberFormat', 'yyyy-mm-dd');
+    return;
+  }
+  cell.value(value);
+}
+
+function formatHeaderRange(range) {
+  range.style({
+    bold: true,
+    horizontalAlignment: 'center',
+    fill: 'D9EAF7',
   });
 }
 
-function setColumnWidths(worksheet) {
-  worksheet.columns.forEach((column) => {
+function setColumnWidths(worksheet, rowCount, columnCount) {
+  for (let columnIndex = 1; columnIndex <= columnCount; columnIndex += 1) {
     let maxLength = 10;
-    column.eachCell({ includeEmpty: true }, (cell) => {
-      const raw = cell.value;
+    for (let rowIndex = 1; rowIndex <= rowCount; rowIndex += 1) {
+      const raw = worksheet.cell(rowIndex, columnIndex).value();
       const text =
-        raw instanceof Date
-          ? raw.toISOString().slice(0, 10)
+        typeof raw === 'number' &&
+        worksheet.cell(rowIndex, columnIndex).style('numberFormat') ===
+          'yyyy-mm-dd'
+          ? String(raw)
           : raw == null
             ? ''
             : String(raw);
       maxLength = Math.max(maxLength, Math.min(40, text.length + 2));
-    });
-    column.width = maxLength;
-  });
+    }
+    worksheet.column(columnIndex).width(maxLength);
+  }
 }
 
 function emit(payload, asJson) {
@@ -275,33 +290,40 @@ async function main() {
       ? rows[0].map((value) => String(value ?? ''))
       : null;
 
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet(
-    (options.sheetName || 'Imported Data').slice(0, 31) || 'Imported Data',
-  );
+  const workbook = await XlsxPopulate.fromBlankAsync();
+  const worksheet = workbook.sheet(0);
+  worksheet.name(normalizeSheetName(options.sheetName));
 
   const startIndex = header ? 1 : 0;
+  let rowIndex = 1;
   if (header) {
-    worksheet.addRow(header);
-    formatHeaderRow(worksheet.getRow(1));
-    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
-    worksheet.autoFilter = {
-      from: { row: 1, column: 1 },
-      to: { row: 1, column: header.length || 1 },
-    };
+    for (let columnIndex = 0; columnIndex < header.length; columnIndex += 1) {
+      worksheet.cell(1, columnIndex + 1).value(header[columnIndex]);
+    }
+    formatHeaderRange(worksheet.range(1, 1, 1, Math.max(1, header.length)));
+    worksheet.freezePanes('A2');
+    worksheet.autoFilter(worksheet.range(1, 1, 1, Math.max(1, header.length)));
+    rowIndex += 1;
   }
 
+  let columnCount = header?.length || 0;
   for (const row of rows.slice(startIndex)) {
-    worksheet.addRow(
-      Array.isArray(row)
-        ? row.map((value) => parseValue(value))
-        : [parseValue(row)],
-    );
+    const values = Array.isArray(row)
+      ? row.map((value) => parseValue(value))
+      : [parseValue(row)];
+    columnCount = Math.max(columnCount, values.length);
+    for (let columnIndex = 0; columnIndex < values.length; columnIndex += 1) {
+      setCellValue(
+        worksheet.cell(rowIndex, columnIndex + 1),
+        values[columnIndex],
+      );
+    }
+    rowIndex += 1;
   }
 
-  setColumnWidths(worksheet);
+  setColumnWidths(worksheet, rowIndex - 1, Math.max(1, columnCount));
   fs.mkdirSync(path.dirname(options.outputPath), { recursive: true });
-  await workbook.xlsx.writeFile(options.outputPath);
+  await workbook.toFileAsync(options.outputPath);
 
   emit(
     {

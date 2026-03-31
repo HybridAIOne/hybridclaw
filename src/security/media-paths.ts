@@ -74,6 +74,8 @@ function resolveDisplayPathToHost(params: {
   workspaceRootDisplay: string;
   mediaCacheRoot: string;
   mediaCacheRootDisplay: string;
+  uploadedMediaRoot: string;
+  uploadedMediaRootDisplay: string;
   mountAliases: ValidatedMountAlias[];
 }): string | null {
   const {
@@ -82,6 +84,8 @@ function resolveDisplayPathToHost(params: {
     workspaceRootDisplay,
     mediaCacheRoot,
     mediaCacheRootDisplay,
+    uploadedMediaRoot,
+    uploadedMediaRootDisplay,
     mountAliases,
   } = params;
   const normalized = normalizePathSlashes(rawPath);
@@ -102,7 +106,18 @@ function resolveDisplayPathToHost(params: {
   );
   if (workspaceResolved) return workspaceResolved;
 
-  return resolveUnderPrefix(normalized, mediaCacheRootDisplay, mediaCacheRoot);
+  const mediaResolved = resolveUnderPrefix(
+    normalized,
+    mediaCacheRootDisplay,
+    mediaCacheRoot,
+  );
+  if (mediaResolved) return mediaResolved;
+
+  return resolveUnderPrefix(
+    normalized,
+    uploadedMediaRootDisplay,
+    uploadedMediaRoot,
+  );
 }
 
 export function buildValidatedMountAliases(params: {
@@ -135,6 +150,8 @@ export async function resolveAllowedHostMediaPath(params: {
   workspaceRootDisplay: string;
   mediaCacheRoot: string;
   mediaCacheRootDisplay: string;
+  uploadedMediaRoot: string;
+  uploadedMediaRootDisplay: string;
   mountAliases: ValidatedMountAlias[];
   managedTempDirPrefixes: readonly string[];
   allowHostAbsolutePaths: boolean;
@@ -154,6 +171,8 @@ export async function resolveAllowedHostMediaPath(params: {
     workspaceRootDisplay: params.workspaceRootDisplay,
     mediaCacheRoot: params.mediaCacheRoot,
     mediaCacheRootDisplay: params.mediaCacheRootDisplay,
+    uploadedMediaRoot: params.uploadedMediaRoot,
+    uploadedMediaRootDisplay: params.uploadedMediaRootDisplay,
     mountAliases: params.mountAliases,
   });
   const expanded = expandPathInput(cleaned);
@@ -167,6 +186,7 @@ export async function resolveAllowedHostMediaPath(params: {
     [
       params.workspaceRoot,
       params.mediaCacheRoot,
+      params.uploadedMediaRoot,
       ...params.mountAliases.map((alias) => alias.hostPath),
     ].map((entry) => resolveCanonicalPath(entry)),
   );

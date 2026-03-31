@@ -1,6 +1,8 @@
 import fs from 'node:fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 
 import { afterEach, expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
@@ -119,6 +121,84 @@ function writePassivePlugin(rootDir: string, pluginId: string): void {
     ].join('\n'),
     'utf-8',
   );
+}
+
+function writeInboundWebhookPlugin(rootDir: string): void {
+  const pluginDir = path.join(
+    rootDir,
+    '.hybridclaw',
+    'plugins',
+    'webhook-plugin',
+  );
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    ['id: webhook-plugin', 'name: Webhook Plugin', 'kind: tool', ''].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'webhook-plugin',",
+      '  register(api) {',
+      '    api.registerInboundWebhook({',
+      "      name: 'email-inbound',",
+      '      async handler(context) {',
+      '        context.res.statusCode = 202;',
+      "        context.res.setHeader('content-type', 'application/json; charset=utf-8');",
+      '        context.res.end(JSON.stringify({ ok: true, path: context.path, method: context.method }));',
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
+function makeWebhookRequest(params: {
+  method?: string;
+  url: string;
+  body?: string;
+}): IncomingMessage {
+  const chunks =
+    typeof params.body === 'string' ? [Buffer.from(params.body, 'utf8')] : [];
+  return Object.assign(Readable.from(chunks), {
+    method: params.method || 'POST',
+    url: params.url,
+    headers: {},
+    socket: {
+      remoteAddress: '127.0.0.1',
+    },
+  }) as IncomingMessage;
+}
+
+function makeWebhookResponse(): ServerResponse {
+  const headers: Record<string, string> = {};
+  const response = {
+    headersSent: false,
+    writableEnded: false,
+    statusCode: 0,
+    body: '',
+    setHeader(name: string, value: string) {
+      headers[name.toLowerCase()] = value;
+    },
+    getHeader(name: string) {
+      return headers[name.toLowerCase()];
+    },
+    end(chunk?: unknown) {
+      if (chunk != null) {
+        response.body += Buffer.isBuffer(chunk)
+          ? chunk.toString('utf8')
+          : String(chunk);
+      }
+      response.writableEnded = true;
+      response.headersSent = true;
+    },
+  };
+  return response as unknown as ServerResponse;
 }
 
 function compiledPluginModulePath(rootDir: string, pluginId: string): string {
@@ -1287,6 +1367,121 @@ test('plugin manager survives unexpected gateway_start phase crashes', async () 
   expect(manager.getToolDefinitions()).toEqual([
     expect.objectContaining({ name: 'demo_echo' }),
   ]);
+});
+
+test('plugin manager resolves fixed plugin inbound webhook routes and enforces HTTP methods', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeInboundWebhookPlugin(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const { buildPluginInboundWebhookPath } = await import(
+    '../src/plugins/plugin-webhooks.js'
+  );
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+
+  const webhookPath = buildPluginInboundWebhookPath(
+    'webhook-plugin',
+    'email-inbound',
+  );
+  const res = makeWebhookResponse();
+  await expect(
+    manager.handleInboundWebhook({
+      method: 'POST',
+      pathname: webhookPath,
+      url: new URL(`http://localhost${webhookPath}`),
+      req: makeWebhookRequest({
+        method: 'POST',
+        url: webhookPath,
+      }),
+      res,
+    }),
+  ).resolves.toBe(true);
+  expect(res.statusCode).toBe(202);
+  expect(res.body).toContain('"ok":true');
+
+  const wrongMethodRes = makeWebhookResponse();
+  await expect(
+    manager.handleInboundWebhook({
+      method: 'GET',
+      pathname: webhookPath,
+      url: new URL(`http://localhost${webhookPath}`),
+      req: makeWebhookRequest({
+        method: 'GET',
+        url: webhookPath,
+      }),
+      res: wrongMethodRes,
+    }),
+  ).resolves.toBe(true);
+  expect(wrongMethodRes.statusCode).toBe(405);
+
+  await expect(
+    manager.handleInboundWebhook({
+      method: 'POST',
+      pathname: '/api/plugin-webhooks/webhook-plugin/missing',
+      url: new URL(
+        'http://localhost/api/plugin-webhooks/webhook-plugin/missing',
+      ),
+      req: makeWebhookRequest({
+        method: 'POST',
+        url: '/api/plugin-webhooks/webhook-plugin/missing',
+      }),
+      res: makeWebhookResponse(),
+    }),
+  ).resolves.toBe(false);
+});
+
+test('plugin manager rejects unsupported inbound webhook methods', async () => {
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager();
+
+  expect(() =>
+    manager.registerInboundWebhook('demo-plugin', {
+      name: 'email-inbound',
+      method: 'get' as 'GET',
+      async handler() {},
+    }),
+  ).toThrow(
+    'Plugin inbound webhook "email-inbound" on plugin "demo-plugin" has invalid method "get". Supported methods are "GET" and "POST".',
+  );
+});
+
+test('plugin manager creates inbound webhook loggers from the injected logger', async () => {
+  const childLogger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn(),
+  };
+  const logger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn(() => childLogger),
+  };
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    logger: logger as never,
+  });
+
+  manager.registerInboundWebhook('demo-plugin', {
+    name: 'email-inbound',
+    async handler() {},
+  });
+
+  expect(logger.child).toHaveBeenCalledWith({
+    pluginId: 'demo-plugin',
+    webhookName: 'email-inbound',
+  });
 });
 
 test('plugin manager rolls back partial registration when register throws', async () => {

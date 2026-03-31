@@ -44,6 +44,9 @@ describe('proactive delivery helpers', () => {
       true,
     );
     expect(isSupportedProactiveChannelId('ops@example.com')).toBe(true);
+    expect(isSupportedProactiveChannelId('imessage:ops@example.com')).toBe(
+      true,
+    );
     expect(isSupportedProactiveChannelId('120363401234567890@g.us')).toBe(true);
     expect(isSupportedProactiveChannelId('tui')).toBe(true);
     expect(isSupportedProactiveChannelId('smoke')).toBe(false);
@@ -76,6 +79,12 @@ describe('proactive delivery helpers', () => {
     expect(
       hasQueuedProactiveDeliveryPath({
         channel_id: 'ops@example.com',
+      }),
+    ).toBe(true);
+
+    expect(
+      hasQueuedProactiveDeliveryPath({
+        channel_id: 'imessage:ops@example.com',
       }),
     ).toBe(true);
 

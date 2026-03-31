@@ -14,10 +14,14 @@ export interface SessionStatusSnapshot {
 
 export function readSessionStatusSnapshot(
   sessionId: string,
-  options?: { modelContextWindowTokens?: number | null },
+  options?: {
+    currentModel?: string | null;
+    modelContextWindowTokens?: number | null;
+  },
 ): SessionStatusSnapshot {
   const entries = getRecentStructuredAuditForSession(sessionId, 160);
   let usagePayload: Record<string, unknown> | null = null;
+  let modelSelectionPayload: Record<string, unknown> | null = null;
 
   for (const entry of entries) {
     const payload = parseAuditPayload(entry);
@@ -27,7 +31,15 @@ export function readSessionStatusSnapshot(
     if (!usagePayload && payloadType === 'model.usage') {
       usagePayload = payload;
     }
-    if (usagePayload) break;
+    if (
+      !modelSelectionPayload &&
+      payloadType === 'model.set' &&
+      (!options?.currentModel ||
+        String(payload.model || '').trim() === options.currentModel)
+    ) {
+      modelSelectionPayload = payload;
+    }
+    if (usagePayload && modelSelectionPayload) break;
   }
 
   const promptTokens = firstNumber([
@@ -93,6 +105,10 @@ export function readSessionStatusSnapshot(
     usagePayload?.context_length,
     usagePayload?.maxContextSize,
     usagePayload?.max_context_size,
+    modelSelectionPayload?.modelContextWindowTokens,
+    modelSelectionPayload?.model_context_window_tokens,
+    modelSelectionPayload?.contextWindowTokens,
+    modelSelectionPayload?.context_window_tokens,
     options?.modelContextWindowTokens,
   ]);
   const contextUsagePercent =

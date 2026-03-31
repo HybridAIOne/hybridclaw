@@ -51,10 +51,11 @@ test('keeps the panel aligned with the wordmark right edge on wide terminals', (
   const leftSegmentWidth = visibleLength(boxTop.slice(0, boxTop.indexOf('╭')));
   const boxWidth = visibleLength(boxTop.slice(boxTop.indexOf('╭')));
   const titleWidth = visibleLength(lines.at(-8) || '');
+  const spacerIndex = lines.indexOf('');
 
   expect(lines[0]).toContain('⣀⣠⣤');
   expect(lines[0]).toContain('╭');
-  expect(lines.indexOf('')).toBe(26);
+  expect(spacerIndex).toBe(26);
   expect(lines[25]).toContain('⠛⠋⠀⠀⠀⠛⠛');
   expect(lines[25]).toContain('╯');
   expect(lines[0]).toContain('◌');
@@ -132,6 +133,12 @@ test('wraps panel rows for very narrow terminals and defaults provider to Hybrid
   expect(lines).toContainEqual(expect.stringContaining('suggestion'));
   expect(lines).toContainEqual(expect.stringContaining('ESC  close menu or'));
   expect(lines).toContainEqual(expect.stringContaining('interrupt run'));
+  expect(lines).toContainEqual(
+    expect.stringContaining('Context injection: @file'),
+  );
+  expect(lines).toContainEqual(
+    expect.stringContaining('@folder @diff @staged @git'),
+  );
   const slashHeaderIndex = lines.indexOf('│ Slash Commands             │');
   const bottomBorderIndex = lines.findIndex(
     (line, index) => index > slashHeaderIndex && line.includes('╰'),
@@ -146,6 +153,7 @@ test('wraps panel rows for very narrow terminals and defaults provider to Hybrid
     '│ /channel-policy            │',
     '│ /clear                     │',
     '│ /compact                   │',
+    '│ /config                    │',
     '│ /exit                      │',
     '│ /export                    │',
     '│ /fullauto                  │',

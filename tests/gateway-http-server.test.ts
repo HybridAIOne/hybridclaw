@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const DEFAULT_WEB_SESSION_ID = 'agent:main:channel:web:chat:dm:peer:default';
-const WEB_SESSION_ID_RE = /^agent:main:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
+const WEB_SESSION_ID_RE = /^agent:[^:]+:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
 
 const tempDirs: string[] = [];
 const ORIGINAL_HYBRIDCLAW_AUTH_SECRET = process.env.HYBRIDCLAW_AUTH_SECRET;
@@ -25,12 +25,22 @@ function signAuthPayload(
   return `${payloadSegment}.${signature}`;
 }
 
-function makeTempDocsDir(): string {
+function makeTempDocsDir(options?: {
+  includeMalformedFrontmatter?: boolean;
+}): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-'));
   const docsDir = path.join(root, 'docs');
+  const developmentDocsDir = path.join(docsDir, 'development');
+  const extensibilityDir = path.join(developmentDocsDir, 'extensibility');
+  const guidesDir = path.join(developmentDocsDir, 'guides');
+  const referenceDir = path.join(developmentDocsDir, 'reference');
   const consoleDistDir = path.join(root, 'console', 'dist');
   tempDirs.push(root);
   fs.mkdirSync(docsDir, { recursive: true });
+  fs.mkdirSync(developmentDocsDir, { recursive: true });
+  fs.mkdirSync(extensibilityDir, { recursive: true });
+  fs.mkdirSync(guidesDir, { recursive: true });
+  fs.mkdirSync(referenceDir, { recursive: true });
   fs.mkdirSync(consoleDistDir, { recursive: true });
   fs.writeFileSync(path.join(docsDir, 'index.html'), '<h1>Docs</h1>', 'utf8');
   fs.writeFileSync(path.join(docsDir, 'chat.html'), '<h1>Chat</h1>', 'utf8');
@@ -48,6 +58,136 @@ function makeTempDocsDir(): string {
   fs.writeFileSync(
     path.join(consoleDistDir, 'assets', 'app.js'),
     'console.log("admin")',
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(developmentDocsDir, '_category_.json'),
+    JSON.stringify({ label: 'Docs', position: 1, collapsed: false }),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(developmentDocsDir, 'README.md'),
+    [
+      '---',
+      'title: HybridClaw Docs',
+      'description: HybridClaw documentation home.',
+      'sidebar_position: 1',
+      '---',
+      '',
+      '# HybridClaw Docs',
+      '',
+      'Start with [Guides](./guides), [Reference](./reference), or [Extensibility](./extensibility).',
+      '',
+      '## Getting Started',
+      '',
+      'This section introduces the docs.',
+      '',
+      '### First Steps',
+      '',
+      'Read the overview, then pick a subsystem.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(guidesDir, 'README.md'),
+    [
+      '---',
+      'title: Guides',
+      'description: Workflow guides and practical walkthroughs.',
+      'sidebar_position: 2',
+      '---',
+      '',
+      '# Guides',
+      '',
+      'Browse the practical docs from here.',
+      '',
+      '## Tutorials',
+      '',
+      'Start with the main workflow walkthroughs.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(guidesDir, 'heading-order.md'),
+    [
+      '---',
+      'title: Heading Order',
+      'description: Covers mixed heading depths.',
+      'sidebar_position: 3',
+      '---',
+      '',
+      '# Heading Order',
+      '',
+      '##### Deep internal heading',
+      '',
+      '## Repeated Section',
+      '',
+      'Visible content for the first section.',
+      '',
+      '## Repeated Section',
+      '',
+      'Visible content for the second section.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(referenceDir, 'README.md'),
+    [
+      '---',
+      'title: Reference',
+      'description: Configuration and command reference.',
+      'sidebar_position: 3',
+      '---',
+      '',
+      '# Reference',
+      '',
+      'Look up commands, settings, and operational details.',
+      '',
+      '## Commands',
+      '',
+      'This section summarizes the CLI surface.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  if (options?.includeMalformedFrontmatter) {
+    fs.writeFileSync(
+      path.join(referenceDir, 'broken.md'),
+      [
+        '---',
+        'title: [broken',
+        'description: should fail',
+        '---',
+        '',
+        '# Broken',
+        '',
+        'This page should not render.',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+  }
+  fs.writeFileSync(
+    path.join(extensibilityDir, 'README.md'),
+    [
+      '---',
+      'title: Extensibility',
+      'description: Extend HybridClaw with tools and skills.',
+      'sidebar_position: 4',
+      '---',
+      '',
+      '# Extensibility',
+      '',
+      'This page documents the extension surface.',
+      '',
+      '## Tools',
+      '',
+      'Built-in tools and external tool surfaces live here.',
+      '',
+    ].join('\n'),
     'utf8',
   );
   return root;
@@ -71,9 +211,11 @@ function makeRequest(params: {
       ? []
       : [
           Buffer.from(
-            typeof params.body === 'string'
+            Buffer.isBuffer(params.body)
               ? params.body
-              : JSON.stringify(params.body),
+              : typeof params.body === 'string'
+                ? params.body
+                : JSON.stringify(params.body),
           ),
         ];
   return Object.assign(Readable.from(chunks), {
@@ -161,6 +303,12 @@ async function importFreshHealth(options?: {
   authSecret?: string;
   hybridAiBaseUrl?: string;
   runningInsideContainer?: boolean;
+  mediaUploadQuotaDecision?: {
+    allowed: boolean;
+    remainingBytes: number;
+    retryAfterMs: number;
+    usedBytes: number;
+  };
 }) {
   vi.resetModules();
 
@@ -171,18 +319,35 @@ async function importFreshHealth(options?: {
   }
 
   const installRoot = options?.docsDir || makeTempDocsDir();
-  const dataDir = options?.dataDir || makeTempDataDir();
+  const dataDir = options?.dataDir ?? makeTempDataDir();
   let handler:
     | ((
         req: Parameters<Parameters<typeof createServer>[0]>[0],
         res: Parameters<Parameters<typeof createServer>[0]>[1],
       ) => void)
     | null = null;
+  let upgradeHandler:
+    | ((req: unknown, socket: unknown, head: unknown) => void)
+    | null = null;
   let listenArgs: { port: number; host: string } | null = null;
+  const startTerminalSession = vi.fn(() => ({
+    sessionId: 'terminal-session-1',
+    websocketPath: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+  }));
+  const stopTerminalSession = vi.fn(() => true);
+  const handleTerminalUpgrade = vi.fn(() => true);
+  const disposeTerminalManager = vi.fn();
 
   const createServer = vi.fn((nextHandler) => {
     handler = nextHandler;
     return {
+      on: vi.fn(
+        (event: string, nextUpgradeHandler: (...args: unknown[]) => void) => {
+          if (event === 'upgrade') {
+            upgradeHandler = nextUpgradeHandler;
+          }
+        },
+      ),
       listen: vi.fn((port: number, host: string, callback?: () => void) => {
         listenArgs = { port, host };
         callback?.();
@@ -190,10 +355,33 @@ async function importFreshHealth(options?: {
     };
   });
 
-  const getGatewayStatus = vi.fn(() => ({ status: 'ok', sessions: 2 }));
-  const getGatewayHistory = vi.fn(() => [
-    { role: 'user', content: 'hello' },
-    { role: 'assistant', content: 'world' },
+  const getGatewayStatus = vi.fn(async () => ({ status: 'ok', sessions: 2 }));
+  const loggerDebug = vi.fn();
+  const loggerError = vi.fn();
+  const loggerInfo = vi.fn();
+  const loggerWarn = vi.fn();
+  const getGatewayHistory = vi.fn(() => ({
+    sessionKey: null,
+    mainSessionKey: null,
+    branchFamilies: [],
+    history: [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'world' },
+    ],
+  }));
+  const getGatewayRecentChatSessions = vi.fn(() => [
+    {
+      sessionId: 'web-session-2',
+      title: '"Follow-up question from user A"',
+      lastActive: '2026-03-24T10:00:00.000Z',
+      messageCount: 1,
+    },
+    {
+      sessionId: 'web-session-1',
+      title: '"First web question from user A" ... "Assistant reply A1"',
+      lastActive: '2026-03-24T09:01:00.000Z',
+      messageCount: 2,
+    },
   ]);
   const getGatewayHistorySummary = vi.fn(() => ({
     messageCount: 2,
@@ -214,11 +402,45 @@ async function importFreshHealth(options?: {
       deletedCount: 1,
     },
   }));
+  const getGatewayAssistantPresentationForSession = vi.fn(() => ({
+    agentId: 'charly',
+    displayName: 'Charly',
+    imageUrl: '/api/agent-avatar?agentId=charly',
+  }));
+  const getGatewayBootstrapAutostartState = vi.fn(() => null);
+  const ensureGatewayBootstrapAutostart = vi.fn(async () => {});
+  const getAgentById = vi.fn((agentId: string) =>
+    agentId === 'charly'
+      ? {
+          id: 'charly',
+          name: 'Charly Agent',
+          displayName: 'Charly',
+          imageAsset: 'avatars/charly.png',
+        }
+      : null,
+  );
+  const resolveAgentConfig = vi.fn((agentId?: string | null) => ({
+    id: agentId?.trim() || 'main',
+    name: 'Main Agent',
+  }));
+  const resolveAgentWorkspaceId = vi.fn(
+    (agentId?: string | null) => agentId?.trim() || 'main',
+  );
   const getSessionById = vi.fn(() => ({ show_mode: 'all' }));
+  const forkSessionBranch = vi.fn(() => ({
+    session: {
+      id: 'branch-session-1',
+      session_key: 'branch-session-1',
+      main_session_key: 'agent:main:channel:web:chat:dm:peer:family-a',
+    },
+    copiedMessageCount: 2,
+  }));
   const handleGatewayMessage = vi.fn(async () => ({
     status: 'success' as const,
     result: '__MESSAGE_SEND_HANDLED__',
     toolsUsed: [],
+    userMessageId: 11,
+    assistantMessageId: 12,
     toolExecutions: [
       {
         name: 'message',
@@ -233,8 +455,16 @@ async function importFreshHealth(options?: {
     kind: 'plain' as const,
     text: 'ok',
   }));
+  const handleGatewayPluginWebhook = vi.fn(async (_req, res) => {
+    res.statusCode = 202;
+    res.end('plugin-webhook');
+  });
+  const renderGatewayCommand = vi.fn(
+    (result: { title?: string; text: string }) =>
+      result.title ? `${result.title}\n${result.text}` : result.text,
+  );
   const runGatewayPluginTool = vi.fn(async () => 'plugin-tool-result');
-  const getGatewayAdminOverview = vi.fn(() => ({
+  const getGatewayAdminOverview = vi.fn(async () => ({
     status: { status: 'ok', sessions: 2, version: '0.7.1', uptime: 60 },
     configPath: '/tmp/config.json',
     recentSessions: [],
@@ -296,7 +526,7 @@ async function importFreshHealth(options?: {
       },
     ],
   }));
-  const getGatewayAgents = vi.fn(() => ({
+  const getGatewayAgents = vi.fn(async () => ({
     generatedAt: '2026-03-11T10:00:00.000Z',
     version: '0.7.1',
     uptime: 60,
@@ -535,6 +765,9 @@ async function importFreshHealth(options?: {
   const removeGatewayAdminSchedulerJob = vi.fn(() => ({
     jobs: [],
   }));
+  const moveGatewayAdminSchedulerJob = vi.fn(() => ({
+    jobs: [],
+  }));
   const removeGatewayAdminMcpServer = vi.fn(() => ({
     servers: [],
   }));
@@ -572,25 +805,49 @@ async function importFreshHealth(options?: {
     channelDisabled: {},
     skills: [],
   }));
+  const getGatewayAdminJobsContext = vi.fn(() => ({
+    agents: [{ id: 'main', name: 'Main Agent' }],
+    sessions: [
+      {
+        sessionId: 'scheduler:job-1',
+        agentId: 'main',
+        startedAt: '2026-03-27T08:00:00.000Z',
+        lastActive: '2026-03-27T08:05:00.000Z',
+        status: 'active',
+        lastAnswer: 'Done.',
+        output: ['recent output'],
+      },
+    ],
+  }));
   const runMessageToolAction = vi.fn(async () => ({ ok: true }));
   const normalizeDiscordToolAction = vi.fn((value: string) =>
     value === 'reply' ? 'send' : null,
   );
+  const handleIMessageWebhook = vi.fn(async () => {});
   const handleMSTeamsWebhook = vi.fn(async () => {});
   const claimQueuedProactiveMessages = vi.fn(() => [
     { id: 1, text: 'queued message' },
   ]);
+  const consumeGatewayMediaUploadQuota = vi.fn((params: { bytes: number }) => ({
+    allowed: true,
+    remainingBytes: Number.POSITIVE_INFINITY,
+    retryAfterMs: 0,
+    usedBytes: params.bytes,
+    ...options?.mediaUploadQuotaDecision,
+  }));
 
   vi.doMock('node:http', () => ({
     default: { createServer },
     createServer,
   }));
   vi.doMock('../src/config/config.ts', () => ({
+    CONTAINER_SANDBOX_MODE: 'container',
     DATA_DIR: dataDir,
     GATEWAY_API_TOKEN: options?.gatewayApiToken || '',
     HEALTH_HOST: '127.0.0.1',
     HEALTH_PORT: 9090,
     HYBRIDAI_BASE_URL: options?.hybridAiBaseUrl || 'https://hybridai.one',
+    IMESSAGE_WEBHOOK_PATH: '/api/imessage/webhook',
     MSTEAMS_WEBHOOK_PATH: '/api/msteams/messages',
     WEB_API_TOKEN: options?.webApiToken || '',
     getSandboxAutoDetectionState: vi.fn(() => ({
@@ -605,44 +862,62 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/logger.js', () => ({
     logger: {
-      debug: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
+      debug: loggerDebug,
+      error: loggerError,
+      info: loggerInfo,
+      warn: loggerWarn,
     },
   }));
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     handleMSTeamsWebhook,
+  }));
+  vi.doMock('../src/channels/imessage/runtime.js', () => ({
+    handleIMessageWebhook,
   }));
   vi.doMock('../src/memory/db.js', () => ({
     claimQueuedProactiveMessages,
     getSessionById,
     resetSessionIfExpired: vi.fn(() => null),
   }));
+  vi.doMock('../src/memory/memory-service.js', () => ({
+    memoryService: {
+      forkSessionBranch,
+    },
+  }));
+  vi.doMock('../src/agents/agent-registry.js', () => ({
+    getAgentById,
+    resolveAgentConfig,
+    resolveAgentWorkspaceId,
+  }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
     createGatewayAdminAgent,
     deleteGatewayAdminAgent,
     deleteGatewayAdminSession,
+    ensureGatewayBootstrapAutostart,
     GatewayRequestError,
     getGatewayAgents,
     getGatewayAdminAgents,
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
+    getGatewayAdminJobsContext,
     getGatewayAdminMcp,
     getGatewayAdminModels,
     getGatewayAdminOverview,
-    getGatewayAdminPlugins,
     getGatewayAdminScheduler,
     getGatewayAdminSessions,
     getGatewayAdminSkills,
     getGatewayAdminTools,
+    getGatewayAssistantPresentationForSession,
+    getGatewayBootstrapAutostartState,
     getGatewayHistory,
+    getGatewayRecentChatSessions,
     getGatewayHistorySummary,
     getGatewayStatus,
     handleGatewayCommand,
     handleGatewayMessage,
-    runGatewayPluginTool,
+    moveGatewayAdminSchedulerJob,
+    renderGatewayCommand,
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
     removeGatewayAdminSchedulerJob,
@@ -655,6 +930,11 @@ async function importFreshHealth(options?: {
     upsertGatewayAdminMcpServer,
     upsertGatewayAdminSchedulerJob,
   }));
+  vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
+    getGatewayAdminPlugins,
+    handleGatewayPluginWebhook,
+    runGatewayPluginTool,
+  }));
   vi.doMock('../src/channels/message/tool-actions.js', () => ({
     runMessageToolAction,
   }));
@@ -663,6 +943,17 @@ async function importFreshHealth(options?: {
       vi.fn(async () => ({ ok: true })),
     ),
     normalizeDiscordToolAction,
+  }));
+  vi.doMock('../src/gateway/media-upload-quota.ts', () => ({
+    consumeGatewayMediaUploadQuota,
+  }));
+  vi.doMock('../src/gateway/admin-terminal.ts', () => ({
+    createAdminTerminalManager: vi.fn(() => ({
+      startSession: startTerminalSession,
+      stopSession: stopTerminalSession,
+      handleUpgrade: handleTerminalUpgrade,
+      dispose: disposeTerminalManager,
+    })),
   }));
 
   const gatewayHttpServer = await import(
@@ -679,8 +970,13 @@ async function importFreshHealth(options?: {
     handler,
     listenArgs,
     getGatewayStatus,
+    ensureGatewayBootstrapAutostart,
+    getGatewayAssistantPresentationForSession,
+    getGatewayBootstrapAutostartState,
     getGatewayHistory,
+    getGatewayRecentChatSessions,
     getGatewayHistorySummary,
+    forkSessionBranch,
     getGatewayAdminOverview,
     getGatewayAgents,
     getGatewayAdminAgents,
@@ -691,7 +987,13 @@ async function importFreshHealth(options?: {
     getGatewayAdminMcp,
     getGatewayAdminAudit,
     getGatewayAdminSkills,
+    getGatewayAdminJobsContext,
     getGatewayAdminTools,
+    startTerminalSession,
+    stopTerminalSession,
+    handleTerminalUpgrade,
+    upgradeHandler,
+    moveGatewayAdminSchedulerJob,
     createGatewayAdminAgent,
     updateGatewayAdminAgent,
     deleteGatewayAdminAgent,
@@ -699,10 +1001,17 @@ async function importFreshHealth(options?: {
     setGatewayAdminSkillEnabled,
     handleGatewayMessage,
     handleGatewayCommand,
+    handleGatewayPluginWebhook,
+    renderGatewayCommand,
     getSessionById,
+    getAgentById,
+    loggerDebug,
+    loggerError,
+    handleIMessageWebhook,
     runMessageToolAction,
     normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
+    consumeGatewayMediaUploadQuota,
   };
 }
 
@@ -714,9 +1023,11 @@ afterEach(() => {
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/memory/db.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
+  vi.doUnmock('../src/channels/imessage/runtime.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');
   vi.doUnmock('../src/channels/message/tool-actions.js');
   vi.doUnmock('../src/channels/discord/tool-actions.js');
+  vi.doUnmock('../src/gateway/media-upload-quota.ts');
   vi.resetModules();
   if (ORIGINAL_HYBRIDCLAW_AUTH_SECRET === undefined) {
     delete process.env.HYBRIDCLAW_AUTH_SECRET;
@@ -737,9 +1048,9 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
+    await vi.waitFor(() => expect(res.statusCode).toBe(200));
 
     expect(state.listenArgs).toEqual({ host: '127.0.0.1', port: 9090 });
-    expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ status: 'ok', sessions: 2 });
   });
 
@@ -752,7 +1063,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (next) => next.writableEnded);
 
     expect(res.statusCode).toBe(401);
     expect(JSON.parse(res.body)).toEqual({
@@ -770,6 +1081,363 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
     expect(res.body).toContain('<h1>Docs</h1>');
+  });
+
+  test('delegates iMessage webhook requests to the iMessage runtime', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/imessage/webhook',
+      body: { type: 'new-message' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(
+      res,
+      () => state.handleIMessageWebhook.mock.calls.length > 0,
+    );
+
+    expect(state.handleIMessageWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  test('delegates plugin webhook requests before API auth is enforced', async () => {
+    const state = await importFreshHealth({ webApiToken: 'secret-token' });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/plugin-webhooks/demo-plugin/email-inbound',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(
+      res,
+      () => state.handleGatewayPluginWebhook.mock.calls.length > 0,
+    );
+
+    expect(state.handleGatewayPluginWebhook).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toBe('plugin-webhook');
+  });
+
+  test('returns a generic 500 when a webhook handler throws unexpectedly', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayPluginWebhook.mockRejectedValueOnce(
+      new Error('secret webhook failure details'),
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/plugin-webhooks/demo-plugin/email-inbound',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(
+      res,
+      () => state.handleGatewayPluginWebhook.mock.calls.length > 0,
+    );
+
+    expect(state.handleGatewayPluginWebhook).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toContain('Internal server error');
+    expect(res.body).not.toContain('secret webhook failure details');
+    expect(state.loggerError).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Webhook handler failed',
+    );
+  });
+
+  test('renders docs markdown as a browsable HTML page', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/docs' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(res.body).toContain(
+      '<title>HybridClaw Docs | HybridClaw Docs</title>',
+    );
+    expect(res.body).toContain('<h1 id="hybridclaw-docs">HybridClaw Docs');
+    expect(res.body).toContain('href="/docs/guides"');
+    expect(res.body).toContain('href="/docs/reference"');
+    expect(res.body).toContain('href="/docs/extensibility"');
+    expect(res.body).toContain('aria-label="Search docs"');
+    expect(res.body).toContain('>Home</a>');
+    expect(res.body).toContain('>GitHub');
+    expect(res.body).toContain('>Discord');
+    expect(res.body).toContain('On this page');
+    expect(res.body).toContain('href="#getting-started"');
+    expect(res.body).toContain('data-doc-copy-markdown');
+    expect(res.body).toContain('href="/docs/README.md"');
+    expect(res.body).not.toContain(
+      'class="docs-sidebar-link is-active" href="/docs"',
+    );
+    expect(res.body).not.toContain('><span>HybridClaw Docs</span></a>');
+  });
+
+  test('redirects legacy /development docs routes to /docs', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/development/guides' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(308);
+    expect(res.headers.Location).toBe('/docs/guides');
+  });
+
+  test('renders section index pages from folder-based routes', async () => {
+    const state = await importFreshHealth();
+
+    for (const [pathname, title, heading, anchor] of [
+      ['/docs/guides', 'Guides', 'Guides', '#tutorials'],
+      ['/docs/reference', 'Reference', 'Reference', '#commands'],
+      ['/docs/guides/', 'Guides', 'Guides', '#tutorials'],
+    ] as const) {
+      const req = makeRequest({ url: pathname });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+      expect(res.body).toContain(`<title>${title} | HybridClaw Docs</title>`);
+      expect(res.body).toContain(
+        `<h1 id="${heading.toLowerCase()}">${heading}`,
+      );
+      expect(res.body).toContain(`href="${anchor}"`);
+    }
+  });
+
+  test('serves raw markdown when requesting a docs .md path', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/docs/extensibility/README.md' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/markdown; charset=utf-8');
+    expect(res.body).toContain('title: Extensibility');
+    expect(res.body).toContain('# Extensibility');
+    expect(res.body).not.toContain('<!doctype html>');
+  });
+
+  test('renders server-side docs search results for ?search queries', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/docs?search=commands' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(res.body).toContain(
+      '<title>Search: commands | HybridClaw Docs</title>',
+    );
+    expect(res.body).toContain(
+      '<h1 id="docs-search-results">Docs Search Results',
+    );
+    expect(res.body).toContain('Query: <code>commands</code>');
+    expect(res.body).toContain('href="/docs/reference#commands"');
+  });
+
+  test('serves docs search results as markdown on .md routes', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/docs/README.md?search=guides' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/markdown; charset=utf-8');
+    expect(res.body).toContain('# Docs Search Results');
+    expect(res.body).toContain('Query: `guides`');
+    expect(res.body).toContain('[Guides](/docs/guides/README.md)');
+    expect(res.body).not.toContain('<!doctype html>');
+  });
+
+  test('reuses the cached development docs snapshot across repeated requests', async () => {
+    const installRoot = makeTempDocsDir();
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const guidesReadmePath = path.join(
+      installRoot,
+      'docs',
+      'development',
+      'guides',
+      'README.md',
+    );
+
+    const firstReq = makeRequest({ url: '/docs/guides' });
+    const firstRes = makeResponse();
+    state.handler(firstReq as never, firstRes as never);
+
+    expect(firstRes.statusCode).toBe(200);
+    expect(firstRes.body).toContain('Browse the practical docs from here.');
+
+    fs.writeFileSync(
+      guidesReadmePath,
+      [
+        '---',
+        'title: Guides',
+        'description: Workflow guides and practical walkthroughs.',
+        'sidebar_position: 2',
+        '---',
+        '',
+        '# Guides',
+        '',
+        'This should only appear after the cache expires.',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const secondReq = makeRequest({ url: '/docs/guides' });
+    const secondRes = makeResponse();
+    state.handler(secondReq as never, secondRes as never);
+
+    expect(secondRes.statusCode).toBe(200);
+    expect(secondRes.body).toContain('Browse the practical docs from here.');
+    expect(secondRes.body).not.toContain(
+      'This should only appear after the cache expires.',
+    );
+  });
+
+  test('rejects symlinked development markdown pages', async () => {
+    const installRoot = makeTempDocsDir();
+    const secretPath = path.join(installRoot, 'outside-secret.md');
+    fs.writeFileSync(secretPath, '# Secret\n', 'utf8');
+    fs.symlinkSync(
+      secretPath,
+      path.join(installRoot, 'docs', 'development', 'guides', 'secret.md'),
+    );
+
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const req = makeRequest({ url: '/docs/guides/secret' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toBe('Not Found');
+  });
+
+  test('ignores symlinked category metadata files outside the docs tree', async () => {
+    const installRoot = makeTempDocsDir();
+    const externalCategoryPath = path.join(
+      installRoot,
+      'outside-category.json',
+    );
+    fs.writeFileSync(
+      externalCategoryPath,
+      JSON.stringify({ label: 'Compromised' }),
+      'utf8',
+    );
+    fs.symlinkSync(
+      externalCategoryPath,
+      path.join(
+        installRoot,
+        'docs',
+        'development',
+        'guides',
+        '_category_.json',
+      ),
+    );
+
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const req = makeRequest({ url: '/docs/guides/heading-order' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain('Compromised');
+    expect(res.body).toContain('<summary>Guides</summary>');
+  });
+
+  test('does not render non-http image sources in development docs', async () => {
+    const installRoot = makeTempDocsDir();
+    fs.writeFileSync(
+      path.join(
+        installRoot,
+        'docs',
+        'development',
+        'guides',
+        'image-schemes.md',
+      ),
+      [
+        '---',
+        'title: Image Schemes',
+        'description: Image scheme validation.',
+        'sidebar_position: 4',
+        '---',
+        '',
+        '# Image Schemes',
+        '',
+        '![Bad](javascript:alert(1))',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const req = makeRequest({ url: '/docs/guides/image-schemes' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain('<img src="javascript:alert(1)"');
+    expect(res.body).toContain('Bad');
+    expect(res.body).toContain('id="docs-markdown-source"');
+    expect(res.body).toContain('javascript:alert(1)');
+  });
+
+  test('returns a visible error for malformed development doc frontmatter', async () => {
+    const installRoot = makeTempDocsDir({ includeMalformedFrontmatter: true });
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const req = makeRequest({ url: '/docs/reference/broken' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(500);
+    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(res.body).toContain('Docs failed to render');
+    expect(res.body).toContain('Invalid frontmatter in reference/broken.md');
+  });
+
+  test('keeps heading anchors aligned when deep headings appear before repeated sections', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/docs/guides/heading-order' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('href="#repeated-section"');
+    expect(res.body).toContain('href="#repeated-section-2"');
+    expect(res.body).toContain('<h2 id="repeated-section">Repeated Section');
+    expect(res.body).toContain('<h2 id="repeated-section-2">Repeated Section');
+  });
+
+  test('renders individual development docs pages by slug', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/docs/extensibility' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(res.body).toContain(
+      '<title>Extensibility | HybridClaw Docs</title>',
+    );
+    expect(res.body).toContain('<h1 id="extensibility">Extensibility');
+    expect(res.body).toContain('This page documents the extension surface.');
+    expect(res.body).toContain('href="#tools"');
   });
 
   test('serves /chat, /agents, and /admin without a session cookie outside Docker', async () => {
@@ -897,14 +1565,225 @@ describe('gateway HTTP server', () => {
     expect(res.body).toBe('Unauthorized. Invalid or expired auth token.');
   });
 
+  test('returns 401 from /auth/callback when the token query parameter is missing', async () => {
+    const state = await importFreshHealth({ authSecret: 'health-secret' });
+    const req = makeRequest({
+      url: '/auth/callback',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body).toBe('Unauthorized. Invalid or expired auth token.');
+  });
+
+  test('/auth/callback returns HTML with localStorage script when WEB_API_TOKEN is set', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'my-web-token',
+    });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(res.body).toContain('localStorage.setItem');
+    expect(res.body).toContain('hybridclaw_token');
+    expect(res.body).toContain('my-web-token');
+    expect(res.body).toContain('window.location.replace("/admin")');
+    // Session cookie should still be set
+    expect(res.headers['Set-Cookie']).toEqual(
+      expect.stringContaining('hybridclaw_session='),
+    );
+  });
+
+  test('/auth/callback includes CSP and X-Content-Type-Options headers when WEB_API_TOKEN is set', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'my-web-token',
+    });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Security-Policy']).toBe(
+      "default-src 'none'; script-src 'unsafe-inline'",
+    );
+    expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
+    expect(res.headers['Cache-Control']).toBe('no-store');
+  });
+
+  test('/auth/callback escapes angle brackets in WEB_API_TOKEN to prevent script injection', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'token-with-<script>-in-it',
+    });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    // Raw `<` must not appear inside the <script> block payload
+    expect(res.body).not.toMatch(/<script>.*<(?!\/script>).*<\/script>/s);
+    // The escaped form should be present instead
+    expect(res.body).toContain('\\u003c');
+  });
+
+  test('/auth/callback returns 302 redirect when WEB_API_TOKEN is not set', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/admin');
+  });
+
+  test('/auth/callback respects a valid next query parameter (302 redirect)', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}&next=/chat`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/chat');
+  });
+
+  test('/auth/callback respects a valid next query parameter (HTML localStorage redirect)', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'my-web-token',
+    });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}&next=/dashboard`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('window.location.replace("/dashboard")');
+  });
+
+  test('/auth/callback ignores protocol-relative next param to prevent open redirect', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}&next=//evil.com`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/admin');
+  });
+
+  test('/auth/callback ignores absolute URL next param to prevent open redirect', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}&next=https://evil.com/steal`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/admin');
+  });
+
   test('returns history for authorized loopback API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/history?sessionId=s1&limit=2' });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (next) => next.writableEnded);
 
+    expect(state.ensureGatewayBootstrapAutostart).toHaveBeenCalledWith({
+      sessionId: 's1',
+    });
     expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2);
     expect(state.getGatewayHistorySummary).toHaveBeenCalledWith('s1', {
       sinceMs: null,
@@ -912,6 +1791,14 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       sessionId: 's1',
+      sessionKey: undefined,
+      mainSessionKey: undefined,
+      assistantPresentation: {
+        agentId: 'charly',
+        displayName: 'Charly',
+        imageUrl: '/api/agent-avatar?agentId=charly',
+      },
+      bootstrapAutostart: null,
       history: [
         { role: 'user', content: 'hello' },
         { role: 'assistant', content: 'world' },
@@ -938,6 +1825,330 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('returns history immediately while BOOTSTRAP autostart is still starting', async () => {
+    const state = await importFreshHealth();
+    state.ensureGatewayBootstrapAutostart.mockImplementation(
+      () => new Promise(() => {}),
+    );
+    state.getGatewayBootstrapAutostartState.mockReturnValue({
+      status: 'starting',
+      fileName: 'OPENING.md',
+    });
+
+    const req = makeRequest({
+      url: '/api/history?sessionId=agent:charly:channel:web:chat:dm:peer:fresh&limit=2',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      sessionId: 'agent:charly:channel:web:chat:dm:peer:fresh',
+      bootstrapAutostart: {
+        status: 'starting',
+        fileName: 'OPENING.md',
+      },
+    });
+  });
+
+  test('streams installed agent avatar assets', async () => {
+    const state = await importFreshHealth();
+    const avatarPath = path.join(
+      state.dataDir,
+      'agents',
+      'charly',
+      'workspace',
+      'avatars',
+      'charly.png',
+    );
+    fs.mkdirSync(path.dirname(avatarPath), { recursive: true });
+    fs.writeFileSync(avatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+    const statSyncSpy = vi.spyOn(fs, 'statSync');
+
+    const req = makeRequest({ url: '/api/agent-avatar?agentId=charly' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getAgentById).toHaveBeenCalledWith('charly');
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('image/png');
+    expect(res.body.length).toBeGreaterThan(0);
+    expect(statSyncSpy).not.toHaveBeenCalled();
+  });
+
+  test('allows bearer auth for installed agent avatar assets', async () => {
+    const dataDir = makeTempDataDir();
+    const avatarPath = path.join(
+      dataDir,
+      'agents',
+      'charly',
+      'workspace',
+      'avatars',
+      'charly.png',
+    );
+    fs.mkdirSync(path.dirname(avatarPath), { recursive: true });
+    fs.writeFileSync(avatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: '/api/agent-avatar?agentId=charly',
+      remoteAddress: '203.0.113.10',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('image/png');
+    expect(res.body.length).toBeGreaterThan(0);
+  });
+
+  test('rejects query-token auth for installed agent avatar assets', async () => {
+    const dataDir = makeTempDataDir();
+    const avatarPath = path.join(
+      dataDir,
+      'agents',
+      'charly',
+      'workspace',
+      'avatars',
+      'charly.png',
+    );
+    fs.mkdirSync(path.dirname(avatarPath), { recursive: true });
+    fs.writeFileSync(avatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: '/api/agent-avatar?agentId=charly&token=web-token',
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('rejects installed agent avatar assets that escape the workspace', async () => {
+    const state = await importFreshHealth();
+    state.getAgentById.mockImplementation((agentId: string) =>
+      agentId === 'charly'
+        ? {
+            id: 'charly',
+            name: 'Charly Agent',
+            displayName: 'Charly',
+            imageAsset: '../secret.png',
+          }
+        : null,
+    );
+
+    const req = makeRequest({ url: '/api/agent-avatar?agentId=charly' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Agent avatar not found.',
+    });
+  });
+
+  test('rejects non-image workspace files as installed agent avatar assets', async () => {
+    const dataDir = makeTempDataDir();
+    const scriptPath = path.join(
+      dataDir,
+      'agents',
+      'charly',
+      'workspace',
+      'scripts',
+      'setup.sh',
+    );
+    fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+    fs.writeFileSync(scriptPath, '#!/bin/sh\necho setup\n', 'utf8');
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    state.getAgentById.mockImplementation((agentId: string) =>
+      agentId === 'charly'
+        ? {
+            id: 'charly',
+            name: 'Charly Agent',
+            displayName: 'Charly',
+            imageAsset: 'scripts/setup.sh',
+          }
+        : null,
+    );
+
+    const req = makeRequest({
+      url: '/api/agent-avatar?agentId=charly',
+      remoteAddress: '203.0.113.10',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Agent avatar not found.',
+    });
+  });
+
+  test('forks a web chat branch from a message cutoff', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/branch',
+      body: {
+        sessionId: 's1',
+        beforeMessageId: 9,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.forkSessionBranch).toHaveBeenCalledWith({
+      sessionId: 's1',
+      beforeMessageId: 9,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      sessionId: 'branch-session-1',
+      sessionKey: 'branch-session-1',
+      mainSessionKey: 'agent:main:channel:web:chat:dm:peer:family-a',
+      copiedMessageCount: 2,
+    });
+  });
+
+  test('rejects invalid branch requests without a positive cutoff message id', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/branch',
+      body: {
+        sessionId: 's1',
+        beforeMessageId: 0,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.forkSessionBranch).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Missing valid positive integer `beforeMessageId` in request body.',
+    });
+  });
+
+  test('rejects branch requests with trailing non-numeric characters', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/branch',
+      body: {
+        sessionId: 's1',
+        beforeMessageId: '9abc',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.forkSessionBranch).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Missing valid positive integer `beforeMessageId` in request body.',
+    });
+  });
+
+  test('returns 500 when branch creation fails unexpectedly', async () => {
+    const state = await importFreshHealth();
+    state.forkSessionBranch.mockImplementation(() => {
+      throw new Error('sqlite busy');
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/branch',
+      body: {
+        sessionId: 's1',
+        beforeMessageId: 9,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(500);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'sqlite busy',
+    });
+  });
+
+  test('returns recent chat sessions for authorized loopback API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/chat/recent?userId=web-user-a&channelId=web&limit=10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getGatewayRecentChatSessions).toHaveBeenCalledWith({
+      userId: 'web-user-a',
+      channelId: 'web',
+      limit: 10,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      sessions: [
+        {
+          sessionId: 'web-session-2',
+          title: '"Follow-up question from user A"',
+          lastActive: '2026-03-24T10:00:00.000Z',
+          messageCount: 1,
+        },
+        {
+          sessionId: 'web-session-1',
+          title: '"First web question from user A" ... "Assistant reply A1"',
+          lastActive: '2026-03-24T09:01:00.000Z',
+          messageCount: 2,
+        },
+      ],
+    });
+  });
+
   test('rejects history requests without an explicit session id', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/history?limit=2' });
@@ -951,6 +2162,21 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Missing `sessionId` query parameter.',
+    });
+  });
+
+  test('rejects recent chat requests without an explicit user id', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/chat/recent?limit=10' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayRecentChatSessions).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Missing `userId` query parameter.',
     });
   });
 
@@ -1078,6 +2304,228 @@ describe('gateway HTTP server', () => {
     expect(state.getGatewayAdminScheduler).toHaveBeenCalledTimes(1);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ jobs: [] });
+  });
+
+  test('returns lightweight jobs context for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/jobs/context' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminJobsContext).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agents: [{ id: 'main', name: 'Main Agent' }],
+      sessions: [
+        {
+          sessionId: 'scheduler:job-1',
+          agentId: 'main',
+          startedAt: '2026-03-27T08:00:00.000Z',
+          lastActive: '2026-03-27T08:05:00.000Z',
+          status: 'active',
+          lastAnswer: 'Done.',
+          output: ['recent output'],
+        },
+      ],
+    });
+  });
+
+  test('starts an admin terminal session for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/terminal',
+      body: {
+        cols: 140,
+        rows: 40,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.startTerminalSession).toHaveBeenCalledWith({
+      cols: 140,
+      rows: 40,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      sessionId: 'terminal-session-1',
+      websocketPath: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+    });
+  });
+
+  test('stops an admin terminal session for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/terminal?sessionId=terminal-session-1',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.stopTerminalSession).toHaveBeenCalledWith(
+      'terminal-session-1',
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      stopped: true,
+    });
+  });
+
+  test('returns 404 for unsupported admin terminal methods at the route layer', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'GET',
+      url: '/api/admin/terminal',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.startTerminalSession).not.toHaveBeenCalled();
+    expect(state.stopTerminalSession).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Not Found' });
+  });
+
+  test('returns 429 when the admin terminal session cap is reached', async () => {
+    const state = await importFreshHealth();
+    state.startTerminalSession.mockImplementationOnce(() => {
+      throw new state.GatewayRequestError(
+        429,
+        'Too many active admin terminal sessions.',
+      );
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/terminal',
+      body: {
+        cols: 140,
+        rows: 40,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(429);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Too many active admin terminal sessions.',
+    });
+  });
+
+  test('rejects terminal websocket upgrades without session auth or direct request auth', async () => {
+    const state = await importFreshHealth();
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        remoteAddress: '10.0.0.5',
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).not.toHaveBeenCalled();
+    expect(String(socket.write.mock.calls[0]?.[0] || '')).toContain(
+      '401 Unauthorized',
+    );
+  });
+
+  test('allows loopback terminal websocket upgrades to attach immediately', async () => {
+    const state = await importFreshHealth();
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).toHaveBeenCalledWith(
+      expect.anything(),
+      socket,
+      expect.any(Buffer),
+      expect.any(URL),
+      expect.objectContaining({
+        hasSessionAuth: false,
+        hasRequestAuth: true,
+        validateToken: expect.any(Function),
+      }),
+    );
+    expect(socket.write).not.toHaveBeenCalled();
+  });
+
+  test('allows terminal websocket upgrades to authenticate with a first-frame token', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).toHaveBeenCalledWith(
+      expect.anything(),
+      socket,
+      expect.any(Buffer),
+      expect.any(URL),
+      expect.objectContaining({
+        hasSessionAuth: false,
+        validateToken: expect.any(Function),
+      }),
+    );
+    expect(socket.write).not.toHaveBeenCalled();
+  });
+
+  test('rejects invalid scheduler move boardStatus values', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/scheduler',
+      body: {
+        action: 'move',
+        jobId: 'job-1',
+        boardStatus: 'bogus',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.moveGatewayAdminSchedulerJob).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Scheduler board status must be `backlog`, `in_progress`, `review`, `done`, or `cancelled`.',
+    });
   });
 
   test('returns filtered admin audit entries for authorized API requests', async () => {
@@ -1268,6 +2716,235 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('event: status');
   });
 
+  test('routes web slash commands from /api/chat through handleGatewayCommand', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({
+      kind: 'info',
+      title: 'Runtime Status',
+      text: 'All systems nominal.',
+      sessionId: 'session-web-slash',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-slash',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/status',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-slash',
+        channelId: 'web',
+        args: ['status'],
+        userId: 'user-web',
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      result: '**Runtime Status**\nAll systems nominal.',
+      sessionId: 'session-web-slash',
+    });
+  });
+
+  test('routes web slash commands through the streaming /api/chat path', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({
+      kind: 'info',
+      title: 'Runtime Status',
+      text: 'All systems nominal.',
+      sessionId: 'session-web-slash-stream',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-slash-stream',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/status',
+        stream: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-slash-stream',
+        channelId: 'web',
+        args: ['status'],
+      }),
+    );
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(
+      res.body
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line)),
+    ).toEqual([
+      {
+        type: 'result',
+        result: expect.objectContaining({
+          status: 'success',
+          result: '**Runtime Status**\nAll systems nominal.',
+          sessionId: 'session-web-slash-stream',
+        }),
+      },
+    ]);
+  });
+
+  test('threads updated session ids through expanded web slash commands', async () => {
+    const state = await importFreshHealth();
+    const seenSessionIds: string[] = [];
+    state.handleGatewayCommand.mockImplementation(
+      async (request: { args: string[]; sessionId: string }) => {
+        seenSessionIds.push(request.sessionId);
+        if (request.args[0] === 'bot') {
+          return {
+            kind: 'info' as const,
+            title: 'Bot',
+            text: 'bot details',
+            sessionId: 'session-web-info-new',
+          };
+        }
+        if (request.args[0] === 'model') {
+          return {
+            kind: 'info' as const,
+            title: 'Model',
+            text: 'model details',
+            sessionId: request.sessionId,
+          };
+        }
+        return {
+          kind: 'info' as const,
+          title: 'Runtime Status',
+          text: 'status details',
+          sessionId: request.sessionId,
+        };
+      },
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-info',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/info',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(seenSessionIds).toEqual([
+      'session-web-info',
+      'session-web-info-new',
+      'session-web-info-new',
+    ]);
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      sessionId: 'session-web-info-new',
+      result: [
+        '**Bot**\nbot details',
+        '**Model**\nmodel details',
+        '**Runtime Status**\nstatus details',
+      ].join('\n\n'),
+    });
+  });
+
+  test('logs debug details when expanded web slash commands produce no visible output', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValue({
+      kind: 'plain',
+      text: '',
+      sessionId: 'session-web-empty',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-empty',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/info',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      result: 'Done.',
+      sessionId: 'session-web-empty',
+    });
+    expect(state.loggerDebug).toHaveBeenCalledWith(
+      {
+        sessionId: 'session-web-empty',
+        channelId: 'web',
+        slashCommands: [['bot', 'info'], ['model', 'info'], ['status']],
+      },
+      'Expanded web slash commands produced no visible output',
+    );
+  });
+
+  test('handles /approve view from the web chat path', async () => {
+    const state = await importFreshHealth();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval('session-web-approve', {
+      approvalId: 'approve-123',
+      prompt: 'I need approval before continuing.',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-web',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-approve',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/approve view',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(JSON.parse(res.body)).toMatchObject({
+      status: 'success',
+      result: '**Pending Approval**\nI need approval before continuing.',
+      sessionId: 'session-web-approve',
+    });
+
+    await pendingApprovals.clearPendingApproval('session-web-approve');
+  });
+
   test('normalizes silent message-send chat responses', async () => {
     const state = await importFreshHealth();
     state.handleGatewayMessage.mockImplementation(
@@ -1310,6 +2987,156 @@ describe('gateway HTTP server', () => {
       status: 'success',
       result: 'Message sent.',
       sessionId: expect.stringMatching(WEB_SESSION_ID_RE),
+    });
+  });
+
+  test('accepts media-only chat requests and forwards media to the gateway handler', async () => {
+    const state = await importFreshHealth();
+    const media = [
+      {
+        path: '/uploaded-media-cache/2026-03-24/1710000000000-abcd-report.pdf',
+        url: '/api/artifact?path=%2Fuploaded-media-cache%2F2026-03-24%2F1710000000000-abcd-report.pdf',
+        originalUrl:
+          '/api/artifact?path=%2Fuploaded-media-cache%2F2026-03-24%2F1710000000000-abcd-report.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 2048,
+        filename: 'report.pdf',
+      },
+    ];
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        content: '',
+        media,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'Attached file: report.pdf',
+        media,
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('accepts uploaded-cache absolute paths for media-only chat requests', async () => {
+    const dataDir = makeTempDataDir();
+    const hostPath = path.join(
+      dataDir,
+      'uploaded-media-cache',
+      '2026-03-24',
+      '1710000000000-abcd-report.pdf',
+    );
+    fs.mkdirSync(path.dirname(hostPath), { recursive: true });
+    fs.writeFileSync(hostPath, 'pdf payload', 'utf8');
+
+    const state = await importFreshHealth({ dataDir });
+    const media = [
+      {
+        path: hostPath,
+        url: `/api/artifact?path=${encodeURIComponent(hostPath)}`,
+        originalUrl: `/api/artifact?path=${encodeURIComponent(hostPath)}`,
+        mimeType: 'application/pdf',
+        sizeBytes: 2048,
+        filename: 'report.pdf',
+      },
+    ];
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        content: '',
+        media,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'Attached file: report.pdf',
+        media,
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('rejects media-only chat requests with malformed media items', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        content: '',
+        media: [
+          {
+            path: 42,
+            url: '/api/artifact?path=%2Fuploaded-media-cache%2Fbad.png',
+            originalUrl: '/api/artifact?path=%2Fuploaded-media-cache%2Fbad.png',
+            mimeType: 'image/png',
+            sizeBytes: 123,
+            filename: 'bad.png',
+          },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Missing `media[0].path`.',
+    });
+  });
+
+  test('rejects media-only chat requests with forged non-cache media paths', async () => {
+    const dataDir = makeTempDataDir();
+    const forgedPath = path.join(
+      dataDir,
+      'agents',
+      'agent-1',
+      'workspace',
+      'secret.png',
+    );
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        content: '',
+        media: [
+          {
+            path: forgedPath,
+            url: `/api/artifact?path=${encodeURIComponent(forgedPath)}`,
+            originalUrl: `/api/artifact?path=${encodeURIComponent(forgedPath)}`,
+            mimeType: 'image/png',
+            sizeBytes: 123,
+            filename: 'secret.png',
+          },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Invalid `media[0].path`. Only uploaded or Discord media cache files are accepted.',
     });
   });
 
@@ -1371,6 +3198,140 @@ describe('gateway HTTP server', () => {
       error: 'Invalid JSON body',
     });
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+  });
+
+  test('stores uploaded media in the managed cache and returns a media descriptor', async () => {
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        'content-type': 'image/png',
+        'x-hybridclaw-filename': encodeURIComponent('Screen Shot.png'),
+      },
+      body: Buffer.from('png-bytes'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    const payload = JSON.parse(res.body) as {
+      media: {
+        path: string;
+        filename: string;
+        mimeType: string;
+        sizeBytes: number;
+        url: string;
+      };
+    };
+    expect(payload.media).toMatchObject({
+      path: expect.stringMatching(
+        /^\/uploaded-media-cache\/\d{4}-\d{2}-\d{2}\//,
+      ),
+      filename: 'Screen-Shot.png',
+      mimeType: 'image/png',
+      sizeBytes: 'png-bytes'.length,
+      url: expect.stringContaining('/api/artifact?path='),
+    });
+
+    const storedPath = path.join(
+      dataDir,
+      payload.media.path.replace(
+        /^\/uploaded-media-cache/,
+        'uploaded-media-cache',
+      ),
+    );
+    expect(fs.readFileSync(storedPath, 'utf8')).toBe('png-bytes');
+  });
+
+  test('rejects unsupported upload media types like text/html', async () => {
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'x-hybridclaw-filename': encodeURIComponent('index.html'),
+      },
+      body: Buffer.from('<script>alert(1)</script>'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(415);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unsupported media type: text/html.',
+    });
+    expect(fs.existsSync(path.join(dataDir, 'uploaded-media-cache'))).toBe(
+      false,
+    );
+  });
+
+  test('returns 429 when the media upload quota is exhausted', async () => {
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({
+      dataDir,
+      mediaUploadQuotaDecision: {
+        allowed: false,
+        remainingBytes: 0,
+        retryAfterMs: 12_000,
+        usedBytes: 100 * 1024 * 1024,
+      },
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        'content-type': 'image/png',
+        'x-hybridclaw-filename': encodeURIComponent('Screen Shot.png'),
+      },
+      body: Buffer.from('png-bytes'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.consumeGatewayMediaUploadQuota).toHaveBeenCalledWith({
+      key: 'loopback:127.0.0.1',
+      bytes: 'png-bytes'.length,
+    });
+    expect(res.statusCode).toBe(429);
+    expect(res.headers['Retry-After']).toBe('12');
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Media upload quota exceeded. Try again later.',
+    });
+    expect(fs.existsSync(path.join(dataDir, 'uploaded-media-cache'))).toBe(
+      false,
+    );
+  });
+
+  test('starts with an empty DATA_DIR and returns 503 for media uploads', async () => {
+    const state = await importFreshHealth({ dataDir: '' });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        'content-type': 'image/png',
+        'x-hybridclaw-filename': encodeURIComponent('Screen Shot.png'),
+      },
+      body: Buffer.from('png-bytes'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(503);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Uploaded media cache unavailable.',
+    });
   });
 
   test('requires reviewedBy for adaptive skill amendment review actions', async () => {
@@ -1712,6 +3673,30 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual({ ok: true });
   });
 
+  test('rejects malformed cc email addresses for message actions', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/message/action',
+      body: {
+        action: 'reply',
+        channelId: 'ops@example.com',
+        content: 'hello',
+        cc: ['not-an-email'],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.runMessageToolAction).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Invalid `cc` email address: not-an-email',
+    });
+  });
+
   test('keeps /api/discord/action as a compatibility alias for message actions', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -1805,6 +3790,58 @@ describe('gateway HTTP server', () => {
     expect(res.headers['Content-Length']).toBe(String('docx payload'.length));
     expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
     expect(res.body).toBe('docx payload');
+  });
+
+  test('serves uploaded-media-cache artifacts by runtime display path', async () => {
+    const dataDir = makeTempDataDir();
+    const relativePath = path.join(
+      '2026-03-24',
+      '1710000000000-abcd-upload.png',
+    );
+    const artifactPath = path.join(
+      dataDir,
+      'uploaded-media-cache',
+      relativePath,
+    );
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    fs.writeFileSync(artifactPath, 'image payload', 'utf8');
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: `/api/artifact?path=${encodeURIComponent(`/uploaded-media-cache/${relativePath.replace(/\\/g, '/')}`)}&token=web-token`,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('image/png');
+    expect(res.body).toBe('image payload');
+  });
+
+  test('returns 503 for uploaded-media-cache artifacts when DATA_DIR is empty', async () => {
+    const state = await importFreshHealth({
+      dataDir: '',
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: `/api/artifact?path=${encodeURIComponent('/uploaded-media-cache/2026-03-24/1710000000000-abcd-upload.png')}&token=web-token`,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(503);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Uploaded media cache unavailable.',
+    });
   });
 
   test('forces active artifact types to download with defensive headers', async () => {

@@ -1,6 +1,6 @@
 ---
 name: apple-calendar
-description: Use this skill when the user wants Apple Calendar or iCal workflows on macOS, including viewing schedules, drafting `.ics` files, importing events, or coordinating host-side calendar actions.
+description: View Apple Calendar schedules, draft or import `.ics` files, and coordinate host-side calendar actions on macOS.
 user-invocable: true
 metadata:
   hybridclaw:

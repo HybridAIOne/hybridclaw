@@ -11,7 +11,10 @@ import { CronExpressionParser } from 'cron-parser';
 import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
 import { registerChannel } from '../channels/channel-registry.js';
 import { DATA_DIR, getConfigSnapshot } from '../config/config.js';
-import type { RuntimeSchedulerJob } from '../config/runtime-config.js';
+import {
+  type RuntimeSchedulerJob,
+  updateRuntimeConfig,
+} from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
   deleteTask,
@@ -20,7 +23,7 @@ import {
   markTaskSuccess,
   updateTaskLastRun,
 } from '../memory/db.js';
-import type { ScheduledTask } from '../types.js';
+import type { ScheduledTask } from '../types/scheduler.js';
 
 const MAX_TIMER_DELAY_MS = 300_000; // 5 min safety net for clock drift
 const MAX_CONSECUTIVE_FAILURES = 5;
@@ -48,6 +51,7 @@ export interface SchedulerDispatchRequest {
   source: 'db-task' | 'config-job';
   taskId?: number;
   jobId?: string;
+  agentId?: string;
   sessionId: string;
   channelId: string;
   prompt: string;
@@ -244,6 +248,24 @@ function resolveConfigJobLabel(
 ): string {
   const candidate = typeof job.name === 'string' ? job.name.trim() : '';
   return candidate || job.id;
+}
+
+function setConfigJobBoardStatus(
+  jobId: string,
+  boardStatus: Exclude<RuntimeSchedulerJob['boardStatus'], undefined>,
+): RuntimeSchedulerJob | null {
+  let updatedJob: RuntimeSchedulerJob | null = null;
+  updateRuntimeConfig((draft) => {
+    const job = draft.scheduler.jobs.find(
+      (candidate) => candidate.id === jobId,
+    );
+    if (!job) return;
+    job.boardStatus = boardStatus;
+    updatedJob = {
+      ...job,
+    };
+  });
+  return updatedJob;
 }
 
 function parseMondayZeroBasedWeekdayValue(value: string): number | null {
@@ -532,6 +554,7 @@ async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
   await taskRunner({
     source: 'config-job',
     jobId: job.id,
+    agentId: job.agentId,
     sessionId: `scheduler:${job.id}`,
     channelId: contextChannelId,
     prompt,
@@ -710,6 +733,48 @@ async function tick(): Promise<void> {
       const jobLabel = resolveConfigJobLabel(job);
 
       try {
+        if (
+          job.boardStatus === 'backlog' &&
+          job.action.kind === 'agent_turn' &&
+          job.agentId?.trim()
+        ) {
+          const lastRunMs = meta.lastRun ? new Date(meta.lastRun).getTime() : 0;
+          if (lastRunMs > 0 && nowMs - lastRunMs < CONFIG_ONESHOT_RETRY_MS) {
+            continue;
+          }
+          meta.lastRun = now.toISOString();
+          persistSchedulerState();
+          const runningJob = setConfigJobBoardStatus(job.id, 'in_progress');
+          logger.info(
+            { jobId: job.id, jobLabel, agentId: job.agentId },
+            'Assigned backlog job firing',
+          );
+          dispatchConfigJob(runningJob || job)
+            .then(() => {
+              markConfigJobSuccess(runningJob || job, false);
+            })
+            .catch((err) => {
+              // Backlog-assigned jobs share the same failure counter and
+              // auto-disable threshold as other config-backed scheduler jobs.
+              const failure = markConfigJobFailure(runningJob || job);
+              logger.error(
+                { jobId: job.id, jobLabel, agentId: job.agentId, err },
+                'Assigned backlog job failed',
+              );
+              if (failure.disabled) {
+                logger.warn(
+                  {
+                    jobId: job.id,
+                    jobLabel,
+                    consecutiveErrors: failure.consecutiveErrors,
+                  },
+                  'Config scheduler job auto-disabled after repeated failures',
+                );
+              }
+            });
+          continue;
+        }
+
         if (job.schedule.kind === 'at') {
           if (meta.oneShotCompleted || !job.schedule.at) continue;
           const runAtMs = new Date(job.schedule.at).getTime();

@@ -7,6 +7,8 @@ import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
 } from '../../container/shared/context-guard-config.js';
+import { logger } from '../logger.js';
+import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import { loadRuntimeSecrets } from '../security/runtime-secrets.js';
 import {
   ensureRuntimeConfigFile,
@@ -15,6 +17,7 @@ import {
   onRuntimeConfigChange,
   type RuntimeConfig,
 } from './runtime-config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export type {
   AIProviderId as ModelProvider,
@@ -31,11 +34,19 @@ export class MissingRequiredEnvVarError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function readVersionFromPackageJson(packageJsonPath: string): string | null {
   try {
     const raw = fs.readFileSync(packageJsonPath, 'utf-8');
-    const parsed = JSON.parse(raw) as { version?: unknown };
-    if (typeof parsed.version === 'string' && parsed.version.trim()) {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      isRecord(parsed) &&
+      typeof parsed.version === 'string' &&
+      parsed.version.trim()
+    ) {
       return parsed.version.trim();
     }
   } catch {
@@ -49,24 +60,33 @@ function resolveAppVersion(): string {
   if (envVersion?.trim()) return envVersion.trim();
 
   const modulePath = fileURLToPath(import.meta.url);
-  const moduleVersion = readVersionFromPackageJson(
+  const probePaths = [
     path.join(path.dirname(modulePath), '..', '..', 'package.json'),
-  );
+  ];
+  const moduleVersion = readVersionFromPackageJson(probePaths[0]);
   if (moduleVersion) return moduleVersion;
 
   const entryPath = process.argv[1];
   if (entryPath) {
-    const entryVersion = readVersionFromPackageJson(
-      path.join(path.dirname(path.resolve(entryPath)), '..', 'package.json'),
+    const entryPackagePath = path.join(
+      path.dirname(path.resolve(entryPath)),
+      '..',
+      'package.json',
     );
+    probePaths.push(entryPackagePath);
+    const entryVersion = readVersionFromPackageJson(entryPackagePath);
     if (entryVersion) return entryVersion;
   }
 
-  const cwdVersion = readVersionFromPackageJson(
-    path.join(process.cwd(), 'package.json'),
-  );
+  const cwdPackagePath = path.join(process.cwd(), 'package.json');
+  probePaths.push(cwdPackagePath);
+  const cwdVersion = readVersionFromPackageJson(cwdPackagePath);
   if (cwdVersion) return cwdVersion;
 
+  logger.warn(
+    { probePaths: Array.from(new Set(probePaths)) },
+    'Unable to resolve app version from package.json probes; falling back to 0.0.0',
+  );
   return '0.0.0';
 }
 
@@ -75,21 +95,29 @@ export const APP_VERSION = resolveAppVersion();
 function syncRuntimeSecretExports(): void {
   DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';
   EMAIL_PASSWORD = process.env.EMAIL_PASSWORD || '';
+  IMESSAGE_PASSWORD = process.env.IMESSAGE_PASSWORD || '';
   MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD || '';
   HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY || '';
   OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+  MISTRAL_API_KEY = process.env.MISTRAL_API_KEY || '';
+  HUGGINGFACE_API_KEY =
+    process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY || '';
 }
 
 // Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
 export let DISCORD_TOKEN = '';
 export let EMAIL_PASSWORD = '';
+export let IMESSAGE_PASSWORD = '';
 export let MSTEAMS_APP_PASSWORD = '';
 // Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
 export let HYBRIDAI_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
+export let MISTRAL_API_KEY = '';
+export let HUGGINGFACE_API_KEY = '';
 syncRuntimeSecretExports();
 
 export function refreshRuntimeSecretsFromEnv(): void {
+  loadRuntimeSecrets();
   syncRuntimeSecretExports();
 }
 
@@ -182,6 +210,23 @@ export let WHATSAPP_DEBOUNCE_MS = 2_500;
 export let WHATSAPP_SEND_READ_RECEIPTS = true;
 export let WHATSAPP_ACK_REACTION = '';
 export let WHATSAPP_MEDIA_MAX_MB = 20;
+export let IMESSAGE_ENABLED = false;
+export let IMESSAGE_BACKEND: RuntimeConfig['imessage']['backend'] = 'local';
+export let IMESSAGE_CLI_PATH = 'imsg';
+export let IMESSAGE_DB_PATH = '';
+export let IMESSAGE_POLL_INTERVAL_MS = 2_500;
+export let IMESSAGE_SERVER_URL = '';
+export let IMESSAGE_WEBHOOK_PATH = '/api/imessage/webhook';
+export let IMESSAGE_ALLOW_PRIVATE_NETWORK = false;
+export let IMESSAGE_DM_POLICY: RuntimeConfig['imessage']['dmPolicy'] =
+  'allowlist';
+export let IMESSAGE_GROUP_POLICY: RuntimeConfig['imessage']['groupPolicy'] =
+  'disabled';
+export let IMESSAGE_ALLOW_FROM: string[] = [];
+export let IMESSAGE_GROUP_ALLOW_FROM: string[] = [];
+export let IMESSAGE_TEXT_CHUNK_LIMIT = 4_000;
+export let IMESSAGE_DEBOUNCE_MS = 2_500;
+export let IMESSAGE_MEDIA_MAX_MB = 20;
 export let EMAIL_ENABLED = false;
 export let EMAIL_IMAP_HOST = '';
 export let EMAIL_IMAP_PORT = 993;
@@ -197,12 +242,17 @@ export let EMAIL_TEXT_CHUNK_LIMIT = 50_000;
 export let EMAIL_MEDIA_MAX_MB = 20;
 
 export let HYBRIDAI_BASE_URL = 'https://hybridai.one';
-export let HYBRIDAI_MODEL = 'gpt-5-nano';
+export let HYBRIDAI_MODEL = 'gpt-4.1-mini';
 export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
-let HYBRIDAI_MODELS: string[] = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
-export let CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex';
+let HYBRIDAI_MODELS: string[] = [
+  'gpt-4.1-mini',
+  'gpt-5-nano',
+  'gpt-5-mini',
+  'gpt-5',
+];
+export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
 let CODEX_MODELS: string[] = [
   'openai-codex/gpt-5-codex',
   'openai-codex/gpt-5.3-codex',
@@ -216,10 +266,20 @@ let CODEX_MODELS: string[] = [
 export let OPENROUTER_ENABLED = false;
 export let OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 let OPENROUTER_MODELS: string[] = ['openrouter/anthropic/claude-sonnet-4'];
+export let MISTRAL_ENABLED = false;
+export let MISTRAL_BASE_URL = 'https://api.mistral.ai/v1';
+let MISTRAL_MODELS: string[] = ['mistral/mistral-large-latest'];
+export let HUGGINGFACE_ENABLED = false;
+export let HUGGINGFACE_BASE_URL = 'https://router.huggingface.co/v1';
+let HUGGINGFACE_MODELS: string[] = [
+  'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+];
 export let CONFIGURED_MODELS: string[] = dedupeStringList([
   ...HYBRIDAI_MODELS,
   ...CODEX_MODELS,
   ...(OPENROUTER_ENABLED ? OPENROUTER_MODELS : []),
+  ...(MISTRAL_ENABLED ? MISTRAL_MODELS : []),
+  ...(HUGGINGFACE_ENABLED ? HUGGINGFACE_MODELS : []),
 ]);
 export let LOCAL_OLLAMA_ENABLED = true;
 export let LOCAL_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
@@ -282,8 +342,7 @@ export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
 const INTERNAL_GATEWAY_API_TOKEN = randomBytes(24).toString('hex');
 export let GATEWAY_API_TOKEN = INTERNAL_GATEWAY_API_TOKEN;
 export let DB_PATH = path.join(
-  os.homedir(),
-  '.hybridclaw',
+  DEFAULT_RUNTIME_HOME_DIR,
   'data',
   'hybridclaw.db',
 );
@@ -399,6 +458,16 @@ function dedupeStringList(values: string[]): string[] {
   return out;
 }
 
+function normalizeConfiguredBaseUrl(
+  raw: string | undefined,
+  fallback: string,
+): string {
+  const trimmed = String(raw || '')
+    .trim()
+    .replace(/\/+$/, '');
+  return trimmed || fallback;
+}
+
 function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_PREFIX = config.discord.prefix;
   DISCORD_GUILD_MEMBERS_INTENT = config.discord.guildMembersIntent;
@@ -419,16 +488,12 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     4,
     Math.min(200, config.discord.maxLinesPerMessage),
   );
-  DISCORD_HUMAN_DELAY = JSON.parse(
-    JSON.stringify(config.discord.humanDelay),
-  ) as RuntimeConfig['discord']['humanDelay'];
+  DISCORD_HUMAN_DELAY = structuredClone(config.discord.humanDelay);
   DISCORD_TYPING_MODE = config.discord.typingMode;
-  DISCORD_SELF_PRESENCE = JSON.parse(
-    JSON.stringify(config.discord.presence),
-  ) as RuntimeConfig['discord']['presence'];
-  DISCORD_LIFECYCLE_REACTIONS = JSON.parse(
-    JSON.stringify(config.discord.lifecycleReactions),
-  ) as RuntimeConfig['discord']['lifecycleReactions'];
+  DISCORD_SELF_PRESENCE = structuredClone(config.discord.presence);
+  DISCORD_LIFECYCLE_REACTIONS = structuredClone(
+    config.discord.lifecycleReactions,
+  );
   DISCORD_ACK_REACTION = config.discord.ackReaction;
   DISCORD_ACK_REACTION_SCOPE = config.discord.ackReactionScope;
   DISCORD_REMOVE_ACK_AFTER_REPLY = config.discord.removeAckAfterReply;
@@ -440,9 +505,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     1,
     config.discord.maxConcurrentPerChannel,
   );
-  DISCORD_GUILDS = JSON.parse(
-    JSON.stringify(config.discord.guilds),
-  ) as RuntimeConfig['discord']['guilds'];
+  DISCORD_GUILDS = structuredClone(config.discord.guilds);
   MSTEAMS_ENABLED = config.msteams.enabled;
   MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID || config.msteams.appId;
   MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD || '';
@@ -455,9 +518,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   MSTEAMS_GROUP_POLICY = config.msteams.groupPolicy;
   MSTEAMS_DM_POLICY = config.msteams.dmPolicy;
   MSTEAMS_ALLOW_FROM = [...config.msteams.allowFrom];
-  MSTEAMS_TEAMS = JSON.parse(
-    JSON.stringify(config.msteams.teams),
-  ) as RuntimeConfig['msteams']['teams'];
+  MSTEAMS_TEAMS = structuredClone(config.msteams.teams);
   MSTEAMS_REQUIRE_MENTION = config.msteams.requireMention;
   MSTEAMS_TEXT_CHUNK_LIMIT = Math.max(
     200,
@@ -481,6 +542,25 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   WHATSAPP_SEND_READ_RECEIPTS = config.whatsapp.sendReadReceipts;
   WHATSAPP_ACK_REACTION = config.whatsapp.ackReaction;
   WHATSAPP_MEDIA_MAX_MB = Math.max(1, config.whatsapp.mediaMaxMb);
+  IMESSAGE_ENABLED = config.imessage.enabled;
+  IMESSAGE_BACKEND = config.imessage.backend;
+  IMESSAGE_CLI_PATH = config.imessage.cliPath;
+  IMESSAGE_DB_PATH = config.imessage.dbPath;
+  IMESSAGE_POLL_INTERVAL_MS = Math.max(250, config.imessage.pollIntervalMs);
+  IMESSAGE_SERVER_URL = config.imessage.serverUrl;
+  IMESSAGE_PASSWORD = process.env.IMESSAGE_PASSWORD || config.imessage.password;
+  IMESSAGE_WEBHOOK_PATH = config.imessage.webhookPath;
+  IMESSAGE_ALLOW_PRIVATE_NETWORK = config.imessage.allowPrivateNetwork;
+  IMESSAGE_DM_POLICY = config.imessage.dmPolicy;
+  IMESSAGE_GROUP_POLICY = config.imessage.groupPolicy;
+  IMESSAGE_ALLOW_FROM = [...config.imessage.allowFrom];
+  IMESSAGE_GROUP_ALLOW_FROM = [...config.imessage.groupAllowFrom];
+  IMESSAGE_TEXT_CHUNK_LIMIT = Math.max(
+    200,
+    Math.min(4_000, config.imessage.textChunkLimit),
+  );
+  IMESSAGE_DEBOUNCE_MS = Math.max(0, config.imessage.debounceMs);
+  IMESSAGE_MEDIA_MAX_MB = Math.max(1, config.imessage.mediaMaxMb);
   EMAIL_ENABLED = config.email.enabled;
   EMAIL_IMAP_HOST = config.email.imapHost;
   EMAIL_IMAP_PORT = Math.max(1, Math.min(65_535, config.email.imapPort));
@@ -498,9 +578,15 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   EMAIL_MEDIA_MAX_MB = Math.max(1, config.email.mediaMaxMb);
 
-  HYBRIDAI_BASE_URL = config.hybridai.baseUrl;
+  HYBRIDAI_BASE_URL = normalizeConfiguredBaseUrl(
+    process.env.HYBRIDAI_BASE_URL,
+    config.hybridai.baseUrl,
+  );
   HYBRIDAI_MODEL = config.hybridai.defaultModel;
-  HYBRIDAI_CHATBOT_ID = config.hybridai.defaultChatbotId;
+  HYBRIDAI_CHATBOT_ID =
+    process.env.HYBRIDAI_CHATBOT_ID?.trim() ||
+    '' ||
+    config.hybridai.defaultChatbotId;
   HYBRIDAI_MAX_TOKENS = Math.max(
     256,
     Math.min(32_768, config.hybridai.maxTokens),
@@ -511,11 +597,19 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   OPENROUTER_ENABLED = config.openrouter.enabled;
   OPENROUTER_BASE_URL = config.openrouter.baseUrl;
   OPENROUTER_MODELS = [...config.openrouter.models];
+  MISTRAL_ENABLED = config.mistral.enabled;
+  MISTRAL_BASE_URL = config.mistral.baseUrl;
+  MISTRAL_MODELS = [...config.mistral.models];
+  HUGGINGFACE_ENABLED = config.huggingface.enabled;
+  HUGGINGFACE_BASE_URL = config.huggingface.baseUrl;
+  HUGGINGFACE_MODELS = [...config.huggingface.models];
   HYBRIDAI_MODELS = [...config.hybridai.models];
   CONFIGURED_MODELS = dedupeStringList([
     ...HYBRIDAI_MODELS,
     ...CODEX_MODELS,
     ...(OPENROUTER_ENABLED ? OPENROUTER_MODELS : []),
+    ...(MISTRAL_ENABLED ? MISTRAL_MODELS : []),
+    ...(HUGGINGFACE_ENABLED ? HUGGINGFACE_MODELS : []),
   ]);
   LOCAL_OLLAMA_ENABLED = config.local.backends.ollama.enabled;
   LOCAL_OLLAMA_BASE_URL = config.local.backends.ollama.baseUrl;
@@ -545,9 +639,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   ADDITIONAL_MOUNTS = config.container.additionalMounts;
   CONTAINER_MAX_OUTPUT_SIZE = config.container.maxOutputBytes;
   MAX_CONCURRENT_CONTAINERS = Math.max(1, config.container.maxConcurrent);
-  MCP_SERVERS = JSON.parse(
-    JSON.stringify(config.mcpServers || {}),
-  ) as RuntimeConfig['mcpServers'];
+  MCP_SERVERS = structuredClone(config.mcpServers || {});
   WEB_SEARCH_PROVIDER = config.web.search.provider;
   WEB_SEARCH_FALLBACK_PROVIDERS = [...config.web.search.fallbackProviders];
   WEB_SEARCH_DEFAULT_COUNT = Math.max(
@@ -569,7 +661,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   MEMORY_CONSOLIDATION_INTERVAL_HOURS =
     config.memory.consolidationIntervalHours;
 
-  HEALTH_HOST = config.ops.healthHost;
+  HEALTH_HOST = process.env.HEALTH_HOST || config.ops.healthHost;
   HEALTH_PORT = config.ops.healthPort;
   WEB_API_TOKEN = process.env.WEB_API_TOKEN || config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;

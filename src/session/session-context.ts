@@ -36,6 +36,7 @@ const CHANNEL_KIND_LABELS: Record<ChannelKind, string> = {
   discord: 'Discord',
   email: 'Email',
   heartbeat: 'Heartbeat',
+  imessage: 'iMessage',
   msteams: 'Microsoft Teams',
   scheduler: 'Scheduler',
   tui: 'TUI',

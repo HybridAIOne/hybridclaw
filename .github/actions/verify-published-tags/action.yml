@@ -1,0 +1,21 @@
+name: Verify Published Tags
+description: Verify that each published container tag is readable from the registry.
+
+inputs:
+  tags:
+    description: Newline-delimited list of container image tags to verify.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Verify published tags
+      shell: bash
+      env:
+        TAGS: ${{ inputs.tags }}
+      run: |
+        set -euo pipefail
+        while IFS= read -r tag; do
+          [[ -n "${tag}" ]] || continue
+          docker buildx imagetools inspect "${tag}" >/dev/null
+        done <<< "${TAGS}"

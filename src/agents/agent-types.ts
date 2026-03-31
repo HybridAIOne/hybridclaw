@@ -10,6 +10,8 @@ export type AgentModelConfig =
 export interface AgentConfig {
   id: string;
   name?: string;
+  displayName?: string;
+  imageAsset?: string;
   model?: AgentModelConfig;
   workspace?: string;
   chatbotId?: string;
@@ -23,6 +25,17 @@ export interface AgentDefaultsConfig {
 }
 
 export interface AgentsConfig {
+  defaultAgentId?: string;
   defaults?: AgentDefaultsConfig;
   list?: AgentConfig[];
+}
+
+export function buildOptionalAgentPresentation(
+  displayName?: string | null,
+  imageAsset?: string | null,
+): Pick<AgentConfig, 'displayName' | 'imageAsset'> {
+  return {
+    ...(displayName ? { displayName } : {}),
+    ...(imageAsset ? { imageAsset } : {}),
+  };
 }

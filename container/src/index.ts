@@ -5,6 +5,7 @@ import {
   TrustedCoworkerApprovalRuntime,
 } from './approval-policy.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
+import { cleanupAllBrowserSessions } from './browser-tools.js';
 import { applyContextGuard } from './context-guard.js';
 import {
   emitRuntimeEvent,
@@ -26,6 +27,11 @@ import {
 } from './native-media.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import { callRoutedModel, callRoutedModelStream } from './providers/router.js';
+import {
+  HybridAIRequestError,
+  isHybridAIEmptyVisibleCompletion,
+  summarizeHybridAICompletionForDebug,
+} from './providers/shared.js';
 import {
   buildRalphPrompt,
   normalizeMessageContentToText,
@@ -133,6 +139,7 @@ let storedRequestHeaders: Record<string, string> = {};
 let storedTaskModels: ContainerInput['taskModels'];
 let mcpClientManager: McpClientManager | null = null;
 let mcpConfigWatcher: McpConfigWatcher | null = null;
+let shutdownPromise: Promise<never> | null = null;
 
 function cloneTaskModels(
   taskModels: ContainerInput['taskModels'],
@@ -223,6 +230,31 @@ async function shutdownMcp(): Promise<void> {
     await mcpClientManager.shutdown();
   }
   mcpClientManager = null;
+}
+
+async function shutdownAgentProcess(
+  exitCode: number,
+  reason: string,
+  finalOutput?: ContainerOutput,
+): Promise<never> {
+  if (shutdownPromise) {
+    return shutdownPromise;
+  }
+
+  shutdownPromise = (async () => {
+    console.error(`[hybridclaw-agent] shutting down (${reason})`);
+    await cleanupAllBrowserSessions().catch((error) => {
+      console.error('[hybridclaw-agent] browser cleanup failed:', error);
+    });
+    await shutdownMcp().catch((error) => {
+      console.error('[hybridclaw-agent] MCP shutdown failed:', error);
+    });
+    if (finalOutput) {
+      writeOutput(finalOutput);
+    }
+    process.exit(exitCode);
+  })();
+  return shutdownPromise;
 }
 
 function normalizePathSlashes(raw: string): string {
@@ -658,6 +690,8 @@ async function callHybridAIWithRetry(params: {
     | 'hybridai'
     | 'openai-codex'
     | 'openrouter'
+    | 'mistral'
+    | 'huggingface'
     | 'ollama'
     | 'lmstudio'
     | 'vllm';
@@ -804,6 +838,8 @@ async function processRequest(
     | 'hybridai'
     | 'openai-codex'
     | 'openrouter'
+    | 'mistral'
+    | 'huggingface'
     | 'ollama'
     | 'lmstudio'
     | 'vllm'
@@ -973,7 +1009,10 @@ async function processRequest(
         ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
         tokenUsage: finalizeTokenUsage(tokenUsage),
-        error: `API error: ${err instanceof Error ? err.message : String(err)}`,
+        error:
+          err instanceof HybridAIRequestError
+            ? err.message
+            : `API error: ${err instanceof Error ? err.message : String(err)}`,
       };
       await emitRuntimeEvent({
         event: 'turn_end',
@@ -1029,6 +1068,32 @@ async function processRequest(
     }
 
     const toolCalls = choice.message.tool_calls || [];
+    if (
+      provider === 'hybridai' &&
+      parseRalphChoice(choice.message.content) === null &&
+      isHybridAIEmptyVisibleCompletion(response)
+    ) {
+      console.error(
+        `[model] empty completion provider=hybridai model=${model} debug=${summarizeHybridAICompletionForDebug(response)}`,
+      );
+      const failed: ContainerOutput = {
+        status: 'error',
+        result: null,
+        toolsUsed,
+        ...(artifacts.length > 0 ? { artifacts } : {}),
+        toolExecutions,
+        tokenUsage: finalizeTokenUsage(tokenUsage),
+        error:
+          'HybridAI returned an empty completion without visible text or tool calls.',
+        effectiveUserPrompt,
+      };
+      await emitRuntimeEvent({
+        event: 'turn_end',
+        status: failed.status,
+        toolsUsed,
+      });
+      return failed;
+    }
     if (toolCalls.length === 0) {
       if (ralphEnabled) {
         const branchChoice = parseRalphChoice(choice.message.content);
@@ -1423,6 +1488,12 @@ async function main(): Promise<void> {
   console.error(
     `[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms`,
   );
+  process.once('SIGINT', () => {
+    void shutdownAgentProcess(0, 'SIGINT');
+  });
+  process.once('SIGTERM', () => {
+    void shutdownAgentProcess(0, 'SIGTERM');
+  });
 
   // First request arrives via stdin (contains apiKey — never written to disk)
   const stdinData = await readStdinLine();
@@ -1556,8 +1627,8 @@ async function main(): Promise<void> {
 
     if (!input) {
       console.error('[hybridclaw-agent] idle timeout, exiting');
-      await shutdownMcp();
-      process.exit(0);
+      await shutdownAgentProcess(0, 'idle timeout');
+      return;
     }
 
     // Use stored apiKey — IPC file no longer contains it
@@ -1695,13 +1766,10 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   console.error('Container agent fatal error:', err);
-  void shutdownMcp().finally(() => {
-    writeOutput({
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      error: `Unhandled error: ${err instanceof Error ? err.message : String(err)}`,
-    });
-    process.exit(1);
+  void shutdownAgentProcess(1, 'fatal error', {
+    status: 'error',
+    result: null,
+    toolsUsed: [],
+    error: `Unhandled error: ${err instanceof Error ? err.message : String(err)}`,
   });
 });

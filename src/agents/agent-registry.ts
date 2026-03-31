@@ -15,12 +15,13 @@ import {
   upsertAgent as dbUpsertAgent,
   isDatabaseInitialized,
 } from '../memory/db.js';
-import type { Session } from '../types.js';
+import type { Session } from '../types/session.js';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,
   type AgentModelConfig,
   type AgentsConfig,
+  buildOptionalAgentPresentation,
   DEFAULT_AGENT_ID,
 } from './agent-types.js';
 
@@ -34,6 +35,7 @@ const LEGACY_WORKSPACE_DIRS = [
 ] as const;
 
 let configuredDefaults: AgentDefaultsConfig;
+let configuredDefaultAgentId: string;
 let configuredAgents: AgentConfig[];
 let registry: Map<string, AgentConfig>;
 let registryInitialized: boolean;
@@ -42,6 +44,7 @@ let lastConfigFingerprint: string;
 
 function resetRegistryState(): void {
   configuredDefaults = {};
+  configuredDefaultAgentId = DEFAULT_AGENT_ID;
   configuredAgents = [{ id: DEFAULT_AGENT_ID }];
   registry = new Map<string, AgentConfig>([
     [DEFAULT_AGENT_ID, { id: DEFAULT_AGENT_ID, name: 'Main Agent' }],
@@ -119,11 +122,28 @@ function normalizeDefaults(value: unknown): AgentDefaultsConfig {
   };
 }
 
+function normalizeDefaultAgentId(
+  value: unknown,
+  agentIds: ReadonlySet<string>,
+): string {
+  const normalized = normalizeString(value);
+  if (normalized && agentIds.has(normalized)) {
+    return normalized;
+  }
+  return DEFAULT_AGENT_ID;
+}
+
 function normalizeAgent(value: unknown): AgentConfig | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const id = normalizeString((value as { id?: unknown }).id);
   if (!id) return null;
   const name = normalizeString((value as { name?: unknown }).name);
+  const displayName = normalizeString(
+    (value as { displayName?: unknown }).displayName,
+  );
+  const imageAsset = normalizeString(
+    (value as { imageAsset?: unknown }).imageAsset,
+  );
   const model = normalizeModelConfig((value as { model?: unknown }).model);
   const workspace = normalizeString(
     (value as { workspace?: unknown }).workspace,
@@ -138,6 +158,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   return {
     id,
     ...(name ? { name } : {}),
+    ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
@@ -146,6 +167,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
 }
 
 function normalizeAgentsConfig(config: AgentsConfig | undefined): {
+  defaultAgentId: string;
   defaults: AgentDefaultsConfig;
   list: AgentConfig[];
   fingerprint: string;
@@ -161,11 +183,15 @@ function normalizeAgentsConfig(config: AgentsConfig | undefined): {
   }
   if (!seen.has(DEFAULT_AGENT_ID)) {
     list.unshift({ id: DEFAULT_AGENT_ID, name: 'Main Agent' });
+    seen.add(DEFAULT_AGENT_ID);
   }
+  const defaultAgentId = normalizeDefaultAgentId(config?.defaultAgentId, seen);
   return {
+    defaultAgentId,
     defaults,
     list,
     fingerprint: JSON.stringify({
+      defaultAgentId,
       defaults,
       list,
     }),
@@ -181,6 +207,7 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
   return {
     id: agent.id,
     ...(agent.name ? { name: agent.name } : {}),
+    ...buildOptionalAgentPresentation(agent.displayName, agent.imageAsset),
     ...(model ? { model } : {}),
     ...(agent.workspace ? { workspace: agent.workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
@@ -224,6 +251,8 @@ function syncConfiguredAgentsToDatabase(): void {
   dbUpsertAgent({
     id: DEFAULT_AGENT_ID,
     name: mainAgent.name || 'Main Agent',
+    displayName: mainAgent.displayName,
+    imageAsset: mainAgent.imageAsset,
     model: cloneModelConfig(mainAgent.model),
     workspace: mainAgent.workspace,
     chatbotId: mainAgent.chatbotId,
@@ -234,6 +263,8 @@ function syncConfiguredAgentsToDatabase(): void {
     dbUpsertAgent({
       id: agent.id,
       name: agent.name,
+      displayName: agent.displayName,
+      imageAsset: agent.imageAsset,
       model: cloneModelConfig(agent.model),
       workspace: agent.workspace,
       chatbotId: agent.chatbotId,
@@ -266,6 +297,7 @@ function ensureRegistryCurrent(): void {
     (!registryDbBacked && isDatabaseInitialized());
   if (!shouldReload) return;
   initAgentRegistry({
+    defaultAgentId: normalized.defaultAgentId,
     defaults: normalized.defaults,
     list: normalized.list,
   });
@@ -273,6 +305,7 @@ function ensureRegistryCurrent(): void {
 
 export function initAgentRegistry(config: AgentsConfig): void {
   const normalized = normalizeAgentsConfig(config);
+  configuredDefaultAgentId = normalized.defaultAgentId;
   configuredDefaults = normalized.defaults;
   configuredAgents = normalized.list;
   lastConfigFingerprint = normalized.fingerprint;
@@ -332,9 +365,14 @@ export function resolveAgentForRequest(params?: {
   model: string;
   chatbotId: string;
 } {
+  ensureRegistryCurrent();
   const requestedAgentId = normalizeString(params?.agentId);
   const sessionAgentId = normalizeString(params?.session?.agent_id);
-  const agentId = requestedAgentId || sessionAgentId || DEFAULT_AGENT_ID;
+  const agentId =
+    requestedAgentId ||
+    sessionAgentId ||
+    configuredDefaultAgentId ||
+    DEFAULT_AGENT_ID;
   const agent = resolveAgentConfig(agentId);
   const requestedModel =
     params?.model == null ? '' : normalizeString(params.model);

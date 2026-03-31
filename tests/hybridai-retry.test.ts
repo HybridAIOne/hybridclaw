@@ -31,6 +31,24 @@ describe('shouldFallbackFromStreamError', () => {
     ).toBe(false);
   });
 
+  test('does not fall back for premium-model permission errors', () => {
+    expect(
+      shouldFallbackFromStreamError(
+        new HybridAIRequestError(
+          403,
+          JSON.stringify({
+            error: {
+              message:
+                'Premium models require a paid plan or token-credit balance.',
+              type: 'permission_error',
+              code: 403,
+            },
+          }),
+        ),
+      ),
+    ).toBe(false);
+  });
+
   test('falls back for transient network stream errors', () => {
     expect(shouldFallbackFromStreamError(new Error('socket closed'))).toBe(
       true,
@@ -93,6 +111,21 @@ describe('isRetryableModelError', () => {
     expect(
       isRetryableModelError(
         new HybridAIRequestError(400, '{"error":"bad_request"}'),
+      ),
+    ).toBe(false);
+    expect(
+      isRetryableModelError(
+        new HybridAIRequestError(
+          403,
+          JSON.stringify({
+            error: {
+              message:
+                'Premium models require a paid plan or token-credit balance.',
+              type: 'permission_error',
+              code: 403,
+            },
+          }),
+        ),
       ),
     ).toBe(false);
     expect(

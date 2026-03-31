@@ -71,6 +71,7 @@ export interface AdminSession {
   id: string;
   guildId: string | null;
   channelId: string;
+  agentId: string;
   chatbotId: string | null;
   effectiveChatbotId: string | null;
   model: string | null;
@@ -82,6 +83,15 @@ export interface AdminSession {
   taskCount: number;
   createdAt: string;
   lastActive: string;
+}
+
+export interface AdminTerminalStartResponse {
+  sessionId: string;
+  websocketPath: string;
+}
+
+export interface AdminTerminalStopResponse {
+  stopped: boolean;
 }
 
 export interface AdminUsageSummary {
@@ -261,11 +271,20 @@ export interface AdminModelsResponse {
   models: AdminModelCatalogEntry[];
 }
 
+export type AdminSchedulerBoardStatus =
+  | 'backlog'
+  | 'in_progress'
+  | 'review'
+  | 'done'
+  | 'cancelled';
+
 export interface AdminSchedulerJob {
   id: string;
   source: 'config' | 'task';
   name: string;
   description: string | null;
+  agentId: string | null;
+  boardStatus: AdminSchedulerBoardStatus | null;
   enabled: boolean;
   schedule: {
     kind: 'at' | 'every' | 'cron';
@@ -297,6 +316,112 @@ export interface AdminSchedulerJob {
 
 export interface AdminSchedulerResponse {
   jobs: AdminSchedulerJob[];
+}
+
+export interface AgentCard {
+  id: string;
+  name: string | null;
+  model: string | null;
+  chatbotId: string | null;
+  enableRag: boolean | null;
+  workspace: string | null;
+  workspacePath: string;
+  sessionCount: number;
+  activeSessions: number;
+  idleSessions: number;
+  stoppedSessions: number;
+  effectiveModels: string[];
+  lastActive: string | null;
+  status: 'active' | 'idle' | 'stopped' | 'unused';
+}
+
+export interface AgentSessionCard {
+  id: string;
+  name: string;
+  task: string;
+  lastQuestion: string | null;
+  lastAnswer: string | null;
+  fullAutoEnabled: boolean;
+  model: string;
+  sessionId: string;
+  channelId: string;
+  channelName: string | null;
+  agentId: string;
+  startedAt: string;
+  lastActive: string;
+  runtimeMinutes: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  messageCount: number;
+  toolCalls: number;
+  status: 'active' | 'idle' | 'stopped';
+  watcher: string;
+  previewTitle: string;
+  previewMeta: string | null;
+  output: string[];
+}
+
+export interface AgentsOverviewResponse {
+  generatedAt: string;
+  version: string;
+  uptime: number;
+  ralph: {
+    enabled: boolean;
+    maxIterations: number;
+  };
+  totals: {
+    agents: {
+      all: number;
+      active: number;
+      idle: number;
+      stopped: number;
+      unused: number;
+      running: number;
+      totalInputTokens: number;
+      totalOutputTokens: number;
+      totalTokens: number;
+      totalCostUsd: number;
+    };
+    sessions: {
+      all: number;
+      active: number;
+      idle: number;
+      stopped: number;
+      running: number;
+      totalInputTokens: number;
+      totalOutputTokens: number;
+      totalTokens: number;
+      totalCostUsd: number;
+    };
+  };
+  agents: AgentCard[];
+  sessions: AgentSessionCard[];
+}
+
+export type AgentsOverview = Pick<
+  AgentsOverviewResponse,
+  'agents' | 'sessions'
+>;
+
+export interface JobAgent {
+  id: string;
+  name: string | null;
+}
+
+export interface JobSession {
+  sessionId: string;
+  agentId: string;
+  startedAt: string;
+  lastActive: string;
+  status: 'active' | 'idle' | 'stopped';
+  lastAnswer: string | null;
+  output: string[];
+}
+
+export interface AdminJobsContextResponse {
+  agents: JobAgent[];
+  sessions: JobSession[];
 }
 
 export interface AdminMcpConfig {

@@ -1,10 +1,27 @@
 import { CONFIGURED_MODELS } from '../config/config.js';
 import { resolveModelProvider } from './factory.js';
+import {
+  discoverHuggingFaceModels,
+  getDiscoveredHuggingFaceModelNames,
+} from './huggingface-discovery.js';
+import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
+import {
+  discoverHybridAIModels,
+  getDiscoveredHybridAIModelNames,
+} from './hybridai-discovery.js';
 import { isStaticModelVisionCapable } from './hybridai-models.js';
 import {
   discoverAllLocalModels,
   getDiscoveredLocalModelNames,
 } from './local-discovery.js';
+import {
+  discoverMistralModels,
+  getDiscoveredMistralModelNames,
+  isDiscoveredDeprecatedMistralModel,
+  isDiscoveredMistralModelVisionCapable,
+  resolveDiscoveredMistralModelCanonicalName,
+} from './mistral-discovery.js';
+import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
 import { formatModelForDisplay } from './model-names.js';
 import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
 import {
@@ -19,6 +36,8 @@ type ModelCatalogProviderFilter =
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'mistral'
+  | 'huggingface'
   | 'ollama'
   | 'lmstudio'
   | 'vllm'
@@ -30,12 +49,20 @@ const VLLM_MODEL_PREFIX = 'vllm/';
 const PREFIX_BY_PROVIDER: Record<
   Extract<
     ModelCatalogProviderFilter,
-    'openai-codex' | 'openrouter' | 'ollama' | 'lmstudio' | 'vllm'
+    | 'openai-codex'
+    | 'openrouter'
+    | 'mistral'
+    | 'huggingface'
+    | 'ollama'
+    | 'lmstudio'
+    | 'vllm'
   >,
   string
 > = {
   'openai-codex': OPENAI_CODEX_MODEL_PREFIX,
   openrouter: OPENROUTER_MODEL_PREFIX,
+  mistral: MISTRAL_MODEL_PREFIX,
+  huggingface: HUGGINGFACE_MODEL_PREFIX,
   ollama: OLLAMA_MODEL_PREFIX,
   lmstudio: LMSTUDIO_MODEL_PREFIX,
   vllm: VLLM_MODEL_PREFIX,
@@ -94,6 +121,8 @@ export function normalizeModelCatalogProviderFilter(
     normalized === 'hybridai' ||
     normalized === 'openai-codex' ||
     normalized === 'openrouter' ||
+    normalized === 'mistral' ||
+    normalized === 'huggingface' ||
     normalized === 'ollama' ||
     normalized === 'lmstudio' ||
     normalized === 'vllm' ||
@@ -133,16 +162,36 @@ function dedupeModelList(models: string[]): string[] {
   for (const rawModel of models) {
     const model = String(rawModel || '').trim();
     if (!model || seen.has(model)) continue;
-    seen.add(model);
-    deduped.push(model);
+    const canonicalModel = hasModelPrefix(model, MISTRAL_MODEL_PREFIX)
+      ? resolveDiscoveredMistralModelCanonicalName(model)
+      : model;
+    if (!canonicalModel || seen.has(canonicalModel)) continue;
+    if (
+      hasModelPrefix(canonicalModel, MISTRAL_MODEL_PREFIX) &&
+      isDiscoveredDeprecatedMistralModel(canonicalModel)
+    ) {
+      continue;
+    }
+    seen.add(canonicalModel);
+    deduped.push(canonicalModel);
   }
   return deduped;
 }
 
 export function getAvailableModelList(provider?: string): string[] {
+  return getAvailableModelListWithOptions(provider);
+}
+
+export function getAvailableModelListWithOptions(
+  provider?: string,
+  _opts?: { expanded?: boolean },
+): string[] {
   const models = dedupeModelList([
     ...CONFIGURED_MODELS,
+    ...getDiscoveredHuggingFaceModelNames(),
+    ...getDiscoveredHybridAIModelNames(),
     ...getDiscoveredLocalModelNames(),
+    ...getDiscoveredMistralModelNames(),
     ...getDiscoveredOpenRouterModelNames(),
   ]);
   const normalizedProvider = normalizeModelCatalogProviderFilter(provider);
@@ -150,15 +199,23 @@ export function getAvailableModelList(provider?: string): string[] {
     return models.sort((left, right) => compareModelNames(left, right));
   }
   if (normalizedProvider === null) return [];
-  return models
-    .filter((model) => matchesProviderFilter(model, normalizedProvider))
-    .sort((left, right) => compareModelNames(left, right, normalizedProvider));
+  const filteredModels = models.filter((model) =>
+    matchesProviderFilter(model, normalizedProvider),
+  );
+  return filteredModels.sort((left, right) =>
+    compareModelNames(left, right, normalizedProvider),
+  );
 }
 
-export async function refreshAvailableModelCatalogs(): Promise<void> {
+export async function refreshAvailableModelCatalogs(opts?: {
+  includeHybridAI?: boolean;
+}): Promise<void> {
   await Promise.allSettled([
     discoverAllLocalModels(),
+    discoverHuggingFaceModels(),
+    discoverMistralModels(),
     discoverOpenRouterModels(),
+    ...(opts?.includeHybridAI ? [discoverHybridAIModels()] : []),
   ]);
 }
 
@@ -170,6 +227,7 @@ export function isModelVisionCapable(model: string): boolean {
   const normalized = String(model || '').trim();
   if (!normalized) return false;
   return (
+    isDiscoveredMistralModelVisionCapable(normalized) ||
     isDiscoveredOpenRouterModelVisionCapable(normalized) ||
     isStaticModelVisionCapable(normalized)
   );
@@ -202,8 +260,9 @@ export function findVisionCapableModel(preferredModel?: string): string | null {
 
 export async function getAvailableModelChoices(
   limit = 25,
+  opts?: { includeHybridAI?: boolean },
 ): Promise<Array<{ name: string; value: string }>> {
-  await refreshAvailableModelCatalogs();
+  await refreshAvailableModelCatalogs(opts);
   return getAvailableModelList()
     .slice(0, Math.max(0, limit))
     .map((model) => ({

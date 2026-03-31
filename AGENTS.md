@@ -21,7 +21,7 @@ HybridClaw is a personal AI assistant bot for Discord, powered by HybridAI.
 Enterprise-grade Node.js 22 application with gateway service, TUI client, and
 Docker-sandboxed container runtime.
 
-**Version:** 0.7.1 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
+**Version:** 0.9.7 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
 &ensp;|&ensp; **License:** see `LICENSE`
 
 Architecture: gateway (core runtime, SQLite persistence, REST API, Discord
@@ -219,6 +219,7 @@ npm run tui                          # tsx src/cli.ts tui
 ### Git Discipline
 
 - Treat existing uncommitted changes as user work unless you created them.
+- Run `npm run format` before creating commits that will be pushed to GitHub.
 - Conventional Commits preferred: `feat:`, `fix:`, `test:`, `refactor:`,
   `chore:`, `docs:`.
 - Group related changes; avoid bundling unrelated refactors.
@@ -309,7 +310,15 @@ When the user says "bump release":
 5. Commit with `chore: release vX.Y.Z`.
 6. Create an annotated git tag `vX.Y.Z`.
 7. Push the commit and tag.
-8. Create or publish a GitHub Release entry for the tag.
+8. Create or publish a GitHub Release entry for the tag using the same curated
+   format as `v0.9.2`:
+   - title: `HybridClaw vX.Y.Z`
+   - `Release Date:` line with the calendar date
+   - short blockquote summary paragraph
+   - `Highlights`, `Changed`, and `Fixed` sections with polished bullets
+   - `Contributors` section (`Core` and `All Contributors`)
+   - trailing `Full Changelog` compare link
+   - do not paste the raw `CHANGELOG.md` version heading/body verbatim
 
 ---
 
@@ -350,6 +359,10 @@ When the user says "bump release":
 - Do not modify unrelated modules "while here".
 - Do not include personal identity, real phone numbers, or live config values
   in tests, examples, docs, or commits.
+- Do not edit `.dockerignore` without verifying the resulting Docker image
+  still contains all runtime-required files (especially `docs/development/`).
+  Build the image and confirm the affected paths exist inside it before
+  marking the change complete.
 - Do not edit `node_modules/` or vendored files.
 - Do not break prompt caching: do not alter past context, change toolsets, or
   rebuild system prompts mid-conversation.

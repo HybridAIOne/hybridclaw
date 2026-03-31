@@ -4,14 +4,13 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
+import type { ChatMessage } from '../types/api.js';
 import type {
-  ChatMessage,
   CompactionConfig,
   CompactionResult,
   CompactionStage,
-  Session,
-  StoredMessage,
-} from '../types.js';
+} from '../types/memory.js';
+import type { Session, StoredMessage } from '../types/session.js';
 import { archiveTranscript } from './compaction-archive.js';
 
 const STRUCTURED_SUMMARY_SECTIONS = [

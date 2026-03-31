@@ -29,6 +29,7 @@ test('resolveModelContextWindowFromList returns null when unresolved', () => {
 
 test('resolveModelContextWindowFallback resolves known defaults', () => {
   expect(resolveModelContextWindowFallback('gpt-5-mini')).toBe(400_000);
+  expect(resolveModelContextWindowFallback('gpt-4.1-mini')).toBe(1_047_576);
   expect(resolveModelContextWindowFallback('openai/gpt-5-nano')).toBe(400_000);
   expect(resolveModelContextWindowFallback('gpt-5:latest')).toBe(400_000);
   expect(resolveModelContextWindowFallback('gpt-5.1')).toBe(400_000);
@@ -56,6 +57,7 @@ test('resolveModelContextWindowFallback returns null for unknown models', () => 
 test('isStaticModelVisionCapable returns true for known vision models', () => {
   expect(isStaticModelVisionCapable('gpt-5')).toBe(true);
   expect(isStaticModelVisionCapable('gpt-5-mini')).toBe(true);
+  expect(isStaticModelVisionCapable('gpt-4.1-mini')).toBe(true);
   expect(isStaticModelVisionCapable('gpt-5.3-codex')).toBe(true);
   expect(isStaticModelVisionCapable('claude-opus-4-6')).toBe(true);
   expect(isStaticModelVisionCapable('gemini-3-pro')).toBe(true);

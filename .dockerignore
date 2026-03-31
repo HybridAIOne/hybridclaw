@@ -18,9 +18,10 @@ container/node_modules/
 .vscode
 docker/
 
-# Tests and docs
+# Tests and non-runtime docs assets
 tests/
-docs/
+docs/tools/
+docs/CNAME
 packages/
 plugins/
 

@@ -4,7 +4,7 @@ import {
   OPENROUTER_MODEL_PREFIX,
   readOpenRouterApiKey,
 } from './openrouter-utils.js';
-import { isRecord, normalizeBaseUrl } from './utils.js';
+import { isRecord, normalizeBaseUrl, readPositiveInteger } from './utils.js';
 
 const OPENROUTER_DISCOVERY_TTL_MS = 3_600_000;
 const OPENROUTER_PRICING_KEYS = [
@@ -25,17 +25,6 @@ function normalizeOpenRouterModelName(modelId: string): string {
     return normalized;
   }
   return `${OPENROUTER_MODEL_PREFIX}${normalized}`;
-}
-
-function readPositiveInteger(value: unknown): number | null {
-  const parsed =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string'
-        ? Number.parseInt(value, 10)
-        : Number.NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return Math.floor(parsed);
 }
 
 function readOpenRouterContextWindow(

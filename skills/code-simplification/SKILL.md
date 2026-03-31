@@ -1,6 +1,6 @@
 ---
 name: code-simplification
-description: Use this skill for behavior-preserving code refactors that reduce complexity, remove duplication, simplify nested logic, or make an implementation materially easier to maintain.
+description: Refactor code to reduce complexity and duplication without changing behavior.
 user-invocable: false
 metadata:
   hybridclaw:

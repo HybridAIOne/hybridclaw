@@ -5,14 +5,19 @@ export function PageHeader(props: {
   description?: string;
   actions?: ReactNode;
 }) {
+  if (!props.description && !props.actions) {
+    return null;
+  }
+
   return (
     <div className="page-header">
-      <div>
-        <h3>{props.title}</h3>
-        {props.description ? (
-          <p className="supporting-text">{props.description}</p>
-        ) : null}
-      </div>
+      {props.description ? (
+        <p className="supporting-text page-header-description">
+          {props.description}
+        </p>
+      ) : (
+        <span />
+      )}
       {props.actions ? (
         <div className="header-actions">{props.actions}</div>
       ) : null}

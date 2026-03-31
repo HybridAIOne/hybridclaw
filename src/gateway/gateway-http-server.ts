@@ -3,11 +3,14 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
+import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
 } from '../channels/discord/tool-actions.js';
+import { normalizeEmailAddress } from '../channels/email/allowlist.js';
+import { handleIMessageWebhook } from '../channels/imessage/runtime.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
 import { handleMSTeamsWebhook } from '../channels/msteams/runtime.js';
 import {
@@ -17,6 +20,7 @@ import {
   HEALTH_HOST,
   HEALTH_PORT,
   HYBRIDAI_BASE_URL,
+  IMESSAGE_WEBHOOK_PATH,
   MSTEAMS_WEBHOOK_PATH,
   WEB_API_TOKEN,
 } from '../config/config.js';
@@ -25,14 +29,35 @@ import type {
   RuntimeDiscordChannelConfig,
   RuntimeMSTeamsChannelConfig,
 } from '../config/runtime-config.js';
+import {
+  getRuntimeConfig,
+  parseSchedulerBoardStatus,
+  resolveDefaultAgentId,
+} from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { summarizeMediaFilenames } from '../media/media-summary.js';
+import { normalizeMimeType } from '../media/mime-utils.js';
+import {
+  resolveUploadedMediaCacheHostDir,
+  UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
+  writeUploadedMediaCacheFile,
+} from '../media/uploaded-media-cache.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
+import { memoryService } from '../memory/memory-service.js';
+import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import {
   buildSessionKey,
   classifySessionKeyShape,
 } from '../session/session-key.js';
-import type { PendingApproval, ToolProgressEvent } from '../types.js';
+import type { MediaContextItem } from '../types/container.js';
+import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import {
+  AdminTerminalCapacityError,
+  type AdminTerminalStartOptions,
+  createAdminTerminalManager,
+} from './admin-terminal.js';
 import {
   hasSessionAuth,
   setSessionCookie,
@@ -46,35 +71,43 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
+import { serveDocs } from './docs.js';
+import {
+  getGatewayAdminPlugins,
+  handleGatewayPluginWebhook,
+  runGatewayPluginTool,
+} from './gateway-plugin-service.js';
 import {
   createGatewayAdminAgent,
   deleteGatewayAdminAgent,
   deleteGatewayAdminSession,
-  type GatewayChatRequest,
-  type GatewayCommandRequest,
+  ensureGatewayBootstrapAutostart,
   GatewayRequestError,
   getGatewayAdminAgents,
   getGatewayAdminAudit,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
+  getGatewayAdminJobsContext,
   getGatewayAdminMcp,
   getGatewayAdminModels,
   getGatewayAdminOverview,
-  getGatewayAdminPlugins,
   getGatewayAdminScheduler,
   getGatewayAdminSessions,
   getGatewayAdminSkills,
   getGatewayAdminTools,
   getGatewayAgents,
+  getGatewayAssistantPresentationForSession,
+  getGatewayBootstrapAutostartState,
   getGatewayHistory,
   getGatewayHistorySummary,
+  getGatewayRecentChatSessions,
   getGatewayStatus,
   handleGatewayCommand,
   handleGatewayMessage,
+  moveGatewayAdminSchedulerJob,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   removeGatewayAdminSchedulerJob,
-  runGatewayPluginTool,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
   setGatewayAdminSchedulerJobPaused,
@@ -84,15 +117,30 @@ import {
   upsertGatewayAdminMcpServer,
   upsertGatewayAdminSchedulerJob,
 } from './gateway-service.js';
-import type { GatewayChatRequestBody } from './gateway-types.js';
+import type {
+  GatewayChatBranchRequestBody,
+  GatewayChatRequest,
+  GatewayChatRequestBody,
+  GatewayChatResult,
+  GatewayCommandRequest,
+} from './gateway-types.js';
+import { resolveWorkspaceRelativePath } from './gateway-utils.js';
+import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
+import {
+  handleTextChannelApprovalCommand,
+  renderTextChannelCommandResult,
+  resolveTextChannelSlashCommands,
+} from './text-channel-commands.js';
 
 const SITE_DIR = resolveInstallPath('docs');
 const CONSOLE_DIST_DIR = resolveInstallPath('console', 'dist');
 const AGENT_ARTIFACT_ROOT = path.resolve(path.join(DATA_DIR, 'agents'));
+const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );
 const MAX_REQUEST_BYTES = 1_000_000; // 1MB
+const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 
 const SITE_MIME_TYPES: Record<string, string> = {
@@ -127,9 +175,58 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
   '.webp': 'image/webp',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
+const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
+  'application/json',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/csv',
+  'text/markdown',
+  'text/plain',
+  'text/xml',
+]);
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
+type ApiChatBranchRequestBody = Partial<GatewayChatBranchRequestBody>;
 type ApiMessageActionRequestBody = Partial<DiscordToolActionRequest>;
+type ApiAdminTerminalRequestBody = {
+  cols?: number;
+  rows?: number;
+};
+
+// Keep this local instead of importing the container helper. The gateway and
+// container ship as separate packages and intentionally normalize request
+// payloads at their own trust boundaries.
+function normalizeStringListInput(value: unknown): string[] | undefined {
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    return normalized ? [normalized] : undefined;
+  }
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry) => entry.length > 0);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function parseEmailRecipientListInput(
+  value: unknown,
+  label: 'cc' | 'bcc',
+): string[] | undefined {
+  const normalized = normalizeStringListInput(value);
+  if (!normalized) return undefined;
+
+  const recipients: string[] = [];
+  for (const entry of normalized) {
+    const address = normalizeEmailAddress(entry);
+    if (!address) {
+      throw new Error(`Invalid \`${label}\` email address: ${entry}`);
+    }
+    recipients.push(address);
+  }
+  return recipients.length > 0 ? recipients : undefined;
+}
 type ApiPluginToolRequestBody = {
   toolName?: unknown;
   args?: unknown;
@@ -142,13 +239,104 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
+function parsePositiveInteger(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 function generateDefaultWebSessionId(agentId?: string | null): string {
   return buildSessionKey(
-    String(agentId || '').trim() || DEFAULT_AGENT_ID,
+    String(agentId || '').trim() || resolveDefaultAgentId(getRuntimeConfig()),
     'web',
     'dm',
     randomUUID().replace(/-/g, '').slice(0, 16),
   );
+}
+
+async function resolveApiChatSlashCommandResult(
+  chatRequest: GatewayChatRequest,
+): Promise<GatewayChatResult | null> {
+  const slashCommands = resolveTextChannelSlashCommands(chatRequest.content);
+  if (!slashCommands) return null;
+
+  const textParts: string[] = [];
+  const artifacts: NonNullable<GatewayChatResult['artifacts']> = [];
+  let sessionId = chatRequest.sessionId;
+  let sessionKey: string | undefined;
+  let mainSessionKey: string | undefined;
+  let handledApprovalCommand = false;
+
+  for (const args of slashCommands) {
+    if ((args[0] || '').trim().toLowerCase() === 'approve') {
+      const handled = await handleTextChannelApprovalCommand({
+        sessionId,
+        guildId: chatRequest.guildId,
+        channelId: chatRequest.channelId,
+        userId: chatRequest.userId,
+        username: chatRequest.username,
+        args,
+      });
+      if (!handled) continue;
+      handledApprovalCommand = true;
+      sessionId = handled.sessionId || sessionId;
+      sessionKey = handled.sessionKey || sessionKey;
+      mainSessionKey = handled.mainSessionKey || mainSessionKey;
+      if (handled.text?.trim()) {
+        textParts.push(handled.text);
+      }
+      if (handled.artifacts.length > 0) {
+        artifacts.push(...handled.artifacts);
+      }
+      continue;
+    }
+
+    const commandResult = await handleGatewayCommand({
+      sessionId,
+      sessionMode: chatRequest.sessionMode,
+      guildId: chatRequest.guildId,
+      channelId: chatRequest.channelId,
+      args,
+      userId: chatRequest.userId,
+      username: chatRequest.username,
+    });
+    sessionId = commandResult.sessionId || sessionId;
+    sessionKey = commandResult.sessionKey || sessionKey;
+    mainSessionKey = commandResult.mainSessionKey || mainSessionKey;
+    const text = renderTextChannelCommandResult(commandResult).trim();
+    if (text) {
+      textParts.push(text);
+    }
+  }
+
+  const renderedText = textParts.join('\n\n').trim();
+  if (!renderedText && !handledApprovalCommand) {
+    logger.debug(
+      {
+        sessionId,
+        channelId: chatRequest.channelId,
+        slashCommands,
+      },
+      'Expanded web slash commands produced no visible output',
+    );
+  }
+
+  return {
+    status: 'success',
+    result:
+      renderedText ||
+      (handledApprovalCommand ? 'Approval submitted.' : 'Done.'),
+    toolsUsed: [],
+    sessionId,
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(mainSessionKey ? { mainSessionKey } : {}),
+    ...(artifacts.length > 0 ? { artifacts } : {}),
+  };
 }
 
 function isMalformedCanonicalSessionId(value: string | undefined): boolean {
@@ -258,6 +446,31 @@ function hasApiAuth(
   return gatewayTokenMatch;
 }
 
+function hasApiTokenValue(token: string): boolean {
+  const trimmed = token.trim();
+  if (!trimmed) return false;
+  if (WEB_API_TOKEN && trimmed === WEB_API_TOKEN) return true;
+  return Boolean(GATEWAY_API_TOKEN) && trimmed === GATEWAY_API_TOKEN;
+}
+
+function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
+  const authHeader = req.headers.authorization || '';
+  if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) {
+    return 'web-token';
+  }
+  if (GATEWAY_API_TOKEN && authHeader === `Bearer ${GATEWAY_API_TOKEN}`) {
+    return 'gateway-token';
+  }
+
+  const normalizedAddress = String(req.socket.remoteAddress || '')
+    .replace(/^::ffff:/, '')
+    .trim();
+  if (isLoopbackAddress(req.socket.remoteAddress)) {
+    return `loopback:${normalizedAddress || 'unknown'}`;
+  }
+  return 'authenticated';
+}
+
 function sendJson(
   res: ServerResponse,
   statusCode: number,
@@ -267,6 +480,18 @@ function sendJson(
     'Content-Type': 'application/json; charset=utf-8',
   });
   res.end(JSON.stringify(payload, null, 2));
+}
+
+function dispatchWebhookRoute(
+  res: ServerResponse,
+  handler: () => Promise<unknown>,
+): void {
+  void handler().catch((error) => {
+    logger.error({ err: error }, 'Webhook handler failed');
+    sendJson(res, 500, {
+      error: 'Internal server error',
+    });
+  });
 }
 
 function sendText(res: ServerResponse, statusCode: number, text: string): void {
@@ -341,10 +566,211 @@ function resolvePathForContainmentCheck(filePath: string): string {
   }
 }
 
+function resolveDisplayPathAlias(
+  rawPath: string,
+  displayRoot: string,
+  hostRoot: string,
+): string | null {
+  const normalized = rawPath.replace(/\\/g, '/').trim();
+  const cleanDisplayRoot = displayRoot.replace(/\/+$/, '');
+  if (
+    normalized !== cleanDisplayRoot &&
+    !normalized.startsWith(`${cleanDisplayRoot}/`)
+  ) {
+    return null;
+  }
+
+  const relative = path.posix
+    .normalize(normalized.slice(cleanDisplayRoot.length).replace(/^\/+/, ''))
+    .replace(/^\/+/, '');
+  if (relative === '..' || relative.startsWith('../')) {
+    return null;
+  }
+  return relative ? path.resolve(hostRoot, relative) : path.resolve(hostRoot);
+}
+
+function matchesDisplayPathAlias(
+  rawPath: string,
+  displayRoot: string,
+): boolean {
+  const normalized = rawPath.replace(/\\/g, '/').trim();
+  const cleanDisplayRoot = displayRoot.replace(/\/+$/, '');
+  return (
+    normalized === cleanDisplayRoot ||
+    normalized.startsWith(`${cleanDisplayRoot}/`)
+  );
+}
+
+function getUploadedMediaCacheDirOrNull(): string | null {
+  try {
+    return resolveUploadedMediaCacheHostDir();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === 'uploaded_media_cache_dir_unavailable'
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function resolveArtifactRequestPath(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
+  if (matchesDisplayPathAlias(trimmed, UPLOADED_MEDIA_CACHE_ROOT_DISPLAY)) {
+    if (!uploadedMediaCacheDir) {
+      throw new HttpRequestError(503, 'Uploaded media cache unavailable.');
+    }
+    return resolveDisplayPathAlias(
+      trimmed,
+      UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
+      uploadedMediaCacheDir,
+    );
+  }
+  return (
+    resolveDisplayPathAlias(
+      trimmed,
+      DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+      DISCORD_MEDIA_CACHE_DIR,
+    ) || path.resolve(trimmed)
+  );
+}
+
+function resolveValidatedApiChatMediaHostPath(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+
+  if (matchesDisplayPathAlias(trimmed, DISCORD_MEDIA_CACHE_ROOT_DISPLAY)) {
+    const resolved = resolveDisplayPathAlias(
+      trimmed,
+      DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+      DISCORD_MEDIA_CACHE_DIR,
+    );
+    return resolved ? resolvePathForContainmentCheck(resolved) : null;
+  }
+
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
+  if (matchesDisplayPathAlias(trimmed, UPLOADED_MEDIA_CACHE_ROOT_DISPLAY)) {
+    if (!uploadedMediaCacheDir) {
+      throw new HttpRequestError(503, 'Uploaded media cache unavailable.');
+    }
+    const resolved = resolveDisplayPathAlias(
+      trimmed,
+      UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
+      uploadedMediaCacheDir,
+    );
+    return resolved ? resolvePathForContainmentCheck(resolved) : null;
+  }
+
+  if (!path.isAbsolute(trimmed)) {
+    return null;
+  }
+
+  return resolvePathForContainmentCheck(trimmed);
+}
+
+function isAllowedApiChatMediaHostPath(hostPath: string): boolean {
+  const normalizedHostPath = resolvePathForContainmentCheck(hostPath);
+  if (
+    isWithinRoot(
+      normalizedHostPath,
+      resolvePathForContainmentCheck(DISCORD_MEDIA_CACHE_DIR),
+    )
+  ) {
+    return true;
+  }
+
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
+  if (!uploadedMediaCacheDir) {
+    return false;
+  }
+  return isWithinRoot(
+    normalizedHostPath,
+    resolvePathForContainmentCheck(uploadedMediaCacheDir),
+  );
+}
+
+function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) {
+    throw new HttpRequestError(400, 'Invalid `media` in request body.');
+  }
+  if (raw.length === 0) return [];
+
+  const normalized: MediaContextItem[] = [];
+  for (const [index, item] of raw.entries()) {
+    if (!item || typeof item !== 'object') {
+      throw new HttpRequestError(400, `Invalid \`media[${index}]\` item.`);
+    }
+    const mediaItem = item as Record<string, unknown>;
+
+    const pathValue = normalizeOptionalString(mediaItem.path);
+    const url = normalizeOptionalString(mediaItem.url);
+    const originalUrl = normalizeOptionalString(mediaItem.originalUrl);
+    const filename = normalizeOptionalString(mediaItem.filename);
+    if (!pathValue) {
+      throw new HttpRequestError(400, `Missing \`media[${index}].path\`.`);
+    }
+    if (!url) {
+      throw new HttpRequestError(400, `Missing \`media[${index}].url\`.`);
+    }
+    if (!originalUrl) {
+      throw new HttpRequestError(
+        400,
+        `Missing \`media[${index}].originalUrl\`.`,
+      );
+    }
+    if (!filename) {
+      throw new HttpRequestError(400, `Missing \`media[${index}].filename\`.`);
+    }
+
+    const resolvedHostPath = resolveValidatedApiChatMediaHostPath(pathValue);
+    if (!resolvedHostPath || !isAllowedApiChatMediaHostPath(resolvedHostPath)) {
+      throw new HttpRequestError(
+        400,
+        `Invalid \`media[${index}].path\`. Only uploaded or Discord media cache files are accepted.`,
+      );
+    }
+
+    const rawSizeBytes = mediaItem.sizeBytes;
+    if (rawSizeBytes != null && typeof rawSizeBytes !== 'number') {
+      throw new HttpRequestError(400, `Invalid \`media[${index}].sizeBytes\`.`);
+    }
+    if (typeof rawSizeBytes === 'number' && !Number.isFinite(rawSizeBytes)) {
+      throw new HttpRequestError(400, `Invalid \`media[${index}].sizeBytes\`.`);
+    }
+
+    const rawMimeType = mediaItem.mimeType;
+    if (rawMimeType != null && typeof rawMimeType !== 'string') {
+      throw new HttpRequestError(400, `Invalid \`media[${index}].mimeType\`.`);
+    }
+
+    normalized.push({
+      path: pathValue,
+      url,
+      originalUrl,
+      filename,
+      sizeBytes:
+        typeof rawSizeBytes === 'number'
+          ? Math.max(0, Math.floor(rawSizeBytes))
+          : 0,
+      mimeType:
+        typeof rawMimeType === 'string'
+          ? normalizeMimeType(rawMimeType.trim())
+          : null,
+    });
+  }
+  return normalized;
+}
+
 function resolveArtifactFile(url: URL): string | null {
   const raw = (url.searchParams.get('path') || '').trim();
   if (!raw) return null;
-  const resolved = path.resolve(raw);
+  const resolved = resolveArtifactRequestPath(raw);
+  if (!resolved) return null;
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
   let realFilePath: string;
   try {
     realFilePath = fs.realpathSync(resolved);
@@ -359,6 +785,13 @@ function resolveArtifactFile(url: URL): string | null {
     !isWithinRoot(
       realFilePath,
       resolvePathForContainmentCheck(DISCORD_MEDIA_CACHE_DIR),
+    ) &&
+    !(
+      uploadedMediaCacheDir &&
+      isWithinRoot(
+        realFilePath,
+        resolvePathForContainmentCheck(uploadedMediaCacheDir),
+      )
     )
   ) {
     return null;
@@ -368,25 +801,154 @@ function resolveArtifactFile(url: URL): string | null {
   return realFilePath;
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+function resolveAgentAvatarFile(url: URL): string | null {
+  const agentId =
+    (url.searchParams.get('agentId') || '').trim() || DEFAULT_AGENT_ID;
+  const agent = getAgentById(agentId) ?? resolveAgentConfig(agentId);
+  const imageAsset = String(agent.imageAsset || '').trim();
+  return resolveWorkspaceRelativePath(agentWorkspaceDir(agentId), imageAsset, {
+    requireExistingFile: false,
+  });
+}
+
+function streamStaticFile(
+  res: ServerResponse,
+  filePath: string,
+  options?: {
+    cacheControl?: string;
+    dispositionType?: 'inline' | 'attachment';
+  },
+): void {
+  fs.stat(filePath, (statError, stats) => {
+    if (statError) {
+      const code = (statError as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        sendJson(res, 404, { error: 'Artifact not found.' });
+        return;
+      }
+      logger.warn(
+        { filePath, error: statError },
+        'Failed to stat file before streaming',
+      );
+      sendJson(res, 500, { error: 'Failed to read artifact.' });
+      return;
+    }
+
+    if (!stats.isFile()) {
+      sendJson(res, 404, { error: 'Artifact not found.' });
+      return;
+    }
+
+    const mimeType = resolveStaticFileMimeType(filePath, options);
+    const dispositionType = options?.dispositionType || 'inline';
+    const filename = path.basename(filePath);
+    const stream = fs.createReadStream(filePath);
+
+    stream.on('open', () => {
+      res.writeHead(200, {
+        'Content-Type': mimeType,
+        'Content-Disposition': `${dispositionType}; filename="${filename.replace(/"/g, '')}"`,
+        'Cache-Control': options?.cacheControl || 'no-store',
+        'Content-Length': String(stats.size),
+        'X-Content-Type-Options': 'nosniff',
+        ...(dispositionType === 'attachment'
+          ? {
+              'Content-Security-Policy': "sandbox; default-src 'none'",
+            }
+          : {}),
+      });
+    });
+
+    stream.on('data', (chunk) => {
+      res.write(chunk);
+    });
+
+    stream.on('end', () => {
+      if (!res.writableEnded) res.end();
+    });
+
+    stream.on('error', (error) => {
+      logger.warn({ filePath, error }, 'Failed to stream file');
+      if (!res.headersSent) {
+        sendJson(res, 500, { error: 'Failed to read artifact.' });
+        return;
+      }
+      if (typeof res.destroy === 'function') {
+        res.destroy(error);
+        return;
+      }
+      if (!res.writableEnded) res.end();
+    });
+  });
+}
+
+function resolveStaticFileMimeType(
+  filePath: string,
+  options?: {
+    dispositionType?: 'inline' | 'attachment';
+  },
+): string {
+  const ext = path.extname(filePath).toLowerCase();
+  const siteMimeType =
+    options?.dispositionType === 'attachment'
+      ? null
+      : SITE_MIME_TYPES[ext]?.split(';')[0]?.trim();
+  const inlineMimeType = SAFE_INLINE_ARTIFACT_MIME_TYPES[ext] || siteMimeType;
+  return inlineMimeType || 'application/octet-stream';
+}
+
+async function readRequestBody(
+  req: IncomingMessage,
+  maxBytes: number,
+): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
-    if (total > MAX_REQUEST_BYTES) {
+    if (total > maxBytes) {
       throw new HttpRequestError(413, 'Request body too large.');
     }
     chunks.push(buffer);
   }
-  if (chunks.length === 0) return {};
-  const raw = Buffer.concat(chunks).toString('utf-8');
+  return chunks.length > 0 ? Buffer.concat(chunks) : Buffer.alloc(0);
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const rawBuffer = await readRequestBody(req, MAX_REQUEST_BYTES);
+  if (rawBuffer.length === 0) return {};
+  const raw = rawBuffer.toString('utf-8');
   if (!raw.trim()) return {};
   try {
     return JSON.parse(raw) as unknown;
   } catch {
     throw new HttpRequestError(400, 'Invalid JSON body');
   }
+}
+
+function normalizeHeaderValue(
+  value: string | string[] | undefined,
+): string | null {
+  if (Array.isArray(value)) {
+    return normalizeHeaderValue(value[0]);
+  }
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function buildMediaOnlyPromptContent(media: { filename: string }[]): string {
+  if (media.length === 0) return '';
+  const summary = summarizeMediaFilenames(media.map((item) => item.filename));
+  return media.length === 1
+    ? `Attached file: ${summary}`
+    : `Attached files: ${summary}`;
+}
+
+function isAllowedMediaUploadMimeType(mimeType: string): boolean {
+  return (
+    mimeType.startsWith('audio/') ||
+    mimeType.startsWith('image/') ||
+    ALLOWED_MEDIA_UPLOAD_MIME_TYPES.has(mimeType)
+  );
 }
 
 function resolveSiteFile(pathname: string): string | null {
@@ -406,7 +968,9 @@ function resolveStaticFile(rootDir: string, pathname: string): string | null {
   return candidate;
 }
 
-function serveStatic(pathname: string, res: ServerResponse): boolean {
+function serveStatic(url: URL, res: ServerResponse): boolean {
+  const pathname = url.pathname;
+  if (serveDocs(url, res)) return true;
   const filePath = resolveSiteFile(
     pathname === '/chat'
       ? '/chat.html'
@@ -450,10 +1014,13 @@ async function handleApiChat(
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
   const wantsStream = body.stream === true;
+  const media = normalizeApiChatMediaItems(body.media);
 
-  const content = body.content?.trim();
+  const content = body.content?.trim() || buildMediaOnlyPromptContent(media);
   if (!content) {
-    sendJson(res, 400, { error: 'Missing `content` in request body.' });
+    sendJson(res, 400, {
+      error: 'Missing `content` or `media` in request body.',
+    });
     return;
   }
 
@@ -475,6 +1042,7 @@ async function handleApiChat(
     userId: normalizeOptionalString(body.userId) || sessionId,
     username: body.username ?? 'web',
     content,
+    ...(media.length > 0 ? { media } : {}),
     agentId: body.agentId,
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
@@ -488,6 +1056,7 @@ async function handleApiChat(
       model: chatRequest.model || null,
       stream: wantsStream,
       contentLength: chatRequest.content.length,
+      mediaCount: media.length,
     },
     'Received gateway API chat request',
   );
@@ -497,16 +1066,148 @@ async function handleApiChat(
     return;
   }
 
-  const processedResult = normalizePendingApprovalReply(
-    normalizePlaceholderToolReply(
-      normalizeSilentMessageSendReply(await handleGatewayMessage(chatRequest)),
-    ),
-  );
+  const processedResult =
+    (await resolveApiChatSlashCommandResult(chatRequest)) ||
+    normalizePendingApprovalReply(
+      normalizePlaceholderToolReply(
+        normalizeSilentMessageSendReply(
+          await handleGatewayMessage(chatRequest),
+        ),
+      ),
+    );
   const result = filterChatResultForSession(
     processedResult.sessionId || chatRequest.sessionId,
     processedResult,
   );
   sendJson(res, result.status === 'success' ? 200 : 500, result);
+}
+
+async function handleApiChatBranch(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as ApiChatBranchRequestBody;
+  const sessionId = normalizeOptionalString(body.sessionId);
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` in request body.' });
+    return;
+  }
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
+  const beforeMessageId = parsePositiveInteger(body.beforeMessageId);
+  if (beforeMessageId == null) {
+    sendJson(res, 400, {
+      error:
+        'Missing valid positive integer `beforeMessageId` in request body.',
+    });
+    return;
+  }
+
+  try {
+    const branch = memoryService.forkSessionBranch({
+      sessionId,
+      beforeMessageId,
+    });
+    sendJson(res, 200, {
+      sessionId: branch.session.id,
+      sessionKey: branch.session.session_key,
+      mainSessionKey: branch.session.main_session_key,
+      copiedMessageCount: branch.copiedMessageCount,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    sendJson(res, /was not found/i.test(message) ? 404 : 500, {
+      error: message,
+    });
+  }
+}
+
+async function handleApiMediaUpload(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const encodedFilename = normalizeHeaderValue(
+    req.headers['x-hybridclaw-filename'],
+  );
+  if (!encodedFilename) {
+    sendJson(res, 400, {
+      error: 'Missing `X-Hybridclaw-Filename` header.',
+    });
+    return;
+  }
+
+  let decodedFilename = encodedFilename;
+  try {
+    decodedFilename = decodeURIComponent(encodedFilename);
+  } catch {
+    sendJson(res, 400, {
+      error: 'Invalid `X-Hybridclaw-Filename` header.',
+    });
+    return;
+  }
+
+  const buffer = await readRequestBody(req, MAX_MEDIA_UPLOAD_BYTES);
+  if (buffer.length === 0) {
+    sendJson(res, 400, { error: 'Uploaded file is empty.' });
+    return;
+  }
+
+  const mimeType =
+    normalizeMimeType(normalizeHeaderValue(req.headers['content-type'])) ||
+    'application/octet-stream';
+  if (!isAllowedMediaUploadMimeType(mimeType)) {
+    sendJson(res, 415, {
+      error: `Unsupported media type: ${mimeType}.`,
+    });
+    return;
+  }
+
+  const quotaDecision = consumeGatewayMediaUploadQuota({
+    key: resolveApiMediaUploadQuotaKey(req),
+    bytes: buffer.length,
+  });
+  if (!quotaDecision.allowed) {
+    res.setHeader(
+      'Retry-After',
+      String(Math.max(1, Math.ceil(quotaDecision.retryAfterMs / 1_000))),
+    );
+    sendJson(res, 429, {
+      error: 'Media upload quota exceeded. Try again later.',
+    });
+    return;
+  }
+
+  let stored: Awaited<ReturnType<typeof writeUploadedMediaCacheFile>>;
+  try {
+    stored = await writeUploadedMediaCacheFile({
+      attachmentName: decodedFilename,
+      buffer,
+      mimeType,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === 'uploaded_media_cache_dir_unavailable'
+    ) {
+      sendJson(res, 503, { error: 'Uploaded media cache unavailable.' });
+      return;
+    }
+    throw error;
+  }
+  const artifactUrl = `/api/artifact?path=${encodeURIComponent(stored.runtimePath)}`;
+
+  sendJson(res, 200, {
+    media: {
+      path: stored.runtimePath,
+      url: artifactUrl,
+      originalUrl: artifactUrl,
+      mimeType,
+      sizeBytes: buffer.length,
+      filename: stored.filename,
+    },
+  });
 }
 
 async function handleApiChatStream(
@@ -524,6 +1225,20 @@ async function handleApiChatStream(
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
   });
+
+  const slashResult = await resolveApiChatSlashCommandResult(chatRequest);
+  if (slashResult) {
+    const filteredResult = filterChatResultForSession(
+      slashResult.sessionId || chatRequest.sessionId,
+      slashResult,
+    );
+    sendEvent({
+      type: 'result',
+      result: filteredResult,
+    });
+    res.end();
+    return;
+  }
 
   const onToolProgress = (event: ToolProgressEvent): void => {
     sendEvent({
@@ -677,6 +1392,18 @@ async function handleApiMessageAction(
     return;
   }
 
+  let cc: string[] | undefined;
+  let bcc: string[] | undefined;
+  try {
+    cc = parseEmailRecipientListInput(body.cc, 'cc');
+    bcc = parseEmailRecipientListInput(body.bcc, 'bcc');
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
   const request: DiscordToolActionRequest = {
     action,
     sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
@@ -695,6 +1422,9 @@ async function handleApiMessageAction(
     after: typeof body.after === 'string' ? body.after : undefined,
     around: typeof body.around === 'string' ? body.around : undefined,
     content: typeof body.content === 'string' ? body.content : undefined,
+    subject: typeof body.subject === 'string' ? body.subject : undefined,
+    cc,
+    bcc,
     filePath: typeof body.filePath === 'string' ? body.filePath : undefined,
     components:
       Array.isArray(body.components) ||
@@ -751,7 +1481,7 @@ async function handleApiPluginTool(
   }
 }
 
-function handleApiHistory(res: ServerResponse, url: URL): void {
+async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
   const sessionId = url.searchParams.get('sessionId')?.trim();
   if (!sessionId) {
     sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
@@ -767,15 +1497,90 @@ function handleApiHistory(res: ServerResponse, url: URL): void {
     10,
   );
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
-  const history = getGatewayHistory(sessionId, limit);
+  void ensureGatewayBootstrapAutostart({ sessionId }).catch((error) => {
+    logger.warn(
+      { sessionId, error },
+      'Failed to start gateway bootstrap autostart',
+    );
+  });
+  const historyPage = getGatewayHistory(sessionId, limit);
   const summary = getGatewayHistorySummary(sessionId, {
     sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
   });
-  sendJson(res, 200, { sessionId, history, summary });
+  const bootstrapAutostart = getGatewayBootstrapAutostartState({ sessionId });
+  // These keys are returned only as chat-routing metadata for the web client.
+  // Auth stays anchored to the existing API/session auth checks above, never to
+  // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
+  // remove them from this response instead of widening their meaning here.
+  sendJson(res, 200, {
+    sessionId,
+    sessionKey: historyPage.sessionKey || undefined,
+    mainSessionKey: historyPage.mainSessionKey || undefined,
+    history: historyPage.history,
+    assistantPresentation: getGatewayAssistantPresentationForSession(sessionId),
+    bootstrapAutostart,
+    ...(historyPage.branchFamilies.length > 0
+      ? { branchFamilies: historyPage.branchFamilies }
+      : {}),
+    summary,
+  });
 }
 
-function handleApiAgents(res: ServerResponse): void {
-  sendJson(res, 200, getGatewayAgents());
+function handleApiAgentAvatar(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): void {
+  if (!hasApiAuth(req, url)) {
+    sendJson(res, 401, {
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+    return;
+  }
+
+  const filePath = resolveAgentAvatarFile(url);
+  if (!filePath) {
+    sendJson(res, 404, { error: 'Agent avatar not found.' });
+    return;
+  }
+  if (
+    !resolveStaticFileMimeType(filePath, {
+      dispositionType: 'inline',
+    }).startsWith('image/')
+  ) {
+    sendJson(res, 404, { error: 'Agent avatar not found.' });
+    return;
+  }
+  streamStaticFile(res, filePath, {
+    cacheControl: 'private, max-age=300',
+    dispositionType: 'inline',
+  });
+}
+
+function handleApiChatRecent(res: ServerResponse, url: URL): void {
+  const userId = (url.searchParams.get('userId') || '').trim();
+  if (!userId) {
+    sendJson(res, 400, { error: 'Missing `userId` query parameter.' });
+    return;
+  }
+  const channelId = (url.searchParams.get('channelId') || 'web').trim();
+  const parsedLimit = parseInt(url.searchParams.get('limit') || '10', 10);
+  const limit = Number.isNaN(parsedLimit) ? 10 : parsedLimit;
+  sendJson(res, 200, {
+    sessions: getGatewayRecentChatSessions({
+      userId,
+      channelId,
+      limit,
+    }),
+  });
+}
+
+async function handleApiAgents(res: ServerResponse): Promise<void> {
+  sendJson(res, 200, await getGatewayAgents());
+}
+
+function handleApiAdminJobsContext(res: ServerResponse): void {
+  sendJson(res, 200, getGatewayAdminJobsContext());
 }
 
 function handleApiProactivePull(res: ServerResponse, url: URL): void {
@@ -800,8 +1605,8 @@ function handleApiShutdown(res: ServerResponse): void {
   }, 50);
 }
 
-function handleApiAdminOverview(res: ServerResponse): void {
-  sendJson(res, 200, getGatewayAdminOverview());
+async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
+  sendJson(res, 200, await getGatewayAdminOverview());
 }
 
 async function handleApiAdminAgents(
@@ -1062,6 +1867,8 @@ async function handleApiAdminScheduler(
       taskId?: unknown;
       source?: unknown;
       action?: unknown;
+      beforeJobId?: unknown;
+      boardStatus?: unknown;
     };
     const source =
       String(body.source || '')
@@ -1075,9 +1882,30 @@ async function handleApiAdminScheduler(
     const action = String(body.action || '')
       .trim()
       .toLowerCase();
+    if (action === 'move') {
+      let boardStatus = null;
+      try {
+        boardStatus = parseSchedulerBoardStatus(body.boardStatus) ?? null;
+      } catch (error) {
+        sendJson(res, 400, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      sendJson(
+        res,
+        200,
+        moveGatewayAdminSchedulerJob({
+          jobId,
+          beforeJobId: String(body.beforeJobId || '').trim() || null,
+          boardStatus,
+        }),
+      );
+      return;
+    }
     if (action !== 'pause' && action !== 'resume') {
       sendJson(res, 400, {
-        error: 'Expected scheduler action `pause` or `resume`.',
+        error: 'Expected scheduler action `pause`, `resume`, or `move`.',
       });
       return;
     }
@@ -1317,13 +2145,19 @@ function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
     Connection: 'keep-alive',
   });
 
-  const sendSnapshot = (): void => {
-    sendEvent('overview', getGatewayAdminOverview());
-    sendEvent('status', getGatewayStatus());
+  const sendSnapshot = async (): Promise<void> => {
+    try {
+      sendEvent('overview', await getGatewayAdminOverview());
+      sendEvent('status', await getGatewayStatus());
+    } catch (err) {
+      logger.debug({ err }, 'SSE snapshot failed');
+    }
   };
 
-  sendSnapshot();
-  const timer = setInterval(sendSnapshot, 10_000);
+  void sendSnapshot();
+  const timer = setInterval(() => {
+    void sendSnapshot();
+  }, 10_000);
 
   req.on('close', () => {
     clearInterval(timer);
@@ -1350,79 +2184,76 @@ function handleApiArtifact(
     return;
   }
 
-  fs.stat(filePath, (statError, stats) => {
-    if (statError) {
-      const code = (statError as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') {
-        sendJson(res, 404, { error: 'Artifact not found.' });
-        return;
-      }
-      logger.warn(
-        { filePath, error: statError },
-        'Failed to stat artifact before streaming',
-      );
-      sendJson(res, 500, { error: 'Failed to read artifact.' });
-      return;
-    }
-
-    if (!stats.isFile()) {
-      sendJson(res, 404, { error: 'Artifact not found.' });
-      return;
-    }
-
-    const ext = path.extname(filePath).toLowerCase();
-    const inlineMimeType = SAFE_INLINE_ARTIFACT_MIME_TYPES[ext];
-    const mimeType = inlineMimeType || 'application/octet-stream';
-    const dispositionType = inlineMimeType ? 'inline' : 'attachment';
-    const filename = path.basename(filePath);
-    const stream = fs.createReadStream(filePath);
-
-    stream.on('open', () => {
-      res.writeHead(200, {
-        'Content-Type': mimeType,
-        'Content-Disposition': `${dispositionType}; filename="${filename.replace(/"/g, '')}"`,
-        'Cache-Control': 'no-store',
-        'Content-Length': String(stats.size),
-        'X-Content-Type-Options': 'nosniff',
-        ...(dispositionType === 'attachment'
-          ? {
-              'Content-Security-Policy': "sandbox; default-src 'none'",
-            }
-          : {}),
-      });
-    });
-
-    stream.on('data', (chunk) => {
-      res.write(chunk);
-    });
-
-    stream.on('end', () => {
-      if (!res.writableEnded) res.end();
-    });
-
-    stream.on('error', (error) => {
-      logger.warn({ filePath, error }, 'Failed to stream artifact');
-      if (!res.headersSent) {
-        sendJson(res, 500, { error: 'Failed to read artifact.' });
-        return;
-      }
-      if (typeof res.destroy === 'function') {
-        res.destroy(error);
-        return;
-      }
-      if (!res.writableEnded) res.end();
-    });
+  const ext = path.extname(filePath).toLowerCase();
+  streamStaticFile(res, filePath, {
+    dispositionType: SAFE_INLINE_ARTIFACT_MIME_TYPES[ext]
+      ? 'inline'
+      : 'attachment',
   });
 }
 
+async function handleApiAdminTerminal(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  terminalManager: ReturnType<typeof createAdminTerminalManager>,
+): Promise<void> {
+  if (req.method === 'POST') {
+    const body = (await readJsonBody(req)) as ApiAdminTerminalRequestBody;
+    const options: AdminTerminalStartOptions = {
+      cols: body.cols,
+      rows: body.rows,
+    };
+    sendJson(res, 200, terminalManager.startSession(options));
+    return;
+  }
+
+  if (req.method === 'DELETE') {
+    const sessionId = normalizeOptionalString(
+      url.searchParams.get('sessionId'),
+    );
+    if (!sessionId) {
+      sendJson(res, 400, { error: 'Missing `sessionId`.' });
+      return;
+    }
+    sendJson(res, 200, {
+      stopped: terminalManager.stopSession(sessionId),
+    });
+    return;
+  }
+
+  sendJson(res, 405, { error: 'Method Not Allowed' });
+}
+
+function writeUpgradeError(
+  socket: NodeJS.WritableStream & { destroy: () => void },
+  statusCode: number,
+  statusText: string,
+): void {
+  socket.write(
+    `HTTP/1.1 ${statusCode} ${statusText}\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${statusText}`,
+  );
+  socket.destroy();
+}
+
 export function startGatewayHttpServer(): void {
+  const terminalManager = createAdminTerminalManager();
   const server = http.createServer((req, res) => {
     const method = req.method || 'GET';
     const url = new URL(req.url || '/', 'http://localhost');
     const pathname = url.pathname;
 
     if (pathname === '/health' && method === 'GET') {
-      sendJson(res, 200, getGatewayStatus());
+      void getGatewayStatus().then(
+        (status) => sendJson(res, 200, status),
+        (err) => {
+          logger.error({ err }, 'Health check failed');
+          sendJson(res, 503, {
+            status: 'error',
+            error: err instanceof Error ? err.message : String(err),
+          });
+        },
+      );
       return;
     }
 
@@ -1438,10 +2269,56 @@ export function startGatewayHttpServer(): void {
         return;
       }
 
+      // Determine post-auth redirect destination.  Only accept relative
+      // paths (starting with `/` but not `//`) to prevent open redirects,
+      // and reject values containing control characters that would be
+      // invalid in HTTP headers (e.g. CR/LF from `%0d%0a`).
+      const rawNext = url.searchParams.get('next');
+      const safeNext =
+        rawNext?.startsWith('/') &&
+        !rawNext.startsWith('//') &&
+        !/[\r\n\0]/.test(rawNext)
+          ? rawNext
+          : undefined;
+      const redirectTo = safeNext ?? '/admin';
+
       try {
         const payload = verifyLaunchToken(token);
         setSessionCookie(res, payload);
-        sendRedirect(res, 302, '/admin');
+        // Respond with a small HTML page that stores the WEB_API_TOKEN in
+        // localStorage before redirecting.  This lets the console make
+        // Bearer-authenticated API calls without ever showing the manual
+        // token prompt.  The token never appears in the URL (avoiding
+        // leaks via browser history, referrer headers, or server logs).
+        if (WEB_API_TOKEN) {
+          // Escape for safe inline-script embedding: JSON.stringify handles
+          // JS-level escaping, then replace `<` to prevent the HTML parser
+          // from closing the <script> block early (e.g. a token containing
+          // "</script>").
+          const escaped = JSON.stringify(WEB_API_TOKEN).replace(
+            /</g,
+            '\\u003c',
+          );
+          const escapedRedirect = JSON.stringify(redirectTo).replace(
+            /</g,
+            '\\u003c',
+          );
+          res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+            'Content-Security-Policy':
+              "default-src 'none'; script-src 'unsafe-inline'",
+            'X-Content-Type-Options': 'nosniff',
+          });
+          res.end(
+            `<!DOCTYPE html><html><body><script>` +
+              `localStorage.setItem('hybridclaw_token',${escaped});` +
+              `window.location.replace(${escapedRedirect});` +
+              `</script></body></html>`,
+          );
+        } else {
+          sendRedirect(res, 302, redirectTo);
+        }
       } catch {
         sendText(res, 401, 'Unauthorized. Invalid or expired auth token.');
       }
@@ -1450,15 +2327,46 @@ export function startGatewayHttpServer(): void {
 
     if (pathname.startsWith('/api/')) {
       if (pathname === MSTEAMS_WEBHOOK_PATH && method === 'POST') {
-        void handleMSTeamsWebhook(req, res).catch((error) => {
-          sendJson(res, 500, {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
+        dispatchWebhookRoute(res, () => handleMSTeamsWebhook(req, res));
+        return;
+      }
+      if (pathname === IMESSAGE_WEBHOOK_PATH && method === 'POST') {
+        dispatchWebhookRoute(res, () => handleIMessageWebhook(req, res));
+        return;
+      }
+      if (isPluginInboundWebhookPath(pathname)) {
+        dispatchWebhookRoute(res, () =>
+          handleGatewayPluginWebhook(req, res, url),
+        );
         return;
       }
       if (pathname === '/api/artifact' && method === 'GET') {
-        handleApiArtifact(req, res, url);
+        try {
+          handleApiArtifact(req, res, url);
+        } catch (err) {
+          const errorText = err instanceof Error ? err.message : String(err);
+          const statusCode =
+            err instanceof HttpRequestError ||
+            err instanceof GatewayRequestError ||
+            err instanceof AdminTerminalCapacityError
+              ? err.statusCode
+              : 500;
+          sendJson(res, statusCode, { error: errorText });
+        }
+        return;
+      }
+      if (pathname === '/api/agent-avatar' && method === 'GET') {
+        try {
+          handleApiAgentAvatar(req, res, url);
+        } catch (err) {
+          const errorText = err instanceof Error ? err.message : String(err);
+          const statusCode =
+            err instanceof HttpRequestError ||
+            err instanceof GatewayRequestError
+              ? err.statusCode
+              : 500;
+          sendJson(res, statusCode, { error: errorText });
+        }
         return;
       }
 
@@ -1480,7 +2388,7 @@ export function startGatewayHttpServer(): void {
             return;
           }
           if (pathname === '/api/status' && method === 'GET') {
-            sendJson(res, 200, getGatewayStatus());
+            sendJson(res, 200, await getGatewayStatus());
             return;
           }
           if (
@@ -1493,7 +2401,7 @@ export function startGatewayHttpServer(): void {
             return;
           }
           if (pathname === '/api/admin/overview' && method === 'GET') {
-            handleApiAdminOverview(res);
+            await handleApiAdminOverview(res);
             return;
           }
           if (
@@ -1570,12 +2478,27 @@ export function startGatewayHttpServer(): void {
             await handleApiAdminSkills(req, res);
             return;
           }
+          if (pathname === '/api/admin/jobs/context' && method === 'GET') {
+            handleApiAdminJobsContext(res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/terminal' &&
+            (method === 'POST' || method === 'DELETE')
+          ) {
+            await handleApiAdminTerminal(req, res, url, terminalManager);
+            return;
+          }
           if (pathname === '/api/history' && method === 'GET') {
-            handleApiHistory(res, url);
+            await handleApiHistory(res, url);
+            return;
+          }
+          if (pathname === '/api/chat/recent' && method === 'GET') {
+            handleApiChatRecent(res, url);
             return;
           }
           if (pathname === '/api/agents' && method === 'GET') {
-            handleApiAgents(res);
+            await handleApiAgents(res);
             return;
           }
           if (pathname === '/api/proactive/pull' && method === 'GET') {
@@ -1588,6 +2511,14 @@ export function startGatewayHttpServer(): void {
           }
           if (pathname === '/api/chat' && method === 'POST') {
             await handleApiChat(req, res);
+            return;
+          }
+          if (pathname === '/api/chat/branch' && method === 'POST') {
+            await handleApiChatBranch(req, res);
+            return;
+          }
+          if (pathname === '/api/media/upload' && method === 'POST') {
+            await handleApiMediaUpload(req, res);
             return;
           }
           if (pathname === '/api/command' && method === 'POST') {
@@ -1634,8 +2565,42 @@ export function startGatewayHttpServer(): void {
       return;
     }
 
-    if (serveStatic(pathname, res)) return;
+    if (serveStatic(url, res)) return;
     sendText(res, 404, 'Not Found');
+  });
+
+  server.on('upgrade', (req, socket, head) => {
+    const host = String(req.headers.host || 'localhost');
+    const url = new URL(req.url || '/', `http://${host}`);
+
+    if (url.pathname !== '/api/admin/terminal/stream') {
+      writeUpgradeError(socket, 404, 'Not Found');
+      return;
+    }
+
+    const sessionAuthenticated = hasSessionAuth(req);
+    const requestAuthenticated = hasApiAuth(req, url, {
+      allowQueryToken: false,
+    });
+    if (
+      !sessionAuthenticated &&
+      !WEB_API_TOKEN &&
+      !GATEWAY_API_TOKEN &&
+      !requestAuthenticated
+    ) {
+      writeUpgradeError(socket, 401, 'Unauthorized');
+      return;
+    }
+
+    if (
+      !terminalManager.handleUpgrade(req, socket, head, url, {
+        hasSessionAuth: sessionAuthenticated,
+        hasRequestAuth: requestAuthenticated,
+        validateToken: hasApiTokenValue,
+      })
+    ) {
+      writeUpgradeError(socket, 404, 'Not Found');
+    }
   });
 
   server.listen(HEALTH_PORT, HEALTH_HOST, () => {

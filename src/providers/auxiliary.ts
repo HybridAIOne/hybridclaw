@@ -1,7 +1,7 @@
 import { getProviderContextError } from '../../container/shared/provider-context.js';
 import { extractResponseTextContent } from '../../container/shared/response-text.js';
 import { logger } from '../logger.js';
-import type { ChatMessage } from '../types.js';
+import type { ChatMessage } from '../types/api.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
 import {
   type AuxiliaryTask,
@@ -18,6 +18,8 @@ type RuntimeProvider =
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'mistral'
+  | 'huggingface'
   | 'ollama'
   | 'lmstudio'
   | 'vllm';
@@ -444,6 +446,11 @@ function normalizeOpenAICompatModelName(
   if (provider === 'openrouter') {
     return normalizeOpenRouterRuntimeModelName(trimmed);
   }
+  if (provider === 'huggingface') {
+    const prefix = 'huggingface/';
+    if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
+    return trimmed.slice(prefix.length) || trimmed;
+  }
   const prefix = `${provider}/`;
   if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
   return trimmed.slice(prefix.length) || trimmed;
@@ -810,6 +817,7 @@ async function callAuxiliaryTextProvider(
   }
   if (
     context.provider === 'openrouter' ||
+    context.provider === 'huggingface' ||
     context.provider === 'lmstudio' ||
     context.provider === 'vllm'
   ) {

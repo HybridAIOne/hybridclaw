@@ -4,7 +4,7 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../src/session/token-efficiency.js';
-import type { ChatMessage } from '../src/types.js';
+import type { ChatMessage } from '../src/types/api.js';
 
 test('estimateTokenCountFromText uses simple chars-per-token heuristic', () => {
   expect(estimateTokenCountFromText('')).toBe(0);

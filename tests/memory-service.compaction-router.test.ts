@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 
 import type { MemoryBackend } from '../src/memory/memory-service.js';
-import type { Session, StoredMessage } from '../src/types.js';
+import type { Session, StoredMessage } from '../src/types/session.js';
 
 function makeSession(partial?: Partial<Session>): Session {
   return {
@@ -33,6 +33,12 @@ function makeBackend(): MemoryBackend {
     getOrCreateSession: () => makeSession(),
     getSessionById: () => makeSession(),
     getConversationHistory: () => [] as StoredMessage[],
+    getConversationHistoryPage: () => ({
+      sessionKey: null,
+      mainSessionKey: null,
+      history: [] as StoredMessage[],
+      branchFamilies: [],
+    }),
     getRecentMessages: () => [] as StoredMessage[],
     get: () => null,
     set: () => {},

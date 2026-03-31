@@ -4,9 +4,12 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { AgentConfig, AgentModelConfig } from '../agents/agent-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import type { AuditEventPayload, WireRecord } from '../audit/audit-trail.js';
+import type { WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
-import { getRuntimeConfig } from '../config/runtime-config.js';
+import {
+  getRuntimeConfig,
+  resolveDefaultAgentId,
+} from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
   buildSessionKey,
@@ -16,6 +19,10 @@ import {
   migrateLegacySessionKey,
   parseSessionKey,
 } from '../session/session-key.js';
+import {
+  buildSessionBoundaryPreview,
+  RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+} from '../session/session-preview.js';
 import {
   evaluateSessionExpiry,
   resolveSessionResetChannelKind,
@@ -37,34 +44,61 @@ import type { SkillGuardVerdict } from '../skills/skills-guard.js';
 import type {
   ApprovalAuditEntry,
   AuditEntry,
+  StructuredAuditEntry,
+} from '../types/audit.js';
+import {
+  type KnowledgeEntity,
+  KnowledgeEntityType,
+  type KnowledgeEntityTypeValue,
+  type KnowledgeGraphMatch,
+  type KnowledgeGraphPattern,
+  KnowledgeRelationType,
+  type KnowledgeRelationTypeValue,
+} from '../types/knowledge.js';
+import type {
+  SemanticMemoryEntry,
+  StructuredMemoryEntry,
+} from '../types/memory.js';
+import type { ScheduledTask } from '../types/scheduler.js';
+import type {
   CanonicalSession,
   CanonicalSessionContext,
   CanonicalSessionMessage,
-  KnowledgeEntity,
-  KnowledgeEntityTypeValue,
-  KnowledgeGraphMatch,
-  KnowledgeGraphPattern,
-  KnowledgeRelationTypeValue,
-  ScheduledTask,
-  SemanticMemoryEntry,
+  ConversationBranchFamily,
+  ConversationHistoryPage,
+  ForkSessionBranchParams,
+  ForkSessionBranchResult,
   Session,
   SessionShowMode,
   StoredMessage,
-  StructuredAuditEntry,
+} from '../types/session.js';
+import type {
   UsageAgentAggregate,
   UsageDailyAggregate,
   UsageModelAggregate,
   UsageSessionAggregate,
   UsageTotals,
   UsageWindow,
-} from '../types.js';
-import { KnowledgeEntityType, KnowledgeRelationType } from '../types.js';
+} from '../types/usage.js';
 
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 15;
-const SCHEMA_VERSION = DATABASE_SCHEMA_VERSION;
+export const DATABASE_SCHEMA_VERSION = 17;
+const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
+const STRUCTURED_AUDIT_SELECT_COLUMNS = [
+  'id',
+  'session_id',
+  'seq',
+  'event_type',
+  'timestamp',
+  'run_id',
+  'parent_run_id',
+  'payload',
+  'wire_hash',
+  'wire_prev_hash',
+  'created_at',
+].join(', ');
 
 interface InitDatabaseOptions {
   quiet?: boolean;
@@ -75,80 +109,67 @@ interface TableInfoRow {
   name: string;
 }
 
-interface AgentRow {
-  id: string;
+type AgentRow = {
+  id: AgentConfig['id'];
   name: string | null;
+  display_name: string | null;
+  image_asset: string | null;
   model: string | null;
   chatbot_id: string | null;
   enable_rag: number | null;
   workspace: string | null;
   created_at: string;
   updated_at: string;
+};
+
+interface ConversationHistoryPageRow {
+  session_key: string | null;
+  main_session_key: string | null;
+  id: number | null;
+  session_id: string | null;
+  user_id: string | null;
+  username: string | null;
+  role: string | null;
+  content: string | null;
+  created_at: string | null;
 }
 
-interface SkillObservationRow {
-  id: number;
-  skill_name: string;
+interface SessionBranchRow {
   session_id: string;
-  run_id: string;
+  parent_session_id: string;
+  parent_message_id: number;
+  copied_message_count: number;
+}
+
+type SkillObservationRow = Omit<
+  SkillObservation,
+  'outcome' | 'error_category' | 'feedback_sentiment'
+> & {
   outcome: string;
   error_category: string | null;
-  error_detail: string | null;
-  tool_calls_attempted: number;
-  tool_calls_failed: number;
-  duration_ms: number;
-  user_feedback: string | null;
   feedback_sentiment: string | null;
-  created_at: string;
-}
+};
 
-interface SkillObservationSummaryRow {
-  skill_name: string;
-  total_executions: number;
-  success_count: number;
-  failure_count: number;
-  partial_count: number;
-  avg_duration_ms: number;
-  tool_calls_attempted: number;
-  tool_calls_failed: number;
-  positive_feedback_count: number;
-  negative_feedback_count: number;
-  last_observed_at: string | null;
-}
+type SkillObservationSummaryRow = Omit<
+  SkillObservationSummary,
+  'error_clusters'
+>;
 
-interface SkillObservationErrorClusterRow {
-  skill_name: string;
-  error_category: string | null;
+type SkillObservationErrorClusterRow = {
+  skill_name: SkillObservationSummary['skill_name'];
+  error_category: SkillErrorCategory | null;
   count: number;
   sample_detail: string | null;
-}
+};
 
-interface SkillAmendmentRow {
-  id: number;
-  skill_name: string;
-  skill_file_path: string;
-  version: number;
-  previous_version: number | null;
-  status: string;
-  original_content: string;
-  proposed_content: string;
-  original_content_hash: string;
-  proposed_content_hash: string;
-  rationale: string;
-  diff_summary: string;
-  proposed_by: string;
-  reviewed_by: string | null;
+type SkillAmendmentRow = Omit<
+  SkillAmendment,
+  'guard_verdict' | 'metrics_at_proposal' | 'metrics_post_apply'
+> & {
   guard_verdict: string;
-  guard_findings_count: number;
   metrics_at_proposal: string | null;
   metrics_post_apply: string | null;
-  runs_since_apply: number;
-  created_at: string;
-  updated_at: string;
-  applied_at: string | null;
-  rolled_back_at: string | null;
-  rejected_at: string | null;
-}
+};
 
 function getSchemaVersion(database: Database.Database): number {
   const raw = database.pragma('user_version', { simple: true });
@@ -162,17 +183,73 @@ function setSchemaVersion(database: Database.Database, version: number): void {
   database.pragma(`user_version = ${bounded}`);
 }
 
+function queryOne<Row, Bind extends unknown[] = []>(
+  database: Database.Database,
+  sql: string,
+  ...params: Bind
+): Row | undefined;
+function queryOne<Row>(
+  database: Database.Database,
+  sql: string,
+  ...params: unknown[]
+): Row | undefined;
+
+function queryOne<Row>(
+  database: Database.Database,
+  sql: string,
+  ...params: unknown[]
+): Row | undefined {
+  return database.prepare<unknown[], Row>(sql).get(...params);
+}
+
+function queryAll<Row, Bind extends unknown[] = []>(
+  database: Database.Database,
+  sql: string,
+  ...params: Bind
+): Row[];
+function queryAll<Row>(
+  database: Database.Database,
+  sql: string,
+  ...params: unknown[]
+): Row[];
+
+function queryAll<Row>(
+  database: Database.Database,
+  sql: string,
+  ...params: unknown[]
+): Row[] {
+  return database.prepare<unknown[], Row>(sql).all(...params);
+}
+
 function tableExists(database: Database.Database, table: string): boolean {
-  const row = database
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
-    .get(table) as { name: string } | undefined;
+  const row = queryOne<{ name: string }, [string]>(
+    database,
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+    table,
+  );
   return Boolean(row?.name);
 }
 
+function ensureSessionBranchesTable(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS session_branches (
+      session_id TEXT PRIMARY KEY,
+      parent_session_id TEXT NOT NULL,
+      parent_message_id INTEGER NOT NULL,
+      copied_message_count INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_branches_parent
+      ON session_branches(parent_session_id, parent_message_id);
+  `);
+}
+
 function getTableSql(database: Database.Database, table: string): string {
-  const row = database
-    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
-    .get(table) as { sql: string | null } | undefined;
+  const row = queryOne<{ sql: string | null }, [string]>(
+    database,
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+    table,
+  );
   return row?.sql || '';
 }
 
@@ -181,7 +258,7 @@ function columnExists(
   table: string,
   column: string,
 ): boolean {
-  const cols = database.pragma(`table_info(${table})`) as TableInfoRow[];
+  const cols = queryAll<TableInfoRow>(database, `PRAGMA table_info(${table})`);
   return cols.some((entry) => entry.name === column);
 }
 
@@ -303,6 +380,16 @@ function migrateV1(database: Database.Database): void {
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
+
+    CREATE TABLE IF NOT EXISTS session_branches (
+      session_id TEXT PRIMARY KEY,
+      parent_session_id TEXT NOT NULL,
+      parent_message_id INTEGER NOT NULL,
+      copied_message_count INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_branches_parent
+      ON session_branches(parent_session_id, parent_message_id);
 
     CREATE TABLE IF NOT EXISTS semantic_memories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -687,14 +774,14 @@ function migrateLegacyKvStoreAgentIds(
 
   const sourceAgentIds = [targetAgentId, ...LEGACY_PROVIDER_AGENT_IDS];
   const placeholders = sourceAgentIds.map(() => '?').join(', ');
-  const rows = database
-    .prepare(
-      `SELECT agent_id, key, value, version, updated_at
-       FROM kv_store
-       WHERE agent_id IN (${placeholders})
-       ORDER BY key ASC, updated_at DESC, version DESC, agent_id ASC`,
-    )
-    .all(...sourceAgentIds) as MemoryKvRow[];
+  const rows = queryAll<MemoryKvRow, string[]>(
+    database,
+    `SELECT agent_id, key, value, version, updated_at
+     FROM kv_store
+     WHERE agent_id IN (${placeholders})
+     ORDER BY key ASC, updated_at DESC, version DESC, agent_id ASC`,
+    ...sourceAgentIds,
+  );
 
   if (rows.length === 0) return;
 
@@ -713,12 +800,13 @@ function migrateLegacyKvStoreAgentIds(
     const key = rows[index]?.key || '';
     const group: MemoryKvRow[] = [];
     while (index < rows.length && rows[index]?.key === key) {
-      group.push(rows[index] as MemoryKvRow);
+      const row = rows[index];
+      if (row) group.push(row);
       index += 1;
     }
     if (!key || group.length === 0) continue;
 
-    const winner = [...group].sort((left, right) => {
+    const [winner] = [...group].sort((left, right) => {
       const updatedAtCompare = compareMigrationTimestamps(
         right.updated_at,
         left.updated_at,
@@ -732,7 +820,8 @@ function migrateLegacyKvStoreAgentIds(
         return 1;
       }
       return left.agent_id.localeCompare(right.agent_id);
-    })[0] as MemoryKvRow;
+    });
+    if (!winner) continue;
 
     for (const row of group) {
       deleteStatement.run(row.agent_id, row.key);
@@ -789,14 +878,14 @@ function migrateLegacyCanonicalSessions(
 
   const sourceAgentIds = [targetAgentId, ...LEGACY_PROVIDER_AGENT_IDS];
   const placeholders = sourceAgentIds.map(() => '?').join(', ');
-  const rows = database
-    .prepare(
-      `SELECT canonical_id, agent_id, user_id, messages, compaction_cursor, compacted_summary, message_count, created_at, updated_at
-       FROM canonical_sessions
-       WHERE agent_id IN (${placeholders})
-       ORDER BY user_id ASC, created_at ASC, updated_at ASC, canonical_id ASC`,
-    )
-    .all(...sourceAgentIds) as CanonicalSessionRow[];
+  const rows = queryAll<CanonicalSessionRow, string[]>(
+    database,
+    `SELECT canonical_id, agent_id, user_id, messages, compaction_cursor, compacted_summary, message_count, created_at, updated_at
+     FROM canonical_sessions
+     WHERE agent_id IN (${placeholders})
+     ORDER BY user_id ASC, created_at ASC, updated_at ASC, canonical_id ASC`,
+    ...sourceAgentIds,
+  );
 
   if (rows.length === 0) return;
 
@@ -823,7 +912,8 @@ function migrateLegacyCanonicalSessions(
     const userId = rows[index]?.user_id || '';
     const group: CanonicalSessionRow[] = [];
     while (index < rows.length && rows[index]?.user_id === userId) {
-      group.push(rows[index] as CanonicalSessionRow);
+      const row = rows[index];
+      if (row) group.push(row);
       index += 1;
     }
     if (!userId || group.length === 0) continue;
@@ -883,6 +973,8 @@ function migrateV6(
       CREATE TABLE IF NOT EXISTS agents (
         id TEXT PRIMARY KEY,
         name TEXT,
+        display_name TEXT,
+        image_asset TEXT,
         model TEXT,
         chatbot_id TEXT,
         enable_rag INTEGER DEFAULT 1,
@@ -1186,8 +1278,10 @@ function migrateV11(
     'skill_observations',
   ] as const;
   const rows = database
-    .prepare('SELECT id, guild_id, channel_id, agent_id FROM sessions')
-    .all() as LegacySessionRow[];
+    .prepare<[], LegacySessionRow>(
+      'SELECT id, guild_id, channel_id, agent_id FROM sessions',
+    )
+    .all();
 
   const migrateSessionIds = database.transaction(
     (sessions: LegacySessionRow[]) => {
@@ -1205,9 +1299,11 @@ function migrateV11(
           );
         }
         const nextId = migration.key;
-        const conflictingRow = database
-          .prepare('SELECT id FROM sessions WHERE id = ?')
-          .get(nextId) as { id: string } | undefined;
+        const conflictingRow = queryOne<{ id: string }, [string]>(
+          database,
+          'SELECT id FROM sessions WHERE id = ?',
+          nextId,
+        );
         if (conflictingRow && conflictingRow.id !== session.id) {
           conflicts.push({
             legacySessionId: session.id,
@@ -1446,16 +1542,63 @@ function migrateV15(database: Database.Database): void {
   );
 }
 
+function migrateV16(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS session_branches (
+      session_id TEXT PRIMARY KEY,
+      parent_session_id TEXT NOT NULL,
+      parent_message_id INTEGER NOT NULL,
+      copied_message_count INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_branches_parent
+      ON session_branches(parent_session_id, parent_message_id);
+  `);
+
+  recordMigration(
+    database,
+    16,
+    'Persist web chat branch ancestry for reload-safe branch navigation',
+  );
+}
+
+function migrateV17(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'display_name',
+    ddl: 'display_name TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'image_asset',
+    ddl: 'image_asset TEXT',
+    quiet,
+  });
+
+  recordMigration(
+    database,
+    17,
+    'Persist installed agent display metadata for chat presentation',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
 ): void {
   const currentVersion = getSchemaVersion(database);
   const quiet = opts?.quiet === true;
-  if (currentVersion > SCHEMA_VERSION) {
+  if (currentVersion > DATABASE_SCHEMA_VERSION) {
     if (!quiet) {
       logger.warn(
-        { currentVersion, supportedVersion: SCHEMA_VERSION },
+        { currentVersion, supportedVersion: DATABASE_SCHEMA_VERSION },
         'Database schema version is newer than this binary supports; skipping migrations',
       );
     }
@@ -1482,11 +1625,13 @@ function runMigrations(
   if (currentVersion < 13) migrateV13(database, opts);
   if (currentVersion < 14) migrateV14(database);
   if (currentVersion < 15) migrateV15(database);
+  if (currentVersion < 16) migrateV16(database);
+  if (currentVersion < 17) migrateV17(database, opts);
 
-  setSchemaVersion(database, SCHEMA_VERSION);
-  if (!quiet && currentVersion < SCHEMA_VERSION) {
+  setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
+  if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
     logger.info(
-      { fromVersion: currentVersion, toVersion: SCHEMA_VERSION },
+      { fromVersion: currentVersion, toVersion: DATABASE_SCHEMA_VERSION },
       'Database schema migrated',
     );
   }
@@ -1506,6 +1651,11 @@ export function initDatabase(opts?: InitDatabaseOptions): void {
 
 export function isDatabaseInitialized(): boolean {
   return databaseInitialized;
+}
+
+function ensureDatabaseReady(): void {
+  if (databaseInitialized) return;
+  initDatabase({ quiet: true });
 }
 
 function serializeAgentModelConfig(
@@ -1573,12 +1723,16 @@ function parseAgentModelConfig(
 
 function mapAgentRow(row: AgentRow): AgentConfig {
   const name = row.name?.trim() || '';
+  const displayName = row.display_name?.trim() || '';
+  const imageAsset = row.image_asset?.trim() || '';
   const model = parseAgentModelConfig(row.model);
   const chatbotId = row.chatbot_id?.trim() || '';
   const workspace = row.workspace?.trim() || '';
   return {
     id: row.id,
     ...(name ? { name } : {}),
+    ...(displayName ? { displayName } : {}),
+    ...(imageAsset ? { imageAsset } : {}),
     ...(model ? { model } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(workspace ? { workspace } : {}),
@@ -1591,24 +1745,24 @@ function mapAgentRow(row: AgentRow): AgentConfig {
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
   if (!normalizedAgentId) return null;
-  const row = db
-    .prepare(
-      `SELECT id, name, model, chatbot_id, enable_rag, workspace, created_at, updated_at
-       FROM agents
-       WHERE id = ?`,
-    )
-    .get(normalizedAgentId) as AgentRow | undefined;
+  const row = queryOne<AgentRow, [string]>(
+    db,
+    `SELECT id, name, display_name, image_asset, model, chatbot_id, enable_rag, workspace, created_at, updated_at
+     FROM agents
+     WHERE id = ?`,
+    normalizedAgentId,
+  );
   return row ? mapAgentRow(row) : null;
 }
 
 export function listAgents(): AgentConfig[] {
-  const rows = db
-    .prepare(
-      `SELECT id, name, model, chatbot_id, enable_rag, workspace, created_at, updated_at
-       FROM agents
-       ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC`,
-    )
-    .all(DEFAULT_AGENT_ID) as AgentRow[];
+  const rows = queryAll<AgentRow, [string]>(
+    db,
+    `SELECT id, name, display_name, image_asset, model, chatbot_id, enable_rag, workspace, created_at, updated_at
+     FROM agents
+     ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC`,
+    DEFAULT_AGENT_ID,
+  );
   return rows.map(mapAgentRow);
 }
 
@@ -1618,6 +1772,8 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     throw new Error('Agent id is required.');
   }
   const normalizedName = agent.name?.trim() || null;
+  const normalizedDisplayName = agent.displayName?.trim() || null;
+  const normalizedImageAsset = agent.imageAsset?.trim() || null;
   const normalizedModel = serializeAgentModelConfig(agent.model);
   const normalizedChatbotId = agent.chatbotId?.trim() || null;
   const normalizedWorkspace = agent.workspace?.trim() || null;
@@ -1627,15 +1783,19 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     `INSERT INTO agents (
        id,
        name,
+       display_name,
+       image_asset,
        model,
        chatbot_id,
        enable_rag,
        workspace,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
+       display_name = excluded.display_name,
+       image_asset = excluded.image_asset,
        model = excluded.model,
        chatbot_id = excluded.chatbot_id,
        enable_rag = excluded.enable_rag,
@@ -1644,12 +1804,18 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   ).run(
     normalizedId,
     normalizedName,
+    normalizedDisplayName,
+    normalizedImageAsset,
     normalizedModel,
     normalizedChatbotId,
     enableRag,
     normalizedWorkspace,
   );
-  return getAgentById(normalizedId) as AgentConfig;
+  const storedAgent = getAgentById(normalizedId);
+  if (!storedAgent) {
+    throw new Error(`Failed to read persisted agent: ${normalizedId}`);
+  }
+  return storedAgent;
 }
 
 export function deleteAgent(agentId: string): boolean {
@@ -1665,13 +1831,9 @@ export function deleteAgent(agentId: string): boolean {
 
 // --- Structured Memory (KV) ---
 
-interface MemoryKvRow {
-  agent_id: string;
-  key: string;
+type MemoryKvRow = Omit<StructuredMemoryEntry, 'value'> & {
   value: Buffer | Uint8Array | string;
-  version: number;
-  updated_at: string;
-}
+};
 
 function normalizeMemoryKvKey(key: string): string {
   return key.trim();
@@ -1709,16 +1871,18 @@ function parseMemoryKvValue(raw: unknown): unknown {
 export function getMemoryValue(sessionId: string, key: string): unknown | null {
   const normalizedKey = normalizeMemoryKvKey(key);
   if (!normalizedKey) return null;
-  const row = db
-    .prepare(
-      `SELECT value
-       FROM kv_store
-       WHERE agent_id = ?
-         AND key = ?`,
-    )
-    .get(sessionId, normalizedKey) as
-    | { value: Buffer | Uint8Array | string }
-    | undefined;
+  const row = queryOne<
+    { value: Buffer | Uint8Array | string },
+    [string, string]
+  >(
+    db,
+    `SELECT value
+     FROM kv_store
+     WHERE agent_id = ?
+       AND key = ?`,
+    sessionId,
+    normalizedKey,
+  );
   if (!row) return null;
   return parseMemoryKvValue(row.value);
 }
@@ -1765,23 +1929,24 @@ export function listMemoryValues(
 }> {
   const normalizedPrefix = (prefix || '').trim();
   const rows = normalizedPrefix
-    ? (db
-        .prepare(
-          `SELECT agent_id, key, value, version, updated_at
-           FROM kv_store
-           WHERE agent_id = ?
-             AND key LIKE ?
-           ORDER BY key ASC`,
-        )
-        .all(sessionId, `${normalizedPrefix}%`) as MemoryKvRow[])
-    : (db
-        .prepare(
-          `SELECT agent_id, key, value, version, updated_at
-           FROM kv_store
-           WHERE agent_id = ?
-           ORDER BY key ASC`,
-        )
-        .all(sessionId) as MemoryKvRow[]);
+    ? queryAll<MemoryKvRow, [string, string]>(
+        db,
+        `SELECT agent_id, key, value, version, updated_at
+         FROM kv_store
+         WHERE agent_id = ?
+           AND key LIKE ?
+         ORDER BY key ASC`,
+        sessionId,
+        `${normalizedPrefix}%`,
+      )
+    : queryAll<MemoryKvRow, [string]>(
+        db,
+        `SELECT agent_id, key, value, version, updated_at
+         FROM kv_store
+         WHERE agent_id = ?
+         ORDER BY key ASC`,
+        sessionId,
+      );
 
   return rows.map((row) => ({
     agent_id: row.agent_id,
@@ -1896,17 +2061,9 @@ function buildCanonicalSummary(params: {
   return merged.slice(Math.max(0, merged.length - CANONICAL_SUMMARY_MAX_CHARS));
 }
 
-interface CanonicalSessionRow {
-  canonical_id: string;
-  agent_id: string;
-  user_id: string;
+type CanonicalSessionRow = Omit<CanonicalSession, 'messages'> & {
   messages: string;
-  compaction_cursor: number;
-  compacted_summary: string | null;
-  message_count: number;
-  created_at: string;
-  updated_at: string;
-}
+};
 
 function saveCanonicalSession(session: CanonicalSession): void {
   db.prepare(
@@ -1944,17 +2101,16 @@ export function loadCanonicalSession(
   if (!normalizedUserId) {
     throw new Error('Canonical session userId is required');
   }
-  const row = db
-    .prepare(
-      `SELECT canonical_id, agent_id, user_id, messages, compaction_cursor, compacted_summary, message_count, created_at, updated_at
-       FROM canonical_sessions
-       WHERE agent_id = ?
-         AND user_id = ?
-       LIMIT 1`,
-    )
-    .get(normalizedAgentId, normalizedUserId) as
-    | CanonicalSessionRow
-    | undefined;
+  const row = queryOne<CanonicalSessionRow, [string, string]>(
+    db,
+    `SELECT canonical_id, agent_id, user_id, messages, compaction_cursor, compacted_summary, message_count, created_at, updated_at
+     FROM canonical_sessions
+     WHERE agent_id = ?
+       AND user_id = ?
+     LIMIT 1`,
+    normalizedAgentId,
+    normalizedUserId,
+  );
 
   const now = new Date().toISOString();
   if (!row) {
@@ -2046,7 +2202,6 @@ export function appendCanonicalMessages(params: {
         previousSummary: canonical.compacted_summary,
         compactingMessages: compacting,
       });
-      canonical.compaction_cursor = toCompact;
       canonical.messages = canonical.messages.slice(toCompact);
       canonical.compaction_cursor = 0;
     }
@@ -2271,9 +2426,9 @@ export function getUsageTotals(params?: {
   const where =
     whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
-  const row = db
-    .prepare(
-      `SELECT
+  const row = queryOne<UsageTotals>(
+    db,
+    `SELECT
          COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
          COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
          COALESCE(SUM(total_tokens), 0) AS total_tokens,
@@ -2282,8 +2437,15 @@ export function getUsageTotals(params?: {
          COALESCE(SUM(tool_calls), 0) AS total_tool_calls
        FROM usage_events
        ${where}`,
-    )
-    .get(...args) as UsageTotals;
+    ...args,
+  ) || {
+    total_input_tokens: 0,
+    total_output_tokens: 0,
+    total_tokens: 0,
+    total_cost_usd: 0,
+    call_count: 0,
+    total_tool_calls: 0,
+  };
 
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
@@ -2308,9 +2470,9 @@ export function getSessionUsageTotalsSince(
     typeof sinceTimestamp === 'string' && sinceTimestamp.trim()
       ? sinceTimestamp.trim()
       : null;
-  const row = db
-    .prepare(
-      `SELECT
+  const row = queryOne<UsageTotals, [string, string | null, string | null]>(
+    db,
+    `SELECT
          COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
          COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
          COALESCE(SUM(total_tokens), 0) AS total_tokens,
@@ -2320,8 +2482,17 @@ export function getSessionUsageTotalsSince(
        FROM usage_events
        WHERE session_id = ?
          AND (? IS NULL OR timestamp >= ?)`,
-    )
-    .get(resolvedSessionId, normalizedSince, normalizedSince) as UsageTotals;
+    resolvedSessionId,
+    normalizedSince,
+    normalizedSince,
+  ) || {
+    total_input_tokens: 0,
+    total_output_tokens: 0,
+    total_tokens: 0,
+    total_cost_usd: 0,
+    call_count: 0,
+    total_tool_calls: 0,
+  };
 
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
@@ -2341,18 +2512,21 @@ export function getSessionToolCallBreakdown(
     typeof sinceTimestamp === 'string' && sinceTimestamp.trim()
       ? sinceTimestamp.trim()
       : null;
-  const rows = db
-    .prepare(
-      `SELECT payload
-       FROM audit_events
-       WHERE session_id = ?
-         AND event_type = 'tool.call'
-         AND (? IS NULL OR timestamp >= ?)
-       ORDER BY id ASC`,
-    )
-    .all(sessionId, normalizedSince, normalizedSince) as Array<{
-    payload: string;
-  }>;
+  const rows = queryAll<
+    { payload: string },
+    [string, string | null, string | null]
+  >(
+    db,
+    `SELECT payload
+     FROM audit_events
+     WHERE session_id = ?
+       AND event_type = 'tool.call'
+       AND (? IS NULL OR timestamp >= ?)
+     ORDER BY id ASC`,
+    sessionId,
+    normalizedSince,
+    normalizedSince,
+  );
 
   const counts = new Map<string, number>();
   for (const row of rows) {
@@ -2372,6 +2546,47 @@ export function getSessionToolCallBreakdown(
       (left, right) =>
         right.count - left.count || left.toolName.localeCompare(right.toolName),
     );
+}
+
+export interface ToolUsageSummary {
+  toolName: string;
+  callsSinceCutoff: number;
+  lastUsedAt: string | null;
+}
+
+export function getToolUsageSummary(params?: {
+  sinceTimestamp?: string | null;
+}): ToolUsageSummary[] {
+  ensureDatabaseReady();
+  const normalizedSince =
+    typeof params?.sinceTimestamp === 'string' && params.sinceTimestamp.trim()
+      ? params.sinceTimestamp.trim()
+      : null;
+  return queryAll<
+    {
+      toolName: string;
+      callsSinceCutoff: number;
+      lastUsedAt: string | null;
+    },
+    [string | null, string | null]
+  >(
+    db,
+    `SELECT toolName, callsSinceCutoff, lastUsedAt
+     FROM (
+       SELECT
+         TRIM(CAST(JSON_EXTRACT(payload, '$.toolName') AS TEXT)) AS toolName,
+         SUM(CASE WHEN ? IS NULL OR timestamp >= ? THEN 1 ELSE 0 END) AS callsSinceCutoff,
+         MAX(timestamp) AS lastUsedAt
+       FROM audit_events
+       WHERE event_type = 'tool.call'
+         AND json_valid(payload)
+       GROUP BY TRIM(CAST(JSON_EXTRACT(payload, '$.toolName') AS TEXT))
+     )
+     WHERE toolName != ''
+     ORDER BY toolName ASC`,
+    normalizedSince,
+    normalizedSince,
+  );
 }
 
 function extractToolFilePath(argumentsValue: unknown): string | null {
@@ -2395,19 +2610,21 @@ export function getSessionFileChangeCounts(
     typeof sinceTimestamp === 'string' && sinceTimestamp.trim()
       ? sinceTimestamp.trim()
       : null;
-  const rows = db
-    .prepare(
-      `SELECT event_type, payload
-       FROM audit_events
-       WHERE session_id = ?
-         AND event_type IN ('tool.call', 'tool.result')
-         AND (? IS NULL OR timestamp >= ?)
-       ORDER BY id ASC`,
-    )
-    .all(sessionId, normalizedSince, normalizedSince) as Array<{
-    event_type: string;
-    payload: string;
-  }>;
+  const rows = queryAll<
+    Pick<StructuredAuditEntry, 'event_type' | 'payload'>,
+    [string, string | null, string | null]
+  >(
+    db,
+    `SELECT event_type, payload
+     FROM audit_events
+     WHERE session_id = ?
+       AND event_type IN ('tool.call', 'tool.result')
+       AND (? IS NULL OR timestamp >= ?)
+     ORDER BY id ASC`,
+    sessionId,
+    normalizedSince,
+    normalizedSince,
+  );
 
   const toolCalls = new Map<
     string,
@@ -2490,22 +2707,22 @@ export function listUsageByModel(params?: {
   });
   const where =
     whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-  const rows = db
-    .prepare(
-      `SELECT
-         model,
-         COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
-         COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
-         COALESCE(SUM(total_tokens), 0) AS total_tokens,
-         COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
-         COUNT(*) AS call_count,
-         COALESCE(SUM(tool_calls), 0) AS total_tool_calls
-       FROM usage_events
-       ${where}
-       GROUP BY model
-       ORDER BY total_cost_usd DESC, total_tokens DESC, call_count DESC`,
-    )
-    .all(...args) as UsageModelAggregate[];
+  const rows = queryAll<UsageModelAggregate>(
+    db,
+    `SELECT
+       model,
+       COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+       COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+       COALESCE(SUM(total_tokens), 0) AS total_tokens,
+       COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+       COUNT(*) AS call_count,
+       COALESCE(SUM(tool_calls), 0) AS total_tool_calls
+     FROM usage_events
+     ${where}
+     GROUP BY model
+     ORDER BY total_cost_usd DESC, total_tokens DESC, call_count DESC`,
+    ...args,
+  );
 
   return rows.map((row) => ({
     model: row.model,
@@ -2530,22 +2747,22 @@ export function listUsageByAgent(params?: {
   });
   const where =
     whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-  const rows = db
-    .prepare(
-      `SELECT
-         agent_id,
-         COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
-         COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
-         COALESCE(SUM(total_tokens), 0) AS total_tokens,
-         COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
-         COUNT(*) AS call_count,
-         COALESCE(SUM(tool_calls), 0) AS total_tool_calls
-       FROM usage_events
-       ${where}
-       GROUP BY agent_id
-       ORDER BY total_cost_usd DESC, total_tokens DESC, call_count DESC`,
-    )
-    .all(...args) as UsageAgentAggregate[];
+  const rows = queryAll<UsageAgentAggregate>(
+    db,
+    `SELECT
+       agent_id,
+       COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+       COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+       COALESCE(SUM(total_tokens), 0) AS total_tokens,
+       COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+       COUNT(*) AS call_count,
+       COALESCE(SUM(tool_calls), 0) AS total_tool_calls
+     FROM usage_events
+     ${where}
+     GROUP BY agent_id
+     ORDER BY total_cost_usd DESC, total_tokens DESC, call_count DESC`,
+    ...args,
+  );
 
   return rows.map((row) => ({
     agent_id: row.agent_id,
@@ -2570,31 +2787,22 @@ export function listUsageBySession(params?: {
   });
   const where =
     whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-  const rows = db
-    .prepare(
-      `SELECT
-         session_id,
-         COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
-         COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
-         COALESCE(SUM(total_tokens), 0) AS total_tokens,
-         COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
-         COUNT(*) AS call_count,
-         COALESCE(SUM(tool_calls), 0) AS total_tool_calls
-       FROM usage_events
-       ${where}
-       GROUP BY session_id
-       ORDER BY total_cost_usd DESC, total_tokens DESC, call_count DESC`,
-    )
-    .all(...args) as Array<
-    UsageSessionAggregate & {
-      total_input_tokens: unknown;
-      total_output_tokens: unknown;
-      total_tokens: unknown;
-      total_cost_usd: unknown;
-      call_count: unknown;
-      total_tool_calls: unknown;
-    }
-  >;
+  const rows = queryAll<UsageSessionAggregate>(
+    db,
+    `SELECT
+       session_id,
+       COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+       COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+       COALESCE(SUM(total_tokens), 0) AS total_tokens,
+       COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+       COUNT(*) AS call_count,
+       COALESCE(SUM(tool_calls), 0) AS total_tool_calls
+     FROM usage_events
+     ${where}
+     GROUP BY session_id
+     ORDER BY total_cost_usd DESC, total_tokens DESC, call_count DESC`,
+    ...args,
+  );
 
   return rows.map((row) => ({
     session_id: row.session_id,
@@ -2621,22 +2829,22 @@ export function listUsageDailyBreakdown(params?: {
     whereClauses.push('agent_id = ?');
     args.push(agentId);
   }
-  const rows = db
-    .prepare(
-      `SELECT
-         date(timestamp) AS day,
-         COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
-         COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
-         COALESCE(SUM(total_tokens), 0) AS total_tokens,
-         COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
-         COUNT(*) AS call_count,
-         COALESCE(SUM(tool_calls), 0) AS total_tool_calls
-       FROM usage_events
-       WHERE ${whereClauses.join(' AND ')}
-       GROUP BY day
-       ORDER BY day ASC`,
-    )
-    .all(...args) as UsageDailyAggregate[];
+  const rows = queryAll<UsageDailyAggregate>(
+    db,
+    `SELECT
+       date(timestamp) AS day,
+       COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+       COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+       COALESCE(SUM(total_tokens), 0) AS total_tokens,
+       COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+       COUNT(*) AS call_count,
+       COALESCE(SUM(tool_calls), 0) AS total_tool_calls
+     FROM usage_events
+     WHERE ${whereClauses.join(' AND ')}
+     GROUP BY day
+     ORDER BY day ASC`,
+    ...args,
+  );
 
   return rows.map((row) => ({
     day: row.day,
@@ -2651,27 +2859,27 @@ export function listUsageDailyBreakdown(params?: {
 
 // --- Knowledge Graph ---
 
-interface RawKnowledgeGraphRow {
-  s_id: string;
+type RawKnowledgeGraphRow = {
+  s_id: KnowledgeEntity['id'];
   s_type: string;
-  s_name: string;
+  s_name: KnowledgeEntity['name'];
   s_properties: string;
-  s_created_at: string;
-  s_updated_at: string;
+  s_created_at: KnowledgeEntity['created_at'];
+  s_updated_at: KnowledgeEntity['updated_at'];
   r_id: string;
-  r_source: string;
+  r_source: KnowledgeEntity['id'];
   r_type: string;
-  r_target: string;
+  r_target: KnowledgeEntity['id'];
   r_properties: string;
   r_confidence: number;
   r_created_at: string;
-  t_id: string;
+  t_id: KnowledgeEntity['id'];
   t_type: string;
-  t_name: string;
+  t_name: KnowledgeEntity['name'];
   t_properties: string;
-  t_created_at: string;
-  t_updated_at: string;
-}
+  t_created_at: KnowledgeEntity['created_at'];
+  t_updated_at: KnowledgeEntity['updated_at'];
+};
 
 function normalizeKnowledgeCustomValue(raw: string): string {
   const value = raw.trim().toLowerCase();
@@ -3029,9 +3237,7 @@ export function queryKnowledgeGraph(
   // OpenFang-compatible v1 query semantics: single-hop relation scan, max 100.
   sql.push('LIMIT 100');
 
-  const rows = db
-    .prepare(sql.join('\n'))
-    .all(...args) as RawKnowledgeGraphRow[];
+  const rows = queryAll<RawKnowledgeGraphRow>(db, sql.join('\n'), ...args);
   return rows.map(mapKnowledgeMatchRow);
 }
 
@@ -3120,9 +3326,11 @@ function generateSessionInstanceId(now: Date = new Date()): string {
 }
 
 function selectSessionById(sessionId: string): Session | undefined {
-  return db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as
-    | Session
-    | undefined;
+  return queryOne<Session, [string]>(
+    db,
+    'SELECT * FROM sessions WHERE id = ?',
+    sessionId,
+  );
 }
 
 function selectCurrentSessionBySessionKey(
@@ -3130,15 +3338,15 @@ function selectCurrentSessionBySessionKey(
 ): Session | undefined {
   if (!hasSessionKeyColumn(db) || !hasSessionCurrentColumn(db))
     return undefined;
-  return db
-    .prepare(
-      `SELECT *
-       FROM sessions
-       WHERE session_key = ?
-         AND is_current = 1
-       LIMIT 1`,
-    )
-    .get(sessionKey) as Session | undefined;
+  return queryOne<Session, [string]>(
+    db,
+    `SELECT *
+     FROM sessions
+     WHERE session_key = ?
+       AND is_current = 1
+     LIMIT 1`,
+    sessionKey,
+  );
 }
 
 function selectCurrentSessionByMainSessionKey(
@@ -3147,15 +3355,15 @@ function selectCurrentSessionByMainSessionKey(
   if (!hasSessionMainKeyColumn(db) || !hasSessionCurrentColumn(db)) {
     return undefined;
   }
-  return db
-    .prepare(
-      `SELECT *
-       FROM sessions
-       WHERE main_session_key = ?
-         AND is_current = 1
-       LIMIT 1`,
-    )
-    .get(mainSessionKey) as Session | undefined;
+  return queryOne<Session, [string]>(
+    db,
+    `SELECT *
+     FROM sessions
+     WHERE main_session_key = ?
+       AND is_current = 1
+     LIMIT 1`,
+    mainSessionKey,
+  );
 }
 
 function selectCurrentSessionByLegacySessionId(
@@ -3164,15 +3372,15 @@ function selectCurrentSessionByLegacySessionId(
   if (!hasSessionLegacySessionIdColumn(db) || !hasSessionCurrentColumn(db)) {
     return undefined;
   }
-  return db
-    .prepare(
-      `SELECT *
-       FROM sessions
-       WHERE legacy_session_id = ?
-         AND is_current = 1
-       LIMIT 1`,
-    )
-    .get(legacySessionId) as Session | undefined;
+  return queryOne<Session, [string]>(
+    db,
+    `SELECT *
+     FROM sessions
+     WHERE legacy_session_id = ?
+       AND is_current = 1
+     LIMIT 1`,
+    legacySessionId,
+  );
 }
 
 function deriveSessionKeyFromContext(params: {
@@ -3290,12 +3498,13 @@ export function getOrCreateSession(
 ): Session {
   const requestedSessionId = String(sessionId || '').trim();
   const requestedAgentId = agentId?.trim() || '';
+  const defaultAgentId = resolveDefaultAgentId(getRuntimeConfig());
   const forceNewCurrent = options?.forceNewCurrent === true;
   const canonicalSessionKey = resolveCanonicalSessionKey({
     requestedSessionId,
     guildId,
     channelId,
-    agentId: requestedAgentId || DEFAULT_AGENT_ID,
+    agentId: requestedAgentId || defaultAgentId,
   });
   const mainSessionKey = resolveMainSessionKey(canonicalSessionKey);
   const exactSession = requestedSessionId
@@ -3304,7 +3513,7 @@ export function getOrCreateSession(
 
   if (exactSession) {
     const nextAgentId =
-      requestedAgentId || exactSession.agent_id || DEFAULT_AGENT_ID;
+      requestedAgentId || exactSession.agent_id || defaultAgentId;
     db.prepare(
       `UPDATE sessions
        SET last_active = datetime('now'),
@@ -3336,8 +3545,7 @@ export function getOrCreateSession(
         nextSessionId: resolveNewSessionInstanceId({ requestedSessionId }),
       }).session;
     }
-    const nextAgentId =
-      requestedAgentId || existing.agent_id || DEFAULT_AGENT_ID;
+    const nextAgentId = requestedAgentId || existing.agent_id || defaultAgentId;
     db.prepare(
       `UPDATE sessions
        SET last_active = datetime('now'),
@@ -3385,7 +3593,7 @@ export function getOrCreateSession(
     mainSessionKey || canonicalSessionKey || nextSessionId,
     guildId,
     channelId,
-    requestedAgentId || DEFAULT_AGENT_ID,
+    requestedAgentId || defaultAgentId,
     requestedSessionId !== canonicalSessionKey &&
       isLegacySessionKey(requestedSessionId)
       ? requestedSessionId
@@ -3407,9 +3615,11 @@ export function getSessionById(sessionId: string): Session | undefined {
 }
 
 function countSessionMessages(sessionId: string): number {
-  const row = db
-    .prepare('SELECT COUNT(*) AS count FROM messages WHERE session_id = ?')
-    .get(sessionId) as { count: number } | undefined;
+  const row = queryOne<{ count: number }, [string]>(
+    db,
+    'SELECT COUNT(*) AS count FROM messages WHERE session_id = ?',
+    sessionId,
+  );
   return row?.count ?? 0;
 }
 
@@ -3418,13 +3628,13 @@ function copySessionKvStore(
   nextSessionId: string,
 ): void {
   if (!tableExists(db, 'kv_store')) return;
-  const rows = db
-    .prepare(
-      `SELECT key, value, version, updated_at
-       FROM kv_store
-       WHERE agent_id = ?`,
-    )
-    .all(previousSessionId) as MemoryKvRow[];
+  const rows = queryAll<MemoryKvRow, [string]>(
+    db,
+    `SELECT key, value, version, updated_at
+     FROM kv_store
+     WHERE agent_id = ?`,
+    previousSessionId,
+  );
   if (rows.length === 0) return;
   const insert = db.prepare(
     `INSERT INTO kv_store (agent_id, key, value, version, updated_at)
@@ -3433,6 +3643,126 @@ function copySessionKvStore(
   for (const row of rows) {
     insert.run(nextSessionId, row.key, row.value, row.version, row.updated_at);
   }
+}
+
+export function forkSessionBranch(
+  params: ForkSessionBranchParams,
+): ForkSessionBranchResult {
+  const sourceSession = requireSessionById(
+    resolveSessionIdCompat(params.sessionId),
+  );
+  const beforeMessageId = params.beforeMessageId;
+  if (!Number.isInteger(beforeMessageId) || beforeMessageId < 1) {
+    throw new Error(
+      `Invalid beforeMessageId ${String(params.beforeMessageId)}. Expected a positive integer.`,
+    );
+  }
+  const branchTarget = db
+    .prepare(
+      `SELECT id
+       FROM messages
+       WHERE session_id = ?
+         AND id = ?`,
+    )
+    .get(sourceSession.id, beforeMessageId) as { id: number } | undefined;
+  if (!branchTarget) {
+    throw new Error(
+      `Message ${beforeMessageId} was not found in session ${sourceSession.id}.`,
+    );
+  }
+
+  const nextSessionId = resolveFreshSessionInstanceId();
+  const nextMainSessionKey =
+    sourceSession.main_session_key ||
+    sourceSession.session_key ||
+    sourceSession.id;
+  const nowIso = new Date().toISOString();
+
+  const fork = db.transaction(() => {
+    ensureSessionBranchesTable(db);
+    const copiedMessageCount =
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS count
+             FROM messages
+             WHERE session_id = ?
+               AND id < ?`,
+          )
+          .get(sourceSession.id, beforeMessageId) as { count: number }
+      ).count || 0;
+    db.prepare(
+      `INSERT INTO sessions (
+         id,
+         session_key,
+         main_session_key,
+         is_current,
+         guild_id,
+         channel_id,
+         agent_id,
+         chatbot_id,
+         model,
+         enable_rag,
+         message_count,
+         session_summary,
+         summary_updated_at,
+         compaction_count,
+         memory_flush_at,
+         full_auto_enabled,
+         full_auto_prompt,
+         full_auto_started_at,
+         show_mode,
+         created_at,
+         last_active,
+         reset_count,
+         reset_at,
+         legacy_session_id
+       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+    ).run(
+      nextSessionId,
+      nextSessionId,
+      nextMainSessionKey,
+      sourceSession.guild_id,
+      sourceSession.channel_id,
+      sourceSession.agent_id,
+      sourceSession.chatbot_id,
+      sourceSession.model,
+      sourceSession.enable_rag,
+      copiedMessageCount,
+      sourceSession.full_auto_enabled,
+      sourceSession.full_auto_prompt,
+      sourceSession.full_auto_started_at,
+      sourceSession.show_mode,
+      nowIso,
+      nowIso,
+      sourceSession.reset_count,
+      sourceSession.reset_at,
+    );
+    db.prepare(
+      `INSERT INTO session_branches (
+         session_id,
+         parent_session_id,
+         parent_message_id,
+         copied_message_count
+       ) VALUES (?, ?, ?, ?)`,
+    ).run(nextSessionId, sourceSession.id, beforeMessageId, copiedMessageCount);
+    copySessionKvStore(sourceSession.id, nextSessionId);
+    db.prepare(
+      `INSERT INTO messages (session_id, user_id, username, role, content, created_at)
+       SELECT ?, user_id, username, role, content, created_at
+       FROM messages
+       WHERE session_id = ?
+         AND id < ?
+       ORDER BY id ASC`,
+    ).run(nextSessionId, sourceSession.id, beforeMessageId);
+    return copiedMessageCount;
+  });
+  const copiedMessageCount = fork();
+
+  return {
+    session: requireSessionById(nextSessionId),
+    copiedMessageCount,
+  };
 }
 
 export function createFreshSessionInstance(
@@ -3535,14 +3865,13 @@ export function createFreshSessionInstance(
 }
 
 export function getAnyChatbotId(): string | null {
-  const row = db
-    .prepare(
-      `SELECT chatbot_id FROM sessions
-       WHERE chatbot_id IS NOT NULL AND chatbot_id != ''
-       ORDER BY last_active DESC
-       LIMIT 1`,
-    )
-    .get() as { chatbot_id: string } | undefined;
+  const row = queryOne<Pick<Session, 'chatbot_id'>>(
+    db,
+    `SELECT chatbot_id FROM sessions
+     WHERE chatbot_id IS NOT NULL AND chatbot_id != ''
+     ORDER BY last_active DESC
+     LIMIT 1`,
+  );
   return row?.chatbot_id?.trim() || null;
 }
 
@@ -3558,7 +3887,8 @@ export function updateSessionChatbot(
 }
 
 export function updateSessionAgent(sessionId: string, agentId: string): void {
-  const normalizedAgentId = agentId.trim() || DEFAULT_AGENT_ID;
+  const normalizedAgentId =
+    agentId.trim() || resolveDefaultAgentId(getRuntimeConfig());
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
   db.prepare('UPDATE sessions SET agent_id = ? WHERE id = ?').run(
     normalizedAgentId,
@@ -3628,21 +3958,156 @@ export function updateSessionShowMode(
   );
 }
 
-export function getAllSessions(): Session[] {
+export function getAllSessions(options?: {
+  limit?: number;
+  warnLabel?: string;
+}): Session[] {
+  const limit =
+    options?.limit == null ? null : Math.max(1, Math.floor(options.limit));
+  const warnLabel = options?.warnLabel || null;
   const sql = hasSessionCurrentColumn(db)
-    ? 'SELECT * FROM sessions WHERE is_current = 1 ORDER BY last_active DESC'
-    : 'SELECT * FROM sessions ORDER BY last_active DESC';
-  return db.prepare(sql).all() as Session[];
+    ? `SELECT * FROM sessions WHERE is_current = 1 ORDER BY last_active DESC${limit == null ? '' : ' LIMIT ?'}`
+    : `SELECT * FROM sessions ORDER BY last_active DESC${limit == null ? '' : ' LIMIT ?'}`;
+  const rows =
+    limit == null
+      ? queryAll<Session>(db, sql)
+      : queryAll<Session, [number]>(db, sql, limit + 1);
+  if (limit != null && warnLabel && rows.length > limit) {
+    logger.warn(
+      {
+        limit,
+        returnedRows: rows.length,
+        warnLabel,
+      },
+      'Session query hit safety cap; returning truncated results',
+    );
+    return rows.slice(0, limit);
+  }
+  return rows;
+}
+
+export interface RecentUserSessionSummary {
+  sessionId: string;
+  lastActive: string;
+  messageCount: number;
+  title: string | null;
+}
+
+type RecentUserSessionRow = Pick<
+  Session,
+  'id' | 'last_active' | 'message_count'
+>;
+
+interface RecentSessionBoundaryRow {
+  session_id: string;
+  first_user_content: string | null;
+  first_content: string | null;
+  last_content: string | null;
+}
+
+export function getRecentSessionsForUser(params: {
+  userId: string;
+  channelId?: string | null;
+  limit?: number;
+}): RecentUserSessionSummary[] {
+  const userId = params.userId.trim();
+  if (!userId) return [];
+  const channelId = String(params.channelId || '').trim();
+  const limit =
+    typeof params.limit === 'number' && Number.isFinite(params.limit)
+      ? Math.max(1, Math.floor(params.limit))
+      : 10;
+
+  const rows = channelId
+    ? queryAll<RecentUserSessionRow, [string, string]>(
+        db,
+        `SELECT DISTINCT s.id, s.last_active, s.message_count
+           FROM sessions s
+           INNER JOIN messages m
+             ON m.session_id = s.id
+           WHERE m.user_id = ?
+             AND s.channel_id = ?`,
+        userId,
+        channelId,
+      )
+    : queryAll<RecentUserSessionRow, [string]>(
+        db,
+        `SELECT DISTINCT s.id, s.last_active, s.message_count
+           FROM sessions s
+           INNER JOIN messages m
+             ON m.session_id = s.id
+           WHERE m.user_id = ?`,
+        userId,
+      );
+
+  const targetRows = rows
+    .sort((left, right) => {
+      const rightTimestamp = parseTimestamp(right.last_active);
+      const leftTimestamp = parseTimestamp(left.last_active);
+      if (rightTimestamp !== leftTimestamp) {
+        return rightTimestamp - leftTimestamp;
+      }
+      return right.id.localeCompare(left.id);
+    })
+    .slice(0, limit);
+  if (targetRows.length === 0) return [];
+
+  const placeholders = targetRows.map(() => '?').join(', ');
+  const boundaryRows = queryAll<RecentSessionBoundaryRow>(
+    db,
+    `WITH ranked AS (
+       SELECT
+         session_id,
+         content,
+         CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END AS is_target_user,
+         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id ASC) AS rn_first,
+         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn_last,
+         ROW_NUMBER() OVER (
+           PARTITION BY session_id, CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END
+           ORDER BY id ASC
+         ) AS rn_target_group
+       FROM messages
+       WHERE session_id IN (${placeholders})
+     )
+     SELECT
+       session_id,
+       MAX(CASE WHEN is_target_user = 1 AND rn_target_group = 1 THEN content END) AS first_user_content,
+       MAX(CASE WHEN rn_first = 1 THEN content END) AS first_content,
+       MAX(CASE WHEN rn_last = 1 THEN content END) AS last_content
+     FROM ranked
+     GROUP BY session_id`,
+    userId,
+    userId,
+    ...targetRows.map((row) => row.id),
+  );
+  const boundariesBySessionId = new Map(
+    boundaryRows.map((row) => [row.session_id, row] as const),
+  );
+
+  return targetRows.map((row) => {
+    const boundary = boundariesBySessionId.get(row.id);
+
+    return {
+      sessionId: row.id,
+      lastActive: row.last_active,
+      messageCount: normalizeUsageNumber(row.message_count),
+      title: buildSessionBoundaryPreview({
+        firstMessage:
+          boundary?.first_user_content || boundary?.first_content || null,
+        lastMessage: boundary?.last_content || null,
+        maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+      }),
+    };
+  });
 }
 
 export function getFullAutoSessionCount(): number {
-  const row = db
-    .prepare(
-      hasSessionCurrentColumn(db)
-        ? 'SELECT COUNT(*) as count FROM sessions WHERE is_current = 1 AND full_auto_enabled = 1'
-        : 'SELECT COUNT(*) as count FROM sessions WHERE full_auto_enabled = 1',
-    )
-    .get() as { count: number };
+  const row = queryOne<{ count: number }>(
+    db,
+    hasSessionCurrentColumn(db)
+      ? 'SELECT COUNT(*) as count FROM sessions WHERE is_current = 1 AND full_auto_enabled = 1'
+      : 'SELECT COUNT(*) as count FROM sessions WHERE full_auto_enabled = 1',
+  ) || { count: 0 };
   return row.count;
 }
 
@@ -3650,25 +4115,24 @@ export function getEnabledFullAutoSessions(): Session[] {
   const sql = hasSessionCurrentColumn(db)
     ? 'SELECT * FROM sessions WHERE is_current = 1 AND full_auto_enabled = 1 ORDER BY last_active DESC'
     : 'SELECT * FROM sessions WHERE full_auto_enabled = 1 ORDER BY last_active DESC';
-  return db.prepare(sql).all() as Session[];
+  return queryAll<Session>(db, sql);
 }
 
 export function getSessionCount(): number {
   const sql = hasSessionCurrentColumn(db)
     ? 'SELECT COUNT(*) as count FROM sessions WHERE is_current = 1'
     : 'SELECT COUNT(*) as count FROM sessions';
-  const row = db.prepare(sql).get() as { count: number };
+  const row = queryOne<{ count: number }>(db, sql) || { count: 0 };
   return row.count;
 }
 
 export function getMostRecentSessionChannelId(): string | null {
-  const row = db
-    .prepare(
-      hasSessionCurrentColumn(db)
-        ? 'SELECT channel_id FROM sessions WHERE is_current = 1 ORDER BY last_active DESC LIMIT 1'
-        : 'SELECT channel_id FROM sessions ORDER BY last_active DESC LIMIT 1',
-    )
-    .get() as { channel_id?: string } | undefined;
+  const row = queryOne<Pick<Session, 'channel_id'>>(
+    db,
+    hasSessionCurrentColumn(db)
+      ? 'SELECT channel_id FROM sessions WHERE is_current = 1 ORDER BY last_active DESC LIMIT 1'
+      : 'SELECT channel_id FROM sessions ORDER BY last_active DESC LIMIT 1',
+  );
   if (!row || typeof row.channel_id !== 'string') return null;
   const channelId = row.channel_id.trim();
   return channelId || null;
@@ -3774,11 +4238,195 @@ export function getConversationHistory(
   limit = 50,
 ): StoredMessage[] {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  return db
+  return queryAll<StoredMessage, [string, number]>(
+    db,
+    'SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
+    resolvedSessionId,
+    limit,
+  );
+}
+
+function getBranchVariantMessageId(
+  sessionId: string,
+  copiedMessageCount: number,
+): number | null {
+  const row = db
     .prepare(
-      'SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
+      `SELECT id
+       FROM messages
+       WHERE session_id = ?
+       ORDER BY id ASC
+       LIMIT 1 OFFSET ?`,
     )
-    .all(resolvedSessionId, limit) as StoredMessage[];
+    .get(sessionId, copiedMessageCount) as { id: number } | undefined;
+  return row?.id ?? null;
+}
+
+function buildConversationBranchFamily(
+  parentSessionId: string,
+  parentMessageId: number,
+): ConversationBranchFamily | null {
+  const childRows = db
+    .prepare(
+      `SELECT
+         sb.session_id,
+         sb.parent_session_id,
+         sb.parent_message_id,
+         sb.copied_message_count
+       FROM session_branches sb
+       JOIN sessions s ON s.id = sb.session_id
+       WHERE sb.parent_session_id = ?
+         AND sb.parent_message_id = ?
+       ORDER BY s.created_at ASC, sb.session_id ASC`,
+    )
+    .all(parentSessionId, parentMessageId) as SessionBranchRow[];
+  if (childRows.length === 0) return null;
+
+  const variants = [
+    {
+      sessionId: parentSessionId,
+      messageId: parentMessageId,
+    },
+  ];
+  for (const row of childRows) {
+    const messageId = getBranchVariantMessageId(
+      row.session_id,
+      row.copied_message_count,
+    );
+    if (!messageId) continue;
+    variants.push({
+      sessionId: row.session_id,
+      messageId,
+    });
+  }
+
+  return variants.length < 2
+    ? null
+    : {
+        anchorSessionId: parentSessionId,
+        anchorMessageId: parentMessageId,
+        variants,
+      };
+}
+
+export function getConversationBranchFamilies(
+  sessionId: string,
+): ConversationBranchFamily[] {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  ensureSessionBranchesTable(db);
+  const families: ConversationBranchFamily[] = [];
+  const seen = new Set<string>();
+  const addFamily = (parentSessionId: string, parentMessageId: number) => {
+    const familyKey = `${parentSessionId}:${parentMessageId}`;
+    if (seen.has(familyKey)) return;
+    seen.add(familyKey);
+    const family = buildConversationBranchFamily(
+      parentSessionId,
+      parentMessageId,
+    );
+    if (family) {
+      families.push(family);
+    }
+  };
+
+  const currentBranch = db
+    .prepare(
+      `SELECT session_id, parent_session_id, parent_message_id, copied_message_count
+       FROM session_branches
+       WHERE session_id = ?`,
+    )
+    .get(resolvedSessionId) as SessionBranchRow | undefined;
+  if (currentBranch) {
+    addFamily(currentBranch.parent_session_id, currentBranch.parent_message_id);
+  }
+
+  const childAnchors = db
+    .prepare(
+      `SELECT DISTINCT parent_message_id
+       FROM session_branches
+       WHERE parent_session_id = ?
+       ORDER BY parent_message_id ASC`,
+    )
+    .all(resolvedSessionId) as Array<{ parent_message_id: number }>;
+  for (const row of childAnchors) {
+    addFamily(resolvedSessionId, row.parent_message_id);
+  }
+
+  return families;
+}
+
+export function getConversationHistoryPage(
+  sessionId: string,
+  limit = 50,
+): ConversationHistoryPage {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  const rows = db
+    .prepare(
+      `SELECT
+         s.session_key,
+         s.main_session_key,
+         m.id,
+         m.session_id,
+         m.user_id,
+         m.username,
+         m.role,
+         m.content,
+         m.created_at
+       FROM sessions s
+       LEFT JOIN (
+         SELECT *
+         FROM messages
+         WHERE session_id = ?
+         ORDER BY id DESC
+         LIMIT ?
+       ) m ON m.session_id = s.id
+       WHERE s.id = ?
+       ORDER BY m.id DESC`,
+    )
+    .all(
+      resolvedSessionId,
+      Math.max(1, Math.floor(limit)),
+      resolvedSessionId,
+    ) as ConversationHistoryPageRow[];
+
+  if (rows.length === 0) {
+    return {
+      sessionKey: null,
+      mainSessionKey: null,
+      history: [],
+      branchFamilies: [],
+    };
+  }
+
+  const history: StoredMessage[] = [];
+  for (const row of rows) {
+    if (
+      row.id == null ||
+      row.session_id == null ||
+      row.user_id == null ||
+      row.role == null ||
+      row.content == null ||
+      row.created_at == null
+    ) {
+      continue;
+    }
+    history.push({
+      id: row.id,
+      session_id: row.session_id,
+      user_id: row.user_id,
+      username: row.username,
+      role: row.role,
+      content: row.content,
+      created_at: row.created_at,
+    });
+  }
+
+  return {
+    sessionKey: rows[0]?.session_key || null,
+    mainSessionKey: rows[0]?.main_session_key || null,
+    history,
+    branchFamilies: getConversationBranchFamilies(resolvedSessionId),
+  };
 }
 
 export function getRecentMessages(
@@ -3792,17 +4440,94 @@ export function getRecentMessages(
       : null;
 
   if (boundedLimit == null) {
-    return db
-      .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC')
-      .all(resolvedSessionId) as StoredMessage[];
+    return queryAll<StoredMessage, [string]>(
+      db,
+      'SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC',
+      resolvedSessionId,
+    );
   }
 
-  const rows = db
-    .prepare(
-      'SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
-    )
-    .all(resolvedSessionId, boundedLimit) as StoredMessage[];
+  const rows = queryAll<StoredMessage, [string, number]>(
+    db,
+    'SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
+    resolvedSessionId,
+    boundedLimit,
+  );
   return rows.reverse();
+}
+
+export function getSessionBoundaryMessages(sessionId: string): {
+  firstMessage: string | null;
+  lastMessage: string | null;
+} {
+  return (
+    getSessionBoundaryMessagesBySessionIds([sessionId]).get(
+      resolveSessionIdCompat(sessionId),
+    ) || {
+      firstMessage: null,
+      lastMessage: null,
+    }
+  );
+}
+
+export function getSessionBoundaryMessagesBySessionIds(
+  sessionIds: string[],
+): Map<
+  string,
+  {
+    firstMessage: string | null;
+    lastMessage: string | null;
+  }
+> {
+  const normalizedSessionIds = Array.from(
+    new Set(
+      sessionIds
+        .map((sessionId) => resolveSessionIdCompat(sessionId))
+        .filter((sessionId) => sessionId.length > 0),
+    ),
+  );
+  if (normalizedSessionIds.length === 0) return new Map();
+
+  const placeholders = normalizedSessionIds.map(() => '?').join(', ');
+  const rows = queryAll<
+    {
+      session_id: string;
+      first_content: string | null;
+      last_content: string | null;
+    },
+    string[]
+  >(
+    db,
+    `WITH bounds AS (
+       SELECT
+         session_id,
+         MIN(id) AS first_id,
+         MAX(id) AS last_id
+       FROM messages
+       WHERE session_id IN (${placeholders})
+       GROUP BY session_id
+     )
+     SELECT
+       bounds.session_id,
+       MAX(CASE WHEN messages.id = bounds.first_id THEN messages.content END) AS first_content,
+       MAX(CASE WHEN messages.id = bounds.last_id THEN messages.content END) AS last_content
+     FROM bounds
+     INNER JOIN messages
+       ON messages.session_id = bounds.session_id
+      AND messages.id IN (bounds.first_id, bounds.last_id)
+     GROUP BY bounds.session_id`,
+    ...normalizedSessionIds,
+  );
+
+  return new Map(
+    rows.map((row) => [
+      row.session_id,
+      {
+        firstMessage: row.first_content || null,
+        lastMessage: row.last_content || null,
+      },
+    ]),
+  );
 }
 
 export function getSessionMessageCounts(sessionId: string): {
@@ -3810,17 +4535,20 @@ export function getSessionMessageCounts(sessionId: string): {
   userMessages: number;
 } {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  const row = db
-    .prepare(
-      `SELECT
+  const row = queryOne<
+    { total_messages: unknown; user_messages: unknown },
+    [string]
+  >(
+    db,
+    `SELECT
          COUNT(*) AS total_messages,
          COALESCE(SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END), 0) AS user_messages
        FROM messages
        WHERE session_id = ?`,
-    )
-    .get(resolvedSessionId) as {
-    total_messages: unknown;
-    user_messages: unknown;
+    resolvedSessionId,
+  ) || {
+    total_messages: 0,
+    user_messages: 0,
   };
 
   return {
@@ -3935,21 +4663,13 @@ function scoreSemanticLikeCandidate(
   return score;
 }
 
-interface RawSemanticMemoryRow {
-  id: number;
-  session_id: string;
-  role: string;
-  source: string;
-  scope: string;
+type RawSemanticMemoryRow = Omit<
+  SemanticMemoryEntry,
+  'metadata' | 'embedding'
+> & {
   metadata: string | null;
-  content: string;
-  confidence: number;
   embedding: Buffer | Uint8Array | null;
-  source_message_id: number | null;
-  created_at: string;
-  accessed_at: string;
-  access_count: number;
-}
+};
 
 function parseSemanticMetadata(
   raw: string | null | undefined,
@@ -4101,15 +4821,15 @@ function recallSemanticMemoriesByLike(params: {
   });
   args.push(candidateLimit);
 
-  const rawRows = db
-    .prepare(
-      `SELECT *
-       FROM semantic_memories
-       WHERE ${whereClauses.join('\n         AND ')}
-       ORDER BY confidence DESC, accessed_at DESC
-       LIMIT ?`,
-    )
-    .all(...args) as RawSemanticMemoryRow[];
+  const rawRows = queryAll<RawSemanticMemoryRow>(
+    db,
+    `SELECT *
+     FROM semantic_memories
+     WHERE ${whereClauses.join('\n         AND ')}
+     ORDER BY confidence DESC, accessed_at DESC
+     LIMIT ?`,
+    ...args,
+  );
   if (rawRows.length === 0) return [];
 
   const ranked = rawRows
@@ -4159,15 +4879,15 @@ function recallSemanticMemoriesByVector(params: {
     filter: params.filter,
   });
   args.push(candidateLimit);
-  const rawRows = db
-    .prepare(
-      `SELECT *
-       FROM semantic_memories
-       WHERE ${whereClauses.join('\n         AND ')}
-       ORDER BY accessed_at DESC, confidence DESC
-       LIMIT ?`,
-    )
-    .all(...args) as RawSemanticMemoryRow[];
+  const rawRows = queryAll<RawSemanticMemoryRow>(
+    db,
+    `SELECT *
+     FROM semantic_memories
+     WHERE ${whereClauses.join('\n         AND ')}
+     ORDER BY accessed_at DESC, confidence DESC
+     LIMIT ?`,
+    ...args,
+  );
   if (rawRows.length === 0) return [];
 
   const rows = rawRows.map(mapSemanticMemoryRow);
@@ -4215,15 +4935,15 @@ function recallSemanticMemoriesByRecent(params: {
     filter: params.filter,
   });
   args.push(params.limit);
-  const rows = db
-    .prepare(
-      `SELECT *
-       FROM semantic_memories
-       WHERE ${whereClauses.join('\n         AND ')}
-       ORDER BY accessed_at DESC, confidence DESC
-       LIMIT ?`,
-    )
-    .all(...args) as RawSemanticMemoryRow[];
+  const rows = queryAll<RawSemanticMemoryRow>(
+    db,
+    `SELECT *
+     FROM semantic_memories
+     WHERE ${whereClauses.join('\n         AND ')}
+     ORDER BY accessed_at DESC, confidence DESC
+     LIMIT ?`,
+    ...args,
+  );
   const mapped = rows.map(mapSemanticMemoryRow);
   touchSemanticMemoryRows(mapped);
   return mapped;
@@ -4402,18 +5122,20 @@ export function getCompactionCandidateMessages(
   keepRecent: number,
 ): CompactionCandidate | null {
   const keep = Math.max(1, Math.floor(keepRecent));
-  const cutoffRow = db
-    .prepare(
-      'SELECT id FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?',
-    )
-    .get(sessionId, keep - 1) as { id: number } | undefined;
+  const cutoffRow = queryOne<{ id: number }, [string, number]>(
+    db,
+    'SELECT id FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?',
+    sessionId,
+    keep - 1,
+  );
   if (!cutoffRow) return null;
 
-  const older = db
-    .prepare(
-      'SELECT * FROM messages WHERE session_id = ? AND id < ? ORDER BY id ASC',
-    )
-    .all(sessionId, cutoffRow.id) as StoredMessage[];
+  const older = queryAll<StoredMessage, [string, number]>(
+    db,
+    'SELECT * FROM messages WHERE session_id = ? AND id < ? ORDER BY id ASC',
+    sessionId,
+    cutoffRow.id,
+  );
   if (older.length === 0) return null;
 
   return {
@@ -4517,23 +5239,22 @@ export function createTask(
 
 export function getTasksForSession(sessionId: string): ScheduledTask[] {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  return db
-    .prepare(
-      'SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at DESC',
-    )
-    .all(resolvedSessionId) as ScheduledTask[];
+  return queryAll<ScheduledTask, [string]>(
+    db,
+    'SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at DESC',
+    resolvedSessionId,
+  );
 }
 
 export function getAllTasks(): ScheduledTask[] {
-  return db
-    .prepare('SELECT * FROM tasks ORDER BY created_at DESC')
-    .all() as ScheduledTask[];
+  return queryAll<ScheduledTask>(
+    db,
+    'SELECT * FROM tasks ORDER BY created_at DESC',
+  );
 }
 
 export function getAllEnabledTasks(): ScheduledTask[] {
-  return db
-    .prepare('SELECT * FROM tasks WHERE enabled = 1')
-    .all() as ScheduledTask[];
+  return queryAll<ScheduledTask>(db, 'SELECT * FROM tasks WHERE enabled = 1');
 }
 
 export function updateTaskLastRun(taskId: number): void {
@@ -4552,9 +5273,11 @@ export function markTaskFailure(
   taskId: number,
   maxConsecutiveErrors = 5,
 ): { disabled: boolean; consecutiveErrors: number } {
-  const row = db
-    .prepare('SELECT consecutive_errors FROM tasks WHERE id = ?')
-    .get(taskId) as { consecutive_errors?: number } | undefined;
+  const row = queryOne<Pick<ScheduledTask, 'consecutive_errors'>, [number]>(
+    db,
+    'SELECT consecutive_errors FROM tasks WHERE id = ?',
+    taskId,
+  );
   if (!row) {
     return { disabled: false, consecutiveErrors: 0 };
   }
@@ -4820,9 +5543,14 @@ export function recordSkillObservation(input: {
       Math.max(0, Math.floor(input.durationMs || 0)),
     );
 
-  const row = db
-    .prepare('SELECT * FROM skill_observations WHERE id = ?')
-    .get(result.lastInsertRowid) as SkillObservationRow;
+  const row = queryOne<SkillObservationRow, [number | bigint]>(
+    db,
+    'SELECT * FROM skill_observations WHERE id = ?',
+    result.lastInsertRowid,
+  );
+  if (!row) {
+    throw new Error('Failed to read persisted skill observation.');
+  }
   return mapSkillObservationRow(row);
 }
 
@@ -4858,16 +5586,15 @@ export function getSkillObservations(params?: {
   const whereClause =
     clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
   const limit = Math.max(1, Math.min(params?.limit || 100, 1_000));
-  return (
-    db
-      .prepare(
-        `SELECT *
-         FROM skill_observations
-         ${whereClause}
-         ORDER BY created_at DESC, id DESC
-         LIMIT ?`,
-      )
-      .all(...args, limit) as SkillObservationRow[]
+  return queryAll<SkillObservationRow, Array<string | number>>(
+    db,
+    `SELECT *
+     FROM skill_observations
+     ${whereClause}
+     ORDER BY created_at DESC, id DESC
+     LIMIT ?`,
+    ...args,
+    limit,
   ).map(mapSkillObservationRow);
 }
 
@@ -4876,21 +5603,20 @@ export function getObservedSkillNames(params?: {
 }): string[] {
   const createdAfter = params?.createdAfter?.trim() || '';
   const rows = createdAfter
-    ? (db
-        .prepare(
-          `SELECT DISTINCT skill_name
-           FROM skill_observations
-           WHERE created_at >= ?
-           ORDER BY skill_name ASC`,
-        )
-        .all(createdAfter) as Array<{ skill_name: string }>)
-    : (db
-        .prepare(
-          `SELECT DISTINCT skill_name
-           FROM skill_observations
-           ORDER BY skill_name ASC`,
-        )
-        .all() as Array<{ skill_name: string }>);
+    ? queryAll<{ skill_name: string }, [string]>(
+        db,
+        `SELECT DISTINCT skill_name
+         FROM skill_observations
+         WHERE created_at >= ?
+         ORDER BY skill_name ASC`,
+        createdAfter,
+      )
+    : queryAll<{ skill_name: string }>(
+        db,
+        `SELECT DISTINCT skill_name
+         FROM skill_observations
+         ORDER BY skill_name ASC`,
+      );
   return rows.map((row) => row.skill_name.trim()).filter(Boolean);
 }
 
@@ -4912,6 +5638,7 @@ export function getSkillObservationSummary(params?: {
   skillName?: string;
   createdAfter?: string | null;
 }): SkillObservationSummary[] {
+  ensureDatabaseReady();
   const clauses: string[] = [];
   const args: Array<string | number> = [];
   const skillName = params?.skillName?.trim() || '';
@@ -4926,45 +5653,51 @@ export function getSkillObservationSummary(params?: {
   }
   const whereClause =
     clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-  const summaryRows = db
-    .prepare(
-      `SELECT
-         skill_name,
-         COUNT(*) AS total_executions,
-         SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
-         SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
-         SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
-         AVG(duration_ms) AS avg_duration_ms,
-         COALESCE(SUM(tool_calls_attempted), 0) AS tool_calls_attempted,
-         COALESCE(SUM(tool_calls_failed), 0) AS tool_calls_failed,
-         SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
-         SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
-         MAX(created_at) AS last_observed_at
-       FROM skill_observations
-       ${whereClause}
-       GROUP BY skill_name
-       ORDER BY skill_name ASC`,
-    )
-    .all(...args) as SkillObservationSummaryRow[];
+  const summaryRows = queryAll<
+    SkillObservationSummaryRow,
+    Array<string | number>
+  >(
+    db,
+    `SELECT
+       skill_name,
+       COUNT(*) AS total_executions,
+       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+       SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+       SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+       AVG(duration_ms) AS avg_duration_ms,
+       COALESCE(SUM(tool_calls_attempted), 0) AS tool_calls_attempted,
+       COALESCE(SUM(tool_calls_failed), 0) AS tool_calls_failed,
+       SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
+       SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
+       MAX(created_at) AS last_observed_at
+     FROM skill_observations
+     ${whereClause}
+     GROUP BY skill_name
+     ORDER BY skill_name ASC`,
+    ...args,
+  );
 
   if (summaryRows.length === 0) return [];
 
   const clusterClauses = [...clauses, "outcome != 'success'"];
   const clusterWhereClause =
     clusterClauses.length > 0 ? `WHERE ${clusterClauses.join(' AND ')}` : '';
-  const clusterRows = db
-    .prepare(
-      `SELECT
-         skill_name,
-         COALESCE(NULLIF(TRIM(error_category), ''), 'unknown') AS error_category,
-         COUNT(*) AS count,
-         MIN(error_detail) AS sample_detail
-       FROM skill_observations
-       ${clusterWhereClause}
-       GROUP BY skill_name, COALESCE(NULLIF(TRIM(error_category), ''), 'unknown')
-       ORDER BY skill_name ASC, count DESC`,
-    )
-    .all(...args) as SkillObservationErrorClusterRow[];
+  const clusterRows = queryAll<
+    SkillObservationErrorClusterRow,
+    Array<string | number>
+  >(
+    db,
+    `SELECT
+       skill_name,
+       COALESCE(NULLIF(TRIM(error_category), ''), 'unknown') AS error_category,
+       COUNT(*) AS count,
+       MIN(error_detail) AS sample_detail
+     FROM skill_observations
+     ${clusterWhereClause}
+     GROUP BY skill_name, COALESCE(NULLIF(TRIM(error_category), ''), 'unknown')
+     ORDER BY skill_name ASC, count DESC`,
+    ...args,
+  );
 
   return mapSkillObservationSummaries({
     summaryRows,
@@ -4979,15 +5712,15 @@ export function attachFeedbackToObservation(input: {
 }): SkillObservation | null {
   const sessionId = input.sessionId.trim();
   if (!sessionId) return null;
-  const target = db
-    .prepare(
-      `SELECT id
-       FROM skill_observations
-       WHERE session_id = ?
-       ORDER BY created_at DESC, id DESC
-       LIMIT 1`,
-    )
-    .get(sessionId) as { id: number } | undefined;
+  const target = queryOne<{ id: number }, [string]>(
+    db,
+    `SELECT id
+     FROM skill_observations
+     WHERE session_id = ?
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`,
+    sessionId,
+  );
   if (!target) return null;
 
   db.prepare(
@@ -4997,9 +5730,14 @@ export function attachFeedbackToObservation(input: {
      WHERE id = ?`,
   ).run(input.feedback.trim() || null, input.sentiment, target.id);
 
-  const row = db
-    .prepare('SELECT * FROM skill_observations WHERE id = ?')
-    .get(target.id) as SkillObservationRow;
+  const row = queryOne<SkillObservationRow, [number]>(
+    db,
+    'SELECT * FROM skill_observations WHERE id = ?',
+    target.id,
+  );
+  if (!row) {
+    throw new Error('Failed to read updated skill observation.');
+  }
   return mapSkillObservationRow(row);
 }
 
@@ -5023,15 +5761,15 @@ export function createSkillAmendment(input: {
   runsSinceApply?: number;
 }): SkillAmendment {
   const skillName = input.skillName.trim();
-  const latest = db
-    .prepare(
-      `SELECT version
-       FROM skill_amendments
-       WHERE skill_name = ?
-       ORDER BY version DESC
-       LIMIT 1`,
-    )
-    .get(skillName) as { version?: number } | undefined;
+  const latest = queryOne<Pick<SkillAmendment, 'version'>, [string]>(
+    db,
+    `SELECT version
+     FROM skill_amendments
+     WHERE skill_name = ?
+     ORDER BY version DESC
+     LIMIT 1`,
+    skillName,
+  );
   const version = Math.max(1, Math.floor((latest?.version || 0) + 1));
   const result = db
     .prepare(
@@ -5079,18 +5817,25 @@ export function createSkillAmendment(input: {
       Math.max(0, Math.floor(input.runsSinceApply || 0)),
     );
 
-  const row = db
-    .prepare('SELECT * FROM skill_amendments WHERE id = ?')
-    .get(result.lastInsertRowid) as SkillAmendmentRow;
+  const row = queryOne<SkillAmendmentRow, [number | bigint]>(
+    db,
+    'SELECT * FROM skill_amendments WHERE id = ?',
+    result.lastInsertRowid,
+  );
+  if (!row) {
+    throw new Error('Failed to read persisted skill amendment.');
+  }
   return mapSkillAmendmentRow(row);
 }
 
 export function getSkillAmendmentById(
   amendmentId: number,
 ): SkillAmendment | null {
-  const row = db
-    .prepare('SELECT * FROM skill_amendments WHERE id = ?')
-    .get(Math.floor(amendmentId)) as SkillAmendmentRow | undefined;
+  const row = queryOne<SkillAmendmentRow, [number]>(
+    db,
+    'SELECT * FROM skill_amendments WHERE id = ?',
+    Math.floor(amendmentId),
+  );
   return row ? mapSkillAmendmentRow(row) : null;
 }
 
@@ -5111,28 +5856,25 @@ export function getLatestSkillAmendment(params: {
     clauses.push(`status IN (${statuses.map(() => '?').join(', ')})`);
     args.push(...statuses);
   }
-  const row = db
-    .prepare(
-      `SELECT *
-       FROM skill_amendments
-       WHERE ${clauses.join(' AND ')}
-       ORDER BY version DESC, id DESC
-       LIMIT 1`,
-    )
-    .get(...args) as SkillAmendmentRow | undefined;
+  const row = queryOne<SkillAmendmentRow, Array<string | number>>(
+    db,
+    `SELECT *
+     FROM skill_amendments
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY version DESC, id DESC
+     LIMIT 1`,
+    ...args,
+  );
   return row ? mapSkillAmendmentRow(row) : null;
 }
 
 export function getStagedAmendments(): SkillAmendment[] {
-  return (
-    db
-      .prepare(
-        `SELECT *
-         FROM skill_amendments
-         WHERE status = 'staged'
-         ORDER BY created_at DESC, id DESC`,
-      )
-      .all() as SkillAmendmentRow[]
+  return queryAll<SkillAmendmentRow>(
+    db,
+    `SELECT *
+     FROM skill_amendments
+     WHERE status = 'staged'
+     ORDER BY created_at DESC, id DESC`,
   ).map(mapSkillAmendmentRow);
 }
 
@@ -5203,15 +5945,13 @@ export function incrementAmendmentRunCount(
 export function getAmendmentHistory(skillName: string): SkillAmendment[] {
   const normalized = skillName.trim();
   if (!normalized) return [];
-  return (
-    db
-      .prepare(
-        `SELECT *
-         FROM skill_amendments
-         WHERE skill_name = ?
-         ORDER BY version DESC, id DESC`,
-      )
-      .all(normalized) as SkillAmendmentRow[]
+  return queryAll<SkillAmendmentRow, [string]>(
+    db,
+    `SELECT *
+     FROM skill_amendments
+     WHERE skill_name = ?
+     ORDER BY version DESC, id DESC`,
+    normalized,
   ).map(mapSkillAmendmentRow);
 }
 
@@ -5234,13 +5974,11 @@ export function logAudit(
 }
 
 export function getRecentAudit(limit = 20): AuditEntry[] {
-  return db
-    .prepare('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ?')
-    .all(limit) as AuditEntry[];
-}
-
-function toPayloadObject(payload: AuditEventPayload): Record<string, unknown> {
-  return payload as unknown as Record<string, unknown>;
+  return queryAll<AuditEntry, [number]>(
+    db,
+    'SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ?',
+    limit,
+  );
 }
 
 function readPayloadStringValue(
@@ -5281,7 +6019,7 @@ export function logStructuredAuditEvent(record: WireRecord): void {
 
   if (eventType !== 'approval.response') return;
 
-  const payload = toPayloadObject(record.event);
+  const payload = record.event;
   const toolCallId =
     readPayloadStringValue(payload, 'toolCallId') || `seq:${record.seq}`;
   const action = readPayloadStringValue(payload, 'action') || 'unknown';
@@ -5310,33 +6048,30 @@ export function logStructuredAuditEvent(record: WireRecord): void {
 
 export function getRecentStructuredAudit(limit = 20): StructuredAuditEntry[] {
   const bounded = Math.max(1, Math.min(limit, 200));
-  return db
-    .prepare('SELECT * FROM audit_events ORDER BY id DESC LIMIT ?')
-    .all(bounded) as StructuredAuditEntry[];
+  return queryAll<StructuredAuditEntry, [number]>(
+    db,
+    `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
+     FROM audit_events
+     ORDER BY id DESC
+     LIMIT ?`,
+    bounded,
+  );
 }
 
-export function getRecentStructuredAuditForSession(
-  sessionId: string,
-  limit = 20,
-): StructuredAuditEntry[] {
-  const bounded = Math.max(1, Math.min(limit, 200));
-  return db
-    .prepare(
-      'SELECT * FROM audit_events WHERE session_id = ? ORDER BY seq DESC LIMIT ?',
-    )
-    .all(sessionId, bounded) as StructuredAuditEntry[];
-}
-
-export function listStructuredAuditEntries(params?: {
+function queryStructuredAuditEntries(params?: {
   sessionId?: string;
   eventType?: string;
   query?: string;
   limit?: number;
+  maxLimit?: number;
+  orderBy?: 'id' | 'seq';
+  sortDirection?: 'ASC' | 'DESC';
 }): StructuredAuditEntry[] {
   const sessionId = String(params?.sessionId || '').trim();
   const eventType = String(params?.eventType || '').trim();
   const query = String(params?.query || '').trim();
-  const bounded = Math.max(1, Math.min(params?.limit ?? 50, 200));
+  const orderBy = params?.orderBy === 'seq' ? 'seq' : 'id';
+  const sortDirection = params?.sortDirection === 'ASC' ? 'ASC' : 'DESC';
 
   const clauses: string[] = [];
   const values: Array<string | number> = [];
@@ -5358,15 +6093,85 @@ export function listStructuredAuditEntries(params?: {
   }
 
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const maxLimit = Math.max(1, params?.maxLimit ?? 200);
+  const limit =
+    params?.limit == null
+      ? null
+      : Math.max(1, Math.min(params.limit, maxLimit));
   const sql = `
-    SELECT *
+    SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
     FROM audit_events
     ${where}
-    ORDER BY id DESC
-    LIMIT ?
+    ORDER BY ${orderBy} ${sortDirection}
+    ${limit == null ? '' : 'LIMIT ?'}
   `;
 
-  return db.prepare(sql).all(...values, bounded) as StructuredAuditEntry[];
+  if (limit == null) {
+    return queryAll<StructuredAuditEntry, Array<string | number>>(
+      db,
+      sql,
+      ...values,
+    );
+  }
+
+  return queryAll<StructuredAuditEntry, Array<string | number>>(
+    db,
+    sql,
+    ...values,
+    limit,
+  );
+}
+
+export function getRecentStructuredAuditForSession(
+  sessionId: string,
+  limit = 20,
+): StructuredAuditEntry[] {
+  return queryStructuredAuditEntries({
+    sessionId,
+    limit,
+    orderBy: 'seq',
+    sortDirection: 'DESC',
+  });
+}
+
+export function getStructuredAuditForSession(
+  sessionId: string,
+): StructuredAuditEntry[] {
+  const rows = queryStructuredAuditEntries({
+    sessionId,
+    limit: STRUCTURED_AUDIT_SESSION_LIMIT + 1,
+    maxLimit: STRUCTURED_AUDIT_SESSION_LIMIT + 1,
+    orderBy: 'seq',
+    sortDirection: 'ASC',
+  });
+  if (rows.length <= STRUCTURED_AUDIT_SESSION_LIMIT) {
+    return rows;
+  }
+  logger.warn(
+    {
+      sessionId,
+      limit: STRUCTURED_AUDIT_SESSION_LIMIT,
+      returnedRows: rows.length,
+    },
+    'Structured audit query hit safety cap; returning truncated results',
+  );
+  return rows.slice(0, STRUCTURED_AUDIT_SESSION_LIMIT);
+}
+
+export function listStructuredAuditEntries(params?: {
+  sessionId?: string;
+  eventType?: string;
+  query?: string;
+  limit?: number;
+}): StructuredAuditEntry[] {
+  return queryStructuredAuditEntries({
+    sessionId: params?.sessionId,
+    eventType: params?.eventType,
+    query: params?.query,
+    limit: params?.limit ?? 50,
+    orderBy: 'id',
+    sortDirection: 'DESC',
+  });
 }
 
 export function getStructuredAuditAfterId(
@@ -5375,9 +6180,16 @@ export function getStructuredAuditAfterId(
 ): StructuredAuditEntry[] {
   const boundedAfterId = Math.max(0, Math.floor(afterId));
   const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 5_000));
-  return db
-    .prepare('SELECT * FROM audit_events WHERE id > ? ORDER BY id ASC LIMIT ?')
-    .all(boundedAfterId, boundedLimit) as StructuredAuditEntry[];
+  return queryAll<StructuredAuditEntry, [number, number]>(
+    db,
+    `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
+     FROM audit_events
+     WHERE id > ?
+     ORDER BY id ASC
+     LIMIT ?`,
+    boundedAfterId,
+    boundedLimit,
+  );
 }
 
 export function searchStructuredAudit(
@@ -5388,18 +6200,25 @@ export function searchStructuredAudit(
   if (!normalized) return [];
   const bounded = Math.max(1, Math.min(limit, 200));
   const like = `%${normalized}%`;
-  return db
-    .prepare(`
-      SELECT *
-      FROM audit_events
-      WHERE event_type LIKE ?
-        OR payload LIKE ?
-        OR session_id LIKE ?
-        OR run_id LIKE ?
-      ORDER BY id DESC
-      LIMIT ?
-    `)
-    .all(like, like, like, like, bounded) as StructuredAuditEntry[];
+  return queryAll<
+    StructuredAuditEntry,
+    [string, string, string, string, number]
+  >(
+    db,
+    `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
+     FROM audit_events
+     WHERE event_type LIKE ?
+       OR payload LIKE ?
+       OR session_id LIKE ?
+       OR run_id LIKE ?
+     ORDER BY id DESC
+     LIMIT ?`,
+    like,
+    like,
+    like,
+    like,
+    bounded,
+  );
 }
 
 export function getRecentApprovals(
@@ -5408,25 +6227,27 @@ export function getRecentApprovals(
 ): ApprovalAuditEntry[] {
   const bounded = Math.max(1, Math.min(limit, 200));
   if (deniedOnly) {
-    return db
-      .prepare(
-        'SELECT * FROM approvals WHERE approved = 0 ORDER BY id DESC LIMIT ?',
-      )
-      .all(bounded) as ApprovalAuditEntry[];
+    return queryAll<ApprovalAuditEntry, [number]>(
+      db,
+      'SELECT * FROM approvals WHERE approved = 0 ORDER BY id DESC LIMIT ?',
+      bounded,
+    );
   }
-  return db
-    .prepare('SELECT * FROM approvals ORDER BY id DESC LIMIT ?')
-    .all(bounded) as ApprovalAuditEntry[];
+  return queryAll<ApprovalAuditEntry, [number]>(
+    db,
+    'SELECT * FROM approvals ORDER BY id DESC LIMIT ?',
+    bounded,
+  );
 }
 
 export function getObservabilityOffset(streamKey: string): number {
   const normalized = streamKey.trim();
   if (!normalized) return 0;
-  const row = db
-    .prepare(
-      'SELECT last_event_id FROM observability_offsets WHERE stream_key = ?',
-    )
-    .get(normalized) as { last_event_id: number } | undefined;
+  const row = queryOne<{ last_event_id: number }, [string]>(
+    db,
+    'SELECT last_event_id FROM observability_offsets WHERE stream_key = ?',
+    normalized,
+  );
   return row ? Math.max(0, Math.floor(row.last_event_id)) : 0;
 }
 
@@ -5449,11 +6270,11 @@ export function setObservabilityOffset(
 export function getObservabilityIngestToken(tokenKey: string): string | null {
   const normalized = tokenKey.trim();
   if (!normalized) return null;
-  const row = db
-    .prepare(
-      'SELECT token FROM observability_ingest_tokens WHERE token_key = ?',
-    )
-    .get(normalized) as { token: string } | undefined;
+  const row = queryOne<{ token: string }, [string]>(
+    db,
+    'SELECT token FROM observability_ingest_tokens WHERE token_key = ?',
+    normalized,
+  );
   if (!row || typeof row.token !== 'string') return null;
   const token = row.token.trim();
   return token || null;
@@ -5504,9 +6325,10 @@ export function enqueueProactiveMessage(
     "INSERT INTO proactive_message_queue (channel_id, text, source, queued_at) VALUES (?, ?, ?, datetime('now'))",
   ).run(channelId, text, source);
 
-  const countRow = db
-    .prepare('SELECT COUNT(*) as count FROM proactive_message_queue')
-    .get() as { count: number };
+  const countRow = queryOne<{ count: number }>(
+    db,
+    'SELECT COUNT(*) as count FROM proactive_message_queue',
+  ) || { count: 0 };
   const overLimit = Math.max(0, countRow.count - boundedMax);
   if (overLimit > 0) {
     db.prepare(`
@@ -5530,9 +6352,11 @@ export function listQueuedProactiveMessages(
   limit = 100,
 ): QueuedProactiveMessage[] {
   const boundedLimit = Math.max(1, Math.floor(limit));
-  return db
-    .prepare('SELECT * FROM proactive_message_queue ORDER BY id ASC LIMIT ?')
-    .all(boundedLimit) as QueuedProactiveMessage[];
+  return queryAll<QueuedProactiveMessage, [number]>(
+    db,
+    'SELECT * FROM proactive_message_queue ORDER BY id ASC LIMIT ?',
+    boundedLimit,
+  );
 }
 
 export function claimQueuedProactiveMessages(
@@ -5545,11 +6369,12 @@ export function claimQueuedProactiveMessages(
 
   const runClaim = db.transaction(
     (targetChannelId: string, maxRows: number): QueuedProactiveMessage[] => {
-      const rows = db
-        .prepare(
-          'SELECT * FROM proactive_message_queue WHERE channel_id = ? ORDER BY id ASC LIMIT ?',
-        )
-        .all(targetChannelId, maxRows) as QueuedProactiveMessage[];
+      const rows = queryAll<QueuedProactiveMessage, [string, number]>(
+        db,
+        'SELECT * FROM proactive_message_queue WHERE channel_id = ? ORDER BY id ASC LIMIT ?',
+        targetChannelId,
+        maxRows,
+      );
       if (rows.length === 0) return rows;
 
       const deleteRow = db.prepare(
@@ -5570,8 +6395,9 @@ export function deleteQueuedProactiveMessage(id: number): void {
 }
 
 export function getQueuedProactiveMessageCount(): number {
-  const row = db
-    .prepare('SELECT COUNT(*) as count FROM proactive_message_queue')
-    .get() as { count: number };
+  const row = queryOne<{ count: number }>(
+    db,
+    'SELECT COUNT(*) as count FROM proactive_message_queue',
+  ) || { count: 0 };
   return row.count;
 }

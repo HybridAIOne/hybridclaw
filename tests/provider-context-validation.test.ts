@@ -29,6 +29,19 @@ describe('provider context validation', () => {
     ).toBe('compression is not configured: missing API key context.');
   });
 
+  test('requires an API key for Hugging Face contexts', () => {
+    expect(
+      getProviderContextError({
+        provider: 'huggingface',
+        baseUrl: 'https://router.huggingface.co/v1',
+        apiKey: '',
+        model: 'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+        chatbotId: '',
+        toolName: 'compression',
+      }),
+    ).toBe('compression is not configured: missing API key context.');
+  });
+
   test('requires chatbot_id for HybridAI contexts', () => {
     expect(
       getProviderContextError({

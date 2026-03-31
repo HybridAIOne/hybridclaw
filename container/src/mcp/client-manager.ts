@@ -11,6 +11,10 @@ import type {
   Tool as SdkTool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  buildMcpServerNamespaces,
+  sanitizeMcpToolSegment,
+} from '../../shared/mcp-tool-namespaces.js';
 
 import { emitRuntimeEvent } from '../extensions.js';
 import type { ToolDefinition, ToolRunResult } from '../types.js';
@@ -76,56 +80,12 @@ function normalizeText(value: unknown): string {
   return String(value || '').trim();
 }
 
-function sanitizeToolSegment(value: string): string {
-  const sanitized = value
-    .trim()
-    .replace(/[^a-zA-Z0-9_-]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  return sanitized || 'tool';
-}
-
-function buildServerNamespaces(
-  serverNames: Iterable<string>,
-): Map<string, string> {
-  const names = [...serverNames].sort((left, right) =>
-    left.localeCompare(right),
-  );
-  const counts = new Map<string, number>();
-
-  for (const name of names) {
-    const sanitized = sanitizeToolSegment(name);
-    counts.set(sanitized, (counts.get(sanitized) || 0) + 1);
-  }
-
-  const namespaces = new Map<string, string>();
-  const used = new Set<string>();
-
-  for (const name of names) {
-    const sanitized = sanitizeToolSegment(name);
-    const trimmed = name.trim();
-    const needsHash = sanitized !== trimmed || (counts.get(sanitized) || 0) > 1;
-    const base = needsHash ? `${sanitized}_${stableHash(name)}` : sanitized;
-
-    let candidate = base;
-    let suffix = 1;
-    while (used.has(candidate)) {
-      candidate = `${base}_${stableHash(`${name}:${suffix}`)}`;
-      suffix += 1;
-    }
-
-    used.add(candidate);
-    namespaces.set(name, candidate);
-  }
-
-  return namespaces;
-}
-
 function buildNamespacedToolName(
   serverNamespace: string,
   toolName: string,
   seen: Set<string>,
 ): string {
-  const base = `${serverNamespace}__${sanitizeToolSegment(toolName)}`;
+  const base = `${serverNamespace}__${sanitizeMcpToolSegment(toolName)}`;
   if (!seen.has(base)) {
     seen.add(base);
     return base;
@@ -556,18 +516,18 @@ export class McpClientManager {
 
   private getServerNamespace(serverName: string): string {
     return (
-      buildServerNamespaces(this.configs.keys()).get(serverName) ||
-      sanitizeToolSegment(serverName)
+      buildMcpServerNamespaces(this.configs.keys()).get(serverName) ||
+      sanitizeMcpToolSegment(serverName)
     );
   }
 
   private refreshToolNames(): void {
-    const serverNamespaces = buildServerNamespaces(this.configs.keys());
+    const serverNamespaces = buildMcpServerNamespaces(this.configs.keys());
 
     for (const handle of this.clients.values()) {
       const serverNamespace =
         serverNamespaces.get(handle.serverName) ||
-        sanitizeToolSegment(handle.serverName);
+        sanitizeMcpToolSegment(handle.serverName);
       const seenNames = new Set<string>();
 
       for (const tool of handle.tools) {

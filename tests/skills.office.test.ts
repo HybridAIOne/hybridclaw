@@ -234,6 +234,145 @@ describe('office bundled skills', () => {
     expect(buildSkillsPrompt(skills)).not.toContain('<name>office</name>');
   });
 
+  test('syncs community skills into workspace/skills with stable read paths', async () => {
+    const { DEFAULT_RUNTIME_HOME_DIR } = await import(
+      '../src/config/runtime-paths.ts'
+    );
+    const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+    const { loadSkillCatalog, loadSkills } = await import(
+      '../src/skills/skills.ts'
+    );
+
+    const communitySkillDir = path.join(
+      DEFAULT_RUNTIME_HOME_DIR,
+      'skills',
+      'openhue',
+    );
+    fs.mkdirSync(communitySkillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(communitySkillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: openhue',
+        'description: Control Philips Hue lights.',
+        'user-invocable: true',
+        '---',
+        '',
+        '# OpenHue',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const agentId = 'community-skill-agent';
+    const workspaceDir = agentWorkspaceDir(agentId);
+    const legacySyncedDir = path.join(
+      workspaceDir,
+      '.synced-skills',
+      'openhue-legacy',
+    );
+    fs.mkdirSync(legacySyncedDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(legacySyncedDir, 'SKILL.md'),
+      '---\nname: stale\ndescription: stale\n---\n',
+      'utf8',
+    );
+
+    expect(
+      loadSkillCatalog().find((skill) => skill.name === 'openhue'),
+    ).toMatchObject({
+      source: 'community',
+      available: true,
+      enabled: true,
+    });
+
+    const skills = loadSkills(agentId);
+
+    expect(skills.find((skill) => skill.name === 'openhue')?.location).toBe(
+      'skills/openhue/SKILL.md',
+    );
+    expect(
+      fs.existsSync(path.join(workspaceDir, 'skills', 'openhue', 'SKILL.md')),
+    ).toBe(true);
+    expect(fs.existsSync(legacySyncedDir)).toBe(false);
+  });
+
+  test('uses hashed sync dirs only for colliding sanitized community skill names', async () => {
+    const { DEFAULT_RUNTIME_HOME_DIR } = await import(
+      '../src/config/runtime-paths.ts'
+    );
+    const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+    const { loadSkills } = await import('../src/skills/skills.ts');
+
+    const firstSkillDir = path.join(
+      DEFAULT_RUNTIME_HOME_DIR,
+      'skills',
+      'foo-bar-one',
+    );
+    fs.mkdirSync(firstSkillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(firstSkillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: foo bar',
+        'description: First colliding skill.',
+        'user-invocable: true',
+        '---',
+        '',
+        '# Foo Bar',
+        '',
+        'first-body',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const secondSkillDir = path.join(
+      DEFAULT_RUNTIME_HOME_DIR,
+      'skills',
+      'foo-bar-two',
+    );
+    fs.mkdirSync(secondSkillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(secondSkillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: foo-bar',
+        'description: Second colliding skill.',
+        'user-invocable: true',
+        '---',
+        '',
+        '# Foo-Bar',
+        '',
+        'second-body',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const agentId = 'community-skill-collision-agent';
+    const workspaceDir = agentWorkspaceDir(agentId);
+    const skills = loadSkills(agentId);
+    const firstSkill = skills.find((skill) => skill.name === 'foo bar');
+    const secondSkill = skills.find((skill) => skill.name === 'foo-bar');
+
+    expect(firstSkill).toBeDefined();
+    expect(secondSkill).toBeDefined();
+    if (!firstSkill || !secondSkill) {
+      throw new Error('Expected both colliding skills to load');
+    }
+    expect(firstSkill?.location).toMatch(
+      /^skills\/foo-bar-[0-9a-f]{8}\/SKILL\.md$/,
+    );
+    expect(secondSkill?.location).toMatch(
+      /^skills\/foo-bar-[0-9a-f]{8}\/SKILL\.md$/,
+    );
+    expect(firstSkill?.location).not.toBe(secondSkill?.location);
+    expect(
+      fs.readFileSync(path.join(workspaceDir, firstSkill.location), 'utf8'),
+    ).toContain('first-body');
+    expect(
+      fs.readFileSync(path.join(workspaceDir, secondSkill.location), 'utf8'),
+    ).toContain('second-body');
+  });
+
   test('prunes stale mirrored bundled skills from agent workspaces', async () => {
     const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
     const { loadSkills } = await import('../src/skills/skills.ts');

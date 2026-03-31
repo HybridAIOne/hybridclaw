@@ -1,0 +1,280 @@
+{
+  "this-is-fine": {
+    "name": "This is Fine",
+    "pack": "classic",
+    "aliases": ["fire room", "dog fire"],
+    "tags": ["chaos", "denial", "classic"],
+    "best_for": "chaos, denial, pretending things are okay",
+    "url": "https://i.imgflip.com/wxica.jpg",
+    "fields": [
+      {
+        "name": "top",
+        "x_pct": 0.5,
+        "y_pct": 0.08,
+        "w_pct": 0.95,
+        "align": "center"
+      },
+      {
+        "name": "bottom",
+        "x_pct": 0.5,
+        "y_pct": 0.92,
+        "w_pct": 0.95,
+        "align": "center"
+      }
+    ]
+  },
+  "drake": {
+    "name": "Drake Hotline Bling",
+    "pack": "classic",
+    "aliases": ["drake yes no"],
+    "tags": ["preference", "reject", "approve", "classic"],
+    "people": ["drake"],
+    "best_for": "rejecting one thing, preferring another",
+    "url": "https://i.imgflip.com/30b1gx.jpg",
+    "fields": [
+      {
+        "name": "reject",
+        "x_pct": 0.73,
+        "y_pct": 0.25,
+        "w_pct": 0.45,
+        "align": "center"
+      },
+      {
+        "name": "approve",
+        "x_pct": 0.73,
+        "y_pct": 0.75,
+        "w_pct": 0.45,
+        "align": "center"
+      }
+    ]
+  },
+  "distracted-boyfriend": {
+    "name": "Distracted Boyfriend",
+    "pack": "classic",
+    "aliases": ["boyfriend", "temptation"],
+    "tags": ["distraction", "priorities", "classic"],
+    "best_for": "distraction, shifting priorities, temptation",
+    "url": "https://i.imgflip.com/1ur9b0.jpg",
+    "fields": [
+      {
+        "name": "distraction",
+        "x_pct": 0.18,
+        "y_pct": 0.9,
+        "w_pct": 0.3,
+        "align": "center"
+      },
+      {
+        "name": "current",
+        "x_pct": 0.55,
+        "y_pct": 0.9,
+        "w_pct": 0.3,
+        "align": "center"
+      },
+      {
+        "name": "person",
+        "x_pct": 0.82,
+        "y_pct": 0.9,
+        "w_pct": 0.3,
+        "align": "center"
+      }
+    ]
+  },
+  "two-buttons": {
+    "name": "Two Buttons",
+    "pack": "classic",
+    "aliases": ["buttons", "decision"],
+    "tags": ["choice", "dilemma", "classic"],
+    "best_for": "impossible choice, dilemma between two options",
+    "url": "https://i.imgflip.com/1g8my4.jpg",
+    "fields": [
+      {
+        "name": "left_button",
+        "x_pct": 0.3,
+        "y_pct": 0.2,
+        "w_pct": 0.28,
+        "align": "center"
+      },
+      {
+        "name": "right_button",
+        "x_pct": 0.62,
+        "y_pct": 0.12,
+        "w_pct": 0.28,
+        "align": "center"
+      },
+      {
+        "name": "person",
+        "x_pct": 0.5,
+        "y_pct": 0.85,
+        "w_pct": 0.9,
+        "align": "center"
+      }
+    ]
+  },
+  "expanding-brain": {
+    "name": "Expanding Brain",
+    "pack": "classic",
+    "aliases": ["brain", "levels"],
+    "tags": ["irony", "escalation", "classic"],
+    "best_for": "escalating irony, increasingly absurd ideas",
+    "url": "https://i.imgflip.com/1jwhww.jpg",
+    "fields": [
+      {
+        "name": "level1",
+        "x_pct": 0.25,
+        "y_pct": 0.12,
+        "w_pct": 0.45,
+        "align": "center"
+      },
+      {
+        "name": "level2",
+        "x_pct": 0.25,
+        "y_pct": 0.38,
+        "w_pct": 0.45,
+        "align": "center"
+      },
+      {
+        "name": "level3",
+        "x_pct": 0.25,
+        "y_pct": 0.63,
+        "w_pct": 0.45,
+        "align": "center"
+      },
+      {
+        "name": "level4",
+        "x_pct": 0.25,
+        "y_pct": 0.88,
+        "w_pct": 0.45,
+        "align": "center"
+      }
+    ]
+  },
+  "change-my-mind": {
+    "name": "Change My Mind",
+    "pack": "classic",
+    "aliases": ["hot take"],
+    "tags": ["opinion", "debate", "classic"],
+    "best_for": "strong or ironic opinion, controversial take",
+    "url": "https://i.imgflip.com/24y43o.jpg",
+    "fields": [
+      {
+        "name": "statement",
+        "x_pct": 0.58,
+        "y_pct": 0.78,
+        "w_pct": 0.35,
+        "align": "center"
+      }
+    ]
+  },
+  "woman-yelling-at-cat": {
+    "name": "Woman Yelling at Cat",
+    "pack": "classic",
+    "aliases": ["cat dinner"],
+    "tags": ["argument", "misunderstanding", "classic"],
+    "best_for": "argument, blame, misunderstanding",
+    "url": "https://i.imgflip.com/345v97.jpg",
+    "fields": [
+      {
+        "name": "woman",
+        "x_pct": 0.27,
+        "y_pct": 0.1,
+        "w_pct": 0.5,
+        "align": "center"
+      },
+      {
+        "name": "cat",
+        "x_pct": 0.76,
+        "y_pct": 0.1,
+        "w_pct": 0.44,
+        "align": "center"
+      }
+    ]
+  },
+  "one-does-not-simply": {
+    "name": "One Does Not Simply",
+    "pack": "classic",
+    "aliases": ["boromir"],
+    "tags": ["difficulty", "classic"],
+    "people": ["boromir"],
+    "best_for": "something that sounds easy but is actually hard",
+    "url": "https://i.imgflip.com/1bij.jpg",
+    "fields": [
+      {
+        "name": "top",
+        "x_pct": 0.5,
+        "y_pct": 0.08,
+        "w_pct": 0.95,
+        "align": "center"
+      },
+      {
+        "name": "bottom",
+        "x_pct": 0.5,
+        "y_pct": 0.92,
+        "w_pct": 0.95,
+        "align": "center"
+      }
+    ]
+  },
+  "grus-plan": {
+    "name": "Gru's Plan",
+    "pack": "classic",
+    "aliases": ["gru plan"],
+    "tags": ["backfire", "plan", "classic"],
+    "best_for": "a plan that backfires, unexpected consequence",
+    "url": "https://i.imgflip.com/26jxvs.jpg",
+    "fields": [
+      {
+        "name": "step1",
+        "x_pct": 0.5,
+        "y_pct": 0.05,
+        "w_pct": 0.45,
+        "align": "center"
+      },
+      {
+        "name": "step2",
+        "x_pct": 0.5,
+        "y_pct": 0.3,
+        "w_pct": 0.45,
+        "align": "center"
+      },
+      {
+        "name": "step3",
+        "x_pct": 0.5,
+        "y_pct": 0.55,
+        "w_pct": 0.45,
+        "align": "center"
+      },
+      {
+        "name": "realization",
+        "x_pct": 0.5,
+        "y_pct": 0.8,
+        "w_pct": 0.45,
+        "align": "center"
+      }
+    ]
+  },
+  "batman-slapping-robin": {
+    "name": "Batman Slapping Robin",
+    "pack": "classic",
+    "aliases": ["batman slap"],
+    "tags": ["correction", "bad idea", "classic"],
+    "people": ["batman", "robin"],
+    "best_for": "shutting down a bad idea, correcting someone",
+    "url": "https://i.imgflip.com/9ehk.jpg",
+    "fields": [
+      {
+        "name": "robin",
+        "x_pct": 0.28,
+        "y_pct": 0.08,
+        "w_pct": 0.5,
+        "align": "center"
+      },
+      {
+        "name": "batman",
+        "x_pct": 0.72,
+        "y_pct": 0.08,
+        "w_pct": 0.5,
+        "align": "center"
+      }
+    ]
+  }
+}

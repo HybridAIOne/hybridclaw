@@ -40,6 +40,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
       'compact',
       'channel-mode',
       'channel-policy',
+      'concierge',
       'model',
       'agent',
       'help',
@@ -81,6 +82,14 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
       ?.map((option) => ('name' in option ? option.name : ''))
       .filter(Boolean),
   ).toEqual(['info', 'list', 'set', 'clear', 'default']);
+  const conciergeDefinition = definitions.find(
+    (definition) => definition.name === 'concierge',
+  );
+  expect(
+    conciergeDefinition?.options
+      ?.map((option) => ('name' in option ? option.name : ''))
+      .filter(Boolean),
+  ).toEqual(['info', 'on', 'off', 'model', 'profile']);
 });
 
 test('parseSlashInteractionArgs maps agent interactions to command args', () => {
@@ -136,6 +145,17 @@ test('parseSlashInteractionArgs maps bot set interactions to command args', () =
   expect(args).toEqual(['bot', 'set', 'mybot']);
 });
 
+test('parseSlashInteractionArgs maps bot clear interactions to command args', () => {
+  const args = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'bot',
+      subcommand: 'clear',
+    }) as never,
+  );
+
+  expect(args).toEqual(['bot', 'clear']);
+});
+
 test('parseSlashInteractionArgs maps model list, set, clear, and default interactions', () => {
   const listArgs = parseSlashInteractionArgs(
     makeInteraction({
@@ -176,6 +196,48 @@ test('parseSlashInteractionArgs maps model list, set, clear, and default interac
   expect(clearArgs).toEqual(['model', 'clear']);
   expect(defaultArgs).toEqual(['model', 'default']);
   expect(infoArgs).toEqual(['model', 'info']);
+});
+
+test('parseSlashInteractionArgs maps concierge interactions to command args', () => {
+  const infoArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'concierge',
+      subcommand: 'info',
+    }) as never,
+  );
+  const onArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'concierge',
+      subcommand: 'on',
+    }) as never,
+  );
+  const modelArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'concierge',
+      subcommand: 'model',
+      strings: { name: 'gemini-3-flash' },
+    }) as never,
+  );
+  const profileArgs = parseSlashInteractionArgs(
+    makeInteraction({
+      commandName: 'concierge',
+      subcommand: 'profile',
+      strings: {
+        profile: 'no_hurry',
+        model: 'ollama/qwen3:latest',
+      },
+    }) as never,
+  );
+
+  expect(infoArgs).toEqual(['concierge', 'info']);
+  expect(onArgs).toEqual(['concierge', 'on']);
+  expect(modelArgs).toEqual(['concierge', 'model', 'gemini-3-flash']);
+  expect(profileArgs).toEqual([
+    'concierge',
+    'profile',
+    'no_hurry',
+    'ollama/qwen3:latest',
+  ]);
 });
 
 test('buildSlashCommandDefinitions adds provider filter to model list', () => {

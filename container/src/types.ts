@@ -116,6 +116,8 @@ export interface TaskModelPolicy {
     | 'hybridai'
     | 'openai-codex'
     | 'openrouter'
+    | 'mistral'
+    | 'huggingface'
     | 'ollama'
     | 'lmstudio'
     | 'vllm';
@@ -143,15 +145,9 @@ export const TASK_MODEL_KEYS = [
 
 export type TaskModelKey = (typeof TASK_MODEL_KEYS)[number];
 
-export interface TaskModelPolicies {
-  vision?: TaskModelPolicy;
-  compression?: TaskModelPolicy;
-  web_extract?: TaskModelPolicy;
-  session_search?: TaskModelPolicy;
-  skills_hub?: TaskModelPolicy;
-  mcp?: TaskModelPolicy;
-  flush_memories?: TaskModelPolicy;
-}
+export type TaskModelPolicies = {
+  [K in TaskModelKey]?: TaskModelPolicy;
+};
 
 export interface ContextGuardConfig {
   enabled: boolean;
@@ -159,6 +155,39 @@ export interface ContextGuardConfig {
   compactionRatio: number;
   overflowRatio: number;
   maxRetries: number;
+}
+
+// CamelCase projection of a scheduled_tasks row received over gateway/container IPC.
+export interface ScheduledTaskInput {
+  id: number;
+  cronExpr: string;
+  runAt: string | null;
+  everyMs: number | null;
+  prompt: string;
+  enabled: number;
+  lastRun: string | null;
+  createdAt: string;
+}
+
+export interface WebSearchConfig {
+  provider:
+    | 'auto'
+    | 'brave'
+    | 'perplexity'
+    | 'tavily'
+    | 'duckduckgo'
+    | 'searxng';
+  fallbackProviders: (
+    | 'brave'
+    | 'perplexity'
+    | 'tavily'
+    | 'duckduckgo'
+    | 'searxng'
+  )[];
+  defaultCount: number;
+  cacheTtlMinutes: number;
+  searxngBaseUrl: string;
+  tavilySearchDepth: 'basic' | 'advanced';
 }
 
 export interface ContainerInput {
@@ -172,6 +201,8 @@ export interface ContainerInput {
     | 'hybridai'
     | 'openai-codex'
     | 'openrouter'
+    | 'mistral'
+    | 'huggingface'
     | 'ollama'
     | 'lmstudio'
     | 'vllm';
@@ -188,16 +219,7 @@ export interface ContainerInput {
   maxTokens?: number;
   channelId: string;
   configuredDiscordChannels?: string[];
-  scheduledTasks?: {
-    id: number;
-    cronExpr: string;
-    runAt: string | null;
-    everyMs: number | null;
-    prompt: string;
-    enabled: number;
-    lastRun: string | null;
-    createdAt: string;
-  }[];
+  scheduledTasks?: ScheduledTaskInput[];
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
@@ -206,26 +228,7 @@ export interface ContainerInput {
   mcpServers?: Record<string, McpServerConfig>;
   taskModels?: TaskModelPolicies;
   contextGuard?: ContextGuardConfig;
-  webSearch?: {
-    provider:
-      | 'auto'
-      | 'brave'
-      | 'perplexity'
-      | 'tavily'
-      | 'duckduckgo'
-      | 'searxng';
-    fallbackProviders: (
-      | 'brave'
-      | 'perplexity'
-      | 'tavily'
-      | 'duckduckgo'
-      | 'searxng'
-    )[];
-    defaultCount: number;
-    cacheTtlMinutes: number;
-    searxngBaseUrl: string;
-    tavilySearchDepth: 'basic' | 'advanced';
-  };
+  webSearch?: WebSearchConfig;
 }
 
 export interface MediaContextItem {

@@ -7,6 +7,8 @@ const requiredExactPaths = [
   'README.md',
   'LICENSE',
   'dist/cli.js',
+  'console/dist/index.html',
+  'scripts/postinstall-container.mjs',
 ];
 
 const requiredPrefixes = [
@@ -15,6 +17,8 @@ const requiredPrefixes = [
   'templates/',
   'docs/',
   'container/src/',
+  'console/dist/',
+  'container/shared/',
 ];
 
 const forbiddenPathPatterns = [
@@ -91,8 +95,10 @@ function main() {
     (prefix) => !paths.some((path) => path.startsWith(prefix)),
   );
   const forbidden = paths
-    .filter((path) =>
-      forbiddenPathPatterns.some((pattern) => pattern.test(path)),
+    .filter(
+      (path) =>
+        path !== 'scripts/postinstall-container.mjs' &&
+        forbiddenPathPatterns.some((pattern) => pattern.test(path)),
     )
     .sort();
 

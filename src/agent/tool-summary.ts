@@ -103,6 +103,10 @@ export function getKnownToolGroups(): ToolGroup[] {
   }));
 }
 
+export function listKnownToolNames(): string[] {
+  return [...KNOWN_TOOL_NAMES].sort((left, right) => left.localeCompare(right));
+}
+
 export function isKnownToolName(name: string): boolean {
   return KNOWN_TOOL_NAMES.has(String(name || '').trim());
 }

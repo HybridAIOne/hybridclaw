@@ -25,7 +25,7 @@ import {
   setObservabilityIngestToken,
   setObservabilityOffset,
 } from '../memory/db.js';
-import type { StructuredAuditEntry } from '../types.js';
+import type { StructuredAuditEntry } from '../types/audit.js';
 
 const PLATFORM_MAX_EVENTS = 1_000;
 const PLATFORM_MAX_PAYLOAD_BYTES = 2_000_000;
@@ -122,6 +122,7 @@ const ingestState: ObservabilityIngestState = {
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let flushInProgress = false;
+let flushGeneration = 0;
 
 function clampInteger(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -709,17 +710,20 @@ function isPauseStatus(statusCode: number): boolean {
 }
 
 async function flushObservability(reason: string): Promise<void> {
+  const generation = flushGeneration;
   if (flushInProgress) return;
   flushInProgress = true;
   ingestState.running = true;
 
   try {
     const config = resolveConfig();
+    if (generation !== flushGeneration) return;
     ingestState.enabled = config.enabled;
     ingestState.streamKey = null;
 
     const validation = validateConfig(config);
     if (!validation.ok) {
+      if (generation !== flushGeneration) return;
       ingestState.reason = validation.reason;
       return;
     }
@@ -727,6 +731,7 @@ async function flushObservability(reason: string): Promise<void> {
     if (ingestState.paused) return;
 
     const initialToken = await resolveIngestToken(config);
+    if (generation !== flushGeneration) return;
     if (!initialToken.ok || !initialToken.token) {
       ingestState.reason =
         initialToken.reason || 'failed to resolve observability ingest token';
@@ -754,6 +759,7 @@ async function flushObservability(reason: string): Promise<void> {
     );
 
     while (true) {
+      if (generation !== flushGeneration) return;
       const rows = getStructuredAuditAfterId(cursor, fetchLimit);
       if (rows.length === 0) break;
 
@@ -778,11 +784,13 @@ async function flushObservability(reason: string): Promise<void> {
       }
 
       let result = await postBatch(config, activeToken, batch.payloadText);
+      if (generation !== flushGeneration) return;
       if (
         !result.ok &&
         (result.statusCode === 401 || result.statusCode === 403)
       ) {
         const refreshed = await resolveIngestToken(config, true);
+        if (generation !== flushGeneration) return;
         if (refreshed.ok && refreshed.token) {
           activeToken = refreshed.token;
           logger.warn(
@@ -794,6 +802,7 @@ async function flushObservability(reason: string): Promise<void> {
             'Observability ingest auth failed; refreshed ingest token and retrying batch',
           );
           result = await postBatch(config, activeToken, batch.payloadText);
+          if (generation !== flushGeneration) return;
         } else {
           const refreshReason =
             refreshed.reason || 'unknown token refresh failure';
@@ -851,13 +860,16 @@ async function flushObservability(reason: string): Promise<void> {
       );
     }
   } catch (err) {
+    if (generation !== flushGeneration) return;
     const text = err instanceof Error ? err.message : String(err);
     ingestState.lastFailureAt = new Date().toISOString();
     ingestState.lastError = text;
     logger.warn({ reason, error: text }, 'Observability ingest flush crashed');
   } finally {
-    flushInProgress = false;
-    ingestState.running = false;
+    if (generation === flushGeneration) {
+      flushInProgress = false;
+      ingestState.running = false;
+    }
   }
 }
 
@@ -904,10 +916,12 @@ export function startObservabilityIngest(): void {
 }
 
 export function stopObservabilityIngest(): void {
+  flushGeneration += 1;
   if (timer) {
     clearInterval(timer);
     timer = null;
   }
+  flushInProgress = false;
   ingestState.running = false;
 }
 

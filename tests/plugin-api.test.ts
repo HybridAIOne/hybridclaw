@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { createPluginApi } from '../src/plugins/plugin-api.js';
 import type { PluginManager } from '../src/plugins/plugin-manager.js';
@@ -21,6 +21,14 @@ function makePluginManagerStub(): PluginManager {
     registerPromptHook() {},
     registerCommand() {},
     registerService() {},
+    registerInboundWebhook() {},
+    dispatchInboundMessage() {
+      return Promise.resolve({
+        status: 'success',
+        result: 'ok',
+        toolsUsed: [],
+      });
+    },
     registerHook() {},
   } as unknown as PluginManager;
 }
@@ -141,4 +149,72 @@ test('createPluginApi only exposes manifest-declared credentials', () => {
       process.env[blockedKey] = originalBlocked;
     }
   }
+});
+
+test('createPluginApi delegates inbound webhook registration and inbound turn dispatch', async () => {
+  const registerInboundWebhook = vi.fn();
+  const dispatchInboundMessage = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'reply',
+    toolsUsed: [],
+    sessionId: 'session-2',
+  }));
+  const manager = {
+    registerMemoryLayer() {},
+    registerProvider() {},
+    registerChannel() {},
+    registerTool() {},
+    registerPromptHook() {},
+    registerCommand() {},
+    registerService() {},
+    registerInboundWebhook,
+    dispatchInboundMessage,
+    registerHook() {},
+  } as unknown as PluginManager;
+
+  const api = createPluginApi({
+    manager,
+    pluginId: 'demo-plugin',
+    pluginDir: '/tmp/demo-plugin',
+    registrationMode: 'full',
+    config: loadRuntimeConfig(),
+    pluginConfig: {},
+    declaredEnv: [],
+    homeDir: '/tmp/home',
+    cwd: '/tmp/project',
+  });
+
+  const handler = vi.fn();
+  api.registerInboundWebhook({
+    name: 'inbound',
+    handler,
+  });
+  const result = await api.dispatchInboundMessage({
+    sessionId: 'session-2',
+    guildId: null,
+    channelId: 'email:user@example.com',
+    userId: 'user@example.com',
+    username: 'User',
+    content: 'Hello',
+  });
+
+  expect(registerInboundWebhook).toHaveBeenCalledWith('demo-plugin', {
+    name: 'inbound',
+    handler,
+  });
+  expect(dispatchInboundMessage).toHaveBeenCalledWith('demo-plugin', {
+    sessionId: 'session-2',
+    guildId: null,
+    channelId: 'email:user@example.com',
+    userId: 'user@example.com',
+    username: 'User',
+    content: 'Hello',
+  });
+  expect(result).toEqual(
+    expect.objectContaining({
+      status: 'success',
+      result: 'reply',
+      sessionId: 'session-2',
+    }),
+  );
 });

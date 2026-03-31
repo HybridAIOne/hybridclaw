@@ -1,5 +1,5 @@
 import type { WAMessage } from '@whiskeysockets/baileys';
-import type { MediaContextItem } from '../../types.js';
+import type { MediaContextItem } from '../../types/container.js';
 
 const CONTROL_COMMAND_RE = /^\/(stop|pause|clear|reset|cancel|resume)\b/i;
 
@@ -12,6 +12,7 @@ export interface WhatsAppInboundBatch {
   userId: string;
   username: string;
   content: string;
+  ackReaction: string;
   media: MediaContextItem[];
   chatJid: string;
   senderJid: string;

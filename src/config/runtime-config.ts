@@ -10,11 +10,12 @@ import {
   type AgentDefaultsConfig,
   type AgentModelConfig,
   type AgentsConfig,
+  buildOptionalAgentPresentation,
   DEFAULT_AGENT_ID,
 } from '../agents/agent-types.js';
-import { CODEX_DEFAULT_BASE_URL } from '../auth/codex-auth.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
 import {
   normalizeSessionResetMode,
@@ -26,14 +27,27 @@ import {
   type SessionDmScope,
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
-import type { McpServerConfig } from '../types.js';
+import type { McpServerConfig } from '../types/models.js';
 import { normalizeTrimmedStringSet } from '../utils/normalized-strings.js';
+import {
+  clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
+  deleteRuntimeConfigRevision as deleteTrackedRuntimeConfigRevision,
+  getRuntimeConfigRevision as getTrackedRuntimeConfigRevision,
+  listRuntimeConfigRevisions as listTrackedRuntimeConfigRevisions,
+  type RuntimeConfigChangeMeta,
+  type RuntimeConfigObservedFile,
+  type RuntimeConfigRevision,
+  type RuntimeConfigRevisionSummary,
+  runtimeConfigRevisionStorePath,
+  syncRuntimeConfigRevisionState,
+} from './runtime-config-revisions.js';
+
+import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 17;
+export const CONFIG_VERSION = 18;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
-const DEFAULT_RUNTIME_HOME_DIR = path.join(os.homedir(), '.hybridclaw');
 const DEFAULT_DB_PATH = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'data',
@@ -97,6 +111,15 @@ export type DiscordPresenceActivityType =
 export type SchedulerScheduleKind = 'at' | 'every' | 'cron';
 export type SchedulerActionKind = 'agent_turn' | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
+export const SCHEDULER_BOARD_STATUSES = [
+  'backlog',
+  'in_progress',
+  'review',
+  'done',
+  'cancelled',
+] as const;
+export type SchedulerBoardStatus = (typeof SCHEDULER_BOARD_STATUSES)[number];
+const SCHEDULER_BOARD_STATUS_SET = new Set<string>(SCHEDULER_BOARD_STATUSES);
 export type ContainerSandboxMode = 'container' | 'host';
 export type RuntimeWebSearchProvider =
   | 'auto'
@@ -111,6 +134,9 @@ export type RuntimeWebSearchConcreteProvider = Exclude<
 >;
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type IMessageBackend = 'local' | 'bluebubbles';
+export type IMessageDmPolicy = 'open' | 'allowlist' | 'disabled';
+export type IMessageGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type RuntimeAudioTranscriptionProvider =
   | 'openai'
   | 'groq'
@@ -148,6 +174,8 @@ export type RuntimeAuxiliaryProviderSelection =
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'mistral'
+  | 'huggingface'
   | 'ollama'
   | 'lmstudio'
   | 'vllm';
@@ -168,6 +196,16 @@ export interface RuntimeMediaAudioConfig {
   prompt: string;
   language: string;
   models: RuntimeAudioTranscriptionModelConfig[];
+}
+
+export interface RuntimeRoutingConciergeConfig {
+  enabled: boolean;
+  model: string;
+  profiles: {
+    asap: string;
+    balanced: string;
+    noHurry: string;
+  };
 }
 
 export interface RuntimeDiscordHumanDelayConfig {
@@ -273,6 +311,25 @@ export interface RuntimeWhatsAppConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeIMessageConfig {
+  enabled: boolean;
+  backend: IMessageBackend;
+  cliPath: string;
+  dbPath: string;
+  pollIntervalMs: number;
+  serverUrl: string;
+  password: string;
+  webhookPath: string;
+  allowPrivateNetwork: boolean;
+  dmPolicy: IMessageDmPolicy;
+  groupPolicy: IMessageGroupPolicy;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  textChunkLimit: number;
+  debounceMs: number;
+  mediaMaxMb: number;
+}
+
 export interface RuntimeEmailConfig {
   enabled: boolean;
   imapHost: string;
@@ -293,6 +350,8 @@ export interface RuntimeSchedulerJob {
   id: string;
   name?: string;
   description?: string;
+  agentId?: string;
+  boardStatus?: SchedulerBoardStatus;
   schedule: {
     kind: SchedulerScheduleKind;
     at: string | null;
@@ -333,6 +392,9 @@ export interface RuntimeConfig {
     disabled: string[];
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
   };
+  tools: {
+    disabled: string[];
+  };
   plugins: RuntimePluginsConfig;
   adaptiveSkills: AdaptiveSkillsConfig;
   discord: {
@@ -365,6 +427,7 @@ export interface RuntimeConfig {
   };
   msteams: RuntimeMSTeamsConfig;
   whatsapp: RuntimeWhatsAppConfig;
+  imessage: RuntimeIMessageConfig;
   email: RuntimeEmailConfig;
   hybridai: {
     baseUrl: string;
@@ -379,6 +442,16 @@ export interface RuntimeConfig {
     models: string[];
   };
   openrouter: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  mistral: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  huggingface: {
     enabled: boolean;
     baseUrl: string;
     models: string[];
@@ -419,6 +492,9 @@ export interface RuntimeConfig {
   };
   media: {
     audio: RuntimeMediaAudioConfig;
+  };
+  routing: {
+    concierge: RuntimeRoutingConciergeConfig;
   };
   heartbeat: {
     enabled: boolean;
@@ -540,6 +616,18 @@ export interface RuntimeSkillScopeConfigView {
   };
 }
 
+export interface RuntimeToolScopeConfigDraft {
+  tools: {
+    disabled: string[];
+  };
+}
+
+export interface RuntimeToolScopeConfigView {
+  tools?: {
+    disabled?: string[];
+  };
+}
+
 export type RuntimeConfigChangeListener = (
   next: RuntimeConfig,
   prev: RuntimeConfig,
@@ -559,6 +647,10 @@ const DEFAULT_CODEX_MODEL_LIST = [
 const DEFAULT_OPENROUTER_MODEL_LIST = [
   'openrouter/anthropic/claude-sonnet-4',
 ] as const;
+const DEFAULT_MISTRAL_MODEL_LIST = ['mistral/mistral-large-latest'] as const;
+const DEFAULT_HUGGINGFACE_MODEL_LIST = [
+  'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+] as const;
 
 const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
@@ -569,6 +661,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     trustModelAcceptedBy: '',
   },
   agents: {
+    defaultAgentId: DEFAULT_AGENT_ID,
     defaults: {},
     list: [{ id: DEFAULT_AGENT_ID }],
   },
@@ -576,6 +669,9 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     extraDirs: [],
     disabled: [],
     channelDisabled: {},
+  },
+  tools: {
+    disabled: [],
   },
   plugins: {
     list: [],
@@ -699,6 +795,24 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     ackReaction: '👀',
     mediaMaxMb: 20,
   },
+  imessage: {
+    enabled: false,
+    backend: 'local',
+    cliPath: 'imsg',
+    dbPath: path.join(os.homedir(), 'Library', 'Messages', 'chat.db'),
+    pollIntervalMs: 2_500,
+    serverUrl: '',
+    password: '',
+    webhookPath: '/api/imessage/webhook',
+    allowPrivateNetwork: false,
+    dmPolicy: 'allowlist',
+    groupPolicy: 'disabled',
+    allowFrom: [],
+    groupAllowFrom: [],
+    textChunkLimit: 4_000,
+    debounceMs: 2_500,
+    mediaMaxMb: 20,
+  },
   email: {
     enabled: false,
     imapHost: '',
@@ -716,11 +830,11 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   hybridai: {
     baseUrl: 'https://hybridai.one',
-    defaultModel: 'gpt-5-nano',
+    defaultModel: 'gpt-4.1-mini',
     defaultChatbotId: '',
     maxTokens: 4_096,
     enableRag: true,
-    models: ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
+    models: ['gpt-4.1-mini', 'gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
   },
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
@@ -730,6 +844,16 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     enabled: false,
     baseUrl: 'https://openrouter.ai/api/v1',
     models: [...DEFAULT_OPENROUTER_MODEL_LIST],
+  },
+  mistral: {
+    enabled: false,
+    baseUrl: 'https://api.mistral.ai/v1',
+    models: [...DEFAULT_MISTRAL_MODEL_LIST],
+  },
+  huggingface: {
+    enabled: false,
+    baseUrl: 'https://router.huggingface.co/v1',
+    models: [...DEFAULT_HUGGINGFACE_MODEL_LIST],
   },
   local: {
     backends: {
@@ -833,6 +957,17 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       prompt: 'Transcribe the audio.',
       language: '',
       models: [],
+    },
+  },
+  routing: {
+    concierge: {
+      enabled: false,
+      model: 'gemini-3-flash',
+      profiles: {
+        asap: 'gpt-5',
+        balanced: 'gpt-5-mini',
+        noHurry: 'gpt-5-nano',
+      },
     },
   },
   heartbeat: {
@@ -947,6 +1082,26 @@ let watcherRetryAttempt = 0;
 let watcherRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherStableTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherPermanentlyDisabled = false;
+
+function detachTimer(timer: ReturnType<typeof setTimeout>): void {
+  if (
+    typeof timer === 'object' &&
+    timer !== null &&
+    'unref' in timer &&
+    typeof timer.unref === 'function'
+  ) {
+    timer.unref();
+  }
+}
+
+function startDetachedTimer(
+  callback: () => void,
+  delayMs: number,
+): ReturnType<typeof setTimeout> {
+  const timer = setTimeout(callback, delayMs);
+  detachTimer(timer);
+  return timer;
+}
 
 function isRuntimeConfigWatcherDisabled(): boolean {
   const raw = String(process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER || '')
@@ -1141,6 +1296,28 @@ export function getRuntimeDisabledSkillNames(
   return disabled;
 }
 
+export function setRuntimeToolEnabled(
+  draft: RuntimeToolScopeConfigDraft,
+  toolName: string,
+  enabled: boolean,
+): void {
+  const disabled = getRuntimeDisabledToolNames(draft);
+  if (enabled) {
+    disabled.delete(toolName);
+  } else {
+    disabled.add(toolName);
+  }
+  draft.tools.disabled = [...disabled].sort((left, right) =>
+    left.localeCompare(right),
+  );
+}
+
+export function getRuntimeDisabledToolNames(
+  config: RuntimeToolScopeConfigView,
+): Set<string> {
+  return normalizeTrimmedStringSet(config.tools?.disabled ?? []);
+}
+
 function cloneAgentModelConfig(
   value: AgentModelConfig | undefined,
 ): AgentModelConfig | undefined {
@@ -1202,6 +1379,20 @@ function normalizeAgentConfig(
   const name = normalizeString(value.name, fallback?.name ?? '', {
     allowEmpty: true,
   });
+  const displayName = normalizeString(
+    value.displayName,
+    fallback?.displayName ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
+  const imageAsset = normalizeString(
+    value.imageAsset,
+    fallback?.imageAsset ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
   const model = normalizeAgentModelConfig(value.model, fallback?.model);
   const workspace = normalizeString(
     value.workspace,
@@ -1224,6 +1415,7 @@ function normalizeAgentConfig(
   return {
     id,
     ...(name ? { name } : {}),
+    ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
@@ -1251,8 +1443,17 @@ function normalizeAgentsConfig(
   }
   if (!seen.has(DEFAULT_AGENT_ID)) {
     list.unshift({ id: DEFAULT_AGENT_ID });
+    seen.add(DEFAULT_AGENT_ID);
   }
+  const defaultAgentId = normalizeString(
+    raw.defaultAgentId,
+    fallback.defaultAgentId ?? DEFAULT_AGENT_ID,
+    { allowEmpty: false },
+  );
   return {
+    defaultAgentId: seen.has(defaultAgentId)
+      ? defaultAgentId
+      : DEFAULT_AGENT_ID,
     defaults,
     list,
   };
@@ -1534,6 +1735,50 @@ function normalizeWhatsAppGroupPolicy(
   return fallback;
 }
 
+function normalizeIMessageBackend(
+  value: unknown,
+  fallback: IMessageBackend,
+): IMessageBackend {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'local' || normalized === 'bluebubbles') {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeIMessageDmPolicy(
+  value: unknown,
+  fallback: IMessageDmPolicy,
+): IMessageDmPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeIMessageGroupPolicy(
+  value: unknown,
+  fallback: IMessageGroupPolicy,
+): IMessageGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
 function normalizeWhatsAppConfig(
   value: unknown,
   fallback: RuntimeWhatsAppConfig,
@@ -1568,6 +1813,68 @@ function normalizeWhatsAppConfig(
     ),
     ackReaction: normalizeString(raw.ackReaction, fallback.ackReaction, {
       allowEmpty: true,
+    }),
+    mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
+      min: 1,
+      max: 100,
+    }),
+  };
+}
+
+function normalizeIMessageConfig(
+  value: unknown,
+  fallback: RuntimeIMessageConfig,
+): RuntimeIMessageConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    backend: normalizeIMessageBackend(raw.backend, fallback.backend),
+    cliPath: normalizeString(raw.cliPath, fallback.cliPath, {
+      allowEmpty: false,
+    }),
+    dbPath: normalizeString(raw.dbPath, fallback.dbPath, {
+      allowEmpty: false,
+    }),
+    pollIntervalMs: normalizeInteger(
+      raw.pollIntervalMs,
+      fallback.pollIntervalMs,
+      {
+        min: 250,
+        max: 120_000,
+      },
+    ),
+    serverUrl: normalizeBaseUrl(raw.serverUrl, fallback.serverUrl),
+    password: normalizeString(raw.password, fallback.password, {
+      allowEmpty: true,
+    }),
+    webhookPath: normalizeString(raw.webhookPath, fallback.webhookPath, {
+      allowEmpty: false,
+    }),
+    allowPrivateNetwork: normalizeBoolean(
+      raw.allowPrivateNetwork,
+      fallback.allowPrivateNetwork,
+    ),
+    dmPolicy: normalizeIMessageDmPolicy(raw.dmPolicy, fallback.dmPolicy),
+    groupPolicy: normalizeIMessageGroupPolicy(
+      raw.groupPolicy,
+      fallback.groupPolicy,
+    ),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    groupAllowFrom: normalizeStringArray(
+      raw.groupAllowFrom,
+      fallback.groupAllowFrom,
+    ),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 200,
+        max: 4_000,
+      },
+    ),
+    debounceMs: normalizeInteger(raw.debounceMs, fallback.debounceMs, {
+      min: 0,
+      max: 120_000,
     }),
     mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
       min: 1,
@@ -2214,6 +2521,33 @@ function normalizeSchedulerDeliveryKind(
   return fallback;
 }
 
+export function normalizeSchedulerBoardStatus(
+  value: unknown,
+): SchedulerBoardStatus | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (SCHEDULER_BOARD_STATUS_SET.has(normalized)) {
+    return normalized as SchedulerBoardStatus;
+  }
+  return undefined;
+}
+
+export function parseSchedulerBoardStatus(
+  value: unknown,
+  label = 'Scheduler board status',
+): SchedulerBoardStatus | undefined {
+  const trimmed =
+    value === null || value === undefined ? '' : String(value).trim();
+  if (!trimmed) return undefined;
+
+  const normalized = normalizeSchedulerBoardStatus(trimmed);
+  if (normalized) return normalized;
+
+  throw new Error(
+    `${label} must be \`backlog\`, \`in_progress\`, \`review\`, \`done\`, or \`cancelled\`.`,
+  );
+}
+
 function normalizeSchedulerJobList(
   value: unknown,
   fallback: RuntimeSchedulerJob[],
@@ -2270,19 +2604,24 @@ function normalizeSchedulerJobList(
     );
     if (deliveryKind === 'channel' && !to) continue;
     if (deliveryKind === 'webhook' && !webhookUrl) continue;
-    const actionMessage = normalizeString(rawAction.message, '', {
-      allowEmpty: false,
-    });
-    if (!actionMessage) continue;
     const name = normalizeString(item.name, '', { allowEmpty: true });
     const description = normalizeString(item.description, '', {
       allowEmpty: true,
     });
+    const actionMessage =
+      normalizeString(rawAction.message, '', {
+        allowEmpty: true,
+      }) || description;
+    if (!actionMessage) continue;
+    const agentId = normalizeString(item.agentId, '', { allowEmpty: false });
+    const boardStatus = normalizeSchedulerBoardStatus(item.boardStatus);
 
     jobs.push({
       id: jobId,
       ...(name ? { name } : {}),
       ...(description ? { description } : {}),
+      ...(agentId ? { agentId } : {}),
+      ...(boardStatus ? { boardStatus } : {}),
       schedule: {
         kind: scheduleKind,
         at: atIso,
@@ -2408,6 +2747,8 @@ function normalizeAuxiliaryProviderSelection(
     normalized === 'hybridai' ||
     normalized === 'openai-codex' ||
     normalized === 'openrouter' ||
+    normalized === 'mistral' ||
+    normalized === 'huggingface' ||
     normalized === 'ollama' ||
     normalized === 'lmstudio' ||
     normalized === 'vllm'
@@ -2591,6 +2932,39 @@ function normalizeMediaConfig(
   };
 }
 
+function normalizeRoutingConciergeConfig(
+  value: unknown,
+  fallback: RuntimeRoutingConciergeConfig,
+): RuntimeRoutingConciergeConfig {
+  const raw = isRecord(value) ? value : {};
+  const rawProfiles = isRecord(raw.profiles) ? raw.profiles : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    model: normalizeString(raw.model, fallback.model, {
+      allowEmpty: false,
+    }),
+    profiles: {
+      asap: normalizeString(rawProfiles.asap, fallback.profiles.asap, {
+        allowEmpty: false,
+      }),
+      balanced: normalizeString(
+        rawProfiles.balanced,
+        fallback.profiles.balanced,
+        {
+          allowEmpty: false,
+        },
+      ),
+      noHurry: normalizeString(
+        rawProfiles.noHurry ?? rawProfiles.no_hurry,
+        fallback.profiles.noHurry,
+        {
+          allowEmpty: false,
+        },
+      ),
+    },
+  };
+}
+
 function normalizeTavilySearchDepth(
   value: unknown,
   fallback: 'basic' | 'advanced',
@@ -2621,10 +2995,13 @@ function normalizeRuntimeConfig(
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
+  const rawIMessage = isRecord(raw.imessage) ? raw.imessage : {};
   const rawEmail = isRecord(raw.email) ? raw.email : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
   const rawOpenRouter = isRecord(raw.openrouter) ? raw.openrouter : {};
+  const rawMistral = isRecord(raw.mistral) ? raw.mistral : {};
+  const rawHuggingFace = isRecord(raw.huggingface) ? raw.huggingface : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
   const rawAuxiliaryModels = isRecord(raw.auxiliaryModels)
     ? raw.auxiliaryModels
@@ -2675,6 +3052,7 @@ function normalizeRuntimeConfig(
   const rawWeb = isRecord(raw.web) ? raw.web : {};
   const rawWebSearch = isRecord(rawWeb.search) ? rawWeb.search : {};
   const rawMedia = isRecord(raw.media) ? raw.media : {};
+  const rawRouting = isRecord(raw.routing) ? raw.routing : {};
   const rawHeartbeat = isRecord(raw.heartbeat) ? raw.heartbeat : {};
   const rawMemory = isRecord(raw.memory) ? raw.memory : {};
   const rawOps = isRecord(raw.ops) ? raw.ops : {};
@@ -2768,6 +3146,14 @@ function normalizeRuntimeConfig(
     rawOpenRouter.models,
     DEFAULT_RUNTIME_CONFIG.openrouter.models,
   );
+  const mistralModelList = normalizeStringArray(
+    rawMistral.models,
+    DEFAULT_RUNTIME_CONFIG.mistral.models,
+  );
+  const huggingFaceModelList = normalizeStringArray(
+    rawHuggingFace.models,
+    DEFAULT_RUNTIME_CONFIG.huggingface.models,
+  );
   const normalizedCommandUserId = normalizeString(
     rawDiscord.commandUserId,
     DEFAULT_RUNTIME_CONFIG.discord.commandUserId,
@@ -2819,6 +3205,12 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.skills.disabled,
       ),
       channelDisabled: normalizeSkillChannelDisabled(rawSkills.channelDisabled),
+    },
+    tools: {
+      disabled: normalizeStringArray(
+        raw.tools && isRecord(raw.tools) ? raw.tools.disabled : undefined,
+        DEFAULT_RUNTIME_CONFIG.tools.disabled,
+      ),
     },
     plugins: normalizeRuntimePluginsConfig(
       rawPlugins,
@@ -2987,6 +3379,10 @@ function normalizeRuntimeConfig(
       rawWhatsApp,
       DEFAULT_RUNTIME_CONFIG.whatsapp,
     ),
+    imessage: normalizeIMessageConfig(
+      rawIMessage,
+      DEFAULT_RUNTIME_CONFIG.imessage,
+    ),
     email: normalizeEmailConfig(rawEmail, DEFAULT_RUNTIME_CONFIG.email),
     hybridai: {
       baseUrl: hybridBaseUrl,
@@ -3024,6 +3420,28 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.openrouter.baseUrl,
       ),
       models: openRouterModelList,
+    },
+    mistral: {
+      enabled: normalizeBoolean(
+        rawMistral.enabled,
+        DEFAULT_RUNTIME_CONFIG.mistral.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawMistral.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.mistral.baseUrl,
+      ),
+      models: mistralModelList,
+    },
+    huggingface: {
+      enabled: normalizeBoolean(
+        rawHuggingFace.enabled,
+        DEFAULT_RUNTIME_CONFIG.huggingface.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawHuggingFace.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.huggingface.baseUrl,
+      ),
+      models: huggingFaceModelList,
     },
     local: {
       backends: {
@@ -3313,6 +3731,12 @@ function normalizeRuntimeConfig(
       },
     },
     media: normalizeMediaConfig(rawMedia, DEFAULT_RUNTIME_CONFIG.media),
+    routing: {
+      concierge: normalizeRoutingConciergeConfig(
+        rawRouting.concierge,
+        DEFAULT_RUNTIME_CONFIG.routing.concierge,
+      ),
+    },
     heartbeat: {
       enabled: normalizeBoolean(
         rawHeartbeat.enabled,
@@ -3572,11 +3996,29 @@ function normalizeRuntimeConfig(
   };
 }
 
-function loadConfigPatchFromDisk(): DeepPartial<RuntimeConfig> {
-  if (!fs.existsSync(CONFIG_PATH)) return {};
+function loadConfigPatchFromDisk(): {
+  observedFile: RuntimeConfigObservedFile;
+  patch: DeepPartial<RuntimeConfig>;
+} {
+  if (!fs.existsSync(CONFIG_PATH)) {
+    return {
+      observedFile: {
+        exists: false,
+        content: null,
+      },
+      patch: {},
+    };
+  }
+
   const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
   const parsed = JSON.parse(raw) as unknown;
-  return parseConfigPatch(parsed);
+  return {
+    observedFile: {
+      exists: true,
+      content: raw,
+    },
+    patch: parseConfigPatch(parsed),
+  };
 }
 
 function buildSerializableConfig(
@@ -3614,6 +4056,7 @@ function serializeConfigFile(
 function writeConfigFile(
   config: RuntimeConfig,
   opts?: { omitImplicitSandboxMode?: boolean },
+  meta?: RuntimeConfigChangeMeta,
 ): boolean {
   const dir = path.dirname(CONFIG_PATH);
   fs.mkdirSync(dir, { recursive: true });
@@ -3631,6 +4074,10 @@ function writeConfigFile(
   const tmpPath = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
   fs.writeFileSync(tmpPath, nextText, 'utf-8');
   fs.renameSync(tmpPath, CONFIG_PATH);
+  syncRuntimeConfigRevisionState(CONFIG_PATH, meta, {
+    exists: true,
+    content: nextText,
+  });
   return true;
 }
 
@@ -3650,8 +4097,11 @@ function applyConfig(next: RuntimeConfig): void {
   }
 }
 
-function loadRuntimeConfigFromSources(): RuntimeConfig {
-  const diskPatch = loadConfigPatchFromDisk();
+function loadRuntimeConfigFromSources(
+  syncMeta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const { observedFile, patch: diskPatch } = loadConfigPatchFromDisk();
+  syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta, observedFile);
   const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
   currentConfigMetadata = {
     containerSandboxModeExplicit: hasOwn(rawContainer, 'sandboxMode'),
@@ -3659,10 +4109,20 @@ function loadRuntimeConfigFromSources(): RuntimeConfig {
   return normalizeRuntimeConfig(diskPatch);
 }
 
+function reloadRuntimeConfigFromSources(
+  syncMeta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const next = loadRuntimeConfigFromSources(syncMeta);
+  applyConfig(next);
+  return cloneConfig(currentConfig);
+}
+
 function reloadFromDisk(trigger: string): void {
   try {
-    const next = loadRuntimeConfigFromSources();
-    applyConfig(next);
+    reloadRuntimeConfigFromSources({
+      route: `runtime-config.reload:${trigger}`,
+      source: 'external',
+    });
   } catch (err) {
     console.warn(
       `[runtime-config] reload failed (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
@@ -3672,7 +4132,7 @@ function reloadFromDisk(trigger: string): void {
 
 function scheduleReload(trigger: string): void {
   if (reloadTimer) clearTimeout(reloadTimer);
-  reloadTimer = setTimeout(() => {
+  reloadTimer = startDetachedTimer(() => {
     reloadTimer = null;
     reloadFromDisk(trigger);
   }, 120);
@@ -3700,7 +4160,7 @@ function scheduleWatcherRestart(reason: string): void {
   console.warn(
     `[runtime-config] watcher restart in ${delay}ms (attempt ${watcherRetryAttempt}/${WATCHER_RETRY_MAX_ATTEMPTS})`,
   );
-  watcherRestartTimer = setTimeout(() => {
+  watcherRestartTimer = startDetachedTimer(() => {
     watcherRestartTimer = null;
     startWatcher();
   }, delay);
@@ -3734,7 +4194,7 @@ function startWatcher(): void {
       },
     );
     const activeWatcher = configWatcher;
-    watcherStableTimer = setTimeout(() => {
+    watcherStableTimer = startDetachedTimer(() => {
       markWatcherStable(activeWatcher);
     }, WATCHER_STABLE_RESET_DELAY_MS);
     if (watcherRestartTimer) {
@@ -3771,7 +4231,14 @@ function startWatcher(): void {
 function ensureInitialConfigFile(): void {
   if (fs.existsSync(CONFIG_PATH)) return;
   const seeded = normalizeRuntimeConfig();
-  writeConfigFile(seeded, { omitImplicitSandboxMode: true });
+  writeConfigFile(
+    seeded,
+    { omitImplicitSandboxMode: true },
+    {
+      route: 'runtime-config.seed-defaults',
+      source: 'system',
+    },
+  );
 }
 
 function migrateConfigSchemaOnStartup(): void {
@@ -3813,9 +4280,16 @@ function migrateConfigSchemaOnStartup(): void {
     const rawContainer = isRecord(parsedRecord.container)
       ? parsedRecord.container
       : {};
-    const changed = writeConfigFile(migrated, {
-      omitImplicitSandboxMode: !hasOwn(rawContainer, 'sandboxMode'),
-    });
+    const changed = writeConfigFile(
+      migrated,
+      {
+        omitImplicitSandboxMode: !hasOwn(rawContainer, 'sandboxMode'),
+      },
+      {
+        route: 'runtime-config.migrate-schema',
+        source: 'system',
+      },
+    );
     if (!changed) return;
     const from = previousVersion == null ? 'unknown' : String(previousVersion);
     if (previousVersion !== CONFIG_VERSION) {
@@ -3854,8 +4328,43 @@ export function ensureRuntimeConfigFile(): boolean {
   return true;
 }
 
+export function reloadRuntimeConfig(trigger = 'manual'): RuntimeConfig {
+  if (reloadTimer) {
+    clearTimeout(reloadTimer);
+    reloadTimer = null;
+  }
+
+  try {
+    return reloadRuntimeConfigFromSources({
+      route: `runtime-config.reload:${trigger}`,
+      source: 'external',
+    });
+  } catch (err) {
+    throw new Error(
+      `Failed to reload runtime config (${trigger}): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
 export function getRuntimeConfig(): RuntimeConfig {
   return cloneConfig(currentConfig);
+}
+
+export function resolveDefaultAgentId(
+  config: Pick<RuntimeConfig, 'agents'> = currentConfig,
+): string {
+  const configured = normalizeString(
+    config.agents.defaultAgentId,
+    DEFAULT_AGENT_ID,
+    { allowEmpty: false },
+  );
+  const hasConfiguredAgent = (config.agents.list ?? []).some(
+    (entry) =>
+      normalizeString(entry.id, '', {
+        allowEmpty: false,
+      }) === configured,
+  );
+  return hasConfiguredAgent ? configured : DEFAULT_AGENT_ID;
 }
 
 export function isContainerSandboxModeExplicit(): boolean {
@@ -3869,7 +4378,16 @@ export function onRuntimeConfigChange(
   return () => listeners.delete(listener);
 }
 
-export function saveRuntimeConfig(next: RuntimeConfig): RuntimeConfig {
+export type {
+  RuntimeConfigChangeMeta,
+  RuntimeConfigRevision,
+  RuntimeConfigRevisionSummary,
+};
+
+export function saveRuntimeConfig(
+  next: RuntimeConfig,
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
   const normalized = normalizeRuntimeConfig(next);
   const sandboxModeExplicit =
     currentConfigMetadata.containerSandboxModeExplicit ||
@@ -3878,19 +4396,27 @@ export function saveRuntimeConfig(next: RuntimeConfig): RuntimeConfig {
   currentConfigMetadata = {
     containerSandboxModeExplicit: sandboxModeExplicit,
   };
-  writeConfigFile(normalized, {
-    omitImplicitSandboxMode: !sandboxModeExplicit,
-  });
+  writeConfigFile(
+    normalized,
+    {
+      omitImplicitSandboxMode: !sandboxModeExplicit,
+    },
+    meta,
+  );
   applyConfig(normalized);
   return cloneConfig(normalized);
 }
 
 export function updateRuntimeConfig(
   mutator: (draft: RuntimeConfig) => void,
+  meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
   let baseConfig = currentConfig;
   try {
-    baseConfig = loadRuntimeConfigFromSources();
+    baseConfig = loadRuntimeConfigFromSources({
+      route: 'runtime-config.refresh-before-save',
+      source: 'external',
+    });
   } catch (err) {
     console.warn(
       `[runtime-config] update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
@@ -3898,7 +4424,53 @@ export function updateRuntimeConfig(
   }
   const draft = cloneConfig(baseConfig);
   mutator(draft);
-  return saveRuntimeConfig(draft);
+  return saveRuntimeConfig(draft, meta);
+}
+
+export function listRuntimeConfigRevisions(): RuntimeConfigRevisionSummary[] {
+  return listTrackedRuntimeConfigRevisions(CONFIG_PATH);
+}
+
+export function getRuntimeConfigRevision(
+  revisionId: number,
+): RuntimeConfigRevision | null {
+  return getTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
+}
+
+export function deleteRuntimeConfigRevision(revisionId: number): boolean {
+  return deleteTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
+}
+
+export function clearRuntimeConfigRevisions(): number {
+  return clearTrackedRuntimeConfigRevisions(CONFIG_PATH);
+}
+
+export function restoreRuntimeConfigRevision(
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const revision = getRuntimeConfigRevision(revisionId);
+  if (!revision) {
+    throw new Error(`Config revision ${revisionId} was not found.`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(revision.content) as unknown;
+  } catch (err) {
+    throw new Error(
+      `Config revision ${revisionId} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  return saveRuntimeConfig(
+    normalizeRuntimeConfig(parsed as DeepPartial<RuntimeConfig>),
+    meta,
+  );
+}
+
+export function runtimeConfigRevisionPath(): string {
+  return runtimeConfigRevisionStorePath();
 }
 
 export function isSecurityTrustAccepted(

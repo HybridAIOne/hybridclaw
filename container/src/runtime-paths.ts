@@ -4,13 +4,34 @@ import path from 'node:path';
 
 export const WORKSPACE_ROOT_DISPLAY = '/workspace';
 export const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
+export const UPLOADED_MEDIA_CACHE_ROOT_DISPLAY = '/uploaded-media-cache';
 const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-'] as const;
 
 export const WORKSPACE_ROOT = path.resolve(
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT || WORKSPACE_ROOT_DISPLAY,
 );
+const ALLOWED_HOST_ROOTS = (() => {
+  const raw = (process.env.HYBRIDCLAW_AGENT_ALLOWED_ROOTS || '').trim();
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => expandUserPath(value))
+      .filter(Boolean)
+      .map((value) => path.resolve(value));
+  } catch {
+    return [];
+  }
+})();
 export const DISCORD_MEDIA_CACHE_ROOT = path.resolve(
   process.env.HYBRIDCLAW_AGENT_MEDIA_ROOT || DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+);
+export const UPLOADED_MEDIA_CACHE_ROOT = path.resolve(
+  process.env.HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT ||
+    UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
 );
 export const IPC_DIR = path.resolve(
   process.env.HYBRIDCLAW_AGENT_IPC_DIR || '/ipc',
@@ -60,6 +81,15 @@ const EXTRA_MOUNT_ALIASES = loadExtraMountAliases();
 
 function normalizeSlashes(value: string): string {
   return value.replace(/\\/g, '/');
+}
+
+function expandUserPath(input: string): string {
+  const trimmed = input.trim();
+  if (trimmed === '~') return os.homedir();
+  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+    return path.join(os.homedir(), trimmed.slice(2));
+  }
+  return trimmed;
 }
 
 function isWithinRoot(candidate: string, root: string): boolean {
@@ -129,7 +159,7 @@ function resolveRootBoundPath(
   actualRoot: string,
   displayRoot: string,
 ): string | null {
-  const input = String(rawPath || '').trim();
+  const input = expandUserPath(String(rawPath || ''));
   if (!input) return null;
 
   const normalizedInput = normalizeSlashes(input);
@@ -147,6 +177,9 @@ function resolveRootBoundPath(
     }
 
     const resolvedActual = path.resolve(input);
+    if (ALLOWED_HOST_ROOTS.some((root) => isWithinRoot(resolvedActual, root))) {
+      return resolvedActual;
+    }
     return isWithinRoot(resolvedActual, actualRoot) ? resolvedActual : null;
   }
 
@@ -189,7 +222,7 @@ export function resolveWorkspacePath(rawPath: string): string | null {
 }
 
 export function resolveWorkspaceGlobPattern(rawPattern: string): string | null {
-  const input = String(rawPattern || '').trim();
+  const input = expandUserPath(String(rawPattern || ''));
   if (!input) return null;
 
   const normalized = normalizeSlashes(input);
@@ -218,6 +251,11 @@ export function resolveMediaPath(rawPath: string): string | null {
       rawPath,
       DISCORD_MEDIA_CACHE_ROOT,
       DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+    ) ||
+    resolveRootBoundPath(
+      rawPath,
+      UPLOADED_MEDIA_CACHE_ROOT,
+      UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
     )
   );
 }

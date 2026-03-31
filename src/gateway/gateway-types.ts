@@ -7,12 +7,15 @@ import type {
   RuntimeMSTeamsChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
+import type { MediaContextItem } from '../types/container.js';
 import type {
-  McpServerConfig,
-  MemoryCitation,
+  ArtifactMetadata,
   PendingApproval,
-  TokenUsageStats,
-} from '../types.js';
+  ToolProgressEvent,
+} from '../types/execution.js';
+import type { MemoryCitation } from '../types/memory.js';
+import type { McpServerConfig } from '../types/models.js';
+import type { TokenUsageStats } from '../types/usage.js';
 
 export type GatewayMessageComponents = NonNullable<
   BaseMessageOptions['components']
@@ -22,6 +25,7 @@ export interface GatewayModelCatalogEntry {
   value: string;
   label: string;
   isFree: boolean;
+  recommended?: boolean;
 }
 
 export interface GatewayCommandResult {
@@ -33,6 +37,12 @@ export interface GatewayCommandResult {
   mainSessionKey?: string;
   components?: GatewayMessageComponents;
   modelCatalog?: GatewayModelCatalogEntry[];
+}
+
+export interface GatewayAssistantPresentation {
+  agentId: string;
+  displayName: string;
+  imageUrl?: string;
 }
 
 export interface GatewayChatResult {
@@ -81,6 +91,8 @@ export interface GatewayChatResult {
   tokenUsage?: TokenUsageStats;
   error?: string;
   effectiveUserPrompt?: string;
+  userMessageId?: number;
+  assistantMessageId?: number;
 }
 
 export interface GatewayChatToolProgressEvent {
@@ -95,6 +107,8 @@ export interface GatewayChatTextDeltaEvent {
   type: 'text';
   delta: string;
 }
+
+export type GatewayMediaItem = MediaContextItem;
 
 export interface GatewayChatApprovalEvent extends PendingApproval {
   type: 'approval';
@@ -119,18 +133,39 @@ export interface GatewayChatRequestBody {
   userId: string;
   username: string | null;
   content: string;
-  media?: Array<{
-    path: string | null;
-    url: string;
-    originalUrl: string;
-    mimeType: string | null;
-    sizeBytes: number;
-    filename: string;
-  }>;
+  media?: GatewayMediaItem[];
   agentId?: string | null;
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
+}
+
+export interface GatewayChatRequest {
+  sessionId: GatewayChatRequestBody['sessionId'];
+  sessionMode?: GatewayChatRequestBody['sessionMode'];
+  guildId: GatewayChatRequestBody['guildId'];
+  channelId: GatewayChatRequestBody['channelId'];
+  userId: GatewayChatRequestBody['userId'];
+  username: GatewayChatRequestBody['username'];
+  content: GatewayChatRequestBody['content'];
+  media?: GatewayChatRequestBody['media'];
+  agentId?: GatewayChatRequestBody['agentId'];
+  chatbotId?: GatewayChatRequestBody['chatbotId'];
+  model?: GatewayChatRequestBody['model'];
+  enableRag?: GatewayChatRequestBody['enableRag'];
+  onTextDelta?: (delta: string) => void;
+  onToolProgress?: (event: ToolProgressEvent) => void;
+  onApprovalProgress?: (approval: PendingApproval) => void;
+  onProactiveMessage?: (message: {
+    text: string;
+    artifacts?: ArtifactMetadata[];
+  }) => void | Promise<void>;
+  abortSignal?: AbortSignal;
+  source?: string;
+}
+
+export interface GatewayMediaUploadResult {
+  media: GatewayMediaItem;
 }
 
 export interface GatewayCommandRequest {
@@ -189,10 +224,56 @@ export interface GatewayHistorySummary {
   fileChanges: GatewayHistoryFileChanges;
 }
 
+export interface GatewayHistoryBranchVariant {
+  sessionId: string;
+  messageId: number;
+}
+
+export interface GatewayHistoryBranchFamily {
+  anchorSessionId: string;
+  anchorMessageId: number;
+  variants: GatewayHistoryBranchVariant[];
+}
+
 export interface GatewayHistoryResponse {
   sessionId: string;
+  // Routing metadata for related chat session instances. These are not bearer
+  // credentials and must never be used for authorization decisions.
+  // If they ever become auth-relevant, remove them from web responses instead
+  // of silently repurposing them.
+  sessionKey?: string;
+  mainSessionKey?: string;
   history: GatewayHistoryMessage[];
+  assistantPresentation?: GatewayAssistantPresentation;
+  bootstrapAutostart?: {
+    status: 'idle' | 'starting' | 'completed';
+    fileName: 'BOOTSTRAP.md' | 'OPENING.md';
+  } | null;
+  branchFamilies?: GatewayHistoryBranchFamily[];
   summary?: GatewayHistorySummary;
+}
+
+export interface GatewayChatBranchRequestBody {
+  sessionId: string;
+  beforeMessageId: number;
+}
+
+export interface GatewayChatBranchResponse {
+  sessionId: string;
+  sessionKey: string;
+  mainSessionKey: string;
+  copiedMessageCount: number;
+}
+
+export interface GatewayRecentChatSession {
+  sessionId: string;
+  title: string | null;
+  lastActive: string;
+  messageCount: number;
+}
+
+export interface GatewayRecentChatSessionsResponse {
+  sessions: GatewayRecentChatSession[];
 }
 
 export interface GatewaySchedulerJobStatus {
@@ -229,6 +310,7 @@ export interface GatewayStatus {
   uptime: number;
   sessions: number;
   activeContainers: number;
+  defaultAgentId: string;
   defaultModel: string;
   ragDefault: boolean;
   fullAuto?: {
@@ -273,7 +355,14 @@ export interface GatewayStatus {
   };
   providerHealth?: Partial<
     Record<
-      'hybridai' | 'codex' | 'ollama' | 'lmstudio' | 'vllm',
+      | 'hybridai'
+      | 'codex'
+      | 'openrouter'
+      | 'mistral'
+      | 'huggingface'
+      | 'ollama'
+      | 'lmstudio'
+      | 'vllm',
       GatewayProviderHealthEntry
     >
   >;
@@ -415,6 +504,26 @@ export interface GatewayAgentsResponse {
   sessions: GatewaySessionCard[];
 }
 
+export interface GatewayAdminJobAgent {
+  id: string;
+  name: string | null;
+}
+
+export interface GatewayAdminJobSession {
+  sessionId: string;
+  agentId: string;
+  startedAt: string;
+  lastActive: string;
+  status: GatewaySessionCard['status'];
+  lastAnswer: string | null;
+  output: string[];
+}
+
+export interface GatewayAdminJobsContextResponse {
+  agents: GatewayAdminJobAgent[];
+  sessions: GatewayAdminJobSession[];
+}
+
 export interface GatewayAdminDeleteSessionResult {
   deleted: boolean;
   sessionId: string;
@@ -516,6 +625,8 @@ export interface GatewayAdminSchedulerJob {
   source: 'config' | 'task';
   name: string;
   description: string | null;
+  agentId: string | null;
+  boardStatus: NonNullable<RuntimeSchedulerJob['boardStatus']> | null;
   enabled: boolean;
   schedule: RuntimeSchedulerJob['schedule'];
   action: RuntimeSchedulerJob['action'];

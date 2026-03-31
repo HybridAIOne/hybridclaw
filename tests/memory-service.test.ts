@@ -12,10 +12,12 @@ import {
   decaySemanticMemories,
   deleteMemoryValue,
   forgetSemanticMemory,
+  forkSessionBranch,
   getAnyChatbotId,
   getCanonicalContext,
   getMemoryValue,
   getOrCreateSession,
+  getRecentSessionsForUser,
   getSessionById,
   getUsageTotals,
   initDatabase,
@@ -27,6 +29,7 @@ import {
   recallSemanticMemories,
   recordUsageEvent,
   setMemoryValue,
+  storeMessage,
   storeSemanticMemory,
 } from '../src/memory/db.js';
 import {
@@ -37,10 +40,9 @@ import {
 import {
   KnowledgeEntityType,
   KnowledgeRelationType,
-  type SemanticMemoryEntry,
-  type Session,
-  type StoredMessage,
-} from '../src/types.js';
+} from '../src/types/knowledge.js';
+import type { SemanticMemoryEntry } from '../src/types/memory.js';
+import type { Session, StoredMessage } from '../src/types/session.js';
 
 function createTempDbPath(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-memory-'));
@@ -446,6 +448,146 @@ describe.sequential('schema migrations', () => {
     inspect.close();
 
     expect(getAnyChatbotId()).toBe('bot-newer');
+  });
+
+  test('getRecentSessionsForUser returns recent web sessions scoped to the user', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('web-session-1', null, 'web');
+    getOrCreateSession('web-session-2', null, 'web');
+    getOrCreateSession('web-session-3', null, 'web');
+    getOrCreateSession('discord-session', null, 'discord:123');
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    insertMessage.run(
+      'web-session-1',
+      'web-user-a',
+      'web',
+      'user',
+      'First web question from user A',
+      '2026-03-24T09:00:00.000Z',
+    );
+    insertMessage.run(
+      'web-session-1',
+      'web-user-a',
+      'web',
+      'assistant',
+      'Assistant reply A1',
+      '2026-03-24T09:01:00.000Z',
+    );
+    insertMessage.run(
+      'web-session-2',
+      'web-user-a',
+      'web',
+      'user',
+      'Follow-up question from user A',
+      '2026-03-24T10:00:00.000Z',
+    );
+    insertMessage.run(
+      'web-session-3',
+      'web-user-b',
+      'web',
+      'user',
+      'Question from someone else',
+      '2026-03-24T11:00:00.000Z',
+    );
+    insertMessage.run(
+      'discord-session',
+      'web-user-a',
+      'web',
+      'user',
+      'Discord message should be ignored',
+      '2026-03-24T12:00:00.000Z',
+    );
+
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+    updateSession.run(2, '2026-03-24T09:01:00.000Z', 'web-session-1');
+    updateSession.run(1, '2026-03-24T10:00:00.000Z', 'web-session-2');
+    updateSession.run(1, '2026-03-24T11:00:00.000Z', 'web-session-3');
+    updateSession.run(1, '2026-03-24T12:00:00.000Z', 'discord-session');
+    inspect.close();
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 10,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'web-session-2',
+        lastActive: '2026-03-24T10:00:00.000Z',
+        messageCount: 1,
+        title: '"Follow-up question from user A"',
+      },
+      {
+        sessionId: 'web-session-1',
+        lastActive: '2026-03-24T09:01:00.000Z',
+        messageCount: 2,
+        title: '"First web question from user A" ... "Assistant reply A1"',
+      },
+    ]);
+  });
+
+  test('forkSessionBranch copies the prefix into a new sibling session', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    const sourceSession = getOrCreateSession('branch-source', null, 'web');
+    storeMessage('branch-source', 'user-a', 'web', 'user', 'Prompt 1');
+    storeMessage('branch-source', 'assistant', null, 'assistant', 'Reply 1');
+    const editedPromptId = storeMessage(
+      'branch-source',
+      'user-a',
+      'web',
+      'user',
+      'Prompt 2',
+    );
+    storeMessage('branch-source', 'assistant', null, 'assistant', 'Reply 2');
+
+    const fork = forkSessionBranch({
+      sessionId: 'branch-source',
+      beforeMessageId: editedPromptId,
+    });
+
+    expect(fork.session.id).not.toBe(sourceSession.id);
+    expect(fork.session.session_key).toBe(fork.session.id);
+    expect(fork.session.main_session_key).toBe(sourceSession.main_session_key);
+    expect(fork.copiedMessageCount).toBe(2);
+    expect(getSessionById(fork.session.id)?.message_count).toBe(2);
+    expect(
+      getRecentSessionsForUser({
+        userId: 'user-a',
+        channelId: 'web',
+        limit: 10,
+      }).map((session) => session.sessionId),
+    ).toEqual(expect.arrayContaining(['branch-source', fork.session.id]));
+  });
+
+  test('forkSessionBranch rejects invalid cutoff ids', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('branch-source', null, 'web');
+
+    expect(() =>
+      forkSessionBranch({
+        sessionId: 'branch-source',
+        beforeMessageId: 0,
+      }),
+    ).toThrow('Expected a positive integer');
+    expect(() =>
+      forkSessionBranch({
+        sessionId: 'branch-source',
+        beforeMessageId: Number.NaN,
+      }),
+    ).toThrow('Expected a positive integer');
   });
 
   test('migrates request_log to remove the created_at default', () => {
@@ -1063,6 +1205,12 @@ describe('MemoryService', () => {
         }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+        branchFamilies: [],
+      }),
       getRecentMessages: () => [] as StoredMessage[],
       get: () => null,
       set: () => {},
@@ -1160,6 +1308,12 @@ describe('MemoryService', () => {
         }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+        branchFamilies: [],
+      }),
       getRecentMessages: () => [] as StoredMessage[],
       get: () => null,
       set: () => {},
@@ -1252,6 +1406,12 @@ describe('MemoryService', () => {
         }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+        branchFamilies: [],
+      }),
       getRecentMessages: () => [] as StoredMessage[],
       get: () => null,
       set: () => {},
@@ -1458,6 +1618,12 @@ describe('MemoryService', () => {
         }),
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
+      getConversationHistoryPage: () => ({
+        sessionKey: null,
+        mainSessionKey: null,
+        history: [] as StoredMessage[],
+        branchFamilies: [],
+      }),
       getRecentMessages: () => [] as StoredMessage[],
       get: (_sessionId, key) =>
         key === 'release.codename' ? 'AtlasFox' : null,

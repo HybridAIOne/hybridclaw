@@ -1,4 +1,5 @@
 import { isEmailAddress } from '../channels/email/allowlist.js';
+import { isIMessageHandle } from '../channels/imessage/handle.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 
@@ -39,6 +40,7 @@ export function resolveSessionResetChannelKind(
   if (!normalized) return undefined;
   if (LOCAL_SESSION_RESET_CHANNEL_KINDS.has(normalized)) return normalized;
   if (isWhatsAppJid(normalized)) return 'whatsapp';
+  if (isIMessageHandle(normalized)) return 'imessage';
   if (isEmailAddress(normalized)) return 'email';
   if (DISCORD_CHANNEL_ID_RE.test(normalized)) return 'discord';
   return undefined;

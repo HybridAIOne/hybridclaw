@@ -105,6 +105,8 @@ export async function callProviderModel(
   }
   if (
     args.provider === 'openrouter' ||
+    args.provider === 'mistral' ||
+    args.provider === 'huggingface' ||
     args.provider === 'lmstudio' ||
     args.provider === 'vllm'
   ) {
@@ -124,6 +126,8 @@ export async function callProviderModelStream(
   }
   if (
     args.provider === 'openrouter' ||
+    args.provider === 'mistral' ||
+    args.provider === 'huggingface' ||
     args.provider === 'lmstudio' ||
     args.provider === 'vllm'
   ) {
@@ -154,6 +158,8 @@ function normalizeVisionBaseUrl(
   }
   if (
     provider === 'openrouter' ||
+    provider === 'mistral' ||
+    provider === 'huggingface' ||
     provider === 'lmstudio' ||
     provider === 'vllm'
   ) {

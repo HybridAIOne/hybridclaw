@@ -1,6 +1,6 @@
 ---
 name: skill-creator
-description: "Create or update SKILL.md-based skills with strong trigger metadata, lean progressive-disclosure docs, and reliable scripts for init, validate, package, and publish. Use when a user says phrases like 'create a skill', 'build a skill', 'add a skill', 'improve this skill', 'refactor skill docs', or asks for reusable agent workflows/tooling."
+description: "Create and update SKILL.md-based skills with strong trigger metadata, lean docs, and reliable init, validate, package, and publish workflows."
 user-invocable: true
 disable-model-invocation: false
 ---

@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { getBrowserProfileDir } from '../browser/browser-login.js';
 import {
   ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
@@ -45,19 +46,20 @@ import {
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
 import { logger } from '../logger.js';
+import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
 import { redactSecrets } from '../security/redact.js';
+import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import type {
-  AdditionalMount,
   ArtifactMetadata,
-  ContainerInput,
-  ContainerOutput,
   PendingApproval,
   ToolProgressEvent,
-} from '../types.js';
+} from '../types/execution.js';
+import type { ScheduledTaskInput } from '../types/scheduler.js';
+import type { AdditionalMount } from '../types/security.js';
 import {
   agentWorkspaceDir,
   cleanupIpc,
@@ -86,8 +88,10 @@ interface PoolEntry {
   sessionId: string;
   startedAt: number;
   stderrBuffer: string;
+  stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
+  terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
@@ -107,6 +111,7 @@ const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
+const CONTAINER_UPLOADED_MEDIA_CACHE_ROOT = '/uploaded-media-cache';
 const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
 
 export function collectConfiguredDiscordChannelIds(
@@ -134,6 +139,66 @@ export function collectConfiguredDiscordChannelIds(
 
 export function resolveDiscordMediaCacheHostDir(): string {
   return path.resolve(path.join(DATA_DIR, 'discord-media-cache'));
+}
+
+const CONTAINER_BROWSER_PROFILE_PATH = '/browser-profiles';
+const STDERR_HISTORY_LIMIT = 20;
+
+function rememberStderrLine(entry: PoolEntry, line: string): void {
+  entry.stderrHistory.push(line);
+  if (entry.stderrHistory.length > STDERR_HISTORY_LIMIT) {
+    entry.stderrHistory.splice(
+      0,
+      entry.stderrHistory.length - STDERR_HISTORY_LIMIT,
+    );
+  }
+}
+
+function summarizeExit(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): string {
+  if (typeof code === 'number') return `exit code ${code}`;
+  if (signal) return `signal ${signal}`;
+  return 'unknown exit status';
+}
+
+function formatContainerTerminalError(
+  entry: PoolEntry,
+  params?: {
+    code?: number | null;
+    signal?: NodeJS.Signals | null;
+  },
+): string {
+  const stderrText = entry.stderrHistory.join('\n');
+  const missingPackageMatch = stderrText.match(
+    /Cannot find package '([^']+)' imported from /,
+  );
+  const status = summarizeExit(
+    params?.code ?? entry.process.exitCode,
+    params?.signal ?? null,
+  );
+
+  if (missingPackageMatch) {
+    return [
+      `Container runtime exited before producing output (${status}).`,
+      `Missing runtime dependency: ${missingPackageMatch[1]}.`,
+      'Reinstall HybridClaw. If you are running from a source checkout, run `npm run setup` first.',
+    ].join('\n');
+  }
+
+  const detail = entry.stderrHistory
+    .slice(-4)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return detail
+    ? `Container runtime exited before producing output (${status}). ${detail}`
+    : `Container runtime exited before producing output (${status}). Check the gateway log for stderr details.`;
+}
+
+export function resolveBrowserProfileHostDir(): string {
+  return path.resolve(getBrowserProfileDir(DATA_DIR));
 }
 
 function emitTextDelta(entry: PoolEntry, line: string): void {
@@ -382,6 +447,18 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
   const { ipcPath, workspacePath } = getSessionPaths(sessionId, agentId);
   const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
+  const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
+  fs.mkdirSync(uploadedMediaCacheHostPath, { recursive: true });
+  const browserProfileHostPath = resolveBrowserProfileHostDir();
+  fs.mkdirSync(browserProfileHostPath, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(browserProfileHostPath, 0o700);
+  } catch (err) {
+    logger.warn(
+      { err, dir: browserProfileHostPath },
+      'Failed to set permissions on browser profile directory',
+    );
+  }
   const containerName = `hybridclaw-${sessionId.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
 
   const args = [
@@ -409,6 +486,12 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     `${ipcPath}:/ipc:rw`,
     '-v',
     `${mediaCacheHostPath}:${CONTAINER_DISCORD_MEDIA_CACHE_ROOT}:ro`,
+    '-v',
+    `${uploadedMediaCacheHostPath}:${CONTAINER_UPLOADED_MEDIA_CACHE_ROOT}:ro`,
+    '-v',
+    `${browserProfileHostPath}:${CONTAINER_BROWSER_PROFILE_PATH}:rw`,
+    '-e',
+    `BROWSER_SHARED_PROFILE_DIR=${CONTAINER_BROWSER_PROFILE_PATH}`,
     '-e',
     `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
     '-e',
@@ -504,8 +587,10 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     sessionId,
     startedAt: Date.now(),
     stderrBuffer: '',
+    stderrHistory: [],
     streamDebug: createStreamDebugState(),
     workerSignature: '',
+    terminalError: null,
   };
 
   proc.stderr.on('data', (data) => {
@@ -515,6 +600,7 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
+      rememberStderrLine(entry, line);
       emitTextDelta(entry, line);
       if (isStreamActivityLine(line)) {
         entry.activity?.notify();
@@ -538,9 +624,10 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
     }
   });
 
-  proc.on('close', (code) => {
+  proc.on('close', (code, signal) => {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
+      rememberStderrLine(entry, tail);
       emitTextDelta(entry, tail);
       if (isStreamActivityLine(tail)) {
         entry.activity?.notify();
@@ -556,14 +643,16 @@ function getOrSpawnContainer(sessionId: string, agentId: string): PoolEntry {
       }
       entry.stderrBuffer = '';
     }
+    entry.terminalError = formatContainerTerminalError(entry, { code, signal });
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ container: containerName }, message);
     });
     pool.delete(sessionId);
-    logger.info({ sessionId, containerName, code }, 'Container exited');
+    logger.info({ sessionId, containerName, code, signal }, 'Container exited');
   });
 
   proc.on('error', (err) => {
+    entry.terminalError = `Container runtime failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
     pool.delete(sessionId);
     logger.error({ sessionId, containerName, error: err }, 'Container error');
   });
@@ -649,16 +738,18 @@ export async function runContainer(
     maxTokens: HYBRIDAI_MAX_TOKENS,
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
-    scheduledTasks: scheduledTasks?.map((t) => ({
-      id: t.id,
-      cronExpr: t.cron_expr,
-      runAt: t.run_at,
-      everyMs: t.every_ms,
-      prompt: t.prompt,
-      enabled: t.enabled,
-      lastRun: t.last_run,
-      createdAt: t.created_at,
-    })),
+    scheduledTasks: scheduledTasks?.map(
+      (task): ScheduledTaskInput => ({
+        id: task.id,
+        cronExpr: task.cron_expr,
+        runAt: task.run_at,
+        everyMs: task.every_ms,
+        prompt: task.prompt,
+        enabled: task.enabled,
+        lastRun: task.last_run,
+        createdAt: task.created_at,
+      }),
+    ),
     allowedTools,
     blockedTools,
     media,
@@ -755,6 +846,7 @@ export async function runContainer(
     const output = await readOutput(sessionId, CONTAINER_TIMEOUT, {
       signal: abortSignal,
       activity,
+      terminalError: () => entry.terminalError,
     });
     if (isTimedOutAgentOutput(output)) {
       logger.warn(

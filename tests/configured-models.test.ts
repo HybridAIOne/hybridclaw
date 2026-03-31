@@ -39,6 +39,8 @@ async function importFreshConfig(homeDir: string) {
   return import('../src/config/config.ts');
 }
 
+const ORIGINAL_HYBRIDAI_CHATBOT_ID = process.env.HYBRIDAI_CHATBOT_ID;
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
@@ -53,10 +55,47 @@ afterEach(() => {
     process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
       ORIGINAL_DISABLE_CONFIG_WATCHER;
   }
+  if (ORIGINAL_HYBRIDAI_CHATBOT_ID === undefined) {
+    delete process.env.HYBRIDAI_CHATBOT_ID;
+  } else {
+    process.env.HYBRIDAI_CHATBOT_ID = ORIGINAL_HYBRIDAI_CHATBOT_ID;
+  }
+});
+
+describe('env var overrides', () => {
+  it('HYBRIDAI_CHATBOT_ID env var overrides config.json value', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.hybridai.defaultChatbotId = 'from-config';
+    });
+    process.env.HYBRIDAI_CHATBOT_ID = 'from-env';
+    const config = await importFreshConfig(homeDir);
+    expect(config.HYBRIDAI_CHATBOT_ID).toBe('from-env');
+  });
+
+  it('falls back to config.json when HYBRIDAI_CHATBOT_ID is not set', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.hybridai.defaultChatbotId = 'from-config';
+    });
+    delete process.env.HYBRIDAI_CHATBOT_ID;
+    const config = await importFreshConfig(homeDir);
+    expect(config.HYBRIDAI_CHATBOT_ID).toBe('from-config');
+  });
+
+  it('treats whitespace-only HYBRIDAI_CHATBOT_ID as unset', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.hybridai.defaultChatbotId = 'from-config';
+    });
+    process.env.HYBRIDAI_CHATBOT_ID = '   ';
+    const config = await importFreshConfig(homeDir);
+    expect(config.HYBRIDAI_CHATBOT_ID).toBe('from-config');
+  });
 });
 
 describe('configured model catalog', () => {
-  it('builds a deduplicated shared model list from hybridai, codex, and openrouter config', async () => {
+  it('builds a deduplicated shared model list from hybridai, codex, openrouter, mistral, and huggingface config', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
       config.hybridai.models = ['gpt-5-nano', 'shared-model', 'gpt-5'];
@@ -65,6 +104,13 @@ describe('configured model catalog', () => {
       config.openrouter.models = [
         'shared-model',
         'openrouter/anthropic/claude-sonnet-4',
+      ];
+      config.mistral.enabled = true;
+      config.mistral.models = ['shared-model', 'mistral/mistral-large-latest'];
+      config.huggingface.enabled = true;
+      config.huggingface.models = [
+        'shared-model',
+        'huggingface/meta-llama/Llama-3.1-8B-Instruct',
       ];
     });
 
@@ -85,12 +131,73 @@ describe('configured model catalog', () => {
       'shared-model',
       'openrouter/anthropic/claude-sonnet-4',
     ]);
+    expect(config.MISTRAL_ENABLED).toBe(true);
+    expect(snapshot.mistral.models).toEqual([
+      'shared-model',
+      'mistral/mistral-large-latest',
+    ]);
+    expect(config.HUGGINGFACE_ENABLED).toBe(true);
+    expect(snapshot.huggingface.models).toEqual([
+      'shared-model',
+      'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+    ]);
     expect(config.CONFIGURED_MODELS).toEqual([
       'gpt-5-nano',
       'shared-model',
       'gpt-5',
       'openai-codex/gpt-5.4',
       'openrouter/anthropic/claude-sonnet-4',
+      'mistral/mistral-large-latest',
+      'huggingface/meta-llama/Llama-3.1-8B-Instruct',
+    ]);
+  });
+
+  it('deep-clones exported mutable runtime objects', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.discord.humanDelay = {
+        mode: 'custom',
+        minMs: 1200,
+        maxMs: 3400,
+      };
+      config.discord.guilds = {
+        guildA: {
+          defaultMode: 'mention',
+          channels: {
+            channelA: {
+              mode: 'free',
+              humanDelay: {
+                mode: 'natural',
+                minMs: 500,
+                maxMs: 1500,
+              },
+            },
+          },
+        },
+      };
+      config.mcpServers = {
+        filesystem: {
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp/demo'],
+          enabled: true,
+        },
+      };
+    });
+
+    const config = await importFreshConfig(homeDir);
+    config.DISCORD_HUMAN_DELAY.minMs = 9999;
+    config.DISCORD_GUILDS.guildA.channels.channelA.mode = 'off';
+    config.MCP_SERVERS.filesystem?.args?.push('--mutated');
+
+    const snapshot = config.getConfigSnapshot();
+
+    expect(snapshot.discord.humanDelay.minMs).toBe(1200);
+    expect(snapshot.discord.guilds.guildA.channels.channelA.mode).toBe('free');
+    expect(snapshot.mcpServers.filesystem?.args).toEqual([
+      '-y',
+      '@modelcontextprotocol/server-filesystem',
+      '/tmp/demo',
     ]);
   });
 });

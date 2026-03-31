@@ -12,8 +12,10 @@ import type {
   HybridClawPluginApi,
   MemoryLayerPlugin,
   PluginCommandDefinition,
+  PluginDispatchInboundMessageRequest,
   PluginHookHandlerMap,
   PluginHookName,
+  PluginInboundWebhookDefinition,
   PluginLogger,
   PluginPromptHook,
   PluginRegistrationMode,
@@ -93,6 +95,14 @@ export function createPluginApi(params: {
     },
     registerService(svc: PluginService): void {
       params.manager.registerService(params.pluginId, svc);
+    },
+    registerInboundWebhook(webhook: PluginInboundWebhookDefinition): void {
+      params.manager.registerInboundWebhook(params.pluginId, webhook);
+    },
+    dispatchInboundMessage(
+      request: PluginDispatchInboundMessageRequest,
+    ): Promise<import('../gateway/gateway-types.js').GatewayChatResult> {
+      return params.manager.dispatchInboundMessage(params.pluginId, request);
     },
     on<K extends PluginHookName>(
       event: K,

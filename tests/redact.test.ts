@@ -1,6 +1,10 @@
 import { afterEach, expect, test, vi } from 'vitest';
 
-import { redactSecrets, redactSecretsDeep } from '../src/security/redact.js';
+import {
+  redactHighEntropyStrings,
+  redactSecrets,
+  redactSecretsDeep,
+} from '../src/security/redact.js';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -26,6 +30,21 @@ test('redacts known secret token prefixes and leaves non-matches intact', () => 
       negative: 'token github_pat_short',
     },
     {
+      input: 'token gho_1234567890abcdefghijklmnop',
+      expected: 'token gho_12...mnop',
+      negative: 'token ghx_1234567890abcdefghijklmnop',
+    },
+    {
+      input: 'token ghs_1234567890abcdefghijklmnop',
+      expected: 'token ghs_12...mnop',
+      negative: 'token ghs_short',
+    },
+    {
+      input: 'token ghu_1234567890abcdefghijklmnop',
+      expected: 'token ghu_12...mnop',
+      negative: 'token ghu_short',
+    },
+    {
       input: 'token AKIA1234567890ABCDEF',
       expected: 'token AKIA12...CDEF',
       negative: 'token AKIB1234567890ABCDEF',
@@ -44,6 +63,11 @@ test('redacts known secret token prefixes and leaves non-matches intact', () => 
       input: 'token hf_1234567890abcdefghijklmnop',
       expected: 'token hf_123...mnop',
       negative: 'token hf_short',
+    },
+    {
+      input: 'token npm_1234567890abcdefghijklmnop',
+      expected: 'token npm_12...mnop',
+      negative: 'token npm_short',
     },
     {
       input: `token ${stripeLiveKey}`,
@@ -103,6 +127,48 @@ test('passes through ordinary text unchanged', () => {
   expect(redactSecrets(input)).toBe(input);
 });
 
+test('redacts pii while preserving the GitHub noreply allowlist', () => {
+  expect(redactSecrets('Contact user@company.com for help')).toBe(
+    'Contact ***EMAIL_REDACTED*** for help',
+  );
+  expect(redactSecrets('From noreply@github.com')).toBe(
+    'From noreply@github.com',
+  );
+  expect(redactSecrets('test@example.com')).toBe('***EMAIL_REDACTED***');
+  expect(redactSecrets('Server is at 203.0.113.42 running')).toBe(
+    'Server is at ***IP_ADDRESS_REDACTED*** running',
+  );
+  expect(redactSecrets('Listening on 127.0.0.1 port 8080')).toBe(
+    'Listening on 127.0.0.1 port 8080',
+  );
+  expect(
+    redactSecrets('address is 2001:0db8:85a3:0000:0000:8a2e:0370:7334 ok'),
+  ).toBe('address is ***IP_ADDRESS_REDACTED*** ok');
+  expect(redactSecrets('SSN: 123-45-6789')).toBe('SSN: ***SSN_REDACTED***');
+  expect(redactSecrets('SSN: 000-12-3456')).toBe('SSN: 000-12-3456');
+  expect(redactSecrets('Call (555) 123-4567 for info')).toBe(
+    'Call ***PHONE_REDACTED*** for info',
+  );
+  expect(redactSecrets('Call +49 170 3330160 for info')).toBe(
+    'Call ***PHONE_REDACTED*** for info',
+  );
+  expect(redactSecrets('Office 089/4233232 is open')).toBe(
+    'Office ***PHONE_REDACTED*** is open',
+  );
+  expect(redactSecrets('Office 089 4233232 is open')).toBe(
+    'Office ***PHONE_REDACTED*** is open',
+  );
+  expect(redactSecrets('Date 2026-03-30 remains visible')).toBe(
+    'Date 2026-03-30 remains visible',
+  );
+  expect(redactSecrets('Card: 4111 1111 1111 1111')).toBe(
+    'Card: ***CREDIT_CARD_REDACTED***',
+  );
+  expect(redactSecrets('Number: 1234567890123456')).toBe(
+    'Number: 1234567890123456',
+  );
+});
+
 test('supports disabling redaction via environment flag', () => {
   vi.stubEnv('HYBRIDCLAW_REDACT_SECRETS', 'false');
   const input = 'OPENAI_API_KEY=sk-1234567890abcdefghijklmnop';
@@ -125,4 +191,22 @@ test('recursively redacts nested payload values for audit events', () => {
     },
     items: ['Bearer ***'],
   });
+});
+
+test('redacts high-entropy random-looking strings without touching stable ids', () => {
+  expect(
+    redactHighEntropyStrings(
+      'token Xk9mZr3pWq7vNt2sLf6yBh4jCe8gAa5d should be removed',
+    ),
+  ).toBe('token ***HIGH_ENTROPY_SECRET_REDACTED*** should be removed');
+  expect(
+    redactHighEntropyStrings(
+      'uuid 550e8400-e29b-41d4-a716-446655440000 should stay',
+    ),
+  ).toBe('uuid 550e8400-e29b-41d4-a716-446655440000 should stay');
+  expect(
+    redactHighEntropyStrings(
+      'hash a3f5b9c7d1e2f4a6b8c0d2e4f6a8c0e2 should stay',
+    ),
+  ).toBe('hash a3f5b9c7d1e2f4a6b8c0d2e4f6a8c0e2 should stay');
 });

@@ -8,12 +8,19 @@ import {
 import type { AgentConfig } from '../agents/agent-types.js';
 import { getDiscordChannelDisplayName } from '../channels/discord/runtime.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
+import { logger } from '../logger.js';
 import {
   getRecentMessages,
   getRecentStructuredAuditForSession,
 } from '../memory/db.js';
 import { parseSessionKey } from '../session/session-key.js';
-import type { Session, StoredMessage, StructuredAuditEntry } from '../types.js';
+import {
+  AGENT_CARD_PREVIEW_MAX_LENGTH,
+  buildSessionConversationPreview,
+  trimSessionPreviewText,
+} from '../session/session-preview.js';
+import type { StructuredAuditEntry } from '../types/audit.js';
+import type { Session, StoredMessage } from '../types/session.js';
 import { isFullAutoEnabled } from './fullauto.js';
 import { formatRelativeTimeFromMs, parseTimestamp } from './gateway-time.js';
 import type {
@@ -27,16 +34,6 @@ export interface GatewaySessionUsageSummary {
   total_output_tokens: number;
   total_cost_usd: number;
   total_tool_calls: number;
-}
-
-function trimPreviewText(raw: string, maxLength = 160): string {
-  const compact = String(raw || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!compact) return '';
-  return compact.length > maxLength
-    ? `${compact.slice(0, maxLength - 3).trimEnd()}...`
-    : compact;
 }
 
 function buildAgentName(session: Session): string {
@@ -71,11 +68,17 @@ function buildAgentTask(session: Session, messages: StoredMessage[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (String(message.role || '').toLowerCase() !== 'user') continue;
-    const preview = trimPreviewText(message.content, 180);
+    const preview = trimSessionPreviewText(
+      message.content,
+      AGENT_CARD_PREVIEW_MAX_LENGTH,
+    );
     if (preview) return preview;
   }
   if (session.session_summary) {
-    const preview = trimPreviewText(session.session_summary, 180);
+    const preview = trimSessionPreviewText(
+      session.session_summary,
+      AGENT_CARD_PREVIEW_MAX_LENGTH,
+    );
     if (preview) return preview;
   }
   const parsedKey = parseSessionKey(session.id);
@@ -97,39 +100,6 @@ function buildAgentTask(session: Session, messages: StoredMessage[]): string {
     return 'Delegated sub-agent session spawned for a focused task.';
   }
   return 'Persisted runtime session with no recent user prompt available.';
-}
-
-function buildAgentConversationPreview(messages: StoredMessage[]): {
-  lastQuestion: string | null;
-  lastAnswer: string | null;
-} {
-  let pendingAnswer: string | null = null;
-
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    const role = String(message.role || '').toLowerCase();
-    const preview = trimPreviewText(message.content, 140);
-    if (!preview) continue;
-
-    if (role === 'assistant') {
-      if (!pendingAnswer) {
-        pendingAnswer = preview;
-      }
-      continue;
-    }
-
-    if (role === 'user') {
-      return {
-        lastQuestion: preview,
-        lastAnswer: pendingAnswer,
-      };
-    }
-  }
-
-  return {
-    lastQuestion: null,
-    lastAnswer: pendingAnswer,
-  };
 }
 
 function summarizeAgentAuditPreview(row: StructuredAuditEntry): string {
@@ -212,10 +182,15 @@ function summarizeAgentAuditPreview(row: StructuredAuditEntry): string {
       typeof payload?.message === 'string' && payload.message.trim()
         ? payload.message.trim()
         : '';
-    return trimPreviewText(message ? `error · ${message}` : 'error', 120);
+    return (
+      trimSessionPreviewText(message ? `error · ${message}` : 'error', 120) ||
+      'error'
+    );
   }
 
-  return trimPreviewText(eventType.replace(/\./g, ' '), 120);
+  return (
+    trimSessionPreviewText(eventType.replace(/\./g, ' '), 120) || eventType
+  );
 }
 
 function buildAgentPreview(
@@ -236,9 +211,9 @@ function buildAgentPreview(
         timestampMs,
         kind: 'audit' as const,
         label: row.event_type,
-        line: trimPreviewText(
+        line: trimSessionPreviewText(
           `${formatRelativeTimeFromMs(timestampMs)} · ${summarizeAgentAuditPreview(row)}`,
-          180,
+          AGENT_CARD_PREVIEW_MAX_LENGTH,
         ),
       };
     }),
@@ -250,9 +225,9 @@ function buildAgentPreview(
         timestampMs,
         kind: 'chat' as const,
         label,
-        line: trimPreviewText(
+        line: trimSessionPreviewText(
           `${formatRelativeTimeFromMs(timestampMs)} · ${label} · ${String(message.content || '')}`,
-          180,
+          AGENT_CARD_PREVIEW_MAX_LENGTH,
         ),
       };
     }),
@@ -299,7 +274,9 @@ function buildAgentPreview(
   return {
     title,
     meta: `${activity.length} items · ${formatRelativeTimeFromMs(mostRecent.timestampMs)}`,
-    lines: activity.map((entry) => entry.line),
+    lines: activity
+      .map((entry) => entry.line)
+      .filter((line): line is string => Boolean(line)),
   };
 }
 
@@ -322,6 +299,37 @@ function getAgentWatcherLabel(
   if (status === 'active') return `${sandboxMode} runtime attached`;
   if (status === 'idle') return `runtime idle (${sandboxMode})`;
   return 'runtime detached';
+}
+
+function logUnsupportedConversationPreview(
+  sessionId: string,
+  messages: StoredMessage[],
+  conversation: {
+    lastQuestion: string | null;
+    lastAnswer: string | null;
+  },
+): void {
+  if (conversation.lastQuestion || conversation.lastAnswer) return;
+  if (messages.length === 0) return;
+
+  const unsupportedRoles = Array.from(
+    new Set(
+      messages
+        .filter((message) => String(message.content || '').trim().length > 0)
+        .map((message) => String(message.role || '').toLowerCase())
+        .filter((role) => role !== 'user' && role !== 'assistant'),
+    ),
+  );
+  if (unsupportedRoles.length === 0) return;
+
+  logger.debug(
+    {
+      sessionId,
+      unsupportedRoles,
+      messageCount: messages.length,
+    },
+    'Session conversation preview omitted unsupported message roles',
+  );
 }
 
 export function mapSessionCard(params: {
@@ -347,7 +355,8 @@ export function mapSessionCard(params: {
   );
   const messages = getRecentMessages(session.id, 12);
   const preview = buildAgentPreview(session, messages);
-  const conversation = buildAgentConversationPreview(messages);
+  const conversation = buildSessionConversationPreview(messages);
+  logUnsupportedConversationPreview(session.id, messages, conversation);
 
   return {
     id: session.id,

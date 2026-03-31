@@ -89,6 +89,11 @@ function normalizeLocalModelName(
   if (provider === 'openrouter') {
     return normalizeOpenRouterRuntimeModelName(trimmed);
   }
+  if (provider === 'huggingface') {
+    const prefix = 'huggingface/';
+    if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
+    return trimmed.slice(prefix.length) || trimmed;
+  }
   const prefix = `${provider}/`;
   if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
   return trimmed.slice(prefix.length) || trimmed;
@@ -98,7 +103,13 @@ function isMistralCompatModel(
   provider: string | undefined,
   model: string,
 ): boolean {
-  if (provider !== 'vllm' && provider !== 'lmstudio') return false;
+  if (
+    provider !== 'mistral' &&
+    provider !== 'vllm' &&
+    provider !== 'lmstudio'
+  ) {
+    return false;
+  }
   const normalizedModel = normalizeLocalModelName(provider, model)
     .trim()
     .toLowerCase();

@@ -115,6 +115,7 @@ test('bot set records a structured audit event for observability export', async 
   initDatabase({ quiet: true });
 
   vi.doMock('../src/providers/hybridai-bots.ts', () => ({
+    HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
     fetchHybridAIBots: vi.fn(async () => [
       {
         id: 'bot-research',
@@ -182,6 +183,7 @@ test('bot set leaves the session model unchanged when the bot exposes no model',
   updateSessionModel('session-bot-set-no-model', 'gpt-5-nano');
 
   vi.doMock('../src/providers/hybridai-bots.ts', () => ({
+    HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
     fetchHybridAIBots: vi.fn(async () => [
       {
         id: 'bot-research',
@@ -208,6 +210,54 @@ test('bot set leaves the session model unchanged when the bot exposes no model',
     'bot-research',
   );
   expect(getSessionById('session-bot-set-no-model')?.model).toBe('gpt-5-nano');
+});
+
+test('bot clear clears the session chatbot and records a structured audit event', async () => {
+  setupHome();
+
+  const {
+    getOrCreateSession,
+    getRecentStructuredAuditForSession,
+    getSessionById,
+    initDatabase,
+    updateSessionChatbot,
+  } = await import('../src/memory/db.ts');
+  initDatabase({ quiet: true });
+  getOrCreateSession(
+    'session-bot-clear-audit',
+    null,
+    'channel-bot-clear-audit',
+  );
+  updateSessionChatbot('session-bot-clear-audit', 'bot-research');
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-bot-clear-audit',
+    guildId: null,
+    channelId: 'channel-bot-clear-audit',
+    args: ['bot', 'clear'],
+  });
+
+  expect(result).toMatchObject({
+    kind: 'plain',
+    text: 'Chatbot cleared for this session. HybridAI account fallback will be used when required.',
+  });
+  expect(getSessionById('session-bot-clear-audit')?.chatbot_id).toBeNull();
+
+  const events = getRecentStructuredAuditForSession(
+    'session-bot-clear-audit',
+    10,
+  );
+  expect(events).toHaveLength(1);
+  expect(events[0]?.event_type).toBe('bot.clear');
+  expect(JSON.parse(events[0]?.payload || '{}')).toMatchObject({
+    type: 'bot.clear',
+    source: 'command',
+    previousBotId: 'bot-research',
+    changed: true,
+  });
 });
 
 test('handleGatewayMessage records agent handoff before agent-side timeouts', async () => {
@@ -264,6 +314,10 @@ test('handleGatewayMessage records agent handoff before agent-side timeouts', as
     type: 'agent.start',
     model: 'vllm/Qwen/Qwen3.5-27B-FP8',
   });
+  expect(
+    typeof records[agentStartIndex]?.event?.systemPrompt === 'string' &&
+      String(records[agentStartIndex]?.event?.systemPrompt).length > 0,
+  ).toBe(true);
   expect(records[errorIndex]?.event).toMatchObject({
     type: 'error',
     errorType: 'agent',

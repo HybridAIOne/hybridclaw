@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Page Not Found</title>
+  <meta name="description" content="HybridClaw docs fallback page.">
+  <link rel="icon" type="image/svg+xml" href="/static/hybridclaw-logo.svg">
+  <link rel="icon" type="image/png" sizes="96x96" href="/static/favicon-96x96.png">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="stylesheet" href="/static/docs.css">
+</head>
+<body>
+  <div data-docs-app hidden></div>
+  <main data-docs-fallback hidden style="max-width: 860px; margin: 0 auto; padding: 56px 20px; font-family: system-ui, sans-serif; color: #e6edf8;">
+    <h1 style="margin: 0 0 16px; font-size: 2.4rem; line-height: 1.05;">Page Not Found</h1>
+    <p style="margin: 0 0 16px; color: #aab8cf;">The requested page does not exist. If you were trying to open the docs, use <a href="/docs/" style="color: #7da2ff;">/docs/</a>. Raw markdown remains available under <code>/development/*.md</code>.</p>
+    <p style="margin: 0;"><a href="/" style="color: #7da2ff;">Back to home</a></p>
+  </main>
+  <script type="module">
+    import { mountDocsApp } from '/static/docs.js';
+
+    mountDocsApp({
+      allowFallback: true,
+      basePath: '/docs',
+      contentBasePath: '/development',
+    }).catch((error) => {
+      console.error('Failed to mount development docs app', error);
+      const fallback = document.querySelector('[data-docs-fallback]');
+      fallback?.removeAttribute('hidden');
+    });
+  </script>
+</body>
+</html>

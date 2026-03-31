@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Use this skill when the user wants a code review, PR review, diff audit, bug-risk scan, test-gap check, or structured findings on a change set.
+description: Review diffs and change sets for bugs, regressions, risks, and missing tests.
 user-invocable: true
 metadata:
   hybridclaw:

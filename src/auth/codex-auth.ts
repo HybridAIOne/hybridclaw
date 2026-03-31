@@ -5,13 +5,14 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
+import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 
 export const CODEX_AUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 export const CODEX_AUTH_ISSUER = 'https://auth.openai.com';
 export const CODEX_AUTH_SCOPE = 'openid profile email offline_access';
 export const CODEX_AUTH_PROVIDER = 'openai-codex';
 export const CODEX_AUTH_METHOD = 'oauth';
-export const CODEX_DEFAULT_BASE_URL = 'https://chatgpt.com/backend-api/codex';
 export const CODEX_DEFAULT_CALLBACK_HOST = '127.0.0.1';
 export const CODEX_DEFAULT_CALLBACK_PORT = 1455;
 export const CODEX_DEFAULT_CALLBACK_REDIRECT_HOST = 'localhost';
@@ -217,12 +218,12 @@ function maskToken(token: string): string {
   return `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`;
 }
 
-export function codexAuthPath(homeDir: string = os.homedir()): string {
-  return path.join(homeDir, '.hybridclaw', CODEX_AUTH_FILE);
+export function codexAuthPath(): string {
+  return path.join(DEFAULT_RUNTIME_HOME_DIR, CODEX_AUTH_FILE);
 }
 
-export function codexAuthLockPath(homeDir: string = os.homedir()): string {
-  return `${codexAuthPath(homeDir)}.lock`;
+export function codexAuthLockPath(): string {
+  return `${codexAuthPath()}.lock`;
 }
 
 function ensurePrivateJsonFile(filePath: string, contents: string): void {
@@ -269,10 +270,8 @@ function normalizeStoredSource(value: unknown): CodexAuthSource {
   return 'browser-pkce';
 }
 
-export function loadCodexAuthStore(
-  homeDir: string = os.homedir(),
-): CodexAuthStore {
-  const filePath = codexAuthPath(homeDir);
+export function loadCodexAuthStore(): CodexAuthStore {
+  const filePath = codexAuthPath();
   if (!fs.existsSync(filePath)) return defaultStore();
 
   const parsed = parseStoreJson(filePath, fs.readFileSync(filePath, 'utf-8'));
@@ -289,31 +288,22 @@ export function loadCodexAuthStore(
   };
 }
 
-export function saveCodexAuthStore(
-  store: CodexAuthStore,
-  homeDir: string = os.homedir(),
-): string {
-  const filePath = codexAuthPath(homeDir);
+export function saveCodexAuthStore(store: CodexAuthStore): string {
+  const filePath = codexAuthPath();
   ensurePrivateJsonFile(filePath, `${JSON.stringify(store, null, 2)}\n`);
   return filePath;
 }
 
-function saveCredentials(
-  credentials: CodexStoredCredentials | null,
-  homeDir: string = os.homedir(),
-): string {
-  return saveCodexAuthStore(
-    {
-      version: 1,
-      credentials,
-      updatedAt: nowIso(),
-    },
-    homeDir,
-  );
+function saveCredentials(credentials: CodexStoredCredentials | null): string {
+  return saveCodexAuthStore({
+    version: 1,
+    credentials,
+    updatedAt: nowIso(),
+  });
 }
 
-export function clearCodexCredentials(homeDir: string = os.homedir()): string {
-  return saveCredentials(null, homeDir);
+export function clearCodexCredentials(): string {
+  return saveCredentials(null);
 }
 
 function decodeJwtPayload(jwt: string): Record<string, unknown> {
@@ -690,8 +680,8 @@ async function refreshAccessToken(
   return normalizeTokenResponse(payload, current.refreshToken, current.source);
 }
 
-async function acquireFileLock(homeDir: string): Promise<() => void> {
-  const lockPath = codexAuthLockPath(homeDir);
+async function acquireFileLock(): Promise<() => void> {
+  const lockPath = codexAuthLockPath();
   const startedAt = Date.now();
   let backoffMs = 100;
 
@@ -748,23 +738,21 @@ function needsRefresh(credentials: CodexStoredCredentials): boolean {
   return credentials.expiresAt <= Date.now() + CODEX_REFRESH_SKEW_MS;
 }
 
-export async function ensureFreshCredentials(
-  homeDir: string = os.homedir(),
-): Promise<EnsureFreshCredentialsResult> {
-  const initial = assertStoredCredentials(loadCodexAuthStore(homeDir));
+export async function ensureFreshCredentials(): Promise<EnsureFreshCredentialsResult> {
+  const initial = assertStoredCredentials(loadCodexAuthStore());
   if (!needsRefresh(initial)) {
     return { credentials: initial, refreshed: false };
   }
 
-  const releaseLock = await acquireFileLock(homeDir);
+  const releaseLock = await acquireFileLock();
   try {
-    const underLock = assertStoredCredentials(loadCodexAuthStore(homeDir));
+    const underLock = assertStoredCredentials(loadCodexAuthStore());
     if (!needsRefresh(underLock)) {
       return { credentials: underLock, refreshed: false };
     }
 
     const refreshed = await refreshAccessToken(underLock);
-    saveCredentials(refreshed, homeDir);
+    saveCredentials(refreshed);
     return { credentials: refreshed, refreshed: true };
   } finally {
     releaseLock();
@@ -988,9 +976,10 @@ async function pollDeviceAuthorizationCode(
   );
 }
 
-export async function loginWithDeviceCode(
-  homeDir: string = os.homedir(),
-): Promise<{ credentials: CodexStoredCredentials; path: string }> {
+export async function loginWithDeviceCode(): Promise<{
+  credentials: CodexStoredCredentials;
+  path: string;
+}> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('Device code login requires an interactive terminal.');
   }
@@ -1015,7 +1004,7 @@ export async function loginWithDeviceCode(
     source: 'device-code',
   });
 
-  const filePath = saveCredentials(credentials, homeDir);
+  const filePath = saveCredentials(credentials);
   return { credentials, path: filePath };
 }
 
@@ -1164,9 +1153,10 @@ async function waitForBrowserCallback(
   }
 }
 
-export async function loginWithBrowserPkce(
-  homeDir: string = os.homedir(),
-): Promise<{ credentials: CodexStoredCredentials; path: string }> {
+export async function loginWithBrowserPkce(): Promise<{
+  credentials: CodexStoredCredentials;
+  path: string;
+}> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('Browser login requires an interactive terminal.');
   }
@@ -1212,7 +1202,7 @@ export async function loginWithBrowserPkce(
       codeVerifier: pkce.verifier,
       source: 'browser-pkce',
     });
-    const filePath = saveCredentials(credentials, homeDir);
+    const filePath = saveCredentials(credentials);
     return { credentials, path: filePath };
   } finally {
     rl.close();
@@ -1300,9 +1290,7 @@ function readImportedTokenData(filePath: string): {
   };
 }
 
-export async function importCodexCliCredentials(
-  homeDir: string = os.homedir(),
-): Promise<{
+export async function importCodexCliCredentials(): Promise<{
   credentials: CodexStoredCredentials;
   path: string;
   importedFrom: string;
@@ -1342,7 +1330,7 @@ export async function importCodexCliCredentials(
       source: 'codex-cli-import',
       lastRefresh: imported.lastRefresh,
     };
-    const filePath = saveCredentials(credentials, homeDir);
+    const filePath = saveCredentials(credentials);
     return { credentials, path: filePath, importedFrom: importPath };
   } finally {
     rl.close();
@@ -1375,7 +1363,6 @@ export function selectDefaultCodexLoginMethod():
 
 export async function loginCodexInteractive(options?: {
   method?: 'auto' | 'device-code' | 'browser-pkce' | 'codex-cli-import';
-  homeDir?: string;
 }): Promise<{
   credentials: CodexStoredCredentials;
   path: string;
@@ -1383,10 +1370,9 @@ export async function loginCodexInteractive(options?: {
   importedFrom?: string;
 }> {
   const method = options?.method || 'auto';
-  const homeDir = options?.homeDir || os.homedir();
 
   if (method === 'codex-cli-import') {
-    const result = await importCodexCliCredentials(homeDir);
+    const result = await importCodexCliCredentials();
     return {
       credentials: result.credentials,
       path: result.path,
@@ -1398,7 +1384,7 @@ export async function loginCodexInteractive(options?: {
   const selectedMethod =
     method === 'auto' ? selectDefaultCodexLoginMethod() : method;
   if (selectedMethod === 'device-code') {
-    const result = await loginWithDeviceCode(homeDir);
+    const result = await loginWithDeviceCode();
     return {
       credentials: result.credentials,
       path: result.path,
@@ -1406,7 +1392,7 @@ export async function loginCodexInteractive(options?: {
     };
   }
 
-  const result = await loginWithBrowserPkce(homeDir);
+  const result = await loginWithBrowserPkce();
   return {
     credentials: result.credentials,
     path: result.path,
@@ -1414,12 +1400,10 @@ export async function loginCodexInteractive(options?: {
   };
 }
 
-export function getCodexAuthStatus(
-  homeDir: string = os.homedir(),
-): CodexAuthStatus {
-  const filePath = codexAuthPath(homeDir);
+export function getCodexAuthStatus(): CodexAuthStatus {
+  const filePath = codexAuthPath();
   try {
-    const store = loadCodexAuthStore(homeDir);
+    const store = loadCodexAuthStore();
     if (!store.credentials) {
       return {
         authenticated: false,

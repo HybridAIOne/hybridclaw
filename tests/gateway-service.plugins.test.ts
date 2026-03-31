@@ -1,3 +1,5 @@
+import { Readable } from 'node:stream';
+
 import { expect, test, vi } from 'vitest';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
@@ -6,10 +8,12 @@ const {
   ensurePluginManagerInitializedMock,
   reloadPluginManagerMock,
   shutdownPluginManagerMock,
+  setPluginInboundMessageDispatcherMock,
   installPluginMock,
   readPluginConfigEntryMock,
   readPluginConfigValueMock,
   reinstallPluginMock,
+  setPluginEnabledMock,
   unsetPluginConfigValueMock,
   uninstallPluginMock,
   pluginManagerMock,
@@ -39,6 +43,7 @@ const {
     notifyTurnComplete: vi.fn(async () => {}),
     notifyAgentEnd: vi.fn(async () => {}),
     handleSessionReset: vi.fn(async () => {}),
+    handleInboundWebhook: vi.fn(async () => false),
     notifySessionStart: vi.fn(async () => {}),
     listPluginSummary: vi.fn(() => []),
   };
@@ -47,6 +52,7 @@ const {
     ensurePluginManagerInitializedMock: vi.fn(async () => pluginManager),
     reloadPluginManagerMock: vi.fn(async () => pluginManager),
     shutdownPluginManagerMock: vi.fn(async () => {}),
+    setPluginInboundMessageDispatcherMock: vi.fn(),
     installPluginMock: vi.fn(async (source: string) => ({
       pluginId: 'demo-plugin',
       pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
@@ -96,6 +102,19 @@ const {
       removedPluginDir: true,
       removedConfigOverrides: 1,
     })),
+    setPluginEnabledMock: vi.fn(async (pluginId: string, enabled: boolean) => ({
+      pluginId,
+      enabled,
+      changed: true,
+      configPath: '/tmp/config.json',
+      entry: enabled
+        ? null
+        : {
+            id: pluginId,
+            enabled: false,
+            config: {},
+          },
+    })),
     unsetPluginConfigValueMock: vi.fn(
       async (pluginId: string, key: string) => ({
         pluginId,
@@ -136,6 +155,7 @@ vi.mock('../src/plugins/plugin-manager.js', () => ({
   ensurePluginManagerInitialized: ensurePluginManagerInitializedMock,
   reloadPluginManager: reloadPluginManagerMock,
   shutdownPluginManager: shutdownPluginManagerMock,
+  setPluginInboundMessageDispatcher: setPluginInboundMessageDispatcherMock,
 }));
 
 vi.mock('../src/plugins/plugin-install.js', () => ({
@@ -147,6 +167,7 @@ vi.mock('../src/plugins/plugin-install.js', () => ({
 vi.mock('../src/plugins/plugin-config.js', () => ({
   readPluginConfigEntry: readPluginConfigEntryMock,
   readPluginConfigValue: readPluginConfigValueMock,
+  setPluginEnabled: setPluginEnabledMock,
   unsetPluginConfigValue: unsetPluginConfigValueMock,
   writePluginConfigValue: writePluginConfigValueMock,
 }));
@@ -157,9 +178,11 @@ const { setupHome } = setupGatewayTest({
     runAgentMock.mockReset();
     ensurePluginManagerInitializedMock.mockClear();
     reloadPluginManagerMock.mockClear();
+    setPluginInboundMessageDispatcherMock.mockClear();
     pluginManagerMock.collectPromptContextDetails.mockClear();
     pluginManagerMock.collectPromptContext.mockClear();
     pluginManagerMock.getToolDefinitions.mockClear();
+    pluginManagerMock.handleInboundWebhook.mockClear();
     pluginManagerMock.notifyBeforeAgentStart.mockClear();
     pluginManagerMock.notifyTurnComplete.mockClear();
     pluginManagerMock.notifyAgentEnd.mockClear();
@@ -172,11 +195,60 @@ const { setupHome } = setupGatewayTest({
     readPluginConfigEntryMock.mockClear();
     readPluginConfigValueMock.mockClear();
     reinstallPluginMock.mockClear();
+    setPluginEnabledMock.mockClear();
     unsetPluginConfigValueMock.mockClear();
     uninstallPluginMock.mockClear();
     writePluginConfigValueMock.mockClear();
   },
 });
+
+function makeWebhookRequest(params: {
+  method?: string;
+  url: string;
+}): import('node:http').IncomingMessage {
+  return Object.assign(Readable.from([]), {
+    method: params.method || 'POST',
+    url: params.url,
+    headers: {},
+    socket: {
+      remoteAddress: '127.0.0.1',
+    },
+  }) as import('node:http').IncomingMessage;
+}
+
+function makeWebhookResponse(): import('node:http').ServerResponse & {
+  body: string;
+  headers: Record<string, string>;
+  writableEnded: boolean;
+  headersSent: boolean;
+} {
+  const headers: Record<string, string> = {};
+  const response = {
+    headersSent: false,
+    writableEnded: false,
+    statusCode: 0,
+    body: '',
+    headers,
+    setHeader(name: string, value: string) {
+      headers[name.toLowerCase()] = value;
+    },
+    end(chunk?: unknown) {
+      if (chunk != null) {
+        response.body += Buffer.isBuffer(chunk)
+          ? chunk.toString('utf8')
+          : String(chunk);
+      }
+      response.writableEnded = true;
+      response.headersSent = true;
+    },
+  };
+  return response as unknown as import('node:http').ServerResponse & {
+    body: string;
+    headers: Record<string, string>;
+    writableEnded: boolean;
+    headersSent: boolean;
+  };
+}
 
 test('handleGatewayMessage injects plugin prompt context and forwards plugin tools to the agent', async () => {
   setupHome();
@@ -310,6 +382,33 @@ test('handleGatewayMessage continues without plugins when plugin manager init fa
   );
 });
 
+test('handleGatewayPluginWebhook returns a generic 503 when plugin manager init fails', async () => {
+  setupHome();
+
+  const { handleGatewayPluginWebhook } = await import(
+    '../src/gateway/gateway-plugin-service.ts'
+  );
+
+  ensurePluginManagerInitializedMock.mockRejectedValueOnce(
+    new Error('plugin load exploded at /tmp/private-path'),
+  );
+  const req = makeWebhookRequest({
+    method: 'POST',
+    url: '/api/plugin-webhooks/demo-plugin/email-inbound',
+  });
+  const res = makeWebhookResponse();
+
+  await handleGatewayPluginWebhook(
+    req,
+    res,
+    new URL('http://localhost/api/plugin-webhooks/demo-plugin/email-inbound'),
+  );
+
+  expect(res.statusCode).toBe(503);
+  expect(res.body).toContain('Plugin manager unavailable.');
+  expect(res.body).not.toContain('/tmp/private-path');
+});
+
 test('handleGatewayCommand lists plugin summaries', async () => {
   setupHome();
 
@@ -423,6 +522,112 @@ test('handleGatewayCommand updates plugin config from a local TUI/web session an
   expect(result.text).toContain('Key: searchMode');
   expect(result.text).toContain('Value: "query"');
   expect(result.text).toContain('Plugin runtime reloaded.');
+});
+
+test('handleGatewayCommand disables a plugin from a local TUI/web session and reloads plugins', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-disable',
+    guildId: null,
+    channelId: 'tui',
+    args: ['plugin', 'disable', 'qmd-memory'],
+  });
+
+  expect(setPluginEnabledMock).toHaveBeenCalledWith('qmd-memory', false);
+  expect(reloadPluginManagerMock).toHaveBeenCalled();
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Disabled');
+  expect(result.text).toContain('Plugin: qmd-memory');
+  expect(result.text).toContain('Status: disabled');
+  expect(result.text).toContain('Plugin runtime reloaded.');
+});
+
+test('handleGatewayCommand reports rollback reload failures when disabling a plugin', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { logger } = await import('../src/logger.js');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+  reloadPluginManagerMock
+    .mockRejectedValueOnce(new Error('reload exploded'))
+    .mockRejectedValueOnce(new Error('rollback reload exploded'));
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-disable-rollback-failed',
+    guildId: null,
+    channelId: 'tui',
+    args: ['plugin', 'disable', 'qmd-memory'],
+  });
+
+  expect(setPluginEnabledMock).toHaveBeenCalledWith('qmd-memory', false);
+  expect(reloadPluginManagerMock).toHaveBeenCalledTimes(2);
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Disable Failed');
+  expect(result.text).toContain(
+    'Updated runtime config at `/tmp/config.json`, but plugin reload failed.',
+  );
+  expect(result.text).toContain('Previous runtime config was restored.');
+  expect(result.text).toContain(
+    'Plugin runtime reload also failed after rollback; plugin state may be inconsistent until the next successful reload.',
+  );
+  expect(result.text).toContain(
+    'Plugin runtime reload failed: rollback reload exploded.',
+  );
+  expect(warnSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: 'plugin disable',
+      pluginId: 'qmd-memory',
+      reloadMessage: 'Plugin runtime reload failed: reload exploded.',
+      rollbackReloadMessage:
+        'Plugin runtime reload failed: rollback reload exploded.',
+    }),
+    'Plugin runtime rollback reload failed',
+  );
+});
+
+test('handleGatewayCommand rejects plugin disable outside local TUI/web sessions', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-disable-remote',
+    guildId: 'guild-1',
+    channelId: 'discord-channel-1',
+    args: ['plugin', 'disable', 'qmd-memory'],
+  });
+
+  expect(setPluginEnabledMock).not.toHaveBeenCalled();
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Disable Restricted');
+  expect(result.text).toContain('only available from local TUI/web sessions');
 });
 
 test('handleGatewayCommand installs a plugin from a local TUI/web session and reloads plugins', async () => {
@@ -647,9 +852,20 @@ test('handleGatewayCommand help continues without plugins when plugin manager in
   expect(result.text).toContain(
     '`plugin config <plugin-id> [key] [value|--unset]`',
   );
+  expect(result.text).toContain(
+    '`/plugin config <plugin-id> [key] [value|--unset]`',
+  );
+  expect(result.text).toContain('`plugin enable <plugin-id>`');
+  expect(result.text).toContain('`/plugin enable <plugin-id>`');
+  expect(result.text).toContain('`plugin disable <plugin-id>`');
   expect(result.text).toContain('`plugin install <path|npm-spec>`');
   expect(result.text).toContain('`plugin reinstall <path|npm-spec>`');
   expect(result.text).toContain('`plugin reload`');
+  expect(result.text).toContain('`/auth status hybridai`');
+  expect(result.text).toContain('`config`');
+  expect(result.text).toContain('`/config check`');
+  expect(result.text).toContain('`/config reload`');
+  expect(result.text).toContain('`/config set <key> <value>`');
 });
 
 test('handleGatewayCommand uninstalls a plugin and reloads the plugin manager', async () => {
@@ -730,7 +946,7 @@ test('getGatewayAdminPlugins summarizes plugin status for the admin console', as
   setupHome();
 
   const { getGatewayAdminPlugins } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-plugin-service.ts'
   );
 
   pluginManagerMock.listPluginSummary.mockReset();

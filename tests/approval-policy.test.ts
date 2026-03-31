@@ -505,14 +505,16 @@ describe('TrustedCoworkerApprovalRuntime', () => {
       argsJson: JSON.stringify({
         command: [
           "node - <<'NODE'",
-          "const ExcelJS = require('exceljs');",
+          "const XlsxPopulate = require('xlsx-populate');",
           "const path='/Users/example/input.xlsx';",
           '(async()=>{',
-          '  const wb=new ExcelJS.Workbook();',
-          '  await wb.xlsx.readFile(path);',
-          "  const ws=wb.getWorksheet('Summary');",
-          '  for(let r=1;r<=ws.actualRowCount;r++){',
-          '    const vals=ws.getRow(r).values;',
+          '  const wb=await XlsxPopulate.fromFileAsync(path);',
+          "  const ws=wb.sheet('Summary');",
+          '  const used=ws.usedRange();',
+          '  if(!used) return;',
+          '  for(let r=1;r<=used.endCell().rowNumber();r++){',
+          '    const vals=[];',
+          '    for(let c=1;c<=Math.min(10, used.endCell().columnNumber());c++){ vals.push(ws.cell(r,c).value()); }',
           "    if(!vals.some(v=>v!==null&&v!==undefined&&v!=='')) continue;",
           '    // print first 10 cols with indexes',
           "    console.log(`${r}: ${vals.join(' | ')}`);",
@@ -643,8 +645,8 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
     vi.resetModules();
 
-    const prompt = 'Open hybridclaw.io';
-    const argsJson = JSON.stringify({ url: 'https://hybridclaw.io' });
+    const prompt = 'Open example.com';
+    const argsJson = JSON.stringify({ url: 'https://example.com' });
     const trustStorePath = path.join(stateDir, 'approval-trust.json');
 
     const { TrustedCoworkerApprovalRuntime: HostModeApprovalRuntime } =
@@ -667,7 +669,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     const persisted = JSON.parse(fs.readFileSync(trustStorePath, 'utf-8')) as {
       trustedActions?: string[];
     };
-    expect(persisted.trustedActions).toContain('network:hybridclaw.io');
+    expect(persisted.trustedActions).toContain('network:example.com');
 
     const restarted = new HostModeApprovalRuntime();
     const second = restarted.evaluateToolCall({
@@ -676,5 +678,24 @@ describe('TrustedCoworkerApprovalRuntime', () => {
       latestUserPrompt: prompt,
     });
     expect(second.decision).toBe('approved_agent');
+  });
+
+  test('hybridclaw.io is allowlisted by default and does not require approval', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'web_fetch',
+      argsJson: JSON.stringify({ url: 'https://www.hybridclaw.io/docs/' }),
+      latestUserPrompt: 'Open the HybridClaw docs',
+    });
+
+    expect(evaluation.actionKey).toBe('network:hybridclaw.io');
+    expect(evaluation.tier).toBe('green');
+    expect(evaluation.decision).toBe('auto');
+    expect(evaluation.reason).toBe(
+      'this host is allowlisted in approval policy',
+    );
   });
 });

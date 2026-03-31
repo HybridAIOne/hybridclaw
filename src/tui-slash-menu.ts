@@ -430,8 +430,7 @@ function buildMenuState(
 
 function keyRequiresPrecomputedMenuState(key: readline.Key): boolean {
   if (key.name === 'escape') return true;
-  if (key.name === 'down' || key.name === 'right') return true;
-  if (key.name === 'up') return true;
+  if (key.name === 'right') return true;
   if (key.name === 'tab') return true;
   if (key.ctrl === true && (key.name === 'n' || key.name === 'p')) return true;
   return false;
@@ -643,18 +642,17 @@ export class TuiSlashMenuController {
 
     if (!state) return { handled: false };
 
-    if (key.name === 'down' || (key.ctrl === true && key.name === 'n')) {
-      if (state.entries.length === 0) return { handled: true, state };
+    if (key.ctrl === true && key.name === 'n') {
+      if (state.entries.length === 0) return { handled: false };
       this.selectedIndex = (this.selectedIndex + 1) % state.entries.length;
       return { handled: true, state };
     }
 
     if (
-      key.name === 'up' ||
       (key.ctrl === true && key.name === 'p') ||
       (key.name === 'tab' && key.shift === true)
     ) {
-      if (state.entries.length === 0) return { handled: true, state };
+      if (state.entries.length === 0) return { handled: false };
       this.selectedIndex =
         (this.selectedIndex - 1 + state.entries.length) % state.entries.length;
       return { handled: true, state };

@@ -5,51 +5,45 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
+import { makeLazyApi, normalizeArgs } from './cli/common.js';
 import {
-  CodexAuthError,
-  clearCodexCredentials,
-  getCodexAuthStatus,
-  loginCodexInteractive,
-} from './auth/codex-auth.js';
-import {
-  clearHybridAICredentials,
-  getHybridAIAuthStatus,
-  loginHybridAIInteractive,
-} from './auth/hybridai-auth.js';
-import type { SkillConfigChannelKind } from './channels/channel.js';
-import { normalizeSkillConfigChannelKind } from './channels/channel-registry.js';
-import {
-  normalizeEmailAddress,
-  normalizeEmailAllowEntry,
-} from './channels/email/allowlist.js';
-import {
-  getWhatsAppAuthStatus,
-  resetWhatsAppAuthState,
-  WHATSAPP_AUTH_DIR,
-  WhatsAppAuthLockError,
-} from './channels/whatsapp/auth.js';
-import { createWhatsAppConnectionManager } from './channels/whatsapp/connection.js';
-import { normalizePhoneNumber } from './channels/whatsapp/phone.js';
+  isHelpRequest,
+  printAuditUsage,
+  printBrowserUsage,
+  printDeprecatedProviderAliasWarning,
+  printDoctorUsage,
+  printGatewayUsage,
+  printHelpTopic,
+  printHelpUsage,
+  printMainUsage,
+  printOnboardingUsage,
+  printTuiUsage,
+} from './cli/help.js';
+import { ensureOnboardingApi } from './cli/onboarding-api.js';
 import {
   findUnsupportedGatewayLifecycleFlag,
   parseGatewayFlags,
   type SandboxModeOverride,
 } from './config/cli-flags.js';
 import {
-  APP_VERSION,
-  GATEWAY_BASE_URL,
-  getResolvedSandboxMode,
-  MissingRequiredEnvVarError,
-  setSandboxModeOverride,
-} from './config/config.js';
-import {
-  ensureRuntimeConfigFile,
+  clearRuntimeConfigRevisions,
+  deleteRuntimeConfigRevision,
   getRuntimeConfig,
-  getRuntimeSkillScopeDisabledNames,
+  getRuntimeConfigRevision,
+  isContainerSandboxModeExplicit,
+  listRuntimeConfigRevisions,
+  reloadRuntimeConfig,
+  restoreRuntimeConfigRevision,
   runtimeConfigPath,
-  setRuntimeSkillScopeEnabled,
+  runtimeConfigRevisionPath,
   updateRuntimeConfig,
 } from './config/runtime-config.js';
+import {
+  parseRuntimeConfigCommandValue,
+  setRuntimeConfigValueAtPath,
+} from './config/runtime-config-edit.js';
+import { checkConfigFile } from './doctor/checks/config.js';
+import { summarizeCounts } from './doctor/utils.js';
 import {
   ensureGatewayRunDir,
   GATEWAY_LOG_FILE_ENV,
@@ -62,20 +56,7 @@ import {
   removeGatewayPidFile,
   writeGatewayPid,
 } from './gateway/gateway-lifecycle.js';
-import { ensureRuntimeCredentials } from './onboarding.js';
-import { formatPluginSummaryList } from './plugins/plugin-formatting.js';
-import type { LocalBackendType } from './providers/local-types.js';
-import { formatModelForDisplay } from './providers/model-names.js';
-import {
-  runtimeSecretsPath,
-  saveRuntimeSecrets,
-} from './security/runtime-secrets.js';
-import type {
-  SkillAmendment,
-  SkillHealthMetrics,
-  SkillObservation,
-} from './skills/adaptive-skills-types.js';
-import { printUpdateUsage, runUpdateCommand } from './update.js';
+import { runtimeSecretsPath } from './security/runtime-secrets.js';
 import { sleep } from './utils/sleep.js';
 
 const GATEWAY_LOG_REQUESTS_WARNING =
@@ -85,15 +66,72 @@ let cachedInstallRoot: string | null = null;
 let foregroundGatewayExitHandler: (() => void) | null = null;
 let foregroundGatewaySigintHandler: (() => void) | null = null;
 let foregroundGatewaySigtermHandler: (() => void) | null = null;
+type ConfigApi = typeof import('./config/config.js');
 
-function resolveWhatsAppSetupSettleMs(): number {
-  const raw = String(
-    process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS || '',
-  ).trim();
-  if (!raw) return 8_000;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return 8_000;
-  return Math.floor(parsed);
+let cachedAppVersion: string | null = null;
+const configApiState = makeLazyApi<ConfigApi>(
+  () => import('./config/config.js'),
+  'Config API accessed before it was initialized. Call ensureConfigApi() first, for example await ensureConfigApi() before calling getGatewayBaseUrl().',
+);
+
+function readVersionFromPackageJson(packageJsonPath: string): string | null {
+  try {
+    const raw = fs.readFileSync(packageJsonPath, 'utf-8');
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    if (typeof parsed.version === 'string' && parsed.version.trim()) {
+      return parsed.version.trim();
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
+function resolveCliVersion(): string {
+  if (cachedAppVersion) return cachedAppVersion;
+  const envVersion = process.env.npm_package_version;
+  if (envVersion?.trim()) {
+    cachedAppVersion = envVersion.trim();
+    return cachedAppVersion;
+  }
+
+  const modulePath = fileURLToPath(import.meta.url);
+  const moduleVersion = readVersionFromPackageJson(
+    path.join(path.dirname(modulePath), '..', 'package.json'),
+  );
+  if (moduleVersion) {
+    cachedAppVersion = moduleVersion;
+    return cachedAppVersion;
+  }
+
+  const entryPath = process.argv[1];
+  if (entryPath) {
+    const entryVersion = readVersionFromPackageJson(
+      path.join(path.dirname(path.resolve(entryPath)), '..', 'package.json'),
+    );
+    if (entryVersion) {
+      cachedAppVersion = entryVersion;
+      return cachedAppVersion;
+    }
+  }
+
+  const cwdVersion = readVersionFromPackageJson(
+    path.join(process.cwd(), 'package.json'),
+  );
+  cachedAppVersion = cwdVersion || '0.0.0';
+  return cachedAppVersion;
+}
+
+async function ensureConfigApi(): Promise<ConfigApi> {
+  return configApiState.ensure();
+}
+
+function getConfigApi(): ConfigApi {
+  return configApiState.get();
+}
+
+function getGatewayBaseUrl(): string {
+  return getConfigApi().GATEWAY_BASE_URL;
 }
 
 function resolveInstallRoot(): string {
@@ -204,7 +242,7 @@ function registerForegroundGatewayPid(commandName: string): {
 
 function parseGatewayBaseUrl(): URL | null {
   try {
-    return new URL(GATEWAY_BASE_URL);
+    return new URL(getGatewayBaseUrl());
   } catch {
     return null;
   }
@@ -255,15 +293,64 @@ async function ensureRuntimeContainer(
   required = true,
   sandboxMode: SandboxModeOverride | null = null,
 ): Promise<void> {
-  if ((sandboxMode || getResolvedSandboxMode()) === 'host') return;
+  const { getResolvedSandboxMode } = await ensureConfigApi();
+  if ((sandboxMode || getResolvedSandboxMode()) === 'host') {
+    const { ensureHostRuntimeReady } = await import(
+      './infra/host-runtime-setup.js'
+    );
+    ensureHostRuntimeReady({
+      commandName,
+      required,
+      installRoot: resolveInstallRoot(),
+    });
+    return;
+  }
   const { ensureContainerImageReady } = await import(
     './infra/container-setup.js'
   );
-  await ensureContainerImageReady({
-    commandName,
-    required,
-    cwd: resolveInstallRoot(),
-  });
+  try {
+    await ensureContainerImageReady({
+      commandName,
+      required,
+      cwd: resolveInstallRoot(),
+    });
+  } catch (error) {
+    if (
+      sandboxMode == null &&
+      !isContainerSandboxModeExplicit() &&
+      process.stdin.isTTY &&
+      process.stdout.isTTY &&
+      error instanceof Error &&
+      error.name === 'DockerAccessError' &&
+      ((error as Error & { kind?: string }).kind === 'missing' ||
+        (error as Error & { kind?: string }).kind === 'permission-denied')
+    ) {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      try {
+        const prompt =
+          (error as Error & { kind?: string }).kind === 'missing'
+            ? 'Docker is not available, and this install is still using the default container sandbox. Switch HybridClaw to host mode in the runtime config and continue? [Y/n] '
+            : 'Docker is installed, but this user cannot access the Docker daemon. Switch HybridClaw to host mode in the runtime config and continue? [Y/n] ';
+        const answer = (await rl.question(prompt)).trim().toLowerCase();
+        const shouldSwitch = !answer || answer === 'y' || answer === 'yes';
+        if (shouldSwitch) {
+          updateRuntimeConfig((draft) => {
+            draft.container.sandboxMode = 'host';
+          });
+          console.log(
+            `${commandName}: Updated runtime config at ${runtimeConfigPath()}. Continuing in host mode.`,
+          );
+          return;
+        }
+      } finally {
+        rl.close();
+      }
+    }
+    throw error;
+  }
 }
 
 async function isGatewayReachable(): Promise<boolean> {
@@ -284,19 +371,20 @@ async function isGatewayReachable(): Promise<boolean> {
 }
 
 async function ensureGatewayForTui(commandName: string): Promise<void> {
+  await ensureConfigApi();
   if (await isGatewayReachable()) {
-    console.log(`${commandName}: Gateway found at ${GATEWAY_BASE_URL}.`);
+    console.log(`${commandName}: Gateway found at ${getGatewayBaseUrl()}.`);
     return;
   }
 
   console.log(
-    `${commandName}: Gateway not found. Starting gateway backend at ${GATEWAY_BASE_URL}.`,
+    `${commandName}: Gateway not found. Starting gateway backend at ${getGatewayBaseUrl()}.`,
   );
   await startGatewayBackend(commandName, true);
 
   if (!(await isGatewayReachable())) {
     throw new Error(
-      `Gateway did not become available at ${GATEWAY_BASE_URL} after startup.` +
+      `Gateway did not become available at ${getGatewayBaseUrl()} after startup.` +
         ' Please run `hybridclaw gateway start --foreground` in another terminal and try again.',
     );
   }
@@ -441,43 +529,6 @@ async function ensureTuiInstructionApproval(
   }
 }
 
-function printMainUsage(): void {
-  console.log(`Usage: hybridclaw <command>
-
-  Commands:
-  auth       Unified provider login/logout/status
-  gateway    Manage core runtime (start/stop/status) or run gateway commands
-  tui        Start terminal adapter (starts gateway automatically when needed)
-  onboarding Run interactive auth + trust-model onboarding
-  channels   Channel setup helpers (Discord, WhatsApp, Email)
-  plugin     Manage HybridClaw plugins
-  skill      List skill dependency installers or run one
-  update     Check and apply HybridClaw CLI updates
-  audit      Inspect/verify structured audit trail
-  doctor     Run environment and runtime diagnostics
-  help       Show general or topic-specific help (e.g. \`hybridclaw help gateway\`)
-
-  Options:
-  --resume <id>  Resume a saved TUI session
-  --version, -v  Show HybridClaw CLI version`);
-}
-
-function printGatewayUsage(): void {
-  console.log(`Usage: hybridclaw gateway <subcommand>
-
-Commands:
-  hybridclaw gateway
-  hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
-  hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
-  hybridclaw gateway stop
-  hybridclaw gateway status
-  hybridclaw gateway sessions
-  hybridclaw gateway bot info
-  hybridclaw gateway show [all|thinking|tools|none]
-  hybridclaw gateway reset [yes|no]
-  hybridclaw gateway <discord-style command ...>`);
-}
-
 interface ParsedTuiArgs {
   help: boolean;
   resumeSessionId: string | null;
@@ -546,410 +597,18 @@ async function launchTui(argv: string[]): Promise<void> {
     return;
   }
 
+  const { ensureRuntimeCredentials } = await ensureOnboardingApi();
   const { resolveTuiRunOptions } = await import('./tui-session.js');
   const options = resolveTuiRunOptions({
     resumeSessionId: parsed.resumeSessionId,
     resumeCommand: 'hybridclaw tui --resume',
   });
+  await ensureRuntimeCredentials({ commandName: 'hybridclaw tui' });
+  await ensureRuntimeContainer('hybridclaw tui', true);
   await ensureTuiInstructionApproval('hybridclaw tui', options.sessionId);
   await ensureGatewayForTui('hybridclaw tui');
   const { runTui } = await import('./tui.js');
   await runTui(options);
-}
-
-function printTuiUsage(): void {
-  console.log(`Usage:
-  hybridclaw tui [--resume <sessionId>]
-  hybridclaw --resume <sessionId>
-
-Starts the terminal adapter and connects to the running gateway.
-If gateway is not running, it is started in backend mode automatically.
-By default, \`hybridclaw tui\` starts a fresh local CLI session.
-
-Interactive slash commands inside TUI:
-  /help   /status   /approve [view|yes|session|agent|no] [approval_id]
-  /show [all|thinking|tools|none]
-  /agent [list|switch|create|model]   /bot [info|list|set <id|name>]
-  /model [name]   /model info|list [provider]|set <name>|clear|default [name]
-  /channel-mode <off|mention|free>   /channel-policy <open|allowlist|disabled>
-  /rag [on|off]   /ralph [info|on|off|set n]   /mcp list
-  /mcp add <name> <json>
-  /mcp toggle <name> /mcp remove <name> /mcp reconnect <name>
-  /usage [summary|daily|monthly|model [daily|monthly] [agentId]]
-  /export [sessionId]   /sessions   /audit [sessionId]
-  /schedule add "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
-  /info   /compact   /clear   /reset [yes|no]   /stop   /exit`);
-}
-
-function printOnboardingUsage(): void {
-  console.log(`Usage: hybridclaw onboarding
-
-Runs the HybridClaw onboarding flow:
-  1) trust-model acceptance
-  2) auth provider selection
-  3) HybridAI API key setup, OpenAI Codex OAuth login, or OpenRouter API key setup
-  4) default model/bot persistence`);
-}
-
-function printLocalUsage(): void {
-  console.log(`Usage: hybridclaw local <command> (deprecated)
-
-Commands:
-  hybridclaw local status
-  hybridclaw local configure <ollama|lmstudio|vllm> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]
-
-Use Instead:
-  hybridclaw auth login local <ollama|lmstudio|vllm> <model-id> ...
-  hybridclaw auth status local
-  hybridclaw auth logout local
-
-Examples:
-  hybridclaw local configure lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234
-  hybridclaw local configure ollama llama3.2
-  hybridclaw local configure vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
-
-Notes:
-  - \`hybridclaw local ...\` is deprecated and will be removed in a future release.
-  - LM Studio and vLLM URLs are normalized to include \`/v1\`.
-  - Ollama URLs are normalized to omit \`/v1\`.
-  - By default, \`configure\` also sets \`hybridai.defaultModel\` to the chosen local model.
-    Use \`--no-default\` to leave the global default model unchanged.`);
-}
-
-function printAuthUsage(): void {
-  console.log(`Usage: hybridclaw auth <command> [provider] [options]
-
-Commands:
-  hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|openrouter|local|msteams> ...
-  hybridclaw auth status <hybridai|codex|openrouter|local|msteams>
-  hybridclaw auth logout <hybridai|codex|openrouter|local|msteams>
-  hybridclaw auth whatsapp reset
-
-Examples:
-  hybridclaw auth login
-  hybridclaw auth login hybridai --browser
-  hybridclaw auth login codex --import
-  hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
-  hybridclaw auth login local ollama llama3.2
-  hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
-  hybridclaw auth whatsapp reset
-  hybridclaw auth status openrouter
-  hybridclaw auth status msteams
-  hybridclaw auth logout codex
-  hybridclaw auth logout msteams
-
-Notes:
-  - \`auth login\` without a provider runs the normal interactive onboarding flow.
-  - \`local logout\` disables configured local backends and clears any saved vLLM API key.
-  - \`auth login msteams\` enables Microsoft Teams and stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()}.
-  - \`auth whatsapp reset\` clears linked WhatsApp Web auth so you can re-pair cleanly.
-  - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
-  - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.`);
-}
-
-function printChannelsUsage(): void {
-  console.log(`Usage: hybridclaw channels <channel> <command>
-
-Commands:
-  hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
-  hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
-  hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
-
-Notes:
-  - Discord setup stores a bot token only when \`--token\` is provided.
-  - Discord setup configures command-only mode and keeps guild access restricted by default.
-  - WhatsApp setup starts a temporary pairing session and prints the QR code here when needed.
-  - Use \`--reset\` to wipe stale WhatsApp auth files and force a fresh QR.
-  - \`hybridclaw auth whatsapp reset\` clears linked WhatsApp auth without starting a new pairing session.
-  - Without \`--allow-from\`, setup configures WhatsApp for self-chat only.
-  - With one or more \`--allow-from\` values, setup enables only those DMs.
-  - Groups stay disabled by default.
-  - Email setup saves \`EMAIL_PASSWORD\` only when \`--password\` is provided or pasted interactively.
-  - Email IMAP secure mode defaults to \`true\`.
-  - Email SMTP secure mode defaults to \`false\` on port \`587\`; use \`--smtp-secure\` for implicit TLS on port \`465\`.
-  - \`--no-smtp-secure\` is the correct setting for encrypted STARTTLS on port \`587\`; it does not force plaintext by itself.
-  - Email inbound is explicit-opt-in: when email \`allowFrom\` is empty, inbound email is ignored.
-  - Microsoft Teams setup lives under \`hybridclaw auth login msteams\` because it needs app credentials instead of a channel pairing flow.
-  - Discord activates automatically when \`DISCORD_TOKEN\` is configured.
-  - Email activates automatically when \`email.enabled=true\` and \`EMAIL_PASSWORD\` is configured.
-  - WhatsApp activates automatically once linked auth exists.`);
-}
-
-function printWhatsAppUsage(): void {
-  console.log(`Usage:
-  hybridclaw auth whatsapp reset
-  hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
-
-Notes:
-  - Only one running HybridClaw process may own the WhatsApp auth state at a time.
-  - Use \`auth whatsapp reset\` to clear stale linked-device auth before re-pairing.
-  - Use \`channels whatsapp setup\` to configure policy and open a fresh QR pairing session.`);
-}
-
-function printMSTeamsUsage(): void {
-  console.log(`Usage:
-  hybridclaw auth login msteams [--app-id <id>|--client-id <id>] [--app-password <secret>|--client-secret <secret>] [--tenant-id <id>]
-  hybridclaw auth status msteams
-  hybridclaw auth logout msteams
-
-Notes:
-  - \`auth login msteams\` enables the Microsoft Teams integration in ${runtimeConfigPath()}.
-  - \`auth login msteams\` stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()} and clears any plaintext \`msteams.appPassword\` value from config.
-  - \`--tenant-id\` is optional.
-  - If \`--app-password\` is omitted and \`MSTEAMS_APP_PASSWORD\` is already set, HybridClaw reuses that value.
-  - If \`--app-id\` or \`--app-password\` is missing and the terminal is interactive, HybridClaw prompts for them and also offers an optional tenant id prompt.`);
-}
-
-function printCodexUsage(): void {
-  console.log(`Usage: hybridclaw codex <command> (deprecated)
-
-Commands:
-  hybridclaw codex login
-  hybridclaw codex login --device-code
-  hybridclaw codex login --browser
-  hybridclaw codex login --import
-  hybridclaw codex logout
-  hybridclaw codex status
-
-Use Instead:
-  hybridclaw auth login codex ...
-  hybridclaw auth logout codex
-  hybridclaw auth status codex
-
-Notes:
-  - \`hybridclaw codex ...\` is deprecated and will be removed in a future release.`);
-}
-
-function printHybridAIUsage(): void {
-  console.log(`Usage: hybridclaw hybridai <command> (deprecated)
-
-Commands:
-  hybridclaw hybridai login
-  hybridclaw hybridai login --device-code
-  hybridclaw hybridai login --browser
-  hybridclaw hybridai login --import
-  hybridclaw hybridai logout
-  hybridclaw hybridai status
-
-Use Instead:
-  hybridclaw auth login hybridai ...
-  hybridclaw auth logout hybridai
-  hybridclaw auth status hybridai
-
-Notes:
-  - \`hybridclaw hybridai ...\` is deprecated and will be removed in a future release.`);
-}
-
-function printOpenRouterUsage(): void {
-  console.log(`Usage:
-  hybridclaw auth login openrouter [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
-  hybridclaw auth status openrouter
-  hybridclaw auth logout openrouter
-
-Notes:
-  - Model IDs use the \`openrouter/\` prefix in HybridClaw, for example \`openrouter/anthropic/claude-sonnet-4\`.
-  - If \`--api-key\` is omitted and \`OPENROUTER_API_KEY\` is unset, HybridClaw prompts you to paste the API key.
-  - \`auth login openrouter\` stores \`OPENROUTER_API_KEY\`, enables the provider, and can set the global default model.
-  - \`auth logout openrouter\` clears the stored API key but leaves runtime config unchanged.`);
-}
-
-function printAuditUsage(): void {
-  console.log(`Usage: hybridclaw audit <command>
-
-Commands:
-  recent [n]                         Show recent structured audit entries
-  recent session <sessionId> [n]     Show recent events for one session
-  search <query> [n]                 Search structured audit events
-  approvals [n] [--denied]           Show approval decisions
-  verify <sessionId>                 Verify wire hash chain integrity
-  instructions [--sync] [--approve]  Verify or restore runtime instruction files`);
-}
-
-function printDoctorUsage(): void {
-  console.log(`Usage:
-  hybridclaw doctor
-  hybridclaw doctor --fix
-  hybridclaw doctor --json
-  hybridclaw doctor <runtime|gateway|config|credentials|database|providers|local-backends|docker|channels|skills|security|disk>
-
-Notes:
-  - Runs independent diagnostic categories in parallel and reports ok, warning, and error states.
-  - \`--fix\` retries fixable checks after applying automatic remediation where supported.
-  - \`--json\` prints a machine-readable report and still uses exit code 1 when any errors remain.`);
-}
-
-function printSkillUsage(): void {
-  console.log(`Usage: hybridclaw skill <command>
-
-Commands:
-  hybridclaw skill list
-  hybridclaw skill enable <skill-name> [--channel <kind>]
-  hybridclaw skill disable <skill-name> [--channel <kind>]
-  hybridclaw skill toggle [--channel <kind>]
-  hybridclaw skill inspect <skill-name>
-  hybridclaw skill inspect --all
-  hybridclaw skill runs <skill-name>
-  hybridclaw skill amend <skill-name>
-  hybridclaw skill amend <skill-name> --apply
-  hybridclaw skill amend <skill-name> --reject
-  hybridclaw skill amend <skill-name> --rollback
-  hybridclaw skill history <skill-name>
-  hybridclaw skill install <skill-name> [install-id]
-
-Notes:
-  - \`list\` shows declared install options from skill frontmatter.
-  - Omit \`--channel\` to change the global disabled list.
-  - \`--channel teams\` is normalized to \`msteams\`.
-  - \`inspect\` shows observation-based health metrics for a skill or all observed skills.
-  - \`runs\` shows recent execution observations for one skill.
-  - \`amend\` stages, applies, rejects, or rolls back skill amendments.
-  - \`history\` shows amendment versions for one skill, not execution runs.
-  - \`install\` runs one declared installer (brew, uv, npm, go, download).`);
-}
-
-function printPluginUsage(): void {
-  console.log(`Usage: hybridclaw plugin <command>
-
-Commands:
-  hybridclaw plugin list
-  hybridclaw plugin config <plugin-id> [key] [value|--unset]
-  hybridclaw plugin install <path|npm-spec>
-  hybridclaw plugin reinstall <path|npm-spec>
-  hybridclaw plugin uninstall <plugin-id>
-
-Examples:
-  hybridclaw plugin list
-  hybridclaw plugin config qmd-memory searchMode query
-  hybridclaw plugin install ./plugins/example-plugin
-  hybridclaw plugin install @scope/hybridclaw-plugin-example
-  hybridclaw plugin reinstall ./plugins/example-plugin
-  hybridclaw plugin uninstall example-plugin
-
-Notes:
-  - Plugins install into \`~/.hybridclaw/plugins/<plugin-id>\`.
-  - Valid plugins in \`~/.hybridclaw/plugins/\` or \`./.hybridclaw/plugins/\` auto-discover at runtime.
-  - \`list\` shows discovered plugin status, source, description, commands, tools, hooks, and load errors.
-  - \`config\` edits top-level \`plugins.list[].config\` keys in ${runtimeConfigPath()}.
-  - \`install\` validates \`hybridclaw.plugin.yaml\` and installs npm dependencies when needed.
-  - \`reinstall\` replaces the home-installed plugin tree and preserves existing \`plugins.list[]\` overrides.
-  - \`uninstall\` removes the home-installed plugin directory and matching \`plugins.list[]\` overrides.
-  - Use ${runtimeConfigPath()} only for plugin overrides such as disable flags, config values, or custom paths.`);
-}
-
-function printHelpUsage(): void {
-  console.log(`Usage: hybridclaw help <topic>
-
-Topics:
-  auth        Help for unified provider login/logout/status
-  gateway     Help for gateway lifecycle and passthrough commands
-  tui         Help for terminal client
-  onboarding  Help for onboarding flow
-  channels    Help for channel setup helpers
-  plugin      Help for plugin management
-  msteams     Help for Microsoft Teams auth/setup commands
-  openrouter  Help for OpenRouter setup/status/logout commands
-  whatsapp    Help for WhatsApp setup/reset commands
-  skill       Help for skill installer commands
-  update      Help for checking/applying CLI updates
-  audit       Help for audit commands
-  doctor      Help for diagnostics and auto-remediation
-  help        This help`);
-}
-
-function printDeprecatedProviderAliasWarning(
-  provider: 'hybridai' | 'codex' | 'local',
-  args: string[],
-): void {
-  const sub = (args[0] || '').trim().toLowerCase();
-  let replacement = '';
-
-  if (provider === 'local') {
-    replacement =
-      sub === 'status'
-        ? 'hybridclaw auth status local'
-        : sub === 'help' || sub === '--help' || sub === '-h'
-          ? 'hybridclaw help local'
-          : 'hybridclaw auth login local ...';
-  } else {
-    replacement =
-      sub === 'status'
-        ? `hybridclaw auth status ${provider}`
-        : sub === 'logout'
-          ? `hybridclaw auth logout ${provider}`
-          : sub === 'help' || sub === '--help' || sub === '-h'
-            ? `hybridclaw help ${provider}`
-            : `hybridclaw auth login ${provider} ...`;
-  }
-
-  console.warn(
-    `[deprecated] \`hybridclaw ${provider} ...\` is deprecated and will be removed in a future release. Use \`${replacement}\` instead.`,
-  );
-}
-
-function isHelpRequest(args: string[]): boolean {
-  if (args.length === 0) return false;
-  const first = args[0]?.toLowerCase();
-  return first === 'help' || first === '--help' || first === '-h';
-}
-
-function printHelpTopic(topic: string): boolean {
-  switch (topic.trim().toLowerCase()) {
-    case 'auth':
-      printAuthUsage();
-      return true;
-    case 'gateway':
-      printGatewayUsage();
-      return true;
-    case 'tui':
-      printTuiUsage();
-      return true;
-    case 'onboarding':
-      printOnboardingUsage();
-      return true;
-    case 'channels':
-      printChannelsUsage();
-      return true;
-    case 'plugin':
-      printPluginUsage();
-      return true;
-    case 'msteams':
-    case 'teams':
-      printMSTeamsUsage();
-      return true;
-    case 'local':
-      printLocalUsage();
-      return true;
-    case 'hybridai':
-      printHybridAIUsage();
-      return true;
-    case 'codex':
-      printCodexUsage();
-      return true;
-    case 'openrouter':
-      printOpenRouterUsage();
-      return true;
-    case 'whatsapp':
-      printWhatsAppUsage();
-      return true;
-    case 'skill':
-      printSkillUsage();
-      return true;
-    case 'update':
-      printUpdateUsage();
-      return true;
-    case 'audit':
-      printAuditUsage();
-      return true;
-    case 'doctor':
-      printDoctorUsage();
-      return true;
-    case 'help':
-      printHelpUsage();
-      return true;
-    default:
-      return false;
-  }
 }
 
 async function waitForGatewayReachable(timeoutMs: number): Promise<boolean> {
@@ -1006,6 +665,8 @@ async function runGatewayForeground(
   debug = false,
   logRequests = false,
 ): Promise<void> {
+  const [{ setSandboxModeOverride }, { ensureRuntimeCredentials }] =
+    await Promise.all([ensureConfigApi(), ensureOnboardingApi()]);
   await ensureRuntimeCredentials({ commandName });
   if (sandboxMode) {
     setSandboxModeOverride(sandboxMode);
@@ -1044,6 +705,7 @@ async function startGatewayBackend(
   debug = false,
   logRequests = false,
 ): Promise<void> {
+  await ensureConfigApi();
   if (await isGatewayReachable()) {
     const existing = readGatewayPid();
     if (existing && isPidRunning(existing.pid)) {
@@ -1060,11 +722,11 @@ async function startGatewayBackend(
       if (adopted) {
         const adoptedState = readGatewayPid();
         console.log(
-          `Gateway already reachable at ${GATEWAY_BASE_URL}; adopted pid ${adoptedState?.pid || '(unknown)'}.`,
+          `Gateway already reachable at ${getGatewayBaseUrl()}; adopted pid ${adoptedState?.pid || '(unknown)'}.`,
         );
       } else {
         console.log(
-          `Gateway already reachable at ${GATEWAY_BASE_URL} (unmanaged by CLI PID file).`,
+          `Gateway already reachable at ${getGatewayBaseUrl()} (unmanaged by CLI PID file).`,
         );
       }
     }
@@ -1077,7 +739,7 @@ async function startGatewayBackend(
       const healthy = await waitForGatewayReachable(15_000);
       if (!healthy) {
         throw new Error(
-          `Gateway process ${existing.pid} exists but did not become reachable at ${GATEWAY_BASE_URL}.` +
+          `Gateway process ${existing.pid} exists but did not become reachable at ${getGatewayBaseUrl()}.` +
             ` Check logs: ${GATEWAY_LOG_PATH}`,
         );
       }
@@ -1091,6 +753,7 @@ async function startGatewayBackend(
     removeGatewayPidFile();
   }
 
+  const { ensureRuntimeCredentials } = await ensureOnboardingApi();
   await ensureRuntimeCredentials({ commandName });
   await ensureRuntimeContainer(commandName, true, sandboxMode);
   if (logRequests) {
@@ -1136,7 +799,7 @@ async function startGatewayBackend(
     const healthy = await waitForGatewayReachable(20_000);
     if (!healthy) {
       throw new Error(
-        `Gateway backend started (pid ${child.pid}) but not reachable at ${GATEWAY_BASE_URL}.` +
+        `Gateway backend started (pid ${child.pid}) but not reachable at ${getGatewayBaseUrl()}.` +
           ` Check logs: ${GATEWAY_LOG_PATH}`,
       );
     }
@@ -1194,7 +857,7 @@ async function stopUnmanagedGatewayGracefully(
     const stopped = await waitForGatewayUnreachable(10_000);
     if (!stopped) {
       throw new Error(
-        `Gateway remained reachable at ${GATEWAY_BASE_URL} after shutdown request.` +
+        `Gateway remained reachable at ${getGatewayBaseUrl()} after shutdown request.` +
           ' Stop it from its owning process or use your system process manager.',
       );
     }
@@ -1221,7 +884,7 @@ async function stopUnmanagedGatewayGracefully(
   }
 
   throw new Error(
-    `Gateway shutdown endpoint is unavailable at ${GATEWAY_BASE_URL} and PID ownership could not be recovered.` +
+    `Gateway shutdown endpoint is unavailable at ${getGatewayBaseUrl()} and PID ownership could not be recovered.` +
       ' Stop the process manually once, then retry.',
   );
 }
@@ -1268,7 +931,7 @@ async function printGatewayLifecycleStatus(): Promise<void> {
     console.log('PID file: not found');
   }
   console.log(
-    `Gateway API reachable: ${reachable ? 'yes' : 'no'} (${GATEWAY_BASE_URL})`,
+    `Gateway API reachable: ${reachable ? 'yes' : 'no'} (${getGatewayBaseUrl()})`,
   );
 
   if (reachable) {
@@ -1315,6 +978,8 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
     printGatewayUsage();
     return;
   }
+
+  await ensureConfigApi();
 
   const unsupportedLifecycleFlag =
     findUnsupportedGatewayLifecycleFlag(normalized);
@@ -1397,2671 +1062,285 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
   await runGatewayApiCommand(normalized);
 }
 
-function parseCodexLoginMethod(
-  args: string[],
-): 'auto' | 'device-code' | 'browser-pkce' | 'codex-cli-import' {
-  const flags = new Set(args.map((arg) => arg.trim().toLowerCase()));
-  const requested = [
-    flags.has('--device-code') ? 'device-code' : null,
-    flags.has('--browser') ? 'browser-pkce' : null,
-    flags.has('--import') ? 'codex-cli-import' : null,
-  ].filter(Boolean) as Array<
-    'device-code' | 'browser-pkce' | 'codex-cli-import'
-  >;
-
-  if (requested.length > 1) {
-    throw new Error(
-      'Use only one of `--device-code`, `--browser`, or `--import`.',
-    );
-  }
-  return requested[0] || 'auto';
-}
-
-function parseHybridAILoginMethod(
-  args: string[],
-): 'auto' | 'device-code' | 'browser' | 'import' {
-  const flags = new Set(args.map((arg) => arg.trim().toLowerCase()));
-  const requested = [
-    flags.has('--device-code') ? 'device-code' : null,
-    flags.has('--browser') ? 'browser' : null,
-    flags.has('--import') ? 'import' : null,
-  ].filter(Boolean) as Array<'device-code' | 'browser' | 'import'>;
-
-  if (requested.length > 1) {
-    throw new Error(
-      'Use only one of `--device-code`, `--browser`, or `--import`.',
-    );
-  }
-  return requested[0] || 'auto';
-}
-
-interface ParsedOpenRouterLoginArgs {
-  modelId?: string;
-  baseUrl?: string;
-  apiKey?: string;
-  setDefault: boolean;
-}
-
-function parseOpenRouterLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
-  const positional: string[] = [];
-  let baseUrl: string | undefined;
-  let apiKey: string | undefined;
-  let setDefault = true;
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index] || '';
-    if (arg === '--no-default') {
-      setDefault = false;
-      continue;
+async function handleConfigCommand(args: string[]): Promise<void> {
+  function parseRevisionId(raw: string): number {
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error(`Invalid revision id: ${raw}`);
     }
-    if (arg === '--set-default') {
-      setDefault = true;
-      continue;
-    }
-    if (arg === '--base-url') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--base-url`.');
-      baseUrl = next;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--base-url=')) {
-      baseUrl = arg.slice('--base-url='.length);
-      continue;
-    }
-    if (arg === '--api-key') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--api-key`.');
-      apiKey = next;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--api-key=')) {
-      apiKey = arg.slice('--api-key='.length);
-      continue;
-    }
-    if (arg.startsWith('-')) {
-      throw new Error(`Unknown flag: ${arg}`);
-    }
-    positional.push(arg);
+    return parsed;
   }
 
-  return {
-    modelId: positional.length > 0 ? positional.join(' ') : undefined,
-    baseUrl,
-    apiKey,
-    setDefault,
-  };
-}
-
-function normalizeOpenRouterModelId(rawModelId: string): string {
-  const trimmed = rawModelId.trim();
-  if (!trimmed) return '';
-  if (trimmed.toLowerCase().startsWith('openrouter/')) {
-    return trimmed;
-  }
-  return `openrouter/${trimmed}`;
-}
-
-function normalizeOpenRouterBaseUrl(rawBaseUrl: string): string {
-  const trimmed = rawBaseUrl.trim().replace(/\/+$/g, '');
-  if (!trimmed) return 'https://openrouter.ai/api/v1';
-  return /\/api\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/api/v1`;
-}
-
-async function promptForOpenRouterApiKey(): Promise<string> {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error(
-      'Missing OpenRouter API key. Pass `--api-key <key>`, set `OPENROUTER_API_KEY`, or run this command in an interactive terminal to paste it.',
-    );
-  }
-
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  try {
-    return (await rl.question('Paste OpenRouter API key: ')).trim();
-  } finally {
-    rl.close();
-  }
-}
-
-async function resolveOpenRouterApiKey(
-  explicitApiKey: string | undefined,
-): Promise<string> {
-  const configuredApiKey =
-    explicitApiKey?.trim() || process.env.OPENROUTER_API_KEY?.trim() || '';
-  if (configuredApiKey) return configuredApiKey;
-
-  const promptedApiKey = await promptForOpenRouterApiKey();
-  if (promptedApiKey) return promptedApiKey;
-
-  throw new Error(
-    'OpenRouter API key cannot be empty. Pass `--api-key <key>`, set `OPENROUTER_API_KEY`, or paste it when prompted.',
-  );
-}
-
-async function configureOpenRouter(args: string[]): Promise<void> {
-  ensureRuntimeConfigFile();
-  const parsed = parseOpenRouterLoginArgs(args);
-  const currentConfig = getRuntimeConfig();
-  const configuredModel =
-    parsed.modelId ||
-    currentConfig.openrouter.models[0] ||
-    'openrouter/anthropic/claude-sonnet-4';
-  const fullModelName = normalizeOpenRouterModelId(configuredModel);
-  if (!fullModelName) {
-    throw new Error('OpenRouter model ID cannot be empty.');
-  }
-
-  const apiKey = await resolveOpenRouterApiKey(parsed.apiKey);
-
-  const normalizedBaseUrl = normalizeOpenRouterBaseUrl(
-    parsed.baseUrl || currentConfig.openrouter.baseUrl,
-  );
-  const secretsPath = saveRuntimeSecrets({ OPENROUTER_API_KEY: apiKey });
-  const nextConfig = updateRuntimeConfig((draft) => {
-    draft.openrouter.enabled = true;
-    draft.openrouter.baseUrl = normalizedBaseUrl;
-    draft.openrouter.models = Array.from(
-      new Set([fullModelName, ...draft.openrouter.models]),
-    );
-    if (parsed.setDefault) {
-      draft.hybridai.defaultModel = fullModelName;
+  async function runRuntimeConfigFileCheck(): Promise<'ok' | 'warn' | 'error'> {
+    const results = await checkConfigFile();
+    const summary = summarizeCounts(results);
+    for (const result of results) {
+      const symbol =
+        result.severity === 'ok' ? '✓' : result.severity === 'warn' ? '⚠' : '✖';
+      console.log(`${symbol} ${result.label}  ${result.message}`);
     }
-  });
-
-  process.env.OPENROUTER_API_KEY = apiKey;
-  console.log(`Saved OpenRouter credentials to ${secretsPath}.`);
-  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log(`Provider: openrouter`);
-  console.log(`Base URL: ${nextConfig.openrouter.baseUrl}`);
-  console.log(`Configured model: ${fullModelName}`);
-  if (parsed.setDefault) {
-    console.log(`Default model: ${fullModelName}`);
-  } else {
     console.log(
-      `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
+      `${summary.ok} ok · ${summary.warn} warning${summary.warn === 1 ? '' : 's'} · ${summary.error} error${summary.error === 1 ? '' : 's'}`,
     );
-  }
-  console.log('Next:');
-  console.log('  hybridclaw gateway restart --foreground');
-  console.log('  hybridclaw gateway status');
-  console.log('  hybridclaw tui');
-  console.log(`  /model set ${fullModelName}`);
-}
-
-type UnifiedProvider =
-  | 'hybridai'
-  | 'codex'
-  | 'openrouter'
-  | 'local'
-  | 'msteams';
-
-function normalizeUnifiedProvider(
-  rawProvider: string | undefined,
-): UnifiedProvider | null {
-  const normalized = String(rawProvider || '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return null;
-  if (
-    normalized === 'hybridai' ||
-    normalized === 'hybrid-ai' ||
-    normalized === 'hybrid'
-  ) {
-    return 'hybridai';
-  }
-  if (normalized === 'codex' || normalized === 'openai-codex') {
-    return 'codex';
-  }
-  if (normalized === 'openrouter' || normalized === 'or') {
-    return 'openrouter';
-  }
-  if (normalized === 'local') {
-    return 'local';
-  }
-  if (
-    normalized === 'msteams' ||
-    normalized === 'teams' ||
-    normalized === 'ms-teams'
-  ) {
-    return 'msteams';
-  }
-  return null;
-}
-
-function normalizeArgs(args: string[]): string[] {
-  return args.map((arg) => arg.trim()).filter(Boolean);
-}
-
-function parseSkillChannelKind(
-  value: string,
-): SkillConfigChannelKind | undefined {
-  const raw = String(value || '').trim();
-  if (!raw || raw.toLowerCase() === 'global') return undefined;
-  const channelKind = normalizeSkillConfigChannelKind(raw);
-  if (!channelKind) {
-    throw new Error(`Unsupported channel kind: ${value}`);
-  }
-  return channelKind;
-}
-
-function parseSkillScopeArgs(args: string[]): {
-  channelKind?: SkillConfigChannelKind;
-  remaining: string[];
-} {
-  const remaining: string[] = [];
-  let channelKind: SkillConfigChannelKind | undefined;
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index] || '';
-    if (arg === '--channel') {
-      const next = args[index + 1];
-      if (!next) {
-        throw new Error('Missing value for `--channel`.');
-      }
-      channelKind = parseSkillChannelKind(next);
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--channel=')) {
-      channelKind = parseSkillChannelKind(arg.slice('--channel='.length));
-      continue;
-    }
-    if (arg.startsWith('-')) {
-      throw new Error(`Unknown flag: ${arg}`);
-    }
-    remaining.push(arg);
+    const severity =
+      summary.error > 0 ? 'error' : summary.warn > 0 ? 'warn' : 'ok';
+    process.exitCode = severity === 'error' ? 1 : 0;
+    return severity;
   }
 
-  return { channelKind, remaining };
-}
-
-function parseUnifiedProviderArgs(args: string[]): {
-  provider: UnifiedProvider | null;
-  remaining: string[];
-} {
   const normalized = normalizeArgs(args);
   if (normalized.length === 0) {
-    return {
-      provider: null,
-      remaining: [],
-    };
-  }
-
-  const first = normalized[0] || '';
-  if (first === '--provider') {
-    const rawProvider = normalized[1];
-    if (!rawProvider) {
-      throw new Error('Missing value for `--provider`.');
-    }
-    const provider = normalizeUnifiedProvider(rawProvider);
-    if (!provider) {
-      throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
-      );
-    }
-    return {
-      provider,
-      remaining: normalized.slice(2),
-    };
-  }
-
-  if (first.startsWith('--provider=')) {
-    const rawProvider = first.slice('--provider='.length);
-    const provider = normalizeUnifiedProvider(rawProvider);
-    if (!provider) {
-      throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
-      );
-    }
-    return {
-      provider,
-      remaining: normalized.slice(1),
-    };
-  }
-
-  return {
-    provider: normalizeUnifiedProvider(first),
-    remaining:
-      normalizeUnifiedProvider(first) == null
-        ? normalized
-        : normalized.slice(1),
-  };
-}
-
-function readStoredRuntimeSecret(
-  secretKey: 'OPENROUTER_API_KEY' | 'MSTEAMS_APP_PASSWORD',
-): string | null {
-  const filePath = runtimeSecretsPath();
-  if (!fs.existsSync(filePath)) return null;
-  try {
-    const raw = fs.readFileSync(filePath, 'utf-8');
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const value = parsed[secretKey];
-    if (typeof value !== 'string') return null;
-    const normalized = value.trim();
-    return normalized || null;
-  } catch {
-    return null;
-  }
-}
-
-function maskSecret(value: string): string {
-  const normalized = value.trim();
-  if (!normalized) return '';
-  if (normalized.length <= 8) {
-    return `${normalized.slice(0, 2)}…${normalized.slice(-1)}`;
-  }
-  return `${normalized.slice(0, 4)}…${normalized.slice(-4)}`;
-}
-
-function isLocalProviderModel(modelName: string): boolean {
-  return /^(ollama|lmstudio|vllm)\//i.test(modelName.trim());
-}
-
-function printOpenRouterStatus(): void {
-  ensureRuntimeConfigFile();
-  const config = getRuntimeConfig();
-  const storedApiKey = readStoredRuntimeSecret('OPENROUTER_API_KEY');
-  const envApiKey = process.env.OPENROUTER_API_KEY?.trim() || '';
-  const source = envApiKey
-    ? storedApiKey && envApiKey === storedApiKey
-      ? 'runtime-secrets'
-      : 'env'
-    : storedApiKey
-      ? 'runtime-secrets'
-      : null;
-  const apiKey = envApiKey || storedApiKey || '';
-
-  console.log(`Path: ${runtimeSecretsPath()}`);
-  console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
-  if (source) {
-    console.log(`Source: ${source}`);
-  }
-  if (apiKey) {
-    console.log(`API key: ${maskSecret(apiKey)}`);
-  }
-  console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Enabled: ${config.openrouter.enabled ? 'yes' : 'no'}`);
-  console.log(`Base URL: ${config.openrouter.baseUrl}`);
-  console.log(
-    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
-  );
-  console.log(
-    `Models: ${config.openrouter.models.length > 0 ? config.openrouter.models.join(', ') : '(none configured)'}`,
-  );
-}
-
-function clearOpenRouterCredentials(): void {
-  const filePath = saveRuntimeSecrets({ OPENROUTER_API_KEY: null });
-  delete process.env.OPENROUTER_API_KEY;
-  console.log(`Cleared OpenRouter credentials in ${filePath}.`);
-  console.log(
-    'If OPENROUTER_API_KEY is still exported in your shell, unset it separately.',
-  );
-}
-
-function printMSTeamsStatus(): void {
-  ensureRuntimeConfigFile();
-  const config = getRuntimeConfig();
-  const storedAppPassword = readStoredRuntimeSecret('MSTEAMS_APP_PASSWORD');
-  const envAppId = process.env.MSTEAMS_APP_ID?.trim() || '';
-  const envTenantId = process.env.MSTEAMS_TENANT_ID?.trim() || '';
-  const envAppPassword = process.env.MSTEAMS_APP_PASSWORD?.trim() || '';
-  const appPassword = envAppPassword || storedAppPassword || '';
-  const source = envAppPassword
-    ? storedAppPassword && envAppPassword === storedAppPassword
-      ? 'runtime-secrets'
-      : 'env'
-    : storedAppPassword
-      ? 'runtime-secrets'
-      : null;
-  const appId = envAppId || config.msteams.appId;
-  const tenantId = envTenantId || config.msteams.tenantId;
-
-  console.log(`Path: ${runtimeSecretsPath()}`);
-  console.log(`Authenticated: ${appId && appPassword ? 'yes' : 'no'}`);
-  if (source) {
-    console.log(`Source: ${source}`);
-  }
-  if (appPassword) {
-    console.log(`App password: ${maskSecret(appPassword)}`);
-  }
-  console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Enabled: ${config.msteams.enabled ? 'yes' : 'no'}`);
-  console.log(`App ID: ${appId || '(not set)'}`);
-  console.log(`Tenant ID: ${tenantId || '(not set)'}`);
-  console.log(`Webhook path: ${config.msteams.webhook.path}`);
-  console.log(`DM policy: ${config.msteams.dmPolicy}`);
-  console.log(`Group policy: ${config.msteams.groupPolicy}`);
-}
-
-function clearMSTeamsCredentials(): void {
-  ensureRuntimeConfigFile();
-  const filePath = saveRuntimeSecrets({ MSTEAMS_APP_PASSWORD: null });
-  delete process.env.MSTEAMS_APP_PASSWORD;
-  const nextConfig = updateRuntimeConfig((draft) => {
-    draft.msteams.enabled = false;
-    draft.msteams.appId = '';
-    draft.msteams.tenantId = '';
-  });
-
-  console.log(`Cleared Microsoft Teams credentials in ${filePath}.`);
-  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log(
-    `Microsoft Teams integration: ${nextConfig.msteams.enabled ? 'enabled' : 'disabled'}`,
-  );
-  console.log(
-    'If MSTEAMS_APP_ID, MSTEAMS_APP_PASSWORD, or MSTEAMS_TENANT_ID are still exported in your shell, unset them separately.',
-  );
-}
-
-function clearLocalBackends(): void {
-  ensureRuntimeConfigFile();
-  const nextConfig = updateRuntimeConfig((draft) => {
-    draft.local.backends.ollama.enabled = false;
-    draft.local.backends.lmstudio.enabled = false;
-    draft.local.backends.vllm.enabled = false;
-    draft.local.backends.vllm.apiKey = '';
-  });
-
-  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log('Disabled local backends: ollama, lmstudio, vllm.');
-  if (isLocalProviderModel(nextConfig.hybridai.defaultModel)) {
-    console.log(
-      `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
-    );
-    console.log(
-      'Hint: default model still points at a local backend. Configure another provider before starting new sessions.',
-    );
-  } else {
-    console.log(
-      `Default model: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
-    );
-  }
-}
-
-function printUnifiedProviderUsage(provider: UnifiedProvider): void {
-  if (provider === 'hybridai') {
-    printHybridAIUsage();
+    console.log(`Active config: ${runtimeConfigPath()}`);
+    console.log(JSON.stringify(getRuntimeConfig(), null, 2));
     return;
   }
-  if (provider === 'codex') {
-    printCodexUsage();
+
+  if (isHelpRequest(normalized)) {
+    const { printConfigUsage } = await import('./cli/help.js');
+    printConfigUsage();
     return;
   }
-  if (provider === 'openrouter') {
-    printOpenRouterUsage();
+
+  const sub = (normalized[0] || '').trim().toLowerCase();
+  if (sub === 'check') {
+    await runRuntimeConfigFileCheck();
     return;
   }
-  if (provider === 'msteams') {
-    printMSTeamsUsage();
-    return;
-  }
-  printLocalUsage();
-}
-
-function isLocalBackendType(value: string): value is LocalBackendType {
-  return value === 'ollama' || value === 'lmstudio' || value === 'vllm';
-}
-
-function normalizeLocalModelId(
-  backend: LocalBackendType,
-  rawModelId: string,
-): string {
-  const trimmed = rawModelId.trim();
-  const ownPrefix = `${backend}/`;
-  if (trimmed.toLowerCase().startsWith(ownPrefix)) {
-    return trimmed.slice(ownPrefix.length).trim();
-  }
-  if (/^(ollama|lmstudio|vllm)\//i.test(trimmed)) {
-    throw new Error(
-      `Model "${trimmed}" already includes a different local provider prefix.`,
-    );
-  }
-  return trimmed;
-}
-
-function normalizeLocalBaseUrl(
-  backend: LocalBackendType,
-  rawBaseUrl: string,
-): string {
-  const trimmed = rawBaseUrl.trim().replace(/\/+$/g, '');
-  if (!trimmed) {
-    if (backend === 'ollama') return 'http://127.0.0.1:11434';
-    if (backend === 'lmstudio') return 'http://127.0.0.1:1234/v1';
-    return 'http://127.0.0.1:8000/v1';
-  }
-  if (backend === 'ollama') {
-    return trimmed.replace(/\/v1$/i, '');
-  }
-  return /\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/v1`;
-}
-
-interface ParsedLocalConfigureArgs {
-  backend: LocalBackendType;
-  modelId: string;
-  baseUrl?: string;
-  apiKey?: string;
-  setDefault: boolean;
-}
-
-function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
-  const positional: string[] = [];
-  let baseUrl: string | undefined;
-  let apiKey: string | undefined;
-  let setDefault = true;
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index] || '';
-    if (arg === '--no-default') {
-      setDefault = false;
-      continue;
+  if (sub === 'revisions') {
+    const action = (normalized[1] || 'list').trim().toLowerCase();
+    if (!action || action === 'list') {
+      const revisions = listRuntimeConfigRevisions();
+      console.log(`Active config: ${runtimeConfigPath()}`);
+      console.log(`Revision store: ${runtimeConfigRevisionPath()}`);
+      if (revisions.length === 0) {
+        console.log('No config revisions saved yet.');
+        return;
+      }
+      for (const revision of revisions) {
+        console.log(
+          [
+            `#${revision.id}`,
+            revision.createdAt,
+            `actor=${revision.actor}`,
+            `route=${revision.route}`,
+            `source=${revision.source}`,
+            `md5=${revision.md5}`,
+            `bytes=${revision.byteLength}`,
+          ].join(' | '),
+        );
+      }
+      return;
     }
-    if (arg === '--set-default') {
-      setDefault = true;
-      continue;
-    }
-    if (arg === '--base-url') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--base-url`.');
-      baseUrl = next;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--base-url=')) {
-      baseUrl = arg.slice('--base-url='.length);
-      continue;
-    }
-    if (arg === '--api-key') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--api-key`.');
-      apiKey = next;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--api-key=')) {
-      apiKey = arg.slice('--api-key='.length);
-      continue;
-    }
-    if (arg.startsWith('-')) {
-      throw new Error(`Unknown flag: ${arg}`);
-    }
-    positional.push(arg);
-  }
 
-  if (positional.length < 2) {
-    throw new Error(
-      'Usage: `hybridclaw local configure <ollama|lmstudio|vllm> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]`',
-    );
-  }
+    if (action === 'rollback') {
+      const revisionId = parseRevisionId(String(normalized[2] || '').trim());
+      const revision = getRuntimeConfigRevision(revisionId);
+      if (!revision) {
+        throw new Error(`Config revision ${revisionId} was not found.`);
+      }
+      const nextConfig = restoreRuntimeConfigRevision(revisionId, {
+        route: `cli.config.revisions.rollback#${revisionId}`,
+        source: 'internal',
+      });
+      console.log(`Rolled back runtime config to revision #${revisionId}.`);
+      console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+      console.log(`Revision store: ${runtimeConfigRevisionPath()}`);
+      console.log(JSON.stringify(nextConfig, null, 2));
+      await runRuntimeConfigFileCheck();
+      return;
+    }
 
-  const backendRaw = (positional[0] || '').trim().toLowerCase();
-  if (!isLocalBackendType(backendRaw)) {
-    throw new Error(
-      `Unknown local backend "${positional[0]}". Use \`ollama\`, \`lmstudio\`, or \`vllm\`.`,
-    );
-  }
+    if (action === 'delete') {
+      const revisionId = parseRevisionId(String(normalized[2] || '').trim());
+      const deleted = deleteRuntimeConfigRevision(revisionId);
+      if (!deleted) {
+        throw new Error(`Config revision ${revisionId} was not found.`);
+      }
+      console.log(`Deleted config revision #${revisionId}.`);
+      console.log(`Revision store: ${runtimeConfigRevisionPath()}`);
+      return;
+    }
 
-  if (backendRaw !== 'vllm' && apiKey !== undefined) {
-    throw new Error('`--api-key` is only supported for the `vllm` backend.');
-  }
-
-  const modelId = normalizeLocalModelId(
-    backendRaw,
-    positional.slice(1).join(' '),
-  );
-  if (!modelId) {
-    throw new Error('Model ID cannot be empty.');
-  }
-
-  return {
-    backend: backendRaw,
-    modelId,
-    baseUrl,
-    apiKey,
-    setDefault,
-  };
-}
-
-function printLocalStatus(): void {
-  ensureRuntimeConfigFile();
-  const config = getRuntimeConfig();
-  console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(
-    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
-  );
-  for (const backend of ['ollama', 'lmstudio', 'vllm'] as const) {
-    const settings = config.local.backends[backend];
-    console.log(
-      `${backend}: ${settings.enabled ? 'enabled' : 'disabled'} (${settings.baseUrl})`,
-    );
-    if (backend === 'vllm') {
+    if (action === 'clear') {
+      const cleared = clearRuntimeConfigRevisions();
       console.log(
-        `vllm api key: ${settings.apiKey ? 'configured' : 'not set'}`,
+        `Cleared ${cleared} config revision${cleared === 1 ? '' : 's'}.`,
       );
+      console.log(`Revision store: ${runtimeConfigRevisionPath()}`);
+      return;
     }
-  }
-}
 
-function configureLocalBackend(args: string[]): void {
-  ensureRuntimeConfigFile();
-  const parsed = parseLocalConfigureArgs(args);
-  const currentConfig = getRuntimeConfig();
-  const currentBackend = currentConfig.local.backends[parsed.backend];
-  const normalizedBaseUrl = normalizeLocalBaseUrl(
-    parsed.backend,
-    parsed.baseUrl || currentBackend.baseUrl,
-  );
-  const fullModelName = `${parsed.backend}/${parsed.modelId}`;
-  const nextConfig = updateRuntimeConfig((draft) => {
-    draft.local.backends[parsed.backend].enabled = true;
-    draft.local.backends[parsed.backend].baseUrl = normalizedBaseUrl;
-    if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
-      draft.local.backends.vllm.apiKey = parsed.apiKey;
-    }
-    if (parsed.setDefault) {
-      draft.hybridai.defaultModel = fullModelName;
-    }
-  });
-
-  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log(`Backend: ${parsed.backend}`);
-  console.log(`Base URL: ${nextConfig.local.backends[parsed.backend].baseUrl}`);
-  console.log(`Configured model: ${fullModelName}`);
-  if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
-    console.log('vllm api key: configured');
-  }
-  if (parsed.setDefault) {
-    console.log(`Default model: ${fullModelName}`);
-  } else {
-    console.log(
-      `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
+    throw new Error(
+      'Unknown config revisions subcommand. Use `hybridclaw config revisions`, `hybridclaw config revisions rollback <id>`, `hybridclaw config revisions delete <id>`, or `hybridclaw config revisions clear`.',
     );
   }
-  console.log('Next:');
-  console.log('  hybridclaw gateway restart --foreground --sandbox=host');
-  console.log('  hybridclaw gateway status');
-  console.log('  hybridclaw tui');
-  console.log(`  /model set ${fullModelName}`);
+  if (sub === 'reload') {
+    const nextConfig = reloadRuntimeConfig('cli');
+    console.log(`Reloaded runtime config from ${runtimeConfigPath()}.`);
+    console.log(JSON.stringify(nextConfig, null, 2));
+    await runRuntimeConfigFileCheck();
+    return;
+  }
+  if (sub !== 'set') {
+    throw new Error(
+      'Unknown config subcommand. Use `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`.',
+    );
+  }
+
+  const key = String(normalized[1] || '').trim();
+  const rawValue = normalized.slice(2).join(' ').trim();
+  if (!key || !rawValue) {
+    throw new Error(
+      'Usage: `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`',
+    );
+  }
+
+  const value = parseRuntimeConfigCommandValue(rawValue);
+  const nextConfig = updateRuntimeConfig(
+    (draft) => {
+      setRuntimeConfigValueAtPath(draft, key, value);
+    },
+    {
+      route: `cli.config.set:${key}`,
+      source: 'internal',
+    },
+  );
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log(`Key: ${key}`);
+  console.log(JSON.stringify(nextConfig, null, 2));
+  await runRuntimeConfigFileCheck();
 }
 
 async function handleLocalCommand(args: string[]): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printLocalUsage();
-    return;
-  }
-
-  const sub = normalized[0].toLowerCase();
-  if (sub === 'status') {
-    printLocalStatus();
-    return;
-  }
-  if (sub === 'configure') {
-    configureLocalBackend(normalized.slice(1));
-    return;
-  }
-
-  throw new Error(`Unknown local subcommand: ${sub}`);
-}
-
-async function handleAuthLoginCommand(args: string[]): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0) {
-    await ensureRuntimeCredentials({
-      commandName: 'hybridclaw auth login',
-    });
-    return;
-  }
-  if (isHelpRequest(normalized)) {
-    printAuthUsage();
-    return;
-  }
-
-  const parsed = parseUnifiedProviderArgs(normalized);
-  if (!parsed.provider) {
-    throw new Error(
-      `Unknown auth login provider "${normalized[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
-    );
-  }
-  if (isHelpRequest(parsed.remaining)) {
-    printUnifiedProviderUsage(parsed.provider);
-    return;
-  }
-
-  if (parsed.provider === 'hybridai') {
-    await handleHybridAICommand(['login', ...parsed.remaining]);
-    return;
-  }
-  if (parsed.provider === 'codex') {
-    await handleCodexCommand(['login', ...parsed.remaining]);
-    return;
-  }
-  if (parsed.provider === 'openrouter') {
-    await configureOpenRouter(parsed.remaining);
-    return;
-  }
-  if (parsed.provider === 'msteams') {
-    await configureMSTeamsAuth(parsed.remaining);
-    return;
-  }
-  configureLocalBackend(parsed.remaining);
+  const cliAuth = await import('./cli/auth-command.js');
+  await cliAuth.handleLocalCommand(args);
 }
 
 async function handleAuthCommand(args: string[]): Promise<void> {
+  const cliAuth = await import('./cli/auth-command.js');
+  await cliAuth.handleAuthCommand(args);
+}
+
+async function handleChannelsCommand(args: string[]): Promise<void> {
+  const cliChannels = await import('./cli/channels-command.js');
+  await cliChannels.handleChannelsCommand(args);
+}
+
+async function handleBrowserCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
-  if (normalized.length === 0) {
-    printAuthUsage();
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printBrowserUsage();
     return;
   }
 
+  const { getBrowserProfileDir, launchBrowserLogin } = await import(
+    './browser/browser-login.js'
+  );
+  const { DATA_DIR } = await import('./config/config.js');
+  const profileDir = getBrowserProfileDir(DATA_DIR);
+
   const sub = normalized[0].toLowerCase();
-  if (sub === 'help' || sub === '--help' || sub === '-h') {
-    printAuthUsage();
-    return;
-  }
-  if (sub === 'whatsapp') {
-    await handleAuthWhatsAppCommand(normalized.slice(1));
-    return;
-  }
+
   if (sub === 'login') {
-    if (normalized.length === 1) {
-      await ensureRuntimeCredentials({
-        commandName: 'hybridclaw auth login',
-      });
-      return;
+    let url = 'https://accounts.google.com';
+    for (let i = 1; i < normalized.length; i++) {
+      if (normalized[i] === '--url' && normalized[i + 1]) {
+        url = normalized[++i];
+      }
     }
-    await handleAuthLoginCommand(normalized.slice(1));
+
+    console.log(`Opening browser with persistent profile...`);
+    console.log(`Profile directory: ${profileDir}`);
+    console.log(`Starting URL: ${url}`);
+    console.log('');
+    console.log(
+      'Log into any sites you want the agent to access, then close the browser.',
+    );
+    console.log('Your sessions will be saved automatically.');
+    console.log('');
+
+    const child = await launchBrowserLogin(profileDir, { url });
+    await new Promise<void>((resolve) => {
+      child.on('close', () => {
+        console.log('');
+        console.log('Browser closed. Sessions saved.');
+        console.log(
+          'The agent will reuse these sessions for browser automation.',
+        );
+        resolve();
+      });
+      child.on('error', (err) => {
+        console.error(`Browser failed to launch: ${err.message}`);
+        resolve();
+      });
+    });
     return;
   }
 
   if (sub === 'status') {
-    await handleProviderStatusCommand(
-      normalized.slice(1),
-      'hybridclaw auth status',
-    );
-    return;
-  }
-
-  if (sub === 'logout') {
-    await handleProviderLogoutCommand(
-      normalized.slice(1),
-      'hybridclaw auth logout',
-    );
-    return;
-  }
-
-  throw new Error(
-    `Unknown auth subcommand: ${sub}. Use \`login\`, \`status\`, \`logout\`, or \`whatsapp\`.`,
-  );
-}
-
-async function handleAuthWhatsAppCommand(args: string[]): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printWhatsAppUsage();
-    return;
-  }
-
-  const sub = normalized[0].toLowerCase();
-  if (sub !== 'reset') {
-    throw new Error(
-      `Unknown auth whatsapp subcommand: ${sub}. Use \`hybridclaw auth whatsapp reset\`.`,
-    );
-  }
-  if (normalized.length > 1) {
-    throw new Error(
-      'Unexpected arguments for `hybridclaw auth whatsapp reset`.',
-    );
-  }
-
-  const status = await getWhatsAppAuthStatus();
-  await resetWhatsAppAuthState();
-  console.log(`Reset WhatsApp auth state at ${WHATSAPP_AUTH_DIR}.`);
-  console.log(
-    status.linked
-      ? 'Linked device state cleared. Re-run `hybridclaw channels whatsapp setup` to pair again.'
-      : 'No linked auth was present. You can run `hybridclaw channels whatsapp setup` when you are ready to pair.',
-  );
-}
-
-type ProviderAction = 'status' | 'logout';
-
-async function dispatchProviderAction(
-  provider: UnifiedProvider,
-  action: ProviderAction,
-): Promise<void> {
-  if (provider === 'hybridai') {
-    await handleHybridAICommand([action]);
-    return;
-  }
-  if (provider === 'codex') {
-    await handleCodexCommand([action]);
-    return;
-  }
-  if (provider === 'openrouter') {
-    if (action === 'status') {
-      printOpenRouterStatus();
-      return;
-    }
-    clearOpenRouterCredentials();
-    return;
-  }
-  if (provider === 'msteams') {
-    if (action === 'status') {
-      printMSTeamsStatus();
-      return;
-    }
-    clearMSTeamsCredentials();
-    return;
-  }
-  if (action === 'status') {
-    printLocalStatus();
-    return;
-  }
-  clearLocalBackends();
-}
-
-async function handleProviderActionCommand(
-  args: string[],
-  commandName: string,
-  action: ProviderAction,
-): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printAuthUsage();
-    return;
-  }
-
-  const parsed = parseUnifiedProviderArgs(normalized);
-  if (!parsed.provider) {
-    throw new Error(
-      `Unknown ${action} provider "${normalized[0]}". Use \`hybridai\`, \`codex\`, \`openrouter\`, \`local\`, or \`msteams\`.`,
-    );
-  }
-  if (parsed.remaining.length > 0) {
-    if (isHelpRequest(parsed.remaining)) {
-      printUnifiedProviderUsage(parsed.provider);
-      return;
-    }
-    throw new Error(`Unexpected arguments for \`${commandName}\`.`);
-  }
-
-  await dispatchProviderAction(parsed.provider, action);
-}
-
-async function handleProviderStatusCommand(
-  args: string[],
-  commandName: string,
-): Promise<void> {
-  await handleProviderActionCommand(args, commandName, 'status');
-}
-
-async function handleProviderLogoutCommand(
-  args: string[],
-  commandName: string,
-): Promise<void> {
-  await handleProviderActionCommand(args, commandName, 'logout');
-}
-
-function parseWhatsAppSetupArgs(args: string[]): {
-  allowFrom: string[];
-  reset: boolean;
-} {
-  const allowFrom: string[] = [];
-  let reset = false;
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index] || '';
-    if (arg === '--reset') {
-      reset = true;
-      continue;
-    }
-    if (arg === '--allow-from') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--allow-from`.');
-      const normalized = normalizePhoneNumber(next);
-      if (!normalized) {
-        throw new Error(
-          `Invalid WhatsApp phone number: ${next}. Use E.164 format like +491701234567.`,
-        );
+    if (fs.existsSync(profileDir)) {
+      const entries = fs.readdirSync(profileDir);
+      const hasProfile = entries.length > 0;
+      console.log(`Profile directory: ${profileDir}`);
+      console.log(`Profile exists: ${hasProfile ? 'yes' : 'no (empty)'}`);
+      if (hasProfile) {
+        const cookiesPath = path.join(profileDir, 'Default', 'Cookies');
+        const hasCookies = fs.existsSync(cookiesPath);
+        console.log(`Has cookies: ${hasCookies ? 'yes' : 'no'}`);
       }
-      allowFrom.push(normalized);
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--allow-from=')) {
-      const raw = arg.slice('--allow-from='.length);
-      const normalized = normalizePhoneNumber(raw);
-      if (!normalized) {
-        throw new Error(
-          `Invalid WhatsApp phone number: ${raw}. Use E.164 format like +491701234567.`,
-        );
-      }
-      allowFrom.push(normalized);
-      continue;
-    }
-    if (arg.startsWith('-')) {
-      throw new Error(`Unknown flag: ${arg}`);
-    }
-    throw new Error(
-      `Unexpected argument: ${arg}. Use \`hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...\`.`,
-    );
-  }
-
-  return {
-    allowFrom: [...new Set(allowFrom)],
-    reset,
-  };
-}
-
-function parseIntegerFlagValue(
-  flagName: string,
-  raw: string,
-  options?: {
-    min?: number;
-    max?: number;
-  },
-): number {
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
-    throw new Error(`Invalid value for \`${flagName}\`: ${raw}`);
-  }
-  const integer = Math.trunc(parsed);
-  if (options?.min != null && integer < options.min) {
-    throw new Error(`\`${flagName}\` must be at least ${options.min}.`);
-  }
-  if (options?.max != null && integer > options.max) {
-    throw new Error(`\`${flagName}\` must be at most ${options.max}.`);
-  }
-  return integer;
-}
-
-function parseBooleanFlagValue(flagName: string, raw: string): boolean {
-  const normalized = raw.trim().toLowerCase();
-  switch (normalized) {
-    case '1':
-    case 'true':
-    case 'yes':
-    case 'y':
-    case 'on':
-      return true;
-    case '0':
-    case 'false':
-    case 'no':
-    case 'n':
-    case 'off':
-      return false;
-    default:
-      throw new Error(`Invalid value for \`${flagName}\`: ${raw}`);
-  }
-}
-
-function parseEmailSetupArgs(args: string[]): {
-  address: string | null;
-  password: string | null;
-  imapHost: string | null;
-  imapPort: number | null;
-  imapSecure: boolean | null;
-  smtpHost: string | null;
-  smtpPort: number | null;
-  smtpSecure: boolean | null;
-  pollIntervalMs: number | null;
-  folders: string[];
-  allowFrom: string[];
-  textChunkLimit: number | null;
-  mediaMaxMb: number | null;
-} {
-  let address: string | null = null;
-  let password: string | null = null;
-  let imapHost: string | null = null;
-  let imapPort: number | null = null;
-  let imapSecure: boolean | null = null;
-  let smtpHost: string | null = null;
-  let smtpPort: number | null = null;
-  let smtpSecure: boolean | null = null;
-  let pollIntervalMs: number | null = null;
-  let textChunkLimit: number | null = null;
-  let mediaMaxMb: number | null = null;
-  const folders: string[] = [];
-  const allowFrom: string[] = [];
-
-  const parseAllowFrom = (raw: string): string => {
-    const normalized = normalizeEmailAllowEntry(raw);
-    if (!normalized) {
-      throw new Error(
-        `Invalid email allowlist entry: ${raw}. Use an email address, *@example.com, or *`,
-      );
-    }
-    return normalized;
-  };
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index] || '';
-    if (arg === '--address') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--address`.');
-      const normalized = normalizeEmailAddress(next);
-      if (!normalized) {
-        throw new Error(`Invalid email address: ${next}`);
-      }
-      address = normalized;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--address=')) {
-      const raw = arg.slice('--address='.length);
-      const normalized = normalizeEmailAddress(raw);
-      if (!normalized) {
-        throw new Error(`Invalid email address: ${raw}`);
-      }
-      address = normalized;
-      continue;
-    }
-    if (arg === '--password') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--password`.');
-      password = next.trim() || null;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--password=')) {
-      password = arg.slice('--password='.length).trim() || null;
-      continue;
-    }
-    if (arg === '--imap-host') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--imap-host`.');
-      imapHost = next.trim() || null;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--imap-host=')) {
-      imapHost = arg.slice('--imap-host='.length).trim() || null;
-      continue;
-    }
-    if (arg === '--imap-port') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--imap-port`.');
-      imapPort = parseIntegerFlagValue('--imap-port', next, {
-        min: 1,
-        max: 65_535,
-      });
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--imap-port=')) {
-      imapPort = parseIntegerFlagValue(
-        '--imap-port',
-        arg.slice('--imap-port='.length),
-        {
-          min: 1,
-          max: 65_535,
-        },
-      );
-      continue;
-    }
-    if (arg === '--imap-secure') {
-      imapSecure = true;
-      continue;
-    }
-    if (arg === '--no-imap-secure') {
-      imapSecure = false;
-      continue;
-    }
-    if (arg.startsWith('--imap-secure=')) {
-      imapSecure = parseBooleanFlagValue(
-        '--imap-secure',
-        arg.slice('--imap-secure='.length),
-      );
-      continue;
-    }
-    if (arg === '--smtp-host') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--smtp-host`.');
-      smtpHost = next.trim() || null;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--smtp-host=')) {
-      smtpHost = arg.slice('--smtp-host='.length).trim() || null;
-      continue;
-    }
-    if (arg === '--smtp-port') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--smtp-port`.');
-      smtpPort = parseIntegerFlagValue('--smtp-port', next, {
-        min: 1,
-        max: 65_535,
-      });
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--smtp-port=')) {
-      smtpPort = parseIntegerFlagValue(
-        '--smtp-port',
-        arg.slice('--smtp-port='.length),
-        {
-          min: 1,
-          max: 65_535,
-        },
-      );
-      continue;
-    }
-    if (arg === '--smtp-secure') {
-      smtpSecure = true;
-      continue;
-    }
-    if (arg === '--no-smtp-secure') {
-      smtpSecure = false;
-      continue;
-    }
-    if (arg.startsWith('--smtp-secure=')) {
-      smtpSecure = parseBooleanFlagValue(
-        '--smtp-secure',
-        arg.slice('--smtp-secure='.length),
-      );
-      continue;
-    }
-    if (arg === '--poll-interval-ms') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--poll-interval-ms`.');
-      pollIntervalMs = parseIntegerFlagValue('--poll-interval-ms', next, {
-        min: 1_000,
-        max: 3_600_000,
-      });
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--poll-interval-ms=')) {
-      pollIntervalMs = parseIntegerFlagValue(
-        '--poll-interval-ms',
-        arg.slice('--poll-interval-ms='.length),
-        {
-          min: 1_000,
-          max: 3_600_000,
-        },
-      );
-      continue;
-    }
-    if (arg === '--folder') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--folder`.');
-      folders.push(next.trim());
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--folder=')) {
-      folders.push(arg.slice('--folder='.length).trim());
-      continue;
-    }
-    if (arg === '--allow-from') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--allow-from`.');
-      allowFrom.push(parseAllowFrom(next));
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--allow-from=')) {
-      allowFrom.push(parseAllowFrom(arg.slice('--allow-from='.length)));
-      continue;
-    }
-    if (arg === '--text-chunk-limit') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--text-chunk-limit`.');
-      textChunkLimit = parseIntegerFlagValue('--text-chunk-limit', next, {
-        min: 500,
-        max: 200_000,
-      });
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--text-chunk-limit=')) {
-      textChunkLimit = parseIntegerFlagValue(
-        '--text-chunk-limit',
-        arg.slice('--text-chunk-limit='.length),
-        {
-          min: 500,
-          max: 200_000,
-        },
-      );
-      continue;
-    }
-    if (arg === '--media-max-mb') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--media-max-mb`.');
-      mediaMaxMb = parseIntegerFlagValue('--media-max-mb', next, {
-        min: 1,
-        max: 100,
-      });
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--media-max-mb=')) {
-      mediaMaxMb = parseIntegerFlagValue(
-        '--media-max-mb',
-        arg.slice('--media-max-mb='.length),
-        {
-          min: 1,
-          max: 100,
-        },
-      );
-      continue;
-    }
-    if (arg.startsWith('-')) {
-      throw new Error(`Unknown flag: ${arg}`);
-    }
-    throw new Error(
-      `Unexpected argument: ${arg}. Use \`hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--smtp-host <host>]\`.`,
-    );
-  }
-
-  return {
-    address,
-    password,
-    imapHost,
-    imapPort,
-    imapSecure,
-    smtpHost,
-    smtpPort,
-    smtpSecure,
-    pollIntervalMs,
-    folders: [...new Set(folders.filter(Boolean))],
-    allowFrom: [...new Set(allowFrom)],
-    textChunkLimit,
-    mediaMaxMb,
-  };
-}
-
-function parseMSTeamsLoginArgs(args: string[]): {
-  appId: string | null;
-  appPassword: string | null;
-  tenantId: string | null;
-} {
-  let appId: string | null = null;
-  let appPassword: string | null = null;
-  let tenantId: string | null = null;
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index] || '';
-    if (arg === '--app-id' || arg === '--client-id') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--app-id`.');
-      appId = next.trim() || null;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--app-id=')) {
-      appId = arg.slice('--app-id='.length).trim() || null;
-      continue;
-    }
-    if (arg.startsWith('--client-id=')) {
-      appId = arg.slice('--client-id='.length).trim() || null;
-      continue;
-    }
-    if (arg === '--app-password' || arg === '--client-secret') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--app-password`.');
-      appPassword = next.trim() || null;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--app-password=')) {
-      appPassword = arg.slice('--app-password='.length).trim() || null;
-      continue;
-    }
-    if (arg.startsWith('--client-secret=')) {
-      appPassword = arg.slice('--client-secret='.length).trim() || null;
-      continue;
-    }
-    if (arg === '--tenant-id') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--tenant-id`.');
-      tenantId = next.trim() || null;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--tenant-id=')) {
-      tenantId = arg.slice('--tenant-id='.length).trim() || null;
-      continue;
-    }
-    if (arg.startsWith('-')) {
-      throw new Error(`Unknown flag: ${arg}`);
-    }
-    throw new Error(
-      `Unexpected argument: ${arg}. Use \`hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]\`.`,
-    );
-  }
-
-  return {
-    appId,
-    appPassword,
-    tenantId,
-  };
-}
-
-function normalizeDiscordUserId(raw: string): string | null {
-  const trimmed = raw.trim();
-  const mentionMatch = trimmed.match(/^<@!?(\d{16,22})>$/);
-  if (mentionMatch) return mentionMatch[1];
-  const directMatch = trimmed.match(/^(?:user:|discord:)?(\d{16,22})$/i);
-  return directMatch ? directMatch[1] : null;
-}
-
-function parseDiscordSetupArgs(args: string[]): {
-  token: string | null;
-  allowUserIds: string[];
-  prefix: string | null;
-} {
-  let token: string | null = null;
-  let prefix: string | null = null;
-  const allowUserIds: string[] = [];
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index] || '';
-    if (arg === '--token') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--token`.');
-      token = next.trim() || null;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--token=')) {
-      token = arg.slice('--token='.length).trim() || null;
-      continue;
-    }
-    if (arg === '--allow-user-id') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--allow-user-id`.');
-      const normalized = normalizeDiscordUserId(next);
-      if (!normalized) {
-        throw new Error(
-          `Invalid Discord user id: ${next}. Use a Discord snowflake like 123456789012345678.`,
-        );
-      }
-      allowUserIds.push(normalized);
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--allow-user-id=')) {
-      const raw = arg.slice('--allow-user-id='.length);
-      const normalized = normalizeDiscordUserId(raw);
-      if (!normalized) {
-        throw new Error(
-          `Invalid Discord user id: ${raw}. Use a Discord snowflake like 123456789012345678.`,
-        );
-      }
-      allowUserIds.push(normalized);
-      continue;
-    }
-    if (arg === '--prefix') {
-      const next = args[index + 1];
-      if (!next) throw new Error('Missing value for `--prefix`.');
-      prefix = next.trim() || null;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--prefix=')) {
-      prefix = arg.slice('--prefix='.length).trim() || null;
-      continue;
-    }
-    if (arg.startsWith('-')) {
-      throw new Error(`Unknown flag: ${arg}`);
-    }
-    throw new Error(
-      `Unexpected argument: ${arg}. Use \`hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]\`.`,
-    );
-  }
-
-  return {
-    token,
-    allowUserIds: [...new Set(allowUserIds)],
-    prefix,
-  };
-}
-
-async function promptWithDefault(params: {
-  rl: readline.Interface;
-  question: string;
-  defaultValue?: string;
-  validate?: (value: string) => string | null;
-  errorMessage?: string;
-}): Promise<string> {
-  while (true) {
-    const suffix = params.defaultValue ? ` [${params.defaultValue}]` : '';
-    const raw = (
-      await params.rl.question(`${params.question}${suffix}: `)
-    ).trim();
-    const candidate = raw || params.defaultValue || '';
-    const validated = params.validate ? params.validate(candidate) : candidate;
-    if (validated) return validated;
-    console.log(params.errorMessage || 'Please enter a valid value.');
-  }
-}
-
-async function promptOptionalWithDefault(params: {
-  rl: readline.Interface;
-  question: string;
-  defaultValue?: string;
-}): Promise<string> {
-  const suffix = params.defaultValue ? ` [${params.defaultValue}]` : '';
-  const raw = (
-    await params.rl.question(`${params.question}${suffix}: `)
-  ).trim();
-  return raw || params.defaultValue || '';
-}
-
-async function resolveInteractiveMSTeamsLogin(params: {
-  appId: string;
-  appPassword: string;
-  tenantId: string;
-}): Promise<{
-  appId: string;
-  appPassword: string;
-  tenantId: string;
-}> {
-  let appId = params.appId;
-  let appPassword = params.appPassword;
-
-  if (appId && appPassword) {
-    return {
-      appId,
-      appPassword,
-      tenantId: params.tenantId,
-    };
-  }
-
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error(
-      'Missing Microsoft Teams credentials. Pass `--app-id <id>` and `--app-password <secret>` (or the `--client-id` / `--client-secret` aliases), set `MSTEAMS_APP_PASSWORD`, or run this command in an interactive terminal to be prompted.',
-    );
-  }
-
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  try {
-    appId = await promptWithDefault({
-      rl,
-      question: 'Microsoft Teams app id',
-      defaultValue: appId || undefined,
-    });
-    appPassword = await promptWithDefault({
-      rl,
-      question: 'Microsoft Teams app password',
-      defaultValue: appPassword || undefined,
-    });
-    const tenantId = await promptOptionalWithDefault({
-      rl,
-      question: 'Microsoft Teams tenant id (optional)',
-      defaultValue: params.tenantId || undefined,
-    });
-    return {
-      appId,
-      appPassword,
-      tenantId,
-    };
-  } finally {
-    rl.close();
-  }
-}
-
-async function resolveInteractiveEmailSetup(params: {
-  address: string;
-  allowFrom: string[];
-  imapHost: string;
-  imapPort: number;
-  imapSecure: boolean;
-  password: string;
-  smtpHost: string;
-  smtpPort: number;
-  smtpSecure: boolean;
-}): Promise<{
-  address: string;
-  allowFrom: string[];
-  imapHost: string;
-  imapPort: number;
-  imapSecure: boolean;
-  password: string;
-  passwordSource: 'explicit' | 'prompt' | 'env';
-  smtpHost: string;
-  smtpPort: number;
-  smtpSecure: boolean;
-}> {
-  let address = params.address;
-  let imapHost = params.imapHost;
-  let smtpHost = params.smtpHost;
-  let password = params.password;
-  let passwordSource: 'explicit' | 'prompt' | 'env' = password
-    ? 'explicit'
-    : process.env.EMAIL_PASSWORD?.trim()
-      ? 'env'
-      : 'prompt';
-  let allowFrom = params.allowFrom;
-
-  const needsPrompt = !address || !imapHost || !smtpHost || !password;
-  if (!needsPrompt) {
-    return {
-      address,
-      allowFrom,
-      imapHost,
-      imapPort: params.imapPort,
-      imapSecure: params.imapSecure,
-      password,
-      passwordSource,
-      smtpHost,
-      smtpPort: params.smtpPort,
-      smtpSecure: params.smtpSecure,
-    };
-  }
-
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error(
-      'Missing email setup fields. Pass them as flags or run this command in an interactive terminal to be prompted.',
-    );
-  }
-
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  try {
-    address = await promptWithDefault({
-      rl,
-      question: 'Email address',
-      defaultValue: address || undefined,
-      validate: normalizeEmailAddress,
-      errorMessage: 'Enter a valid email address.',
-    });
-    imapHost = await promptWithDefault({
-      rl,
-      question: 'IMAP host',
-      defaultValue: imapHost || undefined,
-    });
-    const imapPortRaw = await promptWithDefault({
-      rl,
-      question: 'IMAP port',
-      defaultValue: String(params.imapPort),
-      validate: (value) => {
-        try {
-          return String(
-            parseIntegerFlagValue('--imap-port', value, {
-              min: 1,
-              max: 65_535,
-            }),
-          );
-        } catch {
-          return null;
-        }
-      },
-      errorMessage: 'Enter a valid IMAP port.',
-    });
-    const imapSecureRaw = await promptWithDefault({
-      rl,
-      question: 'IMAP secure (TLS on connect)',
-      defaultValue: String(params.imapSecure),
-      validate: (value) => {
-        try {
-          return String(parseBooleanFlagValue('--imap-secure', value));
-        } catch {
-          return null;
-        }
-      },
-      errorMessage: 'Enter true or false for IMAP secure.',
-    });
-    smtpHost = await promptWithDefault({
-      rl,
-      question: 'SMTP host',
-      defaultValue: smtpHost || undefined,
-    });
-    const smtpPortRaw = await promptWithDefault({
-      rl,
-      question: 'SMTP port',
-      defaultValue: String(params.smtpPort),
-      validate: (value) => {
-        try {
-          return String(
-            parseIntegerFlagValue('--smtp-port', value, {
-              min: 1,
-              max: 65_535,
-            }),
-          );
-        } catch {
-          return null;
-        }
-      },
-      errorMessage: 'Enter a valid SMTP port.',
-    });
-    const smtpSecureRaw = await promptWithDefault({
-      rl,
-      question: 'SMTP secure (TLS on connect)',
-      defaultValue: String(params.smtpSecure),
-      validate: (value) => {
-        try {
-          return String(parseBooleanFlagValue('--smtp-secure', value));
-        } catch {
-          return null;
-        }
-      },
-      errorMessage: 'Enter true or false for SMTP secure.',
-    });
-
-    if (!password) {
-      password = await promptWithDefault({
-        rl,
-        question: 'Email password or app password',
-      });
-      passwordSource = 'prompt';
-    }
-
-    if (allowFrom.length === 0) {
-      const allowFromRaw = (
-        await rl.question(
-          'Allowed inbound senders (optional, comma-separated emails, *@domain, or *): ',
-        )
-      ).trim();
-      if (allowFromRaw) {
-        allowFrom = allowFromRaw
-          .split(',')
-          .map((entry) => normalizeEmailAllowEntry(entry))
-          .filter((entry): entry is string => Boolean(entry));
-      }
-    }
-
-    return {
-      address,
-      allowFrom: [...new Set(allowFrom)],
-      imapHost,
-      imapPort: Number(imapPortRaw),
-      imapSecure: parseBooleanFlagValue('--imap-secure', imapSecureRaw),
-      password,
-      passwordSource,
-      smtpHost,
-      smtpPort: Number(smtpPortRaw),
-      smtpSecure: parseBooleanFlagValue('--smtp-secure', smtpSecureRaw),
-    };
-  } finally {
-    rl.close();
-  }
-}
-
-function configureDiscordChannel(args: string[]): void {
-  ensureRuntimeConfigFile();
-  const parsed = parseDiscordSetupArgs(args);
-  const nextConfig = updateRuntimeConfig((draft) => {
-    draft.discord.commandsOnly = true;
-    draft.discord.commandMode = 'restricted';
-    draft.discord.commandAllowedUserIds = parsed.allowUserIds;
-    draft.discord.commandUserId = '';
-    draft.discord.groupPolicy = 'disabled';
-    draft.discord.freeResponseChannels = [];
-    draft.discord.guilds = {};
-    if (parsed.prefix) {
-      draft.discord.prefix = parsed.prefix;
-    }
-  });
-  const secretsPath = parsed.token
-    ? saveRuntimeSecrets({ DISCORD_TOKEN: parsed.token })
-    : runtimeSecretsPath();
-
-  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  if (parsed.token) {
-    console.log(`Saved Discord token to ${secretsPath}.`);
-  } else {
-    console.log(`Discord token unchanged. Secrets path: ${secretsPath}`);
-  }
-  console.log('Discord mode: command-only');
-  console.log(`Discord prefix: ${nextConfig.discord.prefix}`);
-  console.log(`Guild command mode: ${nextConfig.discord.commandMode}`);
-  console.log(`Guild message policy: ${nextConfig.discord.groupPolicy}`);
-  if (nextConfig.discord.commandAllowedUserIds.length > 0) {
-    console.log(
-      `Allowed guild users: ${nextConfig.discord.commandAllowedUserIds.join(', ')}`,
-    );
-  } else {
-    console.log(
-      'Allowed guild users: none configured (guild commands stay locked down until you add one)',
-    );
-  }
-  console.log('Next:');
-  console.log('  If provider auth is not set up yet: hybridclaw onboarding');
-  if (!parsed.token) {
-    console.log(
-      `  Save DISCORD_TOKEN in ${secretsPath} or rerun with --token <token>`,
-    );
-  }
-  console.log('  Restart the gateway to pick up Discord settings:');
-  console.log('    hybridclaw gateway restart --foreground');
-  console.log('    hybridclaw gateway status');
-  console.log('  Invite the Discord bot to your server or open a DM with it');
-  if (nextConfig.discord.commandAllowedUserIds.length > 0) {
-    console.log(
-      `  Test with an allowlisted guild user id: ${nextConfig.discord.commandAllowedUserIds[0]}`,
-    );
-  } else {
-    console.log('  Use DMs first, or rerun with --allow-user-id <snowflake>');
-  }
-}
-
-async function configureMSTeamsAuth(args: string[]): Promise<void> {
-  ensureRuntimeConfigFile();
-  const parsed = parseMSTeamsLoginArgs(args);
-  const currentConfig = getRuntimeConfig().msteams;
-  const resolved = await resolveInteractiveMSTeamsLogin({
-    appId:
-      parsed.appId || process.env.MSTEAMS_APP_ID?.trim() || currentConfig.appId,
-    appPassword:
-      parsed.appPassword ||
-      process.env.MSTEAMS_APP_PASSWORD?.trim() ||
-      readStoredRuntimeSecret('MSTEAMS_APP_PASSWORD') ||
-      '',
-    tenantId:
-      parsed.tenantId ??
-      process.env.MSTEAMS_TENANT_ID?.trim() ??
-      currentConfig.tenantId,
-  });
-
-  const nextConfig = updateRuntimeConfig((draft) => {
-    draft.msteams.enabled = true;
-    draft.msteams.appId = resolved.appId;
-    draft.msteams.tenantId = resolved.tenantId;
-  });
-  const secretsPath = saveRuntimeSecrets({
-    MSTEAMS_APP_PASSWORD: resolved.appPassword,
-  });
-  process.env.MSTEAMS_APP_PASSWORD = resolved.appPassword;
-
-  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log(`Saved Microsoft Teams app password to ${secretsPath}.`);
-  console.log('Microsoft Teams mode: enabled');
-  console.log(`App ID: ${nextConfig.msteams.appId}`);
-  console.log(`Tenant ID: ${nextConfig.msteams.tenantId || '(not set)'}`);
-  console.log(`Webhook path: ${nextConfig.msteams.webhook.path}`);
-  console.log(`DM policy: ${nextConfig.msteams.dmPolicy}`);
-  console.log(`Group policy: ${nextConfig.msteams.groupPolicy}`);
-  console.log(
-    'Default Teams access is deny-by-default. Add allowed AAD object IDs or channel/team overrides before expecting replies.',
-  );
-  console.log('Next:');
-  console.log('  Restart the gateway to pick up Teams settings:');
-  console.log('    hybridclaw gateway restart --foreground');
-  console.log('    hybridclaw gateway status');
-  console.log(
-    `  Expose ${nextConfig.msteams.webhook.path} on your public HTTPS endpoint and register it in the Teams bot channel`,
-  );
-}
-
-async function configureEmailChannel(args: string[]): Promise<void> {
-  ensureRuntimeConfigFile();
-  const parsed = parseEmailSetupArgs(args);
-  const currentConfig = getRuntimeConfig().email;
-
-  const resolved = await resolveInteractiveEmailSetup({
-    address: parsed.address || currentConfig.address,
-    allowFrom:
-      parsed.allowFrom.length > 0 ? parsed.allowFrom : currentConfig.allowFrom,
-    imapHost: parsed.imapHost || currentConfig.imapHost,
-    imapPort: parsed.imapPort || currentConfig.imapPort,
-    imapSecure: parsed.imapSecure ?? currentConfig.imapSecure,
-    password:
-      parsed.password?.trim() || process.env.EMAIL_PASSWORD?.trim() || '',
-    smtpHost: parsed.smtpHost || currentConfig.smtpHost,
-    smtpPort: parsed.smtpPort || currentConfig.smtpPort,
-    smtpSecure: parsed.smtpSecure ?? currentConfig.smtpSecure,
-  });
-
-  const nextConfig = updateRuntimeConfig((draft) => {
-    draft.email.enabled = true;
-    draft.email.address = resolved.address;
-    draft.email.imapHost = resolved.imapHost;
-    draft.email.imapPort = resolved.imapPort;
-    draft.email.imapSecure = resolved.imapSecure;
-    draft.email.smtpHost = resolved.smtpHost;
-    draft.email.smtpPort = resolved.smtpPort;
-    draft.email.smtpSecure = resolved.smtpSecure;
-    draft.email.pollIntervalMs =
-      parsed.pollIntervalMs || draft.email.pollIntervalMs;
-    draft.email.folders =
-      parsed.folders.length > 0 ? parsed.folders : draft.email.folders;
-    draft.email.allowFrom = resolved.allowFrom;
-    draft.email.textChunkLimit =
-      parsed.textChunkLimit || draft.email.textChunkLimit;
-    draft.email.mediaMaxMb = parsed.mediaMaxMb || draft.email.mediaMaxMb;
-  });
-
-  const shouldSavePassword =
-    resolved.passwordSource === 'prompt' || Boolean(parsed.password?.trim());
-  const secretsPath = shouldSavePassword
-    ? saveRuntimeSecrets({ EMAIL_PASSWORD: resolved.password })
-    : runtimeSecretsPath();
-
-  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  if (shouldSavePassword) {
-    console.log(`Saved email password to ${secretsPath}.`);
-  } else {
-    console.log(`Email password unchanged. Secrets path: ${secretsPath}`);
-  }
-  console.log('Email mode: enabled');
-  console.log(`Email address: ${nextConfig.email.address}`);
-  console.log(
-    `IMAP: ${nextConfig.email.imapHost}:${nextConfig.email.imapPort}`,
-  );
-  console.log(`IMAP secure: ${nextConfig.email.imapSecure}`);
-  console.log(
-    `SMTP: ${nextConfig.email.smtpHost}:${nextConfig.email.smtpPort}`,
-  );
-  console.log(`SMTP secure: ${nextConfig.email.smtpSecure}`);
-  console.log(`Folders: ${nextConfig.email.folders.join(', ')}`);
-  if (nextConfig.email.allowFrom.length > 0) {
-    console.log(`Allowed senders: ${nextConfig.email.allowFrom.join(', ')}`);
-  } else {
-    console.log('Allowed senders: none (inbound email stays disabled)');
-  }
-  console.log(`Poll interval: ${nextConfig.email.pollIntervalMs}ms`);
-  console.log(`Text chunk limit: ${nextConfig.email.textChunkLimit}`);
-  console.log(`Media limit: ${nextConfig.email.mediaMaxMb}MB`);
-  console.log('Next:');
-  console.log('  Restart the gateway to pick up email settings:');
-  console.log('    hybridclaw gateway restart --foreground');
-  console.log('    hybridclaw gateway status');
-  if (nextConfig.email.allowFrom.length > 0) {
-    console.log(
-      `  Send a test message from an allowlisted sender to ${nextConfig.email.address}`,
-    );
-  } else {
-    console.log(
-      '  Add one or more allowlisted senders to receive inbound mail, or use email only for outbound sends',
-    );
-  }
-}
-
-async function pairWhatsAppChannel(): Promise<void> {
-  const settleMs = resolveWhatsAppSetupSettleMs();
-  const manager = createWhatsAppConnectionManager();
-  try {
-    console.log('Opening WhatsApp pairing session...');
-    console.log(
-      'Scan the QR code in WhatsApp: Settings > Linked Devices > Link a Device',
-    );
-    await manager.start();
-    const socket = await manager.waitForSocket();
-    console.log(`WhatsApp linked: ${socket.user?.id || 'connected'}`);
-    if (settleMs > 0) {
+    } else {
+      console.log(`Profile directory: ${profileDir}`);
       console.log(
-        `Keeping the temporary setup session open for ${Math.floor(settleMs / 1000)}s so WhatsApp can finish linking...`,
+        'No browser profile found. Run `hybridclaw browser login` to create one.',
       );
-      await sleep(settleMs);
     }
-  } finally {
-    await manager.stop().catch(() => {});
-  }
-}
-
-async function configureWhatsAppChannel(args: string[]): Promise<void> {
-  ensureRuntimeConfigFile();
-  const parsed = parseWhatsAppSetupArgs(args);
-  const nextConfig = updateRuntimeConfig((draft) => {
-    draft.whatsapp.groupPolicy = 'disabled';
-    draft.whatsapp.groupAllowFrom = [];
-    draft.whatsapp.ackReaction = draft.whatsapp.ackReaction.trim() || '👀';
-    if (parsed.allowFrom.length > 0) {
-      draft.whatsapp.dmPolicy = 'allowlist';
-      draft.whatsapp.allowFrom = parsed.allowFrom;
-      return;
-    }
-    draft.whatsapp.dmPolicy = 'disabled';
-    draft.whatsapp.allowFrom = [];
-  });
-
-  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log(
-    `WhatsApp mode: ${parsed.allowFrom.length > 0 ? 'allowlisted DMs only' : 'self-chat only'}`,
-  );
-  console.log(`DM policy: ${nextConfig.whatsapp.dmPolicy}`);
-  if (nextConfig.whatsapp.allowFrom.length > 0) {
-    console.log(`Allowed senders: ${nextConfig.whatsapp.allowFrom.join(', ')}`);
-  }
-  console.log(`Group policy: ${nextConfig.whatsapp.groupPolicy}`);
-  console.log(
-    `Ack reaction: ${nextConfig.whatsapp.ackReaction.trim() || '(disabled)'}`,
-  );
-  console.log(`Auth directory: ${WHATSAPP_AUTH_DIR}`);
-  if (parsed.reset) {
-    await resetWhatsAppAuthState();
-    console.log(`Reset WhatsApp auth state at ${WHATSAPP_AUTH_DIR}`);
-  }
-  await pairWhatsAppChannel();
-}
-
-async function handleChannelsCommand(args: string[]): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printChannelsUsage();
     return;
   }
 
-  const channel = normalized[0].toLowerCase();
-  if (channel !== 'whatsapp' && channel !== 'discord' && channel !== 'email') {
-    throw new Error(
-      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`whatsapp\`, \`email\`.`,
-    );
-  }
-
-  const sub = (normalized[1] || '').toLowerCase();
-  if (!sub || isHelpRequest([sub])) {
-    printChannelsUsage();
-    return;
-  }
-  if (sub === 'setup') {
-    if (channel === 'discord') {
-      configureDiscordChannel(normalized.slice(2));
-      return;
+  if (sub === 'reset') {
+    if (fs.existsSync(profileDir)) {
+      fs.rmSync(profileDir, { recursive: true });
+      console.log(`Deleted browser profile at ${profileDir}.`);
+      console.log('Run `hybridclaw browser login` to create a fresh profile.');
+    } else {
+      console.log('No browser profile to reset.');
     }
-    if (channel === 'email') {
-      await configureEmailChannel(normalized.slice(2));
-      return;
-    }
-    await configureWhatsAppChannel(normalized.slice(2));
     return;
   }
 
   throw new Error(
-    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels whatsapp setup\`, or \`hybridclaw channels email setup\`.`,
+    `Unknown browser subcommand: ${sub}. Use \`login\`, \`status\`, or \`reset\`.`,
   );
 }
 
 async function handleHybridAICommand(args: string[]): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printHybridAIUsage();
-    return;
-  }
-
-  const sub = normalized[0].toLowerCase();
-  if (sub === 'login') {
-    const method = parseHybridAILoginMethod(normalized.slice(1));
-    const result = await loginHybridAIInteractive({ method });
-    console.log(`Saved HybridAI credentials to ${result.path}.`);
-    console.log(`Login method: ${result.method}`);
-    console.log(`API key: ${result.maskedApiKey}`);
-    console.log(`Validated: ${result.validated ? 'yes' : 'no'}`);
-    return;
-  }
-
-  if (sub === 'logout') {
-    const filePath = clearHybridAICredentials();
-    console.log(`Cleared HybridAI credentials in ${filePath}.`);
-    console.log(
-      'If HYBRIDAI_API_KEY is still exported in your shell, unset it separately.',
-    );
-    return;
-  }
-
-  if (sub === 'status') {
-    const status = getHybridAIAuthStatus();
-    console.log(`Path: ${status.path}`);
-    console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
-    if (status.authenticated) {
-      console.log(`Source: ${status.source}`);
-      console.log(`API key: ${status.maskedApiKey}`);
-    }
-    return;
-  }
-
-  throw new Error(`Unknown hybridai subcommand: ${sub}`);
+  const cliAuth = await import('./cli/auth-command.js');
+  await cliAuth.handleHybridAICommand(args);
 }
 
 async function handleCodexCommand(args: string[]): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printCodexUsage();
-    return;
-  }
-
-  const sub = normalized[0].toLowerCase();
-  if (sub === 'login') {
-    const method = parseCodexLoginMethod(normalized.slice(1));
-    const result = await loginCodexInteractive({ method });
-    console.log(`Saved Codex credentials to ${result.path}.`);
-    console.log(`Account: ${result.credentials.accountId}`);
-    console.log(`Source: ${result.method}`);
-    console.log(
-      `Expires: ${new Date(result.credentials.expiresAt).toISOString()}`,
-    );
-    return;
-  }
-
-  if (sub === 'logout') {
-    const filePath = clearCodexCredentials();
-    console.log(`Cleared Codex credentials in ${filePath}.`);
-    return;
-  }
-
-  if (sub === 'status') {
-    const status = getCodexAuthStatus();
-    console.log(`Path: ${status.path}`);
-    console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
-    console.log(`Relogin required: ${status.reloginRequired ? 'yes' : 'no'}`);
-    if (status.authenticated) {
-      console.log(`Source: ${status.source}`);
-      console.log(`Account: ${status.accountId}`);
-      console.log(`Access token: ${status.maskedAccessToken}`);
-      console.log(
-        `Expires: ${status.expiresAt ? new Date(status.expiresAt).toISOString() : 'unknown'}`,
-      );
-    }
-    return;
-  }
-
-  throw new Error(`Unknown codex subcommand: ${sub}`);
-}
-
-function printSkillMetrics(metrics: SkillHealthMetrics): void {
-  const formatRatioAsPercent = (value: number): string =>
-    `${(value * 100).toFixed(2)}%`;
-  console.log(`Skill: ${metrics.skill_name}`);
-  console.log(`Executions: ${metrics.total_executions}`);
-  console.log(`Success rate: ${formatRatioAsPercent(metrics.success_rate)}`);
-  console.log(`Avg duration: ${Math.round(metrics.avg_duration_ms)}ms`);
-  console.log(
-    `Tool breakage: ${formatRatioAsPercent(metrics.tool_breakage_rate)}`,
-  );
-  console.log(`Positive feedback: ${metrics.positive_feedback_count}`);
-  console.log(`Negative feedback: ${metrics.negative_feedback_count}`);
-  console.log(`Degraded: ${metrics.degraded ? 'yes' : 'no'}`);
-  if (metrics.degradation_reasons.length > 0) {
-    console.log(`Reasons: ${metrics.degradation_reasons.join('; ')}`);
-  }
-  if (metrics.error_clusters.length > 0) {
-    console.log('Error clusters:');
-    for (const cluster of metrics.error_clusters) {
-      const sample = cluster.sample_detail ? ` — ${cluster.sample_detail}` : '';
-      console.log(`  ${cluster.category}: ${cluster.count}${sample}`);
-    }
-  }
-}
-
-function printAmendmentSummary(amendment: SkillAmendment): void {
-  console.log(
-    `v${amendment.version} [${amendment.status}] guard=${amendment.guard_verdict}/${amendment.guard_findings_count} runs=${amendment.runs_since_apply}`,
-  );
-  console.log(`  created: ${amendment.created_at}`);
-  if (amendment.reviewed_by) {
-    console.log(`  reviewed by: ${amendment.reviewed_by}`);
-  }
-  if (amendment.rationale) {
-    console.log(`  rationale: ${amendment.rationale}`);
-  }
-  if (amendment.diff_summary) {
-    console.log(`  diff: ${amendment.diff_summary}`);
-  }
-}
-
-function printSkillObservationRun(observation: SkillObservation): void {
-  console.log(`Run: ${observation.run_id}`);
-  console.log(`Outcome: ${observation.outcome}`);
-  console.log(`Observed: ${observation.created_at}`);
-  console.log(`Duration: ${observation.duration_ms}ms`);
-  console.log(
-    `Tools: ${observation.tool_calls_failed}/${observation.tool_calls_attempted} failed`,
-  );
-  if (observation.feedback_sentiment) {
-    console.log(`Feedback: ${observation.feedback_sentiment}`);
-  }
-  if (observation.user_feedback) {
-    console.log(`Feedback note: ${observation.user_feedback}`);
-  }
-  if (observation.error_category) {
-    console.log(`Error category: ${observation.error_category}`);
-  }
-  if (observation.error_detail) {
-    console.log(`Error detail: ${observation.error_detail}`);
-  }
+  const cliAuth = await import('./cli/auth-command.js');
+  await cliAuth.handleCodexCommand(args);
 }
 
 async function handleSkillCommand(args: string[]): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printSkillUsage();
-    return;
-  }
+  const cliSkill = await import('./cli/skill-command.js');
+  await cliSkill.handleSkillCommand(args);
+}
 
-  const sub = normalized[0].toLowerCase();
-  if (sub === 'list') {
-    const { listSkillCatalogEntries } = await import(
-      './skills/skills-management.js'
-    );
-    const catalog = listSkillCatalogEntries();
-    for (const skill of catalog) {
-      const availability = skill.available
-        ? 'available'
-        : skill.missing.join(', ');
-      console.log(`${skill.name} [${availability}]`);
-      for (const install of skill.installs) {
-        const label = install.label ? ` — ${install.label}` : '';
-        console.log(`  ${install.id} (${install.kind})${label}`);
-      }
-    }
-    return;
-  }
-
-  if (sub === 'enable' || sub === 'disable') {
-    const { channelKind, remaining } = parseSkillScopeArgs(normalized.slice(1));
-    const skillName = remaining[0];
-    if (!skillName || remaining.length !== 1) {
-      printSkillUsage();
-      throw new Error(
-        `Expected exactly one skill name for \`hybridclaw skill ${sub}\`.`,
-      );
-    }
-
-    const { loadSkillCatalog } = await import('./skills/skills.js');
-    const known = loadSkillCatalog().some((skill) => skill.name === skillName);
-    if (!known) {
-      throw new Error(`Unknown skill: ${skillName}`);
-    }
-
-    const enabled = sub === 'enable';
-    const nextConfig = updateRuntimeConfig((draft) => {
-      setRuntimeSkillScopeEnabled(draft, skillName, enabled, channelKind);
-    });
-    console.log(
-      `${enabled ? 'Enabled' : 'Disabled'} ${skillName} in ${channelKind ?? 'global'} scope.`,
-    );
-    if (
-      channelKind &&
-      enabled &&
-      getRuntimeSkillScopeDisabledNames(nextConfig).has(skillName)
-    ) {
-      console.log(`${skillName} remains globally disabled.`);
-    }
-    return;
-  }
-
-  if (sub === 'toggle') {
-    const { channelKind, remaining } = parseSkillScopeArgs(normalized.slice(1));
-    if (remaining.length > 0) {
-      printSkillUsage();
-      throw new Error(
-        'Unexpected positional arguments for `hybridclaw skill toggle`.',
-      );
-    }
-
-    const { loadSkillCatalog } = await import('./skills/skills.js');
-    const catalog = loadSkillCatalog();
-    if (catalog.length === 0) {
-      console.log('No skills found.');
-      return;
-    }
-    if (!process.stdin.isTTY || !process.stdout.isTTY) {
-      throw new Error(
-        '`hybridclaw skill toggle` requires an interactive terminal.',
-      );
-    }
-
-    const currentConfig = getRuntimeConfig();
-    const scopeDisabled = getRuntimeSkillScopeDisabledNames(
-      currentConfig,
-      channelKind,
-    );
-    const globalDisabled = getRuntimeSkillScopeDisabledNames(currentConfig);
-    for (const [index, skill] of catalog.entries()) {
-      const marker = scopeDisabled.has(skill.name) ? '[x]' : '[ ]';
-      const globalSuffix =
-        channelKind &&
-        globalDisabled.has(skill.name) &&
-        !scopeDisabled.has(skill.name)
-          ? ' (globally disabled)'
-          : '';
-      console.log(`${index + 1}. ${marker} ${skill.name}${globalSuffix}`);
-    }
-
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-    try {
-      const answer = (
-        await rl.question(
-          `Toggle which skill number for ${channelKind ?? 'global'} scope? `,
-        )
-      ).trim();
-      if (!answer) {
-        console.log('No changes made.');
-        return;
-      }
-      const selection = Number.parseInt(answer, 10);
-      if (
-        !Number.isInteger(selection) ||
-        selection < 1 ||
-        selection > catalog.length
-      ) {
-        throw new Error('Choose a listed skill number.');
-      }
-      const selected = catalog[selection - 1];
-      if (!selected) {
-        throw new Error('Choose a listed skill number.');
-      }
-      const enabled = scopeDisabled.has(selected.name);
-      const nextConfig = updateRuntimeConfig((draft) => {
-        setRuntimeSkillScopeEnabled(draft, selected.name, enabled, channelKind);
-      });
-      console.log(
-        `${enabled ? 'Enabled' : 'Disabled'} ${selected.name} in ${channelKind ?? 'global'} scope.`,
-      );
-      if (
-        channelKind &&
-        enabled &&
-        getRuntimeSkillScopeDisabledNames(nextConfig).has(selected.name)
-      ) {
-        console.log(`${selected.name} remains globally disabled.`);
-      }
-    } finally {
-      rl.close();
-    }
-    return;
-  }
-
-  if (sub === 'inspect') {
-    const { inspectObservedSkill, inspectObservedSkills } = await import(
-      './skills/skills-management.js'
-    );
-    const target = normalized[1];
-    if (target === '--all') {
-      const metricsList = inspectObservedSkills();
-      if (metricsList.length === 0) {
-        console.log(
-          'No observed skills found in the current inspection window.',
-        );
-        return;
-      }
-      for (const [index, metrics] of metricsList.entries()) {
-        if (index > 0) console.log('');
-        printSkillMetrics(metrics);
-      }
-      return;
-    }
-    if (!target) {
-      printSkillUsage();
-      throw new Error('Missing skill name for `hybridclaw skill inspect`.');
-    }
-    printSkillMetrics(inspectObservedSkill(target));
-    return;
-  }
-
-  if (sub === 'amend') {
-    const skillName = normalized[1];
-    if (!skillName) {
-      printSkillUsage();
-      throw new Error('Missing skill name for `hybridclaw skill amend`.');
-    }
-
-    const { DEFAULT_AGENT_ID } = await import('./agents/agent-types.js');
-    const { runSkillAmendmentCommand } = await import(
-      './skills/skills-management.js'
-    );
-
-    const action = normalized.includes('--apply')
-      ? 'apply'
-      : normalized.includes('--reject')
-        ? 'reject'
-        : normalized.includes('--rollback')
-          ? 'rollback'
-          : 'propose';
-
-    const result = await runSkillAmendmentCommand({
-      skillName,
-      action,
-      reviewedBy: 'cli',
-      agentId: DEFAULT_AGENT_ID,
-      rollbackReason: 'Rollback requested via CLI.',
-    });
-    if (!result.ok) {
-      throw new Error(result.message);
-    }
-    if (result.action === 'applied') {
-      console.log(
-        `Applied staged amendment v${result.amendment.version} for ${skillName}.`,
-      );
-      return;
-    }
-    if (result.action === 'rejected') {
-      console.log(
-        `Rejected staged amendment v${result.amendment.version} for ${skillName}.`,
-      );
-      return;
-    }
-    if (result.action === 'rolled_back') {
-      console.log(
-        `Rolled back amendment v${result.amendment.version} for ${skillName}.`,
-      );
-      return;
-    }
-    console.log(
-      `Staged amendment v${result.amendment.version} for ${skillName}.`,
-    );
-    console.log(
-      `Guard: ${result.amendment.guard_verdict} (${result.amendment.guard_findings_count} finding(s))`,
-    );
-    console.log(`Diff: ${result.amendment.diff_summary}`);
-    return;
-  }
-
-  if (sub === 'runs') {
-    const skillName = normalized[1];
-    if (!skillName) {
-      printSkillUsage();
-      throw new Error('Missing skill name for `hybridclaw skill runs`.');
-    }
-    const { getSkillExecutionRuns } = await import(
-      './skills/skills-management.js'
-    );
-    const runs = getSkillExecutionRuns(skillName);
-    if (runs.length === 0) {
-      console.log(`No observations found for ${skillName}.`);
-      return;
-    }
-    for (const [index, observation] of runs.entries()) {
-      if (index > 0) console.log('');
-      printSkillObservationRun(observation);
-    }
-    return;
-  }
-
-  if (sub === 'history') {
-    const skillName = normalized[1];
-    if (!skillName) {
-      printSkillUsage();
-      throw new Error('Missing skill name for `hybridclaw skill history`.');
-    }
-    const { getSkillAmendmentHistory } = await import(
-      './skills/skills-management.js'
-    );
-    const history = getSkillAmendmentHistory(skillName);
-    if (history.length === 0) {
-      console.log(`No amendment history found for ${skillName}.`);
-      return;
-    }
-    for (const [index, amendment] of history.entries()) {
-      if (index > 0) console.log('');
-      printAmendmentSummary(amendment);
-    }
-    return;
-  }
-
-  if (sub === 'install') {
-    const skillName = normalized[1];
-    const installId = normalized[2];
-    if (!skillName) {
-      printSkillUsage();
-      throw new Error('Missing skill name for `hybridclaw skill install`.');
-    }
-
-    const { installSkillDependency } = await import(
-      './skills/skills-install.js'
-    );
-    const result = await installSkillDependency({ skillName, installId });
-    if (result.stdout) console.log(result.stdout);
-    if (result.stderr) console.error(result.stderr);
-    if (!result.ok) {
-      throw new Error(result.message);
-    }
-    console.log(result.message);
-    return;
-  }
-
-  throw new Error(`Unknown skill subcommand: ${sub}`);
+async function handleToolCommand(args: string[]): Promise<void> {
+  const cliTool = await import('./cli/tool-command.js');
+  await cliTool.handleToolCommand(args);
 }
 
 async function handlePluginCommand(args: string[]): Promise<void> {
-  function formatPluginConfigValue(value: unknown): string {
-    if (value === undefined) return '(not set)';
-    if (typeof value === 'string') return JSON.stringify(value);
-    try {
-      return JSON.stringify(value, null, 2);
-    } catch {
-      return String(value);
-    }
-  }
+  const cliPlugin = await import('./cli/plugin-command.js');
+  await cliPlugin.handlePluginCommand(args);
+}
 
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printPluginUsage();
-    return;
-  }
-
-  const sub = normalized[0].toLowerCase();
-  if (sub === 'list') {
-    if (normalized.length !== 1) {
-      printPluginUsage();
-      throw new Error(
-        'Unexpected extra arguments for `hybridclaw plugin list`.',
-      );
-    }
-
-    const { ensurePluginManagerInitialized } = await import(
-      './plugins/plugin-manager.js'
-    );
-    const manager = await ensurePluginManagerInitialized();
-    console.log(formatPluginSummaryList(manager.listPluginSummary()));
-    return;
-  }
-
-  if (sub === 'config') {
-    const pluginId = normalized[1];
-    const key = normalized[2];
-    const rawValue = normalized.slice(3).join(' ').trim();
-    if (!pluginId) {
-      printPluginUsage();
-      throw new Error(
-        'Missing plugin id for `hybridclaw plugin config <plugin-id> [key] [value|--unset]`.',
-      );
-    }
-
-    const {
-      readPluginConfigEntry,
-      readPluginConfigValue,
-      unsetPluginConfigValue,
-      writePluginConfigValue,
-    } = await import('./plugins/plugin-config.js');
-
-    if (!key) {
-      const result = readPluginConfigEntry(pluginId);
-      console.log(`Plugin: ${result.pluginId}`);
-      console.log(`Config file: ${result.configPath}`);
-      console.log(
-        `Override: ${result.entry ? formatPluginConfigValue(result.entry) : '(none)'}`,
-      );
-      return;
-    }
-
-    if (!rawValue) {
-      const result = readPluginConfigValue(pluginId, key);
-      console.log(`Plugin: ${result.pluginId}`);
-      console.log(`Key: ${result.key}`);
-      console.log(`Value: ${formatPluginConfigValue(result.value)}`);
-      console.log(`Config file: ${result.configPath}`);
-      return;
-    }
-
-    const result =
-      rawValue === '--unset'
-        ? await unsetPluginConfigValue(pluginId, key)
-        : await writePluginConfigValue(pluginId, key, rawValue);
-    console.log(
-      result.removed
-        ? result.changed
-          ? `Removed plugin config ${result.pluginId}.${result.key}.`
-          : `Plugin config ${result.pluginId}.${result.key} was already unset.`
-        : `Set plugin config ${result.pluginId}.${result.key} = ${formatPluginConfigValue(result.value)}.`,
-    );
-    console.log(`Updated runtime config at ${result.configPath}.`);
-    console.log(
-      'Restart the gateway to load plugin config changes if it is running:',
-    );
-    console.log('  hybridclaw gateway restart --foreground');
-    console.log('  hybridclaw gateway status');
-    return;
-  }
-
-  if (sub === 'install') {
-    const source = normalized[1];
-    if (!source) {
-      printPluginUsage();
-      throw new Error(
-        'Missing plugin source for `hybridclaw plugin install <path|npm-spec>`.',
-      );
-    }
-    if (normalized.length !== 2) {
-      printPluginUsage();
-      throw new Error(
-        'Unexpected extra arguments for `hybridclaw plugin install <path|npm-spec>`.',
-      );
-    }
-
-    const { installPlugin } = await import('./plugins/plugin-install.js');
-    const result = await installPlugin(source);
-
-    if (result.alreadyInstalled) {
-      console.log(
-        `Plugin ${result.pluginId} is already present at ${result.pluginDir}.`,
-      );
-    } else {
-      console.log(
-        `Installed plugin ${result.pluginId} to ${result.pluginDir}.`,
-      );
-    }
-    if (result.dependenciesInstalled) {
-      console.log('Installed plugin npm dependencies.');
-    }
-    console.log(
-      `Plugin ${result.pluginId} will auto-discover from ${result.pluginDir}.`,
-    );
-    if (result.requiresEnv.length > 0) {
-      console.log(`Required env vars: ${result.requiresEnv.join(', ')}`);
-    }
-    if (result.requiredConfigKeys.length > 0) {
-      console.log(
-        `Add a plugins.list[] override in ${runtimeConfigPath()} to set required config keys: ${result.requiredConfigKeys.join(', ')}`,
-      );
-    } else {
-      console.log(
-        `No config entry is required unless you want plugin overrides in ${runtimeConfigPath()}.`,
-      );
-    }
-    console.log('Restart the gateway to load plugin changes:');
-    console.log('  hybridclaw gateway restart --foreground');
-    console.log('  hybridclaw gateway status');
-    return;
-  }
-
-  if (sub === 'reinstall') {
-    const source = normalized[1];
-    if (!source) {
-      printPluginUsage();
-      throw new Error(
-        'Missing plugin source for `hybridclaw plugin reinstall <path|npm-spec>`.',
-      );
-    }
-    if (normalized.length !== 2) {
-      printPluginUsage();
-      throw new Error(
-        'Unexpected extra arguments for `hybridclaw plugin reinstall <path|npm-spec>`.',
-      );
-    }
-
-    const { reinstallPlugin } = await import('./plugins/plugin-install.js');
-    const result = await reinstallPlugin(source);
-
-    if (result.replacedExistingInstall) {
-      console.log(
-        `Reinstalled plugin ${result.pluginId} to ${result.pluginDir}.`,
-      );
-    } else {
-      console.log(
-        `Installed plugin ${result.pluginId} to ${result.pluginDir}.`,
-      );
-    }
-    if (result.dependenciesInstalled) {
-      console.log('Installed plugin npm dependencies.');
-    }
-    console.log(
-      `Plugin ${result.pluginId} will auto-discover from ${result.pluginDir}.`,
-    );
-    if (result.requiresEnv.length > 0) {
-      console.log(`Required env vars: ${result.requiresEnv.join(', ')}`);
-    }
-    if (result.requiredConfigKeys.length > 0) {
-      console.log(
-        `Add a plugins.list[] override in ${runtimeConfigPath()} to set required config keys: ${result.requiredConfigKeys.join(', ')}`,
-      );
-    } else {
-      console.log(
-        `No config entry is required unless you want plugin overrides in ${runtimeConfigPath()}.`,
-      );
-    }
-    console.log('Restart the gateway to load plugin changes:');
-    console.log('  hybridclaw gateway restart --foreground');
-    console.log('  hybridclaw gateway status');
-    return;
-  }
-
-  if (sub === 'uninstall') {
-    const pluginId = normalized[1];
-    if (!pluginId) {
-      printPluginUsage();
-      throw new Error(
-        'Missing plugin id for `hybridclaw plugin uninstall <plugin-id>`.',
-      );
-    }
-    if (normalized.length !== 2) {
-      printPluginUsage();
-      throw new Error(
-        'Unexpected extra arguments for `hybridclaw plugin uninstall <plugin-id>`.',
-      );
-    }
-
-    const { uninstallPlugin } = await import('./plugins/plugin-install.js');
-    const result = await uninstallPlugin(pluginId);
-    if (result.removedPluginDir) {
-      console.log(
-        `Uninstalled plugin ${result.pluginId} from ${result.pluginDir}.`,
-      );
-    } else {
-      console.log(
-        `Removed plugin overrides for ${result.pluginId}; no installed plugin directory was present at ${result.pluginDir}.`,
-      );
-    }
-    if (result.removedConfigOverrides > 0) {
-      const label =
-        result.removedConfigOverrides === 1 ? 'override' : 'overrides';
-      console.log(
-        `Removed ${result.removedConfigOverrides} plugins.list[] ${label} from ${runtimeConfigPath()}.`,
-      );
-    } else {
-      console.log(
-        `No plugins.list[] overrides were removed from ${runtimeConfigPath()}.`,
-      );
-    }
-    console.log(
-      'Restart the gateway to unload plugin changes if it is running:',
-    );
-    console.log('  hybridclaw gateway restart --foreground');
-    console.log('  hybridclaw gateway status');
-    return;
-  }
-  printPluginUsage();
-  throw new Error(
-    `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\`, \`hybridclaw plugin config <plugin-id> [key] [value|--unset]\`, \`hybridclaw plugin install <path|npm-spec>\`, \`hybridclaw plugin reinstall <path|npm-spec>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
-  );
+async function handleAgentPackageCommand(args: string[]): Promise<void> {
+  const cliAgent = await import('./cli/agent-command.js');
+  await cliAgent.handleAgentPackageCommand(args);
 }
 
 export async function main(
@@ -4090,10 +1369,16 @@ export async function main(
   switch (command) {
     case '--version':
     case '-v':
-      console.log(APP_VERSION);
+      console.log(resolveCliVersion());
+      break;
+    case 'agent':
+      await handleAgentPackageCommand(subargs);
       break;
     case 'auth':
       await handleAuthCommand(subargs);
+      break;
+    case 'config':
+      await handleConfigCommand(subargs);
       break;
     case 'gateway':
       await handleGatewayCommand(subargs);
@@ -4101,19 +1386,24 @@ export async function main(
     case 'tui':
       await launchTui(subargs);
       break;
-    case 'onboarding':
+    case 'onboarding': {
       if (isHelpRequest(subargs)) {
         printOnboardingUsage();
         break;
       }
+      const { ensureRuntimeCredentials } = await ensureOnboardingApi();
       await ensureRuntimeCredentials({
         force: true,
         commandName: 'hybridclaw onboarding',
       });
       await ensureRuntimeContainer('hybridclaw onboarding', false);
       break;
+    }
     case 'channels':
       await handleChannelsCommand(subargs);
+      break;
+    case 'browser':
+      await handleBrowserCommand(subargs);
       break;
     case 'plugin':
       await handlePluginCommand(subargs);
@@ -4133,12 +1423,17 @@ export async function main(
     case 'skill':
       await handleSkillCommand(subargs);
       break;
+    case 'tool':
+      await handleToolCommand(subargs);
+      break;
     case 'update': {
       if (isHelpRequest(subargs)) {
+        const { printUpdateUsage } = await import('./update.js');
         printUpdateUsage();
         break;
       }
-      await runUpdateCommand(subargs, APP_VERSION);
+      const { runUpdateCommand } = await import('./update.js');
+      await runUpdateCommand(subargs, resolveCliVersion());
       break;
     }
     case 'audit': {
@@ -4167,7 +1462,7 @@ export async function main(
         printHelpUsage();
         break;
       }
-      if (printHelpTopic(topic)) {
+      if (await printHelpTopic(topic)) {
         break;
       }
       printMainUsage();
@@ -4183,10 +1478,36 @@ export async function main(
   }
 }
 
+function isMissingRequiredEnvVarError(
+  err: unknown,
+): err is Error & { envVar: string } {
+  return (
+    err instanceof Error &&
+    err.name === 'MissingRequiredEnvVarError' &&
+    typeof (err as { envVar?: unknown }).envVar === 'string'
+  );
+}
+
+function isCodexAuthError(
+  err: unknown,
+): err is Error & { reloginRequired: boolean } {
+  return (
+    err instanceof Error &&
+    err.name === 'CodexAuthError' &&
+    typeof (err as { reloginRequired?: unknown }).reloginRequired === 'boolean'
+  );
+}
+
+function isWhatsAppAuthLockError(err: unknown): err is Error {
+  return err instanceof Error && err.name === 'WhatsAppAuthLockError';
+}
+
 function printMissingEnvVarError(message: string, envVar?: string): void {
   const envVarHint: Record<string, string> = {
     HYBRIDAI_API_KEY: `Set HYBRIDAI_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again. You can also run \`hybridclaw onboarding\` to set it interactively.`,
     OPENROUTER_API_KEY: `Set OPENROUTER_API_KEY in ${runtimeSecretsPath()} or your shell, ensure \`openrouter.enabled\` is true in ${runtimeConfigPath()}, then run the command again.`,
+    MISTRAL_API_KEY: `Set MISTRAL_API_KEY in ${runtimeSecretsPath()} or your shell, ensure \`mistral.enabled\` is true in ${runtimeConfigPath()}, then run the command again.`,
+    HF_TOKEN: `Set HF_TOKEN in ${runtimeSecretsPath()} or your shell, ensure \`huggingface.enabled\` is true in ${runtimeConfigPath()}, then run the command again.`,
   };
   const hint = envVar
     ? envVarHint[envVar]
@@ -4213,16 +1534,16 @@ export function isDirectExecution(
 
 if (isDirectExecution()) {
   main().catch((err) => {
-    if (err instanceof MissingRequiredEnvVarError) {
+    if (isMissingRequiredEnvVarError(err)) {
       printMissingEnvVarError(err.message, err.envVar);
-    } else if (err instanceof CodexAuthError) {
+    } else if (isCodexAuthError(err)) {
       console.error(`hybridclaw error: ${err.message}`);
       if (err.reloginRequired) {
         console.error(
           'Hint: Run `hybridclaw auth login codex` or `hybridclaw onboarding` to refresh OpenAI Codex credentials.',
         );
       }
-    } else if (err instanceof WhatsAppAuthLockError) {
+    } else if (isWhatsAppAuthLockError(err)) {
       console.error(`hybridclaw error: ${err.message}`);
       console.error(
         'Hint: Stop the other HybridClaw process that owns WhatsApp, unlink the stale Linked Device if needed, then rerun `hybridclaw auth whatsapp reset` or `hybridclaw channels whatsapp setup`.',

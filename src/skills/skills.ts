@@ -15,10 +15,11 @@ import {
   getRuntimeConfig,
   getRuntimeDisabledSkillNames,
 } from '../config/runtime-config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import type { ToolExecution } from '../types.js';
+import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { guardSkillDirectory } from './skills-guard.js';
 
@@ -445,36 +446,227 @@ function parseSectionObjectList(
   return values;
 }
 
-function parseRequiresFromFrontmatter(frontmatter: FrontmatterParseResult): {
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record).sort((a, b) => a.localeCompare(b));
+    return `{${keys
+      .map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function mergeUniqueInstallSpecs(
+  groups: SkillInstallSpec[][],
+): SkillInstallSpec[] {
+  const merged: SkillInstallSpec[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const spec of group) {
+      const fingerprint = stableSerialize(spec);
+      if (seen.has(fingerprint)) continue;
+      seen.add(fingerprint);
+      merged.push(spec);
+    }
+  }
+  return merged;
+}
+
+function resolveCompatibleMetadataRecord(
+  raw: Record<string, unknown>,
+): Record<string, unknown> {
+  if (isRecord(raw.hybridclaw)) return raw.hybridclaw;
+  if (isRecord(raw.openclaw)) return raw.openclaw;
+  return raw;
+}
+
+function normalizeCompatibleMetadata(raw: Record<string, unknown>): {
+  tags: string[];
+  relatedSkills: string[];
+  install: SkillInstallSpec[];
+} {
+  const record = resolveCompatibleMetadataRecord(raw);
+  return {
+    tags: normalizeStringList(record.tags),
+    relatedSkills: Array.from(
+      new Set([
+        ...normalizeStringList(record.related_skills),
+        ...normalizeStringList(record.relatedSkills),
+      ]),
+    ),
+    install: mergeUniqueInstallSpecs([normalizeInstallSpecs(record.install)]),
+  };
+}
+
+function parseRequiresFromMetadataRecord(raw: Record<string, unknown>): {
   bins: string[];
   env: string[];
 } {
-  const fromInlineJson = frontmatter.meta.requires
-    ? tryParseJsonObject(frontmatter.meta.requires)
-    : null;
-  if (fromInlineJson) {
-    return {
-      bins: normalizeStringList(fromInlineJson.bins),
-      env: normalizeStringList(fromInlineJson.env),
-    };
+  const record = resolveCompatibleMetadataRecord(raw);
+  if (!Object.hasOwn(record, 'requires')) {
+    return { bins: [], env: [] };
   }
-
-  const section = extractTopLevelSection(frontmatter.block, 'requires');
-  if (!section) return { bins: [], env: [] };
-
-  const inlineJson = tryParseJsonObject(section.inline);
-  if (inlineJson) {
-    return {
-      bins: normalizeStringList(inlineJson.bins),
-      env: normalizeStringList(inlineJson.env),
-    };
+  if (!isRecord(record.requires)) {
+    return { bins: [], env: [] };
   }
-
-  const fields = parseSectionChildren(section.children);
   return {
-    bins: parseSectionStringList(fields.get('bins')),
-    env: parseSectionStringList(fields.get('env')),
+    bins: normalizeStringList(record.requires.bins),
+    env: normalizeStringList(record.requires.env),
   };
+}
+
+function resolveTopLevelSectionLookup(
+  frontmatter: FrontmatterParseResult,
+  key: string,
+): {
+  inlineObject: Record<string, unknown> | null;
+  section: FrontmatterSection | null;
+  sectionFields: Map<string, FrontmatterSection>;
+} {
+  const inlineObject = frontmatter.meta[key]
+    ? tryParseJsonObject(frontmatter.meta[key])
+    : null;
+  const section = extractTopLevelSection(frontmatter.block, key);
+  const sectionInlineObject = section
+    ? tryParseJsonObject(section.inline)
+    : null;
+
+  return {
+    inlineObject: inlineObject || sectionInlineObject,
+    section,
+    sectionFields: section ? parseSectionChildren(section.children) : new Map(),
+  };
+}
+
+function resolveMetadataSectionLookup(frontmatter: FrontmatterParseResult): {
+  inlineObject: Record<string, unknown> | null;
+  compatibleSectionFields: Map<string, FrontmatterSection>;
+  compatibleInlineObject: Record<string, unknown> | null;
+} {
+  const { inlineObject, sectionFields } = resolveTopLevelSectionLookup(
+    frontmatter,
+    'metadata',
+  );
+  const compatibleSection =
+    sectionFields.get('hybridclaw') || sectionFields.get('openclaw');
+
+  return {
+    inlineObject,
+    compatibleSectionFields: compatibleSection
+      ? parseSectionChildren(compatibleSection.children)
+      : new Map(),
+    compatibleInlineObject: compatibleSection
+      ? tryParseJsonObject(compatibleSection.inline)
+      : null,
+  };
+}
+
+function parseRequiresSection(sectionFields: Map<string, FrontmatterSection>): {
+  bins: string[];
+  env: string[];
+} {
+  return {
+    bins: parseSectionStringList(sectionFields.get('bins')),
+    env: parseSectionStringList(sectionFields.get('env')),
+  };
+}
+
+function hasSectionContent(
+  section: FrontmatterSection | null | undefined,
+): boolean {
+  if (!section) return false;
+  if (section.inline.trim()) return true;
+  return section.children.some((line) => line.trim().length > 0);
+}
+
+function warnMalformedRequiresDeclaration(
+  skillFilePath: string,
+  source: string,
+): void {
+  logger.warn(
+    { path: skillFilePath, source },
+    'Ignoring malformed skill requires declaration',
+  );
+}
+
+function parseRequiresFromFrontmatter(
+  frontmatter: FrontmatterParseResult,
+  skillFilePath: string,
+): {
+  bins: string[];
+  env: string[];
+} {
+  const directRequiresLookup = resolveTopLevelSectionLookup(
+    frontmatter,
+    'requires',
+  );
+  if (directRequiresLookup.inlineObject) {
+    return {
+      bins: normalizeStringList(directRequiresLookup.inlineObject.bins),
+      env: normalizeStringList(directRequiresLookup.inlineObject.env),
+    };
+  }
+
+  let requires = parseRequiresSection(directRequiresLookup.sectionFields);
+  if (requires.bins.length > 0 || requires.env.length > 0) {
+    return requires;
+  }
+  if (
+    Object.hasOwn(frontmatter.meta, 'requires') ||
+    hasSectionContent(directRequiresLookup.section)
+  ) {
+    warnMalformedRequiresDeclaration(skillFilePath, 'requires');
+  }
+
+  const metadataLookup = resolveMetadataSectionLookup(frontmatter);
+  if (metadataLookup.inlineObject) {
+    const parsed = parseRequiresFromMetadataRecord(metadataLookup.inlineObject);
+    if (
+      parsed.bins.length === 0 &&
+      parsed.env.length === 0 &&
+      Object.hasOwn(
+        resolveCompatibleMetadataRecord(metadataLookup.inlineObject),
+        'requires',
+      )
+    ) {
+      warnMalformedRequiresDeclaration(skillFilePath, 'metadata');
+    }
+    return parsed;
+  }
+  if (metadataLookup.compatibleInlineObject) {
+    const parsed = parseRequiresFromMetadataRecord(
+      metadataLookup.compatibleInlineObject,
+    );
+    if (
+      parsed.bins.length === 0 &&
+      parsed.env.length === 0 &&
+      Object.hasOwn(metadataLookup.compatibleInlineObject, 'requires')
+    ) {
+      warnMalformedRequiresDeclaration(skillFilePath, 'metadata.requires');
+    }
+    return parsed;
+  }
+
+  const nestedRequires = metadataLookup.compatibleSectionFields.get('requires');
+  if (!nestedRequires) return requires;
+  const nestedRequiresInlineObject = tryParseJsonObject(nestedRequires.inline);
+  if (nestedRequiresInlineObject) {
+    return {
+      bins: normalizeStringList(nestedRequiresInlineObject.bins),
+      env: normalizeStringList(nestedRequiresInlineObject.env),
+    };
+  }
+  requires = parseRequiresSection(
+    parseSectionChildren(nestedRequires.children),
+  );
+  if (requires.bins.length === 0 && requires.env.length === 0) {
+    warnMalformedRequiresDeclaration(skillFilePath, 'metadata.requires');
+  }
+  return requires;
 }
 
 function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
@@ -482,49 +674,32 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
   relatedSkills: string[];
   install: SkillInstallSpec[];
 } {
-  const normalizeMetadata = (
-    raw: Record<string, unknown>,
-  ): {
-    tags: string[];
-    relatedSkills: string[];
-    install: SkillInstallSpec[];
-  } => {
-    const hybridRaw = isRecord(raw.hybridclaw) ? raw.hybridclaw : raw;
-    return {
-      tags: normalizeStringList(hybridRaw.tags),
-      relatedSkills: normalizeStringList(
-        hybridRaw.related_skills ?? hybridRaw.relatedSkills,
-      ),
-      install: normalizeInstallSpecs(hybridRaw.install),
-    };
-  };
+  const metadataLookup = resolveMetadataSectionLookup(frontmatter);
+  if (metadataLookup.inlineObject) {
+    return normalizeCompatibleMetadata(metadataLookup.inlineObject);
+  }
+  if (metadataLookup.compatibleInlineObject) {
+    return normalizeCompatibleMetadata(metadataLookup.compatibleInlineObject);
+  }
 
-  const fromInlineJson = frontmatter.meta.metadata
-    ? tryParseJsonObject(frontmatter.meta.metadata)
-    : null;
-  if (fromInlineJson) return normalizeMetadata(fromInlineJson);
-
-  const metadataSection = extractTopLevelSection(frontmatter.block, 'metadata');
-  if (!metadataSection) return { tags: [], relatedSkills: [], install: [] };
-
-  const metadataInlineJson = tryParseJsonObject(metadataSection.inline);
-  if (metadataInlineJson) return normalizeMetadata(metadataInlineJson);
-
-  const metadataFields = parseSectionChildren(metadataSection.children);
-  const hybridSection = metadataFields.get('hybridclaw');
-  if (!hybridSection) return { tags: [], relatedSkills: [], install: [] };
-
-  const hybridInlineJson = tryParseJsonObject(hybridSection.inline);
-  if (hybridInlineJson) return normalizeMetadata(hybridInlineJson);
-
-  const hybridFields = parseSectionChildren(hybridSection.children);
-  const installSection = hybridFields.get('install');
+  const installSection = metadataLookup.compatibleSectionFields.get('install');
   const installInlineJson = installSection
     ? tryParseJsonArray(installSection.inline)
     : null;
   return {
-    tags: parseSectionStringList(hybridFields.get('tags')),
-    relatedSkills: parseSectionStringList(hybridFields.get('related_skills')),
+    tags: parseSectionStringList(
+      metadataLookup.compatibleSectionFields.get('tags'),
+    ),
+    relatedSkills: Array.from(
+      new Set([
+        ...parseSectionStringList(
+          metadataLookup.compatibleSectionFields.get('related_skills'),
+        ),
+        ...parseSectionStringList(
+          metadataLookup.compatibleSectionFields.get('relatedSkills'),
+        ),
+      ]),
+    ),
     install: normalizeInstallSpecs(
       installInlineJson ?? parseSectionObjectList(installSection),
     ),
@@ -609,7 +784,7 @@ function isMirroredAgentWorkspaceSkillDir(dir: string): boolean {
   if (!pathWithin(agentsRoot, skillDir)) return false;
   const relParts = path.relative(agentsRoot, skillDir).split(path.sep);
   return (
-    relParts.length >= 4 &&
+    relParts.length >= 3 &&
     Boolean(relParts[0]) &&
     relParts[1] === 'workspace' &&
     relParts[2] === 'skills'
@@ -620,6 +795,13 @@ function shouldPreserveExistingSkill(
   existing: SkillCandidate,
   candidate: SkillCandidate,
 ): boolean {
+  if (
+    existing.source === 'extra' &&
+    candidate.source === 'workspace' &&
+    isMirroredAgentWorkspaceSkillDir(candidate.baseDir)
+  ) {
+    return false;
+  }
   if (
     resolveComparablePath(existing.baseDir) ===
     resolveComparablePath(candidate.baseDir)
@@ -671,7 +853,7 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
         const name = (meta.name || entry.name).trim();
         if (!name) continue;
         const always = parseBool(meta.always, false);
-        const requires = parseRequiresFromFrontmatter(frontmatter);
+        const requires = parseRequiresFromFrontmatter(frontmatter, skillFile);
         const metadataHybridClaw = parseHybridClawMetadata(frontmatter);
 
         skills.push({
@@ -718,6 +900,47 @@ function stableSkillDirName(name: string): string {
   return `${base}-${hash}`;
 }
 
+function skillSyncTargetKey(skill: SkillCandidate): string {
+  return resolveComparablePath(skill.baseDir);
+}
+
+function shouldUseSharedSkillsRoot(skill: SkillCandidate): boolean {
+  return !(
+    skill.source === 'bundled' ||
+    skill.source === 'workspace' ||
+    skill.source === 'agents-project'
+  );
+}
+
+function buildSharedSkillsRootDirNames(
+  skills: SkillCandidate[],
+): ReadonlyMap<string, string> {
+  const grouped = new Map<string, SkillCandidate[]>();
+  for (const skill of skills) {
+    if (!shouldUseSharedSkillsRoot(skill)) continue;
+    const sanitizedName = sanitizeSkillDirName(skill.name);
+    const existing = grouped.get(sanitizedName);
+    if (existing) {
+      existing.push(skill);
+      continue;
+    }
+    grouped.set(sanitizedName, [skill]);
+  }
+
+  const dirNames = new Map<string, string>();
+  for (const [sanitizedName, group] of grouped) {
+    if (group.length === 1) {
+      dirNames.set(skillSyncTargetKey(group[0]), sanitizedName);
+      continue;
+    }
+    for (const skill of group) {
+      dirNames.set(skillSyncTargetKey(skill), stableSkillDirName(skill.name));
+    }
+  }
+
+  return dirNames;
+}
+
 function buildDirectoryContentSignature(rootDir: string): string {
   const resolvedRoot = path.resolve(rootDir);
   const entries: string[] = [];
@@ -755,6 +978,7 @@ function buildDirectoryContentSignature(rootDir: string): string {
 function resolveSyncedSkillTarget(
   skill: SkillCandidate,
   workspaceDir: string,
+  sharedSkillsRootDirNames: ReadonlyMap<string, string> = new Map(),
 ): { rootDir: string; targetDir: string; targetSkillFile: string } {
   // Keep bundled skills under /workspace/skills so bundled docs can refer to
   // skill-local scripts with stable paths like "skills/<skill>/scripts/...".
@@ -802,8 +1026,13 @@ function resolveSyncedSkillTarget(
     }
   }
 
-  const rootDir = path.join(workspaceDir, SYNCED_SKILLS_DIR);
-  const dirName = stableSkillDirName(skill.name);
+  // Imported/personal/community skills also live under /workspace/skills so
+  // the model can reuse the same stable "skills/<name>/..." paths it already
+  // sees for bundled skills.
+  const rootDir = path.join(workspaceDir, 'skills');
+  const dirName =
+    sharedSkillsRootDirNames.get(skillSyncTargetKey(skill)) ||
+    sanitizeSkillDirName(skill.name);
   const targetDir = path.join(rootDir, dirName);
   return {
     rootDir,
@@ -815,10 +1044,12 @@ function resolveSyncedSkillTarget(
 function syncSkillIntoWorkspace(
   skill: SkillCandidate,
   workspaceDir: string,
+  sharedSkillsRootDirNames: ReadonlyMap<string, string> = new Map(),
 ): string {
   const { rootDir, targetDir, targetSkillFile } = resolveSyncedSkillTarget(
     skill,
     workspaceDir,
+    sharedSkillsRootDirNames,
   );
   fs.mkdirSync(rootDir, { recursive: true });
 
@@ -889,11 +1120,13 @@ function pruneStaleSyncedSkills(
   workspaceDir: string,
 ): void {
   const desiredByRoot = new Map<string, Set<string>>();
+  const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(skills);
 
   for (const skill of skills) {
     const { rootDir, targetDir } = resolveSyncedSkillTarget(
       skill,
       workspaceDir,
+      sharedSkillsRootDirNames,
     );
     const resolvedRoot = path.resolve(rootDir);
     const resolvedTarget = path.resolve(targetDir);
@@ -902,6 +1135,13 @@ function pruneStaleSyncedSkills(
     }
     desiredByRoot.get(resolvedRoot)?.add(resolvedTarget);
   }
+
+  // Clean up legacy synced skills left behind from older releases that used a
+  // hidden .synced-skills root.
+  desiredByRoot.set(
+    path.resolve(path.join(workspaceDir, SYNCED_SKILLS_DIR)),
+    new Set(),
+  );
 
   for (const [rootDir, desiredDirs] of desiredByRoot) {
     for (const skillDir of collectSyncedSkillDirs(rootDir)) {
@@ -1245,13 +1485,20 @@ export function expandSkillInvocation(
   const invocation = resolveExplicitSkillInvocation(content, skills);
   if (!invocation) return content;
 
+  return expandResolvedSkillInvocation(invocation, invocation.args);
+}
+
+export function expandResolvedSkillInvocation(
+  invocation: SkillInvocation,
+  args: string,
+): string {
   const body = loadSkillBody(invocation.skill, MAX_INVOKED_SKILL_CHARS);
-  const args = invocation.args || '(none)';
+  const skillInput = args || '(none)';
 
   const lines = [
     `[Explicit skill invocation] Use the "${invocation.skill.name}" skill for this request.`,
     `Skill file: ${invocation.skill.location}`,
-    `Skill input: ${args}`,
+    `Skill input: ${skillInput}`,
   ];
 
   if (body) {
@@ -1269,7 +1516,9 @@ export function expandSkillInvocationWithResolution(
 ): ExpandedSkillInvocation {
   const invocation = resolveExplicitSkillInvocation(content, skills);
   return {
-    content: invocation ? expandSkillInvocation(content, skills) : content,
+    content: invocation
+      ? expandResolvedSkillInvocation(invocation, invocation.args)
+      : content,
     invocation,
   };
 }
@@ -1305,6 +1554,12 @@ function getDisabledSkillNames(
   return getRuntimeDisabledSkillNames(getRuntimeConfig(), channelKind);
 }
 
+function resolveManagedCommunitySkillsDir(
+  homeDir = DEFAULT_RUNTIME_HOME_DIR,
+): string {
+  return path.join(homeDir, 'skills');
+}
+
 function collectResolvedSkillCandidates(): SkillCandidate[] {
   const config = getRuntimeConfig();
   const extraDirs = (config.skills?.extraDirs ?? [])
@@ -1314,10 +1569,16 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   const codexDirs = resolveCodexSkillsDirs();
   const claudeSkillsDir = path.join(os.homedir(), '.claude', 'skills');
   const agentsPersonalSkillsDir = path.join(os.homedir(), '.agents', 'skills');
+  const managedCommunitySkillsDir = resolveManagedCommunitySkillsDir();
   const projectSkillsDir = resolveProjectSkillsDir();
   const projectAgentsSkillsDir = resolveProjectAgentsSkillsDir();
 
-  const extraSkills = extraDirs.flatMap((dir) => scanSkillsDir(dir, 'extra'));
+  const extraSkills = extraDirs.flatMap((dir) =>
+    scanSkillsDir(
+      dir,
+      isMirroredAgentWorkspaceSkillDir(dir) ? 'workspace' : 'extra',
+    ),
+  );
   const bundledSkills = bundledSkillsDir
     ? scanSkillsDir(bundledSkillsDir, 'bundled')
     : [];
@@ -1326,6 +1587,10 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
   const agentsPersonalSkills = scanSkillsDir(
     agentsPersonalSkillsDir,
     'agents-personal',
+  );
+  const managedCommunitySkills = scanSkillsDir(
+    managedCommunitySkillsDir,
+    'community',
   );
   const projectAgentsSkills = scanSkillsDir(
     projectAgentsSkillsDir,
@@ -1344,6 +1609,7 @@ function collectResolvedSkillCandidates(): SkillCandidate[] {
 
   mergeSkills(extraSkills);
   mergeSkills(bundledSkills);
+  mergeSkills(managedCommunitySkills);
   mergeSkills(codexSkills);
   mergeSkills(claudeSkills);
   mergeSkills(agentsPersonalSkills);
@@ -1403,7 +1669,7 @@ export function loadSkillCatalog(): SkillCatalogEntry[] {
 
 /**
  * Load all skills with precedence:
- * extra < bundled < codex < claude < agents-personal < agents-project < workspace.
+ * extra < bundled < community < codex < claude < agents-personal < agents-project < workspace.
  * Any non-workspace skill selected by precedence is mirrored into workspace so
  * the container can read it via /workspace/... paths.
  */
@@ -1419,6 +1685,7 @@ export function loadSkills(
   ).filter(
     (skill) => checkEligibility(skill).available && !disabled.has(skill.name),
   );
+  const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(guarded);
   pruneStaleSyncedSkills(guarded, workspaceDir);
 
   const resolved: Skill[] = [];
@@ -1429,7 +1696,11 @@ export function loadSkills(
         path.resolve(skill.filePath),
       );
       if (!promptSkillPath) {
-        const syncedSkillFile = syncSkillIntoWorkspace(skill, workspaceDir);
+        const syncedSkillFile = syncSkillIntoWorkspace(
+          skill,
+          workspaceDir,
+          sharedSkillsRootDirNames,
+        );
         promptSkillPath = asPromptLocation(
           workspaceDir,
           path.resolve(syncedSkillFile),

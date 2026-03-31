@@ -1,6 +1,410 @@
 # Changelog
 
-## [Unreleased]
+## [Coming up]
+
+## [0.9.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.8)
+
+### Added
+
+- **Concierge routing controls**: Added a configurable concierge router that can
+  ask users about urgency before long-running work, plus `concierge info|on|off`,
+  `concierge model [name]`, and `concierge profile <asap|balanced|no_hurry> [model]`
+  across gateway, TUI, and slash-command surfaces.
+- **Tracked runtime config revisions**: Added automatic revision snapshots for
+  `~/.hybridclaw/config.json`, persisted in `~/.hybridclaw/data/config-revisions.db`,
+  with `hybridclaw config revisions [list|rollback|delete|clear]` so operators can
+  audit and restore configuration changes.
+- **Expanded agent install flows**: Added `agent install` support inside running
+  gateway/TUI sessions, direct `.claw` URL installs, `--skip-import-errors`,
+  and tighter handling for official and GitHub package sources.
+- **Plugin inbound webhooks**: Added plugin-owned inbound webhook routes plus
+  `registerInboundWebhook(...)`, `dispatchInboundMessage(...)`, and HTTP helper
+  utilities in the plugin SDK so plugins can receive external events and route
+  them through the normal assistant turn pipeline.
+- **Sokosumi bundled skill**: Added the first-party `sokosumi` skill for
+  API-key-authenticated agent hires, coworker task creation, job monitoring,
+  and result retrieval.
+
+### Changed
+
+- **HybridAI default-model baseline**: Updated the shipped `hybridai`
+  provider default from `gpt-5-nano` to `gpt-4.1-mini`, reordered the
+  built-in HybridAI model list so onboarding and fresh configs pick that model
+  first, and added static capability metadata for `gpt-4.1-mini` without
+  changing other provider defaults or concierge profile mappings.
+- **CI, smoke tests, and release checks**: Expanded integration and e2e
+  coverage for gateway docs, database/session flows, config reloads, skill
+  resolution, chat APIs, npm installs, Docker runtime checks, and agent
+  container flows, while tightening release-check and Docker preflight
+  coverage in CI.
+- **Plugin service boundaries**: Extracted gateway plugin service plumbing into
+  clearer modules, tightened plugin service boundaries, and improved mock/test
+  coverage around plugin reload and webhook dispatch behavior.
+- **Public docs and branding surfaces**: Refreshed the public docs shell with
+  the HybridClaw logo asset, updated favicon and fallback assets, simplified
+  navigation chrome, trimmed hidden internal docs, and refreshed release-facing
+  docs so the landing page, README, and manual reflect the shipped feature set.
+- **Package and manifest handling**: Enabled exact npm saves for repo manifests
+  and pinned package manifests to their locked versions so release artifacts
+  stay aligned with the checked-in lockfiles.
+
+### Fixed
+
+- **Gateway image docs coverage**: Fixed packaged gateway images so the repo
+  docs ship into runtime images instead of being dropped by `.dockerignore`.
+- **Docs deep-link fallback**: Fixed static docs hosting so deep links under the
+  docs shell route through the fallback page instead of breaking on refresh.
+- **Container setup reliability**: Fixed packaged installs so pull-only
+  container setup stays on the published runtime image path, and hardened agent
+  image apt cache locking during builds.
+- **Agent install and plugin webhook edge cases**: Fixed agent install stream
+  typing, import cleanup, partial-failure reporting, and gateway resolution
+  errors, and tightened plugin webhook validation, error handling, and
+  dispatch.
+- **Config revision robustness**: Fixed inferred revision route sanitization,
+  duplicate config reads during revision sync, summary loading behavior, and
+  watcher timer cleanup for tracked runtime config changes.
+
+## [0.9.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.7)
+
+### Added
+
+- **Mistral provider support**: Added
+  `hybridclaw auth login|status|logout mistral`, support for
+  `mistral/...` model ids in selection commands, runtime credential handling
+  for Mistral requests, discovered model catalog entries with canonical-name,
+  context-window, and vision metadata, and recommended-model coverage in
+  selectors and status output.
+- **ATIF-compatible trace export**: Added `export trace [sessionId|all|--all]`
+  across gateway, TUI, and chat command surfaces so operators can export
+  structured debug trace JSONL with tool calls, token usage, git context,
+  attribution metadata, and compatibility fields for downstream trace tooling.
+- **HybridClaw docs and help retrieval**: Added a searchable `/docs` browser
+  docs shell, raw-markdown `/docs/agents.md`, the bundled
+  `hybridclaw-help` skill, and prompt-hook routing that fetches public docs
+  before answering HybridClaw product questions.
+- **Obsidian bundled skill**: Added a first-party `obsidian` skill plus agent
+  metadata for vault-aware note search, creation, moves, and link-preserving
+  edits.
+
+### Changed
+
+- **Web chat streaming and replay UX**: Simplified stream frame state and
+  replay reuse, added NDJSON fallback handling plus decoder-tail flushing,
+  batched DOM updates, and preserved scroll position during streaming so the
+  built-in web chat behaves more smoothly under live output.
+- **Session previews and export UX**: Shared conversation-preview helpers
+  across sessions and agent cards, added clearer timestamp/snippet output in
+  `/sessions`, and exposed the new `export session` and `export trace`
+  subcommands consistently in help text and slash menus.
+- **Docker images and publish pipeline**: Reworked the gateway and agent
+  Dockerfiles into clearer multi-stage builds, added the agent `runtime-lite`
+  target plus `HYBRIDCLAW_CONTAINER_TARGET`, and added CI Docker preflight
+  builds plus explicit runtime targets in publish workflows.
+- **Public docs routing and landing pages**: Moved the browsable docs shell to
+  `/docs`, kept the legacy `/development` entry as a redirect, refreshed the
+  static docs assets, and added a HybridClaw Cloud callout across the public
+  landing page.
+
+### Fixed
+
+- **Local iMessage self-chat fallback**: Skipped attributed-body-only
+  self-chat rows that look like replayed history or control commands so local
+  iMessage polling no longer injects stale self-chat content.
+- **Trace export and secret redaction hardening**: Expanded redaction coverage
+  for GitHub/npm tokens, emails, IPs, phone numbers, SSNs, credit cards, and
+  high-entropy strings, anonymized runner-home paths in trace exports, and
+  restored paused TTY state after hidden secret prompts.
+- **Mistral discovery and container build polish**: Tightened canonical and
+  deprecated Mistral model handling plus availability checks, and fixed
+  container/gateway Docker builds around native addons, dependency pruning,
+  runtime targets, and npm prune failure modes.
+
+## [0.9.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.6)
+
+### Changed
+
+- **Release and docs alignment**: Refreshed the public README install section
+  with direct changelog and docs links, updated the static docs landing page so
+  its release highlights match the current shipped feature set, and aligned the
+  maintainer release guide with the changelog's `Coming up` workflow and the
+  docs surfaces that should be refreshed before a release.
+
+## [0.9.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.5)
+
+### Added
+
+- **Dual-backend iMessage channel**: Added `hybridclaw channels imessage setup`
+  plus gateway runtime support for local macOS delivery through `imsg` +
+  Messages `chat.db` and remote relay delivery through BlueBubbles webhooks
+  and REST sends.
+- **Admin terminal page**: Added a browser-based `Terminal` page inside the
+  embedded admin console so operators can open a live PTY session from
+  `/admin/terminal` alongside the existing gateway and session views.
+- **Local runtime config commands**: Added `hybridclaw config`,
+  `hybridclaw config check`, `hybridclaw config reload`, and
+  `hybridclaw config set <key> <value>`, plus matching local `/config`
+  slash commands for TUI and web sessions. The config view now shows the
+  active config file path, `set` validates immediately after saving, and
+  `reload` performs an in-process hot reload from disk.
+- **HybridAI observability ingest**: Added runtime `observability.*` config
+  plus background forwarding of structured audit events such as `bot.set` to
+  the HybridAI observability ingest API with cached ingest tokens and restart
+  handling.
+
+### Changed
+
+- **Built-in browser tool warnings**: Grouped the `browser_*` subtools into
+  one browser toolset in doctor/config diagnostics so unused-tool suggestions
+  are clearer before operators disable them.
+- **Packaged install bootstrap and XLSX tooling**: Published installs now
+  bootstrap the packaged container runtime dependencies automatically, and the
+  bundled XLSX workflow now uses `xlsx-populate` instead of `exceljs` to avoid
+  a large deprecated transitive dependency chain.
+- **Host-mode filesystem allowlist**: Host-mode agent access now uses an
+  explicit allowlist rooted at the user home directory, the gateway working
+  directory, `/tmp`, and configured bind or additional-mount host paths,
+  rather than an implicit project-root escape hatch.
+- **Default HybridAI output budget**: Restored the default
+  `hybridai.maxTokens` value to `4096` while keeping it configurable through
+  the runtime config file and the new `config set` command surface.
+- **Browser login profile handling**: Tightened the headed Chromium login flow
+  around the dedicated automation profile, including clearer automation-only
+  password-store intent and deferred Playwright cache directory creation.
+
+### Fixed
+
+- **Admin terminal and iMessage hardening**: Tightened admin terminal session
+  transport and authentication, cleaned up stale browser sessions around
+  terminal/browser flows, stabilized iMessage self-chat handling, and restored
+  the local iMessage attributed-body fallback path.
+- **Fresh-install runtime startup failures**: Fixed packaged fresh installs so
+  host/container workers no longer miss nested runtime dependencies, surfaced
+  worker startup crashes immediately in TUI instead of hanging on the spinner,
+  and added clearer runtime error text when the worker exits before producing
+  output.
+- **Docker doctor guidance for sandboxed installs**: `hybridclaw doctor` now
+  treats Docker as a required dependency whenever the resolved sandbox mode is
+  not `host`, with explicit guidance to switch to host mode when Docker is not
+  available.
+- **HybridAI recovery and auth-status handling**: Improved empty-completion and
+  retry-path diagnostics, cached parsed provider error bodies, simplified
+  debug serialization, removed unused parsed fields, and tightened
+  `auth status hybridai` output so it reports local auth/config state without
+  exposing the credentials file path.
+- **Local slash-command consistency**: Added `/config` to the startup slash list, and aligned
+  `config check` so it validates only the runtime config file instead of
+  surfacing broader doctor hygiene warnings.
+- **Plugin recovery workflows**: Tightened plugin enable/disable, config, and
+  reload rollback flows so disabling a broken or missing plugin no longer
+  requires discovery, no-op CLI output no longer claims the config changed,
+  and secondary plugin reload failures are surfaced more clearly.
+
+## [0.9.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.4)
+
+### Added
+
+- **Packaged agent GitHub install sources and activation**:
+  `hybridclaw agent install` now accepts
+  `official:<agent-dir>` and `github:owner/repo[/<ref>]/<agent-dir>` sources,
+  and `hybridclaw agent activate <agent-id>` can set the default agent for new
+  requests.
+- **Agent presentation profiles with image assets**: Agent configs and `.claw`
+  manifests can now declare `displayName` and workspace-relative `imageAsset`
+  metadata so web chat can show the active agent name and profile image.
+- **Startup opening automation for fresh sessions**: Gateway/web startup can
+  proactively run `BOOTSTRAP.md` for one-time onboarding and `OPENING.md` for a
+  fresh-session opening message before the user types the first turn.
+
+### Changed
+
+- **Bootstrap templates and workspace completion detection**: Refreshed the
+  shipped onboarding template around a lighter first-hatch flow, added the
+  optional `OPENING.md` template, and tightened workspace completion checks so
+  onboarding stays active until there is real post-bootstrap evidence.
+- **Web chat default-agent routing and history context**: New web sessions now
+  follow the configured default agent, preserve agent presentation across
+  history reloads, and keep bootstrap placeholder state visible while startup
+  autostart is still running.
+
+### Fixed
+
+- **HybridAI chatbot fallback resolution**: Gateway chat, scheduler runs, and
+  bootstrap autostart can fall back to `HybridAI /api/v1/bot-management/me`
+  when a session needs a chatbot id but none was configured explicitly.
+- **Packaged agent source validation**: Official/package GitHub installs now
+  require exact directory matches, reject `.claw` shorthand guesses, and keep
+  external install skipping explicit.
+- **Web chat composer focus styling**: Restored an accessible focus ring while
+  removing the extra focus border regression in the built-in chat surface.
+
+## [0.9.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.3)
+
+### Added
+
+- **Hugging Face provider support**: Added `hybridclaw auth login|status|logout`
+  support for Hugging Face Inference providers, provider probing in `doctor`,
+  model-catalog discovery, and recommended-model handling for
+  `huggingface/...` model ids.
+- **Admin jobs board and scheduler follow-ups**: Added a dedicated `Jobs`
+  page in the embedded admin console with richer scheduler metadata, kanban
+  views, and job movement/edit flows for proactive agent work.
+- **Built-in tool toggles**: Added `hybridclaw tool list|enable|disable` so
+  operators can trim unused built-in prompt surfaces directly from runtime
+  config when `doctor` flags them.
+
+### Changed
+
+- **Container bootstrap and publish verification**: Installed packages now
+  prefer published runtime images while source checkouts build locally, and
+  the publish workflow verifies pushed GHCR tags before the job completes.
+- **Skill metadata parsing cleanup**: Consolidated frontmatter traversal and
+  metadata grouping in the skill loader so HybridClaw prefers native
+  HybridClaw metadata while still handling OpenClaw-compatible skill manifests
+  more predictably.
+
+### Fixed
+
+- **Scheduled delivery and backlog retry reliability**: Tightened scheduler
+  follow-up handling, admin/API job state updates, backlog retries, and
+  channel/email delivery flows so queued jobs recover more predictably after
+  failures.
+- **Router-provider credential normalization**: Shared API-key lookup and base
+  URL normalization across OpenRouter and Hugging Face so auth setup, runtime
+  credential resolution, and provider diagnostics behave more consistently.
+- **Skill install/sync path stability**: Stabilized installed and synced skill
+  paths, prevented path collisions during sync, and deduplicated install specs
+  independent of key order so repeated skill installs are safer and more
+  consistent.
+- **Malformed `requires` handling for skills**: HybridClaw now warns when a
+  skill declares malformed `requires` metadata instead of silently accepting
+  broken dependency declarations.
+
+## [0.9.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.2)
+
+### Added
+
+- **Skill sync and packaged Datalion workflow**: Added `skill sync`, updated
+  TUI help/commands, shared import-argument parsing, and the repo-shipped
+  Datalion community skill with bundled setup/capabilities docs.
+- **Meme generation community skill**: Added a packaged meme-generation skill
+  with reusable scripts, template data, and cached output reuse for community
+  image workflows.
+- **Workspace search hardening**: Added stricter workspace `glob` and `grep`
+  handling in the container runtime for safer repository searches.
+
+### Changed
+
+- **Web chat branching and history flow**: Improved web chat controls,
+  branch-aware history routing, paging persistence, and related stdin/history
+  handling so browser sessions behave more predictably.
+- **Shared type and search-tool internals**: Split the old shared type barrel
+  into focused modules and moved container search logic into a dedicated
+  `search-tools` module.
+- **Skill import UX cleanup**: Centralized import warning text, shared the
+  skill-import argument parser, removed sync/skip-scan quick entries from
+  menus, and simplified optional import-result guard fields.
+
+### Fixed
+
+- **WhatsApp restart and ack recovery**: Reduced restart replay failures,
+  captured and cleared ack reactions more reliably, dropped timestampless
+  append-history writes, and hardened reconnect handling.
+- **TUI history-arrow behavior**: Restored arrow-key prompt history when the
+  slash menu has no matches while keeping those keys reserved for history
+  navigation.
+- **Agent skill overwrite protection**: `agent install` now requires
+  `--force` before overwriting imported skills instead of silently replacing
+  existing content.
+- **Static docs publishing and QMD paging stability**: Synced the static docs
+  shell with the gateway renderer, added `.nojekyll` for GitHub Pages, and
+  persisted branch paging state while quieting QMD timeout noise.
+- **Meme skill runtime hardening**: Tightened meme fetch error handling,
+  file-path validation, and cache reuse so the packaged skill is safer and
+  cheaper to run repeatedly.
+
+## [0.9.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.1)
+
+### Added
+
+- **Inline prompt context references**: Added `@file:`, `@folder:`, `@diff`,
+  `@staged`, `@git:<count>`, and `@url:` so prompts can pull repository or web
+  context directly.
+- **Current-turn web chat and TUI attachments**: Added upload/paste support
+  for files and clipboard media in the built-in chat UI and TUI, including
+  uploaded-media summaries for supported content.
+- **Community skill imports and docs browser**: Added `hybridclaw skill import`
+  and `skill learn`, packaged and hub-backed skill sources, manifest-declared
+  skill imports during `.claw` install, and the built-in `/development` docs
+  browser with raw-markdown views.
+
+### Changed
+
+- **Gateway/provider health probing**: Status endpoints now use TTL-cached
+  on-demand probes for HybridAI and local backends instead of background
+  polling loops, with async status flow and better probe-site error handling.
+- **CLI command structure**: Split the large CLI handlers into focused command
+  modules with shared lazy-loader and flag-parsing helpers.
+- **Skill import source coverage**: Community imports expanded from packaged
+  sources into hub-backed and GitHub-backed skill sources, with web docs
+  navigation updated to expose the new workflows.
+
+### Fixed
+
+- **HybridAI base-url reachability reporting**: `/api/status` and operator
+  hints now honor `HYBRIDAI_BASE_URL` consistently and probe actual backend
+  reachability instead of assuming credentials imply connectivity.
+- **Uploaded media hardening**: Tightened cache-dir resolution, path
+  validation, MIME filtering, per-auth upload quotas, and filename handling
+  for web chat and TUI attachments.
+- **Context-reference safety and command preservation**: Blocked symlink
+  escapes, URL redirects, and unbounded URL fetches for attached prompt
+  context while preserving skill invocations with injected context.
+- **CLI install output for imported skills**: `agent install` now tolerates
+  missing imported skills in the CLI summary instead of failing the output
+  path.
+
+## [0.9.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.0)
+
+### Added
+
+- **Portable `.claw` agent packages**: Added `hybridclaw agent pack`,
+  `inspect`, and `unpack` so operators can export an agent workspace, bundle
+  selected workspace skills and home plugins, validate manifests, and restore
+  agents on another machine from one archive.
+- **Persistent browser profiles for authenticated automation**: Added
+  `hybridclaw browser login|status|reset` so operators can sign into sites in a
+  headed Chromium profile that HybridClaw reuses for later browser automation
+  without pasting credentials into chat.
+- **HybridAI discovery and non-interactive bootstrap controls**: Added
+  `hybridclaw auth login hybridai --base-url <url>`, live HybridAI model
+  discovery from `/models` with `/v1/models` fallback, `HYBRIDCLAW_DATA_DIR`
+  for relocating runtime state, and `HYBRIDCLAW_ACCEPT_TRUST=true` for
+  headless trust acceptance during onboarding or CI startup.
+
+### Changed
+
+- **TUI exit and streamed formatting flow**: The TUI now requires a second
+  `Ctrl-C` or `Ctrl-D` within five seconds to exit, and it preserves streamed
+  trailing blank lines more cleanly around usage footers and prompt refreshes.
+- **Container publishing workflow**: Maintainers can republish release images
+  through `publish-container.yml` via `workflow_dispatch`, with explicit
+  tag/package validation before GHCR and optional Docker Hub pushes.
+
+### Fixed
+
+- **Web auth callback token handoff**: `/auth/callback` now accepts a safe
+  relative `next` path, stores `WEB_API_TOKEN` in browser `localStorage` before
+  redirecting, and rejects absolute, protocol-relative, and control-character
+  redirect targets to prevent open-redirect and CRLF injection issues.
+- **Published runtime image completeness**: The published Docker image now
+  includes the built `/chat` and `/agents` SPA assets, and the root npm
+  workspace includes `container` so dependency installs stay aligned with the
+  shipped runtime.
+- **HybridAI and runtime edge-case hardening**: Tightened HybridAI bot/model
+  fetch timeouts and error reporting, added `HEALTH_HOST` override support for
+  sandbox health checks, and improved container/runtime path handling around
+  browser profiles and startup checks.
 
 ## [0.8.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.8.4)
 

@@ -4,7 +4,7 @@ import {
   getRecentMessages,
   getSessionById,
 } from '../../memory/db.js';
-import type { Session } from '../../types.js';
+import type { Session } from '../../types/session.js';
 import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import {
   hasActiveMSTeamsSession,

@@ -11,6 +11,19 @@ const SEVERITY_ORDER: Record<DiagResult['severity'], number> = {
   error: 2,
 };
 
+export const DEFAULT_UNUSED_WINDOW_DAYS = 30;
+
+export function buildUnusedWindowStart(
+  days = DEFAULT_UNUSED_WINDOW_DAYS,
+): string {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+export function formatDateOrNever(value: string | null): string {
+  if (!value) return 'never';
+  return value.slice(0, 10);
+}
+
 export function shortenHomePath(filePath: string): string {
   const homeDir = os.homedir();
   return filePath.startsWith(homeDir)

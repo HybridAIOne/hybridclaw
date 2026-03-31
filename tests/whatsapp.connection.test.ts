@@ -1,12 +1,5 @@
-import fs from 'node:fs';
-
+import { EventEmitter } from 'node:events';
 import { afterEach, expect, test, vi } from 'vitest';
-
-const APP_VERSION = (
-  JSON.parse(
-    fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
-  ) as { version: string }
-).version;
 
 async function flushMicrotasks(count = 4): Promise<void> {
   for (let index = 0; index < count; index += 1) {
@@ -30,7 +23,8 @@ async function importFreshConnectionModule(options?: {
   deferAuthState?: boolean;
 }) {
   vi.resetModules();
-  const { APP_VERSION } = await import('../src/config/config.js');
+  const configModule = await import('../src/config/config.js');
+  const APP_VERSION = configModule.APP_VERSION;
 
   const sockets: Array<{
     config: {
@@ -40,12 +34,14 @@ async function importFreshConnectionModule(options?: {
     };
     evHandlers: Map<string, Array<(payload: unknown) => void>>;
     wsHandlers: Map<string, Array<(payload: unknown) => void>>;
+    rawSocketEmitter: EventEmitter;
     socket: {
       ev: {
         on: (event: string, handler: (payload: unknown) => void) => void;
       };
       ws: {
         on: (event: string, handler: (payload: unknown) => void) => void;
+        socket: EventEmitter;
       };
       user?: { id?: string };
       end: ReturnType<typeof vi.fn>;
@@ -67,6 +63,7 @@ async function importFreshConnectionModule(options?: {
     child: vi.fn(() => whatsappLogger),
   };
   const authStateGate = createDeferred<void>();
+  const saveCredsMock = vi.fn(async () => {});
   const messageStore = {
     getMessage: vi.fn(async () => undefined),
     rememberSentMessage: vi.fn(async () => {}),
@@ -81,7 +78,7 @@ async function importFreshConnectionModule(options?: {
       if (options?.deferAuthState) await authStateGate.promise;
       return {
         state: { creds: {}, keys: {} },
-        saveCreds: vi.fn(async () => {}),
+        saveCreds: saveCredsMock,
       };
     }),
   }));
@@ -130,6 +127,7 @@ async function importFreshConnectionModule(options?: {
             string,
             Array<(payload: unknown) => void>
           >();
+          const rawSocketEmitter = new EventEmitter();
           const socket = {
             ev: {
               on(event: string, handler: (payload: unknown) => void) {
@@ -144,11 +142,18 @@ async function importFreshConnectionModule(options?: {
                 handlers.push(handler);
                 wsHandlers.set(event, handlers);
               },
+              socket: rawSocketEmitter,
             },
             user: undefined,
             end: vi.fn(),
           };
-          sockets.push({ evHandlers, wsHandlers, socket, config });
+          sockets.push({
+            evHandlers,
+            wsHandlers,
+            rawSocketEmitter,
+            socket,
+            config,
+          });
           return socket;
         },
       ),
@@ -165,6 +170,7 @@ async function importFreshConnectionModule(options?: {
     messageStore,
     acquireWhatsAppAuthLock,
     releaseAuthLock,
+    saveCredsMock,
     releaseAuthState: () => authStateGate.resolve(),
   };
 }
@@ -267,6 +273,28 @@ test('waitForSocket does not revive the manager after stop during implicit start
   expect(sockets).toHaveLength(0);
 });
 
+test('transport-level WhatsApp emitters are handled without throwing', async () => {
+  const { createWhatsAppConnectionManager, sockets, whatsappLogger } =
+    await importFreshConnectionModule();
+
+  const manager = createWhatsAppConnectionManager();
+  await manager.start();
+
+  const transport = sockets[0];
+  expect(transport).toBeDefined();
+
+  expect(() =>
+    transport?.rawSocketEmitter.emit(
+      'error',
+      new Error('Opening handshake has timed out'),
+    ),
+  ).not.toThrow();
+
+  expect(whatsappLogger.warn).toHaveBeenCalledWith(
+    'WhatsApp raw websocket error',
+  );
+});
+
 test('info-level WhatsApp logs omit structured metadata', async () => {
   const {
     createWhatsAppConnectionManager,
@@ -297,10 +325,14 @@ test('info-level WhatsApp logs omit structured metadata', async () => {
 });
 
 test('debug-level WhatsApp logs keep structured metadata', async () => {
-  const { APP_VERSION, createWhatsAppConnectionManager, sockets, whatsappLogger } =
-    await importFreshConnectionModule({
-      logLevel: 'debug',
-    });
+  const {
+    APP_VERSION,
+    createWhatsAppConnectionManager,
+    sockets,
+    whatsappLogger,
+  } = await importFreshConnectionModule({
+    logLevel: 'debug',
+  });
 
   const manager = createWhatsAppConnectionManager();
   await manager.start();
@@ -364,7 +396,7 @@ test('provides WhatsApp retry replay lookup to Baileys and persists sent message
   expect(typeof sockets[0]?.config.getMessage).toBe('function');
 
   const key = { id: 'abc', remoteJid: '491701234567@s.whatsapp.net' };
-  await sockets[0]?.config.getMessage?.(key);
+  await expect(sockets[0]?.config.getMessage?.(key)).resolves.toBeUndefined();
   expect(messageStore.getMessage).toHaveBeenCalledWith(key);
 
   const sentMessage = {
@@ -382,4 +414,42 @@ test('provides WhatsApp retry replay lookup to Baileys and persists sent message
 
   await manager.stop();
   expect(releaseAuthLock).toHaveBeenCalledTimes(1);
+});
+
+test('serializes WhatsApp credential saves on rapid creds.update events', async () => {
+  const { createWhatsAppConnectionManager, saveCredsMock, sockets } =
+    await importFreshConnectionModule();
+  const firstSave = createDeferred<void>();
+  const secondSave = createDeferred<void>();
+  let saveCall = 0;
+  let activeSaves = 0;
+  let maxConcurrentSaves = 0;
+
+  saveCredsMock.mockImplementation(async () => {
+    saveCall += 1;
+    activeSaves += 1;
+    maxConcurrentSaves = Math.max(maxConcurrentSaves, activeSaves);
+    if (saveCall === 1) await firstSave.promise;
+    if (saveCall === 2) await secondSave.promise;
+    activeSaves -= 1;
+  });
+
+  const manager = createWhatsAppConnectionManager();
+  await manager.start();
+
+  const credsHandlers = sockets[0]?.evHandlers.get('creds.update');
+  expect(credsHandlers).toHaveLength(1);
+  credsHandlers?.[0]?.({});
+  credsHandlers?.[0]?.({});
+
+  await flushMicrotasks();
+  expect(saveCredsMock).toHaveBeenCalledTimes(1);
+
+  firstSave.resolve();
+  await flushMicrotasks();
+  expect(saveCredsMock).toHaveBeenCalledTimes(2);
+
+  secondSave.resolve();
+  await manager.stop();
+  expect(maxConcurrentSaves).toBe(1);
 });

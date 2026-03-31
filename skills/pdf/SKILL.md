@@ -1,6 +1,6 @@
 ---
 name: pdf
-description: Use this skill for bundled Node/JS PDF workflows: text extraction, page rendering, form inspection/filling, and non-fillable form overlays.
+description: Extract text, render pages, inspect or fill forms, and overlay content on PDFs with bundled Node/JS tools.
 user-invocable: true
 disable-model-invocation: false
 metadata:

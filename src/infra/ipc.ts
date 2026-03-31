@@ -4,11 +4,8 @@ import path from 'node:path';
 import { resolveAgentWorkspaceId } from '../agents/agent-registry.js';
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
-import {
-  type ContainerInput,
-  type ContainerOutput,
-  TASK_MODEL_KEYS,
-} from '../types.js';
+import type { ContainerInput, ContainerOutput } from '../types/container.js';
+import { TASK_MODEL_KEYS } from '../types/models.js';
 
 /**
  * Get session directory, creating it if needed.
@@ -158,6 +155,7 @@ export async function readOutput(
     signal?: AbortSignal;
     activity?: ActivityTracker;
     maxWallClockMs?: number;
+    terminalError?: () => string | null;
   },
 ): Promise<ContainerOutput> {
   const dir = ipcDir(sessionId);
@@ -221,6 +219,15 @@ export async function readOutput(
         // File might be partially written, wait and retry
         logger.debug({ sessionId, err }, 'Output file not ready, retrying');
       }
+    }
+    const terminalError = opts?.terminalError?.();
+    if (terminalError) {
+      return {
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: terminalError,
+      };
     }
     const sleepMs = Math.max(
       1,

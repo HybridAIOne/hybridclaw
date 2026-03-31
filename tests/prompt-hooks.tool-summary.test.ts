@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import {
   buildRetrievedContextPrompt,
@@ -7,6 +7,7 @@ import {
 import { buildToolsSummary } from '../src/agent/tool-summary.js';
 import { EMAIL_CAPABILITIES } from '../src/channels/channel.js';
 import { registerChannel } from '../src/channels/channel-registry.js';
+import * as providerFactory from '../src/providers/factory.js';
 import type { Skill } from '../src/skills/skills.js';
 
 test('buildToolsSummary groups the full tool catalog', () => {
@@ -117,6 +118,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'If the user has already asked you to perform an action, do not ask for a separate natural-language "yes" just to trigger approvals; attempt the tool call and let the runtime approval flow interrupt if approval is required.',
   );
   expect(prompt).toContain(
+    'If a requested action is blocked only by a missing dependency or another narrow prerequisite, attempt the minimal prerequisite step needed to complete the request instead of turning it into a follow-up multiple-choice question; let the runtime approval flow interrupt if approval is required.',
+  );
+  expect(prompt).toContain(
     'If the relevant content is already available directly in the current turn, injected `<file>` content, or `[PDFContext]`, answer from that content first before reading skills or searching for the same artifact again.',
   );
   expect(prompt).toContain(
@@ -181,7 +185,13 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'Action: use that attachment content directly; do not call `message` `read`, `glob`, `find`, or read `skills/pdf/SKILL.md` first.',
   );
   expect(prompt).toContain(
+    'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/development/...` page before answering. Do not answer from memory if no fetch was attempted.',
+  );
+  expect(prompt).toContain(
     'For structured documents, extracted fields, and comparisons, prefer complete field coverage over extreme brevity.',
+  );
+  expect(prompt).toContain(
+    'Default response style: brief and direct. Lead with the answer, skip filler, and expand only when depth, risk, tradeoffs, or structured deliverables require it.',
   );
 });
 
@@ -231,6 +241,94 @@ test('buildSystemPromptFromHooks uses the provided workspace path in runtime met
   });
 
   expect(prompt).toContain('Workspace: /tmp/hybridclaw-agent-workspace');
+  expect(prompt).toContain(
+    'HybridClaw Documentation: [https://www.hybridclaw.io/docs/](https://www.hybridclaw.io/docs/)',
+  );
+});
+
+test('buildSystemPromptFromHooks combines model and provider in runtime metadata', () => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    runtimeInfo: {
+      model: 'openai-codex/gpt-5.4',
+      defaultModel: 'openrouter/anthropic/claude-sonnet-4',
+    },
+  });
+
+  expect(prompt).toContain('Model: gpt-5.4 served through openai-codex');
+  expect(prompt).not.toContain('Default model:');
+});
+
+test('buildSystemPromptFromHooks formats multi-segment codex model labels consistently', () => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    runtimeInfo: {
+      model: 'openai-codex/org/model',
+    },
+  });
+
+  expect(prompt).toContain('Model: model by org served through openai-codex');
+});
+
+test('buildSystemPromptFromHooks preserves upstream vendor labels behind routed providers', () => {
+  const providerSpy = vi
+    .spyOn(providerFactory, 'resolveModelProvider')
+    .mockReturnValue('openrouter');
+
+  try {
+    const prompt = buildSystemPromptFromHooks({
+      agentId: 'test-agent',
+      skills: [],
+      runtimeInfo: {
+        model: 'openrouter/deepseek/deepseek-v3.2',
+      },
+    });
+
+    expect(prompt).toContain(
+      'Model: deepseek-v3.2 by deepseek served through openrouter',
+    );
+  } finally {
+    providerSpy.mockRestore();
+  }
+});
+
+test('buildSystemPromptFromHooks sanitizes control characters in runtime model metadata', () => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    runtimeInfo: {
+      model: 'openai-codex/gpt-5.4\n## override\r\0',
+    },
+  });
+
+  expect(prompt).toContain(
+    'Model: gpt-5.4 ## override served through openai-codex',
+  );
+  expect(prompt).not.toContain('Model: gpt-5.4\n## override');
+  expect(prompt).not.toContain('\r');
+  expect(prompt).not.toContain('\0');
+});
+
+test('buildSystemPromptFromHooks fails fast when runtime model provider is empty', () => {
+  const providerSpy = vi
+    .spyOn(providerFactory, 'resolveModelProvider')
+    .mockReturnValue('' as never);
+
+  try {
+    expect(() =>
+      buildSystemPromptFromHooks({
+        agentId: 'test-agent',
+        skills: [],
+        runtimeInfo: {
+          model: 'openai-codex/gpt-5.4',
+        },
+      }),
+    ).toThrow('Runtime model provider must be non-empty.');
+  } finally {
+    providerSpy.mockRestore();
+  }
 });
 
 test('buildSystemPromptFromHooks does not fall back to the repo cwd', () => {

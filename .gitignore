@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 container/node_modules/
+.npm-cache/
 
 # Build output
 dist/

@@ -37,12 +37,15 @@ afterEach(async () => {
   }
 });
 
-test('resolveAgentForRequest prefers request, then session, then main agent defaults', async () => {
+test('resolveAgentForRequest prefers request, then session, then configured default agent', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
 
   const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
   const {
     initAgentRegistry,
     listAgents,
@@ -52,7 +55,30 @@ test('resolveAgentForRequest prefers request, then session, then main agent defa
   } = await import('../src/agents/agent-registry.ts');
 
   initDatabase({ quiet: true });
+  updateRuntimeConfig((draft) => {
+    draft.agents.defaultAgentId = 'research';
+    draft.agents.defaults = {
+      chatbotId: 'bot-default',
+    };
+    draft.agents.list = [
+      {
+        id: 'main',
+        name: 'Main Agent',
+        model: 'gpt-5-mini',
+      },
+      {
+        id: 'research',
+        name: 'Research Agent',
+        model: {
+          primary: 'ollama/llama3.2',
+          fallbacks: ['gpt-5-mini'],
+        },
+        chatbotId: 'bot-research',
+      },
+    ];
+  });
   initAgentRegistry({
+    defaultAgentId: 'research',
     defaults: {
       chatbotId: 'bot-default',
     },
@@ -105,6 +131,12 @@ test('resolveAgentForRequest prefers request, then session, then main agent defa
   } as const;
 
   expect(resolveAgentForRequest({ session })).toEqual({
+    agentId: 'research',
+    model: 'ollama/llama3.2',
+    chatbotId: 'bot-research',
+  });
+
+  expect(resolveAgentForRequest()).toEqual({
     agentId: 'research',
     model: 'ollama/llama3.2',
     chatbotId: 'bot-research',
@@ -398,7 +430,16 @@ test('database migration v6 adds agents and backfills legacy agent ids to main',
   const sessionColumns = migratedDb.pragma('table_info(sessions)') as Array<{
     name: string;
   }>;
+  const agentColumns = migratedDb.pragma('table_info(agents)') as Array<{
+    name: string;
+  }>;
   expect(sessionColumns.some((column) => column.name === 'agent_id')).toBe(
+    true,
+  );
+  expect(agentColumns.some((column) => column.name === 'display_name')).toBe(
+    true,
+  );
+  expect(agentColumns.some((column) => column.name === 'image_asset')).toBe(
     true,
   );
 

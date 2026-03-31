@@ -33,6 +33,7 @@ function writeQmdStub(
   options?: {
     searchPayload?: unknown;
     searchPayloadByQuery?: Record<string, unknown>;
+    searchDelayMs?: number;
     statusText?: string;
     collectionAddText?: string;
     embedText?: string;
@@ -58,6 +59,7 @@ function writeQmdStub(
     },
   ];
   const searchPayloadByQuery = options?.searchPayloadByQuery || {};
+  const searchDelayMs = Number(options?.searchDelayMs || 0);
   const statusText =
     options?.statusText || 'Index ready\nCollections: notes, sessions';
   const collectionAddText = options?.collectionAddText || 'Collection added: .';
@@ -117,6 +119,10 @@ function writeQmdStub(
       '  const payload = Object.prototype.hasOwnProperty.call(payloadByQuery, query)',
       '    ? payloadByQuery[query]',
       '    : defaultPayload;',
+      `  const delayMs = ${searchDelayMs};`,
+      '  if (delayMs > 0) {',
+      '    await new Promise((resolve) => setTimeout(resolve, delayMs));',
+      '  }',
       '  await writeStdout(JSON.stringify(payload));',
       '  process.exit(0);',
       '}',
@@ -245,12 +251,12 @@ test('QMD plugin retries prompt search with a condensed keyword query when the r
   installQmdPlugin(cwd);
   const qmdCommand = writeQmdStub(cwd, {
     searchPayloadByQuery: {
-      'According to docs/development/plugins.md, how are plugins discovered?':
+      'According to docs/development/extensibility/plugins.md, how are plugins discovered?':
         [],
-      'development plugins discovered': [
+      'development extensibility plugins discovered': [
         {
           title: 'Plugin System',
-          file: 'qmd://hybridclaw/docs/development/plugins.md',
+          file: 'qmd://hybridclaw/docs/development/extensibility/plugins.md',
           snippet:
             'HybridClaw plugins are local runtime extensions discovered from plugin directories.',
           score: 0.89,
@@ -292,7 +298,7 @@ test('QMD plugin retries prompt search with a condensed keyword query when the r
         username: 'alice',
         role: 'user',
         content:
-          'According to docs/development/plugins.md, how are plugins discovered?',
+          'According to docs/development/extensibility/plugins.md, how are plugins discovered?',
         created_at: '2026-03-19T10:00:00.000Z',
       },
     ],
@@ -300,13 +306,15 @@ test('QMD plugin retries prompt search with a condensed keyword query when the r
 
   expect(promptContext).toHaveLength(1);
   expect(promptContext[0]).toContain(
-    'User question: According to docs/development/plugins.md, how are plugins discovered?',
+    'User question: According to docs/development/extensibility/plugins.md, how are plugins discovered?',
   );
   expect(promptContext[0]).toContain(
-    'QMD search query: development plugins discovered',
+    'QMD search query: development extensibility plugins discovered',
   );
   expect(promptContext[0]).toContain('Plugin System');
-  expect(promptContext[0]).toContain('docs/development/plugins.md');
+  expect(promptContext[0]).toContain(
+    'docs/development/extensibility/plugins.md',
+  );
 });
 
 test('QMD plugin terminates options before a leading-dash search query', async () => {
@@ -382,7 +390,7 @@ test('QMD plugin uses the latest user message even when recentMessages are rever
       'latest question': [
         {
           title: 'Latest Hit',
-          file: 'qmd://hybridclaw/docs/development/plugins.md',
+          file: 'qmd://hybridclaw/docs/development/extensibility/plugins.md',
           snippet: 'Latest user question won.',
           score: 0.9,
         },
@@ -1026,12 +1034,12 @@ test('QMD plugin emits debug logs describing injected prompt context', async () 
   const cwd = makeTempDir('hybridclaw-qmd-project-');
   const qmdCommand = writeQmdStub(cwd, {
     searchPayloadByQuery: {
-      'According to docs/development/plugins.md, how are plugins discovered?':
+      'According to docs/development/extensibility/plugins.md, how are plugins discovered?':
         [],
-      'development plugins discovered': [
+      'development extensibility plugins discovered': [
         {
           title: 'Plugin System',
-          file: 'qmd://hybridclaw/docs/development/plugins.md',
+          file: 'qmd://hybridclaw/docs/development/extensibility/plugins.md',
           snippet:
             'HybridClaw plugins are local runtime extensions discovered from plugin directories.',
           score: 0.89,
@@ -1103,7 +1111,7 @@ test('QMD plugin emits debug logs describing injected prompt context', async () 
         username: 'alice',
         role: 'user',
         content:
-          'According to docs/development/plugins.md, how are plugins discovered?',
+          'According to docs/development/extensibility/plugins.md, how are plugins discovered?',
         created_at: '2026-03-19T10:00:00.000Z',
       },
     ],
@@ -1114,9 +1122,94 @@ test('QMD plugin emits debug logs describing injected prompt context', async () 
     expect.objectContaining({
       resultCount: 1,
       usedFallbackQuery: true,
-      topResultPaths: ['qmd://hybridclaw/docs/development/plugins.md'],
+      topResultPaths: [
+        'qmd://hybridclaw/docs/development/extensibility/plugins.md',
+      ],
     }),
     'QMD prompt context injected',
+  );
+  expect(warn).not.toHaveBeenCalled();
+});
+
+test('QMD plugin treats prompt search timeouts as a quiet no-context fallback', async () => {
+  const homeDir = makeTempDir('hybridclaw-qmd-home-');
+  const cwd = makeTempDir('hybridclaw-qmd-project-');
+  const qmdCommand = writeQmdStub(cwd, {
+    searchDelayMs: 150,
+  });
+
+  const debug = vi.fn();
+  const warn = vi.fn();
+  const info = vi.fn();
+  const memoryLayers = [];
+
+  const plugin = (await import('../plugins/qmd-memory/src/index.js')).default;
+  plugin.register({
+    pluginId: 'qmd-memory',
+    pluginDir: path.join(cwd, '.hybridclaw', 'plugins', 'qmd-memory'),
+    registrationMode: 'full',
+    config: loadRuntimeConfig(),
+    pluginConfig: {
+      command: qmdCommand,
+      maxResults: 10,
+      maxSnippetChars: 600,
+      maxInjectedChars: 4000,
+      timeoutMs: 100,
+    },
+    logger: { debug, warn, info },
+    runtime: {
+      cwd,
+      homeDir,
+      installRoot: process.cwd(),
+      runtimeConfigPath: path.join(homeDir, '.hybridclaw', 'config.json'),
+    },
+    registerMemoryLayer(layer) {
+      memoryLayers.push(layer);
+    },
+    registerProvider() {},
+    registerChannel() {},
+    registerTool() {},
+    registerPromptHook() {},
+    registerCommand() {},
+    registerService() {},
+    on() {},
+    resolvePath(relative) {
+      return path.resolve(cwd, relative);
+    },
+    getCredential() {
+      return undefined;
+    },
+  });
+
+  const layer = memoryLayers[0];
+  if (!layer?.getContextForPrompt) {
+    throw new Error(
+      'Expected qmd-memory layer to register getContextForPrompt',
+    );
+  }
+
+  const promptContext = await layer.getContextForPrompt({
+    recentMessages: [
+      {
+        id: 1,
+        session_id: 'session-timeout',
+        user_id: 'user-1',
+        username: 'alice',
+        role: 'user',
+        content: 'Where are the plugin command hooks documented?',
+        created_at: '2026-03-19T10:00:00.000Z',
+      },
+    ],
+  });
+
+  expect(promptContext).toBeNull();
+  expect(debug).toHaveBeenCalledWith(
+    expect.objectContaining({
+      searchMode: 'query',
+      timeoutMs: 100,
+      workingDirectory: cwd,
+    }),
+    'QMD prompt search timed out; skipping context injection',
   );
   expect(warn).not.toHaveBeenCalled();
 });

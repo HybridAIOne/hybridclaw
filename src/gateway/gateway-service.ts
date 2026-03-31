@@ -12,13 +12,17 @@ import {
   getSandboxDiagnostics,
 } from '../agent/executor.js';
 import { processSideEffects } from '../agent/side-effects.js';
-import { isSilentReply } from '../agent/silent-reply.js';
+import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import {
   buildToolsSummary,
   getKnownToolGroupLabel,
   getKnownToolGroups,
   isKnownToolName,
 } from '../agent/tool-summary.js';
+import {
+  isLocalFilesystemInstallSource,
+  resolveInstallArchiveSource,
+} from '../agents/agent-install-source.js';
 import {
   deleteRegisteredAgent,
   findAgentConfig,
@@ -52,6 +56,7 @@ import {
   DISCORD_GROUP_POLICY,
   DISCORD_GUILDS,
   FULLAUTO_NEVER_APPROVE_TOOLS,
+  HYBRIDAI_BASE_URL,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
@@ -67,35 +72,53 @@ import {
 } from '../config/config.js';
 import {
   getRuntimeConfig,
+  parseSchedulerBoardStatus,
   type RuntimeConfig,
+  reloadRuntimeConfig,
+  resolveDefaultAgentId,
   runtimeConfigPath,
+  type SchedulerBoardStatus,
   saveRuntimeConfig,
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import {
+  parseRuntimeConfigCommandValue,
+  setRuntimeConfigValueAtPath,
+} from '../config/runtime-config-edit.js';
+import { preprocessContextReferences } from '../context-references/index.js';
+import { checkConfigFile } from '../doctor/checks/config.js';
+import { summarizeCounts } from '../doctor/utils.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import {
   isAudioMediaItem,
   prependAudioTranscriptionsToUserContent,
 } from '../media/audio-transcription.js';
+import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import {
   createFreshSessionInstance,
   createTask,
+  deleteMemoryValue,
   deleteSessionData,
   deleteTask,
   getAllSessions,
   getAllTasks,
   getFullAutoSessionCount,
+  getMemoryValue,
   getQueuedProactiveMessageCount,
+  getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
+  getSessionBoundaryMessagesBySessionIds,
   getSessionCount,
   getSessionFileChangeCounts,
   getSessionMessageCounts,
   getSessionToolCallBreakdown,
+  getSessionUsageTotals,
   getSessionUsageTotalsSince,
+  getStructuredAuditForSession,
   getTasksForSession,
   getUsageTotals,
   listStructuredAuditEntries,
@@ -107,6 +130,7 @@ import {
   recordRequestLog,
   recordUsageEvent,
   resumeTask,
+  setMemoryValue,
   updateSessionAgent,
   updateSessionChatbot,
   updateSessionModel,
@@ -114,38 +138,44 @@ import {
   updateSessionShowMode,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
-import {
-  readPluginConfigEntry,
-  readPluginConfigValue,
-  unsetPluginConfigValue,
-  writePluginConfigValue,
-} from '../plugins/plugin-config.js';
-import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
-import {
-  installPlugin,
-  reinstallPlugin,
-  uninstallPlugin,
-} from '../plugins/plugin-install.js';
-import {
-  ensurePluginManagerInitialized,
-  listLoadedPluginCommands,
-  type PluginManager,
-  reloadPluginManager,
-  shutdownPluginManager,
-} from '../plugins/plugin-manager.js';
+import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
-import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
+import {
+  discoverHuggingFaceModels,
+  getDiscoveredHuggingFaceModelContextWindow,
+} from '../providers/huggingface-discovery.js';
+import { readHuggingFaceApiKey } from '../providers/huggingface-utils.js';
+import {
+  fetchHybridAIAccountChatbotId,
+  fetchHybridAIBots,
+  HybridAIBotFetchError,
+} from '../providers/hybridai-bots.js';
+import {
+  getDiscoveredHybridAIModelContextWindow,
+  getDiscoveredHybridAIModelNames,
+} from '../providers/hybridai-discovery.js';
+import {
+  type HybridAIHealthResult,
+  hybridAIProbe,
+} from '../providers/hybridai-health.js';
 import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
 import {
   getLocalModelInfo,
   resolveLocalModelContextWindow,
 } from '../providers/local-discovery.js';
-import { getAllBackendHealth } from '../providers/local-health.js';
+import { localBackendsProbe } from '../providers/local-health.js';
+import {
+  discoverMistralModels,
+  getDiscoveredMistralModelContextWindow,
+  resolveDiscoveredMistralModelCanonicalName,
+} from '../providers/mistral-discovery.js';
+import { readMistralApiKey } from '../providers/mistral-utils.js';
 import {
   getAvailableModelList,
+  getAvailableModelListWithOptions,
   isAvailableModelFree,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
@@ -158,6 +188,8 @@ import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
 } from '../providers/openrouter-discovery.js';
+import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
+import { isRecommendedModel } from '../providers/recommended-models.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
 import {
   getScheduledTaskNextRunAt,
@@ -168,12 +200,18 @@ import {
   resumeConfigJob,
 } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
+import { runtimeSecretsPath } from '../security/runtime-secrets.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
+import { parseSessionKey } from '../session/session-key.js';
 import {
   maybeCompactSession,
   runPreCompactionMemoryFlush,
 } from '../session/session-maintenance.js';
+import {
+  buildSessionBoundaryPreview,
+  SESSIONS_COMMAND_SNIPPET_MAX_LENGTH,
+} from '../session/session-preview.js';
 import {
   evaluateSessionExpiry,
   resolveResetPolicy,
@@ -181,6 +219,7 @@ import {
   type SessionExpiryEvaluation,
   type SessionResetPolicy,
 } from '../session/session-reset.js';
+import { exportSessionTraceAtifJsonl } from '../session/session-trace-export.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import {
   estimateTokenCountFromMessages,
@@ -191,7 +230,10 @@ import type {
   SkillHealthMetrics,
   SkillObservation,
 } from '../skills/adaptive-skills-types.js';
+import { parseSkillImportArgs } from '../skills/skill-import-args.js';
+import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
 import {
+  expandResolvedSkillInvocation,
   expandSkillInvocationWithResolution,
   loadSkillCatalog,
   resolveObservedSkillName,
@@ -200,30 +242,48 @@ import {
   deriveSkillExecutionOutcome,
   recordSkillExecution,
 } from '../skills/skills-observation.js';
+import type { ChatMessage } from '../types/api.js';
+import type { StructuredAuditEntry } from '../types/audit.js';
+import type { MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
-  CanonicalSessionContext,
-  ChatMessage,
-  DelegationSideEffect,
-  DelegationTaskSpec,
-  McpServerConfig,
-  MediaContextItem,
   PendingApproval,
-  ScheduledTask,
-  Session,
-  StoredMessage,
-  StructuredAuditEntry,
-  TokenUsageStats,
   ToolExecution,
   ToolProgressEvent,
-} from '../types.js';
+} from '../types/execution.js';
+import type { McpServerConfig } from '../types/models.js';
+import type { ScheduledTask } from '../types/scheduler.js';
+import type {
+  CanonicalSessionContext,
+  ConversationHistoryPage,
+  Session,
+  StoredMessage,
+} from '../types/session.js';
+import type {
+  DelegationSideEffect,
+  DelegationTaskSpec,
+} from '../types/side-effects.js';
+import type { TokenUsageStats } from '../types/usage.js';
 import { sleep } from '../utils/sleep.js';
-import { ensureBootstrapFiles, resetWorkspace } from '../workspace.js';
+import {
+  ensureBootstrapFiles,
+  resetWorkspace,
+  resolveStartupBootstrapFile,
+} from '../workspace.js';
+import {
+  normalizePlaceholderToolReply,
+  normalizeSilentMessageSendReply,
+} from './chat-result.js';
+import { handleConciergeCommand } from './concierge-commands.js';
+import {
+  buildConciergeExecutionNotice,
+  type ConciergeProfile,
+} from './concierge-routing.js';
+import { resolveConciergeTurn } from './concierge-session.js';
 import {
   buildFullAutoOperatingContract,
   buildFullAutoStatusLines,
   clearScheduledFullAutoContinuation,
-  configureFullAutoRuntime,
   describeFullAutoWorkspaceSummary,
   disableFullAutoSession,
   enableFullAutoSession,
@@ -249,22 +309,32 @@ import {
 } from './gateway-formatting.js';
 import { GATEWAY_LOG_REQUESTS_ENV } from './gateway-lifecycle.js';
 import {
+  handlePluginGatewayCommand,
+  reloadPluginRuntime,
+  tryEnsurePluginManagerInitializedForGateway,
+  tryHandlePluginDefinedGatewayCommand,
+} from './gateway-plugin-service.js';
+import {
   interruptGatewaySessionExecution,
   registerActiveGatewayRequest,
 } from './gateway-request-runtime.js';
 import { readSessionStatusSnapshot } from './gateway-session-status.js';
-import { formatRelativeTime, parseTimestamp } from './gateway-time.js';
+import {
+  formatDisplayTimestamp,
+  formatRelativeTime,
+  parseTimestamp,
+} from './gateway-time.js';
 import {
   type GatewayAdminAuditResponse,
   type GatewayAdminChannelsResponse,
   type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
   type GatewayAdminDeleteSessionResult,
+  type GatewayAdminJobsContextResponse,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
   type GatewayAdminOverview,
-  type GatewayAdminPluginsResponse,
   type GatewayAdminSchedulerJob,
   type GatewayAdminSchedulerResponse,
   type GatewayAdminSession,
@@ -273,11 +343,14 @@ import {
   type GatewayAdminToolsResponse,
   type GatewayAdminUsageSummary,
   type GatewayAgentsResponse,
-  type GatewayChatRequestBody,
+  type GatewayAssistantPresentation,
+  type GatewayChatRequest,
   type GatewayChatResult,
   type GatewayCommandRequest,
   type GatewayCommandResult,
   type GatewayHistorySummary,
+  type GatewayProviderHealthEntry,
+  type GatewayRecentChatSession,
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
@@ -285,6 +358,7 @@ import {
   firstNumber,
   numberFromUnknown,
   parseAuditPayload,
+  resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
@@ -296,7 +370,24 @@ import {
 } from './show-mode.js';
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
+const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
+const TRACE_EXPORT_ALL_CONCURRENCY = 4;
 const MAX_HISTORY_MESSAGES = 40;
+const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
+const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
+const activeBootstrapAutostartSessions = new Set<string>();
+const assistantPresentationImagePathCache = new Map<string, string | null>();
+function buildBootstrapAutostartPrompt(
+  fileName: 'BOOTSTRAP.md' | 'OPENING.md',
+): string {
+  return [
+    `A startup instruction file (${fileName}) exists for this agent.`,
+    'This is an internal kickoff turn, not a user-authored message.',
+    `Follow the ${fileName} instructions now and begin the conversation proactively.`,
+    'Send a concise first message to the user.',
+    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
+  ].join(' ');
+}
 const REQUEST_LOG_SENSITIVE_KEY_RE =
   /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
 const REQUEST_LOG_INLINE_SECRET_RE =
@@ -402,6 +493,14 @@ function sanitizeRequestLogMessages(messages: ChatMessage[]): ChatMessage[] {
         }))
       : message.tool_calls,
   }));
+}
+
+function readSystemPromptMessage(messages: ChatMessage[]): string | null {
+  const firstMessage = messages[0];
+  if (!firstMessage || firstMessage.role !== 'system') return null;
+  return typeof firstMessage.content === 'string' && firstMessage.content.trim()
+    ? firstMessage.content
+    : null;
 }
 
 function sanitizeRequestLogToolExecutions(
@@ -566,29 +665,6 @@ interface DelegationTaskRunInput {
   task: NormalizedDelegationTask;
 }
 
-export interface GatewayChatRequest {
-  sessionId: GatewayChatRequestBody['sessionId'];
-  sessionMode?: GatewayChatRequestBody['sessionMode'];
-  guildId: GatewayChatRequestBody['guildId'];
-  channelId: GatewayChatRequestBody['channelId'];
-  userId: GatewayChatRequestBody['userId'];
-  username: GatewayChatRequestBody['username'];
-  content: GatewayChatRequestBody['content'];
-  media?: GatewayChatRequestBody['media'];
-  agentId?: GatewayChatRequestBody['agentId'];
-  chatbotId?: GatewayChatRequestBody['chatbotId'];
-  model?: GatewayChatRequestBody['model'];
-  enableRag?: GatewayChatRequestBody['enableRag'];
-  onTextDelta?: (delta: string) => void;
-  onToolProgress?: (event: ToolProgressEvent) => void;
-  onApprovalProgress?: (approval: PendingApproval) => void;
-  onProactiveMessage?: (
-    message: ProactiveMessagePayload,
-  ) => void | Promise<void>;
-  abortSignal?: AbortSignal;
-  source?: string;
-}
-
 function shouldForceNewTuiSession(
   req: Pick<
     GatewayChatRequest | GatewayCommandRequest,
@@ -606,6 +682,7 @@ function resolveChannelType(
     .toLowerCase();
   if (
     source === 'discord' ||
+    source === 'imessage' ||
     source === 'whatsapp' ||
     source === 'email' ||
     source === 'msteams'
@@ -615,6 +692,7 @@ function resolveChannelType(
   const inferredChannelType = resolveSessionResetChannelKind(req.channelId);
   if (
     inferredChannelType === 'discord' ||
+    inferredChannelType === 'imessage' ||
     inferredChannelType === 'whatsapp' ||
     inferredChannelType === 'email'
   ) {
@@ -673,36 +751,6 @@ export type {
   GatewayStatus,
 };
 export { renderGatewayCommand };
-
-let gatewayServiceInitialized = false;
-let gatewayServiceInitializing: Promise<void> | null = null;
-
-export async function initGatewayService(): Promise<void> {
-  if (gatewayServiceInitialized) return;
-  if (gatewayServiceInitializing) {
-    await gatewayServiceInitializing;
-    return;
-  }
-  gatewayServiceInitializing = (async () => {
-    listAgents();
-    configureFullAutoRuntime({ handleGatewayMessage });
-    try {
-      await ensurePluginManagerInitialized();
-    } catch (error) {
-      logger.warn({ error }, 'Plugin manager initialization failed');
-    }
-    gatewayServiceInitialized = true;
-  })();
-  try {
-    await gatewayServiceInitializing;
-  } finally {
-    gatewayServiceInitializing = null;
-  }
-}
-
-export async function stopGatewayPlugins(): Promise<void> {
-  await shutdownPluginManager();
-}
 
 function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
@@ -787,25 +835,36 @@ function getAdminChannelDisabledSkills(
   );
 }
 
+function buildHybridAIProviderEntry(
+  probe: HybridAIHealthResult,
+  runtimeConfig: RuntimeConfig,
+): GatewayProviderHealthEntry {
+  const configModelCount = dedupeStrings([
+    runtimeConfig.hybridai.defaultModel,
+    ...runtimeConfig.hybridai.models,
+    ...getDiscoveredHybridAIModelNames(),
+  ]).length;
+
+  return {
+    kind: 'remote',
+    reachable: probe.reachable,
+    ...(probe.error ? { error: probe.error } : {}),
+    latencyMs: probe.latencyMs,
+    modelCount: probe.modelCount ?? configModelCount,
+    detail: probe.reachable
+      ? `${probe.latencyMs}ms`
+      : probe.error || 'unreachable',
+  };
+}
+
 function buildGatewayProviderHealth(params: {
   localBackends: GatewayStatus['localBackends'];
   codex: ReturnType<typeof getCodexAuthStatus>;
-  hybridai: ReturnType<typeof getHybridAIAuthStatus>;
+  hybridaiHealth: HybridAIHealthResult;
 }): NonNullable<GatewayStatus['providerHealth']> {
   const runtimeConfig = getRuntimeConfig();
   const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
-    hybridai: {
-      kind: 'remote',
-      reachable: params.hybridai.authenticated,
-      ...(params.hybridai.authenticated ? {} : { error: 'API key missing' }),
-      modelCount: dedupeStrings([
-        runtimeConfig.hybridai.defaultModel,
-        ...runtimeConfig.hybridai.models,
-      ]).length,
-      detail: params.hybridai.authenticated
-        ? `API key ready${params.hybridai.source ? ` via ${params.hybridai.source}` : ''}`
-        : 'API key missing',
-    },
+    hybridai: buildHybridAIProviderEntry(params.hybridaiHealth, runtimeConfig),
     codex: {
       kind: 'remote',
       reachable: params.codex.authenticated && !params.codex.reloginRequired,
@@ -844,6 +903,77 @@ function buildGatewayProviderHealth(params: {
   return providerHealth;
 }
 
+function isOpenRouterAvailableForModelCommands(): boolean {
+  const runtimeConfig = getRuntimeConfig();
+  return (
+    runtimeConfig.openrouter.enabled &&
+    Boolean(readOpenRouterApiKey({ required: false }))
+  );
+}
+
+function isHuggingFaceAvailableForModelCommands(): boolean {
+  const runtimeConfig = getRuntimeConfig();
+  return (
+    runtimeConfig.huggingface.enabled &&
+    Boolean(readHuggingFaceApiKey({ required: false }))
+  );
+}
+
+function isMistralAvailableForModelCommands(): boolean {
+  const runtimeConfig = getRuntimeConfig();
+  return (
+    runtimeConfig.mistral.enabled &&
+    Boolean(readMistralApiKey({ required: false }))
+  );
+}
+
+function isModelAvailableForCurrentGatewayState(
+  model: string,
+  providerHealth: GatewayStatus['providerHealth'],
+): boolean {
+  switch (resolveModelProvider(model)) {
+    case 'hybridai':
+      return providerHealth?.hybridai?.reachable === true;
+    case 'openai-codex':
+      return providerHealth?.codex?.reachable === true;
+    case 'openrouter':
+      return isOpenRouterAvailableForModelCommands();
+    case 'mistral':
+      return isMistralAvailableForModelCommands();
+    case 'huggingface':
+      return isHuggingFaceAvailableForModelCommands();
+    case 'ollama':
+      return providerHealth?.ollama?.reachable === true;
+    case 'lmstudio':
+      return providerHealth?.lmstudio?.reachable === true;
+    case 'vllm':
+      return providerHealth?.vllm?.reachable === true;
+    default:
+      return true;
+  }
+}
+
+function filterModelsForCurrentGatewayState(
+  models: string[],
+  providerHealth: GatewayStatus['providerHealth'],
+): string[] {
+  return models.filter((model) =>
+    isModelAvailableForCurrentGatewayState(model, providerHealth),
+  );
+}
+
+async function getGatewayStatusForModelSubcommand(
+  subcommand: string | undefined,
+): Promise<GatewayStatus> {
+  if (subcommand === 'list' || subcommand === 'info') {
+    // These commands are expected to reflect the current live provider state,
+    // not a recently cached health snapshot.
+    localBackendsProbe.invalidate();
+    hybridAIProbe.invalidate();
+  }
+  return await getGatewayStatus();
+}
+
 function mapModelUsageRow(
   value: ReturnType<typeof listUsageByModel>[number],
 ): GatewayAdminModelUsageRow {
@@ -856,6 +986,26 @@ function mapModelUsageRow(
     callCount: value.call_count,
     totalToolCalls: value.total_tool_calls,
   };
+}
+
+function resolveKnownModelContextWindow(model: string): number | null {
+  return (
+    resolveLocalModelContextWindow(model) ??
+    getDiscoveredHuggingFaceModelContextWindow(model) ??
+    getDiscoveredHybridAIModelContextWindow(model) ??
+    getDiscoveredMistralModelContextWindow(model) ??
+    getDiscoveredOpenRouterModelContextWindow(model) ??
+    resolveModelContextWindowFallback(model)
+  );
+}
+
+function resolveDisplayedModelName(model: string): string {
+  const normalized = String(model || '').trim();
+  if (!normalized) return normalized;
+  if (normalized.toLowerCase().startsWith('mistral/')) {
+    return resolveDiscoveredMistralModelCanonicalName(normalized);
+  }
+  return normalized;
 }
 
 function mapAdminSession(session: Session): GatewayAdminSession {
@@ -885,9 +1035,7 @@ function parseIntOrNull(raw: string | undefined): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function normalizeMediaContextItems(
-  raw: GatewayChatRequestBody['media'],
-): MediaContextItem[] {
+function normalizeMediaContextItems(raw: unknown): MediaContextItem[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
   const normalized: MediaContextItem[] = [];
   for (const item of raw) {
@@ -922,6 +1070,10 @@ function normalizeMediaContextItems(
   return normalized;
 }
 
+function cloneMediaContextItems(media: MediaContextItem[]): MediaContextItem[] {
+  return media.map((item) => ({ ...item }));
+}
+
 function isImageMediaItem(item: MediaContextItem): boolean {
   const mimeType = String(item.mimeType || '')
     .trim()
@@ -930,6 +1082,27 @@ function isImageMediaItem(item: MediaContextItem): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif|tiff?)$/i.test(
     item.filename || '',
   );
+}
+
+function buildVisibleMediaSummary(media: MediaContextItem[]): string {
+  if (media.length === 0) return '';
+  const summary = summarizeMediaFilenames(media.map((item) => item.filename));
+  return media.length === 1
+    ? `Attached file: ${summary}`
+    : `Attached files: ${summary}`;
+}
+
+function buildStoredUserTurnContent(
+  userContent: string,
+  media: MediaContextItem[],
+): string {
+  const text = String(userContent || '').trim();
+  const mediaSummary = buildVisibleMediaSummary(media);
+  if (!mediaSummary) return text;
+  if (text === mediaSummary || text.endsWith(`\n\n${mediaSummary}`)) {
+    return text;
+  }
+  return text ? `${text}\n\n${mediaSummary}` : mediaSummary;
 }
 
 function buildMediaPromptContext(media: MediaContextItem[]): string {
@@ -1062,17 +1235,220 @@ function boundAuditActorField(
   return value.slice(0, 128);
 }
 
-function formatHybridAIBotFetchError(error: unknown): string {
+const HYBRIDAI_AUTH_LIKE_RE = /invalid api key|unauthorized|authentication/i;
+const HYBRIDAI_NETWORK_LIKE_RE =
+  /fetch failed|econnrefused|enotfound|ehostunreach|timed out|timeout|network|socket/i;
+const HYBRIDAI_TLS_LIKE_RE =
+  /wrong version number|ssl3_get_record|ssl routines|eproto/i;
+
+type HybridAIBotFetchErrorClassification =
+  | 'auth'
+  | 'tls'
+  | 'network'
+  | 'unknown';
+
+type HybridAIBotFetchFailureKind =
+  | 'missing_credentials'
+  | 'auth'
+  | 'tls'
+  | 'network'
+  | 'other';
+
+interface HybridAIBotFetchFailureInput {
+  status?: unknown;
+  code?: unknown;
+  type?: unknown;
+  message: string;
+}
+
+function hasMatchingHttpStatus(
+  value: unknown,
+  statuses: readonly number[],
+): boolean {
+  return statuses.some(
+    (status) =>
+      value === status || String(value || '').trim() === String(status),
+  );
+}
+
+function classifyHybridAIBotFetchFailure(input: {
+  status?: unknown;
+  code?: unknown;
+  type?: unknown;
+  message: string;
+}): HybridAIBotFetchErrorClassification {
+  const message = input.message;
+  if (
+    hasMatchingHttpStatus(input.status, [401, 403]) ||
+    hasMatchingHttpStatus(input.code, [401, 403]) ||
+    /authentication_error/i.test(String(input.type || '')) ||
+    HYBRIDAI_AUTH_LIKE_RE.test(message)
+  ) {
+    return 'auth';
+  }
+
+  const networkLike =
+    hasMatchingHttpStatus(input.status, [0]) ||
+    /network_error/i.test(String(input.type || '')) ||
+    HYBRIDAI_NETWORK_LIKE_RE.test(message);
+  if (!networkLike) {
+    return 'unknown';
+  }
+
+  return HYBRIDAI_TLS_LIKE_RE.test(message) ? 'tls' : 'network';
+}
+
+function getHybridAIBotFetchFailureInput(
+  error: unknown,
+): HybridAIBotFetchFailureInput {
+  if (error instanceof HybridAIBotFetchError) {
+    return {
+      status: error.status,
+      code: error.code,
+      type: error.type,
+      message: error.message,
+    };
+  }
+
+  return {
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
+function describeHybridAIBotFetchFailure(error: unknown): {
+  kind: HybridAIBotFetchFailureKind;
+  message?: string;
+} {
   if (error instanceof MissingRequiredEnvVarError) {
-    return 'HybridAI bot commands require HybridAI API credentials. Run `hybridclaw hybridai login` and try again.';
+    return { kind: 'missing_credentials' };
   }
 
-  const message = error instanceof Error ? error.message : String(error);
-  if (/401\b|unauthorized/i.test(message)) {
-    return 'HybridAI bot commands require valid HybridAI API credentials. Run `hybridclaw hybridai login` and try again.';
+  const input = getHybridAIBotFetchFailureInput(error);
+  const classification = classifyHybridAIBotFetchFailure(input);
+  if (classification === 'auth') {
+    return { kind: 'auth', message: input.message };
+  }
+  if (classification === 'tls') {
+    return { kind: 'tls' };
+  }
+  if (classification === 'network') {
+    return { kind: 'network' };
+  }
+  return { kind: 'other', message: input.message };
+}
+
+function formatHybridAIBotReachabilityError(
+  classification: Extract<
+    HybridAIBotFetchErrorClassification,
+    'tls' | 'network'
+  >,
+  reachabilityHint: string,
+): string {
+  if (classification === 'tls') {
+    const insecureBaseUrl = HYBRIDAI_BASE_URL.replace(/^https:/i, 'http:');
+    return `HybridAI is not reachable at \`${HYBRIDAI_BASE_URL}\`. If this local HybridAI server does not use TLS, run \`hybridclaw auth login hybridai --base-url ${insecureBaseUrl}\`.`;
+  }
+  return `HybridAI is not reachable at \`${HYBRIDAI_BASE_URL}\`. ${reachabilityHint}`;
+}
+
+function formatHybridAIBotFetchError(error: unknown): string {
+  const keyHint = `Update \`HYBRIDAI_API_KEY\` in ${runtimeSecretsPath()} or in the shell that starts HybridClaw, then restart the gateway. You can also run \`hybridclaw auth login hybridai\` to store a new key.`;
+  const reachabilityHint =
+    'Check `hybridai.baseUrl` and confirm the HybridAI service is running.';
+  const failure = describeHybridAIBotFetchFailure(error);
+
+  if (failure.kind === 'missing_credentials') {
+    return `HybridAI bot commands require HybridAI API credentials. ${keyHint}`;
+  }
+  if (failure.kind === 'auth') {
+    return `HybridAI rejected the configured API key: ${failure.message}. ${keyHint}`;
+  }
+  if (failure.kind === 'tls' || failure.kind === 'network') {
+    return formatHybridAIBotReachabilityError(failure.kind, reachabilityHint);
+  }
+  return `Failed to fetch bots: ${failure.message}`;
+}
+
+function formatHybridAIAccountChatbotResolutionError(error: unknown): string {
+  const keyHint = `Update \`HYBRIDAI_API_KEY\` in ${runtimeSecretsPath()} or in the shell that starts HybridClaw, then restart the gateway. You can also run \`hybridclaw auth login hybridai\` to store a new key.`;
+  const reachabilityHint =
+    'Check `hybridai.baseUrl` and confirm the HybridAI service is running.';
+  const failure = describeHybridAIBotFetchFailure(error);
+
+  if (failure.kind === 'missing_credentials') {
+    return `HybridAI chatbot fallback requires HybridAI API credentials. ${keyHint}`;
+  }
+  if (failure.kind === 'auth') {
+    return `HybridAI rejected the configured API key: ${failure.message}. ${keyHint}`;
+  }
+  if (failure.kind === 'tls' || failure.kind === 'network') {
+    return formatHybridAIBotReachabilityError(failure.kind, reachabilityHint);
+  }
+  return `Failed to resolve the HybridAI account chatbot id: ${failure.message}`;
+}
+
+async function resolveGatewayChatbotId(params: {
+  model: string;
+  chatbotId: string;
+  sessionId: string;
+  channelId: string;
+  agentId: string;
+  trigger: 'bootstrap' | 'chat' | 'scheduler';
+  taskId?: string | number | null;
+}): Promise<{
+  chatbotId: string;
+  source: 'configured' | 'hybridai-account' | 'missing';
+  error?: string;
+}> {
+  const configuredChatbotId = String(params.chatbotId || '').trim();
+  if (configuredChatbotId) {
+    return { chatbotId: configuredChatbotId, source: 'configured' };
+  }
+  if (!modelRequiresChatbotId(params.model)) {
+    return { chatbotId: '', source: 'missing' };
   }
 
-  return `Failed to fetch bots: ${message}`;
+  try {
+    const fallbackChatbotId = await fetchHybridAIAccountChatbotId({
+      cacheTtlMs: BOT_CACHE_TTL,
+    });
+    updateSessionChatbot(params.sessionId, fallbackChatbotId);
+    logger.info(
+      {
+        sessionId: params.sessionId,
+        channelId: params.channelId,
+        agentId: params.agentId,
+        model: params.model,
+        trigger: params.trigger,
+        taskId: params.taskId ?? null,
+        fallbackChatbotId,
+      },
+      'Resolved HybridAI chatbot ID from /bot-management/me fallback',
+    );
+    return {
+      chatbotId: fallbackChatbotId,
+      source: 'hybridai-account',
+    };
+  } catch (error) {
+    const formattedError = formatHybridAIAccountChatbotResolutionError(error);
+    logger.warn(
+      {
+        sessionId: params.sessionId,
+        channelId: params.channelId,
+        agentId: params.agentId,
+        model: params.model,
+        trigger: params.trigger,
+        taskId: params.taskId ?? null,
+        err: error,
+      },
+      'Failed to resolve HybridAI chatbot ID from /bot-management/me fallback',
+    );
+    return {
+      chatbotId: '',
+      source: 'missing',
+      error: `No chatbot configured. ${formattedError}`,
+    };
+  }
 }
 
 function formatPercent(value: number | null): string {
@@ -1106,7 +1482,93 @@ function formatUsd(value: number | null): string {
 function resolveSessionAgentId(session: { agent_id: string }): string {
   const sessionAgent = session.agent_id?.trim();
   if (sessionAgent) return sessionAgent;
-  return DEFAULT_AGENT_ID;
+  return resolveDefaultAgentId(getRuntimeConfig());
+}
+
+type TraceExportResult = Awaited<
+  ReturnType<typeof exportSessionTraceAtifJsonl>
+>;
+
+async function exportTraceForSession(
+  session: Session,
+): Promise<TraceExportResult> {
+  return exportSessionTraceAtifJsonl({
+    agentId: resolveSessionAgentId(session),
+    session,
+    messages: memoryService.getRecentMessages(session.id),
+    auditEntries: getStructuredAuditForSession(session.id),
+    usageTotals: getSessionUsageTotals(session.id),
+  });
+}
+
+async function exportTraceForSessions(
+  sessions: Session[],
+): Promise<Exclude<TraceExportResult, null>[]> {
+  const exported: Exclude<TraceExportResult, null>[] = [];
+  for (
+    let index = 0;
+    index < sessions.length;
+    index += TRACE_EXPORT_ALL_CONCURRENCY
+  ) {
+    const batch = sessions.slice(index, index + TRACE_EXPORT_ALL_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map((session) => exportTraceForSession(session)),
+    );
+    exported.push(
+      ...results.filter(
+        (result): result is Exclude<TraceExportResult, null> => result != null,
+      ),
+    );
+  }
+  return exported;
+}
+
+function resolveAgentImageAssetPath(
+  agentId: string,
+  imageAsset: string | null | undefined,
+): string | null {
+  const normalized = String(imageAsset || '').trim();
+  if (!normalized) return null;
+  const workspaceDir = agentWorkspaceDir(agentId);
+  const cacheKey = `${workspaceDir}\u0000${normalized}`;
+  if (assistantPresentationImagePathCache.has(cacheKey)) {
+    return assistantPresentationImagePathCache.get(cacheKey) || null;
+  }
+  const resolved = resolveWorkspaceRelativePath(workspaceDir, normalized);
+  assistantPresentationImagePathCache.set(cacheKey, resolved);
+  return resolved;
+}
+
+export function getGatewayAssistantPresentationForAgent(
+  agentId?: string | null,
+): GatewayAssistantPresentation {
+  const resolvedAgentId = String(agentId || '').trim() || DEFAULT_AGENT_ID;
+  const agent =
+    getAgentById(resolvedAgentId) ?? resolveAgentConfig(resolvedAgentId);
+  const displayName =
+    agent.displayName?.trim() || agent.name?.trim() || resolvedAgentId;
+  const imagePath = resolveAgentImageAssetPath(
+    resolvedAgentId,
+    agent.imageAsset,
+  );
+  return {
+    agentId: resolvedAgentId,
+    displayName,
+    ...(imagePath
+      ? {
+          imageUrl: `/api/agent-avatar?agentId=${encodeURIComponent(resolvedAgentId)}`,
+        }
+      : {}),
+  };
+}
+
+export function getGatewayAssistantPresentationForSession(
+  sessionId: string,
+): GatewayAssistantPresentation {
+  const session = memoryService.getSessionById(sessionId);
+  return getGatewayAssistantPresentationForAgent(
+    session ? resolveSessionAgentId(session) : DEFAULT_AGENT_ID,
+  );
 }
 
 function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
@@ -1121,6 +1583,21 @@ function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
   ]);
   if (value == null) return 0;
   return Math.max(0, value);
+}
+
+function buildHybridAIAuthStatusLines(): string[] {
+  const config = getRuntimeConfig();
+  const status = getHybridAIAuthStatus();
+  return [
+    `Authenticated: ${status.authenticated ? 'yes' : 'no'}`,
+    ...(status.authenticated
+      ? [`Source: ${status.source}`, `API key: ${status.maskedApiKey}`]
+      : []),
+    `Config: ${runtimeConfigPath()}`,
+    `Base URL: ${config.hybridai.baseUrl}`,
+    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
+    'Billing: unavailable from this status command',
+  ];
 }
 
 function formatCanonicalContextPrompt(params: {
@@ -1169,6 +1646,18 @@ function formatPluginPromptContext(sections: string[]): string | null {
     .filter((value) => value.length > 0);
   if (normalized.length === 0) return null;
   return normalized.join('\n\n');
+}
+
+function formatSessionSnippetSummary(params: {
+  firstMessage: string | null;
+  lastMessage: string | null;
+}): string {
+  const summary = buildSessionBoundaryPreview({
+    firstMessage: params.firstMessage,
+    lastMessage: params.lastMessage,
+    maxLength: SESSIONS_COMMAND_SNIPPET_MAX_LENGTH,
+  });
+  return summary ? ` · ${summary}` : '';
 }
 
 function resolveActivationModeLabel(): string {
@@ -1273,8 +1762,11 @@ function recordSuccessfulTurn(opts: {
   resultText: string;
   toolCallCount: number;
   startedAt: number;
-}): void {
-  memoryService.storeTurn({
+}): {
+  userMessageId: number;
+  assistantMessageId: number;
+} {
+  const storedTurn = memoryService.storeTurn({
     sessionId: opts.sessionId,
     user: {
       userId: opts.userId,
@@ -1372,6 +1864,8 @@ function recordSuccessfulTurn(opts: {
       },
     },
   });
+
+  return storedTurn;
 }
 
 function buildStoredTurnMessages(params: {
@@ -1416,35 +1910,6 @@ function badCommand(title: string, text: string): GatewayCommandResult {
   return { kind: 'error', title, text };
 }
 
-async function tryEnsurePluginManagerInitializedForGateway(params: {
-  sessionId: string;
-  channelId: string;
-  agentId?: string | null;
-  surface: 'chat' | 'command';
-}): Promise<{
-  pluginManager: PluginManager | null;
-  pluginInitError: unknown;
-}> {
-  try {
-    return {
-      pluginManager: await ensurePluginManagerInitialized(),
-      pluginInitError: null,
-    };
-  } catch (pluginInitError) {
-    logger.warn(
-      {
-        sessionId: params.sessionId,
-        channelId: params.channelId,
-        agentId: params.agentId ?? null,
-        surface: params.surface,
-        error: pluginInitError,
-      },
-      'Plugin manager init failed; proceeding without plugins',
-    );
-    return { pluginManager: null, pluginInitError };
-  }
-}
-
 function infoCommand(
   title: string,
   text: string,
@@ -1462,16 +1927,6 @@ function infoCommand(
 
 function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
-}
-
-function normalizePluginCommandResult(value: unknown): GatewayCommandResult {
-  if (typeof value === 'string') {
-    return plainCommand(value);
-  }
-  if (value == null) {
-    return plainCommand('');
-  }
-  return plainCommand(JSON.stringify(value, null, 2));
 }
 
 function formatRatioAsPercent(value: number): string {
@@ -1762,12 +2217,23 @@ function buildTokenUsageAuditPayload(
   };
 }
 
-export function getGatewayStatus(): GatewayStatus {
+export async function getGatewayStatus(): Promise<GatewayStatus> {
+  const [localBackendsResult, hybridaiResult] = await Promise.allSettled([
+    localBackendsProbe.get(),
+    hybridAIProbe.get(),
+  ]);
+  const localBackendsMap =
+    localBackendsResult.status === 'fulfilled'
+      ? localBackendsResult.value
+      : new Map();
+  const hybridaiHealth: HybridAIHealthResult =
+    hybridaiResult.status === 'fulfilled'
+      ? hybridaiResult.value
+      : { reachable: false, error: 'probe failed', latencyMs: 0 };
   const sandbox = getSandboxDiagnostics();
   const codex = getCodexAuthStatus();
-  const hybridai = getHybridAIAuthStatus();
   const localBackends = Object.fromEntries(
-    [...getAllBackendHealth().entries()].map(([backend, status]) => [
+    [...localBackendsMap.entries()].map(([backend, status]) => [
       backend,
       {
         reachable: status.reachable,
@@ -1782,7 +2248,7 @@ export function getGatewayStatus(): GatewayStatus {
   const providerHealth = buildGatewayProviderHealth({
     localBackends,
     codex,
-    hybridai,
+    hybridaiHealth,
   });
   return {
     status: 'ok',
@@ -1792,6 +2258,7 @@ export function getGatewayStatus(): GatewayStatus {
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
     activeContainers: sandbox.activeSessions,
+    defaultAgentId: resolveDefaultAgentId(getRuntimeConfig()),
     defaultModel: HYBRIDAI_MODEL,
     ragDefault: HYBRIDAI_ENABLE_RAG,
     fullAuto: {
@@ -1816,9 +2283,9 @@ export function getGatewayStatus(): GatewayStatus {
   };
 }
 
-export function getGatewayAdminOverview(): GatewayAdminOverview {
+export async function getGatewayAdminOverview(): Promise<GatewayAdminOverview> {
   return {
-    status: getGatewayStatus(),
+    status: await getGatewayStatus(),
     configPath: runtimeConfigPath(),
     recentSessions: getAllSessions().slice(0, 8).map(mapAdminSession),
     usage: {
@@ -1916,8 +2383,8 @@ export function deleteGatewayAdminAgent(agentId: string): {
   };
 }
 
-export function getGatewayAgents(): GatewayAgentsResponse {
-  const status = getGatewayStatus();
+export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
+  const status = await getGatewayStatus();
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
   const usageByAgent = new Map(
     listUsageByAgent({ window: 'all' }).map(
@@ -2038,6 +2505,56 @@ export function getGatewayAgents(): GatewayAgentsResponse {
       },
     },
     agents,
+    sessions,
+  };
+}
+
+export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
+  const activeSessionIds = new Set(getActiveExecutorSessionIds());
+  const sandboxMode = getRuntimeConfig().container.sandboxMode || 'container';
+  const sessions = getAllSessions()
+    .map((session) =>
+      mapSessionCard({
+        session,
+        activeSessionIds,
+        usageBySession: new Map(),
+        sandboxMode,
+      }),
+    )
+    .sort((left, right) => {
+      const rank = { active: 0, idle: 1, stopped: 2 } as const;
+      const byStatus = rank[left.status] - rank[right.status];
+      if (byStatus !== 0) return byStatus;
+      return (
+        (parseTimestamp(right.lastActive)?.getTime() || 0) -
+        (parseTimestamp(left.lastActive)?.getTime() || 0)
+      );
+    })
+    .map((session) => ({
+      sessionId: session.sessionId,
+      agentId: session.agentId,
+      startedAt: session.startedAt,
+      lastActive: session.lastActive,
+      status: session.status,
+      lastAnswer: session.lastAnswer,
+      output: session.output,
+    }));
+
+  const agentIds = Array.from(
+    new Set([
+      ...listAgents().map((agent) => agent.id),
+      ...sessions.map((session) => session.agentId),
+    ]),
+  ).sort((left, right) => left.localeCompare(right));
+
+  return {
+    agents: agentIds.map((agentId) => {
+      const agent = getAgentById(agentId) ?? resolveAgentConfig(agentId);
+      return {
+        id: agent.id,
+        name: agent.name || null,
+      };
+    }),
     sessions,
   };
 }
@@ -2224,6 +2741,8 @@ function parseAdminSchedulerJob(
 
   const name = String(value.name || '').trim();
   const description = String(value.description || '').trim();
+  const agentId = String(value.agentId || '').trim();
+  const boardStatus = parseSchedulerBoardStatus(value.boardStatus);
   const rawSchedule = isRecord(value.schedule) ? value.schedule : {};
   const rawAction = isRecord(value.action) ? value.action : {};
   const rawDelivery = isRecord(value.delivery) ? value.delivery : {};
@@ -2280,9 +2799,9 @@ function parseAdminSchedulerJob(
       'Scheduler action kind must be `agent_turn` or `system_event`.',
     );
   }
-  const actionMessage = String(rawAction.message || '').trim();
+  const actionMessage = String(rawAction.message || '').trim() || description;
   if (!actionMessage) {
-    throw new Error('`action.message` is required.');
+    throw new Error('`action.message` or `description` is required.');
   }
 
   const deliveryKind = String(rawDelivery.kind || 'channel')
@@ -2312,6 +2831,8 @@ function parseAdminSchedulerJob(
     id,
     ...(name ? { name } : {}),
     ...(description ? { description } : {}),
+    ...(agentId ? { agentId } : {}),
+    ...(boardStatus ? { boardStatus } : {}),
     schedule: {
       kind: scheduleKind,
       at,
@@ -2516,7 +3037,7 @@ export function getGatewayAdminTools(): GatewayAdminToolsResponse {
 }
 
 export async function getGatewayAdminModels(): Promise<GatewayAdminModelsResponse> {
-  await refreshAvailableModelCatalogs();
+  await refreshAvailableModelCatalogs({ includeHybridAI: true });
 
   const runtimeConfig = getRuntimeConfig();
   const hybridaiModels = dedupeStrings(runtimeConfig.hybridai.models);
@@ -2534,7 +3055,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     runtimeConfig.hybridai.defaultModel,
     ...getAvailableModelList(),
   ]);
-  const status = getGatewayStatus();
+  const status = await getGatewayStatus();
 
   return {
     defaultModel: runtimeConfig.hybridai.defaultModel,
@@ -2544,6 +3065,8 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     models: modelIds
       .map((modelId) => {
         const info = getLocalModelInfo(modelId);
+        const hybridaiContextWindow =
+          getDiscoveredHybridAIModelContextWindow(modelId);
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
         return {
@@ -2552,7 +3075,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
           configuredInCodex: configuredCodex.has(modelId),
           discovered: Boolean(info),
           backend: info?.backend || null,
-          contextWindow: info?.contextWindow ?? null,
+          contextWindow: info?.contextWindow ?? hybridaiContextWindow ?? null,
           maxTokens: info?.maxTokens ?? null,
           isReasoning: info?.isReasoning ?? false,
           thinkingFormat: info?.thinkingFormat || null,
@@ -2628,6 +3151,8 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
             (typeof job.description === 'string' && job.description.trim()) ||
             runtime?.description ||
             null,
+          agentId: job.agentId ?? null,
+          boardStatus: job.boardStatus ?? null,
           enabled: job.enabled,
           schedule: job.schedule,
           action: job.action,
@@ -2648,71 +3173,75 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
           taskId: null,
         } satisfies GatewayAdminSchedulerJob;
       }),
-      ...getAllTasks().map((task) => {
-        const normalizedPrompt = task.prompt.replace(/\s+/g, ' ').trim();
-        const createdAtMs = parseSchedulerTimestampMs(task.created_at);
-        const lastStatus =
-          task.last_status === 'success' || task.last_status === 'error'
-            ? task.last_status
-            : null;
+      ...getAllTasks()
+        .map((task) => {
+          const normalizedPrompt = task.prompt.replace(/\s+/g, ' ').trim();
+          const createdAtMs = parseSchedulerTimestampMs(task.created_at);
+          const lastStatus =
+            task.last_status === 'success' || task.last_status === 'error'
+              ? task.last_status
+              : null;
 
-        return {
-          id: `task:${task.id}`,
-          source: 'task',
-          name:
-            normalizedPrompt.length > 72
-              ? `${normalizedPrompt.slice(0, 69).trimEnd()}...`
-              : normalizedPrompt || `Task #${task.id}`,
-          description: `#${task.id}`,
-          enabled: Boolean(task.enabled),
-          schedule: task.run_at
-            ? {
-                kind: 'at',
-                at: task.run_at,
-                everyMs: null,
-                expr: null,
-                tz: '',
-              }
-            : task.every_ms
+          return {
+            id: `task:${task.id}`,
+            source: 'task',
+            name:
+              normalizedPrompt.length > 72
+                ? `${normalizedPrompt.slice(0, 69).trimEnd()}...`
+                : normalizedPrompt || `Task #${task.id}`,
+            description: `#${task.id}`,
+            agentId: null,
+            boardStatus: null,
+            enabled: Boolean(task.enabled),
+            schedule: task.run_at
               ? {
-                  kind: 'every',
-                  at: null,
-                  everyMs: task.every_ms,
+                  kind: 'at',
+                  at: task.run_at,
+                  everyMs: null,
                   expr: null,
                   tz: '',
                 }
-              : {
-                  kind: 'cron',
-                  at: null,
-                  everyMs: null,
-                  expr: task.cron_expr || null,
-                  tz: '',
-                },
-          action: {
-            kind: 'agent_turn',
-            message: task.prompt,
-          },
-          delivery: {
-            kind: 'channel',
-            channel: 'session',
-            to: task.channel_id,
-            webhookUrl: '',
-          },
-          lastRun: task.last_run,
-          lastStatus,
-          nextRunAt: getScheduledTaskNextRunAt(task, nowMs),
-          disabled: !task.enabled,
-          consecutiveErrors: Math.max(0, task.consecutive_errors || 0),
-          createdAt:
-            createdAtMs == null
-              ? task.created_at || null
-              : new Date(createdAtMs).toISOString(),
-          sessionId: task.session_id,
-          channelId: task.channel_id,
-          taskId: task.id,
-        } satisfies GatewayAdminSchedulerJob;
-      }),
-    ].sort(compareGatewayAdminSchedulerJobs),
+              : task.every_ms
+                ? {
+                    kind: 'every',
+                    at: null,
+                    everyMs: task.every_ms,
+                    expr: null,
+                    tz: '',
+                  }
+                : {
+                    kind: 'cron',
+                    at: null,
+                    everyMs: null,
+                    expr: task.cron_expr || null,
+                    tz: '',
+                  },
+            action: {
+              kind: 'agent_turn',
+              message: task.prompt,
+            },
+            delivery: {
+              kind: 'channel',
+              channel: 'session',
+              to: task.channel_id,
+              webhookUrl: '',
+            },
+            lastRun: task.last_run,
+            lastStatus,
+            nextRunAt: getScheduledTaskNextRunAt(task, nowMs),
+            disabled: !task.enabled,
+            consecutiveErrors: Math.max(0, task.consecutive_errors || 0),
+            createdAt:
+              createdAtMs == null
+                ? task.created_at || null
+                : new Date(createdAtMs).toISOString(),
+            sessionId: task.session_id,
+            channelId: task.channel_id,
+            taskId: task.id,
+          } satisfies GatewayAdminSchedulerJob;
+        })
+        .sort(compareGatewayAdminSchedulerJobs),
+    ],
   };
 }
 
@@ -2827,6 +3356,48 @@ export function setGatewayAdminSchedulerJobPaused(params: {
   return getGatewayAdminScheduler();
 }
 
+export function moveGatewayAdminSchedulerJob(params: {
+  jobId: string;
+  beforeJobId?: string | null;
+  boardStatus?: SchedulerBoardStatus | null;
+}): GatewayAdminSchedulerResponse {
+  const normalizedJobId = params.jobId.trim();
+  if (!normalizedJobId) {
+    throw new Error('Expected non-empty scheduler `jobId`.');
+  }
+  const normalizedBeforeJobId = String(params.beforeJobId || '').trim() || null;
+  const exists = getRuntimeConfig().scheduler.jobs.some(
+    (job) => job.id === normalizedJobId,
+  );
+  if (!exists) {
+    throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
+  }
+
+  updateRuntimeConfig((draft) => {
+    const fromIndex = draft.scheduler.jobs.findIndex(
+      (job) => job.id === normalizedJobId,
+    );
+    if (fromIndex < 0) return;
+    const [job] = draft.scheduler.jobs.splice(fromIndex, 1);
+    if (params.boardStatus) {
+      job.boardStatus = params.boardStatus;
+    }
+    let insertIndex = draft.scheduler.jobs.length;
+    if (normalizedBeforeJobId && normalizedBeforeJobId !== normalizedJobId) {
+      const beforeIndex = draft.scheduler.jobs.findIndex(
+        (candidate) => candidate.id === normalizedBeforeJobId,
+      );
+      if (beforeIndex >= 0) {
+        insertIndex = beforeIndex;
+      }
+    }
+    draft.scheduler.jobs.splice(insertIndex, 0, job);
+  });
+
+  rearmScheduler();
+  return getGatewayAdminScheduler();
+}
+
 export function getGatewayAdminMcp(): GatewayAdminMcpResponse {
   const servers = Object.entries(getRuntimeConfig().mcpServers)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -2905,44 +3476,6 @@ export function getGatewayAdminAudit(params?: {
   };
 }
 
-export async function getGatewayAdminPlugins(): Promise<GatewayAdminPluginsResponse> {
-  const pluginManager = await ensurePluginManagerInitialized();
-  const plugins = pluginManager
-    .listPluginSummary()
-    .map((plugin) => ({
-      id: plugin.id,
-      name: plugin.name || null,
-      version: plugin.version || null,
-      description: plugin.description || null,
-      source: plugin.source,
-      enabled: plugin.enabled,
-      status: plugin.error ? ('failed' as const) : ('loaded' as const),
-      error: plugin.error || null,
-      commands: [...plugin.commands].sort((left, right) =>
-        left.localeCompare(right),
-      ),
-      tools: [...plugin.tools].sort((left, right) => left.localeCompare(right)),
-      hooks: [...plugin.hooks].sort((left, right) => left.localeCompare(right)),
-    }))
-    .sort((left, right) => left.id.localeCompare(right.id));
-
-  return {
-    totals: {
-      totalPlugins: plugins.length,
-      enabledPlugins: plugins.filter((plugin) => plugin.enabled).length,
-      failedPlugins: plugins.filter((plugin) => plugin.status === 'failed')
-        .length,
-      commands: plugins.reduce(
-        (sum, plugin) => sum + plugin.commands.length,
-        0,
-      ),
-      tools: plugins.reduce((sum, plugin) => sum + plugin.tools.length, 0),
-      hooks: plugins.reduce((sum, plugin) => sum + plugin.hooks.length, 0),
-    },
-    plugins,
-  };
-}
-
 export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
   const runtimeConfig = getRuntimeConfig();
   return {
@@ -3000,13 +3533,481 @@ export function setGatewayAdminSkillEnabled(input: {
   return getGatewayAdminSkills();
 }
 
+function resolveBootstrapAutostartChannelId(
+  sessionId: string,
+  channelId?: string | null,
+): string {
+  const explicit = String(channelId || '').trim();
+  if (explicit) return explicit;
+  const parsed = parseSessionKey(sessionId);
+  return String(parsed?.channelKind || '').trim() || 'web';
+}
+
+function normalizeBootstrapAutostartResult(
+  output: Awaited<ReturnType<typeof runAgent>>,
+): string {
+  const normalized = normalizePlaceholderToolReply(
+    normalizeSilentMessageSendReply({
+      status: output.status,
+      result: output.result,
+      error: output.error,
+      toolsUsed: output.toolsUsed || [],
+      toolExecutions: output.toolExecutions || [],
+    }),
+  );
+  return String(normalized.result || '').trim();
+}
+
+function resolveBootstrapAutostartContext(params: {
+  sessionId: string;
+  channelId?: string | null;
+  agentId?: string | null;
+}): {
+  channelId: string;
+  session: ReturnType<(typeof memoryService)['getOrCreateSession']>;
+  resolved: ReturnType<typeof resolveAgentForRequest>;
+  bootstrapFile: 'BOOTSTRAP.md' | 'OPENING.md';
+} | null {
+  const requestedSessionId = String(params.sessionId || '').trim();
+  if (!requestedSessionId) return null;
+
+  const channelId = resolveBootstrapAutostartChannelId(
+    requestedSessionId,
+    params.channelId,
+  );
+  const session = memoryService.getOrCreateSession(
+    requestedSessionId,
+    null,
+    channelId,
+    params.agentId ?? undefined,
+  );
+  if (
+    session.message_count > 0 ||
+    String(session.session_summary || '').trim().length > 0
+  ) {
+    return null;
+  }
+
+  const resolved = resolveAgentForRequest({
+    agentId: params.agentId,
+    session,
+  });
+  ensureBootstrapFiles(resolved.agentId);
+  const bootstrapFile = resolveStartupBootstrapFile(resolved.agentId);
+  if (!bootstrapFile) return null;
+
+  return {
+    channelId,
+    session,
+    resolved,
+    bootstrapFile,
+  };
+}
+
+export async function ensureGatewayBootstrapAutostart(params: {
+  sessionId: string;
+  channelId?: string | null;
+  userId?: string | null;
+  username?: string | null;
+  agentId?: string | null;
+}): Promise<void> {
+  const context = resolveBootstrapAutostartContext(params);
+  if (!context) return;
+  const { channelId, session, resolved, bootstrapFile } = context;
+  if (activeBootstrapAutostartSessions.has(session.id)) {
+    return;
+  }
+  activeBootstrapAutostartSessions.add(session.id);
+
+  try {
+    if (getMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY)) {
+      return;
+    }
+    setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
+      status: 'started',
+      fileName: bootstrapFile,
+      at: new Date().toISOString(),
+    });
+
+    const startedAt = Date.now();
+    const runId = makeAuditRunId('bootstrap');
+    const normalizedUserId =
+      String(params.userId || session.session_key || session.id).trim() ||
+      session.id;
+    const normalizedUsername =
+      String(params.username || 'system').trim() || 'system';
+    const sessionContext = buildSessionContext({
+      source: {
+        channelKind: channelId,
+        chatId: channelId,
+        chatType: channelId === 'tui' || channelId === 'web' ? 'dm' : 'system',
+        userId: normalizedUserId,
+        userName: normalizedUsername,
+        guildId: null,
+      },
+      agentId: resolved.agentId,
+      sessionId: session.id,
+      sessionKey: session.session_key,
+      mainSessionKey: session.main_session_key,
+    });
+    const workspacePath = path.resolve(agentWorkspaceDir(resolved.agentId));
+    const enableRag = session.enable_rag === 1;
+    const provider = resolveModelProvider(resolved.model);
+    const turnIndex = Math.max(1, session.message_count + 1);
+
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'session.start',
+        userId: normalizedUserId,
+        channel: channelId,
+        cwd: workspacePath,
+        model: resolved.model,
+        source: BOOTSTRAP_AUTOSTART_SOURCE,
+      },
+    });
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'turn.start',
+        turnIndex,
+        userInput: buildBootstrapAutostartPrompt(bootstrapFile),
+        username: normalizedUsername,
+        mediaCount: 0,
+        source: BOOTSTRAP_AUTOSTART_SOURCE,
+      },
+    });
+
+    const chatbotResolution = await resolveGatewayChatbotId({
+      model: resolved.model,
+      chatbotId: resolved.chatbotId,
+      sessionId: session.id,
+      channelId,
+      agentId: resolved.agentId,
+      trigger: 'bootstrap',
+    });
+    const chatbotId = chatbotResolution.chatbotId;
+
+    if (modelRequiresChatbotId(resolved.model) && !chatbotId) {
+      deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+      const error =
+        chatbotResolution.error ||
+        'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
+      logger.warn(
+        {
+          sessionId: session.id,
+          channelId,
+          agentId: resolved.agentId,
+          model: resolved.model,
+          sessionChatbotId: session.chatbot_id ?? null,
+          fallbackSource: chatbotResolution.source,
+        },
+        'Gateway bootstrap autostart blocked by missing chatbot configuration',
+      );
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'error',
+          errorType: 'configuration',
+          message: error,
+          recoverable: true,
+        },
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'turn.end',
+          turnIndex,
+          finishReason: 'error',
+        },
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'session.end',
+          reason: 'error',
+          stats: {
+            userMessages: 0,
+            assistantMessages: 0,
+            toolCalls: 0,
+            durationMs: Date.now() - startedAt,
+          },
+        },
+      });
+      return;
+    }
+
+    const { messages } = buildConversationContext({
+      agentId: resolved.agentId,
+      history: [],
+      currentUserContent: buildBootstrapAutostartPrompt(bootstrapFile),
+      extraSafetyText:
+        'Bootstrap kickoff turn. Start the conversation proactively with a concise user-facing opening message.',
+      runtimeInfo: {
+        chatbotId,
+        model: resolved.model,
+        defaultModel: HYBRIDAI_MODEL,
+        channelType: channelId,
+        channelId,
+        guildId: null,
+        sessionContext,
+        workspacePath,
+      },
+    });
+    messages.push({
+      role: 'user',
+      content: buildBootstrapAutostartPrompt(bootstrapFile),
+    });
+
+    const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway(
+      {
+        sessionId: session.id,
+        channelId,
+        agentId: resolved.agentId,
+        surface: 'chat',
+      },
+    );
+    if (pluginManager) {
+      await pluginManager.notifySessionStart({
+        sessionId: session.id,
+        userId: normalizedUserId,
+        agentId: resolved.agentId,
+        channelId,
+      });
+      await pluginManager.notifyBeforeAgentStart({
+        sessionId: session.id,
+        userId: normalizedUserId,
+        agentId: resolved.agentId,
+        channelId,
+        model: resolved.model || undefined,
+      });
+    }
+
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'agent.start',
+        provider,
+        model: resolved.model,
+        scheduledTaskCount: 0,
+        promptMessages: messages.length,
+        systemPrompt: readSystemPromptMessage(messages),
+      },
+    });
+
+    const output = await runAgent({
+      sessionId: session.id,
+      messages,
+      chatbotId,
+      enableRag,
+      model: resolved.model,
+      agentId: resolved.agentId,
+      channelId,
+      ralphMaxIterations: resolveSessionRalphIterations(session),
+      fullAutoEnabled: isFullAutoEnabled(session),
+      fullAutoNeverApproveTools: FULLAUTO_NEVER_APPROVE_TOOLS,
+      scheduledTasks: [],
+      pluginTools: pluginManager?.getToolDefinitions() ?? [],
+    });
+    const resultText =
+      output.status === 'success'
+        ? normalizeBootstrapAutostartResult(output)
+        : '';
+
+    const usagePayload = buildTokenUsageAuditPayload(
+      messages,
+      output.result,
+      output.tokenUsage,
+    );
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'model.usage',
+        provider,
+        model: resolved.model,
+        durationMs: Date.now() - startedAt,
+        toolCallCount: (output.toolExecutions || []).length,
+        ...usagePayload,
+      },
+    });
+    recordUsageEvent({
+      sessionId: session.id,
+      agentId: resolved.agentId,
+      model: resolved.model,
+      inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
+      outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
+      totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
+      toolCalls: (output.toolExecutions || []).length,
+      costUsd: extractUsageCostUsd(output.tokenUsage),
+    });
+
+    if (output.status !== 'success' || !resultText) {
+      deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'turn.end',
+          turnIndex,
+          finishReason: output.status === 'success' ? 'empty' : 'error',
+        },
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'session.end',
+          reason: output.status === 'success' ? 'empty' : 'error',
+          stats: {
+            userMessages: 0,
+            assistantMessages: 0,
+            toolCalls: (output.toolExecutions || []).length,
+            durationMs: Date.now() - startedAt,
+          },
+        },
+      });
+      return;
+    }
+
+    const assistantMessageId = memoryService.storeMessage({
+      sessionId: session.id,
+      userId: 'assistant',
+      username: null,
+      role: 'assistant',
+      content: resultText,
+    });
+    appendSessionTranscript(resolved.agentId, {
+      sessionId: session.id,
+      channelId,
+      role: 'assistant',
+      userId: 'assistant',
+      username: null,
+      content: resultText,
+    });
+    setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
+      status: 'completed',
+      assistantMessageId,
+      completedAt: new Date().toISOString(),
+    });
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'turn.end',
+        turnIndex,
+        finishReason: 'completed',
+      },
+    });
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'session.end',
+        reason: 'normal',
+        stats: {
+          userMessages: 0,
+          assistantMessages: 1,
+          toolCalls: (output.toolExecutions || []).length,
+          durationMs: Date.now() - startedAt,
+        },
+      },
+    });
+  } catch (error) {
+    deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+    logger.warn(
+      { sessionId: session.id, agentId: resolved.agentId, channelId, error },
+      'Failed to run bootstrap autostart turn',
+    );
+  } finally {
+    activeBootstrapAutostartSessions.delete(session.id);
+  }
+}
+
+export function getGatewayBootstrapAutostartState(params: {
+  sessionId: string;
+  channelId?: string | null;
+  agentId?: string | null;
+}): {
+  status: 'idle' | 'starting' | 'completed';
+  fileName: 'BOOTSTRAP.md' | 'OPENING.md';
+} | null {
+  const context = resolveBootstrapAutostartContext(params);
+  if (!context) return null;
+  const { session, bootstrapFile } = context;
+
+  const marker = getMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY) as {
+    status?: unknown;
+    fileName?: unknown;
+  } | null;
+  const markerStatus =
+    typeof marker?.status === 'string'
+      ? marker.status.trim().toLowerCase()
+      : '';
+
+  return {
+    status:
+      markerStatus === 'started'
+        ? 'starting'
+        : markerStatus === 'completed'
+          ? 'completed'
+          : 'idle',
+    fileName:
+      marker?.fileName === 'BOOTSTRAP.md' || marker?.fileName === 'OPENING.md'
+        ? marker.fileName
+        : bootstrapFile,
+  };
+}
+
 export function getGatewayHistory(
   sessionId: string,
   limit = MAX_HISTORY_MESSAGES,
-): StoredMessage[] {
-  return memoryService
-    .getConversationHistory(sessionId, Math.max(1, Math.min(limit, 200)))
+): ConversationHistoryPage {
+  const page = memoryService.getConversationHistoryPage(
+    sessionId,
+    Math.max(1, Math.min(limit, 200)),
+  );
+  const history = page.history
+    .filter((message) => {
+      if (message.role !== 'assistant') return true;
+      return !isSilentReply(message.content);
+    })
+    .map((message) => {
+      if (message.role !== 'assistant') return message;
+      const content = stripSilentToken(message.content);
+      return content === message.content
+        ? message
+        : {
+            ...message,
+            content,
+          };
+    })
+    .filter((message) => message.content.trim().length > 0)
     .reverse();
+  return {
+    sessionKey: page.sessionKey,
+    mainSessionKey: page.mainSessionKey,
+    history,
+    branchFamilies: page.branchFamilies,
+  };
+}
+
+export function getGatewayRecentChatSessions(params: {
+  userId: string;
+  channelId?: string | null;
+  limit?: number;
+}): GatewayRecentChatSession[] {
+  return getRecentSessionsForUser({
+    userId: params.userId,
+    channelId: params.channelId || 'web',
+    limit: params.limit,
+  });
 }
 
 function resolveHistorySummarySinceMs(
@@ -3785,7 +4786,23 @@ export async function handleGatewayMessage(
     model: req.model,
     chatbotId: req.chatbotId,
   });
-  const { agentId, model, chatbotId } = resolvedRequest;
+  const {
+    agentId,
+    model: resolvedModel,
+    chatbotId: resolvedChatbotId,
+  } = resolvedRequest;
+  const resolvedAgent = resolveAgentConfig(agentId);
+  let model = resolvedModel;
+  let chatbotId = resolvedChatbotId;
+  let chatbotResolution = await resolveGatewayChatbotId({
+    model,
+    chatbotId,
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    agentId,
+    trigger: 'chat',
+  });
+  chatbotId = chatbotResolution.chatbotId;
   const channelType =
     resolveChannelType(req) || resolveSessionResetChannelKind(req.channelId);
   const channel =
@@ -3853,8 +4870,8 @@ export async function handleGatewayMessage(
   const showMode = normalizeSessionShowMode(session.show_mode);
   const shouldEmitTools = sessionShowModeShowsTools(showMode);
   const enableRag = req.enableRag ?? session.enable_rag === 1;
-  const provider = resolveModelProvider(model);
-  const media = normalizeMediaContextItems(req.media);
+  let provider = resolveModelProvider(model);
+  let media = normalizeMediaContextItems(req.media);
   const workspacePath = path.resolve(agentWorkspaceDir(agentId));
   const workspaceBootstrap = ensureBootstrapFiles(agentId);
   if (
@@ -3893,6 +4910,18 @@ export async function handleGatewayMessage(
     abortSignal: activeGatewayRequest.signal,
   });
   const userTurnContent = audioPrelude.content;
+  const contextReferenceOptions = {
+    cwd: workspacePath,
+    contextLength: 128_000,
+    allowedRoot: workspacePath,
+  };
+  const contextRefResult = await preprocessContextReferences({
+    message: userTurnContent,
+    ...contextReferenceOptions,
+  });
+  let effectiveUserTurnContent = userTurnContent;
+  let effectiveUserTurnContentExpanded = contextRefResult.message;
+  let effectiveUserTurnContentStripped = contextRefResult.strippedMessage;
   const canonicalContextScope = resolveCanonicalContextScope(session);
   if (isFullAutoEnabled(session)) {
     syncFullAutoRuntimeContext(req.sessionId, {
@@ -3916,6 +4945,77 @@ export async function handleGatewayMessage(
       });
     }
   }
+  const isInteractiveSource =
+    source !== 'fullauto' &&
+    channelType !== 'scheduler' &&
+    channelType !== 'heartbeat';
+  const explicitModelPinned = Boolean(
+    req.model?.trim() ||
+      session.model?.trim() ||
+      resolveAgentModel(resolvedAgent),
+  );
+  const conciergeTurn = await resolveConciergeTurn({
+    sessionId: req.sessionId,
+    requestContent: req.content,
+    agentId,
+    chatbotId,
+    currentModel: model,
+    isInteractiveSource,
+    explicitModelPinned,
+    media,
+    effectiveUserTurnContent,
+    effectiveUserTurnContentExpanded,
+    effectiveUserTurnContentStripped,
+    normalizeMediaContextItems,
+    cloneMediaContextItems,
+  });
+  let conciergeExecutionProfile: ConciergeProfile | null = null;
+  if (conciergeTurn.kind === 'respond') {
+    const storedTurn = recordSuccessfulTurn({
+      sessionId: req.sessionId,
+      agentId,
+      chatbotId,
+      enableRag,
+      model,
+      channelId: req.channelId,
+      runId,
+      turnIndex,
+      userId: req.userId,
+      username: req.username,
+      canonicalScopeId: canonicalContextScope,
+      userContent: buildStoredUserTurnContent(userTurnContent, media),
+      resultText: conciergeTurn.resultText,
+      toolCallCount: 0,
+      startedAt,
+    });
+    return attachSessionIdentity({
+      status: 'success',
+      result: conciergeTurn.resultText,
+      toolsUsed: [],
+      userMessageId: storedTurn.userMessageId,
+      assistantMessageId: storedTurn.assistantMessageId,
+    });
+  }
+  conciergeExecutionProfile = conciergeTurn.conciergeExecutionProfile;
+  model = conciergeTurn.model;
+  provider = conciergeTurn.provider;
+  media = conciergeTurn.media;
+  effectiveUserTurnContent = conciergeTurn.effectiveUserTurnContent;
+  effectiveUserTurnContentExpanded =
+    conciergeTurn.effectiveUserTurnContentExpanded;
+  effectiveUserTurnContentStripped =
+    conciergeTurn.effectiveUserTurnContentStripped;
+  if (model !== resolvedModel) {
+    chatbotResolution = await resolveGatewayChatbotId({
+      model,
+      chatbotId,
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      agentId,
+      trigger: 'chat',
+    });
+    chatbotId = chatbotResolution.chatbotId;
+  }
   const debugMeta = {
     sessionId: req.sessionId,
     guildId: req.guildId,
@@ -3926,7 +5026,7 @@ export async function handleGatewayMessage(
     turnIndex,
     mediaCount: media.length,
     audioTranscriptCount: audioPrelude.transcripts.length,
-    contentLength: userTurnContent.length,
+    contentLength: effectiveUserTurnContentExpanded.length,
     streamingRequested: Boolean(
       req.onTextDelta || req.onToolProgress || req.onApprovalProgress,
     ),
@@ -3962,6 +5062,7 @@ export async function handleGatewayMessage(
 
   if (modelRequiresChatbotId(model) && !chatbotId) {
     const error =
+      chatbotResolution.error ||
       'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
     logger.warn(
       {
@@ -3971,6 +5072,7 @@ export async function handleGatewayMessage(
         requestChatbotId: req.chatbotId ?? null,
         defaultModel: HYBRIDAI_MODEL,
         defaultChatbotConfigured: Boolean(HYBRIDAI_CHATBOT_ID),
+        fallbackSource: chatbotResolution.source,
         durationMs: Date.now() - startedAt,
       },
       'Gateway chat blocked by missing chatbot configuration',
@@ -4018,7 +5120,7 @@ export async function handleGatewayMessage(
 
   if (isVersionOnlyQuestion(req.content)) {
     const resultText = `HybridClaw v${APP_VERSION}`;
-    recordSuccessfulTurn({
+    const storedTurn = recordSuccessfulTurn({
       sessionId: req.sessionId,
       agentId,
       chatbotId,
@@ -4039,6 +5141,8 @@ export async function handleGatewayMessage(
       status: 'success',
       result: resultText,
       toolsUsed: [],
+      userMessageId: storedTurn.userMessageId,
+      assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     return attachSessionIdentity(result);
@@ -4085,7 +5189,7 @@ export async function handleGatewayMessage(
     user_id: req.userId,
     username: req.username || null,
     role: 'user',
-    content: userTurnContent,
+    content: contextRefResult.originalMessage,
     created_at: new Date(startedAt).toISOString(),
   });
   const pluginPromptDetails = pluginManager
@@ -4103,7 +5207,7 @@ export async function handleGatewayMessage(
   );
   const memoryContext = memoryService.buildPromptMemoryContext({
     session,
-    query: userTurnContent,
+    query: effectiveUserTurnContentStripped,
   });
   const mergedSessionSummary =
     [canonicalPromptSummary, memoryContext.promptSummary]
@@ -4119,13 +5223,13 @@ export async function handleGatewayMessage(
         source === 'fullauto' ? 'background' : 'supervised',
       )
     : undefined;
-  const mediaPolicy = resolveMediaToolPolicy(userTurnContent, media);
+  const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
   const { messages, skills, historyStats } = buildConversationContext({
     agentId,
     sessionSummary: mergedSessionSummary,
     retrievedContext: pluginPromptSummary,
     history,
-    currentUserContent: userTurnContent,
+    currentUserContent: effectiveUserTurnContent,
     extraSafetyText: fullAutoOperatingContract,
     runtimeInfo: {
       chatbotId,
@@ -4177,10 +5281,21 @@ export async function handleGatewayMessage(
   }
   const mediaContextBlock = buildMediaPromptContext(media);
   const skillInvocation = expandSkillInvocationWithResolution(
-    userTurnContent,
+    effectiveUserTurnContent,
     skills,
   );
-  const expandedUserContent = skillInvocation.content;
+  const skillArgsContext = skillInvocation.invocation
+    ? await preprocessContextReferences({
+        message: skillInvocation.invocation.args,
+        ...contextReferenceOptions,
+      })
+    : null;
+  const expandedUserContent = skillInvocation.invocation
+    ? expandResolvedSkillInvocation(
+        skillInvocation.invocation,
+        skillArgsContext?.message ?? '',
+      )
+    : effectiveUserTurnContentExpanded;
   const explicitSkillName = skillInvocation.invocation?.skill.name || null;
   const agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
@@ -4261,6 +5376,12 @@ export async function handleGatewayMessage(
       },
       'Gateway chat invoking agent',
     );
+    const conciergeExecutionNotice = conciergeExecutionProfile
+      ? buildConciergeExecutionNotice(conciergeExecutionProfile, model)
+      : null;
+    if (conciergeExecutionNotice) {
+      req.onTextDelta?.(conciergeExecutionNotice);
+    }
     recordAuditEvent({
       sessionId: req.sessionId,
       runId,
@@ -4270,6 +5391,7 @@ export async function handleGatewayMessage(
         model,
         scheduledTaskCount: scheduledTasks.length,
         promptMessages: messages.length,
+        systemPrompt: readSystemPromptMessage(messages),
       },
     });
     if (pluginManager) {
@@ -4304,11 +5426,10 @@ export async function handleGatewayMessage(
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
     agentStage = 'processing-agent-output';
-    const effectiveUserContent =
-      typeof output.effectiveUserPrompt === 'string' &&
-      output.effectiveUserPrompt.trim()
-        ? output.effectiveUserPrompt.trim()
-        : userTurnContent;
+    const storedUserContent = buildStoredUserTurnContent(
+      userTurnContent,
+      media,
+    );
     const toolExecutions = output.toolExecutions || [];
     const observedSkillName = resolveObservedSkillName({
       explicitSkillName,
@@ -4501,7 +5622,10 @@ export async function handleGatewayMessage(
       });
     }
 
-    const resultText = output.result || 'No response from agent.';
+    const rawResultText = output.result || 'No response from agent.';
+    const resultText = conciergeExecutionNotice
+      ? `${conciergeExecutionNotice}${rawResultText}`
+      : rawResultText;
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex,
@@ -4520,7 +5644,7 @@ export async function handleGatewayMessage(
       },
       'Gateway chat completed successfully',
     );
-    recordSuccessfulTurn({
+    const storedTurn = recordSuccessfulTurn({
       sessionId: req.sessionId,
       agentId,
       chatbotId,
@@ -4532,7 +5656,7 @@ export async function handleGatewayMessage(
       userId: req.userId,
       username: req.username,
       canonicalScopeId: canonicalContextScope,
-      userContent: effectiveUserContent,
+      userContent: storedUserContent,
       resultText,
       toolCallCount: toolExecutions.length,
       startedAt,
@@ -4541,7 +5665,7 @@ export async function handleGatewayMessage(
       sessionId: req.sessionId,
       userId: req.userId,
       username: req.username,
-      userContent: effectiveUserContent,
+      userContent: storedUserContent,
       resultText,
     });
     if (pluginManager) {
@@ -4603,6 +5727,8 @@ export async function handleGatewayMessage(
       pendingApproval: output.pendingApproval,
       tokenUsage: output.tokenUsage,
       effectiveUserPrompt: output.effectiveUserPrompt,
+      userMessageId: storedTurn.userMessageId,
+      assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     if (requestMessages !== null) {
@@ -4690,21 +5816,6 @@ export async function handleGatewayMessage(
   }
 }
 
-export async function runGatewayPluginTool(params: {
-  toolName: string;
-  args: Record<string, unknown>;
-  sessionId?: string;
-  channelId?: string;
-}): Promise<string> {
-  const pluginManager = await ensurePluginManagerInitialized();
-  return pluginManager.executeTool({
-    toolName: params.toolName,
-    args: params.args,
-    sessionId: String(params.sessionId || '').trim(),
-    channelId: String(params.channelId || '').trim(),
-  });
-}
-
 export async function runGatewayScheduledTask(
   origSessionId: string,
   channelId: string,
@@ -4713,6 +5824,7 @@ export async function runGatewayScheduledTask(
   onResult: (result: ProactiveMessagePayload) => Promise<void>,
   onError: (error: unknown) => void,
   runKey?: string,
+  preferredAgentId?: string,
 ): Promise<void> {
   let currentSessionId = origSessionId;
   const sessionResetPolicy = {
@@ -4738,9 +5850,29 @@ export async function runGatewayScheduledTask(
     currentSessionId,
     null,
     channelId,
-    undefined,
+    preferredAgentId,
   );
-  const { agentId, chatbotId, model } = resolveAgentForRequest({ session });
+  if (preferredAgentId && session.agent_id !== preferredAgentId) {
+    updateSessionAgent(session.id, preferredAgentId);
+  }
+  const {
+    agentId,
+    chatbotId: requestedChatbotId,
+    model,
+  } = resolveAgentForRequest({
+    session,
+    agentId: preferredAgentId,
+  });
+  const chatbotResolution = await resolveGatewayChatbotId({
+    model,
+    chatbotId: requestedChatbotId,
+    sessionId: currentSessionId,
+    channelId,
+    agentId,
+    trigger: 'scheduler',
+    taskId,
+  });
+  const chatbotId = chatbotResolution.chatbotId;
   if (modelRequiresChatbotId(model) && !chatbotId) {
     logger.warn(
       {
@@ -4752,6 +5884,8 @@ export async function runGatewayScheduledTask(
         sessionChatbotId: session.chatbot_id ?? null,
         defaultModel: HYBRIDAI_MODEL,
         defaultChatbotConfigured: Boolean(HYBRIDAI_CHATBOT_ID),
+        fallbackSource: chatbotResolution.source,
+        resolutionError: chatbotResolution.error ?? null,
       },
       'Scheduled task skipped due to missing chatbot configuration',
     );
@@ -4776,7 +5910,7 @@ export async function runGatewayScheduledTask(
 export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
-  let { pluginManager, pluginInitError } =
+  const { pluginManager, pluginInitError } =
     await tryEnsurePluginManagerInitializedForGateway({
       sessionId: req.sessionId,
       channelId: req.channelId,
@@ -4826,107 +5960,460 @@ export async function handleGatewayCommand(
     mainSessionKey: session.main_session_key,
   });
 
-  async function reloadPluginRuntime(): Promise<{
-    ok: boolean;
-    message: string;
-  }> {
-    try {
-      pluginManager = await reloadPluginManager();
-      pluginInitError = null;
-      return {
-        ok: true,
-        message: 'Plugin runtime reloaded.',
-      };
-    } catch (error) {
-      pluginManager = null;
-      pluginInitError = error;
-      return {
-        ok: false,
-        message: `Plugin runtime reload failed: ${error instanceof Error ? error.message : String(error)}.`,
-      };
-    }
+  function isLocalSession(req: GatewayCommandRequest): boolean {
+    return (
+      req.guildId === null &&
+      (req.channelId === 'web' || req.channelId === 'tui')
+    );
   }
 
-  function formatPluginConfigValue(value: unknown): string {
-    if (value === undefined) return '(not set)';
-    if (typeof value === 'string') return JSON.stringify(value);
-    try {
-      return JSON.stringify(value, null, 2);
-    } catch {
-      return String(value);
+  function formatRuntimeConfigJson(config: RuntimeConfig): string {
+    return JSON.stringify(config, null, 2);
+  }
+
+  async function runRuntimeConfigCheck(): Promise<{
+    severity: 'ok' | 'warn' | 'error';
+    text: string;
+  }> {
+    const results = await checkConfigFile();
+    const summary = summarizeCounts(results);
+    const lines = results.map((result) => {
+      const symbol =
+        result.severity === 'ok' ? '✓' : result.severity === 'warn' ? '⚠' : '✖';
+      return `${symbol} ${result.label}  ${result.message}`;
+    });
+    lines.push('');
+    lines.push(
+      `${summary.ok} ok · ${summary.warn} warning${summary.warn === 1 ? '' : 's'} · ${summary.error} error${summary.error === 1 ? '' : 's'}`,
+    );
+    return {
+      severity: summary.error > 0 ? 'error' : summary.warn > 0 ? 'warn' : 'ok',
+      text: lines.join('\n'),
+    };
+  }
+
+  async function resolveValidatedRuntimeModelName(
+    rawModelName: string,
+  ): Promise<
+    { ok: true; model: string } | { ok: false; result: GatewayCommandResult }
+  > {
+    const normalizedModelName = resolveDisplayedModelName(
+      normalizeHybridAIModelForRuntime(rawModelName),
+    );
+    await refreshAvailableModelCatalogs({
+      includeHybridAI: resolveModelProvider(normalizedModelName) === 'hybridai',
+    });
+    const catalogModels = getAvailableModelList();
+    if (
+      catalogModels.length > 0 &&
+      !catalogModels.includes(normalizedModelName)
+    ) {
+      return {
+        ok: false,
+        result: badCommand(
+          'Unknown Model',
+          `\`${rawModelName}\` is not in the available models list.`,
+        ),
+      };
     }
+    const gatewayStatus = await getGatewayStatusForModelSubcommand('set');
+    const availableModels = filterModelsForCurrentGatewayState(
+      catalogModels,
+      gatewayStatus.providerHealth,
+    );
+    if (
+      availableModels.length > 0 &&
+      !availableModels.includes(normalizedModelName)
+    ) {
+      return {
+        ok: false,
+        result: badCommand(
+          'Unknown Model',
+          `\`${rawModelName}\` is not in the available models list.`,
+        ),
+      };
+    }
+    return { ok: true, model: normalizedModelName };
   }
 
   const result = await (async (): Promise<GatewayCommandResult> => {
     switch (cmd) {
       case 'help': {
-        const help = [
-          '`agent` — Show current session agent',
-          '`agent list` — List available agents',
-          '`agent switch <id>` — Bind this session to an existing agent',
-          '`agent create <id> [--model <model>]` — Create a new agent',
-          '`agent model [name]` — Show or set the persistent model for the current agent',
-          '`bot list` — List available bots',
-          '`bot set <id|name>` — Set chatbot for this session',
-          '`bot info` — Show current chatbot settings',
-          '`model list [provider]` — List available models',
-          '`model set <name>` — Set model for this session',
-          '`model clear` — Clear the session model override',
-          '`model default [name]` — Show or set default model for new sessions',
-          '`model info` — Show effective, session, agent, and default models',
-          '`rag [on|off]` — Toggle or set RAG mode',
-          '`channel mode [off|mention|free]` — Set or inspect this Discord channel response mode',
-          '`channel policy [open|allowlist|disabled]` — Set or inspect guild channel policy',
-          '`ralph [on|off|set <n>|info]` — Configure Ralph loop (0 off, -1 unlimited)',
-          '`fullauto [status|off|on [prompt]|<prompt>]` — Enable/inspect/disable session full-auto mode',
-          '`show [all|thinking|tools|none]` — Control visible thinking/tool activity for this session',
-          '`mcp list` — List configured MCP servers',
-          '`mcp add <name> <json>` — Add or update an MCP server config',
-          '`mcp remove <name>` — Remove an MCP server config',
-          '`mcp toggle <name>` — Enable or disable an MCP server',
-          '`mcp reconnect <name>` — Restart current session runtime so the server reconnects next turn',
-          '`plugin list` — List discovered plugins, descriptions, commands, and load status',
-          '`plugin config <plugin-id> [key] [value|--unset]` — Show or change a plugin config override',
-          '`plugin install <path|npm-spec>` — Install a plugin from a local TUI/web session',
-          '`plugin reinstall <path|npm-spec>` — Replace an installed plugin from a local TUI/web session',
-          '`plugin reload` — Reload all plugins (picks up code changes without gateway restart)',
-          '`plugin uninstall <plugin-id>` — Remove a home-installed plugin and matching runtime config overrides',
-          '`clear` — Clear session history',
-          '`reset [yes|no]` — Clear history, reset session settings, and remove the current agent workspace',
-          '`/compact` — Archive older history, summarize it, and retain recent context',
-          '`/status` — Show runtime status (Discord slash command, private to caller)',
-          '`/approve [view|yes|session|agent|no] [approval_id]` — View/respond to pending approvals privately',
-          '`/show <all|thinking|tools|none>` — Control visible thinking/tool activity for this session',
-          '`stop` — Abort the current session run and disable full-auto mode',
-          '`/channel-mode <off|mention|free>` — Set this Discord channel response mode',
-          '`/channel-policy <open|allowlist|disabled>` — Set Discord guild channel policy',
-          '`/model list [provider]` — List available runtime models',
-          '`/model set <name>` — Set the model for this session',
-          '`/model clear` — Clear the model override for this session',
-          '`/model info` — Show effective, session, agent, and default model details',
-          '`/model default [name]` — Show or set the default model for new sessions',
-          '`/plugin list` — List discovered plugins, descriptions, commands, and load status',
-          '`/plugin config <plugin-id> [key] [value|--unset]` — Show or change a plugin config override',
-          '`/plugin install <path|npm-spec>` — Install a plugin from a local TUI/web session',
-          '`/plugin reinstall <path|npm-spec>` — Replace an installed plugin from a local TUI/web session',
-          '`/plugin reload` — Reload all plugins (picks up code changes without gateway restart)',
-          '`/plugin uninstall <plugin-id>` — Remove a home-installed plugin and matching runtime config overrides',
-          '`sessions` — List active sessions',
-          '`usage [summary|daily|monthly|model [daily|monthly] [agentId]]` — Usage/cost aggregates',
-          '`export session [sessionId]` — Export session JSONL snapshot for debugging',
-          '`audit [sessionId]` — Show recent structured audit events for a session',
-          '`skill list` — List available skills and availability',
-          '`skill inspect <name>|--all` — Show observation-based skill health',
-          '`skill runs <name>` — Show recent execution observations for a skill',
-          '`skill amend <name> [--apply|--reject|--rollback]` — Stage or manage skill amendments',
-          '`skill history <name>` — Show amendment history for a skill',
-          '`schedule add "<cron>" <prompt>` — Add cron scheduled task',
-          '`schedule add at "<ISO time>" <prompt>` — Add one-shot task',
-          '`schedule add every <ms> <prompt>` — Add interval task',
-          '`schedule list` — List scheduled tasks',
-          '`schedule remove <id>` — Remove a task',
-          '`schedule toggle <id>` — Enable/disable a task',
+        const helpEntries: Array<{
+          command: string;
+          description: string;
+          scope: 'bare' | 'slash' | 'both';
+        }> = [
+          {
+            command: 'agent',
+            description: 'Show current session agent',
+            scope: 'bare',
+          },
+          {
+            command: 'agent list',
+            description: 'List available agents',
+            scope: 'bare',
+          },
+          {
+            command: 'agent switch <id>',
+            description: 'Bind this session to an existing agent',
+            scope: 'bare',
+          },
+          {
+            command: 'agent create <id> [--model <model>]',
+            description: 'Create a new agent',
+            scope: 'bare',
+          },
+          {
+            command:
+              'agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]',
+            description: 'Install a packaged agent from a path or URL',
+            scope: 'both',
+          },
+          {
+            command: 'agent model [name]',
+            description:
+              'Show or set the persistent model for the current agent',
+            scope: 'bare',
+          },
+          {
+            command: 'bot list',
+            description: 'List available bots',
+            scope: 'bare',
+          },
+          {
+            command: 'bot set <id|name>',
+            description: 'Set chatbot for this session',
+            scope: 'bare',
+          },
+          {
+            command: 'bot clear',
+            description: 'Clear the session chatbot and return to auto mode',
+            scope: 'bare',
+          },
+          {
+            command: 'bot info',
+            description: 'Show current chatbot settings',
+            scope: 'bare',
+          },
+          {
+            command: 'concierge [info|on|off]',
+            description: 'Show or toggle concierge routing defaults',
+            scope: 'both',
+          },
+          {
+            command: 'concierge model [name]',
+            description: 'Show or set the concierge decision model',
+            scope: 'both',
+          },
+          {
+            command: 'concierge profile <asap|balanced|no_hurry> [model]',
+            description: 'Show or set concierge profile model mappings',
+            scope: 'both',
+          },
+          {
+            command: 'model list [provider]',
+            description: 'List available models',
+            scope: 'both',
+          },
+          {
+            command: 'model set <name>',
+            description: 'Set model for this session',
+            scope: 'both',
+          },
+          {
+            command: 'model clear',
+            description: 'Clear the session model override',
+            scope: 'both',
+          },
+          {
+            command: 'model default [name]',
+            description: 'Show or set default model for new sessions',
+            scope: 'both',
+          },
+          {
+            command: 'model info',
+            description: 'Show effective, session, agent, and default models',
+            scope: 'both',
+          },
+          {
+            command: 'rag [on|off]',
+            description: 'Toggle or set RAG mode',
+            scope: 'bare',
+          },
+          {
+            command: 'channel mode [off|mention|free]',
+            description: 'Set or inspect this Discord channel response mode',
+            scope: 'bare',
+          },
+          {
+            command: 'channel policy [open|allowlist|disabled]',
+            description: 'Set or inspect guild channel policy',
+            scope: 'bare',
+          },
+          {
+            command: 'ralph [on|off|set <n>|info]',
+            description: 'Configure Ralph loop (0 off, -1 unlimited)',
+            scope: 'bare',
+          },
+          {
+            command: 'fullauto [status|off|on [prompt]|<prompt>]',
+            description: 'Enable/inspect/disable session full-auto mode',
+            scope: 'bare',
+          },
+          {
+            command: 'show [all|thinking|tools|none]',
+            description:
+              'Control visible thinking/tool activity for this session',
+            scope: 'bare',
+          },
+          {
+            command: 'show <all|thinking|tools|none>',
+            description:
+              'Control visible thinking/tool activity for this session',
+            scope: 'slash',
+          },
+          {
+            command: 'mcp list',
+            description: 'List configured MCP servers',
+            scope: 'bare',
+          },
+          {
+            command: 'mcp add <name> <json>',
+            description: 'Add or update an MCP server config',
+            scope: 'bare',
+          },
+          {
+            command: 'mcp remove <name>',
+            description: 'Remove an MCP server config',
+            scope: 'bare',
+          },
+          {
+            command: 'mcp toggle <name>',
+            description: 'Enable or disable an MCP server',
+            scope: 'bare',
+          },
+          {
+            command: 'mcp reconnect <name>',
+            description:
+              'Restart current session runtime so the server reconnects next turn',
+            scope: 'bare',
+          },
+          {
+            command: 'plugin list',
+            description:
+              'List discovered plugins, descriptions, commands, and load status',
+            scope: 'both',
+          },
+          {
+            command: 'plugin config <plugin-id> [key] [value|--unset]',
+            description: 'Show or change a plugin config override',
+            scope: 'both',
+          },
+          {
+            command: 'plugin enable <plugin-id>',
+            description: 'Enable a discovered plugin for future turns',
+            scope: 'both',
+          },
+          {
+            command: 'plugin disable <plugin-id>',
+            description: 'Disable a discovered plugin for future turns',
+            scope: 'both',
+          },
+          {
+            command: 'plugin install <path|npm-spec>',
+            description: 'Install a plugin from a local TUI/web session',
+            scope: 'both',
+          },
+          {
+            command: 'plugin reinstall <path|npm-spec>',
+            description:
+              'Replace an installed plugin from a local TUI/web session',
+            scope: 'both',
+          },
+          {
+            command: 'plugin reload',
+            description:
+              'Reload all plugins (picks up code changes without gateway restart)',
+            scope: 'both',
+          },
+          {
+            command: 'plugin uninstall <plugin-id>',
+            description:
+              'Remove a home-installed plugin and matching runtime config overrides',
+            scope: 'both',
+          },
+          {
+            command: 'auth status hybridai',
+            description: 'Show local HybridAI auth/config state',
+            scope: 'both',
+          },
+          {
+            command: 'config',
+            description: 'Show the local runtime config file',
+            scope: 'both',
+          },
+          {
+            command: 'config check',
+            description: 'Validate the local runtime config file',
+            scope: 'both',
+          },
+          {
+            command: 'config reload',
+            description:
+              'Hot-reload the local runtime config file and validate it',
+            scope: 'both',
+          },
+          {
+            command: 'config set <key> <value>',
+            description: 'Set one local runtime config value and validate it',
+            scope: 'both',
+          },
+          {
+            command: 'clear',
+            description: 'Clear session history',
+            scope: 'bare',
+          },
+          {
+            command: 'reset [yes|no]',
+            description:
+              'Clear history, reset session settings, and remove the current agent workspace',
+            scope: 'bare',
+          },
+          {
+            command: 'compact',
+            description:
+              'Archive older history, summarize it, and retain recent context',
+            scope: 'slash',
+          },
+          {
+            command: 'status',
+            description:
+              'Show runtime status (Discord slash command, private to caller)',
+            scope: 'slash',
+          },
+          {
+            command: 'approve [view|yes|session|agent|no] [approval_id]',
+            description: 'View/respond to pending approvals privately',
+            scope: 'slash',
+          },
+          {
+            command: 'stop',
+            description:
+              'Abort the current session run and disable full-auto mode',
+            scope: 'bare',
+          },
+          {
+            command: 'channel-mode <off|mention|free>',
+            description: 'Set this Discord channel response mode',
+            scope: 'slash',
+          },
+          {
+            command: 'channel-policy <open|allowlist|disabled>',
+            description: 'Set Discord guild channel policy',
+            scope: 'slash',
+          },
+          {
+            command: 'sessions',
+            description: 'List active sessions',
+            scope: 'bare',
+          },
+          {
+            command:
+              'usage [summary|daily|monthly|model [daily|monthly] [agentId]]',
+            description: 'Usage/cost aggregates',
+            scope: 'bare',
+          },
+          {
+            command: 'export session [sessionId]',
+            description: 'Export session JSONL snapshot for debugging',
+            scope: 'bare',
+          },
+          {
+            command: 'export trace [sessionId|all|--all]',
+            description:
+              'Export ATIF-compatible debug trace JSONL for a session',
+            scope: 'bare',
+          },
+          {
+            command: 'audit [sessionId]',
+            description: 'Show recent structured audit events for a session',
+            scope: 'bare',
+          },
+          {
+            command: 'skill list',
+            description: 'List available skills and availability',
+            scope: 'bare',
+          },
+          {
+            command: 'skill inspect <name>|--all',
+            description: 'Show observation-based skill health',
+            scope: 'bare',
+          },
+          {
+            command: 'skill runs <name>',
+            description: 'Show recent execution observations for a skill',
+            scope: 'bare',
+          },
+          {
+            command: 'skill learn <name> [--apply|--reject|--rollback]',
+            description: 'Stage or manage skill amendments',
+            scope: 'bare',
+          },
+          {
+            command: 'skill history <name>',
+            description: 'Show amendment history for a skill',
+            scope: 'bare',
+          },
+          {
+            command: 'skill sync [--skip-skill-scan] <source>',
+            description: 'Reinstall a packaged or community skill',
+            scope: 'bare',
+          },
+          {
+            command: 'skill import [--force] [--skip-skill-scan] <source>',
+            description:
+              'Import a packaged or community skill into ~/.hybridclaw/skills',
+            scope: 'bare',
+          },
+          {
+            command: 'schedule add "<cron>" <prompt>',
+            description: 'Add cron scheduled task',
+            scope: 'bare',
+          },
+          {
+            command: 'schedule add at "<ISO time>" <prompt>',
+            description: 'Add one-shot task',
+            scope: 'bare',
+          },
+          {
+            command: 'schedule add every <ms> <prompt>',
+            description: 'Add interval task',
+            scope: 'bare',
+          },
+          {
+            command: 'schedule list',
+            description: 'List scheduled tasks',
+            scope: 'bare',
+          },
+          {
+            command: 'schedule remove <id>',
+            description: 'Remove a task',
+            scope: 'bare',
+          },
+          {
+            command: 'schedule toggle <id>',
+            description: 'Enable/disable a task',
+            scope: 'bare',
+          },
         ];
+        const help = helpEntries.flatMap(({ command, description, scope }) => {
+          const prefixes =
+            scope === 'both' ? ['', '/'] : scope === 'slash' ? ['/'] : [''];
+          return prefixes.map(
+            (prefix) => `\`${prefix}${command}\` — ${description}`,
+          );
+        });
         return infoCommand('HybridClaw Commands', help.join('\n'));
       }
 
@@ -5013,7 +6500,10 @@ export async function handleGatewayCommand(
 
           const normalizedModelName =
             normalizeHybridAIModelForRuntime(modelName);
-          await refreshAvailableModelCatalogs();
+          await refreshAvailableModelCatalogs({
+            includeHybridAI:
+              resolveModelProvider(normalizedModelName) === 'hybridai',
+          });
           const availableModels = getAvailableModelList();
           if (
             availableModels.length > 0 &&
@@ -5083,7 +6573,9 @@ export async function handleGatewayCommand(
               );
             }
             modelName = normalizeHybridAIModelForRuntime(trailingArgs[1]);
-            await refreshAvailableModelCatalogs();
+            await refreshAvailableModelCatalogs({
+              includeHybridAI: resolveModelProvider(modelName) === 'hybridai',
+            });
             const availableModels = getAvailableModelList();
             if (availableModels.length === 0) {
               logger.warn(
@@ -5116,17 +6608,155 @@ export async function handleGatewayCommand(
           );
         }
 
+        if (sub === 'install') {
+          const usage =
+            'agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]';
+          let installSource = '';
+          let requestedId = '';
+          let force = false;
+          let skipSkillScan = false;
+          let skipExternals = false;
+          let skipImportErrors = false;
+          let yes = false;
+
+          for (let index = 2; index < req.args.length; index += 1) {
+            const arg = String(req.args[index] || '').trim();
+            if (!arg) continue;
+            if (arg === '--id') {
+              const nextValue = String(req.args[index + 1] || '').trim();
+              if (!nextValue || nextValue.startsWith('--')) {
+                return badCommand(
+                  'Usage',
+                  `Missing agent id for \`${usage}\`.`,
+                );
+              }
+              requestedId = nextValue;
+              index += 1;
+              continue;
+            }
+            if (arg === '--force') {
+              force = true;
+              continue;
+            }
+            if (arg === '--skip-skill-scan') {
+              skipSkillScan = true;
+              continue;
+            }
+            if (arg === '--skip-externals') {
+              skipExternals = true;
+              continue;
+            }
+            if (arg === '--skip-import-errors') {
+              skipImportErrors = true;
+              continue;
+            }
+            if (arg === '--yes') {
+              yes = true;
+              continue;
+            }
+            if (arg.startsWith('--')) {
+              return badCommand(
+                'Usage',
+                `Unknown option for \`agent install\`: ${arg}. Use \`${usage}\`.`,
+              );
+            }
+            if (!installSource) {
+              installSource = arg;
+              continue;
+            }
+            return badCommand(
+              'Usage',
+              `Unexpected extra arguments for \`${usage}\`.`,
+            );
+          }
+
+          if (!installSource) {
+            return badCommand('Usage', `Missing source for \`${usage}\`.`);
+          }
+          if (
+            !isLocalSession(req) &&
+            isLocalFilesystemInstallSource(installSource)
+          ) {
+            return badCommand(
+              'Agent Install Restricted',
+              'Remote `agent install` sessions must use `official:`, `github:`, or a direct `.claw` URL. Local filesystem paths are only available from local TUI/web sessions.',
+            );
+          }
+
+          const { unpackAgent } = await import('../agents/claw-archive.js');
+          let resolvedArchive: Awaited<
+            ReturnType<typeof resolveInstallArchiveSource>
+          > | null = null;
+          try {
+            resolvedArchive = await resolveInstallArchiveSource(installSource);
+            const result = await unpackAgent(resolvedArchive.archivePath, {
+              ...(requestedId ? { agentId: requestedId } : {}),
+              force,
+              skipSkillScan,
+              skipExternals,
+              skipImportErrors,
+              yes,
+            });
+            const reloadResult =
+              result.installedPlugins.length > 0
+                ? await reloadPluginRuntime()
+                : null;
+            const importedSkillsCount = result.importedSkills.length;
+            const skippedSkillScans = result.importedSkills.filter(
+              (skill) => skill.guardSkipped,
+            ).length;
+            const failedImportedSkills = result.failedImportedSkills ?? [];
+            const lines = [
+              `Installed agent \`${result.agentId}\` to \`${result.workspacePath}\`.`,
+              `Bundled skills restored: ${result.bundledSkills.length}`,
+              ...(importedSkillsCount > 0
+                ? [`Skill imports installed: ${importedSkillsCount}`]
+                : []),
+              ...(skippedSkillScans > 0
+                ? [
+                    `Skill scanner skipped for ${skippedSkillScans} imported skill${skippedSkillScans === 1 ? '' : 's'} because --skip-skill-scan was set.`,
+                  ]
+                : []),
+              ...(failedImportedSkills.length > 0
+                ? [
+                    `${failedImportedSkills.length} imported skill${failedImportedSkills.length === 1 ? '' : 's'} failed during install because --skip-import-errors was set:`,
+                    ...failedImportedSkills.flatMap((failure) => [
+                      `  ${failure.source}: ${failure.error}`,
+                      `  Retry: hybridclaw skill import ${failure.source}`,
+                    ]),
+                  ]
+                : []),
+              `Bundled plugins installed: ${result.installedPlugins.length}`,
+              ...(result.runtimeConfigChanged
+                ? [`Updated runtime config at \`${runtimeConfigPath()}\`.`]
+                : []),
+              ...(result.externalActions.length > 0
+                ? [
+                    'External references were not installed automatically:',
+                    ...result.externalActions.map((action) => `  ${action}`),
+                  ]
+                : []),
+              ...(reloadResult ? [reloadResult.message] : []),
+            ];
+            return infoCommand('Agent Installed', lines.join('\n'));
+          } catch (error) {
+            return badCommand(
+              'Agent Install Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          } finally {
+            resolvedArchive?.cleanup?.();
+          }
+        }
+
         return badCommand(
           'Usage',
-          'Usage: `agent|agent list|agent switch <id>|agent model [name]|agent create <id> [--model <model>]`',
+          'Usage: `agent|agent list|agent switch <id>|agent model [name]|agent create <id> [--model <model>]|agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]`',
         );
       }
 
       case 'bot': {
         const runtime = resolveAgentForRequest({ session });
-        if (resolveModelProvider(runtime.model) !== 'hybridai') {
-          return plainCommand('Only for hybridai provider');
-        }
         const sub = req.args[1]?.toLowerCase();
         if (sub === 'list') {
           try {
@@ -5196,6 +6826,26 @@ export async function handleGatewayCommand(
           );
         }
 
+        if (sub === 'clear' || sub === 'auto') {
+          const previousBotId = session.chatbot_id;
+          updateSessionChatbot(session.id, null);
+          recordAuditEvent({
+            sessionId: session.id,
+            runId: makeAuditRunId('cmd'),
+            event: {
+              type: 'bot.clear',
+              source: 'command',
+              previousBotId,
+              changed: previousBotId !== null,
+              userId: boundAuditActorField(req.userId),
+              username: boundAuditActorField(req.username),
+            },
+          });
+          return plainCommand(
+            'Chatbot cleared for this session. HybridAI account fallback will be used when required.',
+          );
+        }
+
         if (sub === 'info') {
           const botId = runtime.chatbotId || 'Not set';
           let botLabel = botId;
@@ -5222,38 +6872,83 @@ export async function handleGatewayCommand(
           return infoCommand('Bot Info', lines.join('\n'));
         }
 
-        return badCommand('Usage', 'Usage: `bot list|set <id|name>|info`');
+        return badCommand(
+          'Usage',
+          'Usage: `bot list|set <id|name>|clear|info`',
+        );
       }
 
       case 'model': {
-        await refreshAvailableModelCatalogs();
-        const availableModels = getAvailableModelList();
+        const sub = req.args[1]?.toLowerCase();
+        const providerFilterArg = sub === 'list' ? req.args[2] : undefined;
+        const listModifierArg =
+          sub === 'list' ? req.args[3]?.toLowerCase() : undefined;
+        const providerFilter = providerFilterArg
+          ? normalizeModelCatalogProviderFilter(providerFilterArg)
+          : null;
+        const expandedModelList =
+          listModifierArg === 'more' ||
+          listModifierArg === 'all' ||
+          listModifierArg === 'full';
+        const needsAvailableModels =
+          sub === 'list' ||
+          sub === 'info' ||
+          sub === 'default' ||
+          sub === 'set';
+        if (needsAvailableModels) {
+          await refreshAvailableModelCatalogs({
+            includeHybridAI:
+              sub !== 'list' ||
+              !providerFilterArg ||
+              providerFilter === 'hybridai',
+          });
+        }
+        const gatewayStatus = needsAvailableModels
+          ? await getGatewayStatusForModelSubcommand(sub)
+          : null;
+        const availableModels =
+          gatewayStatus == null
+            ? []
+            : filterModelsForCurrentGatewayState(
+                getAvailableModelList(),
+                gatewayStatus.providerHealth,
+              );
         const runtime = resolveSessionRuntimeTarget(session);
         const currentAgentId = resolveSessionAgentId(session);
         const resolvedAgent = resolveAgentConfig(currentAgentId);
         const sessionOverride = formatSessionModelOverride(session.model);
         const fallbackModel =
           resolveAgentModel(resolvedAgent) || HYBRIDAI_MODEL;
-        const sub = req.args[1]?.toLowerCase();
         if (sub === 'list') {
-          const providerFilterArg = req.args[2];
-          if (
-            providerFilterArg &&
-            !normalizeModelCatalogProviderFilter(providerFilterArg)
-          ) {
+          if (providerFilterArg && !providerFilter) {
             return badCommand(
               'Unknown Provider',
-              'Usage: `model list [hybridai|codex|openrouter|local|ollama|lmstudio|vllm]`',
+              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|vllm]`',
             );
           }
-          const listedModels = getAvailableModelList(providerFilterArg);
-          const current = runtime.model;
+          if (listModifierArg && !expandedModelList) {
+            return badCommand(
+              'Usage',
+              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|vllm]`',
+            );
+          }
+          const listedModels =
+            gatewayStatus == null
+              ? []
+              : filterModelsForCurrentGatewayState(
+                  getAvailableModelListWithOptions(providerFilterArg, {
+                    expanded: expandedModelList,
+                  }),
+                  gatewayStatus.providerHealth,
+                );
+          const current = resolveDisplayedModelName(runtime.model);
           const modelCatalog = listedModels.map((model) => {
             const label = formatModelForDisplay(model);
             return {
               value: model,
               label: model === current ? `${label} (current)` : label,
               isFree: isAvailableModelFree(model),
+              ...(isRecommendedModel(model) ? { recommended: true } : {}),
             };
           });
           const list = modelCatalog.map((entry) => entry.label).join('\n');
@@ -5290,8 +6985,9 @@ export async function handleGatewayCommand(
               .join('\n');
             return infoCommand('Default Model', `${defaultLine}\n\n${list}`);
           }
-          const normalizedModelName =
-            normalizeHybridAIModelForRuntime(modelName);
+          const normalizedModelName = resolveDisplayedModelName(
+            normalizeHybridAIModelForRuntime(modelName),
+          );
           if (
             availableModels.length > 0 &&
             !availableModels.includes(normalizedModelName)
@@ -5313,8 +7009,9 @@ export async function handleGatewayCommand(
           const modelName = req.args[2];
           if (!modelName)
             return badCommand('Usage', 'Usage: `model set <name>`');
-          const normalizedModelName =
-            normalizeHybridAIModelForRuntime(modelName);
+          const normalizedModelName = resolveDisplayedModelName(
+            normalizeHybridAIModelForRuntime(modelName),
+          );
           if (
             availableModels.length > 0 &&
             !availableModels.includes(normalizedModelName)
@@ -5324,7 +7021,21 @@ export async function handleGatewayCommand(
               `\`${modelName}\` is not in the available models list.`,
             );
           }
+          const modelContextWindowTokens =
+            resolveKnownModelContextWindow(normalizedModelName);
           updateSessionModel(session.id, normalizedModelName);
+          recordAuditEvent({
+            sessionId: session.id,
+            runId: makeAuditRunId('cmd'),
+            event: {
+              type: 'model.set',
+              source: 'command',
+              model: normalizedModelName,
+              modelContextWindowTokens,
+              userId: boundAuditActorField(req.userId),
+              username: boundAuditActorField(req.username),
+            },
+          });
           return plainCommand(
             `Model set to \`${formatModelForDisplay(normalizedModelName)}\` for this session.`,
           );
@@ -5340,6 +7051,16 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'info') {
+          const currentModel = resolveDisplayedModelName(runtime.model);
+          const modelCatalog = availableModels.map((model) => ({
+            value: model,
+            label:
+              model === currentModel
+                ? `${formatModelForDisplay(model)} (current)`
+                : formatModelForDisplay(model),
+            isFree: isAvailableModelFree(model),
+            ...(isRecommendedModel(model) ? { recommended: true } : {}),
+          }));
           return infoCommand(
             'Model Info',
             [
@@ -5347,14 +7068,31 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
               `Session model: ${sessionOverride}`,
+              '',
+              'Available now:',
+              modelCatalog.length > 0
+                ? modelCatalog.map((entry) => entry.label).join('\n')
+                : '(none)',
             ].join('\n'),
+            undefined,
+            modelCatalog.length > 0 ? { modelCatalog } : undefined,
           );
         }
 
         return badCommand(
           'Usage',
-          'Usage: `model list [provider]|set <name>|clear|default [name]|info`',
+          'Usage: `model list [provider] [more]|set <name>|clear|default [name]|info`',
         );
+      }
+
+      case 'concierge': {
+        return await handleConciergeCommand({
+          args: req.args,
+          badCommand,
+          infoCommand: (title, text) => infoCommand(title, text),
+          plainCommand,
+          resolveValidatedRuntimeModelName,
+        });
       }
 
       case 'rag': {
@@ -5600,6 +7338,134 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'auth': {
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        const provider = (req.args[2] || '').trim().toLowerCase();
+        if (sub === 'status' && provider === 'hybridai') {
+          if (!isLocalSession(req)) {
+            return badCommand(
+              'Auth Status Restricted',
+              '`auth status hybridai` reads local credential state and is only available from local TUI/web sessions.',
+            );
+          }
+          return infoCommand(
+            'HybridAI Auth Status',
+            buildHybridAIAuthStatusLines().join('\n'),
+          );
+        }
+        return badCommand('Usage', 'Usage: `auth status hybridai`');
+      }
+
+      case 'config': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Config Restricted',
+            '`config` reads or writes local runtime config and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        if (!sub) {
+          const currentConfig = getRuntimeConfig();
+          return infoCommand(
+            'Runtime Config',
+            [
+              `Active config: ${runtimeConfigPath()}`,
+              'Config:',
+              formatRuntimeConfigJson(currentConfig),
+            ].join('\n'),
+          );
+        }
+
+        if (sub === 'check') {
+          const check = await runRuntimeConfigCheck();
+          if (check.severity === 'error') {
+            return badCommand('Config Check Failed', check.text);
+          }
+          return infoCommand(
+            check.severity === 'warn'
+              ? 'Config Check Warnings'
+              : 'Config Check',
+            check.text,
+          );
+        }
+
+        if (sub === 'reload') {
+          try {
+            const nextConfig = reloadRuntimeConfig('gateway-command');
+            const check = await runRuntimeConfigCheck();
+            const text = [
+              `Path: ${runtimeConfigPath()}`,
+              'Config:',
+              formatRuntimeConfigJson(nextConfig),
+              '',
+              'Check:',
+              check.text,
+            ].join('\n');
+            if (check.severity === 'error') {
+              return badCommand('Runtime Config Reloaded With Errors', text);
+            }
+            return infoCommand(
+              check.severity === 'warn'
+                ? 'Runtime Config Reloaded With Warnings'
+                : 'Runtime Config Reloaded',
+              text,
+            );
+          } catch (error) {
+            return badCommand(
+              'Config Reload Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        if (sub === 'set') {
+          const key = String(req.args[2] || '').trim();
+          const rawValue = req.args.slice(3).join(' ').trim();
+          if (!key || !rawValue) {
+            return badCommand(
+              'Usage',
+              'Usage: `config`, `config check`, `config reload`, or `config set <key> <value>`',
+            );
+          }
+          try {
+            const value = parseRuntimeConfigCommandValue(rawValue);
+            const nextConfig = updateRuntimeConfig((draft) => {
+              setRuntimeConfigValueAtPath(draft, key, value);
+            });
+            const check = await runRuntimeConfigCheck();
+            const text = [
+              `Path: ${runtimeConfigPath()}`,
+              `Key: ${key}`,
+              'Config:',
+              formatRuntimeConfigJson(nextConfig),
+              '',
+              'Check:',
+              check.text,
+            ].join('\n');
+            if (check.severity === 'error') {
+              return badCommand('Runtime Config Updated With Errors', text);
+            }
+            return infoCommand(
+              check.severity === 'warn'
+                ? 'Runtime Config Updated With Warnings'
+                : 'Runtime Config Updated',
+              text,
+            );
+          } catch (error) {
+            return badCommand(
+              'Config Update Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `config`, `config check`, `config reload`, or `config set <key> <value>`',
+        );
+      }
+
       case 'stop':
       case 'abort': {
         await disableFullAutoSession({ sessionId: session.id });
@@ -5722,250 +7588,11 @@ export async function handleGatewayCommand(
       }
 
       case 'plugin': {
-        const sub = (req.args[1] || 'list').toLowerCase();
-        if (sub === 'list') {
-          if (!pluginManager) {
-            return badCommand(
-              'Plugin Runtime Unavailable',
-              pluginInitError instanceof Error
-                ? pluginInitError.message
-                : 'Plugin manager failed to initialize.',
-            );
-          }
-          return infoCommand(
-            'Plugins',
-            formatPluginSummaryList(pluginManager.listPluginSummary()),
-          );
-        }
-        if (sub === 'config') {
-          const pluginId = String(req.args[2] || '').trim();
-          const key = String(req.args[3] || '').trim();
-          const rawValue = req.args.slice(4).join(' ').trim();
-          if (!pluginId) {
-            return badCommand(
-              'Usage',
-              'Usage: `plugin config <plugin-id> [key] [value|--unset]`',
-            );
-          }
-          if (!key) {
-            const result = readPluginConfigEntry(pluginId);
-            if (!result.entry) {
-              return infoCommand(
-                'Plugin Config',
-                [
-                  `Plugin: ${result.pluginId}`,
-                  `Config file: ${result.configPath}`,
-                  'Override: (none)',
-                ].join('\n'),
-              );
-            }
-            return infoCommand(
-              'Plugin Config',
-              [
-                `Plugin: ${result.pluginId}`,
-                `Config file: ${result.configPath}`,
-                'Override:',
-                formatPluginConfigValue(result.entry),
-              ].join('\n'),
-            );
-          }
-          if (!rawValue) {
-            const result = readPluginConfigValue(pluginId, key);
-            return infoCommand(
-              'Plugin Config',
-              [
-                `Plugin: ${result.pluginId}`,
-                `Key: ${result.key}`,
-                `Value: ${formatPluginConfigValue(result.value)}`,
-                `Config file: ${result.configPath}`,
-              ].join('\n'),
-            );
-          }
-          if (
-            req.guildId !== null ||
-            (req.channelId !== 'web' && req.channelId !== 'tui')
-          ) {
-            return badCommand(
-              'Plugin Config Restricted',
-              '`plugin config` writes runtime config and is only available from local TUI/web sessions.',
-            );
-          }
-
-          const previousConfig = getRuntimeConfig();
-          try {
-            const result =
-              rawValue === '--unset'
-                ? await unsetPluginConfigValue(pluginId, key)
-                : await writePluginConfigValue(pluginId, key, rawValue);
-            const reloadResult = await reloadPluginRuntime();
-            if (!reloadResult.ok) {
-              saveRuntimeConfig(previousConfig);
-              await reloadPluginRuntime();
-              return badCommand(
-                'Plugin Config Failed',
-                [
-                  `Plugin: ${result.pluginId}`,
-                  `Key: ${result.key}`,
-                  `Updated runtime config at \`${result.configPath}\`, but plugin reload failed.`,
-                  'Previous runtime config was restored.',
-                ].join('\n'),
-              );
-            }
-            return infoCommand(
-              result.removed
-                ? result.changed
-                  ? 'Plugin Config Removed'
-                  : 'Plugin Config Unchanged'
-                : result.changed
-                  ? 'Plugin Config Updated'
-                  : 'Plugin Config Unchanged',
-              [
-                `Plugin: ${result.pluginId}`,
-                `Key: ${result.key}`,
-                result.removed
-                  ? result.changed
-                    ? 'Value: (unset)'
-                    : 'Value was already unset.'
-                  : `Value: ${formatPluginConfigValue(result.value)}`,
-                `Updated runtime config at \`${result.configPath}\`.`,
-                reloadResult.message,
-              ].join('\n'),
-            );
-          } catch (error) {
-            saveRuntimeConfig(previousConfig);
-            return badCommand(
-              'Plugin Config Failed',
-              error instanceof Error ? error.message : String(error),
-            );
-          }
-        }
-        if (sub === 'install') {
-          const source = String(req.args[2] || '').trim();
-          if (!source) {
-            return badCommand(
-              'Usage',
-              'Usage: `plugin install <path|npm-spec>`',
-            );
-          }
-          if (
-            req.guildId !== null ||
-            (req.channelId !== 'web' && req.channelId !== 'tui')
-          ) {
-            return badCommand(
-              'Plugin Install Restricted',
-              '`plugin install` is only available from local TUI/web sessions.',
-            );
-          }
-          try {
-            const result = await installPlugin(source);
-            const reloadResult = await reloadPluginRuntime();
-            const lines = [
-              result.alreadyInstalled
-                ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`
-                : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
-              ...(result.dependenciesInstalled
-                ? ['Installed plugin npm dependencies.']
-                : []),
-              `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
-              ...(result.requiresEnv.length > 0
-                ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
-                : []),
-              result.requiredConfigKeys.length > 0
-                ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
-                : `No config entry is required unless you want plugin overrides in \`${runtimeConfigPath()}\`.`,
-              reloadResult.message,
-            ];
-            return infoCommand('Plugin Installed', lines.join('\n'));
-          } catch (error) {
-            return badCommand(
-              'Plugin Install Failed',
-              error instanceof Error ? error.message : String(error),
-            );
-          }
-        }
-        if (sub === 'reinstall') {
-          const source = String(req.args[2] || '').trim();
-          if (!source) {
-            return badCommand(
-              'Usage',
-              'Usage: `plugin reinstall <path|npm-spec>`',
-            );
-          }
-          if (
-            req.guildId !== null ||
-            (req.channelId !== 'web' && req.channelId !== 'tui')
-          ) {
-            return badCommand(
-              'Plugin Reinstall Restricted',
-              '`plugin reinstall` is only available from local TUI/web sessions.',
-            );
-          }
-          try {
-            const result = await reinstallPlugin(source);
-            const reloadResult = await reloadPluginRuntime();
-            const lines = [
-              result.replacedExistingInstall
-                ? `Reinstalled plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`
-                : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
-              ...(result.dependenciesInstalled
-                ? ['Installed plugin npm dependencies.']
-                : []),
-              `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
-              ...(result.requiresEnv.length > 0
-                ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
-                : []),
-              result.requiredConfigKeys.length > 0
-                ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
-                : `No config entry is required unless you want plugin overrides in \`${runtimeConfigPath()}\`.`,
-              reloadResult.message,
-            ];
-            return infoCommand('Plugin Reinstalled', lines.join('\n'));
-          } catch (error) {
-            return badCommand(
-              'Plugin Reinstall Failed',
-              error instanceof Error ? error.message : String(error),
-            );
-          }
-        }
-        if (sub === 'uninstall') {
-          const pluginId = String(req.args[2] || '').trim();
-          if (!pluginId) {
-            return badCommand(
-              'Usage',
-              'Usage: `plugin list|install <path|npm-spec>|reinstall <path|npm-spec>|uninstall <plugin-id>`',
-            );
-          }
-          try {
-            const result = await uninstallPlugin(pluginId);
-            await shutdownPluginManager();
-            const lines = [
-              result.removedPluginDir
-                ? `Uninstalled plugin \`${result.pluginId}\` from \`${result.pluginDir}\`.`
-                : `Removed plugin overrides for \`${result.pluginId}\`; no home install existed at \`${result.pluginDir}\`.`,
-              result.removedConfigOverrides > 0
-                ? `Removed ${result.removedConfigOverrides} matching \`plugins.list[]\` override${result.removedConfigOverrides === 1 ? '' : 's'}.`
-                : 'No matching `plugins.list[]` overrides were removed.',
-              'Plugin runtime will reload on the next turn.',
-            ];
-            return infoCommand('Plugin Uninstalled', lines.join('\n'));
-          } catch (error) {
-            return badCommand(
-              'Plugin Uninstall Failed',
-              error instanceof Error ? error.message : String(error),
-            );
-          }
-        }
-        if (sub === 'reload') {
-          const reloadResult = await reloadPluginRuntime();
-          if (!reloadResult.ok) {
-            return badCommand('Plugin Reload Failed', reloadResult.message);
-          }
-          return infoCommand('Plugins Reloaded', reloadResult.message);
-        }
-        return badCommand(
-          'Usage',
-          'Usage: `plugin list|config <plugin-id> [key] [value|--unset]|install <path|npm-spec>|reinstall <path|npm-spec>|reload|uninstall <plugin-id>`',
-        );
+        return handlePluginGatewayCommand({
+          req,
+          pluginManager,
+          pluginInitError,
+        });
       }
 
       case 'clear': {
@@ -6123,19 +7750,24 @@ export async function handleGatewayCommand(
       }
 
       case 'status': {
-        const status = getGatewayStatus();
+        const status = await getGatewayStatus();
         const delegationStatus = delegationQueueStatus();
         const commitShort = resolveGitCommitShort();
         const runtime = resolveSessionRuntimeTarget(session);
         const sessionModel = runtime.model;
+        if (sessionModel.trim().toLowerCase().startsWith('huggingface/')) {
+          await discoverHuggingFaceModels();
+        }
         if (sessionModel.trim().toLowerCase().startsWith('openrouter/')) {
           await discoverOpenRouterModels();
         }
+        if (sessionModel.trim().toLowerCase().startsWith('mistral/')) {
+          await discoverMistralModels();
+        }
         const modelContextWindowTokens =
-          resolveLocalModelContextWindow(sessionModel) ??
-          getDiscoveredOpenRouterModelContextWindow(sessionModel) ??
-          resolveModelContextWindowFallback(sessionModel);
+          resolveKnownModelContextWindow(sessionModel);
         const metrics = readSessionStatusSnapshot(session.id, {
+          currentModel: sessionModel,
           modelContextWindowTokens,
         });
         const queueLabel = `${delegationStatus.active} active / ${delegationStatus.queued} queued`;
@@ -6180,12 +7812,18 @@ export async function handleGatewayCommand(
       case 'sessions': {
         const sessions = getAllSessions();
         if (sessions.length === 0) return plainCommand('No active sessions.');
-        const list = sessions
-          .slice(0, 20)
-          .map(
-            (s) =>
-              `${s.id} — ${s.message_count} msgs, last active ${s.last_active}`,
-          )
+        const visibleSessions = sessions.slice(0, 20);
+        const boundariesBySessionId = getSessionBoundaryMessagesBySessionIds(
+          visibleSessions.map((session) => session.id),
+        );
+        const list = visibleSessions
+          .map((s) => {
+            const boundary = boundariesBySessionId.get(s.id) || {
+              firstMessage: null,
+              lastMessage: null,
+            };
+            return `${s.id} — ${s.message_count} msgs, last: ${formatDisplayTimestamp(s.last_active)}${formatSessionSnippetSummary(boundary)}`;
+          })
           .join('\n');
         return infoCommand('Sessions', list);
       }
@@ -6272,12 +7910,65 @@ export async function handleGatewayCommand(
 
       case 'export': {
         const sub = (req.args[1] || 'session').toLowerCase();
-        if (sub !== 'session') {
-          return badCommand('Usage', 'Usage: `export session [sessionId]`');
+        if (sub !== 'session' && sub !== 'trace') {
+          return badCommand(
+            'Usage',
+            'Usage: `export session [sessionId]` or `export trace [sessionId|all|--all]`',
+          );
         }
-        const targetSessionId = (req.args[2] || session.id || '').trim();
-        if (!targetSessionId) {
-          return badCommand('Usage', 'Usage: `export session [sessionId]`');
+        const traceTarget = (req.args[2] || '').trim();
+        const exportAllTraces =
+          sub === 'trace' &&
+          (traceTarget.toLowerCase() === 'all' || traceTarget === '--all');
+        const targetSessionId = exportAllTraces
+          ? ''
+          : (traceTarget || session.id || '').trim();
+        if (!exportAllTraces && !targetSessionId) {
+          return badCommand(
+            'Usage',
+            sub === 'trace'
+              ? 'Usage: `export trace [sessionId|all|--all]`'
+              : 'Usage: `export session [sessionId]`',
+          );
+        }
+        if (exportAllTraces) {
+          const targetSessions = getAllSessions({
+            limit: TRACE_EXPORT_ALL_SESSION_LIMIT,
+            warnLabel: 'gateway export trace all',
+          });
+          if (targetSessions.length === 0) {
+            return plainCommand('No sessions available to export.');
+          }
+          const exportedTraces = await exportTraceForSessions(targetSessions);
+          const exportedPaths = exportedTraces.map((exported) => exported.path);
+          const totalSteps = exportedTraces.reduce(
+            (sum, exported) => sum + exported.stepCount,
+            0,
+          );
+          if (exportedPaths.length === 0) {
+            return badCommand(
+              'Export Failed',
+              'Failed to write ATIF-compatible trace exports for any session. Check gateway logs for details.',
+            );
+          }
+          const previewLimit = 10;
+          const pathLines = exportedPaths
+            .slice(0, previewLimit)
+            .map((filePath) => `- ${filePath}`);
+          if (exportedPaths.length > previewLimit) {
+            pathLines.push(
+              `- ...and ${exportedPaths.length - previewLimit} more`,
+            );
+          }
+          return infoCommand(
+            'Trace Exports Created',
+            [
+              `Sessions exported: ${exportedPaths.length}/${targetSessions.length}`,
+              `Total steps: ${totalSteps}`,
+              'Files:',
+              ...pathLines,
+            ].join('\n'),
+          );
         }
         const targetSession = memoryService.getSessionById(targetSessionId);
         if (!targetSession) {
@@ -6286,10 +7977,27 @@ export async function handleGatewayCommand(
             `Session \`${targetSessionId}\` was not found.`,
           );
         }
-        const exportAgentId = resolveSessionAgentId(targetSession);
         const messages = memoryService.getRecentMessages(targetSessionId);
+        if (sub === 'trace') {
+          const exported = await exportTraceForSession(targetSession);
+          if (!exported) {
+            return badCommand(
+              'Export Failed',
+              'Failed to write ATIF-compatible trace export JSONL file. Check gateway logs for details.',
+            );
+          }
+          return infoCommand(
+            'Trace Exported',
+            [
+              `File: ${exported.path}`,
+              `Trace ID: ${exported.traceId}`,
+              `Steps: ${exported.stepCount}`,
+              `Messages: ${messages.length}`,
+            ].join('\n'),
+          );
+        }
         const exported = exportSessionSnapshotJsonl({
-          agentId: exportAgentId,
+          agentId: resolveSessionAgentId(targetSession),
           sessionId: targetSessionId,
           channelId: targetSession.channel_id,
           summary: targetSession.session_summary,
@@ -6334,7 +8042,7 @@ export async function handleGatewayCommand(
         if (!sub) {
           return badCommand(
             'Usage',
-            'Usage: `skill list|inspect <name>|inspect --all|amend <name> [--apply|--reject|--rollback]|history <name>`',
+            'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`',
           );
         }
 
@@ -6388,12 +8096,12 @@ export async function handleGatewayCommand(
           return infoCommand('Skill Health', formatSkillHealthMetrics(metrics));
         }
 
-        if (sub === 'amend') {
+        if (sub === 'learn') {
           const skillName = String(req.args[2] || '').trim();
           if (!skillName) {
             return badCommand(
               'Usage',
-              'Usage: `skill amend <name> [--apply|--reject|--rollback]`',
+              'Usage: `skill learn <name> [--apply|--reject|--rollback]`',
             );
           }
 
@@ -6558,9 +8266,55 @@ export async function handleGatewayCommand(
           );
         }
 
+        if (sub === 'import') {
+          const { source, force, skipSkillScan } = parseSkillImportArgs(
+            req.args.slice(2),
+            {
+              commandPrefix: 'skill',
+              commandName: 'import',
+              allowForce: true,
+            },
+          );
+
+          const { importSkill } = await import('../skills/skills-import.js');
+          const result = await importSkill(source, {
+            force,
+            skipGuard: skipSkillScan,
+          });
+          const lines = [
+            ...buildGuardWarningLines(result),
+            `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
+            `Installed to ${result.skillDir}`,
+          ];
+          return infoCommand('Skill Import', lines.join('\n'));
+        }
+
+        if (sub === 'sync') {
+          const { source, skipSkillScan } = parseSkillImportArgs(
+            req.args.slice(2),
+            {
+              commandPrefix: 'skill',
+              commandName: 'sync',
+              allowForce: false,
+            },
+          );
+
+          const { importSkill } = await import('../skills/skills-import.js');
+          const result = await importSkill(source, {
+            force: true,
+            skipGuard: skipSkillScan,
+          });
+          const lines = [
+            ...buildGuardWarningLines(result),
+            `${result.replacedExisting ? 'Replaced' : 'Imported'} ${result.skillName} from ${result.resolvedSource}`,
+            `Installed to ${result.skillDir}`,
+          ];
+          return infoCommand('Skill Sync', lines.join('\n'));
+        }
+
         return badCommand(
           'Usage',
-          'Usage: `skill list|inspect <name>|inspect --all|runs <name>|amend <name> [--apply|--reject|--rollback]|history <name>`',
+          'Usage: `skill list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`',
         );
       }
 
@@ -6701,24 +8455,13 @@ export async function handleGatewayCommand(
       }
 
       default: {
-        const pluginCommand = pluginManager?.findCommand(cmd);
-        if (pluginCommand) {
-          try {
-            return normalizePluginCommandResult(
-              await pluginCommand.handler(req.args.slice(1), {
-                sessionId: req.sessionId,
-                channelId: req.channelId,
-                userId: req.userId,
-                username: req.username ?? null,
-                guildId: req.guildId ?? null,
-              }),
-            );
-          } catch (error) {
-            return badCommand(
-              'Plugin Command Failed',
-              error instanceof Error ? error.message : String(error),
-            );
-          }
+        const pluginCommandResult = await tryHandlePluginDefinedGatewayCommand({
+          command: cmd,
+          req,
+          pluginManager,
+        });
+        if (pluginCommandResult) {
+          return pluginCommandResult;
         }
         return badCommand(
           'Unknown Command',

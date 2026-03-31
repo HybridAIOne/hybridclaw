@@ -11,7 +11,11 @@ import path from 'node:path';
 
 import { MOUNT_ALLOWLIST_PATH } from '../config/config.js';
 import { logger } from '../logger.js';
-import type { AdditionalMount, AllowedRoot, MountAllowlist } from '../types.js';
+import type {
+  AdditionalMount,
+  AllowedRoot,
+  MountAllowlist,
+} from '../types/security.js';
 
 // Cache the allowlist in memory — only reloads on process restart
 let cachedAllowlist: MountAllowlist | null = null;

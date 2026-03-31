@@ -1,6 +1,6 @@
 ---
 name: current-time
-description: Return the current system time (and timezone) accurately by calling a tool, not by guessing.
+description: Return the current system time and timezone by calling a tool instead of guessing.
 user-invocable: true
 disable-model-invocation: false
 ---

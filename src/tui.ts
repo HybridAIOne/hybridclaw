@@ -19,6 +19,7 @@ import {
   type GatewayChatApprovalEvent,
   type GatewayChatResult,
   type GatewayCommandResult,
+  type GatewayMediaItem,
   type GatewayPluginCommandSummary,
   gatewayChat,
   gatewayChatStream,
@@ -26,6 +27,7 @@ import {
   gatewayHistory,
   gatewayPullProactive,
   gatewayStatus,
+  gatewayUploadMedia,
   renderGatewayCommand,
   saveGatewayAdminSkillEnabled,
 } from './gateway/gateway-client.js';
@@ -38,6 +40,7 @@ import {
   sessionShowModeShowsTools,
 } from './gateway/show-mode.js';
 import { logger } from './logger.js';
+import { summarizeMediaFilenames } from './media/media-summary.js';
 import {
   normalizeModelCandidates,
   parseModelInfoSummaryFromText,
@@ -54,6 +57,11 @@ import {
 } from './tui-approval.js';
 import { renderTuiStartupBanner } from './tui-banner.js';
 import {
+  isProbablyWsl,
+  loadTuiClipboardUploadCandidates,
+} from './tui-clipboard.js';
+import { formatTuiExitWarning, TuiExitController } from './tui-exit.js';
+import {
   DEFAULT_TUI_FULLAUTO_STATE,
   deriveTuiFullAutoState,
   formatTuiFullAutoPromptLabel,
@@ -65,6 +73,7 @@ import {
   buildTuiReadlineHistory,
   resolveTuiHistoryFetchLimit,
 } from './tui-history.js';
+import { TuiMultilineInputController } from './tui-input.js';
 import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
 import {
   buildTuiExitSummaryLines,
@@ -88,15 +97,17 @@ import {
   createTuiThinkingStreamState,
   flushTuiStreamDelta,
   formatTuiStreamDelta,
+  getTuiStreamTrailingNewlines,
   wrapTuiBlock,
 } from './tui-thinking.js';
-import type { SessionShowMode } from './types.js';
+import type { SessionShowMode } from './types/session.js';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 const JELLYFISH = '🪼';
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
+const TUI_EXIT_CONFIRM_WINDOW_MS = 5000;
 
 type TuiTheme = 'dark' | 'light';
 type TuiReadlineInterface = readline.Interface & {
@@ -109,6 +120,7 @@ interface TuiPalette {
   teal: string;
   gold: string;
   green: string;
+  lightGreen: string;
   red: string;
 }
 
@@ -117,6 +129,7 @@ const DARK_PALETTE: TuiPalette = {
   teal: '\x1b[38;2;92;224;216m',
   gold: '\x1b[38;2;255;215;0m',
   green: '\x1b[38;2;16;185;129m',
+  lightGreen: '\x1b[1;92m',
   red: '\x1b[38;2;239;68;68m',
 };
 
@@ -125,6 +138,7 @@ const LIGHT_PALETTE: TuiPalette = {
   teal: '\x1b[38;2;0;122;128m',
   gold: '\x1b[38;2;138;97;0m',
   green: '\x1b[38;2;0;130;92m',
+  lightGreen: '\x1b[1;92m',
   red: '\x1b[38;2;185;28;28m',
 };
 
@@ -164,6 +178,7 @@ const MUTED = PALETTE.muted;
 const TEAL = PALETTE.teal;
 const GOLD = PALETTE.gold;
 const GREEN = PALETTE.green;
+const LIGHT_GREEN = '\x1b[1;92m';
 const RED = PALETTE.red;
 const WORDMARK_RAMP =
   THEME === 'light'
@@ -314,6 +329,9 @@ let tuiPendingApproval: {
 let tuiShowMode: SessionShowMode = DEFAULT_SESSION_SHOW_MODE;
 let tuiSlashMenu: TuiSlashMenuController | null = null;
 let tuiSessionId = generateTuiSessionId();
+let tuiPendingMedia: GatewayMediaItem[] = [];
+let tuiPendingMediaUploads = 0;
+let tuiClipboardPasteInFlight = false;
 let tuiSessionMode: 'new' | 'resume' = 'new';
 let tuiSessionStartedAtMs = Date.now();
 let tuiResumeCommand = 'hybridclaw tui --resume';
@@ -475,17 +493,27 @@ function printBanner(
 
 function printHelp(): void {
   clearTuiSlashMenu();
+  const pasteShortcutLabel =
+    process.platform === 'linux' && isProbablyWsl()
+      ? 'Ctrl+V / Ctrl+Alt+V'
+      : 'Ctrl+V';
   console.log();
   console.log(`  ${BOLD}${GOLD}Commands${RESET}`);
   console.log(
-    `  ${TEAL}TAB${RESET} accept suggestion ${MUTED}|${RESET} ${TEAL}↑↓${RESET} navigate slash menu ${MUTED}|${RESET} ${TEAL}ESC${RESET} close menu`,
+    `  ${TEAL}TAB${RESET} accept suggestion ${MUTED}|${RESET} ${TEAL}Ctrl-N/Ctrl-P${RESET} navigate slash menu ${MUTED}|${RESET} ${TEAL}Shift+Return${RESET}/${TEAL}Ctrl-J${RESET} line break ${MUTED}|${RESET} ${TEAL}ESC${RESET} close menu`,
+  );
+  console.log(
+    `  ${TEAL}Context injection:${RESET} ${TEAL}@file${RESET} ${TEAL}@folder${RESET} ${TEAL}@diff${RESET} ${TEAL}@staged${RESET} ${TEAL}@git${RESET}`,
   );
   console.log(`  ${TEAL}/help${RESET}             Show this help`);
   console.log(
     `  ${TEAL}/agent [info|list|switch|create|model] [id] [--model <model>]${RESET} Inspect or manage agents`,
   );
   console.log(
-    `  ${TEAL}/bot [info|list|set <id|name>]${RESET} Manage the chatbot for this session`,
+    `  ${TEAL}/bot [info|list|set <id|name>|clear]${RESET} Manage the chatbot for this session`,
+  );
+  console.log(
+    `  ${TEAL}/concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]${RESET} Configure concierge routing`,
   );
   console.log(
     `  ${TEAL}/model [<name>|info|list [provider]|set <name>|clear|default [name]]${RESET} Inspect or set session/default model`,
@@ -516,17 +544,20 @@ function printHelp(): void {
     `  ${TEAL}/usage [summary|daily|monthly|model [daily|monthly] [agentId]]${RESET} Show usage`,
   );
   console.log(
-    `  ${TEAL}/export [sessionId]${RESET} Export current or specified session JSONL`,
+    `  ${TEAL}/export session [sessionId] | /export trace [sessionId|all]${RESET} Export session snapshot or trace JSONL`,
   );
   console.log(`  ${TEAL}/sessions${RESET}         List active sessions`);
   console.log(
     `  ${TEAL}/audit [sessionId]${RESET} Show recent structured audit events`,
   );
   console.log(
-    `  ${TEAL}/skill config|list|inspect <name>|inspect --all|runs <name>|amend <name> [--apply|--reject|--rollback]|history <name>${RESET} Manage skill config, health, runs, and amendments`,
+    `  ${TEAL}/skill config|list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>${RESET} Manage skill config, health, runs, amendments, and imports`,
   );
   console.log(
     `  ${TEAL}/schedule add "<cron>" <prompt>${RESET} Add a scheduled task`,
+  );
+  console.log(
+    `  ${TEAL}/paste${RESET}            Attach a copied file or clipboard image`,
   );
   console.log(
     `  ${TEAL}/compact${RESET}          Archive and compact older session history`,
@@ -539,6 +570,9 @@ function printHelp(): void {
     `  ${TEAL}/stop${RESET}             Interrupt current request and disable full-auto`,
   );
   console.log(`  ${TEAL}/exit${RESET}             Quit`);
+  console.log(
+    `  ${TEAL}${pasteShortcutLabel}${RESET} ${pasteShortcutLabel.length < 18 ? ' '.repeat(18 - pasteShortcutLabel.length) : ''}Queue a copied file or clipboard image`,
+  );
   console.log(`  ${TEAL}ESC${RESET}               Interrupt current request`);
   console.log();
 }
@@ -582,6 +616,58 @@ function printInfo(text: string): void {
   console.log();
 }
 
+async function handleTuiClipboardPaste(rl: readline.Interface): Promise<void> {
+  if (tuiClipboardPasteInFlight) {
+    printInfo('Attachment upload is already in progress.');
+    refreshPrompt(rl);
+    return;
+  }
+  if (activeRunAbortController && !activeRunAbortController.signal.aborted) {
+    printInfo('Wait for the current reply to finish before attaching media.');
+    refreshPrompt(rl);
+    return;
+  }
+
+  tuiClipboardPasteInFlight = true;
+  tuiPendingMediaUploads += 1;
+  refreshPrompt(rl);
+
+  try {
+    const candidates = await loadTuiClipboardUploadCandidates();
+    if (candidates.length === 0) {
+      printInfo(
+        'Clipboard does not contain a readable local file or image, or the local clipboard backend is unavailable.',
+      );
+      return;
+    }
+
+    const uploaded: GatewayMediaItem[] = [];
+    for (const candidate of candidates) {
+      const result = await gatewayUploadMedia({
+        filename: candidate.filename,
+        body: candidate.body,
+        mimeType: candidate.mimeType,
+      });
+      uploaded.push(result.media);
+    }
+    if (uploaded.length === 0) {
+      printInfo('Clipboard did not contain any readable files.');
+      return;
+    }
+
+    tuiPendingMedia = [...tuiPendingMedia, ...uploaded];
+    printInfo(`Queued ${summarizeGatewayMediaItems(uploaded)}.`);
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err), {
+      leadingBlank: false,
+    });
+  } finally {
+    tuiPendingMediaUploads = Math.max(0, tuiPendingMediaUploads - 1);
+    tuiClipboardPasteInFlight = false;
+    refreshPrompt(rl);
+  }
+}
+
 function isModelCatalogCommandResult(result: GatewayCommandResult): boolean {
   const title = String(result.title || '').trim();
   return title.startsWith('Available Models') || title === 'Default Model';
@@ -595,8 +681,13 @@ function printModelCatalogCommandResult(result: GatewayCommandResult): void {
   }
   if (Array.isArray(result.modelCatalog) && result.modelCatalog.length > 0) {
     for (const entry of result.modelCatalog) {
-      const color = entry.isFree ? GREEN : GOLD;
-      console.log(`  ${color}${entry.label}${RESET}`);
+      const marker = entry.recommended ? `${LIGHT_GREEN}★ ${RESET}` : '';
+      const color = entry.recommended
+        ? LIGHT_GREEN
+        : entry.isFree
+          ? GREEN
+          : GOLD;
+      console.log(`  ${marker}${color}${entry.label}${RESET}`);
     }
     console.log();
     return;
@@ -631,6 +722,10 @@ function formatTuiOutput(text: string): string {
   return wrapTuiBlock(text, terminalColumns(), '  ');
 }
 
+function isInactiveSkillListLine(line: string): boolean {
+  return /\[disabled\]/i.test(line);
+}
+
 function printGatewayCommandResult(result: GatewayCommandResult): void {
   if (result.kind === 'error') {
     const prefix = result.title ? `${result.title}: ` : '';
@@ -641,7 +736,18 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
     printModelCatalogCommandResult(result);
     return;
   }
-  printInfo(renderGatewayCommand(result));
+  const rendered = renderGatewayCommand(result);
+  if (result.title === 'Skills') {
+    clearTuiSlashMenu();
+    console.log();
+    for (const line of formatTuiOutput(rendered).split('\n')) {
+      const color = isInactiveSkillListLine(line) ? MUTED : GOLD;
+      console.log(`${color}${line}${RESET}`);
+    }
+    console.log();
+    return;
+  }
+  printInfo(rendered);
 }
 
 function pickOceanActivityVerb(): string {
@@ -654,6 +760,7 @@ function spinner(): {
   addTool: (toolName: string, preview?: string) => void;
   addVisibleTextDelta: (delta: string) => void;
   flushVisibleText: () => void;
+  trailingNewlinesAfterVisibleText: () => string;
   setThinkingPreview: (preview: string | null) => void;
   clearThinkingPreview: () => void;
   clearTools: () => void;
@@ -798,6 +905,8 @@ function spinner(): {
       }
       process.stdout.write(formatted.text);
     },
+    trailingNewlinesAfterVisibleText: () =>
+      getTuiStreamTrailingNewlines(visibleTextState, terminalColumns()),
     setThinkingPreview,
     clearThinkingPreview,
     clearTools,
@@ -818,7 +927,52 @@ function sessionGatewayContext(): {
   };
 }
 
-function buildGatewayChatRequest(content: string): {
+function summarizeGatewayMediaItems(media: GatewayMediaItem[]): string {
+  if (media.length === 0) return '0 attachments';
+  const preview = summarizeMediaFilenames(
+    media.map((item) => item.filename || 'attachment'),
+  );
+  const countLabel =
+    media.length === 1 ? '1 attachment' : `${media.length} attachments`;
+  return `${countLabel}: ${preview}`;
+}
+
+function buildPendingMediaPromptLabel(): string | null {
+  if (tuiPendingMediaUploads > 0 && tuiPendingMedia.length > 0) {
+    return `${tuiPendingMedia.length} queued, uploading`;
+  }
+  if (tuiPendingMediaUploads > 0) {
+    return 'uploading attachment';
+  }
+  if (tuiPendingMedia.length > 0) {
+    return tuiPendingMedia.length === 1
+      ? '1 attachment queued'
+      : `${tuiPendingMedia.length} attachments queued`;
+  }
+  return null;
+}
+
+function consumePendingMedia(rl: readline.Interface): GatewayMediaItem[] {
+  if (tuiPendingMedia.length === 0) return [];
+  const media = tuiPendingMedia;
+  tuiPendingMedia = [];
+  refreshPrompt(rl);
+  return media;
+}
+
+function restorePendingMedia(
+  rl: readline.Interface,
+  media: GatewayMediaItem[],
+): void {
+  if (media.length === 0) return;
+  tuiPendingMedia = [...media, ...tuiPendingMedia];
+  refreshPrompt(rl);
+}
+
+function buildGatewayChatRequest(
+  content: string,
+  media?: GatewayMediaItem[],
+): {
   sessionId: string;
   sessionMode: 'new' | 'resume';
   guildId: null;
@@ -826,12 +980,14 @@ function buildGatewayChatRequest(content: string): {
   userId: string;
   username: string;
   content: string;
+  media?: GatewayMediaItem[];
 } {
   return {
     ...sessionGatewayContext(),
     userId: TUI_USER_ID,
     username: TUI_USERNAME,
     content,
+    ...(media && media.length > 0 ? { media } : {}),
   };
 }
 
@@ -891,11 +1047,13 @@ function syncTuiSessionIdFromResult(result: { sessionId?: string }): void {
 
 function buildPromptText(): string {
   const fullAutoLabel = formatTuiFullAutoPromptLabel(tuiFullAutoState);
+  const pendingMediaLabel = buildPendingMediaPromptLabel();
   const separator = `${MUTED}${'─'.repeat(terminalColumns() - 2)}${RESET}`;
-  if (fullAutoLabel) {
-    return `${separator}\n  ${GOLD}[${fullAutoLabel}]${RESET} ${TEAL}>${RESET} `;
-  }
-  return `${separator}\n  ${TEAL}>${RESET} `;
+  const labels = [
+    fullAutoLabel ? `${GOLD}[${fullAutoLabel}]${RESET}` : '',
+    pendingMediaLabel ? `${MUTED}[${pendingMediaLabel}]${RESET}` : '',
+  ].filter(Boolean);
+  return `${separator}\n  ${labels.length > 0 ? `${labels.join(' ')} ` : ''}${TEAL}>${RESET} `;
 }
 
 function clearTuiSlashMenu(): void {
@@ -1063,7 +1221,9 @@ async function runGatewayCommand(
     const normalizedSubcommand = (args[1] || '').trim().toLowerCase();
     if (
       normalizedCommand === 'plugin' &&
-      (normalizedSubcommand === 'install' ||
+      (normalizedSubcommand === 'enable' ||
+        normalizedSubcommand === 'disable' ||
+        normalizedSubcommand === 'install' ||
         normalizedSubcommand === 'reinstall' ||
         normalizedSubcommand === 'reload' ||
         normalizedSubcommand === 'uninstall')
@@ -1143,20 +1303,25 @@ async function fetchCurrentSessionModel(): Promise<string | null> {
 }
 
 async function fetchSelectableModels(): Promise<
-  Array<{ label: string; value: string; isFree: boolean }>
+  Array<{ label: string; value: string; isFree: boolean; recommended: boolean }>
 > {
   const fallback = normalizeModelCandidates(CONFIGURED_MODELS).map((model) => ({
     label: formatModelForDisplay(model),
     value: normalizeHybridAIModelForRuntime(model),
     isFree: false,
+    recommended: false,
   }));
   try {
     const result = await requestGatewayCommand(['model', 'list']);
     if (result.kind === 'error') return fallback;
     if (Array.isArray(result.modelCatalog) && result.modelCatalog.length > 0) {
       const seen = new Set<string>();
-      const models: Array<{ label: string; value: string; isFree: boolean }> =
-        [];
+      const models: Array<{
+        label: string;
+        value: string;
+        isFree: boolean;
+        recommended: boolean;
+      }> = [];
       for (const entry of result.modelCatalog) {
         const value = String(entry.value || '').trim();
         if (!value || seen.has(value)) continue;
@@ -1166,6 +1331,7 @@ async function fetchSelectableModels(): Promise<
             String(entry.label || '').trim() || formatModelForDisplay(value),
           value,
           isFree: entry.isFree === true,
+          recommended: entry.recommended === true,
         });
       }
       return models.length > 0 ? models : fallback;
@@ -1176,6 +1342,7 @@ async function fetchSelectableModels(): Promise<
           label: model,
           value: normalizeHybridAIModelForRuntime(model),
           isFree: false,
+          recommended: false,
         }))
       : fallback;
   } catch {
@@ -1213,20 +1380,28 @@ async function promptModelSelection(
   const currentModel = await fetchCurrentSessionModel();
   console.log(`  ${BOLD}${GOLD}Model selector${RESET}`);
   if (currentModel) {
-    const currentColor =
-      models.find((entry) => entry.label === currentModel)?.isFree === true
+    const currentEntry = models.find((entry) => entry.label === currentModel);
+    const currentColor = currentEntry?.recommended
+      ? LIGHT_GREEN
+      : currentEntry?.isFree === true
         ? GREEN
         : TEAL;
+    const currentMarker = currentEntry?.recommended ? '★ ' : '';
     console.log(
-      `  ${MUTED}Current:${RESET} ${currentColor}${currentModel}${RESET}`,
+      `  ${MUTED}Current:${RESET} ${currentColor}${currentMarker}${currentModel}${RESET}`,
     );
   }
   for (const [index, entry] of models.entries()) {
     const suffix =
       currentModel === entry.label ? ` ${MUTED}(current)${RESET}` : '';
-    const modelColor = entry.isFree ? GREEN : RESET;
+    const marker = entry.recommended ? `${LIGHT_GREEN}★ ${RESET}` : '';
+    const modelColor = entry.recommended
+      ? LIGHT_GREEN
+      : entry.isFree
+        ? GREEN
+        : RESET;
     console.log(
-      `  ${TEAL}${index + 1}${RESET} ${modelColor}${entry.label}${RESET}${suffix}`,
+      `  ${TEAL}${index + 1}${RESET} ${marker}${modelColor}${entry.label}${RESET}${suffix}`,
     );
   }
 
@@ -1294,6 +1469,9 @@ async function handleSlashCommand(
   switch (cmd) {
     case 'help':
       printHelp();
+      return true;
+    case 'paste':
+      await handleTuiClipboardPaste(rl);
       return true;
     case 'exit':
     case 'quit':
@@ -1411,9 +1589,11 @@ async function processMessage(
   const s = spinner();
   const abortController = new AbortController();
   activeRunAbortController = abortController;
+  const queuedMedia = consumePendingMedia(rl);
+  let sawResponse = queuedMedia.length === 0;
 
   try {
-    const request = buildGatewayChatRequest(content);
+    const request = buildGatewayChatRequest(content, queuedMedia);
     const streamState = createTuiThinkingStreamState();
     const streamedToolNames = new Set<string>();
     let sawStreamEvent = false;
@@ -1430,6 +1610,7 @@ async function processMessage(
         (event) => {
           if (event.type === 'text') {
             sawStreamEvent = true;
+            sawResponse = true;
             const streamed = streamState.push(event.delta);
             if (streamed.visibleDelta) {
               sawVisibleTextDelta = true;
@@ -1441,6 +1622,7 @@ async function processMessage(
           }
           if (event.type === 'approval') {
             sawStreamEvent = true;
+            sawResponse = true;
             streamedApproval = event;
             return;
           }
@@ -1451,6 +1633,7 @@ async function processMessage(
           )
             return;
           sawStreamEvent = true;
+          sawResponse = true;
           const preview = (event.preview || '').replace(/\s+/g, ' ').trim();
           const previewText =
             preview.length > TOOL_PREVIEW_MAX_CHARS
@@ -1470,6 +1653,7 @@ async function processMessage(
       }
       result = await gatewayChat(request, abortController.signal);
     }
+    sawResponse = true;
     syncTuiSessionIdFromResult(result);
 
     const toolNames = [
@@ -1484,11 +1668,14 @@ async function processMessage(
     s.flushVisibleText();
     s.stop();
     s.clearThinkingPreview();
+    const streamedResponseTrailingNewlines = hasStreamedText
+      ? s.trailingNewlinesAfterVisibleText()
+      : '';
     if (hasUsageFooters) {
       if (!hasStreamedText) {
         s.clearTools();
       } else {
-        process.stdout.write('\n');
+        process.stdout.write(streamedResponseTrailingNewlines);
       }
       printToolUsage(toolNames);
       printPluginUsage(pluginNames);
@@ -1536,7 +1723,11 @@ async function processMessage(
         tuiPendingApproval = null;
       }
       if (hasStreamedText) {
-        console.log();
+        // After usage footers, only a single newline is needed because the
+        // blank line after the streamed response was already written above.
+        process.stdout.write(
+          hasUsageFooters ? '\n' : streamedResponseTrailingNewlines,
+        );
       } else {
         printResponse(finalText, {
           leadingBlank: hasUsageFooters,
@@ -1546,6 +1737,9 @@ async function processMessage(
   } catch (err) {
     s.flushVisibleText();
     s.stop();
+    if (!sawResponse) {
+      restorePendingMedia(rl, queuedMedia);
+    }
     if (abortController.signal.aborted) return;
     s.clearThinkingPreview();
     process.stdout.write('\n');
@@ -1575,6 +1769,8 @@ async function processFullAutoSteeringMessage(
   const abortController = new AbortController();
   activeRunAbortController = abortController;
   fullAutoSteeringInFlight = true;
+  const queuedMedia = consumePendingMedia(rl);
+  let sawResponse = queuedMedia.length === 0;
   tuiFullAutoState = {
     ...tuiFullAutoState,
     runtimeState: 'steering',
@@ -1585,9 +1781,10 @@ async function processFullAutoSteeringMessage(
   void (async () => {
     try {
       const result = await gatewayChat(
-        buildGatewayChatRequest(content),
+        buildGatewayChatRequest(content, queuedMedia),
         abortController.signal,
       );
+      sawResponse = true;
       syncTuiSessionIdFromResult(result);
       if (isInterruptedResult(result)) {
         return;
@@ -1621,6 +1818,9 @@ async function processFullAutoSteeringMessage(
       }
       printResponse(result.result || 'No response.');
     } catch (err) {
+      if (!sawResponse) {
+        restorePendingMedia(rl, queuedMedia);
+      }
       if (abortController.signal.aborted) return;
       printError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1700,6 +1900,13 @@ async function main(): Promise<void> {
     description: MUTED,
     descriptionSelected: TEAL,
   };
+  const multilineInputController = new TuiMultilineInputController({
+    rl,
+    onPasteShortcut: () => {
+      void handleTuiClipboardPaste(rl);
+    },
+  });
+  multilineInputController.install();
   tuiSlashMenu = new TuiSlashMenuController({
     rl,
     entries: buildTuiSlashMenuEntries(status.pluginCommands || []),
@@ -1709,6 +1916,19 @@ async function main(): Promise<void> {
   });
   setTuiLoadedPluginCommands(status.pluginCommands);
   tuiSlashMenu.install();
+  const exitController = new TuiExitController({
+    rl,
+    exitWindowMs: TUI_EXIT_CONFIRM_WINDOW_MS,
+    onWarn: () => {
+      printInfo(formatTuiExitWarning(TUI_EXIT_CONFIRM_WINDOW_MS));
+      refreshPrompt(rl);
+    },
+    onExit: () => {
+      clearTuiSlashMenu();
+      rl.close();
+    },
+  });
+  exitController.install();
   refreshPrompt(rl);
 
   readline.emitKeypressEvents(process.stdin, rl);
@@ -1729,8 +1949,14 @@ async function main(): Promise<void> {
     inputRunQueue = inputRunQueue
       .then(async () => {
         const trimmed = input.trim();
+        const hasPendingMedia = tuiPendingMedia.length > 0;
         clearTuiSlashMenu();
-        if (!trimmed) {
+        if (!trimmed && !hasPendingMedia) {
+          promptTuiInput(rl);
+          return;
+        }
+        if (tuiPendingMediaUploads > 0) {
+          printInfo('Wait for attachment uploads to finish before sending.');
           promptTuiInput(rl);
           return;
         }
@@ -1769,7 +1995,9 @@ async function main(): Promise<void> {
       pendingInputTimer = null;
     }
     if (pendingInputLines.length === 0) return;
-    const combined = pendingInputLines.join('\n');
+    const combined = multilineInputController.normalizeSubmittedInput(
+      pendingInputLines.join('\n'),
+    );
     pendingInputLines = [];
     enqueueInput(combined);
   };
@@ -1810,6 +2038,9 @@ export async function runTui(options?: Partial<TuiRunOptions>): Promise<void> {
     Number.isFinite(options.startedAtMs)
       ? Math.max(0, Math.floor(options.startedAtMs))
       : Date.now();
+  tuiPendingMedia = [];
+  tuiPendingMediaUploads = 0;
+  tuiClipboardPasteInFlight = false;
   tuiResumeCommand =
     String(options?.resumeCommand || 'hybridclaw tui --resume').trim() ||
     'hybridclaw tui --resume';

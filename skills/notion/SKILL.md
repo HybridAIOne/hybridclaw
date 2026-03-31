@@ -1,6 +1,6 @@
 ---
 name: notion
-description: Use this skill when the user wants to search, create, update, or organize Notion pages, databases, meeting notes, project trackers, or workspace docs through the Notion API.
+description: Search, create, update, and organize Notion pages, databases, notes, and trackers through the Notion API.
 user-invocable: true
 metadata:
   hybridclaw:

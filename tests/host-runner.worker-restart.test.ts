@@ -22,15 +22,18 @@ function restoreEnvVar(name: string, value: string | undefined): void {
 }
 
 function makeFakeChildProcess() {
+  const stdin = Object.assign(new EventEmitter(), {
+    write: vi.fn(),
+  });
   const proc = new EventEmitter() as EventEmitter & {
     stderr: EventEmitter;
-    stdin: { write: ReturnType<typeof vi.fn> };
+    stdin: EventEmitter & { write: ReturnType<typeof vi.fn> };
     kill: ReturnType<typeof vi.fn>;
     killed: boolean;
     exitCode: number | null;
   };
   proc.stderr = new EventEmitter();
-  proc.stdin = { write: vi.fn() };
+  proc.stdin = stdin;
   proc.killed = false;
   proc.exitCode = null;
   proc.kill = vi.fn(() => {

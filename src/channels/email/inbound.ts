@@ -5,7 +5,7 @@ import { type Attachment, type ParsedMail, simpleParser } from 'mailparser';
 import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import type { RuntimeEmailConfig } from '../../config/runtime-config.js';
 import { buildSessionKey } from '../../session/session-key.js';
-import type { MediaContextItem } from '../../types.js';
+import type { MediaContextItem } from '../../types/container.js';
 import { matchesEmailAllowList, normalizeEmailAddress } from './allowlist.js';
 import { DEFAULT_EMAIL_SUBJECT } from './constants.js';
 import { hasReplySubjectPrefix, type ThreadContext } from './threading.js';

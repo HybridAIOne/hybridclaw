@@ -4,6 +4,14 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >
+          Version tag to publish (e.g. v1.2.3). Must match package.json.
+          Leave empty to use the version from package.json.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -17,16 +25,27 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.check.outputs.tag }}
+      ref: ${{ steps.check.outputs.ref }}
       publish_dockerhub: ${{ steps.check.outputs.publish_dockerhub }}
       labels: ${{ steps.check.outputs.labels }}
     steps:
+      - name: Resolve target ref
+        id: resolve
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${INPUT_VERSION}" ]]; then
+            echo "ref=refs/tags/${INPUT_VERSION}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "ref=${GITHUB_REF}" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          ref: ${{ steps.resolve.outputs.ref }}
 
       - name: Validate tag and resolve shared metadata
         id: check
@@ -34,19 +53,25 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
 
-          TAG="${GITHUB_REF_NAME}"
+          EXPECTED_TAG="v$(jq -r .version package.json)"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            TAG="${INPUT_VERSION:-${EXPECTED_TAG}}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+
           if [[ "${TAG}" != v* ]]; then
             echo "Expected a v-prefixed release tag, got '${TAG}'." >&2
             exit 1
           fi
 
-          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
-          EXPECTED_TAG="v${PACKAGE_VERSION}"
           if [[ "${TAG}" != "${EXPECTED_TAG}" ]]; then
-            echo "Tag/package mismatch: git tag '${TAG}' != package.json '${EXPECTED_TAG}'." >&2
+            echo "Tag/package mismatch: tag '${TAG}' != package.json '${EXPECTED_TAG}'." >&2
             exit 1
           fi
 
@@ -57,6 +82,7 @@ jobs:
 
           {
             echo "tag=${TAG}"
+            echo "ref=${{ steps.resolve.outputs.ref }}"
             echo "publish_dockerhub=${PUBLISH_DOCKERHUB}"
             echo "labels<<EOF"
             echo "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
@@ -72,6 +98,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
 
       - name: Resolve agent image tags
         id: meta
@@ -113,20 +141,28 @@ jobs:
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GHCR_USERNAME || github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || github.token }}
 
       - name: Build and push agent image
         id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ./container
+          target: runtime
           push: true
           provenance: false
           sbom: false
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ needs.validate.outputs.labels }}
+          cache-from: type=gha,scope=agent-release
+          cache-to: type=gha,mode=max,scope=agent-release
+
+      - name: Verify published agent tags
+        uses: ./.github/actions/verify-published-tags
+        with:
+          tags: ${{ steps.meta.outputs.tags }}
 
   # Gateway image — runs as a permanent claw sandbox (hybridclaw gateway start).
   publish-gateway:
@@ -135,6 +171,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
 
       - name: Resolve gateway image tags
         id: meta
@@ -176,8 +214,8 @@ jobs:
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GHCR_USERNAME || github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || github.token }}
 
       - name: Build and push gateway image
         id: push
@@ -191,3 +229,10 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ needs.validate.outputs.labels }}
+          cache-from: type=gha,scope=gateway-release
+          cache-to: type=gha,mode=max,scope=gateway-release
+
+      - name: Verify published gateway tags
+        uses: ./.github/actions/verify-published-tags
+        with:
+          tags: ${{ steps.meta.outputs.tags }}

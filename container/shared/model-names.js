@@ -3,6 +3,8 @@ export const HYBRIDAI_MODEL_PREFIX = 'hybridai/';
 export const NON_HYBRID_PROVIDER_PREFIXES = [
   'openai-codex/',
   'openrouter/',
+  'mistral/',
+  'huggingface/',
   'anthropic/',
   'ollama/',
   'lmstudio/',

@@ -13,9 +13,17 @@ const ORIGINAL_MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID;
 const ORIGINAL_MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD;
 const ORIGINAL_MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
+const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
 const ORIGINAL_HYBRIDCLAW_LOG_REQUESTS = process.env.HYBRIDCLAW_LOG_REQUESTS;
+const ORIGINAL_CI = process.env.CI;
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
+const REPO_VERSION = (
+  JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf-8'),
+  ) as { version: string }
+).version;
 
 function createTempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-cli-'));
@@ -55,7 +63,10 @@ async function importFreshCli(options?: {
     };
   };
   gatewayReachable?: boolean;
+  gatewayStatusReachable?: boolean;
   sandboxMode?: 'host' | 'container';
+  sandboxModeExplicit?: boolean;
+  configModuleError?: Error | null;
   gatewayFlags?: {
     foreground?: boolean;
     sandboxMode?: 'host' | 'container' | null;
@@ -65,6 +76,7 @@ async function importFreshCli(options?: {
     passthrough?: string[];
   };
   ensureContainerImageReadyError?: Error | null;
+  ensureHostRuntimeReadyError?: Error | null;
   gatewayModuleError?: Error | null;
   pluginInstallError?: Error | null;
   pluginInstallResult?: {
@@ -94,6 +106,18 @@ async function importFreshCli(options?: {
     removedPluginDir: boolean;
     removedConfigOverrides: number;
   };
+  skillImportError?: Error | null;
+  skillImportResult?: {
+    skillName: string;
+    skillDir: string;
+    source: string;
+    resolvedSource: string;
+    replacedExisting: boolean;
+    filesImported: number;
+    guardOverrideApplied?: boolean;
+    guardVerdict?: 'safe' | 'caution' | 'dangerous';
+    guardFindingsCount?: number;
+  };
   pluginListSummary?: Array<{
     id: string;
     name?: string;
@@ -106,10 +130,65 @@ async function importFreshCli(options?: {
     tools: string[];
     hooks: string[];
   }>;
+  agentPackError?: Error | null;
+  agentPackResult?: {
+    archivePath: string;
+    manifest: {
+      name: string;
+    };
+    workspacePath: string;
+    bundledSkills: string[];
+    bundledPlugins: string[];
+    externalSkills: Array<{ kind: string; ref: string }>;
+    externalPlugins: Array<{ kind: string; ref: string }>;
+    archiveEntries: string[];
+  };
+  agentInspectError?: Error | null;
+  agentInspectResult?: {
+    archivePath: string;
+    manifest: {
+      name: string;
+      id?: string;
+    };
+    totalCompressedBytes: number;
+    totalUncompressedBytes: number;
+    entryNames: string[];
+  };
+  agentUnpackError?: Error | null;
+  agentUnpackResult?: {
+    archivePath: string;
+    manifest: {
+      name: string;
+      id?: string;
+    };
+    agentId: string;
+    workspacePath: string;
+    bundledSkills: string[];
+    failedImportedSkills?: Array<{ source: string; error: string }>;
+    installedPlugins: Array<{ pluginId: string }>;
+    externalActions: string[];
+    runtimeConfigChanged: boolean;
+  };
+  agentUninstallError?: Error | null;
+  agentUninstallResult?: {
+    agentId: string;
+    agentRootPath: string;
+    workspacePath: string;
+    removedAgentRoot: boolean;
+    removedRegistration: boolean;
+  };
+  fetchMock?: (input: string | URL | Request, init?: RequestInit) => unknown;
+  agentListResult?: Array<{
+    id: string;
+    name: string;
+    model?: string | { primary: string };
+  }>;
   promptResponses?: string[];
+  whatsAppConnectionModuleError?: Error | null;
 }) {
   vi.resetModules();
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
+  delete process.env.CI;
   Object.defineProperty(process.stdin, 'isTTY', {
     configurable: true,
     value: true,
@@ -119,6 +198,14 @@ async function importFreshCli(options?: {
     value: true,
   });
   const promptResponses = [...(options?.promptResponses || [])];
+  if (options?.fetchMock) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
+        options.fetchMock?.(input, init),
+      ),
+    );
+  }
 
   const clearHybridAICredentials = vi.fn(() => '/tmp/credentials.json');
   const getHybridAIAuthStatus = vi.fn(
@@ -172,6 +259,15 @@ async function importFreshCli(options?: {
     if (options?.ensureContainerImageReadyError) {
       throw options.ensureContainerImageReadyError;
     }
+  });
+  const ensureHostRuntimeReady = vi.fn(() => {
+    if (options?.ensureHostRuntimeReadyError) {
+      throw options.ensureHostRuntimeReadyError;
+    }
+    return {
+      command: process.execPath,
+      args: ['/tmp/container/dist/index.js'],
+    };
   });
   const saveRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
   const loadSkillCatalog = vi.fn(() => [
@@ -241,6 +337,29 @@ async function importFreshCli(options?: {
       }
     );
   });
+  const importSkill = vi.fn(
+    async (
+      source: string,
+      importOptions?: { force?: boolean; skipGuard?: boolean },
+    ) => {
+      if (options?.skillImportError) {
+        throw options.skillImportError;
+      }
+      return (
+        options?.skillImportResult || {
+          skillName: 'demo-skill',
+          skillDir: '/tmp/.hybridclaw/skills/demo-skill',
+          source,
+          resolvedSource: source,
+          replacedExisting: false,
+          filesImported: 1,
+          guardOverrideApplied: importOptions?.force === true,
+          guardVerdict: importOptions?.force === true ? 'caution' : 'safe',
+          guardFindingsCount: importOptions?.force === true ? 1 : 0,
+        }
+      );
+    },
+  );
   const readPluginConfigEntry = vi.fn((pluginId: string) => ({
     pluginId,
     configPath: '/tmp/config.json',
@@ -276,6 +395,21 @@ async function importFreshCli(options?: {
       entry: null,
     }),
   );
+  const setPluginEnabled = vi.fn(
+    async (pluginId: string, enabled: boolean) => ({
+      pluginId,
+      enabled,
+      changed: true,
+      configPath: '/tmp/config.json',
+      entry: enabled
+        ? null
+        : {
+            id: pluginId,
+            enabled: false,
+            config: {},
+          },
+    }),
+  );
   const writePluginConfigValue = vi.fn(
     async (pluginId: string, key: string, rawValue: string) => ({
       pluginId,
@@ -297,14 +431,120 @@ async function importFreshCli(options?: {
   const ensurePluginManagerInitialized = vi.fn(async () => ({
     listPluginSummary,
   }));
+  const initDatabase = vi.fn();
+  const isDatabaseInitialized = vi.fn(() => false);
+  const initAgentRegistry = vi.fn();
+  const listAgents = vi.fn(
+    () =>
+      options?.agentListResult || [
+        { id: 'main', name: 'Main Agent', model: 'gpt-5-mini' },
+      ],
+  );
+  const packAgent = vi.fn(async () => {
+    if (options?.agentPackError) throw options.agentPackError;
+    return (
+      options?.agentPackResult || {
+        archivePath: '/tmp/main.claw',
+        manifest: {
+          name: 'Main Agent',
+        },
+        workspacePath: '/tmp/.hybridclaw/data/agents/main/workspace',
+        bundledSkills: ['custom-skill'],
+        bundledPlugins: ['demo-plugin'],
+        externalSkills: [],
+        externalPlugins: [],
+        archiveEntries: ['manifest.json', 'workspace/SOUL.md'],
+      }
+    );
+  });
+  const inspectClawArchive = vi.fn(async () => {
+    if (options?.agentInspectError) throw options.agentInspectError;
+    return (
+      options?.agentInspectResult || {
+        archivePath: '/tmp/main.claw',
+        manifest: {
+          name: 'Main Agent',
+          id: 'main',
+        },
+        totalCompressedBytes: 1024,
+        totalUncompressedBytes: 2048,
+        entryNames: ['manifest.json'],
+      }
+    );
+  });
+  const formatClawArchiveSummary = vi.fn(
+    (inspection: { manifest: { name: string } }) => [
+      `Name: ${inspection.manifest.name}`,
+      'Bundled skills: 1',
+    ],
+  );
+  const unpackAgent = vi.fn(async () => {
+    if (options?.agentUnpackError) throw options.agentUnpackError;
+    return (
+      options?.agentUnpackResult || {
+        archivePath: '/tmp/main.claw',
+        manifest: {
+          name: 'Main Agent',
+          id: 'main',
+        },
+        agentId: 'imported-agent',
+        workspacePath: '/tmp/.hybridclaw/data/agents/imported-agent/workspace',
+        bundledSkills: ['custom-skill'],
+        installedPlugins: [{ pluginId: 'demo-plugin' }],
+        externalActions: [],
+        runtimeConfigChanged: true,
+      }
+    );
+  });
+  const uninstallAgent = vi.fn((agentId: string) => {
+    if (options?.agentUninstallError) throw options.agentUninstallError;
+    return (
+      options?.agentUninstallResult || {
+        agentId,
+        agentRootPath: `/tmp/.hybridclaw/data/agents/${agentId}`,
+        workspacePath: `/tmp/.hybridclaw/data/agents/${agentId}/workspace`,
+        removedAgentRoot: true,
+        removedRegistration: true,
+      }
+    );
+  });
   const ensureRuntimeConfigFile = vi.fn(() => false);
   const onRuntimeConfigChange = vi.fn(() => () => {});
   const actualRuntimeConfig = await import('../src/config/runtime-config.ts');
   let runtimeConfigState = JSON.parse(
     fs.readFileSync(path.join(process.cwd(), 'config.example.json'), 'utf8'),
   ) as ReturnType<typeof actualRuntimeConfig.getRuntimeConfig>;
+  const configPath = '/tmp/config.json';
+  const persistRuntimeConfigState = () => {
+    fs.writeFileSync(
+      configPath,
+      `${JSON.stringify(runtimeConfigState, null, 2)}\n`,
+      'utf-8',
+    );
+  };
+  persistRuntimeConfigState();
   const getRuntimeConfig = vi.fn(() => structuredClone(runtimeConfigState));
-  const runtimeConfigPath = vi.fn(() => '/tmp/config.json');
+  const reloadRuntimeConfig = vi.fn(() => structuredClone(runtimeConfigState));
+  const runtimeConfigPath = vi.fn(() => configPath);
+  const runtimeConfigRevisionPath = vi.fn(
+    () => '/tmp/hybridclaw-data/config-revisions.db',
+  );
+  let runtimeConfigRevisions = [
+    {
+      id: 12,
+      actor: 'test-user',
+      route: 'cli.config.set:hybridai.maxTokens',
+      source: 'internal',
+      md5: 'deadbeefdeadbeefdeadbeefdeadbeef',
+      byteLength: 128,
+      createdAt: '2026-03-31T12:34:56.000Z',
+      replacedByMd5: 'feedfacefeedfacefeedfacefeedface',
+      content: `${JSON.stringify(runtimeConfigState, null, 2)}\n`,
+    },
+  ];
+  const isContainerSandboxModeExplicit = vi.fn(
+    () => options?.sandboxModeExplicit ?? false,
+  );
   const getRuntimeSkillScopeDisabledNames = vi.fn(
     (
       config: {
@@ -364,9 +604,50 @@ async function importFreshCli(options?: {
       const draft = getRuntimeConfig() as Record<string, unknown>;
       mutator(draft);
       runtimeConfigState = draft as typeof runtimeConfigState;
+      persistRuntimeConfigState();
       return structuredClone(runtimeConfigState);
     },
   );
+  const listRuntimeConfigRevisions = vi.fn(() =>
+    runtimeConfigRevisions.map(({ content: _content, ...revision }) => ({
+      ...revision,
+    })),
+  );
+  const getRuntimeConfigRevision = vi.fn((revisionId: number) => {
+    const revision = runtimeConfigRevisions.find(
+      (entry) => entry.id === revisionId,
+    );
+    return revision
+      ? {
+          ...revision,
+        }
+      : null;
+  });
+  const deleteRuntimeConfigRevision = vi.fn((revisionId: number) => {
+    const before = runtimeConfigRevisions.length;
+    runtimeConfigRevisions = runtimeConfigRevisions.filter(
+      (entry) => entry.id !== revisionId,
+    );
+    return runtimeConfigRevisions.length !== before;
+  });
+  const clearRuntimeConfigRevisions = vi.fn(() => {
+    const cleared = runtimeConfigRevisions.length;
+    runtimeConfigRevisions = [];
+    return cleared;
+  });
+  const restoreRuntimeConfigRevision = vi.fn((revisionId: number) => {
+    const revision = runtimeConfigRevisions.find(
+      (entry) => entry.id === revisionId,
+    );
+    if (!revision) {
+      throw new Error(`Config revision ${revisionId} was not found.`);
+    }
+    runtimeConfigState = JSON.parse(
+      revision.content,
+    ) as typeof runtimeConfigState;
+    persistRuntimeConfigState();
+    return structuredClone(runtimeConfigState);
+  });
   const gatewayHealth = vi.fn(async () => {
     if (!options?.gatewayReachable) {
       throw new Error('gateway unavailable');
@@ -375,17 +656,22 @@ async function importFreshCli(options?: {
       status: 'ok',
     };
   });
-  const gatewayStatus = vi.fn(async () => ({
-    status: 'ok',
-    pid: 12345,
-    version: '0.4.1',
-    uptime: 1,
-    sessions: 1,
-    activeContainers: 0,
-    defaultModel: 'gpt-5-nano',
-    ragDefault: true,
-    timestamp: new Date().toISOString(),
-  }));
+  const gatewayStatus = vi.fn(async () => {
+    if (options?.gatewayStatusReachable === false) {
+      throw new Error('gateway unavailable');
+    }
+    return {
+      status: 'ok',
+      pid: 12345,
+      version: '0.4.1',
+      uptime: 1,
+      sessions: 1,
+      activeContainers: 0,
+      defaultModel: 'gpt-4.1-mini',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+    };
+  });
   const ensureGatewayRunDir = vi.fn();
   const findGatewayPidByPort = vi.fn(() => null);
   const readGatewayPid = vi.fn(() => null);
@@ -430,7 +716,6 @@ async function importFreshCli(options?: {
     loginHybridAIInteractive,
   }));
   vi.doMock('../src/auth/codex-auth.ts', () => ({
-    CODEX_DEFAULT_BASE_URL: 'https://chatgpt.com/backend-api/codex',
     CodexAuthError,
     clearCodexCredentials,
     getCodexAuthStatus,
@@ -447,22 +732,35 @@ async function importFreshCli(options?: {
       passthrough: options?.gatewayFlags?.passthrough ?? [],
     })),
   }));
-  vi.doMock('../src/config/config.ts', () => ({
-    APP_VERSION: '0.4.1',
-    DATA_DIR: '/tmp/hybridclaw-data',
-    GATEWAY_BASE_URL: 'http://127.0.0.1:9090',
-    MissingRequiredEnvVarError,
-    getResolvedSandboxMode: vi.fn(() => options?.sandboxMode || 'host'),
-    setSandboxModeOverride: vi.fn(),
-  }));
+  vi.doMock('../src/config/config.ts', () => {
+    if (options?.configModuleError) {
+      throw options.configModuleError;
+    }
+    return {
+      APP_VERSION: '0.4.1',
+      DATA_DIR: '/tmp/hybridclaw-data',
+      GATEWAY_BASE_URL: 'http://127.0.0.1:9090',
+      MissingRequiredEnvVarError,
+      getResolvedSandboxMode: vi.fn(() => options?.sandboxMode || 'host'),
+      setSandboxModeOverride: vi.fn(),
+    };
+  });
   vi.doMock('../src/config/runtime-config.ts', async () => ({
     ...actualRuntimeConfig,
     ensureRuntimeConfigFile,
     getRuntimeSkillScopeDisabledNames,
     getRuntimeConfig,
+    isContainerSandboxModeExplicit,
     onRuntimeConfigChange,
+    reloadRuntimeConfig,
+    restoreRuntimeConfigRevision,
     runtimeConfigPath,
+    runtimeConfigRevisionPath,
     setRuntimeSkillScopeEnabled,
+    listRuntimeConfigRevisions,
+    getRuntimeConfigRevision,
+    deleteRuntimeConfigRevision,
+    clearRuntimeConfigRevisions,
     updateRuntimeConfig,
   }));
   vi.doMock('../src/gateway/gateway-client.ts', () => ({
@@ -489,15 +787,23 @@ async function importFreshCli(options?: {
   vi.doMock('../src/infra/container-setup.ts', () => ({
     ensureContainerImageReady,
   }));
+  vi.doMock('../src/infra/host-runtime-setup.js', () => ({
+    ensureHostRuntimeReady,
+  }));
   vi.doMock('../src/channels/whatsapp/auth.ts', () => ({
     getWhatsAppAuthStatus,
     resetWhatsAppAuthState,
     WHATSAPP_AUTH_DIR: '/tmp/whatsapp-auth',
     WhatsAppAuthLockError: class WhatsAppAuthLockError extends Error {},
   }));
-  vi.doMock('../src/channels/whatsapp/connection.ts', () => ({
-    createWhatsAppConnectionManager,
-  }));
+  vi.doMock('../src/channels/whatsapp/connection.ts', () => {
+    if (options?.whatsAppConnectionModuleError) {
+      throw options.whatsAppConnectionModuleError;
+    }
+    return {
+      createWhatsAppConnectionManager,
+    };
+  });
   vi.doMock('node:readline/promises', () => ({
     default: {
       createInterface: readlineCreateInterface,
@@ -508,6 +814,12 @@ async function importFreshCli(options?: {
   }));
   vi.doMock('../src/skills/skills.ts', () => ({
     loadSkillCatalog,
+  }));
+  vi.doMock('../src/skills/skills-import.ts', () => ({
+    importSkill,
+  }));
+  vi.doMock('../src/skills/skills-import.js', () => ({
+    importSkill,
   }));
   vi.doMock('../src/security/instruction-approval-audit.ts', () => ({
     beginInstructionApprovalAudit: vi.fn(() => ({
@@ -531,6 +843,25 @@ async function importFreshCli(options?: {
       runTui,
     };
   });
+  vi.doMock('../src/memory/db.js', () => ({
+    initDatabase,
+    isDatabaseInitialized,
+  }));
+  vi.doMock('../src/agents/agent-registry.js', () => ({
+    initAgentRegistry,
+    listAgents,
+    getAgentById: vi.fn(
+      (agentId: string) =>
+        listAgents().find((agent) => agent.id === agentId) || null,
+    ),
+  }));
+  vi.doMock('../src/agents/claw-archive.js', () => ({
+    formatClawArchiveSummary,
+    inspectClawArchive,
+    packAgent,
+    unpackAgent,
+    uninstallAgent,
+  }));
   vi.doMock('../src/plugins/plugin-install.ts', () => ({
     installPlugin,
     reinstallPlugin,
@@ -544,6 +875,7 @@ async function importFreshCli(options?: {
   vi.doMock('../src/plugins/plugin-config.js', () => ({
     readPluginConfigEntry,
     readPluginConfigValue,
+    setPluginEnabled,
     unsetPluginConfigValue,
     writePluginConfigValue,
   }));
@@ -573,14 +905,17 @@ async function importFreshCli(options?: {
     runDoctorCli,
     ensureRuntimeCredentials,
     ensureContainerImageReady,
+    ensureHostRuntimeReady,
     getWhatsAppAuthStatus,
     resetWhatsAppAuthState,
     createWhatsAppConnectionManager,
     installPlugin,
     reinstallPlugin,
     uninstallPlugin,
+    importSkill,
     readPluginConfigEntry,
     readPluginConfigValue,
+    setPluginEnabled,
     unsetPluginConfigValue,
     writePluginConfigValue,
     listPluginSummary,
@@ -590,8 +925,15 @@ async function importFreshCli(options?: {
     whatsappWaitForSocket,
     saveRuntimeSecrets,
     ensureRuntimeConfigFile,
+    clearRuntimeConfigRevisions,
+    deleteRuntimeConfigRevision,
     getRuntimeConfig,
+    getRuntimeConfigRevision,
+    listRuntimeConfigRevisions,
+    reloadRuntimeConfig,
+    restoreRuntimeConfigRevision,
     runtimeConfigPath,
+    runtimeConfigRevisionPath,
     updateRuntimeConfig,
     gatewayHealth,
     gatewayStatus,
@@ -603,6 +945,15 @@ async function importFreshCli(options?: {
     isPidRunning,
     gatewayModuleLoaded,
     loadSkillCatalog,
+    initDatabase,
+    isDatabaseInitialized,
+    initAgentRegistry,
+    listAgents,
+    packAgent,
+    inspectClawArchive,
+    formatClawArchiveSummary,
+    unpackAgent,
+    uninstallAgent,
     readlineCreateInterface,
     readlineQuestion,
     readlineClose,
@@ -613,6 +964,7 @@ async function importFreshCli(options?: {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.doUnmock('../src/auth/hybridai-auth.ts');
   vi.doUnmock('../src/auth/codex-auth.ts');
   vi.doUnmock('../src/config/cli-flags.ts');
@@ -626,10 +978,15 @@ afterEach(() => {
   vi.doUnmock('node:readline/promises');
   vi.doUnmock('../src/onboarding.ts');
   vi.doUnmock('../src/skills/skills.ts');
+  vi.doUnmock('../src/skills/skills-import.ts');
+  vi.doUnmock('../src/skills/skills-import.js');
   vi.doUnmock('../src/security/instruction-approval-audit.ts');
   vi.doUnmock('../src/security/instruction-integrity.ts');
   vi.doUnmock('../src/security/runtime-secrets.ts');
   vi.doUnmock('../src/tui.ts');
+  vi.doUnmock('../src/memory/db.js');
+  vi.doUnmock('../src/agents/agent-registry.js');
+  vi.doUnmock('../src/agents/claw-archive.js');
   vi.doUnmock('../src/plugins/plugin-install.ts');
   vi.doUnmock('../src/plugins/plugin-install.js');
   vi.doUnmock('../src/plugins/plugin-config.js');
@@ -646,6 +1003,16 @@ afterEach(() => {
     delete process.env.OPENROUTER_API_KEY;
   } else {
     process.env.OPENROUTER_API_KEY = ORIGINAL_OPENROUTER_API_KEY;
+  }
+  if (ORIGINAL_MISTRAL_API_KEY === undefined) {
+    delete process.env.MISTRAL_API_KEY;
+  } else {
+    process.env.MISTRAL_API_KEY = ORIGINAL_MISTRAL_API_KEY;
+  }
+  if (ORIGINAL_HF_TOKEN === undefined) {
+    delete process.env.HF_TOKEN;
+  } else {
+    process.env.HF_TOKEN = ORIGINAL_HF_TOKEN;
   }
   if (ORIGINAL_HYBRIDCLAW_LOG_REQUESTS === undefined) {
     delete process.env.HYBRIDCLAW_LOG_REQUESTS;
@@ -671,6 +1038,11 @@ afterEach(() => {
     delete process.env.MSTEAMS_TENANT_ID;
   } else {
     process.env.MSTEAMS_TENANT_ID = ORIGINAL_MSTEAMS_TENANT_ID;
+  }
+  if (ORIGINAL_CI === undefined) {
+    delete process.env.CI;
+  } else {
+    process.env.CI = ORIGINAL_CI;
   }
   Object.defineProperty(process.stdin, 'isTTY', {
     configurable: true,
@@ -715,6 +1087,17 @@ describe('CLI hybridai commands', () => {
     expect(output).not.toContain('Deprecated alias for Codex provider');
   });
 
+  it('prints the CLI version without loading the runtime config module', async () => {
+    const { cli } = await importFreshCli({
+      configModuleError: new Error('config module should stay lazy'),
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['--version']);
+
+    expect(logSpy).toHaveBeenCalledWith(REPO_VERSION);
+  });
+
   it('runs bare auth login through onboarding', async () => {
     const { cli, ensureRuntimeCredentials } = await importFreshCli();
 
@@ -723,6 +1106,20 @@ describe('CLI hybridai commands', () => {
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw auth login',
     });
+  });
+
+  it('resets WhatsApp auth without loading the connection manager', async () => {
+    const { cli, getWhatsAppAuthStatus, resetWhatsAppAuthState } =
+      await importFreshCli({
+        whatsAppConnectionModuleError: new Error(
+          'whatsapp connection module should stay lazy',
+        ),
+      });
+
+    await cli.main(['auth', 'whatsapp', 'reset']);
+
+    expect(getWhatsAppAuthStatus).toHaveBeenCalled();
+    expect(resetWhatsAppAuthState).toHaveBeenCalled();
   });
 
   it('prints hybridai help', async () => {
@@ -878,6 +1275,45 @@ describe('CLI hybridai commands', () => {
     );
   });
 
+  it('disables a plugin', async () => {
+    const { cli, setPluginEnabled } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'disable', 'qmd-memory']);
+
+    expect(setPluginEnabled).toHaveBeenCalledWith('qmd-memory', false);
+    expect(logSpy).toHaveBeenCalledWith('Disabled plugin qmd-memory.');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Updated runtime config at /tmp/config.json.',
+    );
+  });
+
+  it('does not claim the runtime config was updated when a plugin is already disabled', async () => {
+    const { cli, setPluginEnabled } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    setPluginEnabled.mockResolvedValueOnce({
+      pluginId: 'qmd-memory',
+      enabled: false,
+      changed: false,
+      configPath: '/tmp/config.json',
+      entry: {
+        id: 'qmd-memory',
+        enabled: false,
+        config: {},
+      },
+    });
+
+    await cli.main(['plugin', 'disable', 'qmd-memory']);
+
+    expect(setPluginEnabled).toHaveBeenCalledWith('qmd-memory', false);
+    expect(logSpy).toHaveBeenCalledWith(
+      'Plugin qmd-memory was already disabled.',
+    );
+    expect(logSpy).not.toHaveBeenCalledWith(
+      'Updated runtime config at /tmp/config.json.',
+    );
+  });
+
   it('installs a plugin and leaves runtime config for optional overrides', async () => {
     const { cli, installPlugin } = await importFreshCli({
       pluginInstallResult: {
@@ -962,6 +1398,102 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith(
       'Restart the gateway to unload plugin changes if it is running:',
+    );
+  });
+
+  it('imports a community skill from a remote source', async () => {
+    const { cli, importSkill } = await importFreshCli({
+      skillImportResult: {
+        skillName: 'brand-guidelines',
+        skillDir: '/tmp/.hybridclaw/skills/brand-guidelines',
+        source: 'anthropics/skills/skills/brand-guidelines',
+        resolvedSource:
+          'https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
+        replacedExisting: false,
+        filesImported: 2,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'skill',
+      'import',
+      'anthropics/skills/skills/brand-guidelines',
+    ]);
+
+    expect(importSkill).toHaveBeenCalledWith(
+      'anthropics/skills/skills/brand-guidelines',
+      { force: false, skipGuard: false },
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Imported brand-guidelines from https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Installed to /tmp/.hybridclaw/skills/brand-guidelines',
+    );
+  });
+
+  it('imports a packaged community skill with an explicit official source', async () => {
+    const { cli, importSkill } = await importFreshCli({
+      skillImportResult: {
+        skillName: 'himalaya',
+        skillDir: '/tmp/.hybridclaw/skills/himalaya',
+        source: 'official/himalaya',
+        resolvedSource: 'official/himalaya',
+        replacedExisting: false,
+        filesImported: 1,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['skill', 'import', 'official/himalaya']);
+
+    expect(importSkill).toHaveBeenCalledWith('official/himalaya', {
+      force: false,
+      skipGuard: false,
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      'Imported himalaya from official/himalaya',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Installed to /tmp/.hybridclaw/skills/himalaya',
+    );
+  });
+
+  it('allows forcing a caution import', async () => {
+    const { cli, importSkill } = await importFreshCli({
+      skillImportResult: {
+        skillName: 'brand-guidelines',
+        skillDir: '/tmp/.hybridclaw/skills/brand-guidelines',
+        source: 'anthropics/skills/skills/brand-guidelines',
+        resolvedSource:
+          'https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
+        replacedExisting: false,
+        filesImported: 2,
+        guardOverrideApplied: true,
+        guardVerdict: 'caution',
+        guardFindingsCount: 1,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await cli.main([
+      'skill',
+      'import',
+      'anthropics/skills/skills/brand-guidelines',
+      '--force',
+    ]);
+
+    expect(importSkill).toHaveBeenCalledWith(
+      'anthropics/skills/skills/brand-guidelines',
+      { force: true, skipGuard: false },
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Security scanner reported caution findings for brand-guidelines (1 finding); proceeding because --force was set.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Imported brand-guidelines from https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
     );
   });
 
@@ -1105,7 +1637,9 @@ describe('CLI hybridai commands', () => {
       expect.stringContaining('`hybridclaw hybridai ...` is deprecated'),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('hybridclaw hybridai login --import'),
+      expect.stringContaining(
+        'hybridclaw auth login hybridai [--device-code|--browser|--import] [--base-url <url>]',
+      ),
     );
   });
 
@@ -1130,6 +1664,8 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
     expect(logSpy).toHaveBeenCalledWith('Source: runtime-secrets');
     expect(logSpy).toHaveBeenCalledWith('API key: hai-…1234');
+    expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
+    expect(logSpy).toHaveBeenCalledWith('Base URL: https://hybridai.one');
   });
 
   it('warns when using the deprecated local alias', async () => {
@@ -1151,6 +1687,147 @@ describe('CLI hybridai commands', () => {
 
     expect(logSpy).toHaveBeenCalledWith('Authenticated: no');
     expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Source:'));
+  });
+
+  it('prints the current runtime config from the top-level config command', async () => {
+    const { cli, getRuntimeConfig, runtimeConfigPath } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['config']);
+
+    expect(logSpy.mock.calls[0]?.[0]).toBe(
+      `Active config: ${runtimeConfigPath()}`,
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      JSON.stringify(getRuntimeConfig(), null, 2),
+    );
+  });
+
+  it('runs config check against the runtime config file only', async () => {
+    const { cli, runDoctorCli, runtimeConfigPath } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    process.exitCode = 0;
+
+    await cli.main(['config', 'check']);
+
+    expect(runDoctorCli).not.toHaveBeenCalled();
+    const escapedPath = runtimeConfigPath().replace(
+      /[.*+?^${}()|[\]\\]/g,
+      '\\$&',
+    );
+    expect(logSpy.mock.calls[0]?.[0]).toMatch(
+      new RegExp(`^✓ Config  ${escapedPath} valid \\(v\\d+\\)$`),
+    );
+    expect(logSpy).toHaveBeenCalledWith('1 ok · 0 warnings · 0 errors');
+    expect(process.exitCode).toBe(0);
+  });
+
+  it('reloads runtime config from disk through the top-level config command', async () => {
+    const { cli, reloadRuntimeConfig, runDoctorCli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    process.exitCode = 0;
+
+    await cli.main(['config', 'reload']);
+
+    expect(reloadRuntimeConfig).toHaveBeenCalledWith('cli');
+    expect(runDoctorCli).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'Reloaded runtime config from /tmp/config.json.',
+    );
+  });
+
+  it('lists saved runtime config revisions from the top-level config command', async () => {
+    const { cli, listRuntimeConfigRevisions, runtimeConfigRevisionPath } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['config', 'revisions']);
+
+    expect(listRuntimeConfigRevisions).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      `Revision store: ${runtimeConfigRevisionPath()}`,
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '#12 | 2026-03-31T12:34:56.000Z | actor=test-user',
+      ),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('route=cli.config.set:hybridai.maxTokens'),
+    );
+  });
+
+  it('rolls back to a saved runtime config revision from the top-level config command', async () => {
+    const {
+      cli,
+      restoreRuntimeConfigRevision,
+      runtimeConfigRevisionPath,
+      runDoctorCli,
+    } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    process.exitCode = 0;
+
+    await cli.main(['config', 'revisions', 'rollback', '12']);
+
+    expect(restoreRuntimeConfigRevision).toHaveBeenCalledWith(
+      12,
+      expect.objectContaining({
+        route: 'cli.config.revisions.rollback#12',
+        source: 'internal',
+      }),
+    );
+    expect(runDoctorCli).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'Rolled back runtime config to revision #12.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      `Revision store: ${runtimeConfigRevisionPath()}`,
+    );
+  });
+
+  it('deletes a saved runtime config revision from the top-level config command', async () => {
+    const { cli, deleteRuntimeConfigRevision, runtimeConfigRevisionPath } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['config', 'revisions', 'delete', '12']);
+
+    expect(deleteRuntimeConfigRevision).toHaveBeenCalledWith(12);
+    expect(logSpy).toHaveBeenCalledWith('Deleted config revision #12.');
+    expect(logSpy).toHaveBeenCalledWith(
+      `Revision store: ${runtimeConfigRevisionPath()}`,
+    );
+  });
+
+  it('clears saved runtime config revisions from the top-level config command', async () => {
+    const { cli, clearRuntimeConfigRevisions, runtimeConfigRevisionPath } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['config', 'revisions', 'clear']);
+
+    expect(clearRuntimeConfigRevisions).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Cleared 1 config revision.');
+    expect(logSpy).toHaveBeenCalledWith(
+      `Revision store: ${runtimeConfigRevisionPath()}`,
+    );
+  });
+
+  it('updates an existing dotted runtime config key from the top-level config command', async () => {
+    const { cli, getRuntimeConfig, runDoctorCli, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    process.exitCode = 0;
+
+    await cli.main(['config', 'set', 'hybridai.maxTokens', '8192']);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(runDoctorCli).not.toHaveBeenCalled();
+    expect(getRuntimeConfig().hybridai.maxTokens).toBe(8192);
+    expect(logSpy).toHaveBeenCalledWith(
+      'Updated runtime config at /tmp/config.json.',
+    );
+    expect(logSpy).toHaveBeenCalledWith('Key: hybridai.maxTokens');
   });
 
   it('runs hybridai login with explicit browser mode', async () => {
@@ -1175,6 +1852,91 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith('Login method: browser');
     expect(logSpy).toHaveBeenCalledWith('Validated: yes');
+  });
+
+  it('updates the HybridAI base URL from the deprecated hybridai command', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await cli.main(['hybridai', 'base-url', 'http://localhost:5000']);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      hybridai: {
+        baseUrl: string;
+      };
+    };
+    expect(nextConfig.hybridai.baseUrl).toBe('http://localhost:5000');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Use `hybridclaw auth login hybridai --base-url <url>` instead.',
+      ),
+    );
+    expect(logSpy).toHaveBeenCalledWith('Provider: hybridai');
+    expect(logSpy).toHaveBeenCalledWith('Base URL: http://localhost:5000');
+    expect(logSpy).toHaveBeenCalledWith('  hybridclaw hybridai status');
+  });
+
+  it('rejects invalid HybridAI base URLs from the deprecated hybridai command', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli();
+
+    await expect(
+      cli.main(['hybridai', 'base-url', 'javascript://alert(1)']),
+    ).rejects.toThrow(
+      'Invalid HybridAI base URL. Expected an absolute http:// or https:// URL.',
+    );
+
+    expect(updateRuntimeConfig).not.toHaveBeenCalled();
+  });
+
+  it('routes auth login hybridai --base-url through the HybridAI auth flow and updates config', async () => {
+    const { cli, loginHybridAIInteractive, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'auth',
+      'login',
+      'hybridai',
+      '--base-url',
+      'http://localhost:5000',
+      '--browser',
+    ]);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      hybridai: {
+        baseUrl: string;
+      };
+    };
+    expect(nextConfig.hybridai.baseUrl).toBe('http://localhost:5000');
+    expect(loginHybridAIInteractive).toHaveBeenCalledWith({
+      method: 'browser',
+      baseUrl: 'http://localhost:5000',
+    });
+    expect(logSpy).toHaveBeenCalledWith('Base URL: http://localhost:5000');
+  });
+
+  it('rejects invalid HybridAI login --base-url values before persisting config', async () => {
+    const { cli, loginHybridAIInteractive, updateRuntimeConfig } =
+      await importFreshCli();
+
+    await expect(
+      cli.main([
+        'auth',
+        'login',
+        'hybridai',
+        '--base-url',
+        '/relative',
+        '--browser',
+      ]),
+    ).rejects.toThrow(
+      'Invalid HybridAI base URL. Expected an absolute http:// or https:// URL.',
+    );
+
+    expect(updateRuntimeConfig).not.toHaveBeenCalled();
+    expect(loginHybridAIInteractive).not.toHaveBeenCalled();
   });
 
   it('runs hybridai login with auto mode by default', async () => {
@@ -1221,6 +1983,16 @@ describe('CLI hybridai commands', () => {
     expect(loginCodexInteractive).toHaveBeenCalledWith({
       method: 'browser-pkce',
     });
+  });
+
+  it('rejects conflicting codex login flags', async () => {
+    const { cli } = await importFreshCli();
+
+    await expect(
+      cli.main(['auth', 'login', 'codex', '--browser', '--import']),
+    ).rejects.toThrow(
+      'Use only one of `--device-code`, `--browser`, or `--import`.',
+    );
   });
 
   it('routes auth login local to local backend configuration', async () => {
@@ -1400,7 +2172,7 @@ describe('CLI hybridai commands', () => {
 
       expect(readlineCreateInterface).toHaveBeenCalled();
       expect(readlineQuestion).toHaveBeenCalledWith(
-        'Paste OpenRouter API key: ',
+        '🔒 Paste OpenRouter API key: ',
       );
       expect(readlineClose).toHaveBeenCalled();
       expect(saveRuntimeSecrets).toHaveBeenCalledWith({
@@ -1470,6 +2242,246 @@ describe('CLI hybridai commands', () => {
     );
   });
 
+  it('configures Mistral from auth login with --api-key', async () => {
+    const { cli, saveRuntimeSecrets, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'auth',
+      'login',
+      'mistral',
+      'mistral-large-latest',
+      '--api-key',
+      'mistral-secret-key',
+    ]);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      MISTRAL_API_KEY: 'mistral-secret-key',
+    });
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Provider: mistral');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Configured model: mistral/mistral-large-latest',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Default model: mistral/mistral-large-latest',
+    );
+  });
+
+  it('prompts for the Mistral API key when flag and env are absent', async () => {
+    const originalStdinTty = process.stdin.isTTY;
+    const originalStdoutTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    try {
+      const { cli, saveRuntimeSecrets, readlineQuestion, readlineClose } =
+        await importFreshCli({
+          promptResponses: ['mistral-pasted-key'],
+        });
+
+      await cli.main(['auth', 'login', 'mistral', 'mistral-large-latest']);
+
+      expect(readlineQuestion).toHaveBeenCalledWith(
+        '🔒 Paste Mistral API key: ',
+      );
+      expect(readlineClose).toHaveBeenCalled();
+      expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+        MISTRAL_API_KEY: 'mistral-pasted-key',
+      });
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: originalStdinTty,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutTty,
+        configurable: true,
+      });
+    }
+  });
+
+  it('prints Mistral status through auth status', async () => {
+    process.env.MISTRAL_API_KEY = 'mistral-secret-key';
+    try {
+      const { cli } = await importFreshCli();
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      await cli.main(['auth', 'status', 'mistral']);
+
+      expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('Enabled: no');
+      expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
+    } finally {
+      delete process.env.MISTRAL_API_KEY;
+    }
+  });
+
+  it('clears Mistral credentials through auth logout', async () => {
+    const { cli, saveRuntimeSecrets } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'logout', 'mistral']);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      MISTRAL_API_KEY: null,
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      'Cleared Mistral credentials in /tmp/credentials.json.',
+    );
+  });
+
+  it('configures Hugging Face from auth login with --api-key', async () => {
+    const { cli, saveRuntimeSecrets, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'auth',
+      'login',
+      'huggingface',
+      'meta-llama/Llama-3.1-8B-Instruct',
+      '--api-key',
+      'hf-secret-token',
+    ]);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      HF_TOKEN: 'hf-secret-token',
+    });
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Provider: huggingface');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Configured model: huggingface/meta-llama/Llama-3.1-8B-Instruct',
+    );
+  });
+
+  it('prompts for the Hugging Face token without echoing the token prompt text', async () => {
+    const originalStdinTty = process.stdin.isTTY;
+    const originalStdoutTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    try {
+      const { cli, saveRuntimeSecrets, readlineQuestion, readlineClose } =
+        await importFreshCli({
+          promptResponses: ['hf-pasted-token'],
+        });
+
+      await cli.main([
+        'auth',
+        'login',
+        'huggingface',
+        'meta-llama/Llama-3.1-8B-Instruct',
+      ]);
+
+      expect(readlineQuestion).toHaveBeenCalledWith(
+        '🔒 Paste Hugging Face token: ',
+      );
+      expect(readlineClose).toHaveBeenCalled();
+      expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+        HF_TOKEN: 'hf-pasted-token',
+      });
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: originalStdinTty,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutTty,
+        configurable: true,
+      });
+    }
+  });
+
+  it('prompts for the Hugging Face token even when HF_TOKEN is already loaded', async () => {
+    const originalStdinTty = process.stdin.isTTY;
+    const originalStdoutTty = process.stdout.isTTY;
+    process.env.HF_TOKEN = 'hf-existing-token';
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    try {
+      const { cli, saveRuntimeSecrets, readlineQuestion, readlineClose } =
+        await importFreshCli({
+          promptResponses: ['hf-new-token'],
+        });
+
+      await cli.main([
+        'auth',
+        'login',
+        'huggingface',
+        'meta-llama/Llama-3.1-8B-Instruct',
+      ]);
+
+      expect(readlineQuestion).toHaveBeenCalledWith(
+        '🔒 Paste Hugging Face token: ',
+      );
+      expect(readlineClose).toHaveBeenCalled();
+      expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+        HF_TOKEN: 'hf-new-token',
+      });
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: originalStdinTty,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: originalStdoutTty,
+        configurable: true,
+      });
+      delete process.env.HF_TOKEN;
+    }
+  });
+
+  it('prints Hugging Face status through auth status', async () => {
+    process.env.HF_TOKEN = 'hf-secret-token';
+    try {
+      const { cli } = await importFreshCli();
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      await cli.main(['auth', 'status', 'huggingface']);
+
+      expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
+      expect(logSpy).toHaveBeenCalledWith('Enabled: no');
+      expect(logSpy).toHaveBeenCalledWith('Config: /tmp/config.json');
+    } finally {
+      delete process.env.HF_TOKEN;
+    }
+  });
+
+  it('clears Hugging Face credentials through auth logout', async () => {
+    const { cli, saveRuntimeSecrets } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['auth', 'logout', 'huggingface']);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      HF_TOKEN: null,
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      'Cleared Hugging Face credentials in /tmp/credentials.json.',
+    );
+  });
+
   it('disables local backends through auth logout local', async () => {
     const { cli, updateRuntimeConfig } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -1480,7 +2492,7 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith(
       'Disabled local backends: ollama, lmstudio, vllm.',
     );
-    expect(logSpy).toHaveBeenCalledWith('Default model: hybridai/gpt-5-nano');
+    expect(logSpy).toHaveBeenCalledWith('Default model: hybridai/gpt-4.1-mini');
   });
 
   it('treats top-level login as an unknown command', async () => {
@@ -1551,6 +2563,14 @@ describe('CLI hybridai commands', () => {
     ).rejects.toThrow(
       'Use only one of `--device-code`, `--browser`, or `--import`.',
     );
+  });
+
+  it('rejects unknown hybridai login flags', async () => {
+    const { cli } = await importFreshCli();
+
+    await expect(
+      cli.main(['hybridai', 'login', '--base-ur', 'http://localhost:5000']),
+    ).rejects.toThrow('Unknown flag: --base-ur');
   });
 
   it('prints help and exits for an unknown help topic', async () => {
@@ -1709,11 +2729,44 @@ describe('CLI hybridai commands', () => {
     expect(removeGatewayPidFile).toHaveBeenCalledTimes(1);
   });
 
-  it('launches tui without local runtime preflight when gateway is already reachable', async () => {
+  it('offers to switch to host mode when implicit container startup fails with docker permission denied', async () => {
+    const dockerAccessError = Object.assign(
+      new Error(
+        'hybridclaw gateway start --foreground: Docker is installed but the current user cannot access the Docker daemon (permission denied).',
+      ),
+      {
+        name: 'DockerAccessError',
+        kind: 'permission-denied',
+      },
+    );
+    const { cli, gatewayModuleLoaded, updateRuntimeConfig } =
+      await importFreshCli({
+        gatewayFlags: {
+          foreground: true,
+        },
+        sandboxMode: 'container',
+        sandboxModeExplicit: false,
+        ensureContainerImageReadyError: dockerAccessError,
+        promptResponses: ['y'],
+      });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(process, 'on').mockImplementation(
+      ((_: string | symbol, __: (...args: unknown[]) => void) =>
+        process) as never,
+    );
+
+    await cli.main(['gateway', 'start', '--foreground']);
+
+    expect(updateRuntimeConfig).toHaveBeenCalledTimes(1);
+    expect(gatewayModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs tui preflight before reusing a reachable gateway', async () => {
     const {
       cli,
       ensureRuntimeCredentials,
       ensureContainerImageReady,
+      ensureHostRuntimeReady,
       gatewayHealth,
       runTui,
       tuiModuleLoaded,
@@ -1726,8 +2779,11 @@ describe('CLI hybridai commands', () => {
     await cli.main(['tui']);
 
     expect(gatewayHealth).toHaveBeenCalled();
-    expect(ensureRuntimeCredentials).not.toHaveBeenCalled();
-    expect(ensureContainerImageReady).not.toHaveBeenCalled();
+    expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
+      commandName: 'hybridclaw tui',
+    });
+    expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
+    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
       'hybridclaw tui: Gateway found at http://127.0.0.1:9090.',
     );
@@ -1742,6 +2798,70 @@ describe('CLI hybridai commands', () => {
       }),
     );
     expect(tuiModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails before starting tui when host runtime dependencies are missing', async () => {
+    const startupError = new Error(
+      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Reinstall HybridClaw.',
+    );
+    const {
+      cli,
+      ensureRuntimeCredentials,
+      ensureHostRuntimeReady,
+      ensureContainerImageReady,
+    } = await importFreshCli({
+      gatewayReachable: false,
+      gatewayStatusReachable: false,
+      sandboxMode: 'host',
+      ensureHostRuntimeReadyError: startupError,
+    });
+
+    await expect(cli.main(['tui'])).rejects.toThrow(
+      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Reinstall HybridClaw.',
+    );
+
+    expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
+      commandName: 'hybridclaw tui',
+    });
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(ensureContainerImageReady).not.toHaveBeenCalled();
+  });
+
+  it('offers to switch to host mode before reusing a reachable gateway when docker access is blocked', async () => {
+    const startupError = Object.assign(
+      new Error(
+        'hybridclaw tui: Required container image `hybridclaw-agent` not found. HybridClaw could not pull a published runtime image automatically. Check Docker connectivity and the published image tag, or set `container.sandboxMode` to `host` to run without Docker. Details: permission denied while trying to connect to the Docker daemon socket.',
+      ),
+      {
+        name: 'DockerAccessError',
+        kind: 'permission-denied',
+      },
+    );
+
+    const {
+      cli,
+      ensureRuntimeCredentials,
+      ensureContainerImageReady,
+      ensureHostRuntimeReady,
+      updateRuntimeConfig,
+      runTui,
+    } = await importFreshCli({
+      gatewayReachable: true,
+      sandboxMode: 'container',
+      sandboxModeExplicit: false,
+      ensureContainerImageReadyError: startupError,
+      promptResponses: ['y'],
+    });
+
+    await cli.main(['tui']);
+
+    expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
+      commandName: 'hybridclaw tui',
+    });
+    expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
+    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
+    expect(updateRuntimeConfig).toHaveBeenCalledTimes(1);
+    expect(runTui).toHaveBeenCalledTimes(1);
   });
 
   it('passes an explicit session id through tui --resume', async () => {
@@ -1824,6 +2944,561 @@ describe('CLI hybridai commands', () => {
       discord: ['docx'],
     });
     expect(logSpy).toHaveBeenCalledWith('Enabled pdf in global scope.');
+  });
+
+  it('disables a built-in tool globally', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['tool', 'disable', 'browser_navigate']);
+
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      tools: {
+        disabled: string[];
+      };
+    };
+    expect(nextConfig.tools.disabled).toEqual(['browser_navigate']);
+    expect(logSpy).toHaveBeenCalledWith('Disabled browser_navigate.');
+  });
+
+  it('prints tool help from the help topic', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['help', 'tool']);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Usage: hybridclaw tool <command>'),
+    );
+  });
+
+  it('prints agent help from the help topic', async () => {
+    const { cli } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['help', 'agent']);
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Usage: hybridclaw agent <command>'),
+    );
+  });
+
+  it('runs agent list and prints tab-separated rows', async () => {
+    const { cli, listAgents } = await importFreshCli({
+      agentListResult: [
+        { id: 'main', name: 'Main Agent', model: 'gpt-5-mini' },
+        { id: 'writer', name: 'Writer Agent', model: { primary: 'gpt-5' } },
+      ],
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['agent', 'list']);
+
+    expect(listAgents).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('main\tMain Agent\tgpt-5-mini');
+    expect(logSpy).toHaveBeenCalledWith('writer\tWriter Agent\tgpt-5');
+  });
+
+  it('runs agent inspect and prints the archive summary', async () => {
+    const { cli, inspectClawArchive, formatClawArchiveSummary } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['agent', 'inspect', '/tmp/demo.claw']);
+
+    expect(inspectClawArchive).toHaveBeenCalledWith(
+      path.resolve('/tmp/demo.claw'),
+    );
+    expect(formatClawArchiveSummary).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Name: Main Agent'),
+    );
+  });
+
+  it('runs agent export and reports bundled content counts', async () => {
+    const { cli, packAgent, initDatabase, initAgentRegistry } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['agent', 'export', 'main', '-o', '/tmp/export.claw']);
+
+    expect(initDatabase).toHaveBeenCalledWith({ quiet: true });
+    expect(initAgentRegistry).toHaveBeenCalled();
+    expect(packAgent).toHaveBeenCalledWith(
+      'main',
+      expect.objectContaining({
+        outputPath: path.resolve('/tmp/export.claw'),
+      }),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Exported agent Main Agent to /tmp/main.claw.'),
+    );
+    expect(logSpy).toHaveBeenCalledWith('🧩 Bundled skills: 1');
+    expect(logSpy).toHaveBeenCalledWith('🔌 Bundled plugins: 1');
+  });
+
+  it('passes export metadata and dry-run flags through to packAgent', async () => {
+    const { cli, packAgent } = await importFreshCli({
+      agentPackResult: {
+        archivePath: '/tmp/preview.claw',
+        manifest: {
+          name: 'Main Agent',
+        },
+        workspacePath: '/tmp/.hybridclaw/data/agents/main/workspace',
+        bundledSkills: [],
+        bundledPlugins: [],
+        externalSkills: [],
+        externalPlugins: [],
+        archiveEntries: ['manifest.json', 'workspace/SOUL.md'],
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'agent',
+      'export',
+      'main',
+      '--description',
+      'Portable starter',
+      '--author',
+      'Tester',
+      '--version',
+      '1.2.3',
+      '--dry-run',
+    ]);
+
+    expect(packAgent).toHaveBeenCalledWith(
+      'main',
+      expect.objectContaining({
+        dryRun: true,
+        manifestMetadata: {
+          description: 'Portable starter',
+          author: 'Tester',
+          version: '1.2.3',
+        },
+      }),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Dry run export for agent Main Agent: /tmp/preview.claw.',
+      ),
+    );
+    expect(logSpy).toHaveBeenCalledWith('📄 Archive entries:');
+    expect(logSpy).toHaveBeenCalledWith('  manifest.json');
+  });
+
+  it('passes --skills active through to packAgent during export', async () => {
+    const { cli, packAgent } = await importFreshCli();
+
+    await cli.main(['agent', 'export', 'main', '--skills', 'active']);
+
+    expect(packAgent).toHaveBeenCalledWith(
+      'main',
+      expect.objectContaining({
+        skillSelection: {
+          mode: 'active',
+        },
+      }),
+    );
+  });
+
+  it('passes explicit skill selections through to packAgent during export', async () => {
+    const { cli, packAgent } = await importFreshCli();
+
+    await cli.main([
+      'agent',
+      'export',
+      'main',
+      '--skills',
+      'some',
+      '--skill',
+      '1password',
+      '--skill',
+      'apple-calendar',
+    ]);
+
+    expect(packAgent).toHaveBeenCalledWith(
+      'main',
+      expect.objectContaining({
+        skillSelection: {
+          mode: 'some',
+          names: ['1password', 'apple-calendar'],
+        },
+      }),
+    );
+  });
+
+  it('rejects --skill without --skills some', async () => {
+    const { cli, packAgent } = await importFreshCli();
+
+    await expect(
+      cli.main(['agent', 'export', 'main', '--skill', '1password']),
+    ).rejects.toThrow('`--skill <name>` requires `--skills some`.');
+    expect(packAgent).not.toHaveBeenCalled();
+  });
+
+  it('passes --plugins active through to packAgent during export', async () => {
+    const { cli, packAgent } = await importFreshCli();
+
+    await cli.main(['agent', 'export', 'main', '--plugins', 'active']);
+
+    expect(packAgent).toHaveBeenCalledWith(
+      'main',
+      expect.objectContaining({
+        pluginSelection: {
+          mode: 'active',
+        },
+      }),
+    );
+  });
+
+  it('passes explicit plugin selections through to packAgent during export', async () => {
+    const { cli, packAgent } = await importFreshCli();
+
+    await cli.main([
+      'agent',
+      'export',
+      'main',
+      '--plugins',
+      'some',
+      '--plugin',
+      'demo-plugin',
+      '--plugin',
+      'qmd-memory',
+    ]);
+
+    expect(packAgent).toHaveBeenCalledWith(
+      'main',
+      expect.objectContaining({
+        pluginSelection: {
+          mode: 'some',
+          names: ['demo-plugin', 'qmd-memory'],
+        },
+      }),
+    );
+  });
+
+  it('rejects --plugin without --plugins some', async () => {
+    const { cli, packAgent } = await importFreshCli();
+
+    await expect(
+      cli.main(['agent', 'export', 'main', '--plugin', 'demo-plugin']),
+    ).rejects.toThrow('`--plugin <id>` requires `--plugins some`.');
+    expect(packAgent).not.toHaveBeenCalled();
+  });
+
+  it('reuses one readline interface across export prompts', async () => {
+    const { cli, packAgent, readlineCreateInterface, readlineClose } =
+      await importFreshCli({
+        promptResponses: [
+          'e',
+          'https://github.com/example/custom-skill.git',
+          'custom-skill',
+          'e',
+          'npm',
+          '@example/demo-plugin',
+          'demo-plugin',
+        ],
+      });
+
+    packAgent.mockImplementationOnce(async (_agentId, options) => {
+      await options.promptSelection?.({
+        kind: 'skill',
+        directoryName: 'custom-skill',
+        sourceDir: '/tmp/skill',
+      });
+      await options.promptSelection?.({
+        kind: 'plugin',
+        pluginId: 'demo-plugin',
+        sourceDir: '/tmp/plugin',
+        packageName: '@example/demo-plugin',
+      });
+      return {
+        archivePath: '/tmp/main.claw',
+        manifest: {
+          name: 'Main Agent',
+        },
+        workspacePath: '/tmp/.hybridclaw/data/agents/main/workspace',
+        bundledSkills: [],
+        bundledPlugins: [],
+        externalSkills: [],
+        externalPlugins: [],
+        archiveEntries: ['manifest.json'],
+      };
+    });
+
+    await cli.main(['agent', 'export', 'main']);
+
+    expect(readlineCreateInterface).toHaveBeenCalledTimes(1);
+    expect(readlineClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats n as skip during interactive export prompts', async () => {
+    const { cli, packAgent, readlineQuestion } = await importFreshCli({
+      promptResponses: ['n', 'n'],
+    });
+
+    const selections: unknown[] = [];
+    packAgent.mockImplementationOnce(async (_agentId, options) => {
+      selections.push(
+        await options.promptSelection?.({
+          kind: 'skill',
+          directoryName: 'custom-skill',
+          sourceDir: '/tmp/skill',
+        }),
+      );
+      selections.push(
+        await options.promptSelection?.({
+          kind: 'plugin',
+          pluginId: 'demo-plugin',
+          sourceDir: '/tmp/plugin',
+          packageName: '@example/demo-plugin',
+        }),
+      );
+      return {
+        archivePath: '/tmp/main.claw',
+        manifest: {
+          name: 'Main Agent',
+        },
+        workspacePath: '/tmp/.hybridclaw/data/agents/main/workspace',
+        bundledSkills: [],
+        bundledPlugins: [],
+        externalSkills: [],
+        externalPlugins: [],
+        archiveEntries: ['manifest.json'],
+      };
+    });
+
+    await cli.main(['agent', 'export', 'main']);
+
+    expect(selections).toEqual([{ mode: 'skip' }, { mode: 'skip' }]);
+    expect(readlineQuestion).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs agent install with --yes and prints runtime config updates', async () => {
+    const { cli, unpackAgent, readlineQuestion } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'agent',
+      'install',
+      '/tmp/demo.claw',
+      '--id',
+      'imported',
+      '--yes',
+    ]);
+
+    expect(unpackAgent).toHaveBeenCalledWith(
+      path.resolve('/tmp/demo.claw'),
+      expect.objectContaining({
+        agentId: 'imported',
+        yes: true,
+      }),
+    );
+    expect(readlineQuestion).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Installed agent imported-agent'),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Updated runtime config at'),
+    );
+  });
+
+  it('downloads official claws from GitHub before install', async () => {
+    const { cli, unpackAgent } = await importFreshCli({
+      fetchMock: async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://api.github.com/repos/HybridAIOne/claws/contents/src?ref=main'
+        ) {
+          return new Response(
+            JSON.stringify([
+              {
+                type: 'dir',
+                name: 'charly-neumann-executive-briefing-chief-of-staff',
+              },
+            ]),
+            { status: 200 },
+          );
+        }
+        if (
+          url ===
+          'https://raw.githubusercontent.com/HybridAIOne/claws/main/dist/charly-neumann-executive-briefing-chief-of-staff.claw'
+        ) {
+          return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+        }
+        throw new Error(`Unexpected fetch URL: ${url}`);
+      },
+    });
+
+    await cli.main([
+      'agent',
+      'install',
+      'official:charly-neumann-executive-briefing-chief-of-staff',
+      '--yes',
+    ]);
+
+    expect(unpackAgent).toHaveBeenCalledTimes(1);
+    expect(String(unpackAgent.mock.calls[0]?.[0] || '')).toMatch(
+      /charly-neumann-executive-briefing-chief-of-staff\.claw$/,
+    );
+  });
+
+  it('fails fast when an official claws selector is not an exact directory match', async () => {
+    const { cli, unpackAgent } = await importFreshCli({
+      fetchMock: async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://api.github.com/repos/HybridAIOne/claws/contents/src?ref=main'
+        ) {
+          return new Response(
+            JSON.stringify([
+              {
+                type: 'dir',
+                name: 'charly-neumann-executive-briefing-chief-of-staff',
+              },
+            ]),
+            { status: 200 },
+          );
+        }
+        throw new Error(`Unexpected fetch URL: ${url}`);
+      },
+    });
+
+    await expect(
+      cli.main(['agent', 'install', 'official:charly', '--yes']),
+    ).rejects.toThrow(
+      'Could not find packaged agent directory "charly" in HybridAIOne/claws@main. Use the exact src directory name or an explicit dist/<file>.claw path.',
+    );
+    expect(unpackAgent).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when the official claws src listing is empty or malformed', async () => {
+    const { cli, unpackAgent } = await importFreshCli({
+      fetchMock: async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://api.github.com/repos/HybridAIOne/claws/contents/src?ref=main'
+        ) {
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        throw new Error(`Unexpected fetch URL: ${url}`);
+      },
+    });
+
+    await expect(
+      cli.main(['agent', 'install', 'official:charly', '--yes']),
+    ).rejects.toThrow(
+      'No packaged agent directories were found under HybridAIOne/claws@main src/. The repository contents may be empty or malformed.',
+    );
+    expect(unpackAgent).not.toHaveBeenCalled();
+  });
+
+  it('rejects github install shorthands that guess a dist layout', async () => {
+    const { cli, unpackAgent } = await importFreshCli();
+
+    await expect(
+      cli.main([
+        'agent',
+        'install',
+        'github:HybridAIOne/claws/dist/charly.claw',
+        '--yes',
+      ]),
+    ).rejects.toThrow(
+      '`github:owner/repo/<ref>/<agent-dir>` install source must point to an agent directory, not a packaged .claw file.',
+    );
+    expect(unpackAgent).not.toHaveBeenCalled();
+  });
+
+  it('passes skipExternals through agent install', async () => {
+    const { cli, unpackAgent } = await importFreshCli();
+
+    await cli.main([
+      'agent',
+      'install',
+      '/tmp/demo.claw',
+      '--yes',
+      '--skip-externals',
+    ]);
+
+    expect(unpackAgent).toHaveBeenCalledWith(
+      path.resolve('/tmp/demo.claw'),
+      expect.objectContaining({
+        yes: true,
+        skipExternals: true,
+      }),
+    );
+  });
+
+  it('passes skipImportErrors through agent install', async () => {
+    const { cli, unpackAgent } = await importFreshCli();
+
+    await cli.main([
+      'agent',
+      'install',
+      '/tmp/demo.claw',
+      '--yes',
+      '--skip-import-errors',
+    ]);
+
+    expect(unpackAgent).toHaveBeenCalledWith(
+      path.resolve('/tmp/demo.claw'),
+      expect.objectContaining({
+        yes: true,
+        skipImportErrors: true,
+      }),
+    );
+  });
+
+  it('activates an installed agent as the default runtime agent', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli({
+      agentListResult: [
+        { id: 'main', name: 'Main Agent', model: 'gpt-5-mini' },
+        { id: 'charly', name: 'Charly Agent', model: 'gpt-5-mini' },
+      ],
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['agent', 'activate', 'charly']);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      agents: { defaultAgentId: string; list: Array<{ id: string }> };
+    };
+    expect(nextConfig.agents.defaultAgentId).toBe('charly');
+    expect(nextConfig.agents.list).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'charly' })]),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Activated agent charly as the default'),
+    );
+  });
+
+  it('runs agent uninstall with --yes and removes the installed agent', async () => {
+    const { cli, uninstallAgent } = await importFreshCli({
+      agentListResult: [
+        { id: 'main', name: 'Main Agent', model: 'gpt-5-mini' },
+        { id: 'writer', name: 'Writer Agent', model: 'gpt-5-mini' },
+      ],
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['agent', 'uninstall', 'writer', '--yes']);
+
+    expect(uninstallAgent).toHaveBeenCalledWith('writer', {
+      existingAgent: {
+        id: 'writer',
+        name: 'Writer Agent',
+        model: 'gpt-5-mini',
+      },
+    });
+    expect(logSpy).toHaveBeenCalledWith('Uninstalled agent writer.');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Removed agent files at /tmp/.hybridclaw/data/agents/writer.',
+    );
   });
 
   it('treats a symlinked bin path as direct execution', async () => {

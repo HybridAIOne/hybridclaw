@@ -497,6 +497,43 @@ describe('email delivery helpers', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  test('prefers explicit subject and forwards cc and bcc recipients', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-3@example.com>',
+      })),
+    };
+
+    await sendEmail({
+      transport,
+      to: 'ops@example.com',
+      body: '[Subject: Deployment complete]\n\nAttached is the report.',
+      subject: 'Quarterly update',
+      cc: ['finance@example.com'],
+      bcc: ['audit@example.com'],
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+    });
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'ops@example.com',
+        subject: 'Quarterly update',
+        cc: ['finance@example.com'],
+        bcc: ['audit@example.com'],
+        text: 'Attached is the report.',
+        html: expect.stringContaining('<p>Attached is the report.</p>'),
+      }),
+    );
+  });
+
   test('sends attachment-only email without inserting placeholder body text', async () => {
     vi.doMock('../src/config/config.ts', () => ({
       APP_VERSION: '0.7.1',

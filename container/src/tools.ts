@@ -16,12 +16,16 @@ import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   replaceWorkspaceRootInOutput,
   resolveMediaPath,
-  resolveWorkspaceGlobPattern,
   resolveWorkspacePath,
   stripWorkspaceRootPrefix,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
+import {
+  runGlobSearch,
+  runGrepSearch,
+  SEARCH_TOOL_DEFINITIONS,
+} from './tools/search-tools.js';
 import {
   type DelegationSideEffect,
   type DelegationTaskSpec,
@@ -93,6 +97,8 @@ let currentModelProvider:
   | 'hybridai'
   | 'openai-codex'
   | 'openrouter'
+  | 'mistral'
+  | 'huggingface'
   | 'ollama'
   | 'lmstudio'
   | 'vllm' = 'hybridai';
@@ -293,6 +299,8 @@ export function setModelContext(
     | 'hybridai'
     | 'openai-codex'
     | 'openrouter'
+    | 'mistral'
+    | 'huggingface'
     | 'ollama'
     | 'lmstudio'
     | 'vllm'
@@ -381,6 +389,21 @@ function readStringValue(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+// Duplicated on purpose instead of importing the gateway helper. The container
+// runtime is packaged independently and should keep its input normalization
+// self-contained at the sandbox boundary.
+function readStringListValue(value: unknown): string[] | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : undefined;
+  }
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .map((entry) => readStringValue(entry))
+    .filter((entry): entry is string => Boolean(entry));
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function readPositiveNumberValue(value: unknown): number | null {
@@ -796,7 +819,7 @@ async function readVisionImageFromLocalPath(
   const normalizedPath = normalizeVisionLocalPath(localPath);
   if (!normalizedPath) {
     throw new Error(
-      `local image path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}, or a local temp directory`,
+      `local image path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}, /uploaded-media-cache, or a local temp directory`,
     );
   }
   if (
@@ -964,8 +987,6 @@ async function runVisionAnalyze(
   );
 }
 
-const PREVIEW_MAX_OUTPUT_LINES = 6;
-const PREVIEW_MAX_LINE_LENGTH = 200;
 const BASH_MAX_OUTPUT_LINES = 400;
 const BASH_MAX_OUTPUT_BYTES = 128 * 1024;
 const BASH_EXEC_DEFAULT_TIMEOUT_MS = 4 * 60 * 1000;
@@ -974,24 +995,6 @@ const BASH_EXEC_MAX_TIMEOUT_MS = 15 * 60 * 1000;
 const BASH_EXEC_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 const READ_MAX_LINES = 2000;
 const READ_MAX_BYTES = 50 * 1024;
-
-function abbreviatePreview(text: string): string {
-  const lines = text.split('\n');
-  const truncated = lines
-    .slice(0, PREVIEW_MAX_OUTPUT_LINES)
-    .map((line) =>
-      line.length > PREVIEW_MAX_LINE_LENGTH
-        ? `${line.slice(0, PREVIEW_MAX_LINE_LENGTH)}...`
-        : line,
-    );
-  if (lines.length > PREVIEW_MAX_OUTPUT_LINES) {
-    truncated.push(
-      `... (${lines.length - PREVIEW_MAX_OUTPUT_LINES} more lines)`,
-    );
-  }
-  return truncated.join('\n');
-}
-
 type ReadTruncationResult = {
   content: string;
   truncated: boolean;
@@ -1109,55 +1112,6 @@ function safeJoin(userPath: string): string {
   const resolved = resolveWorkspacePath(userPath);
   if (resolved) return resolved;
   throw new Error(`Path escapes workspace: ${userPath}`);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function globPatternToRegExp(pattern: string): RegExp {
-  let regex = '^';
-
-  for (let index = 0; index < pattern.length; index += 1) {
-    const ch = pattern[index];
-    if (ch === '*') {
-      const next = pattern[index + 1];
-      const afterNext = pattern[index + 2];
-      if (next === '*') {
-        if (afterNext === '/') {
-          regex += '(?:[^/]+/)*';
-          index += 2;
-          continue;
-        }
-        regex += '.*';
-        index += 1;
-        continue;
-      }
-      regex += '[^/]*';
-      continue;
-    }
-    if (ch === '?') {
-      regex += '[^/]';
-      continue;
-    }
-    if (ch === '{') {
-      const end = pattern.indexOf('}', index + 1);
-      if (end > index) {
-        const body = pattern
-          .slice(index + 1, end)
-          .split(',')
-          .map((part) => escapeRegExp(part))
-          .join('|');
-        regex += `(?:${body})`;
-        index = end;
-        continue;
-      }
-    }
-    regex += escapeRegExp(ch);
-  }
-
-  regex += '$';
-  return new RegExp(regex);
 }
 
 const MEMORY_ROOT_FILES = new Set(['MEMORY.md', 'USER.md']);
@@ -1816,47 +1770,17 @@ async function executeToolInternal(
     }
 
     case 'glob': {
-      const pattern = String(args.pattern || '').trim();
-      try {
-        const normalizedWorkspacePattern = resolveWorkspaceGlobPattern(pattern);
-        if (!normalizedWorkspacePattern) {
-          return failTool(
-            'Error: glob only searches inside the workspace or configured external bind mounts. For other absolute paths, use bash.',
-          );
-        }
-        const matcher = globPatternToRegExp(
-          normalizedWorkspacePattern.replace(/\\/g, '/'),
-        );
-        const cmd = `find "${WORKSPACE_ROOT.replace(/"/g, '\\"')}" -type f 2>/dev/null | head -5000`;
-        const result = execSync(cmd, { timeout: 10000, encoding: 'utf-8' });
-        if (!result.trim()) return 'No files found.';
-        const files = result
-          .trim()
-          .split('\n')
-          .map((filePath) => filePath.trim())
-          .filter(Boolean)
-          .filter((filePath) => matcher.test(filePath.replace(/\\/g, '/')))
-          .slice(0, 50)
-          .map((filePath) => replaceWorkspaceRootInOutput(filePath));
-        if (files.length === 0) return 'No files found.';
-        return abbreviatePreview(files.join('\n'));
-      } catch (err) {
-        if (err instanceof ToolExecutionFailure) throw err;
-        return 'No files found.';
-      }
+      const pattern = readStringValue(args.pattern);
+      if (!pattern) return failTool('Error: pattern is required');
+      const result = runGlobSearch(pattern);
+      if (result.isError) return failTool(result.output);
+      return result.output;
     }
 
     case 'grep': {
-      const searchPath = args.path ? safeJoin(args.path) : WORKSPACE_ROOT;
-      try {
-        const cmd = `rg --no-heading --line-number "${args.pattern.replace(/"/g, '\\"')}" "${searchPath}" 2>/dev/null | head -30`;
-        const result = execSync(cmd, { timeout: 10000, encoding: 'utf-8' });
-        if (!result.trim()) return 'No matches found.';
-        // Convert absolute paths to relative
-        return abbreviatePreview(replaceWorkspaceRootInOutput(result));
-      } catch {
-        return 'No matches found.';
-      }
+      const result = runGrepSearch(args);
+      if (result.isError) return failTool(result.output);
+      return result.output;
     }
 
     case 'bash': {
@@ -2142,6 +2066,10 @@ async function executeToolInternal(
           readStringValue(args.content) ||
           readStringValue(args.text) ||
           readStringValue(args.message);
+        const subject =
+          readStringValue(args.subject) || readStringValue(args.title);
+        const cc = readStringListValue(args.cc);
+        const bcc = readStringListValue(args.bcc);
         const filePath =
           readStringValue(args.filePath) ||
           readStringValue(args.attachmentPath) ||
@@ -2179,6 +2107,9 @@ async function executeToolInternal(
         if (channelId) payload.channelId = channelId;
         if (userLookupTarget) payload.user = userLookupTarget;
         if (content) payload.content = content;
+        if (subject) payload.subject = subject;
+        if (cc) payload.cc = cc;
+        if (bcc) payload.bcc = bcc;
         if (filePath) payload.filePath = filePath;
         if (components !== undefined) payload.components = components;
 
@@ -2836,47 +2767,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
-  {
-    type: 'function',
-    function: {
-      name: 'glob',
-      description:
-        'List files matching a glob pattern inside the workspace only. For absolute paths outside the workspace, use bash instead.',
-      parameters: {
-        type: 'object',
-        properties: {
-          pattern: {
-            type: 'string',
-            description:
-              'Glob pattern to match files inside the workspace (relative paths preferred)',
-          },
-        },
-        required: ['pattern'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'grep',
-      description: 'Search for a regex pattern in files',
-      parameters: {
-        type: 'object',
-        properties: {
-          pattern: {
-            type: 'string',
-            description: 'Regex pattern to search for',
-          },
-          path: {
-            type: 'string',
-            description:
-              'Directory or file to search in (default: workspace root)',
-          },
-        },
-        required: ['pattern'],
-      },
-    },
-  },
+  ...SEARCH_TOOL_DEFINITIONS,
   {
     type: 'function',
     function: {
@@ -3033,6 +2924,27 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           content: {
             type: 'string',
             description: 'Message text payload (required for action="send").',
+          },
+          subject: {
+            type: 'string',
+            description:
+              'Optional email subject override for action="send" when channelId/to targets an email address. If omitted, email can still use an inline `[Subject: ...]` prefix in content.',
+          },
+          cc: {
+            type: ['string', 'array'],
+            items: {
+              type: 'string',
+            },
+            description:
+              'Optional email CC recipient or list of recipients for action="send" when channelId/to targets an email address.',
+          },
+          bcc: {
+            type: ['string', 'array'],
+            items: {
+              type: 'string',
+            },
+            description:
+              'Optional email BCC recipient or list of recipients for action="send" when channelId/to targets an email address.',
           },
           filePath: {
             type: 'string',
@@ -3258,14 +3170,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'vision_analyze',
       description:
-        'Analyze an image attachment using vision. Use for Discord-uploaded files (local /discord-media-cache paths first, Discord CDN URLs as fallback).',
+        'Analyze a current-turn image attachment using vision. Prefer local attachment paths from /workspace, /discord-media-cache, or /uploaded-media-cache; use a Discord CDN fallback URL only when no local path is readable.',
       parameters: {
         type: 'object',
         properties: {
           image_url: {
             type: 'string',
             description:
-              'Local image path (preferred) or Discord CDN HTTPS URL.',
+              'Local image path (preferred) from /workspace, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.',
           },
           question: {
             type: 'string',
@@ -3274,7 +3186,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           fallback_url: {
             type: 'string',
             description:
-              'Optional fallback Discord CDN URL if image_url cannot be read.',
+              'Optional fallback Discord CDN URL if the local image path cannot be read.',
           },
           original_url: {
             type: 'string',
@@ -3296,7 +3208,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           image_url: {
             type: 'string',
             description:
-              'Local image path (preferred) or Discord CDN HTTPS URL.',
+              'Local image path (preferred) from /workspace, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.',
           },
           question: {
             type: 'string',

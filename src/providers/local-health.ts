@@ -1,6 +1,5 @@
 import {
   LOCAL_HEALTH_CHECK_ENABLED,
-  LOCAL_HEALTH_CHECK_INTERVAL_MS,
   LOCAL_HEALTH_CHECK_TIMEOUT_MS,
   LOCAL_LMSTUDIO_BASE_URL,
   LOCAL_LMSTUDIO_ENABLED,
@@ -16,10 +15,10 @@ import type {
   LocalBackendType,
   ModelHealthCheckResult,
 } from './local-types.js';
+import { createOnDemandProbe } from './on-demand-probe.js';
 import { isRecord, normalizeBaseUrl } from './utils.js';
 
-let healthTimer: ReturnType<typeof setInterval> | null = null;
-const backendHealth = new Map<LocalBackendType, HealthCheckResult>();
+const PROBE_TTL_MS = 30_000;
 
 function hasEnabledLocalBackend(): boolean {
   return LOCAL_OLLAMA_ENABLED || LOCAL_LMSTUDIO_ENABLED || LOCAL_VLLM_ENABLED;
@@ -158,7 +157,6 @@ export async function checkAllBackends(): Promise<
 > {
   const next = new Map<LocalBackendType, HealthCheckResult>();
   if (!hasEnabledLocalBackend() || !LOCAL_HEALTH_CHECK_ENABLED) {
-    backendHealth.clear();
     return next;
   }
 
@@ -183,44 +181,10 @@ export async function checkAllBackends(): Promise<
   for (const result of await Promise.all(tasks)) {
     next.set(result.backend, result);
   }
-
-  backendHealth.clear();
-  for (const [backend, result] of next) {
-    backendHealth.set(backend, result);
-  }
-  return new Map(backendHealth);
+  return next;
 }
 
-export function getBackendHealth(
-  backend: LocalBackendType,
-): HealthCheckResult | null {
-  return backendHealth.get(backend) || null;
-}
-
-export function getAllBackendHealth(): Map<
-  LocalBackendType,
-  HealthCheckResult
-> {
-  return new Map(backendHealth);
-}
-
-export function startHealthCheckLoop(): void {
-  stopHealthCheckLoop();
-  if (!hasEnabledLocalBackend() || !LOCAL_HEALTH_CHECK_ENABLED) {
-    backendHealth.clear();
-    return;
-  }
-  void checkAllBackends();
-  healthTimer = setInterval(
-    () => {
-      void checkAllBackends();
-    },
-    Math.max(5_000, LOCAL_HEALTH_CHECK_INTERVAL_MS),
-  );
-}
-
-export function stopHealthCheckLoop(): void {
-  if (!healthTimer) return;
-  clearInterval(healthTimer);
-  healthTimer = null;
-}
+export const localBackendsProbe = createOnDemandProbe(
+  checkAllBackends,
+  PROBE_TTL_MS,
+);

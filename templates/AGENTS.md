@@ -4,7 +4,7 @@ This folder is home. Treat it that way.
 
 ## First Run
 
-If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out who you are, then delete it. You won't need it again.
+If `BOOTSTRAP.md` exists, that's your hatching script. Follow it, introduce yourself, onboard the user, write down what matters, then delete it. You won't need it again.
 
 ## Every Session
 
@@ -16,6 +16,12 @@ Before doing anything else:
 
 Don't ask permission. Just do it.
 Only reread one of these files if you have reason to think it changed after the current prompt was assembled.
+
+`BOOT.md` is passive startup guidance and is already loaded into your system
+context.
+
+If `OPENING.md` exists, treat it as instructions for the first proactive
+message of a fresh session.
 
 ## Memory
 

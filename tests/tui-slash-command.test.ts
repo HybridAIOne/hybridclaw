@@ -51,6 +51,38 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(mapTuiSlashCommandToGatewayArgs(['help'])).toEqual(['help']);
   expect(mapTuiSlashCommandToGatewayArgs(['h'])).toEqual(['help']);
   expect(mapTuiSlashCommandToGatewayArgs(['status'])).toEqual(['status']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['auth', 'status', 'hybridai']),
+  ).toEqual(['auth', 'status', 'hybridai']);
+  expect(mapTuiSlashCommandToGatewayArgs(['config'])).toEqual(['config']);
+  expect(mapTuiSlashCommandToGatewayArgs(['config', 'check'])).toEqual([
+    'config',
+    'check',
+  ]);
+  expect(mapTuiSlashCommandToGatewayArgs(['config', 'reload'])).toEqual([
+    'config',
+    'reload',
+  ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'config',
+      'set',
+      'hybridai.maxTokens',
+      '8192',
+    ]),
+  ).toEqual(['config', 'set', 'hybridai.maxTokens', '8192']);
+  expect(mapTuiSlashCommandToGatewayArgs(['concierge'])).toEqual([
+    'concierge',
+    'info',
+  ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'concierge',
+      'profile',
+      'no_hurry',
+      'ollama/qwen3:latest',
+    ]),
+  ).toEqual(['concierge', 'profile', 'no_hurry', 'ollama/qwen3:latest']);
   expect(mapTuiSlashCommandToGatewayArgs(['model'])).toEqual(['model', 'info']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['model', 'list', 'openrouter']),
@@ -68,10 +100,22 @@ test('maps Discord-style slash commands to gateway command args', () => {
     'mode',
     'free',
   ]);
-  expect(mapTuiSlashCommandToGatewayArgs(['export', 'session-1'])).toEqual([
+  expect(mapTuiSlashCommandToGatewayArgs(['export'])).toBeNull();
+  expect(mapTuiSlashCommandToGatewayArgs(['export', 'session-1'])).toBeNull();
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['export', 'session', 'session-1']),
+  ).toEqual(['export', 'session', 'session-1']);
+  expect(mapTuiSlashCommandToGatewayArgs(['export', 'trace'])).toEqual([
     'export',
-    'session',
-    'session-1',
+    'trace',
+  ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['export', 'trace', 'session-1']),
+  ).toEqual(['export', 'trace', 'session-1']);
+  expect(mapTuiSlashCommandToGatewayArgs(['export', 'trace', 'all'])).toEqual([
+    'export',
+    'trace',
+    'all',
   ]);
   expect(
     mapTuiSlashCommandToGatewayArgs(['agent', 'create', 'research', 'gpt-5']),
@@ -94,19 +138,33 @@ test('maps Discord-style slash commands to gateway command args', () => {
     mapTuiSlashCommandToGatewayArgs(['skill', 'runs', 'demo-skill']),
   ).toEqual(['skill', 'runs', 'demo-skill']);
   expect(
-    mapTuiSlashCommandToGatewayArgs(['skill', 'amend', 'demo-skill']),
-  ).toEqual(['skill', 'amend', 'demo-skill']);
+    mapTuiSlashCommandToGatewayArgs(['skill', 'learn', 'demo-skill']),
+  ).toEqual(['skill', 'learn', 'demo-skill']);
   expect(
     mapTuiSlashCommandToGatewayArgs([
       'skill',
-      'amend',
+      'learn',
       'demo-skill',
       '--apply',
     ]),
-  ).toEqual(['skill', 'amend', 'demo-skill', '--apply']);
+  ).toEqual(['skill', 'learn', 'demo-skill', '--apply']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['skill', 'history', 'demo-skill']),
   ).toEqual(['skill', 'history', 'demo-skill']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['skill', 'sync', 'official/datalion']),
+  ).toEqual(['skill', 'sync', 'official/datalion']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['skill', 'import', 'official/himalaya']),
+  ).toEqual(['skill', 'import', 'official/himalaya']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'skill',
+      'import',
+      '--force',
+      'clawhub/brand-voice',
+    ]),
+  ).toEqual(['skill', 'import', '--force', 'clawhub/brand-voice']);
   expect(mapTuiSlashCommandToGatewayArgs(['plugin', 'list'])).toEqual([
     'plugin',
     'list',
@@ -139,12 +197,18 @@ test('maps Discord-style slash commands to gateway command args', () => {
     'reload',
   ]);
   expect(
+    mapTuiSlashCommandToGatewayArgs(['plugin', 'disable', 'qmd-memory']),
+  ).toEqual(['plugin', 'disable', 'qmd-memory']);
+  expect(
     mapTuiSlashCommandToGatewayArgs(['plugin', 'uninstall', 'demo-plugin']),
   ).toEqual(['plugin', 'uninstall', 'demo-plugin']);
 });
 
 test('keeps explicit /skill invocations out of the slash-command path', () => {
   expect(mapTuiSlashCommandToGatewayArgs(['skill', 'config'])).toBeNull();
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['skill', 'amend', 'demo-skill']),
+  ).toBeNull();
   expect(mapTuiSlashCommandToGatewayArgs(['skill', 'demo-skill'])).toBeNull();
   expect(
     mapTuiSlashCommandToGatewayArgs(['skill', 'demo-skill', 'fix', 'tests']),

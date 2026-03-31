@@ -8,6 +8,7 @@ import {
   type RuntimeConfig,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { loadPluginManifest } from './plugin-manager.js';
 import type { PluginManifest } from './plugin-types.js';
 
@@ -326,7 +327,7 @@ function installPreparedPlugin(
     replaceExisting: boolean;
   },
 ): InstallPluginResult {
-  const installRoot = path.join(options.homeDir, '.hybridclaw', 'plugins');
+  const installRoot = path.join(options.homeDir, 'plugins');
   fs.mkdirSync(installRoot, { recursive: true });
 
   assertPluginManifestDir(sourceDir);
@@ -405,7 +406,7 @@ export async function installPlugin(
     );
   }
 
-  const homeDir = options.homeDir ?? os.homedir();
+  const homeDir = options.homeDir ?? DEFAULT_RUNTIME_HOME_DIR;
   const cwd = options.cwd ?? process.cwd();
   const runCommand = options.runCommand ?? defaultRunCommand;
   const sourceRef = resolvePluginSource(trimmedSource, cwd);
@@ -435,7 +436,7 @@ export async function reinstallPlugin(
     );
   }
 
-  const homeDir = options.homeDir ?? os.homedir();
+  const homeDir = options.homeDir ?? DEFAULT_RUNTIME_HOME_DIR;
   const cwd = options.cwd ?? process.cwd();
   const runCommand = options.runCommand ?? defaultRunCommand;
   const sourceRef = resolvePluginSource(trimmedSource, cwd);
@@ -446,7 +447,7 @@ export async function reinstallPlugin(
     const manifest = loadPluginManifest(
       path.join(preparedSource.sourceDir, MANIFEST_FILE_NAME),
     );
-    const pluginDir = path.join(homeDir, '.hybridclaw', 'plugins', manifest.id);
+    const pluginDir = path.join(homeDir, 'plugins', manifest.id);
     const replacedExistingInstall = fs.existsSync(pluginDir);
     const result = installPreparedPlugin(
       preparedSource.sourceDir,
@@ -474,10 +475,11 @@ export async function uninstallPlugin(
   options: UninstallPluginOptions = {},
 ): Promise<UninstallPluginResult> {
   const pluginId = normalizePluginId(pluginIdInput);
-  const homeDir = options.homeDir ?? os.homedir();
+  const homeDir = options.homeDir ?? DEFAULT_RUNTIME_HOME_DIR;
   const getConfig = options.getRuntimeConfig ?? getRuntimeConfig;
   const updateConfig = options.updateRuntimeConfig ?? updateRuntimeConfig;
-  const pluginDir = path.join(homeDir, '.hybridclaw', 'plugins', pluginId);
+  const pluginsRoot = path.join(homeDir, 'plugins');
+  const pluginDir = path.join(pluginsRoot, pluginId);
 
   const removedPluginDir = fs.existsSync(pluginDir);
   if (removedPluginDir) {
@@ -498,7 +500,7 @@ export async function uninstallPlugin(
 
   if (!removedPluginDir && removedConfigOverrides === 0) {
     throw new Error(
-      `Plugin "${pluginId}" is not installed in ${path.join(homeDir, '.hybridclaw', 'plugins')} and has no matching plugins.list[] override.`,
+      `Plugin "${pluginId}" is not installed in ${pluginsRoot} and has no matching plugins.list[] override.`,
     );
   }
 

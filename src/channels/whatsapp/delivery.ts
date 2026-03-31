@@ -1,7 +1,6 @@
 import path from 'node:path';
 import type {
   AnyMessageContent,
-  proto,
   WAMessage,
   WAMessageKey,
   WASocket,
@@ -14,7 +13,7 @@ import { resolveWhatsAppMimeTypeFromPath } from './mime-utils.js';
 import type { WhatsAppOutboundMessageRef } from './self-echo-cache.js';
 
 const OUTBOUND_DELAY_MS = 350;
-type SentWhatsAppMessage = proto.WebMessageInfo | undefined;
+type SentWhatsAppMessage = WAMessage | undefined;
 type SentMessageHandler = (
   message: SentWhatsAppMessage,
 ) => Promise<void> | void;
@@ -114,6 +113,20 @@ export async function sendWhatsAppReaction(params: {
   await params.sock.sendMessage(params.jid, {
     react: {
       text: emoji,
+      key: params.key,
+    },
+  });
+  return true;
+}
+
+export async function clearWhatsAppReaction(params: {
+  sock: Pick<WASocket, 'sendMessage'>;
+  jid: string;
+  key: WAMessageKey;
+}): Promise<boolean> {
+  await params.sock.sendMessage(params.jid, {
+    react: {
+      text: '',
       key: params.key,
     },
   });

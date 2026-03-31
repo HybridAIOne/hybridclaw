@@ -1,5 +1,5 @@
 {
-  "version": 17,
+  "version": 18,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -15,6 +15,9 @@
       "whatsapp": [],
       "email": []
     }
+  },
+  "tools": {
+    "disabled": []
   },
   "adaptiveSkills": {
     "enabled": false,
@@ -129,6 +132,24 @@
     "ackReaction": "👀",
     "mediaMaxMb": 20
   },
+  "imessage": {
+    "enabled": false,
+    "backend": "local",
+    "cliPath": "imsg",
+    "dbPath": "/Users/example/Library/Messages/chat.db",
+    "pollIntervalMs": 2500,
+    "serverUrl": "https://bluebubbles.example.com",
+    "password": "",
+    "webhookPath": "/api/imessage/webhook",
+    "allowPrivateNetwork": false,
+    "dmPolicy": "allowlist",
+    "groupPolicy": "disabled",
+    "allowFrom": [],
+    "groupAllowFrom": [],
+    "textChunkLimit": 4000,
+    "debounceMs": 2500,
+    "mediaMaxMb": 20
+  },
   "email": {
     "enabled": false,
     "imapHost": "",
@@ -146,11 +167,11 @@
   },
   "hybridai": {
     "baseUrl": "https://hybridai.one",
-    "defaultModel": "gpt-5-nano",
+    "defaultModel": "gpt-4.1-mini",
     "defaultChatbotId": "",
     "maxTokens": 4096,
     "enableRag": true,
-    "models": ["gpt-5-nano", "gpt-5-mini", "gpt-5"]
+    "models": ["gpt-4.1-mini", "gpt-5-nano", "gpt-5"]
   },
   "codex": {
     "baseUrl": "https://chatgpt.com/backend-api/codex",
@@ -169,6 +190,16 @@
     "enabled": false,
     "baseUrl": "https://openrouter.ai/api/v1",
     "models": ["openrouter/anthropic/claude-sonnet-4"]
+  },
+  "mistral": {
+    "enabled": false,
+    "baseUrl": "https://api.mistral.ai/v1",
+    "models": ["mistral/mistral-large-latest"]
+  },
+  "huggingface": {
+    "enabled": false,
+    "baseUrl": "https://router.huggingface.co/v1",
+    "models": ["huggingface/meta-llama/Llama-3.1-8B-Instruct"]
   },
   "local": {
     "backends": {
@@ -298,6 +329,17 @@
       "prompt": "Transcribe the audio.",
       "language": "",
       "models": []
+    }
+  },
+  "routing": {
+    "concierge": {
+      "enabled": false,
+      "model": "gemini-3-flash",
+      "profiles": {
+        "asap": "gpt-5",
+        "balanced": "gpt-5-mini",
+        "noHurry": "gpt-5-nano"
+      }
     }
   },
   "heartbeat": {

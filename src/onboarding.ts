@@ -14,12 +14,17 @@ import {
   SECURITY_POLICY_VERSION,
   updateRuntimeConfig,
 } from './config/runtime-config.js';
+import { DEFAULT_RUNTIME_HOME_DIR } from './config/runtime-paths.js';
 import {
   resolveTuiCommandLabel,
   shouldPrintTuiStartHint,
 } from './onboarding-tui-hint.js';
 import { isCodexModel, resolveModelProvider } from './providers/factory.js';
-import { normalizeBots } from './providers/hybridai-bots.js';
+import {
+  fetchHybridAIAccountChatbotId,
+  normalizeBots,
+  normalizeHybridAIAccountChatbotId,
+} from './providers/hybridai-bots.js';
 import {
   ensureRuntimeInstructionCopies,
   resolveRuntimeInstructionPath,
@@ -29,18 +34,25 @@ import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from './security/runtime-secrets.js';
-import type { HybridAIBot } from './types.js';
+import type { HybridAIBot } from './types/hybridai.js';
+import { promptForSecretInput } from './utils/secret-prompt.js';
 
 interface ApiKeyValidationResult {
   ok: boolean;
   bots: HybridAIBot[];
+  accountChatbotId?: string;
   error?: string;
 }
 
 interface OnboardingOptions {
   force?: boolean;
   commandName?: string;
-  preferredAuth?: 'hybridai' | 'openai-codex' | 'openrouter';
+  preferredAuth?:
+    | 'hybridai'
+    | 'openai-codex'
+    | 'openrouter'
+    | 'mistral'
+    | 'huggingface';
 }
 
 function isLocalProvider(
@@ -139,6 +151,7 @@ const DEFAULT_REGISTER_PATH = '/register?context=hybridclaw';
 const DEFAULT_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 const DEFAULT_VERIFY_PATH = '/verify_code';
 const BOT_LIST_PATH = '/api/v1/bot-management/bots';
+const BOT_ME_PATH = '/api/v1/bot-management/me';
 const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
 const SECURITY_ACK_TOKEN = 'ACCEPT';
 
@@ -270,9 +283,24 @@ async function validateApiKey(
     };
   }
 
+  let accountChatbotId = '';
+  try {
+    const meResponse = await fetch(resolveUrl(baseUrl, BOT_ME_PATH), {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (meResponse.ok) {
+      accountChatbotId = normalizeHybridAIAccountChatbotId(
+        await readResponsePayload(meResponse),
+      );
+    }
+  } catch {
+    // Keep bot-list validation success; the account chatbot is only a default hint.
+  }
+
   return {
     ok: true,
     bots: normalizeBots(payload),
+    accountChatbotId,
   };
 }
 
@@ -292,6 +320,31 @@ function saveDefaultModel(model: string): void {
   });
 }
 
+async function maybeBackfillDefaultHybridAIChatbotId(params: {
+  authMethod: OnboardingOptions['preferredAuth'] | 'hybridai';
+  existingKey: string;
+  forcePrint?: boolean;
+}): Promise<boolean> {
+  if (params.authMethod !== 'hybridai') return false;
+  if (!params.existingKey.trim()) return false;
+
+  const configuredChatbotId =
+    getRuntimeConfig().hybridai.defaultChatbotId.trim();
+  if (configuredChatbotId) return false;
+
+  try {
+    const chatbotId = (await fetchHybridAIAccountChatbotId()).trim();
+    if (!chatbotId) return false;
+    saveDefaultChatbotId(chatbotId);
+    if (params.forcePrint) {
+      printSuccess(`Default bot set to: ${chatbotId}`);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function defaultHybridAIModel(): string {
   const config = getRuntimeConfig();
   const current = config.hybridai.defaultModel.trim();
@@ -299,7 +352,7 @@ function defaultHybridAIModel(): string {
   const first = config.hybridai.models.find(
     (model) => resolveModelProvider(model) === 'hybridai',
   );
-  return (first || 'gpt-5-nano').trim();
+  return (first || 'gpt-4.1-mini').trim();
 }
 
 function defaultCodexModel(): string {
@@ -316,6 +369,28 @@ function defaultOpenRouterModel(): string {
   if (current && resolveModelProvider(current) === 'openrouter') return current;
   const first = config.openrouter.models.find(
     (model) => resolveModelProvider(model) === 'openrouter',
+  );
+  return (first || '').trim();
+}
+
+function defaultMistralModel(): string {
+  const config = getRuntimeConfig();
+  const current = config.hybridai.defaultModel.trim();
+  if (current && resolveModelProvider(current) === 'mistral') return current;
+  const first = config.mistral.models.find(
+    (model) => resolveModelProvider(model) === 'mistral',
+  );
+  return (first || '').trim();
+}
+
+function defaultHuggingFaceModel(): string {
+  const config = getRuntimeConfig();
+  const current = config.hybridai.defaultModel.trim();
+  if (current && resolveModelProvider(current) === 'huggingface') {
+    return current;
+  }
+  const first = config.huggingface.models.find(
+    (model) => resolveModelProvider(model) === 'huggingface',
   );
   return (first || '').trim();
 }
@@ -371,11 +446,13 @@ async function promptRequired(
   rl: readline.Interface,
   question: string,
   icon = ICON_PROMPT,
+  secret = false,
 ): Promise<string> {
   while (true) {
-    const value = (
-      await rl.question(styledPromptWithIcon(question, icon))
-    ).trim();
+    const prompt = styledPromptWithIcon(question, icon);
+    const value = secret
+      ? await promptForSecretInput({ prompt, rl })
+      : (await rl.question(prompt)).trim();
     if (value) return value;
     printWarn('Please enter a value.');
   }
@@ -385,8 +462,12 @@ async function promptOptional(
   rl: readline.Interface,
   question: string,
   icon = ICON_PROMPT,
+  secret = false,
 ): Promise<string> {
-  return (await rl.question(styledPromptWithIcon(question, icon))).trim();
+  const prompt = styledPromptWithIcon(question, icon);
+  return secret
+    ? await promptForSecretInput({ prompt, rl })
+    : (await rl.question(prompt)).trim();
 }
 
 async function promptYesNo(
@@ -411,16 +492,17 @@ async function chooseDefaultBot(
   rl: readline.Interface,
   bots: HybridAIBot[],
   fallbackBotId: string,
+  accountChatbotId = '',
 ): Promise<string> {
   if (bots.length === 0) {
     const manual = await promptOptional(
       rl,
       'No bots found from API. Enter chatbot id manually (or leave empty to skip): ',
     );
-    return manual || fallbackBotId;
+    return manual || fallbackBotId || accountChatbotId;
   }
 
-  const defaultBotId = fallbackBotId || bots[0].id;
+  const defaultBotId = fallbackBotId || accountChatbotId || bots[0].id;
   console.log(`${TEAL}${ICON_TITLE}${RESET} Available bots:`);
   for (let i = 0; i < Math.min(10, bots.length); i++) {
     const bot = bots[i];
@@ -454,19 +536,27 @@ async function chooseDefaultBot(
 async function promptAuthMethod(
   rl: readline.Interface,
   currentModel: string,
-): Promise<'hybridai' | 'openai-codex' | 'openrouter'> {
+): Promise<
+  'hybridai' | 'openai-codex' | 'openrouter' | 'mistral' | 'huggingface'
+> {
   const currentProvider = resolveModelProvider(currentModel);
   const defaultChoice =
     currentProvider === 'openai-codex'
       ? '2'
       : currentProvider === 'openrouter'
         ? '3'
-        : '1';
+        : currentProvider === 'mistral'
+          ? '4'
+          : currentProvider === 'huggingface'
+            ? '5'
+            : '1';
 
   console.log(`${TEAL}${ICON_TITLE}${RESET} Auth methods:`);
   console.log(`  ${TEAL}1.${RESET} HybridAI API key`);
   console.log(`  ${TEAL}2.${RESET} OpenAI Codex (OAuth login)`);
   console.log(`  ${TEAL}3.${RESET} OpenRouter API key`);
+  console.log(`  ${TEAL}4.${RESET} Mistral API key`);
+  console.log(`  ${TEAL}5.${RESET} Hugging Face token`);
 
   while (true) {
     const choice = await promptOptional(
@@ -486,7 +576,19 @@ async function promptAuthMethod(
     if (normalized === '3' || normalized === 'openrouter') {
       return 'openrouter';
     }
-    printWarn('Enter 1 for HybridAI, 2 for OpenAI Codex, or 3 for OpenRouter.');
+    if (normalized === '4' || normalized === 'mistral') {
+      return 'mistral';
+    }
+    if (
+      normalized === '5' ||
+      normalized === 'huggingface' ||
+      normalized === 'hf'
+    ) {
+      return 'huggingface';
+    }
+    printWarn(
+      'Enter 1 for HybridAI, 2 for OpenAI Codex, 3 for OpenRouter, 4 for Mistral, or 5 for Hugging Face.',
+    );
   }
 }
 
@@ -650,6 +752,7 @@ async function runHybridAIApiKeyOnboarding(params: {
     rl,
     'Paste API key or URL containing it (or press Enter to continue): ',
     ICON_KEY,
+    true,
   );
   if (pasted) {
     seededApiKey = extractApiKeyFromInput(pasted) || '';
@@ -674,7 +777,12 @@ async function runHybridAIApiKeyOnboarding(params: {
   };
   while (true) {
     if (!apiKey) {
-      const entered = await promptRequired(rl, 'HybridAI API key: ', ICON_KEY);
+      const entered = await promptRequired(
+        rl,
+        'HybridAI API key: ',
+        ICON_KEY,
+        true,
+      );
       apiKey = extractApiKeyFromInput(entered) || entered;
     }
 
@@ -702,6 +810,7 @@ async function runHybridAIApiKeyOnboarding(params: {
     rl,
     validation.ok ? validation.bots : [],
     fallbackChatbotId,
+    validation.accountChatbotId || '',
   );
 
   const secretsPath = saveHybridAICredentials(apiKey);
@@ -824,6 +933,115 @@ async function runOpenRouterOnboarding(params: {
   console.log();
 }
 
+async function runMistralOnboarding(params: {
+  rl: readline.Interface;
+  commandLabel: string;
+  existingKey: string;
+}): Promise<void> {
+  const { rl, commandLabel, existingKey } = params;
+  const runtimeConfig = getRuntimeConfig();
+  printMeta('MISTRAL_BASE_URL', runtimeConfig.mistral.baseUrl);
+  if (existingKey) {
+    printSetup('Reconfiguring Mistral credentials.');
+  } else {
+    printInfo(
+      `No MISTRAL_API_KEY found. ${commandLabel} needs Mistral credentials before it can start.`,
+    );
+  }
+  console.log();
+
+  const entered = await promptOptional(
+    rl,
+    existingKey
+      ? 'Mistral API key (Enter to keep current): '
+      : 'Mistral API key: ',
+    ICON_KEY,
+  );
+  const apiKey = (entered || existingKey).trim();
+  if (!apiKey) {
+    throw new Error('Mistral onboarding requires a non-empty API key.');
+  }
+
+  const secretsPath = saveRuntimeSecrets({ MISTRAL_API_KEY: apiKey });
+  process.env.MISTRAL_API_KEY = apiKey;
+  refreshRuntimeSecretsFromEnv();
+
+  const nextMistralModel = defaultMistralModel();
+  const switchedModel = await maybeSwitchDefaultModel(
+    rl,
+    nextMistralModel,
+    'Mistral auth works only with Mistral models.',
+  );
+
+  console.log();
+  printSuccess(`Saved credentials to ${secretsPath}.`);
+  printSuccess(`Saved runtime settings to ${runtimeConfigPath()}.`);
+  if (switchedModel) {
+    printSuccess(`Default model set to: ${nextMistralModel}`);
+  } else if (!nextMistralModel) {
+    printInfo(
+      `No Mistral default model is configured. Set hybridai.defaultModel to a mistral/... model in ${runtimeConfigPath()} if needed.`,
+    );
+  }
+  printTuiStartHint(commandLabel);
+  console.log();
+}
+
+async function runHuggingFaceOnboarding(params: {
+  rl: readline.Interface;
+  commandLabel: string;
+  existingKey: string;
+}): Promise<void> {
+  const { rl, commandLabel, existingKey } = params;
+  const runtimeConfig = getRuntimeConfig();
+  printMeta('HUGGINGFACE_BASE_URL', runtimeConfig.huggingface.baseUrl);
+  if (existingKey) {
+    printSetup('Reconfiguring Hugging Face credentials.');
+  } else {
+    printInfo(
+      `No HF_TOKEN found. ${commandLabel} needs Hugging Face credentials before it can start.`,
+    );
+  }
+  console.log();
+
+  const entered = await promptOptional(
+    rl,
+    existingKey
+      ? 'Hugging Face token (Enter to keep current): '
+      : 'Hugging Face token: ',
+    ICON_KEY,
+  );
+  const apiKey = (entered || existingKey).trim();
+  if (!apiKey) {
+    throw new Error('Hugging Face onboarding requires a non-empty token.');
+  }
+
+  const secretsPath = saveRuntimeSecrets({ HF_TOKEN: apiKey });
+  process.env.HF_TOKEN = apiKey;
+  process.env.HUGGINGFACE_API_KEY = apiKey;
+  refreshRuntimeSecretsFromEnv();
+
+  const nextHuggingFaceModel = defaultHuggingFaceModel();
+  const switchedModel = await maybeSwitchDefaultModel(
+    rl,
+    nextHuggingFaceModel,
+    'Hugging Face auth works only with Hugging Face models.',
+  );
+
+  console.log();
+  printSuccess(`Saved credentials to ${secretsPath}.`);
+  printSuccess(`Saved runtime settings to ${runtimeConfigPath()}.`);
+  if (switchedModel) {
+    printSuccess(`Default model set to: ${nextHuggingFaceModel}`);
+  } else if (!nextHuggingFaceModel) {
+    printInfo(
+      `No Hugging Face default model is configured. Set hybridai.defaultModel to a huggingface/... model in ${runtimeConfigPath()} if needed.`,
+    );
+  }
+  printTuiStartHint(commandLabel);
+  console.log();
+}
+
 export async function ensureRuntimeCredentials(
   options: OnboardingOptions = {},
 ): Promise<void> {
@@ -833,6 +1051,12 @@ export async function ensureRuntimeCredentials(
   const runtimeConfig = getRuntimeConfig();
   const existingKey = (process.env.HYBRIDAI_API_KEY || '').trim();
   const existingOpenRouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
+  const existingMistralKey = (process.env.MISTRAL_API_KEY || '').trim();
+  const existingHuggingFaceKey = (
+    process.env.HF_TOKEN ||
+    process.env.HUGGINGFACE_API_KEY ||
+    ''
+  ).trim();
   const codexStatus = getCodexAuthStatus();
   const currentModel = runtimeConfig.hybridai.defaultModel.trim();
   const resolvedCurrentProvider = resolveModelProvider(currentModel);
@@ -843,9 +1067,13 @@ export async function ensureRuntimeCredentials(
       ? 'openai-codex'
       : resolvedCurrentProvider === 'openrouter'
         ? 'openrouter'
-        : 'hybridai');
+        : resolvedCurrentProvider === 'mistral'
+          ? 'mistral'
+          : resolvedCurrentProvider === 'huggingface'
+            ? 'huggingface'
+            : 'hybridai');
   const force = options.force === true;
-  const securityAccepted = isSecurityTrustAccepted(runtimeConfig);
+  let securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
   const hasRequiredCredentials = currentProviderIsLocal
     ? true
@@ -853,15 +1081,42 @@ export async function ensureRuntimeCredentials(
       ? codexStatus.authenticated
       : currentAuth === 'openrouter'
         ? !!existingOpenRouterKey
-        : !!existingKey;
-  if (!needsSecurityAcceptance && hasRequiredCredentials) return;
+        : currentAuth === 'mistral'
+          ? !!existingMistralKey
+          : currentAuth === 'huggingface'
+            ? !!existingHuggingFaceKey
+            : !!existingKey;
+  if (!needsSecurityAcceptance && hasRequiredCredentials) {
+    await maybeBackfillDefaultHybridAIChatbotId({
+      authMethod: currentAuth,
+      existingKey,
+    });
+    return;
+  }
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     if (!securityAccepted) {
-      throw new Error(
-        'Security trust model is not accepted. Run `hybridclaw onboarding` in an interactive terminal to accept TRUST_MODEL.md.',
-      );
+      if (process.env.HYBRIDCLAW_ACCEPT_TRUST === 'true') {
+        try {
+          acceptSecurityTrustModel({
+            acceptedBy: 'env:HYBRIDCLAW_ACCEPT_TRUST',
+          });
+        } catch (err) {
+          throw new Error(
+            `Failed to persist trust acceptance (HYBRIDCLAW_ACCEPT_TRUST=true). ` +
+              `Check that ${DEFAULT_RUNTIME_HOME_DIR} is writable. ` +
+              `Cause: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        securityAccepted = true;
+      } else {
+        throw new Error(
+          'Security trust model is not accepted. Run `hybridclaw onboarding` in an interactive terminal to accept TRUST_MODEL.md, or set HYBRIDCLAW_ACCEPT_TRUST=true to accept automatically.',
+        );
+      }
     }
+    // After accepting trust via env var, credentials may already be present.
+    if (hasRequiredCredentials) return;
     if (currentAuth === 'openai-codex') {
       throw new Error(
         'OpenAI Codex credentials are missing. Run `hybridclaw codex login` or `hybridclaw onboarding` in an interactive terminal.',
@@ -870,6 +1125,16 @@ export async function ensureRuntimeCredentials(
     if (currentAuth === 'openrouter') {
       throw new Error(
         `OPENROUTER_API_KEY is missing. Run \`hybridclaw onboarding\` in an interactive terminal or store it in ${runtimeSecretsPath()}.`,
+      );
+    }
+    if (currentAuth === 'mistral') {
+      throw new Error(
+        `MISTRAL_API_KEY is missing. Run \`hybridclaw onboarding\` in an interactive terminal or store it in ${runtimeSecretsPath()}.`,
+      );
+    }
+    if (currentAuth === 'huggingface') {
+      throw new Error(
+        `HF_TOKEN is missing. Run \`hybridclaw onboarding\` in an interactive terminal or store it in ${runtimeSecretsPath()}.`,
       );
     }
     throw new Error(
@@ -905,6 +1170,11 @@ export async function ensureRuntimeCredentials(
     }
 
     if (hasRequiredCredentials && !force) {
+      await maybeBackfillDefaultHybridAIChatbotId({
+        authMethod: currentAuth,
+        existingKey,
+        forcePrint: true,
+      });
       printSuccess(
         'Security trust model already accepted and the active model provider is configured.',
       );
@@ -922,6 +1192,22 @@ export async function ensureRuntimeCredentials(
         rl,
         commandLabel,
         existingKey: existingOpenRouterKey,
+      });
+      return;
+    }
+    if (authMethod === 'mistral') {
+      await runMistralOnboarding({
+        rl,
+        commandLabel,
+        existingKey: existingMistralKey,
+      });
+      return;
+    }
+    if (authMethod === 'huggingface') {
+      await runHuggingFaceOnboarding({
+        rl,
+        commandLabel,
+        existingKey: existingHuggingFaceKey,
       });
       return;
     }

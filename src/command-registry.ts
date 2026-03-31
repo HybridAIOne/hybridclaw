@@ -58,7 +58,10 @@ export interface PluginSlashCommandCatalogEntry {
 
 const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'agent',
+  'auth',
   'bot',
+  'config',
+  'concierge',
   'rag',
   'model',
   'status',
@@ -125,10 +128,17 @@ const MODEL_PROVIDER_CHOICES = [
   { name: 'hybridai', value: 'hybridai' },
   { name: 'codex', value: 'codex' },
   { name: 'openrouter', value: 'openrouter' },
+  { name: 'huggingface', value: 'huggingface' },
   { name: 'local', value: 'local' },
   { name: 'ollama', value: 'ollama' },
   { name: 'lmstudio', value: 'lmstudio' },
   { name: 'vllm', value: 'vllm' },
+] satisfies Array<{ name: string; value: string }>;
+
+const CONCIERGE_PROFILE_CHOICES = [
+  { name: 'asap', value: 'asap' },
+  { name: 'balanced', value: 'balanced' },
+  { name: 'no_hurry', value: 'no_hurry' },
 ] satisfies Array<{ name: string; value: string }>;
 
 function tokenizeFreeformText(value: string): string[] {
@@ -190,6 +200,7 @@ export function mapCanonicalCommandToGatewayArgs(
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub || sub === 'info') return ['bot', 'info'];
       if (sub === 'list') return ['bot', 'list'];
+      if (sub === 'clear' || sub === 'auto') return ['bot', 'clear'];
       if (sub === 'set') return ['bot', 'set', ...parts.slice(2)];
       return ['bot', 'set', ...parts.slice(1)];
     }
@@ -208,6 +219,31 @@ export function mapCanonicalCommandToGatewayArgs(
       if (sub === 'set') return ['model', 'set', ...parts.slice(2)];
       if (parts.length > 1) return ['model', 'set', ...parts.slice(1)];
       return null;
+    }
+
+    case 'concierge': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (
+        !sub ||
+        sub === 'info' ||
+        sub === 'on' ||
+        sub === 'off' ||
+        sub === 'enable' ||
+        sub === 'disable'
+      ) {
+        return sub ? ['concierge', sub] : ['concierge', 'info'];
+      }
+      if (sub === 'model') {
+        return parts.length > 2
+          ? ['concierge', 'model', ...parts.slice(2)]
+          : ['concierge', 'model'];
+      }
+      if (sub === 'profile') {
+        return parts.length > 2
+          ? ['concierge', 'profile', ...parts.slice(2)]
+          : ['concierge', 'profile'];
+      }
+      return ['concierge', ...parts.slice(1)];
     }
 
     case 'agent': {
@@ -233,6 +269,16 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'status':
       return ['status'];
 
+    case 'auth': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['auth'];
+      if (sub === 'status') {
+        const provider = (parts[2] || '').trim().toLowerCase();
+        return provider ? ['auth', 'status', provider] : ['auth', 'status'];
+      }
+      return ['auth', ...parts.slice(1)];
+    }
+
     case 'show':
       return parts.length > 1 ? ['show', ...parts.slice(1)] : ['show'];
 
@@ -256,6 +302,10 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'plugin': {
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub || sub === 'list') return ['plugin', 'list'];
+      if (sub === 'enable' || sub === 'disable') {
+        const pluginId = (parts[2] || '').trim();
+        return pluginId ? ['plugin', sub, pluginId] : ['plugin', sub];
+      }
       if (sub === 'config') {
         const pluginId = (parts[2] || '').trim();
         const key = (parts[3] || '').trim();
@@ -285,6 +335,21 @@ export function mapCanonicalCommandToGatewayArgs(
       return null;
     }
 
+    case 'config': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['config'];
+      if (sub === 'check') return ['config', 'check'];
+      if (sub === 'reload') return ['config', 'reload'];
+      if (sub === 'set') {
+        const key = (parts[2] || '').trim();
+        const value = parts.slice(3).join(' ').trim();
+        if (!key) return ['config', 'set'];
+        if (!value) return ['config', 'set', key];
+        return ['config', 'set', key, value];
+      }
+      return null;
+    }
+
     case 'fullauto':
       return parts.length > 1 ? ['fullauto', ...parts.slice(1)] : ['fullauto'];
 
@@ -300,8 +365,13 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'usage':
       return ['usage', ...parts.slice(1)];
 
-    case 'export':
+    case 'export': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (!sub) return ['export', 'session'];
+      if (sub === 'session') return ['export', 'session', ...parts.slice(2)];
+      if (sub === 'trace') return ['export', 'trace', ...parts.slice(2)];
       return ['export', 'session', ...parts.slice(1)];
+    }
 
     case 'sessions':
       return ['sessions'];
@@ -554,8 +624,68 @@ function buildSlashCommandCatalogDefinitions(
       ],
     },
     {
+      name: 'concierge',
+      description: 'Inspect or configure concierge routing defaults',
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'info',
+          description:
+            'Show concierge enablement, decision model, and profile mappings',
+        },
+        {
+          kind: 'subcommand',
+          name: 'on',
+          description: 'Enable concierge routing globally',
+        },
+        {
+          kind: 'subcommand',
+          name: 'off',
+          description: 'Disable concierge routing globally',
+        },
+        {
+          kind: 'subcommand',
+          name: 'model',
+          description: 'Show or set the concierge decision model',
+          tuiMenu: {
+            insertText: '/concierge model ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Concierge decision model name',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'profile',
+          description: 'Show or set a concierge execution profile model',
+          tuiMenu: {
+            insertText: '/concierge profile ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'profile',
+              description: 'Profile to inspect or change',
+              required: true,
+              choices: CONCIERGE_PROFILE_CHOICES,
+            },
+            {
+              kind: 'string',
+              name: 'model',
+              description: 'Execution model mapped to that profile',
+            },
+          ],
+        },
+      ],
+    },
+    {
       name: 'agent',
-      description: 'Inspect, list, switch, create, or configure agents',
+      description:
+        'Inspect, list, switch, create, install, or configure agents',
       options: [
         {
           kind: 'subcommand',
@@ -601,6 +731,74 @@ function buildSlashCommandCatalogDefinitions(
         },
         {
           kind: 'subcommand',
+          name: 'install',
+          description: 'Install a packaged agent from a path or URL',
+          tuiMenu: {
+            label: '/agent install <source>',
+            insertText: '/agent install ',
+            aliases: [
+              '/agent install <source> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]',
+            ],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description:
+                'Archive path, direct .claw URL, official:<agent-dir>, or github:owner/repo/<agent-dir>',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Optional installed agent id',
+            },
+            {
+              kind: 'string',
+              name: 'force',
+              description: 'Optional --force override to replace an agent',
+              choices: [{ name: '--force', value: '--force' }],
+            },
+            {
+              kind: 'string',
+              name: 'skip-skill-scan',
+              description:
+                'Optional --skip-skill-scan override to bypass the scanner',
+              choices: [
+                { name: '--skip-skill-scan', value: '--skip-skill-scan' },
+              ],
+            },
+            {
+              kind: 'string',
+              name: 'skip-externals',
+              description:
+                'Optional --skip-externals override to skip imported skills',
+              choices: [
+                { name: '--skip-externals', value: '--skip-externals' },
+              ],
+            },
+            {
+              kind: 'string',
+              name: 'skip-import-errors',
+              description:
+                'Optional --skip-import-errors override to continue after imported skill failures',
+              choices: [
+                {
+                  name: '--skip-import-errors',
+                  value: '--skip-import-errors',
+                },
+              ],
+            },
+            {
+              kind: 'string',
+              name: 'yes',
+              description: 'Optional --yes override for non-interactive parity',
+              choices: [{ name: '--yes', value: '--yes' }],
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
           name: 'model',
           description: 'Show or set the current agent model',
           options: [
@@ -622,15 +820,121 @@ function buildSlashCommandCatalogDefinitions(
       },
     },
     {
+      name: 'auth',
+      description: 'Show local provider auth and config status',
+      tuiOnly: true,
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'status',
+          description: 'Show local HybridAI auth status',
+          tuiMenu: {
+            label: '/auth status hybridai',
+            insertText: '/auth status hybridai',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'provider',
+              description: 'Provider name',
+              required: true,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      name: 'config',
+      description:
+        'Show, validate, reload, or set the local runtime config file',
+      tuiOnly: true,
+      tuiMenuEntries: [
+        {
+          id: 'config.set',
+          label: '/config set <key> <value>',
+          insertText: '/config set ',
+          description: 'Set one runtime config value',
+        },
+        {
+          id: 'config.check',
+          label: '/config check',
+          insertText: '/config check',
+          description: 'Validate the current runtime config',
+        },
+        {
+          id: 'config.reload',
+          label: '/config reload',
+          insertText: '/config reload',
+          description: 'Hot-reload the current runtime config from disk',
+        },
+      ],
+      options: [
+        {
+          kind: 'string',
+          name: 'action',
+          description: 'Optional action',
+          choices: [
+            { name: 'check', value: 'check' },
+            { name: 'reload', value: 'reload' },
+            { name: 'set', value: 'set' },
+          ],
+        },
+        {
+          kind: 'string',
+          name: 'key',
+          description: 'Dotted runtime config key path',
+        },
+        {
+          kind: 'string',
+          name: 'value',
+          description: 'JSON value or plain string',
+        },
+      ],
+    },
+    {
       name: 'plugin',
       description:
-        'List, configure, install, reinstall, reload, or uninstall HybridClaw plugins',
+        'List, configure, enable, disable, install, reinstall, reload, or uninstall HybridClaw plugins',
       options: [
         {
           kind: 'subcommand',
           name: 'list',
           description:
             'List discovered plugins, descriptions, commands, tools, hooks, and load errors',
+        },
+        {
+          kind: 'subcommand',
+          name: 'enable',
+          description: 'Enable a discovered plugin',
+          tuiMenu: {
+            label: '/plugin enable <id>',
+            insertText: '/plugin enable ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Plugin id',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'disable',
+          description: 'Disable a discovered plugin',
+          tuiMenu: {
+            label: '/plugin disable <id>',
+            insertText: '/plugin disable ',
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Plugin id',
+              required: true,
+            },
+          ],
         },
         {
           kind: 'subcommand',
@@ -736,6 +1040,11 @@ function buildSlashCommandCatalogDefinitions(
               required: true,
             },
           ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'clear',
+          description: 'Clear the chatbot for this session',
         },
         {
           kind: 'subcommand',
@@ -975,6 +1284,29 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'export',
       description: 'Export a session JSONL snapshot',
+      tuiMenuEntries: [
+        {
+          id: 'export.session',
+          label: '/export session [session_id]',
+          insertText: '/export session ',
+          description:
+            'Export the current or specified session as a JSONL snapshot',
+        },
+        {
+          id: 'export.trace',
+          label: '/export trace [session_id|all]',
+          insertText: '/export trace ',
+          description:
+            'Export the current or specified session as an ATIF-compatible trace JSONL',
+        },
+        {
+          id: 'export.trace.all',
+          label: '/export trace all',
+          insertText: '/export trace all',
+          description: 'Export all sessions as ATIF-compatible trace JSONL',
+          depth: 3,
+        },
+      ],
       options: [
         {
           kind: 'string',
@@ -1086,7 +1418,7 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'skill',
       description:
-        'Inspect skill health, review recent runs, and manage amendments',
+        'Inspect skill health, review recent runs, manage amendments, and import or sync community skills',
       tuiOnly: true,
       options: [
         {
@@ -1136,7 +1468,7 @@ function buildSlashCommandCatalogDefinitions(
         },
         {
           kind: 'subcommand',
-          name: 'amend',
+          name: 'learn',
           description: 'Stage, apply, reject, or roll back a skill amendment',
           options: [
             {
@@ -1148,21 +1480,21 @@ function buildSlashCommandCatalogDefinitions(
           ],
           tuiMenuEntries: [
             {
-              id: 'skill.amend.apply',
-              label: '/skill amend <name> --apply',
-              insertText: '/skill amend ',
+              id: 'skill.learn.apply',
+              label: '/skill learn <name> --apply',
+              insertText: '/skill learn ',
               description: 'Apply the latest staged amendment for a skill',
             },
             {
-              id: 'skill.amend.reject',
-              label: '/skill amend <name> --reject',
-              insertText: '/skill amend ',
+              id: 'skill.learn.reject',
+              label: '/skill learn <name> --reject',
+              insertText: '/skill learn ',
               description: 'Reject the latest staged amendment for a skill',
             },
             {
-              id: 'skill.amend.rollback',
-              label: '/skill amend <name> --rollback',
-              insertText: '/skill amend ',
+              id: 'skill.learn.rollback',
+              label: '/skill learn <name> --rollback',
+              insertText: '/skill learn ',
               description: 'Roll back the latest applied amendment for a skill',
             },
           ],
@@ -1177,6 +1509,84 @@ function buildSlashCommandCatalogDefinitions(
               name: 'name',
               description: 'Skill name',
               required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'sync',
+          description: 'Reinstall a packaged or community skill',
+          tuiMenu: {
+            label: '/skill sync <source>',
+            insertText: '/skill sync ',
+            aliases: ['/skill sync <source> [--skip-skill-scan]'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description: 'Skill source identifier or URL',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'skip-skill-scan',
+              description:
+                'Optional --skip-skill-scan override to bypass the scanner',
+              choices: [
+                { name: '--skip-skill-scan', value: '--skip-skill-scan' },
+              ],
+            },
+          ],
+          tuiMenuEntries: [
+            {
+              id: 'skill.sync',
+              label: '/skill sync <source> --skip-skill-scan',
+              insertText: '/skill sync --skip-skill-scan ',
+              description:
+                'Reinstall a packaged or community skill from its source and bypass the scanner',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'import',
+          description: 'Import a packaged or community skill',
+          tuiMenu: {
+            label: '/skill import <source>',
+            insertText: '/skill import ',
+            aliases: ['/skill import <source> [--force] [--skip-skill-scan]'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description: 'Skill source identifier or URL',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'force',
+              description: 'Optional --force override for caution findings',
+              choices: [{ name: '--force', value: '--force' }],
+            },
+            {
+              kind: 'string',
+              name: 'skip-skill-scan',
+              description:
+                'Optional --skip-skill-scan override to bypass the scanner',
+              choices: [
+                { name: '--skip-skill-scan', value: '--skip-skill-scan' },
+              ],
+            },
+          ],
+          tuiMenuEntries: [
+            {
+              id: 'skill.import.force',
+              label: '/skill import --force <source>',
+              insertText: '/skill import --force ',
+              description:
+                'Import a reviewed community skill and override caution findings',
             },
           ],
         },
@@ -1239,6 +1649,24 @@ export function parseCanonicalSlashCommandArgs(
   switch (interaction.commandName) {
     case 'status':
       return ['status'];
+
+    case 'auth': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (subcommand !== 'status') return null;
+      const provider = normalizeStringOption(interaction, 'provider', true);
+      return provider ? ['auth', 'status', provider] : null;
+    }
+
+    case 'config': {
+      const action = normalizeStringOption(interaction, 'action');
+      const key = normalizeStringOption(interaction, 'key');
+      const value = normalizeStringOption(interaction, 'value');
+      if (!action && !key && !value) return ['config'];
+      if (action === 'check' && !key && !value) return ['config', 'check'];
+      if (action === 'reload' && !key && !value) return ['config', 'reload'];
+      if (action !== 'set' || !key || !value) return null;
+      return ['config', 'set', key, value];
+    }
 
     case 'show': {
       const subcommand = normalizeSubcommand(interaction);
@@ -1313,6 +1741,34 @@ export function parseCanonicalSlashCommandArgs(
       return null;
     }
 
+    case 'concierge': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (!subcommand || subcommand === 'info') return ['concierge', 'info'];
+      if (
+        subcommand === 'on' ||
+        subcommand === 'off' ||
+        subcommand === 'enable' ||
+        subcommand === 'disable'
+      ) {
+        return ['concierge', subcommand];
+      }
+      if (subcommand === 'model') {
+        const selectedModel = normalizeStringOption(interaction, 'name');
+        return selectedModel
+          ? ['concierge', 'model', selectedModel]
+          : ['concierge', 'model'];
+      }
+      if (subcommand === 'profile') {
+        const profile = normalizeStringOption(interaction, 'profile', true);
+        if (!profile) return null;
+        const selectedModel = normalizeStringOption(interaction, 'model');
+        return selectedModel
+          ? ['concierge', 'profile', profile, selectedModel]
+          : ['concierge', 'profile', profile];
+      }
+      return null;
+    }
+
     case 'agent': {
       const subcommand = normalizeSubcommand(interaction);
       if (!subcommand || subcommand === 'info') return ['agent'];
@@ -1333,6 +1789,45 @@ export function parseCanonicalSlashCommandArgs(
           ? ['agent', 'create', agentId, '--model', model]
           : ['agent', 'create', agentId];
       }
+      if (subcommand === 'install') {
+        const source = normalizeStringOption(interaction, 'source', true);
+        if (!source) return null;
+        const agentId = normalizeStringOption(interaction, 'id');
+        const force = normalizeStringOption(interaction, 'force');
+        const skipSkillScan = normalizeStringOption(
+          interaction,
+          'skip-skill-scan',
+        );
+        const skipExternals = normalizeStringOption(
+          interaction,
+          'skip-externals',
+        );
+        const skipImportErrors = normalizeStringOption(
+          interaction,
+          'skip-import-errors',
+        );
+        const yes = normalizeStringOption(interaction, 'yes');
+        if (
+          (force && force !== '--force') ||
+          (skipSkillScan && skipSkillScan !== '--skip-skill-scan') ||
+          (skipExternals && skipExternals !== '--skip-externals') ||
+          (skipImportErrors && skipImportErrors !== '--skip-import-errors') ||
+          (yes && yes !== '--yes')
+        ) {
+          return null;
+        }
+        return [
+          'agent',
+          'install',
+          source,
+          ...(agentId ? ['--id', agentId] : []),
+          ...(force ? ['--force'] : []),
+          ...(skipSkillScan ? ['--skip-skill-scan'] : []),
+          ...(skipExternals ? ['--skip-externals'] : []),
+          ...(skipImportErrors ? ['--skip-import-errors'] : []),
+          ...(yes ? ['--yes'] : []),
+        ];
+      }
       return null;
     }
 
@@ -1341,7 +1836,11 @@ export function parseCanonicalSlashCommandArgs(
 
     case 'bot': {
       const subcommand = normalizeSubcommand(interaction);
-      if (subcommand === 'list' || subcommand === 'info') {
+      if (
+        subcommand === 'list' ||
+        subcommand === 'info' ||
+        subcommand === 'clear'
+      ) {
         return ['bot', subcommand];
       }
       if (subcommand === 'set') {
@@ -1400,6 +1899,10 @@ export function parseCanonicalSlashCommandArgs(
     case 'plugin': {
       const subcommand = normalizeSubcommand(interaction);
       if (subcommand === 'list') return ['plugin', 'list'];
+      if (subcommand === 'enable' || subcommand === 'disable') {
+        const pluginId = normalizeStringOption(interaction, 'id', true);
+        return pluginId ? ['plugin', subcommand, pluginId] : null;
+      }
       if (subcommand === 'config') {
         const pluginId = normalizeStringOption(interaction, 'id', true);
         const key = normalizeStringOption(interaction, 'key');

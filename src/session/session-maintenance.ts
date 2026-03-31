@@ -21,7 +21,8 @@ import {
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { resolveTaskModelPolicy } from '../providers/task-routing.js';
 import { loadSkills } from '../skills/skills.js';
-import type { ChatMessage, StoredMessage } from '../types.js';
+import type { ChatMessage } from '../types/api.js';
+import type { StoredMessage } from '../types/session.js';
 import { exportCompactedSessionJsonl } from './session-export.js';
 import {
   estimateTokenCountFromMessages,

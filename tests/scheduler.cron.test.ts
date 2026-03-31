@@ -5,7 +5,7 @@ import {
   normalizeMondayZeroBasedCronExpressionWeekdays,
   wrapCronPrompt,
 } from '../src/scheduler/scheduler.js';
-import type { ScheduledTask } from '../src/types.js';
+import type { ScheduledTask } from '../src/types/scheduler.js';
 
 function makeCronTask(cronExpr: string): ScheduledTask {
   return {

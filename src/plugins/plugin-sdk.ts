@@ -1,7 +1,13 @@
 export type { ChannelInfo } from '../channels/channel.js';
+export {
+  readWebhookJsonBody,
+  sendWebhookJson,
+  WebhookHttpError,
+} from '../channels/webhook-http.js';
 export type { RuntimeConfig } from '../config/runtime-config.js';
+export type { GatewayChatResult } from '../gateway/gateway-types.js';
 export type { AIProvider } from '../providers/types.js';
-export type { StoredMessage } from '../types.js';
+export type { StoredMessage } from '../types/session.js';
 export type {
   HybridClawPluginApi,
   HybridClawPluginDefinition,
@@ -14,9 +20,13 @@ export type {
   PluginConfigSchema,
   PluginConfigUiHint,
   PluginDiscoverySource,
+  PluginDispatchInboundMessageRequest,
   PluginGatewayLifecycleContext,
   PluginHookHandlerMap,
   PluginHookName,
+  PluginInboundProactiveMessage,
+  PluginInboundWebhookContext,
+  PluginInboundWebhookDefinition,
   PluginKind,
   PluginLogger,
   PluginManifest,
@@ -36,3 +46,8 @@ export type {
   PluginToolSchema,
   PluginToolSchemaProperty,
 } from './plugin-types.js';
+export {
+  buildPluginInboundWebhookPath,
+  isPluginInboundWebhookPath,
+  PLUGIN_INBOUND_WEBHOOK_PATH_PREFIX,
+} from './plugin-webhooks.js';

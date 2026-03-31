@@ -9,12 +9,13 @@ import {
   resolveExplicitSkillInvocation,
   type Skill,
 } from '../skills/skills.js';
-import type { ChatMessage } from '../types.js';
+import type { ChatMessage } from '../types/api.js';
 import {
   buildSystemPromptFromHooks,
   type PromptMode,
   type PromptRuntimeInfo,
 } from './prompt-hooks.js';
+import { mergeBlockedToolNames } from './tool-policy.js';
 
 interface HistoryMessage {
   role: string;
@@ -53,6 +54,7 @@ export function buildConversationContext(params: {
     blockedTools,
     currentUserContent,
   } = params;
+  const mergedBlockedTools = mergeBlockedToolNames({ explicit: blockedTools });
   const skills = loadSkills(
     agentId,
     normalizeSkillConfigChannelKind(runtimeInfo?.channel?.kind),
@@ -72,7 +74,7 @@ export function buildConversationContext(params: {
     extraSafetyText,
     runtimeInfo,
     allowedTools,
-    blockedTools,
+    blockedTools: mergedBlockedTools,
   });
 
   const messages: ChatMessage[] = [];

@@ -12,13 +12,17 @@ import {
   buildValidatedMountAliases,
   resolveAllowedHostMediaPath,
 } from '../security/media-paths.js';
-import type { MediaContextItem } from '../types.js';
+import type { MediaContextItem } from '../types/container.js';
 import {
   resolveAudioTranscriptionModels,
   transcribeAudioWithFallback,
 } from './audio-transcription-backends.js';
 import { MANAGED_TEMP_MEDIA_DIR_PREFIXES } from './managed-temp-media.js';
 import { AUDIO_FILE_EXTENSION_RE, normalizeMimeType } from './mime-utils.js';
+import {
+  resolveUploadedMediaCacheHostDir,
+  UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
+} from './uploaded-media-cache.js';
 
 const WORKSPACE_ROOT_DISPLAY = '/workspace';
 const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
@@ -119,6 +123,8 @@ export async function prependAudioTranscriptionsToUserContent(params: {
       workspaceRootDisplay: WORKSPACE_ROOT_DISPLAY,
       mediaCacheRoot: DISCORD_MEDIA_CACHE_ROOT,
       mediaCacheRootDisplay: DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+      uploadedMediaRoot: resolveUploadedMediaCacheHostDir(),
+      uploadedMediaRootDisplay: UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
       mountAliases,
       managedTempDirPrefixes: MANAGED_TEMP_MEDIA_DIR_PREFIXES,
       allowHostAbsolutePaths: CONTAINER_SANDBOX_MODE === 'host',

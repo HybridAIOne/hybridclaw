@@ -19,11 +19,24 @@ function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-local-cli-'));
 }
 
-async function importFreshCli(homeDir: string) {
+async function importFreshCli(
+  homeDir: string,
+  options?: {
+    imessageLocalReadyError?: Error | null;
+  },
+) {
   process.env.HOME = homeDir;
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
   vi.resetModules();
+  vi.doMock('../src/channels/imessage/local-prereqs.js', () => ({
+    assertLocalIMessageBackendReady: vi.fn(() => {
+      if (options?.imessageLocalReadyError) {
+        throw options.imessageLocalReadyError;
+      }
+    }),
+    formatMissingIMessageCliMessage: vi.fn((cliPath: string) => cliPath),
+  }));
   vi.doMock('../src/channels/whatsapp/connection.ts', () => ({
     createWhatsAppConnectionManager: () => ({
       getSocket: () => null,
@@ -54,6 +67,7 @@ function readRuntimeSecrets(homeDir: string): Record<string, string> {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.doUnmock('../src/channels/imessage/local-prereqs.js');
   vi.doUnmock('../src/channels/whatsapp/connection.ts');
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
@@ -131,7 +145,7 @@ test('local configure --no-default preserves the existing default model', async 
 
   const config = readRuntimeConfig(homeDir);
   expect(config.local.backends.lmstudio.enabled).toBe(true);
-  expect(config.hybridai.defaultModel).toBe('gpt-5-nano');
+  expect(config.hybridai.defaultModel).toBe('gpt-4.1-mini');
 });
 
 test('help local prints local command usage', async () => {
@@ -245,6 +259,72 @@ test('channels email setup writes config and stores EMAIL_PASSWORD', async () =>
   expect(config.email.folders).toEqual(['INBOX', 'Support']);
   expect(config.email.allowFrom).toEqual(['boss@example.com', '*@example.com']);
   expect(secrets.EMAIL_PASSWORD).toBe('email-app-password');
+});
+
+test('channels imessage setup configures the local backend with safe defaults', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'channels',
+    'imessage',
+    'setup',
+    '--allow-from',
+    '+14155551212',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.imessage.enabled).toBe(true);
+  expect(config.imessage.backend).toBe('local');
+  expect(config.imessage.cliPath).toBe('imsg');
+  expect(config.imessage.dbPath).toContain('/Library/Messages/chat.db');
+  expect(config.imessage.dmPolicy).toBe('allowlist');
+  expect(config.imessage.allowFrom).toEqual(['+14155551212']);
+  expect(config.imessage.groupPolicy).toBe('disabled');
+  expect(config.imessage.groupAllowFrom).toEqual([]);
+});
+
+test('channels imessage setup configures the remote backend and stores IMESSAGE_PASSWORD', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'channels',
+    'imessage',
+    'setup',
+    '--backend',
+    'remote',
+    '--server-url',
+    'https://bluebubbles.example.com',
+    '--password',
+    'bluebubbles-password',
+    '--allow-from',
+    'user@example.com',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  const secrets = readRuntimeSecrets(homeDir);
+  expect(config.imessage.enabled).toBe(true);
+  expect(config.imessage.backend).toBe('bluebubbles');
+  expect(config.imessage.serverUrl).toBe('https://bluebubbles.example.com');
+  expect(config.imessage.password).toBe('');
+  expect(config.imessage.dmPolicy).toBe('allowlist');
+  expect(config.imessage.allowFrom).toEqual(['user@example.com']);
+  expect(config.imessage.groupPolicy).toBe('disabled');
+  expect(secrets.IMESSAGE_PASSWORD).toBe('bluebubbles-password');
+});
+
+test('channels imessage setup fails fast when the local imsg binary is missing', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir, {
+    imessageLocalReadyError: new Error(
+      'Missing iMessage CLI binary: imsg. Install it with `brew install steipete/tap/imsg` or rerun `hybridclaw channels imessage setup --cli-path /absolute/path/to/imsg ...`.',
+    ),
+  });
+
+  await expect(
+    cli.main(['channels', 'imessage', 'setup', '--allow-from', '+14155551212']),
+  ).rejects.toThrow(/Missing iMessage CLI binary: imsg/);
 });
 
 test('auth login msteams writes config and stores MSTEAMS_APP_PASSWORD', async () => {
@@ -418,11 +498,11 @@ test('channels whatsapp setup preserves an existing custom ack reaction', async 
         },
         hybridai: {
           baseUrl: 'https://hybridai.one',
-          defaultModel: 'gpt-5-nano',
+          defaultModel: 'gpt-4.1-mini',
           defaultChatbotId: '',
           maxTokens: 4096,
           enableRag: true,
-          models: ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
+          models: ['gpt-4.1-mini', 'gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
         },
         codex: {
           baseUrl: 'https://chatgpt.com/backend-api/codex',

@@ -1,6 +1,6 @@
 ---
 name: write-blog-post
-description: Use this skill when the user wants a blog post draft, article outline, publish-ready post, thought-leadership piece, or source-grounded post adapted for a specific audience.
+description: Draft outlines and publish-ready blog posts tailored to audience, sources, and voice.
 user-invocable: true
 metadata:
   hybridclaw:

@@ -6,19 +6,27 @@ import type {
   SessionResetPolicy,
 } from '../session/session-reset.js';
 import type {
-  CanonicalSession,
-  CanonicalSessionContext,
-  CompactionResult,
   KnowledgeEntityTypeValue,
   KnowledgeGraphMatch,
   KnowledgeGraphPattern,
   KnowledgeRelationTypeValue,
+} from '../types/knowledge.js';
+import type {
+  CompactionResult,
   MemoryCitation,
   SemanticMemoryEntry,
+  StructuredMemoryEntry,
+} from '../types/memory.js';
+import type {
+  CanonicalSession,
+  CanonicalSessionContext,
+  ConversationBranchFamily,
+  ConversationHistoryPage,
+  ForkSessionBranchParams,
+  ForkSessionBranchResult,
   Session,
   StoredMessage,
-  StructuredMemoryEntry,
-} from '../types.js';
+} from '../types/session.js';
 import { compactConversation } from './compaction.js';
 import {
   addKnowledgeEntity as dbAddKnowledgeEntity,
@@ -30,9 +38,12 @@ import {
   deleteMessagesBeforeId as dbDeleteMessagesBeforeId,
   deleteMessagesByIds as dbDeleteMessagesByIds,
   forgetSemanticMemory as dbForgetSemanticMemory,
+  forkSessionBranch as dbForkSessionBranch,
   getCanonicalContext as dbGetCanonicalContext,
   getCompactionCandidateMessages as dbGetCompactionCandidateMessages,
+  getConversationBranchFamilies as dbGetConversationBranchFamilies,
   getConversationHistory as dbGetConversationHistory,
+  getConversationHistoryPage as dbGetConversationHistoryPage,
   getMemoryValue as dbGetMemoryValue,
   getOrCreateSession as dbGetOrCreateSession,
   getRecentMessages as dbGetRecentMessages,
@@ -50,7 +61,6 @@ import {
   type SemanticRecallFilter,
 } from './db.js';
 import {
-  type MemoryConsolidationConfig,
   MemoryConsolidationEngine,
   type MemoryConsolidationReport,
 } from './memory-consolidation.js';
@@ -82,7 +92,17 @@ export interface MemoryBackend {
     sessionId: string,
     limit?: number,
   ) => StoredMessage[];
+  getConversationHistoryPage: (
+    sessionId: string,
+    limit?: number,
+  ) => ConversationHistoryPage;
+  getConversationBranchFamilies: (
+    sessionId: string,
+  ) => ConversationBranchFamily[];
   getRecentMessages: (sessionId: string, limit?: number) => StoredMessage[];
+  forkSessionBranch: (
+    params: ForkSessionBranchParams,
+  ) => ForkSessionBranchResult;
   get: (sessionId: string, key: string) => unknown | null;
   set: (sessionId: string, key: string, value: unknown) => void;
   delete: (sessionId: string, key: string) => boolean;
@@ -239,7 +259,10 @@ const DEFAULT_BACKEND: MemoryBackend = {
   getOrCreateSession: dbGetOrCreateSession,
   getSessionById: dbGetSessionById,
   getConversationHistory: dbGetConversationHistory,
+  getConversationHistoryPage: dbGetConversationHistoryPage,
+  getConversationBranchFamilies: dbGetConversationBranchFamilies,
   getRecentMessages: dbGetRecentMessages,
+  forkSessionBranch: dbForkSessionBranch,
   get: dbGetMemoryValue,
   set: dbSetMemoryValue,
   delete: dbDeleteMemoryValue,
@@ -416,8 +439,23 @@ export class MemoryService {
     return this.backend.getConversationHistory(sessionId, limit);
   }
 
+  getConversationHistoryPage(
+    sessionId: string,
+    limit = 50,
+  ): ConversationHistoryPage {
+    return this.backend.getConversationHistoryPage(sessionId, limit);
+  }
+
+  getConversationBranchFamilies(sessionId: string): ConversationBranchFamily[] {
+    return this.backend.getConversationBranchFamilies(sessionId);
+  }
+
   getRecentMessages(sessionId: string, limit?: number): StoredMessage[] {
     return this.backend.getRecentMessages(sessionId, limit);
+  }
+
+  forkSessionBranch(params: ForkSessionBranchParams): ForkSessionBranchResult {
+    return this.backend.forkSessionBranch(params);
   }
 
   get(sessionId: string, key: string): unknown | null {
@@ -488,10 +526,12 @@ export class MemoryService {
     return this.backend.queryKnowledgeGraph(pattern);
   }
 
-  consolidateMemories(
-    overrides?: Partial<MemoryConsolidationConfig>,
-  ): MemoryConsolidationReport {
-    return this.consolidationEngine.consolidate(overrides);
+  consolidateMemories(): MemoryConsolidationReport {
+    return this.consolidationEngine.consolidate();
+  }
+
+  setConsolidationDecayRate(decayRate: number): void {
+    this.consolidationEngine.setDecayRate(decayRate);
   }
 
   async compactSession(sessionId: string): Promise<CompactionResult> {
@@ -612,8 +652,11 @@ export class MemoryService {
     );
   }
 
-  storeTurn(params: StoreTurnParams): void {
-    this.storeMessage({
+  storeTurn(params: StoreTurnParams): {
+    userMessageId: number;
+    assistantMessageId: number;
+  } {
+    const userMessageId = this.storeMessage({
       sessionId: params.sessionId,
       userId: params.user.userId,
       username: params.user.username,
@@ -631,7 +674,12 @@ export class MemoryService {
     const interactionText = this.normalizeSemanticContent(
       `User asked: ${params.user.content.trim()}\nI responded: ${params.assistant.content.trim()}`,
     );
-    if (!interactionText) return;
+    if (!interactionText) {
+      return {
+        userMessageId,
+        assistantMessageId,
+      };
+    }
 
     this.backend.storeSemanticMemory({
       sessionId: params.sessionId,
@@ -644,6 +692,11 @@ export class MemoryService {
       embedding: this.embeddingProvider.embed(interactionText),
       sourceMessageId: assistantMessageId,
     });
+
+    return {
+      userMessageId,
+      assistantMessageId,
+    };
   }
 
   buildPromptMemoryContext(

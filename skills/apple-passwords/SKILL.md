@@ -1,6 +1,6 @@
 ---
 name: apple-passwords
-description: Use this skill when the user wants macOS Passwords app or Keychain workflows, including opening saved logins, locating matching credentials, or reading a specific keychain item safely.
+description: Open macOS Passwords or Keychain entries, locate saved logins, and read specific credentials safely.
 user-invocable: true
 metadata:
   hybridclaw:

@@ -13,5 +13,6 @@ export default defineConfig({
     ...baseTest,
     include: ['tests/**/*.e2e.test.ts'],
     exclude,
+    globalSetup: ['tests/helpers/e2e-global-setup.ts'],
   },
 });

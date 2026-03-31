@@ -1,6 +1,6 @@
 ---
 name: discord
-description: Use this skill when the user wants to read, send, react to, edit, pin, or thread Discord messages with HybridClaw's `message` tool for team coordination and channel operations.
+description: Read, send, react to, edit, pin, and thread Discord messages with HybridClaw's `message` tool.
 user-invocable: true
 metadata:
   hybridclaw:

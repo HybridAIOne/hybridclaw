@@ -11,6 +11,8 @@ import {
   isSecurityTrustAccepted,
   SECURITY_POLICY_VERSION,
 } from '../config/runtime-config.js';
+import { resolveModelProvider } from '../providers/factory.js';
+import { formatModelForDisplay } from '../providers/model-names.js';
 import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
 import {
   buildSessionContextPrompt,
@@ -178,6 +180,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions, or when the user explicitly asks.',
     'Keep narration brief and value-dense; avoid repeating obvious steps.',
     'If the user has already asked you to perform an action, do not ask for a separate natural-language "yes" just to trigger approvals; attempt the tool call and let the runtime approval flow interrupt if approval is required.',
+    'If a requested action is blocked only by a missing dependency or another narrow prerequisite, attempt the minimal prerequisite step needed to complete the request instead of turning it into a follow-up multiple-choice question; let the runtime approval flow interrupt if approval is required.',
     'When a direct first-class tool exists, use it instead of asking the user to run equivalent CLI commands or doing indirect rediscovery.',
     'If the relevant content is already available directly in the current turn, injected `<file>` content, or `[PDFContext]`, answer from that content first before reading skills or searching for the same artifact again.',
     '',
@@ -282,6 +285,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     '',
     '## Web Retrieval Routing (web_search/web_fetch vs browser_*)',
     'Decision rule: use `web_search` to discover relevant URLs when the target page is not already known, then use `web_fetch` for read-only content retrieval.',
+    'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/development/...` page before answering. Do not answer from memory if no fetch was attempted.',
     'Use `web_extract` when you want the fetched page condensed into a model-processed markdown summary; it is higher cost than `web_fetch` because it runs an auxiliary model after extraction.',
     'Use browser tools only when at least one of these is true: (1) known app-like/auth-gated URL, (2) interaction is required (click/type/login/scroll), (3) `web_fetch` returned escalation hints, (4) user explicitly requested browser use.',
     'Prefer browser for: SPAs/client-rendered apps (React/Vue/Angular/Next client routes), dashboards/web apps, social feeds, login/OAuth/cookie-consent/CAPTCHA flows, or API-driven pages that populate after initial render.',
@@ -413,21 +417,28 @@ function buildProactivityHook(context: PromptHookContext): string {
 
 function buildRuntimeHook(context: PromptHookContext): string {
   const runtimeInfo = context.runtimeInfo || {};
-  const model = runtimeInfo.model?.trim() || HYBRIDAI_MODEL;
-  const defaultModel = runtimeInfo.defaultModel?.trim() || HYBRIDAI_MODEL;
+  const model = sanitizePromptInlineValue(runtimeInfo.model) || HYBRIDAI_MODEL;
+  const provider = sanitizePromptInlineValue(resolveModelProvider(model));
+  if (!provider) {
+    throw new Error('Runtime model provider must be non-empty.');
+  }
   const workspaceLabel =
     runtimeInfo.workspacePath?.trim() || 'current agent workspace';
   const guildLabel =
     runtimeInfo.guildId === null
       ? 'dm'
       : runtimeInfo.guildId?.trim() || 'unknown';
+  const formattedModel = sanitizePromptInlineValue(
+    formatRuntimeModelForPrompt(model, provider),
+  );
+  const modelSentence = `Model: ${formattedModel} served through ${provider}`;
 
   const lines = [
     '## Runtime Metadata',
     `HybridClaw version: v${APP_VERSION}`,
+    'HybridClaw Documentation: [https://www.hybridclaw.io/docs/](https://www.hybridclaw.io/docs/)',
     `Date (UTC): ${new Date().toISOString().slice(0, 10)}`,
-    `Model: ${model}`,
-    `Default model: ${defaultModel}`,
+    modelSentence,
     runtimeInfo.channelId?.trim()
       ? `Channel ID: ${runtimeInfo.channelId.trim()}`
       : '',
@@ -438,12 +449,54 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `Workspace: ${workspaceLabel}`,
     `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,
     'Only provide more runtime details when the user explicitly asks for them.',
-    'Default response style: concise and direct.',
+    // Intentional overlap with templates/SOUL.md:
+    // keep brevity guidance in both the identity layer and the always-on runtime
+    // layer so prompt modes that omit one still retain concise-answer steering.
+    'Default response style: brief and direct. Lead with the answer, skip filler, and expand only when depth, risk, tradeoffs, or structured deliverables require it.',
     'For structured documents, extracted fields, and comparisons, prefer complete field coverage over extreme brevity.',
     'Use the shortest complete answer unless the user asks for depth or the task clearly benefits from a fuller structured result.',
   ];
 
   return lines.filter(Boolean).join('\n');
+}
+
+function formatRuntimeModelForPrompt(model: string, provider: string): string {
+  const formatted = formatModelForDisplay(model);
+  if (provider === 'openai-codex') {
+    return formatUpstreamModelLabel(
+      stripProviderPrefix(formatted, 'openai-codex'),
+    );
+  }
+  if (provider === 'hybridai') {
+    return formatUpstreamModelLabel(stripProviderPrefix(formatted, 'hybridai'));
+  }
+  return formatUpstreamModelLabel(stripProviderPrefix(formatted, provider));
+}
+
+function formatUpstreamModelLabel(model: string): string {
+  const parts = model
+    .trim()
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return model.trim();
+  const name = parts.at(-1) || '';
+  const vendor = parts.slice(0, -1).join('/');
+  return `${name} by ${vendor}`;
+}
+
+function stripProviderPrefix(formatted: string, prefix: string): string {
+  const normalizedPrefix = `${prefix}/`.toLowerCase();
+  return formatted.toLowerCase().startsWith(normalizedPrefix)
+    ? formatted.slice(prefix.length + 1)
+    : formatted;
+}
+
+function sanitizePromptInlineValue(value: string | null | undefined): string {
+  return String(value || '')
+    .replaceAll('\0', '')
+    .replace(/[\r\n]+/g, ' ')
+    .trim();
 }
 
 const PROMPT_HOOKS: PromptHook[] = [

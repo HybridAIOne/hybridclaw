@@ -15,9 +15,16 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
 
   expect(labels).toContain('/show tools');
   expect(labels).toContain('/model select');
+  expect(labels).toContain('/auth status hybridai');
+  expect(labels).toContain('/config');
+  expect(labels).toContain('/config check');
+  expect(labels).toContain('/config reload');
+  expect(labels).toContain('/config set <key> <value>');
+  expect(labels.filter((label) => label === '/config')).toHaveLength(1);
   expect(labels).toContain('/approve yes [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
   expect(labels).toContain('/bot list');
+  expect(labels).toContain('/agent install <source>');
   expect(labels).toContain('/plugin install <path|npm-spec>');
   expect(labels).toContain('/plugin reinstall <path|npm-spec>');
   expect(labels).toContain('/skill');
@@ -25,8 +32,27 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/skill inspect <name>');
   expect(labels).toContain('/skill inspect --all');
   expect(labels).toContain('/skill runs <name>');
-  expect(labels).toContain('/skill amend <name> --apply');
+  expect(labels).toContain('/skill learn <name> --apply');
   expect(labels).toContain('/skill history <name>');
+  expect(labels).toContain('/skill sync <source>');
+  expect(labels).toContain('/skill import <source>');
+  expect(labels).toContain('/skill import --force <source>');
+});
+
+test('does not duplicate concierge slash menu entries', () => {
+  const labels = buildTuiSlashMenuEntries().map((entry) => entry.label);
+
+  expect(labels.filter((label) => label === '/concierge info')).toHaveLength(1);
+  expect(labels.filter((label) => label === '/concierge on')).toHaveLength(1);
+  expect(labels.filter((label) => label === '/concierge off')).toHaveLength(1);
+});
+
+test('keeps /skill import visible in the base skill query results', () => {
+  const ranked = rankTuiSlashMenuEntries(buildTuiSlashMenuEntries(), 'skill');
+
+  expect(ranked.map((entry) => entry.label)).toContain(
+    '/skill import <source>',
+  );
 });
 
 test('resolves slash menu queries only at the end of the active line', () => {
@@ -201,4 +227,60 @@ test('second escape clears the current prompt line after dismissing the menu', (
   expect(rl.line).toBe('');
   expect(rl.cursor).toBe(0);
   expect(operations).toContain('refresh');
+});
+
+test('arrow up falls through to readline history when slash query has no matches', () => {
+  const { rl, operations } = buildControllerHarness();
+
+  rl.line = '/mcp reconnect datalion';
+  rl.cursor = rl.line.length;
+  operations.length = 0;
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'up' });
+
+  expect(operations).toContain('tty:');
+});
+
+test('arrow down falls through to readline history when slash query has no matches', () => {
+  const { rl, operations } = buildControllerHarness();
+
+  rl.line = '/mcp reconnect datalion';
+  rl.cursor = rl.line.length;
+  operations.length = 0;
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'down' });
+
+  expect(operations).toContain('tty:');
+});
+
+test('arrow up falls through to readline history even when matches exist', () => {
+  const { rl, operations } = buildControllerHarness();
+
+  rl.line = '/mo';
+  rl.cursor = rl.line.length;
+  operations.length = 0;
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'up' });
+
+  expect(operations).toContain('tty:');
+});
+
+test('ctrl-p still navigates slash menu entries when matches exist', () => {
+  const { rl, operations } = buildControllerHarness();
+
+  rl.line = '/mo';
+  rl.cursor = rl.line.length;
+  operations.length = 0;
+
+  (
+    rl as unknown as { _ttyWrite: (chunk: string, key: readline.Key) => void }
+  )._ttyWrite('', { name: 'p', ctrl: true });
+
+  expect(operations).not.toContain('tty:');
 });
