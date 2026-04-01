@@ -306,6 +306,16 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(approved.implicitDelayMs).toBeUndefined();
   });
 
+  test('bare yes without a pending approval is treated as a normal prompt', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const prelude = runtime.handleApprovalResponse([userMessage('Yes')]);
+
+    expect(prelude).toBeNull();
+  });
+
   test('yes for session persists trust for repeated action key', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
