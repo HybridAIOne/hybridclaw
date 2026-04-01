@@ -165,7 +165,9 @@ describe('runtime secrets', () => {
     expect(stored.version).toBe(1);
     expect(JSON.stringify(stored)).not.toContain('hai-1234567890abcdef');
     expect(
-      fs.existsSync(path.join(homeDir, '.hybridclaw', 'credentials.json.legacy')),
+      fs.existsSync(
+        path.join(homeDir, '.hybridclaw', 'credentials.json.legacy'),
+      ),
     ).toBe(false);
     expect(process.env.HYBRIDAI_API_KEY).toBeUndefined();
   });
@@ -491,7 +493,9 @@ describe('runtime secrets', () => {
 
     runtimeSecretsBootstrap.bootstrapRuntimeSecrets();
 
-    expect(fs.readFileSync(credentialsPath, 'utf-8')).toBe(plaintextCredentials);
+    expect(fs.readFileSync(credentialsPath, 'utf-8')).toBe(
+      plaintextCredentials,
+    );
     expect(fs.existsSync(legacyPath)).toBe(false);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('failed to migrate legacy plaintext credentials'),
