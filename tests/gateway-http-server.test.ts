@@ -4001,20 +4001,21 @@ describe('gateway HTTP server', () => {
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
     }));
     const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.enqueue(Buffer.alloc(6, 0x61));
-            controller.enqueue(Buffer.alloc(6, 0x62));
-            controller.close();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(Buffer.alloc(6, 0x61));
+              controller.enqueue(Buffer.alloc(6, 0x62));
+              controller.close();
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/octet-stream' },
           },
-        }),
-        {
-          status: 200,
-          headers: { 'content-type': 'application/octet-stream' },
-        },
-      ),
+        ),
     );
     vi.stubGlobal('fetch', fetchMock);
 

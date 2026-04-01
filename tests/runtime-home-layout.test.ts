@@ -552,9 +552,9 @@ describe('runtime secrets', () => {
         HYBRIDAI_API_KEY: 'hai-after-atomic-write-failure',
       }),
     ).toThrow(/simulated rename failure/);
-    expect(
-      fs.readFileSync(runtimeSecrets.runtimeSecretsPath(), 'utf-8'),
-    ).toBe(encryptedBefore);
+    expect(fs.readFileSync(runtimeSecrets.runtimeSecretsPath(), 'utf-8')).toBe(
+      encryptedBefore,
+    );
 
     const reloaded = await importFreshRuntimeSecrets(homeDir);
     expect(reloaded.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
