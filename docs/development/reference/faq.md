@@ -21,7 +21,9 @@ Acceptance is recorded in `config.json` with policy version and timestamp.
 ## Do I still configure everything through `.env`?
 
 No. Runtime behavior lives in typed `config.json` and runtime secrets live in
-`~/.hybridclaw/credentials.json`. A local `.env` is only used for one-time
+the encrypted `~/.hybridclaw/credentials.json` store. The decryption key comes
+from `HYBRIDCLAW_MASTER_KEY`, `/run/secrets/hybridclaw_master_key`, or a local
+owner-only `credentials.master.key`. A local `.env` is only used for one-time
 compatibility import of supported secrets.
 
 ## Is it safe to let the agent run shell commands?

@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import readline from 'node:readline/promises';
 
 import {
@@ -11,6 +10,7 @@ import type { LocalBackendType } from '../providers/local-types.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import { normalizeBaseUrl } from '../providers/utils.js';
 import {
+  readStoredRuntimeSecret,
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
@@ -418,9 +418,7 @@ async function configureOpenRouter(args: string[]): Promise<void> {
     normalizeBaseUrl: normalizeOpenRouterBaseUrl,
     resolveApiKey: resolveOpenRouterApiKey,
     saveSecrets: (apiKey) => saveRuntimeSecrets({ OPENROUTER_API_KEY: apiKey }),
-    applyApiKeyToEnv: (apiKey) => {
-      process.env.OPENROUTER_API_KEY = apiKey;
-    },
+    applyApiKeyToEnv: () => {},
     updateConfig: (parsed, normalizedBaseUrl, fullModelName) =>
       updateRuntimeConfig((draft) => {
         draft.openrouter.enabled = true;
@@ -447,9 +445,7 @@ async function configureMistral(args: string[]): Promise<void> {
     normalizeBaseUrl: normalizeMistralBaseUrl,
     resolveApiKey: resolveMistralApiKey,
     saveSecrets: (apiKey) => saveRuntimeSecrets({ MISTRAL_API_KEY: apiKey }),
-    applyApiKeyToEnv: (apiKey) => {
-      process.env.MISTRAL_API_KEY = apiKey;
-    },
+    applyApiKeyToEnv: () => {},
     updateConfig: (parsed, normalizedBaseUrl, fullModelName) =>
       updateRuntimeConfig((draft) => {
         draft.mistral.enabled = true;
@@ -476,10 +472,7 @@ async function configureHuggingFace(args: string[]): Promise<void> {
     normalizeBaseUrl: normalizeHuggingFaceBaseUrl,
     resolveApiKey: resolveHuggingFaceApiKey,
     saveSecrets: (apiKey) => saveRuntimeSecrets({ HF_TOKEN: apiKey }),
-    applyApiKeyToEnv: (apiKey) => {
-      process.env.HF_TOKEN = apiKey;
-      process.env.HUGGINGFACE_API_KEY = apiKey;
-    },
+    applyApiKeyToEnv: () => {},
     updateConfig: (parsed, normalizedBaseUrl, fullModelName) =>
       updateRuntimeConfig((draft) => {
         draft.huggingface.enabled = true;
@@ -595,27 +588,6 @@ function parseUnifiedProviderArgs(args: string[]): {
     provider,
     remaining: provider == null ? args : args.slice(1),
   };
-}
-
-function readStoredRuntimeSecret(
-  secretKey:
-    | 'OPENROUTER_API_KEY'
-    | 'MISTRAL_API_KEY'
-    | 'HF_TOKEN'
-    | 'MSTEAMS_APP_PASSWORD',
-): string | null {
-  const filePath = runtimeSecretsPath();
-  if (!fs.existsSync(filePath)) return null;
-  try {
-    const raw = fs.readFileSync(filePath, 'utf-8');
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const value = parsed[secretKey];
-    if (typeof value !== 'string') return null;
-    const normalized = value.trim();
-    return normalized || null;
-  } catch {
-    return null;
-  }
 }
 
 function maskSecret(value: string): string {
@@ -735,7 +707,6 @@ function printHuggingFaceStatus(): void {
 
 function clearOpenRouterCredentials(): void {
   const filePath = saveRuntimeSecrets({ OPENROUTER_API_KEY: null });
-  delete process.env.OPENROUTER_API_KEY;
   console.log(`Cleared OpenRouter credentials in ${filePath}.`);
   console.log(
     'If OPENROUTER_API_KEY is still exported in your shell, unset it separately.',
@@ -744,7 +715,6 @@ function clearOpenRouterCredentials(): void {
 
 function clearMistralCredentials(): void {
   const filePath = saveRuntimeSecrets({ MISTRAL_API_KEY: null });
-  delete process.env.MISTRAL_API_KEY;
   console.log(`Cleared Mistral credentials in ${filePath}.`);
   console.log(
     'If MISTRAL_API_KEY is still exported in your shell, unset it separately.',
@@ -753,8 +723,6 @@ function clearMistralCredentials(): void {
 
 function clearHuggingFaceCredentials(): void {
   const filePath = saveRuntimeSecrets({ HF_TOKEN: null });
-  delete process.env.HF_TOKEN;
-  delete process.env.HUGGINGFACE_API_KEY;
   console.log(`Cleared Hugging Face credentials in ${filePath}.`);
   console.log(
     'If HF_TOKEN is still exported in your shell, unset it separately.',
@@ -853,7 +821,6 @@ function printMSTeamsStatus(): void {
 function clearMSTeamsCredentials(): void {
   ensureRuntimeConfigFile();
   const filePath = saveRuntimeSecrets({ MSTEAMS_APP_PASSWORD: null });
-  delete process.env.MSTEAMS_APP_PASSWORD;
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.msteams.enabled = false;
     draft.msteams.appId = '';
@@ -1538,7 +1505,6 @@ async function configureMSTeamsAuth(args: string[]): Promise<void> {
   const secretsPath = saveRuntimeSecrets({
     MSTEAMS_APP_PASSWORD: resolved.appPassword,
   });
-  process.env.MSTEAMS_APP_PASSWORD = resolved.appPassword;
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   console.log(`Saved Microsoft Teams app password to ${secretsPath}.`);

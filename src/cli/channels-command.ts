@@ -14,6 +14,7 @@ import {
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import {
+  readStoredRuntimeSecret,
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
@@ -695,7 +696,8 @@ async function resolveInteractiveEmailSetup(params: {
   let password = params.password;
   let passwordSource: 'explicit' | 'prompt' | 'env' = password
     ? 'explicit'
-    : process.env.EMAIL_PASSWORD?.trim()
+    : process.env.EMAIL_PASSWORD?.trim() ||
+        readStoredRuntimeSecret('EMAIL_PASSWORD')
       ? 'env'
       : 'prompt';
   let allowFrom = params.allowFrom;
@@ -919,7 +921,10 @@ async function configureEmailChannel(args: string[]): Promise<void> {
     imapPort: parsed.imapPort || currentConfig.imapPort,
     imapSecure: parsed.imapSecure ?? currentConfig.imapSecure,
     password:
-      parsed.password?.trim() || process.env.EMAIL_PASSWORD?.trim() || '',
+      parsed.password?.trim() ||
+      process.env.EMAIL_PASSWORD?.trim() ||
+      readStoredRuntimeSecret('EMAIL_PASSWORD') ||
+      '',
     smtpHost: parsed.smtpHost || currentConfig.smtpHost,
     smtpPort: parsed.smtpPort || currentConfig.smtpPort,
     smtpSecure: parsed.smtpSecure ?? currentConfig.smtpSecure,

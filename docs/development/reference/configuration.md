@@ -20,13 +20,17 @@ or restore tracked config snapshots.
 ## Runtime Files
 
 - `~/.hybridclaw/config.json` for typed runtime config
-- `~/.hybridclaw/credentials.json` for runtime secrets
+- `~/.hybridclaw/credentials.json` for encrypted runtime secrets
+- `~/.hybridclaw/credentials.master.key` for the local owner-only fallback
+  master key when no external key source is configured
 - `~/.hybridclaw/codex-auth.json` for Codex OAuth state
 - `~/.hybridclaw/data/hybridclaw.db` for persistent runtime data
 - `~/.hybridclaw/data/config-revisions.db` for tracked runtime config history
 
 HybridClaw does not keep runtime state in the current working directory. If
 `./.env` exists, supported secrets are imported once for compatibility.
+Headless or containerized deployments should prefer `HYBRIDCLAW_MASTER_KEY` or
+`/run/secrets/hybridclaw_master_key` instead of the local fallback key file.
 
 ## Config Revision History
 
@@ -70,7 +74,8 @@ leak into the saved revision metadata.
 - In `host` sandbox mode, the agent can access the user home directory, the
   gateway working directory, `/tmp`, and any host paths explicitly added
   through `container.binds` or `container.additionalMounts`
-- keep `~/.hybridclaw/` permissions tight
+- keep `~/.hybridclaw/` permissions tight (`0700` on the directory, `0600` on
+  secret-bearing files)
 - prefer low-privilege tokens
 - use `host` sandbox mode for stdio MCP servers that depend on host-installed
   tools

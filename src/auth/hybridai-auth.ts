@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process';
-import fs from 'node:fs';
 import readline from 'node:readline/promises';
 
 import {
@@ -9,6 +8,7 @@ import {
   refreshRuntimeSecretsFromEnv,
 } from '../config/config.js';
 import {
+  readStoredRuntimeSecret,
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
@@ -225,7 +225,6 @@ function requireInteractiveTerminal(): void {
 
 function saveApiKey(apiKey: string): string {
   const filePath = saveRuntimeSecrets({ HYBRIDAI_API_KEY: apiKey });
-  process.env.HYBRIDAI_API_KEY = apiKey;
   refreshRuntimeSecretsFromEnv();
   return filePath;
 }
@@ -306,7 +305,6 @@ async function loginWithApiKeyPrompt(options: {
 
 export function clearHybridAICredentials(): string {
   const filePath = saveRuntimeSecrets({ HYBRIDAI_API_KEY: null });
-  delete process.env.HYBRIDAI_API_KEY;
   refreshRuntimeSecretsFromEnv();
   return filePath;
 }
@@ -368,6 +366,8 @@ export async function loginHybridAIInteractive(options?: {
 
 export function getHybridAIAuthStatus(): HybridAIAuthStatus {
   const path = runtimeSecretsPath();
+  const envApiKey = (process.env.HYBRIDAI_API_KEY || '').trim();
+  const storedApiKey = readStoredRuntimeSecret('HYBRIDAI_API_KEY') || '';
   const apiKey = readCurrentApiKey();
   if (!apiKey) {
     return {
@@ -382,6 +382,12 @@ export function getHybridAIAuthStatus(): HybridAIAuthStatus {
     authenticated: true,
     path,
     maskedApiKey: maskToken(apiKey),
-    source: fs.existsSync(path) ? 'runtime-secrets' : 'env',
+    source: envApiKey
+      ? storedApiKey && storedApiKey === envApiKey
+        ? 'runtime-secrets'
+        : 'env'
+      : storedApiKey
+        ? 'runtime-secrets'
+        : null,
   };
 }

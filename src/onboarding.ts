@@ -31,6 +31,7 @@ import {
 } from './security/instruction-integrity.js';
 import {
   loadRuntimeSecrets,
+  readStoredRuntimeSecret,
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from './security/runtime-secrets.js';
@@ -815,7 +816,6 @@ async function runHybridAIApiKeyOnboarding(params: {
 
   const secretsPath = saveHybridAICredentials(apiKey);
   saveDefaultChatbotId(chosenChatbotId || '');
-  process.env.HYBRIDAI_API_KEY = apiKey;
   refreshRuntimeSecretsFromEnv();
   const switchedModel = await maybeSwitchDefaultModel(
     rl,
@@ -909,7 +909,6 @@ async function runOpenRouterOnboarding(params: {
   }
 
   const secretsPath = saveRuntimeSecrets({ OPENROUTER_API_KEY: apiKey });
-  process.env.OPENROUTER_API_KEY = apiKey;
   refreshRuntimeSecretsFromEnv();
 
   const nextOpenRouterModel = defaultOpenRouterModel();
@@ -963,7 +962,6 @@ async function runMistralOnboarding(params: {
   }
 
   const secretsPath = saveRuntimeSecrets({ MISTRAL_API_KEY: apiKey });
-  process.env.MISTRAL_API_KEY = apiKey;
   refreshRuntimeSecretsFromEnv();
 
   const nextMistralModel = defaultMistralModel();
@@ -1017,8 +1015,6 @@ async function runHuggingFaceOnboarding(params: {
   }
 
   const secretsPath = saveRuntimeSecrets({ HF_TOKEN: apiKey });
-  process.env.HF_TOKEN = apiKey;
-  process.env.HUGGINGFACE_API_KEY = apiKey;
   refreshRuntimeSecretsFromEnv();
 
   const nextHuggingFaceModel = defaultHuggingFaceModel();
@@ -1049,12 +1045,22 @@ export async function ensureRuntimeCredentials(
   const bootstrappedConfig = ensureRuntimeConfigFile();
 
   const runtimeConfig = getRuntimeConfig();
-  const existingKey = (process.env.HYBRIDAI_API_KEY || '').trim();
-  const existingOpenRouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
-  const existingMistralKey = (process.env.MISTRAL_API_KEY || '').trim();
+  const existingKey =
+    (process.env.HYBRIDAI_API_KEY || '').trim() ||
+    readStoredRuntimeSecret('HYBRIDAI_API_KEY') ||
+    '';
+  const existingOpenRouterKey =
+    (process.env.OPENROUTER_API_KEY || '').trim() ||
+    readStoredRuntimeSecret('OPENROUTER_API_KEY') ||
+    '';
+  const existingMistralKey =
+    (process.env.MISTRAL_API_KEY || '').trim() ||
+    readStoredRuntimeSecret('MISTRAL_API_KEY') ||
+    '';
   const existingHuggingFaceKey = (
     process.env.HF_TOKEN ||
     process.env.HUGGINGFACE_API_KEY ||
+    readStoredRuntimeSecret('HF_TOKEN') ||
     ''
   ).trim();
   const codexStatus = getCodexAuthStatus();

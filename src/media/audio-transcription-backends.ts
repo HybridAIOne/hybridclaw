@@ -11,6 +11,7 @@ import type {
   RuntimeMediaAudioConfig,
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
+import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { normalizeMimeType } from './mime-utils.js';
 import { expandUserPath } from './path-utils.js';
 
@@ -327,17 +328,35 @@ function readProviderApiKey(
   provider: RuntimeAudioTranscriptionProvider,
 ): string | null {
   if (provider === 'openai') {
-    return String(process.env.OPENAI_API_KEY || '').trim() || null;
+    return (
+      String(process.env.OPENAI_API_KEY || '').trim() ||
+      readStoredRuntimeSecret('OPENAI_API_KEY') ||
+      null
+    );
   }
   if (provider === 'groq') {
-    return String(process.env.GROQ_API_KEY || '').trim() || null;
+    return (
+      String(process.env.GROQ_API_KEY || '').trim() ||
+      readStoredRuntimeSecret('GROQ_API_KEY') ||
+      null
+    );
   }
   if (provider === 'deepgram') {
-    return String(process.env.DEEPGRAM_API_KEY || '').trim() || null;
+    return (
+      String(process.env.DEEPGRAM_API_KEY || '').trim() ||
+      readStoredRuntimeSecret('DEEPGRAM_API_KEY') ||
+      null
+    );
   }
-  const gemini = String(process.env.GEMINI_API_KEY || '').trim();
+  const gemini =
+    String(process.env.GEMINI_API_KEY || '').trim() ||
+    readStoredRuntimeSecret('GEMINI_API_KEY') ||
+    '';
   if (gemini) return gemini;
-  const google = String(process.env.GOOGLE_API_KEY || '').trim();
+  const google =
+    String(process.env.GOOGLE_API_KEY || '').trim() ||
+    readStoredRuntimeSecret('GOOGLE_API_KEY') ||
+    '';
   return google || null;
 }
 

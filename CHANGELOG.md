@@ -2,6 +2,26 @@
 
 ## [Coming up]
 
+### Added
+
+- **Encrypted runtime secret store**: Runtime credentials in
+  `~/.hybridclaw/credentials.json` now use per-secret AES-256-GCM encryption
+  with owner-only permissions, separate master-key sourcing via
+  `HYBRIDCLAW_MASTER_KEY`, `/run/secrets/hybridclaw_master_key`, or a local
+  owner-only `credentials.master.key`, and automatic migration from legacy
+  plaintext secret files.
+
+### Changed
+
+- **Secret access model**: Runtime secret reads now prefer explicit environment
+  overrides and otherwise resolve secrets from the encrypted store on demand
+  instead of broadly mirroring decrypted values into ambient `process.env` at
+  startup.
+- **Security documentation and comparison copy**: Updated the README, public
+  docs, comparison tables, and runtime/internal docs to reflect encrypted
+  secret storage, master-key separation, trust-first onboarding, and current
+  runtime security principles.
+
 ## [0.9.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.8)
 
 ### Added

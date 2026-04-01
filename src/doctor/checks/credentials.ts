@@ -55,15 +55,31 @@ export async function checkCredentials(): Promise<DiagResult[]> {
 
   const mode = readUnixMode(filePath);
   const insecurePermissions = isGroupOrWorldReadable(mode);
-  const keys = Object.keys(parsed).filter(
-    (key) => typeof parsed[key] === 'string' && String(parsed[key]).trim(),
+  const keys = Object.entries(parsed.entries || {}).filter(
+    ([, value]) =>
+      typeof value === 'object' &&
+      value != null &&
+      typeof (value as Record<string, unknown>).nonce === 'string' &&
+      typeof (value as Record<string, unknown>).ciphertext === 'string',
   );
+  const legacyPlaintextKeys =
+    keys.length === 0
+      ? Object.keys(parsed).filter(
+          (key) =>
+            typeof parsed[key] === 'string' && String(parsed[key]).trim(),
+        )
+      : [];
   const severity =
-    keys.length === 0 ? 'warn' : insecurePermissions ? 'warn' : 'ok';
+    keys.length === 0 && legacyPlaintextKeys.length === 0
+      ? 'warn'
+      : insecurePermissions || legacyPlaintextKeys.length > 0
+        ? 'warn'
+        : 'ok';
   const details = [
-    `${displayPath} has ${keys.length} stored secret${keys.length === 1 ? '' : 's'}`,
+    `${displayPath} has ${keys.length || legacyPlaintextKeys.length} stored secret${keys.length + legacyPlaintextKeys.length === 1 ? '' : 's'}`,
   ];
   if (insecurePermissions) details.push(`permissions ${formatMode(mode)}`);
+  if (legacyPlaintextKeys.length > 0) details.push('legacy plaintext format');
 
   return [
     makeResult(

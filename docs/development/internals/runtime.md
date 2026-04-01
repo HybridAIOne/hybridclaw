@@ -73,7 +73,10 @@ Core details:
   browser profiles, and agent workspaces.
 - Startup no longer probes or migrates `./config.json` or `./data` from the
   current working directory, and only reads `./.env` to import supported
-  secrets into `~/.hybridclaw/credentials.json`.
+  secrets into the encrypted `~/.hybridclaw/credentials.json` store.
+- Runtime secrets are encrypted at rest with a separately sourced master key:
+  `HYBRIDCLAW_MASTER_KEY`, `/run/secrets/hybridclaw_master_key`, or the local
+  owner-only `~/.hybridclaw/credentials.master.key` fallback.
 - Some settings still require restart, such as bind host and port.
 - Default HybridAI chatbot is configured via `hybridai.defaultChatbotId`.
 - Agents are configured under `agents.defaults` and `agents.list`. Sessions bind

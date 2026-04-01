@@ -36,13 +36,14 @@ function writeRuntimeConfig(
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 }
 
-function writeRuntimeSecrets(
+async function writeRuntimeSecrets(
   homeDir: string,
   secrets: Record<string, string>,
-): void {
-  const credentialsPath = path.join(homeDir, '.hybridclaw', 'credentials.json');
-  fs.mkdirSync(path.dirname(credentialsPath), { recursive: true });
-  fs.writeFileSync(credentialsPath, `${JSON.stringify(secrets, null, 2)}\n`);
+): Promise<void> {
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+  runtimeSecrets.saveRuntimeSecrets(secrets);
 }
 
 function restoreEnvVar(name: string, value: string | undefined): void {
@@ -267,7 +268,7 @@ test('provider factory hot-reloads Hugging Face credentials from runtime secrets
     config.huggingface.enabled = true;
   });
   delete process.env.HF_TOKEN;
-  writeRuntimeSecrets(homeDir, { HF_TOKEN: 'hf-old-token' });
+  await writeRuntimeSecrets(homeDir, { HF_TOKEN: 'hf-old-token' });
   const factory = await importFreshFactory(homeDir);
 
   const first = await factory.resolveModelRuntimeCredentials({
@@ -279,7 +280,7 @@ test('provider factory hot-reloads Hugging Face credentials from runtime secrets
     apiKey: 'hf-old-token',
   });
 
-  writeRuntimeSecrets(homeDir, { HF_TOKEN: 'hf-new-token' });
+  await writeRuntimeSecrets(homeDir, { HF_TOKEN: 'hf-new-token' });
   const second = await factory.resolveModelRuntimeCredentials({
     model: 'huggingface/meta-llama/Llama-3.1-8B-Instruct',
     agentId: 'main',

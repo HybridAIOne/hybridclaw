@@ -56,12 +56,10 @@ test('runDoctor fixes insecure credentials permissions and reruns the check', as
   });
 
   const credentialsPath = path.join(homeDir, '.hybridclaw', 'credentials.json');
-  fs.mkdirSync(path.dirname(credentialsPath), { recursive: true });
-  fs.writeFileSync(
-    credentialsPath,
-    `${JSON.stringify({ HYBRIDAI_API_KEY: 'hai-test-1234567890' }, null, 2)}\n`,
-    'utf-8',
-  );
+  const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+  runtimeSecrets.saveRuntimeSecrets({
+    HYBRIDAI_API_KEY: 'hai-test-1234567890',
+  });
   fs.chmodSync(credentialsPath, 0o644);
 
   const { runDoctor } = await import('../src/doctor.ts');

@@ -48,7 +48,10 @@ hybridclaw auth whatsapp reset
 ## Where Credentials Live
 
 - `~/.hybridclaw/credentials.json` stores HybridAI, OpenRouter, Hugging Face,
-  Discord, email, Teams, and related runtime secrets
+  Discord, email, Teams, and related runtime secrets in encrypted form
+- `~/.hybridclaw/credentials.master.key`, `HYBRIDCLAW_MASTER_KEY`, or
+  `/run/secrets/hybridclaw_master_key` supplies the master key used to decrypt
+  runtime secrets
 - `~/.hybridclaw/codex-auth.json` stores Codex OAuth credentials
 - `~/.hybridclaw/config.json` stores provider enablement and related runtime
   config

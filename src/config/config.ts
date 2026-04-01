@@ -9,7 +9,11 @@ import {
 } from '../../container/shared/context-guard-config.js';
 import { logger } from '../logger.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
-import { loadRuntimeSecrets } from '../security/runtime-secrets.js';
+import {
+  loadRuntimeSecrets,
+  type RuntimeSecretKey,
+  readStoredRuntimeSecret,
+} from '../security/runtime-secrets.js';
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
@@ -92,16 +96,44 @@ function resolveAppVersion(): string {
 
 export const APP_VERSION = resolveAppVersion();
 
+function readRuntimeSecretValue(
+  envKeys: string[],
+  storedKey: RuntimeSecretKey,
+): string {
+  for (const envKey of envKeys) {
+    const value = String(process.env[envKey] || '').trim();
+    if (value) return value;
+  }
+  return readStoredRuntimeSecret(storedKey) || '';
+}
+
 function syncRuntimeSecretExports(): void {
-  DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';
-  EMAIL_PASSWORD = process.env.EMAIL_PASSWORD || '';
-  IMESSAGE_PASSWORD = process.env.IMESSAGE_PASSWORD || '';
-  MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD || '';
-  HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY || '';
-  OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
-  MISTRAL_API_KEY = process.env.MISTRAL_API_KEY || '';
-  HUGGINGFACE_API_KEY =
-    process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY || '';
+  DISCORD_TOKEN = readRuntimeSecretValue(['DISCORD_TOKEN'], 'DISCORD_TOKEN');
+  EMAIL_PASSWORD = readRuntimeSecretValue(['EMAIL_PASSWORD'], 'EMAIL_PASSWORD');
+  IMESSAGE_PASSWORD = readRuntimeSecretValue(
+    ['IMESSAGE_PASSWORD'],
+    'IMESSAGE_PASSWORD',
+  );
+  MSTEAMS_APP_PASSWORD = readRuntimeSecretValue(
+    ['MSTEAMS_APP_PASSWORD'],
+    'MSTEAMS_APP_PASSWORD',
+  );
+  HYBRIDAI_API_KEY = readRuntimeSecretValue(
+    ['HYBRIDAI_API_KEY'],
+    'HYBRIDAI_API_KEY',
+  );
+  OPENROUTER_API_KEY = readRuntimeSecretValue(
+    ['OPENROUTER_API_KEY'],
+    'OPENROUTER_API_KEY',
+  );
+  MISTRAL_API_KEY = readRuntimeSecretValue(
+    ['MISTRAL_API_KEY'],
+    'MISTRAL_API_KEY',
+  );
+  HUGGINGFACE_API_KEY = readRuntimeSecretValue(
+    ['HF_TOKEN', 'HUGGINGFACE_API_KEY'],
+    'HF_TOKEN',
+  );
 }
 
 // Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
@@ -508,7 +540,9 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_GUILDS = structuredClone(config.discord.guilds);
   MSTEAMS_ENABLED = config.msteams.enabled;
   MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID || config.msteams.appId;
-  MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD || '';
+  MSTEAMS_APP_PASSWORD =
+    readRuntimeSecretValue(['MSTEAMS_APP_PASSWORD'], 'MSTEAMS_APP_PASSWORD') ||
+    '';
   MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID || config.msteams.tenantId;
   MSTEAMS_WEBHOOK_PORT = Math.max(
     1,
@@ -548,7 +582,9 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   IMESSAGE_DB_PATH = config.imessage.dbPath;
   IMESSAGE_POLL_INTERVAL_MS = Math.max(250, config.imessage.pollIntervalMs);
   IMESSAGE_SERVER_URL = config.imessage.serverUrl;
-  IMESSAGE_PASSWORD = process.env.IMESSAGE_PASSWORD || config.imessage.password;
+  IMESSAGE_PASSWORD =
+    readRuntimeSecretValue(['IMESSAGE_PASSWORD'], 'IMESSAGE_PASSWORD') ||
+    config.imessage.password;
   IMESSAGE_WEBHOOK_PATH = config.imessage.webhookPath;
   IMESSAGE_ALLOW_PRIVATE_NETWORK = config.imessage.allowPrivateNetwork;
   IMESSAGE_DM_POLICY = config.imessage.dmPolicy;
@@ -663,10 +699,12 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
 
   HEALTH_HOST = process.env.HEALTH_HOST || config.ops.healthHost;
   HEALTH_PORT = config.ops.healthPort;
-  WEB_API_TOKEN = process.env.WEB_API_TOKEN || config.ops.webApiToken;
+  WEB_API_TOKEN =
+    readRuntimeSecretValue(['WEB_API_TOKEN'], 'WEB_API_TOKEN') ||
+    config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
   GATEWAY_API_TOKEN =
-    process.env.GATEWAY_API_TOKEN ||
+    readRuntimeSecretValue(['GATEWAY_API_TOKEN'], 'GATEWAY_API_TOKEN') ||
     config.ops.gatewayApiToken ||
     WEB_API_TOKEN ||
     INTERNAL_GATEWAY_API_TOKEN;
