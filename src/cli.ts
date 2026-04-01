@@ -604,7 +604,10 @@ async function launchTui(argv: string[]): Promise<void> {
     resumeSessionId: parsed.resumeSessionId,
     resumeCommand: 'hybridclaw tui --resume',
   });
-  await ensureRuntimeCredentials({ commandName: 'hybridclaw tui' });
+  await ensureRuntimeCredentials({
+    commandName: 'hybridclaw tui',
+    requireCredentials: false,
+  });
   await ensureRuntimeContainer('hybridclaw tui', true);
   await ensureTuiInstructionApproval('hybridclaw tui', options.sessionId);
   await ensureGatewayForTui('hybridclaw tui');
@@ -668,7 +671,10 @@ async function runGatewayForeground(
 ): Promise<void> {
   const [{ setSandboxModeOverride }, { ensureRuntimeCredentials }] =
     await Promise.all([ensureConfigApi(), ensureOnboardingApi()]);
-  await ensureRuntimeCredentials({ commandName });
+  await ensureRuntimeCredentials({
+    commandName,
+    requireCredentials: false,
+  });
   if (sandboxMode) {
     setSandboxModeOverride(sandboxMode);
   }
@@ -755,7 +761,10 @@ async function startGatewayBackend(
   }
 
   const { ensureRuntimeCredentials } = await ensureOnboardingApi();
-  await ensureRuntimeCredentials({ commandName });
+  await ensureRuntimeCredentials({
+    commandName,
+    requireCredentials: false,
+  });
   await ensureRuntimeContainer(commandName, true, sandboxMode);
   if (logRequests) {
     console.warn(GATEWAY_LOG_REQUESTS_WARNING);

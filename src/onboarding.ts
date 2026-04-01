@@ -51,6 +51,7 @@ interface ApiKeyValidationResult {
 interface OnboardingOptions {
   force?: boolean;
   commandName?: string;
+  requireCredentials?: boolean;
   preferredAuth?:
     | 'hybridai'
     | 'openai-codex'
@@ -1218,6 +1219,7 @@ export async function ensureRuntimeCredentials(
             ? 'huggingface'
             : 'hybridai');
   const force = options.force === true;
+  const requireCredentials = options.requireCredentials !== false;
   let securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
   const hasRequiredCredentials = currentProviderIsLocal
@@ -1231,7 +1233,10 @@ export async function ensureRuntimeCredentials(
           : currentAuth === 'huggingface'
             ? !!existingHuggingFaceKey
             : !!existingKey;
-  if (!needsSecurityAcceptance && hasRequiredCredentials) {
+  if (
+    !needsSecurityAcceptance &&
+    (hasRequiredCredentials || !requireCredentials)
+  ) {
     await maybeBackfillDefaultHybridAIChatbotId({
       authMethod: currentAuth,
       existingKey,
@@ -1263,6 +1268,7 @@ export async function ensureRuntimeCredentials(
     }
     // After accepting trust via env var, credentials may already be present.
     if (hasRequiredCredentials) return;
+    if (!requireCredentials) return;
     if (currentAuth === 'openai-codex') {
       throw new Error(
         'OpenAI Codex credentials are missing. Run `hybridclaw codex login` or `hybridclaw onboarding` in an interactive terminal.',
@@ -1353,15 +1359,17 @@ export async function ensureRuntimeCredentials(
       return;
     }
 
-    if (refreshedHasRequiredCredentials && !force) {
+    if ((refreshedHasRequiredCredentials || !requireCredentials) && !force) {
       await maybeBackfillDefaultHybridAIChatbotId({
         authMethod: refreshedAuth,
         existingKey: refreshedExistingKey,
-        forcePrint: true,
+        forcePrint: refreshedHasRequiredCredentials,
       });
-      printSuccess(
-        'Security trust model already accepted and the active model provider is configured.',
-      );
+      if (refreshedHasRequiredCredentials) {
+        printSuccess(
+          'Security trust model already accepted and the active model provider is configured.',
+        );
+      }
       return;
     }
 

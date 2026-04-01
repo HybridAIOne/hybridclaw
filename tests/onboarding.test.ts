@@ -318,6 +318,58 @@ test('interactive onboarding does not print the start hint when TUI is already l
   expect(output).not.toContain('Start HybridClaw now with `hybridclaw tui`.');
 });
 
+test('tui bootstrap does not prompt for remote auth when trust is already accepted', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'mistral/mistral-large-latest';
+  });
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  delete process.env.HYBRIDAI_API_KEY;
+  process.chdir(homeDir);
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+
+  const questionSpy = vi.fn(async () => {
+    throw new Error('Unexpected onboarding prompt');
+  });
+  vi.doMock('node:readline/promises', () => ({
+    default: {
+      createInterface: () => ({
+        question: questionSpy,
+        close: vi.fn(),
+      }),
+    },
+  }));
+  vi.resetModules();
+
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  runtimeConfig.acceptSecurityTrustModel({
+    acceptedAt: '2026-03-10T10:00:00.000Z',
+    acceptedBy: 'test',
+  });
+
+  const lines: string[] = [];
+  vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map((value) => String(value)).join(' '));
+  });
+  const onboarding = await import('../src/onboarding.ts');
+  await onboarding.ensureRuntimeCredentials({
+    commandName: 'hybridclaw tui',
+    requireCredentials: false,
+  });
+
+  expect(questionSpy).not.toHaveBeenCalled();
+  expect(lines.join('\n')).not.toContain('Choose auth method');
+});
+
 test('interactive onboarding does not print the start hint after auth login', async () => {
   const output = await runHybridAIOnboarding('hybridclaw auth login');
 

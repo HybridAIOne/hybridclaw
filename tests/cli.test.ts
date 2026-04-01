@@ -3956,6 +3956,7 @@ describe('CLI hybridai commands', () => {
 
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw gateway start --foreground',
+      requireCredentials: false,
     });
     expect(ensureGatewayRunDir).toHaveBeenCalled();
     expect(writeGatewayPid).toHaveBeenCalledWith(
@@ -4090,6 +4091,7 @@ describe('CLI hybridai commands', () => {
     expect(gatewayHealth).toHaveBeenCalled();
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw tui',
+      requireCredentials: false,
     });
     expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
     expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
@@ -4131,6 +4133,7 @@ describe('CLI hybridai commands', () => {
 
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw tui',
+      requireCredentials: false,
     });
     expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
     expect(ensureContainerImageReady).not.toHaveBeenCalled();
@@ -4166,6 +4169,7 @@ describe('CLI hybridai commands', () => {
 
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw tui',
+      requireCredentials: false,
     });
     expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
     expect(ensureHostRuntimeReady).not.toHaveBeenCalled();

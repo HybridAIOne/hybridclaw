@@ -53,21 +53,37 @@ If gateway is not running, it is started in backend mode automatically.
 By default, \`hybridclaw tui\` starts a fresh local CLI session.
 
 Interactive slash commands inside TUI:
-  /help   /status   /approve [view|yes|session|agent|no] [approval_id]
-  /show [all|thinking|tools|none]
-  /agent [list|switch|create|model]   /bot [info|list|set <id|name>|clear]
-  /model [name]   /model info|list [provider]|set <name>|clear|default [name]
-  /secret list   /secret set <name> <value>   /secret route add <url-prefix> <secret-name>
+  /agent [list|switch|create|model]
+  /approve [view|yes|session|agent|no] [approval_id]
+  /audit [sessionId]
+  /auth status <provider>
+  /bot [info|list|set <id|name>|clear]
+  /channel-mode <off|mention|free>
+  /channel-policy <open|allowlist|disabled>
+  /clear
+  /compact
+  /concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]
   /config   /config check   /config reload   /config set <key> <value>   /config revisions
-  /channel-mode <off|mention|free>   /channel-policy <open|allowlist|disabled>
-  /rag [on|off]   /ralph [info|on|off|set n]   /mcp list
-  /mcp add <name> <json>
-  /mcp toggle <name> /mcp remove <name> /mcp reconnect <name>
-  /usage [summary|daily|monthly|model [daily|monthly] [agentId]]
+  /exit
   /export session [sessionId]   /export trace [sessionId|all]
-  /sessions   /audit [sessionId]
+  /fullauto [status|off|on [prompt]|prompt]
+  /help
+  /info
+  /mcp list   /mcp add <name> <json>   /mcp toggle <name>   /mcp remove <name>   /mcp reconnect <name>
+  /model [name]   /model info|list [provider]|set <name>|clear|default [name]
+  /paste
+  /plugin [list|enable|disable|config|install|reinstall|reload|uninstall]
+  /rag [on|off]
+  /ralph [info|on|off|set n]
+  /reset [yes|no]
   /schedule add "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
-  /info   /compact   /clear   /reset [yes|no]   /stop   /exit`);
+  /secret list   /secret set <name> <value>   /secret show <name>   /secret unset <name>   /secret route ...
+  /sessions
+  /show [all|thinking|tools|none]
+  /skill config|list|inspect <name>|inspect --all|runs <name>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
+  /status
+  /stop
+  /usage [summary|daily|monthly|model [daily|monthly] [agentId]]`);
 }
 
 export function printOnboardingUsage(): void {
