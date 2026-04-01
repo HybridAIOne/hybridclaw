@@ -80,6 +80,7 @@ import type {
   UsageTotals,
   UsageWindow,
 } from '../types/usage.js';
+import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 
 let db: Database.Database;
 let databaseInitialized = false;
@@ -4087,15 +4088,20 @@ export function getRecentSessionsForUser(params: {
 
   return targetRows.map((row) => {
     const boundary = boundariesBySessionId.get(row.id);
+    const firstMessage =
+      boundary?.first_user_content || boundary?.first_content || null;
+    const lastMessage =
+      boundary?.last_content && !isApprovalHistoryMessage(boundary.last_content)
+        ? boundary.last_content
+        : null;
 
     return {
       sessionId: row.id,
       lastActive: row.last_active,
       messageCount: normalizeUsageNumber(row.message_count),
       title: buildSessionBoundaryPreview({
-        firstMessage:
-          boundary?.first_user_content || boundary?.first_content || null,
-        lastMessage: boundary?.last_content || null,
+        firstMessage,
+        lastMessage,
         maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
       }),
     };

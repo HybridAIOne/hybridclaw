@@ -535,6 +535,60 @@ describe.sequential('schema migrations', () => {
     ]);
   });
 
+  test('getRecentSessionsForUser omits approval requests from session titles', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('web-session-approval', null, 'web');
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    insertMessage.run(
+      'web-session-approval',
+      'web-user-a',
+      'web',
+      'user',
+      'Fetch example.com for me',
+      '2026-03-24T10:00:00.000Z',
+    );
+    insertMessage.run(
+      'web-session-approval',
+      'assistant',
+      null,
+      'assistant',
+      [
+        'I need your approval before I access example.com.',
+        'Why: this would contact a new external host',
+        'Approval ID: be89b4bc',
+        'Reply `yes` to approve once.',
+      ].join('\n'),
+      '2026-03-24T10:01:00.000Z',
+    );
+
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+    updateSession.run(2, '2026-03-24T10:01:00.000Z', 'web-session-approval');
+    inspect.close();
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 10,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'web-session-approval',
+        lastActive: '2026-03-24T10:01:00.000Z',
+        messageCount: 2,
+        title: '"Fetch example.com for me"',
+      },
+    ]);
+  });
+
   test('forkSessionBranch copies the prefix into a new sibling session', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });
