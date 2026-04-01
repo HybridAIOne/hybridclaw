@@ -3622,6 +3622,8 @@ describe('gateway HTTP server', () => {
         type: 'approval',
         approvalId: 'approve123',
         prompt: 'I need your approval before I control a local app.',
+        summary:
+          'Approval needed for: control a local app with `open -a Music`\nWhy: this command controls host GUI or application state\nApproval ID: approve123',
         intent: 'control a local app with `open -a Music`',
         reason: 'this command controls host GUI or application state',
         allowSession: true,
@@ -3707,6 +3709,8 @@ describe('gateway HTTP server', () => {
       type: 'approval',
       approvalId: 'approve123',
       prompt: 'I need your approval before I control a local app.',
+      summary:
+        'Approval needed for: control a local app with `open -a Music`\nWhy: this command controls host GUI or application state\nApproval ID: approve123',
       intent: 'control a local app with `open -a Music`',
       reason: 'this command controls host GUI or application state',
       allowSession: true,
