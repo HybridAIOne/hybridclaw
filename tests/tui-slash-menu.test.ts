@@ -41,6 +41,22 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/skill import --force <source>');
 });
 
+test('keeps /model submenu entries in alphabetical order', () => {
+  const labels = buildTuiSlashMenuEntries()
+    .map((entry) => entry.label)
+    .filter((label) => label === '/model' || label.startsWith('/model '));
+
+  expect(labels).toEqual([
+    '/model',
+    '/model clear',
+    '/model default [name]',
+    '/model info',
+    '/model list [provider]',
+    '/model select',
+    '/model set <name>',
+  ]);
+});
+
 test('does not duplicate concierge slash menu entries', () => {
   const labels = buildTuiSlashMenuEntries().map((entry) => entry.label);
 

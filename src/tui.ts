@@ -45,6 +45,7 @@ import {
   normalizeModelCandidates,
   parseModelInfoSummaryFromText,
   parseModelNamesFromListText,
+  sortSelectableModelEntries,
 } from './model-selection.js';
 import {
   formatModelForDisplay,
@@ -503,9 +504,13 @@ function printHelp(): void {
     `  ${TEAL}TAB${RESET} accept suggestion ${MUTED}|${RESET} ${TEAL}Ctrl-N/Ctrl-P${RESET} navigate slash menu ${MUTED}|${RESET} ${TEAL}Shift+Return${RESET}/${TEAL}Ctrl-J${RESET} line break ${MUTED}|${RESET} ${TEAL}ESC${RESET} close menu`,
   );
   console.log(
+    `  ${TEAL}${pasteShortcutLabel}${RESET} ${pasteShortcutLabel.length < 18 ? ' '.repeat(18 - pasteShortcutLabel.length) : ''}Queue a copied file or clipboard image`,
+  );
+  console.log(`  ${TEAL}ESC${RESET}               Interrupt current request`);
+  console.log(
     `  ${TEAL}Context injection:${RESET} ${TEAL}@file${RESET} ${TEAL}@folder${RESET} ${TEAL}@diff${RESET} ${TEAL}@staged${RESET} ${TEAL}@git${RESET}`,
   );
-  console.log(`  ${TEAL}/help${RESET}             Show this help`);
+  console.log();
   console.log(
     `  ${TEAL}/agent [info|list|switch|create|model] [id] [--model <model>]${RESET} Inspect or manage agents`,
   );
@@ -544,6 +549,7 @@ function printHelp(): void {
   console.log(
     `  ${TEAL}/fullauto [status|off|on [prompt]|prompt]${RESET} Enable or inspect session full-auto mode`,
   );
+  console.log(`  ${TEAL}/help${RESET}             Show this help`);
   console.log(`  ${TEAL}/info${RESET}             Show current settings`);
   console.log(
     `  ${TEAL}/mcp [list|add|toggle|remove|reconnect] [name] [json]${RESET} Manage MCP servers`,
@@ -584,10 +590,6 @@ function printHelp(): void {
   console.log(
     `  ${TEAL}/usage [summary|daily|monthly|model [daily|monthly] [agentId]]${RESET} Show usage`,
   );
-  console.log(
-    `  ${TEAL}${pasteShortcutLabel}${RESET} ${pasteShortcutLabel.length < 18 ? ' '.repeat(18 - pasteShortcutLabel.length) : ''}Queue a copied file or clipboard image`,
-  );
-  console.log(`  ${TEAL}ESC${RESET}               Interrupt current request`);
   console.log();
 }
 
@@ -1319,12 +1321,14 @@ async function fetchCurrentSessionModel(): Promise<string | null> {
 async function fetchSelectableModels(): Promise<
   Array<{ label: string; value: string; isFree: boolean; recommended: boolean }>
 > {
-  const fallback = normalizeModelCandidates(CONFIGURED_MODELS).map((model) => ({
-    label: formatModelForDisplay(model),
-    value: normalizeHybridAIModelForRuntime(model),
-    isFree: false,
-    recommended: false,
-  }));
+  const fallback = sortSelectableModelEntries(
+    normalizeModelCandidates(CONFIGURED_MODELS).map((model) => ({
+      label: formatModelForDisplay(model),
+      value: normalizeHybridAIModelForRuntime(model),
+      isFree: false,
+      recommended: false,
+    })),
+  );
   try {
     const result = await requestGatewayCommand(['model', 'list']);
     if (result.kind === 'error') return fallback;
@@ -1348,16 +1352,18 @@ async function fetchSelectableModels(): Promise<
           recommended: entry.recommended === true,
         });
       }
-      return models.length > 0 ? models : fallback;
+      return models.length > 0 ? sortSelectableModelEntries(models) : fallback;
     }
     const models = parseModelNamesFromListText(result.text || '');
     return models.length > 0
-      ? models.map((model) => ({
-          label: model,
-          value: normalizeHybridAIModelForRuntime(model),
-          isFree: false,
-          recommended: false,
-        }))
+      ? sortSelectableModelEntries(
+          models.map((model) => ({
+            label: model,
+            value: normalizeHybridAIModelForRuntime(model),
+            isFree: false,
+            recommended: false,
+          })),
+        )
       : fallback;
   } catch {
     return fallback;
