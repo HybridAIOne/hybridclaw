@@ -54,7 +54,10 @@ async function importFreshConfigGlobals(homeDir: string) {
 
 function readSecretStoreFile(homeDir: string): Record<string, unknown> {
   return JSON.parse(
-    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'credentials.json'), 'utf-8'),
+    fs.readFileSync(
+      path.join(homeDir, '.hybridclaw', 'credentials.json'),
+      'utf-8',
+    ),
   ) as Record<string, unknown>;
 }
 
@@ -120,12 +123,12 @@ describe('runtime secrets', () => {
     runtimeSecrets.loadRuntimeSecrets();
 
     expect(runtimeSecrets.runtimeSecretsPath()).toBe(credentialsPath);
-    expect(
-      runtimeSecrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY'),
-    ).toBe('hai-1234567890abcdef');
-    expect(
-      runtimeSecrets.readStoredRuntimeSecret('OPENROUTER_API_KEY'),
-    ).toBe('or-1234567890abcdef');
+    expect(runtimeSecrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
+      'hai-1234567890abcdef',
+    );
+    expect(runtimeSecrets.readStoredRuntimeSecret('OPENROUTER_API_KEY')).toBe(
+      'or-1234567890abcdef',
+    );
     expect(runtimeSecrets.readStoredRuntimeSecret('HF_TOKEN')).toBe(
       'hf_1234567890abcdef',
     );
@@ -268,9 +271,9 @@ describe('runtime secrets', () => {
     expect(runtimeSecrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
       'hai-from-dot-env',
     );
-    expect(
-      runtimeSecrets.readStoredRuntimeSecret('OPENROUTER_API_KEY'),
-    ).toBe('or-from-dot-env');
+    expect(runtimeSecrets.readStoredRuntimeSecret('OPENROUTER_API_KEY')).toBe(
+      'or-from-dot-env',
+    );
     expect(runtimeSecrets.readStoredRuntimeSecret('HF_TOKEN')).toBe(
       'hf-from-dot-env',
     );

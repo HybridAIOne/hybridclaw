@@ -65,7 +65,8 @@ async function readRuntimeSecrets(
   return {
     DISCORD_TOKEN: runtimeSecrets.readStoredRuntimeSecret('DISCORD_TOKEN'),
     EMAIL_PASSWORD: runtimeSecrets.readStoredRuntimeSecret('EMAIL_PASSWORD'),
-    IMESSAGE_PASSWORD: runtimeSecrets.readStoredRuntimeSecret('IMESSAGE_PASSWORD'),
+    IMESSAGE_PASSWORD:
+      runtimeSecrets.readStoredRuntimeSecret('IMESSAGE_PASSWORD'),
     MSTEAMS_APP_PASSWORD: runtimeSecrets.readStoredRuntimeSecret(
       'MSTEAMS_APP_PASSWORD',
     ),
