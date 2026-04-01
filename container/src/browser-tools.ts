@@ -559,12 +559,18 @@ async function closeSession(
     timeoutMs: BROWSER_CLOSE_TIMEOUT_MS,
   });
   if (result.success) {
+    let warning: string | null = null;
     try {
       await terminateProcess(pidBeforeClose);
+    } catch (err) {
+      warning =
+        err instanceof Error && err.message
+          ? `daemon termination failed: ${err.message}`
+          : 'daemon termination failed';
     } finally {
       removeSessionResources(session);
     }
-    return null;
+    return warning;
   }
 
   try {

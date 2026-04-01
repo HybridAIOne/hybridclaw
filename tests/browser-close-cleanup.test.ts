@@ -304,3 +304,55 @@ test('browser_close terminates the daemon when close reports success but the pro
   expect(killMock).not.toHaveBeenCalledWith(4242, 'SIGKILL');
   expect(fs.existsSync(socketDir || '')).toBe(false);
 });
+
+test('browser_close returns a warning when daemon termination fails after close succeeds', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-close-success-warning-'),
+  );
+  const logPath = path.join(tempRoot, 'close-success-warning-log.jsonl');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_BIN', createCloseSuccessStub(tempRoot, logPath));
+
+  const killMock = vi
+    .spyOn(process, 'kill')
+    .mockImplementation((pid: number, signal?: number | NodeJS.Signals) => {
+      expect(pid).toBe(4242);
+      if (signal === 0 || signal == null) {
+        return true;
+      }
+      const error = new Error('operation not permitted') as Error & {
+        code?: string;
+      };
+      error.code = 'EPERM';
+      throw error;
+    });
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const snapshot = JSON.parse(
+    await executeBrowserTool('browser_snapshot', {}, 'session-close-warning'),
+  ) as { success: boolean };
+  expect(snapshot.success).toBe(true);
+
+  const socketDir = fs
+    .readFileSync(logPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { command: string; socketDir: string })
+    .find((entry) => entry.command === 'snapshot')?.socketDir;
+  expect(socketDir).toBeTruthy();
+
+  const closed = JSON.parse(
+    await executeBrowserTool('browser_close', {}, 'session-close-warning'),
+  ) as { success: boolean; closed: boolean; warning?: string };
+
+  expect(closed.success).toBe(true);
+  expect(closed.closed).toBe(true);
+  expect(closed.warning).toBe(
+    'daemon termination failed: operation not permitted',
+  );
+  expect(killMock).toHaveBeenCalledWith(4242, 'SIGTERM');
+  expect(fs.existsSync(socketDir || '')).toBe(false);
+});
