@@ -1903,7 +1903,12 @@ function normalizeUrlPrefix(raw: string): string {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(`Unsupported URL prefix protocol: ${parsed.protocol}`);
   }
+  parsed.username = '';
+  parsed.password = '';
+  parsed.search = '';
   parsed.hash = '';
+  const pathname = parsed.pathname || '/';
+  parsed.pathname = `${pathname.replace(/\/+$/, '') || ''}/`;
   return parsed.toString();
 }
 

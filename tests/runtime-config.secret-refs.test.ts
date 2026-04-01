@@ -136,6 +136,39 @@ describe('runtime config secret refs', () => {
     });
   });
 
+  test('preserves secret refs even when env-backed resolved values change', async () => {
+    const homeDir = makeTempHome();
+    process.env.TEST_GATEWAY_TOKEN = 'gateway-token-before';
+
+    writeRawRuntimeConfig(homeDir, (config) => {
+      const ops = config.ops as Record<string, unknown>;
+      ops.gatewayApiToken = { source: 'env', id: 'TEST_GATEWAY_TOKEN' };
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+    expect(runtimeConfig.getRuntimeConfig().ops.gatewayApiToken).toBe(
+      'gateway-token-before',
+    );
+
+    process.env.TEST_GATEWAY_TOKEN = 'gateway-token-after';
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.heartbeat.channel = 'ops-alerts';
+    });
+
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
+    ) as Record<string, unknown>;
+    const ops = stored.ops as Record<string, unknown>;
+
+    expect(ops.gatewayApiToken).toEqual({
+      source: 'env',
+      id: 'TEST_GATEWAY_TOKEN',
+    });
+  });
+
   test('throws on reload when an active secret ref is unresolved', async () => {
     const homeDir = makeTempHome();
     writeRawRuntimeConfig(homeDir, (config) => {

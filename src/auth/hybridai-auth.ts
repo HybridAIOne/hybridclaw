@@ -42,8 +42,12 @@ const BOT_LIST_PATH = '/api/v1/bot-management/bots';
 const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
 
 function readCurrentApiKey(): string {
-  refreshRuntimeSecretsFromEnv();
-  return (process.env.HYBRIDAI_API_KEY || HYBRIDAI_API_KEY || '').trim();
+  return (
+    process.env.HYBRIDAI_API_KEY ||
+    readStoredRuntimeSecret('HYBRIDAI_API_KEY') ||
+    HYBRIDAI_API_KEY ||
+    ''
+  ).trim();
 }
 
 function maskToken(value: string): string {

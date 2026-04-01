@@ -281,16 +281,23 @@ function parsePositiveInteger(value: unknown): number | null {
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const HTTP_REQUEST_MAX_RESPONSE_BYTES = 1_000_000;
 const HTTP_REQUEST_SECRET_PLACEHOLDER_RE = /<secret:([A-Z][A-Z0-9_]{0,127})>/g;
+const REDIRECT_RESPONSE_STATUS_MIN = 300;
+const REDIRECT_RESPONSE_STATUS_MAX = 399;
 
 function isPrivateIpv4(ip: string): boolean {
   const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
   if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
     return false;
   }
+  if (parts[0] === 0) return true;
   if (parts[0] === 10 || parts[0] === 127) return true;
+  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
   if (parts[0] === 169 && parts[1] === 254) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true;
   if (parts[0] === 192 && parts[1] === 168) return true;
+  if (parts[0] === 198 && (parts[1] === 18 || parts[1] === 19)) return true;
+  if (parts[0] >= 224) return true;
   return false;
 }
 
@@ -327,9 +334,56 @@ async function isPrivateHost(hostname: string): Promise<boolean> {
     const resolved = await lookup(host, { all: true, verbatim: true });
     if (resolved.length === 0) return false;
     return resolved.some((entry) => isPrivateIp(entry.address));
-  } catch {
-    return false;
+  } catch (error) {
+    logger.warn(
+      { host, error },
+      'DNS lookup failed during SSRF host check; treating host as private/blocked',
+    );
+    return true;
   }
+}
+
+async function readHttpResponseBuffer(
+  response: Response,
+  maxResponseBytes: number,
+): Promise<Buffer> {
+  if (!response.body) {
+    if (typeof response.arrayBuffer === 'function') {
+      const buffered = Buffer.from(await response.arrayBuffer());
+      if (buffered.length > maxResponseBytes) {
+        throw new HttpRequestError(
+          413,
+          `Outbound response exceeded limit (${buffered.length} bytes > ${maxResponseBytes}).`,
+        );
+      }
+      return buffered;
+    }
+    return Buffer.alloc(0);
+  }
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxResponseBytes) {
+        await reader.cancel();
+        throw new HttpRequestError(
+          413,
+          `Outbound response exceeded limit (${totalBytes} bytes > ${maxResponseBytes}).`,
+        );
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return Buffer.concat(chunks);
 }
 
 async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
@@ -1819,13 +1873,23 @@ async function handleApiHttpRequest(
       headers,
       body: payloadBody,
       signal: controller.signal,
-      redirect: 'follow',
+      redirect: 'manual',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new HttpRequestError(502, `Outbound HTTP request failed: ${message}`);
   } finally {
     clearTimeout(timeout);
+  }
+
+  if (
+    response.status >= REDIRECT_RESPONSE_STATUS_MIN &&
+    response.status <= REDIRECT_RESPONSE_STATUS_MAX
+  ) {
+    throw new HttpRequestError(
+      400,
+      'Outbound HTTP redirects are blocked by the SSRF guard.',
+    );
   }
 
   const contentLength = Number.parseInt(
@@ -1839,13 +1903,10 @@ async function handleApiHttpRequest(
     );
   }
 
-  const responseBuffer = Buffer.from(await response.arrayBuffer());
-  if (responseBuffer.length > maxResponseBytes) {
-    throw new HttpRequestError(
-      413,
-      `Outbound response exceeded limit (${responseBuffer.length} bytes > ${maxResponseBytes}).`,
-    );
-  }
+  const responseBuffer = await readHttpResponseBuffer(
+    response,
+    maxResponseBytes,
+  );
 
   const responseText = responseBuffer.toString('utf-8');
   let responseJson: unknown;

@@ -526,6 +526,42 @@ describe('runtime secrets', () => {
     );
   });
 
+  it('preserves the previous encrypted store when atomic secret writes fail', async () => {
+    const homeDir = makeTempDir('hybridclaw-runtime-secrets-');
+    const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
+    runtimeSecrets.saveRuntimeSecrets({
+      HYBRIDAI_API_KEY: 'hai-before-atomic-write-failure',
+    });
+    const encryptedBefore = fs.readFileSync(
+      runtimeSecrets.runtimeSecretsPath(),
+      'utf-8',
+    );
+    const originalRenameSync = fs.renameSync.bind(fs);
+    vi.spyOn(fs, 'renameSync').mockImplementation(((source, destination) => {
+      if (
+        String(destination) === runtimeSecrets.runtimeSecretsPath() &&
+        String(source).includes('.tmp-')
+      ) {
+        throw new Error('simulated rename failure');
+      }
+      return originalRenameSync(source, destination);
+    }) as typeof fs.renameSync);
+
+    expect(() =>
+      runtimeSecrets.saveRuntimeSecrets({
+        HYBRIDAI_API_KEY: 'hai-after-atomic-write-failure',
+      }),
+    ).toThrow(/simulated rename failure/);
+    expect(
+      fs.readFileSync(runtimeSecrets.runtimeSecretsPath(), 'utf-8'),
+    ).toBe(encryptedBefore);
+
+    const reloaded = await importFreshRuntimeSecrets(homeDir);
+    expect(reloaded.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
+      'hai-before-atomic-write-failure',
+    );
+  });
+
   it('does not override shell-provided secrets during config refresh', async () => {
     const homeDir = makeTempDir('hybridclaw-runtime-secrets-');
     process.env.HF_TOKEN = 'hf-from-shell';

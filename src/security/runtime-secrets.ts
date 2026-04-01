@@ -3,6 +3,7 @@ import {
   createDecipheriv,
   createHash,
   randomBytes,
+  scryptSync,
 } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,6 +14,7 @@ const RUNTIME_SECRETS_FILE = 'credentials.json';
 const RUNTIME_MASTER_KEY_FILE = 'credentials.master.key';
 const RUNTIME_MASTER_KEY_SECRET_PATH = '/run/secrets/hybridclaw_master_key';
 const RUNTIME_LEGACY_SECRETS_SUFFIX = '.legacy';
+const PASSPHRASE_KDF_SALT = 'hybridclaw-master-key-v1';
 const SECRET_STORE_VERSION = 1;
 const SECRET_STORE_ALGORITHM = 'aes-256-gcm';
 const SECRET_STORE_NONCE_BYTES = 12;
@@ -72,6 +74,7 @@ interface SecretStoreReadResult {
 }
 
 let cachedSecretStoreRead: SecretStoreReadResult | null = null;
+let runtimeHomePermissionsEnsured = false;
 
 export function isRuntimeSecretKey(value: string): value is RuntimeSecretKey {
   return SECRET_KEYS.includes(value as RuntimeSecretKey);
@@ -146,6 +149,7 @@ function isEncryptedSecretStore(value: unknown): value is EncryptedSecretStore {
 }
 
 function ensureExistingRuntimeHomePermissions(): void {
+  if (runtimeHomePermissionsEnsured) return;
   if (!fs.existsSync(DEFAULT_RUNTIME_HOME_DIR)) return;
   try {
     fs.chmodSync(DEFAULT_RUNTIME_HOME_DIR, RUNTIME_HOME_MODE);
@@ -153,6 +157,8 @@ function ensureExistingRuntimeHomePermissions(): void {
     console.warn(
       `[runtime-secrets] failed to set permissions on ${DEFAULT_RUNTIME_HOME_DIR}: ${error instanceof Error ? error.message : String(error)}`,
     );
+  } finally {
+    runtimeHomePermissionsEnsured = true;
   }
 }
 
@@ -161,11 +167,14 @@ function ensureRuntimeHomeDir(): void {
     recursive: true,
     mode: RUNTIME_HOME_MODE,
   });
-  fs.chmodSync(DEFAULT_RUNTIME_HOME_DIR, RUNTIME_HOME_MODE);
-}
-
-function normalizeSecretMap(record: Record<string, unknown>): RuntimeSecrets {
-  return sanitizeRuntimeSecrets(record);
+  try {
+    fs.chmodSync(DEFAULT_RUNTIME_HOME_DIR, RUNTIME_HOME_MODE);
+  } catch (error) {
+    console.warn(
+      `[runtime-secrets] failed to set permissions on ${DEFAULT_RUNTIME_HOME_DIR}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  runtimeHomePermissionsEnsured = true;
 }
 
 function runtimeMasterKeyPath(): string {
@@ -192,7 +201,7 @@ function parseMasterKey(raw: string): Buffer {
   } catch {
     // fall through
   }
-  return createHash('sha256').update(trimmed, 'utf-8').digest();
+  return scryptSync(trimmed, PASSPHRASE_KDF_SALT, 32);
 }
 
 function readMasterKeyFile(filePath: string): Buffer | null {
@@ -348,11 +357,31 @@ function decryptEncryptedSecretStore(
   store: EncryptedSecretStore,
 ): RuntimeSecrets {
   const secrets: RuntimeSecrets = {};
+  let decryptFailures = 0;
+  let lastDecryptError: Error | null = null;
   for (const [secretKey, entry] of Object.entries(store.entries)) {
     if (!entry) continue;
-    const decrypted = decryptSecretValue(key, secretKey, entry).trim();
+    let decrypted = '';
+    try {
+      decrypted = decryptSecretValue(key, secretKey, entry).trim();
+    } catch (error) {
+      decryptFailures += 1;
+      lastDecryptError =
+        error instanceof Error ? error : new Error(String(error));
+      console.warn(
+        `[runtime-secrets] failed to decrypt stored ${secretKey}: ${lastDecryptError.message}`,
+      );
+      continue;
+    }
     if (!decrypted) continue;
     secrets[secretKey] = decrypted;
+  }
+  if (
+    decryptFailures > 0 &&
+    Object.keys(secrets).length === 0 &&
+    Object.keys(store.entries).length > 0
+  ) {
+    throw lastDecryptError || new Error('failed to decrypt encrypted store');
   }
   return secrets;
 }
@@ -395,6 +424,20 @@ function writeEncryptedSecretStoreFile(
     `${JSON.stringify(payload, null, 2)}\n`,
     RUNTIME_SECRETS_MODE,
   );
+}
+
+function writeEncryptedSecretStoreFileAtomically(
+  filePath: string,
+  payload: EncryptedSecretStore,
+): void {
+  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}-${randomBytes(6).toString('hex')}`;
+  try {
+    writeEncryptedSecretStoreFile(tempPath, payload);
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    fs.rmSync(tempPath, { force: true });
+    throw error;
+  }
 }
 
 function readEncryptedSecretStoreFile(
@@ -566,7 +609,7 @@ class SecretStore {
 
     const { key } = resolveMasterKey({ allowCreateLocalFallback: true });
     const payload = buildEncryptedSecretStore(key, sanitizedSecrets);
-    writeEncryptedSecretStoreFile(this.filePath, payload);
+    writeEncryptedSecretStoreFileAtomically(this.filePath, payload);
     cachedSecretStoreRead = {
       fileSignature: readFileSignature(this.filePath),
       keySourceSignature: currentMasterKeySourceSignature(),
@@ -641,6 +684,14 @@ export function migrateLegacyRuntimeSecretsFile(): boolean {
   const store = new SecretStore();
   const filePath = runtimeSecretsPath();
   if (!fs.existsSync(filePath)) return false;
+  const status = store.readAllResult().status;
+  if (
+    status === 'encrypted' ||
+    status === 'encrypted-unreadable' ||
+    status === 'missing'
+  ) {
+    return false;
+  }
 
   try {
     const raw = fs.readFileSync(filePath, 'utf-8');
@@ -649,7 +700,7 @@ export function migrateLegacyRuntimeSecretsFile(): boolean {
       return false;
     }
 
-    const plaintextSecrets = normalizeSecretMap(parsed);
+    const plaintextSecrets = sanitizeRuntimeSecrets(parsed);
     if (Object.keys(plaintextSecrets).length === 0) {
       return false;
     }

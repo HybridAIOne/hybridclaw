@@ -1027,6 +1027,7 @@ async function importFreshHealth(options?: {
     getAgentById,
     loggerDebug,
     loggerError,
+    loggerWarn,
     handleIMessageWebhook,
     runMessageToolAction,
     normalizeDiscordToolAction,
@@ -3920,6 +3921,120 @@ describe('gateway HTTP server', () => {
       },
       body: JSON.stringify({ ok: true, id: 'completion-1' }),
       json: { ok: true, id: 'completion-1' },
+    });
+  });
+
+  test('blocks outbound http_request redirects to avoid SSRF bypasses', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 302,
+      statusText: 'Found',
+      headers: new Headers({ location: 'http://169.254.169.254/latest' }),
+      body: null,
+      url: 'https://hybridai.one/v1/completions',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hybridai.one/v1/completions',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({ redirect: 'manual' }),
+    );
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Outbound HTTP redirects are blocked by the SSRF guard.',
+    });
+  });
+
+  test('fails closed when dns lookup for http_request host fails', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => {
+        throw new Error('dns unavailable');
+      }),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hybridai.one/v1/completions',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'HTTP request blocked by SSRF guard: private or loopback host (hybridai.one).',
+    });
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: 'hybridai.one',
+        error: expect.any(Error),
+      }),
+      'DNS lookup failed during SSRF host check; treating host as private/blocked',
+    );
+  });
+
+  test('streams outbound http_request responses and aborts once the size limit is exceeded', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(Buffer.alloc(6, 0x61));
+            controller.enqueue(Buffer.alloc(6, 0x62));
+            controller.close();
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/octet-stream' },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hybridai.one/v1/completions',
+        maxResponseBytes: 10,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(413);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Outbound response exceeded limit (12 bytes > 10).',
     });
   });
 

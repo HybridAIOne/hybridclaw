@@ -2775,32 +2775,13 @@ function setSecretInputOnSource(
   vllm.apiKey = value;
 }
 
-function getResolvedSecretValue(
-  config: RuntimeConfig,
-  secretPath: RuntimeConfigSecretInputPath,
-): string {
-  if (secretPath === 'ops.webApiToken') return config.ops.webApiToken;
-  if (secretPath === 'ops.gatewayApiToken') return config.ops.gatewayApiToken;
-  if (secretPath === 'imessage.password') return config.imessage.password;
-  return config.local.backends.vllm.apiKey || '';
-}
-
 function preserveSecretInputs(
   serializable: Record<string, unknown>,
-  config: RuntimeConfig,
   source: Record<string, unknown>,
-  comparisonConfig?: RuntimeConfig | null,
 ): void {
   for (const secretPath of SECRET_INPUT_PATHS) {
     const sourceValue = getSecretInputFromSource(source, secretPath);
     if (!isSecretRefInput(sourceValue)) continue;
-    if (
-      comparisonConfig &&
-      getResolvedSecretValue(config, secretPath) !==
-        getResolvedSecretValue(comparisonConfig, secretPath)
-    ) {
-      continue;
-    }
     setSecretInputOnSource(serializable, secretPath, cloneConfig(sourceValue));
   }
 }
@@ -4281,18 +4262,12 @@ function buildSerializableConfig(
   config: RuntimeConfig,
   opts?: { omitImplicitSandboxMode?: boolean },
   sourceConfig?: Record<string, unknown>,
-  comparisonConfig?: RuntimeConfig | null,
 ): Record<string, unknown> {
   const serializable = cloneConfig(config) as unknown as Record<
     string,
     unknown
   >;
-  preserveSecretInputs(
-    serializable,
-    config,
-    sourceConfig ?? {},
-    comparisonConfig,
-  );
+  preserveSecretInputs(serializable, sourceConfig ?? {});
   const serializableContainer = isRecord(serializable.container)
     ? serializable.container
     : null;
@@ -4313,9 +4288,8 @@ function serializeConfigFile(
   config: RuntimeConfig,
   opts?: { omitImplicitSandboxMode?: boolean },
   sourceConfig?: Record<string, unknown>,
-  comparisonConfig?: RuntimeConfig | null,
 ): string {
-  return `${JSON.stringify(buildSerializableConfig(config, opts, sourceConfig, comparisonConfig), null, 2)}\n`;
+  return `${JSON.stringify(buildSerializableConfig(config, opts, sourceConfig), null, 2)}\n`;
 }
 
 function writeConfigFile(
@@ -4323,17 +4297,11 @@ function writeConfigFile(
   opts?: { omitImplicitSandboxMode?: boolean },
   meta?: RuntimeConfigChangeMeta,
   sourceConfig?: Record<string, unknown>,
-  comparisonConfig?: RuntimeConfig | null,
 ): boolean {
   const dir = path.dirname(CONFIG_PATH);
   fs.mkdirSync(dir, { recursive: true });
 
-  const nextText = serializeConfigFile(
-    config,
-    opts,
-    sourceConfig,
-    comparisonConfig,
-  );
+  const nextText = serializeConfigFile(config, opts, sourceConfig);
   if (fs.existsSync(CONFIG_PATH)) {
     try {
       const currentText = fs.readFileSync(CONFIG_PATH, 'utf-8');
@@ -4567,7 +4535,6 @@ function migrateConfigSchemaOnStartup(): void {
         source: 'system',
       },
       parsedRecord,
-      null,
     );
     if (!changed) return;
     const from = previousVersion == null ? 'unknown' : String(previousVersion);
@@ -4681,7 +4648,6 @@ export function saveRuntimeConfig(
       omitImplicitSandboxMode: !sandboxModeExplicit,
     },
     currentConfigSource,
-    currentConfig,
   );
   writeConfigFile(
     normalized,
@@ -4690,7 +4656,6 @@ export function saveRuntimeConfig(
     },
     meta,
     currentConfigSource,
-    currentConfig,
   );
   currentConfigSource = cloneConfig(nextSource);
   applyConfig(normalized);
@@ -4716,7 +4681,6 @@ function saveRuntimeConfigSource(
       omitImplicitSandboxMode: !sandboxModeExplicit,
     },
     source,
-    null,
   );
   writeConfigFile(
     normalized,
@@ -4725,7 +4689,6 @@ function saveRuntimeConfigSource(
     },
     meta,
     source,
-    null,
   );
   currentConfigSource = cloneConfig(nextSource);
   applyConfig(normalized);

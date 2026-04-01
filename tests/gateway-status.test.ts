@@ -437,6 +437,54 @@ test('secret commands manage encrypted secrets and HTTP auth routes', async () =
   ]);
 });
 
+test('secret route add normalizes URL prefixes before saving auth rules', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  await handleGatewayCommand({
+    sessionId: 'session-secret-set-normalized',
+    guildId: null,
+    channelId: 'tui',
+    args: ['secret', 'set', 'NEW_HAI_API_KEY', 'super-secret-value'],
+  });
+  await handleGatewayCommand({
+    sessionId: 'session-secret-route-normalized',
+    guildId: null,
+    channelId: 'tui',
+    args: [
+      'secret',
+      'route',
+      'add',
+      'https://user:pass@hybridai.one/v1?debug=1#frag',
+      'NEW_HAI_API_KEY',
+    ],
+  });
+
+  const storedConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as RuntimeConfig;
+  expect(storedConfig.tools.httpRequest.authRules).toEqual([
+    {
+      urlPrefix: 'https://hybridai.one/v1/',
+      header: 'Authorization',
+      prefix: 'Bearer',
+      secret: {
+        source: 'store',
+        id: 'NEW_HAI_API_KEY',
+      },
+    },
+  ]);
+});
+
 test('config shows the local runtime config', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
