@@ -4,10 +4,7 @@ import type {
   ChatMessage,
   ToolDefinition,
 } from '../types.js';
-import {
-  isRuntimeProvider,
-  type RuntimeProvider,
-} from './provider-ids.js';
+import { isRuntimeProvider, type RuntimeProvider } from './provider-ids.js';
 
 export type { RuntimeProvider } from './provider-ids.js';
 

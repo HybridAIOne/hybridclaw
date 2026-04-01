@@ -34,12 +34,7 @@ export function isOpenAICompatRuntimeProvider(
   value: unknown,
 ): value is Extract<
   RuntimeProvider,
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'lmstudio'
-  | 'llamacpp'
-  | 'vllm'
+  'openrouter' | 'mistral' | 'huggingface' | 'lmstudio' | 'llamacpp' | 'vllm'
 > {
   return (
     typeof value === 'string' &&
