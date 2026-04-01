@@ -8,6 +8,26 @@ export function normalizeModelCandidates(models: string[]): string[] {
   return Array.from(deduped);
 }
 
+export interface SelectableModelEntry {
+  label: string;
+  value: string;
+  isFree: boolean;
+  recommended: boolean;
+}
+
+export function sortSelectableModelEntries<T extends SelectableModelEntry>(
+  models: T[],
+): T[] {
+  return [...models].sort((left, right) => {
+    const leftKey = String(left.value || left.label || '').trim();
+    const rightKey = String(right.value || right.label || '').trim();
+    return leftKey.localeCompare(rightKey, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+  });
+}
+
 export function parseModelNamesFromListText(text: string): string[] {
   return normalizeModelCandidates(
     String(text || '')

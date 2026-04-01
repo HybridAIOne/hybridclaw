@@ -1546,16 +1546,23 @@ function isWhatsAppAuthLockError(err: unknown): err is Error {
 }
 
 function printMissingEnvVarError(message: string, envVar?: string): void {
-  const envVarHint: Record<string, string> = {
-    HYBRIDAI_API_KEY: `Set HYBRIDAI_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again. You can also run \`hybridclaw onboarding\` to set it interactively.`,
-    OPENROUTER_API_KEY: `Set OPENROUTER_API_KEY in ${runtimeSecretsPath()} or your shell, ensure \`openrouter.enabled\` is true in ${runtimeConfigPath()}, then run the command again.`,
-    MISTRAL_API_KEY: `Set MISTRAL_API_KEY in ${runtimeSecretsPath()} or your shell, ensure \`mistral.enabled\` is true in ${runtimeConfigPath()}, then run the command again.`,
-    HF_TOKEN: `Set HF_TOKEN in ${runtimeSecretsPath()} or your shell, ensure \`huggingface.enabled\` is true in ${runtimeConfigPath()}, then run the command again.`,
+  const envVarMessage: Record<string, string> = {
+    HYBRIDAI_API_KEY: 'HybridAI provider is not configured.',
+    OPENROUTER_API_KEY: 'OpenRouter provider is not configured.',
+    MISTRAL_API_KEY: 'Mistral provider is not configured.',
+    HF_TOKEN: 'Hugging Face provider is not configured.',
   };
+  const envVarHint: Record<string, string> = {
+    HYBRIDAI_API_KEY: `Run \`hybridclaw auth login hybridai\`, or set HYBRIDAI_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
+    OPENROUTER_API_KEY: `Run \`hybridclaw auth login openrouter\`, or set OPENROUTER_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
+    MISTRAL_API_KEY: `Run \`hybridclaw auth login mistral\`, or set MISTRAL_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
+    HF_TOKEN: `Run \`hybridclaw auth login huggingface\`, or set HF_TOKEN in ${runtimeSecretsPath()} or your shell, then run the command again.`,
+  };
+  const renderedMessage = envVar ? envVarMessage[envVar] || message : message;
   const hint = envVar
     ? envVarHint[envVar]
     : 'Set this variable and rerun the command.';
-  console.error(`hybridclaw error: ${message}`);
+  console.error(`hybridclaw error: ${renderedMessage}`);
   console.error(`Hint: ${hint}`);
   console.error(
     `HybridClaw stores runtime secrets in ${runtimeSecretsPath()}. If .env exists in the current working directory, supported secrets are migrated there automatically.`,

@@ -34,7 +34,20 @@ ensureRuntimeConfigFile();
 
 export class MissingRequiredEnvVarError extends Error {
   constructor(public readonly envVar: string) {
-    super(`Missing required env var: ${envVar}`);
+    const messageByEnvVar: Record<string, string> = {
+      HYBRIDAI_API_KEY:
+        'HybridAI provider is not configured. Use `/auth login hybridai` in the TUI, or switch to a model from another configured provider.',
+      OPENROUTER_API_KEY:
+        'OpenRouter provider is not configured. Use `/auth login openrouter` in the TUI, or switch to a model from another configured provider.',
+      MISTRAL_API_KEY:
+        'Mistral provider is not configured. Use `/auth login mistral` in the TUI, or switch to a model from another configured provider.',
+      HF_TOKEN:
+        'Hugging Face provider is not configured. Use `/auth login huggingface` in the TUI, or switch to a model from another configured provider.',
+    };
+    super(
+      messageByEnvVar[envVar] ||
+        `Required credential is not configured: ${envVar}.`,
+    );
     this.name = 'MissingRequiredEnvVarError';
   }
 }

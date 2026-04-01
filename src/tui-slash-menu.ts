@@ -319,17 +319,18 @@ export function buildTuiSlashMenuEntries(
     entries.push(buildGenericRootEntry(definition, sortIndex));
     sortIndex += 1;
 
+    const childEntries: TuiSlashMenuEntry[] = [];
     const subcommands = definition.options?.filter(isSubcommandOption) ?? [];
 
     for (const subcommand of subcommands) {
-      entries.push(
+      childEntries.push(
         buildGenericSubcommandEntry(definition.name, subcommand, sortIndex),
       );
       sortIndex += 1;
 
       for (const menuEntry of subcommand.tuiMenuEntries || []) {
         sortIndex = appendSyntheticMenuEntry({
-          entries,
+          entries: childEntries,
           entry: menuEntry,
           defaultDepth: 3,
           sortIndex,
@@ -339,12 +340,23 @@ export function buildTuiSlashMenuEntries(
 
     for (const menuEntry of definition.tuiMenuEntries || []) {
       sortIndex = appendSyntheticMenuEntry({
-        entries,
+        entries: childEntries,
         entry: menuEntry,
         defaultDepth: 2,
         sortIndex,
       });
     }
+
+    if (definition.name === 'model') {
+      childEntries.sort((left, right) =>
+        left.label.localeCompare(right.label, undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+      );
+    }
+
+    entries.push(...childEntries);
   }
 
   return entries;
