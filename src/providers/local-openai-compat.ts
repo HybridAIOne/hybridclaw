@@ -1,6 +1,7 @@
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   LOCAL_DEFAULT_CONTEXT_WINDOW,
+  LOCAL_LLAMACPP_BASE_URL,
   LOCAL_LMSTUDIO_BASE_URL,
   LOCAL_VLLM_API_KEY,
   LOCAL_VLLM_BASE_URL,
@@ -27,7 +28,7 @@ function normalizePrefixedModelName(
 }
 
 function createLocalOpenAICompatProvider(params: {
-  backend: Extract<LocalBackendType, 'lmstudio' | 'vllm'>;
+  backend: Extract<LocalBackendType, 'llamacpp' | 'lmstudio' | 'vllm'>;
   baseUrl: () => string;
   apiKey?: () => string;
 }): AIProvider {
@@ -76,6 +77,11 @@ function createLocalOpenAICompatProvider(params: {
 export const lmstudioProvider = createLocalOpenAICompatProvider({
   backend: 'lmstudio',
   baseUrl: () => LOCAL_LMSTUDIO_BASE_URL,
+});
+
+export const llamacppProvider = createLocalOpenAICompatProvider({
+  backend: 'llamacpp',
+  baseUrl: () => LOCAL_LLAMACPP_BASE_URL,
 });
 
 export const vllmProvider = createLocalOpenAICompatProvider({

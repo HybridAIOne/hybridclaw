@@ -33,6 +33,7 @@ function writeRuntimeConfig(
   config.local.backends.ollama.enabled = true;
   config.local.backends.ollama.baseUrl = 'http://127.0.0.1:11434/v1/';
   config.local.backends.lmstudio.enabled = false;
+  config.local.backends.llamacpp.enabled = false;
   config.local.backends.vllm.enabled = false;
   mutator?.(config);
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
@@ -93,6 +94,23 @@ describe('local providers', () => {
 
     expect(factory.resolveModelProvider('ollama/llama3.2')).toBe('ollama');
     expect(factory.modelRequiresChatbotId('ollama/llama3.2')).toBe(false);
+  });
+
+  test('explicit llamacpp model prefixes resolve to the llamacpp provider', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = false;
+      config.local.backends.llamacpp.enabled = true;
+      config.local.backends.llamacpp.baseUrl = 'http://127.0.0.1:8081/v1';
+    });
+    const { factory } = await importFreshModules(homeDir);
+
+    expect(
+      factory.resolveModelProvider('llamacpp/Meta-Llama-3-8B-Instruct'),
+    ).toBe('llamacpp');
+    expect(
+      factory.modelRequiresChatbotId('llamacpp/Meta-Llama-3-8B-Instruct'),
+    ).toBe(false);
   });
 
   test('discovered bare model names resolve to the local backend', async () => {
@@ -176,6 +194,7 @@ describe('local providers', () => {
     writeRuntimeConfig(homeDir, (config) => {
       config.local.backends.ollama.enabled = true;
       config.local.backends.lmstudio.enabled = true;
+      config.local.backends.llamacpp.enabled = true;
       config.local.backends.vllm.enabled = true;
     });
     const { factory } = await importFreshModules(homeDir);
@@ -184,6 +203,9 @@ describe('local providers', () => {
     expect(factory.resolveModelProvider('lmstudio/qwen3.5-9b')).toBe(
       'lmstudio',
     );
+    expect(
+      factory.resolveModelProvider('llamacpp/Meta-Llama-3-8B-Instruct'),
+    ).toBe('llamacpp');
     expect(factory.resolveModelProvider('vllm/granite-3.2')).toBe('vllm');
     expect(factory.resolveModelProvider('gpt-5-nano')).toBe('hybridai');
   });

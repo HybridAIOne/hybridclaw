@@ -106,7 +106,8 @@ function isMistralCompatModel(
   if (
     provider !== 'mistral' &&
     provider !== 'vllm' &&
-    provider !== 'lmstudio'
+    provider !== 'lmstudio' &&
+    provider !== 'llamacpp'
   ) {
     return false;
   }
@@ -130,7 +131,13 @@ function usesQwenCompat(args: {
   thinkingFormat?: 'qwen';
 }): boolean {
   if (args.thinkingFormat === 'qwen') return true;
-  if (args.provider !== 'lmstudio' && args.provider !== 'vllm') return false;
+  if (
+    args.provider !== 'lmstudio' &&
+    args.provider !== 'llamacpp' &&
+    args.provider !== 'vllm'
+  ) {
+    return false;
+  }
   const normalizedModel = normalizeLocalModelName(args.provider, args.model)
     .trim()
     .toLowerCase();

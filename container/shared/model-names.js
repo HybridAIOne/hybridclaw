@@ -8,6 +8,7 @@ export const NON_HYBRID_PROVIDER_PREFIXES = [
   'anthropic/',
   'ollama/',
   'lmstudio/',
+  'llamacpp/',
   'vllm/',
 ];
 

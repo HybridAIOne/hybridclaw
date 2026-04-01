@@ -13,6 +13,7 @@ export type RuntimeProvider =
   | 'huggingface'
   | 'ollama'
   | 'lmstudio'
+  | 'llamacpp'
   | 'vllm';
 
 export interface NormalizedCallArgs {
@@ -162,6 +163,7 @@ function isProvider(value: unknown): value is RuntimeProvider {
     value === 'huggingface' ||
     value === 'ollama' ||
     value === 'lmstudio' ||
+    value === 'llamacpp' ||
     value === 'vllm'
   );
 }

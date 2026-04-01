@@ -9,6 +9,7 @@ export type AIProviderId =
   | 'anthropic'
   | 'ollama'
   | 'lmstudio'
+  | 'llamacpp'
   | 'vllm';
 export type RuntimeProviderId =
   | 'hybridai'
@@ -18,6 +19,7 @@ export type RuntimeProviderId =
   | 'huggingface'
   | 'ollama'
   | 'lmstudio'
+  | 'llamacpp'
   | 'vllm';
 
 export interface ResolvedModelRuntimeCredentials {

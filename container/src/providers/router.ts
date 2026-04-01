@@ -108,6 +108,7 @@ export async function callProviderModel(
     args.provider === 'mistral' ||
     args.provider === 'huggingface' ||
     args.provider === 'lmstudio' ||
+    args.provider === 'llamacpp' ||
     args.provider === 'vllm'
   ) {
     return callLocalOpenAICompatProvider(args);
@@ -129,6 +130,7 @@ export async function callProviderModelStream(
     args.provider === 'mistral' ||
     args.provider === 'huggingface' ||
     args.provider === 'lmstudio' ||
+    args.provider === 'llamacpp' ||
     args.provider === 'vllm'
   ) {
     return callLocalOpenAICompatProviderStream(args);
@@ -161,6 +163,7 @@ function normalizeVisionBaseUrl(
     provider === 'mistral' ||
     provider === 'huggingface' ||
     provider === 'lmstudio' ||
+    provider === 'llamacpp' ||
     provider === 'vllm'
   ) {
     return /\/v1$/i.test(normalized) ? normalized : `${normalized}/v1`;

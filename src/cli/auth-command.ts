@@ -628,7 +628,7 @@ function maskSecret(value: string): string {
 }
 
 function isLocalProviderModel(modelName: string): boolean {
-  return /^(ollama|lmstudio|vllm)\//i.test(modelName.trim());
+  return /^(ollama|lmstudio|llamacpp|vllm)\//i.test(modelName.trim());
 }
 
 function printOpenRouterStatus(): void {
@@ -875,12 +875,13 @@ function clearLocalBackends(): void {
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.local.backends.ollama.enabled = false;
     draft.local.backends.lmstudio.enabled = false;
+    draft.local.backends.llamacpp.enabled = false;
     draft.local.backends.vllm.enabled = false;
     draft.local.backends.vllm.apiKey = '';
   });
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log('Disabled local backends: ollama, lmstudio, vllm.');
+  console.log('Disabled local backends: ollama, lmstudio, llamacpp, vllm.');
   if (isLocalProviderModel(nextConfig.hybridai.defaultModel)) {
     console.log(
       `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
@@ -924,7 +925,12 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
 }
 
 function isLocalBackendType(value: string): value is LocalBackendType {
-  return value === 'ollama' || value === 'lmstudio' || value === 'vllm';
+  return (
+    value === 'ollama' ||
+    value === 'lmstudio' ||
+    value === 'llamacpp' ||
+    value === 'vllm'
+  );
 }
 
 function normalizeLocalModelId(
@@ -936,7 +942,7 @@ function normalizeLocalModelId(
   if (trimmed.toLowerCase().startsWith(ownPrefix)) {
     return trimmed.slice(ownPrefix.length).trim();
   }
-  if (/^(ollama|lmstudio|vllm)\//i.test(trimmed)) {
+  if (/^(ollama|lmstudio|llamacpp|vllm)\//i.test(trimmed)) {
     throw new Error(
       `Model "${trimmed}" already includes a different local provider prefix.`,
     );
@@ -952,6 +958,7 @@ function normalizeLocalBaseUrl(
   if (!trimmed) {
     if (backend === 'ollama') return 'http://127.0.0.1:11434';
     if (backend === 'lmstudio') return 'http://127.0.0.1:1234/v1';
+    if (backend === 'llamacpp') return 'http://127.0.0.1:8081/v1';
     return 'http://127.0.0.1:8000/v1';
   }
   if (backend === 'ollama') {
@@ -1005,14 +1012,14 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
 
   if (positional.length < 2) {
     throw new Error(
-      'Usage: `hybridclaw local configure <ollama|lmstudio|vllm> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]`',
+      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]`',
     );
   }
 
   const backendRaw = (positional[0] || '').trim().toLowerCase();
   if (!isLocalBackendType(backendRaw)) {
     throw new Error(
-      `Unknown local backend "${positional[0]}". Use \`ollama\`, \`lmstudio\`, or \`vllm\`.`,
+      `Unknown local backend "${positional[0]}". Use \`ollama\`, \`lmstudio\`, \`llamacpp\`, or \`vllm\`.`,
     );
   }
 
@@ -1044,7 +1051,7 @@ function printLocalStatus(): void {
   console.log(
     `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
   );
-  for (const backend of ['ollama', 'lmstudio', 'vllm'] as const) {
+  for (const backend of ['ollama', 'lmstudio', 'llamacpp', 'vllm'] as const) {
     const settings = config.local.backends[backend];
     console.log(
       `${backend}: ${settings.enabled ? 'enabled' : 'disabled'} (${settings.baseUrl})`,

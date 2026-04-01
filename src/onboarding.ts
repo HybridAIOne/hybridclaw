@@ -59,7 +59,10 @@ function isLocalProvider(
   provider: ReturnType<typeof resolveModelProvider>,
 ): boolean {
   return (
-    provider === 'ollama' || provider === 'lmstudio' || provider === 'vllm'
+    provider === 'ollama' ||
+    provider === 'lmstudio' ||
+    provider === 'llamacpp' ||
+    provider === 'vllm'
   );
 }
 

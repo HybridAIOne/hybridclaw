@@ -40,11 +40,13 @@ type ModelCatalogProviderFilter =
   | 'huggingface'
   | 'ollama'
   | 'lmstudio'
+  | 'llamacpp'
   | 'vllm'
   | 'local';
 
 const OLLAMA_MODEL_PREFIX = 'ollama/';
 const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
+const LLAMACPP_MODEL_PREFIX = 'llamacpp/';
 const VLLM_MODEL_PREFIX = 'vllm/';
 const PREFIX_BY_PROVIDER: Record<
   Extract<
@@ -55,6 +57,7 @@ const PREFIX_BY_PROVIDER: Record<
     | 'huggingface'
     | 'ollama'
     | 'lmstudio'
+    | 'llamacpp'
     | 'vllm'
   >,
   string
@@ -65,6 +68,7 @@ const PREFIX_BY_PROVIDER: Record<
   huggingface: HUGGINGFACE_MODEL_PREFIX,
   ollama: OLLAMA_MODEL_PREFIX,
   lmstudio: LMSTUDIO_MODEL_PREFIX,
+  llamacpp: LLAMACPP_MODEL_PREFIX,
   vllm: VLLM_MODEL_PREFIX,
 };
 
@@ -105,6 +109,7 @@ function isLocalPrefixedModel(model: string): boolean {
   return (
     hasModelPrefix(model, PREFIX_BY_PROVIDER.ollama) ||
     hasModelPrefix(model, PREFIX_BY_PROVIDER.lmstudio) ||
+    hasModelPrefix(model, PREFIX_BY_PROVIDER.llamacpp) ||
     hasModelPrefix(model, PREFIX_BY_PROVIDER.vllm)
   );
 }
@@ -125,6 +130,7 @@ export function normalizeModelCatalogProviderFilter(
     normalized === 'huggingface' ||
     normalized === 'ollama' ||
     normalized === 'lmstudio' ||
+    normalized === 'llamacpp' ||
     normalized === 'vllm' ||
     normalized === 'local'
   ) {

@@ -22,6 +22,7 @@ type RuntimeProvider =
   | 'huggingface'
   | 'ollama'
   | 'lmstudio'
+  | 'llamacpp'
   | 'vllm';
 
 interface AuxiliaryTextCallContext {
@@ -819,6 +820,7 @@ async function callAuxiliaryTextProvider(
     context.provider === 'openrouter' ||
     context.provider === 'huggingface' ||
     context.provider === 'lmstudio' ||
+    context.provider === 'llamacpp' ||
     context.provider === 'vllm'
   ) {
     return callOpenAICompatTextModel(context, messages, options);

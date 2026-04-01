@@ -749,6 +749,7 @@ const LEGACY_PROVIDER_AGENT_IDS = [
   'ollama',
   'vllm',
   'lmstudio',
+  'llamacpp',
   'default',
   'anthropic',
   'openai-codex',

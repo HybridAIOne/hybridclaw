@@ -5,6 +5,8 @@ import {
   LOCAL_DISCOVERY_ENABLED,
   LOCAL_DISCOVERY_INTERVAL_MS,
   LOCAL_DISCOVERY_MAX_MODELS,
+  LOCAL_LLAMACPP_BASE_URL,
+  LOCAL_LLAMACPP_ENABLED,
   LOCAL_LMSTUDIO_BASE_URL,
   LOCAL_LMSTUDIO_ENABLED,
   LOCAL_OLLAMA_BASE_URL,
@@ -20,7 +22,12 @@ import type {
 } from './local-types.js';
 import { isRecord, normalizeBaseUrl } from './utils.js';
 
-const DISCOVERY_ORDER: LocalBackendType[] = ['ollama', 'lmstudio', 'vllm'];
+const DISCOVERY_ORDER: LocalBackendType[] = [
+  'ollama',
+  'lmstudio',
+  'llamacpp',
+  'vllm',
+];
 const ZERO_COST = {
   input: 0,
   output: 0,
@@ -29,7 +36,12 @@ const ZERO_COST = {
 } as const;
 
 function hasEnabledLocalBackend(): boolean {
-  return LOCAL_OLLAMA_ENABLED || LOCAL_LMSTUDIO_ENABLED || LOCAL_VLLM_ENABLED;
+  return (
+    LOCAL_OLLAMA_ENABLED ||
+    LOCAL_LMSTUDIO_ENABLED ||
+    LOCAL_LLAMACPP_ENABLED ||
+    LOCAL_VLLM_ENABLED
+  );
 }
 
 function normalizeModelId(modelId: string): string {
@@ -202,7 +214,7 @@ function resolveOpenAICompatBaseUrl(configuredBaseUrl: string): string {
 }
 
 async function fetchOpenAICompatModels(
-  backend: Extract<LocalBackendType, 'lmstudio' | 'vllm'>,
+  backend: Extract<LocalBackendType, 'llamacpp' | 'lmstudio' | 'vllm'>,
   baseUrl: string,
   apiKey?: string,
 ): Promise<LocalModelInfo[]> {
@@ -352,6 +364,12 @@ async function discoverVllmModels(
   return fetchOpenAICompatModels('vllm', baseUrl, apiKey);
 }
 
+async function discoverLlamacppModels(
+  baseUrl = LOCAL_LLAMACPP_BASE_URL,
+): Promise<LocalModelInfo[]> {
+  return fetchOpenAICompatModels('llamacpp', baseUrl);
+}
+
 export interface LocalDiscoveryStore {
   discoverAllModels: (opts?: { force?: boolean }) => Promise<LocalModelInfo[]>;
   getDiscoveredModels: () => LocalModelInfo[];
@@ -456,6 +474,11 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
         if (LOCAL_LMSTUDIO_ENABLED) {
           tasks.push(
             discoverLmStudioModels(LOCAL_LMSTUDIO_BASE_URL).catch(() => []),
+          );
+        }
+        if (LOCAL_LLAMACPP_ENABLED) {
+          tasks.push(
+            discoverLlamacppModels(LOCAL_LLAMACPP_BASE_URL).catch(() => []),
           );
         }
         if (LOCAL_VLLM_ENABLED) {

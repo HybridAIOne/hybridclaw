@@ -83,21 +83,22 @@ export function printLocalUsage(): void {
 
 Commands:
   hybridclaw local status
-  hybridclaw local configure <ollama|lmstudio|vllm> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]
+  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]
 
 Use Instead:
-  hybridclaw auth login local <ollama|lmstudio|vllm> <model-id> ...
+  hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> <model-id> ...
   hybridclaw auth status local
   hybridclaw auth logout local
 
 Examples:
   hybridclaw local configure lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234
+  hybridclaw local configure llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
   hybridclaw local configure ollama llama3.2
   hybridclaw local configure vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
 
 Notes:
   - \`hybridclaw local ...\` is deprecated and will be removed in a future release.
-  - LM Studio and vLLM URLs are normalized to include \`/v1\`.
+  - LM Studio, llama.cpp, and vLLM URLs are normalized to include \`/v1\`.
   - Ollama URLs are normalized to omit \`/v1\`.
   - By default, \`configure\` also sets \`hybridai.defaultModel\` to the chosen local model.
     Use \`--no-default\` to leave the global default model unchanged.`);
@@ -122,6 +123,7 @@ Examples:
   hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
   hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
   hybridclaw auth login local ollama llama3.2
+  hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
   hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
   hybridclaw auth whatsapp reset
   hybridclaw auth status openrouter

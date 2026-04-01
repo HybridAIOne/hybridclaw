@@ -36,6 +36,7 @@ const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
   huggingface: 'huggingface/',
   ollama: 'ollama/',
   lmstudio: 'lmstudio/',
+  llamacpp: 'llamacpp/',
   vllm: 'vllm/',
 };
 
@@ -59,6 +60,7 @@ function normalizeTaskProviderSelection(
     normalized === 'huggingface' ||
     normalized === 'ollama' ||
     normalized === 'lmstudio' ||
+    normalized === 'llamacpp' ||
     normalized === 'vllm'
   ) {
     return normalized;
@@ -130,6 +132,7 @@ export function detectRuntimeProviderPrefix(
   if (normalized.startsWith('huggingface/')) return 'huggingface';
   if (normalized.startsWith('ollama/')) return 'ollama';
   if (normalized.startsWith('lmstudio/')) return 'lmstudio';
+  if (normalized.startsWith('llamacpp/')) return 'llamacpp';
   if (normalized.startsWith('vllm/')) return 'vllm';
   return undefined;
 }

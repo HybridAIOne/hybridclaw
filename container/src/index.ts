@@ -694,6 +694,7 @@ async function callHybridAIWithRetry(params: {
     | 'huggingface'
     | 'ollama'
     | 'lmstudio'
+    | 'llamacpp'
     | 'vllm';
   baseUrl: string;
   apiKey: string;
@@ -842,6 +843,7 @@ async function processRequest(
     | 'huggingface'
     | 'ollama'
     | 'lmstudio'
+    | 'llamacpp'
     | 'vllm'
     | undefined,
   isLocal: boolean | undefined,

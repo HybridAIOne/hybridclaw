@@ -101,6 +101,7 @@ let currentModelProvider:
   | 'huggingface'
   | 'ollama'
   | 'lmstudio'
+  | 'llamacpp'
   | 'vllm' = 'hybridai';
 let currentModelBaseUrl = '';
 let currentModelApiKey = '';
@@ -303,6 +304,7 @@ export function setModelContext(
     | 'huggingface'
     | 'ollama'
     | 'lmstudio'
+    | 'llamacpp'
     | 'vllm'
     | undefined,
   baseUrl: string,

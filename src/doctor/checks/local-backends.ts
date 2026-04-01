@@ -4,8 +4,11 @@ import { checkAllBackends } from '../../providers/local-health.js';
 import type { DiagResult } from '../types.js';
 import { makeResult, severityFrom } from '../utils.js';
 
-function labelForBackend(backend: 'ollama' | 'lmstudio' | 'vllm'): string {
+function labelForBackend(
+  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm',
+): string {
   if (backend === 'lmstudio') return 'LM Studio';
+  if (backend === 'llamacpp') return 'llama.cpp';
   if (backend === 'vllm') return 'vLLM';
   return 'Ollama';
 }
@@ -14,7 +17,7 @@ export async function checkLocalBackendsCategory(): Promise<DiagResult[]> {
   const config = getRuntimeConfig();
   const enabledBackends = Object.entries(config.local.backends)
     .filter(([, backend]) => backend.enabled)
-    .map(([name]) => name as 'ollama' | 'lmstudio' | 'vllm');
+    .map(([name]) => name as 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm');
 
   if (enabledBackends.length === 0) {
     return [

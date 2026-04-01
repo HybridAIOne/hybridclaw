@@ -6,6 +6,7 @@ export type ProviderKind =
   | 'huggingface'
   | 'ollama'
   | 'lmstudio'
+  | 'llamacpp'
   | 'vllm';
 
 export interface McpServerConfig {

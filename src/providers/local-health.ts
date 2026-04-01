@@ -1,6 +1,8 @@
 import {
   LOCAL_HEALTH_CHECK_ENABLED,
   LOCAL_HEALTH_CHECK_TIMEOUT_MS,
+  LOCAL_LLAMACPP_BASE_URL,
+  LOCAL_LLAMACPP_ENABLED,
   LOCAL_LMSTUDIO_BASE_URL,
   LOCAL_LMSTUDIO_ENABLED,
   LOCAL_OLLAMA_BASE_URL,
@@ -21,7 +23,12 @@ import { isRecord, normalizeBaseUrl } from './utils.js';
 const PROBE_TTL_MS = 30_000;
 
 function hasEnabledLocalBackend(): boolean {
-  return LOCAL_OLLAMA_ENABLED || LOCAL_LMSTUDIO_ENABLED || LOCAL_VLLM_ENABLED;
+  return (
+    LOCAL_OLLAMA_ENABLED ||
+    LOCAL_LMSTUDIO_ENABLED ||
+    LOCAL_LLAMACPP_ENABLED ||
+    LOCAL_VLLM_ENABLED
+  );
 }
 
 function buildOpenAICompatHeaders(apiKey?: string): Record<string, string> {
@@ -166,6 +173,9 @@ export async function checkAllBackends(): Promise<
   }
   if (LOCAL_LMSTUDIO_ENABLED) {
     tasks.push(checkConnection('lmstudio', LOCAL_LMSTUDIO_BASE_URL));
+  }
+  if (LOCAL_LLAMACPP_ENABLED) {
+    tasks.push(checkConnection('llamacpp', LOCAL_LLAMACPP_BASE_URL));
   }
   if (LOCAL_VLLM_ENABLED) {
     tasks.push(
