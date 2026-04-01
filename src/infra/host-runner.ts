@@ -94,6 +94,23 @@ function buildHostAllowedRoots(): string[] {
   );
 }
 
+function resolveHostAgentBrowserBinary(): string | undefined {
+  const configured = String(process.env.AGENT_BROWSER_BIN || '').trim();
+  if (configured) return configured;
+
+  const installRoot = resolveInstallRoot();
+  const binName =
+    process.platform === 'win32' ? 'agent-browser.cmd' : 'agent-browser';
+  const candidates = [
+    path.join(installRoot, 'container', 'node_modules', '.bin', binName),
+    path.join(installRoot, 'node_modules', '.bin', binName),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
 interface PoolEntry {
   process: ChildProcess;
   sessionId: string;
@@ -375,6 +392,7 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
   if (!runtime) {
     throw new Error('Host runtime unexpectedly unavailable.');
   }
+  const agentBrowserBin = resolveHostAgentBrowserBinary();
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HYBRIDAI_BASE_URL,
@@ -403,6 +421,7 @@ function getOrSpawnHostProcess(sessionId: string, agentId: string): PoolEntry {
     HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT: uploadedMediaCacheHostPath,
     HYBRIDCLAW_AGENT_IPC_DIR: ipcPath,
     BROWSER_SHARED_PROFILE_DIR: resolveBrowserProfileHostDir(),
+    AGENT_BROWSER_BIN: agentBrowserBin,
   };
 
   logger.info(

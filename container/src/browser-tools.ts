@@ -514,8 +514,7 @@ async function waitForProcessExit(
   return !isProcessRunning(pid);
 }
 
-async function terminateSessionProcess(session: BrowserSession): Promise<void> {
-  const pid = readSessionPid(session);
+async function terminateProcess(pid: number | null): Promise<void> {
   if (!pid || !isProcessRunning(pid)) return;
 
   try {
@@ -541,6 +540,10 @@ async function terminateSessionProcess(session: BrowserSession): Promise<void> {
   await waitForProcessExit(pid, 500);
 }
 
+async function terminateSessionProcess(session: BrowserSession): Promise<void> {
+  await terminateProcess(readSessionPid(session));
+}
+
 async function closeSession(
   sessionId: string,
   options: { createIfMissing?: boolean } = {},
@@ -550,12 +553,17 @@ async function closeSession(
     ? getSession(sessionKey)
     : activeSessions.get(sessionKey);
   if (!session) return null;
+  const pidBeforeClose = readSessionPid(session);
 
   const result = await runAgentBrowser(session.sessionKey, 'close', [], {
     timeoutMs: BROWSER_CLOSE_TIMEOUT_MS,
   });
   if (result.success) {
-    removeSessionResources(session);
+    try {
+      await terminateProcess(pidBeforeClose);
+    } finally {
+      removeSessionResources(session);
+    }
     return null;
   }
 
