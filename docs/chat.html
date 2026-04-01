@@ -1623,6 +1623,7 @@
       return {
         approvalId,
         prompt: String(value.prompt || '').trim(),
+        summary: String(value.summary || '').trim(),
         intent: String(value.intent || '').trim(),
         reason: String(value.reason || '').trim(),
         allowSession: value.allowSession === true,
@@ -1638,6 +1639,7 @@
     function buildApprovalSummary(approval) {
       const normalized = normalizeApprovalEvent(approval);
       if (!normalized) return '';
+      if (normalized.summary) return normalized.summary;
 
       const lines = [];
       if (normalized.intent) {
@@ -1680,27 +1682,14 @@
       return null;
     }
 
-    function isApprovalHistoryMessage(content) {
-      const text = String(content || '').trim();
-      if (!text || !text.includes('Approval ID:')) return false;
-
-      return (
-        text.startsWith('Approval needed for:') ||
-        text.startsWith('I need your approval before I ') ||
-        text.startsWith('**Pending Approval**') ||
-        text.includes('Reply `yes` to approve once.') ||
-        text.includes('Approval expires in')
-      );
-    }
-
     function parseApprovalPrompt(content) {
       const lines = String(content || '')
         .split('\n')
         .map((line) => line.trim())
         .filter(Boolean);
-      const intentLine = lines.find((line) =>
-        line.startsWith('I need your approval before I '),
-      );
+      const intentLine =
+        lines.find((line) => line.startsWith('Approval needed for: ')) ||
+        lines.find((line) => line.startsWith('I need your approval before I '));
       const reasonLine = lines.find((line) => line.startsWith('Why: '));
       const approvalIdLine = lines.find((line) =>
         line.startsWith('Approval ID: '),
@@ -1710,7 +1699,9 @@
         return null;
       }
 
-      let intent = intentLine.slice('I need your approval before I '.length).trim();
+      let intent = intentLine.startsWith('Approval needed for: ')
+        ? intentLine.slice('Approval needed for: '.length).trim()
+        : intentLine.slice('I need your approval before I '.length).trim();
       if (intent.endsWith('.')) {
         intent = intent.slice(0, -1).trim();
       }
@@ -1724,6 +1715,14 @@
       return {
         approvalId,
         prompt: String(content || '').trim(),
+        summary: lines
+          .filter(
+            (line) =>
+              line.startsWith('Approval needed for: ') ||
+              line.startsWith('Why: ') ||
+              line.startsWith('Approval ID: '),
+          )
+          .join('\n'),
         intent,
         reason,
         allowSession: lines.includes(
@@ -3478,7 +3477,7 @@
             continue;
           }
           if (role === 'assistant') {
-            if (isApprovalHistoryMessage(content)) {
+            if (parseApprovalPrompt(content)) {
               continue;
             }
             addMessage(role, content, undefined, {
@@ -3697,12 +3696,14 @@
         }
         flushAssistantRender();
         const rawAssistantText = payload.result || requestState.assistantText || '';
+        const parsedApprovalPrompt = parseApprovalPrompt(rawAssistantText);
         const pendingApproval =
           extractPendingApprovalFromResult(payload) ||
           requestState.pendingApproval ||
-          parseApprovalPrompt(rawAssistantText);
+          parsedApprovalPrompt;
         const finalAssistantText = pendingApproval
-          ? buildApprovalSummary(pendingApproval)
+          ? parsedApprovalPrompt?.summary ||
+            buildApprovalSummary(pendingApproval)
           : rawAssistantText;
         const shouldRenderAssistant = Boolean(
           requestState.assistantBlock ||

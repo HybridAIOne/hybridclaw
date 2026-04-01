@@ -75,7 +75,10 @@ import {
   setSessionCookie,
   verifyLaunchToken,
 } from './auth-token.js';
-import { extractGatewayChatApprovalEvent } from './chat-approval.js';
+import {
+  extractGatewayChatApprovalEvent,
+  formatGatewayChatApprovalSummary,
+} from './chat-approval.js';
 import {
   filterChatResultForSession,
   hasMessageSendToolExecution,
@@ -1577,6 +1580,7 @@ async function handleApiChatStream(
     sendEvent({
       type: 'approval',
       ...approval,
+      summary: formatGatewayChatApprovalSummary(approval),
     });
   };
 

@@ -589,6 +589,56 @@ describe.sequential('schema migrations', () => {
     ]);
   });
 
+  test('getRecentSessionsForUser keeps user messages that resemble approval text', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('web-session-user-approval-text', null, 'web');
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    insertMessage.run(
+      'web-session-user-approval-text',
+      'web-user-a',
+      'web',
+      'user',
+      [
+        'Approval needed for: access example.com',
+        'Why: this would contact a new external host',
+        'Approval ID: user-note-1',
+      ].join('\n'),
+      '2026-03-24T10:02:00.000Z',
+    );
+
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+    updateSession.run(
+      1,
+      '2026-03-24T10:02:00.000Z',
+      'web-session-user-approval-text',
+    );
+    inspect.close();
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 10,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'web-session-user-approval-text',
+        lastActive: '2026-03-24T10:02:00.000Z',
+        messageCount: 1,
+        title:
+          '"Approval needed for: access example.com Why: this would contact a new external host Approval ID: user-note-1"',
+      },
+    ]);
+  });
+
   test('forkSessionBranch copies the prefix into a new sibling session', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });

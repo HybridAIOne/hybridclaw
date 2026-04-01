@@ -28,12 +28,18 @@ export function extractGatewayChatApprovalEvent(
   if (!approval) return null;
   const approvalId = String(approval.approvalId || '').trim();
   if (!approvalId) return null;
+  const summary = formatGatewayChatApprovalSummary({
+    approvalId,
+    intent: String(approval.intent || '').trim(),
+    reason: String(approval.reason || '').trim(),
+  });
   return {
     type: 'approval',
     approvalId,
     prompt: String(approval.prompt || '').trim(),
     intent: String(approval.intent || '').trim(),
     reason: String(approval.reason || '').trim(),
+    summary,
     allowSession: approval.allowSession === true,
     allowAgent: approval.allowAgent === true,
     expiresAt:

@@ -112,6 +112,7 @@ export type GatewayMediaItem = MediaContextItem;
 
 export interface GatewayChatApprovalEvent extends PendingApproval {
   type: 'approval';
+  summary?: string;
 }
 
 export interface GatewayChatStreamResultEvent {
