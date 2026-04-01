@@ -893,6 +893,8 @@ function isModelAvailableForCurrentGatewayState(
       return providerHealth?.ollama?.reachable === true;
     case 'lmstudio':
       return providerHealth?.lmstudio?.reachable === true;
+    case 'llamacpp':
+      return providerHealth?.llamacpp?.reachable === true;
     case 'vllm':
       return providerHealth?.vllm?.reachable === true;
     default:
@@ -5271,13 +5273,13 @@ export async function handleGatewayCommand(
           if (providerFilterArg && !providerFilter) {
             return badCommand(
               'Unknown Provider',
-              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|vllm]`',
+              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
             );
           }
           if (listModifierArg && !expandedModelList) {
             return badCommand(
               'Usage',
-              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|vllm]`',
+              'Usage: `model list [hybridai|codex|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
             );
           }
           const listedModels =

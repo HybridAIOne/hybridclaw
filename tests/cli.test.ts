@@ -3291,6 +3291,24 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('Configured model: ollama/llama3.2');
   });
 
+  it('routes auth login local without model to backend-only configuration', async () => {
+    const { cli, updateRuntimeConfig } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'auth',
+      'login',
+      'local',
+      'llamacpp',
+      '--base-url',
+      'http://127.0.0.1:8081',
+    ]);
+
+    expect(updateRuntimeConfig).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('Backend: llamacpp');
+    expect(logSpy).toHaveBeenCalledWith('Configured model: none');
+  });
+
   it('routes auth login msteams to the Teams auth flow', async () => {
     const { cli, saveRuntimeSecrets, updateRuntimeConfig } =
       await importFreshCli();
@@ -3775,7 +3793,7 @@ describe('CLI hybridai commands', () => {
 
     expect(updateRuntimeConfig).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
-      'Disabled local backends: ollama, lmstudio, vllm.',
+      'Disabled local backends: ollama, lmstudio, llamacpp, vllm.',
     );
     expect(logSpy).toHaveBeenCalledWith('Default model: hybridai/gpt-4.1-mini');
   });

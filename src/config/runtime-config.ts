@@ -18,6 +18,10 @@ import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
 import {
+  isRuntimeProviderId,
+  type RuntimeProviderId,
+} from '../providers/provider-ids.js';
+import {
   normalizeSessionResetMode,
   type SessionResetMode,
 } from '../session/session-reset.js';
@@ -169,16 +173,7 @@ export type RuntimeAudioTranscriptionModelConfig =
   | RuntimeAudioProviderModelConfig
   | RuntimeAudioCliModelConfig;
 
-export type RuntimeAuxiliaryProviderSelection =
-  | 'auto'
-  | 'hybridai'
-  | 'openai-codex'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'ollama'
-  | 'lmstudio'
-  | 'vllm';
+export type RuntimeAuxiliaryProviderSelection = 'auto' | RuntimeProviderId;
 
 export interface RuntimeAuxiliaryModelPolicyConfig {
   provider: RuntimeAuxiliaryProviderSelection;
@@ -864,6 +859,10 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       lmstudio: {
         enabled: false,
         baseUrl: 'http://127.0.0.1:1234/v1',
+      },
+      llamacpp: {
+        enabled: false,
+        baseUrl: 'http://127.0.0.1:8081/v1',
       },
       vllm: {
         enabled: false,
@@ -2742,17 +2741,7 @@ function normalizeAuxiliaryProviderSelection(
 ): RuntimeAuxiliaryProviderSelection {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (
-    normalized === 'auto' ||
-    normalized === 'hybridai' ||
-    normalized === 'openai-codex' ||
-    normalized === 'openrouter' ||
-    normalized === 'mistral' ||
-    normalized === 'huggingface' ||
-    normalized === 'ollama' ||
-    normalized === 'lmstudio' ||
-    normalized === 'vllm'
-  ) {
+  if (normalized === 'auto' || isRuntimeProviderId(normalized)) {
     return normalized;
   }
   return fallback;
@@ -3037,6 +3026,9 @@ function normalizeRuntimeConfig(
     : {};
   const rawLmStudioBackend = isRecord(rawLocalBackends.lmstudio)
     ? rawLocalBackends.lmstudio
+    : {};
+  const rawLlamacppBackend = isRecord(rawLocalBackends.llamacpp)
+    ? rawLocalBackends.llamacpp
     : {};
   const rawVllmBackend = isRecord(rawLocalBackends.vllm)
     ? rawLocalBackends.vllm
@@ -3463,6 +3455,16 @@ function normalizeRuntimeConfig(
           baseUrl: normalizeBaseUrl(
             rawLmStudioBackend.baseUrl,
             DEFAULT_RUNTIME_CONFIG.local.backends.lmstudio.baseUrl,
+          ),
+        },
+        llamacpp: {
+          enabled: normalizeBoolean(
+            rawLlamacppBackend.enabled,
+            DEFAULT_RUNTIME_CONFIG.local.backends.llamacpp.enabled,
+          ),
+          baseUrl: normalizeBaseUrl(
+            rawLlamacppBackend.baseUrl,
+            DEFAULT_RUNTIME_CONFIG.local.backends.llamacpp.baseUrl,
           ),
         },
         vllm: {

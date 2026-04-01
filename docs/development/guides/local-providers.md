@@ -1,6 +1,6 @@
 ---
 title: Local Providers
-description: Configure HybridClaw for LM Studio, Ollama, or vLLM and run the gateway in host mode.
+description: Configure HybridClaw for LM Studio, llama.cpp, Ollama, or vLLM and run the gateway in host mode.
 sidebar_position: 2
 ---
 
@@ -28,6 +28,7 @@ Inside the TUI:
 
 ```bash
 hybridclaw auth login local ollama llama3.2
+hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
 hybridclaw auth login local vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
 ```
 

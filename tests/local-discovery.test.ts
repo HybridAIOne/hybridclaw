@@ -261,6 +261,48 @@ describe('local discovery', () => {
     ]);
   });
 
+  test('discoverLlamacppModels reads OpenAI-compatible /models output', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = false;
+      config.local.backends.lmstudio.enabled = false;
+      config.local.backends.llamacpp.enabled = true;
+      config.local.backends.vllm.enabled = false;
+      config.local.backends.llamacpp.baseUrl = 'http://127.0.0.1:8081/v1';
+    });
+    const discovery = await importFreshDiscovery(homeDir);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        if (input.endsWith('/v1/models')) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: 'Meta-Llama-3-8B-Instruct',
+                  context_length: 16_384,
+                },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        throw new Error(`Unexpected URL: ${input}`);
+      }),
+    );
+
+    const models = await discovery.discoverAllLocalModels({ force: true });
+
+    expect(models).toEqual([
+      expect.objectContaining({
+        backend: 'llamacpp',
+        id: 'Meta-Llama-3-8B-Instruct',
+        contextWindow: 16_384,
+      }),
+    ]);
+  });
+
   test('discoverVllmModels sends bearer auth only when configured', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {

@@ -175,6 +175,7 @@ type BrowserModelContext = {
     | 'huggingface'
     | 'ollama'
     | 'lmstudio'
+    | 'llamacpp'
     | 'vllm';
   baseUrl: string;
   apiKey: string;
@@ -242,6 +243,7 @@ export function setBrowserModelContext(
     | 'huggingface'
     | 'ollama'
     | 'lmstudio'
+    | 'llamacpp'
     | 'vllm'
     | undefined,
   baseUrl: string,

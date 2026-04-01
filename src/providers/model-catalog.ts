@@ -31,20 +31,13 @@ import {
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
+import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 
-type ModelCatalogProviderFilter =
-  | 'hybridai'
-  | 'openai-codex'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'ollama'
-  | 'lmstudio'
-  | 'vllm'
-  | 'local';
+type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
 
 const OLLAMA_MODEL_PREFIX = 'ollama/';
 const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
+const LLAMACPP_MODEL_PREFIX = 'llamacpp/';
 const VLLM_MODEL_PREFIX = 'vllm/';
 const PREFIX_BY_PROVIDER: Record<
   Extract<
@@ -55,6 +48,7 @@ const PREFIX_BY_PROVIDER: Record<
     | 'huggingface'
     | 'ollama'
     | 'lmstudio'
+    | 'llamacpp'
     | 'vllm'
   >,
   string
@@ -65,6 +59,7 @@ const PREFIX_BY_PROVIDER: Record<
   huggingface: HUGGINGFACE_MODEL_PREFIX,
   ollama: OLLAMA_MODEL_PREFIX,
   lmstudio: LMSTUDIO_MODEL_PREFIX,
+  llamacpp: LLAMACPP_MODEL_PREFIX,
   vllm: VLLM_MODEL_PREFIX,
 };
 
@@ -105,6 +100,7 @@ function isLocalPrefixedModel(model: string): boolean {
   return (
     hasModelPrefix(model, PREFIX_BY_PROVIDER.ollama) ||
     hasModelPrefix(model, PREFIX_BY_PROVIDER.lmstudio) ||
+    hasModelPrefix(model, PREFIX_BY_PROVIDER.llamacpp) ||
     hasModelPrefix(model, PREFIX_BY_PROVIDER.vllm)
   );
 }
@@ -117,17 +113,7 @@ export function normalizeModelCatalogProviderFilter(
     .toLowerCase();
   if (!normalized) return null;
   if (normalized === 'codex') return 'openai-codex';
-  if (
-    normalized === 'hybridai' ||
-    normalized === 'openai-codex' ||
-    normalized === 'openrouter' ||
-    normalized === 'mistral' ||
-    normalized === 'huggingface' ||
-    normalized === 'ollama' ||
-    normalized === 'lmstudio' ||
-    normalized === 'vllm' ||
-    normalized === 'local'
-  ) {
+  if (normalized === 'local' || isRuntimeProviderId(normalized)) {
     return normalized;
   }
   return null;

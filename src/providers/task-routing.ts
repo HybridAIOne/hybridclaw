@@ -16,10 +16,11 @@ import {
   isModelVisionCapable,
 } from './model-catalog.js';
 import { discoverOpenRouterModels } from './openrouter-discovery.js';
+import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 
 export type AuxiliaryTask = TaskModelKey;
 
-type RuntimeProvider = NonNullable<TaskModelPolicy['provider']>;
+type RuntimeProvider = RuntimeProviderId;
 type TaskOverrideSuffix = 'MODEL' | 'PROVIDER';
 type TaskOverrideSnapshot = Partial<
   Record<AuxiliaryTask, Partial<Record<TaskOverrideSuffix, string>>>
@@ -36,6 +37,7 @@ const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
   huggingface: 'huggingface/',
   ollama: 'ollama/',
   lmstudio: 'lmstudio/',
+  llamacpp: 'llamacpp/',
   vllm: 'vllm/',
 };
 
@@ -50,17 +52,7 @@ function normalizeTaskProviderSelection(
   value: string | undefined,
 ): RuntimeAuxiliaryProviderSelection | undefined {
   const normalized = (value ?? '').trim().toLowerCase();
-  if (
-    normalized === 'auto' ||
-    normalized === 'hybridai' ||
-    normalized === 'openai-codex' ||
-    normalized === 'openrouter' ||
-    normalized === 'mistral' ||
-    normalized === 'huggingface' ||
-    normalized === 'ollama' ||
-    normalized === 'lmstudio' ||
-    normalized === 'vllm'
-  ) {
+  if (normalized === 'auto' || isRuntimeProviderId(normalized)) {
     return normalized;
   }
   return undefined;
@@ -130,6 +122,7 @@ export function detectRuntimeProviderPrefix(
   if (normalized.startsWith('huggingface/')) return 'huggingface';
   if (normalized.startsWith('ollama/')) return 'ollama';
   if (normalized.startsWith('lmstudio/')) return 'lmstudio';
+  if (normalized.startsWith('llamacpp/')) return 'llamacpp';
   if (normalized.startsWith('vllm/')) return 'vllm';
   return undefined;
 }

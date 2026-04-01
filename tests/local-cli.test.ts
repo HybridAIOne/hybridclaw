@@ -129,6 +129,55 @@ test('local configure lmstudio enables the backend and normalizes the URL', asyn
   );
 });
 
+test('local configure llamacpp enables the backend and normalizes the URL', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'local',
+    'configure',
+    'llamacpp',
+    'Meta-Llama-3-8B-Instruct',
+    '--base-url',
+    'http://127.0.0.1:8081',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.local.backends.llamacpp.enabled).toBe(true);
+  expect(config.local.backends.llamacpp.baseUrl).toBe(
+    'http://127.0.0.1:8081/v1',
+  );
+  expect(config.hybridai.defaultModel).toBe(
+    'llamacpp/Meta-Llama-3-8B-Instruct',
+  );
+});
+
+test('local configure without model enables the backend and preserves the default model', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await cli.main([
+    'local',
+    'configure',
+    'lmstudio',
+    '--base-url',
+    'http://127.0.0.1:1234',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.local.backends.lmstudio.enabled).toBe(true);
+  expect(config.local.backends.lmstudio.baseUrl).toBe(
+    'http://127.0.0.1:1234/v1',
+  );
+  expect(config.hybridai.defaultModel).toBe('gpt-4.1-mini');
+  expect(logSpy).toHaveBeenCalledWith('Configured model: none');
+  expect(logSpy).toHaveBeenCalledWith(
+    'Default model unchanged: hybridai/gpt-4.1-mini',
+  );
+  expect(logSpy).toHaveBeenCalledWith('  /model list lmstudio');
+});
+
 test('local configure --no-default preserves the existing default model', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);

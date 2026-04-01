@@ -273,16 +273,17 @@ Runtime diagnostics:
 ## Local LLM Providers
 
 HybridClaw can route agent turns to locally running LLM servers instead of
-(or alongside) cloud providers. Three backends are supported:
+(or alongside) cloud providers. Four backends are supported:
 
 - **Ollama** — default base URL `http://127.0.0.1:11434`
 - **LM Studio** — default base URL `http://127.0.0.1:1234/v1`
+- **llama.cpp** — default base URL `http://127.0.0.1:8081/v1`
 - **vLLM** — default base URL `http://127.0.0.1:8000/v1`
 
 Enable and configure a backend with:
 
 ```bash
-hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
 hybridclaw local status
 ```
 

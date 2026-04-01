@@ -313,6 +313,75 @@ test('interactive onboarding does not print the start hint after auth login', as
   expect(output).not.toContain('Start HybridClaw now with `hybridclaw tui`.');
 });
 
+test('interactive onboarding lets users skip remote auth for local models', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  delete process.env.HYBRIDAI_API_KEY;
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+
+  const answers = ['6'];
+  vi.doMock('node:readline/promises', () => ({
+    default: {
+      createInterface: () => ({
+        question: vi.fn(async (prompt: string) => {
+          const answer = answers.shift();
+          if (answer === undefined) {
+            throw new Error(`Unexpected onboarding prompt: ${prompt}`);
+          }
+          return answer;
+        }),
+        close: vi.fn(),
+      }),
+    },
+  }));
+  vi.doMock('../src/security/runtime-secrets.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets.ts')
+    >('../src/security/runtime-secrets.ts');
+    return {
+      ...actual,
+      loadRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.loadRuntimeSecrets(targetHomeDir ?? homeDir, homeDir),
+    };
+  });
+  const fetchSpy = vi.fn();
+  vi.stubGlobal('fetch', fetchSpy);
+  vi.resetModules();
+
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  runtimeConfig.acceptSecurityTrustModel({
+    acceptedAt: '2026-03-10T10:00:00.000Z',
+    acceptedBy: 'test',
+  });
+
+  const lines: string[] = [];
+  vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map((value) => String(value)).join(' '));
+  });
+  const onboarding = await import('../src/onboarding.ts');
+  await onboarding.ensureRuntimeCredentials({
+    commandName: 'hybridclaw onboarding',
+  });
+
+  const output = lines.join('\n');
+  expect(output).toContain('Skip for now (for local models)');
+  expect(output).toContain('Skipping remote provider auth for now.');
+  expect(output).toContain(
+    'hybridclaw auth login local llamacpp --base-url http://127.0.0.1:8081',
+  );
+  expect(fetchSpy).not.toHaveBeenCalled();
+});
+
 test('interactive HybridAI onboarding defaults the saved bot to the account chatbot id', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir);

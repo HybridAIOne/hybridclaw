@@ -132,6 +132,7 @@ const MODEL_PROVIDER_CHOICES = [
   { name: 'local', value: 'local' },
   { name: 'ollama', value: 'ollama' },
   { name: 'lmstudio', value: 'lmstudio' },
+  { name: 'llamacpp', value: 'llamacpp' },
   { name: 'vllm', value: 'vllm' },
 ] satisfies Array<{ name: string; value: string }>;
 

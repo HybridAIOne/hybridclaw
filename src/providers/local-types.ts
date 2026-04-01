@@ -1,4 +1,6 @@
-export type LocalBackendType = 'ollama' | 'lmstudio' | 'vllm';
+import type { LocalBackendType } from './provider-ids.js';
+
+export type { LocalBackendType } from './provider-ids.js';
 export type LocalThinkingFormat = 'qwen';
 
 export interface LocalModelInfo {
@@ -30,6 +32,7 @@ export interface LocalProviderConfig {
   backends: {
     ollama: LocalBackendConfig;
     lmstudio: LocalBackendConfig;
+    llamacpp: LocalBackendConfig;
     vllm: LocalBackendConfig;
   };
   discovery: {
