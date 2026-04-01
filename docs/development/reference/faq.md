@@ -26,6 +26,17 @@ from `HYBRIDCLAW_MASTER_KEY`, `/run/secrets/hybridclaw_master_key`, or a local
 owner-only `credentials.master.key`. A local `.env` is only used for one-time
 compatibility import of supported secrets.
 
+## How do I let the agent call an API without showing it the real key?
+
+Store the key once with `/secret set <NAME> <VALUE>`, then either:
+
+- configure a URL auth rule with `/secret route add <url-prefix> <secret-name> [header] [prefix|none]`
+- reference it explicitly in a prompt with `<secret:NAME>`
+
+HybridClaw routes the actual request through the gateway-side `http_request`
+path, injects the real header at send time, and persists redacted tool-call
+arguments instead of the plaintext token.
+
 ## Is it safe to let the agent run shell commands?
 
 By default, tools run inside ephemeral Docker containers with read-only

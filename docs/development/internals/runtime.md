@@ -77,6 +77,11 @@ Core details:
 - Runtime secrets are encrypted at rest with a separately sourced master key:
   `HYBRIDCLAW_MASTER_KEY`, `/run/secrets/hybridclaw_master_key`, or the local
   owner-only `~/.hybridclaw/credentials.master.key` fallback.
+- The encrypted secret store accepts both built-in runtime secret keys and
+  named secrets created through `/secret set <NAME> <VALUE>`.
+- Selected runtime config fields can use SecretRefs (`store` or `env`) instead
+  of plaintext values, and `tools.httpRequest.authRules[]` binds URL prefixes
+  to gateway-injected secret headers for the `http_request` tool.
 - Some settings still require restart, such as bind host and port.
 - Default HybridAI chatbot is configured via `hybridai.defaultChatbotId`.
 - Agents are configured under `agents.defaults` and `agents.list`. Sessions bind
@@ -94,6 +99,9 @@ Core details:
   `~/.hybridclaw/config.json` exactly as configured today. Treat them as
   plaintext secrets and lock the runtime directory down with
   `chmod 700 ~/.hybridclaw && chmod 600 ~/.hybridclaw/config.json`.
+- `http_request` tool-call logs are redacted before persistence so placeholder
+  or secret-backed headers do not store plaintext credentials in the audit
+  trail.
 - `mcpServers.*` are forwarded into each session runtime and hot-diffed there.
   Stdio servers resolve inside the active sandbox, so host-installed helpers
   like `docker`, `node`, or `npx` require `container.sandboxMode=host` (or a

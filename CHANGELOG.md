@@ -10,6 +10,16 @@
   `HYBRIDCLAW_MASTER_KEY`, `/run/secrets/hybridclaw_master_key`, or a local
   owner-only `credentials.master.key`, and automatic migration from legacy
   plaintext secret files.
+- **SecretRefs and named secrets**: Selected runtime config fields can now
+  resolve secret-bearing values from `env` or encrypted `store` references,
+  local TUI and web sessions expose `/secret list|set|unset|show|route ...`,
+  and generic named secrets can be stored without adding new top-level env
+  variables.
+- **Secret-backed HTTP requests**: Added the `http_request` tool plus
+  gateway-side auth injection for direct API calls. Requests can use
+  `bearerSecretName`, `secretHeaders`, strict `<secret:NAME>` placeholders, or
+  URL-based auth rules so models can call authenticated APIs without seeing the
+  plaintext credential.
 
 ### Changed
 
@@ -17,10 +27,14 @@
   overrides and otherwise resolve secrets from the encrypted store on demand
   instead of broadly mirroring decrypted values into ambient `process.env` at
   startup.
+- **Secret persistence boundaries**: Reserved non-secret runtime config names
+  such as `CONTAINER_IMAGE`, `CONTAINER_MEMORY`, `DISCORD_PREFIX`, `DB_PATH`,
+  and related operational settings are now excluded from encrypted secret
+  migration and rejected by the local `/secret` command surface.
 - **Security documentation and comparison copy**: Updated the README, public
   docs, comparison tables, and runtime/internal docs to reflect encrypted
-  secret storage, master-key separation, trust-first onboarding, and current
-  runtime security principles.
+  secret storage, master-key separation, SecretRef-backed API auth injection,
+  trust-first onboarding, and current runtime security principles.
 
 ## [0.9.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.8)
 

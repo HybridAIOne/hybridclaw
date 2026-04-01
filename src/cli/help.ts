@@ -56,6 +56,7 @@ Interactive slash commands inside TUI:
   /show [all|thinking|tools|none]
   /agent [list|switch|create|model]   /bot [info|list|set <id|name>|clear]
   /model [name]   /model info|list [provider]|set <name>|clear|default [name]
+  /secret list   /secret set <name> <value>   /secret route add <url-prefix> <secret-name>
   /config   /config check   /config reload   /config set <key> <value>   /config revisions
   /channel-mode <off|mention|free>   /channel-policy <open|allowlist|disabled>
   /rag [on|off]   /ralph [info|on|off|set n]   /mcp list

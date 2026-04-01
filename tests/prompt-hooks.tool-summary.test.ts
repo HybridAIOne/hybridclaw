@@ -21,7 +21,7 @@ test('buildToolsSummary groups the full tool catalog', () => {
     '**Browser**: `browser_navigate`, `browser_snapshot`, `browser_click`',
   );
   expect(summary).toContain(
-    '**Web**: `web_search`, `web_fetch`, `web_extract`',
+    '**Web**: `web_search`, `web_fetch`, `web_extract`, `http_request`',
   );
   expect(summary).toContain('**Communication**: `message`');
   expect(summary).toContain('**Delegation**: `delegate`');
@@ -183,6 +183,12 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   );
   expect(prompt).toContain(
     'Action: use that attachment content directly; do not call `message` `read`, `glob`, `find`, or read `skills/pdf/SKILL.md` first.',
+  );
+  expect(prompt).toContain(
+    'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
+  );
+  expect(prompt).toContain(
+    'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. Never emit the real token in prose or tool arguments.',
   );
   expect(prompt).toContain(
     'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/development/...` page before answering. Do not answer from memory if no fetch was attempted.',

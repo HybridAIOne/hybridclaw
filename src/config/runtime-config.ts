@@ -18,6 +18,12 @@ import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
 import {
+  isSecretRefInput,
+  parseSecretInput,
+  resolveSecretInput,
+  type SecretInput,
+} from '../security/secret-refs.js';
+import {
   normalizeSessionResetMode,
   type SessionResetMode,
 } from '../session/session-reset.js';
@@ -383,6 +389,17 @@ export interface RuntimePluginsConfig {
   list: RuntimePluginConfigEntry[];
 }
 
+export interface RuntimeHttpRequestAuthRule {
+  urlPrefix: string;
+  header: string;
+  prefix: string;
+  secret: SecretInput;
+}
+
+export interface RuntimeHttpRequestToolConfig {
+  authRules: RuntimeHttpRequestAuthRule[];
+}
+
 export interface RuntimeConfig {
   version: number;
   security: RuntimeSecurityConfig;
@@ -394,6 +411,7 @@ export interface RuntimeConfig {
   };
   tools: {
     disabled: string[];
+    httpRequest: RuntimeHttpRequestToolConfig;
   };
   plugins: RuntimePluginsConfig;
   adaptiveSkills: AdaptiveSkillsConfig;
@@ -619,12 +637,18 @@ export interface RuntimeSkillScopeConfigView {
 export interface RuntimeToolScopeConfigDraft {
   tools: {
     disabled: string[];
+    httpRequest?: {
+      authRules?: RuntimeHttpRequestAuthRule[];
+    };
   };
 }
 
 export interface RuntimeToolScopeConfigView {
   tools?: {
     disabled?: string[];
+    httpRequest?: {
+      authRules?: RuntimeHttpRequestAuthRule[];
+    };
   };
 }
 
@@ -672,6 +696,9 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   tools: {
     disabled: [],
+    httpRequest: {
+      authRules: [],
+    },
   },
   plugins: {
     list: [],
@@ -1061,8 +1088,16 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
 };
 
 const CONFIG_PATH = path.join(DEFAULT_RUNTIME_HOME_DIR, CONFIG_FILE_NAME);
+const SECRET_INPUT_PATHS = [
+  'ops.webApiToken',
+  'ops.gatewayApiToken',
+  'imessage.password',
+  'local.backends.vllm.apiKey',
+] as const;
+type RuntimeConfigSecretInputPath = (typeof SECRET_INPUT_PATHS)[number];
 
 let currentConfig: RuntimeConfig = cloneConfig(DEFAULT_RUNTIME_CONFIG);
+let currentConfigSource: Record<string, unknown> = {};
 let currentConfigMetadata = {
   containerSandboxModeExplicit: false,
 };
@@ -1824,6 +1859,9 @@ function normalizeWhatsAppConfig(
 function normalizeIMessageConfig(
   value: unknown,
   fallback: RuntimeIMessageConfig,
+  opts?: {
+    password?: unknown;
+  },
 ): RuntimeIMessageConfig {
   const raw = isRecord(value) ? value : {};
   return {
@@ -1844,9 +1882,13 @@ function normalizeIMessageConfig(
       },
     ),
     serverUrl: normalizeBaseUrl(raw.serverUrl, fallback.serverUrl),
-    password: normalizeString(raw.password, fallback.password, {
-      allowEmpty: true,
-    }),
+    password: normalizeString(
+      opts?.password ?? raw.password,
+      fallback.password,
+      {
+        allowEmpty: true,
+      },
+    ),
     webhookPath: normalizeString(raw.webhookPath, fallback.webhookPath, {
       allowEmpty: false,
     }),
@@ -2676,6 +2718,167 @@ function hasOwn(value: object, key: string): boolean {
   return Object.hasOwn(value, key);
 }
 
+function getSecretInputFromSource(
+  source: Record<string, unknown>,
+  secretPath: RuntimeConfigSecretInputPath,
+): unknown {
+  if (secretPath === 'ops.webApiToken') {
+    const ops = isRecord(source.ops) ? source.ops : null;
+    return ops && hasOwn(ops, 'webApiToken') ? ops.webApiToken : undefined;
+  }
+  if (secretPath === 'ops.gatewayApiToken') {
+    const ops = isRecord(source.ops) ? source.ops : null;
+    return ops && hasOwn(ops, 'gatewayApiToken')
+      ? ops.gatewayApiToken
+      : undefined;
+  }
+  if (secretPath === 'imessage.password') {
+    const imessage = isRecord(source.imessage) ? source.imessage : null;
+    return imessage && hasOwn(imessage, 'password')
+      ? imessage.password
+      : undefined;
+  }
+
+  const local = isRecord(source.local) ? source.local : null;
+  const backends = local && isRecord(local.backends) ? local.backends : null;
+  const vllm = backends && isRecord(backends.vllm) ? backends.vllm : null;
+  return vllm && hasOwn(vllm, 'apiKey') ? vllm.apiKey : undefined;
+}
+
+function setSecretInputOnSource(
+  source: Record<string, unknown>,
+  secretPath: RuntimeConfigSecretInputPath,
+  value: SecretInput | '',
+): void {
+  if (
+    secretPath === 'ops.webApiToken' ||
+    secretPath === 'ops.gatewayApiToken'
+  ) {
+    const ops = isRecord(source.ops) ? source.ops : {};
+    source.ops = ops;
+    ops[secretPath === 'ops.webApiToken' ? 'webApiToken' : 'gatewayApiToken'] =
+      value;
+    return;
+  }
+  if (secretPath === 'imessage.password') {
+    const imessage = isRecord(source.imessage) ? source.imessage : {};
+    source.imessage = imessage;
+    imessage.password = value;
+    return;
+  }
+
+  const local = isRecord(source.local) ? source.local : {};
+  source.local = local;
+  const backends = isRecord(local.backends) ? local.backends : {};
+  local.backends = backends;
+  const vllm = isRecord(backends.vllm) ? backends.vllm : {};
+  backends.vllm = vllm;
+  vllm.apiKey = value;
+}
+
+function getResolvedSecretValue(
+  config: RuntimeConfig,
+  secretPath: RuntimeConfigSecretInputPath,
+): string {
+  if (secretPath === 'ops.webApiToken') return config.ops.webApiToken;
+  if (secretPath === 'ops.gatewayApiToken') return config.ops.gatewayApiToken;
+  if (secretPath === 'imessage.password') return config.imessage.password;
+  return config.local.backends.vllm.apiKey || '';
+}
+
+function preserveSecretInputs(
+  serializable: Record<string, unknown>,
+  config: RuntimeConfig,
+  source: Record<string, unknown>,
+  comparisonConfig?: RuntimeConfig | null,
+): void {
+  for (const secretPath of SECRET_INPUT_PATHS) {
+    const sourceValue = getSecretInputFromSource(source, secretPath);
+    if (!isSecretRefInput(sourceValue)) continue;
+    if (
+      comparisonConfig &&
+      getResolvedSecretValue(config, secretPath) !==
+        getResolvedSecretValue(comparisonConfig, secretPath)
+    ) {
+      continue;
+    }
+    setSecretInputOnSource(serializable, secretPath, cloneConfig(sourceValue));
+  }
+}
+
+function resolveConfiguredSecretInput(
+  value: unknown,
+  opts: {
+    path: RuntimeConfigSecretInputPath;
+    required?: boolean;
+  },
+): unknown {
+  return resolveSecretInput(value, {
+    path: opts.path,
+    required: opts.required,
+  });
+}
+
+function normalizeHttpHeaderName(
+  value: unknown,
+  fallback: string,
+  opts?: { allowEmpty?: boolean },
+): string {
+  const normalized = normalizeString(value, fallback, {
+    allowEmpty: opts?.allowEmpty ?? false,
+  });
+  if (!normalized) return normalized;
+  if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(normalized)) {
+    throw new Error(`Invalid HTTP header name: ${normalized}`);
+  }
+  return normalized;
+}
+
+function normalizeHttpRequestAuthRuleSecret(
+  value: unknown,
+  path: string,
+): SecretInput {
+  const parsed = parseSecretInput(value);
+  if (parsed.kind === 'invalid') {
+    throw new Error(`${path} ${parsed.reason}`);
+  }
+  if (parsed.kind === 'plain') {
+    throw new Error(
+      `${path} must use an env/store secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`\${ENV_VAR}\``,
+    );
+  }
+  return cloneConfig(parsed.ref);
+}
+
+function normalizeHttpRequestAuthRules(
+  value: unknown,
+  fallback: RuntimeHttpRequestAuthRule[],
+): RuntimeHttpRequestAuthRule[] {
+  if (!Array.isArray(value)) {
+    return cloneConfig(fallback);
+  }
+
+  const rules: RuntimeHttpRequestAuthRule[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const entry = value[index];
+    if (!isRecord(entry)) continue;
+    const urlPrefix = normalizeString(entry.urlPrefix, '', {
+      allowEmpty: false,
+    });
+    if (!urlPrefix) continue;
+    rules.push({
+      urlPrefix,
+      header: normalizeHttpHeaderName(entry.header, 'Authorization'),
+      prefix: normalizeString(entry.prefix, 'Bearer', { allowEmpty: true }),
+      secret: normalizeHttpRequestAuthRuleSecret(
+        entry.secret,
+        `tools.httpRequest.authRules[${index}].secret`,
+      ),
+    });
+  }
+  return rules;
+}
+
 function normalizeContainerSandboxMode(
   value: unknown,
   fallback: ContainerSandboxMode,
@@ -3091,13 +3294,53 @@ function normalizeRuntimeConfig(
   const rawScheduler = isRecord(raw.scheduler) ? raw.scheduler : {};
 
   const defaultOps = DEFAULT_RUNTIME_CONFIG.ops;
+  const imessageEnabled = normalizeBoolean(
+    rawIMessage.enabled,
+    DEFAULT_RUNTIME_CONFIG.imessage.enabled,
+  );
+  const imessageBackend = normalizeIMessageBackend(
+    rawIMessage.backend,
+    DEFAULT_RUNTIME_CONFIG.imessage.backend,
+  );
+  const vllmEnabled = normalizeBoolean(
+    rawVllmBackend.enabled,
+    DEFAULT_RUNTIME_CONFIG.local.backends.vllm.enabled,
+  );
+  const resolvedWebApiToken = resolveConfiguredSecretInput(rawOps.webApiToken, {
+    path: 'ops.webApiToken',
+    required: isSecretRefInput(rawOps.webApiToken),
+  });
+  const resolvedGatewayApiToken = resolveConfiguredSecretInput(
+    rawOps.gatewayApiToken,
+    {
+      path: 'ops.gatewayApiToken',
+      required: isSecretRefInput(rawOps.gatewayApiToken),
+    },
+  );
+  const resolvedIMessagePassword = resolveConfiguredSecretInput(
+    rawIMessage.password,
+    {
+      path: 'imessage.password',
+      required:
+        isSecretRefInput(rawIMessage.password) &&
+        imessageEnabled &&
+        imessageBackend === 'bluebubbles',
+    },
+  );
+  const resolvedVllmApiKey = resolveConfiguredSecretInput(
+    rawVllmBackend.apiKey,
+    {
+      path: 'local.backends.vllm.apiKey',
+      required: isSecretRefInput(rawVllmBackend.apiKey) && vllmEnabled,
+    },
+  );
   const healthPort = normalizeInteger(
     rawOps.healthPort,
     defaultOps.healthPort,
     { min: 1, max: 65_535 },
   );
   const webApiToken = normalizeString(
-    rawOps.webApiToken,
+    resolvedWebApiToken,
     defaultOps.webApiToken,
     { allowEmpty: true },
   );
@@ -3211,6 +3454,14 @@ function normalizeRuntimeConfig(
         raw.tools && isRecord(raw.tools) ? raw.tools.disabled : undefined,
         DEFAULT_RUNTIME_CONFIG.tools.disabled,
       ),
+      httpRequest: {
+        authRules: normalizeHttpRequestAuthRules(
+          raw.tools && isRecord(raw.tools) && isRecord(raw.tools.httpRequest)
+            ? raw.tools.httpRequest.authRules
+            : undefined,
+          DEFAULT_RUNTIME_CONFIG.tools.httpRequest.authRules,
+        ),
+      },
     },
     plugins: normalizeRuntimePluginsConfig(
       rawPlugins,
@@ -3382,6 +3633,9 @@ function normalizeRuntimeConfig(
     imessage: normalizeIMessageConfig(
       rawIMessage,
       DEFAULT_RUNTIME_CONFIG.imessage,
+      {
+        password: resolvedIMessagePassword,
+      },
     ),
     email: normalizeEmailConfig(rawEmail, DEFAULT_RUNTIME_CONFIG.email),
     hybridai: {
@@ -3466,16 +3720,13 @@ function normalizeRuntimeConfig(
           ),
         },
         vllm: {
-          enabled: normalizeBoolean(
-            rawVllmBackend.enabled,
-            DEFAULT_RUNTIME_CONFIG.local.backends.vllm.enabled,
-          ),
+          enabled: vllmEnabled,
           baseUrl: normalizeBaseUrl(
             rawVllmBackend.baseUrl,
             DEFAULT_RUNTIME_CONFIG.local.backends.vllm.baseUrl,
           ),
           apiKey: normalizeString(
-            rawVllmBackend.apiKey,
+            resolvedVllmApiKey,
             DEFAULT_RUNTIME_CONFIG.local.backends.vllm.apiKey || '',
             { allowEmpty: true },
           ),
@@ -3775,7 +4026,7 @@ function normalizeRuntimeConfig(
         rawOps.gatewayBaseUrl,
         `http://127.0.0.1:${healthPort}`,
       ),
-      gatewayApiToken: normalizeString(rawOps.gatewayApiToken, webApiToken, {
+      gatewayApiToken: normalizeString(resolvedGatewayApiToken, webApiToken, {
         allowEmpty: true,
       }),
       dbPath: normalizedDbPath,
@@ -3999,6 +4250,7 @@ function normalizeRuntimeConfig(
 function loadConfigPatchFromDisk(): {
   observedFile: RuntimeConfigObservedFile;
   patch: DeepPartial<RuntimeConfig>;
+  source: Record<string, unknown>;
 } {
   if (!fs.existsSync(CONFIG_PATH)) {
     return {
@@ -4007,6 +4259,7 @@ function loadConfigPatchFromDisk(): {
         content: null,
       },
       patch: {},
+      source: {},
     };
   }
 
@@ -4018,28 +4271,36 @@ function loadConfigPatchFromDisk(): {
       content: raw,
     },
     patch: parseConfigPatch(parsed),
+    source: isRecord(parsed) ? (parsed as Record<string, unknown>) : {},
   };
 }
 
 function buildSerializableConfig(
   config: RuntimeConfig,
   opts?: { omitImplicitSandboxMode?: boolean },
-): RuntimeConfig & {
-  container: RuntimeConfig['container'] & {
-    sandboxMode?: ContainerSandboxMode;
-  };
-} {
-  const serializable = cloneConfig(config) as RuntimeConfig & {
-    container: RuntimeConfig['container'] & {
-      sandboxMode?: ContainerSandboxMode;
-    };
-  };
+  sourceConfig?: Record<string, unknown>,
+  comparisonConfig?: RuntimeConfig | null,
+): Record<string, unknown> {
+  const serializable = cloneConfig(config) as unknown as Record<
+    string,
+    unknown
+  >;
+  preserveSecretInputs(
+    serializable,
+    config,
+    sourceConfig ?? {},
+    comparisonConfig,
+  );
+  const serializableContainer = isRecord(serializable.container)
+    ? serializable.container
+    : null;
   if (
+    serializableContainer &&
     opts?.omitImplicitSandboxMode &&
-    serializable.container.sandboxMode ===
+    serializableContainer.sandboxMode ===
       DEFAULT_RUNTIME_CONFIG.container.sandboxMode
   ) {
-    delete (serializable.container as { sandboxMode?: ContainerSandboxMode })
+    delete (serializableContainer as { sandboxMode?: ContainerSandboxMode })
       .sandboxMode;
   }
 
@@ -4049,19 +4310,28 @@ function buildSerializableConfig(
 function serializeConfigFile(
   config: RuntimeConfig,
   opts?: { omitImplicitSandboxMode?: boolean },
+  sourceConfig?: Record<string, unknown>,
+  comparisonConfig?: RuntimeConfig | null,
 ): string {
-  return `${JSON.stringify(buildSerializableConfig(config, opts), null, 2)}\n`;
+  return `${JSON.stringify(buildSerializableConfig(config, opts, sourceConfig, comparisonConfig), null, 2)}\n`;
 }
 
 function writeConfigFile(
   config: RuntimeConfig,
   opts?: { omitImplicitSandboxMode?: boolean },
   meta?: RuntimeConfigChangeMeta,
+  sourceConfig?: Record<string, unknown>,
+  comparisonConfig?: RuntimeConfig | null,
 ): boolean {
   const dir = path.dirname(CONFIG_PATH);
   fs.mkdirSync(dir, { recursive: true });
 
-  const nextText = serializeConfigFile(config, opts);
+  const nextText = serializeConfigFile(
+    config,
+    opts,
+    sourceConfig,
+    comparisonConfig,
+  );
   if (fs.existsSync(CONFIG_PATH)) {
     try {
       const currentText = fs.readFileSync(CONFIG_PATH, 'utf-8');
@@ -4100,9 +4370,14 @@ function applyConfig(next: RuntimeConfig): void {
 function loadRuntimeConfigFromSources(
   syncMeta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
-  const { observedFile, patch: diskPatch } = loadConfigPatchFromDisk();
+  const {
+    observedFile,
+    patch: diskPatch,
+    source: diskSource,
+  } = loadConfigPatchFromDisk();
   syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta, observedFile);
   const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
+  currentConfigSource = cloneConfig(diskSource);
   currentConfigMetadata = {
     containerSandboxModeExplicit: hasOwn(rawContainer, 'sandboxMode'),
   };
@@ -4289,6 +4564,8 @@ function migrateConfigSchemaOnStartup(): void {
         route: 'runtime-config.migrate-schema',
         source: 'system',
       },
+      parsedRecord,
+      null,
     );
     if (!changed) return;
     const from = previousVersion == null ? 'unknown' : String(previousVersion);
@@ -4396,13 +4673,59 @@ export function saveRuntimeConfig(
   currentConfigMetadata = {
     containerSandboxModeExplicit: sandboxModeExplicit,
   };
+  const nextSource = buildSerializableConfig(
+    normalized,
+    {
+      omitImplicitSandboxMode: !sandboxModeExplicit,
+    },
+    currentConfigSource,
+    currentConfig,
+  );
   writeConfigFile(
     normalized,
     {
       omitImplicitSandboxMode: !sandboxModeExplicit,
     },
     meta,
+    currentConfigSource,
+    currentConfig,
   );
+  currentConfigSource = cloneConfig(nextSource);
+  applyConfig(normalized);
+  return cloneConfig(normalized);
+}
+
+function saveRuntimeConfigSource(
+  source: Record<string, unknown>,
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const normalized = normalizeRuntimeConfig(parseConfigPatch(source));
+  const rawContainer = isRecord(source.container) ? source.container : {};
+  const sandboxModeExplicit =
+    hasOwn(rawContainer, 'sandboxMode') ||
+    normalized.container.sandboxMode !==
+      DEFAULT_RUNTIME_CONFIG.container.sandboxMode;
+  currentConfigMetadata = {
+    containerSandboxModeExplicit: sandboxModeExplicit,
+  };
+  const nextSource = buildSerializableConfig(
+    normalized,
+    {
+      omitImplicitSandboxMode: !sandboxModeExplicit,
+    },
+    source,
+    null,
+  );
+  writeConfigFile(
+    normalized,
+    {
+      omitImplicitSandboxMode: !sandboxModeExplicit,
+    },
+    meta,
+    source,
+    null,
+  );
+  currentConfigSource = cloneConfig(nextSource);
   applyConfig(normalized);
   return cloneConfig(normalized);
 }
@@ -4425,6 +4748,29 @@ export function updateRuntimeConfig(
   const draft = cloneConfig(baseConfig);
   mutator(draft);
   return saveRuntimeConfig(draft, meta);
+}
+
+export function setRuntimeConfigSecretInput(
+  secretPath: RuntimeConfigSecretInputPath,
+  value: SecretInput | '',
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  let baseSource = currentConfigSource;
+  try {
+    loadRuntimeConfigFromSources({
+      route: 'runtime-config.refresh-before-secret-save',
+      source: 'external',
+    });
+    baseSource = currentConfigSource;
+  } catch (err) {
+    console.warn(
+      `[runtime-config] secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const draftSource = cloneConfig(baseSource);
+  setSecretInputOnSource(draftSource, secretPath, value);
+  return saveRuntimeConfigSource(draftSource, meta);
 }
 
 export function listRuntimeConfigRevisions(): RuntimeConfigRevisionSummary[] {

@@ -1059,7 +1059,7 @@
         <tr>
           <td>Security &amp; Trust</td>
           <td>
-            <span class="compare-text">Trust-first policy posture + encrypted runtime secrets</span>
+            <span class="compare-text">Trust-first policy posture + encrypted runtime secrets + gateway-side auth injection</span>
           </td>
           <td>
             <span class="compare-text">Solid baseline controls</span>
@@ -1074,7 +1074,7 @@
         <tr>
           <td>Secret Storage</td>
           <td>
-            <span class="compare-text">Encrypted-at-rest blob store with separate master key</span>
+            <span class="compare-text">Encrypted-at-rest named secret store with separate master key</span>
           </td>
           <td>
             <span class="compare-text">Project-dependent</span>
@@ -1089,7 +1089,7 @@
         <tr>
           <td>Runtime Control</td>
           <td>
-            <span class="compare-text">Live config updates</span>
+            <span class="compare-text">Live config updates + SecretRefs + URL auth routes</span>
           </td>
           <td>
             <span class="compare-text">Setup-dependent tuning</span>
@@ -1398,7 +1398,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Configuration</h3>
-      <p>Typed <code>config.json</code> with defaults, validation, hot reload, and isolation controls. Runtime secrets live in an encrypted <code>~/.hybridclaw/credentials.json</code> store with a separate master-key source.</p>
+      <p>Typed <code>config.json</code> with defaults, validation, hot reload, SecretRef-backed credential surfaces, and isolation controls. Runtime secrets live in an encrypted <code>~/.hybridclaw/credentials.json</code> store with a separate master-key source.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Memory Continuity</h3>
@@ -1710,6 +1710,10 @@ function switchQsTab(tab) {
     <div class="faq-item">
       <div class="faq-q">Do I still configure everything through .env?</div>
       <div class="faq-a">No. Runtime behavior lives in typed <code>config.json</code> and runtime secrets live in an encrypted <code>~/.hybridclaw/credentials.json</code> store. HybridClaw reads the master key from <code>HYBRIDCLAW_MASTER_KEY</code>, <code>/run/secrets/hybridclaw_master_key</code>, or a local owner-only <code>credentials.master.key</code>. If <code>.env</code> exists in the current working directory, supported secrets are imported once for compatibility. If you need the whole runtime state elsewhere, set <code>HYBRIDCLAW_DATA_DIR</code> to an absolute path.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Can HybridClaw call an API without exposing the real key to the model?</div>
+      <div class="faq-a">Yes. Store the key with <code>/secret set &lt;NAME&gt; &lt;VALUE&gt;</code>, then either reference it in a prompt with <code>&lt;secret:NAME&gt;</code> or bind it to a URL prefix with <code>/secret route add</code>. HybridClaw injects the real header in the gateway-side <code>http_request</code> path and persists redacted tool-call arguments instead of the plaintext secret.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">Is it safe to let the agent run shell commands?</div>

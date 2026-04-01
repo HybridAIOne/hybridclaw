@@ -28,6 +28,7 @@ const SECRET_KEYS = [
   'DEEPGRAM_API_KEY',
   'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
+  'VLLM_API_KEY',
   'DISCORD_TOKEN',
   'EMAIL_PASSWORD',
   'IMESSAGE_PASSWORD',
@@ -36,8 +37,53 @@ const SECRET_KEYS = [
   'GATEWAY_API_TOKEN',
 ] as const;
 
+const NON_SECRET_RUNTIME_CONFIG_KEYS = [
+  'HYBRIDAI_BASE_URL',
+  'HYBRIDAI_MODEL',
+  'HYBRIDAI_CHATBOT_ID',
+  'CONTAINER_IMAGE',
+  'CONTAINER_MEMORY',
+  'CONTAINER_CPUS',
+  'CONTAINER_TIMEOUT',
+  'DISCORD_PREFIX',
+  'HEALTH_PORT',
+  'LOG_LEVEL',
+  'DB_PATH',
+] as const;
+
 export type RuntimeSecretKey = (typeof SECRET_KEYS)[number];
-type RuntimeSecrets = Partial<Record<RuntimeSecretKey, string>>;
+export type RuntimeSecretName = string;
+type RuntimeSecrets = Record<string, string>;
+const RUNTIME_SECRET_NAME_RE = /^[A-Z][A-Z0-9_]{0,127}$/;
+
+export function isRuntimeSecretKey(value: string): value is RuntimeSecretKey {
+  return SECRET_KEYS.includes(value as RuntimeSecretKey);
+}
+
+export function isRuntimeSecretName(value: string): value is RuntimeSecretName {
+  return RUNTIME_SECRET_NAME_RE.test(String(value || '').trim());
+}
+
+export function isReservedNonSecretRuntimeName(value: string): boolean {
+  return NON_SECRET_RUNTIME_CONFIG_KEYS.includes(
+    String(value || '').trim() as (typeof NON_SECRET_RUNTIME_CONFIG_KEYS)[number],
+  );
+}
+
+function isPersistableRuntimeSecretName(value: string): value is RuntimeSecretName {
+  return isRuntimeSecretName(value) && !isReservedNonSecretRuntimeName(value);
+}
+
+function sanitizeRuntimeSecrets(record: Record<string, unknown>): RuntimeSecrets {
+  const secrets: RuntimeSecrets = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (!isPersistableRuntimeSecretName(key)) continue;
+    if (typeof value !== 'string') continue;
+    const normalized = value.trim();
+    if (normalized) secrets[key] = normalized;
+  }
+  return secrets;
+}
 
 interface EncryptedSecretEntry {
   alg: typeof SECRET_STORE_ALGORITHM;
@@ -47,7 +93,7 @@ interface EncryptedSecretEntry {
 
 interface EncryptedSecretStore {
   version: typeof SECRET_STORE_VERSION;
-  entries: Partial<Record<RuntimeSecretKey, EncryptedSecretEntry>>;
+  entries: Record<string, EncryptedSecretEntry>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -68,9 +114,8 @@ function isEncryptedSecretStore(value: unknown): value is EncryptedSecretStore {
   if (value.version !== SECRET_STORE_VERSION) return false;
   if (!isRecord(value.entries)) return false;
 
-  for (const secretKey of SECRET_KEYS) {
-    const entry = value.entries[secretKey];
-    if (entry == null) continue;
+  for (const [secretKey, entry] of Object.entries(value.entries)) {
+    if (!isRuntimeSecretName(secretKey)) return false;
     if (!isEncryptedSecretEntry(entry)) return false;
   }
 
@@ -91,14 +136,7 @@ function ensureRuntimeHomeDir(): void {
 }
 
 function normalizeSecretMap(record: Record<string, unknown>): RuntimeSecrets {
-  const secrets: RuntimeSecrets = {};
-  for (const key of SECRET_KEYS) {
-    const value = record[key];
-    if (typeof value !== 'string') continue;
-    const normalized = value.trim();
-    if (normalized) secrets[key] = normalized;
-  }
-  return secrets;
+  return sanitizeRuntimeSecrets(record);
 }
 
 function runtimeMasterKeyPath(): string {
@@ -180,7 +218,7 @@ function resolveMasterKey(options?: { allowCreateLocalFallback?: boolean }): {
 
 function encryptSecretValue(
   key: Buffer,
-  secretKey: RuntimeSecretKey,
+  secretKey: string,
   value: string,
 ): EncryptedSecretEntry {
   const nonce = randomBytes(SECRET_STORE_NONCE_BYTES);
@@ -200,7 +238,7 @@ function encryptSecretValue(
 
 function decryptSecretValue(
   key: Buffer,
-  secretKey: RuntimeSecretKey,
+  secretKey: string,
   entry: EncryptedSecretEntry,
 ): string {
   const nonce = Buffer.from(entry.nonce, 'base64');
@@ -233,11 +271,11 @@ class SecretStore {
       if (isEncryptedSecretStore(parsed)) {
         const { key } = resolveMasterKey();
         const secrets: RuntimeSecrets = {};
-        for (const secretKey of SECRET_KEYS) {
-          const entry = parsed.entries[secretKey];
+        for (const [secretKey, entry] of Object.entries(parsed.entries)) {
           if (!entry) continue;
           const decrypted = decryptSecretValue(key, secretKey, entry).trim();
-          if (decrypted) secrets[secretKey] = decrypted;
+          if (!decrypted) continue;
+          secrets[secretKey] = decrypted;
         }
         return secrets;
       }
@@ -265,18 +303,17 @@ class SecretStore {
   }
 
   writeAll(secrets: RuntimeSecrets): void {
+    const sanitizedSecrets = sanitizeRuntimeSecrets(secrets);
     ensureRuntimeHomeDir();
 
-    if (Object.keys(secrets).length === 0) {
+    if (Object.keys(sanitizedSecrets).length === 0) {
       fs.rmSync(this.filePath, { force: true });
       return;
     }
 
     const { key } = resolveMasterKey({ allowCreateLocalFallback: true });
     const entries: EncryptedSecretStore['entries'] = {};
-    for (const secretKey of SECRET_KEYS) {
-      const value = secrets[secretKey];
-      if (!value) continue;
+    for (const [secretKey, value] of Object.entries(sanitizedSecrets)) {
       entries[secretKey] = encryptSecretValue(key, secretKey, value);
     }
 
@@ -303,8 +340,8 @@ function parseEnvStyleSecrets(content: string): RuntimeSecrets {
     const eqIdx = trimmed.indexOf('=');
     if (eqIdx === -1) continue;
 
-    const key = trimmed.slice(0, eqIdx).trim() as RuntimeSecretKey;
-    if (!SECRET_KEYS.includes(key)) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    if (!isPersistableRuntimeSecretName(key)) continue;
 
     let value = trimmed.slice(eqIdx + 1).trim();
     if (!value) continue;
@@ -342,11 +379,19 @@ export function runtimeSecretsPath(): string {
 }
 
 export function readStoredRuntimeSecret(
-  secretKey: RuntimeSecretKey,
+  secretKey: RuntimeSecretName,
 ): string | null {
+  if (!isRuntimeSecretName(secretKey)) return null;
   const store = new SecretStore();
   const value = store.readAll()[secretKey];
   return value?.trim() || null;
+}
+
+export function listStoredRuntimeSecretNames(): string[] {
+  const store = new SecretStore();
+  return Object.keys(store.readAll()).sort((left, right) =>
+    left.localeCompare(right),
+  );
 }
 
 export function loadRuntimeSecrets(cwd: string = process.cwd()): void {
@@ -376,13 +421,27 @@ export function loadRuntimeSecrets(cwd: string = process.cwd()): void {
 export function saveRuntimeSecrets(
   updates: Partial<Record<RuntimeSecretKey, string | null>>,
 ): string {
+  return saveNamedRuntimeSecrets(updates);
+}
+
+export function saveNamedRuntimeSecrets(
+  updates: Partial<Record<string, string | null>>,
+): string {
   const filePath = runtimeSecretsPath();
   const store = new SecretStore();
   const next = store.readAll();
 
-  for (const key of SECRET_KEYS) {
-    if (!Object.hasOwn(updates, key)) continue;
-    const value = updates[key];
+  for (const [key, value] of Object.entries(updates)) {
+    if (!isRuntimeSecretName(key)) {
+      throw new Error(
+        `Invalid secret name "${key}". Use uppercase letters, digits, and underscores only.`,
+      );
+    }
+    if (isReservedNonSecretRuntimeName(key)) {
+      throw new Error(
+        `Secret name "${key}" is reserved for non-secret runtime config and cannot be stored in credentials.json.`,
+      );
+    }
     const normalized = typeof value === 'string' ? value.trim() : '';
     if (normalized) {
       next[key] = normalized;

@@ -65,10 +65,18 @@ leak into the saved revision metadata.
 - `adaptiveSkills.*` for skill observation, amendment staging, and rollback
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport
 - `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`
+- `tools.httpRequest.authRules[]` for gateway-side URL-to-secret header
+  injection used by the `http_request` tool
 - `media.audio` for inbound audio transcription backend selection
 
 ## Security Notes
 
+- selected secret-bearing config fields support SecretRefs such as
+  `{ "source": "store", "id": "SECRET_NAME" }`,
+  `{ "source": "env", "id": "ENV_VAR" }`, or `${ENV_VAR}` shorthand instead of
+  plaintext values
+- current built-in SecretRef surfaces include `ops.webApiToken`,
+  `ops.gatewayApiToken`, `imessage.password`, and `local.backends.vllm.apiKey`
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently stored in plain
   text in `config.json`
 - In `host` sandbox mode, the agent can access the user home directory, the

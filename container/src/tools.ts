@@ -551,6 +551,12 @@ function resolveGatewayPluginToolUrl(): string | null {
   return `${base}/api/plugin/tool`;
 }
 
+function resolveGatewayHttpRequestUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) return null;
+  return `${base}/api/http/request`;
+}
+
 async function callGatewayMessageAction(
   payload: Record<string, unknown>,
 ): Promise<string> {
@@ -696,6 +702,61 @@ async function callGatewayPluginTool(
     if (typeof result === 'string') return result;
     if (result != null) return JSON.stringify(result, null, 2);
   }
+  return rawText;
+}
+
+async function callGatewayHttpRequest(
+  args: Record<string, unknown>,
+): Promise<string> {
+  const url = resolveGatewayHttpRequestUrl();
+  if (!url) {
+    return failTool(
+      'Error: http_request is unavailable because gatewayBaseUrl is not configured.',
+    );
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(args),
+    });
+  } catch (err) {
+    return failTool(
+      `Error: http_request dispatch failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  const rawText = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const maybe = JSON.parse(rawText) as unknown;
+    if (maybe && typeof maybe === 'object' && !Array.isArray(maybe)) {
+      parsed = maybe as Record<string, unknown>;
+    }
+  } catch {
+    parsed = null;
+  }
+
+  if (!response.ok) {
+    const errorText =
+      parsed && typeof parsed.error === 'string'
+        ? parsed.error
+        : rawText || `HTTP ${response.status}`;
+    return failTool(`Error: ${errorText}`);
+  }
+
+  if (parsed) return JSON.stringify(parsed, null, 2);
   return rawText;
 }
 
@@ -2413,6 +2474,10 @@ async function executeToolInternal(
       return `${lines.join('\n')}\n\n${header}${outputText}`;
     }
 
+    case 'http_request': {
+      return callGatewayHttpRequest(args);
+    }
+
     case 'web_search': {
       const { webSearch } = await import('./web-search.js');
       return await webSearch(
@@ -3120,6 +3185,86 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'boolean',
             description:
               'Whether to run auxiliary LLM processing. Defaults to true for web_extract.',
+          },
+        },
+        required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'http_request',
+      description:
+        'Call an HTTP or HTTPS API through the gateway. Use this for structured API requests instead of `bash` + `curl`, especially when auth is needed. Preferred auth path: set `bearerSecretName` or `secretHeaders` so the gateway injects the real stored secret without exposing it to the model. You may also use strict placeholders like `<secret:MY_API_KEY>` inside headers, `body`, or `json` values. Matching URL auth rules configured in the gateway are applied automatically.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: {
+            type: 'string',
+            description: 'HTTP or HTTPS URL to request.',
+          },
+          method: {
+            type: 'string',
+            description:
+              'HTTP method such as GET, POST, PUT, PATCH, or DELETE. Defaults to GET.',
+          },
+          headers: {
+            type: 'object',
+            description:
+              'Optional request headers. Do not place real secret values here; use bearerSecretName, secretHeaders, or <secret:NAME> placeholders instead.',
+          },
+          body: {
+            type: 'string',
+            description:
+              'Optional raw text request body. Use `json` instead for JSON payloads.',
+          },
+          json: {
+            type: 'object',
+            description:
+              'Optional structured JSON payload. This is serialized automatically and defaults Content-Type to application/json.',
+          },
+          bearerSecretName: {
+            type: 'string',
+            description:
+              'Name of a stored secret to inject as `Authorization: Bearer <secret>`.',
+          },
+          secretHeaders: {
+            type: 'array',
+            description:
+              'Additional secret-backed headers to inject without exposing raw values.',
+            items: {
+              type: 'object',
+              properties: {
+                name: {
+                  type: 'string',
+                  description: 'Header name, for example `X-API-Key`.',
+                },
+                secretName: {
+                  type: 'string',
+                  description: 'Stored secret name to inject.',
+                },
+                prefix: {
+                  type: 'string',
+                  description:
+                    'Optional prefix prepended before the secret value, for example `Bearer`. Use `none` for raw secret values.',
+                },
+              },
+              required: ['name', 'secretName'],
+            },
+          },
+          replaceSecretPlaceholders: {
+            type: 'boolean',
+            description:
+              'When true (default), replace `<secret:NAME>` placeholders inside headers, body, and json values.',
+          },
+          timeoutMs: {
+            type: 'number',
+            description: 'Optional timeout in milliseconds.',
+          },
+          maxResponseBytes: {
+            type: 'number',
+            description: 'Optional maximum response size in bytes.',
           },
         },
         required: ['url'],

@@ -65,6 +65,19 @@ test('maps Discord-style slash commands to gateway command args', () => {
   ]);
   expect(
     mapTuiSlashCommandToGatewayArgs([
+      'secret',
+      'set',
+      'STAGING_HYBRIDAI_API_KEY',
+      'demo_key_2024',
+    ]),
+  ).toEqual([
+    'secret',
+    'set',
+    'STAGING_HYBRIDAI_API_KEY',
+    'demo_key_2024',
+  ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
       'config',
       'set',
       'hybridai.maxTokens',

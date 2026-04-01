@@ -159,6 +159,60 @@ describe('runtime secrets', () => {
     expect(process.env.HYBRIDAI_API_KEY).toBeUndefined();
   });
 
+  it('drops reserved non-secret config keys during plaintext credential migration', async () => {
+    const homeDir = makeTempDir('hybridclaw-runtime-secrets-');
+    const credentialsPath = path.join(
+      homeDir,
+      '.hybridclaw',
+      'credentials.json',
+    );
+    fs.mkdirSync(path.dirname(credentialsPath), { recursive: true });
+    fs.writeFileSync(
+      credentialsPath,
+      `${JSON.stringify(
+        {
+          HYBRIDAI_API_KEY: 'hai-1234567890abcdef',
+          CONTAINER_IMAGE: 'hybridclaw-agent',
+          CONTAINER_MEMORY: '2g',
+          CONTAINER_CPUS: '4',
+          CONTAINER_TIMEOUT: '300000',
+          DISCORD_PREFIX: '!claw',
+          HEALTH_PORT: '8080',
+          LOG_LEVEL: 'debug',
+          DB_PATH: '/tmp/hybridclaw.db',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    );
+
+    const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
+    runtimeSecrets.loadRuntimeSecrets();
+
+    expect(runtimeSecrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
+      'hai-1234567890abcdef',
+    );
+    expect(runtimeSecrets.readStoredRuntimeSecret('CONTAINER_IMAGE')).toBeNull();
+    expect(runtimeSecrets.readStoredRuntimeSecret('CONTAINER_MEMORY')).toBeNull();
+    expect(runtimeSecrets.readStoredRuntimeSecret('CONTAINER_CPUS')).toBeNull();
+    expect(runtimeSecrets.readStoredRuntimeSecret('CONTAINER_TIMEOUT')).toBeNull();
+    expect(runtimeSecrets.readStoredRuntimeSecret('DISCORD_PREFIX')).toBeNull();
+    expect(runtimeSecrets.readStoredRuntimeSecret('HEALTH_PORT')).toBeNull();
+    expect(runtimeSecrets.readStoredRuntimeSecret('LOG_LEVEL')).toBeNull();
+    expect(runtimeSecrets.readStoredRuntimeSecret('DB_PATH')).toBeNull();
+
+    const stored = readSecretStoreFile(homeDir);
+    expect(JSON.stringify(stored)).not.toContain('CONTAINER_IMAGE');
+    expect(JSON.stringify(stored)).not.toContain('CONTAINER_MEMORY');
+    expect(JSON.stringify(stored)).not.toContain('CONTAINER_CPUS');
+    expect(JSON.stringify(stored)).not.toContain('CONTAINER_TIMEOUT');
+    expect(JSON.stringify(stored)).not.toContain('DISCORD_PREFIX');
+    expect(JSON.stringify(stored)).not.toContain('HEALTH_PORT');
+    expect(JSON.stringify(stored)).not.toContain('LOG_LEVEL');
+    expect(JSON.stringify(stored)).not.toContain('DB_PATH');
+  });
+
   it('saves credentials under ~/.hybridclaw/credentials.json', async () => {
     const homeDir = makeTempDir('hybridclaw-runtime-secrets-');
     const credentialsPath = path.join(
@@ -218,6 +272,15 @@ describe('runtime secrets', () => {
     expect(runtimeSecrets.readStoredRuntimeSecret('EMAIL_PASSWORD')).toBe(
       'email-password',
     );
+  });
+
+  it('rejects reserved non-secret config names in the named secret store', async () => {
+    const homeDir = makeTempDir('hybridclaw-runtime-secrets-');
+    const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
+
+    expect(() =>
+      runtimeSecrets.saveNamedRuntimeSecrets({ CONTAINER_MEMORY: '2g' }),
+    ).toThrow(/reserved for non-secret runtime config/);
   });
 
   it('migrates supported secrets from .env into ~/.hybridclaw/credentials.json', async () => {

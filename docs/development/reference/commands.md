@@ -102,8 +102,8 @@ community imports from `skills-sh`, `clawhub`, `lobehub`,
 
 - Local TUI and web chat sessions expose `/config`, `/config check`,
   `/config reload`, `/config set <key> <value>`, `/config revisions`,
-  `/concierge`, and `/auth status hybridai` alongside the existing runtime
-  commands
+  `/concierge`, `/auth status hybridai`, and `/secret list|set|unset|show|route`
+  alongside the existing runtime commands
 - TUI and chat surfaces use `/agent`, `/agent install`, `/model`, `/mcp`,
   `/plugin`, `/skill`, `/compact`, `/reset`, `/plugin enable`,
   `/plugin disable`, `/plugin install`, `/plugin reinstall`, `/skill import`,
@@ -111,6 +111,16 @@ community imports from `skills-sh`, `clawhub`, `lobehub`,
 - TUI also supports `/paste` to queue a copied local file or clipboard image
 - Discord supports `!claw` plus slash command equivalents for the same core
   actions
+
+Example secret flow:
+
+```text
+/secret set STAGING_HYBRIDAI_API_KEY demo_key_2024
+/secret route add https://staging.hybridai.one/api/v1/ STAGING_HYBRIDAI_API_KEY X-API-Key none
+```
+
+With that route in place, the model can use `http_request` to call matching
+URLs without seeing the plaintext API key.
 
 For the full command inventory, keep
 [README.md](https://github.com/HybridAIOne/hybridclaw/blob/main/README.md)

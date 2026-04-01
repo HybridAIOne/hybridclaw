@@ -175,8 +175,46 @@ hybridclaw local configure ollama llama3.2
 - `hybridclaw auth logout msteams` clears the stored Teams app password and disables the Teams integration in config.
 - `hybridclaw auth whatsapp reset` clears linked WhatsApp Web auth without starting a new pairing session.
 - HybridAI, OpenRouter, Mistral, Hugging Face, Discord, email, Teams, and BlueBubbles iMessage secrets are stored encrypted in `~/.hybridclaw/credentials.json`. The encryption key is sourced from `HYBRIDCLAW_MASTER_KEY`, `/run/secrets/hybridclaw_master_key`, or the local owner-only `~/.hybridclaw/credentials.master.key`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
+- Local TUI and web sessions can also manage encrypted named secrets with `/secret list`, `/secret set <name> <value>`, `/secret unset <name>`, `/secret show <name>`, and `/secret route add <url-prefix> <secret-name> [header] [prefix|none]`.
 - Only one running HybridClaw process should own `~/.hybridclaw/credentials/whatsapp` at a time. If WhatsApp Web shows duplicate Chrome/Ubuntu linked devices or reconnect/auth drift starts, stop the extra process, run `hybridclaw auth whatsapp reset`, then pair again with `hybridclaw channels whatsapp setup`.
 - Use `hybridclaw help`, `hybridclaw help auth`, `hybridclaw help openrouter`, `hybridclaw help mistral`, `hybridclaw help huggingface`, or `hybridclaw help local` for CLI-specific reference output.
+
+## Secrets And Authenticated API Calls
+
+HybridClaw can keep API keys out of model-visible prompts and tool arguments.
+
+```text
+/secret set STAGING_HYBRIDAI_API_KEY demo_key_2024
+/secret route add https://staging.hybridai.one/api/v1/ STAGING_HYBRIDAI_API_KEY X-API-Key none
+```
+
+After that, the model can just ask for the API call in natural language:
+
+```text
+POST to https://staging.hybridai.one/api/v1/virtual-bots/survey with JSON:
+{
+  "question": "Climate change is the biggest threat to humanity.",
+  "sample_size": 10,
+  "survey": "eurobarometer",
+  "gender": "Man",
+  "min_age": 25,
+  "max_age": 65
+}
+```
+
+Or you can use an explicit placeholder:
+
+```text
+POST to https://staging.hybridai.one/api/v1/virtual-bots/survey with header X-API-Key: <secret:STAGING_HYBRIDAI_API_KEY> and the same JSON body.
+```
+
+- The model only sees the secret name or placeholder, never the real token.
+- The gateway injects the real header at request time via `http_request`.
+- Tool-call audit records redact injected secret values before persistence.
+- Selected config fields such as `ops.webApiToken`, `ops.gatewayApiToken`,
+  `imessage.password`, and `local.backends.vllm.apiKey` can also use
+  SecretRefs like `{ "source": "store", "id": "IMESSAGE_PASSWORD" }` or
+  `${ENV_VAR}` instead of plaintext config values.
 
 ## Setting Up MS Teams
 
@@ -284,6 +322,7 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - `imessage.*` controls the dual-backend iMessage transport. Use `backend: "local"` on macOS with `imsg` + `chat.db`, or `backend: "bluebubbles"` for a remote Mac relay via BlueBubbles. Prefer storing the BlueBubbles password in the encrypted `~/.hybridclaw/credentials.json` store as `IMESSAGE_PASSWORD` instead of plaintext config.
 - `email.pollIntervalMs` defaults to `30000` (30 seconds) and is clamped to a minimum of `1000`.
 - `ops.webApiToken` (or `WEB_API_TOKEN`) gates the built-in `/chat`, `/agents`, and `/admin` surfaces plus the admin API. When unset, localhost browser access stays open without a login prompt.
+- `tools.httpRequest.authRules[]` configures gateway-side URL-based auth injection for `http_request`, for example mapping `https://staging.hybridai.one/api/v1/` to `X-API-Key` plus a stored secret ref.
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently written to `~/.hybridclaw/config.json` as plain text. Use low-privilege tokens only, set `chmod 700 ~/.hybridclaw && chmod 600 ~/.hybridclaw/config.json`, and prefer `host` sandbox mode for stdio MCP servers that depend on host-installed tools.
 - `media.audio` controls shared inbound audio transcription. By default it auto-detects local CLIs first (`sherpa-onnx-offline`, `whisper-cli`, `whisper`), then `gemini`, then provider keys (`openai`, `groq`, `deepgram`, `google`).
 - `whisper-cli` auto-detect also needs a whisper.cpp model file. If the binary exists but HybridClaw still skips local transcription, set `WHISPER_CPP_MODEL` to a local `ggml-*.bin` model path.

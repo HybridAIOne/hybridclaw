@@ -1516,6 +1516,7 @@ export class TrustedCoworkerApprovalRuntime {
     if (
       lowerTool === 'web_fetch' ||
       lowerTool === 'web_extract' ||
+      lowerTool === 'http_request' ||
       lowerTool === 'browser_navigate'
     ) {
       const rawUrl = normalizeText(args.url);

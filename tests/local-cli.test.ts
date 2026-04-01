@@ -70,6 +70,7 @@ async function readRuntimeSecrets(
     MSTEAMS_APP_PASSWORD: runtimeSecrets.readStoredRuntimeSecret(
       'MSTEAMS_APP_PASSWORD',
     ),
+    VLLM_API_KEY: runtimeSecrets.readStoredRuntimeSecret('VLLM_API_KEY'),
   };
 }
 
@@ -311,15 +312,63 @@ test('channels imessage setup configures the remote backend and stores IMESSAGE_
   ]);
 
   const config = readRuntimeConfig(homeDir);
+  const rawConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const rawIMessage = rawConfig.imessage as Record<string, unknown>;
   const secrets = await readRuntimeSecrets(homeDir);
   expect(config.imessage.enabled).toBe(true);
   expect(config.imessage.backend).toBe('bluebubbles');
   expect(config.imessage.serverUrl).toBe('https://bluebubbles.example.com');
-  expect(config.imessage.password).toBe('');
+  expect(rawIMessage.password).toEqual({
+    source: 'store',
+    id: 'IMESSAGE_PASSWORD',
+  });
   expect(config.imessage.dmPolicy).toBe('allowlist');
   expect(config.imessage.allowFrom).toEqual(['user@example.com']);
   expect(config.imessage.groupPolicy).toBe('disabled');
   expect(secrets.IMESSAGE_PASSWORD).toBe('bluebubbles-password');
+});
+
+test('local configure vllm stores api key in runtime secrets and writes a store ref', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'local',
+    'configure',
+    'vllm',
+    'meta-llama/Llama-3.1-8B-Instruct',
+    '--base-url',
+    'http://127.0.0.1:8000',
+    '--api-key',
+    'vllm-secret-key',
+  ]);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  vi.resetModules();
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  const config = runtimeConfig.getRuntimeConfig();
+  const rawConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const rawLocal = rawConfig.local as Record<string, unknown>;
+  const rawBackends = rawLocal.backends as Record<string, unknown>;
+  const rawVllm = rawBackends.vllm as Record<string, unknown>;
+  const secrets = await readRuntimeSecrets(homeDir);
+
+  expect(config.local.backends.vllm.enabled).toBe(true);
+  expect(config.local.backends.vllm.baseUrl).toBe('http://127.0.0.1:8000/v1');
+  expect(config.local.backends.vllm.apiKey).toBe('vllm-secret-key');
+  expect(rawVllm.apiKey).toEqual({
+    source: 'store',
+    id: 'VLLM_API_KEY',
+  });
+  expect(config.hybridai.defaultModel).toBe(
+    'vllm/meta-llama/Llama-3.1-8B-Instruct',
+  );
+  expect(secrets.VLLM_API_KEY).toBe('vllm-secret-key');
 });
 
 test('channels imessage setup fails fast when the local imsg binary is missing', async () => {

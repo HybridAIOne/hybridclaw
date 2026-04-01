@@ -285,6 +285,8 @@ function buildSafetyHook(context: PromptHookContext): string {
     '',
     '## Web Retrieval Routing (web_search/web_fetch vs browser_*)',
     'Decision rule: use `web_search` to discover relevant URLs when the target page is not already known, then use `web_fetch` for read-only content retrieval.',
+    'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
+    'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. Never emit the real token in prose or tool arguments.',
     'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/development/...` page before answering. Do not answer from memory if no fetch was attempted.',
     'Use `web_extract` when you want the fetched page condensed into a model-processed markdown summary; it is higher cost than `web_fetch` because it runs an auxiliary model after extraction.',
     'Use browser tools only when at least one of these is true: (1) known app-like/auth-gated URL, (2) interaction is required (click/type/login/scroll), (3) `web_fetch` returned escalation hints, (4) user explicitly requested browser use.',

@@ -4,6 +4,7 @@ import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   runtimeConfigPath,
+  setRuntimeConfigSecretInput,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import type { LocalBackendType } from '../providers/local-types.js';
@@ -839,6 +840,7 @@ function clearMSTeamsCredentials(): void {
 
 function clearLocalBackends(): void {
   ensureRuntimeConfigFile();
+  saveRuntimeSecrets({ VLLM_API_KEY: null });
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.local.backends.ollama.enabled = false;
     draft.local.backends.lmstudio.enabled = false;
@@ -1038,12 +1040,26 @@ function configureLocalBackend(args: string[]): void {
     draft.local.backends[parsed.backend].enabled = true;
     draft.local.backends[parsed.backend].baseUrl = normalizedBaseUrl;
     if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
-      draft.local.backends.vllm.apiKey = parsed.apiKey;
+      draft.local.backends.vllm.apiKey = '';
     }
     if (parsed.setDefault) {
       draft.hybridai.defaultModel = fullModelName;
     }
   });
+  if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
+    saveRuntimeSecrets({ VLLM_API_KEY: parsed.apiKey });
+    setRuntimeConfigSecretInput(
+      'local.backends.vllm.apiKey',
+      {
+        source: 'store',
+        id: 'VLLM_API_KEY',
+      },
+      {
+        route: 'cli.auth.local.configure-vllm-secret-ref',
+        source: 'user',
+      },
+    );
+  }
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   console.log(`Backend: ${parsed.backend}`);

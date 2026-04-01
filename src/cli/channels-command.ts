@@ -11,6 +11,7 @@ import {
   getRuntimeConfig,
   type IMessageBackend,
   runtimeConfigPath,
+  setRuntimeConfigSecretInput,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import {
@@ -1109,12 +1110,28 @@ async function configureIMessageChannel(args: string[]): Promise<void> {
 
   const shouldSavePassword =
     backend === 'bluebubbles' && Boolean(parsed.password?.trim());
+  const hasStoredPassword =
+    backend === 'bluebubbles' &&
+    Boolean(readStoredRuntimeSecret('IMESSAGE_PASSWORD'));
   const secretsPath = shouldSavePassword
     ? saveRuntimeSecrets({ IMESSAGE_PASSWORD: parsed.password })
     : runtimeSecretsPath();
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   if (backend === 'bluebubbles') {
+    if (shouldSavePassword || hasStoredPassword) {
+      setRuntimeConfigSecretInput(
+        'imessage.password',
+        {
+          source: 'store',
+          id: 'IMESSAGE_PASSWORD',
+        },
+        {
+          route: 'cli.channels.imessage.setup-secret-ref',
+          source: 'user',
+        },
+      );
+    }
     if (shouldSavePassword) {
       console.log(`Saved iMessage password to ${secretsPath}.`);
     } else {

@@ -61,6 +61,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'auth',
   'bot',
   'config',
+  'secret',
   'concierge',
   'rag',
   'model',
@@ -349,6 +350,9 @@ export function mapCanonicalCommandToGatewayArgs(
       }
       return null;
     }
+
+    case 'secret':
+      return parts.length > 1 ? ['secret', ...parts.slice(1)] : ['secret'];
 
     case 'fullauto':
       return parts.length > 1 ? ['fullauto', ...parts.slice(1)] : ['fullauto'];
@@ -888,6 +892,57 @@ function buildSlashCommandCatalogDefinitions(
           kind: 'string',
           name: 'value',
           description: 'JSON value or plain string',
+        },
+      ],
+    },
+    {
+      name: 'secret',
+      description:
+        'Manage encrypted local secrets and URL-based HTTP auth injection',
+      tuiOnly: true,
+      tuiMenuEntries: [
+        {
+          id: 'secret.list',
+          label: '/secret list',
+          insertText: '/secret list',
+          description: 'List stored secret names and HTTP auth routes',
+        },
+        {
+          id: 'secret.set',
+          label: '/secret set <name> <value>',
+          insertText: '/secret set ',
+          description: 'Store an encrypted named secret',
+        },
+        {
+          id: 'secret.route.add',
+          label: '/secret route add <url-prefix> <secret-name>',
+          insertText: '/secret route add ',
+          description: 'Auto-attach a stored secret to matching HTTP requests',
+        },
+      ],
+      options: [
+        {
+          kind: 'string',
+          name: 'action',
+          description: 'Secret command action',
+          choices: [
+            { name: 'list', value: 'list' },
+            { name: 'set', value: 'set' },
+            { name: 'unset', value: 'unset' },
+            { name: 'show', value: 'show' },
+            { name: 'route', value: 'route' },
+          ],
+        },
+        {
+          kind: 'string',
+          name: 'name',
+          description: 'Secret name or route subcommand',
+        },
+        {
+          kind: 'string',
+          name: 'value',
+          description:
+            'Secret value, URL prefix, or additional route arguments',
         },
       ],
     },
@@ -1666,6 +1721,25 @@ export function parseCanonicalSlashCommandArgs(
       if (action === 'reload' && !key && !value) return ['config', 'reload'];
       if (action !== 'set' || !key || !value) return null;
       return ['config', 'set', key, value];
+    }
+
+    case 'secret': {
+      const action = normalizeStringOption(interaction, 'action');
+      const name = normalizeStringOption(interaction, 'name');
+      const value = normalizeStringOption(interaction, 'value');
+      if (!action && !name && !value) return ['secret'];
+      if (action === 'list' && !name && !value) return ['secret', 'list'];
+      if ((action === 'unset' || action === 'show') && name && !value) {
+        return ['secret', action, name];
+      }
+      if (action === 'set' && name && value) {
+        return ['secret', 'set', name, value];
+      }
+      if (action === 'route' && name) {
+        const routeArgs = value ? tokenizeFreeformText(value) : [];
+        return ['secret', 'route', name, ...routeArgs];
+      }
+      return null;
     }
 
     case 'show': {
