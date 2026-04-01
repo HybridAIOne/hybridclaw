@@ -1,5 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
-import { fetchOverview } from '../api/client';
+import { useSuspenseQuery } from '@tanstack/react-query';
 import { useAuth } from '../auth';
 import { MetricCard, PageHeader, Panel } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
@@ -10,30 +9,19 @@ import {
   formatUptime,
   formatUsd,
 } from '../lib/format';
+import { gatewayStatusQueryOptions, overviewQueryOptions } from '../queries';
 
 export function DashboardPage() {
   const auth = useAuth();
   const live = useLiveEvents(auth.token);
-  const overviewQuery = useQuery({
-    queryKey: ['overview', auth.token],
-    queryFn: () => fetchOverview(auth.token),
-    refetchInterval: 30_000,
+  const overviewQuery = useSuspenseQuery(overviewQueryOptions(auth.token));
+  const statusQuery = useSuspenseQuery({
+    ...gatewayStatusQueryOptions(auth.token),
+    initialData: auth.gatewayStatus ?? undefined,
   });
 
-  const overview = live.overview || overviewQuery.data;
-  const status = live.status || overview?.status || auth.gatewayStatus;
-
-  if (overviewQuery.isLoading && !overview) {
-    return <div className="empty-state">Loading overview...</div>;
-  }
-
-  if (overviewQuery.isError && !overview) {
-    return (
-      <div className="empty-state error">
-        {(overviewQuery.error as Error).message}
-      </div>
-    );
-  }
+  const overview = overviewQuery.data;
+  const status = statusQuery.data || overview?.status || auth.gatewayStatus;
 
   if (!overview || !status) {
     return <div className="empty-state">Gateway overview unavailable.</div>;

@@ -1,27 +1,31 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useState } from 'react';
-import { deleteSession, fetchSessions } from '../api/client';
-import { useAuth } from '../auth';
+import { deleteSession } from '../api/client';
 import { BooleanPill, PageHeader, Panel } from '../components/ui';
+import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
 import { formatRelativeTime } from '../lib/format';
+import {
+  invalidateOverview,
+  invalidateSessions,
+  sessionsQueryOptions,
+} from '../queries';
 
 export function SessionsPage() {
-  const auth = useAuth();
-  const queryClient = useQueryClient();
+  const token = useAdminToken();
+  const queryClient = useAdminQueryClient();
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const deferredSearch = useDeferredValue(search);
 
-  const sessionsQuery = useQuery({
-    queryKey: ['sessions', auth.token],
-    queryFn: () => fetchSessions(auth.token),
-  });
+  const sessionsQuery = useSuspenseQuery(sessionsQueryOptions(token));
 
   const deleteMutation = useMutation({
-    mutationFn: (sessionId: string) => deleteSession(auth.token, sessionId),
-    onSuccess: (_, sessionId) => {
-      void queryClient.invalidateQueries({ queryKey: ['sessions'] });
-      void queryClient.invalidateQueries({ queryKey: ['overview'] });
+    mutationFn: (sessionId: string) => deleteSession(token, sessionId),
+    onSuccess: async (_, sessionId) => {
+      await Promise.all([
+        invalidateSessions(queryClient, token),
+        invalidateOverview(queryClient, token),
+      ]);
       if (selectedId === sessionId) {
         setSelectedId(null);
       }
@@ -71,9 +75,7 @@ export function SessionsPage() {
           title="Session list"
           subtitle={`${filtered.length} result${filtered.length === 1 ? '' : 's'}`}
         >
-          {sessionsQuery.isLoading ? (
-            <div className="empty-state">Loading sessions...</div>
-          ) : filtered.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="empty-state">No sessions match this filter.</div>
           ) : (
             <div className="list-stack selectable-list">

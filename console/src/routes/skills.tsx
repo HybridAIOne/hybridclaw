@@ -1,11 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { useDeferredValue, useState } from 'react';
 import {
   applyAdaptiveSkillAmendment,
-  fetchAdaptiveSkillAmendmentHistory,
-  fetchAdaptiveSkillAmendments,
-  fetchAdaptiveSkillHealth,
-  fetchSkills,
   rejectAdaptiveSkillAmendment,
   saveSkillEnabled,
 } from '../api/client';
@@ -13,7 +9,6 @@ import type {
   AdminAdaptiveSkillAmendment,
   AdminAdaptiveSkillHealthMetric,
 } from '../api/types';
-import { useAuth } from '../auth';
 import {
   BooleanPill,
   BooleanToggle,
@@ -21,7 +16,16 @@ import {
   PageHeader,
   Panel,
 } from '../components/ui';
+import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
+import {
+  adaptiveSkillsAmendmentsQueryOptions,
+  adaptiveSkillsHealthQueryOptions,
+  adaptiveSkillsHistoryQueryOptions,
+  invalidateAdaptiveSkillsReviewData,
+  setSkillsData,
+  skillsQueryOptions,
+} from '../queries';
 
 function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`;
@@ -46,33 +50,26 @@ function formatAmendmentTiming(amendment: AdminAdaptiveSkillAmendment): string {
 }
 
 export function SkillsPage() {
-  const auth = useAuth();
-  const queryClient = useQueryClient();
+  const token = useAdminToken();
+  const queryClient = useAdminQueryClient();
   const [filter, setFilter] = useState('');
   const [selectedSkillName, setSelectedSkillName] = useState('');
   const deferredFilter = useDeferredValue(filter);
   const filterNeedle = deferredFilter.trim().toLowerCase();
 
-  const skillsQuery = useQuery({
-    queryKey: ['skills', auth.token],
-    queryFn: () => fetchSkills(auth.token),
-  });
+  const skillsQuery = useSuspenseQuery(skillsQueryOptions(token));
 
-  const healthQuery = useQuery({
-    queryKey: ['adaptive-skills-health', auth.token],
-    queryFn: () => fetchAdaptiveSkillHealth(auth.token),
-  });
+  const healthQuery = useSuspenseQuery(adaptiveSkillsHealthQueryOptions(token));
 
-  const stagedAmendmentsQuery = useQuery({
-    queryKey: ['adaptive-skills-amendments', auth.token],
-    queryFn: () => fetchAdaptiveSkillAmendments(auth.token),
-  });
+  const stagedAmendmentsQuery = useSuspenseQuery(
+    adaptiveSkillsAmendmentsQueryOptions(token),
+  );
 
   const toggleMutation = useMutation({
     mutationFn: (payload: { name: string; enabled: boolean }) =>
-      saveSkillEnabled(auth.token, payload),
+      saveSkillEnabled(token, payload),
     onSuccess: (payload) => {
-      queryClient.setQueryData(['skills', auth.token], payload);
+      setSkillsData(queryClient, token, payload);
     },
   });
 
@@ -82,25 +79,14 @@ export function SkillsPage() {
       skillName: string;
     }) =>
       payload.action === 'apply'
-        ? applyAdaptiveSkillAmendment(auth.token, payload.skillName)
-        : rejectAdaptiveSkillAmendment(auth.token, payload.skillName),
-    onSuccess: async (_payload, variables) => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ['adaptive-skills-health', auth.token],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ['adaptive-skills-amendments', auth.token],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: [
-            'adaptive-skills-history',
-            auth.token,
-            variables.skillName,
-          ],
-        }),
-      ]);
-    },
+        ? applyAdaptiveSkillAmendment(token, payload.skillName)
+        : rejectAdaptiveSkillAmendment(token, payload.skillName),
+    onSuccess: (_payload, variables) =>
+      invalidateAdaptiveSkillsReviewData(
+        queryClient,
+        token,
+        variables.skillName,
+      ),
   });
 
   const healthMetrics = healthQuery.data?.metrics || [];
@@ -118,19 +104,9 @@ export function SkillsPage() {
         skillsQuery.data?.skills[0]?.name ||
         '';
 
-  const historyQuery = useQuery({
-    queryKey: [
-      'adaptive-skills-history',
-      auth.token,
-      effectiveSelectedSkillName,
-    ],
-    queryFn: () =>
-      fetchAdaptiveSkillAmendmentHistory(
-        auth.token,
-        effectiveSelectedSkillName,
-      ),
-    enabled: Boolean(effectiveSelectedSkillName),
-  });
+  const historyQuery = useQuery(
+    adaptiveSkillsHistoryQueryOptions(token, effectiveSelectedSkillName),
+  );
 
   const filteredSkills = (skillsQuery.data?.skills || []).filter((skill) => {
     const haystack = [
@@ -266,100 +242,96 @@ export function SkillsPage() {
         title="Installed skills"
         subtitle={`${filteredSkills.length} skill${filteredSkills.length === 1 ? '' : 's'} visible`}
       >
-        {skillsQuery.isLoading ? (
-          <div className="empty-state">Loading skill catalog...</div>
-        ) : (
-          <div className="table-shell">
-            <table>
-              <thead>
-                <tr>
-                  <th>Skill</th>
-                  <th>Source</th>
-                  <th>Runtime</th>
-                  <th>Adaptive</th>
-                  <th>Tags</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredSkills.map((skill) => {
-                  const metrics = healthMetrics.find(
-                    (entry) => entry.skill_name === skill.name,
-                  );
-                  return (
-                    <tr key={skill.name}>
-                      <td>
-                        <button
-                          type="button"
-                          className="table-link-button"
-                          onClick={() => setSelectedSkillName(skill.name)}
-                        >
-                          {skill.name}
-                        </button>
-                        <small>{skill.description}</small>
-                      </td>
-                      <td>{skill.source}</td>
-                      <td>
-                        <BooleanPill
-                          value={skill.available}
-                          trueLabel="ready"
-                          falseLabel="missing"
-                        />
-                        {!skill.available ? (
+        <div className="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th>Skill</th>
+                <th>Source</th>
+                <th>Runtime</th>
+                <th>Adaptive</th>
+                <th>Tags</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredSkills.map((skill) => {
+                const metrics = healthMetrics.find(
+                  (entry) => entry.skill_name === skill.name,
+                );
+                return (
+                  <tr key={skill.name}>
+                    <td>
+                      <button
+                        type="button"
+                        className="table-link-button"
+                        onClick={() => setSelectedSkillName(skill.name)}
+                      >
+                        {skill.name}
+                      </button>
+                      <small>{skill.description}</small>
+                    </td>
+                    <td>{skill.source}</td>
+                    <td>
+                      <BooleanPill
+                        value={skill.available}
+                        trueLabel="ready"
+                        falseLabel="missing"
+                      />
+                      {!skill.available ? (
+                        <small>
+                          {skill.missing.join(', ') || 'missing requirements'}
+                        </small>
+                      ) : null}
+                    </td>
+                    <td>
+                      {metrics ? (
+                        <>
+                          <BooleanPill
+                            value={!metrics.degraded}
+                            trueLabel="healthy"
+                            falseLabel="degraded"
+                          />
                           <small>
-                            {skill.missing.join(', ') || 'missing requirements'}
+                            {metrics.total_executions} runs ·{' '}
+                            {formatFeedbackCounts(metrics)}
                           </small>
-                        ) : null}
-                      </td>
-                      <td>
-                        {metrics ? (
-                          <>
-                            <BooleanPill
-                              value={!metrics.degraded}
-                              trueLabel="healthy"
-                              falseLabel="degraded"
-                            />
-                            <small>
-                              {metrics.total_executions} runs ·{' '}
-                              {formatFeedbackCounts(metrics)}
-                            </small>
-                          </>
-                        ) : (
-                          <small>no observations</small>
-                        )}
-                      </td>
-                      <td>{skill.tags.join(', ') || 'none'}</td>
-                      <td>
-                        <BooleanToggle
-                          value={skill.enabled}
-                          ariaLabel={`${skill.name} status`}
-                          disabled={toggleMutation.isPending}
-                          trueLabel="active"
-                          falseLabel="inactive"
-                          onChange={(enabled) =>
-                            toggleMutation.mutate({
-                              name: skill.name,
-                              enabled,
-                            })
-                          }
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-                {filteredSkills.length === 0 ? (
-                  <tr>
-                    <td colSpan={6}>
-                      <div className="empty-state">
-                        No skills match this filter.
-                      </div>
+                        </>
+                      ) : (
+                        <small>no observations</small>
+                      )}
+                    </td>
+                    <td>{skill.tags.join(', ') || 'none'}</td>
+                    <td>
+                      <BooleanToggle
+                        value={skill.enabled}
+                        ariaLabel={`${skill.name} status`}
+                        disabled={toggleMutation.isPending}
+                        trueLabel="active"
+                        falseLabel="inactive"
+                        onChange={(enabled) =>
+                          toggleMutation.mutate({
+                            name: skill.name,
+                            enabled,
+                          })
+                        }
+                      />
                     </td>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        )}
+                );
+              })}
+              {filteredSkills.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>
+                    <div className="empty-state">
+                      No skills match this filter.
+                    </div>
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
         {toggleMutation.isError ? (
           <p className="error-banner">
             {(toggleMutation.error as Error).message}
@@ -372,9 +344,7 @@ export function SkillsPage() {
           title="Observed skill health"
           subtitle={`${filteredHealthMetrics.length} observed skill${filteredHealthMetrics.length === 1 ? '' : 's'} visible`}
         >
-          {healthQuery.isLoading ? (
-            <div className="empty-state">Loading AdaptiveSkills health...</div>
-          ) : filteredHealthMetrics.length === 0 ? (
+          {filteredHealthMetrics.length === 0 ? (
             <div className="empty-state">
               No observed skills match this filter.
             </div>
@@ -439,9 +409,7 @@ export function SkillsPage() {
           subtitle={`${stagedAmendments.length} waiting for review`}
           accent="warm"
         >
-          {stagedAmendmentsQuery.isLoading ? (
-            <div className="empty-state">Loading staged amendments...</div>
-          ) : stagedAmendments.length === 0 ? (
+          {stagedAmendments.length === 0 ? (
             <div className="empty-state">
               No staged amendments are waiting for review.
             </div>

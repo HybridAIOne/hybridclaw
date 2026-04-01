@@ -1,3 +1,4 @@
+import { useSuspenseQuery } from '@tanstack/react-query';
 import { useAuth } from '../auth';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
 import { useLiveEvents } from '../hooks/use-live-events';
@@ -6,11 +7,16 @@ import {
   formatRelativeTime,
   formatUptime,
 } from '../lib/format';
+import { gatewayStatusQueryOptions } from '../queries';
 
 export function GatewayPage() {
   const auth = useAuth();
   const live = useLiveEvents(auth.token);
-  const status = live.status || auth.gatewayStatus;
+  const statusQuery = useSuspenseQuery({
+    ...gatewayStatusQueryOptions(auth.token),
+    initialData: auth.gatewayStatus ?? undefined,
+  });
+  const status = statusQuery.data || auth.gatewayStatus;
   const providerEntries = Object.entries(
     status?.providerHealth || status?.localBackends || {},
   );

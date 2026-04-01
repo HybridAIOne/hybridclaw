@@ -1,15 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   deleteSchedulerJob,
-  fetchScheduler,
   saveSchedulerJob,
   setSchedulerJobPaused,
 } from '../api/client';
 import type { AdminSchedulerJob, AdminSchedulerResponse } from '../api/types';
-import { useAuth } from '../auth';
 import { BooleanField, BooleanPill, PageHeader, Panel } from '../components/ui';
+import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
 import { formatDateTime } from '../lib/format';
+import { schedulerQueryOptions, setSchedulerData } from '../queries';
 
 interface SchedulerDraft {
   originalId: string | null;
@@ -194,9 +194,9 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
 function replaceSchedulerJobs(
   payload: AdminSchedulerResponse,
   token: string,
-  queryClient: ReturnType<typeof useQueryClient>,
+  queryClient: ReturnType<typeof useAdminQueryClient>,
 ): void {
-  queryClient.setQueryData(['scheduler', token], payload);
+  setSchedulerData(queryClient, token, payload);
 }
 
 function SchedulerTaskDetail(props: {
@@ -653,15 +653,12 @@ function SchedulerJobEditor(props: {
 }
 
 export function SchedulerPage() {
-  const auth = useAuth();
-  const queryClient = useQueryClient();
+  const token = useAdminToken();
+  const queryClient = useAdminQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<SchedulerDraft>(createDraft());
 
-  const schedulerQuery = useQuery({
-    queryKey: ['scheduler', auth.token],
-    queryFn: () => fetchScheduler(auth.token),
-  });
+  const schedulerQuery = useSuspenseQuery(schedulerQueryOptions(token));
 
   const selectedJob =
     schedulerQuery.data?.jobs.find((job) => job.id === selectedId) || null;
@@ -669,9 +666,9 @@ export function SchedulerPage() {
 
   const saveMutation = useMutation({
     mutationFn: (nextDraft: SchedulerDraft) =>
-      saveSchedulerJob(auth.token, normalizeDraft(nextDraft)),
+      saveSchedulerJob(token, normalizeDraft(nextDraft)),
     onSuccess: (payload, nextDraft) => {
-      replaceSchedulerJobs(payload, auth.token, queryClient);
+      replaceSchedulerJobs(payload, token, queryClient);
       setSelectedId(nextDraft.id.trim());
       window.location.href = '/admin/jobs';
     },
@@ -682,10 +679,10 @@ export function SchedulerPage() {
       if (!selectedJob) {
         throw new Error('Select a scheduler item first.');
       }
-      return deleteSchedulerJob(auth.token, selectedJob);
+      return deleteSchedulerJob(token, selectedJob);
     },
     onSuccess: (payload) => {
-      replaceSchedulerJobs(payload, auth.token, queryClient);
+      replaceSchedulerJobs(payload, token, queryClient);
       setSelectedId(null);
       setDraft(createDraft());
     },
@@ -697,19 +694,19 @@ export function SchedulerPage() {
         throw new Error('Select a scheduler item first.');
       }
       return selectedJob.source === 'task'
-        ? setSchedulerJobPaused(auth.token, {
+        ? setSchedulerJobPaused(token, {
             source: 'task',
             taskId: selectedJob.taskId ?? 0,
             action,
           })
-        : setSchedulerJobPaused(auth.token, {
+        : setSchedulerJobPaused(token, {
             source: 'config',
             jobId: selectedJob.id,
             action,
           });
     },
     onSuccess: (payload) => {
-      replaceSchedulerJobs(payload, auth.token, queryClient);
+      replaceSchedulerJobs(payload, token, queryClient);
       if (!selectedJob) return;
       const refreshed =
         payload.jobs.find((job) => job.id === selectedJob.id) || null;
@@ -735,10 +732,10 @@ export function SchedulerPage() {
   }, [selectedConfigJob, selectedId]);
 
   useEffect(() => {
-    if (!selectedId || schedulerQuery.isLoading) return;
+    if (!selectedId) return;
     if (selectedJob) return;
     setSelectedId(null);
-  }, [schedulerQuery.isLoading, selectedId, selectedJob]);
+  }, [selectedId, selectedJob]);
 
   return (
     <div className="page-stack">
@@ -763,9 +760,7 @@ export function SchedulerPage() {
           title="Jobs"
           subtitle={`${schedulerQuery.data?.jobs.length || 0} item${schedulerQuery.data?.jobs.length === 1 ? '' : 's'}`}
         >
-          {schedulerQuery.isLoading ? (
-            <div className="empty-state">Loading scheduler items...</div>
-          ) : schedulerQuery.data?.jobs.length ? (
+          {schedulerQuery.data.jobs.length ? (
             <div className="list-stack selectable-list">
               {schedulerQuery.data.jobs.map((job) => (
                 <button

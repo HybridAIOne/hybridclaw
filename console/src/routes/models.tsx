@@ -1,8 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { fetchModels, saveModels } from '../api/client';
-import { useAuth } from '../auth';
+import { type fetchModels, saveModels } from '../api/client';
 import { PageHeader, Panel } from '../components/ui';
+import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
 import {
   formatCompactNumber,
   formatRelativeTime,
@@ -11,6 +11,11 @@ import {
   joinStringList,
   parseStringList,
 } from '../lib/format';
+import {
+  invalidateOverview,
+  modelsQueryOptions,
+  setModelsData,
+} from '../queries';
 
 interface ModelDraft {
   defaultModel: string;
@@ -50,27 +55,24 @@ function createDraft(
 }
 
 export function ModelsPage() {
-  const auth = useAuth();
-  const queryClient = useQueryClient();
+  const token = useAdminToken();
+  const queryClient = useAdminQueryClient();
   const [filter, setFilter] = useState('');
   const [draft, setDraft] = useState<ModelDraft>(createDraft());
 
-  const modelsQuery = useQuery({
-    queryKey: ['models', auth.token],
-    queryFn: () => fetchModels(auth.token),
-  });
+  const modelsQuery = useQuery(modelsQueryOptions(token));
 
   const saveMutation = useMutation({
     mutationFn: () =>
-      saveModels(auth.token, {
+      saveModels(token, {
         defaultModel: draft.defaultModel,
         hybridaiModels: parseStringList(draft.hybridaiModels),
         codexModels: parseStringList(draft.codexModels),
       }),
-    onSuccess: (payload) => {
-      queryClient.setQueryData(['models', auth.token], payload);
+    onSuccess: async (payload) => {
+      setModelsData(queryClient, token, payload);
       setDraft(createDraft(payload));
-      void queryClient.invalidateQueries({ queryKey: ['overview'] });
+      await invalidateOverview(queryClient, token);
     },
   });
 

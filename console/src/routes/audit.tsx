@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useState } from 'react';
-import { fetchAudit } from '../api/client';
 import { useAuth } from '../auth';
 import { PageHeader, Panel } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
+import { auditQueryOptions } from '../queries';
 
 function prettifyPayload(raw: string): string {
   try {
@@ -23,22 +23,13 @@ export function AuditPage() {
   const deferredSessionId = useDeferredValue(sessionId);
   const deferredEventType = useDeferredValue(eventType);
 
-  const auditQuery = useQuery({
-    queryKey: [
-      'audit',
-      auth.token,
-      deferredQuery,
-      deferredSessionId,
-      deferredEventType,
-    ],
-    queryFn: () =>
-      fetchAudit(auth.token, {
-        query: deferredQuery,
-        sessionId: deferredSessionId,
-        eventType: deferredEventType,
-        limit: 100,
-      }),
-  });
+  const auditQuery = useQuery(
+    auditQueryOptions(auth.token, {
+      query: deferredQuery,
+      sessionId: deferredSessionId,
+      eventType: deferredEventType,
+    }),
+  );
 
   const selectedEntry =
     auditQuery.data?.entries.find((entry) => entry.id === selectedId) ||

@@ -1,19 +1,18 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { adminEventsUrl } from '../api/client';
 import type { AdminOverview, GatewayStatus } from '../api/types';
+import { gatewayStatusQueryOptions, overviewQueryOptions } from '../queries';
 
 interface LiveState {
   connection: 'idle' | 'connecting' | 'open' | 'error';
-  overview: AdminOverview | null;
-  status: GatewayStatus | null;
   lastEventAt: number | null;
 }
 
 export function useLiveEvents(token: string): LiveState {
+  const queryClient = useQueryClient();
   const [state, setState] = useState<LiveState>({
     connection: token ? 'connecting' : 'idle',
-    overview: null,
-    status: null,
     lastEventAt: null,
   });
 
@@ -21,8 +20,6 @@ export function useLiveEvents(token: string): LiveState {
     if (!token) {
       setState({
         connection: 'idle',
-        overview: null,
-        status: null,
         lastEventAt: null,
       });
       return;
@@ -45,10 +42,14 @@ export function useLiveEvents(token: string): LiveState {
       const payload = JSON.parse(
         (event as MessageEvent<string>).data,
       ) as AdminOverview;
+      queryClient.setQueryData(overviewQueryOptions(token).queryKey, payload);
+      queryClient.setQueryData(
+        gatewayStatusQueryOptions(token).queryKey,
+        payload.status,
+      );
       setState((current) => ({
         ...current,
         connection: 'open',
-        overview: payload,
         lastEventAt: Date.now(),
       }));
     });
@@ -57,10 +58,13 @@ export function useLiveEvents(token: string): LiveState {
       const payload = JSON.parse(
         (event as MessageEvent<string>).data,
       ) as GatewayStatus;
+      queryClient.setQueryData(
+        gatewayStatusQueryOptions(token).queryKey,
+        payload,
+      );
       setState((current) => ({
         ...current,
         connection: 'open',
-        status: payload,
         lastEventAt: Date.now(),
       }));
     });
@@ -75,7 +79,7 @@ export function useLiveEvents(token: string): LiveState {
     return () => {
       source.close();
     };
-  }, [token]);
+  }, [queryClient, token]);
 
   return state;
 }

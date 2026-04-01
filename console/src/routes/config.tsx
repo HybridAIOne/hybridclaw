@@ -1,30 +1,30 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { fetchConfig, saveConfig } from '../api/client';
+import { saveConfig } from '../api/client';
 import type { AdminConfig } from '../api/types';
-import { useAuth } from '../auth';
 import { BooleanField, PageHeader, Panel } from '../components/ui';
+import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
+import { configQueryOptions, setConfigData } from '../queries';
 
 function cloneConfig<T>(value: T): T {
   return structuredClone(value);
 }
 
 export function ConfigPage() {
-  const auth = useAuth();
+  const token = useAdminToken();
+  const queryClient = useAdminQueryClient();
   const [rawMode, setRawMode] = useState(false);
   const [draft, setDraft] = useState<AdminConfig | null>(null);
   const [rawJson, setRawJson] = useState('');
 
-  const configQuery = useQuery({
-    queryKey: ['config', auth.token],
-    queryFn: () => fetchConfig(auth.token),
-  });
+  const configQuery = useQuery(configQueryOptions(token));
 
   const saveMutation = useMutation({
     mutationFn: async (nextConfig: AdminConfig) => {
-      return saveConfig(auth.token, nextConfig);
+      return saveConfig(token, nextConfig);
     },
     onSuccess: (payload) => {
+      setConfigData(queryClient, token, payload);
       setDraft(cloneConfig(payload.config));
       setRawJson(JSON.stringify(payload.config, null, 2));
     },

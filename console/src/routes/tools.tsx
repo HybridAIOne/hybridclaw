@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useMemo, useState } from 'react';
-import { fetchTools } from '../api/client';
 import { useAuth } from '../auth';
 import { MetricCard, PageHeader, Panel } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
+import { toolsQueryOptions } from '../queries';
 
 function ToolErrorPreview(props: {
   recentErrors: number;
@@ -56,10 +56,7 @@ export function ToolsPage() {
   const [filter, setFilter] = useState('');
   const deferredFilter = useDeferredValue(filter);
 
-  const toolsQuery = useQuery({
-    queryKey: ['tools', auth.token],
-    queryFn: () => fetchTools(auth.token),
-  });
+  const toolsQuery = useQuery(toolsQueryOptions(auth.token));
 
   const filteredGroups = useMemo(() => {
     const needle = deferredFilter.trim().toLowerCase();

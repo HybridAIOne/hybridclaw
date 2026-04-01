@@ -1,9 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { deleteMcpServer, fetchMcp, saveMcpServer } from '../api/client';
+import { deleteMcpServer, saveMcpServer } from '../api/client';
 import type { AdminMcpConfig, AdminMcpServer } from '../api/types';
-import { useAuth } from '../auth';
 import { BooleanField, BooleanPill, PageHeader, Panel } from '../components/ui';
+import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
+import { mcpQueryOptions, setMcpData } from '../queries';
 
 interface McpDraft {
   originalName: string | null;
@@ -94,20 +95,17 @@ function normalizeDraft(draft: McpDraft): {
 }
 
 export function McpPage() {
-  const auth = useAuth();
-  const queryClient = useQueryClient();
+  const token = useAdminToken();
+  const queryClient = useAdminQueryClient();
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [draft, setDraft] = useState<McpDraft>(createDraft());
 
-  const mcpQuery = useQuery({
-    queryKey: ['mcp', auth.token],
-    queryFn: () => fetchMcp(auth.token),
-  });
+  const mcpQuery = useQuery(mcpQueryOptions(token));
 
   const saveMutation = useMutation({
-    mutationFn: () => saveMcpServer(auth.token, normalizeDraft(draft)),
+    mutationFn: () => saveMcpServer(token, normalizeDraft(draft)),
     onSuccess: (payload) => {
-      queryClient.setQueryData(['mcp', auth.token], payload);
+      setMcpData(queryClient, token, payload);
       setSelectedName(draft.name.trim());
       const selected = payload.servers.find(
         (entry) => entry.name === draft.name.trim(),
@@ -117,9 +115,9 @@ export function McpPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => deleteMcpServer(auth.token, draft.name.trim()),
+    mutationFn: () => deleteMcpServer(token, draft.name.trim()),
     onSuccess: (payload) => {
-      queryClient.setQueryData(['mcp', auth.token], payload);
+      setMcpData(queryClient, token, payload);
       setSelectedName(null);
       setDraft(createDraft());
     },

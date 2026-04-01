@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useState } from 'react';
-import { fetchPlugins } from '../api/client';
 import type { AdminPlugin } from '../api/types';
 import { useAuth } from '../auth';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
+import { pluginsQueryOptions } from '../queries';
 
 function formatList(values: string[]): string {
   return values.length > 0 ? values.join(', ') : 'none';
@@ -33,10 +33,7 @@ export function PluginsPage() {
   const deferredFilter = useDeferredValue(filter);
   const filterNeedle = deferredFilter.trim().toLowerCase();
 
-  const pluginsQuery = useQuery({
-    queryKey: ['plugins', auth.token],
-    queryFn: () => fetchPlugins(auth.token),
-  });
+  const pluginsQuery = useQuery(pluginsQueryOptions(auth.token));
 
   const plugins = (pluginsQuery.data?.plugins || []).filter((plugin) =>
     matchesPluginFilter(plugin, filterNeedle),

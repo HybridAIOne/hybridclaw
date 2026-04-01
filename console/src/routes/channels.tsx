@@ -1,15 +1,16 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { deleteChannel, fetchChannels, saveChannel } from '../api/client';
+import { deleteChannel, saveChannel } from '../api/client';
 import type {
   AdminChannelEntry,
   AdminChannelTransport,
   AdminDiscordChannelConfig,
   AdminMSTeamsChannelConfig,
 } from '../api/types';
-import { useAuth } from '../auth';
 import { BooleanField, PageHeader, Panel } from '../components/ui';
+import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
 import { joinStringList, parseStringList } from '../lib/format';
+import { channelsQueryOptions, setChannelsData } from '../queries';
 
 interface ChannelDraft {
   originalId: string | null;
@@ -182,26 +183,23 @@ function summarizeEntry(entry: AdminChannelEntry): string {
 }
 
 export function ChannelsPage() {
-  const auth = useAuth();
-  const queryClient = useQueryClient();
+  const token = useAdminToken();
+  const queryClient = useAdminQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ChannelDraft>(createDraft());
 
-  const channelsQuery = useQuery({
-    queryKey: ['channels', auth.token],
-    queryFn: () => fetchChannels(auth.token),
-  });
+  const channelsQuery = useQuery(channelsQueryOptions(token));
 
   const saveMutation = useMutation({
     mutationFn: () =>
-      saveChannel(auth.token, {
+      saveChannel(token, {
         transport: draft.transport,
         guildId: draft.guildId,
         channelId: draft.channelId,
         config: normalizeConfig(draft),
       }),
     onSuccess: (payload) => {
-      queryClient.setQueryData(['channels', auth.token], payload);
+      setChannelsData(queryClient, token, payload);
       const nextSelected =
         payload.channels.find(
           (entry) =>
@@ -216,14 +214,9 @@ export function ChannelsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: () =>
-      deleteChannel(
-        auth.token,
-        draft.transport,
-        draft.guildId,
-        draft.channelId,
-      ),
+      deleteChannel(token, draft.transport, draft.guildId, draft.channelId),
     onSuccess: (payload) => {
-      queryClient.setQueryData(['channels', auth.token], payload);
+      setChannelsData(queryClient, token, payload);
       setSelectedId(null);
       setDraft(createDraft());
     },

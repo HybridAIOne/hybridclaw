@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import {
   type CSSProperties,
   type DragEvent,
@@ -7,16 +7,18 @@ import {
   useMemo,
   useState,
 } from 'react';
-import {
-  fetchJobsContext,
-  fetchScheduler,
-  moveSchedulerJob,
-  saveSchedulerJob,
-} from '../api/client';
+import { moveSchedulerJob, saveSchedulerJob } from '../api/client';
 import type { AdminSchedulerJob, JobAgent, JobSession } from '../api/types';
-import { useAuth } from '../auth';
 import { PageHeader } from '../components/ui';
+import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
 import { formatDateTime } from '../lib/format';
+import {
+  cancelSchedulerData,
+  jobsContextQueryOptions,
+  replaceSchedulerJobInCache,
+  schedulerQueryOptions,
+  setSchedulerData,
+} from '../queries';
 
 type JobColumnId = 'backlog' | 'in_progress' | 'review' | 'done' | 'cancelled';
 
@@ -176,15 +178,6 @@ function JobCard(props: {
         </article>
       </button>
     </div>
-  );
-}
-
-function replaceSchedulerJob(
-  jobs: AdminSchedulerJob[] | undefined,
-  nextJob: AdminSchedulerJob,
-): AdminSchedulerJob[] {
-  return (jobs || []).map((job) =>
-    job.id === nextJob.id && job.source === 'config' ? nextJob : job,
   );
 }
 
@@ -466,8 +459,8 @@ function JobDetailCard(props: {
 }
 
 export function JobsPage() {
-  const auth = useAuth();
-  const queryClient = useQueryClient();
+  const token = useAdminToken();
+  const queryClient = useAdminQueryClient();
   const [search, setSearch] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [draggedKey, setDraggedKey] = useState<string | null>(null);
@@ -477,47 +470,25 @@ export function JobsPage() {
   );
   const deferredSearch = useDeferredValue(search);
 
-  const schedulerQuery = useQuery({
-    queryKey: ['scheduler', auth.token],
-    queryFn: () => fetchScheduler(auth.token),
-    refetchInterval: 15_000,
-  });
+  const schedulerQuery = useSuspenseQuery(schedulerQueryOptions(token));
 
-  const jobsContextQuery = useQuery({
-    queryKey: ['jobs-context', auth.token],
-    queryFn: () => fetchJobsContext(auth.token),
-    refetchInterval: 15_000,
-  });
+  const jobsContextQuery = useSuspenseQuery(jobsContextQueryOptions(token));
 
   const saveJobMutation = useMutation({
     mutationFn: (job: AdminSchedulerJob & { source: 'config' }) =>
-      saveSchedulerJob(auth.token, job),
+      saveSchedulerJob(token, job),
     onMutate: async (job) => {
-      await queryClient.cancelQueries({
-        queryKey: ['scheduler', auth.token],
-      });
-      const previous = queryClient.getQueryData<{ jobs: AdminSchedulerJob[] }>([
-        'scheduler',
-        auth.token,
-      ]);
-      queryClient.setQueryData<{ jobs: AdminSchedulerJob[] }>(
-        ['scheduler', auth.token],
-        previous
-          ? {
-              ...previous,
-              jobs: replaceSchedulerJob(previous.jobs, job),
-            }
-          : previous,
-      );
+      await cancelSchedulerData(queryClient, token);
+      const previous = replaceSchedulerJobInCache(queryClient, token, job);
       return { previous };
     },
     onError: (_error, _job, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(['scheduler', auth.token], context.previous);
+        setSchedulerData(queryClient, token, context.previous);
       }
     },
     onSuccess: (payload) => {
-      queryClient.setQueryData(['scheduler', auth.token], payload);
+      setSchedulerData(queryClient, token, payload);
     },
   });
 
@@ -527,13 +498,13 @@ export function JobsPage() {
       beforeJobId?: string | null;
       boardStatus: JobColumnId;
     }) =>
-      moveSchedulerJob(auth.token, {
+      moveSchedulerJob(token, {
         jobId: payload.jobId,
         beforeJobId: payload.beforeJobId,
         boardStatus: payload.boardStatus,
       }),
     onSuccess: (payload) => {
-      queryClient.setQueryData(['scheduler', auth.token], payload);
+      setSchedulerData(queryClient, token, payload);
     },
   });
 
@@ -662,18 +633,6 @@ export function JobsPage() {
     setDragOverColumn(null);
   }
 
-  if (schedulerQuery.isLoading && !schedulerQuery.data) {
-    return <div className="empty-state">Loading jobs board...</div>;
-  }
-
-  if (schedulerQuery.isError && !schedulerQuery.data) {
-    return (
-      <div className="empty-state error">
-        {(schedulerQuery.error as Error).message}
-      </div>
-    );
-  }
-
   return (
     <div className="page-stack">
       <PageHeader
@@ -693,11 +652,6 @@ export function JobsPage() {
         }
       />
 
-      {jobsContextQuery.isError ? (
-        <p className="error-banner">
-          {(jobsContextQuery.error as Error).message}
-        </p>
-      ) : null}
       {saveJobMutation.isError ? (
         <p className="error-banner">
           {(saveJobMutation.error as Error).message}
