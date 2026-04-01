@@ -10,6 +10,7 @@ const DEFAULT_WEB_SESSION_ID = 'agent:main:channel:web:chat:dm:peer:default';
 const WEB_SESSION_ID_RE = /^agent:[^:]+:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
 
 const tempDirs: string[] = [];
+const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HYBRIDCLAW_AUTH_SECRET = process.env.HYBRIDCLAW_AUTH_SECRET;
 
 function signAuthPayload(
@@ -197,6 +198,21 @@ function makeTempDataDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-health-data-'));
   tempDirs.push(dir);
   return dir;
+}
+
+function writeRuntimeConfig(
+  homeDir: string,
+  mutator?: (config: Record<string, unknown>) => void,
+): void {
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  const config = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'config.example.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const ops = config.ops as Record<string, unknown>;
+  ops.dbPath = path.join(homeDir, '.hybridclaw', 'data', 'hybridclaw.db');
+  mutator?.(config);
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 }
 
 function makeRequest(params: {
@@ -1011,6 +1027,7 @@ async function importFreshHealth(options?: {
     getAgentById,
     loggerDebug,
     loggerError,
+    loggerWarn,
     handleIMessageWebhook,
     runMessageToolAction,
     normalizeDiscordToolAction,
@@ -1022,6 +1039,7 @@ async function importFreshHealth(options?: {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.doUnmock('node:http');
+  vi.doUnmock('node:dns/promises');
   vi.doUnmock('../src/config/config.ts');
   vi.doUnmock('../src/infra/install-root.js');
   vi.doUnmock('../src/logger.js');
@@ -1039,6 +1057,11 @@ afterEach(() => {
     delete process.env.HYBRIDCLAW_AUTH_SECRET;
   } else {
     process.env.HYBRIDCLAW_AUTH_SECRET = ORIGINAL_HYBRIDCLAW_AUTH_SECRET;
+  }
+  if (ORIGINAL_HOME === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = ORIGINAL_HOME;
   }
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
@@ -3803,6 +3826,216 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual({
       ok: true,
       result: 'plugin-tool-result',
+    });
+  });
+
+  test('dispatches gateway-owned http requests with URL auth rules and secret placeholders', async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-http-'));
+    tempDirs.push(homeDir);
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir, (config) => {
+      const tools = config.tools as Record<string, unknown>;
+      tools.httpRequest = {
+        authRules: [
+          {
+            urlPrefix: 'https://hybridai.one/v1/',
+            header: 'Authorization',
+            prefix: 'Bearer',
+            secret: { source: 'store', id: 'HYBRIDAI_API_KEY' },
+          },
+        ],
+      };
+    });
+
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      HYBRIDAI_API_KEY: 'hai-secret-token',
+      TRACE_TOKEN: 'trace-secret',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      url: 'https://hybridai.one/v1/completions',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      arrayBuffer: async () =>
+        Buffer.from(JSON.stringify({ ok: true, id: 'completion-1' })),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hybridai.one/v1/completions',
+        method: 'POST',
+        headers: {
+          'X-Trace': '<secret:TRACE_TOKEN>',
+        },
+        json: {
+          prompt: 'Hallo Welt!',
+          metadata: {
+            trace: '<secret:TRACE_TOKEN>',
+          },
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer hai-secret-token',
+          'Content-Type': 'application/json',
+          'X-Trace': 'trace-secret',
+        }),
+        body: JSON.stringify({
+          prompt: 'Hallo Welt!',
+          metadata: {
+            trace: 'trace-secret',
+          },
+        }),
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      url: 'https://hybridai.one/v1/completions',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ ok: true, id: 'completion-1' }),
+      json: { ok: true, id: 'completion-1' },
+    });
+  });
+
+  test('blocks outbound http_request redirects to avoid SSRF bypasses', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 302,
+      statusText: 'Found',
+      headers: new Headers({ location: 'http://169.254.169.254/latest' }),
+      body: null,
+      url: 'https://hybridai.one/v1/completions',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hybridai.one/v1/completions',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({ redirect: 'manual' }),
+    );
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Outbound HTTP redirects are blocked by the SSRF guard.',
+    });
+  });
+
+  test('fails closed when dns lookup for http_request host fails', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => {
+        throw new Error('dns unavailable');
+      }),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hybridai.one/v1/completions',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'HTTP request blocked by SSRF guard: private or loopback host (hybridai.one).',
+    });
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: 'hybridai.one',
+        error: expect.any(Error),
+      }),
+      'DNS lookup failed during SSRF host check; treating host as private/blocked',
+    );
+  });
+
+  test('streams outbound http_request responses and aborts once the size limit is exceeded', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(Buffer.alloc(6, 0x61));
+              controller.enqueue(Buffer.alloc(6, 0x62));
+              controller.close();
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/octet-stream' },
+          },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hybridai.one/v1/completions',
+        maxResponseBytes: 10,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(413);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Outbound response exceeded limit (12 bytes > 10).',
     });
   });
 

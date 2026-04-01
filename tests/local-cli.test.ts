@@ -56,13 +56,22 @@ function readRuntimeConfig(homeDir: string): RuntimeConfig {
   ) as RuntimeConfig;
 }
 
-function readRuntimeSecrets(homeDir: string): Record<string, string> {
-  return JSON.parse(
-    fs.readFileSync(
-      path.join(homeDir, '.hybridclaw', 'credentials.json'),
-      'utf-8',
+async function readRuntimeSecrets(
+  homeDir: string,
+): Promise<Record<string, string | null>> {
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+  return {
+    DISCORD_TOKEN: runtimeSecrets.readStoredRuntimeSecret('DISCORD_TOKEN'),
+    EMAIL_PASSWORD: runtimeSecrets.readStoredRuntimeSecret('EMAIL_PASSWORD'),
+    IMESSAGE_PASSWORD:
+      runtimeSecrets.readStoredRuntimeSecret('IMESSAGE_PASSWORD'),
+    MSTEAMS_APP_PASSWORD: runtimeSecrets.readStoredRuntimeSecret(
+      'MSTEAMS_APP_PASSWORD',
     ),
-  ) as Record<string, string>;
+    VLLM_API_KEY: runtimeSecrets.readStoredRuntimeSecret('VLLM_API_KEY'),
+  };
 }
 
 afterEach(() => {
@@ -260,7 +269,7 @@ test('channels discord setup stores the token and allowlisted guild users', asyn
   ]);
 
   const config = readRuntimeConfig(homeDir);
-  const secrets = readRuntimeSecrets(homeDir);
+  const secrets = await readRuntimeSecrets(homeDir);
   expect(config.discord.commandsOnly).toBe(true);
   expect(config.discord.commandMode).toBe('restricted');
   expect(config.discord.commandAllowedUserIds).toEqual([
@@ -298,7 +307,7 @@ test('channels email setup writes config and stores EMAIL_PASSWORD', async () =>
   ]);
 
   const config = readRuntimeConfig(homeDir);
-  const secrets = readRuntimeSecrets(homeDir);
+  const secrets = await readRuntimeSecrets(homeDir);
   expect(config.email.enabled).toBe(true);
   expect(config.email.address).toBe('agent@example.com');
   expect(config.email.imapHost).toBe('imap.example.com');
@@ -352,15 +361,63 @@ test('channels imessage setup configures the remote backend and stores IMESSAGE_
   ]);
 
   const config = readRuntimeConfig(homeDir);
-  const secrets = readRuntimeSecrets(homeDir);
+  const rawConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const rawIMessage = rawConfig.imessage as Record<string, unknown>;
+  const secrets = await readRuntimeSecrets(homeDir);
   expect(config.imessage.enabled).toBe(true);
   expect(config.imessage.backend).toBe('bluebubbles');
   expect(config.imessage.serverUrl).toBe('https://bluebubbles.example.com');
-  expect(config.imessage.password).toBe('');
+  expect(rawIMessage.password).toEqual({
+    source: 'store',
+    id: 'IMESSAGE_PASSWORD',
+  });
   expect(config.imessage.dmPolicy).toBe('allowlist');
   expect(config.imessage.allowFrom).toEqual(['user@example.com']);
   expect(config.imessage.groupPolicy).toBe('disabled');
   expect(secrets.IMESSAGE_PASSWORD).toBe('bluebubbles-password');
+});
+
+test('local configure vllm stores api key in runtime secrets and writes a store ref', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'local',
+    'configure',
+    'vllm',
+    'meta-llama/Llama-3.1-8B-Instruct',
+    '--base-url',
+    'http://127.0.0.1:8000',
+    '--api-key',
+    'vllm-secret-key',
+  ]);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  vi.resetModules();
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  const config = runtimeConfig.getRuntimeConfig();
+  const rawConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const rawLocal = rawConfig.local as Record<string, unknown>;
+  const rawBackends = rawLocal.backends as Record<string, unknown>;
+  const rawVllm = rawBackends.vllm as Record<string, unknown>;
+  const secrets = await readRuntimeSecrets(homeDir);
+
+  expect(config.local.backends.vllm.enabled).toBe(true);
+  expect(config.local.backends.vllm.baseUrl).toBe('http://127.0.0.1:8000/v1');
+  expect(config.local.backends.vllm.apiKey).toBe('vllm-secret-key');
+  expect(rawVllm.apiKey).toEqual({
+    source: 'store',
+    id: 'VLLM_API_KEY',
+  });
+  expect(config.hybridai.defaultModel).toBe(
+    'vllm/meta-llama/Llama-3.1-8B-Instruct',
+  );
+  expect(secrets.VLLM_API_KEY).toBe('vllm-secret-key');
 });
 
 test('channels imessage setup fails fast when the local imsg binary is missing', async () => {
@@ -393,7 +450,7 @@ test('auth login msteams writes config and stores MSTEAMS_APP_PASSWORD', async (
   ]);
 
   const config = readRuntimeConfig(homeDir);
-  const secrets = readRuntimeSecrets(homeDir);
+  const secrets = await readRuntimeSecrets(homeDir);
   expect(config.msteams.enabled).toBe(true);
   expect(config.msteams.appId).toBe('teams-app-id');
   expect(config.msteams.tenantId).toBe('teams-tenant-id');
@@ -423,8 +480,8 @@ test('auth logout msteams clears Teams credentials and disables the integration'
   expect(config.msteams.appId).toBe('');
   expect(config.msteams.tenantId).toBe('');
   if (fs.existsSync(secretsPath)) {
-    const secrets = readRuntimeSecrets(homeDir);
-    expect(secrets.MSTEAMS_APP_PASSWORD).toBeUndefined();
+    const secrets = await readRuntimeSecrets(homeDir);
+    expect(secrets.MSTEAMS_APP_PASSWORD).toBeNull();
   } else {
     expect(fs.existsSync(secretsPath)).toBe(false);
   }

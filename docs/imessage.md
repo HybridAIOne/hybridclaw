@@ -176,18 +176,18 @@ Only do that when you trust the network path.
 
 ### Step 3: Save the BlueBubbles Password
 
-Store the password in `~/.hybridclaw/credentials.json` as `IMESSAGE_PASSWORD`.
+Store the password in the encrypted `~/.hybridclaw/credentials.json` store as
+`IMESSAGE_PASSWORD`.
 
-Example:
+Recommended:
 
-```json
-{
-  "IMESSAGE_PASSWORD": "replace-with-your-bluebubbles-password"
-}
+```bash
+hybridclaw channels imessage setup --backend remote --server-url https://bluebubbles.example.com --password YOUR_IMESSAGE_PASSWORD
 ```
 
-Do not rely on plaintext `imessage.password` in config unless you have a very
-good reason. The secret file is the intended path.
+For headless or container deployments, provide the master key through
+`HYBRIDCLAW_MASTER_KEY` or `/run/secrets/hybridclaw_master_key`. Do not rely on
+plaintext `imessage.password` in config unless you have a very good reason.
 
 ### Step 4: Add the iMessage Config
 

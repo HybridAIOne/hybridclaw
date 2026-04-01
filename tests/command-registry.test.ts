@@ -286,6 +286,59 @@ test('registers config as a local slash/text command', async () => {
   ).toEqual(['config', 'set', 'hybridai.maxTokens', '8192']);
 });
 
+test('registers secret as a local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    parseCanonicalSlashCommandArgs,
+    mapCanonicalCommandToGatewayArgs,
+  } = await importCommandRegistry();
+  expect(isRegisteredTextCommandName('secret')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'secret',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'secret',
+      }),
+    ]),
+  );
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'secret',
+      getString: () => null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['secret']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'secret',
+      getString: (name) =>
+        name === 'action'
+          ? 'set'
+          : name === 'name'
+            ? 'STAGING_HYBRIDAI_API_KEY'
+            : name === 'value'
+              ? 'demo_key_2024'
+              : null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['secret', 'set', 'STAGING_HYBRIDAI_API_KEY', 'demo_key_2024']);
+  expect(mapCanonicalCommandToGatewayArgs(['secret'])).toEqual(['secret']);
+  expect(
+    mapCanonicalCommandToGatewayArgs([
+      'secret',
+      'set',
+      'STAGING_HYBRIDAI_API_KEY',
+      'demo_key_2024',
+    ]),
+  ).toEqual(['secret', 'set', 'STAGING_HYBRIDAI_API_KEY', 'demo_key_2024']);
+});
+
 test('parses /concierge profile into gateway args', async () => {
   const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
     await importCommandRegistry();

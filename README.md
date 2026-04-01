@@ -163,20 +163,58 @@ hybridclaw local configure ollama llama3.2
 ```
 
 - `hybridclaw auth login` without a provider runs the normal onboarding flow.
-- `hybridclaw auth login hybridai` auto-selects browser login on local GUI machines and a manual/headless API-key flow on SSH, CI, and container shells. `--import` copies the current `HYBRIDAI_API_KEY` from your shell into `~/.hybridclaw/credentials.json`, and `--base-url` updates `hybridai.baseUrl` before login.
+- `hybridclaw auth login hybridai` auto-selects browser login on local GUI machines and a manual/headless API-key flow on SSH, CI, and container shells. `--import` copies the current `HYBRIDAI_API_KEY` from your shell into the encrypted `~/.hybridclaw/credentials.json` store, and `--base-url` updates `hybridai.baseUrl` before login.
 - `hybridclaw auth login codex` auto-selects browser PKCE on local GUI machines and device code on headless or remote shells.
 - `hybridclaw auth login openrouter` accepts `--api-key`, falls back to `OPENROUTER_API_KEY`, or prompts you to paste the key, then enables the provider and can set the global default model.
 - `hybridclaw auth login mistral` accepts `--api-key`, falls back to `MISTRAL_API_KEY`, or prompts you to paste the key, then enables the provider and can set the global default model.
 - `hybridclaw auth login huggingface` accepts `--api-key`, falls back to `HF_TOKEN`, or prompts you to paste the token, then enables the provider and can set the global default model.
 - `hybridclaw auth login local` configures Ollama, LM Studio, llama.cpp, or vLLM in `~/.hybridclaw/config.json`.
-- `hybridclaw auth login msteams` enables Microsoft Teams, stores `MSTEAMS_APP_PASSWORD` in `~/.hybridclaw/credentials.json`, and can prompt for the app id, app password, and optional tenant id.
+- `hybridclaw auth login msteams` enables Microsoft Teams, stores `MSTEAMS_APP_PASSWORD` in the encrypted `~/.hybridclaw/credentials.json` store, and can prompt for the app id, app password, and optional tenant id.
 - `hybridclaw auth status hybridai` reports the local auth source, masked API key, active config file, base URL, and default model without printing the credentials file path.
 - `hybridclaw auth logout local` disables configured local backends and clears any saved vLLM API key.
 - `hybridclaw auth logout msteams` clears the stored Teams app password and disables the Teams integration in config.
 - `hybridclaw auth whatsapp reset` clears linked WhatsApp Web auth without starting a new pairing session.
-- HybridAI, OpenRouter, Mistral, Hugging Face, Discord, email, Teams, and BlueBubbles iMessage secrets are stored in `~/.hybridclaw/credentials.json`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
+- HybridAI, OpenRouter, Mistral, Hugging Face, Discord, email, Teams, and BlueBubbles iMessage secrets are stored encrypted in `~/.hybridclaw/credentials.json`. The encryption key is sourced from `HYBRIDCLAW_MASTER_KEY`, `/run/secrets/hybridclaw_master_key`, or the local owner-only `~/.hybridclaw/credentials.master.key`. Codex OAuth credentials are stored separately in `~/.hybridclaw/codex-auth.json`.
+- Local TUI and web sessions can also manage encrypted named secrets with `/secret list`, `/secret set <name> <value>`, `/secret unset <name>`, `/secret show <name>`, and `/secret route add <url-prefix> <secret-name> [header] [prefix|none]`.
 - Only one running HybridClaw process should own `~/.hybridclaw/credentials/whatsapp` at a time. If WhatsApp Web shows duplicate Chrome/Ubuntu linked devices or reconnect/auth drift starts, stop the extra process, run `hybridclaw auth whatsapp reset`, then pair again with `hybridclaw channels whatsapp setup`.
 - Use `hybridclaw help`, `hybridclaw help auth`, `hybridclaw help openrouter`, `hybridclaw help mistral`, `hybridclaw help huggingface`, or `hybridclaw help local` for CLI-specific reference output.
+
+## Secrets And Authenticated API Calls
+
+HybridClaw can keep API keys out of model-visible prompts and tool arguments.
+
+```text
+/secret set STAGING_HYBRIDAI_API_KEY demo_key_2024
+/secret route add https://staging.hybridai.one/api/v1/ STAGING_HYBRIDAI_API_KEY X-API-Key none
+```
+
+After that, the model can just ask for the API call in natural language:
+
+```text
+POST to https://staging.hybridai.one/api/v1/virtual-bots/survey with JSON:
+{
+  "question": "Climate change is the biggest threat to humanity.",
+  "sample_size": 10,
+  "survey": "eurobarometer",
+  "gender": "Man",
+  "min_age": 25,
+  "max_age": 65
+}
+```
+
+Or you can use an explicit placeholder:
+
+```text
+POST to https://staging.hybridai.one/api/v1/virtual-bots/survey with header X-API-Key: <secret:STAGING_HYBRIDAI_API_KEY> and the same JSON body.
+```
+
+- The model only sees the secret name or placeholder, never the real token.
+- The gateway injects the real header at request time via `http_request`.
+- Tool-call audit records redact injected secret values before persistence.
+- Selected config fields such as `ops.webApiToken`, `ops.gatewayApiToken`,
+  `imessage.password`, and `local.backends.vllm.apiKey` can also use
+  SecretRefs like `{ "source": "store", "id": "IMESSAGE_PASSWORD" }` or
+  `${ENV_VAR}` instead of plaintext config values.
 
 ## Setting Up MS Teams
 
@@ -266,8 +304,8 @@ Runtime model:
 HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most runtime settings.
 
 - Start from `config.example.json` (reference).
-- Runtime state lives under `~/.hybridclaw/` (`config.json`, `credentials.json`, `data/hybridclaw.db`, audit/session files). Set `HYBRIDCLAW_DATA_DIR` to an absolute path to relocate the full runtime home, including browser profiles and agent workspaces.
-- HybridClaw does not keep runtime state in the current working directory. If `./.env` exists, supported secrets are migrated once into `~/.hybridclaw/credentials.json`.
+- Runtime state lives under `~/.hybridclaw/` (`config.json`, encrypted `credentials.json`, `credentials.master.key`, `data/hybridclaw.db`, audit/session files). Set `HYBRIDCLAW_DATA_DIR` to an absolute path to relocate the full runtime home, including browser profiles and agent workspaces.
+- HybridClaw does not keep runtime state in the current working directory. If `./.env` exists, supported secrets are migrated once into the encrypted `~/.hybridclaw/credentials.json` store.
 - `container.*` controls execution isolation, including `sandboxMode`, `memory`, `memorySwap`, `cpus`, `network`, `binds`, and additional mounts.
 - `hybridclaw config` prints the active runtime config path and current config, `config check` validates only the config file itself, `config reload` performs an immediate in-process hot reload, and `config set <key> <value>` updates one existing dotted key path and re-validates the result.
 - Use `container.binds` for explicit host-to-container mounts in `host:container[:ro|rw]` format. Mounted paths appear inside the sandbox under `/workspace/extra/<container>`.
@@ -281,14 +319,15 @@ HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads most
 - `plugins.list[]` controls plugin overrides such as `enabled`, custom `path`, and top-level `config` values. Use `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused edits without rewriting the full config file.
 - `observability.*` controls HybridAI observability ingest, including the target base URL, bot and agent ids, flush interval, and batch size for structured audit event forwarding.
 - `adaptiveSkills.*` controls observation, inspection, amendment staging, and rollback for the self-improving skill loop. See [docs/development/extensibility/adaptive-skills.md](./docs/development/extensibility/adaptive-skills.md) for the operator workflow.
-- `imessage.*` controls the dual-backend iMessage transport. Use `backend: "local"` on macOS with `imsg` + `chat.db`, or `backend: "bluebubbles"` for a remote Mac relay via BlueBubbles. Prefer storing the BlueBubbles password in `~/.hybridclaw/credentials.json` as `IMESSAGE_PASSWORD` instead of plaintext config.
+- `imessage.*` controls the dual-backend iMessage transport. Use `backend: "local"` on macOS with `imsg` + `chat.db`, or `backend: "bluebubbles"` for a remote Mac relay via BlueBubbles. Prefer storing the BlueBubbles password in the encrypted `~/.hybridclaw/credentials.json` store as `IMESSAGE_PASSWORD` instead of plaintext config.
 - `email.pollIntervalMs` defaults to `30000` (30 seconds) and is clamped to a minimum of `1000`.
 - `ops.webApiToken` (or `WEB_API_TOKEN`) gates the built-in `/chat`, `/agents`, and `/admin` surfaces plus the admin API. When unset, localhost browser access stays open without a login prompt.
+- `tools.httpRequest.authRules[]` configures gateway-side URL-based auth injection for `http_request`, for example mapping `https://staging.hybridai.one/api/v1/` to `X-API-Key` plus a stored secret ref.
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently written to `~/.hybridclaw/config.json` as plain text. Use low-privilege tokens only, set `chmod 700 ~/.hybridclaw && chmod 600 ~/.hybridclaw/config.json`, and prefer `host` sandbox mode for stdio MCP servers that depend on host-installed tools.
 - `media.audio` controls shared inbound audio transcription. By default it auto-detects local CLIs first (`sherpa-onnx-offline`, `whisper-cli`, `whisper`), then `gemini`, then provider keys (`openai`, `groq`, `deepgram`, `google`).
 - `whisper-cli` auto-detect also needs a whisper.cpp model file. If the binary exists but HybridClaw still skips local transcription, set `WHISPER_CPP_MODEL` to a local `ggml-*.bin` model path.
 - If no transcript backend is available, the container tries native model audio input before tool-use fallback for supported local providers. Today that fallback is enabled for `vllm` sessions and uses the original current-turn audio attachment.
-- Keep runtime secrets in `~/.hybridclaw/credentials.json` (`HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`, `EMAIL_PASSWORD`, `IMESSAGE_PASSWORD`, `MSTEAMS_APP_PASSWORD`). Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
+- Keep runtime secrets in the encrypted `~/.hybridclaw/credentials.json` store (`HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_TOKEN`, `EMAIL_PASSWORD`, `IMESSAGE_PASSWORD`, `MSTEAMS_APP_PASSWORD`). The master key should come from `HYBRIDCLAW_MASTER_KEY` or `/run/secrets/hybridclaw_master_key` on headless hosts; otherwise HybridClaw creates an owner-only `~/.hybridclaw/credentials.master.key`. Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 - Trust-model acceptance is stored in `~/.hybridclaw/config.json` under `security.*` and is required before runtime starts. In headless environments, set `HYBRIDCLAW_ACCEPT_TRUST=true` to persist acceptance automatically before credential checks run.
 - See [TRUST_MODEL.md](./TRUST_MODEL.md) for onboarding acceptance policy and [SECURITY.md](./SECURITY.md) for technical security guidelines.
 - For contributor workflow, see [CONTRIBUTING.md](./CONTRIBUTING.md). For deeper runtime, skills, release, voice/TTS, and maintainer reference docs, see [docs/development/README.md](./docs/development/README.md).

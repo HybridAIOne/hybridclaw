@@ -62,6 +62,7 @@ import {
 import {
   getRuntimeConfig,
   type RuntimeConfig,
+  type RuntimeHttpRequestAuthRule,
   reloadRuntimeConfig,
   resolveDefaultAgentId,
   runtimeConfigPath,
@@ -172,7 +173,14 @@ import { readOpenRouterApiKey } from '../providers/openrouter-utils.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
-import { runtimeSecretsPath } from '../security/runtime-secrets.js';
+import {
+  isReservedNonSecretRuntimeName,
+  isRuntimeSecretName,
+  listStoredRuntimeSecretNames,
+  readStoredRuntimeSecret,
+  runtimeSecretsPath,
+  saveNamedRuntimeSecrets,
+} from '../security/runtime-secrets.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
 import { parseSessionKey } from '../session/session-key.js';
@@ -523,6 +531,7 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'web_search',
   'web_fetch',
   'web_extract',
+  'http_request',
   'message',
   'browser_navigate',
   'browser_snapshot',
@@ -1878,6 +1887,59 @@ function infoCommand(
 
 function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
+}
+
+function normalizeUrlPrefix(raw: string): string {
+  const value = String(raw || '').trim();
+  if (!value) {
+    throw new Error('URL prefix is required.');
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`Invalid URL prefix: ${value}`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Unsupported URL prefix protocol: ${parsed.protocol}`);
+  }
+  parsed.username = '';
+  parsed.password = '';
+  parsed.search = '';
+  parsed.hash = '';
+  const pathname = parsed.pathname || '/';
+  parsed.pathname = `${pathname.replace(/\/+$/, '') || ''}/`;
+  return parsed.toString();
+}
+
+function normalizeSecretRouteHeader(raw: string | undefined): string {
+  const header = String(raw || 'Authorization').trim();
+  if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(header)) {
+    throw new Error(`Invalid header name: ${header}`);
+  }
+  return header;
+}
+
+function normalizeSecretRoutePrefix(raw: string | undefined): string {
+  const normalized = String(raw || 'Bearer').trim();
+  if (!normalized || normalized.toLowerCase() === 'none') {
+    return '';
+  }
+  return normalized;
+}
+
+function formatHttpRequestAuthRule(
+  rule: RuntimeHttpRequestAuthRule,
+  index: number,
+): string {
+  const parsedSecret =
+    typeof rule.secret === 'string'
+      ? rule.secret
+      : typeof rule.secret.id === 'string'
+        ? `${rule.secret.source}:${rule.secret.id}`
+        : '<invalid>';
+  const prefix = rule.prefix ? ` ${rule.prefix}` : '';
+  return `${index + 1}. ${rule.urlPrefix} -> ${rule.header}:${prefix} ${parsedSecret}`.trim();
 }
 
 function formatRatioAsPercent(value: number): string {
@@ -4599,6 +4661,25 @@ export async function handleGatewayCommand(
             scope: 'both',
           },
           {
+            command: 'secret set <name> <value>',
+            description:
+              'Store an encrypted named secret for local gateway use',
+            scope: 'both',
+          },
+          {
+            command: 'secret list',
+            description:
+              'List stored secret names and configured URL auth rules',
+            scope: 'both',
+          },
+          {
+            command:
+              'secret route add <url-prefix> <secret-name> [header] [prefix|none]',
+            description:
+              'Auto-inject a secret-backed header for matching outbound HTTP requests',
+            scope: 'both',
+          },
+          {
             command: 'config',
             description: 'Show the local runtime config file',
             scope: 'both',
@@ -5704,6 +5785,227 @@ export async function handleGatewayCommand(
           );
         }
         return badCommand('Usage', 'Usage: `auth status hybridai`');
+      }
+
+      case 'secret': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Secret Command Restricted',
+            '`secret` reads or writes local encrypted secrets and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const sub = (req.args[1] || '').trim().toLowerCase();
+        if (!sub || sub === 'list') {
+          const config = getRuntimeConfig();
+          const secretNames = listStoredRuntimeSecretNames();
+          const rules = config.tools.httpRequest.authRules;
+          const text = [
+            `Encrypted store: ${runtimeSecretsPath()}`,
+            `Secrets: ${secretNames.length > 0 ? secretNames.join(', ') : '(none)'}`,
+            '',
+            'HTTP auth routes:',
+            ...(rules.length > 0
+              ? rules.map((rule, index) =>
+                  formatHttpRequestAuthRule(rule, index),
+                )
+              : ['(none)']),
+          ].join('\n');
+          return infoCommand('Secrets', text);
+        }
+
+        if (sub === 'set') {
+          const secretName = String(req.args[2] || '').trim();
+          const secretValue = req.args.slice(3).join(' ').trim();
+          if (!secretName || !secretValue) {
+            return badCommand('Usage', 'Usage: `secret set <name> <value>`');
+          }
+          if (!isRuntimeSecretName(secretName)) {
+            return badCommand(
+              'Invalid Secret Name',
+              'Secret names must use uppercase letters, digits, and underscores only.',
+            );
+          }
+          if (isReservedNonSecretRuntimeName(secretName)) {
+            return badCommand(
+              'Reserved Non-Secret Name',
+              `\`${secretName}\` is a normal runtime config key and cannot be stored in encrypted secrets.`,
+            );
+          }
+          saveNamedRuntimeSecrets({ [secretName]: secretValue });
+          return plainCommand(
+            `Stored encrypted secret \`${secretName}\` in \`${runtimeSecretsPath()}\`.`,
+          );
+        }
+
+        if (sub === 'unset' || sub === 'delete' || sub === 'remove') {
+          const secretName = String(req.args[2] || '').trim();
+          if (!secretName) {
+            return badCommand('Usage', 'Usage: `secret unset <name>`');
+          }
+          if (!isRuntimeSecretName(secretName)) {
+            return badCommand(
+              'Invalid Secret Name',
+              'Secret names must use uppercase letters, digits, and underscores only.',
+            );
+          }
+          if (isReservedNonSecretRuntimeName(secretName)) {
+            return badCommand(
+              'Reserved Non-Secret Name',
+              `\`${secretName}\` is a normal runtime config key and is not stored in encrypted secrets.`,
+            );
+          }
+          saveNamedRuntimeSecrets({ [secretName]: null });
+          return plainCommand(`Removed encrypted secret \`${secretName}\`.`);
+        }
+
+        if (sub === 'route') {
+          const action = (req.args[2] || '').trim().toLowerCase();
+          if (!action || action === 'list') {
+            const rules = getRuntimeConfig().tools.httpRequest.authRules;
+            return infoCommand(
+              'Secret Routes',
+              rules.length > 0
+                ? rules
+                    .map((rule, index) =>
+                      formatHttpRequestAuthRule(rule, index),
+                    )
+                    .join('\n')
+                : '(none)',
+            );
+          }
+
+          if (action === 'add') {
+            const rawPrefix = String(req.args[3] || '').trim();
+            const secretName = String(req.args[4] || '').trim();
+            const rawHeader = String(req.args[5] || '').trim();
+            const rawAuthPrefix = String(req.args[6] || '').trim();
+            if (!rawPrefix || !secretName) {
+              return badCommand(
+                'Usage',
+                'Usage: `secret route add <url-prefix> <secret-name> [header] [prefix|none]`',
+              );
+            }
+            if (!isRuntimeSecretName(secretName)) {
+              return badCommand(
+                'Invalid Secret Name',
+                'Secret names must use uppercase letters, digits, and underscores only.',
+              );
+            }
+            if (isReservedNonSecretRuntimeName(secretName)) {
+              return badCommand(
+                'Reserved Non-Secret Name',
+                `\`${secretName}\` is a normal runtime config key and cannot be used as an encrypted secret route target.`,
+              );
+            }
+            try {
+              const urlPrefix = normalizeUrlPrefix(rawPrefix);
+              const header = normalizeSecretRouteHeader(rawHeader);
+              const prefix = normalizeSecretRoutePrefix(rawAuthPrefix);
+              updateRuntimeConfig((draft) => {
+                const nextRule: RuntimeHttpRequestAuthRule = {
+                  urlPrefix,
+                  header,
+                  prefix,
+                  secret: { source: 'store', id: secretName },
+                };
+                draft.tools.httpRequest.authRules =
+                  draft.tools.httpRequest.authRules.filter(
+                    (rule) =>
+                      !(
+                        rule.urlPrefix === urlPrefix &&
+                        rule.header.toLowerCase() === header.toLowerCase()
+                      ),
+                  );
+                draft.tools.httpRequest.authRules.push(nextRule);
+              });
+              const authLabel = prefix
+                ? `${header}: ${prefix} <secret>`
+                : `${header}: <secret>`;
+              return plainCommand(
+                `Added secret route for \`${urlPrefix}\` using \`${secretName}\` as \`${authLabel}\`.`,
+              );
+            } catch (error) {
+              return badCommand(
+                'Secret Route Failed',
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          }
+
+          if (action === 'remove') {
+            const rawPrefix = String(req.args[3] || '').trim();
+            const rawHeader = String(req.args[4] || '').trim();
+            if (!rawPrefix) {
+              return badCommand(
+                'Usage',
+                'Usage: `secret route remove <url-prefix> [header]`',
+              );
+            }
+            try {
+              const urlPrefix = normalizeUrlPrefix(rawPrefix);
+              const header = rawHeader
+                ? normalizeSecretRouteHeader(rawHeader)
+                : '';
+              let removed = 0;
+              updateRuntimeConfig((draft) => {
+                const before = draft.tools.httpRequest.authRules.length;
+                draft.tools.httpRequest.authRules =
+                  draft.tools.httpRequest.authRules.filter((rule) => {
+                    if (rule.urlPrefix !== urlPrefix) return true;
+                    if (
+                      header &&
+                      rule.header.toLowerCase() !== header.toLowerCase()
+                    ) {
+                      return true;
+                    }
+                    return false;
+                  });
+                removed = before - draft.tools.httpRequest.authRules.length;
+              });
+              return plainCommand(
+                removed > 0
+                  ? `Removed ${removed} secret route${removed === 1 ? '' : 's'} for \`${urlPrefix}\`.`
+                  : `No secret routes matched \`${urlPrefix}\`.`,
+              );
+            } catch (error) {
+              return badCommand(
+                'Secret Route Failed',
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          }
+
+          return badCommand(
+            'Usage',
+            'Usage: `secret route list`, `secret route add <url-prefix> <secret-name> [header] [prefix|none]`, or `secret route remove <url-prefix> [header]`',
+          );
+        }
+
+        if (sub === 'show' || sub === 'status') {
+          const secretName = String(req.args[2] || '').trim();
+          if (!secretName) {
+            return badCommand('Usage', 'Usage: `secret show <name>`');
+          }
+          if (!isRuntimeSecretName(secretName)) {
+            return badCommand(
+              'Invalid Secret Name',
+              'Secret names must use uppercase letters, digits, and underscores only.',
+            );
+          }
+          const stored = readStoredRuntimeSecret(secretName);
+          return infoCommand(
+            'Secret Status',
+            [`Name: ${secretName}`, `Stored: ${stored ? 'yes' : 'no'}`].join(
+              '\n',
+            ),
+          );
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `secret list`, `secret set <name> <value>`, `secret unset <name>`, `secret show <name>`, or `secret route list|add|remove ...`',
+        );
       }
 
       case 'config': {

@@ -359,6 +359,24 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(second.tier).toBe('yellow');
   });
 
+  test('http_request uses the same host-scoped network approval classification', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'https://hybridai.one/v1/completions',
+        method: 'POST',
+      }),
+      latestUserPrompt: 'Call the completions API',
+    });
+
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.actionKey).toBe('network:hybridai.one');
+  });
+
   test('approval prompt lists text approval options in order for non-pinned actions', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

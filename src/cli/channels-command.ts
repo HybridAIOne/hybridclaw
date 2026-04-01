@@ -11,9 +11,11 @@ import {
   getRuntimeConfig,
   type IMessageBackend,
   runtimeConfigPath,
+  setRuntimeConfigSecretInput,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import {
+  readStoredRuntimeSecret,
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
@@ -693,9 +695,13 @@ async function resolveInteractiveEmailSetup(params: {
   let imapHost = params.imapHost;
   let smtpHost = params.smtpHost;
   let password = params.password;
+  const hasEnvOrStoredPassword = Boolean(
+    process.env.EMAIL_PASSWORD?.trim() ||
+      readStoredRuntimeSecret('EMAIL_PASSWORD'),
+  );
   let passwordSource: 'explicit' | 'prompt' | 'env' = password
     ? 'explicit'
-    : process.env.EMAIL_PASSWORD?.trim()
+    : hasEnvOrStoredPassword
       ? 'env'
       : 'prompt';
   let allowFrom = params.allowFrom;
@@ -919,7 +925,10 @@ async function configureEmailChannel(args: string[]): Promise<void> {
     imapPort: parsed.imapPort || currentConfig.imapPort,
     imapSecure: parsed.imapSecure ?? currentConfig.imapSecure,
     password:
-      parsed.password?.trim() || process.env.EMAIL_PASSWORD?.trim() || '',
+      parsed.password?.trim() ||
+      process.env.EMAIL_PASSWORD?.trim() ||
+      readStoredRuntimeSecret('EMAIL_PASSWORD') ||
+      '',
     smtpHost: parsed.smtpHost || currentConfig.smtpHost,
     smtpPort: parsed.smtpPort || currentConfig.smtpPort,
     smtpSecure: parsed.smtpSecure ?? currentConfig.smtpSecure,
@@ -1104,12 +1113,28 @@ async function configureIMessageChannel(args: string[]): Promise<void> {
 
   const shouldSavePassword =
     backend === 'bluebubbles' && Boolean(parsed.password?.trim());
+  const hasStoredPassword =
+    backend === 'bluebubbles' &&
+    Boolean(readStoredRuntimeSecret('IMESSAGE_PASSWORD'));
   const secretsPath = shouldSavePassword
     ? saveRuntimeSecrets({ IMESSAGE_PASSWORD: parsed.password })
     : runtimeSecretsPath();
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   if (backend === 'bluebubbles') {
+    if (shouldSavePassword || hasStoredPassword) {
+      setRuntimeConfigSecretInput(
+        'imessage.password',
+        {
+          source: 'store',
+          id: 'IMESSAGE_PASSWORD',
+        },
+        {
+          route: 'cli.channels.imessage.setup-secret-ref',
+          source: 'user',
+        },
+      );
+    }
     if (shouldSavePassword) {
       console.log(`Saved iMessage password to ${secretsPath}.`);
     } else {

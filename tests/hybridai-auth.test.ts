@@ -181,13 +181,13 @@ describe('HybridAI auth credential management', () => {
       path: path.join(homeDir, '.hybridclaw', 'credentials.json'),
       validated: false,
     });
-    expect(
-      JSON.parse(fs.readFileSync(result.path, 'utf-8')) as {
-        HYBRIDAI_API_KEY?: string;
-      },
-    ).toEqual({
-      HYBRIDAI_API_KEY: 'hai-import1234567890',
-    });
+    const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+    expect(runtimeSecrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
+      'hai-import1234567890',
+    );
+    expect(fs.readFileSync(result.path, 'utf-8')).not.toContain(
+      'hai-import1234567890',
+    );
   });
 
   it('clears stored HybridAI credentials', async () => {

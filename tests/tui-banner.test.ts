@@ -148,6 +148,7 @@ test('wraps panel rows for very narrow terminals and defaults provider to Hybrid
     '│ /agent                     │',
     '│ /approve                   │',
     '│ /audit                     │',
+    '│ /auth                      │',
     '│ /bot                       │',
     '│ /channel-mode              │',
     '│ /channel-policy            │',

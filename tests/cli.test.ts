@@ -440,6 +440,8 @@ async function importFreshCli(options?: {
     };
   });
   const saveRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
+  const readStoredRuntimeSecret = vi.fn(() => null);
+  const readStoredRuntimeSecrets = vi.fn(() => ({}));
   const loadSkillCatalog = vi.fn(() => [
     { name: 'pdf' },
     { name: 'docx' },
@@ -1008,6 +1010,8 @@ async function importFreshCli(options?: {
   }));
   vi.doMock('../src/security/runtime-secrets.ts', () => ({
     loadRuntimeSecrets: vi.fn(),
+    readStoredRuntimeSecret,
+    readStoredRuntimeSecrets,
     runtimeSecretsPath: vi.fn(() => '/tmp/credentials.json'),
     saveRuntimeSecrets,
   }));
@@ -1097,6 +1101,8 @@ async function importFreshCli(options?: {
     whatsappStart,
     whatsappStop,
     whatsappWaitForSocket,
+    readStoredRuntimeSecret,
+    readStoredRuntimeSecrets,
     saveRuntimeSecrets,
     ensureRuntimeConfigFile,
     clearRuntimeConfigRevisions,
@@ -3950,6 +3956,7 @@ describe('CLI hybridai commands', () => {
 
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw gateway start --foreground',
+      requireCredentials: false,
     });
     expect(ensureGatewayRunDir).toHaveBeenCalled();
     expect(writeGatewayPid).toHaveBeenCalledWith(
@@ -4084,6 +4091,7 @@ describe('CLI hybridai commands', () => {
     expect(gatewayHealth).toHaveBeenCalled();
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw tui',
+      requireCredentials: false,
     });
     expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
     expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
@@ -4125,6 +4133,7 @@ describe('CLI hybridai commands', () => {
 
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw tui',
+      requireCredentials: false,
     });
     expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
     expect(ensureContainerImageReady).not.toHaveBeenCalled();
@@ -4160,6 +4169,7 @@ describe('CLI hybridai commands', () => {
 
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({
       commandName: 'hybridclaw tui',
+      requireCredentials: false,
     });
     expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
     expect(ensureHostRuntimeReady).not.toHaveBeenCalled();

@@ -84,6 +84,16 @@ async function runHybridAIOnboarding(commandName: string): Promise<string> {
         actual.loadRuntimeSecrets(targetHomeDir ?? homeDir, homeDir),
     };
   });
+  vi.doMock('../src/security/runtime-secrets-bootstrap.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets-bootstrap.ts')
+    >('../src/security/runtime-secrets-bootstrap.ts');
+    return {
+      ...actual,
+      bootstrapRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.bootstrapRuntimeSecrets(targetHomeDir ?? homeDir),
+    };
+  });
   vi.stubGlobal(
     'fetch',
     vi.fn(
@@ -130,6 +140,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.doUnmock('node:readline/promises');
   vi.doUnmock('../src/security/runtime-secrets.ts');
+  vi.doUnmock('../src/security/runtime-secrets-bootstrap.ts');
   vi.doUnmock('../src/migration/agent-home-migration.js');
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
@@ -212,6 +223,8 @@ test('first-run onboarding offers Hermes migration before auth setup', async () 
   ];
   const migrateAgentHomeMock = vi.fn(async () => {
     const runtimeRoot = path.join(homeDir, '.hybridclaw');
+    process.env.HOME = homeDir;
+    const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
     fs.mkdirSync(
       path.join(runtimeRoot, 'data', 'agents', 'main', 'workspace'),
       {
@@ -221,11 +234,9 @@ test('first-run onboarding offers Hermes migration before auth setup', async () 
     fs.mkdirSync(path.join(runtimeRoot, 'migration', 'hermes', 'test-run'), {
       recursive: true,
     });
-    fs.writeFileSync(
-      path.join(runtimeRoot, 'credentials.json'),
-      `${JSON.stringify({ HYBRIDAI_API_KEY: 'hai-imported-from-hermes' }, null, 2)}\n`,
-      'utf-8',
-    );
+    runtimeSecrets.saveRuntimeSecrets({
+      HYBRIDAI_API_KEY: 'hai-imported-from-hermes',
+    });
     process.env.HYBRIDAI_API_KEY = 'hai-imported-from-hermes';
     return {
       sourceKind: 'hermes',
@@ -297,7 +308,7 @@ test('first-run onboarding offers Hermes migration before auth setup', async () 
   expect(fs.existsSync(path.join(runtimeRoot, 'credentials.json'))).toBe(true);
   expect(
     fs.readFileSync(path.join(runtimeRoot, 'credentials.json'), 'utf-8'),
-  ).toContain('hai-imported-from-hermes');
+  ).not.toContain('hai-imported-from-hermes');
   expect(migrateAgentHomeMock).toHaveBeenCalled();
 });
 
@@ -305,6 +316,58 @@ test('interactive onboarding does not print the start hint when TUI is already l
   const output = await runHybridAIOnboarding('hybridclaw tui');
 
   expect(output).not.toContain('Start HybridClaw now with `hybridclaw tui`.');
+});
+
+test('tui bootstrap does not prompt for remote auth when trust is already accepted', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'mistral/mistral-large-latest';
+  });
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  delete process.env.HYBRIDAI_API_KEY;
+  process.chdir(homeDir);
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+
+  const questionSpy = vi.fn(async () => {
+    throw new Error('Unexpected onboarding prompt');
+  });
+  vi.doMock('node:readline/promises', () => ({
+    default: {
+      createInterface: () => ({
+        question: questionSpy,
+        close: vi.fn(),
+      }),
+    },
+  }));
+  vi.resetModules();
+
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  runtimeConfig.acceptSecurityTrustModel({
+    acceptedAt: '2026-03-10T10:00:00.000Z',
+    acceptedBy: 'test',
+  });
+
+  const lines: string[] = [];
+  vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map((value) => String(value)).join(' '));
+  });
+  const onboarding = await import('../src/onboarding.ts');
+  await onboarding.ensureRuntimeCredentials({
+    commandName: 'hybridclaw tui',
+    requireCredentials: false,
+  });
+
+  expect(questionSpy).not.toHaveBeenCalled();
+  expect(lines.join('\n')).not.toContain('Choose auth method');
 });
 
 test('interactive onboarding does not print the start hint after auth login', async () => {
@@ -352,6 +415,16 @@ test('interactive onboarding lets users skip remote auth for local models', asyn
       ...actual,
       loadRuntimeSecrets: (targetHomeDir?: string) =>
         actual.loadRuntimeSecrets(targetHomeDir ?? homeDir, homeDir),
+    };
+  });
+  vi.doMock('../src/security/runtime-secrets-bootstrap.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets-bootstrap.ts')
+    >('../src/security/runtime-secrets-bootstrap.ts');
+    return {
+      ...actual,
+      bootstrapRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.bootstrapRuntimeSecrets(targetHomeDir ?? homeDir),
     };
   });
   const fetchSpy = vi.fn();
@@ -421,6 +494,16 @@ test('interactive HybridAI onboarding defaults the saved bot to the account chat
       ...actual,
       loadRuntimeSecrets: (targetHomeDir?: string) =>
         actual.loadRuntimeSecrets(targetHomeDir ?? homeDir, homeDir),
+    };
+  });
+  vi.doMock('../src/security/runtime-secrets-bootstrap.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets-bootstrap.ts')
+    >('../src/security/runtime-secrets-bootstrap.ts');
+    return {
+      ...actual,
+      bootstrapRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.bootstrapRuntimeSecrets(targetHomeDir ?? homeDir),
     };
   });
   vi.stubGlobal(

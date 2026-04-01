@@ -19,7 +19,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     label: 'Web',
-    tools: ['web_search', 'web_fetch', 'web_extract'],
+    tools: ['web_search', 'web_fetch', 'web_extract', 'http_request'],
   },
   {
     label: 'Browser',

@@ -33,10 +33,11 @@ import {
   resolveRuntimeInstructionPath,
 } from './security/instruction-integrity.js';
 import {
-  loadRuntimeSecrets,
+  readStoredRuntimeSecret,
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from './security/runtime-secrets.js';
+import { bootstrapRuntimeSecrets } from './security/runtime-secrets-bootstrap.js';
 import type { HybridAIBot } from './types/hybridai.js';
 import { promptForSecretInput } from './utils/secret-prompt.js';
 
@@ -50,6 +51,7 @@ interface ApiKeyValidationResult {
 interface OnboardingOptions {
   force?: boolean;
   commandName?: string;
+  requireCredentials?: boolean;
   preferredAuth?:
     | 'hybridai'
     | 'openai-codex'
@@ -878,7 +880,6 @@ async function runHybridAIApiKeyOnboarding(params: {
 
   const secretsPath = saveHybridAICredentials(apiKey);
   saveDefaultChatbotId(chosenChatbotId || '');
-  process.env.HYBRIDAI_API_KEY = apiKey;
   refreshRuntimeSecretsFromEnv();
   const switchedModel = await maybeSwitchDefaultModel(
     rl,
@@ -972,7 +973,6 @@ async function runOpenRouterOnboarding(params: {
   }
 
   const secretsPath = saveRuntimeSecrets({ OPENROUTER_API_KEY: apiKey });
-  process.env.OPENROUTER_API_KEY = apiKey;
   refreshRuntimeSecretsFromEnv();
 
   const nextOpenRouterModel = defaultOpenRouterModel();
@@ -1026,7 +1026,6 @@ async function runMistralOnboarding(params: {
   }
 
   const secretsPath = saveRuntimeSecrets({ MISTRAL_API_KEY: apiKey });
-  process.env.MISTRAL_API_KEY = apiKey;
   refreshRuntimeSecretsFromEnv();
 
   const nextMistralModel = defaultMistralModel();
@@ -1080,8 +1079,6 @@ async function runHuggingFaceOnboarding(params: {
   }
 
   const secretsPath = saveRuntimeSecrets({ HF_TOKEN: apiKey });
-  process.env.HF_TOKEN = apiKey;
-  process.env.HUGGINGFACE_API_KEY = apiKey;
   refreshRuntimeSecretsFromEnv();
 
   const nextHuggingFaceModel = defaultHuggingFaceModel();
@@ -1165,7 +1162,7 @@ async function maybeOfferAgentHomeMigrations(
 export async function ensureRuntimeCredentials(
   options: OnboardingOptions = {},
 ): Promise<void> {
-  loadRuntimeSecrets();
+  bootstrapRuntimeSecrets();
   const bootstrappedConfig = ensureRuntimeConfigFile();
 
   const interactive = process.stdin.isTTY && process.stdout.isTTY;
@@ -1180,7 +1177,7 @@ export async function ensureRuntimeCredentials(
         rl,
         bootstrappedConfig,
       );
-      if (migrated) loadRuntimeSecrets();
+      if (migrated) bootstrapRuntimeSecrets();
     } catch (error) {
       rl.close();
       throw new Error('Failed during agent migration offer.', { cause: error });
@@ -1188,12 +1185,22 @@ export async function ensureRuntimeCredentials(
   }
 
   const runtimeConfig = getRuntimeConfig();
-  const existingKey = (process.env.HYBRIDAI_API_KEY || '').trim();
-  const existingOpenRouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
-  const existingMistralKey = (process.env.MISTRAL_API_KEY || '').trim();
+  const existingKey =
+    (process.env.HYBRIDAI_API_KEY || '').trim() ||
+    readStoredRuntimeSecret('HYBRIDAI_API_KEY') ||
+    '';
+  const existingOpenRouterKey =
+    (process.env.OPENROUTER_API_KEY || '').trim() ||
+    readStoredRuntimeSecret('OPENROUTER_API_KEY') ||
+    '';
+  const existingMistralKey =
+    (process.env.MISTRAL_API_KEY || '').trim() ||
+    readStoredRuntimeSecret('MISTRAL_API_KEY') ||
+    '';
   const existingHuggingFaceKey = (
     process.env.HF_TOKEN ||
     process.env.HUGGINGFACE_API_KEY ||
+    readStoredRuntimeSecret('HF_TOKEN') ||
     ''
   ).trim();
   const codexStatus = getCodexAuthStatus();
@@ -1212,6 +1219,7 @@ export async function ensureRuntimeCredentials(
             ? 'huggingface'
             : 'hybridai');
   const force = options.force === true;
+  const requireCredentials = options.requireCredentials !== false;
   let securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
   const hasRequiredCredentials = currentProviderIsLocal
@@ -1225,7 +1233,10 @@ export async function ensureRuntimeCredentials(
           : currentAuth === 'huggingface'
             ? !!existingHuggingFaceKey
             : !!existingKey;
-  if (!needsSecurityAcceptance && hasRequiredCredentials) {
+  if (
+    !needsSecurityAcceptance &&
+    (hasRequiredCredentials || !requireCredentials)
+  ) {
     await maybeBackfillDefaultHybridAIChatbotId({
       authMethod: currentAuth,
       existingKey,
@@ -1257,6 +1268,7 @@ export async function ensureRuntimeCredentials(
     }
     // After accepting trust via env var, credentials may already be present.
     if (hasRequiredCredentials) return;
+    if (!requireCredentials) return;
     if (currentAuth === 'openai-codex') {
       throw new Error(
         'OpenAI Codex credentials are missing. Run `hybridclaw codex login` or `hybridclaw onboarding` in an interactive terminal.',
@@ -1296,7 +1308,7 @@ export async function ensureRuntimeCredentials(
     }
     await ensureSecurityTrustAcceptance(rl, commandLabel, force);
 
-    loadRuntimeSecrets();
+    bootstrapRuntimeSecrets();
     const refreshedRuntimeConfig = getRuntimeConfig();
     const refreshedExistingKey = (process.env.HYBRIDAI_API_KEY || '').trim();
     const refreshedExistingOpenRouterKey = (
@@ -1347,15 +1359,17 @@ export async function ensureRuntimeCredentials(
       return;
     }
 
-    if (refreshedHasRequiredCredentials && !force) {
+    if ((refreshedHasRequiredCredentials || !requireCredentials) && !force) {
       await maybeBackfillDefaultHybridAIChatbotId({
         authMethod: refreshedAuth,
         existingKey: refreshedExistingKey,
-        forcePrint: true,
+        forcePrint: refreshedHasRequiredCredentials,
       });
-      printSuccess(
-        'Security trust model already accepted and the active model provider is configured.',
-      );
+      if (refreshedHasRequiredCredentials) {
+        printSuccess(
+          'Security trust model already accepted and the active model provider is configured.',
+        );
+      }
       return;
     }
 

@@ -49,14 +49,33 @@ hybridclaw auth whatsapp reset
 - `hybridclaw auth status hybridai` reports whether HybridAI is authenticated,
   where the active API key came from, the masked key, the active config file,
   the configured base URL, and the default model.
+- Local TUI and web sessions can store additional named secrets with
+  `/secret set <NAME> <VALUE>` and bind them to outbound API calls with
+  `/secret route add <url-prefix> <secret-name> [header] [prefix|none]`.
 
 ## Where Credentials Live
 
 - `~/.hybridclaw/credentials.json` stores HybridAI, OpenRouter, Hugging Face,
-  Discord, email, Teams, and related runtime secrets
+  Discord, email, Teams, related runtime secrets, and named `/secret set`
+  values in encrypted form
+- `~/.hybridclaw/credentials.master.key`, `HYBRIDCLAW_MASTER_KEY`, or
+  `/run/secrets/hybridclaw_master_key` supplies the master key used to decrypt
+  runtime secrets
 - `~/.hybridclaw/codex-auth.json` stores Codex OAuth credentials
 - `~/.hybridclaw/config.json` stores provider enablement and related runtime
   config
+
+Selected config fields also support SecretRefs instead of plaintext values.
+Current built-in SecretRef surfaces include:
+
+- `ops.webApiToken`
+- `ops.gatewayApiToken`
+- `imessage.password`
+- `local.backends.vllm.apiKey`
+
+Use `{ "source": "store", "id": "SECRET_NAME" }`,
+`{ "source": "env", "id": "ENV_VAR" }`, or `${ENV_VAR}` shorthand in those
+fields.
 
 Legacy aliases such as `hybridclaw codex status` and
 `hybridclaw local configure ...` still work, but the `auth` namespace is the

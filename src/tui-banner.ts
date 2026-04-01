@@ -66,6 +66,7 @@ const SLASH_COMMANDS = [
   '/agent',
   '/approve',
   '/audit',
+  '/auth',
   '/bot',
   '/channel-mode',
   '/channel-policy',
