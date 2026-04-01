@@ -123,7 +123,10 @@ describe('runtime config secret refs', () => {
     });
 
     const stored = JSON.parse(
-      fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
     ) as Record<string, unknown>;
     const imessage = stored.imessage as Record<string, unknown>;
 

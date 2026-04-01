@@ -193,10 +193,16 @@ describe('runtime secrets', () => {
     expect(runtimeSecrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
       'hai-1234567890abcdef',
     );
-    expect(runtimeSecrets.readStoredRuntimeSecret('CONTAINER_IMAGE')).toBeNull();
-    expect(runtimeSecrets.readStoredRuntimeSecret('CONTAINER_MEMORY')).toBeNull();
+    expect(
+      runtimeSecrets.readStoredRuntimeSecret('CONTAINER_IMAGE'),
+    ).toBeNull();
+    expect(
+      runtimeSecrets.readStoredRuntimeSecret('CONTAINER_MEMORY'),
+    ).toBeNull();
     expect(runtimeSecrets.readStoredRuntimeSecret('CONTAINER_CPUS')).toBeNull();
-    expect(runtimeSecrets.readStoredRuntimeSecret('CONTAINER_TIMEOUT')).toBeNull();
+    expect(
+      runtimeSecrets.readStoredRuntimeSecret('CONTAINER_TIMEOUT'),
+    ).toBeNull();
     expect(runtimeSecrets.readStoredRuntimeSecret('DISCORD_PREFIX')).toBeNull();
     expect(runtimeSecrets.readStoredRuntimeSecret('HEALTH_PORT')).toBeNull();
     expect(runtimeSecrets.readStoredRuntimeSecret('LOG_LEVEL')).toBeNull();

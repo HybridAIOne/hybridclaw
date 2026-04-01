@@ -66,15 +66,21 @@ export function isRuntimeSecretName(value: string): value is RuntimeSecretName {
 
 export function isReservedNonSecretRuntimeName(value: string): boolean {
   return NON_SECRET_RUNTIME_CONFIG_KEYS.includes(
-    String(value || '').trim() as (typeof NON_SECRET_RUNTIME_CONFIG_KEYS)[number],
+    String(
+      value || '',
+    ).trim() as (typeof NON_SECRET_RUNTIME_CONFIG_KEYS)[number],
   );
 }
 
-function isPersistableRuntimeSecretName(value: string): value is RuntimeSecretName {
+function isPersistableRuntimeSecretName(
+  value: string,
+): value is RuntimeSecretName {
   return isRuntimeSecretName(value) && !isReservedNonSecretRuntimeName(value);
 }
 
-function sanitizeRuntimeSecrets(record: Record<string, unknown>): RuntimeSecrets {
+function sanitizeRuntimeSecrets(
+  record: Record<string, unknown>,
+): RuntimeSecrets {
   const secrets: RuntimeSecrets = {};
   for (const [key, value] of Object.entries(record)) {
     if (!isPersistableRuntimeSecretName(key)) continue;
