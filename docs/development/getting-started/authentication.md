@@ -14,6 +14,7 @@ hybridclaw auth login hybridai --base-url http://localhost:5000
 hybridclaw auth login codex --import
 hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
 hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
+hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
 hybridclaw auth login local ollama llama3.2
 hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
 hybridclaw auth status hybridai
@@ -37,8 +38,10 @@ hybridclaw auth whatsapp reset
 - `hybridclaw auth login openrouter` and `hybridclaw auth login huggingface`
   can take `--api-key`, otherwise they fall back to `OPENROUTER_API_KEY` or
   `HF_TOKEN`, or prompt interactively.
-- `hybridclaw auth login local` configures Ollama, LM Studio, or vLLM in
-  `~/.hybridclaw/config.json`.
+- `hybridclaw auth login local` configures Ollama, LM Studio, llama.cpp, or
+  vLLM in `~/.hybridclaw/config.json`.
+- The local backend model id is optional. If omitted, HybridClaw enables the
+  backend and you can pick a model later with `/model list <backend>`.
 - `hybridclaw auth login msteams` enables Microsoft Teams and stores the app
   secret for later gateway startup.
 - `hybridclaw auth status hybridai` reports whether HybridAI is authenticated,

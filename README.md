@@ -604,7 +604,7 @@ CLI runtime commands:
 - `hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...` — Prepare private-by-default WhatsApp config, enable the default `👀` ack reaction, optionally wipe stale auth, open a temporary pairing session, and print the QR code
 - `hybridclaw browser login [--url <url>]`, `status`, `reset` — Manage the persistent browser profile used for authenticated web automation
 - `hybridclaw local status` — Show current local backend config and default model
-- `hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]` — Enable and configure a local backend
+- `hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]` — Enable and configure a local backend
 - `hybridclaw hybridai ...`, `hybridclaw codex ...`, and `hybridclaw local ...` — Legacy aliases for the older provider-specific command surface
 - `hybridclaw help` / `hybridclaw help auth` / `hybridclaw help openrouter` / `hybridclaw help mistral` — Print CLI reference for the unified provider commands
 - `hybridclaw doctor [--fix|--json|<component>]` — Diagnose runtime, gateway, config, credentials, database, providers, local backends, Docker, channels, skills, security, and disk state

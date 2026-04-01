@@ -969,7 +969,7 @@ function normalizeLocalBaseUrl(
 
 interface ParsedLocalConfigureArgs {
   backend: LocalBackendType;
-  modelId: string;
+  modelId?: string;
   baseUrl?: string;
   apiKey?: string;
   setDefault: boolean;
@@ -980,15 +980,18 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
   const { baseUrl, remaining } = extractBaseUrlArg(args);
   let apiKey: string | undefined;
   let setDefault = true;
+  let setDefaultExplicit = false;
 
   for (let index = 0; index < remaining.length; index += 1) {
     const arg = remaining[index] || '';
     if (arg === '--no-default') {
       setDefault = false;
+      setDefaultExplicit = true;
       continue;
     }
     if (arg === '--set-default') {
       setDefault = true;
+      setDefaultExplicit = true;
       continue;
     }
     const apiKeyFlag = parseValueFlag({
@@ -1010,9 +1013,9 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
     positional.push(arg);
   }
 
-  if (positional.length < 2) {
+  if (positional.length < 1) {
     throw new Error(
-      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]`',
+      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]`',
     );
   }
 
@@ -1027,20 +1030,20 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
     throw new Error('`--api-key` is only supported for the `vllm` backend.');
   }
 
-  const modelId = normalizeLocalModelId(
-    backendRaw,
-    positional.slice(1).join(' '),
-  );
-  if (!modelId) {
-    throw new Error('Model ID cannot be empty.');
+  const rawModelId = positional.slice(1).join(' ');
+  const modelId = rawModelId
+    ? normalizeLocalModelId(backendRaw, rawModelId)
+    : undefined;
+  if (setDefaultExplicit && setDefault && !modelId) {
+    throw new Error('`--set-default` requires a model ID.');
   }
 
   return {
     backend: backendRaw,
-    modelId,
+    ...(modelId ? { modelId } : {}),
     baseUrl,
     apiKey,
-    setDefault,
+    setDefault: Boolean(modelId) && setDefault,
   };
 }
 
@@ -1073,7 +1076,9 @@ function configureLocalBackend(args: string[]): void {
     parsed.backend,
     parsed.baseUrl || currentBackend.baseUrl,
   );
-  const fullModelName = `${parsed.backend}/${parsed.modelId}`;
+  const fullModelName = parsed.modelId
+    ? `${parsed.backend}/${parsed.modelId}`
+    : '';
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.local.backends[parsed.backend].enabled = true;
     draft.local.backends[parsed.backend].baseUrl = normalizedBaseUrl;
@@ -1088,7 +1093,11 @@ function configureLocalBackend(args: string[]): void {
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   console.log(`Backend: ${parsed.backend}`);
   console.log(`Base URL: ${nextConfig.local.backends[parsed.backend].baseUrl}`);
-  console.log(`Configured model: ${fullModelName}`);
+  if (fullModelName) {
+    console.log(`Configured model: ${fullModelName}`);
+  } else {
+    console.log('Configured model: none');
+  }
   if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
     console.log('vllm api key: configured');
   }
@@ -1103,7 +1112,12 @@ function configureLocalBackend(args: string[]): void {
   console.log('  hybridclaw gateway restart --foreground --sandbox=host');
   console.log('  hybridclaw gateway status');
   console.log('  hybridclaw tui');
-  console.log(`  /model set ${fullModelName}`);
+  if (fullModelName) {
+    console.log(`  /model set ${fullModelName}`);
+  } else {
+    console.log(`  /model list ${parsed.backend}`);
+    console.log(`  /model set ${parsed.backend}/<model>`);
+  }
 }
 
 export async function handleLocalCommand(args: string[]): Promise<void> {
