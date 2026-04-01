@@ -33,11 +33,11 @@ import {
   resolveRuntimeInstructionPath,
 } from './security/instruction-integrity.js';
 import {
-  loadRuntimeSecrets,
   readStoredRuntimeSecret,
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from './security/runtime-secrets.js';
+import { bootstrapRuntimeSecrets } from './security/runtime-secrets-bootstrap.js';
 import type { HybridAIBot } from './types/hybridai.js';
 import { promptForSecretInput } from './utils/secret-prompt.js';
 
@@ -1161,7 +1161,7 @@ async function maybeOfferAgentHomeMigrations(
 export async function ensureRuntimeCredentials(
   options: OnboardingOptions = {},
 ): Promise<void> {
-  loadRuntimeSecrets();
+  bootstrapRuntimeSecrets();
   const bootstrappedConfig = ensureRuntimeConfigFile();
 
   const interactive = process.stdin.isTTY && process.stdout.isTTY;
@@ -1176,7 +1176,7 @@ export async function ensureRuntimeCredentials(
         rl,
         bootstrappedConfig,
       );
-      if (migrated) loadRuntimeSecrets();
+      if (migrated) bootstrapRuntimeSecrets();
     } catch (error) {
       rl.close();
       throw new Error('Failed during agent migration offer.', { cause: error });
@@ -1302,7 +1302,7 @@ export async function ensureRuntimeCredentials(
     }
     await ensureSecurityTrustAcceptance(rl, commandLabel, force);
 
-    loadRuntimeSecrets();
+    bootstrapRuntimeSecrets();
     const refreshedRuntimeConfig = getRuntimeConfig();
     const refreshedExistingKey = (process.env.HYBRIDAI_API_KEY || '').trim();
     const refreshedExistingOpenRouterKey = (

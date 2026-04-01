@@ -40,6 +40,12 @@ async function importFreshRuntimeSecrets(homeDir: string) {
   return import('../src/security/runtime-secrets.ts');
 }
 
+async function importFreshRuntimeSecretsBootstrap(homeDir: string) {
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  return import('../src/security/runtime-secrets-bootstrap.ts');
+}
+
 async function importFreshRuntimeConfig(homeDir: string) {
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -80,7 +86,7 @@ afterEach(() => {
 });
 
 describe('runtime secrets', () => {
-  it('loads and migrates plaintext credentials from ~/.hybridclaw/credentials.json', async () => {
+  it('bootstraps and migrates plaintext credentials from ~/.hybridclaw/credentials.json', async () => {
     const homeDir = makeTempDir('hybridclaw-runtime-secrets-');
     const credentialsPath = path.join(
       homeDir,
@@ -120,7 +126,9 @@ describe('runtime secrets', () => {
     delete process.env.EMAIL_PASSWORD;
 
     const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
-    runtimeSecrets.loadRuntimeSecrets();
+    const runtimeSecretsBootstrap =
+      await importFreshRuntimeSecretsBootstrap(homeDir);
+    runtimeSecretsBootstrap.bootstrapRuntimeSecrets();
 
     expect(runtimeSecrets.runtimeSecretsPath()).toBe(credentialsPath);
     expect(runtimeSecrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
@@ -156,6 +164,9 @@ describe('runtime secrets', () => {
     const stored = readSecretStoreFile(homeDir);
     expect(stored.version).toBe(1);
     expect(JSON.stringify(stored)).not.toContain('hai-1234567890abcdef');
+    expect(
+      fs.existsSync(path.join(homeDir, '.hybridclaw', 'credentials.json.legacy')),
+    ).toBe(false);
     expect(process.env.HYBRIDAI_API_KEY).toBeUndefined();
   });
 
@@ -188,7 +199,9 @@ describe('runtime secrets', () => {
     );
 
     const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
-    runtimeSecrets.loadRuntimeSecrets();
+    const runtimeSecretsBootstrap =
+      await importFreshRuntimeSecretsBootstrap(homeDir);
+    runtimeSecretsBootstrap.bootstrapRuntimeSecrets();
 
     expect(runtimeSecrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
       'hai-1234567890abcdef',
@@ -440,6 +453,48 @@ describe('runtime secrets', () => {
     );
     expect(infoSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('Migrating .env to'),
+    );
+  });
+
+  it('restores the legacy plaintext file when encrypted migration validation fails', async () => {
+    const homeDir = makeTempDir('hybridclaw-runtime-secrets-');
+    const cwdDir = makeTempDir('hybridclaw-runtime-cwd-');
+    const credentialsPath = path.join(
+      homeDir,
+      '.hybridclaw',
+      'credentials.json',
+    );
+    const legacyPath = `${credentialsPath}.legacy`;
+    const plaintextCredentials = `${JSON.stringify(
+      { HYBRIDAI_API_KEY: 'hai-validation-rollback-test' },
+      null,
+      2,
+    )}\n`;
+    fs.mkdirSync(path.dirname(credentialsPath), { recursive: true });
+    fs.writeFileSync(credentialsPath, plaintextCredentials, 'utf-8');
+    process.chdir(cwdDir);
+
+    const originalReadFileSync = fs.readFileSync.bind(fs);
+    let credentialsReadCount = 0;
+    vi.spyOn(fs, 'readFileSync').mockImplementation(((filePath, options) => {
+      if (String(filePath) === credentialsPath && options === 'utf-8') {
+        credentialsReadCount += 1;
+        if (credentialsReadCount === 2) {
+          return '{"version":1,"entries":' as never;
+        }
+      }
+      return originalReadFileSync(filePath as never, options as never) as never;
+    }) as typeof fs.readFileSync);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const runtimeSecretsBootstrap =
+      await importFreshRuntimeSecretsBootstrap(homeDir);
+
+    runtimeSecretsBootstrap.bootstrapRuntimeSecrets();
+
+    expect(fs.readFileSync(credentialsPath, 'utf-8')).toBe(plaintextCredentials);
+    expect(fs.existsSync(legacyPath)).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('failed to migrate legacy plaintext credentials'),
     );
   });
 

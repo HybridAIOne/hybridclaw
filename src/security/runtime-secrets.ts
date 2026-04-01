@@ -7,10 +7,12 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { migrateLegacySecretFile } from './runtime-secrets-migration.js';
 
 const RUNTIME_SECRETS_FILE = 'credentials.json';
 const RUNTIME_MASTER_KEY_FILE = 'credentials.master.key';
 const RUNTIME_MASTER_KEY_SECRET_PATH = '/run/secrets/hybridclaw_master_key';
+const RUNTIME_LEGACY_SECRETS_SUFFIX = '.legacy';
 const SECRET_STORE_VERSION = 1;
 const SECRET_STORE_ALGORITHM = 'aes-256-gcm';
 const SECRET_STORE_NONCE_BYTES = 12;
@@ -58,7 +60,6 @@ type RuntimeSecrets = Record<string, string>;
 type SecretStoreReadStatus =
   | 'missing'
   | 'encrypted'
-  | 'plaintext-legacy'
   | 'encrypted-unreadable'
   | 'invalid';
 const RUNTIME_SECRET_NAME_RE = /^[A-Z][A-Z0-9_]{0,127}$/;
@@ -169,6 +170,10 @@ function normalizeSecretMap(record: Record<string, unknown>): RuntimeSecrets {
 
 function runtimeMasterKeyPath(): string {
   return path.join(DEFAULT_RUNTIME_HOME_DIR, RUNTIME_MASTER_KEY_FILE);
+}
+
+export function runtimeLegacySecretsPath(): string {
+  return `${runtimeSecretsPath()}${RUNTIME_LEGACY_SECRETS_SUFFIX}`;
 }
 
 function parseMasterKey(raw: string): Buffer {
@@ -338,6 +343,89 @@ function decryptSecretValue(
   ]).toString('utf-8');
 }
 
+function decryptEncryptedSecretStore(
+  key: Buffer,
+  store: EncryptedSecretStore,
+): RuntimeSecrets {
+  const secrets: RuntimeSecrets = {};
+  for (const [secretKey, entry] of Object.entries(store.entries)) {
+    if (!entry) continue;
+    const decrypted = decryptSecretValue(key, secretKey, entry).trim();
+    if (!decrypted) continue;
+    secrets[secretKey] = decrypted;
+  }
+  return secrets;
+}
+
+function buildEncryptedSecretStore(
+  key: Buffer,
+  secrets: RuntimeSecrets,
+): EncryptedSecretStore {
+  const entries: EncryptedSecretStore['entries'] = {};
+  for (const [secretKey, value] of Object.entries(secrets)) {
+    entries[secretKey] = encryptSecretValue(key, secretKey, value);
+  }
+  return {
+    version: SECRET_STORE_VERSION,
+    entries,
+  };
+}
+
+function writeTextFileSynced(
+  filePath: string,
+  content: string,
+  mode: number,
+): void {
+  const fd = fs.openSync(filePath, 'w', mode);
+  try {
+    fs.writeFileSync(fd, content, 'utf-8');
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.chmodSync(filePath, mode);
+}
+
+function writeEncryptedSecretStoreFile(
+  filePath: string,
+  payload: EncryptedSecretStore,
+): void {
+  writeTextFileSynced(
+    filePath,
+    `${JSON.stringify(payload, null, 2)}\n`,
+    RUNTIME_SECRETS_MODE,
+  );
+}
+
+function readEncryptedSecretStoreFile(
+  filePath: string,
+  key: Buffer,
+): RuntimeSecrets {
+  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
+  if (!isEncryptedSecretStore(parsed)) {
+    throw new Error(`expected encrypted secret store at ${filePath}`);
+  }
+  return decryptEncryptedSecretStore(key, parsed);
+}
+
+function haveEqualRuntimeSecrets(
+  left: RuntimeSecrets,
+  right: RuntimeSecrets,
+): boolean {
+  const leftEntries = Object.entries(left).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  const rightEntries = Object.entries(right).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  if (leftEntries.length !== rightEntries.length) return false;
+  return leftEntries.every(
+    ([leftKey, leftValue], index) =>
+      leftKey === rightEntries[index]?.[0] &&
+      leftValue === rightEntries[index]?.[1],
+  );
+}
+
 class SecretStore {
   readonly filePath = runtimeSecretsPath();
 
@@ -371,13 +459,7 @@ class SecretStore {
       if (isEncryptedSecretStore(parsed)) {
         try {
           const { key } = resolveMasterKey();
-          const secrets: RuntimeSecrets = {};
-          for (const [secretKey, entry] of Object.entries(parsed.entries)) {
-            if (!entry) continue;
-            const decrypted = decryptSecretValue(key, secretKey, entry).trim();
-            if (!decrypted) continue;
-            secrets[secretKey] = decrypted;
-          }
+          const secrets = decryptEncryptedSecretStore(key, parsed);
           return cacheSecretStoreRead({
             fileSignature,
             keySourceSignature,
@@ -406,20 +488,11 @@ class SecretStore {
         });
       }
 
-      const plaintextSecrets = normalizeSecretMap(parsed);
-      console.info(`Migrating plaintext runtime secrets to ${this.filePath}`);
-      try {
-        this.writeAll(plaintextSecrets);
-      } catch (err) {
-        console.warn(
-          `[runtime-secrets] failed to migrate legacy plaintext credentials at ${this.filePath}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
       return cacheSecretStoreRead({
-        fileSignature: readFileSignature(this.filePath),
-        keySourceSignature: currentMasterKeySourceSignature(),
-        secrets: plaintextSecrets,
-        status: 'plaintext-legacy',
+        fileSignature,
+        keySourceSignature: null,
+        secrets: {},
+        status: 'invalid',
       });
     } catch (err) {
       console.warn(
@@ -438,6 +511,44 @@ class SecretStore {
     return this.readAllResult().secrets;
   }
 
+  migrateLegacyPlaintextFile(secrets: RuntimeSecrets): void {
+    const sanitizedSecrets = sanitizeRuntimeSecrets(secrets);
+    if (Object.keys(sanitizedSecrets).length === 0) {
+      return;
+    }
+
+    ensureRuntimeHomeDir();
+    const legacyPath = runtimeLegacySecretsPath();
+    const { key } = resolveMasterKey({ allowCreateLocalFallback: true });
+    const tempPath = `${this.filePath}.tmp-${process.pid}-${Date.now()}-${randomBytes(6).toString('hex')}`;
+    const payload = buildEncryptedSecretStore(key, sanitizedSecrets);
+
+    migrateLegacySecretFile({
+      filePath: this.filePath,
+      legacyPath,
+      tempPath,
+      expectedSecrets: sanitizedSecrets,
+      writeTempFile: (targetPath) =>
+        writeEncryptedSecretStoreFile(targetPath, payload),
+      validateFinalFile: (targetPath) =>
+        readEncryptedSecretStoreFile(targetPath, key),
+      areEqual: haveEqualRuntimeSecrets,
+      onValidated: () => {
+        cachedSecretStoreRead = {
+          fileSignature: readFileSignature(this.filePath),
+          keySourceSignature: currentMasterKeySourceSignature(),
+          secrets: cloneRuntimeSecrets(sanitizedSecrets),
+          status: 'encrypted',
+        };
+      },
+      onValidatedBackupRemovalError: (error) => {
+        console.warn(
+          `[runtime-secrets] failed to remove validated legacy backup ${legacyPath}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      },
+    });
+  }
+
   writeAll(secrets: RuntimeSecrets): void {
     const sanitizedSecrets = sanitizeRuntimeSecrets(secrets);
     ensureRuntimeHomeDir();
@@ -454,21 +565,8 @@ class SecretStore {
     }
 
     const { key } = resolveMasterKey({ allowCreateLocalFallback: true });
-    const entries: EncryptedSecretStore['entries'] = {};
-    for (const [secretKey, value] of Object.entries(sanitizedSecrets)) {
-      entries[secretKey] = encryptSecretValue(key, secretKey, value);
-    }
-
-    const payload: EncryptedSecretStore = {
-      version: SECRET_STORE_VERSION,
-      entries,
-    };
-
-    fs.writeFileSync(this.filePath, `${JSON.stringify(payload, null, 2)}\n`, {
-      encoding: 'utf-8',
-      mode: RUNTIME_SECRETS_MODE,
-    });
-    fs.chmodSync(this.filePath, RUNTIME_SECRETS_MODE);
+    const payload = buildEncryptedSecretStore(key, sanitizedSecrets);
+    writeEncryptedSecretStoreFile(this.filePath, payload);
     cachedSecretStoreRead = {
       fileSignature: readFileSignature(this.filePath),
       keySourceSignature: currentMasterKeySourceSignature(),
@@ -537,6 +635,34 @@ export function readStoredRuntimeSecret(
 export function readStoredRuntimeSecrets(): RuntimeSecrets {
   const store = new SecretStore();
   return cloneRuntimeSecrets(store.readAll());
+}
+
+export function migrateLegacyRuntimeSecretsFile(): boolean {
+  const store = new SecretStore();
+  const filePath = runtimeSecretsPath();
+  if (!fs.existsSync(filePath)) return false;
+
+  try {
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (isEncryptedSecretStore(parsed) || !isRecord(parsed)) {
+      return false;
+    }
+
+    const plaintextSecrets = normalizeSecretMap(parsed);
+    if (Object.keys(plaintextSecrets).length === 0) {
+      return false;
+    }
+
+    console.info(`Migrating plaintext runtime secrets to ${filePath}`);
+    store.migrateLegacyPlaintextFile(plaintextSecrets);
+    return true;
+  } catch (err) {
+    console.warn(
+      `[runtime-secrets] failed to migrate legacy plaintext credentials at ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return false;
+  }
 }
 
 export function listStoredRuntimeSecretNames(): string[] {

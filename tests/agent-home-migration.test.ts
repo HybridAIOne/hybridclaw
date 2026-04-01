@@ -28,6 +28,16 @@ function readJson(filePath: string): Record<string, unknown> {
   >;
 }
 
+async function readStoredRuntimeSecret(
+  homeDir: string,
+  secretName: string,
+): Promise<string | null> {
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+  return runtimeSecrets.readStoredRuntimeSecret(secretName);
+}
+
 async function importFreshMigrator(homeDir: string) {
   process.env.HOME = homeDir;
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
@@ -375,7 +385,6 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
 
   const runtimeRoot = path.join(homeDir, '.hybridclaw');
   const config = readJson(path.join(runtimeRoot, 'config.json'));
-  const credentials = readJson(path.join(runtimeRoot, 'credentials.json'));
   const mainWorkspace = path.join(
     runtimeRoot,
     'data',
@@ -552,17 +561,21 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
     (config.mcpServers as Record<string, { command: string; args: string[] }>)
       .github.command,
   ).toBe('npx');
-  expect((credentials.OPENROUTER_API_KEY as string) || '').toBe('or-openclaw');
-  expect((credentials.HYBRIDAI_API_KEY as string) || '').toBe(
+  expect(await readStoredRuntimeSecret(homeDir, 'OPENROUTER_API_KEY')).toBe(
+    'or-openclaw',
+  );
+  expect(await readStoredRuntimeSecret(homeDir, 'HYBRIDAI_API_KEY')).toBe(
     'hai-openclaw-key',
   );
-  expect((credentials.DISCORD_TOKEN as string) || '').toBe(
+  expect(await readStoredRuntimeSecret(homeDir, 'DISCORD_TOKEN')).toBe(
     'discord-openclaw-token',
   );
-  expect((credentials.GATEWAY_API_TOKEN as string) || '').toBe(
+  expect(await readStoredRuntimeSecret(homeDir, 'GATEWAY_API_TOKEN')).toBe(
     'gateway-openclaw-token',
   );
-  expect((credentials.HF_TOKEN as string) || '').toBe('hf-auth-profile-token');
+  expect(await readStoredRuntimeSecret(homeDir, 'HF_TOKEN')).toBe(
+    'hf-auth-profile-token',
+  );
   expect((config.skills as { extraDirs: string[] }).extraDirs).toContain(
     '/tmp/openclaw-extra-skills',
   );
@@ -707,7 +720,6 @@ test('migrates compatible Hermes Agent state into HybridClaw', async () => {
 
   const runtimeRoot = path.join(homeDir, '.hybridclaw');
   const config = readJson(path.join(runtimeRoot, 'config.json'));
-  const credentials = readJson(path.join(runtimeRoot, 'credentials.json'));
   const mainWorkspace = path.join(
     runtimeRoot,
     'data',
@@ -726,8 +738,10 @@ test('migrates compatible Hermes Agent state into HybridClaw', async () => {
     (config.mcpServers as Record<string, { command: string; args: string[] }>)
       .docs.command,
   ).toBe('uvx');
-  expect((credentials.HYBRIDAI_API_KEY as string) || '').toBe('hai-hermes-key');
-  expect((credentials.DISCORD_TOKEN as string) || '').toBe(
+  expect(await readStoredRuntimeSecret(homeDir, 'HYBRIDAI_API_KEY')).toBe(
+    'hai-hermes-key',
+  );
+  expect(await readStoredRuntimeSecret(homeDir, 'DISCORD_TOKEN')).toBe(
     'discord-hermes-token',
   );
   expect(
@@ -843,11 +857,10 @@ test('reports secrets already up to date when incoming values match', async () =
     'HYBRIDAI_API_KEY=hai-same-value\n',
     'utf-8',
   );
-  fs.writeFileSync(
-    path.join(runtimeRoot, 'credentials.json'),
-    `${JSON.stringify({ HYBRIDAI_API_KEY: 'hai-same-value' }, null, 2)}\n`,
-    'utf-8',
-  );
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+  runtimeSecrets.saveRuntimeSecrets({ HYBRIDAI_API_KEY: 'hai-same-value' });
 
   const migration = await importFreshMigrator(homeDir);
   const result = await migration.migrateAgentHome({

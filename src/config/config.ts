@@ -14,6 +14,7 @@ import {
   type RuntimeSecretKey,
   readStoredRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import { bootstrapRuntimeSecrets } from '../security/runtime-secrets-bootstrap.js';
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
@@ -28,7 +29,7 @@ export type {
   ResolvedModelRuntimeCredentials,
 } from '../providers/types.js';
 
-loadRuntimeSecrets();
+bootstrapRuntimeSecrets();
 ensureRuntimeConfigFile();
 
 export class MissingRequiredEnvVarError extends Error {

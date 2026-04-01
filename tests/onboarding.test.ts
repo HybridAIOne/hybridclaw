@@ -84,6 +84,16 @@ async function runHybridAIOnboarding(commandName: string): Promise<string> {
         actual.loadRuntimeSecrets(targetHomeDir ?? homeDir, homeDir),
     };
   });
+  vi.doMock('../src/security/runtime-secrets-bootstrap.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets-bootstrap.ts')
+    >('../src/security/runtime-secrets-bootstrap.ts');
+    return {
+      ...actual,
+      bootstrapRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.bootstrapRuntimeSecrets(targetHomeDir ?? homeDir),
+    };
+  });
   vi.stubGlobal(
     'fetch',
     vi.fn(
@@ -130,6 +140,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.doUnmock('node:readline/promises');
   vi.doUnmock('../src/security/runtime-secrets.ts');
+  vi.doUnmock('../src/security/runtime-secrets-bootstrap.ts');
   vi.doUnmock('../src/migration/agent-home-migration.js');
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
@@ -212,6 +223,8 @@ test('first-run onboarding offers Hermes migration before auth setup', async () 
   ];
   const migrateAgentHomeMock = vi.fn(async () => {
     const runtimeRoot = path.join(homeDir, '.hybridclaw');
+    process.env.HOME = homeDir;
+    const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
     fs.mkdirSync(
       path.join(runtimeRoot, 'data', 'agents', 'main', 'workspace'),
       {
@@ -221,11 +234,9 @@ test('first-run onboarding offers Hermes migration before auth setup', async () 
     fs.mkdirSync(path.join(runtimeRoot, 'migration', 'hermes', 'test-run'), {
       recursive: true,
     });
-    fs.writeFileSync(
-      path.join(runtimeRoot, 'credentials.json'),
-      `${JSON.stringify({ HYBRIDAI_API_KEY: 'hai-imported-from-hermes' }, null, 2)}\n`,
-      'utf-8',
-    );
+    runtimeSecrets.saveRuntimeSecrets({
+      HYBRIDAI_API_KEY: 'hai-imported-from-hermes',
+    });
     process.env.HYBRIDAI_API_KEY = 'hai-imported-from-hermes';
     return {
       sourceKind: 'hermes',
@@ -297,7 +308,7 @@ test('first-run onboarding offers Hermes migration before auth setup', async () 
   expect(fs.existsSync(path.join(runtimeRoot, 'credentials.json'))).toBe(true);
   expect(
     fs.readFileSync(path.join(runtimeRoot, 'credentials.json'), 'utf-8'),
-  ).toContain('hai-imported-from-hermes');
+  ).not.toContain('hai-imported-from-hermes');
   expect(migrateAgentHomeMock).toHaveBeenCalled();
 });
 
@@ -352,6 +363,16 @@ test('interactive onboarding lets users skip remote auth for local models', asyn
       ...actual,
       loadRuntimeSecrets: (targetHomeDir?: string) =>
         actual.loadRuntimeSecrets(targetHomeDir ?? homeDir, homeDir),
+    };
+  });
+  vi.doMock('../src/security/runtime-secrets-bootstrap.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets-bootstrap.ts')
+    >('../src/security/runtime-secrets-bootstrap.ts');
+    return {
+      ...actual,
+      bootstrapRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.bootstrapRuntimeSecrets(targetHomeDir ?? homeDir),
     };
   });
   const fetchSpy = vi.fn();
@@ -421,6 +442,16 @@ test('interactive HybridAI onboarding defaults the saved bot to the account chat
       ...actual,
       loadRuntimeSecrets: (targetHomeDir?: string) =>
         actual.loadRuntimeSecrets(targetHomeDir ?? homeDir, homeDir),
+    };
+  });
+  vi.doMock('../src/security/runtime-secrets-bootstrap.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets-bootstrap.ts')
+    >('../src/security/runtime-secrets-bootstrap.ts');
+    return {
+      ...actual,
+      bootstrapRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.bootstrapRuntimeSecrets(targetHomeDir ?? homeDir),
     };
   });
   vi.stubGlobal(

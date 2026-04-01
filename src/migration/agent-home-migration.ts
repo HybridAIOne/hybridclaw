@@ -15,9 +15,11 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import {
   loadRuntimeSecrets,
   type RuntimeSecretKey,
+  readStoredRuntimeSecrets,
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import { bootstrapRuntimeSecrets } from '../security/runtime-secrets-bootstrap.js';
 import type { McpServerConfig } from '../types/models.js';
 
 export type AgentMigrationSource = 'openclaw' | 'hermes';
@@ -732,22 +734,14 @@ function resolveSecretInput(
 }
 
 function readRuntimeSecretsFile(): Partial<Record<RuntimeSecretKey, string>> {
-  const filePath = runtimeSecretsPath();
-  if (!fs.existsSync(filePath)) return {};
-  try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
-    if (!isRecord(parsed)) return {};
-    const secrets: Partial<Record<RuntimeSecretKey, string>> = {};
-    for (const key of RUNTIME_SECRET_KEYS) {
-      const value = parsed[key];
-      if (typeof value !== 'string') continue;
-      const trimmed = value.trim();
-      if (trimmed) secrets[key] = trimmed;
-    }
-    return secrets;
-  } catch {
-    return {};
+  bootstrapRuntimeSecrets();
+  const storedSecrets = readStoredRuntimeSecrets();
+  const secrets: Partial<Record<RuntimeSecretKey, string>> = {};
+  for (const key of RUNTIME_SECRET_KEYS) {
+    const value = storedSecrets[key]?.trim();
+    if (value) secrets[key] = value;
   }
+  return secrets;
 }
 
 function normalizeMcpTransport(
