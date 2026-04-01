@@ -2,8 +2,15 @@
 
 ## [Coming up]
 
+## [0.10.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.10.0)
+
 ### Added
 
+- **OpenClaw and Hermes Agent migration commands**: Added
+  `hybridclaw migrate openclaw` and `hybridclaw migrate hermes` to import
+  compatible workspace files, agent/home config, model settings, and optional
+  secrets into a target HybridClaw agent with `--dry-run`, `--overwrite`,
+  `--agent`, and per-run migration reports under `~/.hybridclaw/migration/`.
 - **Encrypted runtime secret store**: Runtime credentials in
   `~/.hybridclaw/credentials.json` now use per-secret AES-256-GCM encryption
   with owner-only permissions, separate master-key sourcing via
@@ -20,9 +27,16 @@
   `bearerSecretName`, `secretHeaders`, strict `<secret:NAME>` placeholders, or
   URL-based auth rules so models can call authenticated APIs without seeing the
   plaintext credential.
+- **`llama.cpp` local backend**: Added `llamacpp` as a first-class local
+  provider across `auth login local`, provider discovery, reachability checks,
+  model selection surfaces, doctor output, and container/runtime routing.
 
 ### Changed
 
+- **Local-provider onboarding flow**: `hybridclaw auth login local` now accepts
+  an optional model id so operators can enable LM Studio, llama.cpp, Ollama,
+  or vLLM first and choose a model later, and interactive onboarding can skip
+  remote-provider auth entirely when the planned setup is local-only.
 - **Secret access model**: Runtime secret reads now prefer explicit environment
   overrides and otherwise resolve secrets from the encrypted store on demand
   instead of broadly mirroring decrypted values into ambient `process.env` at
@@ -35,6 +49,15 @@
   docs, comparison tables, and runtime/internal docs to reflect encrypted
   secret storage, master-key separation, SecretRef-backed API auth injection,
   trust-first onboarding, and current runtime security principles.
+
+### Fixed
+
+- **Startup onboarding loops**: Gateway and TUI startup no longer keep
+  re-triggering onboarding once trust acceptance, local-provider setup, or
+  existing credentials already satisfy the runtime prerequisites.
+- **TUI model guidance for local backends**: Model-selection prompts now give
+  clearer next steps when a local backend is enabled without a selected model,
+  reducing dead-end startup guidance around local-only setups.
 
 ## [0.9.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.9.8)
 

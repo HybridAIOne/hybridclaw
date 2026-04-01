@@ -71,7 +71,16 @@ Microsoft Teams, iMessage, WhatsApp, and email.
 
 HybridClaw supports HybridAI models, OpenAI Codex models, OpenRouter models,
 Hugging Face router models, and local backends including Ollama, LM Studio,
-and vLLM.
+llama.cpp, and vLLM.
+
+## Can I migrate an existing OpenClaw or Hermes Agent home?
+
+Yes. Use `hybridclaw migrate openclaw --dry-run` or
+`hybridclaw migrate hermes --dry-run` first to preview the compatible
+workspace files, config values, model settings, and optional secrets that
+would be imported into a HybridClaw agent. Add `--agent <id>` to target a
+different agent and `--migrate-secrets` when you want compatible secrets moved
+into the encrypted runtime store.
 
 ## Does the agent remember things between conversations?
 

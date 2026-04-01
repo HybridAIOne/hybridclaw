@@ -18,9 +18,16 @@ HybridClaw keeps one assistant brain across team chat, inbox, browser, and
 document workflows with shared memory, approvals, scheduling, and bundled
 skills for office docs, GitHub, Notion, Stripe, WordPress, Google Workspace,
 and Apple apps.
+Runtime secrets live in an encrypted local store with separate master-key
+sourcing, SecretRefs can keep config values out of plaintext JSON, and
+gateway-side auth injection lets the agent call authenticated APIs without
+seeing the raw credential.
 Portable `.claw` packages can snapshot an agent workspace plus bundled skills
 and plugins for transfer or backup, and persistent browser profiles let the
 agent reuse authenticated web sessions for later browser automation.
+OpenClaw and Hermes Agent homes can also be imported into HybridClaw agent
+workspaces with migration commands that preview compatible files, config, and
+optional secrets before writing anything.
 Local plugins can extend the gateway with typed manifests, plugin tools,
 memory layers, prompt hooks, lifecycle hooks, and fixed plugin-owned inbound
 webhook routes, including the installable QMD-backed memory layer shipped in
@@ -49,9 +56,10 @@ Prerequisites: Node.js 22. Docker is recommended when you want the default
 container sandbox. The published install bootstraps the packaged container
 runtime dependencies during `npm install -g`.
 The current release tag is
-[v0.9.8](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.9.8).
-This release adds concierge routing, tracked config revisions, plugin inbound
-webhooks, expanded agent install sources, and the bundled `sokosumi` skill.
+[v0.10.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.10.0).
+This release adds encrypted runtime secrets, secret-backed authenticated API
+calls, OpenClaw and Hermes Agent migration commands, and expanded local-model
+setup with `llama.cpp` and local-only onboarding paths.
 Release notes live in [CHANGELOG.md](./CHANGELOG.md), and the browsable
 operator and maintainer manual lives under
 [docs/development/README.md](./docs/development/README.md).
@@ -80,16 +88,15 @@ operator and maintainer manual lives under
 # Install dependencies
 npm install
 
-# Run onboarding (also auto-runs on first `gateway`/`tui` start if API key is missing)
+# Run onboarding (also auto-runs on first `gateway`/`tui` start if required runtime setup is missing)
 hybridclaw onboarding
 
 # Onboarding flow:
 # 1) explicitly accept TRUST_MODEL.md (required)
-# 2) choose whether to create a new account
-# 3) open /register in browser (optional) and confirm in terminal
-# 4) open /login?next=/admin_api_keys in browser and get an API key
-# 5) paste API key (or URL containing it) back into the CLI
-# 6) choose the default bot (saved to ~/.hybridclaw/config.json) and save secrets to ~/.hybridclaw/credentials.json
+# 2) choose HybridAI auth or a local-only setup
+# 3) for HybridAI, create/login in the browser and paste the API key back into the CLI
+# 4) for local-only setups, skip remote auth and configure Ollama, LM Studio, llama.cpp, or vLLM
+# 5) choose the default bot/model and persist config + encrypted secrets under ~/.hybridclaw/
 
 # Start gateway backend (default)
 hybridclaw gateway
@@ -135,6 +142,7 @@ hybridclaw auth login codex --import
 hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
 hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
 hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
+hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
 hybridclaw auth login local ollama llama3.2
 hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
 hybridclaw auth status hybridai
@@ -169,6 +177,8 @@ hybridclaw local configure ollama llama3.2
 - `hybridclaw auth login mistral` accepts `--api-key`, falls back to `MISTRAL_API_KEY`, or prompts you to paste the key, then enables the provider and can set the global default model.
 - `hybridclaw auth login huggingface` accepts `--api-key`, falls back to `HF_TOKEN`, or prompts you to paste the token, then enables the provider and can set the global default model.
 - `hybridclaw auth login local` configures Ollama, LM Studio, llama.cpp, or vLLM in `~/.hybridclaw/config.json`.
+- The local backend model id is optional. If omitted, HybridClaw enables the backend and you can choose a model later with `/model list <backend>`.
+- Interactive onboarding can skip remote-provider auth entirely when you plan to run on a local backend.
 - `hybridclaw auth login msteams` enables Microsoft Teams, stores `MSTEAMS_APP_PASSWORD` in the encrypted `~/.hybridclaw/credentials.json` store, and can prompt for the app id, app password, and optional tenant id.
 - `hybridclaw auth status hybridai` reports the local auth source, masked API key, active config file, base URL, and default model without printing the credentials file path.
 - `hybridclaw auth logout local` disables configured local backends and clears any saved vLLM API key.
@@ -422,6 +432,26 @@ hybridclaw agent activate demo-agent
 - See [docs/development/extensibility/agent-packages.md](./docs/development/extensibility/agent-packages.md)
   for the archive layout, manifest fields, and security rules.
 
+## Migrate From OpenClaw Or Hermes Agent
+
+HybridClaw can import compatible state from an existing `~/.openclaw` or
+`~/.hermes` home into a target HybridClaw agent workspace.
+
+```bash
+hybridclaw migrate openclaw --dry-run
+hybridclaw migrate hermes --dry-run
+```
+
+Notes:
+
+- Use `--agent <id>` to import into an agent other than `main`.
+- Use `--overwrite` to replace existing HybridClaw files or config values when
+  the preview shows conflicts.
+- Use `--migrate-secrets` to import compatible secret material into the
+  encrypted `~/.hybridclaw/credentials.json` store.
+- Execute-mode runs write a report under `~/.hybridclaw/migration/openclaw/`
+  or `~/.hybridclaw/migration/hermes/`.
+
 ## Local Provider Quickstart (LM Studio Example)
 
 If LM Studio is running locally and serving `qwen/qwen3.5-9b` on
@@ -492,6 +522,7 @@ Other backends use the same flow:
 
 ```bash
 hybridclaw auth login local ollama llama3.2
+hybridclaw auth login local llamacpp --base-url http://127.0.0.1:8081
 hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
 hybridclaw auth login local vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
 ```
@@ -626,6 +657,7 @@ CLI runtime commands:
 - `hybridclaw gateway agent [list|switch <id>|create <id> [--model <model>]|model [name]]` — Inspect or change the current session-to-agent binding and persistent agent model
 - `hybridclaw gateway compact` — Archive older session history into semantic memory while preserving a recent active context tail
 - `hybridclaw gateway reset [yes|no]` — Clear session history, reset per-session model/chatbot/RAG settings, and remove the current agent workspace (confirmation required)
+- `hybridclaw migrate openclaw [options]`, `hybridclaw migrate hermes [options]` — Preview or import compatible OpenClaw or Hermes Agent home state into a HybridClaw agent workspace, with optional secret migration and per-run reports
 - `hybridclaw agent list` — Show registered agents in a script-friendly tab-separated format
 - `hybridclaw agent export [agent-id] [-o <path>]`, `inspect <file.claw>`, `install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]`, `uninstall <agent-id> [--yes]` — Manage portable `.claw` agent archives (legacy `pack` / `unpack` aliases still work)
 - `hybridclaw tui` — Start terminal client connected to gateway

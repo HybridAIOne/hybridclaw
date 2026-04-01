@@ -17,20 +17,18 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 
 ## Latest Highlights
 
-- Concierge routing can ask users about urgency before long-running requests,
-  then route execution through configurable `asap`, `balanced`, or
-  `no_hurry` model profiles from gateway, TUI, or slash-command surfaces.
-- `hybridclaw config revisions [list|rollback|delete|clear]` now tracks
-  auditable runtime config snapshots in
-  `~/.hybridclaw/data/config-revisions.db` so local config changes can be
-  reviewed and restored.
-- Agent installs now support direct `.claw` URLs, session-side `/agent install`
-  flows, and `--skip-import-errors` for partial imported-skill failures while
-  keeping the rest of the archive install moving.
-- Plugins can expose inbound webhook endpoints and dispatch normalized inbound
-  messages through the same assistant turn pipeline used by built-in channels.
-- The bundled `sokosumi` skill adds API-key-authenticated workflows for agent
-  hires, coworker task creation, job monitoring, and result retrieval.
+- Runtime secrets now live in an encrypted `~/.hybridclaw/credentials.json`
+  store with separate master-key sourcing, named `/secret` entries, and
+  SecretRef-backed config fields for supported runtime settings.
+- The gateway can inject stored credentials into outbound `http_request` calls
+  by URL rule or `<secret:NAME>` placeholder, keeping plaintext API keys out of
+  model-visible prompts and persisted tool-call payloads.
+- `hybridclaw migrate openclaw` and `hybridclaw migrate hermes` can preview or
+  import compatible workspace files, config, model settings, and optional
+  secrets into a target HybridClaw agent.
+- Local-provider setup now includes first-class `llama.cpp` support, optional
+  model ids for `auth login local`, and onboarding paths that let local-only
+  operators skip remote-provider auth entirely.
 
 ## Browse By Section
 

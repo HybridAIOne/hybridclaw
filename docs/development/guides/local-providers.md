@@ -38,6 +38,11 @@ the runtime can reach those local endpoints directly.
 ## Notes
 
 - LM Studio should generally be configured with a `/v1` base URL.
+- The model id is optional on `hybridclaw auth login local <backend> [model-id]`.
+  If you omit it, HybridClaw enables the backend and you can choose a model
+  later with `/model list <backend>`.
+- Interactive onboarding can skip remote-provider auth completely when you plan
+  to use a local backend only.
 - For longer agent sessions, `16k` context is a minimum and `32k` is safer.
 - The TUI and Discord model pickers come from the live gateway model list, so
   restart the gateway after enabling a new backend or loading a different

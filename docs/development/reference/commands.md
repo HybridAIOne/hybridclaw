@@ -63,6 +63,17 @@ aliases remain accepted: `agent pack` maps to `export`, and `agent unpack`
 maps to `install`. Local TUI/web sessions also expose `/agent install <source>`
 for the same archive flows against a running gateway.
 
+## Migration
+
+```bash
+hybridclaw migrate openclaw [--source <path>] [--agent <id>] [--dry-run] [--overwrite] [--migrate-secrets] [--force]
+hybridclaw migrate hermes [--source <path>] [--agent <id>] [--dry-run] [--overwrite] [--migrate-secrets] [--force]
+```
+
+Use these commands to import compatible state from `~/.openclaw` or
+`~/.hermes` into a HybridClaw agent workspace. `--dry-run` previews the
+workspace, config, model, and secret changes before writing anything.
+
 ## Skills, Tools, Plugins, Audit
 
 ```bash

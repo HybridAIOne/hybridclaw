@@ -11,15 +11,20 @@ sidebar_position: 3
 HybridClaw onboarding walks through:
 
 1. accepting `TRUST_MODEL.md`
-2. choosing whether to create a new account
+2. choosing HybridAI auth or a local-only setup
 3. opening HybridAI registration/login in the browser when needed
-4. saving the API key and default bot configuration
+4. pasting the API key back into the CLI or skipping remote auth for a local backend
+5. saving the default bot/model plus encrypted runtime secrets
 
 Run it explicitly with:
 
 ```bash
 hybridclaw onboarding
 ```
+
+If you plan to run only on Ollama, LM Studio, llama.cpp, or vLLM, onboarding
+can skip the remote-provider steps and you can configure the backend later with
+`hybridclaw auth login local <backend> [model-id] ...`.
 
 ## Start The Gateway
 
