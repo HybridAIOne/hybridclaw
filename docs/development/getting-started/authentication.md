@@ -42,6 +42,8 @@ hybridclaw auth whatsapp reset
   vLLM in `~/.hybridclaw/config.json`.
 - The local backend model id is optional. If omitted, HybridClaw enables the
   backend and you can pick a model later with `/model list <backend>`.
+- Interactive onboarding can skip remote provider auth entirely when you plan
+  to use a local backend instead.
 - `hybridclaw auth login msteams` enables Microsoft Teams and stores the app
   secret for later gateway startup.
 - `hybridclaw auth status hybridai` reports whether HybridAI is authenticated,

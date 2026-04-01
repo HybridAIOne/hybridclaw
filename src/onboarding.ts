@@ -540,7 +540,12 @@ async function promptAuthMethod(
   rl: readline.Interface,
   currentModel: string,
 ): Promise<
-  'hybridai' | 'openai-codex' | 'openrouter' | 'mistral' | 'huggingface'
+  | 'hybridai'
+  | 'openai-codex'
+  | 'openrouter'
+  | 'mistral'
+  | 'huggingface'
+  | 'skip'
 > {
   const currentProvider = resolveModelProvider(currentModel);
   const defaultChoice =
@@ -560,6 +565,7 @@ async function promptAuthMethod(
   console.log(`  ${TEAL}3.${RESET} OpenRouter API key`);
   console.log(`  ${TEAL}4.${RESET} Mistral API key`);
   console.log(`  ${TEAL}5.${RESET} Hugging Face token`);
+  console.log(`  ${TEAL}6.${RESET} Skip for now (for local models)`);
 
   while (true) {
     const choice = await promptOptional(
@@ -589,10 +595,40 @@ async function promptAuthMethod(
     ) {
       return 'huggingface';
     }
+    if (normalized === '6' || normalized === 'skip' || normalized === 'local') {
+      return 'skip';
+    }
     printWarn(
-      'Enter 1 for HybridAI, 2 for OpenAI Codex, 3 for OpenRouter, 4 for Mistral, or 5 for Hugging Face.',
+      'Enter 1 for HybridAI, 2 for OpenAI Codex, 3 for OpenRouter, 4 for Mistral, 5 for Hugging Face, or 6 to skip for now.',
     );
   }
+}
+
+function printLocalProviderSetupHint(commandLabel: string): void {
+  printSuccess('Skipping remote provider auth for now.');
+  printInfo(
+    'If you plan to use a local model next, configure a local backend:',
+  );
+  console.log('  hybridclaw auth login local ollama');
+  console.log(
+    '  hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234',
+  );
+  console.log(
+    '  hybridclaw auth login local llamacpp --base-url http://127.0.0.1:8081',
+  );
+  console.log(
+    '  hybridclaw auth login local vllm --base-url http://127.0.0.1:8000 --api-key <key>',
+  );
+  printInfo('Then browse models and choose one from the TUI:');
+  console.log('  hybridclaw tui');
+  console.log('  /model list local');
+  console.log('  /model set <provider>/<model>');
+  if (shouldPrintTuiStartHint(commandLabel)) {
+    printInfo(
+      'Start the TUI after local backend setup is done so model selection succeeds.',
+    );
+  }
+  console.log();
 }
 
 async function maybeSwitchDefaultModel(
@@ -1186,6 +1222,10 @@ export async function ensureRuntimeCredentials(
 
     const authMethod =
       options.preferredAuth || (await promptAuthMethod(rl, currentModel));
+    if (authMethod === 'skip') {
+      printLocalProviderSetupHint(commandLabel);
+      return;
+    }
     if (authMethod === 'openai-codex') {
       await runCodexOnboarding({ rl, commandLabel });
       return;
