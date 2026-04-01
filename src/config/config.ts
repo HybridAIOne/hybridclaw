@@ -12,7 +12,7 @@ import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import {
   loadRuntimeSecrets,
   type RuntimeSecretKey,
-  readStoredRuntimeSecret,
+  readStoredRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import {
   ensureRuntimeConfigFile,
@@ -99,40 +99,56 @@ export const APP_VERSION = resolveAppVersion();
 function readRuntimeSecretValue(
   envKeys: string[],
   storedKey: RuntimeSecretKey,
+  storedSecrets: Record<string, string>,
 ): string {
   for (const envKey of envKeys) {
     const value = String(process.env[envKey] || '').trim();
     if (value) return value;
   }
-  return readStoredRuntimeSecret(storedKey) || '';
+  return storedSecrets[storedKey]?.trim() || '';
 }
 
 function syncRuntimeSecretExports(): void {
-  DISCORD_TOKEN = readRuntimeSecretValue(['DISCORD_TOKEN'], 'DISCORD_TOKEN');
-  EMAIL_PASSWORD = readRuntimeSecretValue(['EMAIL_PASSWORD'], 'EMAIL_PASSWORD');
+  const storedSecrets = readStoredRuntimeSecrets();
+  DISCORD_TOKEN = readRuntimeSecretValue(
+    ['DISCORD_TOKEN'],
+    'DISCORD_TOKEN',
+    storedSecrets,
+  );
+  EMAIL_PASSWORD = readRuntimeSecretValue(
+    ['EMAIL_PASSWORD'],
+    'EMAIL_PASSWORD',
+    storedSecrets,
+  );
   IMESSAGE_PASSWORD = readRuntimeSecretValue(
     ['IMESSAGE_PASSWORD'],
     'IMESSAGE_PASSWORD',
+    storedSecrets,
   );
   MSTEAMS_APP_PASSWORD = readRuntimeSecretValue(
     ['MSTEAMS_APP_PASSWORD'],
     'MSTEAMS_APP_PASSWORD',
+    storedSecrets,
   );
   HYBRIDAI_API_KEY = readRuntimeSecretValue(
     ['HYBRIDAI_API_KEY'],
     'HYBRIDAI_API_KEY',
+    storedSecrets,
   );
   OPENROUTER_API_KEY = readRuntimeSecretValue(
     ['OPENROUTER_API_KEY'],
     'OPENROUTER_API_KEY',
+    storedSecrets,
   );
   MISTRAL_API_KEY = readRuntimeSecretValue(
     ['MISTRAL_API_KEY'],
     'MISTRAL_API_KEY',
+    storedSecrets,
   );
   HUGGINGFACE_API_KEY = readRuntimeSecretValue(
     ['HF_TOKEN', 'HUGGINGFACE_API_KEY'],
     'HF_TOKEN',
+    storedSecrets,
   );
 }
 
@@ -501,6 +517,7 @@ function normalizeConfiguredBaseUrl(
 }
 
 function applyRuntimeConfig(config: RuntimeConfig): void {
+  const storedSecrets = readStoredRuntimeSecrets();
   DISCORD_PREFIX = config.discord.prefix;
   DISCORD_GUILD_MEMBERS_INTENT = config.discord.guildMembersIntent;
   DISCORD_PRESENCE_INTENT = config.discord.presenceIntent;
@@ -541,8 +558,11 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   MSTEAMS_ENABLED = config.msteams.enabled;
   MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID || config.msteams.appId;
   MSTEAMS_APP_PASSWORD =
-    readRuntimeSecretValue(['MSTEAMS_APP_PASSWORD'], 'MSTEAMS_APP_PASSWORD') ||
-    '';
+    readRuntimeSecretValue(
+      ['MSTEAMS_APP_PASSWORD'],
+      'MSTEAMS_APP_PASSWORD',
+      storedSecrets,
+    ) || '';
   MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID || config.msteams.tenantId;
   MSTEAMS_WEBHOOK_PORT = Math.max(
     1,
@@ -583,8 +603,11 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   IMESSAGE_POLL_INTERVAL_MS = Math.max(250, config.imessage.pollIntervalMs);
   IMESSAGE_SERVER_URL = config.imessage.serverUrl;
   IMESSAGE_PASSWORD =
-    readRuntimeSecretValue(['IMESSAGE_PASSWORD'], 'IMESSAGE_PASSWORD') ||
-    config.imessage.password;
+    readRuntimeSecretValue(
+      ['IMESSAGE_PASSWORD'],
+      'IMESSAGE_PASSWORD',
+      storedSecrets,
+    ) || config.imessage.password;
   IMESSAGE_WEBHOOK_PATH = config.imessage.webhookPath;
   IMESSAGE_ALLOW_PRIVATE_NETWORK = config.imessage.allowPrivateNetwork;
   IMESSAGE_DM_POLICY = config.imessage.dmPolicy;
@@ -700,11 +723,15 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   HEALTH_HOST = process.env.HEALTH_HOST || config.ops.healthHost;
   HEALTH_PORT = config.ops.healthPort;
   WEB_API_TOKEN =
-    readRuntimeSecretValue(['WEB_API_TOKEN'], 'WEB_API_TOKEN') ||
+    readRuntimeSecretValue(['WEB_API_TOKEN'], 'WEB_API_TOKEN', storedSecrets) ||
     config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
   GATEWAY_API_TOKEN =
-    readRuntimeSecretValue(['GATEWAY_API_TOKEN'], 'GATEWAY_API_TOKEN') ||
+    readRuntimeSecretValue(
+      ['GATEWAY_API_TOKEN'],
+      'GATEWAY_API_TOKEN',
+      storedSecrets,
+    ) ||
     config.ops.gatewayApiToken ||
     WEB_API_TOKEN ||
     INTERNAL_GATEWAY_API_TOKEN;

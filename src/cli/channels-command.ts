@@ -695,10 +695,13 @@ async function resolveInteractiveEmailSetup(params: {
   let imapHost = params.imapHost;
   let smtpHost = params.smtpHost;
   let password = params.password;
+  const hasEnvOrStoredPassword = Boolean(
+    process.env.EMAIL_PASSWORD?.trim() ||
+      readStoredRuntimeSecret('EMAIL_PASSWORD'),
+  );
   let passwordSource: 'explicit' | 'prompt' | 'env' = password
     ? 'explicit'
-    : process.env.EMAIL_PASSWORD?.trim() ||
-        readStoredRuntimeSecret('EMAIL_PASSWORD')
+    : hasEnvOrStoredPassword
       ? 'env'
       : 'prompt';
   let allowFrom = params.allowFrom;

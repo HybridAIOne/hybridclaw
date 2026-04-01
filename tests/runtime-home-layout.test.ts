@@ -404,7 +404,63 @@ describe('runtime secrets', () => {
 
     expect(reloaded.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('failed to read'),
+      expect.stringContaining('failed to decrypt'),
+    );
+  });
+
+  it('does not migrate .env secrets over an unreadable encrypted store', async () => {
+    const homeDir = makeTempDir('hybridclaw-runtime-secrets-');
+    const cwdDir = makeTempDir('hybridclaw-runtime-cwd-');
+    const envPath = path.join(cwdDir, '.env');
+    process.env.HYBRIDCLAW_MASTER_KEY = 'correct-master-key';
+    const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
+    runtimeSecrets.saveRuntimeSecrets({
+      HYBRIDAI_API_KEY: 'hai-preserve-existing-secret',
+    });
+    const encryptedBefore = fs.readFileSync(runtimeSecrets.runtimeSecretsPath(), 'utf-8');
+
+    fs.writeFileSync(envPath, 'HYBRIDAI_API_KEY=hai-from-dot-env\n', 'utf-8');
+    process.chdir(cwdDir);
+    process.env.HYBRIDCLAW_MASTER_KEY = 'wrong-master-key';
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const reloaded = await importFreshRuntimeSecrets(homeDir);
+
+    reloaded.loadRuntimeSecrets();
+
+    expect(fs.readFileSync(reloaded.runtimeSecretsPath(), 'utf-8')).toBe(
+      encryptedBefore,
+    );
+    expect(reloaded.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('failed to decrypt'),
+    );
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Migrating .env to'),
+    );
+  });
+
+  it('treats runtime home permission fixes as best effort', async () => {
+    const homeDir = makeTempDir('hybridclaw-runtime-secrets-');
+    const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
+    runtimeSecrets.saveRuntimeSecrets({
+      HYBRIDAI_API_KEY: 'hai-best-effort-permissions',
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chmodSpy = vi.spyOn(fs, 'chmodSync').mockImplementation((target) => {
+      if (target === path.join(homeDir, '.hybridclaw')) {
+        throw new Error('read-only filesystem');
+      }
+    });
+
+    const reloaded = await importFreshRuntimeSecrets(homeDir);
+
+    expect(reloaded.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
+      'hai-best-effort-permissions',
+    );
+    expect(chmodSpy).toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('failed to set permissions'),
     );
   });
 
