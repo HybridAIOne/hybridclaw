@@ -12,6 +12,7 @@ const ORIGINAL_DISABLE_CONFIG_WATCHER =
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
+const ORIGINAL_CWD = process.cwd();
 const TEMP_HOMES: string[] = [];
 
 function makeTempHome(): string {
@@ -48,6 +49,7 @@ async function runHybridAIOnboarding(commandName: string): Promise<string> {
   process.env.HOME = homeDir;
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   delete process.env.HYBRIDAI_API_KEY;
+  process.chdir(homeDir);
   Object.defineProperty(process.stdin, 'isTTY', {
     value: true,
     configurable: true,
@@ -128,6 +130,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.doUnmock('node:readline/promises');
   vi.doUnmock('../src/security/runtime-secrets.ts');
+  vi.doUnmock('../src/migration/agent-home-migration.js');
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
     delete process.env.HOME;
@@ -153,6 +156,7 @@ afterEach(() => {
     value: ORIGINAL_STDOUT_IS_TTY,
     configurable: true,
   });
+  process.chdir(ORIGINAL_CWD);
   while (TEMP_HOMES.length > 0) {
     const homeDir = TEMP_HOMES.pop();
     if (!homeDir) continue;
@@ -164,6 +168,137 @@ test('interactive onboarding suggests starting the TUI after HybridAI setup', as
   const output = await runHybridAIOnboarding('hybridclaw onboarding');
 
   expect(output).toContain('Start HybridClaw now with `hybridclaw tui`.');
+});
+
+test('first-run onboarding offers Hermes migration before auth setup', async () => {
+  const homeDir = makeTempHome();
+  const hermesRoot = path.join(homeDir, '.hermes');
+  fs.mkdirSync(hermesRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(hermesRoot, '.env'),
+    'HYBRIDAI_API_KEY=hai-imported-from-hermes\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(hermesRoot, 'SOUL.md'),
+    '# SOUL.md\n\nImported from Hermes.\n',
+    'utf-8',
+  );
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  delete process.env.HYBRIDAI_API_KEY;
+  process.chdir(homeDir);
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+
+  const answers = [
+    'y',
+    'y',
+    'ACCEPT',
+    '',
+    'n',
+    'n',
+    '',
+    '',
+    'hai-imported-from-hermes',
+    '',
+  ];
+  const migrateAgentHomeMock = vi.fn(async () => {
+    const runtimeRoot = path.join(homeDir, '.hybridclaw');
+    fs.mkdirSync(
+      path.join(runtimeRoot, 'data', 'agents', 'main', 'workspace'),
+      {
+        recursive: true,
+      },
+    );
+    fs.mkdirSync(path.join(runtimeRoot, 'migration', 'hermes', 'test-run'), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(runtimeRoot, 'credentials.json'),
+      `${JSON.stringify({ HYBRIDAI_API_KEY: 'hai-imported-from-hermes' }, null, 2)}\n`,
+      'utf-8',
+    );
+    process.env.HYBRIDAI_API_KEY = 'hai-imported-from-hermes';
+    return {
+      sourceKind: 'hermes',
+      sourceRoot: hermesRoot,
+      targetRoot: runtimeRoot,
+      execute: true,
+      overwrite: false,
+      migrateSecrets: true,
+      outputDir: path.join(runtimeRoot, 'migration', 'hermes', 'test-run'),
+      summary: {
+        total: 2,
+        migrated: 2,
+        skipped: 0,
+        conflict: 0,
+        error: 0,
+        archived: 0,
+      },
+      items: [],
+    };
+  });
+  vi.doMock('node:readline/promises', () => ({
+    default: {
+      createInterface: () => ({
+        question: vi.fn(async (prompt: string) => {
+          const answer = answers.shift();
+          if (answer === undefined) {
+            throw new Error(`Unexpected onboarding prompt: ${prompt}`);
+          }
+          return answer;
+        }),
+        close: vi.fn(),
+      }),
+    },
+  }));
+  vi.doMock('../src/migration/agent-home-migration.js', () => ({
+    detectAvailableAgentMigrationSources: () => ['hermes'],
+    detectAgentMigrationSourceRoot: () => hermesRoot,
+    migrateAgentHome: migrateAgentHomeMock,
+  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'user-42',
+                name: 'Imported Assistant',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+    ),
+  );
+  vi.resetModules();
+
+  const onboarding = await import('../src/onboarding.ts');
+  await onboarding.ensureRuntimeCredentials({
+    commandName: 'hybridclaw onboarding',
+    preferredAuth: 'hybridai',
+  });
+
+  const runtimeRoot = path.join(homeDir, '.hybridclaw');
+  expect(fs.existsSync(path.join(runtimeRoot, 'credentials.json'))).toBe(true);
+  expect(
+    fs.readFileSync(path.join(runtimeRoot, 'credentials.json'), 'utf-8'),
+  ).toContain('hai-imported-from-hermes');
+  expect(migrateAgentHomeMock).toHaveBeenCalled();
 });
 
 test('interactive onboarding does not print the start hint when TUI is already launching', async () => {

@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import readline from 'node:readline/promises';
 import {
   getCodexAuthStatus,
@@ -53,6 +55,32 @@ interface OnboardingOptions {
     | 'openrouter'
     | 'mistral'
     | 'huggingface';
+}
+
+function agentSourceLabel(sourceKind: 'openclaw' | 'hermes'): string {
+  return sourceKind === 'openclaw' ? 'OpenClaw' : 'Hermes Agent';
+}
+
+function dirHasEntries(dirPath: string): boolean {
+  try {
+    return fs.readdirSync(dirPath).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function shouldOfferAgentHomeMigrations(bootstrappedConfig: boolean): boolean {
+  if (bootstrappedConfig) return true;
+  const runtimeRoot = path.dirname(runtimeConfigPath());
+  if (fs.existsSync(runtimeSecretsPath())) return false;
+  if (dirHasEntries(path.join(runtimeRoot, 'migration'))) return false;
+  if (dirHasEntries(path.join(runtimeRoot, 'skills'))) return false;
+  if (dirHasEntries(path.join(runtimeRoot, 'data', 'agents'))) return false;
+
+  const config = getRuntimeConfig();
+  return (
+    !isSecurityTrustAccepted(config) && !config.hybridai.defaultChatbotId.trim()
+  );
 }
 
 function isLocalProvider(
@@ -1042,11 +1070,87 @@ async function runHuggingFaceOnboarding(params: {
   console.log();
 }
 
+async function maybeOfferAgentHomeMigrations(
+  rl: readline.Interface,
+  bootstrappedConfig: boolean,
+): Promise<boolean> {
+  if (!shouldOfferAgentHomeMigrations(bootstrappedConfig)) return false;
+  const {
+    detectAgentMigrationSourceRoot,
+    detectAvailableAgentMigrationSources,
+    migrateAgentHome,
+  } = await import('./migration/agent-home-migration.js');
+  const available = detectAvailableAgentMigrationSources();
+  if (available.length === 0) return false;
+
+  let migrated = false;
+  for (const sourceKind of available) {
+    const sourceRoot = detectAgentMigrationSourceRoot(sourceKind);
+    if (!sourceRoot) continue;
+    printHeadline(`${agentSourceLabel(sourceKind)} installation detected`);
+    printInfo(`Found ${agentSourceLabel(sourceKind)} data at ${sourceRoot}.`);
+    printInfo(
+      'HybridClaw can import compatible workspace files, skills, runtime config, MCP servers, and secrets.',
+    );
+    console.log();
+    const wantsImport = await promptYesNo(
+      rl,
+      `Import from ${agentSourceLabel(sourceKind)} before continuing?`,
+      true,
+      ICON_SETUP,
+    );
+    if (!wantsImport) continue;
+
+    try {
+      const result = await migrateAgentHome({
+        sourceKind,
+        sourceRoot,
+        execute: true,
+        overwrite: false,
+        migrateSecrets: true,
+      });
+      migrated = true;
+      printSuccess(
+        `${agentSourceLabel(sourceKind)} import complete: ${result.summary.migrated} migrated, ${result.summary.conflict} conflicts, ${result.summary.error} errors.`,
+      );
+      if (result.outputDir) {
+        printInfo(`Migration report: ${result.outputDir}`);
+      }
+      console.log();
+    } catch (error) {
+      printWarn(
+        `${agentSourceLabel(sourceKind)} import failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  return migrated;
+}
+
 export async function ensureRuntimeCredentials(
   options: OnboardingOptions = {},
 ): Promise<void> {
   loadRuntimeSecrets();
   const bootstrappedConfig = ensureRuntimeConfigFile();
+
+  const interactive = process.stdin.isTTY && process.stdout.isTTY;
+  let rl: readline.Interface | null = null;
+  if (interactive) {
+    rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    try {
+      const migrated = await maybeOfferAgentHomeMigrations(
+        rl,
+        bootstrappedConfig,
+      );
+      if (migrated) loadRuntimeSecrets();
+    } catch (error) {
+      rl.close();
+      throw new Error('Failed during agent migration offer.', { cause: error });
+    }
+  }
 
   const runtimeConfig = getRuntimeConfig();
   const existingKey = (process.env.HYBRIDAI_API_KEY || '').trim();
@@ -1091,10 +1195,11 @@ export async function ensureRuntimeCredentials(
       authMethod: currentAuth,
       existingKey,
     });
+    rl?.close();
     return;
   }
 
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+  if (!interactive) {
     if (!securityAccepted) {
       if (process.env.HYBRIDCLAW_ACCEPT_TRUST === 'true') {
         try {
@@ -1142,16 +1247,10 @@ export async function ensureRuntimeCredentials(
     );
   }
 
-  const baseUrl = normalizeBaseUrl(
-    runtimeConfig.hybridai.baseUrl ||
-      process.env.HYBRIDAI_BASE_URL ||
-      DEFAULT_BASE_URL,
-  );
   const commandLabel = options.commandName || 'hybridclaw';
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  if (!rl) {
+    throw new Error('Interactive onboarding interface was not initialized.');
+  }
 
   try {
     printHeadline('HybridClaw onboarding');
@@ -1162,17 +1261,61 @@ export async function ensureRuntimeCredentials(
     }
     await ensureSecurityTrustAcceptance(rl, commandLabel, force);
 
-    if (currentProviderIsLocal && !options.preferredAuth) {
+    loadRuntimeSecrets();
+    const refreshedRuntimeConfig = getRuntimeConfig();
+    const refreshedExistingKey = (process.env.HYBRIDAI_API_KEY || '').trim();
+    const refreshedExistingOpenRouterKey = (
+      process.env.OPENROUTER_API_KEY || ''
+    ).trim();
+    const refreshedExistingMistralKey = (
+      process.env.MISTRAL_API_KEY || ''
+    ).trim();
+    const refreshedExistingHuggingFaceKey = (
+      process.env.HF_TOKEN ||
+      process.env.HUGGINGFACE_API_KEY ||
+      ''
+    ).trim();
+    const refreshedCurrentModel =
+      refreshedRuntimeConfig.hybridai.defaultModel.trim();
+    const refreshedResolvedProvider = resolveModelProvider(
+      refreshedCurrentModel,
+    );
+    const refreshedProviderIsLocal = isLocalProvider(refreshedResolvedProvider);
+    const refreshedAuth =
+      options.preferredAuth ||
+      (refreshedResolvedProvider === 'openai-codex'
+        ? 'openai-codex'
+        : refreshedResolvedProvider === 'openrouter'
+          ? 'openrouter'
+          : refreshedResolvedProvider === 'mistral'
+            ? 'mistral'
+            : refreshedResolvedProvider === 'huggingface'
+              ? 'huggingface'
+              : 'hybridai');
+    const refreshedCodexStatus = getCodexAuthStatus();
+    const refreshedHasRequiredCredentials = refreshedProviderIsLocal
+      ? true
+      : refreshedAuth === 'openai-codex'
+        ? refreshedCodexStatus.authenticated
+        : refreshedAuth === 'openrouter'
+          ? !!refreshedExistingOpenRouterKey
+          : refreshedAuth === 'mistral'
+            ? !!refreshedExistingMistralKey
+            : refreshedAuth === 'huggingface'
+              ? !!refreshedExistingHuggingFaceKey
+              : !!refreshedExistingKey;
+
+    if (refreshedProviderIsLocal && !options.preferredAuth) {
       printSuccess(
         'Security trust model accepted and the active model provider is local. No remote credentials are required.',
       );
       return;
     }
 
-    if (hasRequiredCredentials && !force) {
+    if (refreshedHasRequiredCredentials && !force) {
       await maybeBackfillDefaultHybridAIChatbotId({
-        authMethod: currentAuth,
-        existingKey,
+        authMethod: refreshedAuth,
+        existingKey: refreshedExistingKey,
         forcePrint: true,
       });
       printSuccess(
@@ -1182,7 +1325,8 @@ export async function ensureRuntimeCredentials(
     }
 
     const authMethod =
-      options.preferredAuth || (await promptAuthMethod(rl, currentModel));
+      options.preferredAuth ||
+      (await promptAuthMethod(rl, refreshedCurrentModel));
     if (authMethod === 'openai-codex') {
       await runCodexOnboarding({ rl, commandLabel });
       return;
@@ -1191,7 +1335,7 @@ export async function ensureRuntimeCredentials(
       await runOpenRouterOnboarding({
         rl,
         commandLabel,
-        existingKey: existingOpenRouterKey,
+        existingKey: refreshedExistingOpenRouterKey,
       });
       return;
     }
@@ -1199,7 +1343,7 @@ export async function ensureRuntimeCredentials(
       await runMistralOnboarding({
         rl,
         commandLabel,
-        existingKey: existingMistralKey,
+        existingKey: refreshedExistingMistralKey,
       });
       return;
     }
@@ -1207,18 +1351,22 @@ export async function ensureRuntimeCredentials(
       await runHuggingFaceOnboarding({
         rl,
         commandLabel,
-        existingKey: existingHuggingFaceKey,
+        existingKey: refreshedExistingHuggingFaceKey,
       });
       return;
     }
 
     await runHybridAIApiKeyOnboarding({
       rl,
-      baseUrl,
+      baseUrl: normalizeBaseUrl(
+        refreshedRuntimeConfig.hybridai.baseUrl ||
+          process.env.HYBRIDAI_BASE_URL ||
+          DEFAULT_BASE_URL,
+      ),
       commandLabel,
-      existingKey,
+      existingKey: refreshedExistingKey,
     });
   } finally {
-    rl.close();
+    rl?.close();
   }
 }
