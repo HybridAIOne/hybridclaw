@@ -1,13 +1,6 @@
-export type ProviderKind =
-  | 'hybridai'
-  | 'openai-codex'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'ollama'
-  | 'lmstudio'
-  | 'llamacpp'
-  | 'vllm';
+import type { RuntimeProviderId } from '../providers/provider-ids.js';
+
+export type ProviderKind = RuntimeProviderId;
 
 export interface McpServerConfig {
   transport: 'stdio' | 'http' | 'sse';

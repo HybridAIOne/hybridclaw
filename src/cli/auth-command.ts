@@ -9,6 +9,10 @@ import {
 } from '../config/runtime-config.js';
 import type { LocalBackendType } from '../providers/local-types.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
+import {
+  isLocalBackendType,
+  LOCAL_BACKEND_IDS,
+} from '../providers/provider-ids.js';
 import { normalizeBaseUrl } from '../providers/utils.js';
 import {
   runtimeSecretsPath,
@@ -924,15 +928,6 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
   printLocalUsage();
 }
 
-function isLocalBackendType(value: string): value is LocalBackendType {
-  return (
-    value === 'ollama' ||
-    value === 'lmstudio' ||
-    value === 'llamacpp' ||
-    value === 'vllm'
-  );
-}
-
 function normalizeLocalModelId(
   backend: LocalBackendType,
   rawModelId: string,
@@ -1054,7 +1049,7 @@ function printLocalStatus(): void {
   console.log(
     `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
   );
-  for (const backend of ['ollama', 'lmstudio', 'llamacpp', 'vllm'] as const) {
+  for (const backend of LOCAL_BACKEND_IDS) {
     const settings = config.local.backends[backend];
     console.log(
       `${backend}: ${settings.enabled ? 'enabled' : 'disabled'} (${settings.baseUrl})`,

@@ -3,6 +3,7 @@ import { extractResponseTextContent } from '../../container/shared/response-text
 import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
+import type { RuntimeProviderId } from './provider-ids.js';
 import {
   type AuxiliaryTask,
   detectRuntimeProviderPrefix,
@@ -14,16 +15,7 @@ import {
 import { isRecord } from './utils.js';
 
 type AuxiliaryTextTask = Exclude<AuxiliaryTask, 'vision'>;
-type RuntimeProvider =
-  | 'hybridai'
-  | 'openai-codex'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'ollama'
-  | 'lmstudio'
-  | 'llamacpp'
-  | 'vllm';
+type RuntimeProvider = RuntimeProviderId;
 
 interface AuxiliaryTextCallContext {
   provider: RuntimeProvider;

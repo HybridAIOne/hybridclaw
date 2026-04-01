@@ -27,6 +27,7 @@ import {
   normalizeBots,
   normalizeHybridAIAccountChatbotId,
 } from './providers/hybridai-bots.js';
+import { isLocalBackendType } from './providers/provider-ids.js';
 import {
   ensureRuntimeInstructionCopies,
   resolveRuntimeInstructionPath,
@@ -86,12 +87,7 @@ function shouldOfferAgentHomeMigrations(bootstrappedConfig: boolean): boolean {
 function isLocalProvider(
   provider: ReturnType<typeof resolveModelProvider>,
 ): boolean {
-  return (
-    provider === 'ollama' ||
-    provider === 'lmstudio' ||
-    provider === 'llamacpp' ||
-    provider === 'vllm'
-  );
+  return isLocalBackendType(provider);
 }
 
 function trustModelDocPath(): string {

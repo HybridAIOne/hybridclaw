@@ -20,14 +20,10 @@ import type {
   LocalModelInfo,
   LocalThinkingFormat,
 } from './local-types.js';
+import { LOCAL_BACKEND_IDS } from './provider-ids.js';
 import { isRecord, normalizeBaseUrl } from './utils.js';
 
-const DISCOVERY_ORDER: LocalBackendType[] = [
-  'ollama',
-  'lmstudio',
-  'llamacpp',
-  'vllm',
-];
+const DISCOVERY_ORDER: LocalBackendType[] = [...LOCAL_BACKEND_IDS];
 const ZERO_COST = {
   input: 0,
   output: 0,

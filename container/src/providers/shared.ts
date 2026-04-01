@@ -4,17 +4,12 @@ import type {
   ChatMessage,
   ToolDefinition,
 } from '../types.js';
+import {
+  isRuntimeProvider,
+  type RuntimeProvider,
+} from './provider-ids.js';
 
-export type RuntimeProvider =
-  | 'hybridai'
-  | 'openai-codex'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'ollama'
-  | 'lmstudio'
-  | 'llamacpp'
-  | 'vllm';
+export type { RuntimeProvider } from './provider-ids.js';
 
 export interface NormalizedCallArgs {
   provider: RuntimeProvider | undefined;
@@ -154,20 +149,6 @@ export function summarizeHybridAICompletionForDebug(
   return `id=${response.id || 'null'} model=${response.model || 'null'} finish=${choice?.finish_reason || 'null'} contentType=${contentType}`;
 }
 
-function isProvider(value: unknown): value is RuntimeProvider {
-  return (
-    value === 'hybridai' ||
-    value === 'openai-codex' ||
-    value === 'openrouter' ||
-    value === 'mistral' ||
-    value === 'huggingface' ||
-    value === 'ollama' ||
-    value === 'lmstudio' ||
-    value === 'llamacpp' ||
-    value === 'vllm'
-  );
-}
-
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -199,7 +180,7 @@ export function normalizeOpenRouterRuntimeModelName(model: string): string {
 }
 
 export function normalizeCallArgs(rawArgs: unknown[]): NormalizedCallArgs {
-  if (isProvider(rawArgs[0])) {
+  if (isRuntimeProvider(rawArgs[0])) {
     return {
       provider: rawArgs[0],
       baseUrl: String(rawArgs[1] || ''),
@@ -237,7 +218,7 @@ export function normalizeCallArgs(rawArgs: unknown[]): NormalizedCallArgs {
 export function normalizeStreamCallArgs(
   rawArgs: unknown[],
 ): NormalizedStreamCallArgs {
-  if (isProvider(rawArgs[0])) {
+  if (isRuntimeProvider(rawArgs[0])) {
     const onActivity =
       typeof rawArgs[10] === 'function'
         ? (rawArgs[10] as () => void)

@@ -31,18 +31,9 @@ import {
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
+import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 
-type ModelCatalogProviderFilter =
-  | 'hybridai'
-  | 'openai-codex'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'ollama'
-  | 'lmstudio'
-  | 'llamacpp'
-  | 'vllm'
-  | 'local';
+type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
 
 const OLLAMA_MODEL_PREFIX = 'ollama/';
 const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
@@ -122,18 +113,7 @@ export function normalizeModelCatalogProviderFilter(
     .toLowerCase();
   if (!normalized) return null;
   if (normalized === 'codex') return 'openai-codex';
-  if (
-    normalized === 'hybridai' ||
-    normalized === 'openai-codex' ||
-    normalized === 'openrouter' ||
-    normalized === 'mistral' ||
-    normalized === 'huggingface' ||
-    normalized === 'ollama' ||
-    normalized === 'lmstudio' ||
-    normalized === 'llamacpp' ||
-    normalized === 'vllm' ||
-    normalized === 'local'
-  ) {
+  if (normalized === 'local' || isRuntimeProviderId(normalized)) {
     return normalized;
   }
   return null;

@@ -18,6 +18,10 @@ import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import type { LocalProviderConfig } from '../providers/local-types.js';
 import {
+  isRuntimeProviderId,
+  type RuntimeProviderId,
+} from '../providers/provider-ids.js';
+import {
   normalizeSessionResetMode,
   type SessionResetMode,
 } from '../session/session-reset.js';
@@ -169,17 +173,7 @@ export type RuntimeAudioTranscriptionModelConfig =
   | RuntimeAudioProviderModelConfig
   | RuntimeAudioCliModelConfig;
 
-export type RuntimeAuxiliaryProviderSelection =
-  | 'auto'
-  | 'hybridai'
-  | 'openai-codex'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'ollama'
-  | 'lmstudio'
-  | 'llamacpp'
-  | 'vllm';
+export type RuntimeAuxiliaryProviderSelection = 'auto' | RuntimeProviderId;
 
 export interface RuntimeAuxiliaryModelPolicyConfig {
   provider: RuntimeAuxiliaryProviderSelection;
@@ -2747,18 +2741,7 @@ function normalizeAuxiliaryProviderSelection(
 ): RuntimeAuxiliaryProviderSelection {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (
-    normalized === 'auto' ||
-    normalized === 'hybridai' ||
-    normalized === 'openai-codex' ||
-    normalized === 'openrouter' ||
-    normalized === 'mistral' ||
-    normalized === 'huggingface' ||
-    normalized === 'ollama' ||
-    normalized === 'lmstudio' ||
-    normalized === 'llamacpp' ||
-    normalized === 'vllm'
-  ) {
+  if (normalized === 'auto' || isRuntimeProviderId(normalized)) {
     return normalized;
   }
   return fallback;

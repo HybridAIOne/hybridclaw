@@ -16,10 +16,11 @@ import {
   isModelVisionCapable,
 } from './model-catalog.js';
 import { discoverOpenRouterModels } from './openrouter-discovery.js';
+import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 
 export type AuxiliaryTask = TaskModelKey;
 
-type RuntimeProvider = NonNullable<TaskModelPolicy['provider']>;
+type RuntimeProvider = RuntimeProviderId;
 type TaskOverrideSuffix = 'MODEL' | 'PROVIDER';
 type TaskOverrideSnapshot = Partial<
   Record<AuxiliaryTask, Partial<Record<TaskOverrideSuffix, string>>>
@@ -51,18 +52,7 @@ function normalizeTaskProviderSelection(
   value: string | undefined,
 ): RuntimeAuxiliaryProviderSelection | undefined {
   const normalized = (value ?? '').trim().toLowerCase();
-  if (
-    normalized === 'auto' ||
-    normalized === 'hybridai' ||
-    normalized === 'openai-codex' ||
-    normalized === 'openrouter' ||
-    normalized === 'mistral' ||
-    normalized === 'huggingface' ||
-    normalized === 'ollama' ||
-    normalized === 'lmstudio' ||
-    normalized === 'llamacpp' ||
-    normalized === 'vllm'
-  ) {
+  if (normalized === 'auto' || isRuntimeProviderId(normalized)) {
     return normalized;
   }
   return undefined;
