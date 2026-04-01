@@ -30,6 +30,7 @@ config.local.json
 
 # Claude Code
 .claude/
+.playwright-cli/
 
 # OS
 .DS_Store
