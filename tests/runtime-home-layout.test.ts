@@ -417,7 +417,10 @@ describe('runtime secrets', () => {
     runtimeSecrets.saveRuntimeSecrets({
       HYBRIDAI_API_KEY: 'hai-preserve-existing-secret',
     });
-    const encryptedBefore = fs.readFileSync(runtimeSecrets.runtimeSecretsPath(), 'utf-8');
+    const encryptedBefore = fs.readFileSync(
+      runtimeSecrets.runtimeSecretsPath(),
+      'utf-8',
+    );
 
     fs.writeFileSync(envPath, 'HYBRIDAI_API_KEY=hai-from-dot-env\n', 'utf-8');
     process.chdir(cwdDir);
