@@ -270,6 +270,7 @@ async function importFreshCli(options?: {
     };
   });
   const saveRuntimeSecrets = vi.fn(() => '/tmp/credentials.json');
+  const readStoredRuntimeSecret = vi.fn(() => null);
   const loadSkillCatalog = vi.fn(() => [
     { name: 'pdf' },
     { name: 'docx' },
@@ -835,6 +836,7 @@ async function importFreshCli(options?: {
   }));
   vi.doMock('../src/security/runtime-secrets.ts', () => ({
     loadRuntimeSecrets: vi.fn(),
+    readStoredRuntimeSecret,
     runtimeSecretsPath: vi.fn(() => '/tmp/credentials.json'),
     saveRuntimeSecrets,
   }));
@@ -923,6 +925,7 @@ async function importFreshCli(options?: {
     whatsappStart,
     whatsappStop,
     whatsappWaitForSocket,
+    readStoredRuntimeSecret,
     saveRuntimeSecrets,
     ensureRuntimeConfigFile,
     clearRuntimeConfigRevisions,
