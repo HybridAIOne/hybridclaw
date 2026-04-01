@@ -120,6 +120,7 @@ export interface TaskModelPolicy {
     | 'huggingface'
     | 'ollama'
     | 'lmstudio'
+    | 'llamacpp'
     | 'vllm';
   baseUrl?: string;
   apiKey?: string;
@@ -205,6 +206,7 @@ export interface ContainerInput {
     | 'huggingface'
     | 'ollama'
     | 'lmstudio'
+    | 'llamacpp'
     | 'vllm';
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;

@@ -30,6 +30,7 @@ const LEGACY_WORKSPACE_DIRS = [
   'ollama',
   'vllm',
   'lmstudio',
+  'llamacpp',
   'anthropic',
   'openai-codex',
 ] as const;

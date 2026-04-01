@@ -234,6 +234,8 @@ function resolveProviderLabel(model: string): string {
       return 'Ollama';
     case 'lmstudio':
       return 'LM Studio';
+    case 'llamacpp':
+      return 'llama.cpp';
     case 'vllm':
       return 'vLLM';
     default:

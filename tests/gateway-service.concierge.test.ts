@@ -60,7 +60,7 @@ async function createFixture() {
     '../src/config/runtime-config.ts'
   );
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
   const { memoryService } = await import('../src/memory/memory-service.ts');
 

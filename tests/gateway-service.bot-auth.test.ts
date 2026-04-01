@@ -163,7 +163,7 @@ test('handleGatewayMessage falls back to /bot-management/me when no chatbot is c
   initDatabase({ quiet: true });
 
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
   const result = await handleGatewayMessage({
     sessionId: 'session-chatbot-fallback',
@@ -248,7 +248,7 @@ test('handleGatewayMessage returns an auth error when /bot-management/me fallbac
   initDatabase({ quiet: true });
 
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
   const result = await handleGatewayMessage({
     sessionId: 'session-chatbot-fallback-auth-error',

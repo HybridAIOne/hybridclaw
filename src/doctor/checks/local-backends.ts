@@ -1,11 +1,16 @@
 import { getRuntimeConfig } from '../../config/runtime-config.js';
 import { resolveModelProvider } from '../../providers/factory.js';
 import { checkAllBackends } from '../../providers/local-health.js';
+import {
+  isLocalBackendType,
+  type LocalBackendType,
+} from '../../providers/provider-ids.js';
 import type { DiagResult } from '../types.js';
 import { makeResult, severityFrom } from '../utils.js';
 
-function labelForBackend(backend: 'ollama' | 'lmstudio' | 'vllm'): string {
+function labelForBackend(backend: LocalBackendType): string {
   if (backend === 'lmstudio') return 'LM Studio';
+  if (backend === 'llamacpp') return 'llama.cpp';
   if (backend === 'vllm') return 'vLLM';
   return 'Ollama';
 }
@@ -14,7 +19,8 @@ export async function checkLocalBackendsCategory(): Promise<DiagResult[]> {
   const config = getRuntimeConfig();
   const enabledBackends = Object.entries(config.local.backends)
     .filter(([, backend]) => backend.enabled)
-    .map(([name]) => name as 'ollama' | 'lmstudio' | 'vllm');
+    .map(([name]) => name)
+    .filter((name): name is LocalBackendType => isLocalBackendType(name));
 
   if (enabledBackends.length === 0) {
     return [

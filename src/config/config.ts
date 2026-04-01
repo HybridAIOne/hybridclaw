@@ -333,6 +333,8 @@ export let LOCAL_OLLAMA_ENABLED = true;
 export let LOCAL_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 export let LOCAL_LMSTUDIO_ENABLED = false;
 export let LOCAL_LMSTUDIO_BASE_URL = 'http://127.0.0.1:1234/v1';
+export let LOCAL_LLAMACPP_ENABLED = false;
+export let LOCAL_LLAMACPP_BASE_URL = 'http://127.0.0.1:8081/v1';
 export let LOCAL_VLLM_ENABLED = false;
 export let LOCAL_VLLM_BASE_URL = 'http://127.0.0.1:8000/v1';
 export let LOCAL_VLLM_API_KEY = '';
@@ -674,6 +676,8 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   LOCAL_OLLAMA_BASE_URL = config.local.backends.ollama.baseUrl;
   LOCAL_LMSTUDIO_ENABLED = config.local.backends.lmstudio.enabled;
   LOCAL_LMSTUDIO_BASE_URL = config.local.backends.lmstudio.baseUrl;
+  LOCAL_LLAMACPP_ENABLED = config.local.backends.llamacpp.enabled;
+  LOCAL_LLAMACPP_BASE_URL = config.local.backends.llamacpp.baseUrl;
   LOCAL_VLLM_ENABLED = config.local.backends.vllm.enabled;
   LOCAL_VLLM_BASE_URL = config.local.backends.vllm.baseUrl;
   LOCAL_VLLM_API_KEY = config.local.backends.vllm.apiKey || '';

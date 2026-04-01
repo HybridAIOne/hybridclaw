@@ -13,6 +13,7 @@ export function printMainUsage(): void {
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, WhatsApp, Email)
   browser    Manage persistent browser profiles for agent web automation
+  migrate    Import state from another agent home
   plugin     Manage HybridClaw plugins
   skill      List skill dependency installers or run one
   tool       List or disable built-in agent tools
@@ -84,24 +85,27 @@ export function printLocalUsage(): void {
 
 Commands:
   hybridclaw local status
-  hybridclaw local configure <ollama|lmstudio|vllm> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]
+  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
 
 Use Instead:
-  hybridclaw auth login local <ollama|lmstudio|vllm> <model-id> ...
+  hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] ...
   hybridclaw auth status local
   hybridclaw auth logout local
 
 Examples:
+  hybridclaw local configure lmstudio --base-url http://127.0.0.1:1234
   hybridclaw local configure lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234
+  hybridclaw local configure llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
   hybridclaw local configure ollama llama3.2
   hybridclaw local configure vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
 
 Notes:
   - \`hybridclaw local ...\` is deprecated and will be removed in a future release.
-  - LM Studio and vLLM URLs are normalized to include \`/v1\`.
+  - LM Studio, llama.cpp, and vLLM URLs are normalized to include \`/v1\`.
   - Ollama URLs are normalized to omit \`/v1\`.
-  - By default, \`configure\` also sets \`hybridai.defaultModel\` to the chosen local model.
-    Use \`--no-default\` to leave the global default model unchanged.`);
+  - When a model id is provided, \`configure\` also sets \`hybridai.defaultModel\` to that local model by default.
+    Use \`--no-default\` to leave the global default model unchanged.
+  - When no model id is provided, \`configure\` only enables the backend so you can browse models later with \`/model list <backend>\`.`);
 }
 
 export function printAuthUsage(): void {
@@ -122,7 +126,9 @@ Examples:
   hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
   hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
   hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
+  hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
   hybridclaw auth login local ollama llama3.2
+  hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
   hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
   hybridclaw auth whatsapp reset
   hybridclaw auth status openrouter
@@ -195,6 +201,54 @@ Notes:
   - Profile data is stored under the HybridClaw data directory (configurable via HYBRIDCLAW_DATA_DIR; default: ~/.hybridclaw/data/browser-profiles/).
   - This directory contains persistent authenticated browser sessions — treat it as sensitive data.
   - Use \`browser reset\` to clear all saved sessions and start fresh.`);
+}
+
+export function printMigrationUsage(): void {
+  console.log(`Usage:
+  hybridclaw migrate openclaw [options]
+  hybridclaw migrate hermes [options]
+
+Notes:
+  - Use \`migrate openclaw\` to import from \`~/.openclaw\`.
+  - Use \`migrate hermes\` to import from \`~/.hermes\`.
+  - Add \`--agent <id>\` to import into a specific HybridClaw agent instead of \`main\`.
+  - Add \`--dry-run\` first to preview what will be imported.`);
+}
+
+export function printOpenClawMigrationUsage(): void {
+  console.log(`Usage: hybridclaw migrate openclaw [options]
+
+Options:
+  --source <path>       Override the OpenClaw home directory (default: ~/.openclaw)
+  --agent <id>          Import into a specific HybridClaw agent (default: main)
+  --dry-run             Preview the migration without writing files
+  --overwrite           Replace existing HybridClaw files and config values on conflict
+  --migrate-secrets     Import compatible secrets into ${runtimeSecretsPath()}
+  --force               Assume yes to all prompts
+
+Notes:
+  - Imports the parts of an OpenClaw home that map cleanly into HybridClaw.
+  - Compatible workspace files land in the target agent workspace under \`~/.hybridclaw/data/agents/<agent>/workspace\`.
+  - Compatible config values merge into ${runtimeConfigPath()} and secrets merge into ${runtimeSecretsPath()}.
+  - A report is written under \`~/.hybridclaw/migration/openclaw/\` when the migration runs in execute mode.`);
+}
+
+export function printHermesMigrationUsage(): void {
+  console.log(`Usage: hybridclaw migrate hermes [options]
+
+Options:
+  --source <path>       Override the Hermes home directory (default: ~/.hermes)
+  --agent <id>          Import into a specific HybridClaw agent (default: main)
+  --dry-run             Preview the migration without writing files
+  --overwrite           Replace existing HybridClaw files and config values on conflict
+  --migrate-secrets     Import compatible secrets into ${runtimeSecretsPath()}
+  --force               Assume yes to all prompts
+
+Notes:
+  - Imports the parts of a Hermes Agent home that map cleanly into HybridClaw.
+  - Compatible workspace files land in the target agent workspace under \`~/.hybridclaw/data/agents/<agent>/workspace\`.
+  - Compatible config values merge into ${runtimeConfigPath()} and secrets merge into ${runtimeSecretsPath()}.
+  - A report is written under \`~/.hybridclaw/migration/hermes/\` when the migration runs in execute mode.`);
 }
 
 export function printWhatsAppUsage(): void {
@@ -484,6 +538,9 @@ Topics:
   tui         Help for terminal client
   onboarding  Help for onboarding flow
   channels    Help for channel setup helpers
+  migrate     Help for agent-home migration
+  openclaw    Help for OpenClaw migration
+  hermes      Help for Hermes Agent migration
   config      Help for local runtime config commands
   plugin      Help for plugin management
   msteams     Help for Microsoft Teams auth/setup commands
@@ -588,6 +645,15 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'browser':
       printBrowserUsage();
+      return true;
+    case 'migrate':
+      printMigrationUsage();
+      return true;
+    case 'openclaw':
+      printOpenClawMigrationUsage();
+      return true;
+    case 'hermes':
+      printHermesMigrationUsage();
       return true;
     case 'whatsapp':
       printWhatsAppUsage();

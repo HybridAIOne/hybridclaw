@@ -274,7 +274,7 @@ test('handleGatewayMessage records agent handoff before agent-side timeouts', as
   const { initDatabase } = await import('../src/memory/db.ts');
   const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });
@@ -353,7 +353,7 @@ test('handleGatewayMessage stores redacted request logs when enabled', async () 
   const { DB_PATH } = await import('../src/config/config.ts');
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });
@@ -431,7 +431,7 @@ test('handleGatewayMessage skips request logs when request logging is disabled',
   const { DB_PATH } = await import('../src/config/config.ts');
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });
@@ -482,7 +482,7 @@ test('handleGatewayMessage warns once and disables request logs for invalid env 
   const { DB_PATH } = await import('../src/config/config.ts');
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-chat-service.ts'
   );
 
   initDatabase({ quiet: true });

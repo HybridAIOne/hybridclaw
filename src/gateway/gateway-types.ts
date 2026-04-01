@@ -362,13 +362,14 @@ export interface GatewayStatus {
       | 'huggingface'
       | 'ollama'
       | 'lmstudio'
+      | 'llamacpp'
       | 'vllm',
       GatewayProviderHealthEntry
     >
   >;
   localBackends?: Partial<
     Record<
-      'ollama' | 'lmstudio' | 'vllm',
+      'ollama' | 'lmstudio' | 'llamacpp' | 'vllm',
       {
         reachable: boolean;
         latencyMs: number;
@@ -601,7 +602,7 @@ export interface GatewayAdminModelCatalogEntry {
   configuredInHybridai: boolean;
   configuredInCodex: boolean;
   discovered: boolean;
-  backend: 'ollama' | 'lmstudio' | 'vllm' | null;
+  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
   maxTokens: number | null;
   isReasoning: boolean;

@@ -35,7 +35,7 @@ hybridclaw auth login [provider] ...
 hybridclaw auth status <provider>
 hybridclaw auth logout <provider>
 hybridclaw auth whatsapp reset
-hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
 ```
 
 ## Channel Setup

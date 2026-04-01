@@ -21,7 +21,7 @@ import {
 } from '../session/session-preview.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { Session, StoredMessage } from '../types/session.js';
-import { isFullAutoEnabled } from './fullauto.js';
+import { isFullAutoEnabled } from './fullauto-runtime.js';
 import { formatRelativeTimeFromMs, parseTimestamp } from './gateway-time.js';
 import type {
   GatewayLogicalAgentCard,

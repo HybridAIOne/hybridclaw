@@ -168,7 +168,7 @@ hybridclaw local configure ollama llama3.2
 - `hybridclaw auth login openrouter` accepts `--api-key`, falls back to `OPENROUTER_API_KEY`, or prompts you to paste the key, then enables the provider and can set the global default model.
 - `hybridclaw auth login mistral` accepts `--api-key`, falls back to `MISTRAL_API_KEY`, or prompts you to paste the key, then enables the provider and can set the global default model.
 - `hybridclaw auth login huggingface` accepts `--api-key`, falls back to `HF_TOKEN`, or prompts you to paste the token, then enables the provider and can set the global default model.
-- `hybridclaw auth login local` configures Ollama, LM Studio, or vLLM in `~/.hybridclaw/config.json`.
+- `hybridclaw auth login local` configures Ollama, LM Studio, llama.cpp, or vLLM in `~/.hybridclaw/config.json`.
 - `hybridclaw auth login msteams` enables Microsoft Teams, stores `MSTEAMS_APP_PASSWORD` in the encrypted `~/.hybridclaw/credentials.json` store, and can prompt for the app id, app password, and optional tenant id.
 - `hybridclaw auth status hybridai` reports the local auth source, masked API key, active config file, base URL, and default model without printing the credentials file path.
 - `hybridclaw auth logout local` disables configured local backends and clears any saved vLLM API key.
@@ -492,6 +492,7 @@ Other backends use the same flow:
 
 ```bash
 hybridclaw auth login local ollama llama3.2
+hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
 hybridclaw auth login local vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
 ```
 
@@ -642,7 +643,7 @@ CLI runtime commands:
 - `hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...` — Prepare private-by-default WhatsApp config, enable the default `👀` ack reaction, optionally wipe stale auth, open a temporary pairing session, and print the QR code
 - `hybridclaw browser login [--url <url>]`, `status`, `reset` — Manage the persistent browser profile used for authenticated web automation
 - `hybridclaw local status` — Show current local backend config and default model
-- `hybridclaw local configure <backend> <model-id> [--base-url <url>] [--api-key <key>] [--no-default]` — Enable and configure a local backend
+- `hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]` — Enable and configure a local backend
 - `hybridclaw hybridai ...`, `hybridclaw codex ...`, and `hybridclaw local ...` — Legacy aliases for the older provider-specific command surface
 - `hybridclaw help` / `hybridclaw help auth` / `hybridclaw help openrouter` / `hybridclaw help mistral` — Print CLI reference for the unified provider commands
 - `hybridclaw doctor [--fix|--json|<component>]` — Diagnose runtime, gateway, config, credentials, database, providers, local backends, Docker, channels, skills, security, and disk state
