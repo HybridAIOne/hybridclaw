@@ -27,8 +27,14 @@ describe('runUpdateCommand', () => {
   afterEach(() => {
     process.argv = [...originalArgv];
     process.chdir(originalCwd);
-    process.stdin.isTTY = originalStdinIsTTY;
-    process.stdout.isTTY = originalStdoutIsTTY;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: originalStdinIsTTY,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: originalStdoutIsTTY,
+      configurable: true,
+    });
     fs.rmSync(tempDir, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
@@ -53,8 +59,14 @@ describe('runUpdateCommand', () => {
       originalArgv[0] || 'node',
       path.join(installRoot, 'dist', 'cli.js'),
     ];
-    process.stdin.isTTY = false;
-    process.stdout.isTTY = false;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: false,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: false,
+      configurable: true,
+    });
 
     spawnSyncMock.mockImplementation((command: string, args: string[]) => {
       if (command === 'npm' && args[0] === 'view') {
