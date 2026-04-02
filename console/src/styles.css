@@ -38,33 +38,10 @@ code {
   font-family: "SFMono-Regular", "JetBrains Mono", "Fira Code", monospace;
 }
 
-.app-frame {
-  display: grid;
-  grid-template-columns: 216px minmax(0, 1fr);
-  min-height: 100vh;
-  background: var(--page-bg);
-}
-
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 20px 16px;
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--sidebar-border);
-  color: var(--sidebar-fg);
-  height: 100vh;
-  position: sticky;
-  top: 0;
-  overflow-y: auto;
-}
-
 .main-panel {
   display: flex;
   flex-direction: column;
   padding: 24px;
-  min-height: 100dvh;
   min-width: 0;
 }
 
@@ -217,32 +194,10 @@ code {
   word-break: break-word;
 }
 
-.nav-group {
-  display: grid;
-  gap: 2px;
-  margin-top: 16px;
-}
-
 .nav-section {
   display: grid;
   gap: 6px;
   margin-top: 18px;
-}
-
-.nav-section .nav-group {
-  margin-top: 0;
-}
-
-.nav-link {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  color: var(--sidebar-fg);
-  text-decoration: none;
-  font-weight: 500;
 }
 
 .nav-link-icon {
@@ -259,41 +214,12 @@ code {
   height: 16px;
 }
 
-.nav-link:hover {
-  background: var(--nav-hover);
-  border-color: var(--line);
-}
-
-.nav-link.active {
-  background: var(--nav-active);
-  border-color: var(--nav-active-border);
-  color: var(--accent-foreground);
-}
-
-.sidebar-footer,
 .button-row,
 .header-actions {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.sidebar-footer {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.sidebar-footer-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.sidebar-meta-chip {
-  align-self: flex-start;
 }
 
 .topbar {
@@ -309,8 +235,19 @@ code {
   min-width: 0;
 }
 
+.topbar-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
 .topbar-title h2 {
   line-height: 1.05;
+}
+
+.topbar-sidebar-trigger {
+  flex: 0 0 auto;
 }
 
 .view-switch {
@@ -1603,7 +1540,6 @@ th {
 }
 
 @media (max-width: 1080px) {
-  .app-frame,
   .metric-grid,
   .two-column-grid,
   .usage-grid,
@@ -1611,11 +1547,6 @@ th {
   .config-grid,
   .key-value-grid {
     grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    border-right: none;
-    border-bottom: 1px solid var(--line);
   }
 
   .jobs-board-layout {
@@ -1630,7 +1561,6 @@ th {
 
 @media (max-width: 780px) {
   .main-panel,
-  .sidebar,
   .panel,
   .login-card {
     padding: 18px;
