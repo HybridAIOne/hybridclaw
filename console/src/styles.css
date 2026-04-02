@@ -1122,7 +1122,8 @@ th {
 
 .jobs-column.drop-target {
   background: color-mix(in srgb, var(--primary) 8%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 20%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--primary) 20%, transparent);
 }
 
 .jobs-column-backlog {
