@@ -80,11 +80,11 @@
 }
 
 :root,
-html[data-theme='light'] {
+html[data-theme="light"] {
   --sidebar-fg: var(--sidebar-foreground);
 }
 
-html[data-theme='dark'] {
+html[data-theme="dark"] {
   color-scheme: dark;
   --background: #0d1117;
   --foreground: #e7edf5;
