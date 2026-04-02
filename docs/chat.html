@@ -1054,7 +1054,7 @@
 </head>
 <body>
   <div class="layout">
-    <aside class="sidebar">
+    <aside id="mobileSidebar" class="sidebar">
       <div class="sidebar-top">
         <div class="brand">
           <img
@@ -1094,7 +1094,7 @@
 
     <main class="chat">
       <div class="chat-topbar">
-        <button id="mobileMenuBtn" type="button" class="mobile-menu-btn" aria-label="Open menu">
+        <button id="mobileMenuBtn" type="button" class="mobile-menu-btn" aria-label="Open menu" aria-expanded="false" aria-controls="mobileSidebar">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <title>Open menu</title>
             <path d="M4 7h16"></path>
@@ -3272,13 +3272,27 @@
 
     function openMobileSidebar() {
       layoutEl.classList.add('is-mobile-sidebar-open');
+      mobileMenuBtn.setAttribute('aria-expanded', 'true');
     }
     function closeMobileSidebar() {
       layoutEl.classList.remove('is-mobile-sidebar-open');
+      mobileMenuBtn.setAttribute('aria-expanded', 'false');
+    }
+    function toggleMobileSidebar() {
+      if (layoutEl.classList.contains('is-mobile-sidebar-open')) {
+        closeMobileSidebar();
+      } else {
+        openMobileSidebar();
+      }
     }
 
-    mobileMenuBtn.addEventListener('click', openMobileSidebar);
+    mobileMenuBtn.addEventListener('click', toggleMobileSidebar);
     mobileSidebarBackdrop.addEventListener('click', closeMobileSidebar);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && layoutEl.classList.contains('is-mobile-sidebar-open')) {
+        closeMobileSidebar();
+      }
+    });
 
     /* close sidebar when a nav link inside it is tapped on mobile */
     document.querySelector('.sidebar').addEventListener('click', (e) => {
