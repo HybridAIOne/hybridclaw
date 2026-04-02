@@ -24,7 +24,7 @@
   overflow: visible;
 }
 
-.root[data-collapsible='icon'] {
+.root[data-collapsible="icon"] {
   width: var(--sidebar-width-icon);
 }
 
@@ -113,7 +113,7 @@
 }
 
 .root:hover .rail,
-.root[data-collapsible='icon'] .rail {
+.root[data-collapsible="icon"] .rail {
   opacity: 1;
 }
 
@@ -153,12 +153,15 @@
 .groupLabel,
 .eyebrow {
   margin: 0;
-  padding: 0 8px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 0.64rem;
   font-weight: 600;
   color: var(--muted-foreground);
+}
+
+.groupLabel {
+  padding: 0 8px;
 }
 
 .menu {
@@ -346,38 +349,38 @@
   border-radius: var(--radius-md);
 }
 
-.root[data-collapsible='icon'] .header,
-.root[data-collapsible='icon'] .content,
-.root[data-collapsible='icon'] .footer {
+.root[data-collapsible="icon"] .header,
+.root[data-collapsible="icon"] .content,
+.root[data-collapsible="icon"] .footer {
   padding-left: 8px;
   padding-right: 8px;
 }
 
-.root[data-collapsible='icon'] .brand {
+.root[data-collapsible="icon"] .brand {
   justify-items: center;
   padding-left: 0;
   padding-right: 0;
 }
 
-.root[data-collapsible='icon'] .sectionStack {
+.root[data-collapsible="icon"] .sectionStack {
   gap: 12px;
 }
 
-.root[data-collapsible='icon'] .footer {
+.root[data-collapsible="icon"] .footer {
   display: grid;
   justify-items: center;
 }
 
-.root[data-collapsible='icon'] .footerBlock {
+.root[data-collapsible="icon"] .footerBlock {
   display: grid;
   justify-items: center;
 }
 
-.root[data-collapsible='icon'] .footerMenu {
+.root[data-collapsible="icon"] .footerMenu {
   flex-direction: column;
 }
 
-.root[data-collapsible='icon'] .menuButton {
+.root[data-collapsible="icon"] .menuButton {
   justify-content: center;
   padding-left: 8px;
   padding-right: 8px;
