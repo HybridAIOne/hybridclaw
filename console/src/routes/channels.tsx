@@ -1,16 +1,23 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { deleteChannel, saveChannel } from '../api/client';
 import type {
   AdminChannelEntry,
   AdminChannelTransport,
+  AdminChannelsResponse,
   AdminDiscordChannelConfig,
   AdminMSTeamsChannelConfig,
 } from '../api/types';
 import { BooleanField, PageHeader, Panel } from '../components/ui';
-import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
+import {
+  useAdminMutation,
+  useAdminQuery,
+  useAdminQueryClient,
+} from '../hooks/use-admin';
 import { joinStringList, parseStringList } from '../lib/format';
-import { channelsQueryOptions, setChannelsData } from '../queries';
+import {
+  channelsQueryOptions,
+  deleteChannelMutationOptions,
+  saveChannelsMutationOptions,
+} from '../queries';
 
 interface ChannelDraft {
   originalId: string | null;
@@ -183,44 +190,32 @@ function summarizeEntry(entry: AdminChannelEntry): string {
 }
 
 export function ChannelsPage() {
-  const token = useAdminToken();
   const queryClient = useAdminQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ChannelDraft>(createDraft());
 
-  const channelsQuery = useQuery(channelsQueryOptions(token));
+  const channelsQuery = useAdminQuery(channelsQueryOptions);
 
-  const saveMutation = useMutation({
-    mutationFn: () =>
-      saveChannel(token, {
-        transport: draft.transport,
-        guildId: draft.guildId,
-        channelId: draft.channelId,
-        config: normalizeConfig(draft),
-      }),
-    onSuccess: (payload) => {
-      setChannelsData(queryClient, token, payload);
-      const nextSelected =
-        payload.channels.find(
-          (entry) =>
-            entry.transport === draft.transport &&
-            entry.guildId === draft.guildId &&
-            entry.channelId === draft.channelId,
-        ) || null;
-      setSelectedId(nextSelected?.id || null);
-      setDraft(createDraft(nextSelected || undefined));
-    },
-  });
+  const saveMutation = useAdminMutation<
+    AdminChannelsResponse,
+    Error,
+    {
+      transport: AdminChannelTransport;
+      guildId: string;
+      channelId: string;
+      config: any;
+    }
+  >((token) => saveChannelsMutationOptions(queryClient, token));
 
-  const deleteMutation = useMutation({
-    mutationFn: () =>
-      deleteChannel(token, draft.transport, draft.guildId, draft.channelId),
-    onSuccess: (payload) => {
-      setChannelsData(queryClient, token, payload);
-      setSelectedId(null);
-      setDraft(createDraft());
-    },
-  });
+  const deleteMutation = useAdminMutation<
+    AdminChannelsResponse,
+    Error,
+    {
+      transport: AdminChannelTransport;
+      guildId: string;
+      channelId: string;
+    }
+  >((token) => deleteChannelMutationOptions(queryClient, token));
 
   const selectedChannel =
     channelsQuery.data?.channels.find((entry) => entry.id === selectedId) ||
@@ -589,7 +584,29 @@ export function ChannelsPage() {
                 className="primary-button"
                 type="button"
                 disabled={saveMutation.isPending}
-                onClick={() => saveMutation.mutate()}
+                onClick={() =>
+                  saveMutation.mutate(
+                    {
+                      transport: draft.transport,
+                      guildId: draft.guildId,
+                      channelId: draft.channelId,
+                      config: normalizeConfig(draft),
+                    },
+                    {
+                      onSuccess: (payload) => {
+                        const nextSelected =
+                          payload.channels.find(
+                            (entry: AdminChannelEntry) =>
+                              entry.transport === draft.transport &&
+                              entry.guildId === draft.guildId &&
+                              entry.channelId === draft.channelId,
+                          ) || null;
+                        setSelectedId(nextSelected?.id || null);
+                        setDraft(createDraft(nextSelected || undefined));
+                      },
+                    },
+                  )
+                }
               >
                 {saveMutation.isPending ? 'Saving...' : 'Save binding'}
               </button>
@@ -602,7 +619,19 @@ export function ChannelsPage() {
                     `Remove explicit binding for ${draft.channelId}?`,
                   );
                   if (!confirmed) return;
-                  deleteMutation.mutate();
+                  deleteMutation.mutate(
+                    {
+                      transport: draft.transport,
+                      guildId: draft.guildId,
+                      channelId: draft.channelId,
+                    },
+                    {
+                      onSuccess: () => {
+                        setSelectedId(null);
+                        setDraft(createDraft());
+                      },
+                    },
+                  );
                 }}
               >
                 {deleteMutation.isPending ? 'Removing...' : 'Remove binding'}

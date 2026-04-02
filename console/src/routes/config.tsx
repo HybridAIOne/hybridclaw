@@ -1,34 +1,30 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { saveConfig } from '../api/client';
-import type { AdminConfig } from '../api/types';
+import type { AdminConfig, AdminConfigResponse } from '../api/types';
 import { BooleanField, PageHeader, Panel } from '../components/ui';
-import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
-import { configQueryOptions, setConfigData } from '../queries';
+import {
+  useAdminMutation,
+  useAdminQuery,
+  useAdminQueryClient,
+} from '../hooks/use-admin';
+import { configQueryOptions, saveConfigMutationOptions } from '../queries';
 
 function cloneConfig<T>(value: T): T {
   return structuredClone(value);
 }
 
 export function ConfigPage() {
-  const token = useAdminToken();
   const queryClient = useAdminQueryClient();
   const [rawMode, setRawMode] = useState(false);
   const [draft, setDraft] = useState<AdminConfig | null>(null);
   const [rawJson, setRawJson] = useState('');
 
-  const configQuery = useQuery(configQueryOptions(token));
+  const configQuery = useAdminQuery(configQueryOptions);
 
-  const saveMutation = useMutation({
-    mutationFn: async (nextConfig: AdminConfig) => {
-      return saveConfig(token, nextConfig);
-    },
-    onSuccess: (payload) => {
-      setConfigData(queryClient, token, payload);
-      setDraft(cloneConfig(payload.config));
-      setRawJson(JSON.stringify(payload.config, null, 2));
-    },
-  });
+  const saveMutation = useAdminMutation<
+    AdminConfigResponse,
+    Error,
+    AdminConfig
+  >((token) => saveConfigMutationOptions(queryClient, token));
 
   useEffect(() => {
     if (!configQuery.data || draft) return;
@@ -89,7 +85,12 @@ export function ConfigPage() {
                   try {
                     const parsed = JSON.parse(rawJson) as AdminConfig;
                     setDraft(parsed);
-                    saveMutation.mutate(parsed);
+                    saveMutation.mutate(parsed, {
+                      onSuccess: (payload) => {
+                        setDraft(cloneConfig(payload.config));
+                        setRawJson(JSON.stringify(payload.config, null, 2));
+                      },
+                    });
                   } catch (error) {
                     window.alert(
                       error instanceof Error ? error.message : String(error),
@@ -383,7 +384,14 @@ export function ConfigPage() {
             className="primary-button"
             type="button"
             disabled={saveMutation.isPending}
-            onClick={() => saveMutation.mutate(draft)}
+            onClick={() =>
+              saveMutation.mutate(draft, {
+                onSuccess: (payload) => {
+                  setDraft(cloneConfig(payload.config));
+                  setRawJson(JSON.stringify(payload.config, null, 2));
+                },
+              })
+            }
           >
             {saveMutation.isPending ? 'Saving...' : 'Save config'}
           </button>

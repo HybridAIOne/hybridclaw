@@ -1,8 +1,11 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { type fetchModels, saveModels } from '../api/client';
+import type { AdminModelsResponse } from '../api/types';
 import { PageHeader, Panel } from '../components/ui';
-import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
+import {
+  useAdminMutation,
+  useAdminQuery,
+  useAdminQueryClient,
+} from '../hooks/use-admin';
 import {
   formatCompactNumber,
   formatRelativeTime,
@@ -14,7 +17,7 @@ import {
 import {
   invalidateOverview,
   modelsQueryOptions,
-  setModelsData,
+  saveModelsMutationOptions,
 } from '../queries';
 
 interface ModelDraft {
@@ -23,7 +26,7 @@ interface ModelDraft {
   codexModels: string;
 }
 
-type ModelEntry = Awaited<ReturnType<typeof fetchModels>>['models'][number];
+type ModelEntry = AdminModelsResponse['models'][number];
 type ModelWithDailyUsage = ModelEntry & {
   usageDaily: NonNullable<ModelEntry['usageDaily']>;
 };
@@ -44,9 +47,7 @@ function compareModelsByUsage(left: ModelEntry, right: ModelEntry): number {
   return left.id.localeCompare(right.id);
 }
 
-function createDraft(
-  payload?: Awaited<ReturnType<typeof fetchModels>>,
-): ModelDraft {
+function createDraft(payload?: AdminModelsResponse): ModelDraft {
   return {
     defaultModel: payload?.defaultModel || '',
     hybridaiModels: joinStringList(payload?.hybridaiModels),
@@ -55,25 +56,36 @@ function createDraft(
 }
 
 export function ModelsPage() {
-  const token = useAdminToken();
   const queryClient = useAdminQueryClient();
   const [filter, setFilter] = useState('');
   const [draft, setDraft] = useState<ModelDraft>(createDraft());
 
-  const modelsQuery = useQuery(modelsQueryOptions(token));
+  const modelsQuery = useAdminQuery(modelsQueryOptions);
 
-  const saveMutation = useMutation({
-    mutationFn: () =>
-      saveModels(token, {
-        defaultModel: draft.defaultModel,
-        hybridaiModels: parseStringList(draft.hybridaiModels),
-        codexModels: parseStringList(draft.codexModels),
-      }),
-    onSuccess: async (payload) => {
-      setModelsData(queryClient, token, payload);
-      setDraft(createDraft(payload));
-      await invalidateOverview(queryClient, token);
-    },
+  const saveMutation = useAdminMutation<
+    AdminModelsResponse,
+    Error,
+    {
+      defaultModel: string;
+      hybridaiModels: string[];
+      codexModels: string[];
+    }
+  >((token) => {
+    const base = saveModelsMutationOptions(queryClient, token);
+    return {
+      ...base,
+      onSuccess: async (
+        payload: AdminModelsResponse,
+        variables: { defaultModel: string; hybridaiModels: string[]; codexModels: string[] },
+        context: unknown,
+      ) => {
+        if (base.onSuccess) {
+          base.onSuccess(payload);
+        }
+        setDraft(createDraft(payload));
+        await invalidateOverview(queryClient, token);
+      },
+    };
   });
 
   useEffect(() => {
@@ -219,7 +231,13 @@ export function ModelsPage() {
                   className="primary-button"
                   type="button"
                   disabled={saveMutation.isPending}
-                  onClick={() => saveMutation.mutate()}
+                  onClick={() =>
+                    saveMutation.mutate({
+                      defaultModel: draft.defaultModel,
+                      hybridaiModels: parseStringList(draft.hybridaiModels),
+                      codexModels: parseStringList(draft.codexModels),
+                    })
+                  }
                 >
                   {saveMutation.isPending ? 'Saving...' : 'Save selection'}
                 </button>

@@ -1,10 +1,5 @@
-import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query';
+import { useSuspenseQuery } from '@tanstack/react-query';
 import { useDeferredValue, useState } from 'react';
-import {
-  applyAdaptiveSkillAmendment,
-  rejectAdaptiveSkillAmendment,
-  saveSkillEnabled,
-} from '../api/client';
 import type {
   AdminAdaptiveSkillAmendment,
   AdminAdaptiveSkillHealthMetric,
@@ -16,15 +11,19 @@ import {
   PageHeader,
   Panel,
 } from '../components/ui';
-import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
+import {
+  useAdminMutation,
+  useAdminQuery,
+  useAdminQueryClient,
+} from '../hooks/use-admin';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 import {
   adaptiveSkillsAmendmentsQueryOptions,
   adaptiveSkillsHealthQueryOptions,
   adaptiveSkillsHistoryQueryOptions,
-  invalidateAdaptiveSkillsReviewData,
-  setSkillsData,
+  reviewSkillMutationOptions,
   skillsQueryOptions,
+  toggleSkillMutationOptions,
 } from '../queries';
 
 function formatPercent(value: number): string {
@@ -50,44 +49,25 @@ function formatAmendmentTiming(amendment: AdminAdaptiveSkillAmendment): string {
 }
 
 export function SkillsPage() {
-  const token = useAdminToken();
   const queryClient = useAdminQueryClient();
   const [filter, setFilter] = useState('');
   const [selectedSkillName, setSelectedSkillName] = useState('');
   const deferredFilter = useDeferredValue(filter);
   const filterNeedle = deferredFilter.trim().toLowerCase();
 
-  const skillsQuery = useSuspenseQuery(skillsQueryOptions(token));
-
-  const healthQuery = useSuspenseQuery(adaptiveSkillsHealthQueryOptions(token));
-
-  const stagedAmendmentsQuery = useSuspenseQuery(
-    adaptiveSkillsAmendmentsQueryOptions(token),
+  const skillsQuery = useAdminQuery(skillsQueryOptions);
+  const healthQuery = useAdminQuery(adaptiveSkillsHealthQueryOptions);
+  const stagedAmendmentsQuery = useAdminQuery(
+    adaptiveSkillsAmendmentsQueryOptions,
   );
 
-  const toggleMutation = useMutation({
-    mutationFn: (payload: { name: string; enabled: boolean }) =>
-      saveSkillEnabled(token, payload),
-    onSuccess: (payload) => {
-      setSkillsData(queryClient, token, payload);
-    },
-  });
+  const toggleMutation = useAdminMutation((token) =>
+    toggleSkillMutationOptions(queryClient, token),
+  );
 
-  const reviewMutation = useMutation({
-    mutationFn: async (payload: {
-      action: 'apply' | 'reject';
-      skillName: string;
-    }) =>
-      payload.action === 'apply'
-        ? applyAdaptiveSkillAmendment(token, payload.skillName)
-        : rejectAdaptiveSkillAmendment(token, payload.skillName),
-    onSuccess: (_payload, variables) =>
-      invalidateAdaptiveSkillsReviewData(
-        queryClient,
-        token,
-        variables.skillName,
-      ),
-  });
+  const reviewMutation = useAdminMutation((token) =>
+    reviewSkillMutationOptions(queryClient, token),
+  );
 
   const healthMetrics = healthQuery.data?.metrics || [];
   const stagedAmendments = stagedAmendmentsQuery.data?.amendments || [];
@@ -104,7 +84,7 @@ export function SkillsPage() {
         skillsQuery.data?.skills[0]?.name ||
         '';
 
-  const historyQuery = useQuery(
+  const historyQuery = useAdminQuery((token) =>
     adaptiveSkillsHistoryQueryOptions(token, effectiveSelectedSkillName),
   );
 

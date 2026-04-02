@@ -1,8 +1,9 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { queryOptions } from '@tanstack/react-query';
-import { fetchChannels } from '../api/client';
+import { deleteChannel, fetchChannels, saveChannel } from '../api/client';
+import type { AdminChannelTransport, AdminChannelsResponse } from '../api/types';
 
-type ChannelsResponse = Awaited<ReturnType<typeof fetchChannels>>;
+type ChannelsResponse = AdminChannelsResponse;
 
 export function channelsQueryOptions(token: string) {
   return queryOptions({
@@ -18,4 +19,37 @@ export function setChannelsData(
   payload: ChannelsResponse,
 ): void {
   queryClient.setQueryData(channelsQueryOptions(token).queryKey, payload);
+}
+
+export function saveChannelsMutationOptions(queryClient: QueryClient, token: string) {
+  return {
+    mutationFn: (payload: {
+      transport: AdminChannelTransport;
+      guildId: string;
+      channelId: string;
+      config: any;
+    }) => saveChannel(token, payload),
+    onSuccess: (updated: ChannelsResponse) => {
+      setChannelsData(queryClient, token, updated);
+    },
+  };
+}
+
+export function deleteChannelMutationOptions(queryClient: QueryClient, token: string) {
+  return {
+    mutationFn: (payload: {
+      transport: AdminChannelTransport;
+      guildId: string;
+      channelId: string;
+    }) =>
+      deleteChannel(
+        token,
+        payload.transport,
+        payload.guildId,
+        payload.channelId,
+      ),
+    onSuccess: (updated: ChannelsResponse) => {
+      setChannelsData(queryClient, token, updated);
+    },
+  };
 }

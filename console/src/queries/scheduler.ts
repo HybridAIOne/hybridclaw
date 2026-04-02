@@ -1,6 +1,12 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { queryOptions } from '@tanstack/react-query';
-import { fetchJobsContext, fetchScheduler } from '../api/client';
+import {
+  deleteSchedulerJob,
+  fetchJobsContext,
+  fetchScheduler,
+  saveSchedulerJob,
+  setSchedulerJobPaused,
+} from '../api/client';
 import type { AdminSchedulerJob } from '../api/types';
 
 type SchedulerResponse = Awaited<ReturnType<typeof fetchScheduler>>;
@@ -70,4 +76,44 @@ export function replaceSchedulerJobInCache(
     ),
   });
   return previous;
+}
+
+export function saveSchedulerJobMutationOptions(
+  queryClient: QueryClient,
+  token: string,
+) {
+  return {
+    mutationFn: (job: AdminSchedulerJob) => saveSchedulerJob(token, job),
+    onSuccess: (updated: SchedulerResponse) => {
+      setSchedulerData(queryClient, token, updated);
+    },
+  };
+}
+
+export function deleteSchedulerJobMutationOptions(
+  queryClient: QueryClient,
+  token: string,
+) {
+  return {
+    mutationFn: (job: AdminSchedulerJob) => deleteSchedulerJob(token, job),
+    onSuccess: (updated: SchedulerResponse) => {
+      setSchedulerData(queryClient, token, updated);
+    },
+  };
+}
+
+export function setSchedulerJobPausedMutationOptions(
+  queryClient: QueryClient,
+  token: string,
+) {
+  return {
+    mutationFn: (
+      payload:
+        | { source: 'config'; jobId: string; action: 'pause' | 'resume' }
+        | { source: 'task'; taskId: number; action: 'pause' | 'resume' },
+    ) => setSchedulerJobPaused(token, payload),
+    onSuccess: (updated: SchedulerResponse) => {
+      setSchedulerData(queryClient, token, updated);
+    },
+  };
 }

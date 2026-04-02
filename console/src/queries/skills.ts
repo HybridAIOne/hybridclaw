@@ -1,10 +1,13 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { queryOptions } from '@tanstack/react-query';
 import {
+  applyAdaptiveSkillAmendment,
   fetchAdaptiveSkillAmendmentHistory,
   fetchAdaptiveSkillAmendments,
   fetchAdaptiveSkillHealth,
   fetchSkills,
+  rejectAdaptiveSkillAmendment,
+  saveSkillEnabled,
 } from '../api/client';
 
 type SkillsResponse = Awaited<ReturnType<typeof fetchSkills>>;
@@ -31,6 +34,44 @@ export function setSkillsData(
   payload: SkillsResponse,
 ): void {
   queryClient.setQueryData(skillsQueryOptions(token).queryKey, payload);
+}
+
+export function reviewSkillMutationOptions(queryClient: QueryClient, token: string) {
+  return {
+    mutationFn: (variables: {
+      action: 'apply' | 'reject';
+      skillName: string;
+      reviewedBy?: string;
+    }) =>
+      variables.action === 'apply'
+        ? applyAdaptiveSkillAmendment(
+            token,
+            variables.skillName,
+            variables.reviewedBy,
+          )
+        : rejectAdaptiveSkillAmendment(
+            token,
+            variables.skillName,
+            variables.reviewedBy,
+          ),
+    onSuccess: (_: unknown, variables: { skillName: string }) => {
+      invalidateAdaptiveSkillsReviewData(
+        queryClient,
+        token,
+        variables.skillName,
+      );
+    },
+  };
+}
+
+export function toggleSkillMutationOptions(queryClient: QueryClient, token: string) {
+  return {
+    mutationFn: (variables: { name: string; enabled: boolean }) =>
+      saveSkillEnabled(token, variables),
+    onSuccess: (updatedSkills: SkillsResponse) => {
+      setSkillsData(queryClient, token, updatedSkills);
+    },
+  };
 }
 
 export async function invalidateAdaptiveSkillsReviewData(

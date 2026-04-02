@@ -1,15 +1,18 @@
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import {
-  deleteSchedulerJob,
-  saveSchedulerJob,
-  setSchedulerJobPaused,
-} from '../api/client';
 import type { AdminSchedulerJob, AdminSchedulerResponse } from '../api/types';
 import { BooleanField, BooleanPill, PageHeader, Panel } from '../components/ui';
-import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
+import {
+  useAdminMutation,
+  useAdminQueryClient,
+  useAdminSuspenseQuery,
+} from '../hooks/use-admin';
 import { formatDateTime } from '../lib/format';
-import { schedulerQueryOptions, setSchedulerData } from '../queries';
+import {
+  deleteSchedulerJobMutationOptions,
+  saveSchedulerJobMutationOptions,
+  schedulerQueryOptions,
+  setSchedulerJobPausedMutationOptions,
+} from '../queries';
 
 interface SchedulerDraft {
   originalId: string | null;
@@ -191,12 +194,8 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
   };
 }
 
-function replaceSchedulerJobs(
-  payload: AdminSchedulerResponse,
-  token: string,
-  queryClient: ReturnType<typeof useAdminQueryClient>,
-): void {
-  setSchedulerData(queryClient, token, payload);
+function replaceSchedulerJobs() {
+  // logic moved to queries/scheduler.ts via mutation options
 }
 
 function SchedulerTaskDetail(props: {
@@ -653,72 +652,77 @@ function SchedulerJobEditor(props: {
 }
 
 export function SchedulerPage() {
-  const token = useAdminToken();
   const queryClient = useAdminQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<SchedulerDraft>(createDraft());
 
-  const schedulerQuery = useSuspenseQuery(schedulerQueryOptions(token));
+  const schedulerQuery = useAdminSuspenseQuery(schedulerQueryOptions);
 
   const selectedJob =
     schedulerQuery.data?.jobs.find((job) => job.id === selectedId) || null;
   const selectedConfigJob = isConfigJob(selectedJob) ? selectedJob : null;
 
-  const saveMutation = useMutation({
-    mutationFn: (nextDraft: SchedulerDraft) =>
-      saveSchedulerJob(token, normalizeDraft(nextDraft)),
-    onSuccess: (payload, nextDraft) => {
-      replaceSchedulerJobs(payload, token, queryClient);
-      setSelectedId(nextDraft.id.trim());
-      window.location.href = '/admin/jobs';
-    },
+  const saveMutation = useAdminMutation<
+    AdminSchedulerResponse,
+    Error,
+    AdminSchedulerJob
+  >((token) => {
+    const base = saveSchedulerJobMutationOptions(queryClient, token);
+    return {
+      ...base,
+      onSuccess: (payload, variables, context) => {
+        if (base.onSuccess) {
+          base.onSuccess(payload);
+        }
+      },
+    };
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: () => {
-      if (!selectedJob) {
-        throw new Error('Select a scheduler item first.');
-      }
-      return deleteSchedulerJob(token, selectedJob);
-    },
-    onSuccess: (payload) => {
-      replaceSchedulerJobs(payload, token, queryClient);
-      setSelectedId(null);
-      setDraft(createDraft());
-    },
-  });
-
-  const pauseMutation = useMutation({
-    mutationFn: (action: 'pause' | 'resume') => {
-      if (!selectedJob) {
-        throw new Error('Select a scheduler item first.');
-      }
-      return selectedJob.source === 'task'
-        ? setSchedulerJobPaused(token, {
-            source: 'task',
-            taskId: selectedJob.taskId ?? 0,
-            action,
-          })
-        : setSchedulerJobPaused(token, {
-            source: 'config',
-            jobId: selectedJob.id,
-            action,
-          });
-    },
-    onSuccess: (payload) => {
-      replaceSchedulerJobs(payload, token, queryClient);
-      if (!selectedJob) return;
-      const refreshed =
-        payload.jobs.find((job) => job.id === selectedJob.id) || null;
-      if (!refreshed) {
+  const deleteMutation = useAdminMutation<
+    AdminSchedulerResponse,
+    Error,
+    AdminSchedulerJob
+  >((token) => {
+    const base = deleteSchedulerJobMutationOptions(queryClient, token);
+    return {
+      ...base,
+      onSuccess: (payload, variables, context) => {
+        if (base.onSuccess) {
+          base.onSuccess(payload);
+        }
         setSelectedId(null);
         setDraft(createDraft());
-        return;
-      }
-      if (isConfigJob(refreshed)) {
-        setDraft(createDraft(refreshed));
-      }
-    },
+      },
+    };
+  });
+
+  const pauseMutation = useAdminMutation<
+    AdminSchedulerResponse,
+    Error,
+    | { source: 'config'; jobId: string; action: 'pause' | 'resume' }
+    | { source: 'task'; taskId: number; action: 'pause' | 'resume' }
+  >((token) => {
+    const base = setSchedulerJobPausedMutationOptions(queryClient, token);
+    return {
+      ...base,
+      onSuccess: (payload, variables, context) => {
+        if (base.onSuccess) {
+          base.onSuccess(payload);
+        }
+        if (!selectedJob) return;
+        const refreshed =
+          payload.jobs.find((job) => job.id === selectedJob.id) ||
+          null;
+        if (!refreshed) {
+          setSelectedId(null);
+          setDraft(createDraft());
+          return;
+        }
+        if (isConfigJob(refreshed)) {
+          setDraft(createDraft(refreshed));
+        }
+      },
+    };
   });
 
   useEffect(() => {
@@ -798,10 +802,25 @@ export function SchedulerPage() {
             job={selectedJob}
             pausePending={pauseMutation.isPending}
             deletePending={deleteMutation.isPending}
-            onPauseToggle={() =>
-              pauseMutation.mutate(selectedJob.disabled ? 'resume' : 'pause')
-            }
-            onDelete={() => deleteMutation.mutate()}
+            onPauseToggle={() => {
+              if (!selectedJob) return;
+              pauseMutation.mutate(
+                selectedJob.source === 'task'
+                  ? {
+                      source: 'task',
+                      taskId: selectedJob.taskId ?? 0,
+                      action: selectedJob.disabled ? 'resume' : 'pause',
+                    }
+                  : {
+                      source: 'config',
+                      jobId: selectedJob.id,
+                      action: selectedJob.disabled ? 'resume' : 'pause',
+                    },
+              );
+            }}
+            onDelete={() => {
+              if (selectedJob) deleteMutation.mutate(selectedJob);
+            }}
             pauseError={pauseMutation.error as Error | null}
             deleteError={deleteMutation.error as Error | null}
           />
@@ -820,7 +839,12 @@ export function SchedulerPage() {
             onSave={() => {
               const nextDraft = prepareDraftForSave(draft);
               setDraft(nextDraft);
-              saveMutation.mutate(nextDraft);
+              saveMutation.mutate(normalizeDraft(nextDraft), {
+                onSuccess: () => {
+                  setSelectedId(nextDraft.id.trim());
+                  window.location.href = '/admin/jobs';
+                },
+              });
             }}
             onCancel={() => {
               if (selectedConfigJob) {
@@ -831,12 +855,17 @@ export function SchedulerPage() {
               setDraft(createDraft());
               window.location.href = '/admin/jobs';
             }}
-            onPauseToggle={() =>
-              pauseMutation.mutate(
-                selectedConfigJob?.disabled ? 'resume' : 'pause',
-              )
-            }
-            onDelete={() => deleteMutation.mutate()}
+            onPauseToggle={() => {
+              if (!selectedConfigJob) return;
+              pauseMutation.mutate({
+                source: 'config',
+                jobId: selectedConfigJob.id,
+                action: selectedConfigJob.disabled ? 'resume' : 'pause',
+              });
+            }}
+            onDelete={() => {
+              if (selectedJob) deleteMutation.mutate(selectedJob);
+            }}
           />
         )}
       </div>
