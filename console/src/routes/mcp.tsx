@@ -1,10 +1,20 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { deleteMcpServer, saveMcpServer } from '../api/client';
-import type { AdminMcpConfig, AdminMcpServer } from '../api/types';
+import type {
+  AdminMcpConfig,
+  AdminMcpResponse,
+  AdminMcpServer,
+} from '../api/types';
 import { BooleanField, BooleanPill, PageHeader, Panel } from '../components/ui';
-import { useAdminQueryClient, useAdminToken } from '../hooks/use-admin';
-import { mcpQueryOptions, setMcpData } from '../queries';
+import {
+  useAdminMutation,
+  useAdminQuery,
+  useAdminQueryClient,
+} from '../hooks/use-admin';
+import {
+  deleteMcpMutationOptions,
+  mcpQueryOptions,
+  saveMcpMutationOptions,
+} from '../queries';
 
 interface McpDraft {
   originalName: string | null;
@@ -95,33 +105,21 @@ function normalizeDraft(draft: McpDraft): {
 }
 
 export function McpPage() {
-  const token = useAdminToken();
   const queryClient = useAdminQueryClient();
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [draft, setDraft] = useState<McpDraft>(createDraft());
 
-  const mcpQuery = useQuery(mcpQueryOptions(token));
+  const mcpQuery = useAdminQuery(mcpQueryOptions);
 
-  const saveMutation = useMutation({
-    mutationFn: () => saveMcpServer(token, normalizeDraft(draft)),
-    onSuccess: (payload) => {
-      setMcpData(queryClient, token, payload);
-      setSelectedName(draft.name.trim());
-      const selected = payload.servers.find(
-        (entry) => entry.name === draft.name.trim(),
-      );
-      setDraft(createDraft(selected));
-    },
-  });
+  const saveMutation = useAdminMutation<
+    AdminMcpResponse,
+    Error,
+    { name: string; config: AdminMcpConfig }
+  >((token) => saveMcpMutationOptions(queryClient, token));
 
-  const deleteMutation = useMutation({
-    mutationFn: () => deleteMcpServer(token, draft.name.trim()),
-    onSuccess: (payload) => {
-      setMcpData(queryClient, token, payload);
-      setSelectedName(null);
-      setDraft(createDraft());
-    },
-  });
+  const deleteMutation = useAdminMutation<AdminMcpResponse, Error, string>(
+    (token) => deleteMcpMutationOptions(queryClient, token),
+  );
 
   const selectedServer =
     mcpQuery.data?.servers.find((entry) => entry.name === selectedName) || null;
@@ -336,7 +334,18 @@ export function McpPage() {
                 className="primary-button"
                 type="button"
                 disabled={saveMutation.isPending}
-                onClick={() => saveMutation.mutate()}
+                onClick={() =>
+                  saveMutation.mutate(normalizeDraft(draft), {
+                    onSuccess: (payload) => {
+                      const nextSelectedName = draft.name.trim();
+                      setSelectedName(nextSelectedName);
+                      const selected = payload.servers.find(
+                        (entry) => entry.name === nextSelectedName,
+                      );
+                      setDraft(createDraft(selected));
+                    },
+                  })
+                }
               >
                 {saveMutation.isPending ? 'Saving...' : 'Save server'}
               </button>
@@ -345,7 +354,14 @@ export function McpPage() {
                   className="danger-button"
                   type="button"
                   disabled={deleteMutation.isPending}
-                  onClick={() => deleteMutation.mutate()}
+                  onClick={() =>
+                    deleteMutation.mutate(draft.originalName || draft.name.trim(), {
+                      onSuccess: () => {
+                        setSelectedName(null);
+                        setDraft(createDraft());
+                      },
+                    })
+                  }
                 >
                   {deleteMutation.isPending ? 'Deleting...' : 'Delete server'}
                 </button>

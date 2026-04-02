@@ -8,6 +8,7 @@ import {
 import { lazy, Suspense } from 'react';
 import type { GatewayStatus } from './api/types';
 import { AppShell } from './components/app-shell';
+import { RouteErrorState, RouteLoadingState } from './components/route-state';
 import {
   adaptiveSkillsAmendmentsQueryOptions,
   adaptiveSkillsHealthQueryOptions,
@@ -53,6 +54,19 @@ function RootLayout() {
   );
 }
 
+function RouterPendingComponent() {
+  return <RouteLoadingState />;
+}
+
+function RouterErrorComponent(props: { error: Error; reset: () => void }) {
+  return (
+    <RouteErrorState
+      message={props.error.message || 'The admin console request failed.'}
+      onAction={props.reset}
+    />
+  );
+}
+
 interface RouterContext {
   gatewayStatus: GatewayStatus | null;
   queryClient: QueryClient;
@@ -61,6 +75,8 @@ interface RouterContext {
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: RootLayout,
+  errorComponent: RouterErrorComponent,
+  pendingComponent: RouterPendingComponent,
 });
 
 const dashboardRoute = createRoute({
@@ -208,6 +224,8 @@ export const router = createRouter({
     token: '',
     gatewayStatus: null,
   },
+  defaultPendingComponent: RouterPendingComponent,
+  defaultErrorComponent: RouterErrorComponent,
   routeTree,
 });
 

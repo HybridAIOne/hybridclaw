@@ -1,8 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useState } from 'react';
 import type { AdminPlugin } from '../api/types';
-import { useAuth } from '../auth';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
+import { useAdminQuery } from '../hooks/use-admin';
 import { pluginsQueryOptions } from '../queries';
 
 function formatList(values: string[]): string {
@@ -28,12 +27,11 @@ function matchesPluginFilter(plugin: AdminPlugin, needle: string): boolean {
 }
 
 export function PluginsPage() {
-  const auth = useAuth();
   const [filter, setFilter] = useState('');
   const deferredFilter = useDeferredValue(filter);
   const filterNeedle = deferredFilter.trim().toLowerCase();
 
-  const pluginsQuery = useQuery(pluginsQueryOptions(auth.token));
+  const pluginsQuery = useAdminQuery(pluginsQueryOptions);
 
   const plugins = (pluginsQuery.data?.plugins || []).filter((plugin) =>
     matchesPluginFilter(plugin, filterNeedle),

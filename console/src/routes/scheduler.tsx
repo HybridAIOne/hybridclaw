@@ -194,10 +194,6 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
   };
 }
 
-function replaceSchedulerJobs() {
-  // logic moved to queries/scheduler.ts via mutation options
-}
-
 function SchedulerTaskDetail(props: {
   job: AdminSchedulerJob & { source: 'task' };
   pausePending: boolean;

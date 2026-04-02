@@ -1,7 +1,11 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { queryOptions } from '@tanstack/react-query';
 import { deleteChannel, fetchChannels, saveChannel } from '../api/client';
-import type { AdminChannelTransport, AdminChannelsResponse } from '../api/types';
+import type {
+  AdminChannelConfig,
+  AdminChannelTransport,
+  AdminChannelsResponse,
+} from '../api/types';
 
 type ChannelsResponse = AdminChannelsResponse;
 
@@ -27,7 +31,7 @@ export function saveChannelsMutationOptions(queryClient: QueryClient, token: str
       transport: AdminChannelTransport;
       guildId: string;
       channelId: string;
-      config: any;
+      config: AdminChannelConfig;
     }) => saveChannel(token, payload),
     onSuccess: (updated: ChannelsResponse) => {
       setChannelsData(queryClient, token, updated);

@@ -1,14 +1,19 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
-import { useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { useAuth } from './auth';
 import { LoginScreen } from './components/login-screen';
+import { RouteLoadingState } from './components/route-state';
 import { createQueryClient } from './queries';
 import { router } from './router';
 
 export function App() {
   const auth = useAuth();
   const [queryClient] = useState(() => createQueryClient());
+  const routerKey = useMemo(
+    () => `${auth.status}:${auth.token}:${auth.gatewayStatus?.webAuthConfigured ? 'protected' : 'open'}`,
+    [auth.gatewayStatus?.webAuthConfigured, auth.status, auth.token],
+  );
 
   if (auth.status === 'checking') {
     return (
@@ -46,14 +51,17 @@ export function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <RouterProvider
-        router={router}
-        context={{
-          queryClient,
-          token: auth.token,
-          gatewayStatus: auth.gatewayStatus,
-        }}
-      />
+      <Suspense fallback={<RouteLoadingState />}>
+        <RouterProvider
+          key={routerKey}
+          router={router}
+          context={{
+            queryClient,
+            token: auth.token,
+            gatewayStatus: auth.gatewayStatus,
+          }}
+        />
+      </Suspense>
     </QueryClientProvider>
   );
 }

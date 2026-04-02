@@ -1,7 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useMemo, useState } from 'react';
-import { useAuth } from '../auth';
 import { MetricCard, PageHeader, Panel } from '../components/ui';
+import { useAdminQuery } from '../hooks/use-admin';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 import { toolsQueryOptions } from '../queries';
 
@@ -52,11 +51,10 @@ function ToolErrorPreview(props: {
 }
 
 export function ToolsPage() {
-  const auth = useAuth();
   const [filter, setFilter] = useState('');
   const deferredFilter = useDeferredValue(filter);
 
-  const toolsQuery = useQuery(toolsQueryOptions(auth.token));
+  const toolsQuery = useAdminQuery(toolsQueryOptions);
 
   const filteredGroups = useMemo(() => {
     const needle = deferredFilter.trim().toLowerCase();
