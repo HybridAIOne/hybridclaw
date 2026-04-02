@@ -1,5 +1,6 @@
 import {
   createContext,
+  type ButtonHTMLAttributes,
   type ReactNode,
   type RefObject,
   useCallback,
@@ -80,7 +81,11 @@ export function Dropdown({
   );
 }
 
-interface DropdownTriggerProps {
+interface DropdownTriggerProps
+  extends Pick<
+    ButtonHTMLAttributes<HTMLButtonElement>,
+    'aria-label' | 'title'
+  > {
   children: ReactNode;
   className?: string;
 }
@@ -88,8 +93,10 @@ interface DropdownTriggerProps {
 export function DropdownTrigger({
   children,
   className = '',
+  'aria-label': ariaLabel,
+  title,
 }: DropdownTriggerProps) {
-  const { open, onOpenChange, onOpenToggle, triggerRef, triggerId } =
+  const { open, onOpenChange, onOpenToggle, triggerRef, contentId, triggerId } =
     useDropdownContext('DropdownTrigger');
 
   const classNames = [styles.trigger, className].filter(Boolean).join(' ');
@@ -102,7 +109,9 @@ export function DropdownTrigger({
       className={classNames}
       aria-haspopup="menu"
       aria-expanded={open}
-      aria-controls={open ? triggerId : undefined}
+      aria-controls={open ? contentId : undefined}
+      aria-label={ariaLabel}
+      title={title}
       data-state={open ? 'open' : 'closed'}
       onClick={onOpenToggle}
       onKeyDown={(e) => {

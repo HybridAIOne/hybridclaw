@@ -1,6 +1,7 @@
 import { Link, useRouterState } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { useAuth } from '../auth';
+import { ThemeToggle } from './theme-toggle';
 
 function ViewIcon(props: {
   kind: 'chat' | 'agents' | 'admin' | 'cog' | 'docs' | 'github';
@@ -194,15 +195,18 @@ export function AppShell(props: { children: ReactNode }) {
               {auth.gatewayStatus.version}
             </span>
           ) : null}
-          {auth.token ? (
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={auth.logout}
-            >
-              Forget token
-            </button>
-          ) : null}
+          <div className="sidebar-footer-right">
+            <ThemeToggle />
+            {auth.token ? (
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={auth.logout}
+              >
+                Forget token
+              </button>
+            ) : null}
+          </div>
         </div>
       </aside>
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   Dropdown,
@@ -6,6 +6,12 @@ import {
   DropdownItem,
   DropdownTrigger,
 } from './dropdown/index';
+
+async function flushTimers() {
+  await act(async () => {
+    vi.runAllTimers();
+  });
+}
 
 describe('Dropdown', () => {
   beforeEach(() => {
@@ -42,8 +48,7 @@ describe('Dropdown', () => {
 
     const trigger = screen.getByRole('button');
     fireEvent.click(trigger);
-
-    vi.runAllTimers();
+    await flushTimers();
 
     expect(screen.getByRole('menu')).toBeDefined();
   });
@@ -62,7 +67,7 @@ describe('Dropdown', () => {
 
     const trigger = screen.getByRole('button');
     fireEvent.click(trigger);
-    vi.runAllTimers();
+    await flushTimers();
 
     expect(screen.getByRole('menu')).toBeDefined();
 
@@ -71,7 +76,7 @@ describe('Dropdown', () => {
 
     expect(handleSelect).toHaveBeenCalled();
 
-    vi.runAllTimers();
+    await flushTimers();
 
     expect(screen.queryByRole('menu')).toBeNull();
   });
@@ -88,12 +93,12 @@ describe('Dropdown', () => {
 
     const trigger = screen.getByRole('button');
     fireEvent.click(trigger);
-    vi.runAllTimers();
+    await flushTimers();
 
     expect(screen.getByRole('menu')).toBeDefined();
 
     fireEvent.mouseDown(document.body);
-    vi.runAllTimers();
+    await flushTimers();
 
     expect(screen.queryByRole('menu')).toBeNull();
   });
@@ -110,12 +115,12 @@ describe('Dropdown', () => {
 
     const trigger = screen.getByRole('button');
     fireEvent.click(trigger);
-    vi.runAllTimers();
+    await flushTimers();
 
     expect(screen.getByRole('menu')).toBeDefined();
 
     fireEvent.keyDown(document, { key: 'Escape' });
-    vi.runAllTimers();
+    await flushTimers();
 
     expect(screen.queryByRole('menu')).toBeNull();
   });
@@ -146,7 +151,7 @@ describe('Dropdown', () => {
 
     const trigger = screen.getByRole('button');
     fireEvent.click(trigger);
-    vi.runAllTimers();
+    await flushTimers();
 
     const menu = screen.getByRole('menu');
     expect(menu.className).toContain('custom-content');
@@ -164,7 +169,7 @@ describe('Dropdown', () => {
 
     const trigger = screen.getByRole('button');
     fireEvent.click(trigger);
-    vi.runAllTimers();
+    await flushTimers();
 
     const item = screen.getByRole('menuitem');
     expect(item.className).toContain('custom-item');
@@ -182,7 +187,7 @@ describe('Dropdown', () => {
 
     const trigger = screen.getByRole('button');
     fireEvent.keyDown(trigger, { key: 'ArrowDown' });
-    vi.runAllTimers();
+    await flushTimers();
 
     expect(screen.getByRole('menu')).toBeDefined();
   });
@@ -199,7 +204,7 @@ describe('Dropdown', () => {
 
     const trigger = screen.getByRole('button');
     fireEvent.keyDown(trigger, { key: 'Enter' });
-    vi.runAllTimers();
+    await flushTimers();
 
     expect(screen.getByRole('menu')).toBeDefined();
   });
@@ -216,7 +221,7 @@ describe('Dropdown', () => {
 
     const trigger = screen.getByRole('button');
     fireEvent.keyDown(trigger, { key: ' ' });
-    vi.runAllTimers();
+    await flushTimers();
 
     expect(screen.getByRole('menu')).toBeDefined();
   });
@@ -236,7 +241,7 @@ describe('Dropdown', () => {
     expect(trigger.getAttribute('data-state')).toBe('closed');
 
     fireEvent.click(trigger);
-    vi.runAllTimers();
+    await flushTimers();
 
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
     expect(trigger.getAttribute('data-state')).toBe('open');
@@ -256,7 +261,7 @@ describe('Dropdown', () => {
 
     const trigger = screen.getByRole('button');
     fireEvent.click(trigger);
-    vi.runAllTimers();
+    await flushTimers();
 
     const items = screen.getAllByRole('menuitem');
     expect(items).toHaveLength(3);
