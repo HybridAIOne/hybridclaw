@@ -58,7 +58,7 @@
     "test:e2e": "vitest run --configLoader runner --config vitest.e2e.config.ts --passWithNoTests",
     "test:live": "vitest run --configLoader runner --config vitest.live.config.ts --passWithNoTests",
     "setup": "npm --prefix container install",
-    "dev": "concurrently -k -n 'gateway,console' -c 'blue,green' 'npm:dev:gateway' 'npm:dev:console'",
+    "dev": "node ./scripts/dev.mjs",
     "dev:gateway": "tsx src/cli.ts gateway start --foreground",
     "dev:console": "npm --workspace console run dev",
     "gateway": "tsx src/cli.ts gateway",
@@ -102,7 +102,6 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.7",
-    "concurrently": "9.1.2",
     "@types/better-sqlite3": "7.6.13",
     "@types/mailparser": "3.4.6",
     "@types/node": "22.19.15",
