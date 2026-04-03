@@ -444,8 +444,8 @@
 - **TUI exit and streamed formatting flow**: The TUI now requires a second
   `Ctrl-C` or `Ctrl-D` within five seconds to exit, and it preserves streamed
   trailing blank lines more cleanly around usage footers and prompt refreshes.
-- **Container publishing workflow**: Maintainers can republish release images
-  through `publish-container.yml` via `workflow_dispatch`, with explicit
+- **Release publishing workflow**: Maintainers can republish release images
+  through `publish-release.yml` via `workflow_dispatch`, with explicit
   tag/package validation before GHCR and optional Docker Hub pushes.
 
 ### Fixed
