@@ -1,4 +1,4 @@
-name: Publish Container
+name: Publish Release
 
 on:
   push:
@@ -236,3 +236,30 @@ jobs:
         uses: ./.github/actions/verify-published-tags
         with:
           tags: ${{ steps.meta.outputs.tags }}
+
+  # npm package — published to npmjs.com as @hybridaione/hybridclaw.
+  publish-npm:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642195f882660b323136e2a # v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and verify pack contents
+        run: npm run prepack
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
