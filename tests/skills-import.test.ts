@@ -639,6 +639,147 @@ description: Keep learning.
     ).toBe(true);
   });
 
+  test('uses CLAWHUB_API_BASE_URL env var for ClawHub imports', async () => {
+    vi.stubEnv('CLAWHUB_API_BASE_URL', 'https://clawhub-proxy.internal/api/v1');
+
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const archiveBytes = await createZipArchive([
+      {
+        name: 'SKILL.md',
+        content: `---
+name: self-improving-agent
+description: Keep learning.
+---
+
+# Self Improving Agent
+`,
+      },
+    ]);
+
+    const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === 'https://api.github.com/repos/self-improving-agent') {
+        return jsonResponse({ message: 'Not Found' }, 404);
+      }
+      if (
+        url ===
+        'https://clawhub-proxy.internal/api/v1/skills/self-improving-agent'
+      ) {
+        return jsonResponse({
+          latestVersion: { version: '3.0.6' },
+        });
+      }
+      if (
+        url ===
+        'https://clawhub-proxy.internal/api/v1/download?slug=self-improving-agent&version=3.0.6'
+      ) {
+        return binaryResponse(archiveBytes, 'application/zip');
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const result = await importSkill('clawhub/self-improving-agent', {
+      fetchImpl: fetchStub as typeof fetch,
+    });
+
+    expect(result.skillName).toBe('self-improving-agent');
+  });
+
+  test('strips trailing slashes from CLAWHUB_API_BASE_URL', async () => {
+    vi.stubEnv(
+      'CLAWHUB_API_BASE_URL',
+      'https://clawhub-proxy.internal/api/v1///',
+    );
+
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const archiveBytes = await createZipArchive([
+      {
+        name: 'SKILL.md',
+        content: `---
+name: self-improving-agent
+description: Keep learning.
+---
+
+# Self Improving Agent
+`,
+      },
+    ]);
+
+    const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === 'https://api.github.com/repos/self-improving-agent') {
+        return jsonResponse({ message: 'Not Found' }, 404);
+      }
+      if (
+        url ===
+        'https://clawhub-proxy.internal/api/v1/skills/self-improving-agent'
+      ) {
+        return jsonResponse({
+          latestVersion: { version: '1.0.0' },
+        });
+      }
+      if (
+        url ===
+        'https://clawhub-proxy.internal/api/v1/download?slug=self-improving-agent&version=1.0.0'
+      ) {
+        return binaryResponse(archiveBytes, 'application/zip');
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const result = await importSkill('clawhub/self-improving-agent', {
+      fetchImpl: fetchStub as typeof fetch,
+    });
+
+    expect(result.skillName).toBe('self-improving-agent');
+  });
+
+  test('falls back to default URL when CLAWHUB_API_BASE_URL is empty', async () => {
+    vi.stubEnv('CLAWHUB_API_BASE_URL', '  ');
+
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const archiveBytes = await createZipArchive([
+      {
+        name: 'SKILL.md',
+        content: `---
+name: self-improving-agent
+description: Keep learning.
+---
+
+# Self Improving Agent
+`,
+      },
+    ]);
+
+    const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === 'https://api.github.com/repos/self-improving-agent') {
+        return jsonResponse({ message: 'Not Found' }, 404);
+      }
+      if (url === 'https://clawhub.ai/api/v1/skills/self-improving-agent') {
+        return jsonResponse({
+          latestVersion: { version: '3.0.6' },
+        });
+      }
+      if (
+        url ===
+        'https://clawhub.ai/api/v1/download?slug=self-improving-agent&version=3.0.6'
+      ) {
+        return binaryResponse(archiveBytes, 'application/zip');
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const result = await importSkill('clawhub/self-improving-agent', {
+      fetchImpl: fetchStub as typeof fetch,
+    });
+
+    expect(result.skillName).toBe('self-improving-agent');
+  });
+
   test('imports a LobeHub agent as a generated skill', async () => {
     const { importSkill } = await import('../src/skills/skills-import.ts');
 
