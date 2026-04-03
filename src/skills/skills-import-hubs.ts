@@ -12,7 +12,8 @@ import {
 } from './skills-import-github.js';
 
 const CLAWHUB_API_BASE_URL =
-  process.env.CLAWHUB_API_BASE_URL?.replace(/\/+$/, '') ?? 'https://clawhub.ai/api/v1';
+  process.env.CLAWHUB_API_BASE_URL?.replace(/\/+$/, '') ??
+  'https://clawhub.ai/api/v1';
 const KNOWN_CLAUDE_MARKETPLACES = [
   'anthropics/skills',
   'aiskillstore/marketplace',
