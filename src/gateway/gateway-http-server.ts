@@ -2049,7 +2049,7 @@ function getSlashMenuEntries(): ReturnType<typeof buildTuiSlashMenuEntries> {
 }
 
 function handleApiChatCommands(res: ServerResponse, url: URL): void {
-  const query = url.searchParams.get('q') ?? '';
+  const query = (url.searchParams.get('q') ?? '').slice(0, 200);
   const ranked = rankTuiSlashMenuEntries(getSlashMenuEntries(), query);
   sendJson(res, 200, {
     commands: ranked.map((entry) => ({

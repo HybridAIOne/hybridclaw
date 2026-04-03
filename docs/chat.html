@@ -1240,10 +1240,10 @@
         <section id="messages" class="messages"></section>
         <h1 class="empty-greeting">Ready to claw through your to-do list? 🦞</h1>
         <div class="composer">
-          <div id="slashSuggestions" class="slash-suggestions" hidden></div>
+          <div id="slashSuggestions" class="slash-suggestions" role="listbox" aria-label="Slash command suggestions" hidden></div>
           <div class="prompt-wrap">
             <div id="pendingMedia" class="pending-media" hidden></div>
-            <textarea id="message" rows="1" placeholder="Message HybridClaw"></textarea>
+            <textarea id="message" rows="1" placeholder="Message HybridClaw" aria-controls="slashSuggestions" aria-expanded="false" aria-autocomplete="list"></textarea>
             <div class="composer-bar">
               <button id="attach" type="button" class="composer-action" aria-label="Attach files">
                 <span aria-hidden="true">+</span>
@@ -1941,7 +1941,9 @@
       activeSlashSuggestions = [];
       activeSlashSuggestionIndex = 0;
       slashSuggestionsEl.hidden = true;
-      slashSuggestionsEl.innerHTML = '';
+      slashSuggestionsEl.innerHTML = '';  // eslint-disable-line no-unsanitized/property
+      messageEl.setAttribute('aria-expanded', 'false');
+      messageEl.removeAttribute('aria-activedescendant');
     }
 
     function applySlashSuggestion(entry) {
@@ -1968,13 +1970,19 @@
         return;
       }
 
-      slashSuggestionsEl.innerHTML = '';
+      slashSuggestionsEl.innerHTML = '';  // eslint-disable-line no-unsanitized/property
       entries.forEach((entry, index) => {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'slash-suggestion';
-        if (index === activeSlashSuggestionIndex) {
+        button.setAttribute('role', 'option');
+        button.id = 'slash-opt-' + index;
+        const isActive = index === activeSlashSuggestionIndex;
+        if (isActive) {
           button.classList.add('is-active');
+          button.setAttribute('aria-selected', 'true');
+        } else {
+          button.setAttribute('aria-selected', 'false');
         }
 
         const label = document.createElement('div');
@@ -2011,6 +2019,8 @@
         slashSuggestionsEl.appendChild(button);
       });
       slashSuggestionsEl.hidden = false;
+      messageEl.setAttribute('aria-expanded', 'true');
+      messageEl.setAttribute('aria-activedescendant', 'slash-opt-' + activeSlashSuggestionIndex);
     }
 
     async function renderSlashSuggestions() {
@@ -3539,6 +3549,16 @@
     });
     messageEl.addEventListener('focus', () => {
       scheduleSlashSuggestions(0);
+    });
+    messageEl.addEventListener('click', () => {
+      if (resolveSlashCommandQuery() === null) {
+        hideSlashSuggestions();
+      }
+    });
+    document.addEventListener('selectionchange', () => {
+      if (document.activeElement === messageEl && resolveSlashCommandQuery() === null) {
+        hideSlashSuggestions();
+      }
     });
     messageEl.addEventListener('keydown', (event) => {
       if (activeSlashSuggestions.length > 0) {
