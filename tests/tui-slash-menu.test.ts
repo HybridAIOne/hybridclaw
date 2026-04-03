@@ -18,18 +18,22 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/auth status hybridai');
   expect(labels).toContain('/secret list');
   expect(labels).toContain('/secret set <name> <value>');
-  expect(labels).toContain('/config');
+  expect(labels).toContain('/config [check|reload|set] [key] [value]');
   expect(labels).toContain('/config check');
   expect(labels).toContain('/config reload');
   expect(labels).toContain('/config set <key> <value>');
-  expect(labels.filter((label) => label === '/config')).toHaveLength(1);
+  expect(
+    labels.filter(
+      (label) => label === '/config [check|reload|set] [key] [value]',
+    ),
+  ).toHaveLength(1);
   expect(labels).toContain('/approve yes [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
   expect(labels).toContain('/bot list');
   expect(labels).toContain('/agent install <source>');
   expect(labels).toContain('/plugin install <path|npm-spec>');
   expect(labels).toContain('/plugin reinstall <path|npm-spec>');
-  expect(labels).toContain('/skill');
+  expect(labels).toContain('/skill <config|list|inspect|…>');
   expect(labels).toContain('/skill config');
   expect(labels).toContain('/skill inspect <name>');
   expect(labels).toContain('/skill inspect --all');
@@ -44,10 +48,13 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
 test('keeps /model submenu entries in alphabetical order', () => {
   const labels = buildTuiSlashMenuEntries()
     .map((entry) => entry.label)
-    .filter((label) => label === '/model' || label.startsWith('/model '));
+    .filter(
+      (label) =>
+        label.startsWith('/model ') || label === '/model <info|list|set|…>',
+    );
 
   expect(labels).toEqual([
-    '/model',
+    '/model <info|list|set|…>',
     '/model clear',
     '/model default [name]',
     '/model info',
@@ -63,6 +70,33 @@ test('does not duplicate concierge slash menu entries', () => {
   expect(labels.filter((label) => label === '/concierge info')).toHaveLength(1);
   expect(labels.filter((label) => label === '/concierge on')).toHaveLength(1);
   expect(labels.filter((label) => label === '/concierge off')).toHaveLength(1);
+});
+
+test('root entries with subcommands include arg hints in labels', () => {
+  const entries = buildTuiSlashMenuEntries();
+  const rootEntries = entries.filter((entry) => entry.depth === 1);
+
+  // Commands with subcommands show <sub1|sub2|…> in the label.
+  const showEntry = rootEntries.find((entry) => entry.id === 'show');
+  expect(showEntry?.label).toBe('/show <all|thinking|tools|none>');
+
+  // Commands with >4 subcommands truncate with ellipsis.
+  const modelEntry = rootEntries.find((entry) => entry.id === 'model');
+  expect(modelEntry?.label).toMatch(/^\/model <.+\|…>$/);
+
+  // Commands with string options show formatted option suffixes.
+  const configEntry = rootEntries.find((entry) => entry.id === 'config');
+  expect(configEntry?.label).toBe(
+    '/config [check|reload|set] [key] [value]',
+  );
+
+  // Commands with no options or subcommands have plain labels.
+  const statusEntry = rootEntries.find((entry) => entry.id === 'status');
+  expect(statusEntry?.label).toBe('/status');
+
+  // Commands with a custom tuiMenu.label keep their override.
+  const fullautoEntry = rootEntries.find((entry) => entry.id === 'fullauto');
+  expect(fullautoEntry?.label).toMatch(/^\/fullauto/);
 });
 
 test('keeps /skill import visible in the base skill query results', () => {
@@ -91,7 +125,7 @@ test('resolves slash menu queries only at the end of the active line', () => {
 test('fuzzy ranking prefers the model command for compact queries', () => {
   const ranked = rankTuiSlashMenuEntries(buildTuiSlashMenuEntries(), 'mdl');
 
-  expect(ranked[0]?.label).toBe('/model');
+  expect(ranked[0]?.label).toBe('/model <info|list|set|…>');
   expect(ranked.some((entry) => entry.label === '/model set <name>')).toBe(
     true,
   );
