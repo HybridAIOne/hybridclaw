@@ -2,9 +2,8 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-
-import { logger } from '../logger.js';
 import { safeExtractZip } from '../agents/claw-security.js';
+import { logger } from '../logger.js';
 import {
   type GitHubSkillImportSource,
   normalizeImportedSkillRelativePath,
@@ -20,8 +19,10 @@ const KNOWN_CLAUDE_MARKETPLACES = [
 const MAX_IMPORT_FILE_COUNT = 256;
 const MAX_IMPORT_TOTAL_BYTES = 5 * 1024 * 1024;
 
-const RETRY_MAX_ATTEMPTS = 3;
+const RETRY_MAX_RETRIES = 3;
 const RETRY_INITIAL_DELAY_MS = 1000;
+const RETRY_MAX_DELAY_MS = 30_000;
+const RETRY_JITTER_RATIO = 0.2;
 const RETRYABLE_STATUS_CODES = new Set([429, 503]);
 
 function sleep(ms: number): Promise<void> {
@@ -40,6 +41,17 @@ function parseRetryAfterMs(header: string | null): number | null {
     return delayMs > 0 ? delayMs : 0;
   }
   return null;
+}
+
+function computeRetryBackoffMs(
+  attempt: number,
+  retryAfterMs?: number | null,
+): number {
+  const rawBackoffMs = retryAfterMs ?? RETRY_INITIAL_DELAY_MS * 2 ** attempt;
+  const cappedBackoffMs = Math.min(rawBackoffMs, RETRY_MAX_DELAY_MS);
+  const jitterFactor = 1 + (Math.random() * 2 - 1) * RETRY_JITTER_RATIO;
+  const jitteredBackoffMs = Math.round(cappedBackoffMs * jitterFactor);
+  return Math.min(Math.max(jitteredBackoffMs, 0), RETRY_MAX_DELAY_MS);
 }
 
 interface ImportState {
@@ -144,17 +156,31 @@ async function fetchResponse(
 ): Promise<Response> {
   let lastError: unknown;
 
-  for (let attempt = 0; attempt <= RETRY_MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt <= RETRY_MAX_RETRIES; attempt++) {
     try {
       const response = await fetchImpl(input, init);
 
-      if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < RETRY_MAX_ATTEMPTS) {
-        const retryAfterMs = parseRetryAfterMs(response.headers.get('Retry-After'));
-        const backoffMs = retryAfterMs ?? RETRY_INITIAL_DELAY_MS * 2 ** attempt;
-        logger.warn(
-          { url: input, status: response.status, attempt: attempt + 1, backoffMs },
-          `Retryable HTTP ${response.status} from ${input}, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})`,
+      if (
+        RETRYABLE_STATUS_CODES.has(response.status) &&
+        attempt < RETRY_MAX_RETRIES
+      ) {
+        const retryAfterMs = parseRetryAfterMs(
+          response.headers.get('Retry-After'),
         );
+        const backoffMs = computeRetryBackoffMs(attempt, retryAfterMs);
+        logger.warn(
+          {
+            url: input,
+            status: response.status,
+            retry: attempt + 1,
+            maxRetries: RETRY_MAX_RETRIES,
+            backoffMs,
+          },
+          `Retryable HTTP ${response.status} from ${input}, retrying in ${backoffMs}ms (retry ${attempt + 1}/${RETRY_MAX_RETRIES})`,
+        );
+        if (response.body) {
+          await response.body.cancel().catch(() => undefined);
+        }
         await sleep(backoffMs);
         continue;
       }
@@ -162,19 +188,25 @@ async function fetchResponse(
       return response;
     } catch (error) {
       lastError = error;
-      if (attempt < RETRY_MAX_ATTEMPTS) {
-        const backoffMs = RETRY_INITIAL_DELAY_MS * 2 ** attempt;
+      if (attempt < RETRY_MAX_RETRIES) {
+        const backoffMs = computeRetryBackoffMs(attempt);
         logger.warn(
-          { url: input, attempt: attempt + 1, backoffMs, err: error },
-          `Network error fetching ${input}, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})`,
+          {
+            url: input,
+            retry: attempt + 1,
+            maxRetries: RETRY_MAX_RETRIES,
+            backoffMs,
+            err: error,
+          },
+          `Network error fetching ${input}, retrying in ${backoffMs}ms (retry ${attempt + 1}/${RETRY_MAX_RETRIES})`,
         );
         await sleep(backoffMs);
-        continue;
       }
     }
   }
 
-  const message = lastError instanceof Error ? lastError.message : String(lastError);
+  const message =
+    lastError instanceof Error ? lastError.message : String(lastError);
   throw new SkillImportError(`Request failed for ${input}: ${message}`);
 }
 
