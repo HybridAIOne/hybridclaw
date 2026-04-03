@@ -163,13 +163,31 @@ function defaultInsertText(prefix: string, hasSuffixInput: boolean): string {
   return hasSuffixInput ? `${prefix} ` : prefix;
 }
 
+function formatSubcommandSuffix(
+  subcommands: CanonicalSlashSubcommandOptionDefinition[],
+): string {
+  if (subcommands.length === 0) return '';
+  const names = subcommands.map((sub) => sub.name);
+  return names.length <= 4
+    ? `<${names.join('|')}>`
+    : `<${names.slice(0, 3).join('|')}|…>`;
+}
+
 function buildGenericRootEntry(
   definition: CanonicalSlashCommandDefinition,
   sortIndex: number,
 ): TuiSlashMenuEntry {
   const subcommands = definition.options?.filter(isSubcommandOption) ?? [];
   const stringOptions = definition.options?.filter(isStringOption) ?? [];
-  const label = definition.tuiMenu?.label ?? `/${definition.name}`;
+  const optionSuffix =
+    subcommands.length > 0
+      ? formatSubcommandSuffix(subcommands)
+      : formatOptionSuffix(stringOptions);
+  const label =
+    definition.tuiMenu?.label ??
+    (optionSuffix
+      ? `/${definition.name} ${optionSuffix}`
+      : `/${definition.name}`);
   const insertText =
     definition.tuiMenu?.insertText ??
     defaultInsertText(

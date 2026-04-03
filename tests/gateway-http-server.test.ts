@@ -851,6 +851,9 @@ async function importFreshHealth(options?: {
     usedBytes: params.bytes,
     ...options?.mediaUploadQuotaDecision,
   }));
+  const listLoadedPluginCommands = vi.fn(() => [
+    { name: 'demo_status', description: 'Run the demo plugin status command' },
+  ]);
 
   vi.doMock('node:http', () => ({
     default: { createServer },
@@ -967,6 +970,10 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/gateway/media-upload-quota.ts', () => ({
     consumeGatewayMediaUploadQuota,
   }));
+  vi.doMock('../src/plugins/plugin-manager.js', () => ({
+    findLoadedPluginCommand: vi.fn(() => undefined),
+    listLoadedPluginCommands,
+  }));
   vi.doMock('../src/gateway/admin-terminal.ts', () => ({
     createAdminTerminalManager: vi.fn(() => ({
       startSession: startTerminalSession,
@@ -1033,6 +1040,7 @@ async function importFreshHealth(options?: {
     normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
     consumeGatewayMediaUploadQuota,
+    listLoadedPluginCommands,
   };
 }
 
@@ -1052,6 +1060,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/message/tool-actions.js');
   vi.doUnmock('../src/channels/discord/tool-actions.js');
   vi.doUnmock('../src/gateway/media-upload-quota.ts');
+  vi.doUnmock('../src/plugins/plugin-manager.js');
   vi.resetModules();
   if (ORIGINAL_HYBRIDCLAW_AUTH_SECRET === undefined) {
     delete process.env.HYBRIDCLAW_AUTH_SECRET;
@@ -2828,6 +2837,134 @@ describe('gateway HTTP server', () => {
       result: '**Runtime Status**\nAll systems nominal.',
       sessionId: 'session-web-slash',
     });
+  });
+
+  test('lists slash command suggestions for the web chat UI', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'GET',
+      url: '/api/chat/commands',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(state.listLoadedPluginCommands).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(res.body);
+    expect(body.commands.length).toBeGreaterThan(0);
+    expect(body.commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'status',
+          label: '/status',
+          insertText: '/status',
+          description: 'Show HybridClaw runtime status (only visible to you)',
+          depth: 1,
+        }),
+      ]),
+    );
+    for (const cmd of body.commands) {
+      expect(cmd).toEqual(
+        expect.objectContaining({
+          id: expect.any(String),
+          label: expect.any(String),
+          insertText: expect.any(String),
+          description: expect.any(String),
+          depth: expect.any(Number),
+        }),
+      );
+    }
+  });
+
+  test('filters slash command suggestions by query parameter', async () => {
+    const state = await importFreshHealth();
+
+    // Searching for a nested subcommand surfaces it at the top.
+    const approveReq = makeRequest({
+      method: 'GET',
+      url: '/api/chat/commands?q=approve%20view',
+    });
+    const approveRes = makeResponse();
+    state.handler(approveReq as never, approveRes as never);
+    await waitForResponse(approveRes, (next) => next.writableEnded);
+
+    expect(approveRes.statusCode).toBe(200);
+    expect(JSON.parse(approveRes.body).commands[0]).toEqual(
+      expect.objectContaining({
+        id: 'approve.view',
+        label: '/approve view [approval_id]',
+        insertText: '/approve view ',
+        depth: 2,
+      }),
+    );
+
+    // Searching for a plugin command surfaces it.
+    const pluginReq = makeRequest({
+      method: 'GET',
+      url: '/api/chat/commands?q=demo_status',
+    });
+    const pluginRes = makeResponse();
+    state.handler(pluginReq as never, pluginRes as never);
+    await waitForResponse(pluginRes, (next) => next.writableEnded);
+
+    expect(pluginRes.statusCode).toBe(200);
+    expect(JSON.parse(pluginRes.body).commands[0]).toEqual(
+      expect.objectContaining({
+        id: 'demo_status',
+        label: '/demo_status',
+        insertText: '/demo_status',
+        description: 'Run the demo plugin status command',
+        depth: 1,
+      }),
+    );
+  });
+
+  test('returns empty commands array for a query that matches nothing', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'GET',
+      url: '/api/chat/commands?q=zzzznonexistent',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ commands: [] });
+  });
+
+  test('invalidates cached slash commands when plugin list changes', async () => {
+    const state = await importFreshHealth();
+
+    // First request populates cache with demo_status plugin.
+    const req1 = makeRequest({
+      method: 'GET',
+      url: '/api/chat/commands?q=demo_status',
+    });
+    const res1 = makeResponse();
+    state.handler(req1 as never, res1 as never);
+    await waitForResponse(res1, (next) => next.writableEnded);
+    expect(JSON.parse(res1.body).commands[0]).toEqual(
+      expect.objectContaining({ id: 'demo_status' }),
+    );
+
+    // Change the plugin list — remove the demo_status plugin.
+    state.listLoadedPluginCommands.mockReturnValue([]);
+
+    const req2 = makeRequest({
+      method: 'GET',
+      url: '/api/chat/commands?q=demo_status',
+    });
+    const res2 = makeResponse();
+    state.handler(req2 as never, res2 as never);
+    await waitForResponse(res2, (next) => next.writableEnded);
+
+    // demo_status should no longer appear.
+    const commands = JSON.parse(res2.body).commands;
+    expect(commands.find((c: { id: string }) => c.id === 'demo_status')).toBeUndefined();
   });
 
   test('routes web slash commands through the streaming /api/chat path', async () => {

@@ -753,6 +753,7 @@
     }
 
     .composer {
+      position: relative;
       padding: 14px 20px 16px;
     }
 
@@ -881,6 +882,90 @@
       font-size: 16px;
       line-height: 24px;
       outline: none;
+    }
+
+    .slash-suggestions {
+      position: absolute;
+      bottom: 100%;
+      left: 20px;
+      right: 20px;
+      margin: 0 0 6px;
+      padding: 4px;
+      border: 1px solid rgba(15, 23, 42, 0.1);
+      border-radius: 12px;
+      background: #ffffff;
+      box-shadow:
+        0 0 0 1px rgba(15, 23, 42, 0.03),
+        0 4px 12px rgba(15, 23, 42, 0.08),
+        0 16px 40px rgba(15, 23, 42, 0.12);
+      z-index: 10;
+      max-height: 360px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .chat.is-empty .slash-suggestions {
+      left: 0;
+      right: 0;
+    }
+
+    .slash-suggestions[hidden] {
+      display: none;
+    }
+
+    .slash-suggestion {
+      width: 100%;
+      border: none;
+      background: transparent;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      text-align: left;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .slash-suggestion:hover {
+      background: #f1f5f9;
+    }
+
+    .slash-suggestion.is-active {
+      background: #e8f0fe;
+    }
+
+    .slash-suggestion-label {
+      color: #0f172a;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .slash-suggestion-args {
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 400;
+    }
+
+    .slash-suggestion.is-active .slash-suggestion-label {
+      color: #1a56db;
+      font-weight: 600;
+    }
+
+    .slash-suggestion.is-active .slash-suggestion-args {
+      color: #6b8fd4;
+    }
+
+    .slash-suggestion-description {
+      color: #64748b;
+      font-size: 11.5px;
+      line-height: 1.4;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     /* ── Action buttons ── */
@@ -1155,9 +1240,10 @@
         <section id="messages" class="messages"></section>
         <h1 class="empty-greeting">Ready to claw through your to-do list? 🦞</h1>
         <div class="composer">
+          <div id="slashSuggestions" class="slash-suggestions" role="listbox" aria-label="Slash command suggestions" hidden></div>
           <div class="prompt-wrap">
             <div id="pendingMedia" class="pending-media" hidden></div>
-            <textarea id="message" rows="1" placeholder="Message HybridClaw"></textarea>
+            <textarea id="message" rows="1" placeholder="Message HybridClaw" aria-controls="slashSuggestions" aria-expanded="false" aria-autocomplete="list"></textarea>
             <div class="composer-bar">
               <button id="attach" type="button" class="composer-action" aria-label="Attach files">
                 <span aria-hidden="true">+</span>
@@ -1192,6 +1278,7 @@
     const attachEl = document.getElementById('attach');
     const attachmentInputEl = document.getElementById('attachmentInput');
     const pendingMediaEl = document.getElementById('pendingMedia');
+    const slashSuggestionsEl = document.getElementById('slashSuggestions');
 
     const urlParams = new URLSearchParams(window.location.search);
     const queryToken = urlParams.get('token') || '';
@@ -1315,6 +1402,11 @@
     let activeChatRequest = null;
     let activeEditState = null;
     let activeAssistantPresentation = null;
+    let slashSuggestionsVersion = 0;
+    let slashFetchBackoffUntil = 0;
+    let slashDebounceTimer = 0;
+    let activeSlashSuggestions = [];
+    let activeSlashSuggestionIndex = 0;
     const assistantAvatarObjectUrls = new Map();
     const assistantAvatarFetches = new Map();
     let bootstrapPollTimer = null;
@@ -1806,6 +1898,143 @@
       messageEl.style.height = `${messageEl.scrollHeight}px`;
     }
 
+    function resolveSlashCommandQuery() {
+      if (document.activeElement !== messageEl) return null;
+      if (messageEl.selectionStart !== messageEl.selectionEnd) return null;
+      if (messageEl.selectionStart !== messageEl.value.length) return null;
+      const value = messageEl.value;
+      if (!value.startsWith('/')) return null;
+      if (value.includes('\n')) return null;
+      return value.slice(1);
+    }
+
+    async function fetchSlashSuggestions(query) {
+      if (Date.now() < slashFetchBackoffUntil) return [];
+      const url = query
+        ? '/api/chat/commands?q=' + encodeURIComponent(query)
+        : '/api/chat/commands';
+      try {
+        const payload = await requestJson(url, {
+          method: 'GET',
+          headers: apiHeaders(),
+        });
+        return Array.isArray(payload.commands)
+          ? payload.commands.map((entry) => ({
+              id: String(entry?.id || '').trim(),
+              label: String(entry?.label || '').trim(),
+              insertText: String(entry?.insertText || ''),
+              description: String(entry?.description || '').trim(),
+              depth: Number(entry?.depth) || 99,
+            }))
+          : [];
+      } catch (err) {
+        slashFetchBackoffUntil = Date.now() + 5000;
+        if (err instanceof Error && /401|unauthorized/i.test(err.message)) {
+          setError('Session expired. Please refresh to re-authenticate.');
+        }
+        console.warn('[slash-suggestions] fetch failed:', err);
+        return [];
+      }
+    }
+
+    function hideSlashSuggestions() {
+      activeSlashSuggestions = [];
+      activeSlashSuggestionIndex = 0;
+      slashSuggestionsEl.hidden = true;
+      slashSuggestionsEl.innerHTML = '';  // eslint-disable-line no-unsanitized/property
+      messageEl.setAttribute('aria-expanded', 'false');
+      messageEl.removeAttribute('aria-activedescendant');
+    }
+
+    function applySlashSuggestion(entry) {
+      if (!entry) return;
+      messageEl.value = entry.insertText;
+      messageEl.focus();
+      const caret = messageEl.value.length;
+      messageEl.setSelectionRange(caret, caret);
+      autoResizeTextarea();
+      hideSlashSuggestions();
+      updateComposerState();
+    }
+
+    function renderSlashSuggestionsList(entries) {
+      activeSlashSuggestions = entries;
+      if (activeSlashSuggestionIndex >= entries.length) {
+        activeSlashSuggestionIndex = 0;
+      }
+      if (activeSlashSuggestionIndex < 0) {
+        activeSlashSuggestionIndex = entries.length - 1;
+      }
+      if (entries.length === 0) {
+        hideSlashSuggestions();
+        return;
+      }
+
+      slashSuggestionsEl.innerHTML = '';  // eslint-disable-line no-unsanitized/property
+      entries.forEach((entry, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'slash-suggestion';
+        button.setAttribute('role', 'option');
+        button.id = 'slash-opt-' + index;
+        const isActive = index === activeSlashSuggestionIndex;
+        if (isActive) {
+          button.classList.add('is-active');
+          button.setAttribute('aria-selected', 'true');
+        } else {
+          button.setAttribute('aria-selected', 'false');
+        }
+
+        const label = document.createElement('div');
+        label.className = 'slash-suggestion-label';
+        const argsMatch = entry.label.match(/^(.+?)\s+([<[].+)$/);
+        if (argsMatch) {
+          label.textContent = argsMatch[1] + ' ';
+          const args = document.createElement('span');
+          args.className = 'slash-suggestion-args';
+          args.textContent = argsMatch[2];
+          label.appendChild(args);
+        } else {
+          label.textContent = entry.label;
+          if (entry.insertText && entry.insertText.endsWith(' ')) {
+            const hint = document.createElement('span');
+            hint.className = 'slash-suggestion-args';
+            hint.textContent = ' …';
+            label.appendChild(hint);
+          }
+        }
+        button.appendChild(label);
+
+        if (entry.description) {
+          const description = document.createElement('div');
+          description.className = 'slash-suggestion-description';
+          description.textContent = entry.description;
+          button.appendChild(description);
+        }
+
+        button.addEventListener('mousedown', (event) => {
+          event.preventDefault();
+          applySlashSuggestion(entry);
+        });
+        slashSuggestionsEl.appendChild(button);
+      });
+      slashSuggestionsEl.hidden = false;
+      messageEl.setAttribute('aria-expanded', 'true');
+      messageEl.setAttribute('aria-activedescendant', 'slash-opt-' + activeSlashSuggestionIndex);
+    }
+
+    async function renderSlashSuggestions() {
+      const query = resolveSlashCommandQuery();
+      if (query == null || activeChatRequest) {
+        hideSlashSuggestions();
+        return;
+      }
+      const version = ++slashSuggestionsVersion;
+      const entries = await fetchSlashSuggestions(query);
+      if (version !== slashSuggestionsVersion) return;
+      renderSlashSuggestionsList(entries);
+    }
+
     function updateComposerState() {
       const isRunning = Boolean(activeChatRequest);
       const isStopping = Boolean(activeChatRequest?.stopping);
@@ -1825,6 +2054,9 @@
       attachEl.disabled = pendingUploadCount > 0 || isRunning;
       attachmentInputEl.disabled = pendingUploadCount > 0 || isRunning;
       messageEl.disabled = isRunning;
+      if (isRunning) {
+        hideSlashSuggestions();
+      }
     }
 
     function setError(text) {
@@ -3211,6 +3443,7 @@
       savePrefs();
       renderRecentSessions();
       setError('');
+      hideSlashSuggestions();
       await loadHistory();
       messageEl.focus();
     }
@@ -3239,6 +3472,7 @@
       savePrefs();
       renderRecentSessions();
       setError('');
+      hideSlashSuggestions();
       messageEl.focus();
     }
 
@@ -3300,11 +3534,63 @@
         closeMobileSidebar();
       }
     });
+    function scheduleSlashSuggestions(delay) {
+      clearTimeout(slashDebounceTimer);
+      if (delay <= 0) {
+        void renderSlashSuggestions();
+      } else {
+        slashDebounceTimer = setTimeout(() => void renderSlashSuggestions(), delay);
+      }
+    }
     messageEl.addEventListener('input', () => {
       autoResizeTextarea();
       updateComposerState();
+      scheduleSlashSuggestions(150);
+    });
+    messageEl.addEventListener('focus', () => {
+      scheduleSlashSuggestions(0);
+    });
+    messageEl.addEventListener('click', () => {
+      if (resolveSlashCommandQuery() === null) {
+        hideSlashSuggestions();
+      }
+    });
+    document.addEventListener('selectionchange', () => {
+      if (document.activeElement === messageEl && resolveSlashCommandQuery() === null) {
+        hideSlashSuggestions();
+      }
     });
     messageEl.addEventListener('keydown', (event) => {
+      if (activeSlashSuggestions.length > 0) {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          activeSlashSuggestionIndex =
+            (activeSlashSuggestionIndex + 1) % activeSlashSuggestions.length;
+          renderSlashSuggestionsList(activeSlashSuggestions);
+          return;
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          activeSlashSuggestionIndex =
+            (activeSlashSuggestionIndex - 1 + activeSlashSuggestions.length) %
+            activeSlashSuggestions.length;
+          renderSlashSuggestionsList(activeSlashSuggestions);
+          return;
+        }
+        if (
+          event.key === 'Tab' ||
+          (event.key === 'Enter' && !event.shiftKey)
+        ) {
+          event.preventDefault();
+          applySlashSuggestion(activeSlashSuggestions[activeSlashSuggestionIndex]);
+          return;
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          hideSlashSuggestions();
+          return;
+        }
+      }
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
         if (activeChatRequest) return;
@@ -3316,6 +3602,11 @@
       if (pastedFiles.length === 0) return;
       event.preventDefault();
       void uploadSelectedFiles(pastedFiles);
+    });
+    document.addEventListener('mousedown', (event) => {
+      if (!slashSuggestionsEl.contains(event.target) && event.target !== messageEl) {
+        hideSlashSuggestions();
+      }
     });
     introIndex = Math.floor(Math.random() * introLines.length);
     renderIntro();
