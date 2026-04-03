@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { logger } from '../logger.js';
 import { safeExtractZip } from '../agents/claw-security.js';
 import {
   type GitHubSkillImportSource,
@@ -18,6 +19,28 @@ const KNOWN_CLAUDE_MARKETPLACES = [
 ];
 const MAX_IMPORT_FILE_COUNT = 256;
 const MAX_IMPORT_TOTAL_BYTES = 5 * 1024 * 1024;
+
+const RETRY_MAX_ATTEMPTS = 3;
+const RETRY_INITIAL_DELAY_MS = 1000;
+const RETRYABLE_STATUS_CODES = new Set([429, 503]);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfterMs(header: string | null): number | null {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return seconds * 1000;
+  }
+  const date = Date.parse(header);
+  if (!Number.isNaN(date)) {
+    const delayMs = date - Date.now();
+    return delayMs > 0 ? delayMs : 0;
+  }
+  return null;
+}
 
 interface ImportState {
   fileCount: number;
@@ -119,12 +142,40 @@ async function fetchResponse(
   input: string,
   init?: RequestInit,
 ): Promise<Response> {
-  try {
-    return await fetchImpl(input, init);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new SkillImportError(`Request failed for ${input}: ${message}`);
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= RETRY_MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetchImpl(input, init);
+
+      if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < RETRY_MAX_ATTEMPTS) {
+        const retryAfterMs = parseRetryAfterMs(response.headers.get('Retry-After'));
+        const backoffMs = retryAfterMs ?? RETRY_INITIAL_DELAY_MS * 2 ** attempt;
+        logger.warn(
+          { url: input, status: response.status, attempt: attempt + 1, backoffMs },
+          `Retryable HTTP ${response.status} from ${input}, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})`,
+        );
+        await sleep(backoffMs);
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt < RETRY_MAX_ATTEMPTS) {
+        const backoffMs = RETRY_INITIAL_DELAY_MS * 2 ** attempt;
+        logger.warn(
+          { url: input, attempt: attempt + 1, backoffMs, err: error },
+          `Network error fetching ${input}, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS})`,
+        );
+        await sleep(backoffMs);
+        continue;
+      }
+    }
   }
+
+  const message = lastError instanceof Error ? lastError.message : String(lastError);
+  throw new SkillImportError(`Request failed for ${input}: ${message}`);
 }
 
 async function fetchJson<T>(
