@@ -35,7 +35,7 @@ function binaryResponse(
   body: Uint8Array,
   contentType = 'application/octet-stream',
 ): Response {
-  return new Response(body, {
+  return new Response(Buffer.from(body), {
     status: 200,
     headers: {
       'content-type': contentType,
@@ -637,6 +637,117 @@ description: Keep learning.
     expect(
       fs.existsSync(path.join(result.skillDir, 'references', 'examples.md')),
     ).toBe(true);
+  });
+
+  test('retries retryable ClawHub responses and cancels retry bodies', async () => {
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const archiveBytes = await createZipArchive([
+      {
+        name: 'SKILL.md',
+        content: `---
+name: clawhub-retry-test
+description: Retry test skill.
+---
+
+# ClawHub Retry Test
+`,
+      },
+    ]);
+
+    const detailRetryBodyCancel = vi.fn(async () => undefined);
+    const downloadRetryBodyCancel = vi.fn(async () => undefined);
+    const detailUrl = 'https://clawhub.ai/api/v1/skills/clawhub-retry-test';
+    const downloadUrl =
+      'https://clawhub.ai/api/v1/download?slug=clawhub-retry-test&version=1.2.3';
+    const detailRetryResponse = {
+      status: 503,
+      headers: new Headers({ 'Retry-After': '0' }),
+      body: { cancel: detailRetryBodyCancel },
+    } as unknown as Response;
+    const downloadRetryResponse = {
+      status: 429,
+      headers: new Headers({ 'Retry-After': '0' }),
+      body: { cancel: downloadRetryBodyCancel },
+    } as unknown as Response;
+
+    const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === 'https://api.github.com/repos/clawhub-retry-test') {
+        return jsonResponse({ message: 'Not Found' }, 404);
+      }
+      if (url === detailUrl) {
+        const attempt = fetchStub.mock.calls.filter(
+          ([request]) => String(request) === detailUrl,
+        ).length;
+        if (attempt === 1) {
+          return detailRetryResponse;
+        }
+        return jsonResponse({ latestVersion: { version: '1.2.3' } });
+      }
+      if (url === downloadUrl) {
+        const attempt = fetchStub.mock.calls.filter(
+          ([request]) => String(request) === downloadUrl,
+        ).length;
+        if (attempt === 1) {
+          return downloadRetryResponse;
+        }
+        return binaryResponse(archiveBytes, 'application/zip');
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const result = await importSkill('clawhub/clawhub-retry-test', {
+      fetchImpl: fetchStub as typeof fetch,
+    });
+
+    expect(result.skillName).toBe('clawhub-retry-test');
+    expect(detailRetryBodyCancel).toHaveBeenCalledTimes(1);
+    expect(downloadRetryBodyCancel).toHaveBeenCalledTimes(1);
+    expect(
+      fetchStub.mock.calls.filter(([request]) => String(request) === detailUrl)
+        .length,
+    ).toBe(2);
+    expect(
+      fetchStub.mock.calls.filter(
+        ([request]) => String(request) === downloadUrl,
+      ).length,
+    ).toBe(2);
+  });
+
+  test('retries network failures up to the max retry budget', async () => {
+    vi.useFakeTimers();
+    try {
+      const { importSkill } = await import('../src/skills/skills-import.ts');
+
+      const detailUrl =
+        'https://clawhub.ai/api/v1/skills/clawhub-network-retry-test';
+      const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === 'https://api.github.com/repos/clawhub-network-retry-test') {
+          return jsonResponse({ message: 'Not Found' }, 404);
+        }
+        if (url === detailUrl) {
+          throw new Error('socket hang up');
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+
+      const assertion = expect(
+        importSkill('clawhub/clawhub-network-retry-test', {
+          fetchImpl: fetchStub as typeof fetch,
+        }),
+      ).rejects.toThrow(`Request failed for ${detailUrl}: socket hang up`);
+      await vi.runAllTimersAsync();
+      await assertion;
+      expect(
+        fetchStub.mock.calls.filter(
+          ([request]) => String(request) === detailUrl,
+        ).length,
+      ).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('imports a LobeHub agent as a generated skill', async () => {
