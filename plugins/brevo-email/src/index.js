@@ -1,7 +1,7 @@
-import { resolveBrevoConfig } from './config.js';
 import { resolveAgentEmailAddress } from './brevo-address.js';
 import { handleBrevoInbound } from './brevo-inbound.js';
 import { createBrevoSmtpService } from './brevo-outbound.js';
+import { resolveBrevoConfig } from './config.js';
 
 export default {
   id: 'brevo-email',
@@ -24,7 +24,7 @@ export default {
     api.registerTool({
       name: 'send_email',
       description:
-        'Send an email from this agent\'s Brevo-provisioned address. ' +
+        "Send an email from this agent's Brevo-provisioned address. " +
         'Use for outbound communication when asked to email someone.',
       parameters: {
         type: 'object',
@@ -53,10 +53,12 @@ export default {
         required: ['to', 'subject', 'body'],
       },
       async handler(args, context) {
-        const from = resolveAgentEmailAddress(
-          context.sessionId.split(':')[1] || 'main',
-          config.domain,
-        );
+        const defaultAgentId =
+          api.config.agents?.defaultAgentId || 'main';
+        let agentId = defaultAgentId;
+        const match = context.sessionId.match(/^agent:([^:]+):channel:/);
+        if (match) agentId = decodeURIComponent(match[1]);
+        const from = resolveAgentEmailAddress(agentId, config.domain);
         await send({
           from,
           to: String(args.to),

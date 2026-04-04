@@ -100,6 +100,12 @@ export async function handleBrevoInbound(ctx, api, config) {
   const { readWebhookJsonBody, sendWebhookJson, WebhookHttpError } =
     await import('hybridclaw/plugin-sdk');
 
+  const knownAgentIds = new Set(
+    (api.config.agents?.list ?? []).map((a) =>
+      String(a.id || '').trim().toLowerCase(),
+    ),
+  );
+
   if (config.webhookSecret) {
     const raw = ctx.req.headers['x-brevo-secret'] || '';
     const provided = String(Array.isArray(raw) ? raw[0] : raw).trim();
@@ -156,6 +162,14 @@ export async function handleBrevoInbound(ctx, api, config) {
       config.domain,
     );
     if (!agentId) continue;
+
+    if (!knownAgentIds.has(agentId)) {
+      ctx.logger.debug(
+        { messageId, agentId },
+        'Ignoring email for unknown agent',
+      );
+      continue;
+    }
 
     const subject = String(item.Subject || '').trim();
     const bodyText = extractText(item);
