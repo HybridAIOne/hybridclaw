@@ -8,6 +8,7 @@ requires:
   env:
     - BREVO_SMTP_LOGIN
     - BREVO_SMTP_KEY
+    - BREVO_WEBHOOK_SECRET
 configSchema:
   type: object
   additionalProperties: false
@@ -21,9 +22,6 @@ configSchema:
     smtpPort:
       type: number
       default: 587
-    webhookSecret:
-      type: string
-      default: ''
     maxBodyBytes:
       type: number
       default: 10485760
@@ -34,7 +32,3 @@ configUiHints:
     label: Email Domain
     placeholder: agent.hybridai.one
     help: The domain used for agent email addresses ({agentId}@domain).
-  webhookSecret:
-    label: Webhook Secret
-    placeholder: (optional shared secret)
-    help: If set, inbound webhooks must include this value in the X-Brevo-Secret header.

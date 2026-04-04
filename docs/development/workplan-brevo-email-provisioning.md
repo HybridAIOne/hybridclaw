@@ -57,13 +57,18 @@ Damit entfällt jede Änderung an Gateway, Config-System oder Email-Channel.
 }
 ```
 
-### Env-Vars (via `getCredential()`)
+### Secrets (via Encrypted Secret Store + `getCredential()`)
+
+Alle drei Credentials werden über den Encrypted Secret Store verwaltet
+(`~/.hybridclaw/credentials.json`, AES-256-GCM) und sind in der Plugin-Manifest
+`requires.env` deklariert. Der Runtime lädt sie automatisch in `process.env`
+bevor Plugins initialisiert werden.
 
 | Variable | Zweck |
 |----------|-------|
 | `BREVO_SMTP_LOGIN` | SMTP-Relay Login (Brevo Account-Email) |
 | `BREVO_SMTP_KEY` | SMTP-Relay Master-Passwort |
-| `BREVO_WEBHOOK_SECRET` | Shared Secret für Webhook-Authentifizierung |
+| `BREVO_WEBHOOK_SECRET` | Shared Secret für Webhook-Authentifizierung (optional) |
 
 ---
 

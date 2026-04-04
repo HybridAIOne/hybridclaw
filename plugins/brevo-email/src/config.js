@@ -16,13 +16,15 @@ export function resolveBrevoConfig(pluginConfig, api) {
     throw new Error('BREVO_SMTP_KEY is required but not set.');
   }
 
+  const webhookSecret = api.getCredential('BREVO_WEBHOOK_SECRET') || '';
+
   return {
     domain: String(pluginConfig.domain || 'agent.hybridai.one').trim(),
     smtpHost: String(pluginConfig.smtpHost || 'smtp-relay.brevo.com').trim(),
     smtpPort: Number(pluginConfig.smtpPort) || 587,
     smtpLogin,
     smtpKey,
-    webhookSecret: String(pluginConfig.webhookSecret || '').trim(),
+    webhookSecret,
     maxBodyBytes: Number(pluginConfig.maxBodyBytes) || 10 * 1024 * 1024,
   };
 }
