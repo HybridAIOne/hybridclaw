@@ -71,7 +71,7 @@ interface PendingApproval {
 export interface ApprovalPrelude {
   immediateMessage?: string;
   replayPrompt?: string;
-  approvalMode?: 'once' | 'session' | 'agent' | 'all';
+  approvalMode?: ApprovalMode;
   approvedRequestId?: string;
 }
 
@@ -106,6 +106,8 @@ const AGENT_TRUST_STORE_PATH = path.join(
   '.hybridclaw',
   'approval-agent-trust.json',
 );
+const APPROVAL_MODES = ['once', 'session', 'agent', 'all'] as const;
+type ApprovalMode = (typeof APPROVAL_MODES)[number];
 const TRUST_STORE_PATH = path.join(
   WORKSPACE_ROOT_ACTUAL,
   'approval-trust.json',
@@ -807,7 +809,7 @@ function primaryPathKey(rawPath: string): string {
 
 function parseModeFromApproveMatch(
   match: RegExpMatchArray | null,
-): 'once' | 'session' | 'agent' | 'all' {
+): ApprovalMode {
   const scope = String(match?.[2] || '').toLowerCase();
   if (scope.includes('all') || scope.includes('always')) {
     return 'all';
@@ -819,7 +821,7 @@ function parseModeFromApproveMatch(
 
 function parseApprovalDirective(input: string): {
   kind: 'approve' | 'deny';
-  mode?: 'once' | 'session' | 'agent' | 'all';
+  mode?: ApprovalMode;
   requestId: string;
 } | null {
   const normalized = input.trim();
@@ -855,7 +857,7 @@ function parseApprovalDirective(input: string): {
 
 function parseApprovalUserResponse(input: string): {
   kind: 'approve' | 'deny';
-  mode?: 'once' | 'session' | 'agent' | 'all';
+  mode?: ApprovalMode;
   requestId: string;
 } | null {
   const normalized = input.trim();
@@ -1120,7 +1122,7 @@ export class TrustedCoworkerApprovalRuntime {
     }
 
     const requestedMode = parsedResponse.mode || 'once';
-    let mode: 'once' | 'session' | 'agent' | 'all' = requestedMode;
+    let mode: ApprovalMode = requestedMode;
     this.pending.delete(target.id);
     if (requestedMode === 'session') {
       if (target.pinned) {

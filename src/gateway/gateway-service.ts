@@ -38,6 +38,7 @@ import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
+import { APPROVE_COMMAND_USAGE } from '../approval-commands.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import {
   APP_VERSION,
@@ -4724,7 +4725,7 @@ export async function handleGatewayCommand(
             scope: 'slash',
           },
           {
-            command: 'approve [view|yes|session|agent|all|no] [approval_id]',
+            command: APPROVE_COMMAND_USAGE.slice('/'.length),
             description: 'View/respond to pending approvals privately',
             scope: 'slash',
           },

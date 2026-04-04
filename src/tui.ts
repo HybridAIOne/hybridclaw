@@ -3,6 +3,11 @@
  * Usage: npm run tui
  */
 import readline from 'node:readline';
+import {
+  APPROVAL_SCOPE_MODES,
+  APPROVE_COMMAND_USAGE,
+  type ApprovalScopeMode,
+} from './approval-commands.js';
 import { TUI_CAPABILITIES } from './channels/channel.js';
 import { registerChannel } from './channels/channel-registry.js';
 import {
@@ -342,7 +347,7 @@ let tuiLoadedPluginCommandNames = new Set<string>();
 function mapApprovalSelectionToCommand(
   selection: string,
   requestId: string,
-  options: Array<'once' | 'session' | 'agent' | 'all' | 'skip'>,
+  options: Array<ApprovalScopeMode | 'skip'>,
 ): string | null {
   const normalized = selection.trim().toLowerCase().replace(/\s+/g, ' ');
   if (!normalized) return null;
@@ -432,11 +437,9 @@ async function promptApprovalSelection(
   allowSession: boolean,
   allowAgent: boolean,
 ): Promise<string | null> {
-  const options: Array<'once' | 'session' | 'agent' | 'all' | 'skip'> = [
-    'once',
-  ];
+  const options: Array<ApprovalScopeMode | 'skip'> = ['once'];
   if (allowSession) options.push('session');
-  if (allowAgent) options.push('agent', 'all');
+  if (allowAgent) options.push(...APPROVAL_SCOPE_MODES.slice(2));
   options.push('skip');
   clearTuiSlashMenu();
   console.log(
@@ -528,7 +531,7 @@ function printHelp(): void {
     `  ${TEAL}/agent [info|list|switch|create|model] [id] [--model <model>]${RESET} Inspect or manage agents`,
   );
   console.log(
-    `  ${TEAL}/approve [view|yes|session|agent|all|no] [approval_id]${RESET} View/respond to pending approvals`,
+    `  ${TEAL}${APPROVE_COMMAND_USAGE}${RESET} View/respond to pending approvals`,
   );
   console.log(
     `  ${TEAL}/audit [sessionId]${RESET} Show recent structured audit events`,
@@ -1555,9 +1558,7 @@ async function handleSlashCommand(
         tuiPendingApproval?.requestId,
       );
       if (approvalResult.kind === 'usage') {
-        printInfo(
-          'Usage: /approve [view|yes|session|agent|all|no] [approval_id]',
-        );
+        printInfo(`Usage: ${APPROVE_COMMAND_USAGE}`);
         return true;
       }
       if (approvalResult.kind === 'missing-approval') {
