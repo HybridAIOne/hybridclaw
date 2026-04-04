@@ -1,4 +1,10 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from '@testing-library/react';
 import type { MouseEventHandler, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppSidebar } from './app-sidebar';
@@ -54,15 +60,13 @@ function setViewport(width: number) {
     writable: true,
     value: width,
   });
-  act(() => {
-    window.dispatchEvent(new Event('resize'));
-  });
+  window.dispatchEvent(new Event('resize'));
 }
 
+type SidebarCtx = ReturnType<typeof useSidebar>;
+
 // Helper: expose useSidebar return value to assertions
-function SidebarContextSpy(props: {
-  onRender: (ctx: ReturnType<typeof useSidebar>) => void;
-}) {
+function SidebarContextSpy(props: { onRender: (ctx: SidebarCtx) => void }) {
   const ctx = useSidebar();
   props.onRender(ctx);
   return null;
@@ -73,10 +77,14 @@ describe('SidebarProvider', () => {
   afterEach(cleanup);
 
   it('exposes full shadcn-aligned context shape', () => {
-    let captured: ReturnType<typeof useSidebar> | null = null;
+    let captured: SidebarCtx | null = null;
     render(
       <SidebarProvider>
-        <SidebarContextSpy onRender={(ctx) => { captured = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
     expect(captured).toMatchObject({
@@ -85,66 +93,82 @@ describe('SidebarProvider', () => {
       isMobile: false,
       openMobile: false,
     });
-    expect(typeof (captured as any).setOpen).toBe('function');
-    expect(typeof (captured as any).setOpenMobile).toBe('function');
-    expect(typeof (captured as any).toggleSidebar).toBe('function');
+    expect(typeof captured!.setOpen).toBe('function');
+    expect(typeof captured!.setOpenMobile).toBe('function');
+    expect(typeof captured!.toggleSidebar).toBe('function');
   });
 
   it('toggleSidebar toggles open on desktop', () => {
-    let captured: ReturnType<typeof useSidebar> | null = null;
+    let captured: SidebarCtx | null = null;
     render(
       <SidebarProvider>
-        <SidebarContextSpy onRender={(ctx) => { captured = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
-    expect((captured as any).open).toBe(true);
-    act(() => (captured as any).toggleSidebar());
-    expect((captured as any).open).toBe(false);
-    expect((captured as any).state).toBe('collapsed');
+    expect(captured!.open).toBe(true);
+    act(() => captured!.toggleSidebar());
+    expect(captured!.open).toBe(false);
+    expect(captured!.state).toBe('collapsed');
   });
 
   it('toggleSidebar toggles openMobile on mobile', () => {
     setViewport(800);
-    let captured: ReturnType<typeof useSidebar> | null = null;
+    let captured: SidebarCtx | null = null;
     render(
       <SidebarProvider>
-        <SidebarContextSpy onRender={(ctx) => { captured = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
-    expect((captured as any).openMobile).toBe(false);
-    act(() => (captured as any).toggleSidebar());
-    expect((captured as any).openMobile).toBe(true);
-    expect((captured as any).open).toBe(true); // desktop open unchanged
+    expect(captured!.openMobile).toBe(false);
+    act(() => captured!.toggleSidebar());
+    expect(captured!.openMobile).toBe(true);
+    expect(captured!.open).toBe(true); // desktop open unchanged
   });
 
   it('clears openMobile when resizing from mobile to desktop', () => {
     setViewport(800);
-    let captured: ReturnType<typeof useSidebar> | null = null;
+    let captured: SidebarCtx | null = null;
     render(
       <SidebarProvider>
-        <SidebarContextSpy onRender={(ctx) => { captured = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
-    act(() => (captured as any).setOpenMobile(true));
-    expect((captured as any).openMobile).toBe(true);
+    act(() => captured!.setOpenMobile(true));
+    expect(captured!.openMobile).toBe(true);
 
-    setViewport(1440);
-    expect((captured as any).openMobile).toBe(false);
-    expect((captured as any).isMobile).toBe(false);
+    act(() => setViewport(1440));
+    expect(captured!.openMobile).toBe(false);
+    expect(captured!.isMobile).toBe(false);
   });
 
   it('locks body scroll when mobile sidebar is open and restores on close', () => {
     setViewport(800);
-    let captured: ReturnType<typeof useSidebar> | null = null;
+    let captured: SidebarCtx | null = null;
     render(
       <SidebarProvider>
-        <SidebarContextSpy onRender={(ctx) => { captured = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
     expect(document.body.style.overflow).toBe('');
-    act(() => (captured as any).setOpenMobile(true));
+    act(() => captured!.setOpenMobile(true));
     expect(document.body.style.overflow).toBe('hidden');
-    act(() => (captured as any).setOpenMobile(false));
+    act(() => captured!.setOpenMobile(false));
     expect(document.body.style.overflow).toBe('');
   });
 });
@@ -187,13 +211,17 @@ describe('Sidebar — desktop collapsible (default)', () => {
 
     expect(aside?.getAttribute('data-state')).toBe('collapsed');
     expect(aside?.getAttribute('data-collapsible')).toBe('offcanvas');
-    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeDefined();
+    expect(
+      screen.getByRole('button', { name: 'Expand sidebar' }),
+    ).toBeDefined();
   });
 
   it('toggles via Ctrl+B keyboard shortcut', () => {
     const { container } = render(
       <SidebarProvider>
-        <Sidebar><SidebarContent>Content</SidebarContent></Sidebar>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
       </SidebarProvider>,
     );
     const aside = container.querySelector('aside');
@@ -210,7 +238,9 @@ describe('Sidebar — desktop collapsible (default)', () => {
     const { container } = render(
       <SidebarProvider>
         <Sidebar>
-          <SidebarContent><input aria-label="Search" /></SidebarContent>
+          <SidebarContent>
+            <input aria-label="Search" />
+          </SidebarContent>
         </Sidebar>
       </SidebarProvider>,
     );
@@ -224,10 +254,14 @@ describe('Sidebar — desktop collapsible (default)', () => {
   it('renders SidebarRail in collapsible mode', () => {
     render(
       <SidebarProvider>
-        <Sidebar><SidebarContent>Content</SidebarContent></Sidebar>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
       </SidebarProvider>,
     );
-    expect(screen.getByRole('button', { name: 'Toggle sidebar' })).toBeDefined();
+    expect(
+      screen.getByRole('button', { name: 'Toggle sidebar' }),
+    ).toBeDefined();
   });
 });
 
@@ -238,7 +272,9 @@ describe('Sidebar — desktop collapsible="none"', () => {
   it('always renders expanded with no rail', () => {
     const { container } = render(
       <SidebarProvider>
-        <Sidebar collapsible="none"><SidebarContent>Content</SidebarContent></Sidebar>
+        <Sidebar collapsible="none">
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
       </SidebarProvider>,
     );
     const aside = container.querySelector('aside');
@@ -250,8 +286,12 @@ describe('Sidebar — desktop collapsible="none"', () => {
   it('trigger renders but clicking does not change sidebar data-state', () => {
     const { container } = render(
       <SidebarProvider>
-        <Sidebar collapsible="none"><SidebarContent>Content</SidebarContent></Sidebar>
-        <SidebarInset><SidebarTrigger /></SidebarInset>
+        <Sidebar collapsible="none">
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
+        <SidebarInset>
+          <SidebarTrigger />
+        </SidebarInset>
       </SidebarProvider>,
     );
     const aside = container.querySelector('aside');
@@ -273,7 +313,9 @@ describe('Sidebar — mobile overlay', () => {
   it('renders as mobile overlay with data-mobile="true"', () => {
     const { container } = render(
       <SidebarProvider>
-        <Sidebar><SidebarContent>Content</SidebarContent></Sidebar>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
       </SidebarProvider>,
     );
     const aside = container.querySelector('aside');
@@ -284,8 +326,12 @@ describe('Sidebar — mobile overlay', () => {
   it('trigger shows "Open sidebar" initially', () => {
     render(
       <SidebarProvider>
-        <Sidebar><SidebarContent>Content</SidebarContent></Sidebar>
-        <SidebarInset><SidebarTrigger /></SidebarInset>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
+        <SidebarInset>
+          <SidebarTrigger />
+        </SidebarInset>
       </SidebarProvider>,
     );
     expect(screen.getByRole('button', { name: 'Open sidebar' })).toBeDefined();
@@ -294,8 +340,12 @@ describe('Sidebar — mobile overlay', () => {
   it('opens via trigger and closes via backdrop', () => {
     const { container } = render(
       <SidebarProvider>
-        <Sidebar><SidebarContent>Content</SidebarContent></Sidebar>
-        <SidebarInset><SidebarTrigger /></SidebarInset>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
+        <SidebarInset>
+          <SidebarTrigger />
+        </SidebarInset>
       </SidebarProvider>,
     );
     const trigger = screen.getByRole('button', { name: 'Open sidebar' });
@@ -315,35 +365,43 @@ describe('Sidebar — mobile overlay', () => {
   it('opens and closes via Ctrl+B keyboard shortcut on mobile', () => {
     const { container } = render(
       <SidebarProvider>
-        <Sidebar><SidebarContent>Content</SidebarContent></Sidebar>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
       </SidebarProvider>,
     );
     const aside = container.querySelector('aside');
 
     // The aside is always in DOM for mobile, visibility is via CSS class.
     // We check via context spy instead.
-    let captured: ReturnType<typeof useSidebar> | null = null;
+    let captured: SidebarCtx | null = null;
     render(
       <SidebarProvider>
-        <SidebarContextSpy onRender={(ctx) => { captured = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
 
-    expect((captured as any).openMobile).toBe(false);
+    expect(captured!.openMobile).toBe(false);
     fireEvent.keyDown(document, { key: 'b', ctrlKey: true });
-    expect((captured as any).openMobile).toBe(true);
+    expect(captured!.openMobile).toBe(true);
     fireEvent.keyDown(document, { key: 'b', ctrlKey: true });
-    expect((captured as any).openMobile).toBe(false);
+    expect(captured!.openMobile).toBe(false);
 
     // desktop open state unchanged
-    expect((captured as any).open).toBe(true);
+    expect(captured!.open).toBe(true);
     void aside; // avoid unused warning
   });
 
   it('does not render SidebarRail on mobile', () => {
     render(
       <SidebarProvider>
-        <Sidebar><SidebarContent>Content</SidebarContent></Sidebar>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
       </SidebarProvider>,
     );
     expect(screen.queryByRole('button', { name: 'Toggle sidebar' })).toBeNull();
@@ -360,7 +418,9 @@ describe('SidebarTrigger', () => {
         <SidebarTrigger />
       </SidebarProvider>,
     );
-    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeDefined();
+    expect(
+      screen.getByRole('button', { name: 'Collapse sidebar' }),
+    ).toBeDefined();
   });
 
   it('renders on mobile', () => {
@@ -388,18 +448,28 @@ describe('SidebarTrigger', () => {
     const onClick = vi.fn((e: React.MouseEvent) => e.preventDefault());
     render(
       <SidebarProvider>
-        <Sidebar><SidebarContent>Content</SidebarContent></Sidebar>
-        <SidebarInset><SidebarTrigger onClick={onClick} /></SidebarInset>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
+        <SidebarInset>
+          <SidebarTrigger onClick={onClick} />
+        </SidebarInset>
       </SidebarProvider>,
     );
     const { container } = render(
       <SidebarProvider>
-        <Sidebar><SidebarContent>Content</SidebarContent></Sidebar>
-        <SidebarInset><SidebarTrigger onClick={onClick} /></SidebarInset>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
+        <SidebarInset>
+          <SidebarTrigger onClick={onClick} />
+        </SidebarInset>
       </SidebarProvider>,
     );
     const aside = container.querySelector('aside');
-    fireEvent.click(screen.getAllByRole('button', { name: 'Collapse sidebar' })[0]);
+    fireEvent.click(
+      screen.getAllByRole('button', { name: 'Collapse sidebar' })[0],
+    );
     expect(onClick).toHaveBeenCalled();
     // preventDefault stops toggle
     expect(aside?.getAttribute('data-state')).toBe('expanded');
@@ -416,7 +486,9 @@ describe('SidebarRail', () => {
         <SidebarRail />
       </SidebarProvider>,
     );
-    expect(screen.getByRole('button', { name: 'Toggle sidebar' })).toBeDefined();
+    expect(
+      screen.getByRole('button', { name: 'Toggle sidebar' }),
+    ).toBeDefined();
   });
 
   it('does not render on mobile', () => {
@@ -519,7 +591,9 @@ describe('AppSidebar', () => {
         />
       </SidebarProvider>,
     );
-    expect(screen.getByRole('button', { name: 'Mock Theme Toggle' })).toBeDefined();
+    expect(
+      screen.getByRole('button', { name: 'Mock Theme Toggle' }),
+    ).toBeDefined();
   });
 
   it('renders logout button and calls onLogout when showLogout=true', () => {
@@ -569,7 +643,7 @@ describe('AppSidebar', () => {
 
   it('closes mobile sidebar when a nav link is clicked', () => {
     setViewport(800);
-    let captured: ReturnType<typeof useSidebar> | null = null;
+    let captured: SidebarCtx | null = null;
     render(
       <SidebarProvider>
         <AppSidebar
@@ -577,18 +651,22 @@ describe('AppSidebar', () => {
           showLogout={false}
           onLogout={vi.fn()}
         />
-        <SidebarContextSpy onRender={(ctx) => { captured = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
 
-    act(() => (captured as any).setOpenMobile(true));
-    expect((captured as any).openMobile).toBe(true);
+    act(() => captured!.setOpenMobile(true));
+    expect(captured!.openMobile).toBe(true);
 
     const dashboardLink = screen.getByText('Dashboard').closest('a');
     expect(dashboardLink).not.toBeNull();
     fireEvent.click(dashboardLink as HTMLAnchorElement);
 
-    expect((captured as any).openMobile).toBe(false);
+    expect(captured!.openMobile).toBe(false);
   });
 
   it('renders as mobile overlay on small screens', () => {
