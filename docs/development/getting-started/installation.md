@@ -49,5 +49,5 @@ Next steps:
 
 1. Run [Authentication](./authentication.md) if you have not onboarded yet.
 2. Follow [Quick Start](./quickstart.md) to launch the gateway and surfaces.
-3. If you plan to use Microsoft Teams, continue with
-   [Microsoft Teams Setup](./msteams.md).
+3. Follow [Channel Setup](./channels.md) if you plan to connect Discord, email,
+   WhatsApp, iMessage, or Microsoft Teams.
