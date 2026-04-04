@@ -342,7 +342,7 @@ let tuiLoadedPluginCommandNames = new Set<string>();
 function mapApprovalSelectionToCommand(
   selection: string,
   requestId: string,
-  options: Array<'once' | 'session' | 'agent' | 'skip'>,
+  options: Array<'once' | 'session' | 'agent' | 'all' | 'skip'>,
 ): string | null {
   const normalized = selection.trim().toLowerCase().replace(/\s+/g, ' ');
   if (!normalized) return null;
@@ -355,6 +355,7 @@ function mapApprovalSelectionToCommand(
     if (selected === 'once') return `yes ${requestId}`;
     if (selected === 'session') return `yes ${requestId} for session`;
     if (selected === 'agent') return `yes ${requestId} for agent`;
+    if (selected === 'all') return `yes ${requestId} for all`;
     return `skip ${requestId}`;
   }
 
@@ -377,6 +378,14 @@ function mapApprovalSelectionToCommand(
   ) {
     return `yes ${requestId} for agent`;
   }
+  if (
+    options.includes('all') &&
+    (normalized === 'all' ||
+      normalized === 'yes for all' ||
+      normalized === 'for all')
+  ) {
+    return `yes ${requestId} for all`;
+  }
   if (normalized === 'no' || normalized === 'n' || normalized === 'skip') {
     return `skip ${requestId}`;
   }
@@ -385,7 +394,7 @@ function mapApprovalSelectionToCommand(
 
 function isApprovalResponseContent(content: string): boolean {
   const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
-  return /^(yes|skip)\s+\S+(?:\s+for\s+(session|agent))?$/.test(normalized);
+  return /^(yes|skip)\s+\S+(?:\s+for\s+(session|all|agent))?$/.test(normalized);
 }
 
 function resolvePendingApproval(
@@ -423,9 +432,11 @@ async function promptApprovalSelection(
   allowSession: boolean,
   allowAgent: boolean,
 ): Promise<string | null> {
-  const options: Array<'once' | 'session' | 'agent' | 'skip'> = ['once'];
+  const options: Array<'once' | 'session' | 'agent' | 'all' | 'skip'> = [
+    'once',
+  ];
   if (allowSession) options.push('session');
-  if (allowAgent) options.push('agent');
+  if (allowAgent) options.push('agent', 'all');
   options.push('skip');
   clearTuiSlashMenu();
   console.log(
@@ -439,7 +450,9 @@ async function promptApprovalSelection(
           ? 'yes for session'
           : option === 'agent'
             ? 'yes for agent'
-            : 'no / skip';
+            : option === 'all'
+              ? 'yes for all'
+              : 'no / skip';
     console.log(`  ${TEAL}${index + 1}${RESET} ${label}`);
   });
   const answer = await new Promise<string>((resolve) => {
@@ -515,7 +528,7 @@ function printHelp(): void {
     `  ${TEAL}/agent [info|list|switch|create|model] [id] [--model <model>]${RESET} Inspect or manage agents`,
   );
   console.log(
-    `  ${TEAL}/approve [view|yes|session|agent|no] [approval_id]${RESET} View/respond to pending approvals`,
+    `  ${TEAL}/approve [view|yes|session|agent|all|no] [approval_id]${RESET} View/respond to pending approvals`,
   );
   console.log(
     `  ${TEAL}/audit [sessionId]${RESET} Show recent structured audit events`,
@@ -1542,7 +1555,9 @@ async function handleSlashCommand(
         tuiPendingApproval?.requestId,
       );
       if (approvalResult.kind === 'usage') {
-        printInfo('Usage: /approve [view|yes|session|agent|no] [approval_id]');
+        printInfo(
+          'Usage: /approve [view|yes|session|agent|all|no] [approval_id]',
+        );
         return true;
       }
       if (approvalResult.kind === 'missing-approval') {

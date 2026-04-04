@@ -87,11 +87,14 @@ function buildApprovalUserMessage(params: {
   if (action === 'agent' || action === '3') {
     return approvalId ? `yes ${approvalId} for agent` : 'yes for agent';
   }
+  if (action === 'all' || action === '4') {
+    return approvalId ? `yes ${approvalId} for all` : 'yes for all';
+  }
   if (
     action === 'no' ||
     action === 'deny' ||
     action === 'skip' ||
-    action === '4'
+    action === '5'
   ) {
     return withApprovalId('no');
   }
@@ -171,7 +174,7 @@ export async function handleTextChannelApprovalCommand(params: {
     return {
       handled: true,
       sessionId,
-      text: 'Usage: `/approve action:view|yes|session|agent|no [approval_id]`',
+      text: 'Usage: `/approve action:view|yes|session|agent|all|no [approval_id]`',
       artifacts: [],
     };
   }

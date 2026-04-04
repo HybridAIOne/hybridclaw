@@ -50,8 +50,10 @@ export function parseTuiApprovalPrompt(
     allowSession: lines.includes(
       'Reply `yes for session` to trust this action for this session.',
     ),
-    allowAgent: lines.includes(
-      'Reply `yes for agent` to trust it for this agent.',
-    ),
+    allowAgent:
+      lines.includes('Reply `yes for agent` to trust it for this agent.') ||
+      lines.includes(
+        'Reply `yes for all` to add this action to the workspace allowlist.',
+      ),
   };
 }

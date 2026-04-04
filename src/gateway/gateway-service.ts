@@ -4724,7 +4724,7 @@ export async function handleGatewayCommand(
             scope: 'slash',
           },
           {
-            command: 'approve [view|yes|session|agent|no] [approval_id]',
+            command: 'approve [view|yes|session|agent|all|no] [approval_id]',
             description: 'View/respond to pending approvals privately',
             scope: 'slash',
           },

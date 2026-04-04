@@ -89,6 +89,9 @@ export function mapTuiApproveSlashToMessage(
   if (action === 'agent') {
     return { kind: 'message', message: `yes ${approvalId} for agent` };
   }
+  if (action === 'all') {
+    return { kind: 'message', message: `yes ${approvalId} for all` };
+  }
   if (action === 'no')
     return { kind: 'message', message: `skip ${approvalId}` };
   return { kind: 'usage' };
