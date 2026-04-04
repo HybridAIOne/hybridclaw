@@ -151,6 +151,85 @@ const IMESSAGE_INTERRUPTED_REPLY =
 const IMESSAGE_TRANSIENT_FAILURE_REPLY =
   'The model request failed before I could reply. Please try again.';
 
+function logGatewayStartup(params: {
+  status: Awaited<ReturnType<typeof getGatewayStatus>>;
+  channels: {
+    discord: boolean;
+    msteams: boolean;
+    email: boolean;
+    imessage: boolean;
+    whatsapp: boolean;
+  };
+}): void {
+  const {
+    pid: _pid,
+    timestamp: _timestamp,
+    codex,
+    sandbox,
+    observability,
+    scheduler,
+    providerHealth,
+    localBackends,
+    pluginCommands,
+    ...status
+  } = params.status;
+
+  logger.info(
+    {
+      ...status,
+      ...(codex
+        ? {
+            codex: {
+              authenticated: codex.authenticated,
+              source: codex.source,
+              reloginRequired: codex.reloginRequired,
+            },
+          }
+        : {}),
+      ...(sandbox
+        ? {
+            sandbox: {
+              mode: sandbox.mode,
+              modeExplicit: sandbox.modeExplicit,
+              runningInsideContainer: sandbox.runningInsideContainer,
+              activeSessions: sandbox.activeSessions,
+              warning: sandbox.warning,
+            },
+          }
+        : {}),
+      ...(observability
+        ? {
+            observability: {
+              enabled: observability.enabled,
+              running: observability.running,
+              paused: observability.paused,
+              reason: observability.reason,
+            },
+          }
+        : {}),
+    },
+    'HybridClaw gateway started',
+  );
+
+  if (scheduler?.jobs?.length) {
+    logger.info({ jobs: scheduler.jobs }, 'Gateway scheduler jobs');
+  }
+
+  logger.info(
+    {
+      ...(providerHealth ? { providerHealth } : {}),
+      ...(localBackends ? { localBackends } : {}),
+    },
+    'Gateway provider health',
+  );
+
+  if (pluginCommands?.length) {
+    logger.info({ pluginCommands }, 'Gateway plugin commands');
+  }
+
+  logger.info(params.channels, 'Gateway channels');
+}
+
 function buildArtifactAttachments(
   artifacts?: ArtifactMetadata[],
 ): AttachmentBuilder[] {
@@ -1520,6 +1599,20 @@ async function runScheduledTask(
         ? resolveLastUsedDeliverableChannelId()
         : null;
 
+  if (request.delivery.kind === 'last-channel' && !resolvedDeliveryChannelId) {
+    logger.info(
+      {
+        jobId: request.jobId,
+        taskId: request.taskId,
+        source: request.source,
+        actionKind: request.actionKind,
+        delivery: request.delivery.kind,
+      },
+      'Scheduled task skipped: no delivery channel available',
+    );
+    return;
+  }
+
   if (request.actionKind === 'system_event') {
     if (request.delivery.kind === 'webhook') {
       await deliverWebhookMessage(
@@ -1781,17 +1874,16 @@ async function main(): Promise<void> {
     logger.warn({ err }, 'Initial proactive queue flush failed');
   });
 
-  logger.info(
-    {
-      ...(await getGatewayStatus()),
+  logGatewayStartup({
+    status: await getGatewayStatus(),
+    channels: {
       discord: discordActive,
       msteams: msteamsActive,
       email: emailActive,
       imessage: imessageActive,
       whatsapp: whatsappActive,
     },
-    'HybridClaw gateway started',
-  );
+  });
 }
 
 main().catch((err) => {
