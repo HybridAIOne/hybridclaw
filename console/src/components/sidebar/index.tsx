@@ -1,8 +1,8 @@
 import {
   type AnchorHTMLAttributes,
-  createContext,
   type ButtonHTMLAttributes,
   type CSSProperties,
+  createContext,
   type HTMLAttributes,
   type ReactNode,
   useContext,
@@ -12,16 +12,22 @@ import {
 } from 'react';
 import styles from './index.module.css';
 
+type SidebarState = 'expanded' | 'collapsed';
+
 type SidebarContextValue = {
-  mobileOpen: boolean;
+  state: SidebarState;
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  openMobile: boolean;
+  setOpenMobile: (open: boolean) => void;
   isMobile: boolean;
-  setMobileOpen: (open: boolean) => void;
   toggleSidebar: () => void;
 };
 
 type SidebarProps = {
   children: ReactNode;
   side?: 'left' | 'right';
+  collapsible?: 'offcanvas' | 'icon' | 'none';
 };
 
 const SIDEBAR_MOBILE_BREAKPOINT = 1080;
@@ -50,7 +56,8 @@ export function SidebarProvider(props: {
   children: ReactNode;
   style?: CSSProperties;
 }) {
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [open, setOpen] = useState(true);
+  const [openMobile, setOpenMobile] = useState(false);
   const [isMobile, setIsMobile] = useState(getIsMobile);
 
   useEffect(() => {
@@ -60,7 +67,7 @@ export function SidebarProvider(props: {
       const nextIsMobile = getIsMobile();
       setIsMobile(nextIsMobile);
       if (!nextIsMobile) {
-        setMobileOpen(false);
+        setOpenMobile(false);
       }
     }
 
@@ -79,7 +86,9 @@ export function SidebarProvider(props: {
       }
       event.preventDefault();
       if (getIsMobile()) {
-        setMobileOpen((open) => !open);
+        setOpenMobile((o) => !o);
+      } else {
+        setOpen((o) => !o);
       }
     }
 
@@ -96,7 +105,7 @@ export function SidebarProvider(props: {
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const previousOverflow = document.body.style.overflow;
-    if (isMobile && mobileOpen) {
+    if (isMobile && openMobile) {
       document.body.style.overflow = 'hidden';
       return () => {
         document.body.style.overflow = previousOverflow;
@@ -104,20 +113,25 @@ export function SidebarProvider(props: {
     }
     document.body.style.overflow = previousOverflow;
     return undefined;
-  }, [isMobile, mobileOpen]);
+  }, [isMobile, openMobile]);
 
   const value = useMemo<SidebarContextValue>(
     () => ({
-      mobileOpen,
+      state: open ? 'expanded' : 'collapsed',
+      open,
+      setOpen,
+      openMobile,
+      setOpenMobile,
       isMobile,
-      setMobileOpen,
       toggleSidebar() {
         if (isMobile) {
-          setMobileOpen((open) => !open);
+          setOpenMobile((o) => !o);
+        } else {
+          setOpen((o) => !o);
         }
       },
     }),
-    [isMobile, mobileOpen],
+    [isMobile, open, openMobile],
   );
 
   return (
@@ -132,40 +146,63 @@ export function SidebarProvider(props: {
 export function useSidebar() {
   const context = useSidebarContext();
   return {
-    state: 'expanded' as const,
-    openMobile: context.mobileOpen,
-    setOpenMobile: context.setMobileOpen,
+    state: context.state,
+    open: context.open,
+    setOpen: context.setOpen,
+    openMobile: context.openMobile,
+    setOpenMobile: context.setOpenMobile,
     isMobile: context.isMobile,
     toggleSidebar: context.toggleSidebar,
   };
 }
 
-export function Sidebar(props: SidebarProps) {
+export function Sidebar({ side = 'left', collapsible = 'offcanvas', children }: SidebarProps) {
   const context = useSidebarContext();
-  const isVisible = context.isMobile ? context.mobileOpen : true;
-  const side = props.side ?? 'left';
 
-  return (
-    <>
-      <button
-        type="button"
-        className={cx(
-          styles.backdrop,
-          context.isMobile && context.mobileOpen && styles.backdropVisible,
-        )}
-        aria-hidden={!context.isMobile || !context.mobileOpen}
-        tabIndex={context.isMobile && context.mobileOpen ? 0 : -1}
-        onClick={() => context.setMobileOpen(false)}
-      />
-      <aside
-        className={cx(styles.root, isVisible && styles.rootVisible)}
-        data-side={side}
-        data-mobile={context.isMobile ? 'true' : undefined}
-        data-state="expanded"
-      >
-        {props.children}
+  // Mobile: always render as overlay drawer (backdrop + slide-in aside)
+  if (context.isMobile) {
+    return (
+      <>
+        <button
+          type="button"
+          className={cx(styles.backdrop, context.openMobile && styles.backdropVisible)}
+          aria-hidden={!context.openMobile}
+          tabIndex={context.openMobile ? 0 : -1}
+          onClick={() => context.setOpenMobile(false)}
+        />
+        <aside
+          className={cx(styles.root, styles.rootMobile, context.openMobile && styles.rootVisible)}
+          data-side={side}
+          data-mobile="true"
+          data-state="expanded"
+        >
+          {children}
+        </aside>
+      </>
+    );
+  }
+
+  // Desktop: always-visible panel (no collapse)
+  if (collapsible === 'none') {
+    return (
+      <aside className={styles.root} data-side={side} data-state="expanded">
+        {children}
       </aside>
-    </>
+    );
+  }
+
+  // Desktop: collapsible panel
+  const state = context.open ? 'expanded' : 'collapsed';
+  return (
+    <aside
+      className={styles.root}
+      data-side={side}
+      data-state={state}
+      data-collapsible={!context.open ? collapsible : undefined}
+    >
+      {children}
+      <SidebarRail />
+    </aside>
   );
 }
 
@@ -185,27 +222,27 @@ export function SidebarInset(
   props: HTMLAttributes<HTMLElement> & { children: ReactNode },
 ) {
   const { className, children, ...rest } = props;
-  const { state } = useSidebar();
   return (
     <main
       {...rest}
       className={cx(styles.inset, className)}
-      data-sidebar-state={state}
     >
       {children}
     </main>
   );
 }
 
-export function SidebarTrigger(
-  props: ButtonHTMLAttributes<HTMLButtonElement>,
-) {
+export function SidebarTrigger(props: ButtonHTMLAttributes<HTMLButtonElement>) {
   const { className, children, ...rest } = props;
   const context = useSidebarContext();
 
-  if (!context.isMobile) return null;
-
-  const label = context.mobileOpen ? 'Close sidebar' : 'Open sidebar';
+  const label = context.isMobile
+    ? context.openMobile
+      ? 'Close sidebar'
+      : 'Open sidebar'
+    : context.open
+      ? 'Collapse sidebar'
+      : 'Expand sidebar';
 
   return (
     <button
@@ -326,9 +363,7 @@ export function SidebarMenuBadge(props: { children: ReactNode }) {
   return <span className={styles.menuBadge}>{props.children}</span>;
 }
 
-export function SidebarFooterActions(props: {
-  children: ReactNode;
-}) {
+export function SidebarFooterActions(props: { children: ReactNode }) {
   return <div className={styles.footerActions}>{props.children}</div>;
 }
 

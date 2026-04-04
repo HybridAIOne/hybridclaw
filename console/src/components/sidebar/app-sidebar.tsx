@@ -35,7 +35,7 @@ export function AppSidebar(props: {
   onLogout: () => void;
 }) {
   return (
-    <Sidebar>
+    <Sidebar collapsible="none">
       <SidebarHeader>
         <SidebarBrand />
       </SidebarHeader>

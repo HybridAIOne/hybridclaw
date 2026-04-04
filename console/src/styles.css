@@ -247,7 +247,14 @@ code {
 }
 
 .topbar-sidebar-trigger {
+  display: none;
   flex: 0 0 auto;
+}
+
+@media (max-width: 1080px) {
+  .topbar-sidebar-trigger {
+    display: inline-flex;
+  }
 }
 
 .view-switch {
