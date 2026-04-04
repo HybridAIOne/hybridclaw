@@ -11,7 +11,7 @@ import { AppSidebar } from './app-sidebar';
 import {
   Sidebar,
   SidebarContent,
-  SidebarContextSnapshot,
+  type SidebarContextSnapshot,
   SidebarFooter,
   SidebarHeader,
   SidebarInset,
@@ -81,7 +81,11 @@ describe('SidebarProvider', () => {
     const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
-        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
     expect(captured.value).toMatchObject({
@@ -99,7 +103,11 @@ describe('SidebarProvider', () => {
     const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
-        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
     expect(captured.value?.open).toBe(true);
@@ -113,7 +121,11 @@ describe('SidebarProvider', () => {
     const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
-        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
     expect(captured.value?.openMobile).toBe(false);
@@ -127,7 +139,11 @@ describe('SidebarProvider', () => {
     const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
-        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
     act(() => captured.value?.setOpenMobile(true));
@@ -143,7 +159,11 @@ describe('SidebarProvider', () => {
     const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
-        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
     expect(document.body.style.overflow).toBe('');
@@ -292,16 +312,30 @@ describe('Sidebar — mobile overlay', () => {
   afterEach(cleanup);
 
   it('renders as mobile overlay with data-mobile="true"', () => {
-    const { container } = render(
+    render(
       <SidebarProvider>
         <Sidebar>
           <SidebarContent>Content</SidebarContent>
         </Sidebar>
       </SidebarProvider>,
     );
-    const aside = container.querySelector('aside');
+    // Mobile sidebar is portalled to document.body — query from there.
+    const aside = document.body.querySelector('aside[data-mobile="true"]');
     expect(aside?.getAttribute('data-mobile')).toBe('true');
     expect(aside?.getAttribute('data-state')).toBe('expanded');
+  });
+
+  it('mobile drawer has role="dialog", aria-modal, and aria-label', () => {
+    render(
+      <SidebarProvider>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
+      </SidebarProvider>,
+    );
+    const dialog = document.body.querySelector('[role="dialog"]');
+    expect(dialog?.getAttribute('aria-modal')).toBe('true');
+    expect(dialog?.getAttribute('aria-label')).toBe('Navigation');
   });
 
   it('trigger shows "Open sidebar" initially', () => {
@@ -319,7 +353,8 @@ describe('Sidebar — mobile overlay', () => {
   });
 
   it('opens via trigger and closes via backdrop', () => {
-    const { container } = render(
+    const captured = { value: null as SidebarCtx | null };
+    render(
       <SidebarProvider>
         <Sidebar>
           <SidebarContent>Content</SidebarContent>
@@ -327,38 +362,65 @@ describe('Sidebar — mobile overlay', () => {
         <SidebarInset>
           <SidebarTrigger />
         </SidebarInset>
+        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
       </SidebarProvider>,
     );
+
+    // Trigger is accessible before opening (not yet aria-hidden).
     const trigger = screen.getByRole('button', { name: 'Open sidebar' });
     fireEvent.click(trigger);
 
-    expect(screen.getByRole('button', { name: 'Close sidebar' })).toBeDefined();
+    // After opening, useHideOthers hides the main layout (including the trigger)
+    // from the a11y tree — query the trigger by attribute directly.
+    expect(document.body.querySelector('[aria-label="Close sidebar"]')).not.toBeNull();
+    expect(captured.value?.openMobile).toBe(true);
     expect(document.body.style.overflow).toBe('hidden');
 
-    const backdrop = container.querySelector('button[aria-hidden="false"]');
+    // Backdrop is portalled to document.body and always aria-hidden="true".
+    const backdrop = document.body.querySelector('[data-sidebar="backdrop"]');
     expect(backdrop).not.toBeNull();
     fireEvent.click(backdrop as HTMLButtonElement);
 
-    expect(screen.getByRole('button', { name: 'Open sidebar' })).toBeDefined();
+    expect(captured.value?.openMobile).toBe(false);
     expect(document.body.style.overflow).toBe('');
   });
 
+  it('Escape closes mobile drawer', () => {
+    const captured = { value: null as SidebarCtx | null };
+    render(
+      <SidebarProvider>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
+        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
+      </SidebarProvider>,
+    );
+    act(() => captured.value?.setOpenMobile(true));
+    expect(captured.value?.openMobile).toBe(true);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(captured.value?.openMobile).toBe(false);
+  });
+
   it('opens and closes via Ctrl+B keyboard shortcut on mobile', () => {
-    const { container } = render(
+    render(
       <SidebarProvider>
         <Sidebar>
           <SidebarContent>Content</SidebarContent>
         </Sidebar>
       </SidebarProvider>,
     );
-    const aside = container.querySelector('aside');
 
-    // The aside is always in DOM for mobile, visibility is via CSS class.
-    // We check via context spy instead.
+    // The aside is portalled to document.body; visibility is via CSS class.
+    // We check open state via context spy instead.
     const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
-        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
 
@@ -370,7 +432,6 @@ describe('Sidebar — mobile overlay', () => {
 
     // desktop open state unchanged
     expect(captured.value?.open).toBe(true);
-    void aside; // avoid unused warning
   });
 
   it('does not render SidebarRail on mobile', () => {
@@ -628,7 +689,11 @@ describe('AppSidebar', () => {
           showLogout={false}
           onLogout={vi.fn()}
         />
-        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
 
@@ -644,7 +709,7 @@ describe('AppSidebar', () => {
 
   it('renders as mobile overlay on small screens', () => {
     setViewport(800);
-    const { container } = render(
+    render(
       <SidebarProvider>
         <AppSidebar
           groups={SIDEBAR_NAV_GROUPS}
@@ -653,7 +718,7 @@ describe('AppSidebar', () => {
         />
       </SidebarProvider>,
     );
-    const aside = container.querySelector('aside');
+    const aside = document.body.querySelector('aside[data-mobile="true"]');
     expect(aside?.getAttribute('data-mobile')).toBe('true');
   });
 });

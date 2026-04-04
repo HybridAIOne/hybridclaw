@@ -8,8 +8,14 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
+import { createPortal } from 'react-dom';
+import { useEscapeKeydown } from '../../hooks/useEscapeKeydown';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useHideOthers } from '../../hooks/useHideOthers';
+import { useScrollLock } from '../../hooks/useScrollLock';
 import styles from './index.module.css';
 
 type SidebarState = 'expanded' | 'collapsed';
@@ -102,18 +108,7 @@ export function SidebarProvider(props: {
     };
   }, []);
 
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const previousOverflow = document.body.style.overflow;
-    if (isMobile && openMobile) {
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = previousOverflow;
-      };
-    }
-    document.body.style.overflow = previousOverflow;
-    return undefined;
-  }, [isMobile, openMobile]);
+  useScrollLock(isMobile && openMobile);
 
   const value = useMemo<SidebarContextValue>(
     () => ({
@@ -172,22 +167,33 @@ export function Sidebar({
   children,
 }: SidebarProps) {
   const context = useSidebarContext();
+  const drawerRef = useRef<HTMLElement>(null);
+  const drawerActive = context.isMobile && context.openMobile;
 
-  // Mobile: always render as overlay drawer (backdrop + slide-in aside)
+  useFocusTrap(drawerRef, drawerActive);
+  useEscapeKeydown(() => context.setOpenMobile(false), drawerActive);
+  useHideOthers(drawerRef, drawerActive);
+
+  // Mobile: always render as overlay drawer, portalled to document.body so
+  // it sits outside any stacking context and aria-hidden management is clean.
   if (context.isMobile) {
-    return (
+    return createPortal(
       <>
+        {/* Backdrop — purely a click target; hidden from the a11y tree
+            because Escape is the keyboard-accessible dismiss path. */}
         <button
           type="button"
+          data-sidebar="backdrop"
           className={cx(
             styles.backdrop,
             context.openMobile && styles.backdropVisible,
           )}
-          aria-hidden={!context.openMobile}
-          tabIndex={context.openMobile ? 0 : -1}
+          aria-hidden="true"
+          tabIndex={-1}
           onClick={() => context.setOpenMobile(false)}
         />
         <aside
+          ref={drawerRef as React.RefObject<HTMLElement>}
           className={cx(
             styles.root,
             styles.rootMobile,
@@ -196,10 +202,14 @@ export function Sidebar({
           data-side={side}
           data-mobile="true"
           data-state="expanded"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Navigation"
         >
           {children}
         </aside>
-      </>
+      </>,
+      document.body,
     );
   }
 
@@ -268,6 +278,8 @@ export function SidebarTrigger(props: ButtonHTMLAttributes<HTMLButtonElement>) {
       type={props.type ?? 'button'}
       className={cx(styles.trigger, className)}
       aria-label={props['aria-label'] ?? label}
+      aria-expanded={context.isMobile ? context.openMobile : context.open}
+      aria-controls="sidebar-nav"
       onClick={(event) => {
         props.onClick?.(event);
         if (!event.defaultPrevented) {
@@ -323,7 +335,7 @@ export function SidebarMenu(props: {
   ariaLabel?: string;
 }) {
   return (
-    <nav className={styles.menu} aria-label={props.ariaLabel}>
+    <nav id="sidebar-nav" className={styles.menu} aria-label={props.ariaLabel}>
       {props.children}
     </nav>
   );
