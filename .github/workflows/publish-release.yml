@@ -1,4 +1,4 @@
-name: Publish Container
+name: Publish Release
 
 on:
   push:
@@ -236,3 +236,46 @@ jobs:
         uses: ./.github/actions/verify-published-tags
         with:
           tags: ${{ steps.meta.outputs.tags }}
+
+  # npm package — published to npmjs.com as @hybridaione/hybridclaw.
+  publish-npm:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642195f882660b323136e2a # v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and verify pack contents
+        run: npm run prepack
+
+      - name: Verify NPM_TOKEN is configured
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [[ -z "${NPM_TOKEN}" ]]; then
+            echo "::error::NPM_TOKEN secret is not configured. Add it in repo Settings > Secrets."
+            exit 1
+          fi
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [[ "$VERSION" == *-* ]]; then
+            NPM_TAG="next"
+          else
+            NPM_TAG="latest"
+          fi
+          npm publish --access public --tag "$NPM_TAG"
