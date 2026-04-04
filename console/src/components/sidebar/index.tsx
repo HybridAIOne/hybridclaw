@@ -156,7 +156,11 @@ export function useSidebar() {
   };
 }
 
-export function Sidebar({ side = 'left', collapsible = 'offcanvas', children }: SidebarProps) {
+export function Sidebar({
+  side = 'left',
+  collapsible = 'offcanvas',
+  children,
+}: SidebarProps) {
   const context = useSidebarContext();
 
   // Mobile: always render as overlay drawer (backdrop + slide-in aside)
@@ -165,13 +169,20 @@ export function Sidebar({ side = 'left', collapsible = 'offcanvas', children }: 
       <>
         <button
           type="button"
-          className={cx(styles.backdrop, context.openMobile && styles.backdropVisible)}
+          className={cx(
+            styles.backdrop,
+            context.openMobile && styles.backdropVisible,
+          )}
           aria-hidden={!context.openMobile}
           tabIndex={context.openMobile ? 0 : -1}
           onClick={() => context.setOpenMobile(false)}
         />
         <aside
-          className={cx(styles.root, styles.rootMobile, context.openMobile && styles.rootVisible)}
+          className={cx(
+            styles.root,
+            styles.rootMobile,
+            context.openMobile && styles.rootVisible,
+          )}
           data-side={side}
           data-mobile="true"
           data-state="expanded"
@@ -223,10 +234,7 @@ export function SidebarInset(
 ) {
   const { className, children, ...rest } = props;
   return (
-    <main
-      {...rest}
-      className={cx(styles.inset, className)}
-    >
+    <main {...rest} className={cx(styles.inset, className)}>
       {children}
     </main>
   );
