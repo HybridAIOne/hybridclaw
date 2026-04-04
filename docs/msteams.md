@@ -96,7 +96,7 @@ https://<your-public-host>/api/msteams/messages
 
 Then confirm the Microsoft Teams channel is enabled for that bot.
 
-## 6. Smoke-test the bot
+## 6. Verify the setup
 
 For a quick test, either:
 
