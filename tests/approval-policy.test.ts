@@ -342,6 +342,30 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(second.decision).toBe('approved_session');
   });
 
+  test('"yes always" preserves the legacy session-scoped trust behavior', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    const originalPrompt = 'Fetch from example.com';
+
+    const first = runtime.evaluateToolCall({
+      toolName: 'web_fetch',
+      argsJson: JSON.stringify({ url: 'https://example.com' }),
+      latestUserPrompt: originalPrompt,
+    });
+    expect(first.decision).toBe('required');
+
+    const prelude = runtime.handleApprovalResponse([userMessage('yes always')]);
+    expect(prelude?.approvalMode).toBe('session');
+
+    const second = runtime.evaluateToolCall({
+      toolName: 'web_fetch',
+      argsJson: JSON.stringify({ url: 'https://example.com' }),
+      latestUserPrompt: originalPrompt,
+    });
+    expect(second.decision).toBe('approved_session');
+  });
+
   test('network approvals reuse site scope across subdomains', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

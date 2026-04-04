@@ -331,6 +331,7 @@ let tuiPendingApproval: {
   reason: string;
   allowSession: boolean;
   allowAgent: boolean;
+  allowAll: boolean;
 } | null = null;
 let tuiShowMode: SessionShowMode = DEFAULT_SESSION_SHOW_MODE;
 let tuiSlashMenu: TuiSlashMenuController | null = null;
@@ -413,6 +414,7 @@ function resolvePendingApproval(
       reason: streamedApproval.reason,
       allowSession: streamedApproval.allowSession,
       allowAgent: streamedApproval.allowAgent,
+      allowAll: streamedApproval.allowAgent,
     };
   }
 
@@ -424,6 +426,7 @@ function resolvePendingApproval(
       reason: pendingApproval.reason,
       allowSession: pendingApproval.allowSession,
       allowAgent: pendingApproval.allowAgent,
+      allowAll: pendingApproval.allowAgent,
     };
   }
 
@@ -436,10 +439,12 @@ async function promptApprovalSelection(
   requestId: string,
   allowSession: boolean,
   allowAgent: boolean,
+  allowAll: boolean,
 ): Promise<string | null> {
   const options: Array<ApprovalScopeMode | 'skip'> = ['once'];
   if (allowSession) options.push('session');
-  if (allowAgent) options.push(...APPROVAL_SCOPE_MODES.slice(2));
+  if (allowAgent) options.push('agent');
+  if (allowAll) options.push('all');
   options.push('skip');
   clearTuiSlashMenu();
   console.log(
@@ -1743,6 +1748,7 @@ async function processMessage(
         reason: pendingApproval.reason,
         allowSession: pendingApproval.allowSession,
         allowAgent: pendingApproval.allowAgent,
+        allowAll: pendingApproval.allowAll,
       };
       printResponse(summary);
       const approvalCommand = await promptApprovalSelection(
@@ -1750,6 +1756,7 @@ async function processMessage(
         pendingApproval.approvalId,
         pendingApproval.allowSession,
         pendingApproval.allowAgent,
+        pendingApproval.allowAll,
       );
       if (approvalCommand) {
         await processMessage(approvalCommand, rl);
@@ -1839,6 +1846,7 @@ async function processFullAutoSteeringMessage(
           reason: pendingApproval.reason,
           allowSession: pendingApproval.allowSession,
           allowAgent: pendingApproval.allowAgent,
+          allowAll: pendingApproval.allowAll,
         };
         printResponse(summary);
         const approvalCommand = await promptApprovalSelection(
@@ -1846,6 +1854,7 @@ async function processFullAutoSteeringMessage(
           pendingApproval.approvalId,
           pendingApproval.allowSession,
           pendingApproval.allowAgent,
+          pendingApproval.allowAll,
         );
         if (approvalCommand) {
           await processMessage(approvalCommand, rl);

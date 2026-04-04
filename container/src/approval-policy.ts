@@ -811,9 +811,8 @@ function parseModeFromApproveMatch(
   match: RegExpMatchArray | null,
 ): ApprovalMode {
   const scope = String(match?.[2] || '').toLowerCase();
-  if (scope.includes('all') || scope.includes('always')) {
-    return 'all';
-  }
+  if (scope.includes('always')) return 'session';
+  if (scope.includes('all')) return 'all';
   if (scope.includes('agent')) return 'agent';
   if (scope.includes('session')) return 'session';
   return 'once';
@@ -1082,7 +1081,7 @@ export class TrustedCoworkerApprovalRuntime {
       updatedAt: new Date().toISOString(),
     };
     try {
-      const dir = path.posix.dirname(params.trustStorePath);
+      const dir = path.dirname(params.trustStorePath);
       fs.mkdirSync(dir, { recursive: true });
       const tmpPath = `${params.trustStorePath}.tmp`;
       fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf-8');
