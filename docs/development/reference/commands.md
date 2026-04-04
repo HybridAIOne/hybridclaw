@@ -45,7 +45,15 @@ hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>
 hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
 hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
 hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
+hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]
 ```
+
+Microsoft Teams setup uses `auth login` instead of `channels setup` because it
+needs app credentials and a webhook handoff instead of a pairing flow. For the
+step-by-step setup guide, see [Getting Started: Channel Setup](../getting-started/channels.md).
+Local TUI/web sessions can also write channel config and secrets with
+`/config set ...` and `/secret set ...`; see the same guide for channel-specific
+examples and current CLI-only limitations such as WhatsApp pairing.
 
 ## Agents And Packages
 

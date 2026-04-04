@@ -1,7 +1,7 @@
 ---
 title: Microsoft Teams Setup
 description: Teams-specific setup flow, credentials, and webhook handoff.
-sidebar_position: 5
+sidebar_position: 6
 ---
 
 # Microsoft Teams Setup

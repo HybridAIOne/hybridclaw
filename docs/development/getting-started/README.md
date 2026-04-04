@@ -21,4 +21,6 @@ shortest path is:
   web surfaces
 - [Authentication](./authentication.md) for provider login and credential
   storage behavior
+- [Channel Setup](./channels.md) for step-by-step Discord, email, WhatsApp,
+  iMessage, and Microsoft Teams setup commands
 - [Microsoft Teams Setup](./msteams.md) for the Teams-specific setup flow

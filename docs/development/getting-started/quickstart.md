@@ -86,3 +86,6 @@ The gateway auto-connects configured channels:
 - Discord when `DISCORD_TOKEN` is set
 - Email when `email.enabled` is true and `EMAIL_PASSWORD` is saved
 - WhatsApp when linked auth exists under `~/.hybridclaw/credentials/whatsapp`
+
+For the setup commands and step-by-step flows, see
+[Channel Setup](./channels.md).
