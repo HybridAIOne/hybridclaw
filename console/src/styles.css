@@ -232,7 +232,9 @@ code {
 }
 
 .topbar-title {
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
 }
 
 .topbar-heading {
@@ -244,6 +246,9 @@ code {
 
 .topbar-title h2 {
   line-height: 1.05;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar-sidebar-trigger {
@@ -1567,13 +1572,35 @@ th {
 }
 
 @media (max-width: 780px) {
-  .main-panel,
+  .main-panel {
+    padding: 0;
+  }
+
   .panel,
   .login-card {
     padding: 18px;
   }
 
-  .topbar,
+  .page-content {
+    padding: 16px 18px 24px;
+  }
+
+  /* Sticky topbar on mobile */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    gap: 10px;
+    padding: 12px 18px 10px;
+    margin-bottom: 0;
+    background: var(--page-bg);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .topbar h2 {
+    font-size: 1.1rem;
+  }
+
   .page-header {
     flex-direction: column;
   }
@@ -1586,13 +1613,20 @@ th {
     justify-items: stretch;
   }
 
+  /* Icon-only view-switch on narrow mobile */
   .view-switch {
-    width: 100%;
+    flex: 0 0 auto;
+    gap: 2px;
+    padding: 4px;
   }
 
   .view-switch-link {
-    flex: 1 1 0;
-    justify-content: center;
+    padding: 8px;
+    gap: 0;
+  }
+
+  .view-switch-link span:not(.nav-link-icon) {
+    display: none;
   }
 
   .jobs-header-search {
