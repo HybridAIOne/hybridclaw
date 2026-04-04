@@ -1,25 +1,40 @@
-import type { AppViewIconKind } from './icons';
+import type { ComponentType } from 'react';
+import {
+  Audit,
+  Channels,
+  Config,
+  Dashboard,
+  Gateway,
+  Jobs,
+  Models,
+  Plugins,
+  Scheduler,
+  Sessions,
+  Skills,
+  Terminal,
+  Tools,
+} from './icons';
 
 export type SidebarNavItem = {
   to: string;
   label: string;
-  icon: AppViewIconKind;
+  icon: ComponentType;
   section: 'overview' | 'runtime' | 'configuration';
 };
 
 export const SIDEBAR_NAV_ITEMS: ReadonlyArray<SidebarNavItem> = [
-  { to: '/', label: 'Dashboard', icon: 'dashboard', section: 'overview' },
-  { to: '/audit', label: 'Audit', icon: 'audit', section: 'overview' },
-  { to: '/jobs', label: 'Jobs', icon: 'jobs', section: 'overview' },
-  { to: '/terminal', label: 'Terminal', icon: 'terminal', section: 'runtime' },
-  { to: '/gateway', label: 'Gateway', icon: 'gateway', section: 'runtime' },
-  { to: '/sessions', label: 'Sessions', icon: 'sessions', section: 'runtime' },
-  { to: '/channels', label: 'Channels', icon: 'channels', section: 'runtime' },
-  { to: '/models', label: 'Models', icon: 'models', section: 'runtime' },
-  { to: '/scheduler', label: 'Scheduler', icon: 'scheduler', section: 'runtime' },
-  { to: '/mcp', label: 'MCP', icon: 'plugins', section: 'runtime' },
-  { to: '/skills', label: 'Skills', icon: 'skills', section: 'configuration' },
-  { to: '/plugins', label: 'Plugins', icon: 'plugins', section: 'configuration' },
-  { to: '/tools', label: 'Tools', icon: 'tools', section: 'configuration' },
-  { to: '/config', label: 'Config', icon: 'config', section: 'configuration' },
+  { to: '/', label: 'Dashboard', icon: Dashboard, section: 'overview' },
+  { to: '/audit', label: 'Audit', icon: Audit, section: 'overview' },
+  { to: '/jobs', label: 'Jobs', icon: Jobs, section: 'overview' },
+  { to: '/terminal', label: 'Terminal', icon: Terminal, section: 'runtime' },
+  { to: '/gateway', label: 'Gateway', icon: Gateway, section: 'runtime' },
+  { to: '/sessions', label: 'Sessions', icon: Sessions, section: 'runtime' },
+  { to: '/channels', label: 'Channels', icon: Channels, section: 'runtime' },
+  { to: '/models', label: 'Models', icon: Models, section: 'runtime' },
+  { to: '/scheduler', label: 'Scheduler', icon: Scheduler, section: 'runtime' },
+  { to: '/mcp', label: 'MCP', icon: Plugins, section: 'runtime' },
+  { to: '/skills', label: 'Skills', icon: Skills, section: 'configuration' },
+  { to: '/plugins', label: 'Plugins', icon: Plugins, section: 'configuration' },
+  { to: '/tools', label: 'Tools', icon: Tools, section: 'configuration' },
+  { to: '/config', label: 'Config', icon: Config, section: 'configuration' },
 ];

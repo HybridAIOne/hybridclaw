@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { ThemeToggle } from '../theme-toggle';
-import { AppViewIcon } from './icons';
+import { Admin, Cog } from './icons';
 import {
   Sidebar,
   SidebarContent,
@@ -63,7 +63,7 @@ export function SidebarBrand() {
     <div className={styles.brand}>
       <div className={styles.brandTitle}>
         <span className={styles.brandMark} aria-hidden="true">
-          <AppViewIcon kind="admin" />
+          <Admin />
         </span>
         {!collapsed ? (
           <div className={styles.brandText}>
@@ -127,7 +127,7 @@ export function SidebarNavLink(props: { item: SidebarNavItem }) {
       }}
     >
       <span className={styles.menuIcon} aria-hidden="true">
-        <AppViewIcon kind={props.item.icon} />
+        <props.item.icon />
       </span>
       {!collapsed ? <span>{props.item.label}</span> : null}
     </Link>
@@ -168,7 +168,7 @@ export function SidebarActions(props: {
                 onClick={props.onLogout}
               >
                 <span className={styles.icon} aria-hidden="true">
-                  <AppViewIcon kind="cog" />
+                  <Cog />
                 </span>
               </button>
             ) : (
@@ -178,7 +178,7 @@ export function SidebarActions(props: {
                 onClick={props.onLogout}
               >
                 <span className={styles.icon} aria-hidden="true">
-                  <AppViewIcon kind="cog" />
+                  <Cog />
                 </span>
                 Forget token
               </button>

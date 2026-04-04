@@ -1,8 +1,8 @@
 import { useRouterState } from '@tanstack/react-router';
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import { useAuth } from '../auth';
+import { Admin, Agents, Chat, Docs, Github } from './icons';
 import { AppSidebar } from './sidebar/app-sidebar';
-import { AppViewIcon } from './sidebar/icons';
 import {
   SidebarInset,
   SidebarProvider,
@@ -11,17 +11,18 @@ import {
 } from './sidebar/index';
 import { SIDEBAR_NAV_ITEMS } from './sidebar/navigation';
 
-const VIEW_SWITCH_ITEMS = [
-  { href: '/chat', label: 'Chat', icon: 'chat' },
-  { href: '/agents', label: 'Agents', icon: 'agents' },
-  { href: '/admin', label: 'Admin', icon: 'admin' },
-  {
-    href: 'https://github.com/HybridAIOne/hybridclaw',
-    label: 'GitHub',
-    icon: 'github',
-  },
-  { href: '/development', label: 'Docs', icon: 'docs' },
-] as const;
+const VIEW_SWITCH_ITEMS: ReadonlyArray<{
+  href: string;
+  label: string;
+  icon: ComponentType;
+  active?: true;
+}> = [
+  { href: '/chat', label: 'Chat', icon: Chat },
+  { href: '/agents', label: 'Agents', icon: Agents },
+  { href: '/admin', label: 'Admin', icon: Admin, active: true },
+  { href: 'https://github.com/HybridAIOne/hybridclaw', label: 'GitHub', icon: Github },
+  { href: '/development', label: 'Docs', icon: Docs },
+];
 
 export function AppShell(props: { children: ReactNode }) {
   const auth = useAuth();
@@ -55,16 +56,15 @@ export function AppShell(props: { children: ReactNode }) {
           </div>
           <nav className="view-switch" aria-label="Switch view">
             {VIEW_SWITCH_ITEMS.map((item) => {
-              const isActive = item.icon === 'admin';
-              const classes = isActive
+              const classes = item.active
                 ? 'view-switch-link active'
                 : 'view-switch-link';
 
-              if (isActive) {
+              if (item.active) {
                 return (
                   <span key={item.href} className={classes} aria-current="page">
                     <span className="nav-link-icon" aria-hidden="true">
-                      <AppViewIcon kind={item.icon} />
+                      <item.icon />
                     </span>
                     <span>{item.label}</span>
                   </span>
@@ -74,7 +74,7 @@ export function AppShell(props: { children: ReactNode }) {
               return (
                 <a key={item.href} className={classes} href={item.href}>
                   <span className="nav-link-icon" aria-hidden="true">
-                    <AppViewIcon kind={item.icon} />
+                    <item.icon />
                   </span>
                   <span>{item.label}</span>
                 </a>
