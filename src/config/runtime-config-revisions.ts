@@ -229,122 +229,126 @@ export function syncRuntimeConfigRevisionState(
   const timestamp = new Date().toISOString();
 
   return withRevisionDatabase((database) => {
-    const state = database
-      .prepare<[string], ConfigRevisionStateRow>(
-        `SELECT config_path, current_md5, current_content, actor, route, source, updated_at
-         FROM config_revision_state
-         WHERE config_path = ?`,
-      )
-      .get(configPath);
+    return database
+      .transaction(() => {
+        const state = database
+          .prepare<[string], ConfigRevisionStateRow>(
+            `SELECT config_path, current_md5, current_content, actor, route, source, updated_at
+             FROM config_revision_state
+             WHERE config_path = ?`,
+          )
+          .get(configPath);
 
-    const fileExists = observedFile?.exists ?? fs.existsSync(configPath);
-    if (!fileExists) {
-      if (!state) {
+        const fileExists = observedFile?.exists ?? fs.existsSync(configPath);
+        if (!fileExists) {
+          if (!state) {
+            return {
+              changed: false,
+              previousMd5: null,
+              currentMd5: null,
+            };
+          }
+
+          database
+            .prepare(
+              `INSERT INTO config_revisions (
+                 config_path, actor, route, source, md5, byte_length, content, replaced_by_md5, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              configPath,
+              normalizedMeta.actor,
+              normalizedMeta.route,
+              normalizedMeta.source,
+              state.current_md5,
+              Buffer.byteLength(state.current_content, 'utf-8'),
+              state.current_content,
+              null,
+              timestamp,
+            );
+          database
+            .prepare(`DELETE FROM config_revision_state WHERE config_path = ?`)
+            .run(configPath);
+          return {
+            changed: true,
+            previousMd5: state.current_md5,
+            currentMd5: null,
+          };
+        }
+
+        const content =
+          observedFile?.content ?? fs.readFileSync(configPath, 'utf-8');
+        const md5 = observedFile?.md5 ?? computeMd5(content);
+        if (!state) {
+          database
+            .prepare(
+              `INSERT INTO config_revision_state (
+                 config_path, current_md5, current_content, actor, route, source, updated_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              configPath,
+              md5,
+              content,
+              normalizedMeta.actor,
+              normalizedMeta.route,
+              normalizedMeta.source,
+              timestamp,
+            );
+          return {
+            changed: false,
+            previousMd5: null,
+            currentMd5: md5,
+          };
+        }
+
+        if (state.current_md5 === md5) {
+          return {
+            changed: false,
+            previousMd5: state.current_md5,
+            currentMd5: md5,
+          };
+        }
+
+        database
+          .prepare(
+            `INSERT INTO config_revisions (
+               config_path, actor, route, source, md5, byte_length, content, replaced_by_md5, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            configPath,
+            normalizedMeta.actor,
+            normalizedMeta.route,
+            normalizedMeta.source,
+            state.current_md5,
+            Buffer.byteLength(state.current_content, 'utf-8'),
+            state.current_content,
+            md5,
+            timestamp,
+          );
+        database
+          .prepare(
+            `UPDATE config_revision_state
+             SET current_md5 = ?, current_content = ?, actor = ?, route = ?, source = ?, updated_at = ?
+             WHERE config_path = ?`,
+          )
+          .run(
+            md5,
+            content,
+            normalizedMeta.actor,
+            normalizedMeta.route,
+            normalizedMeta.source,
+            timestamp,
+            configPath,
+          );
         return {
-          changed: false,
-          previousMd5: null,
-          currentMd5: null,
+          changed: true,
+          previousMd5: state.current_md5,
+          currentMd5: md5,
         };
-      }
-
-      database
-        .prepare(
-          `INSERT INTO config_revisions (
-             config_path, actor, route, source, md5, byte_length, content, replaced_by_md5, created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          configPath,
-          normalizedMeta.actor,
-          normalizedMeta.route,
-          normalizedMeta.source,
-          state.current_md5,
-          Buffer.byteLength(state.current_content, 'utf-8'),
-          state.current_content,
-          null,
-          timestamp,
-        );
-      database
-        .prepare(`DELETE FROM config_revision_state WHERE config_path = ?`)
-        .run(configPath);
-      return {
-        changed: true,
-        previousMd5: state.current_md5,
-        currentMd5: null,
-      };
-    }
-
-    const content =
-      observedFile?.content ?? fs.readFileSync(configPath, 'utf-8');
-    const md5 = observedFile?.md5 ?? computeMd5(content);
-    if (!state) {
-      database
-        .prepare(
-          `INSERT INTO config_revision_state (
-             config_path, current_md5, current_content, actor, route, source, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          configPath,
-          md5,
-          content,
-          normalizedMeta.actor,
-          normalizedMeta.route,
-          normalizedMeta.source,
-          timestamp,
-        );
-      return {
-        changed: false,
-        previousMd5: null,
-        currentMd5: md5,
-      };
-    }
-
-    if (state.current_md5 === md5) {
-      return {
-        changed: false,
-        previousMd5: state.current_md5,
-        currentMd5: md5,
-      };
-    }
-
-    database
-      .prepare(
-        `INSERT INTO config_revisions (
-           config_path, actor, route, source, md5, byte_length, content, replaced_by_md5, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        configPath,
-        normalizedMeta.actor,
-        normalizedMeta.route,
-        normalizedMeta.source,
-        state.current_md5,
-        Buffer.byteLength(state.current_content, 'utf-8'),
-        state.current_content,
-        md5,
-        timestamp,
-      );
-    database
-      .prepare(
-        `UPDATE config_revision_state
-         SET current_md5 = ?, current_content = ?, actor = ?, route = ?, source = ?, updated_at = ?
-         WHERE config_path = ?`,
-      )
-      .run(
-        md5,
-        content,
-        normalizedMeta.actor,
-        normalizedMeta.route,
-        normalizedMeta.source,
-        timestamp,
-        configPath,
-      );
-    return {
-      changed: true,
-      previousMd5: state.current_md5,
-      currentMd5: md5,
-    };
+      })
+      .immediate();
   });
 }
 

@@ -1027,17 +1027,13 @@ export class TrustedCoworkerApprovalRuntime {
   handleApprovalResponse(messages: ChatMessage[]): ApprovalPrelude | null {
     this.reloadPolicyIfNeeded();
     this.cleanupExpiredPending();
+    if (this.pending.size === 0) return null;
 
     const latest = latestUserMessageText(messages);
     if (!latest) return null;
 
     const parsedResponse = parseApprovalUserResponse(latest);
     if (!parsedResponse) return null;
-    if (this.pending.size === 0) {
-      return {
-        immediateMessage: 'There is no pending approval request right now.',
-      };
-    }
 
     const target = this.resolvePendingTarget(parsedResponse.requestId);
     if (!target) {
