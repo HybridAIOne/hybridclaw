@@ -24,21 +24,7 @@
   overflow: visible;
 }
 
-.rootMobile {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 40;
-  height: 100dvh;
-  width: min(var(--sidebar-width-mobile), calc(100vw - 32px));
-  box-shadow: var(--shadow-dropdown);
-  transform: translateX(calc(-100% - 24px));
-  transition: transform 180ms ease;
-}
-
-.rootVisible {
-  transform: translateX(0);
-}
+/* Mobile positioning is now owned by Sheet — rootMobile / rootVisible removed */
 
 .header,
 .footer {
@@ -111,22 +97,7 @@
   height: 18px;
 }
 
-.backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  border: 0;
-  padding: 0;
-  background: rgb(10 15 25 / 0.5);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 180ms ease;
-}
-
-.backdropVisible {
-  opacity: 1;
-  pointer-events: auto;
-}
+/* Backdrop is now owned by Sheet */
 
 .sectionStack,
 .group,

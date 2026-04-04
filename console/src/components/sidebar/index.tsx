@@ -8,14 +8,15 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
-import { createPortal } from 'react-dom';
-import { useEscapeKeydown } from '../../hooks/useEscapeKeydown';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
-import { useHideOthers } from '../../hooks/useHideOthers';
-import { useScrollLock } from '../../hooks/useScrollLock';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '../sheet';
 import styles from './index.module.css';
 
 type SidebarState = 'expanded' | 'collapsed';
@@ -108,7 +109,7 @@ export function SidebarProvider(props: {
     };
   }, []);
 
-  useScrollLock(isMobile && openMobile);
+  // Scroll locking is Sheet's responsibility — SidebarProvider only manages state.
 
   const value = useMemo<SidebarContextValue>(
     () => ({
@@ -167,49 +168,26 @@ export function Sidebar({
   children,
 }: SidebarProps) {
   const context = useSidebarContext();
-  const drawerRef = useRef<HTMLElement>(null);
-  const drawerActive = context.isMobile && context.openMobile;
 
-  useFocusTrap(drawerRef, drawerActive);
-  useEscapeKeydown(() => context.setOpenMobile(false), drawerActive);
-  useHideOthers(drawerRef, drawerActive);
-
-  // Mobile: always render as overlay drawer, portalled to document.body so
-  // it sits outside any stacking context and aria-hidden management is clean.
+  // Mobile: delegate entirely to Sheet which owns portalling, focus trap,
+  // Escape, aria-hidden, and scroll lock.
   if (context.isMobile) {
-    return createPortal(
-      <>
-        {/* Backdrop — purely a click target; hidden from the a11y tree
-            because Escape is the keyboard-accessible dismiss path. */}
-        <button
-          type="button"
-          data-sidebar="backdrop"
-          className={cx(
-            styles.backdrop,
-            context.openMobile && styles.backdropVisible,
-          )}
-          aria-hidden="true"
-          tabIndex={-1}
-          onClick={() => context.setOpenMobile(false)}
-        />
-        <aside
-          ref={drawerRef as React.RefObject<HTMLElement>}
-          className={cx(
-            styles.root,
-            styles.rootMobile,
-            context.openMobile && styles.rootVisible,
-          )}
-          data-side={side}
+    return (
+      <Sheet open={context.openMobile} onOpenChange={context.setOpenMobile}>
+        <SheetContent
+          side={side}
+          data-sidebar="sidebar"
           data-mobile="true"
-          data-state="expanded"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Navigation"
+          className={styles.root}
+          style={{ '--sheet-width': 'var(--sidebar-width-mobile)' } as CSSProperties}
         >
+          <SheetHeader>
+            <SheetTitle>Navigation</SheetTitle>
+            <SheetDescription>Sidebar navigation panel.</SheetDescription>
+          </SheetHeader>
           {children}
-        </aside>
-      </>,
-      document.body,
+        </SheetContent>
+      </Sheet>
     );
   }
 

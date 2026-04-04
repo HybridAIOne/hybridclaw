@@ -156,9 +156,13 @@ describe('SidebarProvider', () => {
 
   it('locks body scroll when mobile sidebar is open and restores on close', () => {
     setViewport(800);
+    // Scroll lock is Sheet's responsibility — render a Sidebar so Sheet runs.
     const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
         <SidebarContextSpy
           onRender={(ctx) => {
             captured.value = ctx;
@@ -319,13 +323,12 @@ describe('Sidebar — mobile overlay', () => {
         </Sidebar>
       </SidebarProvider>,
     );
-    // Mobile sidebar is portalled to document.body — query from there.
-    const aside = document.body.querySelector('aside[data-mobile="true"]');
-    expect(aside?.getAttribute('data-mobile')).toBe('true');
-    expect(aside?.getAttribute('data-state')).toBe('expanded');
+    // Mobile sidebar is portalled to document.body by Sheet — query from there.
+    const panel = document.body.querySelector('[data-mobile="true"]');
+    expect(panel?.getAttribute('data-mobile')).toBe('true');
   });
 
-  it('mobile drawer has role="dialog", aria-modal, and aria-label', () => {
+  it('mobile drawer has role="dialog", aria-modal, and accessible title', () => {
     render(
       <SidebarProvider>
         <Sidebar>
@@ -335,7 +338,10 @@ describe('Sidebar — mobile overlay', () => {
     );
     const dialog = document.body.querySelector('[role="dialog"]');
     expect(dialog?.getAttribute('aria-modal')).toBe('true');
-    expect(dialog?.getAttribute('aria-label')).toBe('Navigation');
+    // Sheet links the dialog to its title via aria-labelledby (not aria-label).
+    const titleId = dialog?.getAttribute('aria-labelledby');
+    expect(titleId).not.toBeNull();
+    expect(document.getElementById(titleId!)?.textContent).toBe('Navigation');
   });
 
   it('trigger shows "Open sidebar" initially', () => {
@@ -362,7 +368,11 @@ describe('Sidebar — mobile overlay', () => {
         <SidebarInset>
           <SidebarTrigger />
         </SidebarInset>
-        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
 
@@ -372,14 +382,16 @@ describe('Sidebar — mobile overlay', () => {
 
     // After opening, useHideOthers hides the main layout (including the trigger)
     // from the a11y tree — query the trigger by attribute directly.
-    expect(document.body.querySelector('[aria-label="Close sidebar"]')).not.toBeNull();
+    expect(
+      document.body.querySelector('[aria-label="Close sidebar"]'),
+    ).not.toBeNull();
     expect(captured.value?.openMobile).toBe(true);
     expect(document.body.style.overflow).toBe('hidden');
 
-    // Backdrop is portalled to document.body and always aria-hidden="true".
-    const backdrop = document.body.querySelector('[data-sidebar="backdrop"]');
+    // Sheet overlay is portalled to document.body with data-sheet="overlay".
+    const backdrop = document.body.querySelector('[data-sheet="overlay"]');
     expect(backdrop).not.toBeNull();
-    fireEvent.click(backdrop as HTMLButtonElement);
+    fireEvent.click(backdrop as HTMLElement);
 
     expect(captured.value?.openMobile).toBe(false);
     expect(document.body.style.overflow).toBe('');
@@ -392,7 +404,11 @@ describe('Sidebar — mobile overlay', () => {
         <Sidebar>
           <SidebarContent>Content</SidebarContent>
         </Sidebar>
-        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
       </SidebarProvider>,
     );
     act(() => captured.value?.setOpenMobile(true));
@@ -718,7 +734,8 @@ describe('AppSidebar', () => {
         />
       </SidebarProvider>,
     );
-    const aside = document.body.querySelector('aside[data-mobile="true"]');
-    expect(aside?.getAttribute('data-mobile')).toBe('true');
+    // Sheet portals a section[role="dialog"] to document.body.
+    const dialog = document.body.querySelector('[role="dialog"]');
+    expect(dialog?.getAttribute('data-mobile')).toBe('true');
   });
 });
