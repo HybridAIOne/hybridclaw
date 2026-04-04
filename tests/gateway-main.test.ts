@@ -145,7 +145,10 @@ function createGatewayMainTestState(options?: {
     runManagedMediaCleanup: vi.fn(async () => {}),
     executeWorkflow: vi.fn(async () => {}),
     setInterval: vi.fn(() => ({ timer: true })),
-    startGatewayHttpServer: vi.fn(),
+    startGatewayHttpServer: vi.fn(() => ({
+      broadcastShutdown: vi.fn(),
+      setReady: vi.fn(),
+    })),
     startHeartbeat: vi.fn(),
     startDiscoveryLoop: vi.fn(),
     hybridAIProbeGet: vi.fn(async () => ({})),
