@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import { AttachmentBuilder } from 'discord.js';
-import { getActiveExecutorCount, stopAllExecutions } from '../agent/executor.js';
+import {
+  getActiveExecutorCount,
+  stopAllExecutions,
+} from '../agent/executor.js';
 import {
   isWithinActiveHours,
   proactiveWindowLabel,
@@ -98,10 +101,7 @@ import {
 } from './chat-result.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { classifyGatewayError } from './gateway-error-utils.js';
-import {
-  setGatewayReady,
-  startGatewayHttpServer,
-} from './gateway-http-server.js';
+import { startGatewayHttpServer } from './gateway-http-server.js';
 import {
   initGatewayService,
   stopGatewayPlugins,
@@ -1539,15 +1539,6 @@ function setupShutdown(broadcastShutdown: () => void): void {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info('Shutting down gateway...');
-    if (opts?.drain) {
-      broadcastShutdown();
-      const DRAIN_TIMEOUT_MS = 15_000;
-      const DRAIN_POLL_MS = 250;
-      const deadline = Date.now() + DRAIN_TIMEOUT_MS;
-      while (getActiveExecutorCount() > 0 && Date.now() < deadline) {
-        await new Promise<void>((resolve) => setTimeout(resolve, DRAIN_POLL_MS));
-      }
-    }
     if (detachConfigListener) {
       detachConfigListener();
       detachConfigListener = null;
@@ -1573,6 +1564,17 @@ function setupShutdown(broadcastShutdown: () => void): void {
         'Failed to stop iMessage runtime during shutdown',
       );
     });
+    if (opts?.drain) {
+      broadcastShutdown();
+      const DRAIN_TIMEOUT_MS = 15_000;
+      const DRAIN_POLL_MS = 250;
+      const deadline = Date.now() + DRAIN_TIMEOUT_MS;
+      while (getActiveExecutorCount() > 0 && Date.now() < deadline) {
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, DRAIN_POLL_MS),
+        );
+      }
+    }
     await runManagedMediaCleanup('shutdown');
     stopHeartbeat();
     stopObservabilityIngest();
@@ -1896,7 +1898,7 @@ async function main(): Promise<void> {
       whatsapp: whatsappActive,
     },
   });
-  setGatewayReady();
+  httpServer.setReady();
 }
 
 main().catch((err) => {

@@ -70,6 +70,7 @@ import {
   type AdminTerminalStartOptions,
   createAdminTerminalManager,
 } from './admin-terminal.js';
+import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
 import {
   hasSessionAuth,
   setSessionCookie,
@@ -2734,18 +2735,14 @@ function writeUpgradeError(
   socket.destroy();
 }
 
-let gatewayReady = false;
-const gatewayStartMs = Date.now();
-
-export function setGatewayReady(): void {
-  gatewayReady = true;
-}
-
 export interface GatewayHttpServer {
   broadcastShutdown: () => void;
+  setReady: () => void;
 }
 
 export function startGatewayHttpServer(): GatewayHttpServer {
+  let gatewayReady = false;
+  const gatewayStartMs = Date.now();
   const terminalManager = createAdminTerminalManager();
   const activeSseResponses = new Set<ServerResponse>();
   const server = http.createServer((req, res) => {
@@ -3138,8 +3135,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
   });
 
   return {
+    setReady(): void {
+      gatewayReady = true;
+    },
     broadcastShutdown(): void {
-      const shutdownMessage = { type: 'shutdown', restartExpectedMs: 1500 };
+      const shutdownMessage: AdminTerminalServerMessage = { type: 'shutdown', restartExpectedMs: 1500 };
       const shutdownPayload = JSON.stringify(shutdownMessage);
       terminalManager.broadcastShutdown(shutdownMessage);
       for (const sseRes of activeSseResponses) {

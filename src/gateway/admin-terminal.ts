@@ -208,7 +208,7 @@ export function createAdminTerminalManager(): {
       validateToken?: (token: string) => boolean;
     },
   ) => boolean;
-  broadcastShutdown: (message: object) => void;
+  broadcastShutdown: (message: AdminTerminalServerMessage) => void;
   dispose: () => void;
 } {
   const sessions = new Map<string, TerminalSession>();
@@ -528,8 +528,8 @@ export function createAdminTerminalManager(): {
       return true;
     },
 
-    broadcastShutdown(message: object) {
-      const encoded = JSON.stringify(message);
+    broadcastShutdown(message: AdminTerminalServerMessage) {
+      const encoded = encodeServerMessage(message);
       for (const session of sessions.values()) {
         if (
           session.socket &&

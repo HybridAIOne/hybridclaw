@@ -22,4 +22,8 @@ export type AdminTerminalServerMessage =
       type: 'exit';
       exitCode: number | null;
       signal: number | null;
+    }
+  | {
+      type: 'shutdown';
+      restartExpectedMs: number;
     };
