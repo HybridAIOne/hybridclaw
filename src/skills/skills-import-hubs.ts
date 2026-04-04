@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-
 import { safeExtractZip } from '../agents/claw-security.js';
+import { logger } from '../logger.js';
 import {
   type GitHubSkillImportSource,
   normalizeImportedSkillRelativePath,
@@ -11,13 +11,50 @@ import {
   resolveGitHubSkillPathByName,
 } from './skills-import-github.js';
 
-const CLAWHUB_API_BASE_URL = 'https://clawhub.ai/api/v1';
+const CLAWHUB_API_BASE_URL =
+  process.env.CLAWHUB_API_BASE_URL?.trim().replace(/\/+$/, '') ||
+  'https://clawhub.ai/api/v1';
 const KNOWN_CLAUDE_MARKETPLACES = [
   'anthropics/skills',
   'aiskillstore/marketplace',
 ];
 const MAX_IMPORT_FILE_COUNT = 256;
 const MAX_IMPORT_TOTAL_BYTES = 5 * 1024 * 1024;
+
+const RETRY_MAX_RETRIES = 3;
+const RETRY_INITIAL_DELAY_MS = 1000;
+const RETRY_MAX_DELAY_MS = 30_000;
+const RETRY_JITTER_RATIO = 0.2;
+const RETRYABLE_STATUS_CODES = new Set([429, 503]);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfterMs(header: string | null): number | null {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return seconds * 1000;
+  }
+  const date = Date.parse(header);
+  if (!Number.isNaN(date)) {
+    const delayMs = date - Date.now();
+    return delayMs > 0 ? delayMs : 0;
+  }
+  return null;
+}
+
+function computeRetryBackoffMs(
+  attempt: number,
+  retryAfterMs?: number | null,
+): number {
+  const rawBackoffMs = retryAfterMs ?? RETRY_INITIAL_DELAY_MS * 2 ** attempt;
+  const cappedBackoffMs = Math.min(rawBackoffMs, RETRY_MAX_DELAY_MS);
+  const jitterFactor = 1 + (Math.random() * 2 - 1) * RETRY_JITTER_RATIO;
+  const jitteredBackoffMs = Math.round(cappedBackoffMs * jitterFactor);
+  return Math.min(Math.max(jitteredBackoffMs, 0), RETRY_MAX_DELAY_MS);
+}
 
 interface ImportState {
   fileCount: number;
@@ -119,12 +156,60 @@ async function fetchResponse(
   input: string,
   init?: RequestInit,
 ): Promise<Response> {
-  try {
-    return await fetchImpl(input, init);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new SkillImportError(`Request failed for ${input}: ${message}`);
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= RETRY_MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetchImpl(input, init);
+
+      if (
+        RETRYABLE_STATUS_CODES.has(response.status) &&
+        attempt < RETRY_MAX_RETRIES
+      ) {
+        const retryAfterMs = parseRetryAfterMs(
+          response.headers.get('Retry-After'),
+        );
+        const backoffMs = computeRetryBackoffMs(attempt, retryAfterMs);
+        logger.warn(
+          {
+            url: input,
+            status: response.status,
+            retry: attempt + 1,
+            maxRetries: RETRY_MAX_RETRIES,
+            backoffMs,
+          },
+          `Retryable HTTP ${response.status} from ${input}, retrying in ${backoffMs}ms (retry ${attempt + 1}/${RETRY_MAX_RETRIES})`,
+        );
+        if (response.body) {
+          await response.body.cancel().catch(() => undefined);
+        }
+        await sleep(backoffMs);
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt < RETRY_MAX_RETRIES) {
+        const backoffMs = computeRetryBackoffMs(attempt);
+        logger.warn(
+          {
+            url: input,
+            retry: attempt + 1,
+            maxRetries: RETRY_MAX_RETRIES,
+            backoffMs,
+            err: error,
+          },
+          `Network error fetching ${input}, retrying in ${backoffMs}ms (retry ${attempt + 1}/${RETRY_MAX_RETRIES})`,
+        );
+        await sleep(backoffMs);
+      }
+    }
   }
+
+  const message =
+    lastError instanceof Error ? lastError.message : String(lastError);
+  throw new SkillImportError(`Request failed for ${input}: ${message}`);
 }
 
 async function fetchJson<T>(
