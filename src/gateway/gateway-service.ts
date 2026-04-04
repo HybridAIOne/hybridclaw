@@ -2268,7 +2268,6 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     webAuthConfigured: Boolean(WEB_API_TOKEN),
     pid: process.pid,
     version: APP_VERSION,
-    imageTag: process.env.HYBRIDCLAW_IMAGE_TAG?.trim() || null,
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
     activeContainers: sandbox.activeSessions,

@@ -2968,7 +2968,9 @@ describe('gateway HTTP server', () => {
 
     // demo_status should no longer appear.
     const commands = JSON.parse(res2.body).commands;
-    expect(commands.find((c: { id: string }) => c.id === 'demo_status')).toBeUndefined();
+    expect(
+      commands.find((c: { id: string }) => c.id === 'demo_status'),
+    ).toBeUndefined();
   });
 
   test('routes web slash commands through the streaming /api/chat path', async () => {
@@ -4503,32 +4505,4 @@ describe('gateway HTTP server', () => {
     );
   });
 
-  test('/health response includes imageTag from HYBRIDCLAW_IMAGE_TAG env var', async () => {
-    const originalImageTag = process.env.HYBRIDCLAW_IMAGE_TAG;
-    process.env.HYBRIDCLAW_IMAGE_TAG = 'v1.2.3-abc1234';
-    try {
-      const state = await importFreshHealth();
-      state.getGatewayStatus.mockResolvedValue({
-        status: 'ok',
-        version: '1.2.3',
-        imageTag: process.env.HYBRIDCLAW_IMAGE_TAG,
-        sessions: 0,
-      });
-
-      const req = makeRequest({ url: '/health' });
-      const res = makeResponse();
-
-      state.handler(req as never, res as never);
-      await vi.waitFor(() => expect(res.statusCode).toBe(200));
-
-      const body = JSON.parse(res.body) as { imageTag: string };
-      expect(body.imageTag).toBe('v1.2.3-abc1234');
-    } finally {
-      if (originalImageTag === undefined) {
-        delete process.env.HYBRIDCLAW_IMAGE_TAG;
-      } else {
-        process.env.HYBRIDCLAW_IMAGE_TAG = originalImageTag;
-      }
-    }
-  });
 });
