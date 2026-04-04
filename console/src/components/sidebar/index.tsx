@@ -12,13 +12,9 @@ import {
 } from 'react';
 import styles from './index.module.css';
 
-type SidebarState = 'expanded' | 'collapsed';
-
 type SidebarContextValue = {
-  desktopOpen: boolean;
   mobileOpen: boolean;
   isMobile: boolean;
-  setDesktopOpen: (open: boolean) => void;
   setMobileOpen: (open: boolean) => void;
   toggleSidebar: () => void;
 };
@@ -26,7 +22,6 @@ type SidebarContextValue = {
 type SidebarProps = {
   children: ReactNode;
   side?: 'left' | 'right';
-  collapsible?: 'icon' | 'none';
 };
 
 const SIDEBAR_MOBILE_BREAKPOINT = 1080;
@@ -55,7 +50,6 @@ export function SidebarProvider(props: {
   children: ReactNode;
   style?: CSSProperties;
 }) {
-  const [desktopOpen, setDesktopOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(getIsMobile);
 
@@ -86,9 +80,7 @@ export function SidebarProvider(props: {
       event.preventDefault();
       if (getIsMobile()) {
         setMobileOpen((open) => !open);
-        return;
       }
-      setDesktopOpen((open) => !open);
     }
 
     handleResize();
@@ -116,20 +108,16 @@ export function SidebarProvider(props: {
 
   const value = useMemo<SidebarContextValue>(
     () => ({
-      desktopOpen,
       mobileOpen,
       isMobile,
-      setDesktopOpen,
       setMobileOpen,
       toggleSidebar() {
         if (isMobile) {
           setMobileOpen((open) => !open);
-          return;
         }
-        setDesktopOpen((open) => !open);
       },
     }),
-    [desktopOpen, isMobile, mobileOpen],
+    [isMobile, mobileOpen],
   );
 
   return (
@@ -143,11 +131,8 @@ export function SidebarProvider(props: {
 
 export function useSidebar() {
   const context = useSidebarContext();
-  const state: SidebarState = context.desktopOpen ? 'expanded' : 'collapsed';
   return {
-    state,
-    open: context.desktopOpen,
-    setOpen: context.setDesktopOpen,
+    state: 'expanded' as const,
     openMobile: context.mobileOpen,
     setOpenMobile: context.setMobileOpen,
     isMobile: context.isMobile,
@@ -157,10 +142,8 @@ export function useSidebar() {
 
 export function Sidebar(props: SidebarProps) {
   const context = useSidebarContext();
-  const state = context.desktopOpen ? 'expanded' : 'collapsed';
   const isVisible = context.isMobile ? context.mobileOpen : true;
   const side = props.side ?? 'left';
-  const collapsible = props.collapsible ?? 'icon';
 
   return (
     <>
@@ -178,15 +161,9 @@ export function Sidebar(props: SidebarProps) {
         className={cx(styles.root, isVisible && styles.rootVisible)}
         data-side={side}
         data-mobile={context.isMobile ? 'true' : undefined}
-        data-state={state}
-        data-collapsible={
-          !context.isMobile && collapsible === 'icon' && !context.desktopOpen
-            ? 'icon'
-            : undefined
-        }
+        data-state="expanded"
       >
         {props.children}
-        {collapsible !== 'none' ? <SidebarRail /> : null}
       </aside>
     </>
   );
@@ -225,13 +202,10 @@ export function SidebarTrigger(
 ) {
   const { className, children, ...rest } = props;
   const context = useSidebarContext();
-  const label = context.isMobile
-    ? context.mobileOpen
-      ? 'Close sidebar'
-      : 'Open sidebar'
-    : context.desktopOpen
-      ? 'Collapse sidebar'
-      : 'Expand sidebar';
+
+  if (!context.isMobile) return null;
+
+  const label = context.mobileOpen ? 'Close sidebar' : 'Open sidebar';
 
   return (
     <button
@@ -239,7 +213,6 @@ export function SidebarTrigger(
       type={props.type ?? 'button'}
       className={cx(styles.trigger, className)}
       aria-label={props['aria-label'] ?? label}
-      aria-pressed={!context.isMobile && !context.desktopOpen}
       onClick={(event) => {
         props.onClick?.(event);
         if (!event.defaultPrevented) {

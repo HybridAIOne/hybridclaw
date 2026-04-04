@@ -56,30 +56,22 @@ export function AppSidebar(props: {
 }
 
 export function SidebarBrand() {
-  const { state } = useSidebar();
-  const collapsed = state === 'collapsed';
-
   return (
     <div className={styles.brand}>
       <div className={styles.brandTitle}>
         <span className={styles.brandMark} aria-hidden="true">
           <Admin />
         </span>
-        {!collapsed ? (
-          <div className={styles.brandText}>
-            <h1>HybridClaw</h1>
-            <span className={styles.eyebrow}>Admin console</span>
-          </div>
-        ) : null}
+        <div className={styles.brandText}>
+          <h1>HybridClaw</h1>
+          <span className={styles.eyebrow}>Admin console</span>
+        </div>
       </div>
     </div>
   );
 }
 
 export function SidebarNav(props: { items: ReadonlyArray<SidebarNavItem> }) {
-  const { state } = useSidebar();
-  const collapsed = state === 'collapsed';
-
   return (
     <div className={styles.sectionStack}>
       {NAV_SECTIONS.map((section) => {
@@ -90,18 +82,14 @@ export function SidebarNav(props: { items: ReadonlyArray<SidebarNavItem> }) {
 
         return (
           <SidebarGroup key={section.key}>
-            {!collapsed ? (
-              <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
-            ) : null}
+            <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu ariaLabel={section.label}>
-                {items.map((item) => {
-                  return (
-                    <SidebarMenuItem key={item.to}>
-                      <SidebarNavLink item={item} />
-                    </SidebarMenuItem>
-                  );
-                })}
+                {items.map((item) => (
+                  <SidebarMenuItem key={item.to}>
+                    <SidebarNavLink item={item} />
+                  </SidebarMenuItem>
+                ))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -112,8 +100,7 @@ export function SidebarNav(props: { items: ReadonlyArray<SidebarNavItem> }) {
 }
 
 export function SidebarNavLink(props: { item: SidebarNavItem }) {
-  const { isMobile, setOpenMobile, state } = useSidebar();
-  const collapsed = state === 'collapsed';
+  const { isMobile, setOpenMobile } = useSidebar();
 
   return (
     <Link
@@ -123,7 +110,6 @@ export function SidebarNavLink(props: { item: SidebarNavItem }) {
       }}
       inactiveProps={{ className: styles.menuButton }}
       activeOptions={{ exact: props.item.to === '/' }}
-      title={collapsed ? props.item.label : undefined}
       onClick={() => {
         if (isMobile) {
           setOpenMobile(false);
@@ -133,14 +119,13 @@ export function SidebarNavLink(props: { item: SidebarNavItem }) {
       <span className={styles.menuIcon} aria-hidden="true">
         <props.item.icon />
       </span>
-      {!collapsed ? <span>{props.item.label}</span> : null}
+      <span>{props.item.label}</span>
     </Link>
   );
 }
 
 export function SidebarMeta(props: { version?: string }) {
-  const { state } = useSidebar();
-  if (!props.version || state === 'collapsed') return null;
+  if (!props.version) return null;
   return (
     <div className={styles.footerMeta}>
       <span className={styles.footerValue}>v{props.version}</span>
@@ -152,9 +137,6 @@ export function SidebarActions(props: {
   showLogout: boolean;
   onLogout: () => void;
 }) {
-  const { state } = useSidebar();
-  const collapsed = state === 'collapsed';
-
   return (
     <SidebarFooterActions>
       <SidebarFooterMenu>
@@ -163,30 +145,16 @@ export function SidebarActions(props: {
         </SidebarFooterAction>
         {props.showLogout ? (
           <SidebarFooterAction>
-            {collapsed ? (
-              <button
-                className={styles.iconButton}
-                type="button"
-                aria-label="Forget token"
-                title="Forget token"
-                onClick={props.onLogout}
-              >
-                <span className={styles.icon} aria-hidden="true">
-                  <Cog />
-                </span>
-              </button>
-            ) : (
-              <button
-                className={styles.footerButton}
-                type="button"
-                onClick={props.onLogout}
-              >
-                <span className={styles.icon} aria-hidden="true">
-                  <Cog />
-                </span>
-                Forget token
-              </button>
-            )}
+            <button
+              className={styles.footerButton}
+              type="button"
+              onClick={props.onLogout}
+            >
+              <span className={styles.icon} aria-hidden="true">
+                <Cog />
+              </span>
+              Forget token
+            </button>
           </SidebarFooterAction>
         ) : null}
       </SidebarFooterMenu>
