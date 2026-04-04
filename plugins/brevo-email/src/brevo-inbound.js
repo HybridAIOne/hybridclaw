@@ -1,6 +1,21 @@
+import { timingSafeEqual } from 'node:crypto';
 import { resolveAgentIdFromRecipient } from './brevo-address.js';
 
 const MAX_DEDUP_SIZE = 2000;
+
+/**
+ * Timing-safe string comparison to prevent timing attacks on secret validation.
+ *
+ * @param {string} value
+ * @param {string} expected
+ * @returns {boolean}
+ */
+function safeEqual(value, expected) {
+  const valueBuffer = Buffer.from(value);
+  const expectedBuffer = Buffer.from(expected);
+  if (valueBuffer.length !== expectedBuffer.length) return false;
+  return timingSafeEqual(valueBuffer, expectedBuffer);
+}
 
 /**
  * Simple LRU-ish dedup set for webhook message IDs.
@@ -32,10 +47,14 @@ function recordMessageId(messageId) {
 function buildEmailSessionKey(agentId, senderAddress) {
   const encode = (v) => encodeURIComponent(String(v).trim().toLowerCase());
   return [
-    'agent', encode(agentId),
-    'channel', 'email',
-    'chat', 'dm',
-    'peer', encode(senderAddress),
+    'agent',
+    encode(agentId),
+    'channel',
+    'email',
+    'chat',
+    'dm',
+    'peer',
+    encode(senderAddress),
   ].join(':');
 }
 
@@ -48,8 +67,7 @@ function buildEmailSessionKey(agentId, senderAddress) {
 function extractText(item) {
   if (item.RawTextBody) return item.RawTextBody;
   if (item.RawHtmlBody) {
-    return item.RawHtmlBody
-      .replace(/<br\s*\/?>/gi, '\n')
+    return item.RawHtmlBody.replace(/<br\s*\/?>/gi, '\n')
       .replace(/<[^>]+>/g, '')
       .trim();
   }
@@ -65,7 +83,8 @@ function extractText(item) {
 function describeAttachments(attachments) {
   if (!attachments || attachments.length === 0) return '';
   const lines = attachments.map(
-    (a) => `- ${a.Name} (${a.ContentType}, ${Math.round(a.ContentLength / 1024)}KB)`,
+    (a) =>
+      `- ${a.Name} (${a.ContentType}, ${Math.round(a.ContentLength / 1024)}KB)`,
   );
   return `\n\nAttachments:\n${lines.join('\n')}`;
 }
@@ -82,8 +101,9 @@ export async function handleBrevoInbound(ctx, api, config) {
     await import('hybridclaw/plugin-sdk');
 
   if (config.webhookSecret) {
-    const provided = ctx.req.headers['x-brevo-secret'] || '';
-    if (provided !== config.webhookSecret) {
+    const raw = ctx.req.headers['x-brevo-secret'] || '';
+    const provided = String(Array.isArray(raw) ? raw[0] : raw).trim();
+    if (!provided || !safeEqual(provided, config.webhookSecret)) {
       throw new WebhookHttpError(401, 'Invalid webhook secret.');
     }
   }
