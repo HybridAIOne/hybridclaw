@@ -4,7 +4,6 @@
  */
 import readline from 'node:readline';
 import {
-  APPROVAL_SCOPE_MODES,
   APPROVE_COMMAND_USAGE,
   type ApprovalScopeMode,
 } from './approval-commands.js';
