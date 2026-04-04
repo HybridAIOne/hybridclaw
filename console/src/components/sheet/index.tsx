@@ -26,6 +26,7 @@ import { useEscapeKeydown } from '../../hooks/useEscapeKeydown';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useHideOthers } from '../../hooks/useHideOthers';
 import { useScrollLock } from '../../hooks/useScrollLock';
+import { cx } from '../../lib/cx';
 import styles from './index.module.css';
 
 // ---------------------------------------------------------------------------
@@ -45,10 +46,6 @@ function useSheetContext() {
   const ctx = useContext(SheetContext);
   if (!ctx) throw new Error('Sheet components must be used within <Sheet>.');
   return ctx;
-}
-
-function cx(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(' ');
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +146,12 @@ export function SheetContent({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        className={cx(styles.content, sideClass, open && styles.contentOpen, className)}
+        className={cx(
+          styles.content,
+          sideClass,
+          open && styles.contentOpen,
+          className,
+        )}
       >
         {children}
       </section>

@@ -17,6 +17,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '../sheet';
+import { cx } from '../../lib/cx';
 import styles from './index.module.css';
 
 type SidebarState = 'expanded' | 'collapsed';
@@ -53,10 +54,6 @@ function useSidebarContext() {
 function getIsMobile() {
   if (typeof window === 'undefined') return false;
   return window.innerWidth < SIDEBAR_MOBILE_BREAKPOINT;
-}
-
-function cx(...classNames: Array<string | false | null | undefined>) {
-  return classNames.filter(Boolean).join(' ');
 }
 
 export function SidebarProvider(props: {
@@ -179,7 +176,9 @@ export function Sidebar({
           data-sidebar="sidebar"
           data-mobile="true"
           className={styles.root}
-          style={{ '--sheet-width': 'var(--sidebar-width-mobile)' } as CSSProperties}
+          style={
+            { '--sheet-width': 'var(--sidebar-width-mobile)' } as CSSProperties
+          }
         >
           <SheetHeader>
             <SheetTitle>Navigation</SheetTitle>
