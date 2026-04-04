@@ -232,7 +232,7 @@ See [docs/development/getting-started/channels.md](./docs/development/getting-st
 for the setup commands and step-by-step flows for:
 
 - Discord
-- email
+- Email
 - WhatsApp
 - iMessage
 - Microsoft Teams

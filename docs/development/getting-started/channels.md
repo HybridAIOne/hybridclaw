@@ -40,12 +40,14 @@ slash commands:
 /secret list
 ```
 
-Use quoted strings for string values and JSON arrays for lists, for example:
+`/config set` accepts JSON values, including strings, numbers, booleans,
+arrays, and objects. Use quoted strings for string values, for example:
 
 ```text
 /config set email.address "bot@example.com"
 /config set discord.commandAllowedUserIds ["123456789012345678"]
 /config set email.folders ["INBOX","Support"]
+/config set discord.guilds {"123456789012345678":{"defaultMode":"mention","channels":{}}}
 ```
 
 Important:
