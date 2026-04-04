@@ -200,7 +200,11 @@ const ARCHIVE_EXCLUDED_DIRECTORY_NAMES = new Set([
   '.session-transcripts',
   'node_modules',
 ]);
-const ARCHIVE_EXCLUDED_BASENAMES = new Set(['.DS_Store', 'Thumbs.db']);
+const ARCHIVE_EXCLUDED_BASENAMES = new Set([
+  '.DS_Store',
+  'Thumbs.db',
+  'approval-trust.json',
+]);
 
 function isPortableArchiveEnvFile(name: string): boolean {
   return name === '.env' || name.startsWith('.env.');
@@ -236,8 +240,10 @@ function shouldExcludeWorkspaceArchivePath(relativePath: string): boolean {
     .filter(Boolean);
   if (segments.length === 0) return false;
   return (
+    (segments[0] === '.hybridclaw' &&
+      segments[segments.length - 1] === 'approval-agent-trust.json') ||
     segments[0] === '.hybridclaw' &&
-    segments[segments.length - 1] === 'workspace-state.json'
+      segments[segments.length - 1] === 'workspace-state.json'
   );
 }
 
