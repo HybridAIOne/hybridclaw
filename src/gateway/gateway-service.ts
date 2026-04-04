@@ -34,11 +34,11 @@ import {
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { APPROVE_COMMAND_USAGE } from '../approval-commands.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
-import { APPROVE_COMMAND_USAGE } from '../approval-commands.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import {
   APP_VERSION,

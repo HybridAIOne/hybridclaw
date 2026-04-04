@@ -1,7 +1,7 @@
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import {
-  APPROVE_TEXT_CHANNEL_USAGE,
   APPROVAL_SCOPE_MODES,
+  APPROVE_TEXT_CHANNEL_USAGE,
   type ApprovalScopeMode,
 } from '../approval-commands.js';
 import {
