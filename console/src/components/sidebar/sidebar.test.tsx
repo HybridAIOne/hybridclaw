@@ -93,9 +93,9 @@ describe('SidebarProvider', () => {
       isMobile: false,
       openMobile: false,
     });
-    expect(typeof captured!.setOpen).toBe('function');
-    expect(typeof captured!.setOpenMobile).toBe('function');
-    expect(typeof captured!.toggleSidebar).toBe('function');
+    expect(typeof captured?.setOpen).toBe('function');
+    expect(typeof captured?.setOpenMobile).toBe('function');
+    expect(typeof captured?.toggleSidebar).toBe('function');
   });
 
   it('toggleSidebar toggles open on desktop', () => {
@@ -109,10 +109,10 @@ describe('SidebarProvider', () => {
         />
       </SidebarProvider>,
     );
-    expect(captured!.open).toBe(true);
-    act(() => captured!.toggleSidebar());
-    expect(captured!.open).toBe(false);
-    expect(captured!.state).toBe('collapsed');
+    expect(captured?.open).toBe(true);
+    act(() => captured?.toggleSidebar());
+    expect(captured?.open).toBe(false);
+    expect(captured?.state).toBe('collapsed');
   });
 
   it('toggleSidebar toggles openMobile on mobile', () => {
@@ -127,10 +127,10 @@ describe('SidebarProvider', () => {
         />
       </SidebarProvider>,
     );
-    expect(captured!.openMobile).toBe(false);
-    act(() => captured!.toggleSidebar());
-    expect(captured!.openMobile).toBe(true);
-    expect(captured!.open).toBe(true); // desktop open unchanged
+    expect(captured?.openMobile).toBe(false);
+    act(() => captured?.toggleSidebar());
+    expect(captured?.openMobile).toBe(true);
+    expect(captured?.open).toBe(true); // desktop open unchanged
   });
 
   it('clears openMobile when resizing from mobile to desktop', () => {
@@ -145,12 +145,12 @@ describe('SidebarProvider', () => {
         />
       </SidebarProvider>,
     );
-    act(() => captured!.setOpenMobile(true));
-    expect(captured!.openMobile).toBe(true);
+    act(() => captured?.setOpenMobile(true));
+    expect(captured?.openMobile).toBe(true);
 
     act(() => setViewport(1440));
-    expect(captured!.openMobile).toBe(false);
-    expect(captured!.isMobile).toBe(false);
+    expect(captured?.openMobile).toBe(false);
+    expect(captured?.isMobile).toBe(false);
   });
 
   it('locks body scroll when mobile sidebar is open and restores on close', () => {
@@ -166,9 +166,9 @@ describe('SidebarProvider', () => {
       </SidebarProvider>,
     );
     expect(document.body.style.overflow).toBe('');
-    act(() => captured!.setOpenMobile(true));
+    act(() => captured?.setOpenMobile(true));
     expect(document.body.style.overflow).toBe('hidden');
-    act(() => captured!.setOpenMobile(false));
+    act(() => captured?.setOpenMobile(false));
     expect(document.body.style.overflow).toBe('');
   });
 });
@@ -385,14 +385,14 @@ describe('Sidebar — mobile overlay', () => {
       </SidebarProvider>,
     );
 
-    expect(captured!.openMobile).toBe(false);
+    expect(captured?.openMobile).toBe(false);
     fireEvent.keyDown(document, { key: 'b', ctrlKey: true });
-    expect(captured!.openMobile).toBe(true);
+    expect(captured?.openMobile).toBe(true);
     fireEvent.keyDown(document, { key: 'b', ctrlKey: true });
-    expect(captured!.openMobile).toBe(false);
+    expect(captured?.openMobile).toBe(false);
 
     // desktop open state unchanged
-    expect(captured!.open).toBe(true);
+    expect(captured?.open).toBe(true);
     void aside; // avoid unused warning
   });
 
@@ -659,14 +659,14 @@ describe('AppSidebar', () => {
       </SidebarProvider>,
     );
 
-    act(() => captured!.setOpenMobile(true));
-    expect(captured!.openMobile).toBe(true);
+    act(() => captured?.setOpenMobile(true));
+    expect(captured?.openMobile).toBe(true);
 
     const dashboardLink = screen.getByText('Dashboard').closest('a');
     expect(dashboardLink).not.toBeNull();
     fireEvent.click(dashboardLink as HTMLAnchorElement);
 
-    expect(captured!.openMobile).toBe(false);
+    expect(captured?.openMobile).toBe(false);
   });
 
   it('renders as mobile overlay on small screens', () => {
