@@ -48,6 +48,7 @@ import {
 } from '../media/uploaded-media-cache.js';
 import { claimQueuedProactiveMessages } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
+import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import {
   isRuntimeSecretName,
@@ -58,6 +59,10 @@ import {
   buildSessionKey,
   classifySessionKeyShape,
 } from '../session/session-key.js';
+import {
+  buildTuiSlashMenuEntries,
+  rankTuiSlashMenuEntries,
+} from '../tui-slash-menu.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
 import {
@@ -2021,6 +2026,42 @@ function handleApiChatRecent(res: ServerResponse, url: URL): void {
   });
 }
 
+let cachedSlashMenuEntries: ReturnType<typeof buildTuiSlashMenuEntries> | null =
+  null;
+let cachedSlashMenuPluginKey = '';
+
+function getSlashMenuEntries(): ReturnType<typeof buildTuiSlashMenuEntries> {
+  const pluginCommands = listLoadedPluginCommands();
+  const pluginKey = pluginCommands
+    .map((c) => `${c.name}\x01${c.description}`)
+    .join('\0');
+  if (cachedSlashMenuEntries && pluginKey === cachedSlashMenuPluginKey) {
+    return cachedSlashMenuEntries;
+  }
+  cachedSlashMenuEntries = buildTuiSlashMenuEntries(
+    pluginCommands.map((command) => ({
+      name: command.name,
+      description: command.description,
+    })),
+  );
+  cachedSlashMenuPluginKey = pluginKey;
+  return cachedSlashMenuEntries;
+}
+
+function handleApiChatCommands(res: ServerResponse, url: URL): void {
+  const query = (url.searchParams.get('q') ?? '').slice(0, 200);
+  const ranked = rankTuiSlashMenuEntries(getSlashMenuEntries(), query);
+  sendJson(res, 200, {
+    commands: ranked.map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      insertText: entry.insertText,
+      description: entry.description,
+      depth: entry.depth,
+    })),
+  });
+}
+
 async function handleApiAgents(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAgents());
 }
@@ -2945,6 +2986,10 @@ export function startGatewayHttpServer(): void {
           }
           if (pathname === '/api/chat/recent' && method === 'GET') {
             handleApiChatRecent(res, url);
+            return;
+          }
+          if (pathname === '/api/chat/commands' && method === 'GET') {
+            handleApiChatCommands(res, url);
             return;
           }
           if (pathname === '/api/agents' && method === 'GET') {
