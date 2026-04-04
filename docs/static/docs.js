@@ -455,7 +455,17 @@ export function renderMarkdownToHtml(rawMarkdown, options = {}) {
 
     if (!line.trim()) {
       flushParagraph();
-      closeList();
+      // Look ahead past blank lines: keep the list open when the next
+      // non-empty line continues the same list type (#206)
+      if (openList) {
+        let ahead = index + 1;
+        while (ahead < lines.length && !(lines[ahead] || '').trim()) ahead++;
+        const nextNonEmpty = ahead < lines.length ? lines[ahead] : '';
+        const continuesList =
+          (openList === 'ul' && /^\s*[-*+]\s+/.test(nextNonEmpty)) ||
+          (openList === 'ol' && /^\s*\d+\.\s+/.test(nextNonEmpty));
+        if (!continuesList) closeList();
+      }
       continue;
     }
 
