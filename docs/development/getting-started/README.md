@@ -23,4 +23,3 @@ shortest path is:
   storage behavior
 - [Channel Setup](./channels.md) for step-by-step Discord, email, WhatsApp,
   iMessage, and Microsoft Teams setup commands
-- [Microsoft Teams Setup](./msteams.md) for the Teams-specific setup flow

@@ -13,16 +13,17 @@ other users.
 
 ## Command Summary
 
-| Channel | Setup command | Saved secret or auth | Default inbound behavior |
-| --- | --- | --- | --- |
-| Discord | `hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]` | `DISCORD_TOKEN` when `--token` is provided | command-only, guild messages disabled, guild commands restricted |
-| Email | `hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure\|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure\|--no-smtp-secure] [--folder <name>]... [--allow-from <email\|*@domain\|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]` | `EMAIL_PASSWORD` | inbound email ignored until `allowFrom` is set |
-| WhatsApp | `hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...` | linked-device auth under `~/.hybridclaw/credentials/whatsapp` | self-chat only unless one or more senders are allowlisted |
-| iMessage | `hybridclaw channels imessage setup [--backend <local\|remote>] [--allow-from <phone\|email\|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]` | `IMESSAGE_PASSWORD` for the remote backend | inbound iMessage disabled until `allowFrom` is set; groups disabled |
-| Microsoft Teams | `hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]` | `MSTEAMS_APP_PASSWORD` | deny-by-default until you add allowed AAD object IDs or team/channel overrides |
+| Channel | Primary setup command |
+| --- | --- |
+| Discord | `hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]` |
+| Email | `hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure\|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure\|--no-smtp-secure] [--folder <name>]... [--allow-from <email\|*@domain\|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]` |
+| WhatsApp | `hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...` |
+| iMessage | `hybridclaw channels imessage setup [--backend <local\|remote>] [--allow-from <phone\|email\|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]` |
+| Microsoft Teams | `hybridclaw auth login msteams [--app-id <id>] [--app-password <secret>] [--tenant-id <id>]` |
 
-Microsoft Teams setup lives under `auth login` instead of `channels setup`
-because it uses app credentials and a webhook instead of a pairing flow.
+Microsoft Teams uses `auth login` instead of `channels setup` because it uses
+app credentials and a webhook instead of a pairing flow. Saved secrets,
+defaults, and verification steps are documented in each section below.
 
 ## From The TUI Or Web Chat
 
@@ -193,7 +194,7 @@ hybridclaw gateway restart --foreground
 hybridclaw gateway status
 ```
 
-### Step 3: Smoke test
+### Step 3: Verify the setup
 
 1. If you configured `--allow-from`, send a message from an allowlisted sender
    to the configured mailbox.
@@ -270,7 +271,7 @@ hybridclaw gateway restart --foreground
 hybridclaw gateway status
 ```
 
-### Step 5: Smoke test
+### Step 5: Verify the setup
 
 1. Send yourself a WhatsApp message if you used self-chat mode.
 2. If you used `--allow-from`, send a message from one of the allowlisted phone
@@ -387,7 +388,7 @@ hybridclaw gateway status
    `https://<your-public-host>/api/msteams/messages`.
 3. Confirm the Microsoft Teams channel is enabled for the bot in Azure.
 
-### Step 4: Smoke test
+### Step 4: Verify the setup
 
 1. Add your own AAD object ID to `msteams.allowFrom`, or temporarily relax the
    DM/channel policy for testing.

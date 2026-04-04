@@ -16,7 +16,7 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Installation', path: 'getting-started/installation.md' },
       { title: 'Quick Start', path: 'getting-started/quickstart.md' },
       { title: 'Authentication', path: 'getting-started/authentication.md' },
-      { title: 'Microsoft Teams', path: 'getting-started/msteams.md' },
+      { title: 'Channel Setup', path: 'getting-started/channels.md' },
     ],
   },
   {
