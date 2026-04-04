@@ -853,7 +853,9 @@ describe('.claw archive support', () => {
     expect(packed.archiveEntries).not.toContain(
       'workspace/.hybridclaw/workspace-state.json',
     );
-    expect(packed.archiveEntries).not.toContain('workspace/approval-trust.json');
+    expect(packed.archiveEntries).not.toContain(
+      'workspace/approval-trust.json',
+    );
     expect(packed.archiveEntries).not.toContain(
       'workspace/.hybridclaw/approval-agent-trust.json',
     );
@@ -865,7 +867,9 @@ describe('.claw archive support', () => {
     expect(inspection.manifest.skills).toBeUndefined();
     expect(inspection.manifest.plugins).toBeUndefined();
     expect(inspection.entryNames).not.toContain('workspace/.env');
-    expect(inspection.entryNames).not.toContain('workspace/approval-trust.json');
+    expect(inspection.entryNames).not.toContain(
+      'workspace/approval-trust.json',
+    );
     expect(inspection.entryNames).not.toContain(
       'workspace/.hybridclaw/approval-agent-trust.json',
     );

@@ -242,8 +242,8 @@ function shouldExcludeWorkspaceArchivePath(relativePath: string): boolean {
   return (
     (segments[0] === '.hybridclaw' &&
       segments[segments.length - 1] === 'approval-agent-trust.json') ||
-    segments[0] === '.hybridclaw' &&
-      segments[segments.length - 1] === 'workspace-state.json'
+    (segments[0] === '.hybridclaw' &&
+      segments[segments.length - 1] === 'workspace-state.json')
   );
 }
 
