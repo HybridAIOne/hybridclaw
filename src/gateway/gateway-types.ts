@@ -307,6 +307,7 @@ export interface GatewayStatus {
   webAuthConfigured: boolean;
   pid?: number;
   version: string;
+  imageTag: string | null;
   uptime: number;
   sessions: number;
   activeContainers: number;

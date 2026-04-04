@@ -208,6 +208,7 @@ export function createAdminTerminalManager(): {
       validateToken?: (token: string) => boolean;
     },
   ) => boolean;
+  broadcastShutdown: (message: object) => void;
   dispose: () => void;
 } {
   const sessions = new Map<string, TerminalSession>();
@@ -525,6 +526,27 @@ export function createAdminTerminalManager(): {
       });
 
       return true;
+    },
+
+    broadcastShutdown(message: object) {
+      const encoded = JSON.stringify(message);
+      for (const session of sessions.values()) {
+        if (
+          session.socket &&
+          session.socket.readyState === session.socket.OPEN
+        ) {
+          try {
+            session.socket.send(encoded);
+          } catch {
+            // Ignore send errors on closing sockets.
+          }
+          try {
+            session.socket.close(1012, 'service restart');
+          } catch {
+            // Ignore close errors.
+          }
+        }
+      }
     },
 
     dispose() {

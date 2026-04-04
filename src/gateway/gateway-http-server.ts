@@ -2623,7 +2623,11 @@ async function handleApiAdaptiveSkills(
   sendJson(res, 404, { error: 'Not Found' });
 }
 
-function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
+function handleApiEvents(
+  req: IncomingMessage,
+  res: ServerResponse,
+  activeSseResponses: Set<ServerResponse>,
+): void {
   const sendEvent = (event: string, payload: unknown): void => {
     if (res.writableEnded) return;
     res.write(`event: ${event}\n`);
@@ -2635,6 +2639,8 @@ function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
   });
+
+  activeSseResponses.add(res);
 
   const sendSnapshot = async (): Promise<void> => {
     try {
@@ -2652,6 +2658,7 @@ function handleApiEvents(req: IncomingMessage, res: ServerResponse): void {
 
   req.on('close', () => {
     clearInterval(timer);
+    activeSseResponses.delete(res);
     if (!res.writableEnded) res.end();
   });
 }
@@ -2727,8 +2734,20 @@ function writeUpgradeError(
   socket.destroy();
 }
 
-export function startGatewayHttpServer(): void {
+let gatewayReady = false;
+const gatewayStartMs = Date.now();
+
+export function setGatewayReady(): void {
+  gatewayReady = true;
+}
+
+export interface GatewayHttpServer {
+  broadcastShutdown: () => void;
+}
+
+export function startGatewayHttpServer(): GatewayHttpServer {
   const terminalManager = createAdminTerminalManager();
+  const activeSseResponses = new Set<ServerResponse>();
   const server = http.createServer((req, res) => {
     const method = req.method || 'GET';
     const url = new URL(req.url || '/', 'http://localhost');
@@ -2745,6 +2764,15 @@ export function startGatewayHttpServer(): void {
           });
         },
       );
+      return;
+    }
+
+    if ((pathname === '/ready' || pathname === '/readyz') && method === 'GET') {
+      const uptimeMs = Date.now() - gatewayStartMs;
+      sendJson(res, gatewayReady ? 200 : 503, {
+        ready: gatewayReady,
+        uptimeMs,
+      });
       return;
     }
 
@@ -2875,7 +2903,7 @@ export function startGatewayHttpServer(): void {
       void (async () => {
         try {
           if (pathname === '/api/events' && method === 'GET') {
-            handleApiEvents(req, res);
+            handleApiEvents(req, res, activeSseResponses);
             return;
           }
           if (pathname === '/api/status' && method === 'GET') {
@@ -3108,4 +3136,23 @@ export function startGatewayHttpServer(): void {
       'Gateway HTTP server started',
     );
   });
+
+  return {
+    broadcastShutdown(): void {
+      const shutdownMessage = { type: 'shutdown', restartExpectedMs: 1500 };
+      const shutdownPayload = JSON.stringify(shutdownMessage);
+      terminalManager.broadcastShutdown(shutdownMessage);
+      for (const sseRes of activeSseResponses) {
+        try {
+          if (!sseRes.writableEnded) {
+            sseRes.write(`event: shutdown\ndata: ${shutdownPayload}\n\n`);
+            sseRes.end();
+          }
+        } catch {
+          // Ignore errors on already-closed responses.
+        }
+      }
+      activeSseResponses.clear();
+    },
+  };
 }
