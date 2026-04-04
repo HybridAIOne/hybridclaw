@@ -9,7 +9,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from './sidebar/index';
-import { SIDEBAR_NAV_ITEMS } from './sidebar/navigation';
+import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 
 const VIEW_SWITCH_ITEMS: ReadonlyArray<{
   href: string;
@@ -38,14 +38,14 @@ export function AppShell(props: { children: ReactNode }) {
     : pathname === '/admin'
       ? '/'
       : pathname;
+  const allNavItems = SIDEBAR_NAV_GROUPS.flatMap((g) => g.items);
   const currentNavItem =
-    SIDEBAR_NAV_ITEMS.find((item) => item.to === adminPath) ||
-    SIDEBAR_NAV_ITEMS[0];
+    allNavItems.find((item) => item.to === adminPath) || allNavItems[0];
 
   return (
     <SidebarProvider style={getSidebarStyleVars('15.5rem', '18rem')}>
       <AppSidebar
-        items={SIDEBAR_NAV_ITEMS}
+        groups={SIDEBAR_NAV_GROUPS}
         version={auth.gatewayStatus?.version}
         showLogout={Boolean(auth.token)}
         onLogout={auth.logout}

@@ -11,6 +11,7 @@ import { AppSidebar } from './app-sidebar';
 import {
   Sidebar,
   SidebarContent,
+  SidebarContextSnapshot,
   SidebarFooter,
   SidebarHeader,
   SidebarInset,
@@ -19,7 +20,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from './index';
-import { SIDEBAR_NAV_ITEMS } from './navigation';
+import { SIDEBAR_NAV_GROUPS } from './navigation';
 
 type MockLinkProps = {
   to: string;
@@ -63,7 +64,7 @@ function setViewport(width: number) {
   window.dispatchEvent(new Event('resize'));
 }
 
-type SidebarCtx = ReturnType<typeof useSidebar>;
+type SidebarCtx = SidebarContextSnapshot;
 
 // Helper: expose useSidebar return value to assertions
 function SidebarContextSpy(props: { onRender: (ctx: SidebarCtx) => void }) {
@@ -77,98 +78,78 @@ describe('SidebarProvider', () => {
   afterEach(cleanup);
 
   it('exposes full shadcn-aligned context shape', () => {
-    let captured: SidebarCtx | null = null;
+    const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
-        <SidebarContextSpy
-          onRender={(ctx) => {
-            captured = ctx;
-          }}
-        />
+        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
       </SidebarProvider>,
     );
-    expect(captured).toMatchObject({
+    expect(captured.value).toMatchObject({
       state: 'expanded',
       open: true,
       isMobile: false,
       openMobile: false,
     });
-    expect(typeof captured?.setOpen).toBe('function');
-    expect(typeof captured?.setOpenMobile).toBe('function');
-    expect(typeof captured?.toggleSidebar).toBe('function');
+    expect(typeof captured.value?.setOpen).toBe('function');
+    expect(typeof captured.value?.setOpenMobile).toBe('function');
+    expect(typeof captured.value?.toggleSidebar).toBe('function');
   });
 
   it('toggleSidebar toggles open on desktop', () => {
-    let captured: SidebarCtx | null = null;
+    const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
-        <SidebarContextSpy
-          onRender={(ctx) => {
-            captured = ctx;
-          }}
-        />
+        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
       </SidebarProvider>,
     );
-    expect(captured?.open).toBe(true);
-    act(() => captured?.toggleSidebar());
-    expect(captured?.open).toBe(false);
-    expect(captured?.state).toBe('collapsed');
+    expect(captured.value?.open).toBe(true);
+    act(() => captured.value?.toggleSidebar());
+    expect(captured.value?.open).toBe(false);
+    expect(captured.value?.state).toBe('collapsed');
   });
 
   it('toggleSidebar toggles openMobile on mobile', () => {
     setViewport(800);
-    let captured: SidebarCtx | null = null;
+    const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
-        <SidebarContextSpy
-          onRender={(ctx) => {
-            captured = ctx;
-          }}
-        />
+        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
       </SidebarProvider>,
     );
-    expect(captured?.openMobile).toBe(false);
-    act(() => captured?.toggleSidebar());
-    expect(captured?.openMobile).toBe(true);
-    expect(captured?.open).toBe(true); // desktop open unchanged
+    expect(captured.value?.openMobile).toBe(false);
+    act(() => captured.value?.toggleSidebar());
+    expect(captured.value?.openMobile).toBe(true);
+    expect(captured.value?.open).toBe(true); // desktop open unchanged
   });
 
   it('clears openMobile when resizing from mobile to desktop', () => {
     setViewport(800);
-    let captured: SidebarCtx | null = null;
+    const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
-        <SidebarContextSpy
-          onRender={(ctx) => {
-            captured = ctx;
-          }}
-        />
+        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
       </SidebarProvider>,
     );
-    act(() => captured?.setOpenMobile(true));
-    expect(captured?.openMobile).toBe(true);
+    act(() => captured.value?.setOpenMobile(true));
+    expect(captured.value?.openMobile).toBe(true);
 
     act(() => setViewport(1440));
-    expect(captured?.openMobile).toBe(false);
-    expect(captured?.isMobile).toBe(false);
+    expect(captured.value?.openMobile).toBe(false);
+    expect(captured.value?.isMobile).toBe(false);
   });
 
   it('locks body scroll when mobile sidebar is open and restores on close', () => {
     setViewport(800);
-    let captured: SidebarCtx | null = null;
+    const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
-        <SidebarContextSpy
-          onRender={(ctx) => {
-            captured = ctx;
-          }}
-        />
+        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
       </SidebarProvider>,
     );
     expect(document.body.style.overflow).toBe('');
-    act(() => captured?.setOpenMobile(true));
+    act(() => captured.value?.setOpenMobile(true));
     expect(document.body.style.overflow).toBe('hidden');
-    act(() => captured?.setOpenMobile(false));
+    act(() => captured.value?.setOpenMobile(false));
     expect(document.body.style.overflow).toBe('');
   });
 });
@@ -374,25 +355,21 @@ describe('Sidebar — mobile overlay', () => {
 
     // The aside is always in DOM for mobile, visibility is via CSS class.
     // We check via context spy instead.
-    let captured: SidebarCtx | null = null;
+    const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
-        <SidebarContextSpy
-          onRender={(ctx) => {
-            captured = ctx;
-          }}
-        />
+        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
       </SidebarProvider>,
     );
 
-    expect(captured?.openMobile).toBe(false);
+    expect(captured.value?.openMobile).toBe(false);
     fireEvent.keyDown(document, { key: 'b', ctrlKey: true });
-    expect(captured?.openMobile).toBe(true);
+    expect(captured.value?.openMobile).toBe(true);
     fireEvent.keyDown(document, { key: 'b', ctrlKey: true });
-    expect(captured?.openMobile).toBe(false);
+    expect(captured.value?.openMobile).toBe(false);
 
     // desktop open state unchanged
-    expect(captured?.open).toBe(true);
+    expect(captured.value?.open).toBe(true);
     void aside; // avoid unused warning
   });
 
@@ -526,7 +503,7 @@ describe('AppSidebar', () => {
     render(
       <SidebarProvider>
         <AppSidebar
-          items={SIDEBAR_NAV_ITEMS}
+          groups={SIDEBAR_NAV_GROUPS}
           showLogout={false}
           onLogout={vi.fn()}
         />
@@ -543,13 +520,13 @@ describe('AppSidebar', () => {
     render(
       <SidebarProvider>
         <AppSidebar
-          items={SIDEBAR_NAV_ITEMS}
+          groups={SIDEBAR_NAV_GROUPS}
           showLogout={false}
           onLogout={vi.fn()}
         />
       </SidebarProvider>,
     );
-    for (const item of SIDEBAR_NAV_ITEMS) {
+    for (const item of SIDEBAR_NAV_GROUPS.flatMap((g) => g.items)) {
       expect(screen.getByText(item.label)).toBeDefined();
     }
   });
@@ -558,7 +535,7 @@ describe('AppSidebar', () => {
     render(
       <SidebarProvider>
         <AppSidebar
-          items={SIDEBAR_NAV_ITEMS}
+          groups={SIDEBAR_NAV_GROUPS}
           version="1.2.3"
           showLogout={false}
           onLogout={vi.fn()}
@@ -572,7 +549,7 @@ describe('AppSidebar', () => {
     render(
       <SidebarProvider>
         <AppSidebar
-          items={SIDEBAR_NAV_ITEMS}
+          groups={SIDEBAR_NAV_GROUPS}
           showLogout={false}
           onLogout={vi.fn()}
         />
@@ -585,7 +562,7 @@ describe('AppSidebar', () => {
     render(
       <SidebarProvider>
         <AppSidebar
-          items={SIDEBAR_NAV_ITEMS}
+          groups={SIDEBAR_NAV_GROUPS}
           showLogout={false}
           onLogout={vi.fn()}
         />
@@ -601,7 +578,7 @@ describe('AppSidebar', () => {
     render(
       <SidebarProvider>
         <AppSidebar
-          items={SIDEBAR_NAV_ITEMS}
+          groups={SIDEBAR_NAV_GROUPS}
           version="0.10.0"
           showLogout
           onLogout={onLogout}
@@ -617,7 +594,7 @@ describe('AppSidebar', () => {
     render(
       <SidebarProvider>
         <AppSidebar
-          items={SIDEBAR_NAV_ITEMS}
+          groups={SIDEBAR_NAV_GROUPS}
           showLogout={false}
           onLogout={vi.fn()}
         />
@@ -630,7 +607,7 @@ describe('AppSidebar', () => {
     const { container } = render(
       <SidebarProvider>
         <AppSidebar
-          items={SIDEBAR_NAV_ITEMS}
+          groups={SIDEBAR_NAV_GROUPS}
           showLogout={false}
           onLogout={vi.fn()}
         />
@@ -643,30 +620,26 @@ describe('AppSidebar', () => {
 
   it('closes mobile sidebar when a nav link is clicked', () => {
     setViewport(800);
-    let captured: SidebarCtx | null = null;
+    const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
         <AppSidebar
-          items={SIDEBAR_NAV_ITEMS}
+          groups={SIDEBAR_NAV_GROUPS}
           showLogout={false}
           onLogout={vi.fn()}
         />
-        <SidebarContextSpy
-          onRender={(ctx) => {
-            captured = ctx;
-          }}
-        />
+        <SidebarContextSpy onRender={(ctx) => { captured.value = ctx; }} />
       </SidebarProvider>,
     );
 
-    act(() => captured?.setOpenMobile(true));
-    expect(captured?.openMobile).toBe(true);
+    act(() => captured.value?.setOpenMobile(true));
+    expect(captured.value?.openMobile).toBe(true);
 
     const dashboardLink = screen.getByText('Dashboard').closest('a');
     expect(dashboardLink).not.toBeNull();
     fireEvent.click(dashboardLink as HTMLAnchorElement);
 
-    expect(captured?.openMobile).toBe(false);
+    expect(captured.value?.openMobile).toBe(false);
   });
 
   it('renders as mobile overlay on small screens', () => {
@@ -674,7 +647,7 @@ describe('AppSidebar', () => {
     const { container } = render(
       <SidebarProvider>
         <AppSidebar
-          items={SIDEBAR_NAV_ITEMS}
+          groups={SIDEBAR_NAV_GROUPS}
           showLogout={false}
           onLogout={vi.fn()}
         />

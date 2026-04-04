@@ -17,19 +17,10 @@ import {
   useSidebar,
 } from './index';
 import styles from './index.module.css';
-import type { SidebarNavItem } from './navigation';
-
-const NAV_SECTIONS: ReadonlyArray<{
-  key: SidebarNavItem['section'];
-  label: string;
-}> = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'runtime', label: 'Runtime' },
-  { key: 'configuration', label: 'Configuration' },
-];
+import type { SidebarNavGroup, SidebarNavItem } from './navigation';
 
 export function AppSidebar(props: {
-  items: ReadonlyArray<SidebarNavItem>;
+  groups: ReadonlyArray<SidebarNavGroup>;
   version?: string;
   showLogout: boolean;
   onLogout: () => void;
@@ -40,7 +31,20 @@ export function AppSidebar(props: {
         <SidebarBrand />
       </SidebarHeader>
       <SidebarContent>
-        <SidebarNav items={props.items} />
+        {props.groups.map((group) => (
+          <SidebarGroup key={group.label}>
+            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu ariaLabel={group.label}>
+                {group.items.map((item) => (
+                  <SidebarMenuItem key={item.to}>
+                    <SidebarNavLink item={item} />
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
       <SidebarFooter>
         <div className={styles.footerBlock}>
@@ -67,34 +71,6 @@ export function SidebarBrand() {
           <span className={styles.eyebrow}>Admin console</span>
         </div>
       </div>
-    </div>
-  );
-}
-
-export function SidebarNav(props: { items: ReadonlyArray<SidebarNavItem> }) {
-  return (
-    <div className={styles.sectionStack}>
-      {NAV_SECTIONS.map((section) => {
-        const items = props.items.filter(
-          (item) => item.section === section.key,
-        );
-        if (items.length === 0) return null;
-
-        return (
-          <SidebarGroup key={section.key}>
-            <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu ariaLabel={section.label}>
-                {items.map((item) => (
-                  <SidebarMenuItem key={item.to}>
-                    <SidebarNavLink item={item} />
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        );
-      })}
     </div>
   );
 }

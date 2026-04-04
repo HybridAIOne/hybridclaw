@@ -143,7 +143,17 @@ export function SidebarProvider(props: {
   );
 }
 
-export function useSidebar() {
+export type SidebarContextSnapshot = {
+  state: SidebarState;
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  openMobile: boolean;
+  setOpenMobile: (open: boolean) => void;
+  isMobile: boolean;
+  toggleSidebar: () => void;
+};
+
+export function useSidebar(): SidebarContextSnapshot {
   const context = useSidebarContext();
   return {
     state: context.state,

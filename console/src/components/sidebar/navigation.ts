@@ -19,22 +19,41 @@ export type SidebarNavItem = {
   to: string;
   label: string;
   icon: ComponentType;
-  section: 'overview' | 'runtime' | 'configuration';
 };
 
-export const SIDEBAR_NAV_ITEMS: ReadonlyArray<SidebarNavItem> = [
-  { to: '/', label: 'Dashboard', icon: Dashboard, section: 'overview' },
-  { to: '/audit', label: 'Audit', icon: Audit, section: 'overview' },
-  { to: '/jobs', label: 'Jobs', icon: Jobs, section: 'overview' },
-  { to: '/terminal', label: 'Terminal', icon: Terminal, section: 'runtime' },
-  { to: '/gateway', label: 'Gateway', icon: Gateway, section: 'runtime' },
-  { to: '/sessions', label: 'Sessions', icon: Sessions, section: 'runtime' },
-  { to: '/channels', label: 'Channels', icon: Channels, section: 'runtime' },
-  { to: '/models', label: 'Models', icon: Models, section: 'runtime' },
-  { to: '/scheduler', label: 'Scheduler', icon: Scheduler, section: 'runtime' },
-  { to: '/mcp', label: 'MCP', icon: Plugins, section: 'runtime' },
-  { to: '/skills', label: 'Skills', icon: Skills, section: 'configuration' },
-  { to: '/plugins', label: 'Plugins', icon: Plugins, section: 'configuration' },
-  { to: '/tools', label: 'Tools', icon: Tools, section: 'configuration' },
-  { to: '/config', label: 'Config', icon: Config, section: 'configuration' },
+export type SidebarNavGroup = {
+  label: string;
+  items: ReadonlyArray<SidebarNavItem>;
+};
+
+export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
+  {
+    label: 'Overview',
+    items: [
+      { to: '/', label: 'Dashboard', icon: Dashboard },
+      { to: '/audit', label: 'Audit', icon: Audit },
+      { to: '/jobs', label: 'Jobs', icon: Jobs },
+    ],
+  },
+  {
+    label: 'Runtime',
+    items: [
+      { to: '/terminal', label: 'Terminal', icon: Terminal },
+      { to: '/gateway', label: 'Gateway', icon: Gateway },
+      { to: '/sessions', label: 'Sessions', icon: Sessions },
+      { to: '/channels', label: 'Channels', icon: Channels },
+      { to: '/models', label: 'Models', icon: Models },
+      { to: '/scheduler', label: 'Scheduler', icon: Scheduler },
+      { to: '/mcp', label: 'MCP', icon: Plugins },
+    ],
+  },
+  {
+    label: 'Configuration',
+    items: [
+      { to: '/skills', label: 'Skills', icon: Skills },
+      { to: '/plugins', label: 'Plugins', icon: Plugins },
+      { to: '/tools', label: 'Tools', icon: Tools },
+      { to: '/config', label: 'Config', icon: Config },
+    ],
+  },
 ];
