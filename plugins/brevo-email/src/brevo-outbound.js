@@ -16,7 +16,7 @@ export function createBrevoSmtpService(config, logger) {
     transport = createTransport({
       host: config.smtpHost,
       port: config.smtpPort,
-      secure: false,
+      secure: config.smtpPort === 465,
       auth: {
         user: config.smtpLogin,
         pass: config.smtpKey,
@@ -81,7 +81,10 @@ export function createBrevoSmtpService(config, logger) {
       ...(opts.inReplyTo ? { inReplyTo: opts.inReplyTo } : {}),
       ...(opts.references ? { references: opts.references } : {}),
     });
-    logger.info({ from: opts.from, to: opts.to, subject: opts.subject }, 'Email sent');
+    logger.info(
+      { from: opts.from, to: opts.to, subject: opts.subject },
+      'Email sent',
+    );
   }
 
   return { service, send };
