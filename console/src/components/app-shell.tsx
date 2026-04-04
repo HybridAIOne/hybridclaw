@@ -4,10 +4,10 @@ import { useAuth } from '../auth';
 import { Admin, Agents, Chat, Docs, Github } from './icons';
 import { AppSidebar } from './sidebar/app-sidebar';
 import {
+  getSidebarStyleVars,
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
-  getSidebarStyleVars,
 } from './sidebar/index';
 import { SIDEBAR_NAV_ITEMS } from './sidebar/navigation';
 
@@ -20,7 +20,11 @@ const VIEW_SWITCH_ITEMS: ReadonlyArray<{
   { href: '/chat', label: 'Chat', icon: Chat },
   { href: '/agents', label: 'Agents', icon: Agents },
   { href: '/admin', label: 'Admin', icon: Admin, active: true },
-  { href: 'https://github.com/HybridAIOne/hybridclaw', label: 'GitHub', icon: Github },
+  {
+    href: 'https://github.com/HybridAIOne/hybridclaw',
+    label: 'GitHub',
+    icon: Github,
+  },
   { href: '/development', label: 'Docs', icon: Docs },
 ];
 

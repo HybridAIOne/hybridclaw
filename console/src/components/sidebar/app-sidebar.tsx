@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router';
+import { Admin, Cog } from '../icons';
 import { ThemeToggle } from '../theme-toggle';
-import { Admin, Cog } from './icons';
 import {
   Sidebar,
   SidebarContent,
@@ -83,12 +83,16 @@ export function SidebarNav(props: { items: ReadonlyArray<SidebarNavItem> }) {
   return (
     <div className={styles.sectionStack}>
       {NAV_SECTIONS.map((section) => {
-        const items = props.items.filter((item) => item.section === section.key);
+        const items = props.items.filter(
+          (item) => item.section === section.key,
+        );
         if (items.length === 0) return null;
 
         return (
           <SidebarGroup key={section.key}>
-            {!collapsed ? <SidebarGroupLabel>{section.label}</SidebarGroupLabel> : null}
+            {!collapsed ? (
+              <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
+            ) : null}
             <SidebarGroupContent>
               <SidebarMenu ariaLabel={section.label}>
                 {items.map((item) => {

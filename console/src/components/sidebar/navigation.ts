@@ -13,7 +13,7 @@ import {
   Skills,
   Terminal,
   Tools,
-} from './icons';
+} from '../icons';
 
 export type SidebarNavItem = {
   to: string;
