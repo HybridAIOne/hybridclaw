@@ -1,0 +1,40 @@
+id: brevo-email
+name: Brevo Email
+version: 0.1.0
+kind: channel
+description: Per-agent email addresses via Brevo inbound parsing webhook and SMTP relay.
+entrypoint: src/index.js
+requires:
+  env:
+    - BREVO_SMTP_LOGIN
+    - BREVO_SMTP_KEY
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    domain:
+      type: string
+      default: agent.hybridai.one
+    smtpHost:
+      type: string
+      default: smtp-relay.brevo.com
+    smtpPort:
+      type: number
+      default: 587
+    webhookSecret:
+      type: string
+      default: ''
+    maxBodyBytes:
+      type: number
+      default: 10485760
+      minimum: 1024
+      maximum: 52428800
+configUiHints:
+  domain:
+    label: Email Domain
+    placeholder: agent.hybridai.one
+    help: The domain used for agent email addresses ({agentId}@domain).
+  webhookSecret:
+    label: Webhook Secret
+    placeholder: (optional shared secret)
+    help: If set, inbound webhooks must include this value in the X-Brevo-Secret header.
