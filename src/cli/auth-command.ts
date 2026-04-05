@@ -259,7 +259,7 @@ interface ParsedAnthropicLoginArgs {
   modelId?: string;
   baseUrl?: string;
   apiKey?: string;
-  method: 'cli' | 'api-key';
+  method: 'claude-cli' | 'api-key';
   setDefault: boolean;
 }
 
@@ -267,7 +267,7 @@ function parseAnthropicLoginArgs(args: string[]): ParsedAnthropicLoginArgs {
   const positional: string[] = [];
   const { baseUrl, remaining } = extractBaseUrlArg(args);
   let apiKey: string | undefined;
-  let method: 'cli' | 'api-key' | undefined;
+  let method: 'claude-cli' | 'api-key' | undefined;
   let setDefault = true;
 
   for (let index = 0; index < remaining.length; index += 1) {
@@ -285,13 +285,19 @@ function parseAnthropicLoginArgs(args: string[]): ParsedAnthropicLoginArgs {
       args: remaining,
       index,
       name: '--method',
-      placeholder: '<cli|api-key>',
+      placeholder: '<api-key|claude-cli>',
       allowEmptyEquals: true,
     });
     if (methodFlag) {
       const normalizedMethod = methodFlag.value.trim().toLowerCase();
-      if (normalizedMethod === 'cli') {
-        method = 'cli';
+      if (
+        normalizedMethod === 'claude-cli' ||
+        normalizedMethod === 'claude_cli' ||
+        normalizedMethod === 'claudecli' ||
+        normalizedMethod === 'cli' ||
+        normalizedMethod === 'claude'
+      ) {
+        method = 'claude-cli';
       } else if (
         normalizedMethod === 'api-key' ||
         normalizedMethod === 'apikey' ||
@@ -300,7 +306,7 @@ function parseAnthropicLoginArgs(args: string[]): ParsedAnthropicLoginArgs {
         method = 'api-key';
       } else {
         throw new Error(
-          `Unknown Anthropic auth method "${methodFlag.value}". Use \`cli\` or \`api-key\`.`,
+          `Unknown Anthropic auth method "${methodFlag.value}". Use \`api-key\` or \`claude-cli\`.`,
         );
       }
       index = methodFlag.nextIndex;
@@ -326,10 +332,10 @@ function parseAnthropicLoginArgs(args: string[]): ParsedAnthropicLoginArgs {
     positional.push(arg);
   }
 
-  const resolvedMethod = method || 'cli';
-  if (resolvedMethod === 'cli' && apiKey !== undefined) {
+  const resolvedMethod = method || 'api-key';
+  if (resolvedMethod === 'claude-cli' && apiKey !== undefined) {
     throw new Error(
-      '`--api-key` cannot be used with `--method cli`. Use `--method api-key` or omit `--method` when passing an API key.',
+      '`--api-key` cannot be used with `--method claude-cli`. Use `--method api-key` or omit `--method` when passing an API key.',
     );
   }
 
@@ -687,10 +693,11 @@ async function configureAnthropic(args: string[]): Promise<void> {
   let cliCredentialPath: string | null = null;
   let expiresAt: number | null = null;
 
-  if (parsed.method === 'cli') {
-    const auth = getAnthropicAuthApi().requireAnthropicCliCredentials();
-    cliCredentialPath = auth.path;
-    expiresAt = auth.expiresAt;
+  if (parsed.method === 'claude-cli') {
+    const credential =
+      getAnthropicAuthApi().requireAnthropicClaudeCliCredential();
+    cliCredentialPath = getAnthropicAuthApi().getAnthropicAuthStatus().path;
+    expiresAt = credential.expiresAt;
   } else {
     const apiKey = await resolveAnthropicApiKey(parsed.apiKey);
     savedSecretsPath = saveRuntimeSecrets({ ANTHROPIC_API_KEY: apiKey });
@@ -700,6 +707,7 @@ async function configureAnthropic(args: string[]): Promise<void> {
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.anthropic.enabled = true;
     draft.anthropic.baseUrl = normalizedBaseUrl;
+    draft.anthropic.method = parsed.method;
     draft.anthropic.models = Array.from(
       new Set([fullModelName, ...draft.anthropic.models]),
     );
@@ -712,7 +720,7 @@ async function configureAnthropic(args: string[]): Promise<void> {
     console.log(`Saved Anthropic credentials to ${savedSecretsPath}.`);
   }
   if (cliCredentialPath) {
-    console.log(`Using Claude Code credentials from ${cliCredentialPath}.`);
+    console.log(`Using Claude Code login from ${cliCredentialPath}.`);
   }
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   console.log('Provider: anthropic');
@@ -1117,15 +1125,16 @@ function printAnthropicStatus(): void {
 
   console.log(`Path: ${status.path}`);
   console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
+  console.log(`Configured method: ${config.anthropic.method}`);
   if (status.method) {
-    console.log(`Method: ${status.method}`);
+    console.log(`Detected auth source: ${status.method}`);
   }
   if (status.source) {
     console.log(`Source: ${status.source}`);
   }
   if (status.maskedValue) {
     console.log(
-      `${status.method === 'api-key' ? 'API key' : 'Credential'}: ${status.maskedValue}`,
+      `${status.method === 'api-key' ? 'API key' : 'Claude login'}: ${status.maskedValue}`,
     );
   }
   if (status.expiresAt) {
@@ -1154,7 +1163,7 @@ function clearAnthropicCredentials(): void {
   const filePath = saveRuntimeSecrets({ ANTHROPIC_API_KEY: null });
   console.log(`Cleared stored Anthropic API key in ${filePath}.`);
   console.log(
-    'If Claude Code credentials are still present on this host, HybridClaw will keep using them. Run `claude auth logout` separately if you also want to remove the Claude CLI session.',
+    'If Anthropic is configured with `--method claude-cli`, HybridClaw will keep using the official Claude CLI while local Claude login material is still present. Run `claude auth logout` separately if you also want to remove that session.',
   );
   console.log(
     'If ANTHROPIC_API_KEY is still exported in your shell, unset it separately.',

@@ -60,7 +60,7 @@ import {
   type SessionDmScope,
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
-import type { McpServerConfig } from '../types/models.js';
+import type { AnthropicMethod, McpServerConfig } from '../types/models.js';
 import {
   normalizeOptionalTrimmedUniqueStringArray,
   normalizeTrimmedStringSet,
@@ -589,6 +589,7 @@ export interface RuntimeConfig {
   anthropic: {
     enabled: boolean;
     baseUrl: string;
+    method: AnthropicMethod;
     models: string[];
   };
   openrouter: {
@@ -859,6 +860,7 @@ const DEFAULT_CODEX_MODEL_LIST = [
   'openai-codex/gpt-5.1-codex-mini',
 ] as const;
 const DEFAULT_ANTHROPIC_MODEL_LIST = ['anthropic/claude-sonnet-4-6'] as const;
+const DEFAULT_ANTHROPIC_METHOD: AnthropicMethod = 'api-key';
 const DEFAULT_OPENROUTER_MODEL_LIST = [
   'openrouter/anthropic/claude-sonnet-4',
 ] as const;
@@ -1122,6 +1124,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   anthropic: {
     enabled: false,
     baseUrl: 'https://api.anthropic.com/v1',
+    method: DEFAULT_ANTHROPIC_METHOD,
     models: [...DEFAULT_ANTHROPIC_MODEL_LIST],
   },
   openrouter: {
@@ -3889,6 +3892,31 @@ function parseConfigPatch(payload: unknown): DeepPartial<RuntimeConfig> {
 function normalizeRuntimeConfig(
   patch?: DeepPartial<RuntimeConfig>,
 ): RuntimeConfig {
+  const normalizeAnthropicMethodValue = (
+    value: unknown,
+    fallback: AnthropicMethod,
+  ): AnthropicMethod => {
+    const normalized = String(value || '')
+      .trim()
+      .toLowerCase();
+    if (
+      normalized === 'claude-cli' ||
+      normalized === 'claude_cli' ||
+      normalized === 'claudecli'
+    ) {
+      return 'claude-cli';
+    }
+    if (
+      normalized === 'api-key' ||
+      normalized === 'apikey' ||
+      normalized === 'api_key' ||
+      normalized === 'token'
+    ) {
+      return 'api-key';
+    }
+    return fallback;
+  };
+
   const raw = patch ?? {};
 
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
@@ -4482,6 +4510,10 @@ function normalizeRuntimeConfig(
       baseUrl: normalizeBaseUrl(
         rawAnthropic.baseUrl,
         DEFAULT_RUNTIME_CONFIG.anthropic.baseUrl,
+      ),
+      method: normalizeAnthropicMethodValue(
+        rawAnthropic.method,
+        DEFAULT_RUNTIME_CONFIG.anthropic.method,
       ),
       models: anthropicModelList,
     },

@@ -1,10 +1,16 @@
-import { resolveAnthropicAuth } from '../auth/anthropic-auth.js';
+import { spawnSync } from 'node:child_process';
+import {
+  requireAnthropicApiKey,
+  requireAnthropicClaudeCliCredential,
+} from '../auth/anthropic-auth.js';
 import { resolveCodexCredentials } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import {
   ANTHROPIC_BASE_URL,
   ANTHROPIC_ENABLED,
+  ANTHROPIC_METHOD,
   CODEX_BASE_URL,
+  CONTAINER_SANDBOX_MODE,
   HUGGINGFACE_BASE_URL,
   HUGGINGFACE_ENABLED,
   MISTRAL_BASE_URL,
@@ -93,9 +99,49 @@ export async function probeAnthropic(): Promise<ProviderProbeResult> {
     };
   }
 
-  let auth: ReturnType<typeof resolveAnthropicAuth>;
+  if (ANTHROPIC_METHOD === 'claude-cli') {
+    if (CONTAINER_SANDBOX_MODE !== 'host') {
+      return {
+        reachable: false,
+        detail:
+          'Claude CLI transport requires `container.sandboxMode=host` or `--sandbox=host`.',
+      };
+    }
+
+    try {
+      requireAnthropicClaudeCliCredential();
+    } catch (error) {
+      return {
+        reachable: false,
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    const startedAt = Date.now();
+    const result = spawnSync('claude', ['--version'], {
+      encoding: 'utf8',
+      timeout: 5_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (result.status !== 0) {
+      return {
+        reachable: false,
+        detail:
+          result.stderr?.trim() ||
+          result.stdout?.trim() ||
+          'Failed to execute `claude --version`.',
+      };
+    }
+
+    return {
+      reachable: true,
+      detail: `${Date.now() - startedAt}ms`,
+    };
+  }
+
+  let auth: ReturnType<typeof requireAnthropicApiKey>;
   try {
-    auth = resolveAnthropicAuth();
+    auth = requireAnthropicApiKey();
   } catch (error) {
     return {
       reachable: false,
@@ -106,9 +152,7 @@ export async function probeAnthropic(): Promise<ProviderProbeResult> {
   const headers: Record<string, string> = {
     ...auth.headers,
   };
-  if (auth.method === 'cli') {
-    headers.Authorization = `Bearer ${auth.apiKey}`;
-  } else {
+  if (auth.method === 'api-key') {
     headers['x-api-key'] = auth.apiKey;
   }
 

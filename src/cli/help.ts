@@ -214,7 +214,7 @@ Examples:
   hybridclaw auth login hybridai --browser
   hybridclaw auth login hybridai --base-url http://localhost:5000
   hybridclaw auth login codex --import
-  hybridclaw auth login anthropic --method cli --set-default
+  hybridclaw auth login anthropic --method claude-cli --set-default
   hybridclaw auth login anthropic anthropic/claude-sonnet-4-6 --method api-key --api-key sk-ant-...
   hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
   hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
@@ -247,8 +247,8 @@ Notes:
   - \`auth login msteams\` enables Microsoft Teams and stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()}.
   - \`auth login slack\` enables Slack and stores \`SLACK_BOT_TOKEN\` plus \`SLACK_APP_TOKEN\` in ${runtimeSecretsPath()}.
   - \`auth whatsapp reset\` clears linked WhatsApp Web auth so you can re-pair cleanly.
-  - \`auth login anthropic --method cli\` reuses your local Claude Code login from \`claude auth login\`.
-  - \`auth login anthropic --method api-key\` stores \`ANTHROPIC_API_KEY\` in ${runtimeSecretsPath()}.
+  - \`auth login anthropic --method api-key\` stores \`ANTHROPIC_API_KEY\` in ${runtimeSecretsPath()} and uses the direct Anthropic Messages API.
+  - \`auth login anthropic --method claude-cli\` uses the official \`claude -p\` transport after \`claude auth login\`, and currently requires host sandbox mode.
   - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
   - \`auth login mistral\` prompts for the API key when \`--api-key\` and \`MISTRAL_API_KEY\` are both absent.
   - \`auth login huggingface\` prompts for the token when \`--api-key\` and \`HF_TOKEN\` are both absent.
@@ -487,14 +487,15 @@ Notes:
 
 export function printAnthropicUsage(): void {
   console.log(`Usage:
-  hybridclaw auth login anthropic [model-id] [--method <cli|api-key>] [--api-key <key>] [--base-url <url>] [--no-default]
+  hybridclaw auth login anthropic [model-id] [--method <api-key|claude-cli>] [--api-key <key>] [--base-url <url>] [--no-default]
   hybridclaw auth status anthropic
   hybridclaw auth logout anthropic
 
 Notes:
   - Model IDs use the \`anthropic/\` prefix in HybridClaw, for example \`anthropic/claude-sonnet-4-6\`.
-  - \`auth login anthropic --method cli\` reuses your local Claude Code session from \`claude auth login\`.
-  - \`auth login anthropic --method api-key\` stores \`ANTHROPIC_API_KEY\` and can set the global default model.
+  - \`auth login anthropic --method api-key\` stores \`ANTHROPIC_API_KEY\`, uses the direct Anthropic API transport, and can set the global default model.
+  - \`auth login anthropic --method claude-cli\` uses the official \`claude -p\` transport after \`claude auth login\`, and currently requires host sandbox mode.
+  - If \`--method\` is omitted, HybridClaw defaults to \`api-key\`.
   - If \`--api-key\` is omitted for \`--method api-key\`, HybridClaw prompts you to paste the key.
   - \`auth logout anthropic\` clears the stored API key, but Claude Code credentials are managed separately by the \`claude\` CLI.`);
 }

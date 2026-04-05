@@ -283,6 +283,7 @@ export async function resolveTaskModelPolicy(
             });
             return {
               provider: resolved.provider,
+              providerMethod: resolved.providerMethod,
               baseUrl: resolved.baseUrl,
               apiKey: resolved.apiKey,
               requestHeaders: { ...resolved.requestHeaders },
@@ -368,6 +369,7 @@ export async function resolveTaskModelPolicy(
     }
     return {
       provider: resolved.provider,
+      providerMethod: resolved.providerMethod,
       baseUrl: resolved.baseUrl,
       apiKey: resolved.apiKey,
       requestHeaders: { ...resolved.requestHeaders },

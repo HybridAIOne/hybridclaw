@@ -178,6 +178,7 @@ type BrowserModelContext = {
     | 'lmstudio'
     | 'llamacpp'
     | 'vllm';
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -248,6 +249,7 @@ export function setBrowserModelContext(
     | 'llamacpp'
     | 'vllm'
     | undefined,
+  providerMethod: string | undefined,
   baseUrl: string,
   apiKey: string,
   model: string,
@@ -257,6 +259,7 @@ export function setBrowserModelContext(
 ): void {
   currentBrowserModelContext = {
     provider: provider || 'hybridai',
+    providerMethod,
     baseUrl: String(baseUrl || '')
       .trim()
       .replace(/\/+$/, ''),

@@ -460,6 +460,7 @@ function getOrSpawnHostProcess(
   const agentBrowserBin = resolveHostAgentBrowserBinary();
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    HYBRIDCLAW_AGENT_SANDBOX_MODE: 'host',
     HYBRIDAI_BASE_URL,
     HYBRIDAI_MODEL,
     CONTAINER_IDLE_TIMEOUT: String(IDLE_TIMEOUT_MS),
@@ -709,6 +710,7 @@ async function runHostProcessInner(
     apiKey: modelRuntime.apiKey,
     baseUrl: modelRuntime.baseUrl,
     provider: modelRuntime.provider,
+    providerMethod: modelRuntime.providerMethod,
     requestHeaders: modelRuntime.requestHeaders,
     isLocal: modelRuntime.isLocal,
     contextWindow: modelRuntime.contextWindow,
@@ -769,6 +771,7 @@ async function runHostProcessInner(
   const workerSignature = computeWorkerSignature({
     agentId,
     provider: input.provider,
+    providerMethod: input.providerMethod,
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,

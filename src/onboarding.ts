@@ -4,7 +4,7 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import {
   getAnthropicAuthStatus,
-  requireAnthropicCliCredentials,
+  requireAnthropicClaudeCliCredential,
 } from './auth/anthropic-auth.js';
 import {
   getCodexAuthStatus,
@@ -1165,16 +1165,16 @@ async function runAnthropicOnboarding(params: {
     printSetup('Anthropic credentials already detected on this host.');
   } else {
     printInfo(
-      'Anthropic can reuse your local Claude Code login or a direct Anthropic API key.',
+      'Anthropic can use a direct Anthropic API key or the official Claude CLI transport.',
     );
   }
   console.log();
 
-  const defaultMethod = existingStatus.method === 'cli' ? 'cli' : 'api-key';
+  const defaultMethod = runtimeConfig.anthropic.method;
   const methodChoice = (
     await promptOptional(
       rl,
-      `Auth method [cli/api-key] (Enter for ${defaultMethod}): `,
+      `Auth method [api-key/claude-cli] (Enter for ${defaultMethod}): `,
       ICON_AUTH,
     )
   )
@@ -1183,18 +1183,25 @@ async function runAnthropicOnboarding(params: {
   const method =
     !methodChoice || methodChoice === defaultMethod
       ? defaultMethod
-      : methodChoice === 'cli' || methodChoice === 'claude'
-        ? 'cli'
+      : methodChoice === 'claude-cli' ||
+          methodChoice === 'claude_cli' ||
+          methodChoice === 'claudecli' ||
+          methodChoice === 'cli' ||
+          methodChoice === 'claude'
+        ? 'claude-cli'
         : methodChoice === 'api-key' || methodChoice === 'apikey'
           ? 'api-key'
           : null;
   if (!method) {
-    throw new Error('Anthropic onboarding expected `cli` or `api-key`.');
+    throw new Error('Anthropic onboarding expected `api-key` or `claude-cli`.');
   }
 
   let resultMessage = '';
-  if (method === 'cli') {
-    if (!existingStatus.authenticated || existingStatus.method !== 'cli') {
+  if (method === 'claude-cli') {
+    if (
+      !existingStatus.authenticated ||
+      existingStatus.method !== 'claude-cli'
+    ) {
       printInfo(
         'Run `claude auth login` in another terminal if you have not already done so, then press Enter here.',
       );
@@ -1204,8 +1211,8 @@ async function runAnthropicOnboarding(params: {
         ICON_KEYBOARD,
       );
     }
-    const resolved = requireAnthropicCliCredentials();
-    resultMessage = `Using Claude Code credentials from ${resolved.path}.`;
+    requireAnthropicClaudeCliCredential();
+    resultMessage = `Using Claude Code login from ${getAnthropicAuthStatus().path}.`;
   } else {
     const entered = await promptOptional(
       rl,
@@ -1222,6 +1229,11 @@ async function runAnthropicOnboarding(params: {
     refreshRuntimeSecretsFromEnv();
     resultMessage = `Saved credentials to ${secretsPath}.`;
   }
+
+  updateRuntimeConfig((draft) => {
+    draft.anthropic.enabled = true;
+    draft.anthropic.method = method;
+  });
 
   const nextAnthropicModel = defaultAnthropicModel();
   const switchedModel = await maybeSwitchDefaultModel(
@@ -1510,6 +1522,11 @@ export async function ensureRuntimeCredentials(
   ).trim();
   const anthropicStatus = getAnthropicAuthStatus();
   const codexStatus = getCodexAuthStatus();
+  const anthropicConfiguredMethod = runtimeConfig.anthropic.method;
+  const anthropicReady =
+    anthropicConfiguredMethod === 'claude-cli'
+      ? anthropicStatus.method === 'claude-cli'
+      : anthropicStatus.method === 'api-key';
   const currentModel = runtimeConfig.hybridai.defaultModel.trim();
   const resolvedCurrentProvider = resolveModelProvider(currentModel);
   const currentProviderIsLocal = isLocalProvider(resolvedCurrentProvider);
@@ -1533,7 +1550,7 @@ export async function ensureRuntimeCredentials(
   const hasRequiredCredentials = currentProviderIsLocal
     ? true
     : currentAuth === 'anthropic'
-      ? anthropicStatus.authenticated
+      ? anthropicReady
       : currentAuth === 'openai-codex'
         ? codexStatus.authenticated
         : currentAuth === 'openrouter'
@@ -1581,7 +1598,7 @@ export async function ensureRuntimeCredentials(
     if (!requireCredentials) return;
     if (currentAuth === 'anthropic') {
       throw new Error(
-        `Anthropic credentials are missing. Run \`claude auth login\` and then \`hybridclaw auth login anthropic --method cli --set-default\`, or store ANTHROPIC_API_KEY in ${runtimeSecretsPath()}.`,
+        `Anthropic credentials are missing. Run \`hybridclaw auth login anthropic --method api-key --set-default\` for direct API access, or run \`claude auth login\` and then \`hybridclaw auth login anthropic --method claude-cli --set-default\` for the official Claude CLI transport in host sandbox mode.`,
       );
     }
     if (currentAuth === 'openai-codex') {
@@ -1637,6 +1654,12 @@ export async function ensureRuntimeCredentials(
       ''
     ).trim();
     const refreshedAnthropicStatus = getAnthropicAuthStatus();
+    const refreshedAnthropicConfiguredMethod =
+      refreshedRuntimeConfig.anthropic.method;
+    const refreshedAnthropicReady =
+      refreshedAnthropicConfiguredMethod === 'claude-cli'
+        ? refreshedAnthropicStatus.method === 'claude-cli'
+        : refreshedAnthropicStatus.method === 'api-key';
     const refreshedCurrentModel =
       refreshedRuntimeConfig.hybridai.defaultModel.trim();
     const refreshedResolvedProvider = resolveModelProvider(
@@ -1660,7 +1683,7 @@ export async function ensureRuntimeCredentials(
     const refreshedHasRequiredCredentials = refreshedProviderIsLocal
       ? true
       : refreshedAuth === 'anthropic'
-        ? refreshedAnthropicStatus.authenticated
+        ? refreshedAnthropicReady
         : refreshedAuth === 'openai-codex'
           ? refreshedCodexStatus.authenticated
           : refreshedAuth === 'openrouter'

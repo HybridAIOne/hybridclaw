@@ -10,10 +10,10 @@ import {
   readStoredRuntimeSecret,
   runtimeSecretsPath,
 } from '../security/runtime-secrets.js';
+import type { AnthropicMethod } from '../types/models.js';
 
 const CLAUDE_CLI_CREDENTIALS_RELATIVE_PATH = '.claude/.credentials.json';
 const CLAUDE_CLI_KEYCHAIN_SERVICE = 'Claude Code-credentials';
-const CLAUDE_CLI_KEYCHAIN_ACCOUNT = 'Claude Code';
 
 type CliSource = 'claude-cli-keychain' | 'claude-cli-file';
 type ApiKeySource = 'env' | 'runtime-secrets';
@@ -36,8 +36,8 @@ export type ClaudeCliCredential =
     };
 
 export interface AnthropicResolvedAuth {
-  method: 'api-key' | 'cli';
-  source: ApiKeySource | CliSource;
+  method: 'api-key';
+  source: ApiKeySource;
   apiKey: string;
   headers: Record<string, string>;
   path: string;
@@ -46,7 +46,7 @@ export interface AnthropicResolvedAuth {
 
 export interface AnthropicAuthStatus {
   authenticated: boolean;
-  method: 'api-key' | 'cli' | null;
+  method: AnthropicMethod | null;
   source: ApiKeySource | CliSource | null;
   path: string;
   maskedValue: string | null;
@@ -56,6 +56,10 @@ export interface AnthropicAuthStatus {
 
 export function claudeCliCredentialsPath(): string {
   return path.join(homedir(), CLAUDE_CLI_CREDENTIALS_RELATIVE_PATH);
+}
+
+export function claudeCliKeychainLabel(): string {
+  return `macOS Keychain (${CLAUDE_CLI_KEYCHAIN_SERVICE})`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -117,14 +121,7 @@ function readClaudeCliKeychainCredentials(): ClaudeCliCredential | null {
   try {
     const raw = execFileSync(
       'security',
-      [
-        'find-generic-password',
-        '-s',
-        CLAUDE_CLI_KEYCHAIN_SERVICE,
-        '-a',
-        CLAUDE_CLI_KEYCHAIN_ACCOUNT,
-        '-w',
-      ],
+      ['find-generic-password', '-s', CLAUDE_CLI_KEYCHAIN_SERVICE, '-w'],
       {
         encoding: 'utf8',
         timeout: 5_000,
@@ -206,22 +203,25 @@ export function getAnthropicAuthStatus(): AnthropicAuthStatus {
 
   return {
     authenticated,
-    method: credential ? 'cli' : null,
+    method: credential ? 'claude-cli' : null,
     source: credential?.source || null,
-    path: claudeCliCredentialsPath(),
+    path:
+      credential?.source === 'claude-cli-keychain'
+        ? claudeCliKeychainLabel()
+        : claudeCliCredentialsPath(),
     maskedValue: token ? maskValue(token) : null,
     expiresAt,
     isOauthToken: token ? isAnthropicOAuthToken(token) : false,
   };
 }
 
-export function requireAnthropicCliCredentials(): AnthropicResolvedAuth {
+export function requireAnthropicClaudeCliCredential(): ClaudeCliCredential {
   const credential = readClaudeCliCredentials();
   if (!credential) {
     throw new Error(
       [
         'Claude CLI is not authenticated on this host.',
-        'Run `claude auth login`, then rerun `hybridclaw auth login anthropic --method cli --set-default`.',
+        'Run `claude auth login`, then rerun `hybridclaw auth login anthropic --method claude-cli --set-default`.',
       ].join('\n'),
     );
   }
@@ -229,23 +229,14 @@ export function requireAnthropicCliCredentials(): AnthropicResolvedAuth {
     throw new Error(
       [
         'Claude CLI credentials on this host are expired.',
-        'Run `claude auth login` to refresh them, then rerun the HybridClaw auth command.',
+        'Run `claude auth login` to refresh them, then rerun the HybridClaw Anthropic auth command.',
       ].join('\n'),
     );
   }
-  const apiKey =
-    credential.type === 'oauth' ? credential.accessToken : credential.token;
-  return {
-    method: 'cli',
-    source: credential.source,
-    apiKey,
-    headers: buildAnthropicRequestHeaders({ apiKey }),
-    path: claudeCliCredentialsPath(),
-    expiresAt: credential.expiresAt,
-  };
+  return credential;
 }
 
-export function resolveAnthropicAuth(): AnthropicResolvedAuth {
+export function requireAnthropicApiKey(): AnthropicResolvedAuth {
   const storedApiKey = resolveStoredAnthropicApiKey();
   if (storedApiKey.apiKey) {
     return {
@@ -257,5 +248,10 @@ export function resolveAnthropicAuth(): AnthropicResolvedAuth {
       expiresAt: null,
     };
   }
-  return requireAnthropicCliCredentials();
+  throw new Error(
+    [
+      `ANTHROPIC_API_KEY is missing from your shell and ${runtimeSecretsPath()}.`,
+      'Run `hybridclaw auth login anthropic --method api-key --set-default` to configure the direct Anthropic API provider.',
+    ].join('\n'),
+  );
 }

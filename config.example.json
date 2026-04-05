@@ -234,6 +234,7 @@
   "anthropic": {
     "enabled": false,
     "baseUrl": "https://api.anthropic.com/v1",
+    "method": "api-key",
     "models": ["anthropic/claude-sonnet-4-6"]
   },
   "openrouter": {

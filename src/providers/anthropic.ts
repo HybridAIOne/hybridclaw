@@ -1,6 +1,9 @@
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import { resolveAnthropicAuth } from '../auth/anthropic-auth.js';
-import { ANTHROPIC_BASE_URL } from '../config/config.js';
+import {
+  requireAnthropicApiKey,
+  requireAnthropicClaudeCliCredential,
+} from '../auth/anthropic-auth.js';
+import { ANTHROPIC_BASE_URL, ANTHROPIC_METHOD } from '../config/config.js';
 import {
   isAnthropicModel,
   normalizeAnthropicBaseUrl,
@@ -15,10 +18,28 @@ import type {
 async function resolveAnthropicRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
-  const auth = resolveAnthropicAuth();
   const agentId = String(params.agentId || '').trim() || DEFAULT_AGENT_ID;
+  if (ANTHROPIC_METHOD === 'claude-cli') {
+    requireAnthropicClaudeCliCredential();
+    return {
+      provider: 'anthropic',
+      providerMethod: 'claude-cli',
+      apiKey: '',
+      baseUrl: normalizeAnthropicBaseUrl(ANTHROPIC_BASE_URL),
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: {},
+      agentId,
+      isLocal: false,
+      contextWindow:
+        resolveModelContextWindowFallback(params.model) ?? undefined,
+    };
+  }
+
+  const auth = requireAnthropicApiKey();
   return {
     provider: 'anthropic',
+    providerMethod: 'api-key',
     apiKey: auth.apiKey,
     baseUrl: normalizeAnthropicBaseUrl(ANTHROPIC_BASE_URL),
     chatbotId: '',

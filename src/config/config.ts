@@ -44,7 +44,7 @@ export class MissingRequiredEnvVarError extends Error {
       HF_TOKEN:
         'Hugging Face provider is not configured. Use `/auth login huggingface` in the TUI, or switch to a model from another configured provider.',
       ANTHROPIC_API_KEY:
-        'Anthropic provider is not configured. Use `/auth login anthropic --method cli` in the TUI, or switch to a model from another configured provider.',
+        'Anthropic provider is not configured. Use `/auth login anthropic --method api-key` in the TUI, or switch to a model from another configured provider.',
       GEMINI_API_KEY:
         'Google Gemini provider is not configured. Use `/auth login gemini` in the TUI, or switch to a model from another configured provider.',
       DEEPSEEK_API_KEY:
@@ -448,12 +448,13 @@ export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
 export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
+export let ANTHROPIC_ENABLED = false;
+export let ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
+export let ANTHROPIC_METHOD: RuntimeConfig['anthropic']['method'] = 'api-key';
 export let OPENROUTER_ENABLED = false;
 export let OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export let MISTRAL_ENABLED = false;
 export let MISTRAL_BASE_URL = 'https://api.mistral.ai/v1';
-export let ANTHROPIC_ENABLED = false;
-export let ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
 export let HUGGINGFACE_ENABLED = false;
 export let HUGGINGFACE_BASE_URL = 'https://router.huggingface.co/v1';
 export let GEMINI_ENABLED = false;
@@ -838,6 +839,9 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   CODEX_BASE_URL = config.codex.baseUrl;
+  ANTHROPIC_ENABLED = config.anthropic.enabled;
+  ANTHROPIC_BASE_URL = config.anthropic.baseUrl;
+  ANTHROPIC_METHOD = config.anthropic.method;
   OPENROUTER_ENABLED = config.openrouter.enabled;
   OPENROUTER_BASE_URL = config.openrouter.baseUrl;
   MISTRAL_ENABLED = config.mistral.enabled;

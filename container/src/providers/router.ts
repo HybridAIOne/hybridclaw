@@ -40,6 +40,7 @@ const DEFAULT_VISION_INSTRUCTIONS =
 
 export interface RoutedModelContext {
   provider: RuntimeProvider | undefined;
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -72,6 +73,7 @@ export interface RoutedVisionCallParams extends RoutedModelContext {
 function buildCallArgs(params: RoutedModelCallParams): NormalizedCallArgs {
   return {
     provider: params.provider,
+    providerMethod: params.providerMethod,
     baseUrl: params.baseUrl.trim(),
     apiKey: params.apiKey.trim(),
     model: params.model.trim(),
@@ -198,6 +200,7 @@ export function getVisionModelContextError(
 ): string | null {
   return getProviderContextError({
     provider: params.provider,
+    providerMethod: params.providerMethod,
     baseUrl: params.baseUrl,
     apiKey: params.apiKey,
     model: params.model,
@@ -218,6 +221,7 @@ export async function callVisionProviderModel(
 
   const request = {
     provider: params.provider,
+    providerMethod: params.providerMethod,
     baseUrl: normalizeVisionBaseUrl(params.provider, params.baseUrl),
     apiKey: params.apiKey,
     model: params.model,

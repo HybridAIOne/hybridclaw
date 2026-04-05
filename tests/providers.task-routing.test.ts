@@ -250,11 +250,11 @@ test('resolves configured Anthropic task models on the host', async () => {
 test('warns when task model policy resolution fails and returns a deferred error', async () => {
   const homeDir = makeTempHome();
   vi.doMock('../src/auth/anthropic-auth.js', () => ({
-    resolveAnthropicAuth: vi.fn(() => {
+    requireAnthropicApiKey: vi.fn(() => {
       throw new Error(
         [
-          'Claude CLI is not authenticated on this host.',
-          'Run `claude auth login`, then rerun `hybridclaw auth login anthropic --method cli --set-default`.',
+          'ANTHROPIC_API_KEY is missing from your shell and /tmp/.hybridclaw/credentials.json.',
+          'Run `hybridclaw auth login anthropic --method api-key --set-default` to configure the direct Anthropic API provider.',
         ].join('\n'),
       );
     }),
@@ -281,7 +281,7 @@ test('warns when task model policy resolution fails and returns a deferred error
     model: 'anthropic/claude-3-7-sonnet',
     maxTokens: 512,
     error: expect.stringContaining(
-      'Claude CLI is not authenticated on this host',
+      'ANTHROPIC_API_KEY is missing from your shell',
     ),
   });
   expect(warn).toHaveBeenCalledWith(

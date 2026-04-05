@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { TextDecoder } from 'node:util';
 import { collapseSystemMessages } from '../system-messages.js';
 import type {
@@ -37,6 +38,11 @@ type AnthropicStreamBlock =
   | AnthropicTextStreamBlock
   | AnthropicToolUseStreamBlock;
 
+interface ClaudeCliResult {
+  responseId: string;
+  text: string;
+}
+
 function normalizeAnthropicModelName(model: string): string {
   const trimmed = String(model || '').trim();
   if (!trimmed.toLowerCase().startsWith('anthropic/')) return trimmed;
@@ -47,6 +53,12 @@ function normalizeBaseUrl(baseUrl: string): string {
   return String(baseUrl || '')
     .trim()
     .replace(/\/+$/g, '');
+}
+
+function usesClaudeCliTransport(
+  args: Pick<NormalizedCallArgs, 'providerMethod'>,
+): boolean {
+  return args.providerMethod === 'claude-cli';
 }
 
 function isAnthropicOAuthToken(apiKey: string): boolean {
@@ -75,6 +87,188 @@ function normalizeMessageText(content: ChatMessage['content']): string {
     .filter((part) => part.type === 'text')
     .map((part) => part.text)
     .join('\n');
+}
+
+function summarizeMessageForClaudeCli(message: ChatMessage): string {
+  const text = normalizeMessageText(message.content).trim();
+  const imageCount = Array.isArray(message.content)
+    ? message.content.filter((part) => part.type === 'image_url').length
+    : 0;
+  const toolCallSummary =
+    message.role === 'assistant' && Array.isArray(message.tool_calls)
+      ? message.tool_calls
+          .map((toolCall) => {
+            const args = toolCall.function.arguments.trim();
+            return `- ${toolCall.function.name}${args ? ` ${args}` : ''}`;
+          })
+          .join('\n')
+      : '';
+  const parts = [text];
+  if (imageCount > 0) {
+    parts.push(`[${imageCount} image input${imageCount === 1 ? '' : 's'} omitted in claude-cli transport]`);
+  }
+  if (toolCallSummary) {
+    parts.push(`Assistant tool calls:\n${toolCallSummary}`);
+  }
+  const combined = parts.filter(Boolean).join('\n\n').trim();
+  return combined || '[no text content]';
+}
+
+function buildClaudeCliPrompt(messages: ChatMessage[]): string {
+  const normalized = collapseSystemMessages(messages);
+  const transcript = normalized
+    .filter((message) => message.role !== 'system')
+    .map((message) => {
+      const label =
+        message.role === 'tool'
+          ? `Tool result (${message.tool_call_id || 'unknown'})`
+          : message.role[0]?.toUpperCase() + message.role.slice(1);
+      return `${label}:\n${summarizeMessageForClaudeCli(message)}`;
+    })
+    .join('\n\n');
+  return [
+    'Continue this conversation transcript.',
+    transcript,
+    'Reply to the latest user request.',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+}
+
+function isHostSandboxRuntime(): boolean {
+  return process.env.HYBRIDCLAW_AGENT_SANDBOX_MODE === 'host';
+}
+
+function extractClaudeCliText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!isRecord(value)) return '';
+  if (typeof value.result === 'string') return value.result;
+  if (typeof value.text === 'string') return value.text;
+  if (Array.isArray(value.content)) {
+    return value.content.map(extractClaudeCliText).filter(Boolean).join('');
+  }
+  if (typeof value.type === 'string' && value.type === 'text') {
+    return typeof value.text === 'string' ? value.text : '';
+  }
+  if (isRecord(value.message)) {
+    return extractClaudeCliText(value.message);
+  }
+  return '';
+}
+
+async function runClaudeCliCommand(
+  args: Pick<
+    NormalizedCallArgs,
+    'model' | 'messages' | 'providerMethod'
+  > & {
+    onTextDelta?: (delta: string) => void;
+  },
+): Promise<ClaudeCliResult> {
+  if (!isHostSandboxRuntime()) {
+    throw new Error(
+      'Anthropic `--method claude-cli` requires `--sandbox=host`. Switch HybridClaw to host sandbox mode, or use `--method api-key` for container mode.',
+    );
+  }
+  let responseId = 'claude-cli';
+  let finalText = '';
+  let streamedText = '';
+  let stderr = '';
+  let buffer = '';
+
+  const systemPrompt = extractSystemPrompt(args.messages);
+  const prompt = buildClaudeCliPrompt(args.messages);
+  const commandArgs = [
+    '-p',
+    prompt,
+    '--verbose',
+    '--output-format',
+    'stream-json',
+    '--permission-mode',
+    'bypassPermissions',
+    '--model',
+    normalizeAnthropicModelName(args.model),
+    ...(systemPrompt ? ['--append-system-prompt', systemPrompt] : []),
+  ];
+
+  const child = spawn('claude', commandArgs, {
+    cwd: process.cwd(),
+    env: { ...process.env },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString('utf8');
+  });
+
+  child.stdout.on('data', (chunk) => {
+    buffer += chunk.toString('utf8');
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || '';
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      try {
+        const payload = JSON.parse(line) as Record<string, unknown>;
+        if (typeof payload.session_id === 'string' && payload.session_id) {
+          responseId = payload.session_id;
+        }
+        const text = extractClaudeCliText(payload);
+        if (typeof payload.type === 'string' && payload.type === 'result') {
+          finalText = text;
+          continue;
+        }
+        if (!text) continue;
+        if (text.startsWith(streamedText)) {
+          const delta = text.slice(streamedText.length);
+          if (delta) args.onTextDelta?.(delta);
+          streamedText = text;
+          continue;
+        }
+        streamedText += text;
+        args.onTextDelta?.(text);
+      } catch {
+        streamedText += line;
+        args.onTextDelta?.(line);
+      }
+    }
+  });
+
+  const exitCode = await new Promise<number>((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code) => resolve(code ?? 1));
+  });
+
+  if (buffer.trim()) {
+    try {
+      const payload = JSON.parse(buffer.trim()) as Record<string, unknown>;
+      const text = extractClaudeCliText(payload);
+      if (typeof payload.type === 'string' && payload.type === 'result') {
+        finalText = text || finalText;
+      } else if (text) {
+        if (text.startsWith(streamedText)) {
+          const delta = text.slice(streamedText.length);
+          if (delta) args.onTextDelta?.(delta);
+          streamedText = text;
+        } else {
+          streamedText += text;
+          args.onTextDelta?.(text);
+        }
+      }
+    } catch {
+      streamedText += buffer.trim();
+      args.onTextDelta?.(buffer.trim());
+    }
+  }
+
+  if (exitCode !== 0) {
+    throw new Error(stderr.trim() || `claude exited with status ${exitCode}.`);
+  }
+
+  return {
+    responseId,
+    text: finalText || streamedText,
+  };
 }
 
 function parseDataUrlImage(
@@ -439,6 +633,23 @@ async function readErrorBody(response: Response): Promise<string> {
 export async function callAnthropicProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
+  if (usesClaudeCliTransport(args)) {
+    const result = await runClaudeCliCommand(args);
+    return {
+      id: result.responseId,
+      model: normalizeAnthropicModelName(args.model),
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: result.text,
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    };
+  }
+
   const response = await fetch(`${normalizeBaseUrl(args.baseUrl)}/messages`, {
     method: 'POST',
     headers: buildHeaders(args),
@@ -458,6 +669,23 @@ export async function callAnthropicProvider(
 export async function callAnthropicProviderStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
+  if (usesClaudeCliTransport(args)) {
+    const result = await runClaudeCliCommand(args);
+    return {
+      id: result.responseId,
+      model: normalizeAnthropicModelName(args.model),
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: result.text,
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    };
+  }
+
   const response = await fetch(`${normalizeBaseUrl(args.baseUrl)}/messages`, {
     method: 'POST',
     headers: buildHeaders({ ...args, stream: true }),

@@ -1676,7 +1676,7 @@ function printMissingEnvVarError(message: string, envVar?: string): void {
   };
   const envVarHint: Record<string, string> = {
     HYBRIDAI_API_KEY: `Run \`hybridclaw auth login hybridai\`, or set HYBRIDAI_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
-    ANTHROPIC_API_KEY: `Run \`claude auth login\` and then \`hybridclaw auth login anthropic --method cli\`, or set ANTHROPIC_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
+    ANTHROPIC_API_KEY: `Run \`hybridclaw auth login anthropic --method api-key\`, or run \`claude auth login\` and then \`hybridclaw auth login anthropic --method claude-cli\`, or set ANTHROPIC_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
     OPENROUTER_API_KEY: `Run \`hybridclaw auth login openrouter\`, or set OPENROUTER_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
     MISTRAL_API_KEY: `Run \`hybridclaw auth login mistral\`, or set MISTRAL_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
     HF_TOKEN: `Run \`hybridclaw auth login huggingface\`, or set HF_TOKEN in ${runtimeSecretsPath()} or your shell, then run the command again.`,

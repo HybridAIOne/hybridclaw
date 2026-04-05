@@ -117,6 +117,11 @@ export async function checkProviders(): Promise<DiagResult[]> {
   const defaultProvider = resolveModelProvider(config.hybridai.defaultModel);
   const anthropicStatus = getAnthropicAuthStatus();
   const codexStatus = getCodexAuthStatus();
+  const anthropicConfiguredMethod = config.anthropic.method;
+  const anthropicMethodReady =
+    anthropicConfiguredMethod === 'claude-cli'
+      ? anthropicStatus.method === 'claude-cli'
+      : anthropicStatus.method === 'api-key';
   const discoveredModels = await readDiscoveredModelNamesSafely();
   const anthropicEnabled = config.anthropic?.enabled === true;
   const openRouterEnabled = config.openrouter?.enabled === true;
@@ -165,17 +170,19 @@ export async function checkProviders(): Promise<DiagResult[]> {
       configured:
         anthropicEnabled ||
         defaultProvider === 'anthropic' ||
-        anthropicStatus.authenticated,
+        anthropicMethodReady,
       configuredModelCount: anthropicModels.length,
       probe:
         anthropicEnabled ||
         defaultProvider === 'anthropic' ||
-        anthropicStatus.authenticated
+        anthropicMethodReady
           ? () => probeAnthropic()
           : null,
-      inactiveMessage: anthropicStatus.authenticated
+      inactiveMessage: anthropicMethodReady
         ? 'Provider disabled'
-        : 'Not authenticated',
+        : anthropicConfiguredMethod === 'claude-cli'
+          ? 'Claude CLI login missing'
+          : 'API key missing',
     },
     {
       key: 'openrouter',

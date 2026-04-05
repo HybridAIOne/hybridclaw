@@ -10,6 +10,7 @@ export type { RuntimeProvider } from './provider-ids.js';
 
 export interface NormalizedCallArgs {
   provider: RuntimeProvider | undefined;
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -187,16 +188,17 @@ export function normalizeCallArgs(rawArgs: unknown[]): NormalizedCallArgs {
       provider: rawArgs[0],
       baseUrl: String(rawArgs[1] || ''),
       apiKey: String(rawArgs[2] || ''),
-      model: String(rawArgs[3] || ''),
-      chatbotId: String(rawArgs[4] || ''),
-      enableRag: Boolean(rawArgs[5]),
-      requestHeaders: isStringRecord(rawArgs[6]) ? rawArgs[6] : undefined,
-      messages: (rawArgs[7] as ChatMessage[]) || [],
-      tools: (rawArgs[8] as ToolDefinition[]) || [],
-      maxTokens: typeof rawArgs[9] === 'number' ? rawArgs[9] : undefined,
-      isLocal: Boolean(rawArgs[10]),
-      contextWindow: typeof rawArgs[11] === 'number' ? rawArgs[11] : undefined,
-      thinkingFormat: rawArgs[12] === 'qwen' ? 'qwen' : undefined,
+      providerMethod: typeof rawArgs[3] === 'string' ? rawArgs[3] : undefined,
+      model: String(rawArgs[4] || ''),
+      chatbotId: String(rawArgs[5] || ''),
+      enableRag: Boolean(rawArgs[6]),
+      requestHeaders: isStringRecord(rawArgs[7]) ? rawArgs[7] : undefined,
+      messages: (rawArgs[8] as ChatMessage[]) || [],
+      tools: (rawArgs[9] as ToolDefinition[]) || [],
+      maxTokens: typeof rawArgs[10] === 'number' ? rawArgs[10] : undefined,
+      isLocal: Boolean(rawArgs[11]),
+      contextWindow: typeof rawArgs[12] === 'number' ? rawArgs[12] : undefined,
+      thinkingFormat: rawArgs[13] === 'qwen' ? 'qwen' : undefined,
     };
   }
 
@@ -222,10 +224,10 @@ export function normalizeStreamCallArgs(
 ): NormalizedStreamCallArgs {
   if (isRuntimeProvider(rawArgs[0])) {
     const onActivity =
-      typeof rawArgs[10] === 'function'
-        ? (rawArgs[10] as () => void)
+      typeof rawArgs[11] === 'function'
+        ? (rawArgs[11] as () => void)
         : () => undefined;
-    const maxTokensIndex = typeof rawArgs[10] === 'function' ? 11 : 10;
+    const maxTokensIndex = typeof rawArgs[11] === 'function' ? 12 : 11;
     const isLocalIndex = maxTokensIndex + 1;
     const contextWindowIndex = maxTokensIndex + 2;
     const thinkingFormatIndex = maxTokensIndex + 3;
@@ -233,13 +235,14 @@ export function normalizeStreamCallArgs(
       provider: rawArgs[0],
       baseUrl: String(rawArgs[1] || ''),
       apiKey: String(rawArgs[2] || ''),
-      model: String(rawArgs[3] || ''),
-      chatbotId: String(rawArgs[4] || ''),
-      enableRag: Boolean(rawArgs[5]),
-      requestHeaders: isStringRecord(rawArgs[6]) ? rawArgs[6] : undefined,
-      messages: (rawArgs[7] as ChatMessage[]) || [],
-      tools: (rawArgs[8] as ToolDefinition[]) || [],
-      onTextDelta: (rawArgs[9] as (delta: string) => void) || (() => {}),
+      providerMethod: typeof rawArgs[3] === 'string' ? rawArgs[3] : undefined,
+      model: String(rawArgs[4] || ''),
+      chatbotId: String(rawArgs[5] || ''),
+      enableRag: Boolean(rawArgs[6]),
+      requestHeaders: isStringRecord(rawArgs[7]) ? rawArgs[7] : undefined,
+      messages: (rawArgs[8] as ChatMessage[]) || [],
+      tools: (rawArgs[9] as ToolDefinition[]) || [],
+      onTextDelta: (rawArgs[10] as (delta: string) => void) || (() => {}),
       onActivity,
       maxTokens:
         typeof rawArgs[maxTokensIndex] === 'number'

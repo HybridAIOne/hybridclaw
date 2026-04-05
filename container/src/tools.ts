@@ -728,6 +728,7 @@ export function setModelContext(
     | 'llamacpp'
     | 'vllm'
     | undefined,
+  providerMethod: string | undefined,
   baseUrl: string,
   apiKey: string,
   model: string,
@@ -747,6 +748,7 @@ export function setModelContext(
       : undefined;
   setBrowserModelContext(
     provider,
+    providerMethod,
     baseUrl,
     apiKey,
     model,
