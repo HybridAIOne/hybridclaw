@@ -1,3 +1,7 @@
+import {
+  APPROVAL_SCOPE_MODES,
+  type ApprovalScopeMode,
+} from './approval-commands.js';
 import { mapCanonicalCommandToGatewayArgs } from './command-registry.js';
 
 export interface ParsedTuiSlashCommand {
@@ -9,6 +13,10 @@ export type TuiApproveSlashResult =
   | { kind: 'usage' }
   | { kind: 'missing-approval' }
   | { kind: 'message'; message: string };
+
+function isApprovalScopeMode(value: string): value is ApprovalScopeMode {
+  return APPROVAL_SCOPE_MODES.includes(value as ApprovalScopeMode);
+}
 
 function tokenizeTuiSlashInput(raw: string): string[] {
   return raw.match(/"[^"]*"|\S+/g) ?? [];
@@ -83,11 +91,8 @@ export function mapTuiApproveSlashToMessage(
   if (!approvalId) return { kind: 'missing-approval' };
   if (action === 'yes')
     return { kind: 'message', message: `yes ${approvalId}` };
-  if (action === 'session') {
-    return { kind: 'message', message: `yes ${approvalId} for session` };
-  }
-  if (action === 'agent') {
-    return { kind: 'message', message: `yes ${approvalId} for agent` };
+  if (isApprovalScopeMode(action) && action !== 'once') {
+    return { kind: 'message', message: `yes ${approvalId} for ${action}` };
   }
   if (action === 'no')
     return { kind: 'message', message: `skip ${approvalId}` };
