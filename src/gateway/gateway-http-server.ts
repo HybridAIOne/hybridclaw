@@ -65,6 +65,7 @@ import {
 } from '../tui-slash-menu.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import { WORKSPACE_CONTEXT_FILE_NAMES } from '../workspace.js';
 import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
@@ -253,6 +254,30 @@ type ApiHttpRequestSecretHeaderBody = {
   secretName?: unknown;
   prefix?: unknown;
 };
+
+function normalizePromptModeInput(value: unknown) {
+  return value === 'full' || value === 'minimal' || value === 'none'
+    ? value
+    : undefined;
+}
+
+function normalizePromptAblationInput(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as { omitWorkspaceFiles?: unknown };
+  if (!Array.isArray(candidate.omitWorkspaceFiles)) {
+    return undefined;
+  }
+  const omitWorkspaceFiles = candidate.omitWorkspaceFiles.filter(
+    (entry): entry is (typeof WORKSPACE_CONTEXT_FILE_NAMES)[number] =>
+      typeof entry === 'string' &&
+      WORKSPACE_CONTEXT_FILE_NAMES.includes(
+        entry as (typeof WORKSPACE_CONTEXT_FILE_NAMES)[number],
+      ),
+  );
+  return omitWorkspaceFiles.length > 0 ? { omitWorkspaceFiles } : undefined;
+}
 
 type ApiHttpRequestBody = {
   url?: unknown;
@@ -1359,6 +1384,8 @@ async function handleApiChat(
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
     model: body.model,
+    promptMode: normalizePromptModeInput(body.promptMode),
+    promptAblation: normalizePromptAblationInput(body.promptAblation),
   };
   logger.debug(
     {

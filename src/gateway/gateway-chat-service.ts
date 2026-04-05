@@ -633,6 +633,8 @@ export async function handleGatewayMessage(
     retrievedContext: pluginPromptSummary,
     history,
     currentUserContent: effectiveUserTurnContent,
+    promptMode: req.promptMode,
+    promptAblation: req.promptAblation,
     extraSafetyText: fullAutoOperatingContract,
     runtimeInfo: {
       chatbotId,
@@ -792,6 +794,8 @@ export async function handleGatewayMessage(
         type: 'agent.start',
         provider,
         model,
+        promptMode: req.promptMode || 'full',
+        promptAblation: req.promptAblation || null,
         scheduledTaskCount: scheduledTasks.length,
         promptMessages: messages.length,
         systemPrompt: readSystemPromptMessage(messages),

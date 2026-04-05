@@ -772,13 +772,21 @@ test('handleGatewayCommand dispatches plugin-registered commands', async () => {
   });
 
   expect(pluginManagerMock.findCommand).toHaveBeenCalledWith('qmd');
-  expect(handler).toHaveBeenCalledWith(['status'], {
-    sessionId: 'session-plugin-command',
-    channelId: 'web',
-    userId: 'user-42',
-    username: 'alice',
-    guildId: 'guild-123',
-  });
+  expect(handler).toHaveBeenCalledWith(
+    ['status'],
+    expect.objectContaining({
+      sessionId: 'session-plugin-command',
+      channelId: 'web',
+      userId: 'user-42',
+      username: 'alice',
+      guildId: 'guild-123',
+      agentId: 'main',
+      chatbotId: expect.any(String),
+      model: expect.any(String),
+      enableRag: expect.any(Boolean),
+      workspacePath: expect.stringContaining('/workspace'),
+    }),
+  );
   expect(result.kind).toBe('plain');
   expect(result.text).toBe('QMD index is ready.');
 });

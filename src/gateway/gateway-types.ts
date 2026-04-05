@@ -1,4 +1,5 @@
 import type { BaseMessageOptions } from 'discord.js';
+import type { PromptAblation, PromptMode } from '../agent/prompt-controls.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import type {
   MSTeamsReplyStyle,
@@ -138,6 +139,8 @@ export interface GatewayChatRequestBody {
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
+  promptMode?: PromptMode;
+  promptAblation?: PromptAblation;
 }
 
 export interface GatewayChatRequest {
@@ -153,6 +156,8 @@ export interface GatewayChatRequest {
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];
   enableRag?: GatewayChatRequestBody['enableRag'];
+  promptMode?: GatewayChatRequestBody['promptMode'];
+  promptAblation?: GatewayChatRequestBody['promptAblation'];
   onTextDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;

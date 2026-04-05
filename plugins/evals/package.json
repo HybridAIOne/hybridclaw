@@ -1,0 +1,13 @@
+{
+  "name": "hybridclaw-plugin-evals",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HybridClaw eval plugin for benchmark runs with prompt ablations",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "csv-parse": "^6.2.0"
+  }
+}

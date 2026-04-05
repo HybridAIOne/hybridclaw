@@ -24,6 +24,7 @@ import {
   type SkillInvocation,
 } from '../skills/skills.js';
 import { buildContextPrompt, loadBootstrapFiles } from '../workspace.js';
+import type { PromptAblation, PromptMode } from './prompt-controls.js';
 import { SILENT_REPLY_TOKEN } from './silent-reply.js';
 import { buildToolsSummary } from './tool-summary.js';
 
@@ -35,7 +36,6 @@ export type PromptHookName =
   | 'runtime'
   | 'session-context';
 export type ExtendedPromptHookName = PromptHookName | 'proactivity';
-export type PromptMode = 'full' | 'minimal' | 'none';
 export const MESSAGE_SEND_SILENT_REPLY_TOKEN = SILENT_REPLY_TOKEN;
 
 export interface PromptRuntimeInfo {
@@ -58,6 +58,7 @@ export interface PromptHookContext {
   explicitSkillInvocation?: SkillInvocation | null;
   purpose?: 'conversation' | 'memory-flush';
   promptMode?: PromptMode;
+  promptAblation?: PromptAblation;
   extraSafetyText?: string;
   runtimeInfo?: PromptRuntimeInfo;
   allowedTools?: string[];
@@ -113,7 +114,9 @@ function buildSkillsSection(skillsPrompt: string): string {
 }
 
 function buildBootstrapHook(context: PromptHookContext): string {
-  const contextFiles = loadBootstrapFiles(context.agentId);
+  const contextFiles = loadBootstrapFiles(context.agentId, {
+    omitFiles: context.promptAblation?.omitWorkspaceFiles,
+  });
   const contextPrompt = buildContextPrompt(contextFiles);
   const skillsPrompt = context.explicitSkillInvocation
     ? ''

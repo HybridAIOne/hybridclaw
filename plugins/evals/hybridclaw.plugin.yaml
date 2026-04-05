@@ -1,0 +1,26 @@
+id: evals
+name: Eval Runner
+version: 0.1.0
+kind: tool
+description: Run lightweight benchmark evals against the current HybridClaw model with prompt ablations and saved run artifacts.
+entrypoint: src/index.js
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    dataDir:
+      type: string
+      description: Directory used for saved eval runs and dataset cache.
+    mmluBaseUrl:
+      type: string
+      default: https://raw.githubusercontent.com/hendrycks/test/master/data/test
+    defaultSamples:
+      type: number
+      default: 30
+      minimum: 1
+      maximum: 200
+    maxSamples:
+      type: number
+      default: 200
+      minimum: 1
+      maximum: 500

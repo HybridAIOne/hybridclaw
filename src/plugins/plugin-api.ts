@@ -1,4 +1,9 @@
 import path from 'node:path';
+import {
+  makeAuditRunId,
+  type RecordAuditEventInput,
+  recordAuditEvent,
+} from '../audit/audit-events.js';
 import type { ChannelInfo } from '../channels/channel.js';
 import {
   type RuntimeConfig,
@@ -110,6 +115,12 @@ export function createPluginApi(params: {
       opts?: { priority?: number },
     ): void {
       params.manager.registerHook(params.pluginId, event, handler, opts);
+    },
+    createAuditRunId(prefix?: string): string {
+      return makeAuditRunId(prefix);
+    },
+    recordAuditEvent(input: RecordAuditEventInput): void {
+      recordAuditEvent(input);
     },
     resolvePath(relative: string): string {
       return path.resolve(params.pluginDir, relative);

@@ -467,6 +467,13 @@ export async function tryHandlePluginDefinedGatewayCommand(params: {
   command: string;
   req: GatewayCommandRequest;
   pluginManager: PluginManager | null;
+  runtime?: {
+    agentId: string;
+    chatbotId: string;
+    model: string;
+    workspacePath: string;
+  };
+  enableRag?: boolean;
 }): Promise<GatewayCommandResult | null> {
   const pluginCommand = params.pluginManager?.findCommand(params.command);
   if (!pluginCommand) {
@@ -480,6 +487,11 @@ export async function tryHandlePluginDefinedGatewayCommand(params: {
         userId: params.req.userId,
         username: params.req.username ?? null,
         guildId: params.req.guildId ?? null,
+        agentId: params.runtime?.agentId ?? null,
+        chatbotId: params.runtime?.chatbotId ?? null,
+        model: params.runtime?.model ?? null,
+        enableRag: params.enableRag ?? false,
+        workspacePath: params.runtime?.workspacePath ?? null,
       }),
     );
   } catch (error) {

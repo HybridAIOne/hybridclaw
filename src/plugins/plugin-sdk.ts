@@ -1,3 +1,4 @@
+export type { PromptAblation, PromptMode } from '../agent/prompt-controls.js';
 export type { ChannelInfo } from '../channels/channel.js';
 export {
   readWebhookJsonBody,
@@ -8,6 +9,7 @@ export type { RuntimeConfig } from '../config/runtime-config.js';
 export type { GatewayChatResult } from '../gateway/gateway-types.js';
 export type { AIProvider } from '../providers/types.js';
 export type { StoredMessage } from '../types/session.js';
+export type { WorkspaceContextFileName } from '../workspace.js';
 export type {
   HybridClawPluginApi,
   HybridClawPluginDefinition,

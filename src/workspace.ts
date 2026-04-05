@@ -10,7 +10,7 @@ import { agentWorkspaceDir } from './infra/ipc.js';
 import { logger } from './logger.js';
 import { truncateHeadTailText } from './session/token-efficiency.js';
 
-const BOOTSTRAP_FILES = [
+export const WORKSPACE_CONTEXT_FILE_NAMES = [
   'AGENTS.md',
   'SOUL.md',
   'IDENTITY.md',
@@ -22,6 +22,7 @@ const BOOTSTRAP_FILES = [
   'OPENING.md',
   'BOOT.md',
 ] as const;
+const BOOTSTRAP_FILES = WORKSPACE_CONTEXT_FILE_NAMES;
 const ONE_TIME_BOOTSTRAP_FILES = new Set(['BOOTSTRAP.md']);
 const WORKSPACE_STATE_DIRNAME = '.hybridclaw';
 const WORKSPACE_STATE_FILENAME = 'workspace-state.json';
@@ -50,6 +51,9 @@ export interface ContextFile {
   name: string;
   content: string;
 }
+
+export type WorkspaceContextFileName =
+  (typeof WORKSPACE_CONTEXT_FILE_NAMES)[number];
 
 export interface EnsureBootstrapFilesResult {
   workspacePath: string;
@@ -129,7 +133,7 @@ function writeWorkspaceOnboardingState(
   fs.renameSync(tempPath, statePath);
 }
 
-function readTemplateFile(filename: (typeof BOOTSTRAP_FILES)[number]): string {
+function readTemplateFile(filename: WorkspaceContextFileName): string {
   const templatePath = path.join(TEMPLATES_DIR, filename);
   return fs.readFileSync(templatePath, 'utf-8');
 }
@@ -172,7 +176,7 @@ function normalizeContextFileContent(params: {
 
 function isWorkspaceFileCustomized(
   wsDir: string,
-  filename: (typeof BOOTSTRAP_FILES)[number],
+  filename: WorkspaceContextFileName,
 ): boolean {
   const filePath = path.join(wsDir, filename);
   if (!fs.existsSync(filePath)) return false;
@@ -416,11 +420,18 @@ export function resetWorkspace(agentId: string): ResetWorkspaceResult {
  * Load all bootstrap files from the workspace.
  * Returns only files that exist and have content.
  */
-export function loadBootstrapFiles(agentId: string): ContextFile[] {
+export function loadBootstrapFiles(
+  agentId: string,
+  options?: {
+    omitFiles?: WorkspaceContextFileName[];
+  },
+): ContextFile[] {
   const wsDir = agentWorkspaceDir(agentId);
   const files: ContextFile[] = [];
+  const omitted = new Set(options?.omitFiles || []);
 
   for (const filename of BOOTSTRAP_FILES) {
+    if (omitted.has(filename)) continue;
     const filePath = path.join(wsDir, filename);
     if (!fs.existsSync(filePath)) continue;
 

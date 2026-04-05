@@ -288,6 +288,10 @@ test('handleGatewayMessage records agent handoff before agent-side timeouts', as
     content: 'Von wem ist das?',
     model: 'vllm/Qwen/Qwen3.5-27B-FP8',
     chatbotId: 'bot-1',
+    promptMode: 'minimal',
+    promptAblation: {
+      omitWorkspaceFiles: ['SOUL.md'],
+    },
   });
 
   expect(result.status).toBe('error');
@@ -313,6 +317,10 @@ test('handleGatewayMessage records agent handoff before agent-side timeouts', as
   expect(records[agentStartIndex]?.event).toMatchObject({
     type: 'agent.start',
     model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+    promptMode: 'minimal',
+    promptAblation: {
+      omitWorkspaceFiles: ['SOUL.md'],
+    },
   });
   expect(
     typeof records[agentStartIndex]?.event?.systemPrompt === 'string' &&

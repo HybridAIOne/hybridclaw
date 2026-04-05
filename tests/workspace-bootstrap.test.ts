@@ -132,6 +132,24 @@ describe('workspace bootstrap lifecycle', () => {
     expect(postHatchAgents?.content).toContain('## Every Session');
   });
 
+  test('can omit specific workspace context files when building the prompt context', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const files = workspace.loadBootstrapFiles('agent-test', {
+      omitFiles: ['SOUL.md'],
+    });
+
+    expect(files.some((file) => file.name === 'SOUL.md')).toBe(false);
+    expect(files.some((file) => file.name === 'IDENTITY.md')).toBe(true);
+  });
+
   test('removes stale BOOTSTRAP.md when the workspace already looks completed', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');

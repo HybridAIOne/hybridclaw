@@ -10,9 +10,9 @@ import {
   type Skill,
 } from '../skills/skills.js';
 import type { ChatMessage } from '../types/api.js';
+import type { PromptAblation, PromptMode } from './prompt-controls.js';
 import {
   buildSystemPromptFromHooks,
-  type PromptMode,
   type PromptRuntimeInfo,
 } from './prompt-hooks.js';
 import { mergeBlockedToolNames } from './tool-policy.js';
@@ -35,6 +35,7 @@ export function buildConversationContext(params: {
   history: HistoryMessage[];
   expandLatestHistoryUser?: boolean;
   promptMode?: PromptMode;
+  promptAblation?: PromptAblation;
   extraSafetyText?: string;
   runtimeInfo?: PromptRuntimeInfo;
   allowedTools?: string[];
@@ -48,6 +49,7 @@ export function buildConversationContext(params: {
     history,
     expandLatestHistoryUser = false,
     promptMode = 'full',
+    promptAblation,
     extraSafetyText,
     runtimeInfo,
     allowedTools,
@@ -71,6 +73,7 @@ export function buildConversationContext(params: {
     explicitSkillInvocation,
     purpose: 'conversation',
     promptMode,
+    promptAblation,
     extraSafetyText,
     runtimeInfo,
     allowedTools,

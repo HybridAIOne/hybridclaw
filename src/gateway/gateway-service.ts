@@ -7111,6 +7111,8 @@ export async function handleGatewayCommand(
           command: cmd,
           req,
           pluginManager,
+          runtime: resolveSessionRuntimeTarget(session),
+          enableRag: session.enable_rag === 1,
         });
         if (pluginCommandResult) {
           return pluginCommandResult;

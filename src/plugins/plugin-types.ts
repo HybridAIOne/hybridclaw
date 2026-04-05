@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
+import type { PromptAblation, PromptMode } from '../agent/prompt-controls.js';
+import type { AuditEventPayload } from '../audit/audit-trail.js';
 import type { ChannelInfo } from '../channels/channel.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { GatewayChatResult } from '../gateway/gateway-types.js';
@@ -301,6 +303,11 @@ export interface PluginCommandDefinition {
       userId?: string | null;
       username?: string | null;
       guildId?: string | null;
+      agentId?: string | null;
+      chatbotId?: string | null;
+      model?: string | null;
+      enableRag?: boolean;
+      workspacePath?: string | null;
     },
   ) => Promise<unknown> | unknown;
 }
@@ -329,6 +336,8 @@ export interface PluginDispatchInboundMessageRequest {
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
+  promptMode?: PromptMode;
+  promptAblation?: PromptAblation;
   onProactiveMessage?: (
     message: PluginInboundProactiveMessage,
   ) => void | Promise<void>;
@@ -377,6 +386,13 @@ export interface HybridClawPluginApi {
     handler: PluginHookHandlerMap[K],
     opts?: { priority?: number },
   ): void;
+  createAuditRunId(prefix?: string): string;
+  recordAuditEvent(input: {
+    sessionId: string;
+    runId: string;
+    event: AuditEventPayload;
+    parentRunId?: string;
+  }): void;
   resolvePath(relative: string): string;
   getCredential(key: string): string | undefined;
 }
