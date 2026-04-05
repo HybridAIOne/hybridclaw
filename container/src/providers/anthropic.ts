@@ -244,7 +244,9 @@ function mapStopReason(stopReason: string | null | undefined): string {
   return stopReason || 'stop';
 }
 
-function parseUsage(value: unknown): ChatCompletionResponse['usage'] | undefined {
+function parseUsage(
+  value: unknown,
+): ChatCompletionResponse['usage'] | undefined {
   if (!isRecord(value)) return undefined;
 
   const inputTokens =
@@ -444,7 +446,10 @@ export async function callAnthropicProvider(
   });
 
   if (!response.ok) {
-    throw new HybridAIRequestError(response.status, await readErrorBody(response));
+    throw new HybridAIRequestError(
+      response.status,
+      await readErrorBody(response),
+    );
   }
 
   return adaptAnthropicResponse(await response.json(), args.model);
@@ -460,7 +465,10 @@ export async function callAnthropicProviderStream(
   });
 
   if (!response.ok) {
-    throw new HybridAIRequestError(response.status, await readErrorBody(response));
+    throw new HybridAIRequestError(
+      response.status,
+      await readErrorBody(response),
+    );
   }
   if (!response.body) {
     throw new Error('Anthropic stream response body is missing.');
