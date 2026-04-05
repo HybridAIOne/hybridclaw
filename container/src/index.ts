@@ -857,7 +857,7 @@ async function processRequest(
   messages: ChatMessage[],
   apiKey: string,
   baseUrl: string,
-  provider: 
+  provider:
     | 'hybridai'
     | 'openai-codex'
     | 'anthropic'

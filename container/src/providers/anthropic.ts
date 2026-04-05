@@ -105,7 +105,9 @@ function summarizeMessageForClaudeCli(message: ChatMessage): string {
       : '';
   const parts = [text];
   if (imageCount > 0) {
-    parts.push(`[${imageCount} image input${imageCount === 1 ? '' : 's'} omitted in claude-cli transport]`);
+    parts.push(
+      `[${imageCount} image input${imageCount === 1 ? '' : 's'} omitted in claude-cli transport]`,
+    );
   }
   if (toolCallSummary) {
     parts.push(`Assistant tool calls:\n${toolCallSummary}`);
@@ -158,10 +160,7 @@ function extractClaudeCliText(value: unknown): string {
 }
 
 async function runClaudeCliCommand(
-  args: Pick<
-    NormalizedCallArgs,
-    'model' | 'messages' | 'providerMethod'
-  > & {
+  args: Pick<NormalizedCallArgs, 'model' | 'messages' | 'providerMethod'> & {
     onTextDelta?: (delta: string) => void;
   },
 ): Promise<ClaudeCliResult> {
