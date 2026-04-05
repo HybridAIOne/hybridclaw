@@ -794,6 +794,16 @@ describe('.claw archive support', () => {
       '{}\n',
       'utf-8',
     );
+    fs.writeFileSync(
+      path.join(workspaceDir, 'approval-trust.json'),
+      '{"allowlistedActions":["network:example.com"]}\n',
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(workspaceDir, '.hybridclaw', 'approval-agent-trust.json'),
+      '{"allowlistedActions":["network:example.com"]}\n',
+      'utf-8',
+    );
     fs.mkdirSync(
       path.join(
         workspaceDir,
@@ -844,6 +854,12 @@ describe('.claw archive support', () => {
       'workspace/.hybridclaw/workspace-state.json',
     );
     expect(packed.archiveEntries).not.toContain(
+      'workspace/approval-trust.json',
+    );
+    expect(packed.archiveEntries).not.toContain(
+      'workspace/.hybridclaw/approval-agent-trust.json',
+    );
+    expect(packed.archiveEntries).not.toContain(
       'workspace/.hybridclaw-runtime/browser-profiles/tui_local_test/RunningChromeVersion',
     );
 
@@ -851,6 +867,12 @@ describe('.claw archive support', () => {
     expect(inspection.manifest.skills).toBeUndefined();
     expect(inspection.manifest.plugins).toBeUndefined();
     expect(inspection.entryNames).not.toContain('workspace/.env');
+    expect(inspection.entryNames).not.toContain(
+      'workspace/approval-trust.json',
+    );
+    expect(inspection.entryNames).not.toContain(
+      'workspace/.hybridclaw/approval-agent-trust.json',
+    );
     expect(inspection.entryNames).toContain('workspace/notes/guide.md');
   });
 
