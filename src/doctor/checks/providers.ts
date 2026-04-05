@@ -1,8 +1,10 @@
+import { getAnthropicAuthStatus } from '../../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../../auth/codex-auth.js';
 import { getRuntimeConfig } from '../../config/runtime-config.js';
 import { resolveModelProvider } from '../../providers/factory.js';
 import {
   type ProviderProbeResult,
+  probeAnthropic,
   probeCodex,
   probeHuggingFace,
   probeHybridAI,
@@ -15,6 +17,7 @@ import { makeResult, severityFrom, toErrorMessage } from '../utils.js';
 type ProviderKey =
   | 'hybridai'
   | 'codex'
+  | 'anthropic'
   | 'openrouter'
   | 'mistral'
   | 'huggingface';
@@ -112,8 +115,10 @@ function formatProbeSegment(
 export async function checkProviders(): Promise<DiagResult[]> {
   const config = getRuntimeConfig();
   const defaultProvider = resolveModelProvider(config.hybridai.defaultModel);
+  const anthropicStatus = getAnthropicAuthStatus();
   const codexStatus = getCodexAuthStatus();
   const discoveredModels = await readDiscoveredModelNamesSafely();
+  const anthropicEnabled = config.anthropic?.enabled === true;
   const openRouterEnabled = config.openrouter?.enabled === true;
   const hybridaiModels = dedupeStrings([
     ...discoveredModels.hybridai,
@@ -122,6 +127,10 @@ export async function checkProviders(): Promise<DiagResult[]> {
   const codexModels = dedupeStrings([
     ...discoveredModels.codex,
     defaultProvider === 'openai-codex' ? config.hybridai.defaultModel : '',
+  ]);
+  const anthropicModels = dedupeStrings([
+    ...(config.anthropic?.models ?? []),
+    defaultProvider === 'anthropic' ? config.hybridai.defaultModel : '',
   ]);
   const openRouterModels = dedupeStrings(discoveredModels.openrouter);
   const mistralEnabled = config.mistral?.enabled === true;
@@ -147,6 +156,25 @@ export async function checkProviders(): Promise<DiagResult[]> {
       probe: codexStatus.authenticated ? () => probeCodex() : null,
       inactiveMessage: codexStatus.reloginRequired
         ? 'Login required'
+        : 'Not authenticated',
+    },
+    {
+      key: 'anthropic',
+      label: 'Anthropic',
+      active: defaultProvider === 'anthropic',
+      configured:
+        anthropicEnabled ||
+        defaultProvider === 'anthropic' ||
+        anthropicStatus.authenticated,
+      configuredModelCount: anthropicModels.length,
+      probe:
+        anthropicEnabled ||
+        defaultProvider === 'anthropic' ||
+        anthropicStatus.authenticated
+          ? () => probeAnthropic()
+          : null,
+      inactiveMessage: anthropicStatus.authenticated
+        ? 'Provider disabled'
         : 'Not authenticated',
     },
     {

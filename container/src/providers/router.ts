@@ -9,6 +9,10 @@ import type {
 export { extractResponseTextContent } from '../../shared/response-text.js';
 
 import {
+  callAnthropicProvider,
+  callAnthropicProviderStream,
+} from './anthropic.js';
+import {
   callHybridAIProvider,
   callHybridAIProviderStream,
 } from './hybridai.js';
@@ -98,6 +102,9 @@ function buildStreamCallArgs(
 export async function callProviderModel(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
+  if (args.provider === 'anthropic') {
+    return callAnthropicProvider(args);
+  }
   if (args.provider === 'openai-codex') {
     return callOpenAICodexProvider(args);
   }
@@ -113,6 +120,9 @@ export async function callProviderModel(
 export async function callProviderModelStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
+  if (args.provider === 'anthropic') {
+    return callAnthropicProviderStream(args);
+  }
   if (args.provider === 'openai-codex') {
     return callOpenAICodexProviderStream(args);
   }
@@ -157,6 +167,7 @@ function shouldStreamVisionRequest(
   return (
     provider === undefined ||
     provider === 'hybridai' ||
+    provider === 'anthropic' ||
     provider === 'openai-codex'
   );
 }

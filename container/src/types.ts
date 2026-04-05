@@ -115,6 +115,7 @@ export interface TaskModelPolicy {
   provider?:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -202,6 +203,7 @@ export interface ContainerInput {
   provider?:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'

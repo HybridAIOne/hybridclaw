@@ -12,6 +12,7 @@ const ORIGINAL_AUXILIARY_COMPRESSION_PROVIDER =
   process.env.AUXILIARY_COMPRESSION_PROVIDER;
 const ORIGINAL_AUXILIARY_COMPRESSION_MODEL =
   process.env.AUXILIARY_COMPRESSION_MODEL;
+const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 function makeTempHome(): string {
@@ -55,6 +56,7 @@ async function importFreshTaskRouting(homeDir: string) {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
+  vi.doUnmock('../src/auth/anthropic-auth.js');
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/providers/factory.js');
   restoreEnvVar('HOME', ORIGINAL_HOME);
@@ -70,6 +72,7 @@ afterEach(() => {
     'AUXILIARY_COMPRESSION_MODEL',
     ORIGINAL_AUXILIARY_COMPRESSION_MODEL,
   );
+  restoreEnvVar('ANTHROPIC_API_KEY', ORIGINAL_ANTHROPIC_API_KEY);
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
 });
 
@@ -200,9 +203,12 @@ test('captures env overrides at module load', async () => {
   expect(policy?.maxTokens).toBeUndefined();
 });
 
-test('captures unsupported vision task model config as a deferred policy error', async () => {
+test('resolves configured Anthropic task models on the host', async () => {
   const homeDir = makeTempHome();
+  process.env.ANTHROPIC_API_KEY = 'anthropic-task-routing-test';
   writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.baseUrl = 'https://api.anthropic.com/v1/';
     config.auxiliaryModels.vision.model = 'anthropic/claude-3-7-sonnet';
     config.auxiliaryModels.vision.maxTokens = 512;
     config.auxiliaryModels.compression.model = 'anthropic/claude-3-7-sonnet';
@@ -217,25 +223,44 @@ test('captures unsupported vision task model config as a deferred policy error',
 
   expect(taskModels).toMatchObject({
     vision: {
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com/v1',
+      apiKey: 'anthropic-task-routing-test',
       model: 'anthropic/claude-3-7-sonnet',
-      maxTokens: 512,
-      error: expect.stringContaining(
-        'Anthropic provider is not implemented yet',
-      ),
+      chatbotId: '',
+      requestHeaders: {
+        'anthropic-version': '2023-06-01',
+      },
+      maxTokens: 32_000,
     },
     compression: {
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com/v1',
+      apiKey: 'anthropic-task-routing-test',
       model: 'anthropic/claude-3-7-sonnet',
-      maxTokens: 256,
-      error: expect.stringContaining(
-        'Anthropic provider is not implemented yet',
-      ),
+      chatbotId: '',
+      requestHeaders: {
+        'anthropic-version': '2023-06-01',
+      },
+      maxTokens: 32_000,
     },
   });
 });
 
 test('warns when task model policy resolution fails and returns a deferred error', async () => {
   const homeDir = makeTempHome();
+  vi.doMock('../src/auth/anthropic-auth.js', () => ({
+    resolveAnthropicAuth: vi.fn(() => {
+      throw new Error(
+        [
+          'Claude CLI is not authenticated on this host.',
+          'Run `claude auth login`, then rerun `hybridclaw auth login anthropic --method cli --set-default`.',
+        ].join('\n'),
+      );
+    }),
+  }));
   writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
     config.auxiliaryModels.vision.model = 'anthropic/claude-3-7-sonnet';
     config.auxiliaryModels.vision.maxTokens = 512;
   });
@@ -255,7 +280,9 @@ test('warns when task model policy resolution fails and returns a deferred error
   expect(policy).toMatchObject({
     model: 'anthropic/claude-3-7-sonnet',
     maxTokens: 512,
-    error: expect.stringContaining('Anthropic provider is not implemented yet'),
+    error: expect.stringContaining(
+      'Claude CLI is not authenticated on this host',
+    ),
   });
   expect(warn).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -339,7 +366,8 @@ test('uses discovered OpenRouter Anthropic max tokens instead of configured task
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
     config.auxiliaryModels.compression.provider = 'openrouter';
-    config.auxiliaryModels.compression.model = 'anthropic/claude-sonnet-4';
+    config.auxiliaryModels.compression.model =
+      'openrouter/anthropic/claude-sonnet-4';
     config.auxiliaryModels.compression.maxTokens = 222;
   });
 

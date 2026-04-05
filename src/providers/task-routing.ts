@@ -37,6 +37,7 @@ const ENV_OVERRIDE_PREFIXES = ['AUXILIARY_', 'CONTEXT_'] as const;
 const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
   hybridai: '',
   'openai-codex': 'openai-codex/',
+  anthropic: 'anthropic/',
   openrouter: 'openrouter/',
   mistral: 'mistral/',
   huggingface: 'huggingface/',

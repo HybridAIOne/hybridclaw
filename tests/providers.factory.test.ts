@@ -11,6 +11,7 @@ const ORIGINAL_DISABLE_CONFIG_WATCHER =
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
+const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
 const ORIGINAL_GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const ORIGINAL_DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
@@ -81,6 +82,7 @@ afterEach(() => {
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
   restoreEnvVar('MISTRAL_API_KEY', ORIGINAL_MISTRAL_API_KEY);
+  restoreEnvVar('ANTHROPIC_API_KEY', ORIGINAL_ANTHROPIC_API_KEY);
   restoreEnvVar('HF_TOKEN', ORIGINAL_HF_TOKEN);
   restoreEnvVar('GEMINI_API_KEY', ORIGINAL_GEMINI_API_KEY);
   restoreEnvVar('DEEPSEEK_API_KEY', ORIGINAL_DEEPSEEK_API_KEY);
@@ -450,15 +452,31 @@ test.each([
   });
 });
 
-test('provider factory fails early for unsupported anthropic runtime execution', async () => {
+test('provider factory resolves Anthropic runtime credentials', async () => {
   const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.baseUrl = 'https://api.anthropic.com/v1/';
+  });
+  process.env.ANTHROPIC_API_KEY = 'anthropic-provider-test';
   const factory = await importFreshFactory(homeDir);
 
-  await expect(
-    factory.resolveModelRuntimeCredentials({
-      model: 'anthropic/claude-3-7-sonnet',
-    }),
-  ).rejects.toThrow(
-    'Anthropic provider is not implemented yet for model "anthropic/claude-3-7-sonnet".',
-  );
+  const credentials = await factory.resolveModelRuntimeCredentials({
+    model: 'anthropic/claude-3-7-sonnet',
+    agentId: 'main',
+  });
+
+  expect(credentials).toMatchObject({
+    provider: 'anthropic',
+    apiKey: 'anthropic-provider-test',
+    baseUrl: 'https://api.anthropic.com/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'fine-grained-tool-streaming-2025-05-14',
+    },
+    agentId: 'main',
+    isLocal: false,
+  });
 });

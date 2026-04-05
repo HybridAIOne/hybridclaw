@@ -4,6 +4,7 @@ import {
   discoverCodexModels,
   getDiscoveredCodexModelNames,
 } from './codex-discovery.js';
+import { ANTHROPIC_MODEL_PREFIX } from './anthropic-utils.js';
 import { resolveModelProvider } from './factory.js';
 import { discoverHuggingFaceModels } from './huggingface-discovery.js';
 import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
@@ -63,6 +64,7 @@ const PREFIX_BY_PROVIDER: Record<
   string
 > = {
   'openai-codex': OPENAI_CODEX_MODEL_PREFIX,
+  anthropic: ANTHROPIC_MODEL_PREFIX,
   openrouter: OPENROUTER_MODEL_PREFIX,
   mistral: MISTRAL_MODEL_PREFIX,
   huggingface: HUGGINGFACE_MODEL_PREFIX,
@@ -196,6 +198,10 @@ function collectModelsForProvider(
       return [HYBRIDAI_MODEL, ...getDiscoveredHybridAIModelNames()];
     case 'openai-codex':
       return getDiscoveredCodexModelNames();
+    case 'anthropic':
+      return getRuntimeConfig().anthropic.enabled
+        ? getRuntimeConfig().anthropic.models
+        : [];
     case 'local':
     case 'ollama':
     case 'lmstudio':
@@ -237,6 +243,7 @@ export function getAvailableModelList(provider?: string): string[] {
     : [
         HYBRIDAI_MODEL,
         ...getDiscoveredCodexModelNames(),
+        ...(config.anthropic.enabled ? config.anthropic.models : []),
         ...getDiscoveredHybridAIModelNames(),
         ...getDiscoveredLocalModelNames(),
         ...getDiscoveredOpenAICompatRemoteModelNames(),

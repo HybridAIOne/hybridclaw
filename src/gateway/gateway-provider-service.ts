@@ -1,3 +1,4 @@
+import { getAnthropicAuthStatus } from '../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
@@ -27,6 +28,7 @@ const PROVIDER_META: Record<
 > = {
   hybridai: { label: 'HybridAI', loginName: 'hybridai' },
   'openai-codex': { label: 'Codex', loginName: 'codex' },
+  anthropic: { label: 'Anthropic', loginName: 'anthropic' },
   openrouter: { label: 'OpenRouter', loginName: 'openrouter' },
   mistral: { label: 'Mistral', loginName: 'mistral' },
   huggingface: { label: 'Hugging Face', loginName: 'huggingface' },
@@ -131,6 +133,18 @@ export function diagnoseProviderForModels(
       }
       if (providerHealth?.codex?.reachable !== true) {
         return unreachable(filter, null);
+      }
+      return null;
+    }
+    case 'anthropic': {
+      if (!config.anthropic.enabled) {
+        return disabled(filter, buildProviderEnableCommand(filter));
+      }
+      if (!getAnthropicAuthStatus().authenticated) {
+        return unauthorized(filter);
+      }
+      if (providerHealth?.anthropic?.reachable !== true) {
+        return unreachable(filter, config.anthropic.baseUrl);
       }
       return null;
     }

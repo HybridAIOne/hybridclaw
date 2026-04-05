@@ -170,6 +170,7 @@ type BrowserModelContext = {
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -238,6 +239,7 @@ export function setBrowserModelContext(
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'

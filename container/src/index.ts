@@ -703,6 +703,7 @@ async function callHybridAIWithRetry(params: {
   provider?:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -853,6 +854,7 @@ async function processRequest(
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'

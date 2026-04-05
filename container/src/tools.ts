@@ -102,6 +102,7 @@ let gatewayChannelId = '';
 let currentModelProvider:
   | 'hybridai'
   | 'openai-codex'
+  | 'anthropic'
   | 'openrouter'
   | 'mistral'
   | 'huggingface'
@@ -718,6 +719,7 @@ export function setModelContext(
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'

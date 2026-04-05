@@ -43,6 +43,8 @@ export class MissingRequiredEnvVarError extends Error {
         'Mistral provider is not configured. Use `/auth login mistral` in the TUI, or switch to a model from another configured provider.',
       HF_TOKEN:
         'Hugging Face provider is not configured. Use `/auth login huggingface` in the TUI, or switch to a model from another configured provider.',
+      ANTHROPIC_API_KEY:
+        'Anthropic provider is not configured. Use `/auth login anthropic --method cli` in the TUI, or switch to a model from another configured provider.',
       GEMINI_API_KEY:
         'Google Gemini provider is not configured. Use `/auth login gemini` in the TUI, or switch to a model from another configured provider.',
       DEEPSEEK_API_KEY:
@@ -208,6 +210,11 @@ function syncRuntimeSecretExports(): void {
     'MISTRAL_API_KEY',
     storedSecrets,
   );
+  ANTHROPIC_API_KEY = readRuntimeSecretValue(
+    ['ANTHROPIC_API_KEY'],
+    'ANTHROPIC_API_KEY',
+    storedSecrets,
+  );
   HUGGINGFACE_API_KEY = readRuntimeSecretValue(
     ['HF_TOKEN', 'HUGGINGFACE_API_KEY'],
     'HF_TOKEN',
@@ -273,6 +280,7 @@ export let SLACK_APP_TOKEN = '';
 export let HYBRIDAI_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
 export let MISTRAL_API_KEY = '';
+export let ANTHROPIC_API_KEY = '';
 export let HUGGINGFACE_API_KEY = '';
 export let GEMINI_API_KEY = '';
 export let DEEPSEEK_API_KEY = '';
@@ -444,6 +452,8 @@ export let OPENROUTER_ENABLED = false;
 export let OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export let MISTRAL_ENABLED = false;
 export let MISTRAL_BASE_URL = 'https://api.mistral.ai/v1';
+export let ANTHROPIC_ENABLED = false;
+export let ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
 export let HUGGINGFACE_ENABLED = false;
 export let HUGGINGFACE_BASE_URL = 'https://router.huggingface.co/v1';
 export let GEMINI_ENABLED = false;
@@ -832,6 +842,8 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   OPENROUTER_BASE_URL = config.openrouter.baseUrl;
   MISTRAL_ENABLED = config.mistral.enabled;
   MISTRAL_BASE_URL = config.mistral.baseUrl;
+  ANTHROPIC_ENABLED = config.anthropic.enabled;
+  ANTHROPIC_BASE_URL = config.anthropic.baseUrl;
   HUGGINGFACE_ENABLED = config.huggingface.enabled;
   HUGGINGFACE_BASE_URL = config.huggingface.baseUrl;
   GEMINI_ENABLED = config.gemini.enabled;

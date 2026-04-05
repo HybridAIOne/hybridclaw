@@ -1,6 +1,9 @@
+import { resolveAnthropicAuth } from '../auth/anthropic-auth.js';
 import { resolveCodexCredentials } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import {
+  ANTHROPIC_BASE_URL,
+  ANTHROPIC_ENABLED,
   CODEX_BASE_URL,
   HUGGINGFACE_BASE_URL,
   HUGGINGFACE_ENABLED,
@@ -9,6 +12,7 @@ import {
   OPENROUTER_BASE_URL,
   OPENROUTER_ENABLED,
 } from '../config/config.js';
+import { normalizeAnthropicBaseUrl } from '../providers/anthropic-utils.js';
 import { CODEX_CLIENT_VERSION } from '../providers/codex-constants.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
@@ -66,6 +70,53 @@ export async function probeOpenRouter(): Promise<ProviderProbeResult> {
         Authorization: `Bearer ${apiKey}`,
         ...buildOpenRouterAttributionHeaders(),
       },
+      signal: AbortSignal.timeout(5_000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = (await response.json()) as { data?: unknown[] };
+  return {
+    reachable: true,
+    detail: `${Date.now() - startedAt}ms`,
+    modelCount: Array.isArray(payload.data) ? payload.data.length : 0,
+  };
+}
+
+export async function probeAnthropic(): Promise<ProviderProbeResult> {
+  if (!ANTHROPIC_ENABLED) {
+    return {
+      reachable: false,
+      detail: 'Provider disabled',
+    };
+  }
+
+  let auth: ReturnType<typeof resolveAnthropicAuth>;
+  try {
+    auth = resolveAnthropicAuth();
+  } catch (error) {
+    return {
+      reachable: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const headers: Record<string, string> = {
+    ...auth.headers,
+  };
+  if (auth.method === 'cli') {
+    headers.Authorization = `Bearer ${auth.apiKey}`;
+  } else {
+    headers['x-api-key'] = auth.apiKey;
+  }
+
+  const startedAt = Date.now();
+  const response = await fetch(
+    `${normalizeAnthropicBaseUrl(ANTHROPIC_BASE_URL)}/models`,
+    {
+      headers,
       signal: AbortSignal.timeout(5_000),
     },
   );
