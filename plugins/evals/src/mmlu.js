@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from 'csv-parse/sync';
@@ -140,16 +141,73 @@ async function readSubjectCsv(config, subject) {
     return fs.readFileSync(cachePath, 'utf-8');
   }
 
-  const url = `${config.mmluBaseUrl.replace(/\/+$/, '')}/${subject}_test.csv`;
-  const response = await fetch(url);
-  if (!response.ok) {
+  if (config.mmluBaseUrl) {
+    const url = `${config.mmluBaseUrl.replace(/\/+$/, '')}/${subject}_test.csv`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch MMLU subject ${subject}: ${response.status}`,
+      );
+    }
+    const text = await response.text();
+    fs.writeFileSync(cachePath, text, 'utf-8');
+    return text;
+  }
+
+  return await readSubjectCsvFromArchive(config, subject, cachePath);
+}
+
+async function readSubjectCsvFromArchive(config, subject, cachePath) {
+  const extractedPath = await ensureMmluArchiveExtracted(config);
+  const subjectPath = path.join(
+    extractedPath,
+    'data',
+    'test',
+    `${subject}_test.csv`,
+  );
+  if (!fs.existsSync(subjectPath)) {
     throw new Error(
-      `Failed to fetch MMLU subject ${subject}: ${response.status}`,
+      `Failed to locate MMLU subject ${subject} in extracted archive.`,
     );
   }
-  const text = await response.text();
+  const text = fs.readFileSync(subjectPath, 'utf-8');
   fs.writeFileSync(cachePath, text, 'utf-8');
   return text;
+}
+
+async function ensureMmluArchiveExtracted(config) {
+  const archiveDir = path.join(config.cacheDir, 'mmlu-archive');
+  const archivePath = path.join(archiveDir, 'data.tar');
+  const extractDir = path.join(archiveDir, 'extracted');
+  const markerPath = path.join(extractDir, '.ready');
+  if (fs.existsSync(markerPath)) {
+    return extractDir;
+  }
+
+  fs.mkdirSync(archiveDir, { recursive: true });
+  fs.mkdirSync(extractDir, { recursive: true });
+
+  if (!fs.existsSync(archivePath)) {
+    const response = await fetch(config.mmluDataUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download MMLU archive: ${response.status}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    fs.writeFileSync(archivePath, Buffer.from(arrayBuffer));
+  }
+
+  try {
+    execFileSync('tar', ['-xf', archivePath, '-C', extractDir], {
+      stdio: 'ignore',
+    });
+  } catch (error) {
+    throw new Error(
+      `Failed to extract MMLU archive with tar: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  fs.writeFileSync(markerPath, 'ok\n', 'utf-8');
+  return extractDir;
 }
 
 async function loadSubjectRows(config, subject) {

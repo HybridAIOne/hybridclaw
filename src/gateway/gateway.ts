@@ -447,6 +447,9 @@ async function handleTextChannelCommand(params: {
     args,
     userId,
     username,
+    onProactiveMessage: async (message) => {
+      await deliverProactiveMessage(channelId, message.text, 'command');
+    },
   });
   const text = renderTextChannelCommandResult(result);
   if (result.components !== undefined) {

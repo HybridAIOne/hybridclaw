@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { stopSessionExecution } from '../agent/executor.js';
 import {
   makeAuditRunId,
   type RecordAuditEventInput,
@@ -121,6 +122,9 @@ export function createPluginApi(params: {
     },
     recordAuditEvent(input: RecordAuditEventInput): void {
       recordAuditEvent(input);
+    },
+    stopSessionExecution(sessionId: string): boolean {
+      return stopSessionExecution(sessionId);
     },
     resolvePath(relative: string): string {
       return path.resolve(params.pluginDir, relative);

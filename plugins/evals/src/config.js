@@ -13,14 +13,16 @@ function toBoundedInteger(value, fallback, min, max) {
 export function resolveEvalPluginConfig(pluginConfig, runtime) {
   const dataDir =
     toTrimmedString(pluginConfig.dataDir) ||
-    path.join(runtime.homeDir, '.hybridclaw', 'evals');
+    path.join(runtime.homeDir, 'evals');
+  const mmluDataUrl = toTrimmedString(pluginConfig.mmluDataUrl);
+  const mmluBaseUrl = toTrimmedString(pluginConfig.mmluBaseUrl);
   return {
     dataDir,
     runsDir: path.join(dataDir, 'runs'),
     cacheDir: path.join(dataDir, 'cache'),
-    mmluBaseUrl:
-      toTrimmedString(pluginConfig.mmluBaseUrl) ||
-      'https://raw.githubusercontent.com/hendrycks/test/master/data/test',
+    mmluDataUrl:
+      mmluDataUrl || 'https://people.eecs.berkeley.edu/~hendrycks/data.tar',
+    mmluBaseUrl,
     defaultSamples: toBoundedInteger(pluginConfig.defaultSamples, 30, 1, 200),
     maxSamples: toBoundedInteger(pluginConfig.maxSamples, 200, 1, 500),
   };

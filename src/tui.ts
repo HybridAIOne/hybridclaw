@@ -102,6 +102,7 @@ import {
   wrapTuiBlock,
 } from './tui-thinking.js';
 import type { SessionShowMode } from './types/session.js';
+import { sleep } from './utils/sleep.js';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -1231,7 +1232,33 @@ async function runGatewayCommand(
   rl: readline.Interface,
 ): Promise<void> {
   try {
-    const result = await requestGatewayCommand(args);
+    const commandPromise = requestGatewayCommand(args);
+    let result: GatewayCommandResult | null = null;
+    let commandError: unknown = null;
+    let commandSettled = false;
+
+    void commandPromise.then(
+      (value) => {
+        result = value;
+        commandSettled = true;
+      },
+      (error) => {
+        commandError = error;
+        commandSettled = true;
+      },
+    );
+
+    while (!commandSettled) {
+      await sleep(150);
+      await pollProactiveMessages(rl);
+    }
+
+    await pollProactiveMessages(rl);
+
+    if (commandError) throw commandError;
+    if (!result) {
+      throw new Error('Gateway command completed without a result');
+    }
     printGatewayCommandResult(result);
     const normalizedCommand = (args[0] || '').trim().toLowerCase();
     const normalizedSubcommand = (args[1] || '').trim().toLowerCase();
@@ -1873,11 +1900,11 @@ async function pollProactiveMessages(rl: readline.Interface): Promise<void> {
     clearTuiSlashMenu();
     console.log();
     for (const message of result.messages) {
+      const badge = proactiveBadgeLabel(message.source);
+      const badgePrefix = badge ? `${GOLD}[${badge}]${RESET} ` : '';
       const suffix = proactiveSourceSuffix(message.source);
       const sourceSuffix = suffix ? ` ${MUTED}${suffix}${RESET}` : '';
-      console.log(
-        `  ${GOLD}[${proactiveBadgeLabel(message.source)}]${RESET} ${message.text}${sourceSuffix}`,
-      );
+      console.log(`  ${badgePrefix}${message.text}${sourceSuffix}`);
     }
     console.log();
     promptTuiInput(rl);

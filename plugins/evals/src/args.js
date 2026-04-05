@@ -28,19 +28,29 @@ function pushUnique(list, value) {
 export function formatEvalUsage() {
   return [
     'Usage:',
+    '/eval list',
     '/eval mmlu [--n 30] [--subject high_school_computer_science] [--model <model>]',
     '           [--system-prompt full|minimal|none] [--no-soul]',
+    '/eval jsonl <file> [--n 30] [--model <model>] [--answer-mode exact|includes|choice]',
+    '            [--system-prompt full|minimal|none] [--no-soul]',
     '/eval runs [benchmark] [--limit 10]',
   ].join('\n');
 }
 
-export function parseEvalArgs(argv, config) {
+export function parseEvalArgs(argv, config, benchmarkNames = []) {
   const args = argv
     .map((arg) => String(arg || '').trim())
     .filter((arg) => arg.length > 0);
   if (args.length === 0) {
     return {
       kind: 'help',
+    };
+  }
+
+  if (args[0] === 'list') {
+    return {
+      kind: 'catalog',
+      benchmarkNames,
     };
   }
 
@@ -70,7 +80,7 @@ export function parseEvalArgs(argv, config) {
   }
 
   const benchmark = args[0].toLowerCase();
-  if (benchmark !== 'mmlu') {
+  if (!benchmarkNames.includes(benchmark)) {
     throw new Error(`Unsupported eval benchmark: ${benchmark}`);
   }
 
@@ -81,6 +91,8 @@ export function parseEvalArgs(argv, config) {
     seed: 0,
     subject: null,
     model: null,
+    filePath: null,
+    answerMode: null,
     promptMode: 'full',
     omitWorkspaceFiles: [],
   };
@@ -116,6 +128,19 @@ export function parseEvalArgs(argv, config) {
       }
       continue;
     }
+    if (arg === '--answer-mode') {
+      index += 1;
+      const value = String(args[index] || '')
+        .trim()
+        .toLowerCase();
+      if (!['exact', 'includes', 'choice'].includes(value)) {
+        throw new Error(
+          `Invalid --answer-mode value: ${String(args[index] || '')}`,
+        );
+      }
+      parsed.answerMode = value;
+      continue;
+    }
     if (arg === '--system-prompt') {
       index += 1;
       const value = String(args[index] || '')
@@ -142,7 +167,15 @@ export function parseEvalArgs(argv, config) {
       pushUnique(parsed.omitWorkspaceFiles, value);
       continue;
     }
+    if (!arg.startsWith('--') && benchmark === 'jsonl' && !parsed.filePath) {
+      parsed.filePath = arg;
+      continue;
+    }
     throw new Error(`Unknown option: ${arg}`);
+  }
+
+  if (benchmark === 'jsonl' && !parsed.filePath) {
+    throw new Error('Missing JSONL eval file path.');
   }
 
   return parsed;

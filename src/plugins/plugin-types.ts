@@ -308,6 +308,7 @@ export interface PluginCommandDefinition {
       model?: string | null;
       enableRag?: boolean;
       workspacePath?: string | null;
+      emitProgress?: (text: string) => void | Promise<void>;
     },
   ) => Promise<unknown> | unknown;
 }
@@ -393,6 +394,7 @@ export interface HybridClawPluginApi {
     event: AuditEventPayload;
     parentRunId?: string;
   }): void;
+  stopSessionExecution(sessionId: string): boolean;
   resolvePath(relative: string): string;
   getCredential(key: string): string | undefined;
 }

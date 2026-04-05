@@ -10,7 +10,12 @@ test('uses fullauto badge for full-auto proactive messages', () => {
   expect(proactiveSourceSuffix('fullauto')).toBe('');
 });
 
-test('keeps reminder badge for other proactive sources', () => {
-  expect(proactiveBadgeLabel('schedule:12')).toBe('reminder');
+test('leaves non-fullauto proactive messages unbadged', () => {
+  expect(proactiveBadgeLabel('schedule:12')).toBeNull();
   expect(proactiveSourceSuffix('schedule:12')).toBe('(schedule:12)');
+});
+
+test('suppresses command source suffixes for queued command progress', () => {
+  expect(proactiveBadgeLabel('command:eval')).toBeNull();
+  expect(proactiveSourceSuffix('command:eval')).toBe('');
 });

@@ -181,6 +181,7 @@ export interface GatewayCommandRequest {
   args: string[];
   userId?: string | null;
   username?: string | null;
+  onProactiveMessage?: (message: { text: string }) => void | Promise<void>;
 }
 
 export interface GatewayProactiveMessage {

@@ -7,6 +7,7 @@ import {
   saveRuntimeConfig,
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
+import { enqueueProactiveMessage } from '../memory/db.js';
 import {
   readPluginConfigEntry,
   readPluginConfigValue,
@@ -38,6 +39,7 @@ import type {
 
 let gatewayServiceInitialized = false;
 let gatewayServiceInitializing: Promise<void> | null = null;
+const MAX_COMMAND_PROGRESS_MESSAGES = 100;
 
 function badCommand(title: string, text: string): GatewayCommandResult {
   return { kind: 'error', title, text };
@@ -492,6 +494,25 @@ export async function tryHandlePluginDefinedGatewayCommand(params: {
         model: params.runtime?.model ?? null,
         enableRag: params.enableRag ?? false,
         workspacePath: params.runtime?.workspacePath ?? null,
+        emitProgress: async (text: string) => {
+          const trimmed = String(text || '').trim();
+          if (!trimmed) return;
+          if (params.req.onProactiveMessage) {
+            await params.req.onProactiveMessage({ text: trimmed });
+            return;
+          }
+          if (
+            params.req.channelId === 'tui' ||
+            params.req.channelId === 'web'
+          ) {
+            enqueueProactiveMessage(
+              params.req.channelId,
+              trimmed,
+              `command:${params.command}`,
+              MAX_COMMAND_PROGRESS_MESSAGES,
+            );
+          }
+        },
       }),
     );
   } catch (error) {

@@ -11,9 +11,12 @@ configSchema:
     dataDir:
       type: string
       description: Directory used for saved eval runs and dataset cache.
+    mmluDataUrl:
+      type: string
+      default: https://people.eecs.berkeley.edu/~hendrycks/data.tar
     mmluBaseUrl:
       type: string
-      default: https://raw.githubusercontent.com/hendrycks/test/master/data/test
+      description: Legacy per-subject CSV base URL override. Prefer mmluDataUrl.
     defaultSamples:
       type: number
       default: 30
