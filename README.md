@@ -9,11 +9,19 @@
 [![Powered by HybridAI](https://img.shields.io/badge/powered%20by-HybridAI-blueviolet)](https://hybridai.one)
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/jsVW4vJw27)
 
-<img width="540" height="511" alt="HybridClaw - One AI brain across every channel" src="docs/hero.png" />
+<img width="540" height="511" alt="HybridClaw - The enterprise operating layer for open agents" src="docs/hero.png" />
 
-**One AI brain across every channel.**
-Discord → Teams → WhatsApp → iMessage → Email → Web → Terminal.  
-Same memory, same skills, same intelligence — fully local, encrypted, and GDPR-compliant powered by [HybridAI](https://hybridai.one).
+**The enterprise operating layer for open agents.**
+Self-hosted, controllable, and built for real business workflows.
+
+Most open agent stacks are optimized for experimentation and breadth.
+
+HybridClaw is optimized for enterprise deployment:
+- controlled execution
+- shared knowledge
+- observability
+- repeatable workflows
+- local-first with a cloud path via HybridAI
 
 > “Finally an assistant that actually follows you everywhere — without having to explain everything again every time.”
 
@@ -76,37 +84,6 @@ Once the gateway is running, open HybridClaw locally:
 | **Self-improving / adaptive skills** | ✅ Adaptive skill loop + health | ✅ ClawHub skills | ✅ Strongest learning loop | ✅ (you code it) | ✅ Via AI nodes |
 | **No-code workflow building** | ✅ CLI + skills + kanban | ⚠️ Skills + ClawHub | ⚠️ Skills Hub | ❌ Code-first | ✅ Best-in-class no-code |
 | **Setup & onboarding** | ✅ `npm install -g` + `onboarding` (2 min) | ✅ Onboard CLI | ✅ One-line curl install | ❌ Requires coding | ✅ Visual + templates |
-
-HybridClaw keeps one assistant brain across team chat, inbox, browser, and
-document workflows with shared memory, approvals, scheduling, and bundled
-skills for office docs, GitHub, Notion, Stripe, WordPress, Google Workspace,
-and Apple apps.
-Runtime secrets live in an encrypted local store with separate master-key
-sourcing, SecretRefs can keep config values out of plaintext JSON, and
-gateway-side auth injection lets the agent call authenticated APIs without
-seeing the raw credential.
-Portable `.claw` packages can snapshot an agent workspace plus bundled skills
-and plugins for transfer or backup, and persistent browser profiles let the
-agent reuse authenticated web sessions for later browser automation.
-OpenClaw and Hermes Agent homes can also be imported into HybridClaw agent
-workspaces with migration commands that preview compatible files, config, and
-optional secrets before writing anything.
-Local plugins can extend the gateway with typed manifests, plugin tools,
-memory layers, prompt hooks, lifecycle hooks, and fixed plugin-owned inbound
-webhook routes, including the installable QMD-backed memory layer shipped in
-`plugins/qmd-memory`.
-Web chat and TUI can attach current-turn files, and inline context references
-like `@file:src/app.ts`, `@diff`, or `@url:https://example.com/spec` can
-ground a turn without pasting raw content.
-
-Operators can also health-check the runtime with `hybridclaw doctor`, tune
-skill availability globally or per channel, and review adaptive skill health
-and amendment history from the CLI, TUI, or admin surfaces.
-Concierge routing can ask about urgency before longer jobs and map execution
-to profile-specific models, while tracked runtime config revisions make local
-config changes auditable and reversible.
-For turn-level debugging, gateway start/restart can also persist best-effort
-redacted prompts, responses, and tool payloads with `--log-requests`.
 
 ## HybridAI Advantage
 
@@ -200,26 +177,6 @@ hybridclaw browser reset
   local storage without exposing credentials in chat.
 - Treat the browser profile directory as sensitive operator data.
 
-## Context References And Attachments
-
-HybridClaw can ground a prompt with current-turn uploads or inline context
-references instead of making you paste large blobs manually.
-
-```text
-Explain this regression using @diff and @file:src/gateway/gateway.ts:120-220
-Compare @folder:docs/development with @url:https://example.com/spec
-```
-
-- Web chat accepts uploads and pasted clipboard items for images, audio, PDFs,
-  Office docs, and text files before send.
-- TUI queues a copied local file or clipboard image with `/paste` or `Ctrl-V`
-  before sending.
-- Inline references supported in prompts are `@file:path[:start-end]`,
-  `@folder:path`, `@diff`, `@staged`, `@git:<count>`, and
-  `@url:https://...`.
-- If a reference is blocked or too large, HybridClaw keeps the prompt text and
-  adds a warning instead of silently broadening access.
-
 ## Agent Packages
 
 HybridClaw can package an agent into a portable `.claw` archive for backup,
@@ -253,7 +210,7 @@ hybridclaw agent activate demo-agent
 - See [docs/development/extensibility/agent-packages.md](./docs/development/extensibility/agent-packages.md)
   for the archive layout, manifest fields, and security rules.
 
-## Migrate From OpenClaw Or Hermes Agent
+## Migrating from OpenClaw / Hermes Agent
 
 HybridClaw can import compatible state from an existing `~/.openclaw` or
 `~/.hermes` home into a target HybridClaw agent workspace.
@@ -419,4 +376,4 @@ For docs-only changes, verify links, commands, and examples. See
 
 - Discord: [discord.gg/jsVW4vJw27](https://discord.gg/jsVW4vJw27)
 - Issues: [github.com/HybridAIOne/hybridclaw/issues](https://github.com/HybridAIOne/hybridclaw/issues)
-- Discussions: [github.com/HybridAIOne/hybridclaw/discussions](https://github.com/HybridAIOne/hybridclaw/discussions) (needs enabling)
+- Discussions: [github.com/HybridAIOne/hybridclaw/discussions](https://github.com/HybridAIOne/hybridclaw/discussions)
