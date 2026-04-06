@@ -27,6 +27,12 @@ export function buildApprovalConfirmationComponents(
         },
         {
           type: 2,
+          style: 1,
+          label: 'Allow All',
+          custom_id: `approve:all:${approvalId}`,
+        },
+        {
+          type: 2,
           style: 4,
           label: 'Deny',
           custom_id: `approve:no:${approvalId}`,
