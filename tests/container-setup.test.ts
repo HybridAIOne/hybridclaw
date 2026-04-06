@@ -267,6 +267,7 @@ describe('ensureContainerImageReady', () => {
       spawnMock,
     });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await expect(
       containerSetup.ensureContainerImageReady({
@@ -279,6 +280,9 @@ describe('ensureContainerImageReady', () => {
       "hybridclaw gateway restart: Unable to refresh image automatically. Continuing with existing container image 'hybridclaw-agent'.",
     );
     expect(warnSpy).toHaveBeenCalledWith('Details: build failed');
+    expect(logSpy).toHaveBeenCalledWith(
+      "hybridclaw gateway restart: Container sources changed since the last recorded build. Building container image 'hybridclaw-agent'...",
+    );
   });
 
   test('throws when the required image is missing and build fails', async () => {
@@ -387,7 +391,7 @@ describe('ensureContainerImageReady', () => {
     ).toBe(false);
   });
 
-  test('refreshes stale packaged installs by pulling instead of building locally', async () => {
+  test('refreshes stale packaged installs by pulling from Docker Hub before building locally', async () => {
     const cwd = createTempDir();
     const homeDir = createTempDir();
     writePackagedTrackedFiles(cwd);
@@ -410,6 +414,107 @@ describe('ensureContainerImageReady', () => {
         args[1] === 'inspect'
       ) {
         return makeSpawnResult({ code: 0 });
+      }
+      if (
+        command === 'docker' &&
+        args[0] === 'pull' &&
+        args[1] === 'hybridaione/hybridclaw-agent:v0.4.1'
+      ) {
+        return makeSpawnResult({ code: 0 });
+      }
+      if (
+        command === 'docker' &&
+        args[0] === 'tag' &&
+        args[1] === 'hybridaione/hybridclaw-agent:v0.4.1' &&
+        args[2] === 'hybridclaw-agent'
+      ) {
+        return makeSpawnResult({ code: 0 });
+      }
+      if (
+        command === 'npm' &&
+        args[0] === 'run' &&
+        args[1] === 'build:container'
+      ) {
+        throw new Error('packaged refresh should not build locally');
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+
+    const containerSetup = await importFreshContainerSetup({
+      homeDir,
+      spawnMock,
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await expect(
+      containerSetup.ensureContainerImageReady({
+        commandName: 'hybridclaw gateway restart',
+        cwd,
+      }),
+    ).resolves.toBeUndefined();
+    expect(
+      spawnMock.mock.calls.some(
+        ([command, args]) =>
+          command === 'docker' &&
+          Array.isArray(args) &&
+          args[0] === 'pull' &&
+          args[1] === 'hybridaione/hybridclaw-agent:v0.4.1',
+      ),
+    ).toBe(true);
+    expect(
+      spawnMock.mock.calls.some(
+        ([command, args]) =>
+          command === 'npm' &&
+          Array.isArray(args) &&
+          args[0] === 'run' &&
+          args[1] === 'build:container',
+      ),
+    ).toBe(false);
+    expect(logSpy).toHaveBeenCalledWith(
+      'hybridclaw gateway restart: A newer published container image may be available for this install.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      "hybridclaw gateway restart: Pulling container image 'hybridaione/hybridclaw-agent:v0.4.1'...",
+    );
+  });
+
+  test('falls back to GHCR only after Docker Hub pull attempts fail for packaged installs', async () => {
+    const cwd = createTempDir();
+    const homeDir = createTempDir();
+    writePackagedTrackedFiles(cwd);
+    writeState(homeDir, cwd, 'hybridclaw-agent', 'stale-fingerprint');
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      const dockerAvailable = mockDockerAvailable(command, args);
+      if (dockerAvailable) return dockerAvailable;
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect'
+      ) {
+        return makeSpawnResult({ code: 0 });
+      }
+      if (
+        command === 'docker' &&
+        args[0] === 'pull' &&
+        args[1] === 'hybridaione/hybridclaw-agent:v0.4.1'
+      ) {
+        return makeSpawnResult({ code: 1, err: 'dockerhub version pull failed' });
+      }
+      if (
+        command === 'docker' &&
+        args[0] === 'pull' &&
+        args[1] === 'hybridaione/hybridclaw-agent:latest'
+      ) {
+        return makeSpawnResult({ code: 1, err: 'dockerhub latest pull failed' });
       }
       if (
         command === 'docker' &&
@@ -448,23 +553,19 @@ describe('ensureContainerImageReady', () => {
       }),
     ).resolves.toBeUndefined();
     expect(
-      spawnMock.mock.calls.some(
-        ([command, args]) =>
-          command === 'docker' &&
-          Array.isArray(args) &&
-          args[0] === 'pull' &&
-          args[1] === 'ghcr.io/hybridaione/hybridclaw-agent:v0.4.1',
-      ),
-    ).toBe(true);
-    expect(
-      spawnMock.mock.calls.some(
-        ([command, args]) =>
-          command === 'npm' &&
-          Array.isArray(args) &&
-          args[0] === 'run' &&
-          args[1] === 'build:container',
-      ),
-    ).toBe(false);
+      spawnMock.mock.calls
+        .filter(
+          ([command, args]) =>
+            command === 'docker' &&
+            Array.isArray(args) &&
+            args[0] === 'pull',
+        )
+        .map(([, args]) => args[1]),
+    ).toEqual([
+      'hybridaione/hybridclaw-agent:v0.4.1',
+      'hybridaione/hybridclaw-agent:latest',
+      'ghcr.io/hybridaione/hybridclaw-agent:v0.4.1',
+    ]);
   });
 
   test('fails explicitly when a packaged install is configured with a non-pullable image name', async () => {

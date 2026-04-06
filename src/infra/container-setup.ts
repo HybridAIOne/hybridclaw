@@ -231,10 +231,10 @@ function resolveContainerPullImages(imageName: string): string[] {
   if (imageName !== DEFAULT_CONTAINER_IMAGE) return [];
 
   const candidates = [
-    `${DEFAULT_GHCR_IMAGE}:v${APP_VERSION}`,
-    `${DEFAULT_GHCR_IMAGE}:latest`,
     `${DEFAULT_DOCKERHUB_IMAGE}:v${APP_VERSION}`,
     `${DEFAULT_DOCKERHUB_IMAGE}:latest`,
+    `${DEFAULT_GHCR_IMAGE}:v${APP_VERSION}`,
+    `${DEFAULT_GHCR_IMAGE}:latest`,
   ];
   return Array.from(new Set(candidates));
 }
@@ -493,9 +493,10 @@ async function buildAndValidateImage(params: {
           ].join(' '),
         );
       }
+      console.log(`${commandName}: ${reason}`);
       for (const pullImage of pullImages) {
         console.log(
-          `${commandName}: ${reason} Pulling container image '${pullImage}'...`,
+          `${commandName}: Pulling container image '${pullImage}'...`,
         );
         try {
           await pullContainerImage(pullImage);
@@ -651,6 +652,9 @@ export async function ensureContainerImageReady(
     return;
   }
   if (state.fingerprint === fingerprint) return;
+  const staleImageReason = sourceCheckout
+    ? 'Container sources changed since the last recorded build.'
+    : 'A newer published container image may be available for this install.';
 
   await buildAndValidateImage({
     commandName,
@@ -658,7 +662,7 @@ export async function ensureContainerImageReady(
     cwd,
     imageName,
     acquisitionMode,
-    reason: 'Container sources changed since the last recorded build.',
+    reason: staleImageReason,
     hint: refreshImageHint,
     fingerprint,
     fallbackToExistingImage: true,
