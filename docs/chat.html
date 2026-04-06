@@ -28,6 +28,7 @@
     html, body {
       margin: 0;
       height: 100%;
+      overflow: hidden;
       font-family: system-ui, ui-sans-serif, -apple-system, BlinkMacSystemFont, Inter, NotoSansHans, sans-serif;
       background: var(--page-bg);
       color: var(--text);
@@ -36,12 +37,16 @@
     .layout {
       position: relative;
       z-index: 1;
-      height: 100vh;
+      min-height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
       display: grid;
       grid-template-columns: var(--nav-width) 1fr;
     }
 
     .sidebar {
+      min-height: 0;
+      overflow-y: auto;
       background: rgb(241, 245, 249);
       padding: 14px 14px 10px;
       display: flex;
@@ -291,8 +296,11 @@
 
     .chat {
       min-height: 0;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
       display: grid;
-      grid-template-rows: auto 1fr auto;
+      grid-template-rows: auto 1fr;
       background: #ffffff;
     }
 
@@ -354,6 +362,7 @@
       min-height: 0;
       display: grid;
       grid-template-rows: 1fr auto;
+      overflow: hidden;
     }
 
     .messages {
@@ -490,6 +499,20 @@
       gap: 5px;
     }
 
+    .msg-block.is-approval {
+      width: max-content;
+      max-width: min(1240px, 100%);
+    }
+
+    .msg.assistant {
+      background: #ffffff;
+    }
+
+    .msg-block.is-approval .msg.assistant {
+      width: 100%;
+      max-width: none;
+    }
+
     .msg-block.user-block {
       margin-left: auto;
       align-items: flex-end;
@@ -499,6 +522,13 @@
       display: flex;
       justify-content: flex-start;
       gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .msg-actions.is-approval {
+      width: fit-content;
+      max-width: 100%;
+      gap: 8px;
     }
 
     .msg-block.user-block .msg-actions {
@@ -608,6 +638,51 @@
       font-weight: 500;
     }
 
+    .msg-action-btn.is-approval {
+      flex: 0 0 auto;
+      min-width: 0;
+      height: 32px;
+      padding: 0 12px;
+      justify-content: center;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 10px;
+    }
+
+    .msg-action-btn.is-approval-allow {
+      border-color: #79c894;
+      background: #c9efd4;
+      color: #1a5530;
+    }
+
+    .msg-action-btn.is-approval-allow:hover:not(:disabled) {
+      background: #b8e7c6;
+      color: #154627;
+    }
+
+    .msg-action-btn.is-approval-allow.is-primary {
+      border-color: #79c894;
+      background: #c9efd4;
+      color: #1a5530;
+    }
+
+    .msg-action-btn.is-approval-allow.is-primary:hover:not(:disabled) {
+      background: #b8e7c6;
+      color: #154627;
+    }
+
+    .msg-action-btn.is-approval-deny {
+      border-color: #e7a0a0;
+      background: #f7d4d4;
+      color: #8a2626;
+    }
+
+    .msg-action-btn.is-approval-deny:hover:not(:disabled) {
+      background: #f1c2c2;
+      color: #731d1d;
+    }
+
     .msg-action-btn.is-text:hover:not(:disabled) {
       background: #f6f8fc;
       color: #18253d;
@@ -667,10 +742,6 @@
       background: linear-gradient(135deg, var(--brand-blue), var(--brand-blue-2));
       border-color: transparent;
       color: #ffffff;
-    }
-
-    .msg.assistant {
-      background: #ffffff;
     }
 
     .msg-agent {
@@ -754,7 +825,15 @@
 
     .composer {
       position: relative;
+      z-index: 2;
       padding: 14px 20px 16px;
+      background:
+        linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0) 0%,
+          rgba(255, 255, 255, 0.9) 24px,
+          #ffffff 54px
+        );
     }
 
     .chat.is-empty .chat-body {
@@ -764,6 +843,7 @@
       justify-content: center;
       padding: 0 20px;
       gap: 22px;
+      overflow: visible;
     }
 
     .chat.is-empty .messages {
@@ -790,6 +870,7 @@
       border-top: none;
       padding: 0;
       background: transparent;
+      position: static;
     }
 
     /* ── Prompt wrap: always-expanded card ── */
@@ -797,10 +878,10 @@
       display: flex;
       flex-direction: column;
       padding: 14px 16px 10px;
-      border: 1px solid var(--line);
+      border: 1px solid #d6deea;
       border-radius: 24px;
       background: #ffffff;
-      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
+      box-shadow: 0 4px 14px rgba(31, 48, 77, 0.06);
     }
 
     .composer-bar {
@@ -1024,10 +1105,16 @@
     }
 
     .error {
-      min-height: 20px;
+      position: absolute;
+      left: 20px;
+      right: 20px;
+      bottom: 96px;
+      z-index: 3;
+      min-height: 0;
       color: var(--error);
       font-size: 13px;
-      padding: 0 20px 14px;
+      padding: 0;
+      pointer-events: none;
     }
 
     /* ── mobile: sidebar becomes a slide-out overlay ── */
@@ -1523,6 +1610,148 @@
       const attachmentText = buildPendingMediaSummary(media);
       if (!attachmentText) return text;
       return text ? `${text}\n\n${attachmentText}` : attachmentText;
+    }
+
+    function normalizeApprovalEvent(value) {
+      if (!value || typeof value !== 'object') return null;
+      const approvalId = String(value.approvalId || '').trim();
+      if (!approvalId) return null;
+      const expiresAt =
+        typeof value.expiresAt === 'number' && Number.isFinite(value.expiresAt)
+          ? value.expiresAt
+          : null;
+      return {
+        approvalId,
+        prompt: String(value.prompt || '').trim(),
+        summary: String(value.summary || '').trim(),
+        intent: String(value.intent || '').trim(),
+        reason: String(value.reason || '').trim(),
+        allowSession: value.allowSession === true,
+        allowAgent: value.allowAgent === true,
+        allowAll: value.allowAll === true,
+        expiresAt,
+      };
+    }
+
+    function extractPendingApprovalFromResult(value) {
+      return normalizeApprovalEvent(value?.pendingApproval || null);
+    }
+
+    function buildApprovalSummary(approval) {
+      const normalized = normalizeApprovalEvent(approval);
+      if (!normalized) return '';
+      if (normalized.summary) return normalized.summary;
+
+      const lines = [];
+      if (normalized.intent) {
+        lines.push(`Approval needed for: ${normalized.intent}`);
+      }
+      if (normalized.reason) {
+        lines.push(`Why: ${normalized.reason}`);
+      }
+      lines.push(`Approval ID: ${normalized.approvalId}`);
+      return lines.join('\n');
+    }
+
+    function buildApprovalUserMessage(action, approvalId) {
+      const normalizedAction = String(action || '').trim().toLowerCase();
+      const normalizedApprovalId = String(approvalId || '').trim();
+      const withApprovalId = (base) =>
+        normalizedApprovalId ? `${base} ${normalizedApprovalId}` : base;
+
+      if (normalizedAction === 'yes' || normalizedAction === '1') {
+        return withApprovalId('/approve yes');
+      }
+      if (normalizedAction === 'always') {
+        return normalizedApprovalId
+          ? `/approve always ${normalizedApprovalId}`
+          : '/approve always';
+      }
+      if (
+        normalizedAction === 'session' ||
+        normalizedAction === '2'
+      ) {
+        return normalizedApprovalId
+          ? `/approve session ${normalizedApprovalId}`
+          : '/approve session';
+      }
+      if (normalizedAction === 'agent' || normalizedAction === '3') {
+        return normalizedApprovalId
+          ? `/approve agent ${normalizedApprovalId}`
+          : '/approve agent';
+      }
+      if (normalizedAction === 'all' || normalizedAction === '4') {
+        return normalizedApprovalId
+          ? `/approve all ${normalizedApprovalId}`
+          : '/approve all';
+      }
+      if (
+        normalizedAction === 'no' ||
+        normalizedAction === 'deny' ||
+        normalizedAction === 'skip' ||
+        normalizedAction === '5'
+      ) {
+        return withApprovalId('/approve no');
+      }
+      return null;
+    }
+
+    function parseApprovalPrompt(content) {
+      const lines = String(content || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const intentLine =
+        lines.find((line) => line.startsWith('Approval needed for: ')) ||
+        lines.find((line) => line.startsWith('I need your approval before I '));
+      const reasonLine = lines.find((line) => line.startsWith('Why: '));
+      const approvalIdLine = lines.find((line) =>
+        line.startsWith('Approval ID: '),
+      );
+
+      if (!intentLine || !reasonLine || !approvalIdLine) {
+        return null;
+      }
+
+      let intent = intentLine.startsWith('Approval needed for: ')
+        ? intentLine.slice('Approval needed for: '.length).trim()
+        : intentLine.slice('I need your approval before I '.length).trim();
+      if (intent.endsWith('.')) {
+        intent = intent.slice(0, -1).trim();
+      }
+
+      const reason = reasonLine.slice('Why: '.length).trim();
+      const approvalId = approvalIdLine.slice('Approval ID: '.length).trim();
+      if (!intent || !reason || !approvalId) {
+        return null;
+      }
+
+      return {
+        approvalId,
+        prompt: String(content || '').trim(),
+        summary: lines
+          .filter(
+            (line) =>
+              line.startsWith('Approval needed for: ') ||
+              line.startsWith('Why: ') ||
+              line.startsWith('Approval ID: '),
+          )
+          .join('\n'),
+        intent,
+        reason,
+        allowSession: lines.some((line) =>
+          /^Reply `yes(?:\s+for)?\s+(?:session|always)` to trust this action for this (?:session|conversation)\.$/.test(
+            line,
+          ),
+        ),
+        allowAgent: lines.includes(
+          'Reply `yes for agent` to trust it for this agent.',
+        ),
+        allowAll: lines.includes(
+          'Reply `yes for all` to add this action to the workspace allowlist.',
+        ),
+        expiresAt: null,
+      };
     }
 
     function cloneMediaList(media) {
@@ -2339,6 +2568,10 @@
       chatEl.classList.toggle('is-empty', !hasMessages);
     }
 
+    function scrollChatToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
     function isScrolledNearBottom(element, threshold = 64) {
       if (!element) return true;
       const remaining =
@@ -2526,13 +2759,101 @@
       actions.appendChild(switcher);
     }
 
+    async function handleApprovalAction(block, action) {
+      const meta = getMessageMeta(block);
+      const approval = normalizeApprovalEvent(meta?.pendingApproval);
+      if (!meta || meta.role !== 'assistant' || !approval) return;
+      if (activeChatRequest) {
+        setError('Stop the current run before responding to an approval.');
+        return;
+      }
+
+      const approvalContent = buildApprovalUserMessage(action, approval.approvalId);
+      if (!approvalContent) {
+        setError('Unknown approval action.');
+        return;
+      }
+
+      setError('');
+      const parent = block.parentNode;
+      const nextSibling = block.nextSibling;
+      block.remove();
+      updateEmptyState();
+
+      const result = await submitPrompt(approvalContent, [], {
+        sessionId: meta.sessionId || activeSessionId,
+        clearComposer: false,
+        clearPendingMedia: false,
+        hideUserMessage: true,
+      });
+
+      if (result || !parent) return;
+
+      if (nextSibling && nextSibling.parentNode === parent) {
+        parent.insertBefore(block, nextSibling);
+      } else {
+        parent.appendChild(block);
+      }
+      setMessageMeta(block, {
+        pendingApproval: approval,
+        approvalBusy: false,
+      });
+      renderMessageActions(block);
+      updateEmptyState();
+    }
+
+    function renderApprovalActionButtons(actions, meta) {
+      const approval = normalizeApprovalEvent(meta.pendingApproval);
+      if (!approval) return;
+
+      actions.classList.add('is-approval');
+      const disabled = Boolean(meta.approvalBusy || activeChatRequest);
+      const appendButton = (label, action, options = {}) => {
+        const button = createTextActionButton({
+          label,
+          title: label,
+          ariaLabel: label,
+          primary: options.primary === true,
+          onClick: () => {
+            void handleApprovalAction(meta.block, action);
+          },
+        });
+        button.classList.add('is-approval');
+        if (options.kind === 'deny') {
+          button.classList.add('is-approval-deny');
+        } else {
+          button.classList.add('is-approval-allow');
+        }
+        button.disabled = disabled;
+        actions.appendChild(button);
+      };
+
+      appendButton('Allow once', 'yes', { primary: true });
+      if (approval.allowSession) {
+        appendButton('Allow always', 'always');
+      }
+      if (approval.allowAgent) {
+        appendButton('Allow agent', 'agent');
+      }
+      if (approval.allowAll) {
+        appendButton('Allow all', 'all');
+      }
+      appendButton('Deny', 'no', { kind: 'deny' });
+    }
+
     function renderMessageActions(block) {
       const meta = getMessageMeta(block);
       if (!meta?.actionsEl) return;
       const actions = meta.actionsEl;
       actions.innerHTML = '';
+      actions.classList.toggle('is-approval', Boolean(meta.pendingApproval));
 
       if (meta.role === 'assistant') {
+        if (meta.pendingApproval) {
+          renderApprovalActionButtons(actions, meta);
+          return;
+        }
+
         if (meta.replayRequest) {
           const regenerate = createMessageActionButton({
             label: '↻',
@@ -2640,6 +2961,9 @@
       if (role === 'user') {
         block.classList.add('user-block');
       }
+      if (role === 'assistant' && options.pendingApproval) {
+        block.classList.add('is-approval');
+      }
       block.appendChild(item);
 
       if (role === 'assistant') {
@@ -2669,14 +2993,23 @@
           artifactsEl: role === 'assistant' ? artifactsBlock || null : null,
           replayRequest: options.replayRequest || null,
           branchKey: options.branchKey || null,
+          pendingApproval:
+            role === 'assistant'
+              ? normalizeApprovalEvent(options.pendingApproval)
+              : null,
+          approvalBusy: false,
           isEditing: false,
         });
+        block.classList.toggle(
+          'is-approval',
+          role === 'assistant' && Boolean(options.pendingApproval),
+        );
         renderMessageActions(block);
       }
 
       messagesEl.appendChild(block);
       updateEmptyState();
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollChatToBottom();
       return {
         block,
         item,
@@ -2698,6 +3031,10 @@
       const hasNextArtifacts = nextArtifacts.length > 0;
       const hasCurrentArtifacts = Array.isArray(meta.artifacts) && meta.artifacts.length > 0;
       let nextArtifactsEl = meta.artifactsEl || null;
+      const pendingApprovalProvided = Object.hasOwn(
+        options,
+        'pendingApproval',
+      );
       if (hasNextArtifacts || hasCurrentArtifacts) {
         if (meta.artifactsEl?.isConnected) {
           meta.artifactsEl.remove();
@@ -2719,10 +3056,24 @@
         artifacts: nextArtifacts,
         artifactsEl: nextArtifactsEl,
         replayRequest: options.replayRequest || meta.replayRequest || null,
+        ...(pendingApprovalProvided
+          ? {
+              pendingApproval: normalizeApprovalEvent(options.pendingApproval),
+              approvalBusy: false,
+            }
+          : {}),
       });
+      block.classList.toggle(
+        'is-approval',
+        Boolean(
+          pendingApprovalProvided
+            ? options.pendingApproval
+            : meta.pendingApproval,
+        ),
+      );
 
       if (shouldAutoScroll) {
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        scrollChatToBottom();
       }
     }
 
@@ -2737,7 +3088,7 @@
       item.appendChild(dots);
       messagesEl.appendChild(item);
       updateEmptyState();
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollChatToBottom();
       return item;
     }
 
@@ -2905,6 +3256,15 @@
         }
 
         if (payload.type === 'text' && typeof payload.delta === 'string') {
+          onEvent(payload);
+          return null;
+        }
+
+        if (
+          payload.type === 'approval' &&
+          typeof payload.approvalId === 'string' &&
+          typeof payload.prompt === 'string'
+        ) {
           onEvent(payload);
           return null;
         }
@@ -3149,6 +3509,9 @@
             continue;
           }
           if (role === 'assistant') {
+            if (parseApprovalPrompt(content)) {
+              continue;
+            }
             addMessage(role, content, undefined, {
               sessionId: activeSessionId,
               messageId,
@@ -3233,13 +3596,16 @@
 
       savePrefs();
       setError('');
-      const userView = addMessage('user', previewText, undefined, {
-        sessionId: targetSessionId,
-        copyText: previewText,
-        rawContent: content,
-        media: queuedMedia,
-        branchKey: options.branchKey || null,
-      });
+      const userView =
+        options.hideUserMessage === true
+          ? null
+          : addMessage('user', previewText, undefined, {
+              sessionId: targetSessionId,
+              copyText: previewText,
+              rawContent: content,
+              media: queuedMedia,
+              branchKey: options.branchKey || null,
+            });
       if (options.clearComposer !== false) {
         messageEl.value = '';
       }
@@ -3257,6 +3623,7 @@
         assistantBlock: null,
         assistantText: '',
         assistantRenderFrame: 0,
+        pendingApproval: null,
         stopRequested: false,
         stopping: false,
       };
@@ -3264,10 +3631,13 @@
       updateComposerState();
 
       try {
-        const replayRequest = {
-          content,
-          media: queuedMedia,
-        };
+        const replayRequest =
+          options.hideUserMessage === true
+            ? null
+            : {
+                content,
+                media: queuedMedia,
+              };
         const ensureAssistantBlock = () => {
           if (requestState.assistantBlock?.isConnected) {
             return requestState.assistantBlock;
@@ -3289,6 +3659,7 @@
           updateAssistantMessage(assistantBlock, requestState.assistantText, [], {
             sessionId: requestState.sessionId,
             replayRequest,
+            pendingApproval: requestState.pendingApproval,
           });
         };
         const scheduleAssistantRender = () => {
@@ -3320,9 +3691,24 @@
           }),
           signal: requestState.controller.signal,
           onEvent: (event) => {
-            if (event.type !== 'text' || !event.delta) return;
-            requestState.assistantText += event.delta;
-            scheduleAssistantRender();
+            if (event.type === 'text' && event.delta) {
+              requestState.assistantText += event.delta;
+              scheduleAssistantRender();
+              return;
+            }
+
+            if (event.type === 'approval') {
+              requestState.pendingApproval = normalizeApprovalEvent(event);
+              if (
+                requestState.pendingApproval &&
+                !String(requestState.assistantText || '').trim()
+              ) {
+                requestState.assistantText = buildApprovalSummary(
+                  requestState.pendingApproval,
+                );
+              }
+              scheduleAssistantRender();
+            }
           },
         });
         if (payload.status === 'error') {
@@ -3341,17 +3727,35 @@
           renderMessageActions(requestState.userBlock);
         }
         flushAssistantRender();
-        const assistantBlock =
-          requestState.assistantBlock || ensureAssistantBlock();
+        const rawAssistantText = payload.result || requestState.assistantText || '';
+        const parsedApprovalPrompt = parseApprovalPrompt(rawAssistantText);
+        const pendingApproval =
+          extractPendingApprovalFromResult(payload) ||
+          requestState.pendingApproval ||
+          parsedApprovalPrompt;
+        const finalAssistantText = pendingApproval
+          ? parsedApprovalPrompt?.summary ||
+            buildApprovalSummary(pendingApproval)
+          : rawAssistantText;
+        const shouldRenderAssistant = Boolean(
+          requestState.assistantBlock ||
+            finalAssistantText ||
+            (payload.artifacts || []).length > 0 ||
+            pendingApproval,
+        );
+        const assistantBlock = shouldRenderAssistant
+          ? requestState.assistantBlock || ensureAssistantBlock()
+          : null;
         if (assistantBlock) {
           updateAssistantMessage(
             assistantBlock,
-            payload.result || requestState.assistantText || '',
+            finalAssistantText,
             payload.artifacts || [],
             {
               sessionId: activeSessionId,
               messageId: normalizeMessageId(payload.assistantMessageId),
               replayRequest,
+              pendingApproval,
             },
           );
           renderMessageActions(assistantBlock);
@@ -3388,6 +3792,9 @@
           activeChatRequest = null;
         }
         updateComposerState();
+        if (requestState.assistantBlock?.isConnected) {
+          renderMessageActions(requestState.assistantBlock);
+        }
       }
 
       return null;

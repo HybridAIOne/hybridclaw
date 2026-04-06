@@ -1234,7 +1234,7 @@ describe('gateway bootstrap', () => {
       expect.stringContaining('Reply `1` to allow once'),
     );
     expect(stream.finalize).toHaveBeenCalledWith(
-      expect.stringContaining('`/approve [1|2|3|4]`'),
+      expect.stringContaining('`/approve [1|2|3|4|5]`'),
     );
     await pendingApprovals.clearPendingApproval('teams:dm:user-aad-id');
   });

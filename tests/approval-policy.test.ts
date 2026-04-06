@@ -342,7 +342,7 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     expect(second.decision).toBe('approved_session');
   });
 
-  test('"yes always" preserves the legacy session-scoped trust behavior', () => {
+  test('"/approve always" preserves the legacy session-scoped trust behavior', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
@@ -355,7 +355,9 @@ describe('TrustedCoworkerApprovalRuntime', () => {
     });
     expect(first.decision).toBe('required');
 
-    const prelude = runtime.handleApprovalResponse([userMessage('yes always')]);
+    const prelude = runtime.handleApprovalResponse([
+      userMessage('/approve always'),
+    ]);
     expect(prelude?.approvalMode).toBe('session');
 
     const second = runtime.evaluateToolCall({

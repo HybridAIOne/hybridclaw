@@ -403,6 +403,7 @@ function resolveImplicitNumericApprovalArgs(params: {
   if (normalized === '2') return ['approve', '2'];
   if (normalized === '3') return ['approve', '3'];
   if (normalized === '4') return ['approve', '4'];
+  if (normalized === '5') return ['approve', '5'];
   return null;
 }
 
@@ -1079,7 +1080,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
             expiresAt: pendingApproval.expiresAt,
           });
           await context.stream.finalize(
-            `${responseText}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, or \`4\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4]\`.`,
+            `${responseText}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`,
           );
           return;
         }

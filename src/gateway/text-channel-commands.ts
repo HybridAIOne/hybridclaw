@@ -92,6 +92,7 @@ function buildApprovalUserMessage(params: {
   }
   if (
     (isApprovalScopeMode(action) && action !== 'once') ||
+    action === 'always' ||
     action === '2' ||
     action === '3' ||
     action === '4'
@@ -103,7 +104,9 @@ function buildApprovalUserMessage(params: {
           ? 'agent'
           : action === '4'
             ? 'all'
-            : action;
+            : action === 'always'
+              ? 'session'
+              : action;
     return approvalId ? `yes ${approvalId} for ${mode}` : `yes for ${mode}`;
   }
   if (
@@ -190,7 +193,7 @@ export async function handleTextChannelApprovalCommand(params: {
     return {
       handled: true,
       sessionId,
-      text: `Usage: ${APPROVE_TEXT_CHANNEL_USAGE}`,
+      text: `${APPROVE_TEXT_CHANNEL_USAGE} (also accepts \`always\` as a \`session\` alias)`,
       artifacts: [],
     };
   }

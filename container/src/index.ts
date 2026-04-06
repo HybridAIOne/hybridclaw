@@ -1317,6 +1317,7 @@ async function processRequest(
           reason: approval.reason,
           allowSession: !approval.pinned,
           allowAgent: !approval.pinned,
+          allowAll: !approval.pinned,
           expiresAt:
             typeof approval.expiresAtMs === 'number' &&
             Number.isFinite(approval.expiresAtMs)
@@ -1342,6 +1343,7 @@ async function processRequest(
           approvalExpiresAt: approval.expiresAtMs,
           approvalAllowSession: !approval.pinned,
           approvalAllowAgent: !approval.pinned,
+          approvalAllowAll: !approval.pinned,
         });
         const waitingForApproval: ContainerOutput = {
           status: 'success',

@@ -76,7 +76,10 @@ import {
   setSessionCookie,
   verifyLaunchToken,
 } from './auth-token.js';
-import { extractGatewayChatApprovalEvent } from './chat-approval.js';
+import {
+  extractGatewayChatApprovalEvent,
+  formatGatewayChatApprovalSummary,
+} from './chat-approval.js';
 import {
   filterChatResultForSession,
   hasMessageSendToolExecution,
@@ -1582,6 +1585,7 @@ async function handleApiChatStream(
     sendEvent({
       type: 'approval',
       ...approval,
+      summary: formatGatewayChatApprovalSummary(approval),
     });
   };
 
@@ -3189,7 +3193,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       gatewayReady = true;
     },
     broadcastShutdown(): void {
-      const shutdownMessage: AdminTerminalServerMessage = { type: 'shutdown', restartExpectedMs: 1500 };
+      const shutdownMessage: AdminTerminalServerMessage = {
+        type: 'shutdown',
+        restartExpectedMs: 1500,
+      };
       const shutdownPayload = JSON.stringify(shutdownMessage);
       terminalManager.broadcastShutdown(shutdownMessage);
       for (const sseRes of activeSseResponses) {
