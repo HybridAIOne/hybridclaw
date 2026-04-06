@@ -2,12 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDeferredValue, useState } from 'react';
 import {
   applyAdaptiveSkillAmendment,
+  createSkill,
   fetchAdaptiveSkillAmendmentHistory,
   fetchAdaptiveSkillAmendments,
   fetchAdaptiveSkillHealth,
   fetchSkills,
   rejectAdaptiveSkillAmendment,
   saveSkillEnabled,
+  uploadSkillZip,
 } from '../api/client';
 import type {
   AdminAdaptiveSkillAmendment,
@@ -15,6 +17,7 @@ import type {
 } from '../api/types';
 import { useAuth } from '../auth';
 import {
+  BooleanField,
   BooleanPill,
   BooleanToggle,
   MetricCard,
@@ -45,11 +48,45 @@ function formatAmendmentTiming(amendment: AdminAdaptiveSkillAmendment): string {
   return formatRelativeTime(relevantTimestamp);
 }
 
+interface SkillFileDraft {
+  id: number;
+  path: string;
+  content: string;
+}
+
+let nextFileId = 1;
+
+interface SkillDraft {
+  name: string;
+  description: string;
+  userInvocable: boolean;
+  disableModelInvocation: boolean;
+  tags: string;
+  body: string;
+  files: SkillFileDraft[];
+}
+
+function createEmptyDraft(): SkillDraft {
+  return {
+    name: '',
+    description: '',
+    userInvocable: true,
+    disableModelInvocation: false,
+    tags: '',
+    body: '',
+    files: [],
+  };
+}
+
 export function SkillsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState('');
   const [selectedSkillName, setSelectedSkillName] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [createMode, setCreateMode] = useState<'form' | 'zip'>('form');
+  const [draft, setDraft] = useState<SkillDraft>(createEmptyDraft());
+  const [zipFile, setZipFile] = useState<File | null>(null);
   const deferredFilter = useDeferredValue(filter);
   const filterNeedle = deferredFilter.trim().toLowerCase();
 
@@ -100,6 +137,44 @@ export function SkillsPage() {
           ],
         }),
       ]);
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => {
+      const tags = draft.tags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
+      const files = draft.files
+        .filter((f) => f.path.trim())
+        .map((f) => ({ path: f.path.trim(), content: f.content }));
+      return createSkill(auth.token, {
+        name: draft.name.trim(),
+        description: draft.description.trim(),
+        userInvocable: draft.userInvocable,
+        disableModelInvocation: draft.disableModelInvocation,
+        tags: tags.length > 0 ? tags : undefined,
+        body: draft.body.trim(),
+        files: files.length > 0 ? files : undefined,
+      });
+    },
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['skills', auth.token], payload);
+      setShowCreate(false);
+      setDraft(createEmptyDraft());
+    },
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: () => {
+      if (!zipFile) throw new Error('No file selected.');
+      return uploadSkillZip(auth.token, zipFile);
+    },
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['skills', auth.token], payload);
+      setShowCreate(false);
+      setZipFile(null);
     },
   });
 
@@ -170,14 +245,294 @@ export function SkillsPage() {
         title="Skills"
         description="Discovery, runtime availability, and AdaptiveSkills health and amendment review."
         actions={
-          <input
-            className="compact-search"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            placeholder="Filter skills"
-          />
+          <>
+            <input
+              className="compact-search"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="Filter skills"
+            />
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => {
+                setShowCreate(!showCreate);
+                setDraft(createEmptyDraft());
+                setZipFile(null);
+                setCreateMode('form');
+                createMutation.reset();
+                uploadMutation.reset();
+              }}
+            >
+              {showCreate ? 'Cancel' : 'New skill'}
+            </button>
+          </>
         }
       />
+
+      {showCreate ? (
+        <Panel title="Create skill" accent="warm">
+          <fieldset className="binary-toggle" aria-label="Create mode">
+            <button
+              className={
+                createMode === 'form'
+                  ? 'binary-toggle-button active is-on'
+                  : 'binary-toggle-button'
+              }
+              type="button"
+              onClick={() => setCreateMode('form')}
+            >
+              Form
+            </button>
+            <button
+              className={
+                createMode === 'zip'
+                  ? 'binary-toggle-button active is-on'
+                  : 'binary-toggle-button'
+              }
+              type="button"
+              onClick={() => setCreateMode('zip')}
+            >
+              Upload ZIP
+            </button>
+          </fieldset>
+
+          {createMode === 'zip' ? (
+            <div className="stack-form">
+              <label className="field">
+                <span>Skill archive (.zip)</span>
+                <input
+                  type="file"
+                  accept=".zip,.skill"
+                  onChange={(event) =>
+                    setZipFile(event.target.files?.[0] || null)
+                  }
+                />
+              </label>
+              <p className="supporting-text">
+                ZIP must contain a SKILL.md with a valid <code>name</code>{' '}
+                frontmatter field. May include scripts/, references/, and other
+                files.
+              </p>
+              <div className="button-row">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={uploadMutation.isPending || !zipFile}
+                  onClick={() => uploadMutation.mutate()}
+                >
+                  {uploadMutation.isPending ? 'Uploading...' : 'Upload skill'}
+                </button>
+              </div>
+              {uploadMutation.isError ? (
+                <p className="error-banner">
+                  {(uploadMutation.error as Error).message}
+                </p>
+              ) : null}
+              {uploadMutation.isSuccess ? (
+                <p className="success-banner">Skill uploaded successfully.</p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="stack-form">
+              <div className="field-grid">
+                <label className="field">
+                  <span>Name</span>
+                  <input
+                    value={draft.name}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="my-skill"
+                  />
+                </label>
+                <label className="field">
+                  <span>Tags</span>
+                  <input
+                    value={draft.tags}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        tags: event.target.value,
+                      }))
+                    }
+                    placeholder="tag1, tag2"
+                  />
+                </label>
+              </div>
+
+              <label className="field">
+                <span>Description</span>
+                <input
+                  value={draft.description}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      description: event.target.value,
+                    }))
+                  }
+                  placeholder="Short description of what this skill does"
+                />
+              </label>
+
+              <div className="field-grid">
+                <BooleanField
+                  label="User invocable"
+                  value={draft.userInvocable}
+                  trueLabel="yes"
+                  falseLabel="no"
+                  onChange={(userInvocable) =>
+                    setDraft((current) => ({ ...current, userInvocable }))
+                  }
+                />
+                <BooleanField
+                  label="Disable model invocation"
+                  value={draft.disableModelInvocation}
+                  trueLabel="yes"
+                  falseLabel="no"
+                  onChange={(disableModelInvocation) =>
+                    setDraft((current) => ({
+                      ...current,
+                      disableModelInvocation,
+                    }))
+                  }
+                />
+              </div>
+
+              <label className="field">
+                <span>Skill body (Markdown)</span>
+                <textarea
+                  rows={10}
+                  value={draft.body}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      body: event.target.value,
+                    }))
+                  }
+                  placeholder={
+                    '# My Skill\n\nUse this skill when the user asks to ...\n\n## Workflow\n\n1. ...\n2. ...'
+                  }
+                />
+              </label>
+
+              <div className="panel-header" style={{ marginTop: '0.5rem' }}>
+                <div>
+                  <h4>Files</h4>
+                  <p className="supporting-text">
+                    Add scripts or references (e.g. scripts/run.mjs,
+                    references/guide.md)
+                  </p>
+                </div>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() =>
+                    setDraft((current) => ({
+                      ...current,
+                      files: [
+                        ...current.files,
+                        { id: nextFileId++, path: 'scripts/', content: '' },
+                      ],
+                    }))
+                  }
+                >
+                  Add file
+                </button>
+              </div>
+
+              {draft.files.map((file, index) => (
+                <div
+                  key={file.id}
+                  className="stack-form"
+                  style={{ gap: '0.25rem' }}
+                >
+                  <div className="field-grid">
+                    <label className="field">
+                      <span>Path</span>
+                      <input
+                        value={file.path}
+                        onChange={(event) =>
+                          setDraft((current) => {
+                            const files = [...current.files];
+                            files[index] = {
+                              ...files[index],
+                              path: event.target.value,
+                            };
+                            return { ...current, files };
+                          })
+                        }
+                        placeholder="scripts/my-tool.mjs"
+                      />
+                    </label>
+                    <button
+                      className="danger-button"
+                      type="button"
+                      style={{ alignSelf: 'end' }}
+                      onClick={() =>
+                        setDraft((current) => ({
+                          ...current,
+                          files: current.files.filter((_, i) => i !== index),
+                        }))
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <label className="field">
+                    <span>Content</span>
+                    <textarea
+                      rows={8}
+                      value={file.content}
+                      onChange={(event) =>
+                        setDraft((current) => {
+                          const files = [...current.files];
+                          files[index] = {
+                            ...files[index],
+                            content: event.target.value,
+                          };
+                          return { ...current, files };
+                        })
+                      }
+                      placeholder="// Script content..."
+                      style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
+                    />
+                  </label>
+                </div>
+              ))}
+
+              <div className="button-row">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={
+                    createMutation.isPending ||
+                    !draft.name.trim() ||
+                    !draft.description.trim()
+                  }
+                  onClick={() => createMutation.mutate()}
+                >
+                  {createMutation.isPending ? 'Creating...' : 'Create skill'}
+                </button>
+              </div>
+
+              {createMutation.isError ? (
+                <p className="error-banner">
+                  {(createMutation.error as Error).message}
+                </p>
+              ) : null}
+              {createMutation.isSuccess ? (
+                <p className="success-banner">
+                  Skill {draft.name.trim() || 'created'} successfully.
+                </p>
+              ) : null}
+            </div>
+          )}
+        </Panel>
+      ) : null}
 
       <div className="metric-grid">
         <MetricCard

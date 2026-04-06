@@ -103,6 +103,7 @@ import {
 } from './gateway-scheduled-task-service.js';
 import {
   createGatewayAdminAgent,
+  createGatewayAdminSkill,
   deleteGatewayAdminAgent,
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
@@ -132,6 +133,7 @@ import {
   saveGatewayAdminModels,
   setGatewayAdminSkillEnabled,
   updateGatewayAdminAgent,
+  uploadGatewayAdminSkillZip,
   upsertGatewayAdminChannel,
   upsertGatewayAdminMcpServer,
 } from './gateway-service.js';
@@ -2482,11 +2484,59 @@ async function handleApiAdminSkills(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if ((req.method || 'GET') === 'GET') {
+  const method = req.method || 'GET';
+
+  if (method === 'GET') {
     sendJson(res, 200, getGatewayAdminSkills());
     return;
   }
 
+  if (method === 'POST') {
+    const body = (await readJsonBody(req)) as {
+      name?: unknown;
+      description?: unknown;
+      userInvocable?: unknown;
+      disableModelInvocation?: unknown;
+      tags?: unknown;
+      body?: unknown;
+      files?: unknown;
+    };
+    const files = Array.isArray(body.files)
+      ? body.files
+          .filter(
+            (f): f is { path: string; content: string } =>
+              f != null &&
+              typeof f === 'object' &&
+              typeof (f as Record<string, unknown>).path === 'string',
+          )
+          .map((f) => ({
+            path: String(f.path),
+            content: String((f as Record<string, unknown>).content ?? ''),
+          }))
+      : undefined;
+    sendJson(
+      res,
+      201,
+      createGatewayAdminSkill({
+        name: String(body.name || ''),
+        description: String(body.description || ''),
+        userInvocable:
+          typeof body.userInvocable === 'boolean'
+            ? body.userInvocable
+            : undefined,
+        disableModelInvocation:
+          typeof body.disableModelInvocation === 'boolean'
+            ? body.disableModelInvocation
+            : undefined,
+        tags: Array.isArray(body.tags) ? body.tags.map(String) : undefined,
+        body: String(body.body || ''),
+        files,
+      }),
+    );
+    return;
+  }
+
+  // PUT — toggle enabled/disabled
   const body = (await readJsonBody(req)) as {
     name?: unknown;
     enabled?: unknown;
@@ -2513,6 +2563,16 @@ async function handleApiAdminSkills(
       channel: typeof body.channel === 'string' ? body.channel : undefined,
     }),
   );
+}
+
+const MAX_SKILL_ZIP_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+async function handleApiAdminSkillUpload(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const buffer = await readRequestBody(req, MAX_SKILL_ZIP_UPLOAD_BYTES);
+  sendJson(res, 201, await uploadGatewayAdminSkillZip(buffer));
 }
 
 function decodeApiPathSegment(value: string): string {
@@ -2997,9 +3057,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (
             pathname === '/api/admin/skills' &&
-            (method === 'GET' || method === 'PUT')
+            (method === 'GET' || method === 'PUT' || method === 'POST')
           ) {
             await handleApiAdminSkills(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/skills/upload' && method === 'POST') {
+            await handleApiAdminSkillUpload(req, res);
             return;
           }
           if (pathname === '/api/admin/jobs/context' && method === 'GET') {

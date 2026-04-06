@@ -487,6 +487,21 @@ export interface AdminSkillsResponse {
   skills: AdminSkill[];
 }
 
+export interface AdminCreateSkillFile {
+  path: string;
+  content: string;
+}
+
+export interface AdminCreateSkillPayload {
+  name: string;
+  description: string;
+  userInvocable?: boolean;
+  disableModelInvocation?: boolean;
+  tags?: string[];
+  body: string;
+  files?: AdminCreateSkillFile[];
+}
+
 export interface AdminPlugin {
   id: string;
   name: string | null;
