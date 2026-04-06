@@ -10,6 +10,9 @@ const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
+const ORIGINAL_MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID;
+const ORIGINAL_MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD;
+const ORIGINAL_MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-gateway-status-'));
@@ -64,6 +67,9 @@ afterEach(() => {
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
   restoreEnvVar('MISTRAL_API_KEY', ORIGINAL_MISTRAL_API_KEY);
   restoreEnvVar('HF_TOKEN', ORIGINAL_HF_TOKEN);
+  restoreEnvVar('MSTEAMS_APP_ID', ORIGINAL_MSTEAMS_APP_ID);
+  restoreEnvVar('MSTEAMS_APP_PASSWORD', ORIGINAL_MSTEAMS_APP_PASSWORD);
+  restoreEnvVar('MSTEAMS_TENANT_ID', ORIGINAL_MSTEAMS_TENANT_ID);
 });
 
 function mockHealthProbes(options?: {
@@ -366,6 +372,84 @@ test('auth status hybridai is restricted outside local TUI/web sessions', async 
   }
   expect(result.title).toBe('Auth Status Restricted');
   expect(result.text).toContain('only available from local TUI/web sessions');
+});
+
+test('auth status supports all configured providers from local sessions', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.OPENROUTER_API_KEY = 'or-status-1234567890';
+  process.env.MISTRAL_API_KEY = 'mistral-status-1234567890';
+  process.env.HF_TOKEN = 'hf-status-1234567890';
+  process.env.MSTEAMS_APP_ID = 'teams-app-id';
+  process.env.MSTEAMS_APP_PASSWORD = 'teams-status-1234567890';
+  process.env.MSTEAMS_TENANT_ID = 'teams-tenant-id';
+  vi.resetModules();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = true;
+    config.mistral.enabled = true;
+    config.huggingface.enabled = true;
+    config.msteams.enabled = true;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = true;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const cases = [
+    {
+      provider: 'codex',
+      expectedTitle: 'Codex Auth Status',
+      expectedText: 'Authenticated:',
+    },
+    {
+      provider: 'openrouter',
+      expectedTitle: 'OpenRouter Auth Status',
+      expectedText: 'Enabled: yes',
+    },
+    {
+      provider: 'mistral',
+      expectedTitle: 'Mistral Auth Status',
+      expectedText: 'Enabled: yes',
+    },
+    {
+      provider: 'huggingface',
+      expectedTitle: 'Hugging Face Auth Status',
+      expectedText: 'Enabled: yes',
+    },
+    {
+      provider: 'local',
+      expectedTitle: 'Local Auth Status',
+      expectedText: 'lmstudio: enabled',
+    },
+    {
+      provider: 'msteams',
+      expectedTitle: 'Microsoft Teams Auth Status',
+      expectedText: 'App ID: teams-app-id',
+    },
+  ] as const;
+
+  for (const entry of cases) {
+    const result = await handleGatewayCommand({
+      sessionId: `session-auth-status-${entry.provider}`,
+      guildId: null,
+      channelId: 'tui',
+      args: ['auth', 'status', entry.provider],
+    });
+
+    expect(result.kind).toBe('info');
+    if (result.kind !== 'info') {
+      throw new Error(`Unexpected result kind: ${result.kind}`);
+    }
+    expect(result.title).toBe(entry.expectedTitle);
+    expect(result.text).toContain(entry.expectedText);
+    expect(result.text).not.toContain('Path:');
+  }
 });
 
 test('secret commands manage encrypted secrets and HTTP auth routes', async () => {
@@ -1314,6 +1398,84 @@ test('model list includes discovered OpenRouter models', async () => {
     ]),
   );
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test('model list openrouter asks for authorization before reporting no models', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  delete process.env.OPENROUTER_API_KEY;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = true;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-list-openrouter-auth-required',
+    guildId: null,
+    channelId: 'channel-model-list-openrouter-auth-required',
+    args: ['model', 'list', 'openrouter'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Available Models');
+  expect(result.text).toContain('OpenRouter is not authorized.');
+  expect(result.text).toContain('Authorize it first from a terminal:');
+  expect(result.text).toContain('hybridclaw auth login openrouter');
+  expect(result.text).toContain('Then rerun `model list openrouter`.');
+  expect(result.text).not.toContain('No models available for provider');
+});
+
+test('model list openrouter asks to enable the provider when credentials exist but it is disabled', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.OPENROUTER_API_KEY = 'or-gateway-status-1234567890';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.openrouter.models = ['openrouter/anthropic/claude-sonnet-4'];
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-list-openrouter-enable-required',
+    guildId: null,
+    channelId: 'channel-model-list-openrouter-enable-required',
+    args: ['model', 'list', 'openrouter'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Available Models');
+  expect(result.text).toContain('OpenRouter is disabled.');
+  expect(result.text).toContain('config set openrouter.enabled true');
+  expect(result.text).toContain('Then rerun `model list openrouter`.');
+  expect(result.text).not.toContain('No models available for provider');
 });
 
 test('model list includes discovered HybridAI models', async () => {
