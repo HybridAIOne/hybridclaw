@@ -18,7 +18,17 @@ hybridclaw doctor providers
 ```
 
 `doctor` checks runtime, gateway, config, credentials, database, providers,
-local backends, Docker, channels, skills, security, and disk state.
+local backends, Docker, channels, skills, security, and disk state in
+parallel.
+
+Useful flags:
+
+- `hybridclaw doctor --fix` applies safe remediations where a check exposes
+  one, then reruns the fixable checks
+- `hybridclaw doctor --json` prints a machine-readable report for CI or
+  automation while still returning exit code `1` if errors remain
+- `hybridclaw doctor <category>` narrows the report to one subsystem, for
+  example `docker` or `providers`
 
 When the config checks flag built-in tools that have gone unused for a while,
 use `hybridclaw tool list`, `hybridclaw tool disable <name>`, and
@@ -37,4 +47,5 @@ hybridclaw gateway restart --log-requests
 ```
 
 That persists best-effort redacted prompts, responses, and tool payloads to
-SQLite `request_log`. Treat it as sensitive operator data.
+SQLite `request_log` for turn-level debugging. Treat it as sensitive operator
+data.
