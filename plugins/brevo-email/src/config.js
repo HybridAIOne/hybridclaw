@@ -20,6 +20,8 @@ export function resolveBrevoConfig(pluginConfig, api) {
 
   return {
     domain: String(pluginConfig.domain || 'agent.hybridai.one').trim(),
+    fromName: String(pluginConfig.fromName || '').trim(),
+    fromAddress: String(pluginConfig.fromAddress || '').trim(),
     smtpHost: String(pluginConfig.smtpHost || 'smtp-relay.brevo.com').trim(),
     smtpPort: Number(pluginConfig.smtpPort) || 587,
     smtpLogin,

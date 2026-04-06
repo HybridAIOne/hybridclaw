@@ -8,7 +8,6 @@ requires:
   env:
     - BREVO_SMTP_LOGIN
     - BREVO_SMTP_KEY
-    - BREVO_WEBHOOK_SECRET
 configSchema:
   type: object
   additionalProperties: false
@@ -16,6 +15,12 @@ configSchema:
     domain:
       type: string
       default: agent.hybridai.one
+    fromName:
+      type: string
+      default: ''
+    fromAddress:
+      type: string
+      default: ''
     smtpHost:
       type: string
       default: smtp-relay.brevo.com
@@ -32,3 +37,11 @@ configUiHints:
     label: Email Domain
     placeholder: agent.hybridai.one
     help: The domain used for agent email addresses ({agentId}@domain).
+  fromName:
+    label: From Display Name
+    placeholder: HybridClaw Agent
+    help: Display name in the From header (e.g. "HybridClaw Agent"). Leave empty to use the agent ID.
+  fromAddress:
+    label: From Address Override
+    placeholder: agent@mail.hybridclaw.io
+    help: Override the From email address. Leave empty to use {agentId}@domain.

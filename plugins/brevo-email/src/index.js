@@ -53,12 +53,15 @@ export default {
         required: ['to', 'subject', 'body'],
       },
       async handler(args, context) {
-        const defaultAgentId =
-          api.config.agents?.defaultAgentId || 'main';
+        const defaultAgentId = api.config.agents?.defaultAgentId || 'main';
         let agentId = defaultAgentId;
         const match = context.sessionId.match(/^agent:([^:]+):channel:/);
         if (match) agentId = decodeURIComponent(match[1]);
-        const from = resolveAgentEmailAddress(agentId, config.domain);
+        const address = config.fromAddress ||
+          resolveAgentEmailAddress(agentId, config.domain);
+        const from = config.fromName
+          ? `"${config.fromName}" <${address}>`
+          : address;
         await send({
           from,
           to: String(args.to),
