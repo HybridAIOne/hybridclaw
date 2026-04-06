@@ -1433,8 +1433,9 @@ test('model list openrouter asks for authorization before reporting no models', 
   }
   expect(result.title).toBe('Available Models');
   expect(result.text).toContain('OpenRouter is not authorized.');
+  expect(result.text).toContain('Authorize it first from a terminal:');
   expect(result.text).toContain('hybridclaw auth login openrouter');
-  expect(result.text).toContain('Then rerun `/model list openrouter`.');
+  expect(result.text).toContain('Then rerun `model list openrouter`.');
   expect(result.text).not.toContain('No models available for provider');
 });
 
@@ -1472,8 +1473,8 @@ test('model list openrouter asks to enable the provider when credentials exist b
   }
   expect(result.title).toBe('Available Models');
   expect(result.text).toContain('OpenRouter is disabled.');
-  expect(result.text).toContain('/config set openrouter.enabled true');
-  expect(result.text).toContain('Then rerun `/model list openrouter`.');
+  expect(result.text).toContain('config set openrouter.enabled true');
+  expect(result.text).toContain('Then rerun `model list openrouter`.');
   expect(result.text).not.toContain('No models available for provider');
 });
 

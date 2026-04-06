@@ -1811,7 +1811,7 @@ function buildGatewayAuthStatusResponse(provider: GatewayAuthStatusProvider): {
 function buildProviderEnableCommand(
   provider: 'openrouter' | 'mistral' | 'huggingface',
 ): string {
-  return `/config set ${provider}.enabled true`;
+  return `config set ${provider}.enabled true`;
 }
 
 function buildModelListProviderSetupMessage(
@@ -1824,9 +1824,9 @@ function buildModelListProviderSetupMessage(
       if (getHybridAIAuthStatus().authenticated) return null;
       return [
         'HybridAI is not authorized.',
-        'Authorize it first:',
+        'Authorize it first from a terminal:',
         '  hybridclaw auth login hybridai',
-        'Then rerun `/model list hybridai`.',
+        'Then rerun `model list hybridai`.',
       ].join('\n');
     }
     case 'openai-codex': {
@@ -1836,9 +1836,9 @@ function buildModelListProviderSetupMessage(
         status.reloginRequired
           ? 'Codex authorization expired.'
           : 'Codex is not authorized.',
-        'Authorize it first:',
+        'Authorize it first from a terminal:',
         '  hybridclaw auth login codex',
-        'Then rerun `/model list codex`.',
+        'Then rerun `model list codex`.',
       ].join('\n');
     }
     case 'openrouter': {
@@ -1849,12 +1849,15 @@ function buildModelListProviderSetupMessage(
           ? 'OpenRouter is not authorized.'
           : 'OpenRouter is disabled.',
         ...(!authorized
-          ? ['Authorize it first:', '  hybridclaw auth login openrouter']
+          ? [
+              'Authorize it first from a terminal:',
+              '  hybridclaw auth login openrouter',
+            ]
           : []),
         ...(config.openrouter.enabled
           ? []
           : ['Enable it:', `  ${buildProviderEnableCommand('openrouter')}`]),
-        'Then rerun `/model list openrouter`.',
+        'Then rerun `model list openrouter`.',
       ].join('\n');
     }
     case 'mistral': {
@@ -1863,12 +1866,15 @@ function buildModelListProviderSetupMessage(
       return [
         !authorized ? 'Mistral is not authorized.' : 'Mistral is disabled.',
         ...(!authorized
-          ? ['Authorize it first:', '  hybridclaw auth login mistral']
+          ? [
+              'Authorize it first from a terminal:',
+              '  hybridclaw auth login mistral',
+            ]
           : []),
         ...(config.mistral.enabled
           ? []
           : ['Enable it:', `  ${buildProviderEnableCommand('mistral')}`]),
-        'Then rerun `/model list mistral`.',
+        'Then rerun `model list mistral`.',
       ].join('\n');
     }
     case 'huggingface': {
@@ -1879,12 +1885,15 @@ function buildModelListProviderSetupMessage(
           ? 'Hugging Face is not authorized.'
           : 'Hugging Face is disabled.',
         ...(!authorized
-          ? ['Authorize it first:', '  hybridclaw auth login huggingface']
+          ? [
+              'Authorize it first from a terminal:',
+              '  hybridclaw auth login huggingface',
+            ]
           : []),
         ...(config.huggingface.enabled
           ? []
           : ['Enable it:', `  ${buildProviderEnableCommand('huggingface')}`]),
-        'Then rerun `/model list huggingface`.',
+        'Then rerun `model list huggingface`.',
       ].join('\n');
     }
     default:
