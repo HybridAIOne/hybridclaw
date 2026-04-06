@@ -42,6 +42,7 @@ export function extractGatewayChatApprovalEvent(
     summary,
     allowSession: approval.allowSession === true,
     allowAgent: approval.allowAgent === true,
+    allowAll: approval.allowAll === true,
     expiresAt:
       typeof approval.expiresAt === 'number' &&
       Number.isFinite(approval.expiresAt)

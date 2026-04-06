@@ -1628,6 +1628,7 @@
         reason: String(value.reason || '').trim(),
         allowSession: value.allowSession === true,
         allowAgent: value.allowAgent === true,
+        allowAll: value.allowAll === true,
         expiresAt,
       };
     }
@@ -1661,26 +1662,34 @@
       if (normalizedAction === 'yes' || normalizedAction === '1') {
         return withApprovalId('/approve yes');
       }
-      if (
-        normalizedAction === 'session' ||
-        normalizedAction === 'always' ||
-        normalizedAction === 'all' ||
-        normalizedAction === '2'
-      ) {
+      if (normalizedAction === 'always') {
         return normalizedApprovalId
           ? `/approve always ${normalizedApprovalId}`
           : '/approve always';
+      }
+      if (
+        normalizedAction === 'session' ||
+        normalizedAction === '2'
+      ) {
+        return normalizedApprovalId
+          ? `/approve session ${normalizedApprovalId}`
+          : '/approve session';
       }
       if (normalizedAction === 'agent' || normalizedAction === '3') {
         return normalizedApprovalId
           ? `/approve agent ${normalizedApprovalId}`
           : '/approve agent';
       }
+      if (normalizedAction === 'all' || normalizedAction === '4') {
+        return normalizedApprovalId
+          ? `/approve all ${normalizedApprovalId}`
+          : '/approve all';
+      }
       if (
         normalizedAction === 'no' ||
         normalizedAction === 'deny' ||
         normalizedAction === 'skip' ||
-        normalizedAction === '4'
+        normalizedAction === '5'
       ) {
         return withApprovalId('/approve no');
       }
@@ -1731,12 +1740,15 @@
         intent,
         reason,
         allowSession: lines.some((line) =>
-          /^Reply `yes(?:\s+for)?\s+(?:session|all|always)` to trust this action for this (?:session|conversation)\.$/.test(
+          /^Reply `yes(?:\s+for)?\s+(?:session|always)` to trust this action for this (?:session|conversation)\.$/.test(
             line,
           ),
         ),
         allowAgent: lines.includes(
           'Reply `yes for agent` to trust it for this agent.',
+        ),
+        allowAll: lines.includes(
+          'Reply `yes for all` to add this action to the workspace allowlist.',
         ),
         expiresAt: null,
       };
@@ -2414,7 +2426,17 @@
 
         if (!line.trim()) {
           flushParagraph();
-          closeList();
+          // Look ahead past blank lines: keep the list open when the next
+          // non-empty line continues the same list type (#206)
+          if (openList) {
+            let ahead = index + 1;
+            while (ahead < lines.length && !(lines[ahead] || '').trim()) ahead++;
+            const nextNonEmpty = ahead < lines.length ? lines[ahead] : '';
+            const continuesList =
+              (openList === 'ul' && /^\s*[-*+]\s+/.test(nextNonEmpty)) ||
+              (openList === 'ol' && /^\s*\d+\.\s+/.test(nextNonEmpty));
+            if (!continuesList) closeList();
+          }
           index += 1;
           continue;
         }
@@ -2812,6 +2834,9 @@
       }
       if (approval.allowAgent) {
         appendButton('Allow agent', 'agent');
+      }
+      if (approval.allowAll) {
+        appendButton('Allow all', 'all');
       }
       appendButton('Deny', 'no', { kind: 'deny' });
     }

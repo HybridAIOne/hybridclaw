@@ -16,6 +16,7 @@ test('extracts approval event metadata from a pending approval result', () => {
         reason: 'this command controls host GUI or application state',
         allowSession: true,
         allowAgent: false,
+        allowAll: false,
         expiresAt: 1_710_000_000_000,
       },
     }),
@@ -29,6 +30,7 @@ test('extracts approval event metadata from a pending approval result', () => {
     reason: 'this command controls host GUI or application state',
     allowSession: true,
     allowAgent: false,
+    allowAll: false,
     expiresAt: 1_710_000_000_000,
   });
 });

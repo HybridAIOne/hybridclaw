@@ -42,6 +42,7 @@ test('parses raw runtime approval prompts into TUI approval details', () => {
         'Reply `yes` to approve once.',
         'Reply `yes for session` to trust this action for this session.',
         'Reply `yes for agent` to trust it for this agent.',
+        'Reply `yes for all` to add this action to the workspace allowlist.',
         'Reply `no` to deny.',
         'Approval expires in 120s.',
       ].join('\n'),
@@ -52,6 +53,7 @@ test('parses raw runtime approval prompts into TUI approval details', () => {
     reason: 'this command controls host GUI or application state',
     allowSession: true,
     allowAgent: true,
+    allowAll: true,
   });
 });
 
@@ -75,6 +77,7 @@ test('parses always-style durable approval prompts into TUI approval details', (
     reason: 'this command controls host GUI or application state',
     allowSession: true,
     allowAgent: true,
+    allowAll: false,
   });
 });
 
@@ -88,6 +91,7 @@ test('parses pinned runtime approval prompts without durable trust options', () 
         'Reply `yes` to approve once.',
         'Reply `yes for session` is unavailable for pinned-sensitive actions.',
         'Reply `yes for agent` is unavailable for pinned-sensitive actions.',
+        'Reply `yes for all` is unavailable for pinned-sensitive actions.',
         'Reply `no` to deny.',
         'Approval expires in 120s.',
       ].join('\n'),
@@ -98,5 +102,28 @@ test('parses pinned runtime approval prompts without durable trust options', () 
     reason: 'script execution is treated as high risk',
     allowSession: false,
     allowAgent: false,
+    allowAll: false,
+  });
+});
+
+test('tracks agent and all approval options separately', () => {
+  expect(
+    parseTuiApprovalPrompt(
+      [
+        'I need your approval before I fetch a page.',
+        'Why: this host is not yet trusted',
+        'Approval ID: approve123',
+        'Reply `yes` to approve once.',
+        'Reply `yes for all` to add this action to the workspace allowlist.',
+        'Reply `no` to deny.',
+      ].join('\n'),
+    ),
+  ).toEqual({
+    approvalId: 'approve123',
+    intent: 'fetch a page',
+    reason: 'this host is not yet trusted',
+    allowSession: false,
+    allowAgent: false,
+    allowAll: true,
   });
 });

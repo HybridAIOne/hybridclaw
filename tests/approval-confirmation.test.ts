@@ -27,6 +27,12 @@ test('buildApprovalConfirmationComponents creates the expected approval buttons'
         },
         {
           type: 2,
+          style: 1,
+          label: 'Allow All',
+          custom_id: 'approve:all:abc123',
+        },
+        {
+          type: 2,
           style: 4,
           label: 'Deny',
           custom_id: 'approve:no:abc123',

@@ -37,6 +37,7 @@ export interface ToolExecution {
     | 'approved_once'
     | 'approved_session'
     | 'approved_agent'
+    | 'approved_all'
     | 'approved_fullauto'
     | 'promoted'
     | 'required'
@@ -48,6 +49,7 @@ export interface ToolExecution {
   approvalExpiresAt?: number;
   approvalAllowSession?: boolean;
   approvalAllowAgent?: boolean;
+  approvalAllowAll?: boolean;
 }
 
 export interface PendingApproval {
@@ -57,6 +59,7 @@ export interface PendingApproval {
   reason: string;
   allowSession: boolean;
   allowAgent: boolean;
+  allowAll: boolean;
   expiresAt: number | null;
 }
 

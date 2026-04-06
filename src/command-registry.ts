@@ -89,6 +89,7 @@ const APPROVAL_ACTION_CHOICES = [
   { name: 'always', value: 'always' },
   { name: 'session', value: 'session' },
   { name: 'agent', value: 'agent' },
+  { name: 'all', value: 'all' },
   { name: 'no', value: 'no' },
 ] satisfies Array<{ name: string; value: string }>;
 
@@ -476,6 +477,13 @@ function buildSlashCommandCatalogDefinitions(
           insertText: '/approve agent',
           description:
             'Approve the pending request for the current agent workspace',
+        },
+        {
+          id: 'approve.all',
+          label: '/approve all [approval_id]',
+          insertText: '/approve all',
+          description:
+            'Approve the pending request for the workspace allowlist',
         },
         {
           id: 'approve.no',

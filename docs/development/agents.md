@@ -24,8 +24,8 @@ Main docs landing pages:
 
 - [Getting Started](./getting-started/README.md)
 - [Authentication](./getting-started/authentication.md)
+- [Channel Setup](./getting-started/channels.md)
 - [Installation](./getting-started/installation.md)
-- [Microsoft Teams](./getting-started/msteams.md)
 - [Quick Start](./getting-started/quickstart.md)
 
 ## Guides

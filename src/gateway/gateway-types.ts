@@ -75,6 +75,7 @@ export interface GatewayChatResult {
       | 'approved_once'
       | 'approved_session'
       | 'approved_agent'
+      | 'approved_all'
       | 'approved_fullauto'
       | 'promoted'
       | 'required'

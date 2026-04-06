@@ -26,6 +26,10 @@ export function buildApprovalActionRow(
       .setLabel('Allow Agent')
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
+      .setCustomId(`approve:all:${approvalId}`)
+      .setLabel('Allow All')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
       .setCustomId(`approve:no:${approvalId}`)
       .setLabel('Deny')
       .setStyle(ButtonStyle.Danger),
@@ -36,7 +40,7 @@ export function parseApprovalCustomId(
   customId: string,
 ): { action: string; approvalId: string } | null {
   const match = customId.match(
-    /^approve:(yes|session|agent|no):([A-Za-z0-9-]+)$/,
+    /^approve:(yes|session|all|agent|no):([A-Za-z0-9-]+)$/,
   );
   if (!match) return null;
   const [, action, approvalId] = match;

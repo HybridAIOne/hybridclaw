@@ -42,7 +42,7 @@ const BARE_PDF_PATH_RE =
   /(?:^|[\s([{'"])((?:\.{1,2}[\\/]|~[\\/]|\/|[A-Za-z]:[\\/])[^"'`\s)\]}<>,;]*?\.pdf)(?=$|[\s)\]}<>,;:'"])/gi;
 const QUOTED_BARE_PDF_FILENAME_RE = /(["'`])([^"'`\n/\\]+\.pdf)\1/gi;
 const APPROVAL_RESPONSE_RE =
-  /^(?:\/?(?:approve|yes|y|1|2|3))(?:\s+[a-f0-9-]{6,64})?(?:\s+(?:for\s+session|session|for\s+all|all|always|for\s+agent|agent))?$/i;
+  /^(?:\/?(?:approve|yes|y|1|2|3|4))(?:\s+[a-f0-9-]{6,64})?(?:\s+(?:for\s+session|session|always|for\s+agent|agent|for\s+all|all))?$/i;
 const XML_ESCAPE_MAP: Record<string, string> = {
   '<': '&lt;',
   '>': '&gt;',

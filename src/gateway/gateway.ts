@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import { AttachmentBuilder } from 'discord.js';
-import { stopAllExecutions } from '../agent/executor.js';
+import {
+  getActiveExecutorCount,
+  stopAllExecutions,
+} from '../agent/executor.js';
 import {
   isWithinActiveHours,
   proactiveWindowLabel,
@@ -150,6 +153,85 @@ const IMESSAGE_INTERRUPTED_REPLY =
   'The request was interrupted before I could reply. Please send it again.';
 const IMESSAGE_TRANSIENT_FAILURE_REPLY =
   'The model request failed before I could reply. Please try again.';
+
+function logGatewayStartup(params: {
+  status: Awaited<ReturnType<typeof getGatewayStatus>>;
+  channels: {
+    discord: boolean;
+    msteams: boolean;
+    email: boolean;
+    imessage: boolean;
+    whatsapp: boolean;
+  };
+}): void {
+  const {
+    pid: _pid,
+    timestamp: _timestamp,
+    codex,
+    sandbox,
+    observability,
+    scheduler,
+    providerHealth,
+    localBackends,
+    pluginCommands,
+    ...status
+  } = params.status;
+
+  logger.info(
+    {
+      ...status,
+      ...(codex
+        ? {
+            codex: {
+              authenticated: codex.authenticated,
+              source: codex.source,
+              reloginRequired: codex.reloginRequired,
+            },
+          }
+        : {}),
+      ...(sandbox
+        ? {
+            sandbox: {
+              mode: sandbox.mode,
+              modeExplicit: sandbox.modeExplicit,
+              runningInsideContainer: sandbox.runningInsideContainer,
+              activeSessions: sandbox.activeSessions,
+              warning: sandbox.warning,
+            },
+          }
+        : {}),
+      ...(observability
+        ? {
+            observability: {
+              enabled: observability.enabled,
+              running: observability.running,
+              paused: observability.paused,
+              reason: observability.reason,
+            },
+          }
+        : {}),
+    },
+    'HybridClaw gateway started',
+  );
+
+  if (scheduler?.jobs?.length) {
+    logger.info({ jobs: scheduler.jobs }, 'Gateway scheduler jobs');
+  }
+
+  logger.info(
+    {
+      ...(providerHealth ? { providerHealth } : {}),
+      ...(localBackends ? { localBackends } : {}),
+    },
+    'Gateway provider health',
+  );
+
+  if (pluginCommands?.length) {
+    logger.info({ pluginCommands }, 'Gateway plugin commands');
+  }
+
+  logger.info(params.channels, 'Gateway channels');
+}
 
 function buildArtifactAttachments(
   artifacts?: ArtifactMetadata[],
@@ -321,6 +403,7 @@ function resolveImplicitNumericApprovalArgs(params: {
   if (normalized === '2') return ['approve', '2'];
   if (normalized === '3') return ['approve', '3'];
   if (normalized === '4') return ['approve', '4'];
+  if (normalized === '5') return ['approve', '5'];
   return null;
 }
 
@@ -997,7 +1080,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
             expiresAt: pendingApproval.expiresAt,
           });
           await context.stream.finalize(
-            `${responseText}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, or \`4\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4]\`.`,
+            `${responseText}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`,
           );
           return;
         }
@@ -1451,9 +1534,9 @@ async function startIMessageIntegration(): Promise<boolean> {
   return true;
 }
 
-function setupShutdown(): void {
+function setupShutdown(broadcastShutdown: () => void): void {
   let shuttingDown = false;
-  const shutdown = async () => {
+  const shutdown = async (opts?: { drain?: boolean }) => {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info('Shutting down gateway...');
@@ -1482,6 +1565,17 @@ function setupShutdown(): void {
         'Failed to stop iMessage runtime during shutdown',
       );
     });
+    if (opts?.drain) {
+      broadcastShutdown();
+      const DRAIN_TIMEOUT_MS = 15_000;
+      const DRAIN_POLL_MS = 250;
+      const deadline = Date.now() + DRAIN_TIMEOUT_MS;
+      while (getActiveExecutorCount() > 0 && Date.now() < deadline) {
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, DRAIN_POLL_MS),
+        );
+      }
+    }
     await runManagedMediaCleanup('shutdown');
     stopHeartbeat();
     stopObservabilityIngest();
@@ -1502,7 +1596,7 @@ function setupShutdown(): void {
     void shutdown();
   });
   process.on('SIGTERM', () => {
-    void shutdown();
+    void shutdown({ drain: true });
   });
 }
 
@@ -1519,6 +1613,20 @@ async function runScheduledTask(
       : request.delivery.kind === 'last-channel'
         ? resolveLastUsedDeliverableChannelId()
         : null;
+
+  if (request.delivery.kind === 'last-channel' && !resolvedDeliveryChannelId) {
+    logger.info(
+      {
+        jobId: request.jobId,
+        taskId: request.taskId,
+        source: request.source,
+        actionKind: request.actionKind,
+        delivery: request.delivery.kind,
+      },
+      'Scheduled task skipped: no delivery channel available',
+    );
+    return;
+  }
 
   if (request.actionKind === 'system_event') {
     if (request.delivery.kind === 'webhook') {
@@ -1689,8 +1797,8 @@ async function main(): Promise<void> {
   void runManagedMediaCleanup('startup').catch((error) => {
     logger.warn({ error }, 'Managed media cleanup failed during startup');
   });
-  startGatewayHttpServer();
-  setupShutdown();
+  const httpServer = startGatewayHttpServer();
+  setupShutdown(httpServer.broadcastShutdown.bind(httpServer));
   const discordActive = await startDiscordIntegration();
   const msteamsActive = await startMSTeamsIntegration();
   const emailActive = await startEmailIntegration();
@@ -1781,17 +1889,17 @@ async function main(): Promise<void> {
     logger.warn({ err }, 'Initial proactive queue flush failed');
   });
 
-  logger.info(
-    {
-      ...(await getGatewayStatus()),
+  logGatewayStartup({
+    status: await getGatewayStatus(),
+    channels: {
       discord: discordActive,
       msteams: msteamsActive,
       email: emailActive,
       imessage: imessageActive,
       whatsapp: whatsappActive,
     },
-    'HybridClaw gateway started',
-  );
+  });
+  httpServer.setReady();
 }
 
 main().catch((err) => {
