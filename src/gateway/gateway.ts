@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import { AttachmentBuilder } from 'discord.js';
-import { stopAllExecutions } from '../agent/executor.js';
+import {
+  getActiveExecutorCount,
+  stopAllExecutions,
+} from '../agent/executor.js';
 import {
   isWithinActiveHours,
   proactiveWindowLabel,
@@ -1530,9 +1533,9 @@ async function startIMessageIntegration(): Promise<boolean> {
   return true;
 }
 
-function setupShutdown(): void {
+function setupShutdown(broadcastShutdown: () => void): void {
   let shuttingDown = false;
-  const shutdown = async () => {
+  const shutdown = async (opts?: { drain?: boolean }) => {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info('Shutting down gateway...');
@@ -1561,6 +1564,17 @@ function setupShutdown(): void {
         'Failed to stop iMessage runtime during shutdown',
       );
     });
+    if (opts?.drain) {
+      broadcastShutdown();
+      const DRAIN_TIMEOUT_MS = 15_000;
+      const DRAIN_POLL_MS = 250;
+      const deadline = Date.now() + DRAIN_TIMEOUT_MS;
+      while (getActiveExecutorCount() > 0 && Date.now() < deadline) {
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, DRAIN_POLL_MS),
+        );
+      }
+    }
     await runManagedMediaCleanup('shutdown');
     stopHeartbeat();
     stopObservabilityIngest();
@@ -1581,7 +1595,7 @@ function setupShutdown(): void {
     void shutdown();
   });
   process.on('SIGTERM', () => {
-    void shutdown();
+    void shutdown({ drain: true });
   });
 }
 
@@ -1782,8 +1796,8 @@ async function main(): Promise<void> {
   void runManagedMediaCleanup('startup').catch((error) => {
     logger.warn({ error }, 'Managed media cleanup failed during startup');
   });
-  startGatewayHttpServer();
-  setupShutdown();
+  const httpServer = startGatewayHttpServer();
+  setupShutdown(httpServer.broadcastShutdown.bind(httpServer));
   const discordActive = await startDiscordIntegration();
   const msteamsActive = await startMSTeamsIntegration();
   const emailActive = await startEmailIntegration();
@@ -1884,6 +1898,7 @@ async function main(): Promise<void> {
       whatsapp: whatsappActive,
     },
   });
+  httpServer.setReady();
 }
 
 main().catch((err) => {

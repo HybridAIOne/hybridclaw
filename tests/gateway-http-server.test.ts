@@ -352,6 +352,7 @@ async function importFreshHealth(options?: {
   }));
   const stopTerminalSession = vi.fn(() => true);
   const handleTerminalUpgrade = vi.fn(() => true);
+  const broadcastShutdownTerminal = vi.fn();
   const disposeTerminalManager = vi.fn();
 
   const createServer = vi.fn((nextHandler) => {
@@ -979,6 +980,7 @@ async function importFreshHealth(options?: {
       startSession: startTerminalSession,
       stopSession: stopTerminalSession,
       handleUpgrade: handleTerminalUpgrade,
+      broadcastShutdown: broadcastShutdownTerminal,
       dispose: disposeTerminalManager,
     })),
   }));
@@ -986,7 +988,7 @@ async function importFreshHealth(options?: {
   const gatewayHttpServer = await import(
     '../src/gateway/gateway-http-server.js'
   );
-  gatewayHttpServer.startGatewayHttpServer();
+  const httpServer = gatewayHttpServer.startGatewayHttpServer();
 
   if (!handler || !listenArgs) {
     throw new Error('Gateway HTTP server did not initialize.');
@@ -995,6 +997,7 @@ async function importFreshHealth(options?: {
   return {
     dataDir,
     handler,
+    httpServer,
     listenArgs,
     getGatewayStatus,
     ensureGatewayBootstrapAutostart,
@@ -1019,6 +1022,7 @@ async function importFreshHealth(options?: {
     startTerminalSession,
     stopTerminalSession,
     handleTerminalUpgrade,
+    broadcastShutdownTerminal,
     upgradeHandler,
     moveGatewayAdminSchedulerJob,
     createGatewayAdminAgent,
@@ -2964,7 +2968,9 @@ describe('gateway HTTP server', () => {
 
     // demo_status should no longer appear.
     const commands = JSON.parse(res2.body).commands;
-    expect(commands.find((c: { id: string }) => c.id === 'demo_status')).toBeUndefined();
+    expect(
+      commands.find((c: { id: string }) => c.id === 'demo_status'),
+    ).toBeUndefined();
   });
 
   test('routes web slash commands through the streaming /api/chat path', async () => {
@@ -4418,4 +4424,85 @@ describe('gateway HTTP server', () => {
     });
     createReadStreamSpy.mockRestore();
   });
+
+  test('/ready returns 503 before setReady is called', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/ready' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(503);
+    const body = JSON.parse(res.body) as { ready: boolean; uptimeMs: number };
+    expect(body.ready).toBe(false);
+    expect(typeof body.uptimeMs).toBe('number');
+    expect(body.uptimeMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test('/ready returns 200 after setReady is called', async () => {
+    const state = await importFreshHealth();
+    state.httpServer.setReady();
+
+    const req = makeRequest({ url: '/ready' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({ ready: true });
+  });
+
+  test('/readyz behaves identically to /ready', async () => {
+    const state = await importFreshHealth();
+    state.httpServer.setReady();
+
+    const req = makeRequest({ url: '/readyz' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({ ready: true });
+  });
+
+  test('/ready uptimeMs reflects time since server start, not module load', async () => {
+    const before = Date.now();
+    const state = await importFreshHealth();
+    const after = Date.now();
+
+    const req = makeRequest({ url: '/ready' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    const body = JSON.parse(res.body) as { uptimeMs: number };
+    // uptimeMs should be within the import window, not a stale module-load timestamp
+    expect(body.uptimeMs).toBeGreaterThanOrEqual(0);
+    expect(body.uptimeMs).toBeLessThanOrEqual(after - before + 100);
+  });
+
+  test('broadcastShutdown sends shutdown event to SSE clients and notifies terminal manager', async () => {
+    const state = await importFreshHealth();
+
+    // Register an active SSE response
+    const sseReq = makeRequest({ url: '/api/events' });
+    const sseRes = makeResponse();
+    state.handler(sseReq as never, sseRes as never);
+    await settle();
+
+    // Trigger the shutdown broadcast
+    state.httpServer.broadcastShutdown();
+
+    expect(sseRes.body).toContain('event: shutdown');
+    expect(sseRes.body).toContain('"type":"shutdown"');
+    expect(sseRes.writableEnded).toBe(true);
+    expect(state.broadcastShutdownTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'shutdown' }),
+    );
+  });
+
 });
