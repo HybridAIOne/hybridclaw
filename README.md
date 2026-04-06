@@ -400,3 +400,23 @@ Skills can be disabled globally or per channel kind (`discord`, `msteams`,
 or via the TUI `/skill config` screen. For observation-driven health and
 amendment workflows, use `hybridclaw skill inspect|runs|learn|history` or the
 admin `Skills` page.
+
+## Contributing
+
+Mini quick start:
+
+```bash
+npm install
+npm run setup
+npm run build
+```
+
+Use `npm run typecheck`, `npm run lint`, and targeted tests for code changes.
+For docs-only changes, verify links, commands, and examples. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow and check matrix.
+
+## Community
+
+- Discord: [discord.gg/jsVW4vJw27](https://discord.gg/jsVW4vJw27)
+- Issues: [github.com/HybridAIOne/hybridclaw/issues](https://github.com/HybridAIOne/hybridclaw/issues)
+- Discussions: [github.com/HybridAIOne/hybridclaw/discussions](https://github.com/HybridAIOne/hybridclaw/discussions) (needs enabling)
