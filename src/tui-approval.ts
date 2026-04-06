@@ -7,6 +7,7 @@ export interface TuiApprovalDetails {
   reason: string;
   allowSession: boolean;
   allowAgent: boolean;
+  allowAll: boolean;
 }
 
 export function formatTuiApprovalSummary(
@@ -52,6 +53,9 @@ export function parseTuiApprovalPrompt(
     ),
     allowAgent: lines.includes(
       'Reply `yes for agent` to trust it for this agent.',
+    ),
+    allowAll: lines.includes(
+      'Reply `yes for all` to add this action to the workspace allowlist.',
     ),
   };
 }

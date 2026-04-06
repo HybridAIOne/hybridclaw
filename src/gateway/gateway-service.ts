@@ -34,6 +34,7 @@ import {
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { APPROVE_COMMAND_USAGE } from '../approval-commands.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
@@ -4724,7 +4725,7 @@ export async function handleGatewayCommand(
             scope: 'slash',
           },
           {
-            command: 'approve [view|yes|session|agent|no] [approval_id]',
+            command: APPROVE_COMMAND_USAGE.slice('/'.length),
             description: 'View/respond to pending approvals privately',
             scope: 'slash',
           },

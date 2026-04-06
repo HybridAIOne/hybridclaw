@@ -15,6 +15,7 @@ export type ApprovalDecision =
   | 'approved_once'
   | 'approved_session'
   | 'approved_agent'
+  | 'approved_all'
   | 'approved_fullauto'
   | 'promoted'
   | 'required'
@@ -70,7 +71,7 @@ interface PendingApproval {
 export interface ApprovalPrelude {
   immediateMessage?: string;
   replayPrompt?: string;
-  approvalMode?: 'once' | 'session' | 'agent';
+  approvalMode?: ApprovalMode;
   approvedRequestId?: string;
 }
 
@@ -100,7 +101,18 @@ const POLICY_PATH = path.join(
   '.hybridclaw',
   'policy.yaml',
 );
+const AGENT_TRUST_STORE_PATH = path.join(
+  WORKSPACE_ROOT_ACTUAL,
+  '.hybridclaw',
+  'approval-agent-trust.json',
+);
+const APPROVAL_MODES = ['once', 'session', 'agent', 'all'] as const;
+type ApprovalMode = (typeof APPROVAL_MODES)[number];
 const TRUST_STORE_PATH = path.join(
+  WORKSPACE_ROOT_ACTUAL,
+  'approval-trust.json',
+);
+const LEGACY_AGENT_TRUST_STORE_PATH = path.join(
   WORKSPACE_ROOT_ACTUAL,
   '.hybridclaw',
   'approval-trust.json',
@@ -163,7 +175,7 @@ const URL_RE = /https?:\/\/[^\s"'`<>]+/gi;
 const HOST_RE =
   /\b(?:ssh|scp)\s+[^\s@]*@?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?::\S+)?/g;
 const APPROVE_RE =
-  /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|always|for\s+agent|agent))?$/i;
+  /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|always|for\s+all|all|for\s+agent|agent))?$/i;
 const DENY_RE = /^(?:\/?(?:deny|reject|skip|no|n))(?:\s+([a-f0-9-]{6,64}))?$/i;
 
 function normalizeText(value: unknown): string {
@@ -797,16 +809,18 @@ function primaryPathKey(rawPath: string): string {
 
 function parseModeFromApproveMatch(
   match: RegExpMatchArray | null,
-): 'once' | 'session' | 'agent' {
+): ApprovalMode {
   const scope = String(match?.[2] || '').toLowerCase();
+  if (scope.includes('always')) return 'session';
+  if (scope.includes('all')) return 'all';
   if (scope.includes('agent')) return 'agent';
-  if (scope.includes('session') || scope.includes('always')) return 'session';
+  if (scope.includes('session')) return 'session';
   return 'once';
 }
 
 function parseApprovalDirective(input: string): {
   kind: 'approve' | 'deny';
-  mode?: 'once' | 'session' | 'agent';
+  mode?: ApprovalMode;
   requestId: string;
 } | null {
   const normalized = input.trim();
@@ -842,7 +856,7 @@ function parseApprovalDirective(input: string): {
 
 function parseApprovalUserResponse(input: string): {
   kind: 'approve' | 'deny';
-  mode?: 'once' | 'session' | 'agent';
+  mode?: ApprovalMode;
   requestId: string;
 } | null {
   const normalized = input.trim();
@@ -880,9 +894,9 @@ function parseApprovalUserResponse(input: string): {
 }
 
 interface PersistedApprovalTrustStore {
-  version: 1;
-  trustedActions: string[];
-  trustedFingerprints: string[];
+  version: 2;
+  allowlistedActions: string[];
+  allowlistedFingerprints: string[];
   updatedAt: string;
 }
 
@@ -894,20 +908,30 @@ function parsePersistedTrustStore(
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
       return null;
     const record = parsed as Record<string, unknown>;
-    const trustedActions = Array.isArray(record.trustedActions)
-      ? record.trustedActions
+    const allowlistedActions = Array.isArray(record.allowlistedActions)
+      ? record.allowlistedActions
           .map((value) => String(value || '').trim())
           .filter(Boolean)
-      : [];
-    const trustedFingerprints = Array.isArray(record.trustedFingerprints)
-      ? record.trustedFingerprints
+      : Array.isArray(record.trustedActions)
+        ? record.trustedActions
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)
+        : [];
+    const allowlistedFingerprints = Array.isArray(
+      record.allowlistedFingerprints,
+    )
+      ? record.allowlistedFingerprints
           .map((value) => String(value || '').trim())
           .filter(Boolean)
-      : [];
+      : Array.isArray(record.trustedFingerprints)
+        ? record.trustedFingerprints
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)
+        : [];
     return {
-      version: 1,
-      trustedActions,
-      trustedFingerprints,
+      version: 2,
+      allowlistedActions,
+      allowlistedFingerprints,
       updatedAt:
         typeof record.updatedAt === 'string'
           ? record.updatedAt
@@ -920,6 +944,8 @@ function parsePersistedTrustStore(
 
 export class TrustedCoworkerApprovalRuntime {
   private readonly policyPath: string;
+  private readonly agentTrustStorePath: string;
+  private readonly legacyAgentTrustStorePath: string;
   private readonly trustStorePath: string;
   private loadedPolicy: ApprovalPolicyConfig = DEFAULT_POLICY;
   private policyMtimeMs = -1;
@@ -930,15 +956,34 @@ export class TrustedCoworkerApprovalRuntime {
   private readonly sessionTrustedActions = new Set<string>();
   private readonly agentTrustedActions = new Set<string>();
   private readonly agentTrustedFingerprints = new Set<string>();
+  private readonly allowlistedActions = new Set<string>();
+  private readonly allowlistedFingerprints = new Set<string>();
   private readonly seenNetworkHosts = new Set<string>();
   private fullAutoEnabled = false;
   private readonly fullAutoNeverApprove = new Set<string>();
 
-  constructor(policyPath = POLICY_PATH, trustStorePath = TRUST_STORE_PATH) {
+  constructor(
+    policyPath = POLICY_PATH,
+    agentTrustStorePath = AGENT_TRUST_STORE_PATH,
+    trustStorePath = TRUST_STORE_PATH,
+    legacyAgentTrustStorePath = LEGACY_AGENT_TRUST_STORE_PATH,
+  ) {
     this.policyPath = policyPath;
+    this.agentTrustStorePath = agentTrustStorePath;
     this.trustStorePath = trustStorePath;
+    this.legacyAgentTrustStorePath = legacyAgentTrustStorePath;
     this.reloadPolicyIfNeeded(true);
-    this.loadAgentTrustStore();
+    this.loadPersistedTrustStore({
+      trustStorePath: this.agentTrustStorePath,
+      legacyTrustStorePath: this.legacyAgentTrustStorePath,
+      actionSet: this.agentTrustedActions,
+      fingerprintSet: this.agentTrustedFingerprints,
+    });
+    this.loadPersistedTrustStore({
+      trustStorePath: this.trustStorePath,
+      actionSet: this.allowlistedActions,
+      fingerprintSet: this.allowlistedFingerprints,
+    });
   }
 
   setFullAutoOptions(params?: {
@@ -987,38 +1032,60 @@ export class TrustedCoworkerApprovalRuntime {
     return this.loadedPolicy;
   }
 
-  private loadAgentTrustStore(): void {
-    this.agentTrustedActions.clear();
-    this.agentTrustedFingerprints.clear();
+  private loadPersistedTrustStore(params: {
+    trustStorePath: string;
+    actionSet: Set<string>;
+    fingerprintSet: Set<string>;
+    legacyTrustStorePath?: string;
+  }): void {
+    params.actionSet.clear();
+    params.fingerprintSet.clear();
     try {
-      if (!fs.existsSync(this.trustStorePath)) return;
-      const raw = fs.readFileSync(this.trustStorePath, 'utf-8');
+      const sourcePath = fs.existsSync(params.trustStorePath)
+        ? params.trustStorePath
+        : params.legacyTrustStorePath;
+      if (!sourcePath || !fs.existsSync(sourcePath)) return;
+      const raw = fs.readFileSync(sourcePath, 'utf-8');
       const parsed = parsePersistedTrustStore(raw);
       if (!parsed) return;
-      for (const actionKey of parsed.trustedActions) {
-        this.agentTrustedActions.add(actionKey);
+      for (const actionKey of parsed.allowlistedActions) {
+        params.actionSet.add(actionKey);
       }
-      for (const fingerprint of parsed.trustedFingerprints) {
-        this.agentTrustedFingerprints.add(fingerprint);
+      for (const fingerprint of parsed.allowlistedFingerprints) {
+        params.fingerprintSet.add(fingerprint);
+      }
+      if (
+        params.legacyTrustStorePath &&
+        sourcePath === params.legacyTrustStorePath
+      ) {
+        this.persistPersistedTrustStore({
+          trustStorePath: params.trustStorePath,
+          actionSet: params.actionSet,
+          fingerprintSet: params.fingerprintSet,
+        });
       }
     } catch {
       // ignore malformed trust state; session trust still applies
     }
   }
 
-  private persistAgentTrustStore(): void {
+  private persistPersistedTrustStore(params: {
+    trustStorePath: string;
+    actionSet: ReadonlySet<string>;
+    fingerprintSet: ReadonlySet<string>;
+  }): void {
     const payload: PersistedApprovalTrustStore = {
-      version: 1,
-      trustedActions: [...this.agentTrustedActions].sort(),
-      trustedFingerprints: [...this.agentTrustedFingerprints].sort(),
+      version: 2,
+      allowlistedActions: [...params.actionSet].sort(),
+      allowlistedFingerprints: [...params.fingerprintSet].sort(),
       updatedAt: new Date().toISOString(),
     };
     try {
-      const dir = path.posix.dirname(this.trustStorePath);
+      const dir = path.dirname(params.trustStorePath);
       fs.mkdirSync(dir, { recursive: true });
-      const tmpPath = `${this.trustStorePath}.tmp`;
+      const tmpPath = `${params.trustStorePath}.tmp`;
       fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf-8');
-      fs.renameSync(tmpPath, this.trustStorePath);
+      fs.renameSync(tmpPath, params.trustStorePath);
     } catch {
       // ignore persistence failures and continue with in-memory trust
     }
@@ -1050,7 +1117,7 @@ export class TrustedCoworkerApprovalRuntime {
     }
 
     const requestedMode = parsedResponse.mode || 'once';
-    let mode: 'once' | 'session' | 'agent' = requestedMode;
+    let mode: ApprovalMode = requestedMode;
     this.pending.delete(target.id);
     if (requestedMode === 'session') {
       if (target.pinned) {
@@ -1069,7 +1136,25 @@ export class TrustedCoworkerApprovalRuntime {
       } else {
         this.agentTrustedActions.add(target.actionKey);
         this.agentTrustedFingerprints.add(target.fingerprint);
-        this.persistAgentTrustStore();
+        this.persistPersistedTrustStore({
+          trustStorePath: this.agentTrustStorePath,
+          actionSet: this.agentTrustedActions,
+          fingerprintSet: this.agentTrustedFingerprints,
+        });
+      }
+    } else if (requestedMode === 'all') {
+      if (target.pinned) {
+        // Pinned-red actions are never promoted to durable trust.
+        this.oneShotFingerprints.add(target.fingerprint);
+        mode = 'once';
+      } else {
+        this.allowlistedActions.add(target.actionKey);
+        this.allowlistedFingerprints.add(target.fingerprint);
+        this.persistPersistedTrustStore({
+          trustStorePath: this.trustStorePath,
+          actionSet: this.allowlistedActions,
+          fingerprintSet: this.allowlistedFingerprints,
+        });
       }
     } else {
       this.oneShotFingerprints.add(target.fingerprint);
@@ -1081,7 +1166,9 @@ export class TrustedCoworkerApprovalRuntime {
         ? 'session trust'
         : mode === 'agent'
           ? 'agent trust'
-          : 'once';
+          : mode === 'all'
+            ? 'allowlisted for all'
+            : 'once';
     const replayPrompt = normalizePrompt(
       [
         '[Approval already granted]',
@@ -1142,6 +1229,10 @@ export class TrustedCoworkerApprovalRuntime {
         !pinnedByPolicy &&
         (this.agentTrustedActions.has(classified.actionKey) ||
           this.agentTrustedFingerprints.has(fingerprint));
+      const allowlisted =
+        !pinnedByPolicy &&
+        (this.allowlistedActions.has(classified.actionKey) ||
+          this.allowlistedFingerprints.has(fingerprint));
       const promotable =
         !pinnedByPolicy &&
         classified.promotableRed &&
@@ -1157,6 +1248,9 @@ export class TrustedCoworkerApprovalRuntime {
       } else if (agentApproved) {
         tier = 'yellow';
         decision = 'approved_agent';
+      } else if (allowlisted) {
+        tier = 'yellow';
+        decision = 'approved_all';
       } else if (promotable) {
         tier = 'yellow';
         decision = 'promoted';
@@ -1284,12 +1378,14 @@ export class TrustedCoworkerApprovalRuntime {
           'Reply `yes` to approve once.',
           'Reply `yes for session` is unavailable for pinned-sensitive actions.',
           'Reply `yes for agent` is unavailable for pinned-sensitive actions.',
+          'Reply `yes for all` is unavailable for pinned-sensitive actions.',
           'Reply `no` to deny.',
         ]
       : [
           'Reply `yes` to approve once.',
           'Reply `yes for session` to trust this action for this session.',
           'Reply `yes for agent` to trust it for this agent.',
+          'Reply `yes for all` to add this action to the workspace allowlist.',
           'Reply `no` to deny.',
         ];
     return [

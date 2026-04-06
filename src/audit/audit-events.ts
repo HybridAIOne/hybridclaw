@@ -118,6 +118,7 @@ export function emitToolExecutionAuditEvents(input: {
       decision === 'approved_once' ||
       decision === 'approved_session' ||
       decision === 'approved_agent' ||
+      decision === 'approved_all' ||
       decision === 'approved_fullauto';
     if (isRedApprovalAction || hasExplicitApprovalFlow) {
       const description =
@@ -142,6 +143,7 @@ export function emitToolExecutionAuditEvents(input: {
         decision === 'approved_once' ||
         decision === 'approved_session' ||
         decision === 'approved_agent' ||
+        decision === 'approved_all' ||
         decision === 'approved_fullauto' ||
         decision === 'promoted';
       const pending = decision === 'required';
