@@ -52,7 +52,7 @@
     "check": "biome check src",
     "format": "biome check --write src",
     "test": "npm run test:unit",
-    "test:unit": "vitest run --configLoader runner --config vitest.unit.config.ts",
+    "test:unit": "vitest run --configLoader runner --config vitest.unit.config.ts && npm --workspace console run test",
     "test:watch": "vitest --configLoader runner --config vitest.unit.config.ts",
     "test:integration": "vitest run --configLoader runner --config vitest.integration.config.ts --passWithNoTests",
     "test:e2e": "vitest run --configLoader runner --config vitest.e2e.config.ts --passWithNoTests",
