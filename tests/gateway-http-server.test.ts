@@ -452,6 +452,48 @@ async function importFreshHealth(options?: {
     main_session_key: sessionId,
   }));
   const storeMessage = vi.fn(() => 1);
+  const buildConversationContext = vi.fn(() => ({
+    messages: [{ role: 'system', content: 'Mock HybridClaw system prompt' }],
+    skills: [],
+    historyStats: {},
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: 'test-key',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot_1',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+  }));
+  const modelRequiresChatbotId = vi.fn(() => false);
+  const callOpenAICompatibleModel = vi.fn(async () => ({
+    id: 'resp_tool',
+    model: 'gpt-5',
+    choices: [
+      {
+        message: {
+          role: 'assistant' as const,
+          content: 'ok',
+        },
+        finish_reason: 'stop',
+      },
+    ],
+  }));
+  const callOpenAICompatibleModelStream = vi.fn(async () => ({
+    id: 'resp_tool_stream',
+    model: 'gpt-5',
+    choices: [
+      {
+        message: {
+          role: 'assistant' as const,
+          content: 'ok',
+        },
+        finish_reason: 'stop',
+      },
+    ],
+  }));
+  const mapOpenAICompatibleUsageToTokenStats = vi.fn(() => undefined);
   const forkSessionBranch = vi.fn(() => ({
     session: {
       id: 'branch-session-1',
@@ -479,6 +521,18 @@ async function importFreshHealth(options?: {
   const handleGatewayCommand = vi.fn(async () => ({
     kind: 'plain' as const,
     text: 'ok',
+  }));
+  const readSystemPromptMessage = vi.fn(
+    (messages: Array<{ role?: string; content?: unknown }>) => {
+      const first = messages[0];
+      return first?.role === 'system' && typeof first.content === 'string'
+        ? first.content
+        : null;
+    },
+  );
+  const resolveGatewayChatbotId = vi.fn(async () => ({
+    chatbotId: 'bot_1',
+    source: 'configured' as const,
   }));
   const handleGatewayPluginWebhook = vi.fn(async (_req, res) => {
     res.statusCode = 202;
@@ -863,6 +917,7 @@ async function importFreshHealth(options?: {
   const listLoadedPluginCommands = vi.fn(() => [
     { name: 'demo_status', description: 'Run the demo plugin status command' },
   ]);
+  const stopSessionExecution = vi.fn(() => false);
 
   vi.doMock('node:http', () => ({
     default: { createServer },
@@ -875,6 +930,7 @@ async function importFreshHealth(options?: {
     HEALTH_HOST: '127.0.0.1',
     HEALTH_PORT: 9090,
     HYBRIDAI_BASE_URL: options?.hybridAiBaseUrl || 'https://hybridai.one',
+    HYBRIDAI_MODEL: 'gpt-5',
     IMESSAGE_WEBHOOK_PATH: '/api/imessage/webhook',
     MSTEAMS_WEBHOOK_PATH: '/api/msteams/messages',
     WEB_API_TOKEN: options?.webApiToken || '',
@@ -919,6 +975,9 @@ async function importFreshHealth(options?: {
     resolveAgentConfig,
     resolveAgentWorkspaceId,
   }));
+  vi.doMock('../src/agent/executor.js', () => ({
+    stopSessionExecution,
+  }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
     createGatewayAdminAgent,
     deleteGatewayAdminAgent,
@@ -944,7 +1003,9 @@ async function importFreshHealth(options?: {
     getGatewayHistorySummary,
     getGatewayStatus,
     handleGatewayCommand,
+    readSystemPromptMessage,
     renderGatewayCommand,
+    resolveGatewayChatbotId,
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
     saveGatewayAdminConfig,
@@ -956,6 +1017,18 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage,
+  }));
+  vi.doMock('../src/agent/conversation.js', () => ({
+    buildConversationContext,
+  }));
+  vi.doMock('../src/providers/factory.js', () => ({
+    modelRequiresChatbotId,
+    resolveModelRuntimeCredentials,
+  }));
+  vi.doMock('../src/gateway/openai-compatible-model.ts', () => ({
+    callOpenAICompatibleModel,
+    callOpenAICompatibleModelStream,
+    mapOpenAICompatibleUsageToTokenStats,
   }));
   vi.doMock('../src/gateway/gateway-scheduled-task-service.js', () => ({
     getGatewayAdminScheduler,
@@ -1048,9 +1121,18 @@ async function importFreshHealth(options?: {
     getOrCreateSession,
     storeMessage,
     getAgentById,
+    buildConversationContext,
+    callOpenAICompatibleModel,
+    callOpenAICompatibleModelStream,
     loggerDebug,
     loggerError,
     loggerWarn,
+    stopSessionExecution,
+    mapOpenAICompatibleUsageToTokenStats,
+    modelRequiresChatbotId,
+    readSystemPromptMessage,
+    resolveGatewayChatbotId,
+    resolveModelRuntimeCredentials,
     handleIMessageWebhook,
     runMessageToolAction,
     normalizeDiscordToolAction,
@@ -1067,10 +1149,13 @@ afterEach(() => {
   vi.doUnmock('../src/config/config.ts');
   vi.doUnmock('../src/infra/install-root.js');
   vi.doUnmock('../src/logger.js');
+  vi.doUnmock('../src/agent/conversation.js');
   vi.doUnmock('../src/memory/db.js');
   vi.doUnmock('../src/gateway/gateway-service.js');
   vi.doUnmock('../src/gateway/gateway-chat-service.js');
+  vi.doUnmock('../src/gateway/openai-compatible-model.ts');
   vi.doUnmock('../src/gateway/gateway-scheduled-task-service.js');
+  vi.doUnmock('../src/providers/factory.js');
   vi.doUnmock('../src/channels/imessage/runtime.js');
   vi.doUnmock('../src/channels/msteams/runtime.js');
   vi.doUnmock('../src/channels/message/tool-actions.js');
@@ -1268,6 +1353,9 @@ describe('gateway HTTP server', () => {
       model: 'gpt-5',
       source: 'gateway.chat.openai-compatible',
     });
+    expect(state.stopSessionExecution).toHaveBeenCalledWith(
+      expect.stringMatching(OPENAI_SESSION_ID_RE),
+    );
 
     const payload = JSON.parse(res.body);
     expect(res.statusCode).toBe(200);
@@ -1286,6 +1374,70 @@ describe('gateway HTTP server', () => {
       completion_tokens: 7,
       total_tokens: 19,
     });
+  });
+
+  test('routes eval-profiled OpenAI requests to the selected current agent with system ablation', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5__hc_eval=agent=charly,ablate-system',
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith({
+      sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      guildId: null,
+      channelId: 'openai',
+      userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      username: 'openai',
+      content: 'hello',
+      agentId: 'charly',
+      model: 'gpt-5',
+      promptMode: 'none',
+      source: 'gateway.chat.openai-compatible',
+    });
+
+    const payload = JSON.parse(res.body);
+    expect(payload.model).toBe('gpt-5__hc_eval=agent=charly,ablate-system');
+  });
+
+  test('routes eval-profiled OpenAI requests to a fresh temporary agent workspace', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5__hc_eval=fresh-agent,omit=bootstrap+soul',
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith({
+      sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      guildId: null,
+      channelId: 'openai',
+      userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      username: 'openai',
+      content: 'hello',
+      agentId: expect.stringMatching(/^eval-[a-f0-9]{16}$/),
+      model: 'gpt-5',
+      omitPromptParts: ['bootstrap', 'soul'],
+      source: 'gateway.chat.openai-compatible',
+    });
+    expect(state.stopSessionExecution).toHaveBeenCalledWith(
+      expect.stringMatching(OPENAI_SESSION_ID_RE),
+    );
   });
 
   test('streams OpenAI-compatible chat completion chunks with usage', async () => {
@@ -1372,8 +1524,31 @@ describe('gateway HTTP server', () => {
     expect(payload.error.message).toContain('n=1');
   });
 
-  test('rejects OpenAI chat completions requests with client-defined tools', async () => {
+  test('accepts OpenAI chat completions requests with client-defined tools', async () => {
     const state = await importFreshHealth();
+    state.callOpenAICompatibleModel.mockResolvedValueOnce({
+      id: 'resp_tools_supported',
+      model: 'gpt-5',
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: 'call_weather',
+                type: 'function',
+                function: {
+                  name: 'lookup_weather',
+                  arguments: '{"city":"Berlin"}',
+                },
+              },
+            ],
+          },
+          finish_reason: 'tool_calls',
+        },
+      ],
+    });
     const req = makeRequest({
       method: 'POST',
       url: '/v1/chat/completions',
@@ -1396,13 +1571,18 @@ describe('gateway HTTP server', () => {
     await waitForResponse(res, (next) => next.writableEnded);
 
     const payload = JSON.parse(res.body);
-    expect(res.statusCode).toBe(400);
-    expect(payload).toMatchObject({
-      error: {
-        type: 'invalid_request_error',
+    expect(res.statusCode).toBe(200);
+    expect(payload.choices[0]?.message?.tool_calls).toEqual([
+      {
+        id: 'call_weather',
+        type: 'function',
+        function: {
+          name: 'lookup_weather',
+          arguments: '{"city":"Berlin"}',
+        },
       },
-    });
-    expect(payload.error.message).toMatch(/tools|functions/i);
+    ]);
+    expect(payload.choices[0]?.finish_reason).toBe('tool_calls');
   });
 
   test('rejects OpenAI chat completions requests whose final message is not from the user', async () => {
@@ -1456,6 +1636,174 @@ describe('gateway HTTP server', () => {
       },
     });
     expect(payload.error.message).toMatch(/content|messages/i);
+  });
+
+  test('accepts OpenAI chat completions requests with client tools and returns tool calls', async () => {
+    const state = await importFreshHealth();
+    state.callOpenAICompatibleModel.mockResolvedValueOnce({
+      id: 'resp_tool',
+      model: 'gpt-5',
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: 'call_1',
+                type: 'function',
+                function: {
+                  name: 'lookup_customer',
+                  arguments: '{"id":"42"}',
+                },
+              },
+            ],
+          },
+          finish_reason: 'tool_calls',
+        },
+      ],
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 5,
+        total_tokens: 15,
+      },
+    });
+    state.mapOpenAICompatibleUsageToTokenStats.mockReturnValueOnce({
+      modelCalls: 1,
+      apiUsageAvailable: true,
+      apiPromptTokens: 10,
+      apiCompletionTokens: 5,
+      apiTotalTokens: 15,
+      apiCacheUsageAvailable: false,
+      apiCacheReadTokens: 0,
+      apiCacheWriteTokens: 0,
+      estimatedPromptTokens: 10,
+      estimatedCompletionTokens: 5,
+      estimatedTotalTokens: 15,
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5',
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'lookup_customer',
+              description: 'Lookup a customer',
+              parameters: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                },
+                required: ['id'],
+              },
+            },
+          },
+        ],
+        messages: [{ role: 'user', content: 'Find customer 42' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    const payload = JSON.parse(res.body);
+    expect(res.statusCode).toBe(200);
+    expect(payload.choices[0]?.message?.tool_calls).toEqual([
+      {
+        id: 'call_1',
+        type: 'function',
+        function: {
+          name: 'lookup_customer',
+          arguments: '{"id":"42"}',
+        },
+      },
+    ]);
+    expect(payload.choices[0]?.finish_reason).toBe('tool_calls');
+    expect(state.callOpenAICompatibleModel).toHaveBeenCalledTimes(1);
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+  });
+
+  test('streams OpenAI tool calls for client tool requests', async () => {
+    const state = await importFreshHealth();
+    state.callOpenAICompatibleModelStream.mockImplementationOnce(
+      async (params: { onTextDelta: (delta: string) => void }) => {
+        params.onTextDelta('partial text');
+        return {
+          id: 'resp_tool_stream',
+          model: 'gpt-5',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call_stream_1',
+                    type: 'function',
+                    function: {
+                      name: 'lookup_customer',
+                      arguments: '{"id":"42"}',
+                    },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+          usage: {
+            prompt_tokens: 12,
+            completion_tokens: 6,
+            total_tokens: 18,
+          },
+        };
+      },
+    );
+    state.mapOpenAICompatibleUsageToTokenStats.mockReturnValueOnce({
+      modelCalls: 1,
+      apiUsageAvailable: true,
+      apiPromptTokens: 12,
+      apiCompletionTokens: 6,
+      apiTotalTokens: 18,
+      apiCacheUsageAvailable: false,
+      apiCacheReadTokens: 0,
+      apiCacheWriteTokens: 0,
+      estimatedPromptTokens: 12,
+      estimatedCompletionTokens: 6,
+      estimatedTotalTokens: 18,
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5',
+        stream: true,
+        stream_options: { include_usage: true },
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'lookup_customer',
+            },
+          },
+        ],
+        messages: [{ role: 'user', content: 'Find customer 42' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('"content":"partial text"');
+    expect(res.body).toContain('"tool_calls"');
+    expect(res.body).toContain('"finish_reason":"tool_calls"');
+    expect(state.callOpenAICompatibleModelStream).toHaveBeenCalledTimes(1);
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
   });
 
   test('rejects OpenAI chat completions requests with stream_options when stream is not enabled', async () => {

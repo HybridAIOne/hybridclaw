@@ -211,6 +211,40 @@ test('registers auth as a local slash/text command', async () => {
   ).toEqual(['auth', 'status', 'hybridai']);
 });
 
+test('registers eval as a local slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    mapCanonicalCommandToGatewayArgs,
+  } = await importCommandRegistry();
+  expect(isRegisteredTextCommandName('eval')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'eval',
+    ),
+  ).toBe(false);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'eval',
+        tuiMenuEntries: expect.arrayContaining([
+          expect.objectContaining({
+            label: '/eval list',
+          }),
+          expect.objectContaining({
+            label: '/eval swebench-verified',
+          }),
+        ]),
+      }),
+    ]),
+  );
+  expect(mapCanonicalCommandToGatewayArgs(['eval', 'gaia'])).toEqual([
+    'eval',
+    'gaia',
+  ]);
+});
+
 test('registers config as a local slash/text command', async () => {
   const {
     buildCanonicalSlashCommandDefinitions,

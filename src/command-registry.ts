@@ -73,6 +73,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'sessions',
   'audit',
   'schedule',
+  'eval',
   'channel',
   'ralph',
   'mcp',
@@ -388,6 +389,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'schedule':
       return ['schedule', ...parts.slice(1)];
+
+    case 'eval':
+      return ['eval', ...parts.slice(1)];
 
     case 'stop':
     case 'abort':
@@ -1450,6 +1454,134 @@ function buildSlashCommandCatalogDefinitions(
               required: true,
             },
           ],
+        },
+      ],
+    },
+    {
+      name: 'eval',
+      description:
+        'Local eval recipes and detached benchmark runs via the OpenAI-compatible gateway',
+      tuiOnly: true,
+      tuiMenu: {
+        label: '/eval [list|env|<suite>|<command...>]',
+        insertText: '/eval ',
+      },
+      tuiMenuEntries: [
+        {
+          id: 'eval.list',
+          label: '/eval list',
+          insertText: '/eval list',
+          description: 'List supported eval suites and starter recipes',
+        },
+        {
+          id: 'eval.env',
+          label: '/eval env',
+          insertText: '/eval env',
+          description:
+            'Show the injected OpenAI-compatible base URL and model without exposing tokens',
+        },
+        {
+          id: 'eval.swebench-verified',
+          label: '/eval swebench-verified',
+          insertText: '/eval swebench-verified',
+          description: 'Show the SWE-bench Verified starter recipe',
+        },
+        {
+          id: 'eval.swebench-verified.setup',
+          label: '/eval swebench-verified setup',
+          insertText: '/eval swebench-verified setup',
+          description:
+            'Clone and install SWE-bench into the local eval workspace',
+        },
+        {
+          id: 'eval.terminal-bench-2.0',
+          label: '/eval terminal-bench-2.0',
+          insertText: '/eval terminal-bench-2.0',
+          description: 'Show the Terminal-Bench 2.0 starter recipe',
+        },
+        {
+          id: 'eval.terminal-bench-2.0.setup',
+          label: '/eval terminal-bench-2.0 setup',
+          insertText: '/eval terminal-bench-2.0 setup',
+          description: 'Install the Harbor CLI into the local eval workspace',
+        },
+        {
+          id: 'eval.terminal-bench-2.0.run',
+          label: '/eval terminal-bench-2.0 run --num-tasks 10',
+          insertText: '/eval terminal-bench-2.0 run --num-tasks 10',
+          description:
+            'Run 10 Terminal-Bench tasks with the managed HybridClaw Harbor agent',
+        },
+        {
+          id: 'eval.tau2',
+          label: '/eval tau2',
+          insertText: '/eval tau2',
+          description: 'Show managed tau2 eval commands',
+        },
+        {
+          id: 'eval.tau2.setup',
+          label: '/eval tau2 setup',
+          insertText: '/eval tau2 setup',
+          description: 'Clone and install tau2 into the local eval workspace',
+        },
+        {
+          id: 'eval.tau2.run',
+          label:
+            '/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10',
+          insertText:
+            '/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10',
+          description:
+            'Run a 10-task telecom tau2 sample with default eval models',
+        },
+        {
+          id: 'eval.tau2.status',
+          label: '/eval tau2 status',
+          insertText: '/eval tau2 status',
+          description: 'Show tau2 install state and latest managed run',
+        },
+        {
+          id: 'eval.tau2.results',
+          label: '/eval tau2 results',
+          insertText: '/eval tau2 results',
+          description: 'Show the latest tau2 run log tail and result paths',
+        },
+        {
+          id: 'eval.agentbench',
+          label: '/eval agentbench',
+          insertText: '/eval agentbench',
+          description: 'Show the AgentBench starter recipe',
+        },
+        {
+          id: 'eval.agentbench.setup',
+          label: '/eval agentbench setup',
+          insertText: '/eval agentbench setup',
+          description:
+            'Clone and install AgentBench into the local eval workspace',
+        },
+        {
+          id: 'eval.gaia',
+          label: '/eval gaia',
+          insertText: '/eval gaia',
+          description: 'Show the GAIA starter recipe',
+        },
+        {
+          id: 'eval.gaia.setup',
+          label: '/eval gaia setup',
+          insertText: '/eval gaia setup',
+          description:
+            'Install Inspect AI and inspect-evals into the local eval workspace',
+        },
+      ],
+      options: [
+        {
+          kind: 'string',
+          name: 'target',
+          description: 'list, env, run, or a supported eval suite',
+        },
+        {
+          kind: 'string',
+          name: 'args',
+          description: 'Optional shell command tail for `run`',
         },
       ],
     },

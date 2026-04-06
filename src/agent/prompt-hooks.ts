@@ -35,8 +35,43 @@ export type PromptHookName =
   | 'runtime'
   | 'session-context';
 export type ExtendedPromptHookName = PromptHookName | 'proactivity';
+export type WorkspacePromptPartName =
+  | 'agents'
+  | 'soul'
+  | 'identity'
+  | 'user'
+  | 'tools'
+  | 'memory-file'
+  | 'heartbeat'
+  | 'bootstrap-file'
+  | 'opening'
+  | 'boot';
+export type PromptPartName =
+  | ExtendedPromptHookName
+  | WorkspacePromptPartName
+  | 'skills';
 export type PromptMode = 'full' | 'minimal' | 'none';
 export const MESSAGE_SEND_SILENT_REPLY_TOKEN = SILENT_REPLY_TOKEN;
+export const PROMPT_PART_NAMES: PromptPartName[] = [
+  'bootstrap',
+  'memory',
+  'retrieval',
+  'safety',
+  'runtime',
+  'session-context',
+  'proactivity',
+  'skills',
+  'agents',
+  'soul',
+  'identity',
+  'user',
+  'tools',
+  'memory-file',
+  'heartbeat',
+  'bootstrap-file',
+  'opening',
+  'boot',
+];
 
 export interface PromptRuntimeInfo {
   chatbotId?: string;
@@ -58,6 +93,8 @@ export interface PromptHookContext {
   explicitSkillInvocation?: SkillInvocation | null;
   purpose?: 'conversation' | 'memory-flush';
   promptMode?: PromptMode;
+  includePromptParts?: PromptPartName[];
+  omitPromptParts?: PromptPartName[];
   extraSafetyText?: string;
   runtimeInfo?: PromptRuntimeInfo;
   allowedTools?: string[];
@@ -76,6 +113,89 @@ interface PromptHook {
     context: PromptHookContext,
   ) => boolean;
   run: (context: PromptHookContext) => string;
+}
+
+const WORKSPACE_FILE_PROMPT_PARTS: Record<string, WorkspacePromptPartName> = {
+  'AGENTS.md': 'agents',
+  'SOUL.md': 'soul',
+  'IDENTITY.md': 'identity',
+  'USER.md': 'user',
+  'TOOLS.md': 'tools',
+  'MEMORY.md': 'memory-file',
+  'HEARTBEAT.md': 'heartbeat',
+  'BOOTSTRAP.md': 'bootstrap-file',
+  'OPENING.md': 'opening',
+  'BOOT.md': 'boot',
+};
+
+const BOOTSTRAP_SUBPARTS = new Set<PromptPartName>([
+  'skills',
+  'agents',
+  'soul',
+  'identity',
+  'user',
+  'tools',
+  'memory-file',
+  'heartbeat',
+  'bootstrap-file',
+  'opening',
+  'boot',
+]);
+
+function buildPromptPartSelection(context: PromptHookContext): {
+  include: Set<PromptPartName>;
+  omit: Set<PromptPartName>;
+} {
+  return {
+    include: new Set(context.includePromptParts || []),
+    omit: new Set(context.omitPromptParts || []),
+  };
+}
+
+function selectionHasBootstrapContent(selection: {
+  include: Set<PromptPartName>;
+}): boolean {
+  for (const part of BOOTSTRAP_SUBPARTS) {
+    if (selection.include.has(part)) return true;
+  }
+  return false;
+}
+
+function isBootstrapHookSelected(selection: {
+  include: Set<PromptPartName>;
+  omit: Set<PromptPartName>;
+}): boolean {
+  if (selection.omit.has('bootstrap')) return false;
+  if (selection.include.size === 0) return true;
+  return (
+    selection.include.has('bootstrap') ||
+    selectionHasBootstrapContent(selection)
+  );
+}
+
+function isHookSelected(
+  hookName: ExtendedPromptHookName,
+  context: PromptHookContext,
+): boolean {
+  const selection = buildPromptPartSelection(context);
+  if (hookName === 'bootstrap') {
+    return isBootstrapHookSelected(selection);
+  }
+  if (selection.omit.has(hookName)) return false;
+  if (selection.include.size === 0) return true;
+  return selection.include.has(hookName);
+}
+
+function isBootstrapPartSelected(
+  part: PromptPartName,
+  context: PromptHookContext,
+): boolean {
+  const selection = buildPromptPartSelection(context);
+  if (!isBootstrapHookSelected(selection)) return false;
+  if (selection.omit.has(part)) return false;
+  if (selection.include.size === 0) return true;
+  if (selection.include.has('bootstrap')) return true;
+  return selection.include.has(part);
 }
 
 export function buildSessionSummaryPrompt(
@@ -113,11 +233,16 @@ function buildSkillsSection(skillsPrompt: string): string {
 }
 
 function buildBootstrapHook(context: PromptHookContext): string {
-  const contextFiles = loadBootstrapFiles(context.agentId);
+  const contextFiles = loadBootstrapFiles(context.agentId).filter((file) => {
+    const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
+    return part ? isBootstrapPartSelected(part, context) : true;
+  });
   const contextPrompt = buildContextPrompt(contextFiles);
   const skillsPrompt = context.explicitSkillInvocation
     ? ''
-    : buildSkillsSection(buildSkillsPrompt(context.skills));
+    : isBootstrapPartSelected('skills', context)
+      ? buildSkillsSection(buildSkillsPrompt(context.skills))
+      : '';
   return [contextPrompt, skillsPrompt].filter(Boolean).join('\n\n');
 }
 
@@ -571,6 +696,7 @@ export function runPromptHooks(context: PromptHookContext): PromptHookOutput[] {
 
   for (const hook of PROMPT_HOOKS) {
     if (!isHookAllowedForMode(hook.name, mode)) continue;
+    if (!isHookSelected(hook.name, context)) continue;
     if (!hook.isEnabled(runtime, context)) continue;
     const content = hook.run(context).trim();
     if (!content) continue;

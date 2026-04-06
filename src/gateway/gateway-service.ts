@@ -48,6 +48,7 @@ import {
   DISCORD_GROUP_POLICY,
   DISCORD_GUILDS,
   FULLAUTO_NEVER_APPROVE_TOOLS,
+  GATEWAY_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
@@ -5183,6 +5184,11 @@ export async function handleGatewayCommand(
             description: 'Enable/disable a task',
             scope: 'bare',
           },
+          {
+            command: 'eval [list|env|<suite>|<command...>]',
+            description: 'Local-only eval recipes and detached benchmark runs',
+            scope: 'both',
+          },
         ];
         const help = helpEntries.flatMap(({ command, description, scope }) => {
           const prefixes =
@@ -7452,6 +7458,28 @@ export async function handleGatewayCommand(
         }
 
         return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
+      }
+
+      case 'eval': {
+        const localEvalChannelIds = new Set(['web', 'tui', 'cli']);
+        if (req.guildId !== null || !localEvalChannelIds.has(req.channelId)) {
+          return badCommand(
+            'Eval Restricted',
+            'The `eval` command is only available from local TUI, web, or CLI sessions.',
+          );
+        }
+
+        const evalModule = await import('../evals/eval-command.js');
+        const runtime = resolveAgentForRequest({ session });
+        return evalModule.handleEvalCommand({
+          args: req.args.slice(1),
+          channelId: req.channelId,
+          dataDir: DATA_DIR,
+          gatewayBaseUrl: GATEWAY_BASE_URL,
+          webApiToken: WEB_API_TOKEN,
+          effectiveAgentId: runtime.agentId,
+          effectiveModel: runtime.model,
+        });
       }
 
       default: {

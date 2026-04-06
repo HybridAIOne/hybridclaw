@@ -1099,6 +1099,7 @@ let currentConfig: RuntimeConfig = cloneConfig(DEFAULT_RUNTIME_CONFIG);
 let currentConfigSource: Record<string, unknown> = {};
 let currentConfigMetadata = {
   containerSandboxModeExplicit: false,
+  containerMaxConcurrentExplicit: false,
 };
 let configWatcher: fs.FSWatcher | null = null;
 let reloadTimer: ReturnType<typeof setTimeout> | null = null;
@@ -4350,6 +4351,7 @@ function loadRuntimeConfigFromSources(
   currentConfigSource = cloneConfig(diskSource);
   currentConfigMetadata = {
     containerSandboxModeExplicit: hasOwn(rawContainer, 'sandboxMode'),
+    containerMaxConcurrentExplicit: hasOwn(rawContainer, 'maxConcurrent'),
   };
   return normalizeRuntimeConfig(diskPatch);
 }
@@ -4617,6 +4619,10 @@ export function isContainerSandboxModeExplicit(): boolean {
   return currentConfigMetadata.containerSandboxModeExplicit;
 }
 
+export function isContainerMaxConcurrentExplicit(): boolean {
+  return currentConfigMetadata.containerMaxConcurrentExplicit;
+}
+
 export function onRuntimeConfigChange(
   listener: RuntimeConfigChangeListener,
 ): () => void {
@@ -4639,8 +4645,13 @@ export function saveRuntimeConfig(
     currentConfigMetadata.containerSandboxModeExplicit ||
     normalized.container.sandboxMode !==
       DEFAULT_RUNTIME_CONFIG.container.sandboxMode;
+  const maxConcurrentExplicit =
+    currentConfigMetadata.containerMaxConcurrentExplicit ||
+    normalized.container.maxConcurrent !==
+      DEFAULT_RUNTIME_CONFIG.container.maxConcurrent;
   currentConfigMetadata = {
     containerSandboxModeExplicit: sandboxModeExplicit,
+    containerMaxConcurrentExplicit: maxConcurrentExplicit,
   };
   const nextSource = buildSerializableConfig(
     normalized,
@@ -4672,8 +4683,13 @@ function saveRuntimeConfigSource(
     hasOwn(rawContainer, 'sandboxMode') ||
     normalized.container.sandboxMode !==
       DEFAULT_RUNTIME_CONFIG.container.sandboxMode;
+  const maxConcurrentExplicit =
+    hasOwn(rawContainer, 'maxConcurrent') ||
+    normalized.container.maxConcurrent !==
+      DEFAULT_RUNTIME_CONFIG.container.maxConcurrent;
   currentConfigMetadata = {
     containerSandboxModeExplicit: sandboxModeExplicit,
+    containerMaxConcurrentExplicit: maxConcurrentExplicit,
   };
   const nextSource = buildSerializableConfig(
     normalized,

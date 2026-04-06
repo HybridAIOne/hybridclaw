@@ -1901,11 +1901,13 @@ async function pollProactiveMessages(rl: readline.Interface): Promise<void> {
     clearTuiSlashMenu();
     console.log();
     for (const message of result.messages) {
+      const badge = proactiveBadgeLabel(message.source);
       const suffix = proactiveSourceSuffix(message.source);
       const sourceSuffix = suffix ? ` ${MUTED}${suffix}${RESET}` : '';
-      console.log(
-        `  ${GOLD}[${proactiveBadgeLabel(message.source)}]${RESET} ${message.text}${sourceSuffix}`,
-      );
+      const badgePrefix = badge ? `  ${GOLD}[${badge}]${RESET}` : '  >';
+      console.log(badgePrefix);
+      console.log();
+      console.log(`${message.text}${sourceSuffix}`);
     }
     console.log();
     promptTuiInput(rl);

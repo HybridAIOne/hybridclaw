@@ -35,6 +35,11 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/agent install <source>');
   expect(labels).toContain('/plugin install <path|npm-spec>');
   expect(labels).toContain('/plugin reinstall <path|npm-spec>');
+  expect(labels).toContain('/eval [list|env|<suite>|<command...>]');
+  expect(labels).toContain('/eval list');
+  expect(labels).toContain('/eval tau2');
+  expect(labels).toContain('/eval swebench-verified');
+  expect(labels).not.toContain('/eval tau2-bench');
   expect(labels).toContain('/skill <config|list|inspect|…>');
   expect(labels).toContain('/skill config');
   expect(labels).toContain('/skill inspect <name>');

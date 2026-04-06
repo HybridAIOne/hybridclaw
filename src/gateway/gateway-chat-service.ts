@@ -633,6 +633,9 @@ export async function handleGatewayMessage(
     retrievedContext: pluginPromptSummary,
     history,
     currentUserContent: effectiveUserTurnContent,
+    promptMode: req.promptMode,
+    includePromptParts: req.includePromptParts,
+    omitPromptParts: req.omitPromptParts,
     extraSafetyText: fullAutoOperatingContract,
     runtimeInfo: {
       chatbotId,

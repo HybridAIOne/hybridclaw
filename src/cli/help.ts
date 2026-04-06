@@ -10,6 +10,7 @@ export function printMainUsage(): void {
   auth       Unified provider login/logout/status
   config     Show or edit the local runtime config
   gateway    Manage core runtime (start/stop/status) or run gateway commands
+  eval       Run local eval recipes or launch detached benchmark commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, WhatsApp, Email)
@@ -44,6 +45,50 @@ Commands:
   hybridclaw gateway <discord-style command ...>`);
 }
 
+export function printEvalUsage(): void {
+  console.log(`Usage: hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]
+       hybridclaw eval <suite> [setup|status|results]
+       hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
+
+Runs local eval helpers backed by HybridClaw's OpenAI-compatible API.
+
+Examples:
+  hybridclaw eval list
+  hybridclaw eval env
+  hybridclaw eval env --fresh-agent
+  hybridclaw eval tau2
+  hybridclaw eval tau2 setup
+  hybridclaw eval terminal-bench-2.0 setup
+  hybridclaw eval terminal-bench-2.0 run --num-tasks 10
+  hybridclaw eval swebench-verified setup
+  hybridclaw eval agentbench setup
+  hybridclaw eval gaia setup
+  hybridclaw eval gaia --ablate-system
+  hybridclaw eval gaia --omit-prompt=bootstrap,soul
+  hybridclaw eval gaia --include-prompt=memory,runtime
+  hybridclaw eval gaia
+  hybridclaw eval tau2 status
+  hybridclaw eval tau2 results
+  hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
+  hybridclaw eval swebench-verified
+  hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals/gaia --model "$HYBRIDCLAW_EVAL_MODEL" --log-dir ./logs
+
+Notes:
+  - This is a local-only command. It is not intended for remote chat channels.
+  - Detached benchmark commands are launched directly with \`hybridclaw eval <command...>\`.
+  - Managed setup helpers are available for \`swebench-verified\`, \`terminal-bench-2.0\`, \`agentbench\`, \`gaia\`, and \`tau2\`.
+  - \`terminal-bench-2.0 run --num-tasks 10\` defaults to a managed HybridClaw Harbor agent on \`terminal-bench@2.0\`.
+  - \`tau2\` has managed subcommands: \`setup\`, \`run\`, \`status\`, \`stop\`, and \`results\`.
+  - \`tau2 setup\` prefers a uv-managed Python 3.12 virtual environment when \`uv\` is available, then smoke-tests the installed \`tau2\` CLI.
+  - For \`tau2 run\`, omitted \`--agent-llm\` and \`--user-llm\` flags default to \`$HYBRIDCLAW_EVAL_MODEL\`.
+  - TUI and web sessions receive proactive ASCII progress bars for supported evals like \`tau2 run --num-tasks ...\`.
+  - The default eval mode uses the current agent workspace but a fresh transient OpenAI-compatible session per request.
+  - \`--fresh-agent\` uses a temporary template-seeded agent workspace for each eval request.
+  - \`--ablate-system\` removes HybridClaw's injected system prompt for the eval request.
+  - Prompt parts include hook names like \`memory\`, \`runtime\`, \`safety\`, \`bootstrap\` and bootstrap subparts like \`soul\`, \`identity\`, \`user\`, \`tools\`, \`memory-file\`, and \`skills\`.
+  - Detached run logs are written under \`~/.hybridclaw/data/evals/\`.`);
+}
+
 export function printTuiUsage(): void {
   console.log(`Usage:
   hybridclaw tui [--resume <sessionId>]
@@ -64,6 +109,7 @@ Interactive slash commands inside TUI:
   /clear
   /compact
   /concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]
+  /eval [list|env|<suite>|<command...>]
   /config   /config check   /config reload   /config set <key> <value>   /config revisions
   /exit
   /export session [sessionId]   /export trace [sessionId|all]
@@ -552,6 +598,7 @@ Topics:
   agent       Help for portable agent archive commands
   auth        Help for unified provider login/logout/status
   gateway     Help for gateway lifecycle and passthrough commands
+  eval        Help for local eval recipes and benchmark runs
   tui         Help for terminal client
   onboarding  Help for onboarding flow
   channels    Help for channel setup helpers
@@ -621,6 +668,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'gateway':
       printGatewayUsage();
+      return true;
+    case 'eval':
+      printEvalUsage();
       return true;
     case 'tui':
       printTuiUsage();
