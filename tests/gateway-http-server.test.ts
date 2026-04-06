@@ -8,6 +8,8 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const DEFAULT_WEB_SESSION_ID = 'agent:main:channel:web:chat:dm:peer:default';
 const WEB_SESSION_ID_RE = /^agent:[^:]+:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
+const OPENAI_SESSION_ID_RE =
+  /^agent:[^:]+:channel:openai:chat:dm:peer:[a-f0-9]{16}$/;
 
 const tempDirs: string[] = [];
 const ORIGINAL_HOME = process.env.HOME;
@@ -443,6 +445,12 @@ async function importFreshHealth(options?: {
     (agentId?: string | null) => agentId?.trim() || 'main',
   );
   const getSessionById = vi.fn(() => ({ show_mode: 'all' }));
+  const getOrCreateSession = vi.fn((sessionId: string) => ({
+    id: sessionId,
+    session_key: sessionId,
+    main_session_key: sessionId,
+  }));
+  const storeMessage = vi.fn(() => 1);
   const forkSessionBranch = vi.fn(() => ({
     session: {
       id: 'branch-session-1',
@@ -901,6 +909,8 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/memory/memory-service.js', () => ({
     memoryService: {
       forkSessionBranch,
+      getOrCreateSession,
+      storeMessage,
     },
   }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
@@ -1031,6 +1041,8 @@ async function importFreshHealth(options?: {
     handleGatewayPluginWebhook,
     renderGatewayCommand,
     getSessionById,
+    getOrCreateSession,
+    storeMessage,
     getAgentById,
     loggerDebug,
     loggerError,
@@ -1107,6 +1119,221 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual({
       error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
     });
+  });
+
+  test('rejects unauthorized OpenAI-compatible API requests from non-loopback addresses', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/v1/models',
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: {
+        message: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+        type: 'authentication_error',
+        param: null,
+        code: null,
+      },
+    });
+  });
+
+  test('serves OpenAI-compatible model discovery from /v1/models', async () => {
+    const state = await importFreshHealth();
+    state.getGatewayAdminModels.mockResolvedValueOnce({
+      defaultModel: 'gpt-5',
+      hybridaiModels: ['gpt-5'],
+      codexModels: ['openai-codex/gpt-5-codex'],
+      providerStatus: {},
+      models: [{ id: 'gpt-5' }, { id: 'openai-codex/gpt-5-codex' }],
+    });
+    const req = makeRequest({ url: '/v1/models' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      object: 'list',
+      data: [
+        {
+          id: 'gpt-5',
+          object: 'model',
+          created: 0,
+          owned_by: 'hybridclaw',
+        },
+        {
+          id: 'openai-codex/gpt-5-codex',
+          object: 'model',
+          created: 0,
+          owned_by: 'hybridclaw',
+        },
+      ],
+    });
+  });
+
+  test('translates OpenAI chat completions requests into gateway chat requests', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayMessage.mockResolvedValueOnce({
+      status: 'success',
+      result: 'HybridClaw reply',
+      toolsUsed: [],
+      tokenUsage: {
+        modelCalls: 1,
+        apiUsageAvailable: true,
+        apiPromptTokens: 12,
+        apiCompletionTokens: 7,
+        apiTotalTokens: 19,
+        apiCacheUsageAvailable: false,
+        apiCacheReadTokens: 0,
+        apiCacheWriteTokens: 0,
+        estimatedPromptTokens: 12,
+        estimatedCompletionTokens: 7,
+        estimatedTotalTokens: 19,
+      },
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5',
+        user: 'sdk-user',
+        messages: [
+          { role: 'system', content: 'You are concise.' },
+          { role: 'assistant', content: 'Earlier answer.' },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Describe this image.' },
+              {
+                type: 'image_url',
+                image_url: { url: 'https://example.com/cat.png' },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getOrCreateSession).toHaveBeenCalledTimes(1);
+    expect(state.storeMessage).toHaveBeenCalledTimes(2);
+    expect(state.storeMessage).toHaveBeenNthCalledWith(1, {
+      sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      username: 'sdk-user',
+      role: 'system',
+      content: 'You are concise.',
+    });
+    expect(state.storeMessage).toHaveBeenNthCalledWith(2, {
+      sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      username: 'sdk-user',
+      role: 'assistant',
+      content: 'Earlier answer.',
+    });
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith({
+      sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      guildId: null,
+      channelId: 'openai',
+      userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
+      username: 'sdk-user',
+      content: 'Describe this image.',
+      media: [
+        {
+          path: null,
+          url: 'https://example.com/cat.png',
+          originalUrl: 'https://example.com/cat.png',
+          filename: 'cat.png',
+          sizeBytes: 0,
+          mimeType: 'image/png',
+        },
+      ],
+      model: 'gpt-5',
+      source: 'gateway.chat.openai-compatible',
+    });
+
+    const payload = JSON.parse(res.body);
+    expect(res.statusCode).toBe(200);
+    expect(payload.object).toBe('chat.completion');
+    expect(payload.model).toBe('gpt-5');
+    expect(payload.choices[0]).toEqual({
+      index: 0,
+      message: {
+        role: 'assistant',
+        content: 'HybridClaw reply',
+      },
+      finish_reason: 'stop',
+    });
+    expect(payload.usage).toEqual({
+      prompt_tokens: 12,
+      completion_tokens: 7,
+      total_tokens: 19,
+    });
+  });
+
+  test('streams OpenAI-compatible chat completion chunks with usage', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayMessage.mockImplementationOnce(
+      async ({ onTextDelta }: { onTextDelta?: (delta: string) => void }) => {
+        onTextDelta?.('Hello');
+        onTextDelta?.(' world');
+        return {
+          status: 'success' as const,
+          result: 'Hello world',
+          toolsUsed: [],
+          tokenUsage: {
+            modelCalls: 1,
+            apiUsageAvailable: true,
+            apiPromptTokens: 3,
+            apiCompletionTokens: 2,
+            apiTotalTokens: 5,
+            apiCacheUsageAvailable: false,
+            apiCacheReadTokens: 0,
+            apiCacheWriteTokens: 0,
+            estimatedPromptTokens: 3,
+            estimatedCompletionTokens: 2,
+            estimatedTotalTokens: 5,
+          },
+        };
+      },
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5',
+        stream: true,
+        stream_options: { include_usage: true },
+        messages: [{ role: 'user', content: 'Hello?' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe(
+      'text/event-stream; charset=utf-8',
+    );
+    expect(res.body).toContain('"role":"assistant"');
+    expect(res.body).toContain('"content":"Hello"');
+    expect(res.body).toContain('"content":" world"');
+    expect(res.body).toContain('"finish_reason":"stop"');
+    expect(res.body).toContain(
+      '"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}',
+    );
+    expect(res.body).toContain('data: [DONE]');
   });
 
   test('serves static docs files from the install docs directory', async () => {
@@ -2964,7 +3191,9 @@ describe('gateway HTTP server', () => {
 
     // demo_status should no longer appear.
     const commands = JSON.parse(res2.body).commands;
-    expect(commands.find((c: { id: string }) => c.id === 'demo_status')).toBeUndefined();
+    expect(
+      commands.find((c: { id: string }) => c.id === 'demo_status'),
+    ).toBeUndefined();
   });
 
   test('routes web slash commands through the streaming /api/chat path', async () => {
@@ -3996,7 +4225,7 @@ describe('gateway HTTP server', () => {
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
     }));
     const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
-    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => ({
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
       ok: true,
       status: 200,
       statusText: 'OK',
